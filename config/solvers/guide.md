@@ -92,6 +92,31 @@ Any newly introduced selector should only be exposed after parser normalization,
 
 Verification-only source overrides should stay under the structured `verification.*` namespace and be implemented in `verification_sources.*` rather than as one-off production flags.
 
+## 4b. The Multigrid Coarse Solve
+
+`poisson_solver.multigrid.level_solvers.level_0` is the **coarse solve** at the
+base of the V-cycle, not a smoother, and the evenly spaced `level_N` naming
+hides that. `level_1..N` are smoothers and map to `-ps_mg_levels_N_*`; `level_0`
+maps to `-ps_mg_coarse_*`.
+
+Because multigrid is used here as a preconditioner, `level_0` must be a **fixed
+linear operator**. A Krylov method there (`gmres`, `fgmres`, `cg`, `bcgs`, ...)
+makes the whole preconditioner nonlinear, which decouples the outer FGMRES
+tracked residual from the true residual `b - Ax` - the solver then reports
+convergence on a number that no longer describes the incompressibility
+constraint, and the failure is rank-dependent. Pinning `ksp_max_it` does not fix
+it, because a fixed iteration count still builds a Krylov space out of its
+input. PICurv logs a startup warning if you configure one.
+
+Every shipped profile uses `{method: preonly, preconditioner: redundant}`, which
+is appropriate up to roughly 1e4 coarse-grid unknowns; use `telescope` above
+that. Size `levels` so the coarsest grid lands around 1e3-1e4 unknowns - a 5M
+cell grid wants 5 levels, not 4.
+
+Full discussion, the worked tracked-vs-true residual table, and the
+coarsenability constraint:
+https://vishalkandala.me/picurv-docs/25_Pressure_Poisson_GMRES_Multigrid.html
+
 ## 5. CFD Tuning Order (Practical)
 
 1. Stabilize timestep and pseudo-CFL behavior.

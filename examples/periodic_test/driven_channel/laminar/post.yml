@@ -1,0 +1,39 @@
+# ==============================================================================
+#   Post-processing profile for the driven periodic validation cases
+# ==============================================================================
+# Produces nodal Ucat and P for visual inspection. The quantitative comparison
+# against DNS is done by tools/wall_normal_profile.py, which reads the
+# field_statistics window payloads directly rather than going through this
+# pipeline - there is no homogeneous-direction averaging task in the
+# postprocessor today.
+# ==============================================================================
+
+source_data:
+  directory: "<solver_output_dir>"
+
+run_control:
+  start_step: 0
+  end_step: 6000
+  step_interval: 500
+
+global_operations:
+  dimensionalize: true
+
+eulerian_pipeline:
+  - task: nodal_average
+    input_field: "Ucat"
+    output_field: "Ucat_nodal"
+  - task: nodal_average
+    input_field: "P"
+    output_field: "P_nodal"
+
+io:
+  output_directory: "visualization/driven_channel_laminar"
+  output_filename_prefix: "driven_channel_laminar"
+  eulerian_fields:
+    - "Ucat_nodal"
+    - "P_nodal"
+  output_particles: false
+  input_extensions:
+    eulerian: "dat"
+    particle: "dat"

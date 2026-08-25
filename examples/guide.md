@@ -31,7 +31,12 @@ python3 tests/tooling/audit_starter_content.py
 - `interpolation_test/`: TGV3D analytical flow interpolation accuracy test with 10k particles.
 - `scatter_verification/`: verification-path prescribed scalar truth injection plus runtime particle-to-grid scatter metrics and grid-size sweeps.
 - `decaying_isotropic_turbulence/`: triply periodic LES decay benchmark, and the worked example for online field statistics; isotropy makes the accumulated Reynolds stresses self-checking.
-- `periodic_test/`: reference collection of periodic-boundary configurations.
+- `periodic_test/`: reference collection of periodic-boundary configurations. Alongside the
+  plain geometric smoke cases it holds the driven-periodic validation families
+  `driven_channel/` (laminar exact verification, DNS at `Re_tau = 180` and `395`, and a
+  constant-Smagorinsky LES repeat) and `driven_duct/` (square duct at `Re_b = 4410`,
+  which sustains secondary flow of the second kind). Their grids are generated from
+  checked-in `.cfg` files under `config/grids/` rather than shipped as `.picgrid`.
 - `master_template/`: exhaustive reference templates for all config roles.
 
 ## How To Start A New Study

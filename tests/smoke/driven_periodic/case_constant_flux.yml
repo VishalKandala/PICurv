@@ -1,0 +1,86 @@
+# ==============================================================================
+#   Driven periodic plane channel - LAMINAR EXACT VERIFICATION (Part B.4.1)
+#   Handler: constant_flux
+# ==============================================================================
+# Streamwise-periodic and spanwise-periodic, no-slip walls in the wall-normal
+# direction. For half-height h, kinematic viscosity nu and the body force f that
+# the flux controller settles on, the exact steady solution is
+#
+#     u(y) = (f / 2nu) * (h^2 - (y - h)^2)
+#     U_b  = f h^2 / 3nu          ->   f   = 3 nu U_b / h^2
+#     u_tau = sqrt(f h)                     (exact, from the mean force balance)
+#
+# With h = 1, nu = 0.01 and U_b = 1 the acceptance values are
+#
+#     f      = 0.03
+#     u_tau  = sqrt(0.03) = 1.7320508e-01
+#
+# This verifies the driving source term and the flux controller with no
+# turbulence model involved. See driven_channel.md for how to check them.
+# ==============================================================================
+
+run_control:
+  start_step: 0
+  # ~300 time units, roughly three viscous times h^2/nu = 100, which is what the
+  # uniform initial profile needs to relax onto the parabola.
+  total_steps: 4
+  dt_physical: 0.05
+
+properties:
+  scaling:
+    length_ref: 1.0     # channel half-height h
+    velocity_ref: 1.0   # target bulk velocity U_b
+  fluid:
+    density: 1.0
+    viscosity: 0.01     # -> Re = rho * U_ref * L_ref / mu = 100 (well below transition)
+  initial_conditions:
+    mode: generated
+    generator: streamwise_constant
+    params:
+      velocity_physical: 1.0
+      flow_direction: "+Zeta"
+
+grid:
+  mode: grid_gen
+  generator:
+    config_file: "../../../config/grids/plane_channel_regression.cfg"
+    grid_type: warp
+    output_file: "config/grid.generated.picgrid"
+    stats_file: "config/grid.generated.info"
+
+models:
+  domain:
+    blocks: 1
+  physics:
+    particles:
+      count: 0
+    turbulence:
+      les:
+        enabled: false
+
+boundary_conditions:
+  # i (Xi): spanwise, plain periodic.
+  - face: "-Xi"
+    type: PERIODIC
+    handler: geometric
+  - face: "+Xi"
+    type: PERIODIC
+    handler: geometric
+  # j (Eta): wall-normal, no-slip walls at y = 0 and y = 2.
+  - face: "-Eta"
+    type: WALL
+    handler: noslip
+  - face: "+Eta"
+    type: WALL
+    handler: noslip
+  # k (Zeta): streamwise, periodic and DRIVEN.
+  - face: "-Zeta"
+    type: PERIODIC
+    handler: constant_flux
+    params:
+      target_flux: 2.0    # U_b * Lx * Ly = 1.0 * 1.0 * 2.0
+  - face: "+Zeta"
+    type: PERIODIC
+    handler: constant_flux
+    params:
+      target_flux: 2.0    # U_b * Lx * Ly = 1.0 * 1.0 * 2.0

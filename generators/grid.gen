@@ -1300,20 +1300,30 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
     params = default_map[grid_type].copy()
     active_subparser = subparsers.choices[grid_type]
     for key, value in config_params.items():
+        matched = False
         for action in active_subparser._actions:
-            if action.dest == key:
-                try:
-                    if isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction)):
-                        params[key] = value.lower() in ['true', 'yes', '1']
-                    elif action.nargs in [2, 3]:
-                        params[key] = [action.type(v) for v in value.split()]
-                    elif action.type:
-                        params[key] = action.type(value)
-                    else:
-                        params[key] = value
-                except Exception:
-                     parser.error(f"Invalid value for '{key}' from config file: '{value}'")
-                break
+            # configparser lower-cases option names, so match case-insensitively
+            # and store under the action's own dest. Without this, mixed-case
+            # settings such as amp_A are read from the file and then silently
+            # dropped, leaving the built-in default quietly in force.
+            if action.dest.lower() != key.lower():
+                continue
+            matched = True
+            try:
+                if isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction)):
+                    params[action.dest] = value.lower() in ['true', 'yes', '1']
+                elif action.nargs in [2, 3]:
+                    params[action.dest] = [action.type(v) for v in value.split()]
+                elif action.type:
+                    params[action.dest] = action.type(value)
+                else:
+                    params[action.dest] = value
+            except Exception:
+                 parser.error(f"Invalid value for '{key}' from config file: '{value}'")
+            break
+        if not matched:
+            print(f"Warning: config setting '{key}' is not a '{grid_type}' option and was ignored.",
+                  file=sys.stderr)
     cli_only_args = {k: v for k, v in vars(cli_args).items() if v is not None}
     params.update(cli_only_args)
     params['grid_type'] = grid_type

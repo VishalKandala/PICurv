@@ -90,6 +90,163 @@ If pressure solve quality degrades, check first:
 3. grid metrics/orientation quality,
 4. solver tolerances vs timestep.
 
+## The V-cycle has two kinds of solver, and only one of them is a smoother
+
+A V-cycle attacks the error at two different scales, with two different tools.
+
+On every level above the coarsest, a **smoother** runs a fixed number of
+relaxation sweeps. Relaxation is very good at removing error components whose
+wavelength is comparable to the local mesh spacing, and almost useless against
+error that is smooth on that mesh. That is the whole design: each level strips
+out the high-frequency error it can see, restricts what is left to a coarser
+mesh where the remaining error looks high-frequency again, and repeats.
+
+At the base of the cycle sits the **coarse solve**. By construction it receives
+the error that every smoother above it was blind to: the smooth, long-wavelength,
+global component. Nothing below it will get another chance at that error, so the
+coarse solve is expected to remove it essentially exactly, in one shot.
+
+These are categorically different jobs, and PICurv's level naming actively hides
+the distinction:
+
+| YAML key | PETSc option prefix | Role |
+|---|---|---|
+| `level_solvers.level_0` | `-ps_mg_coarse_` | **Coarse solve** at the base of the V-cycle |
+| `level_solvers.level_1` .. `level_N` | `-ps_mg_levels_N_` | **Smoothers**, coarse to fine |
+
+`level_0` looks like just another entry in an evenly spaced list. It is not. It
+is the one entry that is not a smoother, and configuring it as though it were is
+the root of the defect described next.
+
+## The coarse solve must be a fixed linear operator
+
+Multigrid here is a **preconditioner**, not a standalone solver. The outer
+Krylov method's convergence theory assumes the preconditioner is a fixed linear
+operator: feeding it the same vector must always return the same vector.
+
+A Krylov method violates that. Its iteration builds a subspace tailored to the
+vector it was given, and its stopping test fires after however many iterations
+that particular vector needs. Two different inputs get two different numbers of
+inner iterations, so the map from input to output is not linear and not even
+fixed. Put a Krylov method at `level_0` and the entire multigrid preconditioner
+becomes a nonlinear operator.
+
+**Pinning `ksp_max_it` does not fix this.** A fixed iteration count still builds
+a Krylov space out of the input vector, so the operator still depends on its
+input in a nonlinear way. This is exactly why the classical smoothers -
+Richardson, Jacobi, Chebyshev, SOR - are the right tools for the smoothing
+levels: each is a fixed linear operator, applied a fixed number of times.
+
+The outer method PICurv uses, `fgmres`, is *flexible*: it tolerates a varying
+preconditioner well enough to keep constructing a solution. What it cannot do is
+keep its Arnoldi recurrence consistent with the true residual. FGMRES uses right
+preconditioning, so under a fixed preconditioner its recurrence-tracked residual
+equals the true residual `b - Ax`. Under a varying one, the two quantities
+separate - and the convergence test reads the tracked one. The solver reports
+convergence against a number that no longer describes the constraint it exists
+to enforce.
+
+### Choosing a coarse solver by coarse-grid size
+
+| Coarse-grid unknowns | Recommended `level_0` | Why |
+|---|---|---|
+| up to ~1e4 | `{method: preonly, preconditioner: redundant}` | Every rank forms and factors the whole coarse operator with LU. Exact, fixed, linear, no iteration to vary. Cheap because the grid is tiny. |
+| larger | `{method: preonly, preconditioner: telescope}` | Redundant LU on every rank stops being cheap. `PCTELESCOPE` moves the coarse solve onto a subset of ranks and does a direct solve there, still fixed and linear. |
+| last resort | a Krylov method | Only when the coarse grid is genuinely too large to factor. Then set tolerances against the **true** residual, keep `pic_true_residual` on, and treat the reported convergence as unverified until you have checked the two norms agree. |
+
+PICurv logs a startup warning when a Krylov `ksp_type` is configured at
+`level_0`. It stays a warning rather than an error because the last-resort case
+above is legitimate at large scale.
+
+### How many levels
+
+Two constraints bound `multigrid.levels` from opposite ends.
+
+From below, aim for a coarsest grid of roughly **1e3 to 1e4 unknowns**. Smaller
+wastes a level; larger makes the replicated LU factor expensive on every rank.
+Because each level removes a factor of eight from a 3-D grid, this scales
+logarithmically: a grid of ~5M cells wants 5 levels, not 4.
+
+From above, coarsenability. Each level halves an axis as `IM -> (IM+1)/2`, so
+`IM` must stay **odd at every level** for the coarsening to be exact. The chain
+runs `IM_fine = 2 * IM_coarse - 1`, giving usable ladders such as
+
+    5 -> 9 -> 17 -> 33 -> 65 -> 129 -> 257
+    4 -> 7 -> 13 -> 25 -> 49 -> 97
+
+An even count still runs, but logs
+
+```
+WARNING: Grid at level L, block B can't be consistently coarsened further.
+```
+
+and proceeds on a slightly misaligned coarse grid. The MPI bound described in
+the next section applies on top of both of these.
+
+### Scaling
+
+`redundant` scales indefinitely **provided levels are added as the grid is
+refined**. Keeping the level count fixed while refining grows the coarse grid
+with the fine one, and the replicated LU factor eventually dominates. Adding a
+level as the grid grows keeps the coarse grid, and therefore the coarse solve,
+roughly constant.
+
+`richardson` + `bjacobi` at `level_0` is a fixed linear operator and so is
+*correct*, but it is not an exact coarse solve. As the coarse grid grows,
+Richardson leaves more and more of the smooth error behind and the V-cycle stops
+being mesh-independent: iteration counts creep up with resolution. It is a
+reasonable stopgap, not a scalable answer.
+
+## Diagnosing tracked-vs-true residual divergence
+
+`DualKSPMonitor` (`src/logging.c`) prints both numbers to
+`logs/Poisson_Solver_Convergence_History_Block_0.log` when
+`monitor.yml -> solver_monitoring.poisson.pic_true_residual` is on:
+
+- **`Unprecond Norm`** is PETSc's `rnorm`, carried by the Krylov recurrence.
+  This is what the convergence test reads.
+- **`True Norm`** is an explicit `KSPBuildResidual` recomputation of `b - Ax`.
+
+Under a correct configuration the two agree to many digits at every iteration.
+When they separate, the convergence test is passing on a fiction.
+
+Worked example. A 32x32x192 curved, wall-clustered grid at Re = 40,000 on 8 MPI
+ranks. Identical case and solver files; only `level_solvers.level_0` differs:
+
+| `level_0` setting | Tracked residual | Recomputed `b-Ax` | Max divergence | Iterations |
+|---|---|---|---|---|
+| `{fgmres, bjacobi}` | 4.80e-10 | **1.52e-05** | **1.02e-08** | 14-16 |
+| `{richardson, bjacobi}` | 1.67898e-09 | 1.67898e-09 | 5.18e-12 | 11 |
+| `{preonly, redundant}` | 8.62828e-10 | 8.62848e-10 | 1.97e-12 | 10-11 |
+
+Read the first row carefully. The tracked residual is the smallest of the three,
+which is why the defect survived: by the number the solver reports, the Krylov
+coarse solve looked *best*. The true residual is five orders of magnitude
+larger, and the physical consequence follows directly - maximum divergence is
+1e-08 rather than 1e-12. The incompressibility constraint the Poisson solve
+exists to enforce was being violated by six orders of magnitude, silently. The
+fixed-operator settings are simultaneously more accurate and cheaper, converging
+in fewer iterations.
+
+The failure was **rank-dependent**: 6 and 10 ranks were clean, 4 and 8 were
+broken, with the same configuration. That follows from `bjacobi`, whose block
+structure is inherited from the DMDA decomposition, so the coarse
+preconditioner - and hence how nonlinear the coarse solve behaves - changes with
+the rank layout. A configuration that looks fine on your development rank count
+can be wrong on the production one.
+
+Diagnostic sequence:
+
+1. Turn on `pic_true_residual` and compare the two norms in the Poisson log.
+2. If they disagree, look at `level_solvers.level_0` first.
+3. Confirm the physical symptom in `logs/Continuity_Metrics.log`: a decoupled
+   residual shows up as a max divergence orders of magnitude above the solver
+   tolerance you asked for.
+4. Re-run at a different rank count before concluding a configuration is clean.
+
+`tests/smoke/run_driven_periodic_regression.sh` asserts this invariant at 4 and
+10 ranks - two counts that previously disagreed.
+
 ## Multigrid depth is bounded by the MPI decomposition
 
 `multigrid.levels` cannot be chosen independently of the rank layout. Every

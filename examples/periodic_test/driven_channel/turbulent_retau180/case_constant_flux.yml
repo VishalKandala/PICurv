@@ -1,0 +1,86 @@
+# ==============================================================================
+#   Driven periodic plane channel - TURBULENT DNS, Re_tau = 180 (Part B.4.2)
+#   Handler: constant_flux
+# ==============================================================================
+# DNS resolution, no SGS model, so any error in the flux controller is not
+# conflated with an SGS-model error. Domain 4*pi*delta (streamwise) x
+# 2*delta (wall-normal) x 2*pi*delta (spanwise) on 129^3 cells.
+#
+# Reference: Moser, Kim & Mansour (1999), Phys. Fluids 11, 943.
+#
+# Acceptance:
+#   - mean profile in wall units (U+ vs y+) against the log law and the DNS
+#   - RMS fluctuation profiles u'+, v'+, w'+
+#   - realized u_tau = sqrt(f h); here the target is u_tau = 180 * nu = 6.4286e-02
+#     and hence f = u_tau^2 / h = 4.1327e-03
+#
+# COST: this is a campaign case, not a smoke test. See driven_channel.md.
+#
+# SEEDING CAVEAT: streamwise_constant is a laminar seed. Transition from it
+# is slow and is not guaranteed at Re_tau = 180 without a finite-amplitude
+# perturbation. See driven_channel.md section 'Initial condition seeding'.
+# ==============================================================================
+
+run_control:
+  start_step: 0
+  total_steps: 200000
+  dt_physical: 0.005
+
+properties:
+  scaling:
+    length_ref: 1.0     # channel half-height delta
+    velocity_ref: 1.0   # target bulk velocity U_b
+  fluid:
+    density: 1.0
+    viscosity: 3.5714286e-04  # -> Re = 2800 = U_b * delta / nu
+  initial_conditions:
+    mode: generated
+    generator: streamwise_constant
+    params:
+      velocity_physical: 1.0
+      flow_direction: "+Zeta"
+
+grid:
+  mode: grid_gen
+  generator:
+    config_file: "../../../../config/grids/plane_channel_retau180.cfg"
+    grid_type: warp
+    output_file: "config/grid.generated.picgrid"
+    stats_file: "config/grid.generated.info"
+
+models:
+  domain:
+    blocks: 1
+  physics:
+    particles:
+      count: 0
+    turbulence:
+      les:
+        enabled: false
+
+boundary_conditions:
+  # i (Xi): spanwise, plain periodic.
+  - face: "-Xi"
+    type: PERIODIC
+    handler: geometric
+  - face: "+Xi"
+    type: PERIODIC
+    handler: geometric
+  # j (Eta): wall-normal, no-slip walls.
+  - face: "-Eta"
+    type: WALL
+    handler: noslip
+  - face: "+Eta"
+    type: WALL
+    handler: noslip
+  # k (Zeta): streamwise, periodic and DRIVEN.
+  - face: "-Zeta"
+    type: PERIODIC
+    handler: constant_flux
+    params:
+      target_flux: 12.566370614359172   # U_b * Lz_span * Ly = 1.0 * 2*pi * 2.0 = 4*pi
+  - face: "+Zeta"
+    type: PERIODIC
+    handler: constant_flux
+    params:
+      target_flux: 12.566370614359172   # U_b * Lz_span * Ly = 1.0 * 2*pi * 2.0 = 4*pi

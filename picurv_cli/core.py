@@ -4608,12 +4608,24 @@ BC_HANDLER_SPECS = {
     "constant_flux": {
         "types": {"PERIODIC"},
         "required_params": {"target_flux"},
-        "optional_params": {"apply_trim"},
+        "optional_params": {"enforce_seam_flux", "apply_trim"},
+    },
+    # Derives its own target from the initial condition, so it takes no target_flux.
+    "initial_flux": {
+        "types": {"PERIODIC"},
+        "required_params": set(),
+        "optional_params": {"enforce_seam_flux", "apply_trim"},
     },
 }
 
 _NUMERIC_BC_PARAMS = {"vx", "vy", "vz", "v_max", "target_flux"}
-_BOOL_BC_PARAMS = {"apply_trim"}
+_BOOL_BC_PARAMS = {"enforce_seam_flux", "apply_trim"}
+
+# Deprecated BC param spellings -> canonical name. `apply_trim` said that
+# something was trimmed but not what or why; `enforce_seam_flux` names the
+# quantity it holds on target. Both are accepted; bcs.run carries the canonical
+# name, and the C side also falls back to the old spelling for archived files.
+_DEPRECATED_BC_PARAM_ALIASES = {"apply_trim": "enforce_seam_flux"}
 
 def _normalize_prescribed_flow_source(source, field_name: str) -> dict:
     """!
@@ -5014,7 +5026,22 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                     elif key == "target_flux":
                         converted_params[key] = numeric / (U_ref * (L_ref ** 2))
                 elif key in _BOOL_BC_PARAMS:
-                    converted_params[key] = _to_bool(value, f"boundary_conditions[{bi}][{idx}].params.{key}")
+                    canonical = _DEPRECATED_BC_PARAM_ALIASES.get(key, key)
+                    if canonical != key:
+                        if canonical in params:
+                            raise ValueError(
+                                f"boundary_conditions[{bi}][{idx}].params sets both '{key}' and its "
+                                f"replacement '{canonical}'. Use '{canonical}' only."
+                            )
+                        print(
+                            f"[WARNING] boundary_conditions[{bi}][{idx}].params.{key} is deprecated; "
+                            f"use '{canonical}'. It enables the local seam-flux correction on the "
+                            "periodic boundary plane, on top of the body force that sustains the bulk "
+                            "flow. See docs/pages/54_Geometric_Periodic_Boundaries.md.",
+                            file=sys.stderr,
+                        )
+                    converted_params[canonical] = _to_bool(
+                        value, f"boundary_conditions[{bi}][{idx}].params.{key}")
                 elif handler == "prescribed_flow" and key == "source":
                     converted_params[key] = _normalize_prescribed_flow_source(
                         value, f"boundary_conditions[{bi}][{idx}].params.source"
@@ -5049,7 +5076,7 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                     f"Inconsistent periodicity in block {bi}: {neg_face} and {pos_face} must both be PERIODIC or neither."
                 )
 
-            driven_handlers = {"constant_flux"}
+            driven_handlers = {"constant_flux", "initial_flux"}
             if (neg["handler"] in driven_handlers) or (pos["handler"] in driven_handlers):
                 if neg["handler"] != pos["handler"]:
                     raise ValueError(
@@ -9817,6 +9844,15 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
             raise ValueError(f"Unknown particle restart_mode '{p_restart_mode}'. Options are 'init' or 'load'.")
         control_lines.append(f"-particle_restart_mode \"{p_restart_mode}\"")
 
+# PETSc KSP types whose iteration adapts to the input vector. Any of these used as
+# the multigrid coarse solve (level_0) makes the MG preconditioner a nonlinear
+# operator; see docs/pages/25_Pressure_Poisson_GMRES_Multigrid.md.
+KRYLOV_KSP_TYPES = {
+    "gmres", "fgmres", "lgmres", "dgmres", "pgmres", "gcr",
+    "cg", "cgne", "cgs", "bcgs", "ibcgs", "fbcgs", "fbcgsr", "bcgsl",
+    "tfqmr", "tcqmr", "minres", "symmlq", "cr", "lsqr", "pipecg", "pipefgmres",
+}
+
 def parse_solver_config(solver_cfg: dict) -> dict:
     """!
     @brief Parses the structured solver.yml into a flat dictionary of {flag: value}.
@@ -10080,6 +10116,31 @@ def parse_solver_config(solver_cfg: dict) -> dict:
             )
         return "mg"
 
+    def _warn_if_krylov_coarse_solver(ksp_type, source_key: str):
+        """!
+        @brief Warn when the coarsest multigrid level is given a Krylov solver.
+        @param[in] ksp_type PETSc KSP token configured for `level_0`.
+        @param[in] source_key Name of the source YAML block, used in the message.
+        @details level_0 is the coarse solve at the base of the V-cycle, not a
+                 smoother. A Krylov method there makes the multigrid
+                 preconditioner a nonlinear operator, which decouples the outer
+                 KSP's tracked residual from the true residual b-Ax. This stays a
+                 warning rather than an error because it remains legitimate at
+                 large scale when tolerances are set against the true residual.
+        """
+        if str(ksp_type).strip().lower() not in KRYLOV_KSP_TYPES:
+            return
+        print(
+            f"[WARNING] {source_key}.multigrid.level_solvers.level_0.method = '{ksp_type}' "
+            "is a Krylov method. level_0 is the multigrid COARSE SOLVE, not a smoother, "
+            "so a Krylov method there makes the preconditioner nonlinear and the outer "
+            "KSP's tracked residual can stop matching the true residual b-Ax. "
+            "Prefer {method: preonly, preconditioner: redundant}. If this is deliberate, "
+            "enable solver_monitoring.poisson.pic_true_residual and set tolerances against "
+            "the true residual. See docs/pages/25_Pressure_Poisson_GMRES_Multigrid.md.",
+            file=sys.stderr,
+        )
+
     def _poisson_level_number(level_name) -> int:
         """!
         @brief Extract the numeric suffix from a `level_N` multigrid level key.
@@ -10172,6 +10233,8 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                         # PETSc names the coarsest solver separately from positive levels.
                         if level_num == 0:
                             prefix = "-ps_mg_coarse_"
+                            if mapped_key == 'ksp_type':
+                                _warn_if_krylov_coarse_solver(value, source_key)
                         else:
                             prefix = f"-ps_mg_levels_{level_num}_"
                         flags[f"{prefix}{mapped_key}"] = format_flag_value(value)
@@ -10203,6 +10266,8 @@ def parse_solver_config(solver_cfg: dict) -> dict:
             raise ValueError("petsc_passthrough_options must be a mapping when provided.")
         if passthrough:
             for key, value in passthrough.items():
+                if str(key).strip() == "-ps_mg_coarse_ksp_type":
+                    _warn_if_krylov_coarse_solver(value, "petsc_passthrough_options")
                 flags[key] = value if isinstance(value, bool) else format_flag_value(value)
     summary_bits = []
     if '-ps_ksp_type' in flags:

@@ -28,12 +28,46 @@ Version one is deliberately narrow and validates its inputs up front
   solved restart step uses BDF1 because only the checkpoint state is available;
 - no masked solid cells (`Nvert` must be fluid everywhere);
 - boundary handlers limited to no-slip walls, the constant/parabolic/file inlets,
-  the conservation outlet, and geometric periodic faces (with paired periodic
-  axes).
+  the conservation outlet, and periodic faces (with paired periodic axes) using
+  the `geometric`, `constant_flux`, or `initial_flux` handler.
 
 Within that scope it is a drop-in alternative to the dual-time Picard--Jameson
 solver and shares the same fractional-step projection, BDF time discretization,
 boundary system, and pressure solve.
+
+@subsection p55_driven_ssec 1.1 Driven periodic faces
+
+The two driven periodic handlers are inside the validated scope. What makes them
+admissible is that their momentum source is **frozen for the whole timestep**.
+That takes two independent gates, both keyed on `simCtx->step`, because two
+pieces of state sit between the flux measurement and the applied force:
+
+1. `bulkVelocityCorrection`, computed in the handler's `PreStep` from the field
+   at the start of the step (`src/BC_Handlers.c`);
+2. the 50/50 exponential moving average that smooths the force against the
+   previous step, held in `SimCtx` and applied in
+   `ComputeDrivenChannelFlowSource()` (`src/BodyForces.c`).
+
+Both functions run once per residual evaluation, so gating only the first still
+leaves the applied force walking toward its target across evaluations. With both
+gated, every residual evaluation in the Newton solve sees the same body force.
+
+This is worth stating explicitly because it is not automatic.
+@ref ApplyBoundaryConditions runs the handler `PreStep` sweep three times per
+call, and the residual callback calls it on **every** evaluation - so a handler
+that recomputed its source in `PreStep` would let that source drift with the
+trial vector, silently changing the operator the Newton solve is converging on
+and invalidating the finite-difference Jacobian action. The per-timestep freeze
+in `PreStep_PeriodicDrivenConstant` is what prevents that. The boundary trim
+(`boundaryVelocityCorrection`) is deliberately *not* frozen, but it acts on
+boundary fluxes rather than on the momentum source; see @ref p54_driven_cadence_sub.
+
+Because the source is frozen at the start of a step, the flux controller lags the
+target by one step - first order in `dt`. Halving `dt` halves the lag. That is the
+same lag the Picard solver sees, so results from the two solvers are comparable.
+
+The paired-face checks below still apply: both faces of the driven axis must be
+`PERIODIC` and must carry the same handler.
 
 @section p55_equation_sec 2. What Is Being Solved
 
@@ -101,7 +135,10 @@ One residual evaluation (@ref MomentumNewtonKrylov_FormResidual) performs, in or
    current `lUcont`, finalize periodic `Ucat`, and refresh `lUcat` ghosts;
 4. @ref ApplyBoundaryConditions — the standard **three internal boundary passes**
    (inlet/farfield/wall/conservation-outlet handlers, then Cartesian
-   reconstruction, dummy/periodic/corner updates) per call;
+   reconstruction, dummy/periodic/corner updates) per call. Note that this
+   includes each handler's `PreStep`, so a handler carrying per-timestep
+   controller state must guard it against being advanced here; see
+   @ref p55_driven_ssec;
 5. @ref ComputeTotalResidual — spatial RHS + BDF time terms + residual boundary
    enforcement;
 6. `F = -Rhs`, then a **constrained-row** pass that replaces every

@@ -53,8 +53,13 @@ poisson_solver:
       k: true   # -> -mg_k_semi 1
     level_solvers:
       level_0:
-        method: "fgmres"      # Coarsest level
-        preconditioner: "bjacobi"
+        # Coarsest level. This is the coarse SOLVE at the base of the V-cycle,
+        # not a smoother, so it must be a FIXED LINEAR operator. A Krylov
+        # method here makes the multigrid preconditioner nonlinear and
+        # decouples the outer FGMRES tracked residual from the true residual.
+        # See docs/pages/25_Pressure_Poisson_GMRES_Multigrid.md.
+        method: "preonly"           # -> -ps_mg_coarse_ksp_type
+        preconditioner: "redundant" # -> -ps_mg_coarse_pc_type (replicated LU)
       level_1:
         method: "richardson"
         preconditioner: "bjacobi"

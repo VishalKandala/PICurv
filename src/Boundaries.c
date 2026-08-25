@@ -792,10 +792,10 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
             ierr = Create_PeriodicDrivenConstant(bc);
             break;
         
-        //case BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX:
-        //    LOG_ALLOW(LOCAL,LOG_DEBUG,"Dispatching to Create_PeriodicDrivenInitial().\n");
-        //    ierr = Create_PeriodicDrivenInitial(bc);
-        //    break;
+        case BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX:
+            LOG_ALLOW(LOCAL,LOG_DEBUG,"Dispatching to Create_PeriodicDrivenInitial().\n");
+            ierr = Create_PeriodicDrivenInitial(bc);
+            break;
                 
         case BC_HANDLER_INLET_PARABOLIC:
             LOG_ALLOW(LOCAL, LOG_DEBUG, "Dispatching to Create_InletParabolicProfile().\n");

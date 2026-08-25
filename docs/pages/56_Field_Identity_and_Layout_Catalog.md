@@ -243,7 +243,7 @@ behavioral regressions for the unchanged numerical paths.
 @section p56_related_sec 10. Related Pages
 
 - **@subpage 20_Grid_Cell_Architecture_Guide**
-- **@ref p54_geometric_periodic "Geometric Periodic Boundaries"**
+- **@ref p54_geometric_periodic "Periodic Boundaries and Driven Flows"**
 - **@subpage 13_Code_Architecture**
 - **@subpage 51_C_Test_Suite_Developer_Guide**
 - **@subpage 57_Future_Architecture_Specifications**

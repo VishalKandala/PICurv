@@ -1,0 +1,79 @@
+# ==============================================================================
+#   Monitor profile for the driven periodic validation cases
+# ==============================================================================
+# Constant-Smagorinsky LES at Re_tau = 180, compared against the in-tree DNS.
+#
+# solver_monitoring.poisson.pic_true_residual is ON. It costs one extra
+# KSPBuildResidual per Poisson iteration, and it is what makes a multigrid
+# coarse-solve defect visible: when the tracked "Unprecond Norm" and the
+# recomputed "True Norm" stop agreeing, the convergence test is passing on a
+# number that no longer describes b-Ax. Leave it on for every validation run.
+# See docs/pages/25_Pressure_Poisson_GMRES_Multigrid.md.
+# ==============================================================================
+
+logging:
+  verbosity: INFO
+  enabled_functions: []
+
+profiling:
+  timestep_output:
+    mode: "off"
+  final_summary:
+    enabled: true
+
+diagnostics:
+  petsc:
+    malloc_debug: false
+    malloc_test: false
+    malloc_dump: false
+    malloc_view: false
+    malloc_view_threshold: null
+    memory_view: false
+    log_view: false
+    log_view_memory: false
+    log_all: false
+    log_trace: false
+    objects_dump: false
+    options_left: null
+  runtime_memory_log:
+    enabled: true
+    file: "Runtime_Memory.log"
+
+io:
+  data_output_frequency: 1000
+  particle_console_output_frequency: 0
+  particle_log_interval: 1
+  statistics_console_output_frequency: 1000
+  directories:
+    output: "output"
+    restart: "restart"
+    log: "logs"
+
+# One window over the statistically stationary stretch. The window carries the
+# first and second moments of Ucat, which is what the wall-normal profile tool
+# reduces into U+ and the RMS profiles. Physical-time weighting keeps the
+# average correct if the timestep ever varies.
+field_statistics:
+  enabled: true
+  windows:
+    - name: stationary
+      start_time: 100.0
+      end_time: 600.0
+      weighting: physical_time
+      step_cadence: 10
+      fields:
+        - {field: Ucat, moments: [first, second]}
+        - {field: P, moments: [first]}
+
+solver_monitoring:
+  momentum:
+    newton_krylov_history: true
+    snes_monitor: false
+    snes_converged_reason: true
+    ksp_monitor: false
+    ksp_converged_reason: true
+  poisson:
+    pic_true_residual: true
+    true_residual: false
+    converged_reason: true
+    view: false

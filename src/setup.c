@@ -287,7 +287,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscStrallocpy("config/bcs.run", &simCtx->bcs_files[0]); CHKERRQ(ierr);
     simCtx->FluxInSum = 0.0; simCtx->FluxOutSum = 0.0; simCtx->Fluxsum = 0.0;
     simCtx->drivingForceMagnitude = 0.0, simCtx->forceScalingFactor = 1.8;
+    simCtx->drivingForceStep = -1;
     simCtx->targetVolumetricFlux  = 0.0;
+    simCtx->drivenFluxTargetLatched = PETSC_FALSE;
     simCtx->bulkVelocityCorrection = 0.0;
     simCtx->boundaryVelocityCorrection = 0.0;
     simCtx->AreaInSum = 0.0; simCtx->AreaOutSum = 0.0;

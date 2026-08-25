@@ -177,6 +177,15 @@ poisson_solver:
   # --- Geometric Multigrid (PCMG) Settings ---
   multigrid:
     levels: 3         # [Integer] -> -mg_level
+    # Choose levels so the COARSEST grid lands at roughly 1e3-1e4 unknowns.
+    # The coarse solver below replicates an LU factor on every rank, so a
+    # coarse grid that is too large costs memory and time on all ranks; a
+    # coarse grid that is too small wastes a level. As a rule of thumb a 5M
+    # cell grid wants 5 levels, not 4.
+    # Coarsenability: each level halves a direction as IM -> (IM+1)/2, so IM
+    # must stay odd at every level for the coarsening to be exact. An even IM
+    # logs "can't be consistently coarsened further" and keeps going on a
+    # slightly misaligned coarse grid.
     # NOTE: levels is bounded by the MPI rank layout, not chosen freely. Every
     # level must leave each rank at least stencil_width nodes per axis, and the
     # stencil width is 3 whenever ANY axis is periodic (2 otherwise). Exceeding
@@ -206,12 +215,32 @@ poisson_solver:
     # Supported direct keys include ksp_type, pc_type, ksp_max_it, ksp_rtol, ksp_atol.
     level_solvers:
       level_0:
-        # The coarsest level often uses a more robust solver.
-        method: "fgmres"          # -> -ps_mg_coarse_ksp_type
-        preconditioner: "bjacobi" # -> -ps_mg_coarse_pc_type
+        # level_0 is the COARSE SOLVE at the base of the V-cycle, not a
+        # smoother. The smoothers on level_1..N kill high-frequency error;
+        # this solve kills the low-frequency error they are blind to.
+        #
+        # Because it sits inside a preconditioner, it must be a FIXED LINEAR
+        # operator: the same input vector must always produce the same output.
+        # Krylov methods (gmres, fgmres, cg, bcgs) are not - their subspace
+        # adapts to the input, which makes the whole MG preconditioner
+        # nonlinear. The outer FGMRES then tolerates it for constructing the
+        # solution, but its Arnoldi recurrence decouples from the true
+        # residual and the convergence test starts passing on a number that no
+        # longer describes b-Ax. Pinning ksp_max_it does NOT fix this.
+        # PICurv logs a warning at startup if you configure one here.
+        #
+        # Recommended by coarse-grid size:
+        #   <= ~1e4 unknowns : preonly + redundant   (replicated direct LU)
+        #   larger           : preonly + telescope   (LU on a rank subset)
+        #   last resort      : a Krylov method with tolerances set against the
+        #                      TRUE residual, not the tracked one
+        method: "preonly"           # -> -ps_mg_coarse_ksp_type
+        preconditioner: "redundant" # -> -ps_mg_coarse_pc_type
         # ksp_max_it: 30           # -> -ps_mg_coarse_ksp_max_it
         # ksp_rtol: 1.0e-3         # -> -ps_mg_coarse_ksp_rtol
         # ksp_atol: 1.0e-8         # -> -ps_mg_coarse_ksp_atol
+      # level_1..N are SMOOTHERS. Richardson, Jacobi, Chebyshev and SOR are all
+      # fixed linear operators, which is exactly why they belong here.
       level_1:
         method: "richardson"
         preconditioner: "bjacobi"

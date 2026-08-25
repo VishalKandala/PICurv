@@ -60,7 +60,9 @@ poisson_solver:
       j: false
       k: false
     level_solvers:
-      level_0: {method: "fgmres", preconditioner: "bjacobi"}
+      # level_0 is the coarse SOLVE, not a smoother: it must be a fixed linear
+      # operator. See docs/pages/25_Pressure_Poisson_GMRES_Multigrid.md.
+      level_0: {method: "preonly", preconditioner: "redundant"}
       level_1: {method: "richardson", preconditioner: "bjacobi"}
       level_2: {method: "richardson", preconditioner: "bjacobi"}
       level_3: {method: "richardson", preconditioner: "bjacobi"}

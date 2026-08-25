@@ -1,0 +1,80 @@
+# ==============================================================================
+#   Driven periodic plane channel - LES, Re_tau = 180 (Part B.4.2, coarse pass)
+#   Handler: constant_flux
+# ==============================================================================
+# The coarse-resolution repeat of turbulent_retau180 with constant
+# Smagorinsky, run after the DNS pass so the SGS contribution is assessed
+# against an in-tree DNS rather than against literature alone.
+#
+# Same domain and Reynolds number as turbulent_retau180, on 33 x 65 x 33
+# cells (dx+ = 34, dz+ = 68, y+_1 = 1).
+# ==============================================================================
+
+run_control:
+  start_step: 0
+  total_steps: 60000
+  dt_physical: 0.01
+
+properties:
+  scaling:
+    length_ref: 1.0     # channel half-height delta
+    velocity_ref: 1.0   # target bulk velocity U_b
+  fluid:
+    density: 1.0
+    viscosity: 3.5714286e-04  # -> Re = 2800 = U_b * delta / nu
+  initial_conditions:
+    mode: generated
+    generator: streamwise_constant
+    params:
+      velocity_physical: 1.0
+      flow_direction: "+Zeta"
+
+grid:
+  mode: grid_gen
+  generator:
+    config_file: "../../../../config/grids/plane_channel_les_retau180.cfg"
+    grid_type: warp
+    output_file: "config/grid.generated.picgrid"
+    stats_file: "config/grid.generated.info"
+
+models:
+  domain:
+    blocks: 1
+  physics:
+    particles:
+      count: 0
+    turbulence:
+      # Constant Smagorinsky ONLY. The dynamic model in this tree has a known
+      # defect (incorrect M_ij and no homogeneous averaging) and must not be
+      # used for validation - see docs/pages/54_Driven_Periodic_Flows.md.
+      les:
+        enabled: true
+        model: "constant_smagorinsky"
+        constant_cs: 0.03
+
+boundary_conditions:
+  # i (Xi): spanwise, plain periodic.
+  - face: "-Xi"
+    type: PERIODIC
+    handler: geometric
+  - face: "+Xi"
+    type: PERIODIC
+    handler: geometric
+  # j (Eta): wall-normal, no-slip walls.
+  - face: "-Eta"
+    type: WALL
+    handler: noslip
+  - face: "+Eta"
+    type: WALL
+    handler: noslip
+  # k (Zeta): streamwise, periodic and DRIVEN.
+  - face: "-Zeta"
+    type: PERIODIC
+    handler: constant_flux
+    params:
+      target_flux: 12.566370614359172   # U_b * Lz_span * Ly = 1.0 * 2*pi * 2.0 = 4*pi
+  - face: "+Zeta"
+    type: PERIODIC
+    handler: constant_flux
+    params:
+      target_flux: 12.566370614359172   # U_b * Lz_span * Ly = 1.0 * 2*pi * 2.0 = 4*pi

@@ -115,7 +115,53 @@ Current testing is uneven by solver path:
 
 That means the momentum stack is currently a stronger regression gate than bespoke debugging surface.
 
-@section p31_extension_sec 5. Adding A New Momentum Solver
+@section p31_rhs_cadence_sec 6. Call Cadence of the Shared RHS (Read Before Adding State)
+
+Both momentum solvers are built on one residual implementation:
+
+```
+ComputeTotalResidual()            (src/momentumsolvers.c)
+  └─ ComputeRHS()                 (src/rhs.c)
+       └─ ComputeBodyForces()     → individual body forces
+```
+
+Picard reaches it once per Jameson RK stage; Newton--Krylov reaches it once per
+residual evaluation, including every finite-difference probe of the matrix-free
+Jacobian. **Neither calls it once per physical timestep**, and the ratio is not
+fixed: it varies with pseudo-iteration count, line-search backtracks, and Krylov
+iterations.
+
+That makes the shared RHS a hazardous place to keep state. Anything advanced on
+each call - a filter, a ramp, a moving average, an integral controller term, a
+relaxation counter - becomes a function of *how many* evaluations happened
+before it rather than of the solution. Two things break:
+
+- `MomentumNewtonKrylov_FormResidual()` requires `F(X)` to be a deterministic
+  function of the trial vector alone; otherwise the finite-difference Jacobian
+  action `(F(X+hv) - F(X))/h` is inconsistent.
+- The Picard shadow-Jacobian estimate treats body forces as constant forcing with
+  zero velocity Jacobian.
+
+The rule is to gate every such update on `simCtx->step` and reuse the resolved
+value for the rest of the step. The same hazard applies to boundary handlers,
+because `ApplyBoundaryConditions()` runs each handler's `PreStep` three times per
+call and is itself called from inside both solvers' iteration loops.
+
+**Worked example.** The driven periodic flow controller had this defect in two
+places at once, and fixing only the first was not enough:
+
+| State | Location | Symptom when ungated |
+|---|---|---|
+| `bulkVelocityCorrection` | `PreStep` in `src/BC_Handlers.c` | source recomputed from the trial vector mid-solve |
+| smoothing EMA on the force | `ComputeDrivenChannelFlowSource()`, `src/BodyForces.c` | applied force walked 0.5, 0.75, 0.875 ... toward target within one step |
+
+Measured on a 4-step run: 379 force evaluations produced **42 distinct force
+values** before the fix and **3** after - one per timestep.
+`tests/smoke/run_driven_periodic_regression.sh` asserts the force is piecewise
+constant per step. See @ref p54_driven_cadence_sub and the contract in
+`include/BodyForces.h`.
+
+@section p31_extension_sec 7. Adding A New Momentum Solver
 
 Required steps:
 

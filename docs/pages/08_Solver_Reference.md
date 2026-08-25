@@ -170,8 +170,8 @@ poisson_solver:
       k: true
     level_solvers:
       level_0:
-        method: "fgmres"
-        preconditioner: "bjacobi"
+        method: "preonly"
+        preconditioner: "redundant"
       level_1:
         method: "richardson"
         preconditioner: "bjacobi"
@@ -191,13 +191,24 @@ Mappings:
 - `multigrid.pre_sweeps` -> `-mg_pre_it`
 - `multigrid.post_sweeps` -> `-mg_post_it`
 - `multigrid.semi_coarsening.i/j/k` -> `-mg_i_semi/-mg_j_semi/-mg_k_semi`
-- `multigrid.level_solvers.level_N.method` -> `-ps_mg_levels_N_ksp_type`
-- `multigrid.level_solvers.level_N.preconditioner` -> `-ps_mg_levels_N_pc_type`
+- `multigrid.level_solvers.level_N.method` -> `-ps_mg_levels_N_ksp_type` for `N > 0`
+- `multigrid.level_solvers.level_N.preconditioner` -> `-ps_mg_levels_N_pc_type` for `N > 0`
+- `multigrid.level_solvers.level_0.*` -> `-ps_mg_coarse_*`; PETSc names the coarsest
+  solver separately from the positive levels
 - `multigrid.cycle` and `multigrid.mode` are validated structured keys; current supported values are `v` and `multiplicative`.
 
 Rules:
 - `pressure_solver` is accepted as a legacy alias, but `poisson_solver` is preferred because the linear solve computes pressure correction `Phi`.
 - MG level numbering follows PETSc/PICurv convention: `level_0` is the coarsest level and larger numbers are finer.
+- `level_0` is the multigrid **coarse solve**, not a smoother, and the naming hides that. `level_1..N` are
+  smoothers; `level_0` sits at the base of the V-cycle and removes the smooth error the smoothers cannot see.
+  Because multigrid is used here as a preconditioner, `level_0` must be a **fixed linear operator**. A Krylov
+  method there (`gmres`, `fgmres`, `cg`, `bcgs`, ...) makes the whole preconditioner nonlinear, which decouples
+  the outer FGMRES tracked residual from the true residual `b - Ax`: the solver then reports convergence on a
+  number that no longer describes the constraint. Pinning `ksp_max_it` does not fix it. PICurv logs a startup
+  warning if you configure one. Use `{method: preonly, preconditioner: redundant}` for coarse grids up to
+  roughly 1e4 unknowns, `telescope` above that. Full discussion, the worked tracked-vs-true residual table, and
+  the level-count sizing rule: @ref 25_Pressure_Poisson_GMRES_Multigrid.
 - `multigrid.levels` is bounded by the MPI decomposition, not chosen freely: every level must leave each rank
   at least `stencil_width` nodes per axis (3 when any axis is periodic, 2 otherwise). Exceeding it aborts during
   DM creation with `Local x-width of domain ... is smaller than stencil width`, and `picurv validate` cannot

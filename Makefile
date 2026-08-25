@@ -96,6 +96,10 @@ TESTOBJDIR := $(OBJDIR)/tests
 TESTBINDIR := $(BINDIR)/tests
 SMOKEDIR := tests/smoke
 SMOKE_RUNNER := $(SMOKEDIR)/run_smoke.sh
+DRIVEN_PERIODIC_RUNNER := $(SMOKEDIR)/run_driven_periodic_regression.sh
+# Rank counts for the driven-periodic regression. 4 and 10 are the counts that
+# previously disagreed on tracked-vs-true Poisson residuals; keep both.
+DRIVEN_PERIODIC_NPROCS ?= 4 10
 TEST_NPROCS ?= 1
 TEST_MPI_NPROCS ?= 2
 SMOKE_MPI_NPROCS ?= $(TEST_MPI_NPROCS)
@@ -434,7 +438,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-post-eulerian-vtk-mpi unit-post-particle-vtk-mpi unit-post-compute-mpi unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev smoke-driven-periodic unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-post-eulerian-vtk-mpi unit-post-particle-vtk-mpi unit-post-compute-mpi unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -765,6 +769,15 @@ smoke-periodic: simulator postprocessor conductor
 ## @target smoke-periodic-dev
 ## @brief Compatibility alias for `smoke-periodic`.
 smoke-periodic-dev: smoke-periodic
+
+## @target smoke-driven-periodic
+## @brief Asserts the multigrid coarse-solve residual invariant and the driven-flux contract.
+## @details Runs at the rank counts in DRIVEN_PERIODIC_NPROCS (default "4 10"), two counts
+##          that previously disagreed on tracked-vs-true Poisson residuals. Also checks that
+##          the initial_flux target matches the analytic initial-condition flux and survives
+##          a restart. Needs enough cores for the largest rank count.
+smoke-driven-periodic: simulator conductor
+	@bash $(DRIVEN_PERIODIC_RUNNER) "$(SIMULATOR_EXE)" "$(MPI_LAUNCHER)" $(DRIVEN_PERIODIC_NPROCS)
 
 ## @target check
 ## @brief Runs the full local validation sweep (Python, doctor, unit, smoke).

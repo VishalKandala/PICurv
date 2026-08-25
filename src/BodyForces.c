@@ -68,9 +68,28 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
 
     // Calculate the driving force magnitude for the current timestep, smoothed
     // with the value from the previous step for stability.
+    //
+    // ONCE PER PHYSICAL STEP, NOT ONCE PER CALL. This function runs from
+    // ComputeRHS, which executes once per Jameson RK stage under the Picard
+    // solver and once per residual evaluation under Newton-Krylov. The smoothing
+    // below carries state in simCtx across calls, so advancing it every call
+    // would walk the applied force toward its target within a single timestep
+    // (0.5, then 0.75, then 0.875 ... of the way there). The force would then
+    // depend on how many residual evaluations preceded it - history dependence
+    // that MomentumNewtonKrylov_FormResidual() explicitly forbids, and that
+    // breaks the constant-forcing assumption behind the Picard shadow-Jacobian
+    // estimate. Resolve it once for the step and reuse it thereafter.
     const PetscReal forceScalingFactor  = simCtx->forceScalingFactor;
-    PetscReal drivingForceMagnitude = (bulkVelocityCorrection / simCtx->dt / 1.0 * COEF_TIME_ACCURACY); // replaced simCtx->st with 1.0.
-    drivingForceMagnitude = (simCtx->drivingForceMagnitude * 0.5) + (drivingForceMagnitude * 0.5); 
+    PetscReal drivingForceMagnitude;
+
+    if (simCtx->drivingForceStep != simCtx->step) {
+        const PetscReal targetForce = (bulkVelocityCorrection / simCtx->dt / 1.0 * COEF_TIME_ACCURACY); // replaced simCtx->st with 1.0.
+        drivingForceMagnitude = (simCtx->drivingForceMagnitude * 0.5) + (targetForce * 0.5);
+        simCtx->drivingForceMagnitude = drivingForceMagnitude;
+        simCtx->drivingForceStep = simCtx->step;
+    } else {
+        drivingForceMagnitude = simCtx->drivingForceMagnitude;
+    }
     
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "  - Previous driving force:            %le\n", simCtx->drivingForceMagnitude);
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "  - New smoothed driving force:        %le\n", drivingForceMagnitude);
@@ -124,9 +143,6 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
             }
         }
     }
-
-    // Update simCtx with latest Driving Force
-	simCtx->drivingForceMagnitude = drivingForceMagnitude;
 
     // --- Step 6: Restore arrays ---
     ierr = DMDAVecRestoreArray(user->fda, Rct, &rct); CHKERRQ(ierr);

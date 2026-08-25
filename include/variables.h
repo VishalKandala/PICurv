@@ -799,7 +799,17 @@ typedef struct SimCtx {
     PetscReal  FluxInSum, FluxOutSum,Fluxsum,FarFluxInSum,FarFluxOutSum;
     // Turbulent Flat Channel with Forcing term
     PetscReal drivingForceMagnitude,forceScalingFactor;
+    /* Physical step whose smoothed driving force `drivingForceMagnitude` holds
+     * (-1 = none yet). ComputeDrivenChannelFlowSource() runs once per ComputeRHS,
+     * i.e. per RK stage or per Newton residual evaluation, so its EMA must be
+     * advanced against this rather than on every call. */
+    PetscInt  drivingForceStep;
     PetscReal targetVolumetricFlux; // for DRIVEN flow.
+    /* True once a driven-flow target is fixed for the run. `constant_flux` sets
+     * it at initialization from the bcs file; `initial_flux` sets it at the
+     * first PreStep from the starting field. Checkpointed so a restart holds the
+     * original target instead of re-measuring a drifted one. */
+    PetscBool drivenFluxTargetLatched;
     PetscReal bulkVelocityCorrection;
     PetscReal boundaryVelocityCorrection;
     PetscReal  AreaInSum, AreaOutSum;

@@ -32,13 +32,49 @@ The validator accepts these type/handler pairs:
 | `INLET` | `prescribed_flow` | `source` | `source.type: file`, `generated`, or `field_slice` | m/s scalar speeds, generator params, or old-field slice params |
 | `OUTLET` | `conservation` | none | none | n/a |
 | `PERIODIC` | `geometric` | none | none | n/a |
-| `PERIODIC` | `constant_flux` | `target_flux` | `apply_trim` | m^3/s |
+| `PERIODIC` | `constant_flux` | `target_flux` | `enforce_seam_flux` | m^3/s |
+| `PERIODIC` | `initial_flux` | none | `enforce_seam_flux` | n/a |
 
 Notes:
 
 - legacy `params.vector` and `params.velocity` are rejected; use scalar `vx/vy/vz`,
 - unknown params are rejected per handler,
-- `constant_flux` must be configured on both faces of the periodic pair.
+- a driven handler (`constant_flux` or `initial_flux`) must be configured, with the
+  same handler, on both faces of the periodic pair.
+
+@subsection p44_driven_ssec 2.1 The two driven periodic handlers
+
+`constant_flux` and `initial_flux` are the same controller wired to different
+targets, and choosing between them is a question of where the flux comes from.
+
+- **`constant_flux`** drives to a flux **you prescribe**. `target_flux` is
+  required, and it is a *volumetric* flux - `U_b` times the cross-sectional area -
+  not a velocity. Use it when the flux is the thing you are specifying, for
+  instance to match a literature bulk Reynolds number. The target is re-read from
+  the bcs file on every run, so editing it between restart segments takes effect.
+
+- **`initial_flux`** drives to the flux **it measures** from the field the run
+  starts with, and then holds that. It takes no `target_flux`; supplying one is a
+  configuration error rather than something quietly ignored, because the two
+  handlers would otherwise be indistinguishable in a case file. Use it when you
+  have seeded a field whose flux is already what you want - a developed field
+  carried in from a precursor - and you want it preserved rather than restated.
+  The measured target is written to the checkpoint and restored on restart, so a
+  resumed run holds the original target instead of re-measuring a drifted one.
+
+`enforce_seam_flux` is optional on both and defaults to false (`apply_trim` is
+accepted as a deprecated alias). It enables a **second,
+local actuator**: on top of the body force that sustains the flow everywhere, it
+adds a correction directly into the face fluxes of the single periodic seam plane
+to hold the flux through *that plane* on target. Off by default because it can
+reintroduce divergence the pressure solve just removed and because it injects the
+noisy single-plane flux signal into the solution at one location. The correction
+is recorded in `Bcs.Uch` whether or not it is applied, so you can inspect whether
+you need it before enabling it. Full rationale: @ref p54_driven_trim_sub.
+
+Full treatment of the control law, the update cadence and its consequences for
+both momentum solvers, the restart contract, and the worked validation cases:
+@ref p54_driven_sec.
 
 @section p44_nondim_sec 3. Non-Dimensionalization Before C Input
 
@@ -182,7 +218,7 @@ Validator checks:
 
 1. each axis pair must match periodicity:
    - `(-Xi,+Xi)`, `(-Eta,+Eta)`, `(-Zeta,+Zeta)` are both periodic or both non-periodic.
-2. driven periodic handler (`constant_flux`) must match on both faces of a periodic pair.
+2. a driven periodic handler (`constant_flux` or `initial_flux`) must match on both faces of a periodic pair.
 3. incomplete face sets fail validation immediately.
 
 The C side derives periodic axes from those pairs in @ref DeterminePeriodicity,
@@ -235,7 +271,8 @@ Current factory-wired handlers include:
 
 Important contributor note:
 
-- C enums include additional BC categories and handlers (for example symmetry-family and `initial_flux` enum entries),
+- C enums include additional BC categories and handlers (for example symmetry-family entries, and
+  `BC_HANDLER_INLET_INTERP_FROM_FILE`, which is declared but implemented nowhere),
 - but the current end-to-end user contract intentionally exposes the validated subset listed above.
 - `source.type: field_slice` is Python-side preprocessing only: it creates the
   same staged `source_file` contract used by file-backed and generated profiles.
@@ -280,11 +317,11 @@ boundary_conditions:
   - face: "-Xi"
     type: PERIODIC
     handler: constant_flux
-    params: { target_flux: 0.02, apply_trim: true }
+    params: { target_flux: 0.02, enforce_seam_flux: true }
   - face: "+Xi"
     type: PERIODIC
     handler: constant_flux
-    params: { target_flux: 0.02, apply_trim: true }
+    params: { target_flux: 0.02, enforce_seam_flux: true }
   - face: "-Eta"
     type: WALL
     handler: noslip
@@ -317,7 +354,7 @@ boundary_conditions:
 - **@subpage 13_Code_Architecture**
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 50_Modular_Selector_Extension_Guide**
-- **@ref p54_geometric_periodic "Geometric Periodic Boundaries"**
+- **@ref p54_geometric_periodic "Periodic Boundaries and Driven Flows"**
 
 <!-- DOC_EXPANSION_CFD_GUIDANCE -->
 

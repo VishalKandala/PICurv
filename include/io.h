@@ -475,6 +475,15 @@ PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *valu
 PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *value_out, PetscBool *found);
 
 /**
+ * @brief Read the driven-flow seam-flux flag, accepting its deprecated `apply_trim` spelling.
+ * @param[in]  params    Parameter list for the face.
+ * @param[out] value_out Resolved flag value.
+ * @param[out] found     Whether either spelling was present.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode GetDrivenSeamFluxFlag(BC_Param *params, PetscBool *value_out, PetscBool *found);
+
+/**
  * @brief Parses the boundary conditions file to configure the type, handler, and
  *        any associated parameters for all 6 global faces of the domain.
  *

@@ -1,0 +1,79 @@
+# ==============================================================================
+#   Driven periodic plane channel - TURBULENT DNS, Re_tau = 395 (Part B.4.2)
+#   Handler: constant_flux
+# ==============================================================================
+# DNS resolution, no SGS model. Domain follows Moser, Kim & Mansour (1999):
+# 2*pi*delta (streamwise) x 2*delta (wall-normal) x pi*delta (spanwise),
+# here on 129 x 257 x 257 cells (8.5M).
+#
+# Reference: Moser, Kim & Mansour (1999), Phys. Fluids 11, 943.
+#
+# Acceptance: as for Re_tau = 180. Target u_tau = 395 * nu = 5.7455e-02,
+# hence f = u_tau^2 / h = 3.3011e-03.
+#
+# COST: this is the heaviest shipped case. See driven_channel.md.
+# ==============================================================================
+
+run_control:
+  start_step: 0
+  total_steps: 400000
+  dt_physical: 0.0025
+
+properties:
+  scaling:
+    length_ref: 1.0     # channel half-height delta
+    velocity_ref: 1.0   # target bulk velocity U_b
+  fluid:
+    density: 1.0
+    viscosity: 1.4545455e-04  # -> Re = 6875 = U_b * delta / nu
+  initial_conditions:
+    mode: generated
+    generator: streamwise_constant
+    params:
+      velocity_physical: 1.0
+      flow_direction: "+Zeta"
+
+grid:
+  mode: grid_gen
+  generator:
+    config_file: "../../../../config/grids/plane_channel_retau395.cfg"
+    grid_type: warp
+    output_file: "config/grid.generated.picgrid"
+    stats_file: "config/grid.generated.info"
+
+models:
+  domain:
+    blocks: 1
+  physics:
+    particles:
+      count: 0
+    turbulence:
+      les:
+        enabled: false
+
+boundary_conditions:
+  # i (Xi): spanwise, plain periodic.
+  - face: "-Xi"
+    type: PERIODIC
+    handler: geometric
+  - face: "+Xi"
+    type: PERIODIC
+    handler: geometric
+  # j (Eta): wall-normal, no-slip walls.
+  - face: "-Eta"
+    type: WALL
+    handler: noslip
+  - face: "+Eta"
+    type: WALL
+    handler: noslip
+  # k (Zeta): streamwise, periodic and DRIVEN.
+  - face: "-Zeta"
+    type: PERIODIC
+    handler: constant_flux
+    params:
+      target_flux: 6.283185307179586    # U_b * Lz_span * Ly = 1.0 * pi * 2.0 = 2*pi
+  - face: "+Zeta"
+    type: PERIODIC
+    handler: constant_flux
+    params:
+      target_flux: 6.283185307179586    # U_b * Lz_span * Ly = 1.0 * pi * 2.0 = 2*pi

@@ -108,4 +108,17 @@ PetscErrorCode Create_PeriodicGeometric(BoundaryCondition *bc);
  */
 PetscErrorCode Create_PeriodicDrivenConstant(BoundaryCondition *bc);
 
+/**
+ * @brief Configures a BoundaryCondition object for initial-flux periodic driving.
+ *
+ * Wires the same periodic callbacks as Create_PeriodicDrivenConstant(), but the
+ * target flux is measured from the field the run starts with rather than read
+ * from the bcs file, so this handler takes no `target_flux` parameter. The
+ * latched target is checkpointed so a restart holds the original value.
+ *
+ * @param bc A pointer to the generic BoundaryCondition object to be configured.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode Create_PeriodicDrivenInitial(BoundaryCondition *bc);
+
 #endif // BC_HANDLERS_H

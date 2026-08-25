@@ -1,0 +1,74 @@
+# ==============================================================================
+#   Dual Time Picard Jameson RK + geometric multigrid Poisson
+# ==============================================================================
+# 129x257x257 cells (8.5M); 5 levels leave a 9x17x17 = 2601 unknown coarse grid.
+# ==============================================================================
+
+operation_mode:
+  eulerian_field_source: "solve"
+
+strategy:
+  momentum_solver: "Dual Time Picard Jameson RK"
+  central_diff: true
+
+tolerances:
+  max_iterations: 50
+  absolute_tol: 1.0e-8
+  relative_tol: 1.0e-3
+  residual_absolute_tol: 0.0
+  residual_relative_tol: 1.0e-3
+
+momentum_solver:
+  dual_time_picard_jameson_rk:
+    jameson_residual_noise_allowance_factor: 1.1
+    ratio_ema_alpha: 0.3
+    pseudo_cfl:
+      initial: 0.5
+      minimum: 0.001
+      maximum: 2.0
+      growth_factor: 1.1
+      reduction_factor: 0.75
+
+poisson_solver:
+  method: "fgmres"
+  absolute_tolerance: 1.0e-8
+  relative_tolerance: 1.0e-11
+  max_iterations: 50
+  gmres:
+    restart: 20
+  preconditioner:
+    type: "multigrid"
+  multigrid:
+    levels: 5
+    pre_sweeps: 2
+    post_sweeps: 2
+    cycle: "v"
+    mode: "multiplicative"
+    # No semi-coarsening: every direction is resolved and worth coarsening.
+    semi_coarsening:
+      i: false
+      j: false
+      k: false
+    level_solvers:
+      level_0:
+        # Coarsest level. This is the coarse SOLVE at the base of the V-cycle,
+        # not a smoother, so it must be a FIXED LINEAR operator. A Krylov
+        # method here makes the multigrid preconditioner nonlinear and
+        # decouples the outer FGMRES tracked residual from the true residual.
+        # See docs/pages/25_Pressure_Poisson_GMRES_Multigrid.md.
+        method: "preonly"           # -> -ps_mg_coarse_ksp_type
+        preconditioner: "redundant" # -> -ps_mg_coarse_pc_type (replicated LU)
+      level_1:
+        method: "richardson"
+        preconditioner: "bjacobi"
+      level_2:
+        method: "richardson"
+        preconditioner: "bjacobi"
+      level_3:
+        method: "richardson"
+        preconditioner: "bjacobi"
+      level_4:
+        method: "richardson"
+        preconditioner: "bjacobi"
+
+petsc_passthrough_options: {}

@@ -1948,3 +1948,127 @@ def test_grid_study_plot_axis_uses_characteristic_resolution_and_coupled_groups(
     assert [group["label"] for group in groups] == ["Study cases"]
     assert [point[0] for point in groups[0]["points"]] == pytest.approx([16.0, 32.0])
     assert [point[1] for point in groups[0]["points"]] == pytest.approx([0.1, 0.025])
+
+
+# --- Poisson multigrid coarse-solve contract -----------------------------------
+#
+# `level_solvers.level_0` is the multigrid COARSE SOLVE, not a smoother, and
+# maps to PETSc's `-ps_mg_coarse_*` prefix rather than `-ps_mg_levels_N_*`.
+# Because multigrid is used as a preconditioner, level_0 must be a fixed linear
+# operator; a Krylov method there makes the preconditioner nonlinear and
+# decouples the outer FGMRES tracked residual from the true residual b-Ax, so
+# the solver reports convergence on a number that no longer describes the
+# constraint. See docs/pages/25_Pressure_Poisson_GMRES_Multigrid.md.
+
+def _iter_poisson_level_zero_settings():
+    """!
+    @brief Yield every shipped `level_solvers.level_0` mapping with its source path.
+    @return Iterator of (path, block name, level_0 mapping) tuples.
+    """
+    roots = [REPO_ROOT / "config" / "solvers", REPO_ROOT / "examples", REPO_ROOT / "tests" / "smoke"]
+    seen = set()
+    for root in roots:
+        for path in sorted(root.rglob("*.yml")):
+            if path in seen:
+                continue
+            seen.add(path)
+            try:
+                document = yaml.safe_load(path.read_text())
+            except yaml.YAMLError:
+                continue
+            if not isinstance(document, dict):
+                continue
+            for block_name in ("poisson_solver", "pressure_solver"):
+                block = document.get(block_name)
+                if not isinstance(block, dict):
+                    continue
+                levels = (block.get("multigrid") or {}).get("level_solvers")
+                if not isinstance(levels, dict):
+                    continue
+                level_zero = levels.get("level_0")
+                if isinstance(level_zero, dict):
+                    yield path, block_name, level_zero
+
+
+def test_shipped_profiles_do_not_put_a_krylov_method_at_multigrid_level_zero():
+    """!
+    @brief Verify no shipped solver profile configures a Krylov coarse solve.
+    """
+    core = load_picurv_module()
+    offenders = []
+    checked = 0
+    for path, block_name, level_zero in _iter_poisson_level_zero_settings():
+        checked += 1
+        method = str(level_zero.get("method", "")).strip().lower()
+        if method in core.KRYLOV_KSP_TYPES:
+            offenders.append(f"{path.relative_to(REPO_ROOT)} -> {block_name}: method={method!r}")
+    assert checked > 0, "no shipped poisson_solver level_0 settings were found to check"
+    assert not offenders, (
+        "level_0 is the multigrid coarse solve, not a smoother, and must be a fixed linear "
+        "operator. A Krylov method there decouples the tracked residual from b-Ax. Use "
+        "{method: preonly, preconditioner: redundant}. Offenders:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_poisson_level_zero_maps_to_the_petsc_coarse_prefix():
+    """!
+    @brief Verify level_0 maps to `-ps_mg_coarse_*` and positive levels do not.
+    """
+    core = load_picurv_module()
+    flags = core.parse_solver_config({
+        "poisson_solver": {
+            "preconditioner": {"type": "multigrid"},
+            "multigrid": {
+                "levels": 2,
+                "level_solvers": {
+                    "level_0": {"method": "preonly", "preconditioner": "redundant"},
+                    "level_1": {"method": "richardson", "preconditioner": "bjacobi"},
+                },
+            },
+        }
+    })
+    assert flags["-ps_mg_coarse_ksp_type"] == "preonly"
+    assert flags["-ps_mg_coarse_pc_type"] == "redundant"
+    assert flags["-ps_mg_levels_1_ksp_type"] == "richardson"
+    assert "-ps_mg_levels_0_ksp_type" not in flags
+
+
+def test_krylov_coarse_solver_warns_but_does_not_fail(capsys):
+    """!
+    @brief Verify a Krylov level_0 is warned about and still allowed.
+    @param[in] capsys Pytest capture fixture used to read the emitted warning.
+    @details It stays legitimate at large scale when tolerances are set against
+             the true residual, so this must be a warning and not an error.
+    """
+    core = load_picurv_module()
+    flags = core.parse_solver_config({
+        "poisson_solver": {
+            "preconditioner": {"type": "multigrid"},
+            "multigrid": {
+                "levels": 2,
+                "level_solvers": {"level_0": {"method": "fgmres", "preconditioner": "bjacobi"}},
+            },
+        }
+    })
+    assert flags["-ps_mg_coarse_ksp_type"] == "fgmres"
+    stderr = capsys.readouterr().err
+    assert "level_0" in stderr and "COARSE SOLVE" in stderr
+
+
+# --- Driven periodic flux handlers ---------------------------------------------
+
+def test_both_driven_periodic_handlers_are_registered():
+    """!
+    @brief Verify `initial_flux` is a first-class handler beside `constant_flux`.
+    @details `initial_flux` derives its target from the initial condition, so
+             unlike `constant_flux` it must NOT require `target_flux`.
+    """
+    core = load_picurv_module()
+    registry = core.BC_HANDLER_SPECS
+    assert "initial_flux" in registry
+    assert registry["initial_flux"]["types"] == {"PERIODIC"}
+    assert registry["initial_flux"]["required_params"] == set()
+    assert "enforce_seam_flux" in registry["initial_flux"]["optional_params"]
+    # The old spelling stays accepted so existing case files keep working.
+    assert "apply_trim" in registry["initial_flux"]["optional_params"]
+    assert registry["constant_flux"]["required_params"] == {"target_flux"}

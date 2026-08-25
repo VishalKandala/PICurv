@@ -798,6 +798,31 @@ PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *valu
     return 0; // It's not an error to not find the key.
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "GetDrivenSeamFluxFlag"
+/**
+ * @brief Implementation of \ref GetDrivenSeamFluxFlag().
+ * @details The option was originally spelled `apply_trim`, which said that
+ *          something was trimmed but not what or why. The canonical name is now
+ *          `enforce_seam_flux`. Generated `bcs.run` files carry the canonical
+ *          name, but a hand-written or archived one may still use the old
+ *          spelling, so both are accepted here and the canonical name wins.
+ *          The argument contract lives with the header declaration in
+ *          `include/io.h`.
+ * @see GetDrivenSeamFluxFlag()
+ */
+PetscErrorCode GetDrivenSeamFluxFlag(BC_Param *params, PetscBool *value_out, PetscBool *found)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    ierr = GetBCParamBool(params, "enforce_seam_flux", value_out, found); CHKERRQ(ierr);
+    if (!*found) {
+        ierr = GetBCParamBool(params, "apply_trim", value_out, found); CHKERRQ(ierr);
+    }
+    PetscFunctionReturn(0);
+}
+
 //================================================================================
 //
 //                        PUBLIC PARSING FUNCTION
@@ -1364,6 +1389,73 @@ PetscErrorCode ReadFieldData(UserCtx *user,
 }
 
 
+#undef __FUNCT__
+#define __FUNCT__ "RestoreDrivenFluxTarget"
+/**
+ * @brief Restore a latched driven-flow flux target from a checkpoint manifest.
+ *
+ * @details Only `initial_flux` needs this. Its target is derived from the field
+ *          the run originally started with, so re-measuring it after a restart
+ *          would silently retarget the controller at whatever the flux had
+ *          drifted to. `constant_flux` reads its target from the bcs file on
+ *          every run and is deliberately left alone, so that editing
+ *          `target_flux` between segments still takes effect.
+ *
+ *          Checkpoints written before this metadata existed simply have no
+ *          entry; the controller then falls back to re-measuring and says so.
+ *
+ * @param[in,out] simCtx               Simulation context receiving the target.
+ * @param[in]     user                 Block context, for its boundary handler types.
+ * @param[in]     checkpoint_directory Directory holding the validated manifest.
+ * @return PetscErrorCode 0 on success.
+ */
+static PetscErrorCode RestoreDrivenFluxTarget(SimCtx *simCtx, UserCtx *user,
+                                              const char *checkpoint_directory)
+{
+    char         metadata_path[PETSC_MAX_PATH_LEN];
+    PetscOptions options = NULL;
+    PetscBool    uses_initial_flux = PETSC_FALSE;
+    PetscBool    saved_latched = PETSC_FALSE;
+    PetscBool    found = PETSC_FALSE;
+    PetscReal    saved_target = 0.0;
+
+    PetscFunctionBeginUser;
+
+    for (PetscInt face = 0; face < 6; ++face) {
+        if (user->boundary_faces[face].handler_type == BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX) {
+            uses_initial_flux = PETSC_TRUE;
+            break;
+        }
+    }
+    if (!uses_initial_flux) PetscFunctionReturn(0);
+
+    PetscCall(PetscSNPrintf(metadata_path, sizeof(metadata_path),
+                            "%s/checkpoint.meta", checkpoint_directory));
+    PetscCall(PetscOptionsCreate(&options));
+    PetscCall(PetscOptionsInsertFile(PETSC_COMM_WORLD, options, metadata_path, PETSC_TRUE));
+    PetscCall(PetscOptionsGetBool(options, NULL, "-checkpoint_driven_flux_latched", &saved_latched, &found));
+    if (found && saved_latched) {
+        PetscCall(PetscOptionsGetReal(options, NULL, "-checkpoint_driven_flux_target", &saved_target, &found));
+    } else {
+        found = PETSC_FALSE;
+    }
+    PetscCall(PetscOptionsDestroy(&options));
+
+    if (found) {
+        simCtx->targetVolumetricFlux    = saved_target;
+        simCtx->drivenFluxTargetLatched = PETSC_TRUE;
+        LOG_ALLOW(GLOBAL, LOG_INFO,
+                  "Driven Flow: restored latched target volumetric flux %.6e from checkpoint '%s'.\n",
+                  (double)saved_target, checkpoint_directory);
+    } else {
+        LOG_ALLOW(GLOBAL, LOG_WARNING,
+                  "Driven Flow: checkpoint '%s' records no latched flux target; the initial_flux "
+                  "controller will re-measure it from the restarted field.\n", checkpoint_directory);
+    }
+
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief Internal helper implementation: `ReadSimulationFields()`.
  * @details Local to this translation unit.
@@ -1399,6 +1491,7 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
     if (simCtx->exec_mode == EXEC_MODE_SOLVER && user->_this == 0) {
         simCtx->ti = checkpoint_time;
         if (ti == simCtx->StartStep) simCtx->StartTime = checkpoint_time;
+        PetscCall(RestoreDrivenFluxTarget(simCtx, user, checkpoint_directory));
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Reading Eulerian checkpoint fields for block %d from '%s'.\n",
@@ -2272,6 +2365,17 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
                    PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
                    "Unable to write checkpoint periodicity metadata.");
 
+        /* Driven-flow controller state. `initial_flux` measures its target once
+         * from the starting field, so a restart must read the latched value back
+         * rather than re-measure it from a field that has since drifted. */
+        PetscCheck(fprintf(manifest,
+                           "-checkpoint_driven_flux_latched %s\n"
+                           "-checkpoint_driven_flux_target %.17g\n",
+                           simCtx->drivenFluxTargetLatched ? "true" : "false",
+                           (double)simCtx->targetVolumetricFlux) > 0,
+                   PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                   "Unable to write driven-flow controller metadata.");
+
         /* Window scalars are recorded even when no window is configured, so a
          * restart can tell an absent window list from an unreadable bundle. */
         PetscCheck(fprintf(manifest, "-checkpoint_statistics_window_count %" PetscInt_FMT "\n",
@@ -2799,13 +2903,18 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                         ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - source_file=%s\n",
                         face_name_width, face_str, bc_type_str, bc_handler_type_str, source_file); CHKERRQ(ierr);
                         }
+                    } else if(user->boundary_faces[current_face].handler_type == BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX){
+                        PetscBool trimflag,foundtrimflag;
+                        ierr = GetDrivenSeamFluxFlag(user->boundary_faces[current_face].params,&trimflag,&foundtrimflag); CHKERRQ(ierr);
+                        ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - [from initial state] - %s\n",
+                        face_name_width, face_str, bc_type_str, bc_handler_type_str,trimflag?"Enforce seam flux":"Seam flux not enforced"); CHKERRQ(ierr);
                     } else if(user->boundary_faces[current_face].handler_type == BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX){
                         PetscReal flux;
                         PetscBool trimflag,foundflux,foundtrimflag;
                         ierr = GetBCParamReal(user->boundary_faces[current_face].params,"target_flux",&flux,&foundflux); CHKERRQ(ierr);
-                        ierr = GetBCParamBool(user->boundary_faces[current_face].params,"apply_trim",&trimflag,&foundtrimflag); CHKERRQ(ierr);
+                        ierr = GetDrivenSeamFluxFlag(user->boundary_faces[current_face].params,&trimflag,&foundtrimflag); CHKERRQ(ierr);
                         ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - [%.4f] - %s\n", 
-                        face_name_width, face_str, bc_type_str, bc_handler_type_str,flux,trimflag?"Trim Ucont":"No Trim"); CHKERRQ(ierr);
+                        face_name_width, face_str, bc_type_str, bc_handler_type_str,flux,trimflag?"Enforce seam flux":"Seam flux not enforced"); CHKERRQ(ierr);
                     } else{    
                         ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s\n", 
                                 face_name_width, face_str, bc_type_str,bc_handler_type_str); CHKERRQ(ierr);

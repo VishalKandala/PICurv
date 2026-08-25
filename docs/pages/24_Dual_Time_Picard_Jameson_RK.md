@@ -131,6 +131,16 @@ A startup INFO log line prints the active CFL bounds, rejection threshold, EMA a
 - runtime dispatch: @ref FlowSolver
 - options ingestion: @ref CreateSimulationContext
 
+@section p24_rhs_state_sec 6a. RHS State and Pseudo-Iteration Cadence
+
+`ComputeRHS()` runs once per Jameson RK stage, so it executes many times per
+physical timestep and the count varies with the pseudo-iteration and rollback
+behaviour described in section 3. The shadow-Jacobian estimate assumes body
+forces are a constant forcing with zero velocity Jacobian, which only holds if
+nothing inside the RHS advances per-timestep state on each call. Gate any such
+state on `simCtx->step`. Full rationale, and a worked case where this was
+violated in two places at once: @ref p31_rhs_cadence_sec.
+
 @section p24_practical_sec 7. Practical Tuning Guidance
 
 Common stability tuning order:

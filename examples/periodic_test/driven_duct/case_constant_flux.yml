@@ -1,0 +1,90 @@
+# ==============================================================================
+#   Driven periodic SQUARE DUCT - TURBULENT DNS, Re_b = 4410 (Part B.4.3)
+#   Handler: constant_flux
+# ==============================================================================
+# A square duct sustains turbulence-driven secondary flow of the second
+# kind, which a plane channel does not. That makes it the case that
+# exercises the driven-flow machinery in a genuinely three-dimensional
+# mean field.
+#
+# Duct half-width a = 1, so side length and hydraulic diameter D = 2a = 2.
+# Streamwise extent 4*pi*a. Cross-section resolved 129 x 129 with two-sided
+# clustering on both walled directions; 257 cells streamwise.
+#
+# References:
+#   Gavrilakis (1992), JFM 244, 101      -- Re_b = 4410, Re_tau ~ 300
+#   Huser & Biringen (1993), JFM 257, 65 -- Re_tau ~ 600
+#
+# Acceptance:
+#   - mean streamwise profile along the wall bisector and the corner bisector
+#   - presence and magnitude of the cross-plane secondary flow, 1-3% of U_b
+#   - wall shear stress distribution along a wall
+#
+# NOTE ON Re: the case Reynolds number below is U_b * a / nu = 2205. The
+# literature value Re_b = U_b * D / nu is twice that, 4410.
+#
+# SEEDING CAVEAT: as for the channel cases - see driven_channel.md.
+# ==============================================================================
+
+run_control:
+  start_step: 0
+  total_steps: 300000
+  dt_physical: 0.005
+
+properties:
+  scaling:
+    length_ref: 1.0     # duct half-width a
+    velocity_ref: 1.0   # target bulk velocity U_b
+  fluid:
+    density: 1.0
+    viscosity: 4.5351474e-04  # -> Re = 2205 = U_b * a / nu (literature Re_b = U_b * D / nu = 4410)
+  initial_conditions:
+    mode: generated
+    generator: streamwise_constant
+    params:
+      velocity_physical: 1.0
+      flow_direction: "+Zeta"
+
+grid:
+  mode: grid_gen
+  generator:
+    config_file: "../../../config/grids/square_duct_reb4410.cfg"
+    grid_type: warp
+    output_file: "config/grid.generated.picgrid"
+    stats_file: "config/grid.generated.info"
+
+models:
+  domain:
+    blocks: 1
+  physics:
+    particles:
+      count: 0
+    turbulence:
+      les:
+        enabled: false
+
+boundary_conditions:
+  # i (Xi) and j (Eta): the four duct walls.
+  - face: "-Xi"
+    type: WALL
+    handler: noslip
+  - face: "+Xi"
+    type: WALL
+    handler: noslip
+  - face: "-Eta"
+    type: WALL
+    handler: noslip
+  - face: "+Eta"
+    type: WALL
+    handler: noslip
+  # k (Zeta): streamwise, periodic and DRIVEN.
+  - face: "-Zeta"
+    type: PERIODIC
+    handler: constant_flux
+    params:
+      target_flux: 4.0                  # U_b * Lx * Ly = 1.0 * 2.0 * 2.0
+  - face: "+Zeta"
+    type: PERIODIC
+    handler: constant_flux
+    params:
+      target_flux: 4.0                  # U_b * Lx * Ly = 1.0 * 2.0 * 2.0

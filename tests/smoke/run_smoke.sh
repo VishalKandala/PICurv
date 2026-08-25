@@ -1381,8 +1381,8 @@ case_cfg["boundary_conditions"] = [
     {"face": "+Xi", "type": "WALL", "handler": "noslip"},
     {"face": "-Eta", "type": "WALL", "handler": "noslip"},
     {"face": "+Eta", "type": "WALL", "handler": "noslip"},
-    {"face": "-Zeta", "type": "PERIODIC", "handler": "constant_flux", "params": {"target_flux": 1.0, "apply_trim": True}},
-    {"face": "+Zeta", "type": "PERIODIC", "handler": "constant_flux", "params": {"target_flux": 1.0, "apply_trim": True}},
+    {"face": "-Zeta", "type": "PERIODIC", "handler": "constant_flux", "params": {"target_flux": 1.0, "enforce_seam_flux": True}},
+    {"face": "+Zeta", "type": "PERIODIC", "handler": "constant_flux", "params": {"target_flux": 1.0, "enforce_seam_flux": True}},
 ]
 
 solver_cfg.setdefault("operation_mode", {})

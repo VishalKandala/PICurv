@@ -257,6 +257,12 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user)
                 supported = (PetscBool)(cfg->mathematical_type == OUTLET);
                 break;
             case BC_HANDLER_PERIODIC_GEOMETRIC:
+            /* Both driven handlers freeze their correction once per timestep in
+             * PreStep, which the Newton solve never re-enters, so the momentum
+             * source stays constant across every residual evaluation. The paired
+             * face checks below still apply. */
+            case BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX:
+            case BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX:
                 supported = (PetscBool)(cfg->mathematical_type == PERIODIC);
                 break;
             default:

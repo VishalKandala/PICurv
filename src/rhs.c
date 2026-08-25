@@ -1087,6 +1087,11 @@ PetscErrorCode ComputeBodyForces(UserCtx *user, Vec Rct)
     // if (user->simCtx->gravityEnabled) {
     //     ierr = ApplyGravitationalForce(user, Rhs); CHKERRQ(ierr);
     // }
+    //
+    // Adding a body force here: see the contract in include/BodyForces.h.
+    // In particular, this function runs once per RESIDUAL EVALUATION, not once
+    // per timestep, so any force carrying state across calls (a filter, ramp,
+    // moving average, or integral term) must gate its update on simCtx->step.
 
     PetscFunctionReturn(0); 
 }

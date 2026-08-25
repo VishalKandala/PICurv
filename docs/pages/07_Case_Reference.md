@@ -247,7 +247,8 @@ Supported type/handler combinations:
 - `OUTLET` + `conservation`
 - `WALL` + `noslip`
 - `PERIODIC` + `geometric`
-- `PERIODIC` + `constant_flux` (`target_flux`, optional `apply_trim`)
+- `PERIODIC` + `constant_flux` (`target_flux`, optional `enforce_seam_flux`; `apply_trim` is a deprecated alias)
+- `PERIODIC` + `initial_flux` (no params; optional `enforce_seam_flux`) - target measured from the initial condition
 
 All six faces must be explicitly provided for each block.
 For detailed handler semantics, validation constraints, and C dispatch path, see **@subpage 44_Boundary_Conditions_Guide**.

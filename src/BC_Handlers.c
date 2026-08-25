@@ -2176,6 +2176,111 @@ PetscErrorCode Create_PeriodicGeometric(BoundaryCondition *bc){
 }
 
 
+#undef __FUNCT__
+#define __FUNCT__ "MeasureDrivenFluxes"
+/**
+ * @brief Measure the two volumetric fluxes the driven-flow controller senses.
+ *
+ * Both periodic driven handlers steer on the same pair of measurements, so they
+ * are taken here in a single sweep of `lUcont`:
+ *
+ *  - `*boundaryFlux` is the flux through the single periodic boundary plane.
+ *    It is fast and responsive but noisy, and drives the boundary trim.
+ *  - `*planarAverageFlux` is the flux averaged over every cross-sectional plane
+ *    in the driven direction. It is stable and inertial, and drives the
+ *    momentum source. It is also the quantity `initial_flux` latches at t=0.
+ *
+ * @param[in]  user              Block context supplying `lUcont`, `lNvert` and `info`.
+ * @param[in]  direction         Driven direction, 'X', 'Y' or 'Z'.
+ * @param[out] boundaryFlux      Globally reduced flux through the boundary plane.
+ * @param[out] planarAverageFlux Globally reduced plane-averaged flux.
+ * @return PetscErrorCode 0 on success.
+ */
+static PetscErrorCode MeasureDrivenFluxes(UserCtx *user, char direction,
+                                          PetscReal *boundaryFlux,
+                                          PetscReal *planarAverageFlux)
+{
+    PetscErrorCode ierr;
+    DMDALocalInfo info = user->info;
+    PetscInt i, j, k;
+
+    PetscFunctionBeginUser;
+
+    // --- Get read-only access to necessary field data ---
+    Cmpnts ***ucont;
+    PetscReal ***nvert;
+    ierr = DMDAVecGetArrayRead(user->fda, user->lUcont, (const Cmpnts***)&ucont); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
+
+    // --- Define local loop bounds ---
+    PetscInt lxs = (info.xs == 0) ? 1 : info.xs;
+    PetscInt lys = (info.ys == 0) ? 1 : info.ys;
+    PetscInt lzs = (info.zs == 0) ? 1 : info.zs;
+    PetscInt lxe = (info.xs + info.xm == info.mx) ? info.mx - 1 : info.xs + info.xm;
+    PetscInt lye = (info.ys + info.ym == info.my) ? info.my - 1 : info.ys + info.ym;
+    PetscInt lze = (info.zs + info.zm == info.mz) ? info.mz - 1 : info.zs + info.zm;
+
+    // --- Initialize local accumulators ---
+    PetscReal localCurrentBoundaryFlux = 0.0;
+    PetscReal localAveragePlanarVolumetricFluxTerm = 0.0;
+
+    // --- Measure local contributions to the two flux types, generalized by direction ---
+    switch (direction) {
+        case 'X':
+            if (info.xs == 0) { // Only the rank on the negative face contributes to boundary flux
+                i = 0;
+                for (k = lzs; k < lze; k++) for (j = lys; j < lye; j++) {
+                    if (nvert[k][j][i + 1] < 0.1) localCurrentBoundaryFlux += ucont[k][j][i].x;
+                }
+            }
+            for (i = info.xs; i < lxe; i++) {
+                for (k = lzs; k < lze; k++) for (j = lys; j < lye; j++) {
+                    if (nvert[k][j][i + 1] < 0.1) localAveragePlanarVolumetricFluxTerm += ucont[k][j][i].x / (PetscReal)(info.mx - 1);
+                }
+            }
+            break;
+        case 'Y':
+            if (info.ys == 0) {
+                j = 0;
+                for (k = lzs; k < lze; k++) for (i = lxs; i < lxe; i++) {
+                    if (nvert[k][j + 1][i] < 0.1) localCurrentBoundaryFlux += ucont[k][j][i].y;
+                }
+            }
+            for (j = info.ys; j < lye; j++) {
+                for (k = lzs; k < lze; k++) for (i = lxs; i < lxe; i++) {
+                    if (nvert[k][j + 1][i] < 0.1) localAveragePlanarVolumetricFluxTerm += ucont[k][j][i].y / (PetscReal)(info.my - 1);
+                }
+            }
+            break;
+        case 'Z':
+            if (info.zs == 0) {
+                k = 0;
+                for (j = lys; j < lye; j++) for (i = lxs; i < lxe; i++) {
+                    if (nvert[k + 1][j][i] < 0.1) localCurrentBoundaryFlux += ucont[k][j][i].z;
+                }
+            }
+            for (k = info.zs; k < lze; k++) {
+                for (j = lys; j < lye; j++) for (i = lxs; i < lxe; i++) {
+                    if (nvert[k + 1][j][i] < 0.1) localAveragePlanarVolumetricFluxTerm += ucont[k][j][i].z / (PetscReal)(info.mz - 1);
+                }
+            }
+            break;
+        default:
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+                    "MeasureDrivenFluxes received an unknown driven direction '%c'.", direction);
+    }
+
+    // --- Release array access as soon as possible ---
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lUcont, (const Cmpnts***)&ucont); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
+
+    // --- Perform global reductions to get the final flux values ---
+    ierr = MPI_Allreduce(&localCurrentBoundaryFlux, boundaryFlux, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+    ierr = MPI_Allreduce(&localAveragePlanarVolumetricFluxTerm, planarAverageFlux, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    PetscFunctionReturn(0);
+}
+
 // ===============================================================================
 //
 //      HANDLER IMPLEMENTATION: PERIODIC DRIVEN CONSTANT FLUX
@@ -2191,13 +2296,22 @@ static PetscErrorCode PreStep_PeriodicDrivenConstant(BoundaryCondition *self, BC
 static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCContext *ctx);
 static PetscErrorCode Destroy_PeriodicDrivenConstant(BoundaryCondition *self);
 
-/** @brief Private data structure for the handler. */
+/**
+ * @brief Private data structure shared by both periodic driven-flux handlers.
+ *
+ * `constant_flux` fills `targetVolumetricFlux` from the bcs file at
+ * initialization; `initial_flux` latches it from the starting field at the
+ * first PreStep. Everything downstream of the target is identical, so both
+ * handlers reuse this struct and the PreStep/Apply/Destroy implementations
+ * below.
+ */
 typedef struct {
     char      direction;                // 'X', 'Y', or 'Z', determined at initialization.
-    PetscReal targetVolumetricFlux;     // The constant target flux, parsed from parameters.
+    PetscReal targetVolumetricFlux;     // The target flux this controller drives to.
     PetscBool isMasterController;       // Flag: PETSC_TRUE only for the handler on the negative face.
-    PetscBool applyBoundaryTrim;        // Flag: PETSC_TRUE if applying Boundary trim on ucont.
-} DrivenConstantData;
+    PetscBool enforceSeamFlux;          // Flag: PETSC_TRUE to add the seam-flux correction into Ucont.
+    PetscInt  lastBulkCorrectionStep;   // Physical step at which the momentum source was last set (-1 = never).
+} DrivenFluxData;
 
 
 // --- 2. HANDLER CONSTRUCTOR ---
@@ -2216,13 +2330,14 @@ PetscErrorCode Create_PeriodicDrivenConstant(BoundaryCondition *bc)
     if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input BoundaryCondition object is NULL in Create_PeriodicDrivenConstantFlux");
 
     // --- Allocate the private data structure ---
-    DrivenConstantData *data = NULL;
+    DrivenFluxData *data = NULL;
     ierr = PetscNew(&data); CHKERRQ(ierr);
     // Initialize fields to safe default values
     data->direction = ' ';
     data->targetVolumetricFlux = 0.0;
     data->isMasterController = PETSC_FALSE;
-    data->applyBoundaryTrim = PETSC_FALSE;
+    data->enforceSeamFlux = PETSC_FALSE;
+    data->lastBulkCorrectionStep = -1;
     
     // Attach the private data to the generic handler object
     bc->data = (void*)data;
@@ -2253,7 +2368,7 @@ PetscErrorCode Create_PeriodicDrivenConstant(BoundaryCondition *bc)
 static PetscErrorCode Initialize_PeriodicDrivenConstant(BoundaryCondition *self, BCContext *ctx)
 {
     PetscErrorCode ierr;
-    DrivenConstantData *data = (DrivenConstantData*)self->data;
+    DrivenFluxData *data = (DrivenFluxData*)self->data;
     BCFace face_id = ctx->face_id;
     UserCtx* user = ctx->user;
     
@@ -2300,14 +2415,17 @@ static PetscErrorCode Initialize_PeriodicDrivenConstant(BoundaryCondition *self,
         // Store the target flux in the UserCtx. This makes it globally accessible
         // to other parts of the solver, such as the `CorrectChannelFluxProfile` enforcer function.
         user->simCtx->targetVolumetricFlux = data->targetVolumetricFlux;
+        // The target is fixed for the run from here on; see the flag's comment in
+        // variables.h for how initial_flux uses the same latch.
+        user->simCtx->drivenFluxTargetLatched = PETSC_TRUE;
     }
 
     PetscBool trimfound;
-    // Attempt  to read Trim flag.
-    ierr = GetBCParamBool(user->boundary_faces[face_id].params, "apply_trim",
-                        &data->applyBoundaryTrim, &trimfound); CHKERRQ(ierr);
-    
-    if(!trimfound) LOG_ALLOW(GLOBAL,LOG_DEBUG,"Trim Application not found,defaults to %s.\n",data->applyBoundaryTrim? "True":"False");
+    // Optional seam-flux enforcement; accepts the deprecated `apply_trim` spelling.
+    ierr = GetDrivenSeamFluxFlag(user->boundary_faces[face_id].params,
+                                 &data->enforceSeamFlux, &trimfound); CHKERRQ(ierr);
+
+    if(!trimfound) LOG_ALLOW(GLOBAL,LOG_DEBUG,"Seam-flux enforcement not specified, defaults to %s.\n",data->enforceSeamFlux? "True":"False");
 
     PetscFunctionReturn(0);
 }
@@ -2322,7 +2440,7 @@ static PetscErrorCode PreStep_PeriodicDrivenConstant(BoundaryCondition *self, BC
                                                      PetscReal *local_outflow_contribution)
 {
     PetscErrorCode ierr;
-    DrivenConstantData *data = (DrivenConstantData*)self->data;
+    DrivenFluxData *data = (DrivenFluxData*)self->data;
     UserCtx* user = ctx->user;
     SimCtx* simCtx = user->simCtx;
 
@@ -2333,128 +2451,12 @@ static PetscErrorCode PreStep_PeriodicDrivenConstant(BoundaryCondition *self, BC
         PetscFunctionReturn(0);
     }
     
-    // This function is the generalized implementation of the old InitializeChannelFlowController.
+    // The controller senses two fluxes; see MeasureDrivenFluxes() for what each
+    // one is for and why the controller needs both.
     char direction = data->direction;
-    DMDALocalInfo info = user->info;
-    PetscInt i, j, k;
-
-    // --- Get read-only access to necessary field data ---
-    Cmpnts ***ucont;
-    PetscReal ***nvert;
-    ierr = DMDAVecGetArrayRead(user->fda, user->lUcont, (const Cmpnts***)&ucont); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
-
-    // --- Define local loop bounds ---
-    PetscInt lxs = (info.xs == 0) ? 1 : info.xs;
-    PetscInt lys = (info.ys == 0) ? 1 : info.ys;
-    PetscInt lzs = (info.zs == 0) ? 1 : info.zs;
-    PetscInt lxe = (info.xs + info.xm == info.mx) ? info.mx - 1 : info.xs + info.xm;
-    PetscInt lye = (info.ys + info.ym == info.my) ? info.my - 1 : info.ys + info.ym;
-    PetscInt lze = (info.zs + info.zm == info.mz) ? info.mz - 1 : info.zs + info.zm;
-
-    // ===================================================================================
-    // CONTROLLER SENSORS: DUAL-FLUX MEASUREMENT STRATEGY
-    //
-    // To create a control system that is both stable and responsive, we measure the
-    // volumetric flux in two distinct ways. One provides a fast, local signal for
-    // immediate corrections, while the other provides a slow, stable signal for
-    // strategic, domain-wide adjustments.
-    //
-    // -----------------------------------------------------------------------------------
-    // ** 1. Fast/Local Sensor: `globalCurrentBoundaryFlux` **
-    // -----------------------------------------------------------------------------------
-    //
-    // - WHAT IT IS: The total volumetric flux (m³/s) passing through the single,
-    //   representative periodic boundary plane at k=0.
-    //
-    // - PHYSICAL MEANING: An instantaneous "snapshot" of the flow rate at the
-    //   critical "seam" where the domain wraps around.
-    //
-    // - CHARACTERISTICS:
-    //     - Fast & Responsive: It immediately reflects any local flow changes or
-    //       errors occurring at the periodic interface.
-    //     - Noisy: It is susceptible to local fluctuations from turbulence or
-    //       numerical artifacts, causing its value to jitter from step to step.
-    //
-    // - CONTROLLER'S USE: This measurement is used to compute the
-    //   `boundaryVelocityCorrection`. This is a TACTICAL, fast-acting "trim" that is
-    //   applied immediately and directly to the boundary velocities to ensure perfect
-    //   continuity at the seam.
-    //
-    // -----------------------------------------------------------------------------------
-    // ** 2. Stable/Global Sensor: `globalAveragePlanarVolumetricFlux` **
-    // -----------------------------------------------------------------------------------
-    //
-    // - WHAT IT IS: The average of the volumetric fluxes across ALL cross-sectional
-    //   k-planes in the domain.
-    //   (i.e., [Flux(k=0) + Flux(k=1) + ... + Flux(k=N)] / N)
-    //
-    // - PHYSICAL MEANING: It represents the overall, bulk momentum of the fluid,
-    //   effectively filtering out local, transient fluctuations.
-    //
-    // - CHARACTERISTICS:
-    //     - Stable & Robust: Local noise at one plane is averaged out by all other
-    //       planes, providing a very smooth signal.
-    //     - Inertial: It changes more slowly, reflecting the inertia of the entire
-    //       fluid volume.
-    //
-    // - CONTROLLER'S USE: This measurement is used to compute the
-    //   `bulkVelocityCorrection`. This is a STRATEGIC, long-term adjustment used to
-    //   scale the main momentum source (body force). Using this stable signal prevents
-    //   the main driving force from oscillating wildly, ensuring simulation stability.
-    //
-    // ===================================================================================
-
-    // --- Initialize local accumulators ---
-    PetscReal localCurrentBoundaryFlux = 0.0;
-    PetscReal localAveragePlanarVolumetricFluxTerm = 0.0;
-    
-    // --- Measure local contributions to the two flux types, generalized by direction ---
-    switch (direction) {
-        case 'X':
-            if (info.xs == 0) { // Only the rank on the negative face contributes to boundary flux
-                i = 0;
-                for (k = lzs; k < lze; k++) for (j = lys; j < lye; j++) {
-                    if (nvert[k][j][i + 1] < 0.1) localCurrentBoundaryFlux += ucont[k][j][i].x;
-                }
-            }
-            for (i = info.xs; i < lxe; i++) {
-                for (k = lzs; k < lze; k++) for (j = lys; j < lye; j++) {
-                    if (nvert[k][j][i + 1] < 0.1) localAveragePlanarVolumetricFluxTerm += ucont[k][j][i].x / (PetscReal)(info.mx - 1);
-                }
-            }
-            break;
-        case 'Y':
-            if (info.ys == 0) {
-                j = 0;
-                for (k = lzs; k < lze; k++) for (i = lxs; i < lxe; i++) {
-                    if (nvert[k][j + 1][i] < 0.1) localCurrentBoundaryFlux += ucont[k][j][i].y;
-                }
-            }
-            for (j = info.ys; j < lye; j++) {
-                for (k = lzs; k < lze; k++) for (i = lxs; i < lxe; i++) {
-                    if (nvert[k][j + 1][i] < 0.1) localAveragePlanarVolumetricFluxTerm += ucont[k][j][i].y / (PetscReal)(info.my - 1);
-                }
-            }
-            break;
-        case 'Z':
-            if (info.zs == 0) {
-                k = 0;
-                for (j = lys; j < lye; j++) for (i = lxs; i < lxe; i++) {
-                    if (nvert[k + 1][j][i] < 0.1) localCurrentBoundaryFlux += ucont[k][j][i].z;
-                }
-            }
-            for (k = info.zs; k < lze; k++) {
-                for (j = lys; j < lye; j++) for (i = lxs; i < lxe; i++) {
-                    if (nvert[k + 1][j][i] < 0.1) localAveragePlanarVolumetricFluxTerm += ucont[k][j][i].z / (PetscReal)(info.mz - 1);
-                }
-            }
-            break;
-    }
-
-    // --- Release array access as soon as possible ---
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lUcont, (const Cmpnts***)&ucont); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
+    PetscReal globalCurrentBoundaryFlux, globalAveragePlanarVolumetricFlux;
+    ierr = MeasureDrivenFluxes(user, direction, &globalCurrentBoundaryFlux,
+                               &globalAveragePlanarVolumetricFlux); CHKERRQ(ierr);
 
     // --- Get cross-sectional area using the dedicated geometry function ---
     Cmpnts ignored_center;
@@ -2462,22 +2464,38 @@ static PetscErrorCode PreStep_PeriodicDrivenConstant(BoundaryCondition *self, BC
     BCFace neg_face_id = (direction == 'X') ? BC_FACE_NEG_X : (direction == 'Y') ? BC_FACE_NEG_Y : BC_FACE_NEG_Z;
     ierr = CalculateFaceCenterAndArea(user, neg_face_id, &ignored_center, &globalBoundaryArea); CHKERRQ(ierr);
 
-    // --- Perform global reductions to get the final flux values ---
-    PetscReal globalCurrentBoundaryFlux, globalAveragePlanarVolumetricFlux;
-    ierr = MPI_Allreduce(&localCurrentBoundaryFlux, &globalCurrentBoundaryFlux, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
-    ierr = MPI_Allreduce(&localAveragePlanarVolumetricFluxTerm, &globalAveragePlanarVolumetricFlux, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
-
     // --- Calculate the two correction terms ---
+    //
+    // These are refreshed on DIFFERENT cadences, and the difference matters.
+    //
+    // ApplyBoundaryConditions() runs BoundarySystem_ExecuteStep() -- and hence
+    // this PreStep -- three times per call, and it is itself called once per
+    // Jameson RK stage under the Picard solver and once per residual evaluation
+    // under Newton-Krylov. So "per PreStep" is emphatically not "per timestep".
+    //
+    //  - bulkVelocityCorrection scales the momentum source in ComputeRHS. Both
+    //    momentum solvers are built on it being FROZEN across a timestep: the
+    //    Picard shadow-Jacobian estimate treats the body force as a constant
+    //    forcing with zero velocity Jacobian, and the Newton solve needs a
+    //    source that does not drift between residual evaluations. It is
+    //    therefore computed once per physical step, from the field at the start
+    //    of that step, and held.
+    //
+    //  - boundaryVelocityCorrection is the tactical trim applied to the
+    //    boundary fluxes in Apply(). It is deliberately re-measured on every
+    //    pass: Apply() accumulates it into Ucont, and re-measuring is what makes
+    //    that accumulation self-limiting as the seam converges. Freezing it
+    //    would make repeated Apply() calls add the same trim over and over.
     if (globalBoundaryArea > 1.0e-12) {
-        // The main correction for the body force is based on the STABLE domain-averaged flux.
-        simCtx->bulkVelocityCorrection = (data->targetVolumetricFlux - globalAveragePlanarVolumetricFlux) / globalBoundaryArea;
-
-        // The immediate correction for the boundary trim is based on the FAST boundary-specific flux.
-        // Stored in simCtx so both the NEG and POS face handlers can apply it in their Apply() calls.
+        if (data->lastBulkCorrectionStep != simCtx->step) {
+            simCtx->bulkVelocityCorrection = (data->targetVolumetricFlux - globalAveragePlanarVolumetricFlux) / globalBoundaryArea;
+            data->lastBulkCorrectionStep = simCtx->step;
+        }
         simCtx->boundaryVelocityCorrection = (data->targetVolumetricFlux - globalCurrentBoundaryFlux) / globalBoundaryArea;
     } else {
         simCtx->bulkVelocityCorrection = 0.0;
         simCtx->boundaryVelocityCorrection = 0.0;
+        data->lastBulkCorrectionStep = simCtx->step;
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Driven Flow Controller Update (Dir %c):\n", data->direction);
@@ -2502,7 +2520,7 @@ static PetscErrorCode PreStep_PeriodicDrivenConstant(BoundaryCondition *self, BC
 static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCContext *ctx)
 {
     PetscErrorCode ierr;
-    DrivenConstantData *data = (DrivenConstantData*)self->data;
+    DrivenFluxData *data = (DrivenFluxData*)self->data;
     UserCtx* user = ctx->user;
     BCFace face_id = ctx->face_id;
     PetscBool can_service;
@@ -2551,7 +2569,7 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
                 if (nvert[k][j][i_nvert] < 0.1) {
                     PetscReal faceArea = sqrt(csi[k][j][i_face].x*csi[k][j][i_nvert].x + csi[k][j][i_nvert].y*csi[k][j][i_nvert].y + csi[k][j][i_face].z*csi[k][j][i_face].z);
                     PetscReal fluxTrim = user->simCtx->boundaryVelocityCorrection * faceArea;
-                    if(data->applyBoundaryTrim) ucont[k][j][i_face].x += fluxTrim;
+                    if(data->enforceSeamFlux) ucont[k][j][i_face].x += fluxTrim;
                     uch[k][j][i_face].x = fluxTrim; // Store correction for diagnostics
                 }
             }
@@ -2565,7 +2583,7 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
                 if (nvert[k][j_nvert][i] < 0.1) {
                     PetscReal faceArea = sqrt(eta[k][j_face][i].x*eta[k][j_face][i].x + eta[k][j_face][i].y*eta[k][j_face][i].y + eta[k][j_face][i].z*eta[k][j_face][i].z);
                     PetscReal fluxTrim = user->simCtx->boundaryVelocityCorrection * faceArea;
-                    if(data->applyBoundaryTrim) ucont[k][j_face][i].y += fluxTrim;
+                    if(data->enforceSeamFlux) ucont[k][j_face][i].y += fluxTrim;
                     uch[k][j_face][i].y = fluxTrim;
                 }
             }
@@ -2579,7 +2597,7 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
                 if (nvert[k_nvert][j][i] < 0.1) {
                     PetscReal faceArea = sqrt(zet[k_nvert][j][i].x*zet[k_nvert][j][i].x + zet[k_nvert][j][i].y*zet[k_nvert][j][i].y + zet[k_nvert][j][i].z*zet[k_nvert][j][i].z);
                     PetscReal fluxTrim = user->simCtx->boundaryVelocityCorrection * faceArea;
-                    if(data->applyBoundaryTrim) ucont[k_face][j][i].z += fluxTrim;
+                    if(data->enforceSeamFlux) ucont[k_face][j][i].z += fluxTrim;
                     uch[k_face][j][i].z = fluxTrim;
                 }
             }
@@ -2617,6 +2635,203 @@ static PetscErrorCode Destroy_PeriodicDrivenConstant(BoundaryCondition *self)
         
         LOG_ALLOW(LOCAL, LOG_TRACE, "Destroy_PeriodicDrivenConstant: Private data freed successfully.\n");
     }
+
+    PetscFunctionReturn(0);
+}
+
+
+// ===============================================================================
+//
+//      HANDLER IMPLEMENTATION: PERIODIC DRIVEN INITIAL FLUX
+//      (Corresponds to BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX)
+//
+//      Identical to the CONSTANT_FLUX handler except for where the target comes
+//      from: this one measures the volumetric flux of the field the run starts
+//      with and then holds it, so it takes no `target_flux` parameter. Once the
+//      target is latched the two handlers behave the same, so PreStep delegates
+//      to the constant implementation and Apply/Destroy are shared outright.
+//
+// ===============================================================================
+
+// --- 1. FORWARD DECLARATIONS ---
+
+static PetscErrorCode Initialize_PeriodicDrivenInitial(BoundaryCondition *self, BCContext *ctx);
+static PetscErrorCode PreStep_PeriodicDrivenInitial(BoundaryCondition *self, BCContext *ctx, PetscReal *in, PetscReal *out);
+
+// --- 2. HANDLER CONSTRUCTOR ---
+
+#undef __FUNCT__
+#define __FUNCT__ "Create_PeriodicDrivenInitial"
+/**
+ * @brief Internal helper implementation: `Create_PeriodicDrivenInitial()`.
+ * @details Local to this translation unit.
+ */
+PetscErrorCode Create_PeriodicDrivenInitial(BoundaryCondition *bc)
+{
+    PetscErrorCode ierr;
+    PetscFunctionBeginUser;
+
+    if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input BoundaryCondition object is NULL in Create_PeriodicDrivenInitial");
+
+    // --- Allocate the private data structure ---
+    DrivenFluxData *data = NULL;
+    ierr = PetscNew(&data); CHKERRQ(ierr);
+    // Initialize fields to safe default values
+    data->direction = ' ';
+    data->targetVolumetricFlux = 0.0;
+    data->isMasterController = PETSC_FALSE;
+    data->enforceSeamFlux = PETSC_FALSE;
+    data->lastBulkCorrectionStep = -1;
+
+    // Attach the private data to the generic handler object
+    bc->data = (void*)data;
+
+    // --- Configure the handler's properties and methods ---
+
+    // Same priority reasoning as the constant-flux handler: PreStep must run
+    // before any handler that depends on the controller's corrections.
+    bc->priority   = BC_PRIORITY_INLET;
+
+    bc->Initialize = Initialize_PeriodicDrivenInitial;
+    bc->PreStep    = PreStep_PeriodicDrivenInitial;
+    bc->Apply      = Apply_PeriodicDrivenConstant;  // Boundary trim is target-agnostic.
+    bc->PostStep   = NULL; // This handler has no action after the main solver step.
+    bc->UpdateUbcs = NULL; // The boundary value is not flow-dependent (it's periodic).
+    bc->Destroy    = Destroy_PeriodicDrivenConstant; // Same private data layout.
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "Initialize_PeriodicDrivenInitial"
+/**
+ * @brief Initialize forcing data for a periodic boundary driven to its initial flux.
+ *
+ * @note The target itself is NOT measured here. Boundary handlers are
+ *       initialized before `InitializeEulerianState()` runs, so at this point
+ *       `Ucont` still holds zeros. The measurement is deferred to the first
+ *       PreStep, by which time either the initial condition has been applied or
+ *       the restart target has been restored from the checkpoint manifest.
+ */
+static PetscErrorCode Initialize_PeriodicDrivenInitial(BoundaryCondition *self, BCContext *ctx)
+{
+    PetscErrorCode ierr;
+    DrivenFluxData *data = (DrivenFluxData*)self->data;
+    BCFace face_id = ctx->face_id;
+    UserCtx* user = ctx->user;
+
+    PetscFunctionBeginUser;
+
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Initializing PERIODIC_DRIVEN_INITIAL_FLUX handler on Face %s...\n", BCFaceToString(face_id));
+
+    // --- 1. Validation: Ensure the mathematical type is PERIODIC ---
+    if (user->boundary_faces[face_id].mathematical_type != PERIODIC) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+                "Configuration Error: Handler PERIODIC_DRIVEN_INITIAL_FLUX on Face %s must be applied to a face with mathematical_type PERIODIC.",
+                BCFaceToString(face_id));
+    }
+
+    // --- 2. Role Assignment: Determine direction and master status ---
+    data->isMasterController = PETSC_FALSE;
+    switch (face_id) {
+        case BC_FACE_NEG_X: data->direction = 'X'; data->isMasterController = PETSC_TRUE; break;
+        case BC_FACE_POS_X: data->direction = 'X'; break;
+        case BC_FACE_NEG_Y: data->direction = 'Y'; data->isMasterController = PETSC_TRUE; break;
+        case BC_FACE_POS_Y: data->direction = 'Y'; break;
+        case BC_FACE_NEG_Z: data->direction = 'Z'; data->isMasterController = PETSC_TRUE; break;
+        case BC_FACE_POS_Z: data->direction = 'Z'; break;
+    }
+
+    // --- 3. Parameter Parsing (Master Controller only) ---
+    if (data->isMasterController) {
+        PetscReal unused_flux;
+        PetscBool found;
+
+        // This handler derives its own target, so an explicit one is a config error
+        // rather than something to silently ignore. Users who want to prescribe the
+        // flux should select the `constant_flux` handler instead.
+        ierr = GetBCParamReal(user->boundary_faces[face_id].params, "target_flux",
+                              &unused_flux, &found); CHKERRQ(ierr);
+        if (found) {
+            SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
+                    "Configuration Error: Handler PERIODIC_DRIVEN_INITIAL_FLUX on Face %s takes no 'target_flux' parameter; "
+                    "it measures the flux of the initial condition and holds that. Use handler 'constant_flux' to prescribe a target.",
+                    BCFaceToString(face_id));
+        }
+
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Driven Flow (Dir %c): target volumetric flux will be latched from the initial state.\n",
+                  data->direction);
+    }
+
+    PetscBool trimfound;
+    // Optional seam-flux enforcement; accepts the deprecated `apply_trim` spelling.
+    ierr = GetDrivenSeamFluxFlag(user->boundary_faces[face_id].params,
+                                 &data->enforceSeamFlux, &trimfound); CHKERRQ(ierr);
+
+    if(!trimfound) LOG_ALLOW(GLOBAL,LOG_DEBUG,"Seam-flux enforcement not specified, defaults to %s.\n",data->enforceSeamFlux? "True":"False");
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "PreStep_PeriodicDrivenInitial"
+/**
+ * @brief Latch the initial-state flux once, then drive to it like a constant target.
+ *
+ * @details The latch is one-shot and guarded by `simCtx->drivenFluxTargetLatched`:
+ *          - Fresh start: the flag is false and `Ucont` now holds the initial
+ *            condition, so the plane-averaged flux is measured and stored.
+ *          - Restart: `ReadSimulationFields()` restored both the target and the
+ *            flag from the checkpoint manifest, so the original target survives
+ *            instead of being re-measured from a drifted field.
+ */
+static PetscErrorCode PreStep_PeriodicDrivenInitial(BoundaryCondition *self, BCContext *ctx,
+                                                    PetscReal *local_inflow_contribution,
+                                                    PetscReal *local_outflow_contribution)
+{
+    PetscErrorCode ierr;
+    DrivenFluxData *data = (DrivenFluxData*)self->data;
+    SimCtx* simCtx = ctx->user->simCtx;
+
+    PetscFunctionBeginUser;
+
+    if (data->isMasterController) {
+        if (!simCtx->drivenFluxTargetLatched) {
+            PetscReal boundaryFlux, planarAverageFlux;
+
+            /* Boundary handlers are also exercised once during setup, from
+             * FinalizeBlockState(), and at that point the initial condition has
+             * been written to Ucont but not yet scattered into the ghosted
+             * lUcont that MeasureDrivenFluxes() reads. Latching there would
+             * record a target of zero. Setup runs with step == StartStep, so
+             * wait for the first PreStep of the first real timestep: by then
+             * lUcont holds the initial condition (or, on a restart, the state
+             * the restored target already describes). Do no work at all until
+             * then, so no bogus correction is derived from a zero target. */
+            if (simCtx->step <= simCtx->StartStep) {
+                simCtx->bulkVelocityCorrection = 0.0;
+                simCtx->boundaryVelocityCorrection = 0.0;
+                PetscFunctionReturn(0);
+            }
+
+            ierr = MeasureDrivenFluxes(ctx->user, data->direction,
+                                       &boundaryFlux, &planarAverageFlux); CHKERRQ(ierr);
+
+            simCtx->targetVolumetricFlux    = planarAverageFlux;
+            simCtx->drivenFluxTargetLatched = PETSC_TRUE;
+
+            LOG_ALLOW(GLOBAL, LOG_INFO,
+                      "Driven Flow (Dir %c): latched initial volumetric flux %.6e as the target.\n",
+                      data->direction, planarAverageFlux);
+        }
+        // Keep the handler's copy in step with the authoritative value in SimCtx,
+        // which is also where a restart deposits the restored target.
+        data->targetVolumetricFlux = simCtx->targetVolumetricFlux;
+    }
+
+    ierr = PreStep_PeriodicDrivenConstant(self, ctx,
+                                          local_inflow_contribution,
+                                          local_outflow_contribution); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }

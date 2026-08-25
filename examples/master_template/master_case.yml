@@ -366,7 +366,14 @@ boundary_conditions:
 #     type: PERIODIC
 #     params:
 #       target_flux: 1.0              Target non-dimensional volumetric flux [m^3/s / (U_ref * L_ref^2)].
-#       apply_trim: false             [true/false] Optional. Trim residual flux imbalance after correction.
+#       enforce_seam_flux: false      [true/false] Optional, default false. Adds a local
+#                                     correction to the face fluxes of the periodic SEAM PLANE
+#                                     so the flux through that one plane matches the target.
+#                                     The body force already holds the bulk flux; this only
+#                                     addresses the seam. Leave false unless Bcs.Uch shows a
+#                                     persistently large seam mismatch - enabling it can
+#                                     reintroduce divergence and injects single-plane noise.
+#                                     `apply_trim` is accepted as a deprecated alias.
 
 # --- Example for a 2-Block Case (syntax example; all handlers shown are currently supported) ---
 # boundary_conditions:
