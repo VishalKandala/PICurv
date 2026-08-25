@@ -1058,6 +1058,82 @@ static PetscErrorCode TestFinalizePostProjectionCellFieldsNonPeriodic(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief EnforceRHSBoundaryConditions() must zero a row exactly when it is not an unknown.
+ *
+ * This is the invariant that ties the residual path to ClassifyMomentumRow(). It is
+ * checked across a non-periodic, a singly-periodic and a fully-periodic configuration
+ * because the defect it guards against was visible only when an axis was periodic:
+ * the duplicate column at index 0 was left unzeroed, so ComputeTotalResidual()'s BDF
+ * term accumulated there on every call and the residual norm stopped describing the
+ * state. A sentinel fill makes an untouched row detectable rather than accidentally
+ * correct.
+ */
+static PetscErrorCode TestEnforceRHSBoundaryConditionsMatchesRowClassification(void)
+{
+    const struct {
+        const char *label;
+        PetscBool   x_periodic, y_periodic, z_periodic;
+    } configs[] = {
+        {"non-periodic",     PETSC_FALSE, PETSC_FALSE, PETSC_FALSE},
+        {"xi-periodic",      PETSC_TRUE,  PETSC_FALSE, PETSC_FALSE},
+        {"fully-periodic",   PETSC_TRUE,  PETSC_TRUE,  PETSC_TRUE },
+    };
+    const PetscScalar sentinel = 7.0;
+
+    PetscFunctionBeginUser;
+    for (size_t c = 0; c < sizeof(configs) / sizeof(configs[0]); ++c) {
+        SimCtx  *simCtx = NULL;
+        UserCtx *user = NULL;
+        Cmpnts ***rhs = NULL;
+        const PetscBool periodic[3] = {configs[c].x_periodic, configs[c].y_periodic, configs[c].z_periodic};
+        const BCFace neg_face[3] = {BC_FACE_NEG_X, BC_FACE_NEG_Y, BC_FACE_NEG_Z};
+        const BCFace pos_face[3] = {BC_FACE_POS_X, BC_FACE_POS_Y, BC_FACE_POS_Z};
+
+        PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 6, 6, 6,
+                                                             configs[c].x_periodic,
+                                                             configs[c].y_periodic,
+                                                             configs[c].z_periodic));
+        for (PetscInt axis = 0; axis < 3; ++axis) {
+            const BCType type = periodic[axis] ? PERIODIC : WALL;
+            user->boundary_faces[neg_face[axis]].mathematical_type = type;
+            user->boundary_faces[pos_face[axis]].mathematical_type = type;
+        }
+
+        PetscCall(VecDuplicate(user->Ucont, &user->Rhs));
+        PetscCall(VecSet(user->Rhs, sentinel));
+        PetscCall(EnforceRHSBoundaryConditions(user));
+
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->Rhs, &rhs));
+        for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
+            for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
+                for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
+                    const PetscScalar *row = &rhs[k][j][i].x;
+                    for (PetscInt component = 0; component < 3; ++component) {
+                        PetscInt ri, rj, rk;
+                        const MomentumRowType type =
+                            ClassifyMomentumRow(user, i, j, k, component, &ri, &rj, &rk);
+                        const PetscScalar expected = (type == MOM_ROW_PHYSICAL) ? sentinel : 0.0;
+                        char context[192];
+
+                        PetscCall(PetscSNPrintf(context, sizeof(context),
+                            "%s: row (i=%d,j=%d,k=%d,c=%d) classified %d must be %s",
+                            configs[c].label, (int)i, (int)j, (int)k, (int)component, (int)type,
+                            (type == MOM_ROW_PHYSICAL) ? "left untouched" : "zeroed"));
+                        PetscCall(PicurvAssertRealNear((PetscReal)expected, (PetscReal)row[component],
+                                                       1.0e-14, context));
+                    }
+                }
+            }
+        }
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Rhs, &rhs));
+
+        PetscCall(VecDestroy(&user->Rhs));
+        PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Runs the unit-boundaries PETSc test binary.
  */
 
@@ -1081,6 +1157,7 @@ int main(int argc, char **argv)
         {"outlet-conservation-handler-behavior", TestOutletConservationHandlerBehavior},
         {"outlet-conservation-handler-face-matrix", TestOutletConservationHandlerFaceMatrix},
         {"finalize-post-projection-cell-fields-non-periodic", TestFinalizePostProjectionCellFieldsNonPeriodic},
+        {"enforce-rhs-bcs-matches-row-classification", TestEnforceRHSBoundaryConditionsMatchesRowClassification},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv boundary tests");

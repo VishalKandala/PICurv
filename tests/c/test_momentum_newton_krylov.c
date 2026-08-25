@@ -459,38 +459,38 @@ static PetscErrorCode TestFixedConstraintDerivativesAllFaces(void)
     for (PetscInt axis = 0; axis < 3; ++axis) {
         PetscInt coord[3] = {2, 2, 2}, ri, rj, rk;
         PetscInt tangent = (axis + 1) % 3;
-        MomentumNewtonKrylovRowType row;
+        MomentumRowType row;
 
         coord[axis] = 0;
-        row = MomentumNewtonKrylov_ClassifyRow(user, coord[0], coord[1], coord[2], axis, &ri, &rj, &rk);
-        PetscCall(PicurvAssertIntEqual(MOM_NK_ROW_FIXED_CONDITIONED, row,
+        row = ClassifyMomentumRow(user, coord[0], coord[1], coord[2], axis, &ri, &rj, &rk);
+        PetscCall(PicurvAssertIntEqual(MOM_ROW_FIXED_CONDITIONED, row,
                                        "negative face normal row classification"));
         PetscCall(CheckStoredDerivative(user, x, coord[0], coord[1], coord[2], axis,
             coord[0], coord[1], coord[2], axis, 1.0, 1.0e-8,
             "negative face normal fixed derivative"));
 
-        row = MomentumNewtonKrylov_ClassifyRow(user, coord[0], coord[1], coord[2], tangent, &ri, &rj, &rk);
-        PetscCall(PicurvAssertIntEqual(MOM_NK_ROW_FIXED_HOMOGENEOUS, row,
+        row = ClassifyMomentumRow(user, coord[0], coord[1], coord[2], tangent, &ri, &rj, &rk);
+        PetscCall(PicurvAssertIntEqual(MOM_ROW_FIXED_HOMOGENEOUS, row,
                                        "negative face tangential row classification"));
         PetscCall(CheckStoredDerivative(user, x, coord[0], coord[1], coord[2], tangent,
             coord[0], coord[1], coord[2], tangent, 1.0, 1.0e-8,
             "negative face tangential homogeneous derivative"));
 
         coord[axis] = size[axis] - 2;
-        row = MomentumNewtonKrylov_ClassifyRow(user, coord[0], coord[1], coord[2], axis, &ri, &rj, &rk);
-        PetscCall(PicurvAssertIntEqual(MOM_NK_ROW_FIXED_CONDITIONED, row,
+        row = ClassifyMomentumRow(user, coord[0], coord[1], coord[2], axis, &ri, &rj, &rk);
+        PetscCall(PicurvAssertIntEqual(MOM_ROW_FIXED_CONDITIONED, row,
                                        "positive physical normal row classification"));
         PetscCall(CheckStoredDerivative(user, x, coord[0], coord[1], coord[2], axis,
             coord[0], coord[1], coord[2], axis, 1.0, 1.0e-8,
             "positive physical normal fixed derivative"));
-        row = MomentumNewtonKrylov_ClassifyRow(user, coord[0], coord[1], coord[2], tangent, &ri, &rj, &rk);
-        PetscCall(PicurvAssertIntEqual(MOM_NK_ROW_PHYSICAL, row,
+        row = ClassifyMomentumRow(user, coord[0], coord[1], coord[2], tangent, &ri, &rj, &rk);
+        PetscCall(PicurvAssertIntEqual(MOM_ROW_PHYSICAL, row,
                                        "positive physical tangential row classification"));
 
         coord[axis] = size[axis] - 1;
         for (PetscInt component = 0; component < 3; ++component) {
-            row = MomentumNewtonKrylov_ClassifyRow(user, coord[0], coord[1], coord[2], component, &ri, &rj, &rk);
-            PetscCall(PicurvAssertIntEqual(MOM_NK_ROW_FIXED_HOMOGENEOUS, row,
+            row = ClassifyMomentumRow(user, coord[0], coord[1], coord[2], component, &ri, &rj, &rk);
+            PetscCall(PicurvAssertIntEqual(MOM_ROW_FIXED_HOMOGENEOUS, row,
                                            "positive dummy row classification"));
             PetscCall(CheckStoredDerivative(user, x, coord[0], coord[1], coord[2], component,
                 coord[0], coord[1], coord[2], component, 1.0, 1.0e-8,
@@ -1616,11 +1616,11 @@ static PetscErrorCode AssertExactPointBlockMatrixAllocation(
             for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
                 for (PetscInt component = 0; component < 3; ++component) {
                     PetscInt ri, rj, rk;
-                    MomentumNewtonKrylovRowType type = MomentumNewtonKrylov_ClassifyRow(
+                    MomentumRowType type = ClassifyMomentumRow(
                         user, i, j, k, component, &ri, &rj, &rk);
-                    expected_local += type == MOM_NK_ROW_PHYSICAL ? 3 :
-                                      type == MOM_NK_ROW_PERIODIC_DUPLICATE ? 2 : 1;
-                    if (type == MOM_NK_ROW_PERIODIC_DUPLICATE) {
+                    expected_local += type == MOM_ROW_PHYSICAL ? 3 :
+                                      type == MOM_ROW_PERIODIC_DUPLICATE ? 2 : 1;
+                    if (type == MOM_ROW_PERIODIC_DUPLICATE) {
                         PetscInt representative;
                         PetscCall(TestStencilToGlobal(user,
                             (MatStencil){.i = ri, .j = rj, .k = rk, .c = component},
@@ -1906,11 +1906,11 @@ static PetscErrorCode AssertPeriodicPreconditionerRow(UserCtx *user, Mat matrix,
     PetscInt ncols = 0;
     const PetscInt *cols = NULL;
     const PetscScalar *values = NULL;
-    MomentumNewtonKrylovRowType type;
+    MomentumRowType type;
 
     PetscFunctionBeginUser;
-    type = MomentumNewtonKrylov_ClassifyRow(user, row.i, row.j, row.k, row.c, &ri, &rj, &rk);
-    PetscCall(PicurvAssertIntEqual(MOM_NK_ROW_PERIODIC_DUPLICATE, type, message));
+    type = ClassifyMomentumRow(user, row.i, row.j, row.k, row.c, &ri, &rj, &rk);
+    PetscCall(PicurvAssertIntEqual(MOM_ROW_PERIODIC_DUPLICATE, type, message));
     global_row = row.c + 3 * (row.i + user->info.mx * (row.j + user->info.my * row.k));
     PetscCall(DMDAGetAO(user->fda, &ao));
     PetscCall(AOApplicationToPetsc(ao, 1, &global_row));

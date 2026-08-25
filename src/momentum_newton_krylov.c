@@ -56,13 +56,6 @@ typedef struct {
     MomentumPreconditionerEngine preconditioning_engine;
 } MomentumNewtonKrylovContext;
 
-typedef enum {
-    MOM_NK_ROW_PHYSICAL = 0,
-    MOM_NK_ROW_FIXED_CONDITIONED,
-    MOM_NK_ROW_FIXED_HOMOGENEOUS,
-    MOM_NK_ROW_PERIODIC_DUPLICATE
-} MomentumNewtonKrylovRowType;
-
 static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user);
 static PetscErrorCode MomentumNewtonKrylov_FormResidual(SNES snes, Vec X, Vec F, void *ctx);
 static PetscErrorCode MomentumNewtonKrylov_Monitor(SNES snes, PetscInt iteration,
@@ -77,9 +70,6 @@ static void MomentumNewtonKrylov_WriteSummary(const MomentumNewtonKrylovContext 
                                                PetscBool committed);
 static PetscErrorCode MomentumNewtonKrylov_ApplyConstraints(MomentumNewtonKrylovContext *ctx,
                                                             Vec X, Vec F);
-static MomentumNewtonKrylovRowType MomentumNewtonKrylov_ClassifyRow(
-    UserCtx *user, PetscInt i, PetscInt j, PetscInt k, PetscInt component,
-    PetscInt *ri, PetscInt *rj, PetscInt *rk);
 static PetscErrorCode MomentumNewtonKrylov_ReadLinearizationConfig(
     MomentumNewtonJacobian *jacobian, MomentumPreconditionerDescription *description);
 static PetscErrorCode MomentumNewtonKrylov_FormJacobian(SNES snes, Vec current_solution,
@@ -524,9 +514,9 @@ static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
                 for (PetscInt component = 0; component < 3; ++component) {
                     MatStencil row = {.i = i, .j = j, .k = k, .c = component};
                     PetscInt ri, rj, rk;
-                    MomentumNewtonKrylovRowType type = MomentumNewtonKrylov_ClassifyRow(
+                    MomentumRowType type = ClassifyMomentumRow(
                         user, i, j, k, component, &ri, &rj, &rk);
-                    if (type == MOM_NK_ROW_PHYSICAL) {
+                    if (type == MOM_ROW_PHYSICAL) {
                         PetscScalar block[9];
                         MatStencil cols[3] = {
                             {.i = i, .j = j, .k = k, .c = 0},
@@ -567,14 +557,14 @@ static PetscErrorCode MomentumPreconditionerEngine_ApplyConstraintRows(
             for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
                 for (PetscInt component = 0; component < 3; ++component) {
                     PetscInt ri, rj, rk;
-                    MomentumNewtonKrylovRowType type = MomentumNewtonKrylov_ClassifyRow(
+                    MomentumRowType type = ClassifyMomentumRow(
                         user, i, j, k, component, &ri, &rj, &rk);
-                    if (type != MOM_NK_ROW_PHYSICAL) {
+                    if (type != MOM_ROW_PHYSICAL) {
                         MatStencil row = {.i = i, .j = j, .k = k, .c = component};
                         MatStencil columns[2] = {row, row};
                         PetscScalar values[2] = {1.0, -1.0};
                         PetscInt column_count = 1;
-                        if (type == MOM_NK_ROW_PERIODIC_DUPLICATE) {
+                        if (type == MOM_ROW_PERIODIC_DUPLICATE) {
                             columns[column_count++] = (MatStencil){
                                 .i = ri, .j = rj, .k = rk, .c = component
                             };
@@ -751,79 +741,6 @@ static PetscErrorCode MomentumNewtonKrylov_FormJacobian(SNES snes, Vec current_s
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "MomentumNewtonKrylov_ClassifyRow"
-/**
- * @brief Classifies one stored staggered component row and its periodic representative.
- *
- * Negative nonperiodic planes and positive dummy planes are zeroed by the legacy
- * residual treatment. Only a face-normal row actually written by its boundary
- * handler is conditioned; the remaining zeroed rows use F=X. Periodic endpoint
- * rows use the same wrapped representatives as SynchronizePeriodicStaggeredFields().
- * At periodic/nonperiodic intersections the periodic equation owns rows that a
- * shrunken boundary-handler loop does not condition.
- *
- * @param user Block context containing boundary metadata and global dimensions.
- * @param i Global i index.
- * @param j Global j index.
- * @param k Global k index.
- * @param component Stored component, 0=x, 1=y, 2=z.
- * @param ri Returned periodic representative i index.
- * @param rj Returned periodic representative j index.
- * @param rk Returned periodic representative k index.
- * @return Exact version-one row category.
- */
-static MomentumNewtonKrylovRowType MomentumNewtonKrylov_ClassifyRow(
-    UserCtx *user, PetscInt i, PetscInt j, PetscInt k, PetscInt component,
-    PetscInt *ri, PetscInt *rj, PetscInt *rk)
-{
-    const PetscInt mx = user->info.mx, my = user->info.my, mz = user->info.mz;
-    const PetscInt coord[3] = {i, j, k};
-    const PetscInt size[3] = {mx, my, mz};
-    const BCFace neg_face[3] = {BC_FACE_NEG_X, BC_FACE_NEG_Y, BC_FACE_NEG_Z};
-    PetscBool periodic[3], periodic_duplicate = PETSC_FALSE;
-    PetscBool residual_zeroed = PETSC_FALSE, conditioned = PETSC_FALSE;
-
-    *ri = i; *rj = j; *rk = k;
-    for (PetscInt axis = 0; axis < 3; ++axis) {
-        periodic[axis] = (PetscBool)(
-            user->boundary_faces[neg_face[axis]].mathematical_type == PERIODIC);
-        if (periodic[axis] && coord[axis] == 0) {
-            periodic_duplicate = PETSC_TRUE;
-            if (axis == 0) *ri = -2;
-            else if (axis == 1) *rj = -2;
-            else *rk = -2;
-        }
-        if (periodic[axis] && coord[axis] == size[axis] - 1) {
-            periodic_duplicate = PETSC_TRUE;
-            if (axis == 0) *ri = mx + 1;
-            else if (axis == 1) *rj = my + 1;
-            else *rk = mz + 1;
-        }
-
-        if (!periodic[axis] && coord[axis] == 0) residual_zeroed = PETSC_TRUE;
-        if (coord[axis] == size[axis] - 1) residual_zeroed = PETSC_TRUE;
-        if (!periodic[axis] && coord[axis] == size[axis] - 2 && component == axis)
-            residual_zeroed = PETSC_TRUE;
-    }
-
-    if (!periodic[component] &&
-        (coord[component] == 0 || coord[component] == size[component] - 2)) {
-        PetscBool tangential_interior = PETSC_TRUE;
-        for (PetscInt axis = 0; axis < 3; ++axis) {
-            if (axis == component) continue;
-            if (coord[axis] < 1 || coord[axis] > size[axis] - 2)
-                tangential_interior = PETSC_FALSE;
-        }
-        conditioned = tangential_interior;
-    }
-
-    if (conditioned) return MOM_NK_ROW_FIXED_CONDITIONED;
-    if (periodic_duplicate) return MOM_NK_ROW_PERIODIC_DUPLICATE;
-    if (residual_zeroed) return MOM_NK_ROW_FIXED_HOMOGENEOUS;
-    return MOM_NK_ROW_PHYSICAL;
-}
-
-#undef __FUNCT__
 #define __FUNCT__ "MomentumPreconditionerEngine_CreateExactPointBlockMatrix"
 /**
  * @brief Creates the frozen point-block P matrix with its exact scalar pattern.
@@ -872,10 +789,10 @@ static PetscErrorCode MomentumPreconditionerEngine_CreateExactPointBlockMatrix(
                     MatStencil row_stencil = {.i = i, .j = j, .k = k, .c = component};
                     MatStencil column_stencils[3];
                     PetscInt row_local, row, column_locals[3], columns[3];
-                    MomentumNewtonKrylovRowType type = MomentumNewtonKrylov_ClassifyRow(
+                    MomentumRowType type = ClassifyMomentumRow(
                         user, i, j, k, component, &ri, &rj, &rk);
 
-                    if (type == MOM_NK_ROW_PHYSICAL) {
+                    if (type == MOM_ROW_PHYSICAL) {
                         column_count = 3;
                         for (PetscInt column_component = 0; column_component < 3;
                              ++column_component) {
@@ -886,7 +803,7 @@ static PetscErrorCode MomentumPreconditionerEngine_CreateExactPointBlockMatrix(
                     } else {
                         column_count = 1;
                         column_stencils[0] = row_stencil;
-                        if (type == MOM_NK_ROW_PERIODIC_DUPLICATE) {
+                        if (type == MOM_ROW_PERIODIC_DUPLICATE) {
                             column_stencils[column_count++] = (MatStencil){
                                 .i = ri, .j = rj, .k = rk, .c = component
                             };
@@ -979,11 +896,13 @@ cleanup:
 /**
  * @brief Replaces every non-independent residual row with an explicit equation.
  *
- * Conditioned face-normal rows use F=X-Uconditioned, unconditioned legacy
- * dummy/tangential rows use F=X, and periodic duplicates use Fdup=Xdup-Xrep.
- * These equations prevent the zero Jacobian rows produced by simply retaining
- * EnforceRHSBoundaryConditions() zeros in a matrix-free Newton operator. Immersed,
- * masked, TwoD, and interface rows are rejected before this callback is installed.
+ * Which rows are non-independent is decided by ClassifyMomentumRow(), shared with
+ * the residual path; only the action taken differs. Conditioned face-normal rows
+ * use F=X-Uconditioned, unconditioned legacy dummy/tangential rows use F=X, and
+ * periodic duplicates use Fdup=Xdup-Xrep. These equations prevent the zero Jacobian
+ * rows that EnforceRHSBoundaryConditions()'s zeroing would produce in a matrix-free
+ * Newton operator. Immersed, masked, TwoD, and interface rows are rejected before
+ * this callback is installed.
  * @param ctx Active solve context.
  * @param X Unconditioned PETSc trial state.
  * @param F Residual vector to update in place.
@@ -1018,13 +937,13 @@ static PetscErrorCode MomentumNewtonKrylov_ApplyConstraints(MomentumNewtonKrylov
 
                 for (PetscInt component = 0; component < 3; ++component) {
                     PetscInt ri, rj, rk;
-                    MomentumNewtonKrylovRowType row = MomentumNewtonKrylov_ClassifyRow(
+                    MomentumRowType row = ClassifyMomentumRow(
                         user, i, j, k, component, &ri, &rj, &rk);
                     const PetscScalar *rv = &lx[rk][rj][ri].x;
 
-                    if (row == MOM_NK_ROW_FIXED_CONDITIONED) fv[component] = xv[component] - cv[component];
-                    else if (row == MOM_NK_ROW_FIXED_HOMOGENEOUS) fv[component] = xv[component];
-                    else if (row == MOM_NK_ROW_PERIODIC_DUPLICATE) fv[component] = xv[component] - rv[component];
+                    if (row == MOM_ROW_FIXED_CONDITIONED) fv[component] = xv[component] - cv[component];
+                    else if (row == MOM_ROW_FIXED_HOMOGENEOUS) fv[component] = xv[component];
+                    else if (row == MOM_ROW_PERIODIC_DUPLICATE) fv[component] = xv[component] - rv[component];
                 }
             }
         }

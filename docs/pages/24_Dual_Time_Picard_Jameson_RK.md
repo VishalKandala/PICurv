@@ -130,6 +130,7 @@ A startup INFO log line prints the active CFL bounds, rejection threshold, EMA a
 - explicit comparator path: @ref MomentumSolver_Explicit_RungeKutta4
 - runtime dispatch: @ref FlowSolver
 - options ingestion: @ref CreateSimulationContext
+- residual row contract: @ref ClassifyMomentumRow, applied by @ref EnforceRHSBoundaryConditions
 
 @section p24_rhs_state_sec 6a. RHS State and Pseudo-Iteration Cadence
 
@@ -140,6 +141,24 @@ forces are a constant forcing with zero velocity Jacobian, which only holds if
 nothing inside the RHS advances per-timestep state on each call. Gate any such
 state on `simCtx->step`. Full rationale, and a worked case where this was
 violated in two places at once: @ref p31_rhs_cadence_sec.
+
+The same cadence makes the residual's *constrained rows* a state hazard, not just
+its physics. `ComputeRHS()` writes only the rows it owns and leaves the rest of the
+vector alone, so any row it skips retains whatever the previous call left there,
+while `ComputeTotalResidual()` adds the BDF term over the whole vector on top.
+A skipped row that nothing zeroes is therefore an accumulator: it grows by
+|dU|/dt on every evaluation regardless of the state, the adaptive controller reads
+that growth as divergence, and `dtau` collapses to its floor without any timestep
+converging. Reducing `dt` or raising `max_iterations` cannot help, because the
+increment does not depend on `dtau`.
+
+Which rows are constrained is therefore not a detail to restate locally. It is
+answered in one place, @ref ClassifyMomentumRow, and @ref EnforceRHSBoundaryConditions
+zeroes every row it does not classify as `MOM_ROW_PHYSICAL`. The matrix-free Newton
+path shares that classification and substitutes explicit equations instead of zeros,
+because a zeroed row would leave a zero Jacobian row. Periodic duplicate columns are
+the case most easily missed: `ComputeRHS()` writes only their face-normal component,
+so the transverse components must be zeroed here.
 
 @section p24_practical_sec 7. Practical Tuning Guidance
 
