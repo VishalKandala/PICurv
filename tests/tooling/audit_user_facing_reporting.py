@@ -89,13 +89,16 @@ def audit_cli_contract(contract: dict) -> list[str]:
     """
 
     cli_text = (REPO_ROOT / "picurv_cli" / "cli.py").read_text(encoding="utf-8")
-    core_text = (REPO_ROOT / "picurv_cli" / "core.py").read_text(encoding="utf-8")
+    handler_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((REPO_ROOT / "picurv_cli").glob("*.py"))
+    )
     findings: list[str] = []
     for command, entry in contract["cli_commands"].items():
         for field, text, surface in (
             ("parser", cli_text, "CLI parser"),
-            ("handler", core_text, "CLI handler"),
-            ("context", cli_text + core_text, "CLI context"),
+            ("handler", handler_text, "CLI handler"),
+            ("context", cli_text + handler_text, "CLI context"),
         ):
             if entry[field] not in text:
                 findings.append(f"{surface} for '{command}': missing contract fragment {entry[field]!r}.")

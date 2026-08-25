@@ -3323,6 +3323,7 @@ def test_local_no_submit_solve_post_stages_post_with_deferred_sources(tmp_path):
     assert len(run_dirs) == 1
     run_dir = run_dirs[0]
     assert (run_dir / "config" / "post.run").is_file()
+    assert (run_dir / "config" / "post.yml").read_text(encoding="utf-8") == (valid / "post.yml").read_text(encoding="utf-8")
     assert (run_dir / "scheduler" / "post_lock_wrapper.py").is_file()
 
     submission = json.loads((run_dir / "scheduler" / "submission.json").read_text(encoding="utf-8"))
@@ -3695,6 +3696,7 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
     assert any(token.endswith("/postprocessor") for token in calls[0]["command"])
     assert calls[0]["log_filename"] == os.path.join("scheduler", "existing_run_eulerian_data.log")
     assert (config_dir / "post.run").is_file()
+    assert (config_dir / "post.yml").read_text(encoding="utf-8") == post_path.read_text(encoding="utf-8")
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["stages_completed_or_submitted"] == ["post-process"]
 
@@ -8065,6 +8067,16 @@ def test_sweep_workflow_module_no_submit_writes_study_artifacts(tmp_path):
     assert (study_dir / "scheduler" / "solver_array.sbatch").is_file()
     assert (study_dir / "scheduler" / "post_array.sbatch").is_file()
     assert (study_dir / "scheduler" / "metrics_aggregate.sbatch").is_file()
+    portable_study = yaml.safe_load((study_dir / "study.yml").read_text(encoding="utf-8"))
+    assert (study_dir / "study.source.yml").is_file()
+    assert portable_study["base_configs"] == {
+        "case": "base_configs/case.yml",
+        "solver": "base_configs/solver.yml",
+        "monitor": "base_configs/monitor.yml",
+        "post": "base_configs/post.yml",
+    }
+    for relative_path in portable_study["base_configs"].values():
+        assert (study_dir / relative_path).is_file()
 
 
 def test_sweep_no_submit_writes_array_stdout_stderr_to_scheduler_dir(tmp_path):

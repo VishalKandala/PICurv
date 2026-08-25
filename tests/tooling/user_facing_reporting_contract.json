@@ -27,6 +27,7 @@
     "sync-binaries": {"parser": "_add_sync_binaries_parser", "handler": "sync_case_binaries_command", "context": "source"},
     "sync-config": {"parser": "_add_sync_config_parser", "handler": "sync_case_config_command", "context": "template"},
     "pull-source": {"parser": "_add_pull_source_parser", "handler": "pull_source_repo", "context": "branch"},
-    "status-source": {"parser": "_add_status_source_parser", "handler": "status_source_command", "context": "drift"}
+    "status-source": {"parser": "_add_status_source_parser", "handler": "status_source_command", "context": "drift"},
+    "storage": {"parser": "add_storage_parser", "handler": "storage_workflow", "context": "rclone"}
   }
 }

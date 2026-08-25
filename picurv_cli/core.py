@@ -35,6 +35,26 @@ from datetime import datetime
 import time
 import filecmp
 
+try:
+    from .storage import (
+        StorageError,
+        cold_study_members,
+        is_artifact_cold,
+        require_storage_payload_local,
+        runtime_stage_lock,
+        storage_state_summary,
+    )
+except ImportError:
+    # White-box tests also load core.py directly rather than as a package module.
+    from picurv_cli.storage import (
+        StorageError,
+        cold_study_members,
+        is_artifact_cold,
+        require_storage_payload_local,
+        runtime_stage_lock,
+        storage_state_summary,
+    )
+
 _NUMPY_MODULE = None
 _MATPLOTLIB_PYPLOT = None
 
@@ -3379,6 +3399,10 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
         source_run = os.path.abspath(restart_from)
         if not os.path.isdir(source_run):
             raise ValueError(f"--restart-from run directory does not exist: {source_run}")
+        try:
+            require_storage_payload_local(source_run, "--restart-from", checkpoint=start_step)
+        except StorageError as exc:
+            raise ValueError(str(exc)) from exc
         source_monitor = read_monitor_from_run(source_run)
         source_output = resolve_run_output_dir(source_run, source_monitor)
         if not os.path.isdir(source_output):
@@ -3417,6 +3441,10 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
         continue_run_dir = os.path.abspath(continue_run_dir)
         if not os.path.isdir(continue_run_dir):
             raise ValueError(f"--run-dir does not exist: {continue_run_dir}")
+        try:
+            require_storage_payload_local(continue_run_dir, "--continue", checkpoint=start_step)
+        except StorageError as exc:
+            raise ValueError(str(exc)) from exc
         validate_continue_case_identity(continue_run_dir, case_cfg)
 
         source_output = resolve_run_output_dir(continue_run_dir, monitor_cfg)
@@ -12776,7 +12804,12 @@ def run_workflow(args):
             if args.no_submit:
                 print(f"[SUCCESS] Staged local solver command: {solver_log}")
             else:
-                execute_command(command, run_dir, solver_log, configs['monitor'])
+                try:
+                    with runtime_stage_lock(run_dir, "solver"):
+                        execute_command(command, run_dir, solver_log, configs['monitor'])
+                except StorageError as exc:
+                    print(f"[FATAL] {exc}", file=sys.stderr)
+                    sys.exit(1)
                 submission_meta["stages"]["solve"]["submitted"] = True
                 submission_meta["stages"]["solve"]["executed"] = True
                 submission_meta["stages"]["solve"]["completed_at"] = datetime.now().isoformat()
@@ -12816,9 +12849,29 @@ def run_workflow(args):
         monitor_cfg = read_yaml_file(monitor_path)
         post_cfg = read_yaml_file(args.post)
 
+        requested_start, requested_end, requested_interval = resolve_post_requested_window(post_cfg, case_cfg)
+        try:
+            require_storage_payload_local(
+                run_dir,
+                "post-processing",
+                checkpoints=range(requested_start, requested_end + 1, requested_interval),
+            )
+        except StorageError as exc:
+            emit_structured_error(
+                ERROR_CODE_CFG_FILE_NOT_FOUND,
+                key="storage",
+                file_path=run_dir,
+                message=str(exc),
+            )
+            sys.exit(1)
+
         print("[INFO] Validating post-processing configuration...")
         validate_post_config(post_cfg, args.post, monitor_cfg, case_cfg)
         print("[SUCCESS] Post-processing configuration passed validation.\n")
+
+        archived_post_path = os.path.join(config_dir, "post.yml")
+        if os.path.abspath(args.post) != os.path.abspath(archived_post_path):
+            shutil.copy2(args.post, archived_post_path)
 
         solver_sources_deferred = bool(args.solve and (cluster_mode or args.no_submit))
         allow_source_frontier_scan = not solver_sources_deferred
@@ -13184,11 +13237,21 @@ def sweep_workflow(args):
         os.makedirs(path, exist_ok=True)
 
     print(f"[INFO] Creating study directory: {os.path.relpath(study_dir)}")
-    shutil.copy(study_path, os.path.join(study_dir, "study.yml"))
-    shutil.copy(cluster_path, os.path.join(study_dir, "cluster.yml"))
-
     base_cfgs = study_cfg["base_configs"]
     base_paths = {k: resolve_path(study_path, v) for k, v in base_cfgs.items()}
+    base_snapshot_dir = os.path.join(study_dir, "base_configs")
+    os.makedirs(base_snapshot_dir, exist_ok=True)
+    portable_study_cfg = copy.deepcopy(study_cfg)
+    portable_study_cfg["base_configs"] = {}
+    for role in ("case", "solver", "monitor", "post"):
+        snapshot_name = f"{role}.yml"
+        snapshot_path = os.path.join(base_snapshot_dir, snapshot_name)
+        shutil.copy2(base_paths[role], snapshot_path)
+        portable_study_cfg["base_configs"][role] = os.path.join("base_configs", snapshot_name)
+    shutil.copy2(study_path, os.path.join(study_dir, "study.source.yml"))
+    write_yaml_file(os.path.join(study_dir, "study.yml"), portable_study_cfg)
+    shutil.copy2(cluster_path, os.path.join(study_dir, "cluster.yml"))
+
     base_case = read_yaml_file(base_paths["case"])
     base_solver = read_yaml_file(base_paths["solver"])
     base_monitor = read_yaml_file(base_paths["monitor"])
@@ -13436,6 +13499,22 @@ def sweep_continue_workflow(args):
 
     parsed_entries = parse_case_index_tsv(case_index_file)
 
+    cold_cases = cold_study_members(study_dir)
+    if cold_cases:
+        print(
+            "[FATAL] Study continuation requires payload from cold-storage member(s): "
+            + ", ".join(cold_cases),
+            file=sys.stderr,
+        )
+        for case_id in cold_cases:
+            state = storage_state_summary(os.path.join(cases_dir, case_id))
+            print(
+                f"        Restore {case_id} with: picurv storage restore --archive-id "
+                f"{state.get('archive_id') or '<archive-id>'}",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+
     base_cfgs = study_cfg["base_configs"]
     base_paths = {k: resolve_path(study_path, v) for k, v in base_cfgs.items()}
     base_case = read_yaml_file(base_paths["case"])
@@ -13640,6 +13719,14 @@ def sweep_reaggregate_workflow(args):
         sys.exit(1)
 
     parsed_entries = parse_case_index_tsv(case_index_file)
+    cold_cases = cold_study_members(study_dir)
+    if cold_cases:
+        print(
+            "[FATAL] Metrics reaggregation would read archived member data and could replace values with blanks. "
+            "Restore these member(s) first: " + ", ".join(cold_cases),
+            file=sys.stderr,
+        )
+        sys.exit(1)
     combinations = expand_study_parameter_combinations(study_cfg)
     if len(combinations) != len(parsed_entries):
         print(
@@ -15636,8 +15723,20 @@ def render_selected_summary(payload: dict, output_format: str = "text"):
     for key in ("case", "solver", "monitor"):
         if key in payload.get("configuration", {}):
             renderers[key](payload["configuration"][key])
+    storage = payload.get("storage")
+    if isinstance(storage, dict):
+        print("\nSTORAGE")
+        print("=" * 78)
+        print(f"  State      : {storage.get('state', 'LOCAL')}")
+        if storage.get("archive_id"):
+            print(f"  Archive ID : {storage['archive_id']}")
+        if storage.get("label"):
+            print(f"  Label      : {storage['label']}")
     if payload.get("_health_requested"):
-        health_payload = {key: value for key, value in payload.items() if key not in {"run_overview", "configuration", "_health_requested"}}
+        health_payload = {
+            key: value for key, value in payload.items()
+            if key not in {"run_overview", "configuration", "storage", "_health_requested"}
+        }
         render_run_summary(health_payload, output_format="text")
 
 
@@ -16530,7 +16629,7 @@ def summarize_workflow(args):
     health_requested = explicit_health or (not selected_configs and not getattr(args, "overview", False))
 
     context = None
-    combined = {}
+    combined = {"storage": storage_state_summary(args.run_dir)}
     if selected_configs or getattr(args, "overview", False):
         context = _build_summary_context(args.run_dir)
         if getattr(args, "overview", False):
@@ -16569,8 +16668,9 @@ def summarize_workflow(args):
         snapshot_rows=args.snapshot_rows,
         selection_mode=selection_mode,
     )
-    if not combined:
-        render_run_summary(health_payload, output_format=args.output_format)
+    if set(combined) == {"storage"}:
+        combined = {**health_payload, **combined, "_health_requested": True}
+        render_selected_summary(combined, output_format=args.output_format)
         return
     combined = {**health_payload, **combined, "_health_requested": True}
     render_selected_summary(combined, output_format=args.output_format)
@@ -16823,6 +16923,19 @@ def submit_staged_jobs(args):
         run_dir=getattr(args, "run_dir", None),
         study_dir=getattr(args, "study_dir", None),
     )
+    try:
+        require_storage_payload_local(target_context["root_dir"], "submission")
+    except StorageError as exc:
+        print(f"[FATAL] {exc}", file=sys.stderr)
+        sys.exit(1)
+    if target_context["target_kind"] == "study":
+        cold_cases = cold_study_members(target_context["root_dir"])
+        if cold_cases:
+            print(
+                "[FATAL] Submission requires cold-storage study member(s): " + ", ".join(cold_cases),
+                file=sys.stderr,
+            )
+            sys.exit(1)
     stage_order = ["solve", "post-process"]
     requested_stage = args.stage
     selected_stages = stage_order if requested_stage == "all" else [requested_stage]
@@ -17020,7 +17133,15 @@ def submit_staged_local_run(args, target_context: dict, selected_stages: list):
         monitor_cfg = read_yaml_file(monitor_path)
 
     for plan in stage_plans:
-        execute_command(plan["command"], target_context["root_dir"], plan["log_file"], monitor_cfg)
+        if plan["stage"] == "solve":
+            try:
+                with runtime_stage_lock(target_context["root_dir"], "solver"):
+                    execute_command(plan["command"], target_context["root_dir"], plan["log_file"], monitor_cfg)
+            except StorageError as exc:
+                print(f"[FATAL] {exc}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            execute_command(plan["command"], target_context["root_dir"], plan["log_file"], monitor_cfg)
         stage_meta = copy.deepcopy(plan["existing_meta"])
         stage_meta["command"] = plan["command"]
         stage_meta["command_string"] = format_command_for_display(plan["command"])

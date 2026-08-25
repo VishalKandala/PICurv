@@ -5,6 +5,8 @@
 This page explains how a PICurv run moves from a new solve to restart, post-processing reuse, and cluster job generation.
 It is the operational view of the run directory lifecycle.
 
+For verified remote protection, cold offload, and later restoration of these artifacts, see **@subpage 61_Storage_Management_Guide**.
+
 @tableofcontents
 
 @section p52_scope_sec 1. What A Run Lifecycle Means

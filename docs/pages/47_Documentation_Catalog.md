@@ -28,6 +28,7 @@ Use this page instead of the raw generated page dump.
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 - **@subpage 06_Simulation_Anatomy**
 - **@subpage 52_Run_Lifecycle_Guide**
+- **@subpage 61_Storage_Management_Guide**
 - **@subpage 53_Search_Robustness_Metrics_Reference**
 - **@subpage 36_Cluster_Run_Guide**
 - **@subpage 37_Sweep_Studies_Guide**
@@ -56,6 +57,7 @@ Use this page instead of the raw generated page dump.
 - **@subpage 34_Particle_Model_Overview**
 - **@subpage 45_Particle_Initialization_and_Restart**
 - **@subpage 52_Run_Lifecycle_Guide**
+- **@subpage 61_Storage_Management_Guide**
 
 @section p47_methods_axis_sec 3. Numerical Methods and Models
 
@@ -88,6 +90,7 @@ Use this page instead of the raw generated page dump.
 
 - **@subpage 36_Cluster_Run_Guide**
 - **@subpage 37_Sweep_Studies_Guide**
+- **@subpage 61_Storage_Management_Guide**
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 40_Testing_and_Quality_Guide**
 - **@subpage 29_Maintenance_Backlog**
