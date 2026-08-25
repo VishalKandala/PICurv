@@ -34,6 +34,7 @@ import warnings
 from datetime import datetime
 import time
 import filecmp
+import importlib.util
 
 try:
     from .storage import (
@@ -46,14 +47,18 @@ try:
     )
 except ImportError:
     # White-box tests also load core.py directly rather than as a package module.
-    from picurv_cli.storage import (
-        StorageError,
-        cold_study_members,
-        is_artifact_cold,
-        require_storage_payload_local,
-        runtime_stage_lock,
-        storage_state_summary,
-    )
+    _storage_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "storage.py")
+    _storage_spec = importlib.util.spec_from_file_location("picurv_storage_standalone", _storage_path)
+    if _storage_spec is None or _storage_spec.loader is None:
+        raise ImportError(f"Cannot load the PICurv storage module from {_storage_path}")
+    _storage_module = importlib.util.module_from_spec(_storage_spec)
+    _storage_spec.loader.exec_module(_storage_module)
+    StorageError = _storage_module.StorageError
+    cold_study_members = _storage_module.cold_study_members
+    is_artifact_cold = _storage_module.is_artifact_cold
+    require_storage_payload_local = _storage_module.require_storage_payload_local
+    runtime_stage_lock = _storage_module.runtime_stage_lock
+    storage_state_summary = _storage_module.storage_state_summary
 
 _NUMPY_MODULE = None
 _MATPLOTLIB_PYPLOT = None

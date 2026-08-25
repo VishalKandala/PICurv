@@ -7,6 +7,8 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +22,33 @@ from picurv_cli.cli import build_main_parser, dispatch_command
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "valid"
+
+
+def test_core_direct_file_load_resolves_sibling_storage_module(tmp_path: Path) -> None:
+    """!
+    @brief Verify standalone core loading does not depend on the checkout being importable.
+    @param[in] tmp_path Temporary directory outside the repository.
+    @return None.
+    """
+    script = f"""
+import importlib.machinery
+import importlib.util
+
+path = {str(REPO_ROOT / "picurv_cli" / "core.py")!r}
+loader = importlib.machinery.SourceFileLoader("picurv_core_standalone_test", path)
+spec = importlib.util.spec_from_loader(loader.name, loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+assert module.StorageError.__name__ == "StorageError"
+"""
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", script],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def _write_run(root: Path, with_checkpoint: bool = True) -> Path:
