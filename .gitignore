@@ -18,3 +18,7 @@ __pycache__/
 .picurv-python
 .picurv-python-env
 .picurv-venv/
+
+# Agent/developer scratch: keep the guide, ignore the contents
+/sandbox/*
+!/sandbox/guide.md
