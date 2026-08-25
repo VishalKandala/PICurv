@@ -106,6 +106,10 @@ fixed point of the boundary map, and re-applying it reveals the offset.
   |d|inf ~4.6e-10 against momentum `absolute_tol` 1e-8).
 - The magnitude *decreases* on finer grids and more developed flow.
 
+(Recorded before momentum convergence moved to the residual criterion: `absolute_tol` no
+longer participates while a residual tolerance is set. The finding is unaffected — it is about
+a structural floor, not about which tolerance is active.)
+
 **The perturbation is invariant to solver tolerance.** Tightening momentum
 `relative_tol` 1e-3 to 1e-8, `absolute_tol` 1e-8 to 1e-12, and Poisson
 `absolute_tolerance` 1e-5 to 1e-10 changed the restart offset by under one percent

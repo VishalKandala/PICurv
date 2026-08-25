@@ -70,12 +70,73 @@ Acceptance and rollback are global across blocks and MPI ranks. The `max_iterati
 
 Pseudo-CFL is adaptively ramped on successful trials (ratio < 0.90: immediate growth; 0.90–1.0: growth after 3 consecutive clean trials), reduced on noisy accepted trials or rejection, and clamped by configured min/max bounds. The controller-selected next CFL carries directly into the next physical timestep.
 
-**Convergence criteria** (both must pass simultaneously):
+**Convergence criteria.** When a residual tolerance is configured, the residual is
+what decides — only the residual states that the momentum equations are satisfied at
+the current state. The update norms measure progress, not correctness.
 
-- **Update pass**: `|ΔU| ≤ absolute_tol` **AND** `|ΔU|/|ΔU₀| ≤ relative_tol`
-- **Residual pass** (only checked when either residual tolerance is set to a positive value): at least one of `|R| ≤ mom_resid_atol` or `|R|/|R₀| ≤ mom_resid_rtol` must hold
+    converged = residual_abs_pass  OR  (residual_rel_pass AND update_pass)
 
-Both update and residual passes must be true simultaneously for the solver to declare convergence.
+- **`residual_abs_pass`**: `|R| ≤ residual_absolute_tol · resid_ref`. **Sufficient on its
+  own** — it states outright that the equations are satisfied to the configured level, which
+  is what an absolute tolerance means and how PETSc's SNES and KSP already behave.
+  `residual_absolute_tol` is **dimensionless**; see the note below.
+- **`residual_rel_pass`**: `|R|/|R₀| ≤ residual_relative_tol`. Weaker evidence — a 1000×
+  reduction says the iteration made progress from wherever it started, not that the result
+  is small, and `|R₀|` itself collapses near steady state. Paired with the update guard.
+- **`update_pass`**: `|ΔU|/|ΔU₀| ≤ relative_tol`, a stagnation guard, disabled by setting
+  `relative_tol` to zero.
+
+The update norm is **never sufficient by itself** in either branch. `|ΔU| ≈ dtau·|R|`, so it
+goes small whenever `dtau` goes small — observed as `|ΔU|` falling only ~10% over 100
+pseudo-iterations of a completely frozen iteration.
+
+Requiring `update_pass` alongside the absolute branch is what previously made the floor
+unable to fire. Measured on the laminar channel at step 793: `|R|` fell below the floor at
+pseudo-iteration 8, and the step still ran to 20 waiting on `|ΔU|/|ΔU₀|` — 60% of the step
+spent after the equations were already satisfied to specification.
+
+That same identity is why `absolute_tol` takes no part in the decision once a residual
+tolerance exists. `|ΔU| ≤ absolute_tol` is really `|R| ≤ absolute_tol/dtau`, a disguised
+residual bound that *tightens* as the adaptive controller succeeds in growing `dtau`.
+It duplicated the explicit residual test while pulling against it, and in practice it,
+rather than `residual_relative_tol`, was the criterion that gated convergence — the
+shipped laminar channel satisfied `residual_relative_tol: 1.0e-3` at pseudo-iteration
+10 and then ran to 15 waiting on `absolute_tol: 1.0e-8`.
+
+**With no residual tolerance configured** — both set non-positive, which is now an explicit
+opt-out since the defaults enable them — the update norms are the only information available
+and the legacy test is retained unchanged: `|ΔU| ≤ absolute_tol` **AND** `|ΔU|/|ΔU₀| ≤
+relative_tol`. That branch carries a false-convergence mode: `|ΔU| ≤ absolute_tol` can pass
+purely because `dtau` collapsed, converging on a state that does not satisfy the equations.
+It is retained only for backward compatibility and should not be selected deliberately.
+
+**Why the absolute residual tolerance is normalised.** `|R₀|` is the residual at the
+*previous timestep's* solution, so it shrinks as a run approaches steady state — measured
+on the laminar channel it falls four orders of magnitude over 500 steps, from 1.2e-2 to
+1.1e-6. A purely relative criterion therefore keeps demanding a further 1000× reduction of
+an ever-smaller number, and the pseudo-iteration count climbs back up (9 → 15 over the same
+stretch). `residual_absolute_tol` is the floor that stops that climb.
+
+It cannot be a raw bound on `|R|`, because `R` carries units of volumetric flux per time:
+across the shipped cases `|R|` at step 1 spans 1.2e-2 for the plane channels to 2.0 for the
+driven duct, a factor of ~165 that is almost entirely `dt` and velocity scale. The test is
+therefore
+
+\f[ |R| \le \texttt{residual\_absolute\_tol} \cdot R_{ref}, \qquad
+    R_{ref} = a_0 \, \|U_{cont}\|_\infty / \Delta t \f]
+
+`R_ref` is the magnitude of the residual's own BDF term, recomputed each physical step.
+Normalising by it collapses that 165× spread to roughly 4×, so a single dimensionless value
+is portable across cases. `R_ref` is deliberately **not** `|R₀|` — the relative test already
+uses that, and it is exactly the quantity that collapses near steady state. Being derived
+from the current state, `R_ref` also needs no checkpoint plumbing and is identical across a
+restart. A stagnant field gives `R_ref = 0`, in which case the absolute test is skipped
+rather than dividing by zero, leaving the relative test in sole charge.
+
+Because the two residual tests are OR'd, a `residual_absolute_tol` set too high would
+satisfy convergence at pseudo-iteration 1. The shipped value of 1.0e-8 sits about six orders
+below the step-1 normalised residual of the laminar channel (~0.17), so it stays inert
+through the transient and only takes effect near steady state.
 
 @section p24_config_sec 4. YAML → Runtime Controls
 
@@ -83,7 +144,8 @@ User-facing configuration (`solver.yml`) maps to:
 
 - `strategy.momentum_solver` → `-mom_solver_type`
 - `tolerances.max_iterations` → `-mom_max_pseudo_steps`
-- `tolerances.absolute_tol` → `-mom_atol`
+- `tolerances.absolute_tol` → `-mom_atol` (**deprecated**; removed from the shipped configs,
+  still accepted with a CLI warning, inactive while a residual tolerance is set)
 - `tolerances.relative_tol` → `-mom_rtol`
 - `tolerances.residual_absolute_tol` → `-mom_resid_atol`
 - `tolerances.residual_relative_tol` → `-mom_resid_rtol`

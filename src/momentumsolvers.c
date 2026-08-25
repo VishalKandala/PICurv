@@ -786,6 +786,10 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
      *   not a generally-stable value for the actual operator -- to be characterized in A4.)
      * dtau_min / dtau_max: per-timestep bounds derived from simCtx->min/max_pseudo_cfl. */
     PetscReal  lambda_max = 0.0;
+    /* resid_ref: reference scale for the residual [same units as R], recomputed each
+     * physical step. See the assembly below for why the absolute residual tolerance is
+     * measured against this rather than being a raw dimensional bound. */
+    PetscReal  resid_ref = 0.0;
     PetscReal  dtau_min, dtau_max;
 
     // --- Local Metric Arrays (Per Block) ---
@@ -840,6 +844,14 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
 
         // Compute Initial Norms
         ierr = VecNorm(user[bi].Rhs, NORM_INFINITY, &resid_norm_init[bi]); CHKERRQ(ierr);
+
+        /* Reference scale for the absolute residual test (see its use below). VecNorm is
+         * collective, so this is already global; take the max across blocks. */
+        {
+            PetscReal ucont_inf;
+            ierr = VecNorm(user[bi].Ucont, NORM_INFINITY, &ucont_inf); CHKERRQ(ierr);
+            resid_ref = PetscMax(resid_ref, MomentumBDFCoefficient(simCtx) * ucont_inf / dt);
+        }
         
         // Initialize history for backtracking logic
         resid_norm_prev[bi]     = resid_norm_init[bi]; /* meaningful ratio on first iteration */
@@ -893,10 +905,10 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO,
-        "Dual-time solver: lambda_max=%.4e [1/s]  dtau_init=%.4e  dtau range [%.4e, %.4e]  "
+        "Dual-time solver: lambda_max=%.4e [1/s]  resid_ref=%.4e  dtau_init=%.4e  dtau range [%.4e, %.4e]  "
         "CFL range [%.4f, %.4f]  rejection_threshold=%.3f (EMA alpha=%.2f)  "
         "growth=%.3f  reduction=%.3f  max_accepted=%d.\n",
-        lambda_max, cfl / lambda_max, dtau_min, dtau_max,
+        lambda_max, resid_ref, cfl / lambda_max, dtau_min, dtau_max,
         simCtx->min_pseudo_cfl, simCtx->max_pseudo_cfl,
         simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor,
         simCtx->mom_ratio_ema_alpha,
@@ -1196,17 +1208,52 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
             }
         }
 
-        PetscBool update_pass;
-        PetscBool residual_pass = PETSC_TRUE;
+        /* --- Convergence decision ---
+         *
+         * The residual is what states that the momentum equations are satisfied at the
+         * current state; the update norm measures progress, not correctness. The two
+         * residual tests therefore carry different weight and are structured differently.
+         *
+         *   converged = residual_abs_pass || (residual_rel_pass && update_pass)
+         *
+         * ABSOLUTE branch, sufficient on its own. |R| <= mom_resid_atol * resid_ref says
+         * the equations are satisfied to the configured level outright, so it needs no
+         * corroboration -- this is what an absolute tolerance means, and how PETSc's SNES
+         * and KSP already behave. Requiring the update guard alongside it made the floor
+         * unable to fire: measured on the laminar channel at step 793, |R| dropped below
+         * the floor at pseudo-iteration 8 and the step still ran to 20, because
+         * |dU|/|dU0| had not yet reached its own tolerance.
+         *
+         * RELATIVE branch, weaker evidence, paired with the update guard. A 1000x
+         * reduction of |R0| says the iteration made progress from wherever it started,
+         * not that the result is small; |R0| itself collapses as a run approaches steady
+         * state. The guard stays mandatory here.
+         *
+         * The update norm is never sufficient by itself in either branch. |dU| ~ dtau*|R|,
+         * so it goes small whenever dtau goes small -- observed as |dU| falling only ~10%
+         * over 100 pseudo-iterations of a completely frozen iteration. An ABSOLUTE bound
+         * on it (mom_atol) is the disguised, step-size-dependent residual bound
+         * |R| <= mom_atol/dtau, which tightens as the controller succeeds in growing dtau;
+         * it duplicates the residual test while pulling against it and takes no part here.
+         *
+         * With no residual criterion configured at all -- both residual tolerances set
+         * non-positive, an explicit opt-out since the defaults now enable them -- the
+         * update norms are the only information available and the legacy test is retained
+         * unchanged.
+         */
         if (residual_convergence_enabled) {
-            update_pass = (PetscBool)(global_norm_delta <= tol_abs_delta && global_rel_delta <= tol_rtol_delta);
-            residual_pass = (PetscBool)(
-                (simCtx->mom_resid_atol > 0.0 && global_norm_resid <= simCtx->mom_resid_atol) ||
-                (simCtx->mom_resid_rtol > 0.0 && global_rel_resid <= simCtx->mom_resid_rtol));
+            const PetscBool residual_abs_pass = (PetscBool)(
+                simCtx->mom_resid_atol > 0.0 && resid_ref > 0.0 &&
+                global_norm_resid <= simCtx->mom_resid_atol * resid_ref);
+            const PetscBool residual_rel_pass = (PetscBool)(
+                simCtx->mom_resid_rtol > 0.0 && global_rel_resid <= simCtx->mom_resid_rtol);
+            const PetscBool update_pass = (PetscBool)(
+                tol_rtol_delta <= 0.0 || global_rel_delta <= tol_rtol_delta);
+            converged = (PetscBool)(residual_abs_pass || (residual_rel_pass && update_pass));
         } else {
-            update_pass = (PetscBool)(global_norm_delta <= tol_abs_delta && global_rel_delta <= tol_rtol_delta);
+            converged = (PetscBool)(global_norm_delta <= tol_abs_delta &&
+                                    global_rel_delta <= tol_rtol_delta);
         }
-        converged = (PetscBool)(update_pass && residual_pass);
 
         if (block_number > 1) {
              // ierr = Block_Interface_U(user); CHKERRQ(ierr);

@@ -214,7 +214,12 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK; simCtx->mom_max_pseudo_steps = 50;
     simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor = 1.1; // raised from 1.05; less aggressive rejection
     simCtx->mom_atol = 1e-7; simCtx->mom_rtol = 1e-4;
-    simCtx->mom_resid_atol = 0.0; simCtx->mom_resid_rtol = 0.0;
+    /* Residual-based convergence is the default. Leaving both at 0.0 selected the
+     * update-only branch, where |dU| <= mom_atol can pass purely because dtau collapsed
+     * (|dU| ~ dtau*|R|), converging on a state that does not satisfy the equations.
+     * Shipped configs all set these explicitly; these defaults protect a minimal
+     * user-written config. Set both non-positive to opt back out deliberately. */
+    simCtx->mom_resid_atol = 1e-8; simCtx->mom_resid_rtol = 1e-3;
     simCtx->imp_stol = 1.e-8;
     simCtx->mglevels = 3; simCtx->mg_MAX_IT = 30; simCtx->mg_idx = 1;
     simCtx->mg_preItr = 1; simCtx->mg_poItr = 1;
