@@ -52,21 +52,44 @@ compatibility aliases; generated controls always use the canonical Jameson names
 ```yaml
 tolerances:
   max_iterations: 50
-  absolute_tol: 1.0e-7
   relative_tol: 1.0e-4
-  residual_absolute_tol: 0.0
+  residual_absolute_tol: 1.0e-8   # dimensionless (see below)
   residual_relative_tol: 1.0e-3
 ```
 
 Mappings:
 - `max_iterations` -> `-mom_max_pseudo_steps`
-- `absolute_tol` -> `-mom_atol`
 - `relative_tol` -> `-mom_rtol`
 - `residual_absolute_tol` -> `-mom_resid_atol`
 - `residual_relative_tol` -> `-mom_resid_rtol`
 
-When both residual tolerances are non-positive, the solver preserves its
-existing update-only convergence criterion. `step_tol`/`-imp_stol` remains
+`absolute_tol` -> `-mom_atol` is **deprecated** and no longer appears in the shipped
+configs. It is still accepted, but the CLI warns that it takes no part in convergence while
+a residual tolerance is active; it survives only for the legacy update-only branch.
+
+Both residual tolerances now **default to enabled** (`-mom_resid_atol` 1e-8,
+`-mom_resid_rtol` 1e-3). Setting both non-positive is an explicit opt-out that selects the
+legacy update-only branch, which can converge falsely when `dtau` collapses; prefer not to.
+
+When either residual tolerance is positive it decides convergence: the absolute test is
+sufficient on its own, and the relative test is paired with `relative_tol` as a guard.
+`absolute_tol` then takes no part, because
+`|dU| <= absolute_tol` is the disguised, step-size-dependent residual bound
+`|R| <= absolute_tol/dtau`. When both residual tolerances are non-positive, the
+solver preserves its existing update-only convergence criterion (`absolute_tol`
+**and** `relative_tol`). See @ref p24_convergence_sec.
+
+`residual_absolute_tol` is **dimensionless**. The residual carries units of
+volumetric flux per time, so a raw bound on `|R|` would need retuning for every
+grid, velocity scale and timestep; across the shipped cases `|R|` at step 1 spans
+1.2e-2 (plane channels) to 2.0 (driven duct). The test applied is
+
+    |R| <= residual_absolute_tol * resid_ref,   resid_ref = a0 * |Ucont|_inf / dt
+
+where `resid_ref` is the magnitude of the residual's own BDF term, recomputed each
+physical step. Normalising by it removes the `dt` and velocity-scale factors that
+dominate that spread, so one value is portable. `resid_ref` is reported on the
+per-step `Dual-time solver:` log line. `step_tol`/`-imp_stol` remains
 accepted as a deprecated compatibility option but is unused by active
 momentum solvers.
 
@@ -76,7 +99,6 @@ momentum solvers.
 momentum_solver:
   dual_time_picard_jameson_rk:
     max_pseudo_steps: 50
-    absolute_tol: 1.0e-8
     relative_tol: 1.0e-5
     pseudo_cfl:           # dimensionless Courant number: dtau = pseudo_cfl / lambda_max
       initial: 0.5

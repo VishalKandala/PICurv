@@ -244,23 +244,80 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
     PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out);
 
 /**
- * @brief Enforces boundary conditions on the momentum equation's Right-Hand-Side (RHS) vector.
+ * @brief Classification of one staggered momentum row (location + component).
  *
- * This function performs two critical roles based on the legacy implementation:
+ * @see ClassifyMomentumRow() for the meaning of each member and for the
+ *      single-source-of-truth contract these values participate in.
+ */
+typedef enum {
+    MOM_ROW_PHYSICAL = 0,       /**< Independent unknown governed by the momentum equation. */
+    MOM_ROW_FIXED_CONDITIONED,  /**< Strong Dirichlet row; the value comes from ApplyBoundaryConditions(). */
+    MOM_ROW_FIXED_HOMOGENEOUS,  /**< Dummy/tangential row carrying no unknown at all. */
+    MOM_ROW_PERIODIC_DUPLICATE  /**< Duplicate of a wrapped representative row (see @p ri, @p rj, @p rk). */
+} MomentumRowType;
+
+/**
+ * @brief Single source of truth for "which staggered momentum rows are unknowns".
  *
- * 1.  **Strong BC Enforcement for Physical Boundaries:** For non-periodic boundaries (e.g., walls, inlets),
- *     it zeroes the normal component of the RHS in a "buffer" layer of cells just inside the
- *     domain (e.g., at i=mx-2). This strongly enforces Dirichlet conditions on velocity by preventing
- *     the time-stepping scheme from altering the boundary values set by `ApplyBoundaryConditions`.
+ * Every consumer of the momentum system must agree on which rows the solver is
+ * responsible for, and every consumer must derive that answer from this function
+ * rather than restating the index arithmetic locally. Three independent
+ * restatements previously disagreed, and the disagreement was silent: the
+ * residual assembly skipped the periodic duplicate column at index 0 while
+ * nothing zeroed it, so `ComputeTotalResidual()`'s BDF term accumulated there
+ * without bound and the reported residual norm stopped describing the state.
  *
- * 2.  **Ghost Cell Sanitization:** For all boundary faces (`i=0`, `i=mx-1`, etc.), it zeroes out all
- *     components of the RHS. Since the RHS is a cell-centered quantity in this architecture, these
- *     locations correspond to ghost cells. This step sanitizes these unused locations, ensuring they
- *     do not contain garbage data that could affect diagnostics or other routines. This sanitization
- *     is performed for ALL boundary types, including periodic ones.
+ * The classification depends only on @p user->info, the configured boundary
+ * types, and the queried index; it reads no field data and performs no
+ * communication, so it is safe to call inside assembly loops.
  *
- * This function should be called immediately after the RHS vector is fully assembled
- * (spatial + temporal terms) and before it is used in a time-stepping update.
+ * Periodicity of an axis is taken from that axis's NEGATIVE face, matching
+ * `ComputeRHS()` and `TransferPeriodicStaggeredFieldByDirection()`. A periodic
+ * axis is expected to carry PERIODIC on both of its faces.
+ *
+ * Callers act on the classification differently, and both actions are correct:
+ *   - residual/pseudo-time consumers (`EnforceRHSBoundaryConditions()`) zero
+ *     every non-physical row, because the value there is imposed immediately
+ *     afterwards by the boundary sweep or the periodic synchronisation;
+ *   - the matrix-free Newton path substitutes an explicit equation instead
+ *     (`F = X - U_conditioned`, `F = X`, `F = X_dup - X_rep`), because a zeroed
+ *     row would leave a zero Jacobian row.
+ *
+ * @param[in]  user      Block context supplying `info` and `boundary_faces`.
+ * @param[in]  i         Location index along xi.
+ * @param[in]  j         Location index along eta.
+ * @param[in]  k         Location index along zeta.
+ * @param[in]  component Staggered component of the row (0 = xi, 1 = eta, 2 = zeta).
+ * @param[out] ri        Representative xi index; equals @p i unless the row wraps.
+ * @param[out] rj        Representative eta index; equals @p j unless the row wraps.
+ * @param[out] rk        Representative zeta index; equals @p k unless the row wraps.
+ * @return The row classification. Only #MOM_ROW_PHYSICAL denotes an unknown.
+ */
+MomentumRowType ClassifyMomentumRow(UserCtx *user, PetscInt i, PetscInt j, PetscInt k,
+                                    PetscInt component, PetscInt *ri, PetscInt *rj, PetscInt *rk);
+
+/**
+ * @brief Zeroes every momentum RHS row that does not carry an independent unknown.
+ *
+ * The set of such rows is not restated here: each owned location and component is
+ * asked of ClassifyMomentumRow(), and anything other than #MOM_ROW_PHYSICAL is
+ * zeroed. That covers, without enumerating them,
+ *
+ *   - strong Dirichlet rows on non-periodic faces, so the time-stepping scheme
+ *     cannot alter the values `ApplyBoundaryConditions()` has just set;
+ *   - dummy layers at the far index of every axis, which hold no unknown; and
+ *   - periodic duplicate columns, whose value the next
+ *     `SynchronizePeriodicStaggeredFields()` copies from the wrapped master.
+ *
+ * The last case is the one that must not be skipped. `ComputeRHS()` leaves the
+ * transverse components of a periodic duplicate column untouched, so a row left
+ * unzeroed here retains its previous contents while `ComputeTotalResidual()`
+ * adds the BDF term on top of them on every call. The residual norm then grows
+ * by |dU|/dt per evaluation regardless of the state, and no pseudo-time
+ * iteration can reduce it.
+ *
+ * Call immediately after the RHS vector is fully assembled (spatial + temporal
+ * terms) and before it is used in a time-stepping update.
  *
  * @param user The UserCtx for the specific block being computed.
  * @return PetscErrorCode 0 on success.

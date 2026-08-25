@@ -9,15 +9,13 @@ strategy:
 
 tolerances:
   max_iterations: 20
-  absolute_tol: 1.0e-10
   relative_tol: 1.0e-8
-  residual_absolute_tol: 0.0
+  residual_absolute_tol: 1.0e-8   # dimensionless: |R| <= this * a0*|Ucont|_inf/dt
   residual_relative_tol: 1.0e-6
 
 momentum_solver:
   dual_time_picard_jameson_rk:
     max_pseudo_steps: 20
-    absolute_tol: 1.0e-10
     relative_tol: 1.0e-8
     pseudo_cfl:
       initial: 0.5   # dimensionless Courant number: cfl_eff = dtau * lambda_max; stable range ~0-2.83

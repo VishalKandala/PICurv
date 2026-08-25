@@ -9,9 +9,8 @@ strategy:
 
 tolerances:
   max_iterations: 25
-  absolute_tol: 1.0e-10
   relative_tol: 1.0e-8
-  residual_absolute_tol: 0.0
+  residual_absolute_tol: 1.0e-8   # dimensionless: |R| <= this * a0*|Ucont|_inf/dt
   residual_relative_tol: 1.0e-6
 
 momentum_solver:

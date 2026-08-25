@@ -87,8 +87,16 @@ For each run, `picurv` generates:
 - `momentum_solver.dual_time_picard_jameson_rk` controls and their C-side flags:
   - `max_pseudo_steps` -> `-mom_max_pseudo_steps` (default 50): maximum accepted pseudo-time
     iterations per physical step; rejected iterations are counted separately.
-  - `absolute_tol` -> `-mom_atol` (default 1e-7): stop when `||ΔU||_∞ < tol`.
-  - `relative_tol` -> `-mom_rtol` (default 1e-4): stop when `||ΔU||_∞ / ||ΔU₀||_∞ < tol`.
+  - `absolute_tol` -> `-mom_atol` (default 1e-7): **inactive while a residual tolerance is
+    set**, which is now the default. Retained only for the legacy update-only branch, where it
+    stops when `||ΔU||_∞ < tol`. That branch can converge falsely: `||ΔU||_∞ ≈ dtau·||R||`, so it
+    also goes small when `dtau` collapses.
+  - `relative_tol` -> `-mom_rtol` (default 1e-4): stagnation guard on
+    `||ΔU||_∞ / ||ΔU₀||_∞`, paired with the relative residual test.
+  - `residual_absolute_tol` -> `-mom_resid_atol` (default 1e-8): **dimensionless**; converges
+    when `||R||_∞ ≤ tol · resid_ref` with `resid_ref = a0·||Ucont||_∞/dt`. Sufficient on its own.
+  - `residual_relative_tol` -> `-mom_resid_rtol` (default 1e-3): converges when
+    `||R||_∞ / ||R₀||_∞ ≤ tol`, together with `relative_tol`.
   - `jameson_residual_noise_allowance_factor` -> `-mom_dt_jameson_residual_norm_noise_allowance_factor`
     (default 1.1, must be ≥ 1): EMA-smoothed residual ratio threshold above which a
     pseudo-time trial is rejected and the pseudo-CFL is reduced. Raise toward 1.2–1.5 for
@@ -98,6 +106,8 @@ For each run, `picurv` generates:
     moving-average coefficient applied to the step-to-step residual ratio before the rejection
     decision. `smoothed = α × raw + (1−α) × prev`. Setting `α = 1.0` recovers the original
     raw-ratio behavior; `α = 0.3` requires ~3–4 consecutive bad trials to trigger rejection.
+    The smoothed value is committed only when its trial is accepted: a rejected trial is rolled
+    back and its ratio does not carry into the next decision. See @ref p24_convergence_sec.
   - `pseudo_cfl.*` values are dimensionless Courant numbers (Phase 3+). The solver computes the
     pseudo-time step as `dtau = pseudo_cfl / lambda_max`, where `lambda_max` is the global maximum
     convective spectral radius of the current velocity field. This makes `pseudo_cfl` independent

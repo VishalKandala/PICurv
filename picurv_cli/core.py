@@ -9994,6 +9994,45 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         elif 'implicit' in s:
             raise ValueError("Legacy key 'strategy.implicit' is not supported. Use 'strategy.momentum_solver'.")
 
+    def _warn_inactive_absolute_tol(cfg: dict, where: str):
+        """!
+        @brief Warn when absolute_tol is set but cannot affect convergence.
+
+        absolute_tol bounds the velocity update. Since |dU| ~ dtau*|R|, bounding it
+        absolutely is a disguised, step-size-dependent residual bound, so it takes no
+        part once a residual tolerance is active -- which is now the default. Setting it
+        therefore has no effect, and silently ineffective knobs are what this warning
+        exists to prevent. See docs/pages/24_Dual_Time_Picard_Jameson_RK.md.
+        @param[in] cfg Tolerance mapping to inspect for `absolute_tol` and the residual keys.
+        @param[in] where Config path used to locate the offending key in the warning text.
+        @return None; emits a warning on stderr when `absolute_tol` cannot take effect.
+        """
+        if 'absolute_tol' not in cfg:
+            return
+        # Residual convergence is enabled unless BOTH residual tolerances are explicitly
+        # non-positive; their defaults (1e-8 / 1e-3) are positive.
+        def _off(key):
+            """!
+            @brief Report whether a residual tolerance is explicitly disabled.
+            @param[in] key Residual tolerance key to inspect.
+            @return True when the key is present and non-positive.
+            """
+            v = cfg.get(key, None)
+            try:
+                return v is not None and float(v) <= 0.0
+            except (TypeError, ValueError):
+                return False
+        if _off('residual_absolute_tol') and _off('residual_relative_tol'):
+            return
+        print(
+            f"[WARNING] {where}.absolute_tol is set but takes no part in convergence while a "
+            "residual tolerance is active (the default). It is retained only for the legacy "
+            "update-only branch, which can converge falsely when dtau collapses. To control "
+            "accuracy use residual_relative_tol / residual_absolute_tol. See "
+            "docs/pages/24_Dual_Time_Picard_Jameson_RK.md.",
+            file=sys.stderr,
+        )
+
     ms = solver_cfg.get('momentum_solver', {})
     if selected_solver is None:
         selected_solver = "DUALTIME_PICARD_JAMESON_RK"
@@ -10012,6 +10051,7 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         for key, flag in tol_map.items():
             if key in t:
                 flags[flag] = t[key]
+        _warn_inactive_absolute_tol(t, "tolerances")
 
     def _append_dualtime_options(cfg: dict):
         """!
@@ -10022,6 +10062,9 @@ def parse_solver_config(solver_cfg: dict) -> dict:
             flags['-mom_max_pseudo_steps'] = cfg['max_pseudo_steps']
         if 'absolute_tol' in cfg:
             flags['-mom_atol'] = cfg['absolute_tol']
+            _warn_inactive_absolute_tol(
+                {**solver_cfg.get('tolerances', {}), **cfg},
+                "momentum_solver.dual_time_picard_jameson_rk")
         if 'relative_tol' in cfg:
             flags['-mom_rtol'] = cfg['relative_tol']
         if 'step_tol' in cfg:

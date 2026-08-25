@@ -6,6 +6,63 @@
 
 ## Unreleased
 
+- Stopped the dual-time pseudo-CFL controller re-discovering the same stability limit, and
+  stopped a rejected trial voting on the next decision.
+  - The EMA-smoothed residual ratio is now committed only when its trial is accepted. A
+    rejected trial is rolled back, so carrying its ratio forward was a state leak. Measured on
+    the laminar channel: a diverging trial at cfl 2.0 (raw ratio 3.97) pushed the EMA to 1.61
+    and the next trial at cfl 1.5 was rejected too, despite a raw ratio of 0.994 -- the
+    residual had decreased. That false rejection discarded four ComputeRHS calls and drove the
+    pseudo-CFL to 1.125, below the measured optimum.
+  - Failed pseudo-CFLs are now remembered. Previously the controller climbed 1.36 -> 2.00,
+    rejected, recovered and climbed straight back on every physical step, spending 28.8% of all
+    trials above the measured stability limit. A dimensionless cap tightens to 0.60x a failed
+    CFL and relaxes by 1.005 per accepted trial so a transient rejection is not permanent.
+  - Rejections roughly halve and total pseudo-iterations fall 3-9% at the shipped ceiling:
+    laminar 17x33x17 233 -> 226 trials (13.3% -> 4.9% rejected), plane channel 33^3 340 -> 308
+    (20.6% -> 6.5%), flat channel 25x25x97 155 -> 151 (7.7% -> 5.3%). No case lost convergence.
+  - The remaining cost is not rejection handling. Measured stability limits are 1.12 (33^3),
+    1.25 (flat), 1.82 (laminar), 2.25 (LES retau180) and 2.50 (DIT) in pseudo-CFL, and the
+    fastest-converging CFL sits at 0.67-0.80 of that limit -- the Jameson scheme is a smoother
+    and smoothers damp worst near their limit. Operating at the optimum is worth 32-52%, which
+    a stability-triggered cap cannot reach: the LES case rejects nothing before or after and is
+    therefore unaffected.
+  - Recorded for the record: promoting the shadow operator-scaled stability estimate
+    (ComputeMomentumStabilityEstimate) was evaluated against these measurements and rejected.
+    It is a *worse* normaliser of the measured stability limit than the estimate it would
+    replace -- 3.20x spread across the five cases versus 2.23x -- so it stays in shadow.
+
+- Made the momentum residual, not the velocity update, the criterion that decides
+  dual-time convergence, and gave the absolute residual tolerance a portable scale.
+  - `converged = residual_abs_pass OR (residual_rel_pass AND update_pass)`. The
+    absolute residual test is sufficient on its own; the relative test keeps the
+    `relative_tol` update guard. Requiring the guard alongside the absolute test made
+    the latter unable to fire: on the laminar channel at step 793, `|R|` fell below
+    the floor at pseudo-iteration 8 and the step still ran to 20.
+  - `residual_absolute_tol` is now **dimensionless**, tested as
+    `|R| <= tol * resid_ref` with `resid_ref = a0*|Ucont|_inf/dt`. A raw bound on `|R|`
+    is not portable: across the shipped cases step-1 `|R|` spans 1.2e-2 (plane channels)
+    to 2.0 (driven duct), a ~165x spread that normalising collapses to ~4x. Set to 1.0e-8
+    in all shipped configs.
+  - `absolute_tol` / `-mom_atol` no longer participates while a residual tolerance is
+    set. `|dU| ~ dtau*|R|`, so bounding it absolutely is a disguised residual bound
+    `|R| <= absolute_tol/dtau` that tightens as the controller grows `dtau`; it was in
+    practice the criterion that gated convergence. It is retained, annotated, for the
+    legacy update-only branch only. It is now **deprecated**: removed from all shipped
+    configs (commented, with a note, in the master template), still accepted, and the CLI
+    warns when it is set while it cannot take effect.
+  - Residual-based convergence is now the **default** (`-mom_resid_atol` 1e-8,
+    `-mom_resid_rtol` 1e-3, previously both 0.0). The update-only branch it replaces can
+    converge falsely, since `|dU|` also goes small when `dtau` collapses. Setting both
+    non-positive remains an explicit opt-out.
+  - Verified on the 6000-step driven periodic laminar channel against its exact solution:
+    identical `U_b` 0.999446, `u_max` 1.497795, `u_tau` 0.1729983 and profile error
+    1.470e-03 before and after; fields agree to 5.06e-13 at step 6000 and the gap between
+    the two runs *shrinks* from 2.2e-07 (step 500) to 3.4e-13, so error does not
+    accumulate. Worst `|div u|` unchanged (7.457e-11 vs 7.443e-11). Total pseudo-iterations
+    fell 28,247 -> 16,390 (-42%), concentrated in the settled regime (3% over steps 1-500,
+    ~50% thereafter); a flow that never settles should expect the smaller figure.
+
 - Restored future-architecture documentation and added the authoritative
   proposed field-statistics specification, including centered moment state,
   layout/mask rules, future spatial targets, restart behavior, postprocessing

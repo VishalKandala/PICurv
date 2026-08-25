@@ -77,9 +77,11 @@ strategy:
 # --- Convergence Criteria for the Momentum Solver ---
 tolerances:
   max_iterations: 50   # [Integer] -> -mom_max_pseudo_steps
-  absolute_tol: 1.0e-8 # [Float] -> -mom_atol
+  # absolute_tol: 1.0e-8   # DEPRECATED -> -mom_atol. Takes no part while a
+  #                        # residual tolerance is active (the default).
   relative_tol: 1.0e-5 # [Float] -> -mom_rtol
-  residual_absolute_tol: 0.0 # Disabled when non-positive
+  residual_absolute_tol: 1.0e-8 # [Float] -> -mom_resid_atol. DIMENSIONLESS:
+                                # converges when |R| <= this * a0*|Ucont|_inf/dt. Sufficient alone.
   residual_relative_tol: 1.0e-3 # Use 1.0e-2 for looser exploratory LES
   # Step-change tolerance: stop inner loop when ||u_n+1 - u_n|| < step_tol.
   # Non-positive or omitted = disabled.
@@ -92,7 +94,8 @@ momentum_solver:
   # Note: 'dual_time_picard_rk4' is an accepted deprecated alias for this block.
   dual_time_picard_jameson_rk:
     max_pseudo_steps: 50         # -> -mom_max_pseudo_steps
-    absolute_tol: 1.0e-8         # -> -mom_atol
+    # absolute_tol: 1.0e-8   # DEPRECATED -> -mom_atol. Takes no part while a
+    #                        # residual tolerance is active (the default).
     relative_tol: 1.0e-5         # -> -mom_rtol
     # Step-change tolerance (optional, mirrors tolerances.step_tol):
     # step_tol: 0.0              # -> -imp_stol

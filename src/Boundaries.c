@@ -584,10 +584,78 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
 
 
 #undef __FUNCT__
+#define __FUNCT__ "ClassifyMomentumRow"
+/**
+ * @brief Implementation of \ref ClassifyMomentumRow().
+ *
+ * Pure index/boundary-type arithmetic: no field reads, no communication.
+ * Precedence matters. A conditioned row is reported first because its explicit
+ * Dirichlet value is more specific than the homogeneous fallback, and a periodic
+ * duplicate is reported before the homogeneous case because the Newton path needs
+ * its representative index to build `F = X_dup - X_rep`.
+ */
+MomentumRowType ClassifyMomentumRow(UserCtx *user, PetscInt i, PetscInt j, PetscInt k,
+                                    PetscInt component, PetscInt *ri, PetscInt *rj, PetscInt *rk)
+{
+    const PetscInt mx = user->info.mx, my = user->info.my, mz = user->info.mz;
+    const PetscInt coord[3] = {i, j, k};
+    const PetscInt size[3] = {mx, my, mz};
+    const BCFace neg_face[3] = {BC_FACE_NEG_X, BC_FACE_NEG_Y, BC_FACE_NEG_Z};
+    PetscBool periodic[3], periodic_duplicate = PETSC_FALSE;
+    PetscBool residual_zeroed = PETSC_FALSE, conditioned = PETSC_FALSE;
+
+    *ri = i; *rj = j; *rk = k;
+    for (PetscInt axis = 0; axis < 3; ++axis) {
+        periodic[axis] = (PetscBool)(
+            user->boundary_faces[neg_face[axis]].mathematical_type == PERIODIC);
+        if (periodic[axis] && coord[axis] == 0) {
+            periodic_duplicate = PETSC_TRUE;
+            if (axis == 0) *ri = -2;
+            else if (axis == 1) *rj = -2;
+            else *rk = -2;
+        }
+        if (periodic[axis] && coord[axis] == size[axis] - 1) {
+            periodic_duplicate = PETSC_TRUE;
+            if (axis == 0) *ri = mx + 1;
+            else if (axis == 1) *rj = my + 1;
+            else *rk = mz + 1;
+        }
+
+        if (!periodic[axis] && coord[axis] == 0) residual_zeroed = PETSC_TRUE;
+        if (coord[axis] == size[axis] - 1) residual_zeroed = PETSC_TRUE;
+        if (!periodic[axis] && coord[axis] == size[axis] - 2 && component == axis)
+            residual_zeroed = PETSC_TRUE;
+    }
+
+    if (!periodic[component] &&
+        (coord[component] == 0 || coord[component] == size[component] - 2)) {
+        PetscBool tangential_interior = PETSC_TRUE;
+        for (PetscInt axis = 0; axis < 3; ++axis) {
+            if (axis == component) continue;
+            if (coord[axis] < 1 || coord[axis] > size[axis] - 2)
+                tangential_interior = PETSC_FALSE;
+        }
+        conditioned = tangential_interior;
+    }
+
+    if (conditioned) return MOM_ROW_FIXED_CONDITIONED;
+    if (periodic_duplicate) return MOM_ROW_PERIODIC_DUPLICATE;
+    if (residual_zeroed) return MOM_ROW_FIXED_HOMOGENEOUS;
+    return MOM_ROW_PHYSICAL;
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "EnforceRHSBoundaryConditions"
 /**
- * @brief Internal helper implementation: `EnforceRHSBoundaryConditions()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref EnforceRHSBoundaryConditions().
+ *
+ * The sweep is deliberately expressed over every owned location rather than over
+ * the six boundary slabs: restating "which indices can be non-physical" here is
+ * exactly the duplication that let the periodic duplicate column go unzeroed.
+ * ClassifyMomentumRow() is a handful of integer comparisons and the walk is a
+ * single pass with no stencil access, which is negligible next to the several
+ * ghosted stencil passes ComputeRHS() has already made over the same range.
+ * MomentumNewtonKrylov_ApplyConstraints() walks the same range the same way.
  */
 PetscErrorCode EnforceRHSBoundaryConditions(UserCtx *user)
 {
@@ -595,131 +663,21 @@ PetscErrorCode EnforceRHSBoundaryConditions(UserCtx *user)
     DMDALocalInfo  info = user->info;
     Cmpnts         ***rhs;
 
-    // --- Grid extents for this MPI rank and global grid dimensions ---
-    const PetscInt xs = info.xs, xe = xs + info.xm;
-    const PetscInt ys = info.ys, ye = ys + info.ym;
-    const PetscInt zs = info.zs, ze = zs + info.zm;
-    const PetscInt mx = info.mx, my = info.my, mz = info.mz;
-
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
     // Get a writable pointer to the local data of the global RHS vector.
     ierr = DMDAVecGetArray(user->fda, user->Rhs, &rhs); CHKERRQ(ierr);
 
-    // ========================================================================
-    // --- I-DIRECTION (X-FACES) ---
-    // ========================================================================
-
-    // --- Negative X Face (i=0, the first physical face) ---
-    if (xs == 0) {
-        // This logic applies ONLY to physical (non-periodic) boundaries.
-        if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC) {
-            const PetscInt i = 0;
-            for (PetscInt k = zs; k < ze; k++) {
-                for (PetscInt j = ys; j < ye; j++) {
-                    rhs[k][j][i].x = 0.0;
-                    rhs[k][j][i].y = 0.0;
-                    rhs[k][j][i].z = 0.0;
+    for (PetscInt k = info.zs; k < info.zs + info.zm; k++) {
+        for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
+            for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
+                PetscScalar *row = &rhs[k][j][i].x;   /* .x/.y/.z are contiguous */
+                for (PetscInt component = 0; component < 3; component++) {
+                    PetscInt ri, rj, rk;
+                    if (ClassifyMomentumRow(user, i, j, k, component, &ri, &rj, &rk) != MOM_ROW_PHYSICAL)
+                        row[component] = 0.0;
                 }
-            }
-        }
-    }
-
-    // --- Positive X Face (physical face i=mx-2, dummy location i=mx-1) ---
-    if (xe == mx) {
-        // Step 1: Enforce strong BC on the LAST PHYSICAL face (i=mx-2) for non-periodic cases.
-        if (user->boundary_faces[BC_FACE_POS_X].mathematical_type != PERIODIC) {
-            const PetscInt i = mx - 2;
-            for (PetscInt k = zs; k < ze; k++) {
-                for (PetscInt j = ys; j < ye; j++) {
-                    rhs[k][j][i].x = 0.0;
-                }
-            }
-        }
-        // Step 2: Unconditionally sanitize the DUMMY location (i=mx-1).
-        const PetscInt i = mx - 1;
-        for (PetscInt k = zs; k < ze; k++) {
-            for (PetscInt j = ys; j < ye; j++) {
-                rhs[k][j][i].x = 0.0;
-                rhs[k][j][i].y = 0.0;
-                rhs[k][j][i].z = 0.0;
-            }
-        }
-    }
-
-    // ========================================================================
-    // --- J-DIRECTION (Y-FACES) ---
-    // ========================================================================
-
-    // --- Negative Y Face (j=0, the first physical face) ---
-    if (ys == 0) {
-        if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) {
-            const PetscInt j = 0;
-            for (PetscInt k = zs; k < ze; k++) {
-                for (PetscInt i = xs; i < xe; i++) {
-                    rhs[k][j][i].x = 0.0;
-                    rhs[k][j][i].y = 0.0;
-                    rhs[k][j][i].z = 0.0;
-                }
-            }
-        }
-    }
-
-    // --- Positive Y Face (physical face j=my-2, dummy location j=my-1) ---
-    if (ye == my) {
-        if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type != PERIODIC) {
-            const PetscInt j = my - 2;
-            for (PetscInt k = zs; k < ze; k++) {
-                for (PetscInt i = xs; i < xe; i++) {
-                    rhs[k][j][i].y = 0.0;
-                }
-            }
-        }
-        const PetscInt j = my - 1;
-        for (PetscInt k = zs; k < ze; k++) {
-            for (PetscInt i = xs; i < xe; i++) {
-                rhs[k][j][i].x = 0.0;
-                rhs[k][j][i].y = 0.0;
-                rhs[k][j][i].z = 0.0;
-            }
-        }
-    }
-
-    // ========================================================================
-    // --- K-DIRECTION (Z-FACES) ---
-    // ========================================================================
-
-    // --- Negative Z Face (k=0, the first physical face) ---
-    if (zs == 0) {
-        if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) {
-            const PetscInt k = 0;
-            for (PetscInt j = ys; j < ye; j++) {
-                for (PetscInt i = xs; i < xe; i++) {
-                    rhs[k][j][i].x = 0.0;
-                    rhs[k][j][i].y = 0.0;
-                    rhs[k][j][i].z = 0.0;
-                }
-            }
-        }
-    }
-
-    // --- Positive Z Face (physical face k=mz-2, dummy location k=mz-1) ---
-    if (ze == mz) {
-        if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type != PERIODIC) {
-            const PetscInt k = mz - 2;
-            for (PetscInt j = ys; j < ye; j++) {
-                for (PetscInt i = xs; i < xe; i++) {
-                    rhs[k][j][i].z = 0.0;
-                }
-            }
-        }
-        const PetscInt k = mz - 1;
-        for (PetscInt j = ys; j < ye; j++) {
-            for (PetscInt i = xs; i < xe; i++) {
-                rhs[k][j][i].x = 0.0;
-                rhs[k][j][i].y = 0.0;
-                rhs[k][j][i].z = 0.0;
             }
         }
     }
@@ -729,7 +687,7 @@ PetscErrorCode EnforceRHSBoundaryConditions(UserCtx *user)
 
     LOG_ALLOW(LOCAL, LOG_TRACE, "Rank %d, Block %d: Finished enforcing RHS boundary conditions.\n",
               user->simCtx->rank, user->_this);
-    
+
     PROFILE_FUNCTION_END;
 
     PetscFunctionReturn(0);

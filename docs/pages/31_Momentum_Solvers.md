@@ -90,8 +90,12 @@ Defaults and final option ingestion are in function @ref CreateSimulationContext
 
 For the dual-time Jameson solver, `max_iterations` bounds **accepted** pseudo-iterations. A separate
 hard cap of `3 × max_iterations` limits total attempts (accepted plus rejected) to prevent infinite
-rejection loops. Convergence requires both the update pass (`|ΔU| ≤ atol` **AND** `|ΔU|/|ΔU₀| ≤ rtol`)
-and, when either residual tolerance is positive, at least one enabled residual criterion to hold.
+rejection loops. Convergence is decided by the residual: `residual_abs_pass` **OR**
+(`residual_rel_pass` **AND** `update_pass`). The absolute residual test
+(`|R| ≤ residual_absolute_tol · resid_ref`, dimensionless tolerance) is sufficient on its own;
+the relative test is paired with the `relative_tol` update guard. `absolute_tol` takes no part
+while a residual tolerance is set. Both residual tolerances default to enabled; setting both
+non-positive selects the legacy update-only branch. See @ref p24_convergence_sec.
 
 The dual-time controller uses one global pseudo-CFL and globally accepts or
 rolls back a complete four-stage trial. The selected next pseudo-CFL is carried
