@@ -26,7 +26,7 @@ local intent without duplicating public parameter documentation.
 
 Doxygen warnings are written to:
 
-- `logs/doxygen.warnings`
+- `<repo>/logs/doxygen.warnings`
 
 Configured in `docs/Doxyfile` via:
 
@@ -49,7 +49,7 @@ script is the primary completeness gate for function comments. For a
 commit-scoped claim that the documentation is current, use `make certify-docs`.
 It requires a clean worktree, runs link/API/user-facing-reporting/starter-content/
 ingress/configuration/Doxygen gates plus `make check-full`, and writes an ignored certificate named
-`logs/documentation-certificate-<full-sha>.md`. The certificate is valid only
+`<repo>/logs/documentation-certificate-<full-sha>.md`. The certificate is valid only
 through that exact Git commit.
 
 Every rendered Doxygen page also carries a bottom banner linking to the commit
@@ -101,25 +101,3 @@ prevents silent regressions between cleanup passes.
 - **@subpage 13_Code_Architecture**
 - **@subpage 29_Maintenance_Backlog**
 - **@subpage 40_Testing_and_Quality_Guide**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **API Documentation Status** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

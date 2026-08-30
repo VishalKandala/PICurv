@@ -9,7 +9,7 @@ pipeline end to end. It is designed to answer:
 - how hard is the search working to settle them?
 - how much migration and handoff churn is occurring?
 
-The runtime writes `logs/search_metrics.csv` for all particle-enabled runs.
+The runtime writes `<run.runtime_logs>/search_metrics.csv` for all particle-enabled runs.
 That CSV is the authoritative quantitative artifact for this family.
 
 ## Case Families
@@ -45,7 +45,7 @@ effects.
 
 ## Metrics Contract
 
-`logs/search_metrics.csv` is written once per timestep after particle settlement.
+`<run.runtime_logs>/search_metrics.csv` is written once per timestep after particle settlement.
 
 V1 compatibility columns are preserved and V2 adds:
 

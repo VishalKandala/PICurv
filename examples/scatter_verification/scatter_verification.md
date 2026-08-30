@@ -11,7 +11,7 @@ This example verifies the particle-to-grid scatter path for the particle scalar
 - the existing runtime `Psi -> user->Psi` scatter path is reused
 - the scattered Eulerian `Psi` field is compared against analytical truth at
   **physical cell centers**
-- the runtime writes `logs/scatter_metrics.csv`
+- the runtime writes `<run.runtime_logs>/scatter_metrics.csv`
 
 This example exists because scatter verification needs an artificial particle
 truth field. Unlike the interpolation test, there is no ordinary end-to-end
@@ -38,7 +38,7 @@ be paired with `ZERO_FLOW`, `UNIFORM_FLOW`, or `TGV3D`.
 
 The runtime diagnostic writes one row per output point to:
 
-- `<run_dir>/logs/scatter_metrics.csv`
+- `<run.runtime_logs>/scatter_metrics.csv`
 
 Columns include:
 
@@ -98,12 +98,12 @@ feature.
 
 Primary output:
 
-- `<run_dir>/logs/scatter_metrics.csv`
+- `<run.runtime_logs>/scatter_metrics.csv`
 
 Optional visualization output:
 
-- `<run_dir>/viz/Field_*.vts`
-- `<run_dir>/viz/Particle_*.vtp`
+- `<run.visualization>/Field_*.vts`
+- `<run.visualization>/Particle_*.vtp`
 
 ## Studies
 

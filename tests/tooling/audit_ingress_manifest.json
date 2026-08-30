@@ -13,6 +13,7 @@
     "-Turbulent_Channel_z",
     "-TwoD",
     "-U_bc",
+    "-allow_unsafe_log_dir",
     "-analytical_type",
     "-analytical_uniform_u",
     "-analytical_uniform_v",

@@ -416,6 +416,50 @@ beside `MomentumNewtonJacobian_Create/Update`; add a coefficient provider throug
 backend mapping in `MomentumPreconditionerEngine_Create`. No placeholder modes
 are exposed before their implementations exist.
 
+@section p55_cap_pc_sec 9.1 Preconditioner Model Entries
+
+@htmlinclude generated/capability_inventory_momentum_nk_preconditioner.html
+
+@subsection p55_cap_pc_none_sub none
+
+@anchor p55_cap_pc_none
+
+**Identity.** `momentum_solver.newton_krylov.preconditioner.model: none` (the default) -> `-mom_nk_preconditioner_model none`.
+
+**What it does.** Runs the Krylov solve unpreconditioned on the matrix-free Jacobian. No preconditioning matrix is created, assembled, or stored.
+
+**When to choose it.** The default, and the right starting point: it has no assembly cost, no extra memory, and no approximation of its own to be wrong. Move to `frozen_momentum_jacobian` only once Krylov iteration counts are demonstrably the bottleneck on your case.
+
+**Parameters it owns.** None. Setting `preconditioner.structure` alongside this model is a validation error - `none` accepts no matrix structure, because there is no matrix.
+
+**Interactions.** Mutually exclusive with `frozen_momentum_jacobian`. The Krylov method and its tolerances are configured separately under `linear_solver`.
+
+**Diagnostics.** The Krylov iteration count per Newton step is the signal. It is reported by the SNES/KSP monitors described in @ref p55_monitors_sec; a rising count across timesteps is what motivates preconditioning.
+
+**Evidence.** Integration verified - `make unit-newton-krylov` exercises this path.
+
+**Limitations.** Iteration counts grow with conditioning, so on stiff or highly stretched grids the unpreconditioned solve can dominate the timestep cost.
+
+@subsection p55_cap_pc_frozen_momentum_jacobian_sub frozen_momentum_jacobian
+
+@anchor p55_cap_pc_frozen_momentum_jacobian
+
+**Identity.** `momentum_solver.newton_krylov.preconditioner.model: frozen_momentum_jacobian` with `preconditioner.structure.type: point_block` -> `-mom_nk_preconditioner_model frozen_momentum_jacobian` and `-mom_nk_preconditioner_structure point_block`.
+
+**What it does.** Assembles a separate AIJ matrix holding the same-cell 3x3 momentum block, and uses it as the preconditioning operator for the matrix-free Jacobian. Interior rows reproduce the audited legacy same-cell approximation with its sign reversed to match the modern residual convention; constraint rows carry the exact modern derivative.
+
+**When to choose it.** When Krylov iteration counts under `none` are the measured bottleneck. It buys roughly a 6% wall-clock improvement on the case it was characterised against, while iteration counts on that case rose from 26 to 137 as the problem stiffened - so the honest expectation is a modest gain, not a transformation. Measure before and after; do not enable it on the assumption that preconditioning always helps.
+
+**Parameters it owns.** `preconditioner.structure.type`, which must be `point_block`. It is not an independent choice: the model determines it, and any other value is a validation error.
+
+**Interactions.** Requires `structure.type: point_block` and is rejected without it. The assembled matrix deliberately omits pressure, LES/RANS viscosity values and derivatives, nonorthogonal viscous cross-couplings, boundary-map and IBM derivatives, and body-force derivatives - so its quality degrades as those terms matter more.
+
+**Diagnostics.** Krylov iteration counts before and after are the only meaningful diagnostic. `PCPBJACOBI` appears in PETSc output as the internal backend mapping; it is not a user-facing numerical model and should not be read as one.
+
+**Evidence.** Integration verified - `make unit-newton-krylov`. The point-block coefficients additionally carry an independent test-only legacy transcription covering nonuniform metrics and velocities, every block entry, both BDF coefficients, constraint rows, and one- and multi-rank assembly.
+
+**Limitations.** Experimental, and **no performance claim is made**. It costs an extra assembled matrix in memory and an assembly per update, and the omitted terms mean it is a same-cell approximation rather than an approximate Jacobian in any global sense.
+
 @section p55_validation_sec 10. Validation Coverage
 
 The Newton--Krylov path is covered at two levels:

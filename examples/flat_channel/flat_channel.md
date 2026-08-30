@@ -78,12 +78,12 @@ Grid-independence sweep:
 
 ## 6. Output Check
 
-Open `runs/<run_id>/visualization/standard_analysis/eulerian_data_*.vts` in ParaView and
+Open `<run.visualization>/standard_analysis/eulerian_data_*.vts` in ParaView and
 color by `Ucat_nodal` to inspect channel profile development.
 
 ## 7. Live Docs
 
-- https://vishalkandala.me/picurv-docs/02_Tutorial_Programmatic_Grid.html
-- https://vishalkandala.me/picurv-docs/36_Cluster_Run_Guide.html
-- https://vishalkandala.me/picurv-docs/37_Sweep_Studies_Guide.html
-- https://vishalkandala.me/picurv-docs/49_Workflow_Recipes_and_Config_Cookbook.html
+- https://vishalkandala.me/docs/picurv/02_Tutorial_Programmatic_Grid.html
+- https://vishalkandala.me/docs/picurv/36_Cluster_Run_Guide.html
+- https://vishalkandala.me/docs/picurv/37_Sweep_Studies_Guide.html
+- https://vishalkandala.me/docs/picurv/49_Workflow_Recipes_and_Config_Cookbook.html

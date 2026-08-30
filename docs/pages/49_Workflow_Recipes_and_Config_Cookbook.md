@@ -333,7 +333,7 @@ grid:
 ```
 
 PICurv will validate and non-dimensionalize that source file into the new run's
-own `config/grid.run`.
+own `<run.config>/grid.run`.
 
 Generated square-duct Poiseuille inlet profile:
 
@@ -352,7 +352,7 @@ boundary_conditions:
 ```
 
 `picurv run --solve` writes the dimensional generated profile and
-`profile.info` under `runs/<run_id>/config/`, stages the solver-scale
+`profile.info` under `<run.config>/`, stages the solver-scale
 `.picslice`, and writes that staged path into `bcs.run`.
 For `square_duct_poiseuille`, `bulk_velocity` is the target inlet bulk speed.
 When a target `PICGRID` is available, generated profiles are sampled at inlet
@@ -404,7 +404,7 @@ Precompute deterministic artifacts without launching the solver:
 ./bin/picurv precompute --case case.yml --output-dir precomputed/channel
 ```
 
-This mirrors the run `config/` layout, so inspected generated artifacts can later
+This mirrors the `<run.config>/` layout, so inspected generated artifacts can later
 be reused through `grid.mode: file` and `source.type: file`.
 
 Restart with explicit particle re-initialization:
@@ -488,7 +488,7 @@ Recommended pattern:
 - use `analytical_type: ZERO_FLOW` for pure deposition checks
 - choose a scalar profile under `verification.sources.scalar`
 - reuse the production scatter operator rather than adding a second deposition path
-- read the runtime metric from `logs/scatter_metrics.csv`
+- read the runtime metric from `<run.runtime_logs>/scatter_metrics.csv`
 
 Separation rules:
 
@@ -515,25 +515,3 @@ A complete runnable example is provided in `examples/scatter_verification/`.
 - **@subpage 52_Run_Lifecycle_Guide**
 - **@subpage 48_Grid_Generator_Guide**
 - **@subpage 45_Particle_Initialization_and_Restart**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Workflow Recipes and Config Cookbook** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

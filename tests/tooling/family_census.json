@@ -1,0 +1,171 @@
+{
+  "description": "Census of public choice sets in the CLI. A surface must either be covered by a registered capability family or be classified here with a reason. Discovery is over `normalize_*` functions and module-level constants whose names end in one of audit_family_census.CHOICE_SET_SUFFIXES - which is why a closed choice set must be a named constant rather than a literal inline at its point of use. This exists because a registry that only checks itself cannot report a family nobody registered: the original failure mode, recreated at the registry boundary.",
+  "status": "All 26 public capability families are registered with enforced Tier-2 coverage; no family is public_pending. Every other discovered choice set carries a typed classification and a reason below.",
+  "acknowledged_uncovered": {
+    "picurv_cli.cli::CLI_OUTPUT_FORMATS": {
+      "classification": "cli_inventory_sufficient",
+      "reason": "`--format text|json` on every command that prints a structured report. The generated CLI reference lists the flag and its choices wherever it appears, and the choice is an output encoding rather than a behaviour: there is no when-to-use answer beyond 'json when a machine reads it'."
+    },
+    "picurv_cli.cli::RUN_STAGE_CHOICES": {
+      "classification": "cli_inventory_sufficient",
+      "reason": "Values of `picurv run --only`. The generated CLI reference lists them, and page 10 explains when to run spectra alone - which is the only stage selection with a real trade-off behind it."
+    },
+    "picurv_cli.core::BC_FACE_MAP": {
+      "classification": "not_public",
+      "reason": "Face naming, not a user choice between behaviours."
+    },
+    "picurv_cli.core::GMRES_RESTART_METHODS": {
+      "classification": "structural",
+      "reason": "Not a menu: the Krylov methods for which a `gmres.restart` parameter is meaningful. `poisson_solver.method` passes any PETSc KSP token through, so this set only decides whether a restart key is accepted alongside it."
+    },
+    "picurv_cli.core::KRYLOV_KSP_TYPES": {
+      "classification": "structural",
+      "reason": "PETSc owns this vocabulary, not PICurv. The set is not a menu offered to the user: it is the list of KSP tokens PICurv recognises as Krylov methods so it can WARN when one is configured at the multigrid coarse level. Any PETSc KSP token is accepted whether or not it appears here, so documenting these 22 as a capability family would claim a closed surface that does not exist."
+    },
+    "picurv_cli.core::LAUNCH_MODES": {
+      "classification": "cli_inventory_sufficient",
+      "reason": "Local versus cluster launch, resolved from `--cluster` rather than selected by name. The generated CLI reference covers the flag and the cluster guide covers when a batch launch is appropriate."
+    },
+    "picurv_cli.core::LEGACY_FIELD_INIT_SPELLINGS": {
+      "classification": "spelling_alias",
+      "reason": "Legacy capitalised spellings of the field-initialisation mode, resolved through normalize_field_init_mode to the canonical values. Spellings inherit the status of what they resolve to and own no entries.",
+      "owner": "initial.field_mode"
+    },
+    "picurv_cli.core::METRIC_SOURCE_KINDS": {
+      "classification": "parameter_of_entry",
+      "reason": "Where a declared study metric is read from - a statistics CSV or a log regex. It parameterises a metric declaration inside a study, and every study type reads metrics the same way.",
+      "owner": "study.type"
+    },
+    "picurv_cli.core::NEWTON_KRYLOV_PRECONDITIONER_STRUCTURES": {
+      "classification": "parameter_of_entry",
+      "reason": "Not an independent choice: the preconditioner model determines it. 'none' accepts no structure at all, and 'frozen_momentum_jacobian' requires 'point_block'; any other combination is a validation error. It is documented as a parameter of the model entry that constrains it.",
+      "owner": "momentum.nk_preconditioner::frozen_momentum_jacobian"
+    },
+    "picurv_cli.core::POISSON_PRECONDITIONER_SPELLINGS": {
+      "classification": "spelling_alias",
+      "reason": "'mg' and 'pcmg' are accepted spellings that resolve to 'multigrid'. Spellings inherit the status of what they resolve to and do not own capability entries.",
+      "owner": "picurv_cli.core::POISSON_PRECONDITIONER_TYPES"
+    },
+    "picurv_cli.core::POISSON_PRECONDITIONER_TYPES": {
+      "classification": "parameter_of_entry",
+      "reason": "One canonical value. 'multigrid' is the only outer preconditioner the runtime Poisson solve accepts, because it assumes PETSc PCMG setup - so there is no choice to guide and no comparison to draw. It is documented as a parameter of the Poisson solver reference. A second value appearing here makes it a real choice, and test_family_census_classifications.py fails until it is registered as a family.",
+      "owner": "08_Solver_Reference::p08_poisson_sec"
+    },
+    "picurv_cli.core::POST_FIELD_STATISTICS_FORMATS": {
+      "classification": "parameter_of_entry",
+      "reason": "'vtk' and 'csv' select how a window's results are encoded, not which quantity is computed. Both are written from the same accumulated state, and every output entry describes its own appearance in each. Documented as a parameter of the field_statistics recipe rather than as five more entries per format.",
+      "owner": "post.field_statistics_output"
+    },
+    "picurv_cli.core::POST_SPECTRA_MEAN_MODES": {
+      "classification": "parameter_of_entry",
+      "reason": "Selects the fluctuation definition a spectra task subtracts before transforming - 'none', the domain mean, or a named accumulated window. It modifies one task rather than selecting between behaviours, and is documented in that task's entry.",
+      "owner": "post.spectra_task::shell_spectrum"
+    },
+    "picurv_cli.core::POST_SPECTRA_SYMBOLS": {
+      "classification": "parameter_of_entry",
+      "reason": "'continuum' and 'discrete' select the binning abscissa a shell spectrum reports against. A presentation choice within one task, documented in that task's entry.",
+      "owner": "post.spectra_task::shell_spectrum"
+    },
+    "picurv_cli.core::POST_STAGE_NAMES": {
+      "classification": "cli_inventory_sufficient",
+      "reason": "'fields' and 'spectra' are the values of `picurv run --only`. The generated CLI reference lists the flag and its choices, and page 10 explains when to run spectra alone. A Tier-2 entry per stage would restate the stage documentation that already exists next to each pipeline."
+    },
+    "picurv_cli.core::PRESCRIBED_FLOW_SOURCE_TYPES": {
+      "classification": "parameter_of_entry",
+      "reason": "`source.type` for the prescribed_flow inlet handler: file, generated, or field_slice. All three are enumerated in that handler's entry with their required keys and a use-when column, which is the documentation a family would carry.",
+      "owner": "boundary.handler::prescribed_flow"
+    },
+    "picurv_cli.core::PROFILING_TIMESTEP_MODES": {
+      "classification": "parameter_of_entry",
+      "reason": "How much per-timestep profiling output the monitor emits: off, selected, or all. A verbosity control on the profiling block rather than a behaviour choice; the monitor reference documents the three modes where the block is defined.",
+      "owner": "09_Monitor_Reference::p09_profiling_sec"
+    },
+    "picurv_cli.core::PROJECTION_OPERATORS": {
+      "classification": "parameter_of_entry",
+      "reason": "Discrete operator used by the solenoidal projection when preparing a prescribed field. It parameterises that projection rather than selecting between user-facing behaviours, and is documented with the prescribed_flow source it serves.",
+      "owner": "boundary.handler::prescribed_flow"
+    },
+    "picurv_cli.core::RESERVED_RUN_DIRECTORY_NAMES": {
+      "classification": "not_public",
+      "reason": "The opposite of a user choice: these are the directory names a run owns, and naming one as a log or output directory is refused at every enforcement point. It is a denylist, not a menu."
+    },
+    "picurv_cli.core::RUNTIME_EXECUTION_CONFIG_FILENAMES": {
+      "classification": "not_public",
+      "reason": "Filenames the CLI probes when discovering local execution defaults. The user chooses the file's contents, not which of the two names to search; both are always tried in a fixed order."
+    },
+    "picurv_cli.core::SOLVER_MONITORING_MOMENTUM_FLAG_MAP": {
+      "classification": "not_public",
+      "reason": "Maps monitoring booleans to PETSc flags; the booleans are the surface."
+    },
+    "picurv_cli.core::SOLVER_MONITORING_POISSON_FLAG_MAP": {
+      "classification": "not_public",
+      "reason": "Maps the boolean monitoring switches under solver_monitoring.poisson to their PETSc flags. The booleans are the user surface and are documented as such on the monitor reference page; this mapping is the wiring behind them, not a menu."
+    },
+    "picurv_cli.core::STATISTICS_MOMENT_NAMES": {
+      "classification": "not_public",
+      "reason": "Internal labels for the first and second accumulated moments, used to name stored state. A user selects outputs, which are derived from these moments; the moment labels themselves are never configured."
+    },
+    "picurv_cli.core::STUDY_PLOT_FORMATS": {
+      "classification": "parameter_of_entry",
+      "reason": "Image format for study plots: png, pdf, or svg. A formatting option with no solver or scientific consequence, documented with the study plotting block.",
+      "owner": "study.type"
+    },
+    "picurv_cli.core::VERIFICATION_SCALAR_PROFILES": {
+      "classification": "parameter_of_entry",
+      "reason": "Analytic scalar profiles the manufactured-solution verification source may impose. They parameterise the verification block rather than selecting a solver behaviour, and are documented with it in the solver reference.",
+      "owner": "08_Solver_Reference::p08_verification_sec"
+    },
+    "picurv_cli.core::normalize_analytical_type": {
+      "classification": "not_public",
+      "reason": "The normalizer for analytical.solution_type. Its accepted values are now the named constant ANALYTICAL_SOLUTION_TYPES, which is the family's declared public surface; this function applies it rather than defining a second one."
+    },
+    "picurv_cli.core::normalize_boundary_conditions_layout": {
+      "classification": "not_public",
+      "reason": "Normalizes layout shape, not a selectable value."
+    },
+    "picurv_cli.core::normalize_cluster_launcher": {
+      "classification": "not_public",
+      "reason": "Canonicalizes a free-form launcher command into token plus argv flags. The launcher is an arbitrary executable name, not a choice from a closed set, so there is no value inventory to document."
+    },
+    "picurv_cli.core::normalize_extension": {
+      "classification": "not_public",
+      "reason": "Trims whitespace and leading dots from a user-supplied filename extension. A string cleaner, not a selector."
+    },
+    "picurv_cli.core::normalize_field_statistics_config": {
+      "classification": "not_public",
+      "reason": "Normalizes a config block; its selectors are separate surfaces."
+    },
+    "picurv_cli.core::normalize_flow_direction_token": {
+      "classification": "not_public",
+      "reason": "Axis/face direction tokens (+Xi/-Xi and so on), not a choice between behaviours. They also collide under the entry-anchor slug rule, which the coverage audit reports. Consistent with BC_FACE_MAP being classified the same way."
+    },
+    "picurv_cli.core::normalize_metric_spec": {
+      "classification": "not_public",
+      "reason": "Parses a metric expression rather than selecting from a set."
+    },
+    "picurv_cli.core::normalize_post_field_statistics_config": {
+      "classification": "not_public",
+      "reason": "Normalizes the field_statistics block of post.yml: window names, outputs, and formats. The selectable sets inside it are separate surfaces - POST_FIELD_STATISTICS_OUTPUTS is a registered capability family and POST_FIELD_STATISTICS_FORMATS is classified as a parameter of it. This function validates the block's shape, which is structure rather than a choice."
+    },
+    "picurv_cli.core::normalize_post_recipe_signature": {
+      "classification": "not_public",
+      "reason": "Builds a stable signature mapping used for post-recipe change detection. Derives a fingerprint from settings rather than selecting among alternatives."
+    },
+    "picurv_cli.core::normalize_post_spectra_config": {
+      "classification": "not_public",
+      "reason": "Normalizes the spectra configuration block. Its selectable sub-values are separate surfaces; the block itself is structure."
+    },
+    "picurv_cli.core::normalize_solution_monitoring_config": {
+      "classification": "not_public",
+      "reason": "Normalizes a config block, not a selector."
+    },
+    "picurv_cli.storage::CLI_OUTPUT_FORMATS": {
+      "classification": "cli_inventory_sufficient",
+      "reason": "`--format text|json` on every command that prints a structured report. The generated CLI reference lists the flag and its choices wherever it appears, and the choice is an output encoding rather than a behaviour: there is no when-to-use answer beyond 'json when a machine reads it'."
+    },
+    "picurv_cli.storage::STORAGE_COMPRESSION_EXTENSIONS": {
+      "classification": "not_public",
+      "reason": "The archive suffix each resolved policy produces. Derived from the policy, never selected: the user chooses a compression policy and the extension follows."
+    }
+  }
+}

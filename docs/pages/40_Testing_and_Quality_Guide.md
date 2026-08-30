@@ -85,9 +85,10 @@ Guidance:
 
 - Use `python3 tests/tooling/audit_function_docs.py` when changing C/Python function signatures, docstrings, or test helpers. It scans production code, generators, tests, and tooling; it rejects missing documentation and name-only descriptions such as “helper function” or “internal helper implementation.”
 - Use `make test` when working on `picurv_cli/core.py`, schemas, or repository metadata.
-- Use `python3 tests/tooling/check_markdown_links.py` when changing docs/examples.
-- Use `python3 tests/tooling/audit_starter_content.py` when changing `examples/` or `config/`. It checks the complete top-level template and configuration inventories, validates every declared composition, and verifies that `picurv init` faithfully copies each template without carrying a site-specific execution sample into the new case.
-- Use `make audit-build` when you want a clean compilation audit with `logs/build.log` and `logs/build.warnings.log` captured under the repo `logs/` directory.
+- Use `python3 tests/tooling/check_markdown_links.py` when changing any Markdown in the
+  repository; it scans every tracked Markdown file, not just `docs/` and `examples/`.
+- Use `python3 tests/tooling/audit_starter_content.py` when changing `examples/` or `<repo>/config/`. It checks the complete top-level template and configuration inventories, validates every declared composition, and verifies that `picurv init` faithfully copies each template without carrying a site-specific execution sample into the new case.
+- Use `make audit-build` when you want a clean compilation audit with `<repo>/logs/build.log` and `<repo>/logs/build.warnings.log` captured under `<repo>/logs/`.
 - Use `make doctor` after provisioning PETSc on a new machine.
 - Use `make unit-setup` when changing setup, teardown, initialization, or rank-info lifecycle code.
 - Use `make unit-setup` when changing `FieldId`, `FieldDescriptor`, runtime field
@@ -123,7 +124,7 @@ The hook runs `make certify-docs`, which requires a clean worktree and includes
 the PETSc/MPI runtime tier, whenever runtime-relevant files changed. For
 Markdown, documentation-site, hook, and workflow-only changes it instead runs
 `make certify-docs-fast` only if a full certificate for an ancestor of the
-target commit exists in local `logs/` and is no more than three days old. Missing
+target commit exists in local `<repo>/logs/` and is no more than three days old. Missing
 or stale certificates always cause a full run. Override the interval for a
 single push with `PICURV_FULL_CERT_MAX_AGE_DAYS=<days>`.
 
@@ -138,7 +139,7 @@ example/configuration regression, and zero-warning Doxygen gates before the
 PETSc/MPI `make check-full` tier. Therefore, with the tracked hook enabled, a
 normal push to `main` cannot publish the checked-out commit until all applicable
 local gates pass. The starter-content gate specifically rejects an unregistered
-example directory/YAML, an unregistered `config/` asset, a broken declared
+example directory/YAML, an unregistered `<repo>/config/` asset, a broken declared
 composition, or a template that `picurv init` does not copy faithfully.
 
 @section p40_python_sec 3. Python Suite (`test-python`)
@@ -522,25 +523,3 @@ P2 (deeper hardening):
 - long-duration nightly/weekly stability suites (beyond tiny smoke budgets)
 - numerical oracle/golden-output tolerance checks for more physical scenarios
 - performance regression gates (runtime/memory envelopes)
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Testing and Validation Guide** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

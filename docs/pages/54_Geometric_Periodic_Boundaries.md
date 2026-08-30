@@ -291,8 +291,7 @@ not a velocity. For `initial_flux`, drop the `params` block entirely.
   `.../turbulent_retau395/` - DNS-resolution plane channels against Moser, Kim &
   Mansour (1999), Phys. Fluids 11, 943.
 - `examples/periodic_test/driven_channel/les_retau180/` - the coarse LES repeat.
-  Use **constant** Smagorinsky only; the dynamic model in this tree has a known
-  defect (incorrect `M_ij`, no homogeneous averaging).
+  @warning Both LES models are currently **known-defective** and unsafe for scientific use: `dynamic_smagorinsky` computes an `M_ij` carrying no dynamic content, and `constant_smagorinsky` leaves the coefficient at zero on fresh runs. See `docs/pages/07_Case_Reference.md` and the records in `tests/tooling/capability_scope_records.json`.
 - `examples/periodic_test/driven_duct/` - square duct at `Re_b = 4410`, which
   sustains turbulence-driven secondary flow of the second kind that a plane
   channel does not. References: Gavrilakis (1992), JFM 244, 101; Huser &
@@ -324,16 +323,28 @@ a statistics field over homogeneous directions to produce the `U+` vs `y+` and
 RMS profiles a DNS comparison needs. That reduction currently has to be done
 outside the postprocessor from the window payloads.
 
-**Momentum convergence on periodic wall-bounded flow.** Under the Dual Time
-Picard Jameson RK solver these cases do not reach the pseudo-time convergence
-tolerance: the pseudo-CFL controller drives `dtau` to its floor and the residual
-ratio plateaus near 1, so every step reports "reached N total attempts without
-convergence" and continues from the last accepted state. This is independent of
-the driven-flow machinery - an otherwise identical case with plain `geometric`
-handlers behaves the same, while the shipped wall-bounded inlet/outlet example
-converges cleanly - and independent of `central_diff` and of the pseudo-CFL
-floor. The Poisson side is healthy throughout (maximum divergence around 1e-14).
-This must be resolved before the turbulent campaigns above can be run.
+**Momentum convergence on periodic wall-bounded flow.**
+
+@warning Status: previously observed; requires re-characterization at current
+`HEAD`. The observation below was measured on 2026-08-24. Commits landed on
+2026-08-25 moved momentum convergence onto a residual criterion, retired
+`absolute_tol`, and changed the pseudo-CFL controller's wall-relearning behavior -
+that is, they rewrote the exact criterion this was measured against. Do not treat
+it as current solver behavior, and do not cite it, until the cases below are rerun.
+
+As measured on 2026-08-24: under the Dual Time Picard Jameson RK solver these cases
+did not reach the pseudo-time convergence tolerance. The pseudo-CFL controller drove
+`dtau` to its floor and the residual ratio plateaued near 1, so every step reported
+"reached N total attempts without convergence" and continued from the last accepted
+state. The behavior was independent of the driven-flow machinery - an otherwise
+identical case with plain `geometric` handlers behaved the same, while the shipped
+wall-bounded inlet/outlet example converged cleanly - and independent of
+`central_diff` and of the pseudo-CFL floor. The Poisson side was healthy throughout
+(maximum divergence around 1e-14).
+
+If the behavior reproduces at current `HEAD`, it must be resolved before the
+turbulent campaigns above can be run. If it does not, replace this note with the
+new measured result rather than deleting it silently.
 
 @section p54_diag_sec 6. Diagnostics and Tests
 

@@ -46,7 +46,7 @@ Profile-generation note:
   profiles.
 - `picurv run --solve` generates configured profile artifacts automatically.
 - `picurv precompute --case ...` writes the same deterministic profile artifacts
-  without launching the solver, mirroring the run `config/` layout.
+  without launching the solver, mirroring the `<run.config>/` layout.
 
 Initial-condition note:
 
@@ -55,7 +55,7 @@ Initial-condition note:
 - `picurv precompute --case ...` also materializes configured `ic_gen` output.
 - `ic_gen` defaults to `generators/ic.gen`; `params.script` optionally selects a compatible override.
 - repository `ic.gen` uses `[expression]` configs with file, `grid_gen`, or single-block
-  `programmatic_c` grids; programmatic cases materialize `config/grid.run` first.
+  `programmatic_c` grids; programmatic cases materialize `<run.config>/grid.run` first.
 - generated and field-sliced prescribed profiles default to `generators/profile.gen`; `source.script`
   optionally selects a compatible override.
 - file-backed initial conditions currently support single-block cases only.
@@ -81,7 +81,7 @@ Momentum-solver note:
 
 - `master_template.md`
 - `../search_robustness/search_robustness.md`
-- https://vishalkandala.me/picurv-docs/14_Config_Contract.html
-- https://vishalkandala.me/picurv-docs/16_Config_Extension_Playbook.html
-- https://vishalkandala.me/picurv-docs/49_Workflow_Recipes_and_Config_Cookbook.html
-- https://vishalkandala.me/picurv-docs/24_Dual_Time_Picard_Jameson_RK.html
+- https://vishalkandala.me/docs/picurv/14_Config_Contract.html
+- https://vishalkandala.me/docs/picurv/16_Config_Extension_Playbook.html
+- https://vishalkandala.me/docs/picurv/49_Workflow_Recipes_and_Config_Cookbook.html
+- https://vishalkandala.me/docs/picurv/24_Dual_Time_Picard_Jameson_RK.html

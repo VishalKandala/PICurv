@@ -1,0 +1,33 @@
+digraph field_layout {
+  rankdir=LR;
+  bgcolor="transparent";
+  node [shape=box, style="rounded,filled", fillcolor="#f4f4f6", color="#8a8a93",
+        fontname="Helvetica", fontsize=10, penwidth=1.2];
+  edge [color="#8a8a93", fontname="Helvetica", fontsize=9, penwidth=1.1];
+
+  subgraph cluster_face {
+    label="Face-centred storage"; fontname="Helvetica"; fontsize=10; color="#c4c4cc"; style=rounded;
+    ucont [label="Ucont\ncontravariant volume fluxes\none component per face", fillcolor="#e8eef8"];
+    metric [label="Csi / Eta / Zet\nface area vectors"];
+  }
+
+  subgraph cluster_cell {
+    label="Cell-centred storage"; fontname="Helvetica"; fontsize=10; color="#c4c4cc"; style=rounded;
+    ucat [label="Ucat\nCartesian velocity\nreconstructed", fillcolor="#e6f2e6"];
+    pres [label="P\npressure", fillcolor="#f0ecf6"];
+    aj [label="Aj\ninverse Jacobian"];
+    nvert [label="Nvert\ncell classification"];
+    psi [label="Psi\nparticle-derived scalar", fillcolor="#fdf6e3"];
+  }
+
+  swarm [label="DMSwarm particles\nposition, velocity,\ninterpolation weights, cell id", fillcolor="#fdf6e3"];
+
+  ucont -> ucat [label="reconstruct\n(Contra2Cart)"];
+  metric -> ucont [label="defines flux\ndirections", style=dashed];
+  ucat -> swarm [label="interpolate\n(trilinear)"];
+  swarm -> psi [label="scatter particle Psi", style=dashed];
+  aj -> pres [style=invis];
+
+  note [shape=note, style=filled, fillcolor="#fdf6e3", fontsize=8,
+        label="Ucont is the evolved quantity.\nUcat is derived from it, not the\nother way round - which is why a\nfield written for visualization is\nnot the solver's state."];
+}

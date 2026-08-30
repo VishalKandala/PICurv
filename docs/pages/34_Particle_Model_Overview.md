@@ -6,19 +6,60 @@ This page documents the particle pipeline exactly as orchestrated in the current
 
 @tableofcontents
 
+@dotfile particle_step.dot "Order of operations in one coupled particle step"
+
+@note Diagram derived from the implementation in `src/runloop.c`; the advection terms
+are those in @ref UpdateParticlePosition. Flagged for owner validation of the
+scientific interpretation.
+
+
 @section p34_loop_sec 1. Per-Step Particle Pipeline
 
-Typical order inside coupled step:
+Order inside the coupled step, as implemented in @ref AdvanceSimulation
+(`src/runloop.c`):
 
-1. interpolate Eulerian fields to swarm: @ref InterpolateAllFieldsToSwarm
-2. advance particle positions: @ref UpdateAllParticlePositions
-3. locate/migrate particles: @ref LocateAllParticlesInGrid
-4. update particle physics fields: @ref UpdateAllParticleFields
-5. scatter particle fields back to Eulerian storage: @ref ScatterAllParticleFieldsToEulerFields
+1. refresh Eulerian transport properties when a turbulence model is active:
+   @ref ComputeEulerianDiffusivity and @ref ComputeEulerianDiffusivityGradient
+2. advect particle positions using the velocity interpolated at the **previous**
+   step: @ref UpdateAllParticlePositions
+3. settle particles - locate new host cells and migrate across ranks:
+   @ref LocateAllParticlesInGrid
+4. remove particles that are now lost or outside the global domain:
+   @ref CheckAndRemoveLostParticles
+5. interpolate the newly computed Eulerian velocity onto the settled positions:
+   @ref InterpolateAllFieldsToSwarm
+6. update particle physics fields: @ref UpdateAllParticleFields
+7. scatter particle fields back to Eulerian storage:
+   @ref CalculateParticleCountPerCell and @ref ScatterAllParticleFieldsToEulerFields
+
+The advect-then-interpolate ordering is deliberate and is the single most
+important property of this loop. A particle carries the state interpolated at
+\f$t_n\f$ into step 2, and @ref UpdateParticlePosition displaces it by three
+contributions - convective velocity, drift along the diffusivity gradient, and a
+stochastic Brownian kick:
+
+\f[
+\mathbf{X}^{n+1} = \mathbf{X}^{n}
+  + \left( \mathbf{u}_p^{\,n} + \nabla D^{\,n} \right) \Delta t
+  + \Delta \mathbf{X}_{\mathrm{brownian}},
+\f]
+
+where \f$\nabla D\f$ is the interpolated diffusivity gradient carried on the
+swarm and \f$\Delta\mathbf{X}_{\mathrm{brownian}}\f$ comes from
+@ref CalculateBrownianDisplacement, scaled by the particle's interpolated
+diffusivity. Step 5 then supplies the state at \f$t_{n+1}\f$ from the flow field
+@ref FlowSolver has just computed, ready for the next step. Interpolation
+therefore closes each step rather than opening it.
+
+Particles are not advected without a valid interpolated state: both
+@ref PerformInitializedParticleSetup and @ref PerformLoadedParticleSetup settle the
+swarm and run one interpolation at \f$t=0\f$ before the step loop begins, so the
+first physical advection already has interpolated velocity, diffusivity, and
+diffusivity gradient available.
 
 Each stage relies on valid `DMSwarm_CellID`, interpolation weights, and synchronized ghost data.
 
-Step 1 dispatches through @ref InterpolateEulerFieldToSwarm, which selects between two interpolation paths based on `SimCtx.interpolationMethod`:
+Step 5 dispatches through @ref InterpolateEulerFieldToSwarm, which selects between two interpolation paths based on `SimCtx.interpolationMethod`:
 
 - **Trilinear** (default): direct interpolation from the 8 nearest cell centers, second-order on curvilinear grids.
 - **CornerAveraged** (legacy): two-stage center-to-corner averaging then trilinear from corners.
@@ -54,7 +95,7 @@ Post statistics currently include global kernels such as:
 - @ref ComputeParticleMSD
 
 Additional health indicators are available from migration counters and settlement-pass counts stored in `SimCtx` fields updated by location logic.
-For particle-enabled runs, the runtime also writes `logs/search_metrics.csv`
+For particle-enabled runs, the runtime also writes `<run.runtime_logs>/search_metrics.csv`
 with per-step and cumulative loss plus aggregated search-attempt, traversal,
 tie-break, boundary-clamp, bbox-guess, and pass-depth signals. The
 `examples/search_robustness/` bundle is the dedicated end-to-end reference for
@@ -81,25 +122,3 @@ For configuration contract changes, update:
 - **@subpage 33_Initial_Conditions**
 - **@subpage 45_Particle_Initialization_and_Restart**
 - **@subpage 26_Walking_Search_Method**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Particle Model and Coupling Overview** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

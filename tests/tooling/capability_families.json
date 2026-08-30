@@ -1,0 +1,1146 @@
+{
+  "description": "Capability family registry. Each family names the authoritative sources for its public selector values, so the Tier-3 inventory is extracted rather than hand-maintained. 'public_surface' is the Python validation layer that decides what a user may actually select; C enums are deliberately NOT authoritative, because they carry values that are not exposed end to end.",
+  "families": [
+    {
+      "id": "boundary.handler",
+      "title": "Boundary Condition Handlers",
+      "selector": "case.yml -> boundary_conditions[].handler",
+      "public_surface": {
+        "kind": "python_dict",
+        "module": "picurv_cli.core",
+        "symbol": "BC_HANDLER_SPECS"
+      },
+      "parity_sources": [
+        {
+          "kind": "c_string_map",
+          "path": "src/io.c",
+          "function": "StringToBCHandlerType"
+        },
+        {
+          "kind": "c_switch",
+          "path": "src/Boundaries.c",
+          "function": "BoundaryCondition_Create",
+          "prefix": "BC_HANDLER_"
+        }
+      ],
+      "family_page": "44_Boundary_Conditions_Guide",
+      "entry_anchor_prefix": "p44_cap_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "noslip": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-boundaries",
+              "file:tests/c/test_boundaries.c"
+            ]
+          }
+        },
+        "constant_velocity": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-boundaries"
+            ],
+            "production": [
+              "example:examples/flat_channel"
+            ]
+          }
+        },
+        "parabolic": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-boundaries"
+            ]
+          }
+        },
+        "prescribed_flow": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-boundaries"
+            ],
+            "integration": [
+              "file:tests/test_config_regressions.py"
+            ]
+          }
+        },
+        "conservation": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-boundaries"
+            ],
+            "production": [
+              "example:examples/flat_channel"
+            ]
+          }
+        },
+        "geometric": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-periodic"
+            ],
+            "integration": [
+              "make:smoke-periodic"
+            ]
+          }
+        },
+        "constant_flux": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "integration": [
+              "make:smoke-driven-periodic",
+              "file:tests/smoke/run_driven_periodic_regression.sh"
+            ]
+          }
+        },
+        "initial_flux": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "integration": [
+              "make:smoke-driven-periodic"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "boundary.type",
+      "title": "Boundary Condition Types",
+      "selector": "case.yml -> boundary_conditions[].type",
+      "public_surface": {
+        "kind": "python_dict",
+        "module": "picurv_cli.core",
+        "symbol": "BC_TYPE_MAP"
+      },
+      "parity_sources": [],
+      "family_page": "44_Boundary_Conditions_Guide",
+      "entry_anchor_prefix": "p44_type_",
+      "coverage_enforced": true,
+      "reachable_from": {
+        "family": "boundary.handler",
+        "field": "types"
+      },
+      "value_metadata": {
+        "wall": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-boundaries"
+            ]
+          }
+        },
+        "inlet": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-boundaries"
+            ],
+            "production": [
+              "example:examples/flat_channel"
+            ]
+          }
+        },
+        "outlet": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-boundaries"
+            ],
+            "production": [
+              "example:examples/flat_channel"
+            ]
+          }
+        },
+        "periodic": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-periodic"
+            ],
+            "integration": [
+              "make:smoke-periodic"
+            ]
+          }
+        },
+        "symmetry": {
+          "status": "internal",
+          "canonical": true,
+          "evidence": {},
+          "status_note": "Declared in BC_TYPE_MAP and present in the C enum, but no public handler supports it, so reachability marks it latent. 'latent' is a computed reachability state, not a lifecycle status."
+        }
+      }
+    },
+    {
+      "id": "momentum.solver",
+      "title": "Momentum Solvers",
+      "selector": "solver.yml -> strategy.momentum_solver",
+      "public_surface": {
+        "kind": "python_normalizer",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_momentum_solver_type"
+      },
+      "parity_sources": [
+        {
+          "kind": "c_token_map",
+          "path": "src/setup.c",
+          "function": "CreateSimulationContext",
+          "variable": "mom_solver_type_char",
+          "field": "mom_solver_type",
+          "legacy_tokens": {
+            "DUALTIME_PICARD_RK4": "Accepted for archived .control files written before the Jameson rename. picurv never emits it; the deprecated YAML value normalizes to the canonical token."
+          }
+        },
+        {
+          "kind": "c_dispatch",
+          "path": "src/solvers.c",
+          "function": "FlowSolver",
+          "prefix": "MOMENTUM_SOLVER_"
+        },
+        {
+          "kind": "c_enum",
+          "path": "include/variables.h",
+          "symbol": "MomentumSolverType"
+        }
+      ],
+      "family_page": "08_Solver_Reference",
+      "entry_anchor_prefix": "p08_cap_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "Explicit RK4": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {},
+          "status_note": "No positive-path harness; src/guide.md records this as an open coverage gap."
+        },
+        "Dual Time Picard Jameson RK": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-solver"
+            ],
+            "integration": [
+              "make:smoke"
+            ],
+            "production": [
+              "example:examples/flat_channel",
+              "example:examples/bent_channel"
+            ]
+          }
+        },
+        "Newton Krylov": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-newton-krylov"
+            ],
+            "integration": [
+              "make:unit-momentum-newton-boundary-fixedpoint"
+            ]
+          }
+        },
+        "Dual Time Picard RK4": {
+          "status": "deprecated",
+          "canonical": false,
+          "alias_of": "Dual Time Picard Jameson RK"
+        }
+      }
+    },
+    {
+      "id": "turbulence.les_model",
+      "title": "LES Subgrid Models",
+      "selector": "case.yml -> models.physics.turbulence.les.model",
+      "public_surface": {
+        "kind": "python_normalizer",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_les_model"
+      },
+      "parity_sources": [],
+      "family_page": "07_Case_Reference",
+      "entry_anchor_prefix": "p07_cap_les_",
+      "coverage_enforced": true,
+      "coverage_note": "Coverage is enforced. Both models carry status known-defective: the dynamic procedure has no dynamic content, and the constant model is inert on fresh runs. The deferred material is the dynamic model's formulation and validation, recorded in capability_scope_records.json - not the disclosure, which is published.",
+      "value_metadata": {
+        "none": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/flat_channel",
+              "example:examples/bent_channel"
+            ]
+          }
+        },
+        "off": {
+          "canonical": false,
+          "spelling_of": "none"
+        },
+        "disabled": {
+          "canonical": false,
+          "spelling_of": "none"
+        },
+        "no_les": {
+          "canonical": false,
+          "spelling_of": "none"
+        },
+        "constant_smagorinsky": {
+          "status": "known-defective",
+          "canonical": true,
+          "evidence": {}
+        },
+        "constant": {
+          "canonical": false,
+          "spelling_of": "constant_smagorinsky"
+        },
+        "smagorinsky": {
+          "canonical": false,
+          "spelling_of": "constant_smagorinsky"
+        },
+        "dynamic_smagorinsky": {
+          "status": "known-defective",
+          "canonical": true,
+          "evidence": {}
+        },
+        "dynamic": {
+          "canonical": false,
+          "spelling_of": "dynamic_smagorinsky"
+        }
+      }
+    },
+    {
+      "id": "eulerian.field_source",
+      "title": "Eulerian Field Source",
+      "selector": "solver.yml -> operation_mode.eulerian_source",
+      "public_surface": {
+        "kind": "python_normalizer",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_eulerian_field_source"
+      },
+      "parity_sources": [],
+      "family_page": "08_Solver_Reference",
+      "entry_anchor_prefix": "p08_cap_src_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "solve": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/flat_channel"
+            ]
+          }
+        },
+        "load": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "analytical": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/drift_uniform_flow"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "initial.field_mode",
+      "title": "Field Initialization Modes",
+      "selector": "case.yml -> initial_conditions field mode",
+      "public_surface": {
+        "kind": "python_normalizer",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_field_init_mode"
+      },
+      "parity_sources": [],
+      "family_page": "33_Initial_Conditions",
+      "entry_anchor_prefix": "p33_cap_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "Zero": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "Constant": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "Poiseuille": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "particle.init_mode",
+      "title": "Particle Initialization Modes",
+      "selector": "case.yml -> models.physics.particles.init_mode",
+      "public_surface": {
+        "kind": "python_normalizer",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_particle_init_mode"
+      },
+      "parity_sources": [],
+      "family_page": "45_Particle_Initialization_and_Restart",
+      "entry_anchor_prefix": "p45_cap_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "Surface": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "Volume": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/scatter_verification"
+            ]
+          }
+        },
+        "PointSource": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/drift_uniform_flow",
+              "example:examples/brownian_motion"
+            ]
+          }
+        },
+        "SurfaceEdges": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "particle.interpolation",
+      "title": "Grid-to-Particle Interpolation",
+      "selector": "solver.yml -> interpolation.method",
+      "public_surface": {
+        "kind": "python_normalizer",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_interpolation_method"
+      },
+      "parity_sources": [],
+      "family_page": "08_Solver_Reference",
+      "entry_anchor_prefix": "p08_cap_interp_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "Trilinear": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/interpolation_test"
+            ]
+          }
+        },
+        "CornerAveraged": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "solver.convergence_mode",
+      "title": "Solution Convergence Modes",
+      "selector": "solver.yml -> solution_convergence.mode",
+      "public_surface": {
+        "kind": "python_normalizer",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_solution_convergence_mode"
+      },
+      "parity_sources": [],
+      "family_page": "08_Solver_Reference",
+      "entry_anchor_prefix": "p08_cap_conv_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "steady_deterministic": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "periodic_deterministic": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "statistical_steady": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "transient": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "turbulence.rans_model",
+      "title": "RANS Models",
+      "selector": "case.yml -> models.physics.turbulence.rans.model",
+      "public_surface": {
+        "kind": "python_normalizer",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_rans_model"
+      },
+      "parity_sources": [],
+      "family_page": "07_Case_Reference",
+      "entry_anchor_prefix": "p07_cap_rans_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "none": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/flat_channel",
+              "example:examples/bent_channel"
+            ]
+          }
+        },
+        "off": {
+          "canonical": false,
+          "spelling_of": "none"
+        },
+        "disabled": {
+          "canonical": false,
+          "spelling_of": "none"
+        },
+        "k_omega": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "komega": {
+          "canonical": false,
+          "spelling_of": "k_omega"
+        }
+      }
+    },
+    {
+      "id": "turbulence.les_test_filter",
+      "title": "LES Test Filters",
+      "selector": "case.yml -> models.physics.turbulence.les.test_filter",
+      "public_surface": {
+        "kind": "python_normalizer",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_les_test_filter"
+      },
+      "parity_sources": [],
+      "family_page": "07_Case_Reference",
+      "entry_anchor_prefix": "p07_cap_filter_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "volume_weighted_box": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "box": {
+          "canonical": false,
+          "spelling_of": "volume_weighted_box"
+        },
+        "general_box": {
+          "canonical": false,
+          "spelling_of": "volume_weighted_box"
+        },
+        "homogeneous_ik": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "ik_homogeneous": {
+          "canonical": false,
+          "spelling_of": "homogeneous_ik"
+        },
+        "simpson_ik": {
+          "canonical": false,
+          "spelling_of": "homogeneous_ik"
+        }
+      }
+    },
+    {
+      "id": "analytical.solution_type",
+      "title": "Analytical Solution Types",
+      "selector": "solver.yml -> operation_mode.analytical_type",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "ANALYTICAL_SOLUTION_TYPES"
+      },
+      "parity_sources": [],
+      "family_page": "32_Analytical_Solutions",
+      "entry_anchor_prefix": "p32_cap_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "ZERO_FLOW": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/drift_diffusivity_gradient"
+            ]
+          }
+        },
+        "UNIFORM_FLOW": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/drift_uniform_flow"
+            ]
+          }
+        },
+        "TGV3D": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "turbulence.wall_function",
+      "title": "Wall Function Models",
+      "selector": "case.yml -> models.physics.turbulence.wall_function.model",
+      "public_surface": {
+        "kind": "python_membership",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_wall_function_model"
+      },
+      "parity_sources": [],
+      "family_page": "07_Case_Reference",
+      "entry_anchor_prefix": "p07_cap_wall_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "log_law": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "loglaw": {
+          "canonical": false,
+          "spelling_of": "log_law"
+        }
+      }
+    },
+    {
+      "id": "initial.target_field",
+      "title": "Initial Condition Target Field",
+      "selector": "case.yml -> properties.initial_conditions.field",
+      "public_surface": {
+        "kind": "python_equality_chain",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_initial_condition_field"
+      },
+      "parity_sources": [],
+      "family_page": "33_Initial_Conditions",
+      "entry_anchor_prefix": "p33_cap_field_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "ucat": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/flat_channel"
+            ]
+          }
+        },
+        "ucont": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "statistics.task",
+      "title": "Particle Statistics Tasks",
+      "selector": "post.yml -> statistics pipeline task",
+      "public_surface": {
+        "kind": "python_equality_chain",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_statistics_task"
+      },
+      "parity_sources": [],
+      "family_page": "10_Post_Processing_Reference",
+      "entry_anchor_prefix": "p10_cap_stat_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "msd": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-statistics"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "grid.mode",
+      "title": "Grid Ingestion Modes",
+      "selector": "case.yml -> grid.mode",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "GRID_MODES"
+      },
+      "parity_sources": [],
+      "family_page": "07_Case_Reference",
+      "entry_anchor_prefix": "p07_cap_gridmode_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "file": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/bent_channel"
+            ]
+          }
+        },
+        "programmatic_c": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/flat_channel"
+            ],
+            "integration": [
+              "make:unit-grid"
+            ]
+          }
+        },
+        "grid_gen": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/periodic_test"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "grid.generator_type",
+      "title": "Grid Generator Geometries",
+      "selector": "case.yml -> grid.generator.grid_type",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "GRID_GENERATOR_TYPES"
+      },
+      "parity_sources": [],
+      "family_page": "48_Grid_Generator_Guide",
+      "entry_anchor_prefix": "p48_cap_geom_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "warp": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/periodic_test"
+            ]
+          }
+        },
+        "cpipe": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "pipe": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "particle.restart_mode",
+      "title": "Particle Restart Modes",
+      "selector": "case.yml -> models.physics.particles.restart_mode",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "PARTICLE_RESTART_MODES"
+      },
+      "parity_sources": [],
+      "family_page": "45_Particle_Initialization_and_Restart",
+      "entry_anchor_prefix": "p45_cap_restart_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "init": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "integration": [
+              "make:unit-particles"
+            ]
+          }
+        },
+        "load": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "integration": [
+              "make:unit-particles"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "post.eulerian_task",
+      "title": "Eulerian Post-Processing Kernels",
+      "selector": "post.yml -> eulerian_pipeline[].task",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "POST_EULERIAN_PIPELINE_TASKS"
+      },
+      "parity_sources": [],
+      "family_page": "10_Post_Processing_Reference",
+      "entry_anchor_prefix": "p10_cap_eul_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "q_criterion": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-post"
+            ]
+          }
+        },
+        "normalize_field": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-post"
+            ]
+          }
+        },
+        "nodal_average": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-post"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "post.lagrangian_task",
+      "title": "Lagrangian Post-Processing Kernels",
+      "selector": "post.yml -> lagrangian_pipeline[].task",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "POST_LAGRANGIAN_PIPELINE_TASKS"
+      },
+      "parity_sources": [],
+      "family_page": "10_Post_Processing_Reference",
+      "entry_anchor_prefix": "p10_cap_lag_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "specific_ke": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-post"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "post.spectra_task",
+      "title": "Spectra Tasks",
+      "selector": "post.yml -> spectra.tasks[].task",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "POST_SPECTRA_TASKS"
+      },
+      "parity_sources": [],
+      "family_page": "10_Post_Processing_Reference",
+      "entry_anchor_prefix": "p10_cap_spec_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "shell_spectrum": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "post.field_statistics_output",
+      "title": "Field Statistics Derived Outputs",
+      "selector": "post.yml -> field_statistics.outputs[]",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "POST_FIELD_STATISTICS_OUTPUTS"
+      },
+      "parity_sources": [],
+      "family_page": "10_Post_Processing_Reference",
+      "entry_anchor_prefix": "p10_cap_fso_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "mean": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-statistics"
+            ]
+          }
+        },
+        "reynolds_stress": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-statistics"
+            ]
+          }
+        },
+        "rms": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-statistics"
+            ]
+          }
+        },
+        "tke": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-statistics"
+            ]
+          }
+        },
+        "flux": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-statistics"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "statistics.weighting",
+      "title": "Field Statistics Weighting Modes",
+      "selector": "monitor.yml -> field_statistics.windows[].weighting",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "STATISTICS_WEIGHTING_MODES"
+      },
+      "parity_sources": [],
+      "family_page": "58_Field_Statistics",
+      "entry_anchor_prefix": "p58_cap_weight_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "sample": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-statistics-window"
+            ]
+          }
+        },
+        "physical_time": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-statistics-window"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "study.type",
+      "title": "Study Types",
+      "selector": "study.yml -> study_type",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "STUDY_TYPES"
+      },
+      "parity_sources": [],
+      "family_page": "37_Sweep_Studies_Guide",
+      "entry_anchor_prefix": "p37_cap_study_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "grid_independence": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/flat_channel"
+            ]
+          }
+        },
+        "timestep_independence": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "sensitivity": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "momentum.nk_preconditioner",
+      "title": "Newton-Krylov Preconditioner Models",
+      "selector": "solver.yml -> momentum_solver.newton_krylov.preconditioner.model",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "NEWTON_KRYLOV_PRECONDITIONER_MODELS"
+      },
+      "parity_sources": [],
+      "family_page": "55_Newton_Krylov_Momentum_Solver",
+      "entry_anchor_prefix": "p55_cap_pc_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "none": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "integration": [
+              "make:unit-newton-krylov"
+            ]
+          }
+        },
+        "frozen_momentum_jacobian": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {
+            "integration": [
+              "make:unit-newton-krylov"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "storage.compression",
+      "title": "Storage Compression Policies",
+      "selector": "picurv storage --compression / storage.yml -> compression",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.storage",
+        "symbol": "STORAGE_COMPRESSION_POLICIES"
+      },
+      "parity_sources": [],
+      "family_page": "61_Storage_Management_Guide",
+      "entry_anchor_prefix": "p61_cap_comp_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "auto": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "file:tests/test_storage.py"
+            ]
+          }
+        },
+        "none": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "file:tests/test_storage.py"
+            ]
+          }
+        },
+        "fast": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "balanced": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "file:tests/test_storage.py"
+            ]
+          }
+        },
+        "maximum": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    }
+  ],
+  "coverage_note": "coverage_enforced marks families whose Tier-2 entries are complete. Every registered family is enforced; nothing is awaiting backfill. A newly registered family may be set advisory while its entries are being written, but it cannot reach a clean audit that way - the family census refuses a public selector surface no family covers, and this flag is checked for uniformity.",
+  "legacy_token_note": "legacy_tokens declares C tokens intentionally still parsed but no longer emitted. They must be declared so an accidentally dead or misspelled arm is still caught.",
+  "evidence_facets": {
+    "unit": "Unit verified",
+    "integration": "Integration/regression verified",
+    "analytical": "Analytical or manufactured-solution verified",
+    "benchmark": "Benchmark characterized",
+    "reference": "Externally/reference validated",
+    "production": "Production exercised"
+  },
+  "evidence_note": "Facets are independent claims, not a ladder. Each facet maps to source identifiers ('make:<target>', 'example:<dir>', 'file:<path>') that must exist AND must be cited in the capability entry's Evidence part. These are DECLARED evidence sources: automation checks existence and correspondence, not that the source establishes the claim. An empty mapping means 'implemented only'.",
+  "status_note": "Only canonical values declare status. An accepted spelling inherits the status of the value it resolves to, so a defective capability cannot look supported under a different spelling."
+}

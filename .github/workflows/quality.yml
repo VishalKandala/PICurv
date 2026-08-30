@@ -25,8 +25,58 @@ jobs:
       - name: Run function documentation audit
         run: python tests/tooling/audit_function_docs.py
 
-      - name: Run CLI and config smoke tests
+      # One invocation covers every suite, including the capability-tooling and
+      # run-directory containment regressions. Re-running those separately would
+      # duplicate work without adding coverage.
+      - name: Run the Python test suite
         run: pytest -q
 
-      - name: Check markdown links (README + docs + examples)
+      - name: Check markdown links (all repository Markdown)
         run: python tests/tooling/check_markdown_links.py
+
+      - name: Reject generic documentation-expansion debris
+        run: python tests/tooling/audit_generic_expansion.py
+
+      - name: Verify capability parity and documentation coverage
+        run: python tests/tooling/audit_capability_coverage.py
+
+      - name: Capability family census
+        run: python tests/tooling/audit_family_census.py
+
+      - name: Verify generated CLI reference
+        run: python tests/tooling/generate_cli_reference.py --check
+
+      - name: Reject unmanaged run-path literals
+        run: python tests/tooling/audit_path_literals.py
+
+      - name: Install Doxygen toolchain
+        run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
+
+      - name: Build documentation (publication artifact)
+        run: make --no-print-directory build-docs
+
+      - name: Fail on Doxygen warnings
+        run: |
+          if [ -s logs/doxygen.warnings ]; then
+            echo "Doxygen emitted warnings:"
+            cat logs/doxygen.warnings
+            exit 1
+          fi
+
+      - name: Verify published-site URLs and navigation
+        run: python tests/tooling/audit_docs_site.py
+
+      - name: Verify documentation freshness attestation
+        run: python tests/tooling/audit_freshness.py
+
+      - name: Verify subsystem lifecycle obligations
+        run: python tests/tooling/audit_subsystem_lifecycle.py
+
+      - name: Verify public choice sets are named
+        run: python tests/tooling/audit_inline_choices.py
+
+      - name: Verify page-type coverage
+        run: python tests/tooling/audit_page_types.py
+
+      - name: Verify invariant contract registry
+        run: python tests/tooling/audit_contracts.py

@@ -10,6 +10,9 @@
 #include "setup.h"
 #include "statistics_config.h"
 #include "statistics_accumulator.h"
+#include <unistd.h>
+#include <limits.h>
+#include <stdlib.h>
 
 /**
  * @brief Implementation of \ref RuntimeWalltimeGuardParsePositiveSeconds().
@@ -1054,6 +1057,407 @@ static PetscErrorCode PetscMkdirRecursive(const char *path)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Whether two configured directories denote the same location or nest.
+ *
+ * @details A bare `strcmp` accepted "output/" against "output", and missed
+ *          "output/sub" entirely. Comparison is done on normalized segment sequences so
+ *          trailing slashes, "./" prefixes and repeated separators cannot defeat it.
+ *
+ * @param[in] first  First directory value.
+ * @param[in] second Second directory value.
+ * @return PETSC_TRUE when one contains the other, or they are equal.
+ */
+static PetscBool DirectoriesOverlap(const char *first, const char *second)
+{
+    char        a[PETSC_MAX_PATH_LEN], b[PETSC_MAX_PATH_LEN];
+    const char *source[2];
+    char       *target[2];
+    int         which;
+
+    if (!first || !second || !*first || !*second) return PETSC_FALSE;
+    source[0] = first;  source[1] = second;
+    target[0] = a;      target[1] = b;
+
+    for (which = 0; which < 2; ++which) {
+        const char *cursor = source[which];
+        char       *out    = target[which];
+        size_t      used   = 0;
+
+        while (*cursor && used + 1 < PETSC_MAX_PATH_LEN) {
+            size_t segment;
+            while (*cursor == '/') ++cursor;
+            segment = strcspn(cursor, "/");
+            if (segment == 0) break;
+            if (segment == 1 && cursor[0] == '.') { cursor += segment; continue; }
+            if (used) out[used++] = '/';
+            if (used + segment + 1 >= PETSC_MAX_PATH_LEN) break;
+            memcpy(out + used, cursor, segment);
+            used += segment;
+            cursor += segment;
+        }
+        out[used] = '\0';
+    }
+
+    if (!*a || !*b) return PETSC_FALSE;
+    if (strcmp(a, b) == 0) return PETSC_TRUE;
+    if (strncmp(a, b, strlen(b)) == 0 && a[strlen(b)] == '/') return PETSC_TRUE;
+    if (strncmp(b, a, strlen(a)) == 0 && b[strlen(a)] == '/') return PETSC_TRUE;
+    return PETSC_FALSE;
+}
+
+/** @brief Directory names the run tree owns; a log directory must never target one. */
+static const char *kReservedRunDirectories[] = {"config", "scheduler", "checkpoints", "visualization", NULL};
+
+/**
+ * @brief Whether a configured directory name is safe to write to a PETSc options line.
+ *
+ * @details Whitespace, quotes, and comment markers change how the options file is
+ *          tokenized, so a value carrying them would be misread rather than merely
+ *          unsafe. This is never waivable: the user cannot consent to ambiguity.
+ *
+ * @param[in] value Configured directory value.
+ * @return PETSC_TRUE when the value is unambiguous.
+ */
+static PetscBool DirectoryValueIsWellFormed(const char *value)
+{
+    const char *cursor;
+
+    if (!value || value[0] == '\0') return PETSC_FALSE;
+    for (cursor = value; *cursor; ++cursor) {
+        if (isspace((unsigned char)*cursor)) return PETSC_FALSE;
+        if (*cursor == '"' || *cursor == '\'' || *cursor == '#') return PETSC_FALSE;
+    }
+    return PETSC_TRUE;
+}
+
+/**
+ * @brief Whether a directory's first path segment collides with a reserved run directory.
+ *
+ * @param[in] value Configured directory value.
+ * @return PETSC_TRUE when it collides.
+ */
+static PetscBool DirectoryHitsReservedName(const char *value)
+{
+    const char *cursor = value;
+
+    if (!value) return PETSC_FALSE;
+
+    /* Walk every path segment, skipping separators and "." components. A
+       first-segment-only check accepted "./config", ".//config", "output/" and
+       "output/sub", each of which deletes a run-owned directory. */
+    while (*cursor) {
+        size_t segment;
+        int    index;
+
+        while (*cursor == '/') ++cursor;
+        if (!*cursor) break;
+        segment = strcspn(cursor, "/");
+        if (!(segment == 1 && cursor[0] == '.')) {
+            for (index = 0; kReservedRunDirectories[index]; ++index) {
+                if (strlen(kReservedRunDirectories[index]) == segment &&
+                    strncmp(cursor, kReservedRunDirectories[index], segment) == 0) {
+                    return PETSC_TRUE;
+                }
+            }
+        }
+        cursor += segment;
+    }
+    return PETSC_FALSE;
+}
+
+typedef enum {
+    DIR_VERDICT_CONTAINED = 0,      /* Inside the working directory. Always safe.        */
+    DIR_VERDICT_MALFORMED,          /* Empty, or unwritable to an options line.          */
+    DIR_VERDICT_RESERVED,           /* Collides with a reserved run directory.           */
+    DIR_VERDICT_OVERLAP,            /* Nests with the solver output directory.           */
+    DIR_VERDICT_RUN_ROOT,           /* Resolves to the working directory itself.         */
+    DIR_VERDICT_ANCESTOR,           /* Contains the working directory.                   */
+    DIR_VERDICT_RELATIVE_ESCAPE,    /* Relative traversal, or a relative symlink escape. */
+    DIR_VERDICT_UNEXPANDED_TILDE,   /* Starts with '~', which nothing expands.           */
+    DIR_VERDICT_EXTERNAL_ABSOLUTE,  /* Absolute location outside the tree.               */
+    DIR_VERDICT_UNRESOLVABLE        /* Working directory or path could not be resolved.  */
+} DirectoryVerdict;
+
+/**
+ * @brief Lexically normalize a path, resolving "." and ".." textually.
+ *
+ * @details Used only when the target does not exist yet, so `realpath` cannot resolve
+ *          it. Resolving ".." textually is correct here precisely because there is no
+ *          file to be a symlink; the existing prefix is resolved separately with
+ *          `realpath`, which does follow symlinks.
+ *
+ * @param[in]  value Path to normalize.
+ * @param[out] out   Buffer receiving the normalized path.
+ * @param[in]  size  Size of the output buffer.
+ * @param[out] stack Caller-provided scratch of at least PETSC_MAX_PATH_LEN bytes.
+ * @return PETSC_TRUE when normalization fit in the buffer.
+ */
+static PetscBool NormalizePathLexically(const char *value, char *out, size_t size,
+                                        char *stack)
+{
+    const char *cursor = value;
+    size_t      used = 0;
+    PetscBool   absolute = (PetscBool)(value[0] == '/');
+
+    stack[0] = '\0';
+    while (*cursor) {
+        const char *slash;
+        size_t      len;
+
+        while (*cursor == '/') cursor++;
+        if (!*cursor) break;
+        slash = strchr(cursor, '/');
+        len   = slash ? (size_t)(slash - cursor) : strlen(cursor);
+
+        if (len == 1 && cursor[0] == '.') {
+            /* Nothing to do. */
+        } else if (len == 2 && cursor[0] == '.' && cursor[1] == '.') {
+            char *last = strrchr(stack, '/');
+            if (last) { *last = '\0'; used = strlen(stack); }
+            else if (used) { stack[0] = '\0'; used = 0; }
+        } else {
+            if (used + len + 2 >= PETSC_MAX_PATH_LEN) return PETSC_FALSE;
+            stack[used++] = '/';
+            memcpy(stack + used, cursor, len);
+            used += len;
+            stack[used] = '\0';
+        }
+        if (!slash) break;
+        cursor = slash + 1;
+    }
+
+    if (absolute) {
+        if (strlen(stack) + 1 >= size) return PETSC_FALSE;
+        strcpy(out, used ? stack : "/");
+    } else {
+        const char *relative = used ? stack + 1 : ".";
+        if (strlen(relative) + 1 >= size) return PETSC_FALSE;
+        strcpy(out, relative);
+    }
+    return PETSC_TRUE;
+}
+
+/**
+ * @brief Resolve a directory that may not exist yet to an absolute physical path.
+ *
+ * @details `realpath` fails on a path whose final components have not been created,
+ *          which is the normal case for a log directory. The longest existing prefix is
+ *          resolved with `realpath`, so symlinked ancestors are followed, and the
+ *          remainder is appended lexically.
+ *
+ * @param[in]  value Configured directory value.
+ * @param[in]  cwd     Current working directory, for relative values.
+ * @param[out] out     Buffer receiving the resolved absolute path.
+ * @param[in]  size    Size of the output buffer.
+ * @param[out] scratch Caller-provided scratch of at least 5*PETSC_MAX_PATH_LEN bytes.
+ * @return PETSC_TRUE when a resolution was produced.
+ */
+static PetscBool ResolveDirectoryPhysically(const char *value, const char *cwd,
+                                            char *out, size_t size, char *scratch)
+{
+    /* Five PATH_MAX buffers, on the heap. On the stack they cost 20 KB inside a call
+       chain that already carries the caller's three, and that overflowed far enough to
+       corrupt the simulation context on rank zero - the guard broke the run it was
+       there to protect. A path check must not spend the stack. */
+    char *absolute   = scratch;
+    char *normalized = scratch + PETSC_MAX_PATH_LEN;
+    char *probe      = scratch + 2 * PETSC_MAX_PATH_LEN;
+    char *resolved   = scratch + 3 * PETSC_MAX_PATH_LEN;
+    char *lexical    = scratch + 4 * PETSC_MAX_PATH_LEN;
+
+    if (value[0] == '/') {
+        if ((size_t)snprintf(absolute, PETSC_MAX_PATH_LEN, "%s", value) >= PETSC_MAX_PATH_LEN)
+            return PETSC_FALSE;
+    } else {
+        if ((size_t)snprintf(absolute, PETSC_MAX_PATH_LEN, "%s/%s", cwd, value)
+            >= PETSC_MAX_PATH_LEN)
+            return PETSC_FALSE;
+    }
+    if (!NormalizePathLexically(absolute, normalized, PETSC_MAX_PATH_LEN, lexical))
+        return PETSC_FALSE;
+
+    if ((size_t)snprintf(probe, PETSC_MAX_PATH_LEN, "%s", normalized) >= PETSC_MAX_PATH_LEN)
+        return PETSC_FALSE;
+
+    /* Walk up to the longest existing prefix, then re-append what was trimmed. */
+    for (;;) {
+        char *last;
+        if (realpath(probe, resolved)) {
+            size_t consumed = strlen(probe);
+            const char *tail = normalized + consumed;
+            if ((size_t)snprintf(out, size, "%s%s", resolved, tail) >= size) return PETSC_FALSE;
+            /* Re-normalize: `resolved` may be "/" and `tail` may start with "/". */
+            return NormalizePathLexically(out, out, size, lexical);
+        }
+        last = strrchr(probe, '/');
+        if (!last) return PETSC_FALSE;
+        if (last == probe) { probe[1] = '\0'; }   /* Down to "/" - try once more. */
+        else              { *last = '\0'; }
+        if (strcmp(probe, "/") == 0 && !realpath(probe, resolved)) return PETSC_FALSE;
+    }
+}
+
+/**
+ * @brief Whether `ancestor` is the same directory as `path`, or contains it.
+ * @param[in] ancestor Candidate containing directory, absolute and normalized.
+ * @param[in] path     Candidate contained directory, absolute and normalized.
+ * @return PETSC_TRUE when `ancestor` equals or contains `path`.
+ */
+static PetscBool PathContainsOrEquals(const char *ancestor, const char *path)
+{
+    size_t len = strlen(ancestor);
+
+    if (strcmp(ancestor, path) == 0) return PETSC_TRUE;
+    if (strcmp(ancestor, "/") == 0) return PETSC_TRUE;
+    return (PetscBool)(strncmp(path, ancestor, len) == 0 && path[len] == '/');
+}
+
+/**
+ * @brief Classify a configured log directory against the working directory.
+ *
+ * @details Every non-waivable check - lexical and physical alike - runs before the
+ *          caller is allowed to consider an authorization. An earlier version returned
+ *          `safe` as soon as it saw an absolute path with authorization set, which let
+ *          an authorized run delete its own run directory, an ancestor of it, or the
+ *          filesystem root. Classification is now total and the waiver is applied once,
+ *          to exactly one verdict.
+ *
+ * @param[in]  log_dir    Configured log directory.
+ * @param[in]  output_dir Configured output directory, for the overlap check.
+ * @param[out] reason     Set to a short explanation of the verdict.
+ * @return The verdict for this directory.
+ */
+static DirectoryVerdict ClassifyLogDirectory(const char *log_dir, const char *output_dir,
+                                             const char **reason)
+{
+    /* One heap block for every path buffer this classification needs: three here and
+       five for the physical resolution. */
+    char            *scratch = NULL;
+    char            *cwd, *resolved, *cwd_real;
+    DirectoryVerdict verdict;
+
+    *reason = "unknown";
+
+    /* --- Non-waivable: ambiguous or self-destructive targets. --- */
+    if (!log_dir || log_dir[0] == '\0') {
+        *reason = "is empty";
+        return DIR_VERDICT_MALFORMED;
+    }
+    if (!DirectoryValueIsWellFormed(log_dir)) {
+        *reason = "contains whitespace, a quote, or a comment marker";
+        return DIR_VERDICT_MALFORMED;
+    }
+    if (DirectoryHitsReservedName(log_dir)) {
+        *reason = "collides with a reserved run directory";
+        return DIR_VERDICT_RESERVED;
+    }
+    if (DirectoriesOverlap(log_dir, output_dir)) {
+        *reason = "overlaps the solver output directory";
+        return DIR_VERDICT_OVERLAP;
+    }
+    /* `~` is refused before anything else looks at the path. Nothing expands it: the
+       control file is read by PETSc rather than by a shell, and the code below resolves
+       a value not starting with '/' relative to the working directory, so `~/logs`
+       names a literal '~' directory inside the run. An earlier version of the launcher's
+       physical check expanded it and treated the result as an authorizable external
+       location, while nothing that used the value ever did; refusing it here keeps both
+       layers describing the same directory. */
+    if (log_dir[0] == '~') {
+        *reason = "starts with '~', which nothing expands - the options file is read by "
+                  "PETSc, not by a shell, so this would name a literal '~' directory "
+                  "inside the run. Give a real absolute path. This cannot be overridden";
+        return DIR_VERDICT_UNEXPANDED_TILDE;
+    }
+    /* A relative traversal is refused on the value itself, before any resolution: it
+       lands among sibling runs and study members, and no authorization covers it. */
+    if (log_dir[0] != '/' &&
+        (strcmp(log_dir, "..") == 0 || strncmp(log_dir, "../", 3) == 0 ||
+         strstr(log_dir, "/../") != NULL ||
+         (strlen(log_dir) >= 3 && strcmp(log_dir + strlen(log_dir) - 3, "/..") == 0))) {
+        *reason = "walks above the working directory by relative traversal, which cannot "
+                  "be authorized";
+        return DIR_VERDICT_RELATIVE_ESCAPE;
+    }
+
+    if (PetscMalloc1(8 * PETSC_MAX_PATH_LEN, &scratch)) {
+        *reason = "cannot be checked because scratch space could not be allocated";
+        return DIR_VERDICT_UNRESOLVABLE;
+    }
+    cwd      = scratch;
+    resolved = scratch + PETSC_MAX_PATH_LEN;
+    cwd_real = scratch + 2 * PETSC_MAX_PATH_LEN;
+
+    verdict = DIR_VERDICT_UNRESOLVABLE;
+    if (!getcwd(cwd, PETSC_MAX_PATH_LEN)) {
+        *reason = "cannot be checked because the working directory could not be determined";
+    } else if (!realpath(cwd, cwd_real)) {
+        *reason = "cannot be checked because the working directory could not be resolved";
+    } else if (!ResolveDirectoryPhysically(log_dir, cwd_real, resolved, PETSC_MAX_PATH_LEN,
+                                           scratch + 3 * PETSC_MAX_PATH_LEN)) {
+        *reason = "could not be resolved to a physical path";
+    } else if (strcmp(resolved, cwd_real) == 0) {
+        /* --- Physical verdicts, decided before authorization is consulted. --- */
+        *reason = "resolves to the working directory itself; deleting it would destroy "
+                  "the run. This cannot be overridden";
+        verdict = DIR_VERDICT_RUN_ROOT;
+    } else if (PathContainsOrEquals(resolved, cwd_real)) {
+        *reason = "contains the working directory, so deleting it recursively would "
+                  "destroy the run and everything beside it. This cannot be overridden";
+        verdict = DIR_VERDICT_ANCESTOR;
+    } else if (PathContainsOrEquals(cwd_real, resolved)) {
+        verdict = DIR_VERDICT_CONTAINED;
+    } else if (log_dir[0] == '/') {
+        /* Outside the working directory. Only an explicitly absolute value can be
+           waived: a relative name that lands outside got there through a symlink,
+           which is not a location anybody asked for. */
+        *reason = "is an absolute path outside the working directory and no "
+                  "-allow_unsafe_log_dir authorization was given";
+        verdict = DIR_VERDICT_EXTERNAL_ABSOLUTE;
+    } else {
+        *reason = "is a relative name that resolves outside the working directory "
+                  "through a symlink, which cannot be authorized";
+        verdict = DIR_VERDICT_RELATIVE_ESCAPE;
+    }
+
+    PetscFree(scratch);
+    return verdict;
+}
+
+/**
+ * @brief Final safety guard before the runtime deletes its log directory.
+ *
+ * @details `picurv` validates run directories and re-checks them at submission, but the
+ *          solver can be launched directly on a hand-written control file, and a
+ *          directory can be replaced with a symlink between validation and launch. This
+ *          is the last check before an irreversible recursive delete, so it is
+ *          deliberately independent of anything the launcher did, which is what
+ *          eliminates the validation-to-execution race.
+ *
+ *          An explicit `-allow_unsafe_log_dir` authorization waives **exactly one**
+ *          verdict: an absolute location outside the working directory that neither is
+ *          nor contains it. It never waives the working directory itself, an ancestor
+ *          of it, a reserved run directory, an overlap with the output directory, a
+ *          relative traversal, a relative symlink escape, or a malformed value. Those
+ *          destroy the run itself or corrupt the options file, and no user consent
+ *          makes them correct.
+ *
+ * @param[in]  log_dir    Configured log directory.
+ * @param[in]  output_dir Configured output directory, for the overlap check.
+ * @param[in]  authorized Whether an explicit unsafe-path authorization was supplied.
+ * @param[out] reason     Set to a short explanation when the directory is refused.
+ * @return PETSC_TRUE when the directory is safe to remove.
+ */
+static PetscBool LogDirectoryIsSafeToWipe(const char *log_dir, const char *output_dir,
+                                          PetscBool authorized, const char **reason)
+{
+    DirectoryVerdict verdict = ClassifyLogDirectory(log_dir, output_dir, reason);
+
+    if (verdict == DIR_VERDICT_CONTAINED) return PETSC_TRUE;
+    if (verdict == DIR_VERDICT_EXTERNAL_ABSOLUTE && authorized) return PETSC_TRUE;
+    return PETSC_FALSE;
+}
+
 #undef __FUNCT__
 #define __FUNCT__ "SetupSimulationEnvironment"
 /**
@@ -1130,6 +1534,26 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
         // --- Prepare Log Directory ---
         if (!simCtx->continueMode) {
             // Only wipe logs on fresh runs; continue mode appends to existing logs.
+            // Final guard: this delete is recursive and irreversible, so re-check
+            // containment here rather than trusting that the launcher validated it.
+            {
+                PetscBool   unsafe_authorized = PETSC_FALSE;
+                const char *refusal = NULL;
+                ierr = PetscOptionsGetBool(NULL, NULL, "-allow_unsafe_log_dir",
+                                           &unsafe_authorized, NULL); CHKERRQ(ierr);
+                if (!LogDirectoryIsSafeToWipe(simCtx->log_dir, simCtx->output_dir,
+                                              unsafe_authorized, &refusal)) {
+                    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
+                            "Refusing to delete log directory '%s': it %s. Configure run "
+                            "directories through monitor.io.directories.",
+                            simCtx->log_dir, refusal);
+                }
+                if (unsafe_authorized) {
+                    LOG_ALLOW(GLOBAL, LOG_WARNING,
+                              "Deleting log directory '%s' outside the working directory, "
+                              "authorized by -allow_unsafe_log_dir.\n", simCtx->log_dir);
+                }
+            }
             LOG_ALLOW(GLOBAL, LOG_DEBUG, "Creating/cleaning log directory: %s\n", simCtx->log_dir);
             ierr = PetscRMTree(simCtx->log_dir); // Wipes the directory and its contents
             if (ierr) { /* Ignore file-not-found error, but fail on others */

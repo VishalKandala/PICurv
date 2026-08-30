@@ -39,6 +39,16 @@ Use this page instead of the raw generated page dump.
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 40_Testing_and_Quality_Guide**
 - **@subpage 12_Capabilities_Summary**
+- **@subpage 62_Capability_Status_Vocabulary** — status words, the known-defect disclosure rule, and evidence facets
+- **@subpage 63_Page_Type_Contract** — the four page types, what each owes the reader, and what each must refuse
+- **@subpage 64_Documentation_Extension_Framework** — capability, family, and subsystem contracts, lifecycle gates, and concern modules
+- **@subpage 65_Example_Catalog** — every shipped example, what it demonstrates, and its evidence kind
+- **@subpage 66_Evidence_Matrix** — capability-by-evidence view for assessing result credibility
+- **@subpage 67_Troubleshooting** — symptom-driven diagnosis, cheapest checks first
+- **@subpage 68_Glossary** — PICurv terms, CFD terms used precisely, and renamed spellings
+- **@subpage 69_Scientific_Writing_Handoff** — what the foundational method pages owe, and the scaffolding already in place
+- **@subpage 70_Case_Design_Guide** — building a case from scratch, in the order the decisions constrain each other
+- **@subpage 71_Invariant_Contracts** — guarantees the system maintains, and which are enforced versus merely tracked
 
 @section p47_artifact_axis_sec 2. Configuration and Artifacts
 
@@ -107,25 +117,3 @@ This section is for maintainers who need code-symbol navigation views instead of
 - **File List by type (headers/sources/scripts):** `files_structured.html`
 - **Data Structures by solver module:** `annotated_structured.html`
 - **Raw Doxygen indices (unstructured):** `files.html`, `annotated.html`, `globals.html`
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Documentation Map** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

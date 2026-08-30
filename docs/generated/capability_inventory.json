@@ -1,0 +1,770 @@
+[
+  {
+    "family_page": "44_Boundary_Conditions_Guide",
+    "id": "boundary.handler",
+    "parity": [
+      {
+        "mapping": {
+          "conservation": "BC_HANDLER_OUTLET_CONSERVATION",
+          "constant_flux": "BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX",
+          "constant_velocity": "BC_HANDLER_INLET_CONSTANT_VELOCITY",
+          "geometric": "BC_HANDLER_PERIODIC_GEOMETRIC",
+          "initial_flux": "BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX",
+          "noslip": "BC_HANDLER_WALL_NOSLIP",
+          "parabolic": "BC_HANDLER_INLET_PARABOLIC",
+          "prescribed_flow": "BC_HANDLER_INLET_PROFILE_FROM_FILE"
+        },
+        "source": {
+          "function": "StringToBCHandlerType",
+          "kind": "c_string_map",
+          "path": "src/io.c"
+        },
+        "values": [
+          "conservation",
+          "constant_flux",
+          "constant_velocity",
+          "geometric",
+          "initial_flux",
+          "noslip",
+          "parabolic",
+          "prescribed_flow"
+        ]
+      },
+      {
+        "source": {
+          "function": "BoundaryCondition_Create",
+          "kind": "c_switch",
+          "path": "src/Boundaries.c",
+          "prefix": "BC_HANDLER_"
+        },
+        "values": [
+          "BC_HANDLER_INLET_CONSTANT_VELOCITY",
+          "BC_HANDLER_INLET_PARABOLIC",
+          "BC_HANDLER_INLET_PROFILE_FROM_FILE",
+          "BC_HANDLER_OUTLET_CONSERVATION",
+          "BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX",
+          "BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX",
+          "BC_HANDLER_PERIODIC_GEOMETRIC",
+          "BC_HANDLER_WALL_NOSLIP"
+        ]
+      }
+    ],
+    "public_values": {
+      "conservation": {
+        "optional_params": [],
+        "required_params": [],
+        "status": "supported",
+        "types": [
+          "OUTLET"
+        ]
+      },
+      "constant_flux": {
+        "optional_params": [
+          "apply_trim",
+          "enforce_seam_flux"
+        ],
+        "required_params": [
+          "target_flux"
+        ],
+        "status": "supported",
+        "types": [
+          "PERIODIC"
+        ]
+      },
+      "constant_velocity": {
+        "optional_params": [],
+        "required_params": [
+          "vx",
+          "vy",
+          "vz"
+        ],
+        "status": "supported",
+        "types": [
+          "INLET"
+        ]
+      },
+      "geometric": {
+        "optional_params": [],
+        "required_params": [],
+        "status": "supported",
+        "types": [
+          "PERIODIC"
+        ]
+      },
+      "initial_flux": {
+        "optional_params": [
+          "apply_trim",
+          "enforce_seam_flux"
+        ],
+        "required_params": [],
+        "status": "supported",
+        "types": [
+          "PERIODIC"
+        ]
+      },
+      "noslip": {
+        "optional_params": [],
+        "required_params": [],
+        "status": "supported",
+        "types": [
+          "WALL"
+        ]
+      },
+      "parabolic": {
+        "optional_params": [],
+        "required_params": [
+          "v_max"
+        ],
+        "status": "supported",
+        "types": [
+          "INLET"
+        ]
+      },
+      "prescribed_flow": {
+        "optional_params": [],
+        "required_params": [
+          "source"
+        ],
+        "status": "supported",
+        "types": [
+          "INLET"
+        ]
+      }
+    },
+    "selector": "case.yml -> boundary_conditions[].handler",
+    "title": "Boundary Condition Handlers"
+  },
+  {
+    "family_page": "44_Boundary_Conditions_Guide",
+    "id": "boundary.type",
+    "parity": [],
+    "public_values": {
+      "inlet": {
+        "maps_to": "INLET",
+        "reachability": "reachable",
+        "reachable": true,
+        "status": "supported"
+      },
+      "outlet": {
+        "maps_to": "OUTLET",
+        "reachability": "reachable",
+        "reachable": true,
+        "status": "supported"
+      },
+      "periodic": {
+        "maps_to": "PERIODIC",
+        "reachability": "reachable",
+        "reachable": true,
+        "status": "supported"
+      },
+      "symmetry": {
+        "maps_to": "SYMMETRY",
+        "reachability": "latent",
+        "reachable": false,
+        "status": "internal"
+      },
+      "wall": {
+        "maps_to": "WALL",
+        "reachability": "reachable",
+        "reachable": true,
+        "status": "supported"
+      }
+    },
+    "selector": "case.yml -> boundary_conditions[].type",
+    "title": "Boundary Condition Types"
+  },
+  {
+    "family_page": "08_Solver_Reference",
+    "id": "momentum.solver",
+    "parity": [
+      {
+        "mapping": {
+          "DUALTIME_PICARD_JAMESON_RK": "MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK",
+          "DUALTIME_PICARD_RK4": "MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK",
+          "EXPLICIT_RK": "MOMENTUM_SOLVER_EXPLICIT_RK",
+          "newton_krylov": "MOMENTUM_SOLVER_NEWTON_KRYLOV"
+        },
+        "source": {
+          "field": "mom_solver_type",
+          "function": "CreateSimulationContext",
+          "kind": "c_token_map",
+          "legacy_tokens": {
+            "DUALTIME_PICARD_RK4": "Accepted for archived .control files written before the Jameson rename. picurv never emits it; the deprecated YAML value normalizes to the canonical token."
+          },
+          "path": "src/setup.c",
+          "variable": "mom_solver_type_char"
+        },
+        "values": [
+          "DUALTIME_PICARD_JAMESON_RK",
+          "DUALTIME_PICARD_RK4",
+          "EXPLICIT_RK",
+          "newton_krylov"
+        ]
+      },
+      {
+        "source": {
+          "function": "FlowSolver",
+          "kind": "c_dispatch",
+          "path": "src/solvers.c",
+          "prefix": "MOMENTUM_SOLVER_"
+        },
+        "values": [
+          "MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK",
+          "MOMENTUM_SOLVER_EXPLICIT_RK",
+          "MOMENTUM_SOLVER_NEWTON_KRYLOV"
+        ]
+      },
+      {
+        "source": {
+          "kind": "c_enum",
+          "path": "include/variables.h",
+          "symbol": "MomentumSolverType"
+        },
+        "values": [
+          "MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK",
+          "MOMENTUM_SOLVER_DUALTIME_PICARD_RK4",
+          "MOMENTUM_SOLVER_EXPLICIT_RK",
+          "MOMENTUM_SOLVER_NEWTON_KRYLOV"
+        ]
+      }
+    ],
+    "public_values": {
+      "Dual Time Picard Jameson RK": {
+        "maps_to": "DUALTIME_PICARD_JAMESON_RK",
+        "status": "supported"
+      },
+      "Dual Time Picard RK4": {
+        "alias_of": "Dual Time Picard Jameson RK",
+        "maps_to": "DUALTIME_PICARD_JAMESON_RK",
+        "status": "deprecated"
+      },
+      "Explicit RK4": {
+        "maps_to": "EXPLICIT_RK",
+        "status": "experimental"
+      },
+      "Newton Krylov": {
+        "maps_to": "newton_krylov",
+        "status": "supported"
+      }
+    },
+    "selector": "solver.yml -> strategy.momentum_solver",
+    "title": "Momentum Solvers"
+  },
+  {
+    "family_page": "07_Case_Reference",
+    "id": "turbulence.les_model",
+    "parity": [],
+    "public_values": {
+      "constant": {
+        "maps_to": 1,
+        "spelling_of": "constant_smagorinsky",
+        "status": "known-defective"
+      },
+      "constant_smagorinsky": {
+        "maps_to": 1,
+        "status": "known-defective"
+      },
+      "disabled": {
+        "maps_to": 0,
+        "spelling_of": "none",
+        "status": "supported"
+      },
+      "dynamic": {
+        "maps_to": 2,
+        "spelling_of": "dynamic_smagorinsky",
+        "status": "known-defective"
+      },
+      "dynamic_smagorinsky": {
+        "maps_to": 2,
+        "status": "known-defective"
+      },
+      "no_les": {
+        "maps_to": 0,
+        "spelling_of": "none",
+        "status": "supported"
+      },
+      "none": {
+        "maps_to": 0,
+        "status": "supported"
+      },
+      "off": {
+        "maps_to": 0,
+        "spelling_of": "none",
+        "status": "supported"
+      },
+      "smagorinsky": {
+        "maps_to": 1,
+        "spelling_of": "constant_smagorinsky",
+        "status": "known-defective"
+      }
+    },
+    "selector": "case.yml -> models.physics.turbulence.les.model",
+    "title": "LES Subgrid Models"
+  },
+  {
+    "family_page": "08_Solver_Reference",
+    "id": "eulerian.field_source",
+    "parity": [],
+    "public_values": {
+      "analytical": {
+        "maps_to": "analytical",
+        "status": "supported"
+      },
+      "load": {
+        "maps_to": "load",
+        "status": "experimental"
+      },
+      "solve": {
+        "maps_to": "solve",
+        "status": "supported"
+      }
+    },
+    "selector": "solver.yml -> operation_mode.eulerian_source",
+    "title": "Eulerian Field Source"
+  },
+  {
+    "family_page": "33_Initial_Conditions",
+    "id": "initial.field_mode",
+    "parity": [],
+    "public_values": {
+      "Constant": {
+        "maps_to": 1,
+        "status": "experimental"
+      },
+      "Poiseuille": {
+        "maps_to": 2,
+        "status": "experimental"
+      },
+      "Zero": {
+        "maps_to": 0,
+        "status": "experimental"
+      }
+    },
+    "selector": "case.yml -> initial_conditions field mode",
+    "title": "Field Initialization Modes"
+  },
+  {
+    "family_page": "45_Particle_Initialization_and_Restart",
+    "id": "particle.init_mode",
+    "parity": [],
+    "public_values": {
+      "PointSource": {
+        "maps_to": 2,
+        "status": "supported"
+      },
+      "Surface": {
+        "maps_to": 0,
+        "status": "experimental"
+      },
+      "SurfaceEdges": {
+        "maps_to": 3,
+        "status": "experimental"
+      },
+      "Volume": {
+        "maps_to": 1,
+        "status": "supported"
+      }
+    },
+    "selector": "case.yml -> models.physics.particles.init_mode",
+    "title": "Particle Initialization Modes"
+  },
+  {
+    "family_page": "08_Solver_Reference",
+    "id": "particle.interpolation",
+    "parity": [],
+    "public_values": {
+      "CornerAveraged": {
+        "maps_to": 1,
+        "status": "experimental"
+      },
+      "Trilinear": {
+        "maps_to": 0,
+        "status": "supported"
+      }
+    },
+    "selector": "solver.yml -> interpolation.method",
+    "title": "Grid-to-Particle Interpolation"
+  },
+  {
+    "family_page": "08_Solver_Reference",
+    "id": "solver.convergence_mode",
+    "parity": [],
+    "public_values": {
+      "periodic_deterministic": {
+        "maps_to": "PERIODIC_DETERMINISTIC",
+        "status": "experimental"
+      },
+      "statistical_steady": {
+        "maps_to": "STATISTICAL_STEADY",
+        "status": "experimental"
+      },
+      "steady_deterministic": {
+        "maps_to": "STEADY_DETERMINISTIC",
+        "status": "experimental"
+      },
+      "transient": {
+        "maps_to": "TRANSIENT",
+        "status": "experimental"
+      }
+    },
+    "selector": "solver.yml -> solution_convergence.mode",
+    "title": "Solution Convergence Modes"
+  },
+  {
+    "family_page": "07_Case_Reference",
+    "id": "turbulence.rans_model",
+    "parity": [],
+    "public_values": {
+      "disabled": {
+        "maps_to": 0,
+        "spelling_of": "none",
+        "status": "supported"
+      },
+      "k_omega": {
+        "maps_to": 1,
+        "status": "experimental"
+      },
+      "komega": {
+        "maps_to": 1,
+        "spelling_of": "k_omega",
+        "status": "experimental"
+      },
+      "none": {
+        "maps_to": 0,
+        "status": "supported"
+      },
+      "off": {
+        "maps_to": 0,
+        "spelling_of": "none",
+        "status": "supported"
+      }
+    },
+    "selector": "case.yml -> models.physics.turbulence.rans.model",
+    "title": "RANS Models"
+  },
+  {
+    "family_page": "07_Case_Reference",
+    "id": "turbulence.les_test_filter",
+    "parity": [],
+    "public_values": {
+      "box": {
+        "maps_to": 0,
+        "spelling_of": "volume_weighted_box",
+        "status": "experimental"
+      },
+      "general_box": {
+        "maps_to": 0,
+        "spelling_of": "volume_weighted_box",
+        "status": "experimental"
+      },
+      "homogeneous_ik": {
+        "maps_to": 1,
+        "status": "experimental"
+      },
+      "ik_homogeneous": {
+        "maps_to": 1,
+        "spelling_of": "homogeneous_ik",
+        "status": "experimental"
+      },
+      "simpson_ik": {
+        "maps_to": 1,
+        "spelling_of": "homogeneous_ik",
+        "status": "experimental"
+      },
+      "volume_weighted_box": {
+        "maps_to": 0,
+        "status": "experimental"
+      }
+    },
+    "selector": "case.yml -> models.physics.turbulence.les.test_filter",
+    "title": "LES Test Filters"
+  },
+  {
+    "family_page": "32_Analytical_Solutions",
+    "id": "analytical.solution_type",
+    "parity": [],
+    "public_values": {
+      "TGV3D": {
+        "maps_to": "TGV3D",
+        "status": "experimental"
+      },
+      "UNIFORM_FLOW": {
+        "maps_to": "UNIFORM_FLOW",
+        "status": "supported"
+      },
+      "ZERO_FLOW": {
+        "maps_to": "ZERO_FLOW",
+        "status": "supported"
+      }
+    },
+    "selector": "solver.yml -> operation_mode.analytical_type",
+    "title": "Analytical Solution Types"
+  },
+  {
+    "family_page": "07_Case_Reference",
+    "id": "turbulence.wall_function",
+    "parity": [],
+    "public_values": {
+      "log_law": {
+        "maps_to": "log_law",
+        "status": "experimental"
+      },
+      "loglaw": {
+        "maps_to": "loglaw",
+        "spelling_of": "log_law",
+        "status": "experimental"
+      }
+    },
+    "selector": "case.yml -> models.physics.turbulence.wall_function.model",
+    "title": "Wall Function Models"
+  },
+  {
+    "family_page": "33_Initial_Conditions",
+    "id": "initial.target_field",
+    "parity": [],
+    "public_values": {
+      "ucat": {
+        "maps_to": "ucat",
+        "status": "supported"
+      },
+      "ucont": {
+        "maps_to": "ucont",
+        "status": "experimental"
+      }
+    },
+    "selector": "case.yml -> properties.initial_conditions.field",
+    "title": "Initial Condition Target Field"
+  },
+  {
+    "family_page": "10_Post_Processing_Reference",
+    "id": "statistics.task",
+    "parity": [],
+    "public_values": {
+      "msd": {
+        "maps_to": "msd",
+        "status": "supported"
+      }
+    },
+    "selector": "post.yml -> statistics pipeline task",
+    "title": "Particle Statistics Tasks"
+  },
+  {
+    "family_page": "07_Case_Reference",
+    "id": "grid.mode",
+    "parity": [],
+    "public_values": {
+      "file": {
+        "maps_to": "file",
+        "status": "supported"
+      },
+      "grid_gen": {
+        "maps_to": "grid_gen",
+        "status": "supported"
+      },
+      "programmatic_c": {
+        "maps_to": "programmatic_c",
+        "status": "supported"
+      }
+    },
+    "selector": "case.yml -> grid.mode",
+    "title": "Grid Ingestion Modes"
+  },
+  {
+    "family_page": "48_Grid_Generator_Guide",
+    "id": "grid.generator_type",
+    "parity": [],
+    "public_values": {
+      "cpipe": {
+        "maps_to": "cpipe",
+        "status": "experimental"
+      },
+      "pipe": {
+        "maps_to": "pipe",
+        "status": "experimental"
+      },
+      "warp": {
+        "maps_to": "warp",
+        "status": "supported"
+      }
+    },
+    "selector": "case.yml -> grid.generator.grid_type",
+    "title": "Grid Generator Geometries"
+  },
+  {
+    "family_page": "45_Particle_Initialization_and_Restart",
+    "id": "particle.restart_mode",
+    "parity": [],
+    "public_values": {
+      "init": {
+        "maps_to": "init",
+        "status": "supported"
+      },
+      "load": {
+        "maps_to": "load",
+        "status": "supported"
+      }
+    },
+    "selector": "case.yml -> models.physics.particles.restart_mode",
+    "title": "Particle Restart Modes"
+  },
+  {
+    "family_page": "10_Post_Processing_Reference",
+    "id": "post.eulerian_task",
+    "parity": [],
+    "public_values": {
+      "nodal_average": {
+        "maps_to": "nodal_average",
+        "status": "supported"
+      },
+      "normalize_field": {
+        "maps_to": "normalize_field",
+        "status": "supported"
+      },
+      "q_criterion": {
+        "maps_to": "q_criterion",
+        "status": "supported"
+      }
+    },
+    "selector": "post.yml -> eulerian_pipeline[].task",
+    "title": "Eulerian Post-Processing Kernels"
+  },
+  {
+    "family_page": "10_Post_Processing_Reference",
+    "id": "post.lagrangian_task",
+    "parity": [],
+    "public_values": {
+      "specific_ke": {
+        "maps_to": "specific_ke",
+        "status": "supported"
+      }
+    },
+    "selector": "post.yml -> lagrangian_pipeline[].task",
+    "title": "Lagrangian Post-Processing Kernels"
+  },
+  {
+    "family_page": "10_Post_Processing_Reference",
+    "id": "post.spectra_task",
+    "parity": [],
+    "public_values": {
+      "shell_spectrum": {
+        "maps_to": "shell_spectrum",
+        "status": "experimental"
+      }
+    },
+    "selector": "post.yml -> spectra.tasks[].task",
+    "title": "Spectra Tasks"
+  },
+  {
+    "family_page": "10_Post_Processing_Reference",
+    "id": "post.field_statistics_output",
+    "parity": [],
+    "public_values": {
+      "flux": {
+        "maps_to": "flux",
+        "status": "supported"
+      },
+      "mean": {
+        "maps_to": "mean",
+        "status": "supported"
+      },
+      "reynolds_stress": {
+        "maps_to": "reynolds_stress",
+        "status": "supported"
+      },
+      "rms": {
+        "maps_to": "rms",
+        "status": "supported"
+      },
+      "tke": {
+        "maps_to": "tke",
+        "status": "supported"
+      }
+    },
+    "selector": "post.yml -> field_statistics.outputs[]",
+    "title": "Field Statistics Derived Outputs"
+  },
+  {
+    "family_page": "58_Field_Statistics",
+    "id": "statistics.weighting",
+    "parity": [],
+    "public_values": {
+      "physical_time": {
+        "maps_to": "physical_time",
+        "status": "supported"
+      },
+      "sample": {
+        "maps_to": "sample",
+        "status": "supported"
+      }
+    },
+    "selector": "monitor.yml -> field_statistics.windows[].weighting",
+    "title": "Field Statistics Weighting Modes"
+  },
+  {
+    "family_page": "37_Sweep_Studies_Guide",
+    "id": "study.type",
+    "parity": [],
+    "public_values": {
+      "grid_independence": {
+        "maps_to": "grid_independence",
+        "status": "supported"
+      },
+      "sensitivity": {
+        "maps_to": "sensitivity",
+        "status": "experimental"
+      },
+      "timestep_independence": {
+        "maps_to": "timestep_independence",
+        "status": "experimental"
+      }
+    },
+    "selector": "study.yml -> study_type",
+    "title": "Study Types"
+  },
+  {
+    "family_page": "55_Newton_Krylov_Momentum_Solver",
+    "id": "momentum.nk_preconditioner",
+    "parity": [],
+    "public_values": {
+      "frozen_momentum_jacobian": {
+        "maps_to": "frozen_momentum_jacobian",
+        "status": "experimental"
+      },
+      "none": {
+        "maps_to": "none",
+        "status": "supported"
+      }
+    },
+    "selector": "solver.yml -> momentum_solver.newton_krylov.preconditioner.model",
+    "title": "Newton-Krylov Preconditioner Models"
+  },
+  {
+    "family_page": "61_Storage_Management_Guide",
+    "id": "storage.compression",
+    "parity": [],
+    "public_values": {
+      "auto": {
+        "maps_to": "auto",
+        "status": "supported"
+      },
+      "balanced": {
+        "maps_to": "balanced",
+        "status": "supported"
+      },
+      "fast": {
+        "maps_to": "fast",
+        "status": "experimental"
+      },
+      "maximum": {
+        "maps_to": "maximum",
+        "status": "experimental"
+      },
+      "none": {
+        "maps_to": "none",
+        "status": "supported"
+      }
+    },
+    "selector": "picurv storage --compression / storage.yml -> compression",
+    "title": "Storage Compression Policies"
+  }
+]

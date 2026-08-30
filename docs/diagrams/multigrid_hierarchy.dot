@@ -1,0 +1,26 @@
+digraph multigrid {
+  rankdir=TB;
+  bgcolor="transparent";
+  node [shape=box, style="rounded,filled", fillcolor="#f4f4f6", color="#8a8a93",
+        fontname="Helvetica", fontsize=10, penwidth=1.2];
+  edge [color="#8a8a93", fontname="Helvetica", fontsize=9, penwidth=1.1];
+
+  l0 [label="Level 0 (coarsest)\ndirect / heavily iterated solve", fillcolor="#f0ecf6"];
+  l1 [label="Level 1\ncoarsened"];
+  l2 [label="Level mglevels-1 (finest)\nthe simulation grid", fillcolor="#e8eef8"];
+
+  l2 -> l1 [label="restrict\nresidual"];
+  l1 -> l0 [label="restrict\nresidual"];
+  l0 -> l1 [label="prolong\ncorrection", style=dashed];
+  l1 -> l2 [label="prolong\ncorrection", style=dashed];
+
+  pre0 [shape=plaintext, style="", label="pre-smooth"];
+  pre1 [shape=plaintext, style="", label="pre-smooth"];
+  post1 [shape=plaintext, style="", label="post-smooth"];
+  post0 [shape=plaintext, style="", label="post-smooth"];
+  { rank=same; l0; pre0; post0; }
+  { rank=same; l1; pre1; post1; }
+
+  note [shape=note, style=filled, fillcolor="#fdf6e3", fontsize=8,
+        label="Level count is set by mglevels, and\nindex 0 is the COARSEST level.\nEach axis must remain coarsenable:\na grid that cannot be halved on some\naxis limits the usable depth."];
+}

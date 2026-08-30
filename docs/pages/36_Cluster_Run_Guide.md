@@ -78,12 +78,12 @@ Notes:
 
 In run directory, scheduler generation typically produces:
 
-- `runs/<run_id>/scheduler/solver.sbatch`
-- `runs/<run_id>/scheduler/post.sbatch`
-- `runs/<run_id>/scheduler/solver_<jobid>.out/.err` after solver submission
-- `runs/<run_id>/scheduler/post_<jobid>.out/.err` after post submission
+- `<run.scheduler>/solver.sbatch`
+- `<run.scheduler>/post.sbatch`
+- `<run.scheduler>/solver_<jobid>.out/.err` after solver submission
+- `<run.scheduler>/post_<jobid>.out/.err` after post submission
 - `runs/<run_id>/manifest.json`
-- `runs/<run_id>/scheduler/submission.json` (always in cluster mode when run artifacts are written; contains launch metadata and submission IDs when present)
+- `<run.scheduler>/submission.json` (always in cluster mode when run artifacts are written; contains launch metadata and submission IDs when present)
 
 These coexist with standard runtime control artifacts used by solver/postprocessor binaries.
 `submission.json` is also the run-directory contract consumed by `picurv submit` and `picurv cancel`.
@@ -112,7 +112,7 @@ This allows consistent local dry-run and cluster production flow from the same i
 - Keep an early signal in `cluster.yml -> execution.extra_sbatch.signal` as fallback protection: `signal: "USR1@300"` for `srun`, or `signal: "B:USR1@300"` plus `exec mpirun ...` for direct `mpirun` batch launches.
 - Solver and field postprocessor stages use `cluster.yml` resources directly.
 - When the selected launcher is MPI-aware (`srun`, `mpirun`, `mpiexec`), PICurv strips conflicting size flags and forces the post launch to `nodes * ntasks_per_node` ranks.
-- Slurm stdout/stderr lives under `scheduler/`; solver-generated runtime logs still live under `logs/`.
+- Slurm stdout/stderr lives under `<run.scheduler>/`; solver-generated runtime logs still live under `<run.runtime_logs>/`.
 - `picurv init` now creates `.picurv-execution.yml` in each new case with inert defaults.
 - If your cluster needs the same MPI launcher tokens for login-node and batch runs, edit that file and let `cluster.yml` override only when batch jobs differ.
 - For one-off interactive multi-rank runs on cluster login nodes, `PICURV_MPI_LAUNCHER` still overrides everything.
@@ -128,25 +128,3 @@ See also:
 - **@subpage 05_The_Conductor_Script**
 - **@subpage 52_Run_Lifecycle_Guide**
 - **@subpage 39_Common_Fatal_Errors**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Cluster Run Guide (Slurm)** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

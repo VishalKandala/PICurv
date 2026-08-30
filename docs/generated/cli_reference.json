@@ -1,0 +1,2258 @@
+{
+  "commands": {
+    "build": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "source_root",
+            "flags": [
+              "--source-root"
+            ],
+            "help": "Optional override for the PICurv source repository root.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "case_dir",
+            "flags": [
+              "--case-dir"
+            ],
+            "help": "Optional case directory used to resolve .picurv-origin.json when not running from that case.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          }
+        ],
+        "positional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "make_args",
+            "flags": [],
+            "help": "Arguments to pass directly to the make command (e.g., 'clean-project').",
+            "is_flag": false,
+            "nargs": "...",
+            "required": true
+          }
+        ]
+      },
+      "help": "Calls the project's Makefile directly through `make`.",
+      "name": "build",
+      "subcommands": {}
+    },
+    "cancel": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "run_dir",
+            "flags": [
+              "--run-dir"
+            ],
+            "help": "Path to the run directory whose Slurm job(s) should be canceled.",
+            "is_flag": false,
+            "nargs": null,
+            "required": true
+          },
+          {
+            "choices": [
+              "all",
+              "post-process",
+              "solve"
+            ],
+            "default": "all",
+            "dest": "stage",
+            "flags": [
+              "--stage"
+            ],
+            "help": "Which recorded stage job(s) to cancel (default: all).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "dry_run",
+            "flags": [
+              "--dry-run"
+            ],
+            "help": "Show which `scancel` command(s) would run without actually canceling anything.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "graceful",
+            "flags": [
+              "--graceful"
+            ],
+            "help": "For solver jobs, request a clean runtime shutdown by sending SIGUSR1 to the process tree instead of hard-canceling immediately. The solver writes the latest safe off-cadence step at the next checkpoint. Non-solver stages still use ordinary scancel.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          }
+        ]
+      },
+      "help": "Look up scheduler/submission.json inside an existing run directory and cancel",
+      "name": "cancel",
+      "subcommands": {}
+    },
+    "init": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "dest_name",
+            "flags": [
+              "--dest"
+            ],
+            "help": "Optional name for the new directory. Defaults to the template name.\nPath is relative to your current working directory.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "source_root",
+            "flags": [
+              "--source-root"
+            ],
+            "help": "Optional override for the PICurv source repository root.\nUseful when running from a copied case without metadata.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "pin_binaries",
+            "flags": [
+              "--pin-binaries"
+            ],
+            "help": "Copy simulator and postprocessor into the case directory.\nUse this to freeze specific binary versions for reproducibility\nor to protect running jobs from concurrent rebuilds.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          }
+        ],
+        "positional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "template_name",
+            "flags": [],
+            "help": "Name of the case template directory to copy (e.g., 'flat_channel').",
+            "is_flag": false,
+            "nargs": null,
+            "required": true
+          }
+        ]
+      },
+      "help": "Create a study directory from examples/<template_name>.",
+      "name": "init",
+      "subcommands": {}
+    },
+    "precompute": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "case",
+            "flags": [
+              "--case"
+            ],
+            "help": "Path to case.yml containing grid/profile/IC generator settings.",
+            "is_flag": false,
+            "nargs": null,
+            "required": true
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "output_dir",
+            "flags": [
+              "--output-dir"
+            ],
+            "help": "Directory where precomputed artifacts should be written. Defaults to precomputed/<case-name>.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          }
+        ]
+      },
+      "help": "Generate configured deterministic artifacts, such as grid_gen grids,",
+      "name": "precompute",
+      "subcommands": {}
+    },
+    "pull-source": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "case_dir",
+            "flags": [
+              "--case-dir"
+            ],
+            "help": "Optional case directory used to resolve .picurv-origin.json.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "source_root",
+            "flags": [
+              "--source-root"
+            ],
+            "help": "Optional override for the PICurv source repository root.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "remote",
+            "flags": [
+              "--remote"
+            ],
+            "help": "Optional git remote name (e.g., origin).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "branch",
+            "flags": [
+              "--branch"
+            ],
+            "help": "Optional branch name. If provided without --remote, origin is assumed.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "current_branch_only",
+            "flags": [
+              "--current-branch-only"
+            ],
+            "help": "Only pull the currently checked out branch instead of iterating across all local tracking branches.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "no_rebase",
+            "flags": [
+              "--no-rebase"
+            ],
+            "help": "Use plain git pull instead of git pull --rebase.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          }
+        ]
+      },
+      "help": "Update the source repository without leaving an initialized case directory.",
+      "name": "pull-source",
+      "subcommands": {}
+    },
+    "run": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "1",
+            "dest": "num_procs",
+            "flags": [
+              "-n",
+              "--num-procs"
+            ],
+            "help": "Number of MPI processes for solver and post-processing stages.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "cluster",
+            "flags": [
+              "--cluster"
+            ],
+            "help": "Path to cluster.yml for Slurm execution mode.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "scheduler",
+            "flags": [
+              "--scheduler"
+            ],
+            "help": "Explicit scheduler selector (currently 'slurm').",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "no_submit",
+            "flags": [
+              "--no-submit"
+            ],
+            "help": "Stage run artifacts without starting local execution or Slurm submission.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "dry_run",
+            "flags": [
+              "--dry-run"
+            ],
+            "help": "Resolve and print planned commands/artifacts, including diagnostic flags and log paths, without writing files.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "text",
+            "dest": "output_format",
+            "flags": [
+              "--format"
+            ],
+            "help": "Output format for --dry-run (default: text).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          }
+        ],
+        "post-processor inputs (required for --post-process)": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "run_dir",
+            "flags": [
+              "--run-dir"
+            ],
+            "help": "Path to an existing run directory.\n(Used with --post-process or --continue).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "post",
+            "flags": [
+              "--post"
+            ],
+            "help": "Path to the post-processing recipe file (e.g., post.yml).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "only",
+            "flags": [
+              "--only"
+            ],
+            "help": "Comma-separated post stages to run: 'fields' (the field post-processor)\nand/or 'spectra'. Defaults to every stage.\nUse --only spectra to re-measure spectra without rebuilding field output.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          }
+        ],
+        "solver inputs (required for --solve)": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "case",
+            "flags": [
+              "--case"
+            ],
+            "help": "Path to the case definition file (e.g., case.yml).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "solver",
+            "flags": [
+              "--solver"
+            ],
+            "help": "Path to the solver settings profile (e.g., solver.yml).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "monitor",
+            "flags": [
+              "--monitor"
+            ],
+            "help": "Path to the monitoring, diagnostics, and I/O profile (e.g., monitor.yml).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "restart_from",
+            "flags": [
+              "--restart-from"
+            ],
+            "help": "Path to an existing run directory to restart from.\nCreates a new run directory and copies/references checkpoint data from the source.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          }
+        ],
+        "stages": [
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "solve",
+            "flags": [
+              "--solve"
+            ],
+            "help": "Execute the solver stage (creates a new run directory).",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "post_process",
+            "flags": [
+              "--post-process"
+            ],
+            "help": "Execute the post-processing stage on a run directory.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "continue_run",
+            "flags": [
+              "--continue"
+            ],
+            "help": "Resume an existing run directory in-place. Requires --run-dir.\nWith --solve, requires start_step > 0 and appends to existing solver output/logs.\nWith --post-process, resumes the same recipe from the first unfinished step\nand skips already-complete work inside the current live source frontier.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          }
+        ]
+      },
+      "help": "Execute solver and/or post-processing stages.",
+      "name": "run",
+      "subcommands": {}
+    },
+    "status-source": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "case_dir",
+            "flags": [
+              "--case-dir"
+            ],
+            "help": "Optional case directory used to resolve .picurv-origin.json.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "source_root",
+            "flags": [
+              "--source-root"
+            ],
+            "help": "Optional override for the PICurv source repository root.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "template_name",
+            "flags": [
+              "--template-name"
+            ],
+            "help": "Optional template name override when metadata is absent.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "text",
+            "dest": "output_format",
+            "flags": [
+              "--format"
+            ],
+            "help": "Output format (default: text).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          }
+        ]
+      },
+      "help": "Inspect whether the source repo, copied binaries, and template-managed files have drifted",
+      "name": "status-source",
+      "subcommands": {}
+    },
+    "storage": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          }
+        ]
+      },
+      "help": "Manage PICurv run and study data through a configured rclone remote.",
+      "name": "storage",
+      "subcommands": {
+        "list": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "profile",
+                "flags": [
+                  "--profile"
+                ],
+                "help": "Configured storage profile name.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "storage_config",
+                "flags": [
+                  "--storage-config"
+                ],
+                "help": "Explicit storage YAML path.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "search",
+                "flags": [
+                  "--search"
+                ],
+                "help": "Case-insensitive search across IDs, labels, identities, and tags.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [
+                  "json",
+                  "text"
+                ],
+                "default": "text",
+                "dest": "output_format",
+                "flags": [
+                  "--format"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              }
+            ]
+          },
+          "help": "",
+          "name": "list",
+          "subcommands": {}
+        },
+        "offload": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "run_dir",
+                "flags": [
+                  "--run-dir"
+                ],
+                "help": "Standalone run directory.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "study_dir",
+                "flags": [
+                  "--study-dir"
+                ],
+                "help": "Sweep study directory.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "case_ids",
+                "flags": [
+                  "--case-id"
+                ],
+                "help": "One numbered study member, such as case_0003; repeat to select several.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "profile",
+                "flags": [
+                  "--profile"
+                ],
+                "help": "Configured storage profile name.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "storage_config",
+                "flags": [
+                  "--storage-config"
+                ],
+                "help": "Explicit storage YAML path.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "label",
+                "flags": [
+                  "--label"
+                ],
+                "help": "Human-readable searchable label.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "tags",
+                "flags": [
+                  "--tag"
+                ],
+                "help": "Repeatable KEY=VALUE catalog tag.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [
+                  "auto",
+                  "balanced",
+                  "fast",
+                  "maximum",
+                  "none"
+                ],
+                "default": null,
+                "dest": "compression",
+                "flags": [
+                  "--compression"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": "False",
+                "dest": "dry_run",
+                "flags": [
+                  "--dry-run"
+                ],
+                "help": "",
+                "is_flag": true,
+                "nargs": "0",
+                "required": false
+              }
+            ]
+          },
+          "help": "",
+          "name": "offload",
+          "subcommands": {}
+        },
+        "plan": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "run_dir",
+                "flags": [
+                  "--run-dir"
+                ],
+                "help": "Standalone run directory.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "study_dir",
+                "flags": [
+                  "--study-dir"
+                ],
+                "help": "Sweep study directory.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "case_ids",
+                "flags": [
+                  "--case-id"
+                ],
+                "help": "One numbered study member, such as case_0003; repeat to select several.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "profile",
+                "flags": [
+                  "--profile"
+                ],
+                "help": "Configured storage profile name.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "storage_config",
+                "flags": [
+                  "--storage-config"
+                ],
+                "help": "Explicit storage YAML path.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [
+                  "auto",
+                  "balanced",
+                  "fast",
+                  "maximum",
+                  "none"
+                ],
+                "default": null,
+                "dest": "compression",
+                "flags": [
+                  "--compression"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              }
+            ]
+          },
+          "help": "",
+          "name": "plan",
+          "subcommands": {}
+        },
+        "protect": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "run_dir",
+                "flags": [
+                  "--run-dir"
+                ],
+                "help": "Standalone run directory.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "study_dir",
+                "flags": [
+                  "--study-dir"
+                ],
+                "help": "Sweep study directory.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "case_ids",
+                "flags": [
+                  "--case-id"
+                ],
+                "help": "One numbered study member, such as case_0003; repeat to select several.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "profile",
+                "flags": [
+                  "--profile"
+                ],
+                "help": "Configured storage profile name.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "storage_config",
+                "flags": [
+                  "--storage-config"
+                ],
+                "help": "Explicit storage YAML path.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "label",
+                "flags": [
+                  "--label"
+                ],
+                "help": "Human-readable searchable label.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "tags",
+                "flags": [
+                  "--tag"
+                ],
+                "help": "Repeatable KEY=VALUE catalog tag.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [
+                  "auto",
+                  "balanced",
+                  "fast",
+                  "maximum",
+                  "none"
+                ],
+                "default": null,
+                "dest": "compression",
+                "flags": [
+                  "--compression"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": "False",
+                "dest": "dry_run",
+                "flags": [
+                  "--dry-run"
+                ],
+                "help": "",
+                "is_flag": true,
+                "nargs": "0",
+                "required": false
+              }
+            ]
+          },
+          "help": "",
+          "name": "protect",
+          "subcommands": {}
+        },
+        "restore": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "archive_id",
+                "flags": [
+                  "--archive-id"
+                ],
+                "help": "Globally unique remote archive ID.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "run_dir",
+                "flags": [
+                  "--run-dir"
+                ],
+                "help": "Cold run containing a local storage marker.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "study_dir",
+                "flags": [
+                  "--study-dir"
+                ],
+                "help": "Cold study containing a local storage marker.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "case_ids",
+                "flags": [
+                  "--case-id"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "profile",
+                "flags": [
+                  "--profile"
+                ],
+                "help": "Configured storage profile name.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "storage_config",
+                "flags": [
+                  "--storage-config"
+                ],
+                "help": "Explicit storage YAML path.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "destination",
+                "flags": [
+                  "--to"
+                ],
+                "help": "Optional alternate restore destination.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "checkpoints",
+                "flags": [
+                  "--checkpoint"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": "False",
+                "dest": "force",
+                "flags": [
+                  "--force"
+                ],
+                "help": "Allow merge into a non-matching existing destination.",
+                "is_flag": true,
+                "nargs": "0",
+                "required": false
+              }
+            ]
+          },
+          "help": "",
+          "name": "restore",
+          "subcommands": {}
+        },
+        "setup": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "remote",
+                "flags": [
+                  "--remote"
+                ],
+                "help": "Rclone remote and base path, such as labstore:picurv-data.",
+                "is_flag": false,
+                "nargs": null,
+                "required": true
+              },
+              {
+                "choices": [],
+                "default": "archive",
+                "dest": "profile",
+                "flags": [
+                  "--profile"
+                ],
+                "help": "Profile name (default: archive).",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "storage_config",
+                "flags": [
+                  "--storage-config"
+                ],
+                "help": "Storage YAML path (default: ./.picurv-storage.yml).",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [
+                  "auto",
+                  "balanced",
+                  "fast",
+                  "maximum",
+                  "none"
+                ],
+                "default": "auto",
+                "dest": "compression",
+                "flags": [
+                  "--compression"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": "8.0",
+                "dest": "chunk_size_gib",
+                "flags": [
+                  "--chunk-size-gib"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "staging_directory",
+                "flags": [
+                  "--staging-directory"
+                ],
+                "help": "Optional local directory for one archive chunk at a time.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": "False",
+                "dest": "dry_run",
+                "flags": [
+                  "--dry-run"
+                ],
+                "help": "",
+                "is_flag": true,
+                "nargs": "0",
+                "required": false
+              }
+            ]
+          },
+          "help": "",
+          "name": "setup",
+          "subcommands": {}
+        },
+        "show": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "archive_id",
+                "flags": [
+                  "--archive-id"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": true
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "profile",
+                "flags": [
+                  "--profile"
+                ],
+                "help": "Configured storage profile name.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "storage_config",
+                "flags": [
+                  "--storage-config"
+                ],
+                "help": "Explicit storage YAML path.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              }
+            ]
+          },
+          "help": "",
+          "name": "show",
+          "subcommands": {}
+        },
+        "status": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "run_dir",
+                "flags": [
+                  "--run-dir"
+                ],
+                "help": "Standalone run directory.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "study_dir",
+                "flags": [
+                  "--study-dir"
+                ],
+                "help": "Sweep study directory.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "case_ids",
+                "flags": [
+                  "--case-id"
+                ],
+                "help": "One numbered study member, such as case_0003; repeat to select several.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [
+                  "json",
+                  "text"
+                ],
+                "default": "text",
+                "dest": "output_format",
+                "flags": [
+                  "--format"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              }
+            ]
+          },
+          "help": "",
+          "name": "status",
+          "subcommands": {}
+        },
+        "verify": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "archive_id",
+                "flags": [
+                  "--archive-id"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "run_dir",
+                "flags": [
+                  "--run-dir"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "study_dir",
+                "flags": [
+                  "--study-dir"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "case_ids",
+                "flags": [
+                  "--case-id"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "profile",
+                "flags": [
+                  "--profile"
+                ],
+                "help": "Configured storage profile name.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "storage_config",
+                "flags": [
+                  "--storage-config"
+                ],
+                "help": "Explicit storage YAML path.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              }
+            ]
+          },
+          "help": "",
+          "name": "verify",
+          "subcommands": {}
+        }
+      }
+    },
+    "submit": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "run_dir",
+            "flags": [
+              "--run-dir"
+            ],
+            "help": "Path to a staged run directory created by `picurv run ... --no-submit`.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "study_dir",
+            "flags": [
+              "--study-dir"
+            ],
+            "help": "Path to a staged study directory created by `picurv sweep --cluster ... --no-submit`.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [
+              "all",
+              "post-process",
+              "solve"
+            ],
+            "default": "all",
+            "dest": "stage",
+            "flags": [
+              "--stage"
+            ],
+            "help": "Which staged job(s) to submit (default: all).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "force",
+            "flags": [
+              "--force"
+            ],
+            "help": "Allow re-submitting a stage already marked as submitted in scheduler/submission.json.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "dry_run",
+            "flags": [
+              "--dry-run"
+            ],
+            "help": "Show which local command(s) or `sbatch` command(s) would run without starting anything.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          }
+        ]
+      },
+      "help": "Consume an existing artifact set created by picurv --no-submit and",
+      "name": "submit",
+      "subcommands": {}
+    },
+    "summarize": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "run_dir",
+            "flags": [
+              "--run-dir"
+            ],
+            "help": "Path to the run directory to inspect.",
+            "is_flag": false,
+            "nargs": null,
+            "required": true
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "overview",
+            "flags": [
+              "--overview"
+            ],
+            "help": "Summarize run metadata plus copied case, solver, and monitor configs without implicitly requesting health.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "case",
+            "flags": [
+              "--case"
+            ],
+            "help": "Summarize the copied run-local case.yml.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "solver",
+            "flags": [
+              "--solver"
+            ],
+            "help": "Summarize the copied run-local solver.yml.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "monitor",
+            "flags": [
+              "--monitor"
+            ],
+            "help": "Summarize the copied run-local monitor.yml.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "list_plot_series",
+            "flags": [
+              "--list-plot-series"
+            ],
+            "help": "List scalar histories available to --plot.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "list_plot_series",
+            "flags": [
+              "--list-series"
+            ],
+            "help": "==SUPPRESS==",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "plot_series",
+            "flags": [
+              "--plot"
+            ],
+            "help": "Plot one qualified scalar history, such as momentum.residual_norm (requires matplotlib).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "plot_spectrum",
+            "flags": [
+              "--plot-spectrum"
+            ],
+            "help": "Plot up to six representative measured energy spectra, including the first\nand last states, overlaid on the initial-condition spectrum. Takes an optional\ntask-name substring when the recipe measured more than one spectrum\n(requires matplotlib).",
+            "is_flag": false,
+            "nargs": "?",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "last_n",
+            "flags": [
+              "--last"
+            ],
+            "help": "Plot only the last N chronological records per line.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "plot_output",
+            "flags": [
+              "--plot-output"
+            ],
+            "help": "Save the plot to this path instead of opening an interactive window.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "linear_y",
+            "flags": [
+              "--linear-y"
+            ],
+            "help": "Force linear y-axis scaling instead of automatic residual/norm log scaling.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "step",
+            "flags": [
+              "--step"
+            ],
+            "help": "Specific completed timestep to summarize.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "latest",
+            "flags": [
+              "--latest"
+            ],
+            "help": "Summarize the most recently appended completed step found in available artifacts (default behavior).",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "max_step",
+            "flags": [
+              "--max-step"
+            ],
+            "help": "Summarize the numerically largest timestep found in available artifacts.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "5",
+            "dest": "snapshot_rows",
+            "flags": [
+              "--snapshot-rows"
+            ],
+            "help": "Number of sampled particle snapshot rows to preview when solver stream output contains them.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "text",
+            "dest": "output_format",
+            "flags": [
+              "--format"
+            ],
+            "help": "Output format (default: text).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          }
+        ]
+      },
+      "help": "Build read-only configuration overviews, run-health summaries, and scalar time-history plots.",
+      "name": "summarize",
+      "subcommands": {}
+    },
+    "sweep": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "study",
+            "flags": [
+              "--study"
+            ],
+            "help": "Path to study.yml defining either a `parameters` cross-product expansion or explicit parameter_sets, plus metrics.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "cluster",
+            "flags": [
+              "--cluster"
+            ],
+            "help": "Path to cluster.yml defining Slurm resources.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "no_submit",
+            "flags": [
+              "--no-submit"
+            ],
+            "help": "Generate all study artifacts without submitting jobs.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "study_dir",
+            "flags": [
+              "--study-dir"
+            ],
+            "help": "Path to an existing study directory (for --continue/--reaggregate).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "continue_study",
+            "flags": [
+              "--continue"
+            ],
+            "help": "Continue a partially-completed study. Requires --study-dir.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "reaggregate",
+            "flags": [
+              "--reaggregate"
+            ],
+            "help": "Re-run metrics aggregation on a completed study. Requires --study-dir.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          }
+        ]
+      },
+      "help": "Launch studies from study.yml + cluster.yml, whether the study uses",
+      "name": "sweep",
+      "subcommands": {}
+    },
+    "sync-binaries": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "case_dir",
+            "flags": [
+              "--case-dir"
+            ],
+            "help": "Optional case directory to refresh. Defaults to the current case.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "source_root",
+            "flags": [
+              "--source-root"
+            ],
+            "help": "Optional override for the PICurv source repository root.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          }
+        ]
+      },
+      "help": "Copy simulator/postprocessor from the source repo bin/ into a case directory.",
+      "name": "sync-binaries",
+      "subcommands": {}
+    },
+    "sync-config": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "case_dir",
+            "flags": [
+              "--case-dir"
+            ],
+            "help": "Optional case directory to refresh. Defaults to the current case.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "source_root",
+            "flags": [
+              "--source-root"
+            ],
+            "help": "Optional override for the PICurv source repository root.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "template_name",
+            "flags": [
+              "--template-name"
+            ],
+            "help": "Optional template name override (e.g., flat_channel). Required when metadata is absent.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "overwrite",
+            "flags": [
+              "--overwrite"
+            ],
+            "help": "Overwrite case files even when they differ from the template.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "prune",
+            "flags": [
+              "--prune"
+            ],
+            "help": "Remove stale files that were previously tracked as template-managed but no longer exist in the source template.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          }
+        ]
+      },
+      "help": "Copy updated example template files into an existing case directory.",
+      "name": "sync-config",
+      "subcommands": {}
+    },
+    "validate": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "case",
+            "flags": [
+              "--case"
+            ],
+            "help": "Path to case.yml",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "solver",
+            "flags": [
+              "--solver"
+            ],
+            "help": "Path to solver.yml",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "monitor",
+            "flags": [
+              "--monitor"
+            ],
+            "help": "Path to monitor.yml (logging, diagnostics, profiling, and I/O)",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "restart_from",
+            "flags": [
+              "--restart-from"
+            ],
+            "help": "Path to a run directory to validate restart from.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "continue_run",
+            "flags": [
+              "--continue"
+            ],
+            "help": "Validate continue-in-place mode. Requires --run-dir.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "run_dir",
+            "flags": [
+              "--run-dir"
+            ],
+            "help": "Path to an existing run directory (for --continue validation).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "post",
+            "flags": [
+              "--post"
+            ],
+            "help": "Path to post.yml",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "cluster",
+            "flags": [
+              "--cluster"
+            ],
+            "help": "Path to cluster.yml",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "study",
+            "flags": [
+              "--study"
+            ],
+            "help": "Path to study.yml",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "strict",
+            "flags": [
+              "--strict"
+            ],
+            "help": "Enable additional strict checks for selected roles.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          }
+        ]
+      },
+      "help": "Validate one or more config roles. No solver/post execution and no run/study artifact writes.",
+      "name": "validate",
+      "subcommands": {}
+    }
+  },
+  "program": "generate_cli_reference.py"
+}

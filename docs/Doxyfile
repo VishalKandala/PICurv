@@ -11,8 +11,9 @@ OPTIMIZE_OUTPUT_FOR_C  = YES
 INPUT                  = include src picurv_cli generators docs docs/pages examples tests/c tests/tooling tests/guide.md
 FILE_PATTERNS          = *.h *.hpp *.c *.cc *.cpp *.md *.py *.sh *.flow
 RECURSIVE              = YES
-EXCLUDE_PATTERNS       = */obj/* */bin/* */test/* */stubs/* */guide.md */38_Start_Here_10_Minutes.md */examples/*.md */examples/*/*.md */README.md
-EXAMPLE_PATH           = examples examples/master_template
+EXCLUDE_PATTERNS       = */obj/* */bin/* */test/* */stubs/* */guide.md */docs/generated/* */examples/*.md */examples/*/*.md */README.md
+EXAMPLE_PATH           = examples examples/master_template docs
+DOTFILE_DIRS           = docs/diagrams
 
 EXTRACT_ALL            = YES
 EXTRACT_PRIVATE        = NO
@@ -69,8 +70,9 @@ SHOW_USED_FILES        = YES
 ENABLE_PREPROCESSING   = YES
 MACRO_EXPANSION        = YES
 EXPAND_ONLY_PREDEF     = NO
-ALIASES                = "pagebreak=\n<hr/>"
-GENERATE_TREEVIEW      = NO
+ALIASES                = "pagebreak=^^<hr/>" \
+                         "pagemeta{3}=@htmlonly<div class=\"pic-pagemeta\"><span class=\"pic-pagemeta-item\"><b>Type</b> \1</span><span class=\"pic-pagemeta-item\"><b>For</b> \2</span><span class=\"pic-pagemeta-item\"><b>Status</b> \3</span></div>@endhtmlonly"
+GENERATE_TREEVIEW      = YES
 FULL_PATH_NAMES        = NO
 
 #------------------------- Tag/Graphs Cache ----------------

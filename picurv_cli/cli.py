@@ -8,6 +8,13 @@ from .storage import add_storage_parser, storage_workflow
 # MAIN COMMAND-LINE INTERFACE PARSER
 # ==============================================================================
 
+#: Output encodings every command that prints a structured report accepts.
+CLI_OUTPUT_FORMATS = ("text", "json")
+
+#: Which stages `--only` may select.
+RUN_STAGE_CHOICES = ("all", "solve", "post-process")
+
+
 def _add_run_parser(subparsers):
     """!
     @brief Attach `run` parser with staged execution and dry-run support.
@@ -89,7 +96,7 @@ def _add_run_parser(subparsers):
     p_run.add_argument(
         "--format",
         dest="output_format",
-        choices=["text", "json"],
+        choices=list(CLI_OUTPUT_FORMATS),
         default="text",
         help="Output format for --dry-run (default: text).",
     )
@@ -277,7 +284,7 @@ def _add_summarize_parser(subparsers):
     p_summarize.add_argument(
         "--format",
         dest="output_format",
-        choices=["text", "json"],
+        choices=list(CLI_OUTPUT_FORMATS),
         default="text",
         help="Output format (default: text).",
     )
@@ -312,7 +319,7 @@ def _add_cancel_parser(subparsers):
     p_cancel.add_argument("--run-dir", required=True, help="Path to the run directory whose Slurm job(s) should be canceled.")
     p_cancel.add_argument(
         "--stage",
-        choices=["all", "solve", "post-process"],
+        choices=list(RUN_STAGE_CHOICES),
         default="all",
         help="Which recorded stage job(s) to cancel (default: all).",
     )
@@ -358,7 +365,7 @@ def _add_submit_parser(subparsers):
     target_group.add_argument("--study-dir", help="Path to a staged study directory created by `picurv sweep --cluster ... --no-submit`.")
     p_submit.add_argument(
         "--stage",
-        choices=["all", "solve", "post-process"],
+        choices=list(RUN_STAGE_CHOICES),
         default="all",
         help="Which staged job(s) to submit (default: all).",
     )
@@ -577,7 +584,7 @@ def _add_status_source_parser(subparsers):
     p_status.add_argument(
         "--format",
         dest="output_format",
-        choices=["text", "json"],
+        choices=list(CLI_OUTPUT_FORMATS),
         default="text",
         help="Output format (default: text).",
     )

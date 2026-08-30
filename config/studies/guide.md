@@ -19,9 +19,9 @@ but not with each other. This is the "multi-field group sweep" pattern.
 
 Use explicit metric specs whenever the study signal comes from a non-default
 CSV or log artifact. For example, interpolation studies can aggregate values
-from `logs/interpolation_error.csv` instead of using `msd_final`. Search and
+from `<run.runtime_logs>/interpolation_error.csv` instead of using `msd_final`. Search and
 migration characterization studies can likewise aggregate columns from
-`logs/search_metrics.csv`, such as `search_failure_fraction`,
+`<run.runtime_logs>/search_metrics.csv`, such as `search_failure_fraction`,
 `search_work_index`, `re_search_fraction`, or normalized run-level signals
 derived from `lost_cumulative`.
 
@@ -49,7 +49,7 @@ and `units` when the metric name alone is not sufficiently descriptive.
 1. Validate one base case end-to-end before creating sweeps.
 2. Keep study parameters physically meaningful and isolated where possible.
 3. Start with a small sweep subset to verify orchestration and metric extraction.
-4. Scale up parameter space only after logs/results schema look correct.
+4. Scale up parameter space only after <run.runtime_logs>/results schema look correct.
 
 If you are not using a scheduler, emulate a study locally by repeating
 `picurv run` with a few controlled config variants instead of using
@@ -58,4 +58,4 @@ If you are not using a scheduler, emulate a study locally by repeating
 ## Reference Files
 
 - `examples/master_template/master_study.yml`
-- https://vishalkandala.me/picurv-docs/37_Sweep_Studies_Guide.html
+- https://vishalkandala.me/docs/picurv/37_Sweep_Studies_Guide.html

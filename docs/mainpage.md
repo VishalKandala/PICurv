@@ -1,47 +1,47 @@
 @mainpage PICurv Solver Documentation
 
-@section intro_sec Introduction
+PICurv is a parallel CFD and particle-transport framework for incompressible flow
+and scalar transport on structured curvilinear grids. It couples a PETSc `DMDA`
+Eulerian flow solve to `DMSwarm` Lagrangian particle transport, and it is driven
+entirely by YAML: you compose `case.yml`, `solver.yml`, `monitor.yml`, and
+`post.yml` rather than editing code for each run.
 
-# PICurv: A Hybrid Eulerian-Lagrangian Framework for Scalar Transport
+@note **Version 0.1.0 - development documentation.** This site documents the
+current `main` branch, not a tagged release. The footer names the exact commit it
+was built from. See @subpage 62_Capability_Status_Vocabulary for what the status
+words on these pages mean.
 
-PICurv is a parallel CFD and particle framework for incompressible flow and scalar transport. It combines:
+@section mainpage_start_sec Start here
 
-- Eulerian flow solves on curvilinear grids (PETSc `DMDA` based)
-- Lagrangian particle transport (`DMSwarm` based)
-- A YAML-driven run pipeline through the built conductor `./bin/picurv`
+**@subpage 41_Getting_Started_Index** - install, build, and complete one validated
+example run end to end. This is the fastest route to a working simulation and the
+right first click for almost everyone.
 
-The user workflow is configuration-first: YAML inputs are validated and translated into generated runtime artifacts consumed by the C solver and postprocessor.
-Those YAML roles are modular by design: `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` are meant to be recombined instead of rewritten from scratch for every run.
+You will need PETSc (with `PETSC_DIR` set; `PETSC_ARCH` only for old-style in-tree
+builds), an MPI runtime, and Python 3.10 or newer for the managed CLI bootstrap. Runs work locally on a workstation, under MPI, and on a Slurm
+cluster. Example run costs have not yet been measured; see **@subpage 65_Example_Catalog**.
 
-@section get_started_main Documentation Entry Points (Structural)
+@section mainpage_routes_sec Then pick your route
 
-Start here first:
+| I want to... | Go to |
+|---|---|
+| Set up and run my own case | **@subpage 42_User_Guide_Index** |
+| Know what PICurv can and cannot do yet | **@subpage 12_Capabilities_Summary** |
+| Understand the numerics and models | **@subpage 21_Methods_Overview** |
+| Look up exact YAML keys and CLI options | **@subpage 14_Config_Contract** |
+| Run on a cluster, restart, sweep, or archive | **@subpage 52_Run_Lifecycle_Guide** |
+| Extend or contribute to the code | **@subpage 43_Developer_Portal_Index** |
+| Diagnose a failing run | **@subpage 67_Troubleshooting** |
+| See what evidence stands behind a capability | **@subpage 66_Evidence_Matrix** |
+| Find a specific page | **@subpage Documentation_Map** |
 
-- **@subpage 41_Getting_Started_Index**: fast first-run path for installation, first case setup, validation, and first outputs.
-
-Then use the structural map and reference pages:
-
-- **@subpage Documentation_Map**: complete categorized index by workflow, artifact, and runtime layer.
-- **@subpage 06_Simulation_Anatomy**: end-to-end run structure and generated artifacts.
-- **@subpage 14_Config_Contract**: YAML contracts and Python-to-C handoff.
-- **@subpage 49_Workflow_Recipes_and_Config_Cookbook**: practical profile-composition patterns and runnable recipes.
-- **@subpage 61_Storage_Management_Guide**: protect, offload, catalog, verify, and restore run/study data through rclone.
-- **@subpage 21_Methods_Overview**: governing methods and model map.
-- **@subpage 46_C_Runtime_Execution_Map**: solver execution order and C runtime touchpoints.
-- **@subpage 56_Field_Identity_and_Layout_Catalog**: typed Eulerian/particle identities and layout-aware storage and coupling metadata.
-- **@subpage 58_Field_Statistics**: online turbulence statistics — window semantics, checkpoint state, and derived quantities.
-- **@subpage 57_Future_Architecture_Specifications**: status and dependency map for proposed, not-yet-implemented architecture.
-- **@subpage 53_Search_Robustness_Metrics_Reference**: authoritative definitions for runtime search observability and paper-grade search signals.
-- **Data Structures (`annotated_structured.html`)** and **File List (`files_structured.html`)**:
-  organized code-reference views by module and file type.
-
-@section preview_sec Quick Preview
+@section mainpage_preview_sec What a run produces
 
 @htmlonly
 <div style="text-align:center; margin:1rem 0;">
   <img
     src="assets/curv.gif"
-    alt="PICurv simulation preview"
+    alt="Animated preview of a PICurv simulation: particles transported through a curvilinear channel"
     style="width:100%; max-width:900px; height:auto; display:inline-block;"
   />
 </div>
@@ -49,32 +49,37 @@ Then use the structural map and reference pages:
 <div style="text-align:center; margin:1rem 0;">
   <img
     src="assets/paraview_flat_channel.png"
-    alt="Example visualization output (ParaView)"
+    alt="ParaView visualization of PICurv flat-channel output, showing a velocity field slice"
     style="width:100%; max-width:900px; height:auto; display:inline-block;"
   />
 </div>
 @endhtmlonly
 
-@section methodology_sec Core Methodology
+@section mainpage_method_sec How it works, in brief
 
-PICurv uses a two-way coupled Eulerian-Lagrangian strategy:
+PICurv advances a coupled Eulerian-Lagrangian system:
 
-1. Eulerian phase: velocity/pressure evolution on a structured curvilinear grid.
-2. Lagrangian phase: particle motion and particle-carried quantities.
-3. Coupling:
-   - Grid -> particle interpolation for advection/source evaluation.
-   - Particle -> grid projection for reconstructed Eulerian particle-derived fields.
+1. **Eulerian phase** - velocity and pressure evolve on a structured curvilinear
+   grid through a fractional-step scheme.
+2. **Lagrangian phase** - particles move through that field, carrying scalar
+   quantities with them.
+3. **Coupling** - grid-to-particle interpolation drives advection and source
+   evaluation; the particle-to-grid scatter path writes particle-derived scalars back
+   onto the grid. Momentum feedback from particles to the flow is not part of the
+   current path.
 
-@section features_sec Key Features
+@subpage 06_Simulation_Anatomy traces one run from YAML through generated
+artifacts to output. @subpage 46_C_Runtime_Execution_Map follows the same path
+down into the C runtime.
 
-- YAML-driven pipeline (`case.yml`, `solver.yml`, `monitor.yml`, `post.yml`)
-- Cluster scheduler integration (`cluster.yml`) for Slurm job generation/submission
-- Study/sweep orchestration (`study.yml`) with Slurm arrays, dependency chaining, and metric plots
-- Multiple grid ingestion modes: `programmatic_c`, `file`, and `grid_gen`
-- Direct and wrapped grid generation through `generators/grid.gen`
-- Named momentum solver strategy with solver-specific option blocks
-- Structured post-processing pipelines (Eulerian, Lagrangian, statistics)
-- Dedicated config contract and ingestion mapping docs for maintenance and extension
+@section mainpage_scope_sec Current scope
 
-For release notes and recent contract changes, see **@subpage 18_Changelog**.
-For solver-method overviews, see **@subpage 21_Methods_Overview**.
+Supported today: incompressible flow on curvilinear grids; programmatic, file, and
+generated grid ingestion; selectable momentum solvers including Newton-Krylov;
+geometric and driven periodic boundaries; Lagrangian particle transport; online
+field statistics; and Slurm submission with parameter sweeps.
+
+Not yet supported: compressible flow, multiphase flow, mesh adaptation, and an
+immersed-boundary capability beyond the metric-level hooks already present.
+
+Recent contract and behavior changes are recorded in **@subpage 18_Changelog**.

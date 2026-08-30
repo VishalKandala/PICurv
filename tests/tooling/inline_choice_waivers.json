@@ -1,0 +1,134 @@
+{
+  "description": "Inline choice sets in the CLI package, each classified. The family census discovers named constants and normalizers; an inline `if value not in {...}` is invisible to it, so the census could call itself exhaustive while public choices sat in literals nobody enumerated. audit_inline_choices.py finds every inline set and requires it to be either given a name - which the census then discovers - or listed here with the same typed classification the census uses.",
+  "policy": "A public closed choice must be a named module-level constant. This file is for literals that are NOT public choices: internal key names, externally owned vocabularies, spellings, and parameters an existing capability entry documents.",
+  "cli_choices_policy": "argparse commands and `choices` are covered by the generated CLI reference (contract cli.reference), which is extracted from the assembled parser and parity-checked. That artefact is the inventory; it does not answer when to use a command, which is what the narrative pages are for. A CLI choice set still needs a name so the census can see it, and a capability family only when the choice has a when-to-use answer the CLI table cannot give.",
+  "inline_choices": {
+    "picurv_cli.core::{+Eta,-Eta}": {
+      "classification": "not_public",
+      "reason": "Face identifiers for the Eta axis pair, as above."
+    },
+    "picurv_cli.core::{+Xi,-Xi}": {
+      "classification": "not_public",
+      "reason": "Face identifiers for the Xi axis pair. Faces name where a boundary condition is applied; they are not a choice between behaviours, consistent with BC_FACE_MAP being classified the same way."
+    },
+    "picurv_cli.core::{+Zeta,-Zeta}": {
+      "classification": "not_public",
+      "reason": "Face identifiers for the Zeta axis pair, as above."
+    },
+    "picurv_cli.core::{,.}": {
+      "classification": "structural",
+      "reason": "The empty string and `.`, both meaning the run directory itself in a path comparison. Path sentinels inside the containment rules, not user choices."
+    },
+    "picurv_cli.core::{--ntasks,-n}": {
+      "classification": "structural",
+      "reason": "Launcher flag spellings PICurv recognises when reading an existing launcher command. The launcher vocabulary is owned by Slurm and MPI, not by PICurv, and any flag the launcher accepts passes through."
+    },
+    "picurv_cli.core::{-n,-np}": {
+      "classification": "structural",
+      "reason": "As above: MPI rank-count flag spellings recognised inside a free-form launcher command. Not a closed PICurv set."
+    },
+    "picurv_cli.core::{0,false,no}": {
+      "classification": "structural",
+      "reason": "Falsy spellings for the same coercion. Not a closed choice a user selects between."
+    },
+    "picurv_cli.core::{1,true,yes}": {
+      "classification": "structural",
+      "reason": "Truthy spellings accepted when coercing a free-form string to a boolean. A boolean is not a menu, and the YAML surface is the boolean itself."
+    },
+    "picurv_cli.core::{Final,Shutdown}": {
+      "classification": "not_public",
+      "reason": "Internal profiling phase labels used when deciding which summary to emit at teardown. Never configured."
+    },
+    "picurv_cli.core::{Post,Step}": {
+      "classification": "not_public",
+      "reason": "Internal stage labels distinguishing a per-step profiling record from a post-processing one. Never configured."
+    },
+    "picurv_cli.core::{_health_requested,configuration,run_overview,storage}": {
+      "classification": "not_public",
+      "reason": "Section keys of an internally assembled report payload. The user selects a report format, not which internal keys the payload carries."
+    },
+    "picurv_cli.core::{enabled,model}": {
+      "classification": "not_public",
+      "reason": "Key names checked when deciding whether a turbulence block was written in the modern or legacy shape. Structure detection, not a selectable value."
+    },
+    "picurv_cli.core::{false,true}": {
+      "classification": "structural",
+      "reason": "Boolean literal spellings in a string coercion. The user surface is a YAML boolean."
+    },
+    "picurv_cli.core::{iterations,newton_iterations,pseudo_iterations}": {
+      "classification": "parameter_of_entry",
+      "reason": "Iteration-count field names the run summary reports, which differ by momentum solver. They are described with each solver's diagnostics rather than selected.",
+      "owner": "momentum.solver"
+    },
+    "picurv_cli.core::{local,slurm}": {
+      "classification": "cli_inventory_sufficient",
+      "reason": "Scheduler kinds resolved from `--cluster` and the scheduler profile. The generated CLI reference lists the flags, and the cluster guide explains when each applies; a Tier-2 entry per scheduler would restate that page."
+    },
+    "picurv_cli.core::{log_law,loglaw}": {
+      "classification": "spelling_alias",
+      "reason": "Accepted spellings of the log-law wall function. A spelling inherits the status of the value it resolves to and owns no entry of its own.",
+      "owner": "turbulence.wall_function"
+    },
+    "picurv_cli.core::{mode,per,ph,ref,step,time,win}": {
+      "classification": "not_public",
+      "reason": "Abbreviated column headers of an internally formatted diagnostic table. Never configured and never parsed from user input."
+    },
+    "picurv_cli.core::{momentum,petsc_passthrough_options,poisson}": {
+      "classification": "not_public",
+      "reason": "The recognised top-level keys of the solver YAML block, used to reject unknown keys. A schema check, not a menu."
+    },
+    "picurv_cli.core::{momentum,poisson}": {
+      "classification": "not_public",
+      "reason": "Solver block names used to route a monitoring setting to the right block. The blocks are documented; which of the two a setting belongs to is not a choice."
+    },
+    "picurv_cli.core::{mpiexec,mpirun}": {
+      "classification": "structural",
+      "reason": "Launcher executable names PICurv recognises when normalising a free-form launcher command. Any executable may be configured; these two are only the ones whose rank flag PICurv knows how to rewrite."
+    },
+    "picurv_cli.core::{msd,msd_final}": {
+      "classification": "parameter_of_entry",
+      "reason": "Metric names a study may declare. `msd_final` is the reduction of the `msd` statistics task over a run; both are described with the statistics task that produces them.",
+      "owner": "statistics.task::msd"
+    },
+    "picurv_cli.core::{opposite,same}": {
+      "classification": "parameter_of_entry",
+      "reason": "Orientation of a periodic face pairing. It configures how a periodic boundary maps its two faces, not which boundary handler runs, so it belongs to the periodic handler's entry rather than to a family of its own.",
+      "owner": "boundary.handler"
+    },
+    "picurv_cli.core::{rxs,rys,rzs}": {
+      "classification": "not_public",
+      "reason": "Per-axis stretching-ratio key names in the programmatic grid block. All three are set together; none is chosen instead of another."
+    },
+    "picurv_cli.core::{steady_deterministic,transient}": {
+      "classification": "not_public",
+      "reason": "Internal convergence-mode labels used when formatting a summary line. The user surface is solver.convergence_mode, which is a registered capability family."
+    },
+    "picurv_cli.core::{step,time,timestep}": {
+      "classification": "parameter_of_entry",
+      "reason": "Abscissae a study metric may be plotted against. A presentation choice within the sweep plotting block, documented with the study types that use it.",
+      "owner": "study.type"
+    },
+    "picurv_cli.core::{step,time_step,timestep}": {
+      "classification": "spelling_alias",
+      "reason": "Accepted spellings of one configuration key name. Key-name spellings are a compatibility surface, documented with the key rather than as a family.",
+      "owner": "07_Case_Reference::p07_run_control_sec"
+    },
+    "picurv_cli.core::{v_max,vx,vy,vz}": {
+      "classification": "parameter_of_entry",
+      "reason": "Velocity component keys a constant or parabolic inlet accepts. They are the parameters an inlet handler owns, enumerated in that handler's entry - not a choice between behaviours.",
+      "owner": "boundary.handler"
+    },
+    "picurv_cli.storage::{cluster.yml,manifest.json,study.yml,study_manifest.json}": {
+      "classification": "not_public",
+      "reason": "Filenames the storage inventory recognises as run metadata. Fixed artefact names, not a selectable set."
+    },
+    "picurv_cli.storage::{config,scheduler}": {
+      "classification": "not_public",
+      "reason": "Directory names the storage inventory always treats as configuration rather than payload. A fixed classification of run-owned directories, not a user choice."
+    },
+    "picurv_cli.storage::{file,symlink}": {
+      "classification": "not_public",
+      "reason": "Filesystem entry kinds distinguished while walking a run tree. An OS-level distinction, not a configurable option."
+    }
+  }
+}

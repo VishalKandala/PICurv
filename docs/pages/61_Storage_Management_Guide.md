@@ -207,7 +207,7 @@ picurv storage restore \
   --to /cluster/new-workspace/runs/pilot-64-restored
 ```
 
-When an individually archived study member is restored after the entire study was deleted, its archive also recreates the small parent study context, including `study.yml`, `study_manifest.json`, and `scheduler/case_index.tsv` when those files were present at archive time.
+When an individually archived study member is restored after the entire study was deleted, its archive also recreates the small parent study context, including `study.yml`, `study_manifest.json`, and `<run.scheduler>/case_index.tsv` when those files were present at archive time.
 
 An alternate-location restore conservatively replaces the old run/study prefix in known generated text files (`.control`, `.run`, `.sbatch`, JSON, TSV, and YAML). Inspect regenerated scheduler scripts and any user-authored absolute paths before submitting on a different cluster. Remote archive bytes remain unchanged.
 
@@ -273,7 +273,7 @@ The storage layer is additive and remains in the Python conductor. It does not c
 - `validate` checks YAML contracts and is unchanged; it does not need bulk checkpoint payload.
 - `cancel` continues to use retained scheduler metadata. Active Slurm jobs also prevent archival/offload in the first place.
 
-Run creation now keeps the analysis input with the artifact: when post-processing is requested, the validated post profile is copied to `config/post.yml`. Study creation snapshots all four base YAML files under `base_configs/`, writes a portable `study.yml` that refers to those copies, and preserves the originally supplied study file as `study.source.yml`.
+Run creation now keeps the analysis input with the artifact: when post-processing is requested, the validated post profile is copied to `<run.config>/post.yml`. Study creation snapshots all four base YAML files under `base_configs/`, writes a portable `study.yml` that refers to those copies, and preserves the originally supplied study file as `study.source.yml`.
 
 @section p61_code_sec 7. Code and Configuration Reproducibility
 
@@ -331,3 +331,101 @@ picurv storage restore  restore a full archive or selected checkpoints
 ```
 
 Use `picurv storage --help` and `picurv storage <action> --help` for the complete option set.
+
+@section p61_cap_comp_sec 9.1 Compression Policy Entries
+
+@htmlinclude generated/capability_inventory_storage_compression.html
+
+@subsection p61_cap_comp_auto_sub auto
+
+@anchor p61_cap_comp_auto
+
+**Identity.** `picurv storage offload --compression auto`, or `compression: auto` in the storage profile. The default.
+
+**What it does.** Chooses a concrete policy from the payload size: below 256 MiB it uses `none`, at or above 20 GiB it uses `maximum`, and everything between gets `balanced`.
+
+**When to choose it.** Unless you have measured a reason not to. The thresholds encode the usual trade-off - small payloads are not worth the CPU, very large ones are worth the slowest compressor - and a fixed choice has to be re-justified as run sizes change.
+
+**Parameters it owns.** None. The thresholds are constants (`AUTO_NO_COMPRESSION_BYTES`, `AUTO_MAXIMUM_COMPRESSION_BYTES`), not configuration.
+
+**Interactions.** Resolves before the archive extension is chosen, so `auto` never appears in a filename. `picurv storage plan` reports the resolved policy without transferring anything.
+
+**Diagnostics.** `picurv storage plan` prints the policy it resolved to and the payload size that decided it.
+
+**Evidence.** Unit verified - `tests/test_storage.py` exercises the resolver and the archive path for this policy.**Limitations.** The thresholds are judgement, not measurement, and they take no account of the data's compressibility: an incompressible payload just above 256 MiB pays for `balanced` and gains nothing.
+
+@subsection p61_cap_comp_none_sub none
+
+@anchor p61_cap_comp_none
+
+**Identity.** `--compression none` -> a `.tar` archive.
+
+**What it does.** Archives without compressing. Bytes on disk equal bytes transferred.
+
+**When to choose it.** For payloads that are already compressed - most binary checkpoint formats - and for anything where restore latency matters more than footprint. Also the right choice when the archive is a staging step before something that compresses anyway.
+
+**Parameters it owns.** None.
+
+**Interactions.** Produces the largest artefact and the fastest offload and restore of the four.
+
+**Diagnostics.** The `.tar` suffix in the catalog listing identifies it after the fact.
+
+**Evidence.** Unit verified - `tests/test_storage.py` exercises the resolver and the archive path for this policy.**Limitations.** Storage cost is the full payload size, which for a long campaign is the dominant term.
+
+@subsection p61_cap_comp_fast_sub fast
+
+@anchor p61_cap_comp_fast
+
+**Identity.** `--compression fast` -> a `.tar.gz` archive.
+
+**What it does.** Compresses with gzip at a speed-favouring setting.
+
+**When to choose it.** When offload time is on the critical path - clearing scratch before a deadline, or archiving between queued jobs. It gives most of `balanced`'s size reduction for noticeably less CPU.
+
+**Parameters it owns.** None.
+
+**Interactions.** Produces the same `.tar.gz` extension as `balanced`, so the suffix does not distinguish them; the catalog record does.
+
+**Diagnostics.** Catalog metadata records the policy used, which is the only way to tell `fast` and `balanced` archives apart afterwards.
+
+**Evidence.** Implemented only.
+
+**Limitations.** Shares an extension with `balanced`, so an archive inspected outside PICurv cannot be identified by filename alone.
+
+@subsection p61_cap_comp_balanced_sub balanced
+
+@anchor p61_cap_comp_balanced
+
+**Identity.** `--compression balanced` -> a `.tar.gz` archive. What `auto` selects in the middle size band.
+
+**What it does.** Compresses with gzip at a default setting that trades CPU against size without favouring either.
+
+**When to choose it.** The sensible fixed choice when you want to pin a policy rather than let `auto` decide - typically so that archive sizes stay comparable across a campaign as run sizes drift across the `auto` thresholds.
+
+**Parameters it owns.** None.
+
+**Interactions.** Same extension as `fast`; the catalog record distinguishes them.
+
+**Diagnostics.** Reported by `picurv storage plan` and recorded in the catalog entry.
+
+**Evidence.** Unit verified - `tests/test_storage.py` exercises the resolver and the archive path for this policy.**Limitations.** Nothing establishes that gzip's default is the right point on the curve for this project's data; it is a conventional choice, not a measured one.
+
+@subsection p61_cap_comp_maximum_sub maximum
+
+@anchor p61_cap_comp_maximum
+
+**Identity.** `--compression maximum` -> a `.tar.xz` archive. What `auto` selects at or above 20 GiB.
+
+**What it does.** Compresses with xz, which reaches the smallest archives of the four at substantially higher CPU and memory cost.
+
+**When to choose it.** For long-term archival of large campaigns that will rarely be restored - where storage is the recurring cost and decompression time is paid once, if ever.
+
+**Parameters it owns.** None.
+
+**Interactions.** Restore is markedly slower than the gzip policies, which matters if the archive is part of an active workflow rather than cold storage.
+
+**Diagnostics.** The `.tar.xz` suffix identifies it, and `picurv storage plan` reports it in advance.
+
+**Evidence.** Implemented only.
+
+**Limitations.** xz memory use scales with its window, so a very large archive can be expensive to decompress on a small login node - the machine that usually runs the restore.

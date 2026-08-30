@@ -204,7 +204,7 @@ only when the parser and dispatcher are extended in the same change.
 
 @section p24_logging_sec 5. Logging and Diagnostics
 
-The persistent momentum convergence-history format (`logs/Momentum_Solver_Convergence_History_Block_N.log`) includes per-trial fields:
+The persistent momentum convergence-history format (`<run.runtime_logs>/Momentum_Solver_Convergence_History_Block_N.log`) includes per-trial fields:
 
 - `PseudoIter(k)`: total attempted trial index (includes rejected trials)
 - `dtau`: physical-time pseudo-step used for this trial [s] — equals `pseudo_cfl / lambda_max`
@@ -269,25 +269,3 @@ Common stability tuning order:
 For many cases, robust Poisson settings and sane initialization matter as much as dual-time tolerances.
 
 For contributor extension steps, see **@subpage 50_Modular_Selector_Extension_Guide**.
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Dual-Time Picard Jameson RK Momentum Solver** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

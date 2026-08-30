@@ -308,6 +308,10 @@ static PetscErrorCode PrepareTinyRuntimeConfig(const char *bcs_contents,
         "-logfreq 1\n"
         "-output_dir %s\n"
         "-restart_dir %s\n"
+        /* The harness owns this temporary tree and wants it wiped between runs. That is
+         * an external absolute path, so it must authorize the delete the same way a user
+         * would - the runtime guard makes no exception for tests. */
+        "-allow_unsafe_log_dir true\n"
         "-log_dir %s\n"
         "%s",
         bcs_path,
@@ -851,7 +855,8 @@ PetscErrorCode PicurvBuildMomentumPurityRuntimeContext(const char *bcs_contents,
         "-euler_field_source solve\n-mom_solver_type newton_krylov\n"
         "-mg_level 1\n-poisson 0\n-tio 0\n-numParticles 0\n-pinit 2\n"
         "-particle_console_output_freq 0\n-logfreq 1\n"
-        "-output_dir %s\n-restart_dir %s\n-log_dir %s\n",
+        /* See the note above: the harness authorizes deletion of its own temp tree. */
+        "-output_dir %s\n-restart_dir %s\n-allow_unsafe_log_dir true\n-log_dir %s\n",
         bcs_path, post_path, output_dir, output_dir, log_dir));
     PetscCall(WriteTextFileForTests(control_path, control_buffer));
     PetscCall(PetscOptionsSetValue(NULL, "-control_file", control_path));

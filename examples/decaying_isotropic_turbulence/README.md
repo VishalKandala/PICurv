@@ -1,5 +1,15 @@
 # Decaying isotropic turbulence
 
+
+> **Known-defective LES.** This case sets `model: dynamic_smagorinsky`, which is
+> **known-defective**: its `M_ij` is built from separately filtered quantities and
+> collapses to a form carrying no dynamic content, and the homogeneous averaging it
+> assumes is an unimplemented placeholder. The alternative,
+> `constant_smagorinsky`, is **also known-defective** — on a fresh run its
+> coefficient is only computed at a step where it is forced to zero, so no subgrid
+> dissipation is applied at all. Results from this case are uncharacterized until
+> both are fixed. Records: `tests/tooling/capability_scope_records.json`.
+
 This is a reproducible 64-cubed-cell LES decay benchmark in a triply periodic
 `[0,2*pi]^3` box. It is an LES demonstration, not a DNS reference.
 
@@ -35,7 +45,7 @@ two transverse polarizations. The former common-nullspace construction usually
 retained only one and is intentionally not used.
 
 Preparation writes `diagnostics/initial_condition_summary.json` and
-`diagnostics/initial_condition_spectrum.csv` under the selected output/run
+`diagnostics/initial_condition_spectrum.csv` under the selected <run.solver_output>/run
 directory. For a quick smoke run, copy the case, set `im/jm/km` to 16,
 `k_cut` to 5, multigrid levels to 2, and `total_steps` to 1 before running the
 full 64-cubed case.
@@ -62,7 +72,7 @@ picurv run --post-process --run-dir runs/<run_id> --post dit_case/post.yml
 ```
 
 That writes, per window, a `.vts` per processed step under
-`visualization/dit/` and one convergence-history `.csv` recording sample count,
+`<run.visualization>/dit/` and one convergence-history `.csv` recording sample count,
 accumulated weight, represented time, mask coverage, and the domain-mean TKE.
 
 ## Energy spectra

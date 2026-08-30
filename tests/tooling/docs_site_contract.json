@@ -1,0 +1,14 @@
+{
+  "description": "Published-site integrity contract. Validates project-owned documentation URLs and Doxygen navigation targets against the ACTUAL generated HTML, not against source declarations -- a page can declare @page and still be excluded from the build, and a canonical-looking URL can still name a page that is never generated.",
+  "canonical_docs_base": "https://vishalkandala.me/docs/picurv/",
+  "html_dir": "docs_build/html",
+  "forbidden_url_patterns": [
+    {
+      "pattern": "vishalkandala\\.me/picurv-docs/[A-Za-z0-9_.-]+",
+      "reason": "Only the /picurv-docs/ root redirects; individual page paths under it return 404. Use the canonical /docs/picurv/ base.",
+      "replacement_hint": "https://vishalkandala.me/docs/picurv/<page>.html"
+    }
+  ],
+  "layout_file": "docs/DoxygenLayout.xml",
+  "external_layout_urls": ["/projects/"]
+}

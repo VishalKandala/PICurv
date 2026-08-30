@@ -1,0 +1,512 @@
+{
+  "description": "Generalized invariant-contract registry. PICurv has two kinds of documented truth: CAPABILITIES (choices a user makes, governed by capability_families.json) and INVARIANTS (guarantees the system maintains). This registry covers the second kind. It exists because the storage stress test showed that a run-layout change touches no selector and would therefore pass every capability gate.",
+  "schema": {
+    "id": "stable contract identifier",
+    "title": "human-readable name",
+    "kind": "ingress | reporting | artifact_topology | file_schema | identity | units | output_grammar | lifecycle",
+    "status": "enforced | tracked | planned | retired",
+    "authoritative_sources": "files or symbols that define the contract",
+    "extractor": "registered implementation id, or null when checked by a legacy checker",
+    "checker": "command that verifies it",
+    "canonical_documentation": "pages that own the narrative",
+    "dependent_pages": "pages that would need review if the contract changes",
+    "enforcement": "blocking | advisory | report-only"
+  },
+  "contracts": [
+    {
+      "id": "petsc.option_ingress",
+      "title": "PETSc Option Ingress",
+      "kind": "ingress",
+      "status": "enforced",
+      "authoritative_sources": [
+        "src/setup.c",
+        "src/io.c",
+        "src/statistics_config.c"
+      ],
+      "extractor": "legacy:audit_ingress",
+      "checker": [
+        "tests/tooling/audit_ingress.py"
+      ],
+      "canonical_documentation": [
+        "15_Config_Ingestion_Map"
+      ],
+      "dependent_pages": [
+        "07_Case_Reference",
+        "08_Solver_Reference",
+        "09_Monitor_Reference",
+        "14_Config_Contract"
+      ],
+      "enforcement": "blocking",
+      "requires_built_docs": false
+    },
+    {
+      "id": "runtime.user_facing_reporting",
+      "title": "User-Facing Reporting Grammar",
+      "kind": "reporting",
+      "status": "enforced",
+      "authoritative_sources": [
+        "src/io.c",
+        "picurv_cli/cli.py"
+      ],
+      "extractor": "legacy:audit_user_facing_reporting",
+      "checker": [
+        "tests/tooling/audit_user_facing_reporting.py"
+      ],
+      "canonical_documentation": [
+        "09_Monitor_Reference"
+      ],
+      "dependent_pages": [
+        "05_The_Conductor_Script",
+        "39_Common_Fatal_Errors",
+        "67_Troubleshooting"
+      ],
+      "enforcement": "blocking",
+      "requires_built_docs": false
+    },
+    {
+      "id": "run.artifact_topology",
+      "title": "Run Artifact Path Topology",
+      "kind": "artifact_topology",
+      "status": "enforced",
+      "authoritative_sources": [
+        "picurv_cli/core.py"
+      ],
+      "extractor": "extract_artifact_topology",
+      "checker": [
+        "tests/tooling/extract_artifact_topology.py",
+        "--check"
+      ],
+      "canonical_documentation": [
+        "52_Run_Lifecycle_Guide",
+        "06_Simulation_Anatomy"
+      ],
+      "dependent_pages": [
+        "05_The_Conductor_Script",
+        "36_Cluster_Run_Guide",
+        "37_Sweep_Studies_Guide",
+        "41_Getting_Started_Index",
+        "61_Storage_Management_Guide",
+        "67_Troubleshooting"
+      ],
+      "enforcement": "blocking",
+      "requires_built_docs": false,
+      "note": "Enforced scope is the planned artifact path set only. Ownership, mutability, retention, restart role, and destructive semantics are NOT machine-verified; they are carried by the sibling contract run.artifact_lifecycle."
+    },
+    {
+      "id": "docs.capability_surface",
+      "title": "Public Capability Surface",
+      "kind": "identity",
+      "status": "enforced",
+      "authoritative_sources": [
+        "tests/tooling/capability_families.json",
+        "picurv_cli/core.py"
+      ],
+      "extractor": "generate_capability_inventory",
+      "checker": [
+        "tests/tooling/audit_capability_coverage.py"
+      ],
+      "canonical_documentation": [
+        "64_Documentation_Extension_Framework"
+      ],
+      "dependent_pages": [
+        "44_Boundary_Conditions_Guide",
+        "08_Solver_Reference",
+        "07_Case_Reference",
+        "66_Evidence_Matrix"
+      ],
+      "enforcement": "blocking",
+      "requires_built_docs": false
+    },
+    {
+      "id": "docs.published_site",
+      "title": "Published Site Integrity",
+      "kind": "output_grammar",
+      "status": "enforced",
+      "authoritative_sources": [
+        "docs/DoxygenLayout.xml",
+        ".github/workflows/docs.yml"
+      ],
+      "extractor": null,
+      "checker": [
+        "tests/tooling/audit_docs_site.py"
+      ],
+      "canonical_documentation": [
+        "30_Repository_Navigation"
+      ],
+      "dependent_pages": [],
+      "enforcement": "blocking",
+      "requires_built_docs": true
+    },
+    {
+      "id": "checkpoint.schema",
+      "title": "Checkpoint Bundle Schema and Version",
+      "kind": "file_schema",
+      "status": "tracked",
+      "authoritative_sources": [
+        "src/io.c"
+      ],
+      "extractor": null,
+      "checker": null,
+      "canonical_documentation": [
+        "52_Run_Lifecycle_Guide"
+      ],
+      "dependent_pages": [
+        "45_Particle_Initialization_and_Restart",
+        "58_Field_Statistics",
+        "29_Maintenance_Backlog"
+      ],
+      "enforcement": "report-only",
+      "note": "No reliable extractor yet. Sources and dependents are recorded so a change is locatable.",
+      "requires_built_docs": false
+    },
+    {
+      "id": "field.identity_and_layout",
+      "title": "Field Identity and Layout",
+      "kind": "identity",
+      "status": "tracked",
+      "authoritative_sources": [
+        "src/field_catalog.c",
+        "src/particle_field_catalog.c",
+        "include/variables.h"
+      ],
+      "extractor": null,
+      "checker": null,
+      "canonical_documentation": [
+        "56_Field_Identity_and_Layout_Catalog"
+      ],
+      "dependent_pages": [
+        "20_Grid_Cell_Architecture_Guide",
+        "10_Post_Processing_Reference",
+        "68_Glossary"
+      ],
+      "enforcement": "report-only",
+      "requires_built_docs": false
+    },
+    {
+      "id": "units.nondimensionalization",
+      "title": "Units and Non-Dimensionalization",
+      "kind": "units",
+      "status": "tracked",
+      "authoritative_sources": [
+        "picurv_cli/core.py"
+      ],
+      "extractor": null,
+      "checker": null,
+      "canonical_documentation": [
+        "19_Nondimensionalization"
+      ],
+      "dependent_pages": [
+        "07_Case_Reference",
+        "44_Boundary_Conditions_Guide",
+        "70_Case_Design_Guide",
+        "68_Glossary"
+      ],
+      "enforcement": "report-only",
+      "note": "High risk: unit errors are silent. A dedicated extractor over the conversion table is the obvious next contract to promote to enforced.",
+      "requires_built_docs": false
+    },
+    {
+      "id": "manifest.schemas",
+      "title": "Run, Study, Submission and Storage Manifests",
+      "kind": "file_schema",
+      "status": "tracked",
+      "authoritative_sources": [
+        "picurv_cli/core.py",
+        "picurv_cli/storage.py"
+      ],
+      "extractor": null,
+      "checker": null,
+      "canonical_documentation": [
+        "52_Run_Lifecycle_Guide",
+        "61_Storage_Management_Guide"
+      ],
+      "dependent_pages": [
+        "37_Sweep_Studies_Guide"
+      ],
+      "enforcement": "report-only",
+      "requires_built_docs": false
+    },
+    {
+      "id": "cli.structured_output",
+      "title": "CLI Structured Output Schemas",
+      "kind": "output_grammar",
+      "status": "tracked",
+      "authoritative_sources": [
+        "picurv_cli/core.py"
+      ],
+      "extractor": null,
+      "checker": null,
+      "canonical_documentation": [
+        "05_The_Conductor_Script"
+      ],
+      "dependent_pages": [
+        "52_Run_Lifecycle_Guide",
+        "40_Testing_and_Quality_Guide"
+      ],
+      "enforcement": "report-only",
+      "note": "Partially covered: the dry-run plan is exercised by the artifact-topology extractor.",
+      "requires_built_docs": false
+    },
+    {
+      "id": "durable.file_formats",
+      "title": "PICGRID / PICSLICE and Other Durable Formats",
+      "kind": "file_schema",
+      "status": "tracked",
+      "authoritative_sources": [
+        "generators/",
+        "picurv_cli/core.py"
+      ],
+      "extractor": null,
+      "checker": null,
+      "canonical_documentation": [
+        "48_Grid_Generator_Guide",
+        "44_Boundary_Conditions_Guide"
+      ],
+      "dependent_pages": [
+        "03_Tutorial_File-Based_Grid"
+      ],
+      "enforcement": "report-only",
+      "requires_built_docs": false
+    },
+    {
+      "id": "runtime.error_identifiers",
+      "title": "Stable Runtime Error Identifiers",
+      "kind": "output_grammar",
+      "status": "planned",
+      "authoritative_sources": [],
+      "extractor": null,
+      "checker": null,
+      "canonical_documentation": [
+        "39_Common_Fatal_Errors"
+      ],
+      "dependent_pages": [
+        "67_Troubleshooting"
+      ],
+      "enforcement": "report-only",
+      "note": "Requires runtime work to assign stable ids; tracked here so the documentation destination exists.",
+      "requires_built_docs": false
+    },
+    {
+      "id": "run.artifact_lifecycle",
+      "title": "Run Artifact Lifecycle Semantics",
+      "kind": "lifecycle",
+      "status": "tracked",
+      "authoritative_sources": [
+        "tests/tooling/artifact_topology.json",
+        "picurv_cli/core.py",
+        "src/setup.c",
+        "src/io.c"
+      ],
+      "extractor": null,
+      "checker": null,
+      "requires_built_docs": false,
+      "canonical_documentation": [
+        "71_Invariant_Contracts"
+      ],
+      "dependent_pages": [
+        "52_Run_Lifecycle_Guide",
+        "61_Storage_Management_Guide",
+        "09_Monitor_Reference"
+      ],
+      "enforcement": "report-only",
+      "note": "Ownership, writers/readers, mutability, atomicity, retention, restart role, containment and destructive scope are declared by hand and reviewed by humans. Nothing verifies them against the sources, so they must not be described as verified. Includes the open run.log_dir.unvalidated_destructive safety defect."
+    },
+    {
+      "id": "docs.run_path_literals",
+      "title": "Logical Run-Path Locators in Prose",
+      "kind": "output_grammar",
+      "status": "enforced",
+      "authoritative_sources": [
+        "tests/tooling/artifact_topology.json"
+      ],
+      "extractor": null,
+      "checker": [
+        "tests/tooling/audit_path_literals.py"
+      ],
+      "requires_built_docs": false,
+      "canonical_documentation": [
+        "71_Invariant_Contracts"
+      ],
+      "dependent_pages": [
+        "52_Run_Lifecycle_Guide",
+        "05_The_Conductor_Script",
+        "36_Cluster_Run_Guide"
+      ],
+      "enforcement": "blocking",
+      "note": "Narrative prose must use logical notation such as <run>/config. Runnable command blocks are exempt, and docs/CHANGELOG.md is exempt as a historical record. This closes the gap where a topology change is detected but prose in unlisted files stays stale."
+    },
+    {
+      "id": "docs.capability_family_census",
+      "title": "Capability Family Census",
+      "kind": "identity",
+      "status": "enforced",
+      "authoritative_sources": [
+        "picurv_cli/core.py",
+        "tests/tooling/family_census.json"
+      ],
+      "extractor": null,
+      "checker": [
+        "tests/tooling/audit_family_census.py"
+      ],
+      "requires_built_docs": false,
+      "canonical_documentation": [
+        "71_Invariant_Contracts"
+      ],
+      "dependent_pages": [
+        "64_Documentation_Extension_Framework",
+        "12_Capabilities_Summary"
+      ],
+      "enforcement": "blocking",
+      "note": "Detects public selector surfaces with no registered family. Without it a green capability audit says nothing about families nobody registered."
+    },
+    {
+      "id": "cli.reference",
+      "title": "Generated CLI Reference",
+      "kind": "output_grammar",
+      "status": "enforced",
+      "authoritative_sources": [
+        "picurv_cli/cli.py",
+        "picurv_cli/storage.py"
+      ],
+      "extractor": "generate_cli_reference",
+      "checker": [
+        "tests/tooling/generate_cli_reference.py",
+        "--check"
+      ],
+      "requires_built_docs": false,
+      "canonical_documentation": [
+        "05_The_Conductor_Script"
+      ],
+      "dependent_pages": [
+        "11_User_How_To_Guides",
+        "52_Run_Lifecycle_Guide",
+        "61_Storage_Management_Guide"
+      ],
+      "enforcement": "blocking",
+      "note": "Introspects the assembled parser, so a delegated registrar cannot be missed."
+    },
+    {
+      "id": "docs.page_types",
+      "title": "Page Type Coverage",
+      "kind": "identity",
+      "status": "enforced",
+      "authoritative_sources": [
+        "tests/tooling/page_types.json"
+      ],
+      "extractor": null,
+      "checker": [
+        "tests/tooling/audit_page_types.py"
+      ],
+      "requires_built_docs": true,
+      "canonical_documentation": [
+        "63_Page_Type_Contract"
+      ],
+      "dependent_pages": [
+        "47_Documentation_Catalog"
+      ],
+      "enforcement": "blocking",
+      "note": "Every published page must declare a type; inline @pagemeta must agree with the registry."
+    },
+    {
+      "id": "docs.subsystem_lifecycle",
+      "title": "Subsystem Lifecycle Obligations",
+      "kind": "lifecycle",
+      "status": "enforced",
+      "authoritative_sources": [
+        "tests/tooling/subsystem_records.json"
+      ],
+      "extractor": null,
+      "checker": [
+        "tests/tooling/audit_subsystem_lifecycle.py"
+      ],
+      "requires_built_docs": false,
+      "canonical_documentation": [
+        "64_Documentation_Extension_Framework"
+      ],
+      "dependent_pages": [
+        "62_Capability_Status_Vocabulary"
+      ],
+      "enforcement": "blocking",
+      "note": "Documentation obligations grow with the claimed status; transitions are checked against the allowed graph."
+    },
+    {
+      "id": "docs.freshness",
+      "title": "Documentation Freshness Attestation",
+      "kind": "freshness",
+      "status": "enforced",
+      "authoritative_sources": [
+        "tests/tooling/freshness_manifest.json"
+      ],
+      "extractor": null,
+      "checker": [
+        "tests/tooling/audit_freshness.py"
+      ],
+      "requires_built_docs": false,
+      "canonical_documentation": [
+        "71_Invariant_Contracts"
+      ],
+      "dependent_pages": [
+        "64_Documentation_Extension_Framework"
+      ],
+      "enforcement": "blocking",
+      "note": "Hard surfaces fingerprint normalized artifacts and block; soft surfaces fingerprint raw sources and are advisory unless promoted; a broken manifest or missing watched path is an integrity failure."
+    },
+    {
+      "id": "docs.inline_choices",
+      "title": "Named Public Choice Sets",
+      "kind": "identity",
+      "status": "enforced",
+      "authoritative_sources": [
+        "tests/tooling/inline_choice_waivers.json"
+      ],
+      "extractor": null,
+      "checker": [
+        "tests/tooling/audit_inline_choices.py"
+      ],
+      "requires_built_docs": false,
+      "canonical_documentation": [
+        "64_Documentation_Extension_Framework"
+      ],
+      "dependent_pages": [
+        "12_Capabilities_Summary"
+      ],
+      "enforcement": "blocking",
+      "note": "A public closed choice must be a named module-level constant so the family census can discover it; every remaining inline literal carries a typed classification and a reason."
+    }
+  ],
+  "vocabularies": {
+    "status": [
+      "enforced",
+      "tracked",
+      "planned",
+      "retired"
+    ],
+    "kind": [
+      "ingress",
+      "reporting",
+      "artifact_topology",
+      "file_schema",
+      "identity",
+      "units",
+      "output_grammar",
+      "lifecycle",
+      "freshness"
+    ],
+    "enforcement": [
+      "blocking",
+      "advisory",
+      "report-only"
+    ]
+  },
+  "required_fields": [
+    "id",
+    "title",
+    "kind",
+    "status",
+    "authoritative_sources",
+    "canonical_documentation",
+    "dependent_pages",
+    "enforcement"
+  ],
+  "prerequisite_note": "`requires_built_docs` marks checkers that read docs_build/html. The runner builds nothing itself; it skips such checkers with an explicit note unless the artifact already exists, so a clean checkout cannot report a false pass."
+}

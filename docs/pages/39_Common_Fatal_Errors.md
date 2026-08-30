@@ -60,7 +60,7 @@ Geometric-periodic runtime validation can also stop before timestepping:
 | Set `start_step: 501` after a run that ended at `500` | Off-by-one mismatch against the saved restart state | Set `start_step: 500`; the first new step will be `501`. |
 | Leave `eulerian_field_source` as `solve` for a restart | Fresh solve path instead of loading saved fields | Set `solver.yml -> operation_mode.eulerian_field_source: load`. |
 | Omit or mis-set `particles.restart_mode` | Unexpected particle reseed/load behavior or warning-driven behavior | Set `restart_mode: load` or `restart_mode: init` explicitly. |
-| Choose a `start_step` that was never written | Runtime file-not-found or missing-data restart failure | Verify the requested restart step exists in the saved output/restart files. |
+| Choose a `start_step` that was never written | Runtime file-not-found or missing-data restart failure | Verify the requested restart step exists in the saved <run.solver_output>/restart files. |
 
 @section p39_workflow_sec 4. Recommended Debug Workflow
 
@@ -87,25 +87,3 @@ Related pages:
 - **@subpage 14_Config_Contract**
 - **@subpage 05_The_Conductor_Script**
 - **@subpage 40_Testing_and_Quality_Guide**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Common Fatal Errors and Fixes** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/&lt;run_id&gt;/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

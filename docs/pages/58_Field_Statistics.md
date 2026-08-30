@@ -148,6 +148,50 @@ force a full pending field snapshot per accumulated field to be held,
 checkpointed, and restored exactly: roughly double the state and a new restart
 failure mode, bought for a correction far below the noise floor.
 
+@section p58_cap_weight_sec 3.1 Weighting Mode Entries
+
+@htmlinclude generated/capability_inventory_statistics_weighting.html
+
+@subsection p58_cap_weight_sample_sub sample
+
+@anchor p58_cap_weight_sample
+
+**Identity.** `field_statistics.windows[].weighting: sample`.
+
+**What it does.** Weights every accepted state equally: each contributes 1 to the total weight, so the window average is the arithmetic mean over states.
+
+**When to choose it.** On a fixed timestep, where it is exactly equivalent to time weighting and cheaper to reason about. Also when what you want really is a per-sample average - counting states rather than integrating over time.
+
+**Parameters it owns.** None. The window's bounds and cadence decide which states are accepted; this key decides only what each accepted state is worth.
+
+**Interactions.** On a constant-timestep run the two modes agree exactly, by construction: the anchoring state at `start_time` is not counted as a sample under either, which is what removes an O(1/N) disagreement that would otherwise exist.
+
+**Diagnostics.** The `csv` output reports sample count and total weight separately; under this mode they are equal, which is the quickest check that the intended mode is active.
+
+**Evidence.** Unit verified - `make unit-statistics-window`.
+
+**Limitations.** On a variable timestep it is a biased estimator of a time average: short steps count as much as long ones, so periods of small dt are over-represented.
+
+@subsection p58_cap_weight_physical_time_sub physical_time
+
+@anchor p58_cap_weight_physical_time
+
+**Identity.** `field_statistics.windows[].weighting: physical_time`.
+
+**What it does.** Weights each accepted state by the physical time interval it represents - the half-open interval (t_{i-1}, t_i] ending at that state - so the window average is a time integral divided by the represented duration.
+
+**When to choose it.** On any variable-timestep run, and whenever the result is compared against a time-averaged reference. If the timestep is adaptive, this is the only mode that gives the quantity a reference profile actually reports.
+
+**Parameters it owns.** None. The interval each state carries follows from the window's accepted states, not from a configuration key.
+
+**Interactions.** A state representing a zero-length interval is not a sample, which is what lets a state landing exactly on `start_time` anchor the interval origin without being counted. See @ref p58_bounds_sub for why that convention settles what would otherwise be another key.
+
+**Diagnostics.** The `csv` reports total weight as represented time rather than a count, so weight and sample count diverge - which is how you confirm this mode is active.
+
+**Evidence.** Unit verified - `make unit-statistics-window`.
+
+**Limitations.** The represented interval depends on which states were accepted, so changing the output cadence changes the weights. A window is comparable across runs only if its cadence is too.
+
 @section p58_state_sec 4. Accumulated State and Component Order
 
 @subsection p58_update_sub 4.1 Per-Point State and Update

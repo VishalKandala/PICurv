@@ -38,5 +38,5 @@ For maintainers, this directory is a stability boundary: changes here can impact
 ## Related Docs
 
 - `src/guide.md`
-- https://vishalkandala.me/picurv-docs/13_Code_Architecture.html
-- https://vishalkandala.me/picurv-docs/35_API_Documentation_Status.html
+- https://vishalkandala.me/docs/picurv/13_Code_Architecture.html
+- https://vishalkandala.me/docs/picurv/35_API_Documentation_Status.html

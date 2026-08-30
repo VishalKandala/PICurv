@@ -4,24 +4,24 @@ This directory contains reusable YAML profiles and build/runtime configuration a
 
 ## Currency Guarantee
 
-Every tracked asset under `config/` is listed in the starter-content contract and checked during documentation certification. Reusable solver, monitor, postprocessor, scheduler, and study profiles are each exercised in at least one declared valid composition. If a configuration asset is added, removed, or no longer has a supported composition, the gate fails until the contract and its validation coverage are updated together.
+Every tracked asset under `<repo>/config/` is listed in the starter-content contract and checked during documentation certification. Reusable solver, monitor, postprocessor, scheduler, and study profiles are each exercised in at least one declared valid composition. If a configuration asset is added, removed, or no longer has a supported composition, the gate fails until the contract and its validation coverage are updated together.
 
 The solver library covers the maintained production strategies (dual-time Picard--Jameson and Newton--Krylov) and analytical verification fields (zero, uniform, and TGV3D), including scalar and diffusivity injections. Pair these with the standard or search-focused monitor and with an Eulerian, particle-MSD, interpolation, or scatter post recipe as appropriate.
 
 ### Adding or Changing a Reusable Profile
 
 Update `tests/tooling/starter_content_contract.json` in the same change as the
-profile. Every file below `config/` must remain in that inventory, and every
+profile. Every file below `<repo>/config/` must remain in that inventory, and every
 reusable role profile must be included in a declared valid composition. This
 keeps the library honest: a profile is not considered shipped merely because it
 parses in isolation. Run `python3 tests/tooling/audit_starter_content.py` before
-committing a `config/` change.
+committing a `<repo>/config/` change.
 
 For CFD users, the key idea is separation of concerns. Instead of creating one monolithic YAML file, PICurv uses role-oriented contracts (`case`, `solver`, `monitor`, `post`, and optional `cluster`/`study`) so you can change numerical strategy without rewriting geometry definitions, or change post outputs without touching solver controls.
 
 Two repo-wide patterns are especially important in the current codebase:
 
-- `solver.yml -> verification.sources.*` is reserved for verification-only injections/overrides when no cleaner end-to-end path exists. For example, `verification.sources.scalar` prescribes particle `Psi` from analytical truth and enables the runtime diagnostic `logs/scatter_metrics.csv` without changing ordinary production runs.
+- `solver.yml -> verification.sources.*` is reserved for verification-only injections/overrides when no cleaner end-to-end path exists. For example, `verification.sources.scalar` prescribes particle `Psi` from analytical truth and enables the runtime diagnostic `<run.runtime_logs>/scatter_metrics.csv` without changing ordinary production runs.
 - `case.yml -> boundary_conditions[].params.source` owns inlet profile sourcing
   for `prescribed_flow`. Use `source.type: file` for inspected PICSLICE inputs
   `source.type: generated` for conductor-managed analytical profiles, and
@@ -47,11 +47,11 @@ Two repo-wide patterns are especially important in the current codebase:
 1. Start from an initialized example (`./bin/picurv init ...`) so contracts are already valid.
 2. Replace only the role file you are actively experimenting with.
 3. Validate after each change (`./bin/picurv validate ...`) before launching runs.
-4. For Slurm workflows, prefer `picurv run ... --cluster ... --no-submit` first, inspect `runs/<run_id>/scheduler/`, then use `picurv submit --run-dir ...`.
+4. For Slurm workflows, prefer `picurv run ... --cluster ... --no-submit` first, inspect `<run.scheduler>/`, then use `picurv submit --run-dir ...`.
 5. If a submitted Slurm run needs to be stopped, use `picurv cancel --run-dir ...` instead of relying on a separately tracked job ID. For solver jobs that should write a final off-cadence checkpoint first, use `picurv cancel --run-dir ... --stage solve --graceful`.
 6. Generated Slurm solver jobs enable the runtime walltime guard by default; tune it in `cluster.yml -> execution.walltime_guard` only when the default warmup/headroom policy needs adjustment.
 7. Keep `cluster.yml -> execution.extra_sbatch.signal` as the fallback path for preemption/termination signals or runs that may not reach the guard warmup window.
-8. Promote stable reusable profiles back into `config/` so team workflows converge.
+8. Promote stable reusable profiles back into `<repo>/config/` so team workflows converge.
 9. When designing verification studies, start from the verification pathway in `solver.yml` rather than embedding one-off study logic into production configs.
 
 ## Common CFD Iteration Patterns
@@ -63,6 +63,6 @@ Two repo-wide patterns are especially important in the current codebase:
 
 ## Canonical Contract References
 
-- https://vishalkandala.me/picurv-docs/14_Config_Contract.html
-- https://vishalkandala.me/picurv-docs/15_Config_Ingestion_Map.html
-- https://vishalkandala.me/picurv-docs/16_Config_Extension_Playbook.html
+- https://vishalkandala.me/docs/picurv/14_Config_Contract.html
+- https://vishalkandala.me/docs/picurv/15_Config_Ingestion_Map.html
+- https://vishalkandala.me/docs/picurv/16_Config_Extension_Playbook.html

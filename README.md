@@ -10,12 +10,12 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Particle tracking with PETSc `DMSwarm`
 - Online Eulerian field statistics: named windows accumulating weighted centered moments during the solve, checkpointed with the flow state, and derived into Reynolds stresses, RMS, turbulent kinetic energy, and fluxes
 - Grid-particle interpolation and particle-grid projection
-- Runtime search/migration observability via `logs/search_metrics.csv` for particle-enabled runs
+- Runtime search/migration observability via `<run.runtime_logs>/search_metrics.csv` for particle-enabled runs
 - Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`, `UNIFORM_FLOW`)
 - Generated, field-sliced, and file-backed inlet `PICSLICE` profiles for `prescribed_flow`
   boundary conditions, including square-duct Poiseuille generation via
   `generators/profile.gen`
-- Verification-only prescribed scalar truth injection for particle `Psi`, with runtime scatter diagnostics via `logs/scatter_metrics.csv`
+- Verification-only prescribed scalar truth injection for particle `Psi`, with runtime scatter diagnostics via `<run.runtime_logs>/scatter_metrics.csv`
 - YAML-driven orchestration through the source-tree entrypoint (`picurv_cli/picurv`, launched by `bin/picurv` after build)
 - Slurm job generation/submission from YAML (`cluster.yml`)
 - Staged local/Slurm run workflows with `--no-submit`, delayed `submit`, and Slurm run-directory-based `cancel`
@@ -50,7 +50,7 @@ field-by-field YAML contract.
 Run `make certify-docs` from a clean worktree to certify the documentation for
 the current commit. It runs the documentation/API/configuration checks, builds
 Doxygen with zero warnings, executes the full PETSc/MPI validation suite, and
-writes `logs/documentation-certificate-<full-sha>.md`. The generated
+writes `<repo>/logs/documentation-certificate-<full-sha>.md`. The generated
 documentation site displays the same commit as a linked banner at the bottom of
 every page. Use `make certify-docs-fast` when PETSc/MPI runtime validation is
 not available; it is a structural/configuration check, not the full certificate.
@@ -186,13 +186,14 @@ commands can rebuild, pull, and resync from the original code directory.
 `picurv` treats `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` as modular profiles.
 You can reuse and recombine them instead of rewriting a monolithic config for every run.
 Turbulence model selection lives in `case.yml -> models.physics.turbulence`.
-Use the structured `les.enabled/model` block for constant or dynamic Smagorinsky,
+Use the structured `les.enabled/model` block for constant or dynamic Smagorinsky
+(**note: both models are currently known-defective and unsafe for scientific use**),
 `rans.enabled/model` for the accepted k-omega selector, and sibling
 `wall_function.enabled/model/roughness_height` settings for wall treatment.
 The `search_robustness` example family adds a dedicated `search_metrics.csv` runtime artifact
 for particle walking-search and migration observability. The `scatter_verification` example family
 adds `solver.yml -> verification.sources.scalar`, prescribes particle `Psi` from analytical truth,
-and writes runtime deposition diagnostics to `logs/scatter_metrics.csv`.
+and writes runtime deposition diagnostics to `<run.runtime_logs>/scatter_metrics.csv`.
 
 5. Validate configs (no run yet):
 ```bash
@@ -257,9 +258,9 @@ picurv sync-config --case-dir my_case --prune  # remove stale template-managed f
 If the case predates `.picurv-origin.json`, pass `--source-root /path/to/PICurv`.
 If `sync-config` cannot infer the template, also pass `--template-name <example_name>`.
 `--prune` only removes files previously tracked as template-managed, so user-created files are left alone.
-`picurv build` writes `logs/build.log` in the source repo. Direct `make all` keeps
-its normal stdout-only behavior; use `make audit-build` when you want `logs/build.log`
-plus `logs/build.warnings.log` for a warning audit.
+`picurv build` writes `<repo>/logs/build.log` in the source repo. Direct `make all` keeps
+its normal stdout-only behavior; use `make audit-build` when you want `<repo>/logs/build.log`
+plus `<repo>/logs/build.warnings.log` for a warning audit.
 
 ## Cluster and Sweep Workflow
 
@@ -367,7 +368,7 @@ Monitor profiles also own diagnostics and option I/O. Use
 malloc checks, `log_view`, `log_trace`, and object dumps; PICurv passes these on
 the solver/postprocessor command line so PETSc sees them during
 `PetscInitialize()`. Use `diagnostics.runtime_memory_log` for the compact
-rank-reduced `logs/Runtime_Memory.log`. Use `solver_monitoring.poisson` for
+rank-reduced `<run.runtime_logs>/Runtime_Memory.log`. Use `solver_monitoring.poisson` for
 readable solver-time Poisson monitor controls such as `pic_true_residual` and
 `converged_reason`; PICurv maps them to the prefixed KSP flags written into the
 generated `.control` file. Keep raw one-off PETSc options under
@@ -403,17 +404,17 @@ Helper script help:
 
 Detailed long-form option docs:
 
-- `picurv`: https://vishalkandala.me/picurv-docs/05_The_Conductor_Script.html
-- `grid.gen`: https://vishalkandala.me/picurv-docs/48_Grid_Generator_Guide.html
-- testing/coverage context: https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html
+- `picurv`: https://vishalkandala.me/docs/picurv/05_The_Conductor_Script.html
+- `grid.gen`: https://vishalkandala.me/docs/picurv/48_Grid_Generator_Guide.html
+- testing/coverage context: https://vishalkandala.me/docs/picurv/40_Testing_and_Quality_Guide.html
 
 ## Generated Artifacts
 
 - Single run:
-  - `runs/<run_id>/config/` generated C-facing runtime artifacts (`*.control`, `bcs*.run`, `post.run`, etc.)
-  - `runs/<run_id>/scheduler/` scheduler scripts/manifests when cluster mode is used
+  - `<run.config>/` generated C-facing runtime artifacts (`*.control`, `bcs*.run`, `post.run`, etc.)
+  - `<run.scheduler>/` scheduler scripts/manifests when cluster mode is used
   - `runs/<run_id>/summary/plots/` automatic headless `summarize --plot` fallback images
-  - `runs/<run_id>/visualization/` and/or post outputs
+  - `<run.visualization>/` and/or post outputs
 - Parameter sweep:
   - `studies/<study_id>/cases/` materialized case variants
   - `studies/<study_id>/scheduler/` array scripts and submission metadata
@@ -522,27 +523,26 @@ Repository contract note:
 - GitHub Actions now runs that audit explicitly before `pytest -q`, then runs markdown link checks on pull requests and pushes to `main`.
 
 Detailed guide:
-- https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html
+- https://vishalkandala.me/docs/picurv/40_Testing_and_Quality_Guide.html
 
 ## Documentation (Live)
 
-- Docs home: https://vishalkandala.me/picurv-docs/
-- Getting started index: https://vishalkandala.me/picurv-docs/41_Getting_Started_Index.html
-- 10-minute start: https://vishalkandala.me/picurv-docs/38_Start_Here_10_Minutes.html
-- Installation guide: https://vishalkandala.me/picurv-docs/01_Installation.html
-- Conductor CLI: https://vishalkandala.me/picurv-docs/05_The_Conductor_Script.html
-- Picard-Jameson momentum solver: https://vishalkandala.me/picurv-docs/24_Dual_Time_Picard_Jameson_RK.html
-- Workflow recipes and config cookbook: https://vishalkandala.me/picurv-docs/49_Workflow_Recipes_and_Config_Cookbook.html
-- Config contract: https://vishalkandala.me/picurv-docs/14_Config_Contract.html
-- Config ingestion map: https://vishalkandala.me/picurv-docs/15_Config_Ingestion_Map.html
-- Grid generator guide: https://vishalkandala.me/picurv-docs/48_Grid_Generator_Guide.html
-- Extension playbook: https://vishalkandala.me/picurv-docs/16_Config_Extension_Playbook.html
-- Cluster guide: https://vishalkandala.me/picurv-docs/36_Cluster_Run_Guide.html
-- Sweep guide: https://vishalkandala.me/picurv-docs/37_Sweep_Studies_Guide.html
-- Testing and quality: https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html
-- C test suite developer guide: https://vishalkandala.me/picurv-docs/51_C_Test_Suite_Developer_Guide.html
-- Common fatal errors: https://vishalkandala.me/picurv-docs/39_Common_Fatal_Errors.html
-- Repository navigation: https://vishalkandala.me/picurv-docs/30_Repository_Navigation.html
+- Docs home: https://vishalkandala.me/docs/picurv/
+- Getting started index: https://vishalkandala.me/docs/picurv/41_Getting_Started_Index.html
+- Installation guide: https://vishalkandala.me/docs/picurv/01_Installation.html
+- Conductor CLI: https://vishalkandala.me/docs/picurv/05_The_Conductor_Script.html
+- Picard-Jameson momentum solver: https://vishalkandala.me/docs/picurv/24_Dual_Time_Picard_Jameson_RK.html
+- Workflow recipes and config cookbook: https://vishalkandala.me/docs/picurv/49_Workflow_Recipes_and_Config_Cookbook.html
+- Config contract: https://vishalkandala.me/docs/picurv/14_Config_Contract.html
+- Config ingestion map: https://vishalkandala.me/docs/picurv/15_Config_Ingestion_Map.html
+- Grid generator guide: https://vishalkandala.me/docs/picurv/48_Grid_Generator_Guide.html
+- Extension playbook: https://vishalkandala.me/docs/picurv/16_Config_Extension_Playbook.html
+- Cluster guide: https://vishalkandala.me/docs/picurv/36_Cluster_Run_Guide.html
+- Sweep guide: https://vishalkandala.me/docs/picurv/37_Sweep_Studies_Guide.html
+- Testing and quality: https://vishalkandala.me/docs/picurv/40_Testing_and_Quality_Guide.html
+- C test suite developer guide: https://vishalkandala.me/docs/picurv/51_C_Test_Suite_Developer_Guide.html
+- Common fatal errors: https://vishalkandala.me/docs/picurv/39_Common_Fatal_Errors.html
+- Repository navigation: https://vishalkandala.me/docs/picurv/30_Repository_Navigation.html
 
 ## Main-Branch Certification
 
@@ -551,7 +551,7 @@ a normal push to `main` first certifies the exact checked-out commit: source,
 configuration, example, and test changes run the full documentation and
 PETSc/MPI gate; documentation-only changes may reuse a recent full runtime
 certificate and run the structural gate. Certification includes the starter
-content contract, so new `examples/` or `config/` assets must be registered with
+content contract, so new `examples/` or `<repo>/config/` assets must be registered with
 their valid compositions in `tests/tooling/starter_content_contract.json`.
 `git push --no-verify` bypasses local hooks; GitHub then supplies the independent
 lightweight structural documentation check.
@@ -566,7 +566,7 @@ Top-level guides:
 - `src/guide.md`
 - `picurv_cli/guide.md`
 - `sandbox/guide.md`
-- `logs/guide.md`
+- `<repo>/logs/guide.md`
 
 Build config location:
 - `config/build/` (`config.local.mk`, `config.cluster.mk`, `config.petsc.mk`)
@@ -595,7 +595,7 @@ Docs output:
 - `docs_build/html/index.html`
 
 Doxygen warnings log:
-- `logs/doxygen.warnings`
+- `<repo>/logs/doxygen.warnings`
 
 ## Notes
 

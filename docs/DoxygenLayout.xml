@@ -1,18 +1,23 @@
 <doxygenlayout version="1.0">
   <navindex>
     <tab type="mainpage" visible="no" title="PICurv Home"/>
-    <tab type="user" visible="yes" url="Documentation_Map.html" title="Documentation Map"/>
-    <tab type="user" visible="yes" url="06_Simulation_Anatomy.html" title="Workflow"/>
-    <tab type="user" visible="yes" url="14_Config_Contract.html" title="Config Contracts"/>
+
+    <!-- Audience/task routes. Each tab owns one reader intent; the page tree in the
+         sidebar (tab type="pages") carries the full @subpage hierarchy beneath them. -->
+    <tab type="user" visible="yes" url="41_Getting_Started_Index.html" title="Getting Started"/>
+    <tab type="user" visible="yes" url="42_User_Guide_Index.html" title="User Guide"/>
+    <tab type="user" visible="yes" url="12_Capabilities_Summary.html" title="Capabilities"/>
     <tab type="user" visible="yes" url="21_Methods_Overview.html" title="Methods"/>
-    <tab type="user" visible="yes" url="46_C_Runtime_Execution_Map.html" title="Runtime Internals"/>
-    <tab type="user" visible="yes" url="56_Field_Identity_and_Layout_Catalog.html" title="Field Catalog"/>
-    <tab type="user" visible="yes" url="57_Future_Architecture_Specifications.html" title="Future Specs"/>
-    <tab type="user" visible="yes" url="58_Turbulence_Statistics_Pipeline_Specification.html" title="Statistics Spec"/>
-    <tab type="user" visible="yes" url="files_structured.html" title="File List"/>
-    <tab type="user" visible="yes" url="annotated_structured.html" title="Data Structures"/>
+    <tab type="user" visible="yes" url="14_Config_Contract.html" title="Reference"/>
+    <tab type="user" visible="yes" url="52_Run_Lifecycle_Guide.html" title="Operations"/>
+    <tab type="user" visible="yes" url="43_Developer_Portal_Index.html" title="Development"/>
+    <tab type="user" visible="yes" url="annotated_structured.html" title="API"/>
+    <tab type="user" visible="yes" url="Documentation_Map.html" title="All Pages"/>
     <tab type="user" visible="yes" url="/projects/" title="Projects Home"/>
-    <tab type="pages" visible="no" title="Documentation"/>
+
+    <!-- Visible so the sidebar tree exposes the page hierarchy. With this hidden the
+         tree degenerates into a flat copy of the tabs above. -->
+    <tab type="pages" visible="yes" title="Documentation"/>
     <tab type="modules" visible="no" title="API Reference" intro="The complete C API."/>
     <tab type="files" visible="no" title="File List"/>
     <tab type="classes" visible="no" title="Data Structures"/>

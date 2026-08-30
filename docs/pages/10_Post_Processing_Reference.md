@@ -111,6 +111,94 @@ Global operation:
 Lagrangian tasks (`lagrangian_pipeline`):
 - `specific_ke` -> `ComputeSpecificKE:<in>><out>`
 
+@section p10_cap_eul_sec 4.1 Eulerian Post-Processing Kernel Entries
+
+@htmlinclude generated/capability_inventory_post_eulerian_task.html
+
+@subsection p10_cap_eul_q_criterion_sub q_criterion
+
+@anchor p10_cap_eul_q_criterion
+
+**Identity.** `eulerian_pipeline: [{task: q_criterion}]` -> `ComputeQCriterion` in the `-process_pipeline` chain.
+
+**What it does.** Computes the Q-criterion, the second invariant of the velocity-gradient tensor, as a new cell field. Positive Q marks regions where rotation dominates strain.
+
+**When to choose it.** For vortex visualisation - isosurfaces of Q are the standard way to see coherent structures in a turbulent field. It answers 'where are the vortices', not 'how strong is the turbulence'; use field statistics for the latter.
+
+**Parameters it owns.** None. It reads the loaded velocity field and writes one derived field.
+
+**Interactions.** Requires `Ucat` to be loaded, which the standard source data provides. Order within `eulerian_pipeline` matters only against tasks that rewrite velocity; it does not consume the output of `nodal_average`.
+
+**Diagnostics.** The derived field appears in the written `.vts` and in the post-processor's field listing. Its absence there means the task never ran.
+
+**Evidence.** Unit verified - `make unit-post`.
+
+**Limitations.** Q is a diagnostic, not a threshold: the isovalue that reveals structure is flow-dependent and this task chooses none for you.
+
+@subsection p10_cap_eul_normalize_field_sub normalize_field
+
+@anchor p10_cap_eul_normalize_field
+
+**Identity.** `eulerian_pipeline: [{task: normalize_field, field: P, reference_point: [i,j,k]}]` -> `NormalizeRelativeField:<field>`.
+
+**What it does.** Subtracts the value at a chosen reference point from a field, so what is written is the field relative to that point rather than its absolute level.
+
+**When to choose it.** For pressure, always, in any flow without a pressure boundary condition. The incompressible pressure is determined only up to a constant, so absolute values are not comparable between runs, timesteps, or solvers - and a plot of them is a plot of an arbitrary offset.
+
+**Parameters it owns.** `field` (currently `P` only) and `reference_point`, a three-item cell index that becomes `reference_ip/jp/kp`.
+
+**Interactions.** Applies to the loaded field before any writer sees it. Choosing a reference point inside a recirculation or a boundary layer makes the normalized field harder to compare, not easier - prefer a quiescent interior cell.
+
+**Diagnostics.** The written field carries the same name; the difference is visible as a shifted range. A reference point outside the block is a validation error naming the index.
+
+**Evidence.** Unit verified - `make unit-post`.
+
+**Limitations.** Only `P` is accepted today, and the reference point is a fixed index rather than a coordinate, so it does not follow a moving feature or survive a grid change.
+
+@subsection p10_cap_eul_nodal_average_sub nodal_average
+
+@anchor p10_cap_eul_nodal_average
+
+**Identity.** `eulerian_pipeline: [{task: nodal_average, input_field: X, output_field: Y}]` -> `CellToNodeAverage:X>Y`.
+
+**What it does.** Averages a cell-centred field onto grid nodes, writing the result as a separate named field.
+
+**When to choose it.** When a downstream consumer expects nodal data - some visualisation filters and line-extraction tools interpolate badly from cell data - or when comparing against a reference that is defined at nodes. Leave cell fields alone otherwise: averaging is a smoothing operation and loses information.
+
+**Parameters it owns.** `input_field` and `output_field`, which must differ. The audit rejects an in-place average because it would destroy the source the rest of the pipeline reads.
+
+**Interactions.** Runs after any task that produces the input field, so a `q_criterion` output can be averaged by listing `nodal_average` later in the pipeline.
+
+**Diagnostics.** Both fields appear in the written `.vts`. A missing output field means the input name did not match anything loaded.
+
+**Evidence.** Unit verified - `make unit-post`.
+
+**Limitations.** Averaging is a low-pass filter: peak values move toward their neighbourhood mean, so nodal fields understate extrema and should not be used for max-value claims.
+
+@section p10_cap_lag_sec 4.2 Lagrangian Post-Processing Kernel Entries
+
+@htmlinclude generated/capability_inventory_post_lagrangian_task.html
+
+@subsection p10_cap_lag_specific_ke_sub specific_ke
+
+@anchor p10_cap_lag_specific_ke
+
+**Identity.** `lagrangian_pipeline: [{task: specific_ke, input_field: X, output_field: Y}]` -> `ComputeSpecificKE:X>Y`.
+
+**What it does.** Computes specific kinetic energy - half the squared magnitude of a per-particle vector field - and stores it as a new scalar swarm field.
+
+**When to choose it.** When particle energetics are the question: comparing swarm energy against the carrier flow, or watching a swarm equilibrate after seeding. For dispersion questions use the particle statistics pipeline instead.
+
+**Parameters it owns.** `input_field` (a particle vector field, typically the particle velocity) and `output_field` (the scalar to write).
+
+**Interactions.** Reads a swarm field, so it requires particle data in the source bundle. It does not interact with the Eulerian pipeline, which runs over a different data structure.
+
+**Diagnostics.** The derived scalar appears in the written particle output. An input name that matches no swarm field leaves the output absent rather than zero.
+
+**Evidence.** Unit verified - `make unit-post`.
+
+**Limitations.** Specific energy per particle, not per unit mass of a distribution: it carries no particle mass or number weighting, so summing it across a swarm is not a physical total unless every particle represents the same mass.
+
 @section p10_stats_sec 5. Particle Statistics Pipeline
 
 This is the particle-reduction path. For Eulerian turbulence statistics see
@@ -183,7 +271,152 @@ Each window writes its own files, so a window name may not be listed twice.
 and a co-moment as the product of two different scales, and the per-field scaling
 table expresses neither. See @ref p58_derived_sec.
 
-@section p10_spectra_sec 7. spectra
+@section p10_cap_fso_sec 6.1 Field Statistics Output Entries
+
+@htmlinclude generated/capability_inventory_post_field_statistics_output.html
+
+@note **`formats` is a parameter, not a choice between behaviours.** `vtk` writes the
+derived fields listed below into the window's bundle; `csv` appends one row per
+processed step carrying sample count, total weight, represented time, the per-point
+valid-fraction range, and the mean turbulent kinetic energy. Both are written from the
+same accumulated state, so requesting both costs output volume rather than computation.
+The `csv` is the artefact that answers whether a window converged; the `vtk` is the one
+that shows what it converged to. `tests/tooling/family_census.json` records why this is
+classified as a parameter of these entries rather than as a family of its own.
+
+@subsection p10_cap_fso_mean_sub mean
+
+@anchor p10_cap_fso_mean
+
+**Identity.** `field_statistics.outputs: [mean]`.
+
+**What it does.** Writes the accumulated first moment of each tracked field, divided by the window's total weight - the time-averaged field over the window.
+
+**When to choose it.** Always, effectively: every other output is defined against the mean, and a mean field is what most comparisons against a reference profile need. It is also the cheapest output, since the first moment is accumulated regardless.
+
+**Parameters it owns.** None. The fields averaged, the window bounds, and the weighting are properties of the window, not of this output.
+
+**Interactions.** Requires an accumulated window. Reads the same state `reynolds_stress`, `rms`, and `tke` are derived from, so requesting several outputs costs one accumulation.
+
+**Diagnostics.** Written into the window's `vtk` bundle; the `csv` row reports the sample count and total weight behind it.
+
+**Evidence.** Unit verified - `make unit-statistics`.
+
+**Limitations.** A mean over a window that has not converged is still a mean: the output carries no statement about whether the averaging interval was long enough. The `csv` convergence history is what answers that.
+
+@subsection p10_cap_fso_reynolds_stress_sub reynolds_stress
+
+@anchor p10_cap_fso_reynolds_stress
+
+**Identity.** `field_statistics.outputs: [reynolds_stress]`.
+
+**What it does.** Writes the full Reynolds stress tensor R_ij = C_ij / W, the centred second moment divided by total weight - six independent components.
+
+**When to choose it.** For anything that needs the anisotropy of the turbulence rather than its magnitude: budget terms, near-wall structure, comparison against DNS stress profiles. Choose `rms` instead if only the diagonal matters, and `tke` if only the trace does.
+
+**Parameters it owns.** None; it is derived from the accumulated second moment.
+
+**Interactions.** Requires the window to accumulate second moments. `rms` and `tke` are functions of the same tensor, so requesting all three adds output volume, not computation.
+
+**Diagnostics.** Six fields per window in the `vtk` bundle. One window carrying every output already writes fifteen fields against a per-file limit of twenty, which is why windows cannot share a file.
+
+**Evidence.** Unit verified - `make unit-statistics`.
+
+**Limitations.** Off-diagonal components converge more slowly than the diagonal, so a window long enough for `rms` is not necessarily long enough for the shear stress.
+
+@subsection p10_cap_fso_rms_sub rms
+
+@anchor p10_cap_fso_rms
+
+**Identity.** `field_statistics.outputs: [rms]`.
+
+**What it does.** Writes the root-mean-square fluctuation of each component, sqrt(R_ii) - the diagonal of the Reynolds stress tensor under a square root.
+
+**When to choose it.** When the question is fluctuation magnitude per direction: turbulence intensity profiles, and the usual first comparison against a reference. It is `reynolds_stress` with the cross terms dropped and a square root applied.
+
+**Parameters it owns.** None.
+
+**Interactions.** Derived from the same second moment as `reynolds_stress` and `tke`. Small negative variances from floating-point cancellation are clamped only when taking the square root, and only within a documented tolerance - stored state is never mutated.
+
+**Diagnostics.** Three fields per window. The `csv` row's valid-fraction range is the check on whether every point had enough samples.
+
+**Evidence.** Unit verified - `make unit-statistics`.
+
+**Limitations.** The clamp means an RMS of exactly zero can mean 'no fluctuation' or 'variance below the cancellation floor'; the sample count distinguishes them.
+
+@subsection p10_cap_fso_tke_sub tke
+
+@anchor p10_cap_fso_tke
+
+**Identity.** `field_statistics.outputs: [tke]`.
+
+**What it does.** Writes turbulent kinetic energy, k = (R_xx + R_yy + R_zz) / 2 - half the trace of the Reynolds stress tensor.
+
+**When to choose it.** For a single scalar summarising turbulence level, and for anything that plots decay or growth of turbulence over time. It is the natural quantity for isotropic decay studies, where the anisotropy `reynolds_stress` reports is not the point.
+
+**Parameters it owns.** None.
+
+**Interactions.** A scalar contraction of the same tensor `reynolds_stress` and `rms` come from. The `csv` output reports the mean value of this field per processed step, which is the convergence signal for the window as a whole.
+
+**Diagnostics.** One field per window, plus the per-step mean in the `csv`.
+
+**Evidence.** Unit verified - `make unit-statistics`.
+
+**Limitations.** Being a trace, it is blind to anisotropy: two flows with very different stress structure can report the same k.
+
+@subsection p10_cap_fso_flux_sub flux
+
+@anchor p10_cap_fso_flux
+
+**Identity.** `field_statistics.outputs: [flux]`.
+
+**What it does.** Writes the centred cross-moment between velocity and a scalar, u_i'psi' = C_ipsi / W - the turbulent flux of that scalar.
+
+**When to choose it.** When a scalar is being transported and the question is how turbulence moves it: heat flux, species flux, any gradient-transport closure being assessed. It requires a scalar to exist, so it is inert in a pure momentum run.
+
+**Parameters it owns.** None of its own; which scalar is tracked is a property of the window.
+
+**Interactions.** Requires scalar transport to be active and the scalar included in the window's tracked fields. Otherwise the cross-moment has nothing to accumulate.
+
+**Diagnostics.** Three fields per window, one per velocity component.
+
+**Evidence.** Unit verified - `make unit-statistics`.
+
+**Limitations.** A cross-moment converges more slowly than either factor's own variance, so flux is the output most likely to be under-converged in a given window.
+
+@section p10_stat_entries_sec 7. Particle Statistics Task Entries
+
+@htmlinclude generated/capability_inventory_statistics_task.html
+
+@subsection p10_cap_stat_msd_sub msd
+
+@anchor p10_cap_stat_msd
+
+**Identity.** Statistics pipeline task `msd` -> `ComputeMSD`.
+
+**What it does.** Computes the mean squared displacement of the particle swarm over time
+and writes it as a CSV time series.
+
+**When to choose it.** Characterizing dispersion. MSD against time is the standard way to
+read a diffusion coefficient out of a particle simulation, which is what the Brownian and
+drift verification cases do.
+
+**Parameters it owns.** The statistics pipeline block that selects it; the output file
+name follows the configured statistics prefix.
+
+**Interactions.** Requires particles. It reads particle positions only, so it is unaffected
+by the Eulerian field source.
+
+**Diagnostics.** The emitted CSV is the diagnostic: a linear MSD in time indicates
+diffusive behaviour, a quadratic one indicates ballistic transport.
+
+**Evidence.** Unit verified - `make unit-statistics` covers the MSD kernel including its
+empty-swarm behaviour.
+
+**Limitations.** The only statistics task currently exposed. It is a whole-swarm measure
+with no spatial conditioning.
+
+@section p10_spectra_sec 8. spectra
 
 Measures turbulent energy spectra from the instantaneous velocity in each committed
 checkpoint. Omit the block to measure nothing.
@@ -348,7 +581,31 @@ ordinary series, so `--list-plot-series` finds them and `--plot` draws them.
 plotted rather than averaged, and the stage never averages across steps. Smoothing a
 spectrum comes from ensembling over seeds at matched times, not from pooling times.
 
-@section p10_io_sec 8. io
+@section p10_cap_spec_sec 8.1 Spectra Task Entries
+
+@htmlinclude generated/capability_inventory_post_spectra_task.html
+
+@subsection p10_cap_spec_shell_spectrum_sub shell_spectrum
+
+@anchor p10_cap_spec_shell_spectrum
+
+**Identity.** `spectra.tasks: [{task: shell_spectrum, field: Ucat, block: 0}]`, measured by `generators/spectra.gen` rather than by the C post-processor.
+
+**What it does.** Computes a three-dimensional energy spectrum by transforming the velocity field and binning the result into spherical shells in wavenumber space, producing E(k).
+
+**When to choose it.** For homogeneous turbulence where the question is how energy is distributed across scales - resolving whether an inertial range exists, or where the dissipation cutoff sits. It is the wrong tool for an inhomogeneous flow, where a shell average mixes physically distinct directions.
+
+**Parameters it owns.** `field` (the vector field to transform), `block`, `symbol` (`continuum` or `discrete`, the binning abscissa), `subtract_mean` (`none`, `domain`, or `window:<name>`), and `mean_source_step` when a window mean is used.
+
+**Interactions.** Requires a uniformly spaced, geometrically periodic, single-block domain, and `picurv validate` checks all three against the case **before any field is read**. Independent of `eulerian_pipeline`: it reads raw checkpoint payloads, so no field output stage is needed. `--only spectra` runs it alone.
+
+**Diagnostics.** Writes one file per task per checkpoint under the configured `output_prefix`. A precondition failure is a validation error naming the violated requirement, not a silent empty spectrum.
+
+**Evidence.** Implemented only. No shipped case gates a numerical acceptance on a measured spectrum, so nothing establishes the binning against a reference result.
+
+**Limitations.** Experimental. Shell averaging assumes isotropy that a wall-bounded or bent geometry does not have, and `subtract_mean: window:<name>` depends on an accumulated window existing at the named step. No convergence or windowing guidance is established.
+
+@section p10_io_sec 9. io
 
 Mappings:
 - `output_directory` + `output_filename_prefix` -> `output_prefix`
@@ -366,7 +623,7 @@ committed checkpoint; input extensions are not runtime-selectable.
 default under `<monitor output>/statistics/`, while explicit relative or absolute paths are preserved.
 When the same timestep is post-processed again, PICurv now rewrites same-step VTK/VTP outputs and rewrites same-step statistics rows so the final CSV still contains one row per step.
 
-@section p10_next_steps_sec 9. Next Steps
+@section p10_next_steps_sec 10. Next Steps
 
 Proceed to **@subpage 11_User_How_To_Guides** for goal-oriented recipes.
 
@@ -375,25 +632,3 @@ For mapping and extension details:
 - **@subpage 16_Config_Extension_Playbook**
 - **@subpage 50_Modular_Selector_Extension_Guide**
 - **@subpage 58_Field_Statistics** (window semantics and derived-quantity definitions)
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Configuration Reference: Postprocessor YAML** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

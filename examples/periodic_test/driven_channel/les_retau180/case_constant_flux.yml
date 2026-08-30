@@ -44,9 +44,12 @@ models:
     particles:
       count: 0
     turbulence:
-      # Constant Smagorinsky ONLY. The dynamic model in this tree has a known
-      # defect (incorrect M_ij and no homogeneous averaging) and must not be
-      # used for validation - see docs/pages/54_Driven_Periodic_Flows.md.
+      # WARNING: BOTH LES models in this tree are known-defective and unsafe for
+      # scientific use. dynamic_smagorinsky computes an M_ij carrying no dynamic
+      # content; constant_smagorinsky (selected here) leaves the coefficient at zero
+      # on a fresh run because it is only computed at a step where it is forced to 0.
+      # This case cannot produce a usable LES result until both are fixed.
+      # Records: tests/tooling/capability_scope_records.json
       les:
         enabled: true
         model: "constant_smagorinsky"

@@ -2,77 +2,161 @@
 
 @anchor _Getting_Started_Index
 
-This index is the recommended onboarding path for new users.
-It is organized to minimize first-run failure risk:
-build first, then run a known working case, then inspect outputs.
-PICurv's YAML files are modular by design, so the goal is to learn how to reuse and mix profiles,
-not to create one giant per-run configuration from scratch.
+@pagemeta{Tutorial, New users, Verified end to end}
+
+This is the fastest reliable path from a fresh clone to a finished run. It is
+ordered to minimize first-run failure: build first, run a known-good case, then
+inspect what it produced. PICurv's YAML files are modular by design, so the goal
+is to learn to recombine profiles rather than to write one large configuration
+per run.
+
+Work through it in one pass. When you want deeper explanation of any step, the
+full walkthrough is **@subpage 02_Tutorial_Programmatic_Grid**.
+
+@note **Verification status.** Every command on this page has been executed against
+current `main`, including the full solve-and-post path, which completed in about ten
+seconds on a debug build and produced the visualization file named in section 6. It is
+not yet gated by CI, so it is verified-by-execution rather than continuously enforced.
 
 @tableofcontents
 
-@section p41_when_sec 1. When to Use This Section
+@section p41_prereq_sec 1. Prerequisites
 
-Use this section if you are in one of these states:
+You need:
 
-- first time cloning PICurv,
-- returning after dependency/toolchain changes,
-- onboarding someone to the repository and needing a deterministic starting path.
+- PETSc configured, with `PETSC_DIR` set. `PETSC_ARCH` is required only for old-style
+  in-tree PETSc builds; prefix installs do not use it.
+- an MPI runtime,
+- **Python 3.10 or newer** if you use the managed CLI bootstrap
+  (`bootstrap_install.sh` prefers 3.12/3.11/3.10). The repository tooling itself runs
+  on 3.8, but the bootstrap path expects a newer interpreter.
 
-@section p41_distinction_sec 2. First Simulation Entry
+If any of these are missing, work through **@subpage 01_Installation** first and
+return here.
 
-The canonical first-run page is:
+@section p41_build_sec 2. Build
 
-- **@subpage 02_Tutorial_Programmatic_Grid**
-  complete walkthrough with artifact inspection and troubleshooting context.
+From the repository root:
 
-@section p41_path_sec 3. Recommended Read Order
+```bash
+./picurv_cli/picurv build
+source etc/picurv.sh
+```
 
-1. **@subpage 01_Installation**
-2. **@subpage 02_Tutorial_Programmatic_Grid**
-3. **@subpage 03_Tutorial_File-Based_Grid**
-4. **@subpage 04_Visualization_Tutorial**
-5. **@subpage 05_The_Conductor_Script**
-6. **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
+The first command builds `bin/simulator` and `bin/postprocessor`, and creates
+`bin/picurv` as a launcher. The second puts `bin/` on your PATH, exports the
+managed CLI Python when bootstrap created one, and exposes `picurv_cli/` as a
+fallback so `picurv` works from any directory even before the launcher is
+rebuilt. Add the `source` line to your shell profile to make it permanent.
 
-@section p41_outputs_sec 4. Expected Outcomes After Completing This Path
+The build stream is written to `<repo>/logs/build.log`. If the build fails, return to
+**@subpage 01_Installation** and verify the PETSc/MPI toolchain.
 
-You should be able to:
+@section p41_init_sec 3. Create a case
 
-- build `bin/simulator` and `bin/postprocessor`,
-- generate valid runtime control artifacts from YAML inputs,
-- execute `run --solve --post-process` locally,
-- inspect VTK outputs in ParaView,
-- recombine `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` intentionally,
-- map first-run failures to corrective actions.
+```bash
+./bin/picurv init flat_channel --dest my_case
+```
 
-@section p41_next_sec 5. Where to Go Next
+You should get:
 
-- Operational run authoring: **@subpage 42_User_Guide_Index**
-- Practical reusable config patterns: **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
-- Direct grid generation and wrapped `grid.mode: grid_gen`: **@subpage 48_Grid_Generator_Guide**
-- Troubleshooting catalog: **@subpage 39_Common_Fatal_Errors**
-- CI/smoke test contract: **@subpage 40_Testing_and_Quality_Guide**
-- Cross-axis map view: **@subpage Documentation_Map**
+```text
+my_case/
+|- flat_channel.yml
+|- Imp-MG-Standard.yml
+|- Standard_Output.yml
+`- standard_analysis.yml
+```
 
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
+Those four files are the four runtime roles: case physics and grid, solver
+numerics, monitor and logging controls, and the post-processing pipeline. Runtime
+binaries are resolved from `bin/` through your PATH, which is what sourcing
+`etc/picurv.sh` set up.
 
-## CFD Reader Guidance and Practical Use
+@section p41_validate_sec 4. Validate before running
 
-This page describes **Getting Started** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
+```bash
+./bin/picurv validate \
+  --case my_case/quickstart_flat_channel.yml \
+  --solver my_case/Imp-MG-Standard.yml \
+  --monitor my_case/quickstart_Standard_Output.yml \
+  --post my_case/quickstart_standard_analysis.yml
+```
 
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
+Validation catches schema and contract errors before any compute is spent, and
+reports them with the offending key and file. To preview the launch without
+executing anything, add `--dry-run` to the `run` command below; it prints the
+resolved commands and the artifacts the run would produce.
 
-### What To Extract Before Changing A Case
+@section p41_run_sec 5. Run
 
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
+```bash
+./bin/picurv run --solve --post-process -n 2 \
+  --case my_case/quickstart_flat_channel.yml \
+  --solver my_case/Imp-MG-Standard.yml \
+  --monitor my_case/quickstart_Standard_Output.yml \
+  --post my_case/quickstart_standard_analysis.yml
+```
 
-### Practical CFD Troubleshooting Pattern
+The `quickstart_*` files are a deliberately small variant: a 9x9x17 grid over 20
+timesteps, which completes **solve and post-processing in about ten seconds** even in
+a PETSc debug build. The unprefixed `flat_channel.yml` files are the full case - a
+25x25x97 grid over 1000 steps - and take substantially longer in a debug build.
 
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+This validates and normalizes the configuration, writes the generated control
+artifacts, launches the solver, then launches the postprocessor.
 
+@section p41_check_sec 6. Confirm it worked
+
+Look for:
+
+- `<run.config>/` - generated runtime control artifacts, including `<run_id>.control`,
+- `<run.runtime_logs>/` - solver runtime logs,
+- `<run.scheduler>/` - the solver and postprocessor **stream** logs,
+- `<run.solver_output>/checkpoints/` - committed checkpoint bundles,
+- `<run.visualization>/standard_analysis/` - the VTK output.
+
+The quickstart writes exactly one visualization file:
+
+```text
+<run>/visualization/standard_analysis/eulerian_data_00020.vts
+```
+
+A quick visual check in ParaView: open that file, add a `Slice`, and colour by
+`Ucat_nodal`. **@subpage 04_Visualization_Tutorial** covers this properly.
+
+@note The post recipe targets a specific step. `quickstart_standard_analysis.yml`
+targets step 20 to match the quickstart run; the full `standard_analysis.yml` targets
+step 1000. A recipe asking for a step the run never reached is skipped with
+"first requested source step ... is incomplete", and no visualization is written.
+
+If something failed, **@subpage 39_Common_Fatal_Errors** maps common first-run
+failures to corrective actions.
+
+@section p41_path_sec 7. Recommended read order
+
+Once the run above succeeds:
+
+1. **@subpage 02_Tutorial_Programmatic_Grid** - the same path with full
+   explanation and artifact inspection.
+2. **@subpage 03_Tutorial_File-Based_Grid** - using an externally supplied grid.
+3. **@subpage 04_Visualization_Tutorial** - getting meaningful pictures out.
+4. **@subpage 05_The_Conductor_Script** - the command and option model.
+5. **@subpage 49_Workflow_Recipes_and_Config_Cookbook** - recombining profiles.
+
+@section p41_outputs_sec 8. What you should be able to do next
+
+- Build `bin/simulator` and `bin/postprocessor`.
+- Generate valid runtime control artifacts from YAML.
+- Execute `run --solve --post-process` locally.
+- Inspect VTK output in ParaView.
+- Recombine `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` intentionally.
+- Map a first-run failure to a corrective action.
+
+@section p41_next_sec 9. Where to go next
+
+- Authoring your own runs: **@subpage 42_User_Guide_Index**
+- Grid generation and `grid.mode: grid_gen`: **@subpage 48_Grid_Generator_Guide**
+- Running on a cluster, restarting, and reusing runs: **@subpage 52_Run_Lifecycle_Guide**
+- CI and smoke-test contract: **@subpage 40_Testing_and_Quality_Guide**
+- Full page index: **@subpage Documentation_Map**

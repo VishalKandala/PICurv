@@ -1,0 +1,36 @@
+{
+  "description": "Forbidden generic documentation-expansion debris. These signatures identify agent-generated 'CFD Reader Guidance' tails that were appended uniformly to 51 pages and removed during the documentation overhaul. Matching is deterministic and exact after whitespace normalization; fuzzy prose similarity is deliberately NOT used, because legitimate operational guidance can resemble parts of the template.",
+  "scan": {
+    "include_globs": [
+      "**/*.md"
+    ],
+    "exclude_dirs": [
+      ".git",
+      "docs_build",
+      "obj",
+      "bin",
+      "stubs",
+      "sandbox",
+      "runs",
+      "studies",
+      "logs",
+      "__pycache__"
+    ]
+  },
+  "forbidden_markers": [
+    "<!-- DOC_EXPANSION_CFD_GUIDANCE -->",
+    "@par SCAFFOLD-INCOMPLETE"
+  ],
+  "forbidden_headings": [
+    "## CFD Reader Guidance and Practical Use",
+    "### What To Extract Before Changing A Case",
+    "### Practical CFD Troubleshooting Pattern"
+  ],
+  "forbidden_fragments": [
+    "within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision",
+    "Treat this page as both a conceptual reference and a runbook.",
+    "Record failure signals that require rollback or parameter isolation."
+  ],
+  "rationale": "The tails consumed roughly 12% of the docs/pages corpus while carrying no page-specific information, reducing information density and polluting search results. A page needing operating or troubleshooting guidance must state something specific to its own subject.",
+  "scaffold_note": "SCAFFOLD-INCOMPLETE is emitted by scaffold_documentation.py and must be removed by the author once every placeholder is replaced. Structural correctness and completion are separate conditions: a skeleton is deliberately shaped to satisfy the structural audits, so without this marker an untouched scaffold could be published as finished."
+}

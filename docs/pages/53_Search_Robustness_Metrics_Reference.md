@@ -2,7 +2,7 @@
 
 @anchor _Search_Robustness_Metrics_Reference
 
-PICurv writes `logs/search_metrics.csv` for all particle-enabled runs. This page
+PICurv writes `<run.runtime_logs>/search_metrics.csv` for all particle-enabled runs. This page
 is the canonical reference for the meaning, scope, formulas, and intended use
 of those metrics.
 

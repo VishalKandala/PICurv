@@ -2,6 +2,8 @@
 
 @anchor _Run_Lifecycle_Guide
 
+@pagemeta{How-to, Operators running and restarting jobs, Current behavior}
+
 This page explains how a PICurv run moves from a new solve to restart, post-processing reuse, and cluster job generation.
 It is the operational view of the run directory lifecycle.
 
@@ -9,15 +11,23 @@ For verified remote protection, cold offload, and later restoration of these art
 
 @tableofcontents
 
+@dotfile run_lifecycle.dot "States a run moves through, and the commands that move it"
+
+Every arrow is a command you can issue. `--continue` resumes the same run in place;
+`--restart-from` seeds a **new** run from an existing checkpoint. Those are different
+operations with different provenance, and choosing between them is the decision this
+page exists to support.
+
+
 @section p52_scope_sec 1. What A Run Lifecycle Means
 
 For PICurv, a "run" is not just a solver launch.
 It is the full set of generated artifacts under `runs/<run_id>/`, including:
 
-- normalized runtime config artifacts under `config/`,
-- solver and post logs under `logs/`,
+- normalized runtime config artifacts under `<run.config>/`,
+- solver and post logs under `<run.runtime_logs>/`,
 - solver outputs and restart files,
-- optional scheduler scripts and submission metadata under `scheduler/`.
+- optional scheduler scripts and submission metadata under `<run.scheduler>/`.
 
 Key rule:
 
@@ -63,19 +73,19 @@ This sequence verifies contract correctness before consuming runtime or queue ti
 
 A typical run directory contains:
 
-- `runs/<run_id>/config/`: generated `.control`, BC files, copied YAML inputs,
+- `<run.config>/`: generated `.control`, BC files, copied YAML inputs,
   and `post.run`
-- `runs/<run_id>/logs/`: solver/postprocessor runtime logs and metrics written by PICurv itself
-- `runs/<run_id>/output/checkpoints/step_<12 digits>/`: immutable committed
+- `<run.runtime_logs>/`: solver/postprocessor runtime logs and metrics written by PICurv itself
+- `<run.solver_output>/checkpoints/step_<12 digits>/`: immutable committed
   solver checkpoints when monitor paths use the default layout
-- `runs/<run_id>/scheduler/`: generated Slurm scripts, `submission.json`, and cluster stdout/stderr in cluster mode
+- `<run.scheduler>/`: generated Slurm scripts, `submission.json`, and cluster stdout/stderr in cluster mode
 - `runs/<run_id>/manifest.json`: top-level run metadata
 
 Practical interpretation:
 
-- if validation succeeds but runtime is wrong, inspect `config/` first,
-- if scheduler behavior is wrong, inspect `scheduler/solver.sbatch` or `scheduler/post.sbatch`,
-- `scheduler/submission.json` is the source of truth for delayed `submit` and run-directory-based `cancel`,
+- if validation succeeds but runtime is wrong, inspect `<run.config>/` first,
+- if scheduler behavior is wrong, inspect `<run.scheduler>/solver.sbatch` or `<run.scheduler>/post.sbatch`,
+- `<run.scheduler>/submission.json` is the source of truth for delayed `submit` and run-directory-based `cancel`,
 - if restart/post-only behavior is wrong, confirm the previous run directory contents before changing YAML again.
 
 @section p52_launchers_sec 4. Local, Login-Node, and Batch Launch Resolution
@@ -166,7 +176,7 @@ Operational meaning:
 
 - `case.yml -> run_control.start_step` must be the saved checkpoint step and must be greater than zero; use a normal run without `--continue` for a fresh start at step zero,
 - PICurv validates and reads the requested immutable bundle directly from
-  `output/checkpoints/`; it does not create a second in-place copy,
+  `<run.solver_output>/checkpoints/`; it does not create a second in-place copy,
 - the solver resumes from that checkpoint,
 - logs append to the existing log files and remain independent of checkpoint payloads,
 - all output stays within the same `runs/my_run/` directory.
@@ -202,11 +212,11 @@ When solver outputs already exist, reuse the run directory directly:
 
 Use this when:
 
-- you want a different visualization/statistics recipe,
+- you want a different <run.visualization>/statistics recipe,
 - solver data are already on disk,
 - you do not want to rerun the solver.
 
-PICurv will auto-identify the required case/monitor/control artifacts from `runs/<run_id>/config/`.
+PICurv will auto-identify the required case/monitor/control artifacts from `<run.config>/`.
 
 Operational patterns for post-only reuse:
 
@@ -228,11 +238,11 @@ Operational patterns for post-only reuse:
 
 In cluster mode, `picurv` writes scheduler artifacts into the new run directory:
 
-- `scheduler/solver.sbatch`
-- `scheduler/solver_<jobid>.out` / `scheduler/solver_<jobid>.err`
-- `scheduler/post.sbatch`
-- `scheduler/post_<jobid>.out` / `scheduler/post_<jobid>.err`
-- `scheduler/submission.json`
+- `<run.scheduler>/solver.sbatch`
+- `<run.scheduler>/solver_<jobid>.out` / `<run.scheduler>/solver_<jobid>.err`
+- `<run.scheduler>/post.sbatch`
+- `<run.scheduler>/post_<jobid>.out` / `<run.scheduler>/post_<jobid>.err`
+- `<run.scheduler>/submission.json`
 
 Recommended operational pattern:
 
@@ -268,9 +278,93 @@ when you want the solver process tree to receive `SIGUSR1`, stop at the next saf
 the latest safe off-cadence output first. Fall back to plain cancel if the job is wedged or
 not reaching checkpoints.
 
-@section p52_rules_sec 8. Safe Rules Of Thumb
+@section p52_compat_sec 8. What You Can Change, And How To Continue
 
-- Treat `runs/<run_id>/config/` as the ground truth for what the binaries actually consumed.
+Before changing anything about a run you intend to carry forward, decide which of
+three operations you want:
+
+- **Continue in place** (`--continue`) — same run, same identity, more timesteps.
+- **Restart into a new run** (`--restart-from`) — a new run seeded from an existing
+  checkpoint, with its own identity and provenance.
+- **Fresh run** — no inherited state.
+
+@subsection p52_compat_axes_sub 8.1 Three Different Questions
+
+The tables below keep three things apart that are easy to conflate:
+
+- **Accepted?** — whether the tooling permits it. This is a fact about the software.
+- **Advised?** — whether it is scientifically sensible. The tool permitting something
+  does not make it a good idea.
+- **Basis** — how the row is known: `enforced` (validation accepts or rejects it),
+  `tested` (a test exercises it), `characterized` (measured, not gated), `unknown`
+  (not established).
+
+@warning `unknown` means nobody has checked. It is **not** a synonym for "no". Where a
+cell says unknown, the tool may well permit the change and produce something
+meaningless without complaining.
+
+@subsection p52_compat_inplace_sub 8.2 Continue In Place (`--continue`)
+
+Continuation guards **physical case identity**: `validate_continue_case_identity`
+compares a hash of `case.yml` with `run_control` and the particle `restart_mode`
+excluded. Everything else in `case.yml` is part of that identity.
+
+| Change | Accepted? | Advised? | Basis |
+|---|---|---|---|
+| `run_control` (more timesteps) | yes | yes | enforced — excluded from the identity hash |
+| Particle `restart_mode` | yes | yes | enforced — excluded from the identity hash |
+| Monitor cadence / logging | yes | yes | enforced — `monitor.yml` is outside the identity |
+| Post-processing recipe | yes | yes | enforced — `post.yml` is outside the identity |
+| Solver tolerances | yes | discouraged | enforced (accepted); effect not characterized |
+| Momentum solver selection | yes | discouraged | enforced (accepted); effect unknown |
+| Timestep size | yes | discouraged | enforced (accepted); effect not characterized |
+| Boundary conditions | **no** | — | enforced — part of the case identity |
+| Turbulence model | **no** | — | enforced — part of the case identity |
+| Physical properties | **no** | — | enforced — part of the case identity |
+| Grid dimensions or geometry | **no** | — | enforced — part of the case identity |
+| MPI rank count | unknown | avoid | unknown — no test covers rank change under `--continue` |
+
+@note Anything reachable through `solver.yml`, `monitor.yml`, or `post.yml` is
+**accepted** during continuation by design; the guard is on the physical case only.
+The "discouraged" rows are a scientific judgement, not a tooling restriction: the
+resulting trajectory concatenates two differently-converged segments, which is rarely
+what you want in a published result.
+
+@subsection p52_compat_restart_sub 8.3 Restart Into A New Run (`--restart-from`)
+
+A new run carries its own identity, so the case-identity guard does not apply.
+
+| Change | Accepted? | Advised? | Basis |
+|---|---|---|---|
+| Anything in solver / monitor / post | yes | yes | enforced |
+| Boundary conditions | yes | yes, with care | enforced (accepted); physical continuity unknown |
+| Turbulence model | yes | yes, with care | enforced (accepted); effect unknown |
+| MPI rank count | yes | yes | tested — the field-statistics suite covers a changed rank count across restart |
+| Physical properties | yes | treat as a new study | enforced (accepted); the seeded field is no longer consistent with the new physics |
+| Grid dimensions or geometry | **no** | — | enforced — the checkpoint cannot be interpreted on a different grid |
+
+@subsection p52_compat_exact_sub 8.4 Restart Is Not Bit-Exact
+
+Even with no changes, a restarted run does not reproduce an uninterrupted one bit for
+bit. The offset is a structural floor from boundary re-application at the restart
+step, it decays rather than amplifies, and it is **invariant to solver tolerance** —
+tightening tolerances does not remove it. Measurements are in
+**@subpage 29_Maintenance_Backlog**.
+
+Acceptance criteria for restart equivalence must therefore be set from that measured
+floor, not from machine epsilon.
+
+@subsection p52_compat_flux_sub 8.5 Driven-Flux Targets Across Segments
+
+@ref p44_cap_constant_flux "constant_flux" re-reads its target from the bcs file on
+every run, so editing it between segments takes effect deliberately.
+@ref p44_cap_initial_flux "initial_flux" instead restores its latched target from the
+checkpoint, so a resumed run holds the original target rather than re-measuring a
+drifted one.
+
+@section p52_rules_sec 9. Safe Rules Of Thumb
+
+- Treat `<run.config>/` as the ground truth for what the binaries actually consumed.
 - Do not hand-edit generated scheduler scripts unless debugging a one-off issue; prefer fixing YAML or `.picurv-execution.yml`.
 - Use a fresh restarted run instead of overwriting the previous run directory.
 - Use post-only reruns when analysis changes but solver data do not.
@@ -278,7 +372,7 @@ not reaching checkpoints.
 - Keep the shutdown warning window longer than the slowest expected timestep if you rely on the fallback signal path.
 - If the runtime walltime guard is too eager or too late for a workload, tune `execution.walltime_guard` in the cluster profile rather than editing generated scripts.
 
-@section p52_refs_sec 9. Related Pages
+@section p52_refs_sec 10. Related Pages
 
 - **@subpage 06_Simulation_Anatomy**
 - **@subpage 36_Cluster_Run_Guide**
@@ -286,25 +380,3 @@ not reaching checkpoints.
 - **@subpage 45_Particle_Initialization_and_Restart**
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 - **@subpage 58_Field_Statistics** (statistics state inside the committed checkpoint bundle)
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Run Lifecycle Guide** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (paths, stage flags, scheduler settings, restart source, or launcher policy).
-- Record expected success indicators (artifact presence, step continuity, job script contents, or stable reused outputs).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the workflow on a small case or short time window.
-2. Confirm generated `config/` and `scheduler/` artifacts before blaming the solver.
-3. Change one lifecycle variable at a time: launcher, resources, restart source, or post recipe.
-4. If behavior remains inconsistent, compare against a known-good prior run directory and re-check the generated artifacts.

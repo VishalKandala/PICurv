@@ -107,7 +107,7 @@ Behavior:
 - resolves the source repo from `.picurv-origin.json` when run from an initialized case,
 - passes any trailing arguments directly through to the Make/build layer,
 - can rebuild or clean the source repo without leaving a copied case directory,
-- writes the streamed build output to `logs/build.log` in the source repo,
+- writes the streamed build output to `<repo>/logs/build.log` in the source repo,
 - is the recommended command for normal users instead of invoking `make` manually.
 
 Direct `make all` keeps the traditional stdout-only behavior. When you want the
@@ -119,8 +119,8 @@ make audit-build
 
 This writes:
 
-- `logs/build.log`
-- `logs/build.warnings.log`
+- `<repo>/logs/build.log`
+- `<repo>/logs/build.warnings.log`
 
 Examples:
 
@@ -272,7 +272,7 @@ Post-only continuation examples:
 - If the solver has only written source data through step `420`, PICurv launches only the fully available prefix in the requested stride. A later `--continue` run picks up the newer steps after the solver produces them.
 - If the same recipe already post-processed the requested window, PICurv skips the launch and reports that the run is already caught up.
 - If you change the recipe itself, for example by adding `Qcrit` or changing the statistics output prefix, PICurv treats that as a new recipe lineage and starts again from the configured `start_step`.
-- PICurv allows only one post writer per run directory. If a second post job targets the same `runs/<run_id>`, it is refused immediately instead of racing on `viz/` or `statistics/`.
+- PICurv allows only one post writer per run directory. If a second post job targets the same run, it is refused immediately instead of racing on `<run.visualization>/` or the statistics output beneath it.
 
 Graceful shutdown note:
 
@@ -283,8 +283,8 @@ Graceful shutdown note:
 
 Runtime stream logs:
 
-- C-managed logs remain under `runs/<run_id>/logs/`.
-- wrapper stdout/stderr stream logs now live under `runs/<run_id>/scheduler/` for both local and Slurm launches.
+- C-managed logs remain under `<run.runtime_logs>/`.
+- wrapper stdout/stderr stream logs now live under `<run.scheduler>/` for both local and Slurm launches.
 - this avoids collisions with solver startup, which recreates the C log directory.
 
 @section p05_summarize_sec 5. summarize: Read-Only Run Configuration and Health Summary
@@ -355,15 +355,15 @@ does not parse PICurv run directories or logs.
 
 Typical sources:
 
-- `logs/Continuity_Metrics.log`
-- `logs/Particle_Metrics.log` (per-step `Lost` plus run-local `Lost Total` when available)
-- `logs/Momentum_Solver_Convergence_History_Block_*.log`
-- `logs/Poisson_Solver_Convergence_History_Block_*.log`
-- `logs/solution_convergence.log` (mode-specific speed/KE drift and L2 norms)
-- `logs/Profiling_Timestep_Summary.csv` when enabled
-- `logs/Runtime_Memory.log` when `monitor.diagnostics.runtime_memory_log.enabled` is true
-- `logs/PETSc_*_Solver.log` / `logs/PETSc_*_PostProcessor.log` when file-backed PETSc diagnostics are enabled
-- `scheduler/*_solver.log` or `scheduler/solver_*.out` for sampled particle snapshot previews
+- `<run.runtime_logs>/Continuity_Metrics.log`
+- `<run.runtime_logs>/Particle_Metrics.log` (per-step `Lost` plus run-local `Lost Total` when available)
+- `<run.runtime_logs>/Momentum_Solver_Convergence_History_Block_*.log`
+- `<run.runtime_logs>/Poisson_Solver_Convergence_History_Block_*.log`
+- `<run.runtime_logs>/solution_convergence.log` (mode-specific speed/KE drift and L2 norms)
+- `<run.runtime_logs>/Profiling_Timestep_Summary.csv` when enabled
+- `<run.runtime_logs>/Runtime_Memory.log` when `monitor.diagnostics.runtime_memory_log.enabled` is true
+- `<run.runtime_logs>/PETSc_*_Solver.log` / `<run.runtime_logs>/PETSc_*_PostProcessor.log` when file-backed PETSc diagnostics are enabled
+- `<run.scheduler>/*_solver.log` or `<run.scheduler>/solver_*.out` for sampled particle snapshot previews
 
 When particle snapshots are available, `summarize` reports sampled diagnostics such as:
 
@@ -403,16 +403,16 @@ Common `run` use cases:
 solver. It uses the same `case.yml` generator settings as `run --solve`:
 
 - `grid.mode: grid_gen` writes the configured dimensional `PICGRID`; file and
-  generated grids are also validated and staged as nondimensional `config/grid.run`,
+  generated grids are also validated and staged as nondimensional `<run.config>/grid.run`,
 - `prescribed_flow.source.type: generated` delegates dimensional `.picslice`
   profile generation to `generators/profile.gen` or optional `source.script` and writes `profile.info`,
 - `prescribed_flow.source.type: field_slice` extracts a dimensional `.picslice`
   from an old Cartesian `ufield*.dat` plus its old `PICGRID`,
 - `initial_conditions.generator: ic_gen` runs `generators/ic.gen` or optional `params.script` and
   stages its PETSc vector output after the run grid is available,
-- `config/precompute.manifest.json` records generated paths, profile stats, and IC staging.
+- `<run.config>/precompute.manifest.json` records generated paths, profile stats, and IC staging.
 
-The output layout mirrors `runs/<run_id>/config/` so inspected artifacts can be
+The output layout mirrors `<run.config>/` so inspected artifacts can be
 reused later with file-backed grid, profile, and initial-condition modes.
 
 Design intent: `precompute` is the extensible artifact-materialization route for
@@ -430,7 +430,7 @@ materialization automatically for generator-style case settings.
 Behavior:
 
 - consumes existing `--no-submit` artifacts without regenerating configs or scripts,
-- reads `scheduler/submission.json` to locate staged Slurm scripts or local command tokens,
+- reads `<run.scheduler>/submission.json` to locate staged Slurm scripts or local command tokens,
 - executes/submits `solve`, `post-process`, or both,
 - wires the post stage dependency automatically for Slurm when `all` is selected,
 - executes local staged stages in order when `launch_mode: local`,
@@ -459,7 +459,7 @@ Notes:
 
 Behavior:
 
-- reads `scheduler/submission.json` from an existing run directory,
+- reads `<run.scheduler>/submission.json` from an existing run directory,
 - resolves the recorded Slurm job IDs for `solve` and/or `post-process`,
 - runs hard `scancel <job_id>` for the selected stage set by default,
 - with `--graceful`, sends `scancel --signal=USR1 --full <job_id>` for solver jobs, reaching the batch process and MPI children so the runtime can write the latest safe off-cadence step at the next checkpoint,
@@ -477,7 +477,7 @@ Examples:
 
 Notes:
 
-- works only for Slurm-submitted runs that have `scheduler/submission.json`,
+- works only for Slurm-submitted runs that have `<run.scheduler>/submission.json`,
 - does not apply to local runs,
 - `--graceful` requests solver shutdown and final output; if a job is wedged or not reaching runtime checkpoints, rerun without `--graceful` to hard-cancel it,
 - `--dry-run` is useful when you want to confirm the recorded stage/job mapping first.
@@ -535,8 +535,17 @@ What `validate` is for:
 
 @section p05_command_matrix_sec 8. Full Command and Option Matrix
 
-This section is intentionally exhaustive and mirrors the current `argparse` contract in `picurv_cli/cli.py`.
-Use it as the authoritative option reference when writing docs, examples, wrappers, or CI jobs.
+The table below is **generated by introspecting the assembled `argparse` parser** -
+`build_main_parser()` in `picurv_cli/cli.py` together with the registrars delegated from
+other modules, such as `add_storage_parser()` in `picurv_cli/storage.py`. Reading
+`cli.py` alone understates the command set, which is why the generator exercises the
+built parser rather than pattern-matching the source.
+
+It is regenerated by `make docs-cli-reference` and checked by `make audit-cli-reference`,
+so a parser change makes it stale and fails CI. The narrative guidance in the sections
+above is hand-written and complements it; this section is the exhaustive reference.
+
+@htmlinclude generated/cli_reference.html
 
 `run`:
 - stages:
@@ -577,7 +586,7 @@ Use it as the authoritative option reference when writing docs, examples, wrappe
 `summarize`:
 - required:
   - `--run-dir <path>`
-- config/run views:
+- <run.config>/run views:
   - `--overview`
   - `--case`
   - `--solver`
@@ -590,7 +599,7 @@ Use it as the authoritative option reference when writing docs, examples, wrappe
   - `--last <positive-int>` (requires `--plot`)
   - `--plot-output <path>` (requires `--plot`)
   - `--linear-y` (requires `--plot`)
-  - plot/list modes cannot combine with config/run views or selected-step health
+  - plot/list modes cannot combine with <run.config>/run views or selected-step health
 - output:
   - `--format {text,json}` (`--list-plot-series` supports JSON; `--plot` rejects JSON)
 
@@ -690,8 +699,8 @@ Use `--strict` in CI/pre-submit checks when validating reusable profile librarie
 - `num_procs_effective` (currently mirrors solver count)
 
 For file-backed grid modes, `artifacts` includes the planned staged grid path
-(`config/grid.run`). For `grid.mode: grid_gen`, it also includes the generated
-PICGRID path (`config/grid.generated.picgrid` by default) plus any configured
+(`<run.config>/grid.run`). For `grid.mode: grid_gen`, it also includes the generated
+PICGRID path (`<run.config>/grid.generated.picgrid` by default) plus any configured
 `stats_file` or `vts_file`. Dry-run still does not run `generators/grid.gen` or
 write these files.
 For generated prescribed-flow profiles, `artifacts` includes the dimensional
@@ -803,12 +812,12 @@ make all
 @section p05_artifacts_sec 13. Generated Runtime Artifacts
 
 Single run (`run`):
-- `runs/<run_id>/config/*.control`, `bcs*.run`, `post.run`, plus optional
+- `<run.config>/*.control`, `bcs*.run`, `post.run`, plus optional
   `whitelist.run` / `profile.run` sidecars when enabled
-- `runs/<run_id>/logs/*` (runtime logs and metrics written by solver/postprocessor)
-- `runs/<run_id>/scheduler/solver.sbatch`, `post.sbatch` (cluster mode)
-- `runs/<run_id>/scheduler/solver_<jobid>.out/.err`, `post_<jobid>.out/.err` (cluster mode, after submission)
-- `runs/<run_id>/scheduler/submission.json` (cluster mode)
+- `<run.runtime_logs>/*` (runtime logs and metrics written by solver/postprocessor)
+- `<run.scheduler>/solver.sbatch`, `post.sbatch` (cluster mode)
+- `<run.scheduler>/solver_<jobid>.out/.err`, `post_<jobid>.out/.err` (cluster mode, after submission)
+- `<run.scheduler>/submission.json` (cluster mode)
 - `runs/<run_id>/manifest.json`
 
 Sweep (`sweep`):
@@ -822,7 +831,16 @@ Sweep (`sweep`):
 - `studies/<study_id>/results/plots/*.png` (if plotting enabled and matplotlib available)
 - `studies/<study_id>/study_manifest.json`
 
-@section p05_next_steps_sec 14. Next Steps
+@section p05_storage_sec 14. `storage`
+
+`storage` is a top-level command registered from `picurv_cli/storage.py`, and is the
+one command family this page does not detail. Subcommands: `setup`, `plan`, `protect`,
+`offload`, `restore`, `verify`, `list`, `show`, `status`.
+
+Full semantics, retention model, and rclone configuration are documented in
+**@subpage 61_Storage_Management_Guide**.
+
+@section p05_next_steps_sec 15. Next Steps
 
 - Config contract: **@subpage 14_Config_Contract**
 - User workflows: **@subpage 11_User_How_To_Guides**
@@ -832,25 +850,3 @@ Sweep (`sweep`):
 - Modular examples and recipes: **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 - Troubleshooting map: **@subpage 39_Common_Fatal_Errors**
 - Smoke/CI verification details: **@subpage 40_Testing_and_Quality_Guide**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **The Conductor Script: picurv** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

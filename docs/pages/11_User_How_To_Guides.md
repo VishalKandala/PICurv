@@ -91,7 +91,7 @@ Why:
 
 Verification:
 
-- use `validate` first and check BC generation files under `runs/<run_id>/config/`.
+- use `validate` first and check BC generation files under `<run.config>/`.
 
 @subsection p11_bc_periodic_ssec 2.2 Enable Periodicity in One Direction
 
@@ -203,7 +203,7 @@ If the batch script launches `mpirun` directly, use `signal: "B:USR1@300"` and p
 
 Verification:
 
-- inspect `scheduler/*.sbatch` and `submission.json` in run directory.
+- inspect `<run.scheduler>/*.sbatch` and `submission.json` in run directory.
 - confirm the generated solver script exports `PICURV_JOB_START_EPOCH` and `PICURV_WALLTIME_LIMIT_SECONDS`.
 - confirm the generated cluster profile contains the intended `signal` fallback policy before submission.
 
@@ -233,7 +233,7 @@ Meaning:
 - The first new step advanced is step 501.
 - `total_steps` is the number of additional steps to run.
 - In this example, the restarted run advances from step 501 through step 1500.
-- When `--restart-from` is given, `picurv` automatically resolves the previous run's restart directory from that run's `config/monitor.yml` and injects the correct `-restart_dir` into the new control file.
+- When `--restart-from` is given, `picurv` automatically resolves the previous run's restart directory from that run's `<run.config>/monitor.yml` and injects the correct `-restart_dir` into the new control file.
 
 Typical full field restart (`solver.yml`):
 
@@ -379,7 +379,7 @@ statistics_pipeline:
 
 Verification:
 
-- check `output/statistics/Stats_msd.csv` by default, unless `statistics_pipeline.output_prefix`
+- check `<run.solver_output>/statistics/Stats_msd.csv` by default, unless `statistics_pipeline.output_prefix`
   includes an explicit relative or absolute path.
 
 @subsection p11_spectra_ssec 4.4 Measure Turbulent Energy Spectra
@@ -408,7 +408,7 @@ binning or the fluctuation definition costs seconds rather than a full rebuild o
 
 Verification:
 
-- `output/spectra/Spectrum_shell_spectrum_Ucat_block0000_continuum.csv` holds
+- `<run.solver_output>/spectra/Spectrum_shell_spectrum_Ucat_block0000_continuum.csv` holds
   `step,time,k,energy`, one row per shell per processed step.
 - the `_history.csv` beside it holds one row per step; `parseval_residual` there must
   stay at round-off, since summed shell energy must equal the resolved kinetic energy.
@@ -496,25 +496,3 @@ See **@subpage 37_Sweep_Studies_Guide** for full contract details.
 - Full capability map: **@subpage 12_Capabilities_Summary**
 - Config references: **@subpage 07_Case_Reference**, **@subpage 08_Solver_Reference**, **@subpage 09_Monitor_Reference**, **@subpage 10_Post_Processing_Reference**
 - Troubleshooting and quality: **@subpage 39_Common_Fatal_Errors**, **@subpage 40_Testing_and_Quality_Guide**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **User How-To Guides** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

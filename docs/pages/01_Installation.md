@@ -207,9 +207,9 @@ make audit-build
 ```
 
 After `source etc/picurv.sh`, use `picurv` directly from any directory.
-`./picurv_cli/picurv build` writes `logs/build.log` in the source repo. If you are
+`./picurv_cli/picurv build` writes `<repo>/logs/build.log` in the source repo. If you are
 auditing compiler warnings from a direct Make invocation, use `make audit-build`
-to generate both `logs/build.log` and `logs/build.warnings.log`.
+to generate both `<repo>/logs/build.log` and `<repo>/logs/build.warnings.log`.
 
 @section p01_verify_sec 8. Verify Installation
 
@@ -255,25 +255,3 @@ For the full testing model after installation, see **@subpage 40_Testing_and_Qua
 @section p01_next_steps_sec 10. Next Steps
 
 - First simulation walkthrough: **@subpage 02_Tutorial_Programmatic_Grid**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Installation Guide** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

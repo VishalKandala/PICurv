@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`sandbox/` is a developer scratch area for experiments that are not yet production-ready. Use this directory to iterate quickly without polluting canonical workflow assets in `config/`, `examples/`, `picurv_cli/`, `generators/`, or `docs/pages/`.
+`sandbox/` is a developer scratch area for experiments that are not yet production-ready. Use this directory to iterate quickly without polluting canonical workflow assets in `<repo>/config/`, `examples/`, `picurv_cli/`, `generators/`, or `docs/pages/`.
 
 ## Good Uses
 
@@ -31,7 +31,7 @@ Keep these lightweight and delete stale content regularly.
 
 When an experiment stabilizes, promote it out of `sandbox/`:
 
-- reusable config -> `config/`
+- reusable config -> `<repo>/config/`
 - runnable sample case -> `examples/`
 - conductor logic -> `picurv_cli/`; standalone generation -> `generators/`
 - user/developer explanation -> `docs/pages/`
@@ -48,5 +48,5 @@ If all are yes, move it out of sandbox.
 
 ## Related Docs
 
-- https://vishalkandala.me/picurv-docs/30_Repository_Navigation.html
-- https://vishalkandala.me/picurv-docs/29_Maintenance_Backlog.html
+- https://vishalkandala.me/docs/picurv/30_Repository_Navigation.html
+- https://vishalkandala.me/docs/picurv/29_Maintenance_Backlog.html

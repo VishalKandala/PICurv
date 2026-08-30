@@ -8,7 +8,7 @@ This directory stores reusable scheduler profiles for `picurv` cluster runs and 
 - walltime and resource requests,
 - batch launcher behavior (`srun`, `mpirun`, etc. as expected by site policy),
 - the shared solver/post task allocation and launcher behavior,
-- output/logging file conventions,
+- <run.solver_output>/logging file conventions,
 - array/dependency settings used by `picurv sweep`.
 
 Keep launcher executable and site flags separated when possible:
@@ -69,7 +69,7 @@ PICurv traps `SIGUSR1`, `SIGTERM`, and `SIGINT`, then writes a final step snapsh
 - The runtime guard and the signal path both stop only at safe checkpoints, so final retained state can lag the request by up to roughly one in-flight timestep.
 - The startup banner reports whether the runtime walltime guard is enabled, inactive, or disabled, even when the monitor profile uses the quiet `WARNING` default.
 8. For new profiles, prefer a staged workflow:
-   `picurv run ... --cluster ... --no-submit`, inspect `runs/<run_id>/scheduler/`, then `picurv submit --run-dir ...`.
+   `picurv run ... --cluster ... --no-submit`, inspect `<run.scheduler>/`, then `picurv submit --run-dir ...`.
    If the run is already submitted and you need to stop it, use `picurv cancel --run-dir ...`.
    For solver jobs that should write a final off-cadence checkpoint first, use `picurv cancel --run-dir ... --stage solve --graceful`.
 

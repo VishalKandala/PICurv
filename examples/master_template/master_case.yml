@@ -220,6 +220,10 @@ models:
       #   les: true        -> -les 1 (constant Smagorinsky)
       #   les: 1           -> constant Smagorinsky
       #   les: 2           -> dynamic Smagorinsky
+      # WARNING: both LES models are known-defective and unsafe for scientific use.
+      #   dynamic_smagorinsky - M_ij carries no dynamic content.
+      #   constant_smagorinsky - coefficient stays zero on a fresh run.
+      # Records: tests/tooling/capability_scope_records.json
       les:
         enabled: false
         # model is only needed when enabled: true. Options: constant_smagorinsky | dynamic_smagorinsky
@@ -365,7 +369,8 @@ boundary_conditions:
 #   handler: constant_flux              Drives a constant volume flux through the periodic pair.
 #     type: PERIODIC
 #     params:
-#       target_flux: 1.0              Target non-dimensional volumetric flux [m^3/s / (U_ref * L_ref^2)].
+#       target_flux: 1.0              Target volumetric flux in PHYSICAL units [m^3/s]; picurv
+#                                     divides it by (U_ref * L_ref^2) before the C runtime.
 #       enforce_seam_flux: false      [true/false] Optional, default false. Adds a local
 #                                     correction to the face fluxes of the periodic SEAM PLANE
 #                                     so the flux through that one plane matches the target.

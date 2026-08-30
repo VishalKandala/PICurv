@@ -1,0 +1,290 @@
+{
+  "description": "Tiered documentation freshness. A hard surface fingerprints a normalized semantic artifact and blocks when it changes; a soft surface fingerprints raw sources where no semantic extractor exists and is advisory unless explicitly promoted. A digest match records that a review happened, never that the prose is correct.",
+  "tiers": {
+    "hard": "Normalized artifact changed - blocking.",
+    "soft": "Raw watched sources changed - advisory unless promoted.",
+    "integrity": "Manifest malformed, watched path missing - always blocking."
+  },
+  "surfaces": [
+    {
+      "id": "cli.parser",
+      "title": "Assembled CLI parser contract",
+      "tier": "hard",
+      "artifact": "docs/generated/cli_reference.json",
+      "regenerate": "make docs-cli-reference",
+      "owning_pages": [
+        "05_The_Conductor_Script"
+      ],
+      "dependent_pages": [
+        "52_Run_Lifecycle_Guide",
+        "61_Storage_Management_Guide",
+        "36_Cluster_Run_Guide",
+        "37_Sweep_Studies_Guide"
+      ],
+      "attested_digest": "sha256:e033f4ee1f7f9c136c5672d8cef806cea41f87b09b0bbf62cb81ea7bae154e48",
+      "note": "Normalized argparse structure, so a comment or docstring change in cli.py does not fire this fingerprint."
+    },
+    {
+      "id": "capability.inventory",
+      "title": "Capability family inventory",
+      "tier": "hard",
+      "artifact": "docs/generated/capability_inventory.json",
+      "regenerate": "make docs-inventory",
+      "owning_pages": [
+        "12_Capabilities_Summary"
+      ],
+      "dependent_pages": [
+        "07_Case_Reference",
+        "08_Solver_Reference",
+        "32_Analytical_Solutions",
+        "33_Initial_Conditions",
+        "44_Boundary_Conditions_Guide",
+        "45_Particle_Initialization_and_Restart",
+        "10_Post_Processing_Reference",
+        "62_Capability_Status_Vocabulary"
+      ],
+      "attested_digest": "sha256:e69612dec87c97b64a82193fbeeaccc768d3fc34bf37d3944dbbde605b423761"
+    },
+    {
+      "id": "capability.evidence_matrix",
+      "title": "Capability evidence matrix",
+      "tier": "hard",
+      "artifact": "docs/generated/evidence_matrix.html",
+      "regenerate": "make docs-inventory",
+      "owning_pages": [
+        "66_Evidence_Matrix"
+      ],
+      "dependent_pages": [
+        "12_Capabilities_Summary"
+      ],
+      "attested_digest": "sha256:8aa95c9a0f19f7ecce45c8f2a57316b1360ddef26f239542ba2fe72ca7c789aa"
+    },
+    {
+      "id": "artifact.topology",
+      "title": "Run artifact topology snapshot",
+      "tier": "hard",
+      "artifact": "docs/generated/artifact_topology_snapshot.json",
+      "regenerate": "make docs-topology",
+      "owning_pages": [
+        "71_Invariant_Contracts"
+      ],
+      "dependent_pages": [
+        "52_Run_Lifecycle_Guide",
+        "61_Storage_Management_Guide",
+        "37_Sweep_Studies_Guide"
+      ],
+      "attested_digest": "sha256:0e45c86d14b6ef06e4558eb2a60249a9e42fd858f14ff38a5d3282a4c5868174"
+    },
+    {
+      "id": "docs.subsystem_records",
+      "title": "Subsystem lifecycle records",
+      "tier": "hard",
+      "artifact": "tests/tooling/subsystem_records.json",
+      "regenerate": "edit tests/tooling/subsystem_records.json, then make audit-subsystems",
+      "owning_pages": [
+        "64_Documentation_Extension_Framework"
+      ],
+      "dependent_pages": [
+        "62_Capability_Status_Vocabulary"
+      ],
+      "attested_digest": "sha256:120cda2b1241e10122f5d52e6c7ed237e3f1edb6998b06346927000844430825"
+    },
+    {
+      "id": "docs.page_types",
+      "title": "Page type assignments",
+      "tier": "hard",
+      "artifact": "tests/tooling/page_types.json",
+      "regenerate": "edit tests/tooling/page_types.json, then make audit-page-types",
+      "owning_pages": [
+        "63_Page_Type_Contract"
+      ],
+      "dependent_pages": [
+        "Documentation_Map"
+      ],
+      "attested_digest": "sha256:6a4685abaf8dd8ed5f780de8ec19450d4880685e62ecdfe9a93a19f95817c65e"
+    },
+    {
+      "id": "docs.contract_registry",
+      "title": "Invariant contract registry",
+      "tier": "hard",
+      "artifact": "tests/tooling/contract_registry.json",
+      "regenerate": "edit tests/tooling/contract_registry.json, then make audit-contracts",
+      "owning_pages": [
+        "71_Invariant_Contracts"
+      ],
+      "dependent_pages": [],
+      "attested_digest": "sha256:8e3fbb27776c552fa6c09824b4142e3e788cbf29ac9af24e93a30ba7ab09eadf"
+    },
+    {
+      "id": "run.containment_guard",
+      "title": "Run directory containment guard",
+      "tier": "soft",
+      "watched_paths": [
+        "picurv_cli/core.py",
+        "src/setup.c"
+      ],
+      "owning_pages": [
+        "71_Invariant_Contracts"
+      ],
+      "dependent_pages": [
+        "15_Config_Ingestion_Map",
+        "39_Common_Fatal_Errors",
+        "09_Monitor_Reference"
+      ],
+      "attested_digest": "sha256:baf21a9a18c17676fe5f080bb5e5f0e94c77b14c5bf9831f7a0d64dfa5e6046b",
+      "enforcement": "blocking",
+      "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
+    },
+    {
+      "id": "turbulence.les",
+      "title": "LES subgrid model implementation",
+      "tier": "soft",
+      "watched_paths": [
+        "src/les.c"
+      ],
+      "owning_pages": [
+        "07_Case_Reference"
+      ],
+      "dependent_pages": [
+        "21_Methods_Overview"
+      ],
+      "attested_digest": "sha256:03a6761c473374b790133b569cb32107ac768a796be98b092e87d252a7d9a1c3",
+      "note": "Both models are documented as defective. If this file changes, the defect disclosure is the first thing to re-check."
+    },
+    {
+      "id": "momentum.newton_krylov",
+      "title": "Newton-Krylov momentum solver implementation",
+      "tier": "soft",
+      "watched_paths": [
+        "src/momentum_newton_krylov.c"
+      ],
+      "owning_pages": [
+        "55_Newton_Krylov_Momentum_Solver"
+      ],
+      "dependent_pages": [
+        "08_Solver_Reference",
+        "31_Momentum_Solvers"
+      ],
+      "attested_digest": "unattested"
+    },
+    {
+      "id": "momentum.picard",
+      "title": "Dual-time Picard-Jameson implementation",
+      "tier": "soft",
+      "watched_paths": [
+        "src/momentumsolvers.c",
+        "src/solvers.c",
+        "src/runloop.c"
+      ],
+      "owning_pages": [
+        "24_Dual_Time_Picard_Jameson_RK"
+      ],
+      "dependent_pages": [
+        "31_Momentum_Solvers",
+        "23_Fractional_Step_Method"
+      ],
+      "attested_digest": "unattested"
+    },
+    {
+      "id": "particles.search",
+      "title": "Walking search and interpolation",
+      "tier": "soft",
+      "watched_paths": [
+        "src/walkingsearch.c",
+        "src/interpolation.c"
+      ],
+      "owning_pages": [
+        "26_Walking_Search_Method"
+      ],
+      "dependent_pages": [
+        "27_Trilinear_Interpolation_and_Projection",
+        "53_Search_Robustness_Metrics_Reference"
+      ],
+      "attested_digest": "unattested"
+    },
+    {
+      "id": "particles.motion",
+      "title": "Particle motion, physics, and swarm lifecycle",
+      "tier": "soft",
+      "watched_paths": [
+        "src/ParticleMotion.c",
+        "src/ParticlePhysics.c",
+        "src/ParticleSwarm.c"
+      ],
+      "owning_pages": [
+        "34_Particle_Model_Overview"
+      ],
+      "dependent_pages": [
+        "45_Particle_Initialization_and_Restart"
+      ],
+      "attested_digest": "unattested"
+    },
+    {
+      "id": "post.field_statistics",
+      "title": "Online field statistics implementation",
+      "tier": "soft",
+      "watched_paths": [
+        "src/statistics_accumulator.c",
+        "src/statistics_config.c",
+        "src/statistics_moments.c",
+        "src/statistics_target.c",
+        "src/statistics_window.c"
+      ],
+      "owning_pages": [
+        "58_Field_Statistics"
+      ],
+      "dependent_pages": [
+        "10_Post_Processing_Reference",
+        "09_Monitor_Reference"
+      ],
+      "attested_digest": "unattested"
+    },
+    {
+      "id": "boundary.system",
+      "title": "Boundary condition handlers and dispatch",
+      "tier": "soft",
+      "watched_paths": [
+        "src/BC_Handlers.c",
+        "src/Boundaries.c"
+      ],
+      "owning_pages": [
+        "44_Boundary_Conditions_Guide"
+      ],
+      "dependent_pages": [
+        "p54_geometric_periodic"
+      ],
+      "attested_digest": "unattested"
+    },
+    {
+      "id": "pressure.poisson",
+      "title": "Pressure Poisson solve",
+      "tier": "soft",
+      "watched_paths": [
+        "src/poisson.c"
+      ],
+      "owning_pages": [
+        "25_Pressure_Poisson_GMRES_Multigrid"
+      ],
+      "dependent_pages": [
+        "08_Solver_Reference"
+      ],
+      "attested_digest": "unattested"
+    },
+    {
+      "id": "initial.conditions",
+      "title": "Initial condition and analytical source implementation",
+      "tier": "soft",
+      "watched_paths": [
+        "src/initialcondition.c",
+        "src/AnalyticalSolutions.c"
+      ],
+      "owning_pages": [
+        "33_Initial_Conditions"
+      ],
+      "dependent_pages": [
+        "32_Analytical_Solutions"
+      ],
+      "attested_digest": "unattested"
+    }
+  ]
+}

@@ -40,16 +40,19 @@
     var banner = document.createElement("div");
     banner.id = "picurv-docs-revision-banner";
     banner.className = "picurv-docs-revision-banner";
+    // Provenance only: this banner reports what the build knows -- which commit the
+    // HTML was generated from.  It deliberately makes no claim about whether the
+    // prose was semantically reviewed; that is tracked separately per page.
     banner.appendChild(document.createTextNode(
-      revision.clean ? "Documentation is up to date through commit " :
-        "Documentation build includes uncommitted changes after commit "
+      revision.clean ? "Built from commit " :
+        "Built with uncommitted changes after commit "
     ));
     var link = document.createElement("a");
     link.href = revision.commit_url;
     link.textContent = revision.short_sha || revision.sha;
     link.title = revision.sha;
     banner.appendChild(link);
-    banner.appendChild(document.createTextNode(revision.clean ? "." : "; it is not commit-certified."));
+    banner.appendChild(document.createTextNode(revision.clean ? "." : "; the build is not reproducible from that commit alone."));
     // Doxygen renders its badge in `address.footer`.  Keep the revision claim
     // in that same footer so it reads as one coherent provenance row.
     var footer = document.querySelector("address.footer") || document.querySelector("footer") || document.body;

@@ -14,6 +14,12 @@
   --pic-nav-bg: #ffffff;
   --pic-code-bg: rgba(181, 9, 172, 0.06);
   --pic-code-border: rgba(181, 9, 172, 0.2);
+  /* Severity accents. Each is paired with Doxygen's own visible label text, so
+     severity is never communicated by colour alone. */
+  --pic-note: #2563eb;
+  --pic-warn: #b45309;
+  --pic-danger: #b91c1c;
+  --pic-ok: #15803d;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -26,6 +32,10 @@
     --pic-link-hover: #2a88a3;
     --pic-accent: #1f738a;
     --pic-accent-text: #0f2026;
+    --pic-note: #60a5fa;
+    --pic-warn: #fbbf24;
+    --pic-danger: #f87171;
+    --pic-ok: #4ade80;
     --pic-border: #424246;
     --pic-nav-bg: #212529;
     --pic-code-bg: #2c3237;
@@ -251,6 +261,17 @@ address.footer > small {
 }
 
 @media (max-width: 560px) {
+  /* The navigation tree costs more than it gives on a phone: hide it and let the
+     content use the full width, as this theme did before the tree was enabled. */
+  #side-nav,
+  #splitbar {
+    display: none !important;
+  }
+
+  #doc-content {
+    margin-left: 0 !important;
+  }
+
   address.footer {
     padding-right: 1rem;
   }
@@ -476,14 +497,6 @@ a.SelectItem:hover {
   text-shadow: none !important;
 }
 
-#side-nav,
-#splitbar {
-  display: none !important;
-}
-
-#doc-content {
-  margin-left: 0 !important;
-}
 
 .navpath ul,
 .navpath li,
@@ -551,4 +564,109 @@ html[data-theme="light"] .fieldtable tr.glow,
 html[data-theme="light"] .memitem.glow {
   background: rgba(181, 9, 172, 0.1) !important;
   box-shadow: 0 0 0 2px rgba(181, 9, 172, 0.14) inset !important;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Status and severity presentation
+   Doxygen renders @note/@warning/@attention as <dl class="section ...">, each
+   with its own visible label. We differentiate them with a left border rather
+   than a background wash so severity survives greyscale printing, and so the
+   label text remains the primary signal.
+   --------------------------------------------------------------------------- */
+
+dl.section.note,
+dl.section.warning,
+dl.section.attention,
+dl.section.remark {
+  border-left: 4px solid var(--pic-border) !important;
+  border-radius: 6px;
+  padding: 0.75rem 1rem !important;
+  margin: 1rem 0 !important;
+}
+
+dl.section.note { border-left-color: var(--pic-note) !important; }
+dl.section.warning { border-left-color: var(--pic-warn) !important; }
+dl.section.attention { border-left-color: var(--pic-danger) !important; }
+
+dl.section.note dt,
+dl.section.warning dt,
+dl.section.attention dt {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+dl.section.note dt { color: var(--pic-note) !important; }
+dl.section.warning dt { color: var(--pic-warn) !important; }
+dl.section.attention dt { color: var(--pic-danger) !important; }
+
+/* Wide tables scroll inside their own container; the page body must never
+   scroll horizontally. */
+div.contents table.markdownTable,
+div.contents table.doxtable {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+div.contents table.markdownTable th,
+div.contents table.doxtable th {
+  background: var(--pic-code-bg) !important;
+  color: var(--pic-text) !important;
+  border-color: var(--pic-border) !important;
+}
+
+div.contents table.markdownTable td,
+div.contents table.doxtable td {
+  border-color: var(--pic-border) !important;
+}
+
+/* Visible keyboard focus everywhere, not just on links. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+summary:focus-visible,
+#nav-tree a:focus-visible {
+  outline: 2px solid var(--pic-accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Diagrams scale down rather than forcing the page wide. */
+div.contents .dotgraph,
+div.contents .mscgraph,
+div.contents img[src$=".svg"] {
+  max-width: 100%;
+  height: auto;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Compact page-context header (@pagemeta)
+   Deliberately limited to three fields. A field whose value would read the same
+   on most pages belongs in the page body, not in this header.
+   --------------------------------------------------------------------------- */
+
+.pic-pagemeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin: 0 0 1.25rem 0;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--pic-accent);
+  border-radius: 6px;
+  background: var(--pic-code-bg);
+  font-size: 0.875rem;
+  color: var(--pic-text);
+}
+
+.pic-pagemeta-item b {
+  color: var(--pic-muted);
+  font-weight: 600;
+  margin-right: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.78em;
 }

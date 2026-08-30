@@ -16,8 +16,8 @@ This directory contains the C implementation for the solver, postprocessor, and 
   - files: `runloop.c`, `solvers.c`
   - APIs: `AdvanceSimulation`, `FlowSolver`, `UpdateSolverHistoryVectors`
 - momentum/rhs/pressure:
-  - files: `momentumsolvers.c`, `rhs.c`, `poisson.c`, `BodyForces.c`, `Filter.c`, `les.c`
-  - APIs: `MomentumSolver_DualTime_Picard_JamesonRK`, `ComputeRHS`, `PoissonSolver_MG`, `Projection`, `ComputeSmagorinskyConstant`
+  - files: `momentumsolvers.c`, `momentum_newton_krylov.c`, `rhs.c`, `poisson.c`, `BodyForces.c`, `Filter.c`, `les.c`
+  - APIs: `MomentumSolver_DualTime_Picard_JamesonRK`, `MomentumSolver_NewtonKrylov`, `ComputeRHS`, `PoissonSolver_MG`, `Projection`, `ComputeSmagorinskyConstant`
 - grid/metrics:
   - files: `grid.c`, `Metric.c`
   - APIs: `DefineAllGridDimensions`, `InitializeAllGridDMs`, `AssignAllGridCoordinates`, `CalculateAllGridMetrics`
@@ -46,7 +46,7 @@ This directory contains the C implementation for the solver, postprocessor, and 
 
 Practical tip:
 
-- when tracing a YAML key into C, start at generated `runs/<run_id>/config/*.control` and then follow `setup.c`/`io.c` option ingestion before jumping into physics kernels.
+- when tracing a YAML key into C, start at generated `<run.config>/*.control` and then follow `setup.c`/`io.c` option ingestion before jumping into physics kernels.
 
 ## Development Notes
 
@@ -87,5 +87,5 @@ When expanding docs, prefer module-level execution narratives plus targeted API 
 ## Related Docs
 
 - `include/guide.md`
-- https://vishalkandala.me/picurv-docs/13_Code_Architecture.html
-- https://vishalkandala.me/picurv-docs/21_Methods_Overview.html
+- https://vishalkandala.me/docs/picurv/13_Code_Architecture.html
+- https://vishalkandala.me/docs/picurv/21_Methods_Overview.html

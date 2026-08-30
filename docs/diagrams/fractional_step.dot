@@ -1,0 +1,22 @@
+digraph fractional_step {
+  rankdir=TB;
+  bgcolor="transparent";
+  node [shape=box, style="rounded,filled", fillcolor="#f4f4f6", color="#8a8a93",
+        fontname="Helvetica", fontsize=10, penwidth=1.2];
+  edge [color="#8a8a93", fontname="Helvetica", fontsize=9, penwidth=1.1];
+
+  start [label="State at t_n\nUcont, P, history", shape=ellipse, fillcolor="#e8eef8"];
+  rhs   [label="Assemble momentum RHS\nconvection + diffusion\n+ body forces"];
+  mom   [label="Momentum solve\n(selected momentum solver)\n-> intermediate velocity U*", fillcolor="#e8eef8"];
+  bc1   [label="Apply boundary conditions\nto U*"];
+  poi   [label="Pressure Poisson solve\ndiv(grad phi) = div(U*)/dt", fillcolor="#f0ecf6"];
+  proj  [label="Projection\nU^{n+1} = U* - dt grad(phi)\nP += phi", fillcolor="#f0ecf6"];
+  bc2   [label="Finalize\nghost/periodic synchronization\n(not a full physical-BC reapply)"];
+  done  [label="State at t_{n+1}\ndiv(U) ~ 0", shape=ellipse, fillcolor="#e6f2e6"];
+
+  start -> rhs -> mom -> bc1 -> poi -> proj -> bc2 -> done;
+  note [shape=note, fillcolor="#fdf6e3", fontsize=8,
+        label="The projection is what enforces\nincompressibility: the momentum solve\nalone does not produce a\ndivergence-free field."];
+  poi -> note [style=invis];
+  { rank=same; poi; note; }
+}

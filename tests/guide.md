@@ -38,12 +38,30 @@ is a test-local routine.
   - `make unit-simulation`
   - `make unit-mpi`
   - `make unit-periodic`
+  - `make unit-periodic-dev`
+- momentum solver suites:
+  - `make unit-newton-krylov`
+  - `make unit-momentum-candidates`
+  - `make unit-momentum-newton-boundary-fixedpoint`
+- field-statistics suites:
+  - `make unit-statistics`
+  - `make unit-statistics-target`
+  - `make unit-statistics-window`
+  - `make unit-statistics-accumulator`
+  - `make unit-statistics-config`
 - smoke/integration:
   - `make smoke`
   - `make smoke-mpi`
   - `make smoke-mpi-matrix`
   - `make smoke-stress`
   - `make smoke-periodic`
+  - `make smoke-periodic-dev`
+  - `make smoke-driven-periodic`
+- documentation gates:
+  - `make audit-ingress`
+  - `make audit-docs-expansion`
+  - `make certify-docs-fast`
+  - `make certify-docs`
 - aggregate gates:
   - `make check`
   - `make check-mpi`
@@ -105,6 +123,9 @@ is a test-local routine.
 - `test_poisson_rhs.c`: pressure update, RHS, projection, body-force and diffusivity helpers
 - `test_runtime_kernels.c`: setup/runloop/particle/interpolation/scatter/wall/walltime-guard/LES helper contracts
 - `test_mpi_kernels.c`: multi-rank particle distribution, bbox collectives, and restart migration behavior
+- `test_momentum_newton_krylov.c`: matrix-free Newton-Krylov momentum callbacks and helper contracts
+- `test_momentum_convective_candidates.c`: finite-difference Jacobian study of the production convection-only residual
+- `test_momentum_newton_boundary_fixedpoint.c`: opt-in regression for the Newton-Krylov Cartesian-seed correction on a production-sized straight duct
 - shared fixture layer:
   - `test_support.c`
   - `test_support.h`
@@ -213,5 +234,5 @@ Useful env knobs:
 
 ## Authoritative Docs
 
-- https://vishalkandala.me/picurv-docs/40_Testing_and_Quality_Guide.html
-- https://vishalkandala.me/picurv-docs/51_C_Test_Suite_Developer_Guide.html
+- https://vishalkandala.me/docs/picurv/40_Testing_and_Quality_Guide.html
+- https://vishalkandala.me/docs/picurv/51_C_Test_Suite_Developer_Guide.html
