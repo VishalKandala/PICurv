@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 512" width="100%" height="100%">
+  <defs>
+    <style>
+      .grid-line {
+        fill: none;
+        stroke: #f8fafc;
+        stroke-width: 2.5;
+        opacity: 0.18;
+        stroke-linecap: round;
+      }
+      .dual-cell {
+        fill: rgba(239, 68, 68, 0.04);
+        stroke: #ef4444;
+        stroke-width: 2.5;
+        stroke-dasharray: 6 6;
+      }
+      .avg-circle {
+        fill: rgba(239, 68, 68, 0.12);
+        stroke: #ef4444;
+        stroke-width: 2.0;
+        stroke-dasharray: 4 4;
+      }
+      .center-dot {
+        fill: #ef4444;
+      }
+      .connector-line {
+        fill: none;
+        stroke: rgba(248, 250, 252, 0.35);
+        stroke-width: 1.5;
+        stroke-dasharray: 3 3;
+      }
+      .particle-main {
+        fill: #f8fafc;
+      }
+      .particle-passive {
+        fill: #f8fafc;
+        opacity: 0.8;
+      }
+    </style>
+  </defs>
+
+  <!-- BACKGROUND: Transparent -->
+  <rect width="100%" height="100%" fill="none" />
+
+  <!-- 4x3 Coordinate Grid centered on (500, 256) -->
+  <!-- Matches the config facecard footprint: x=40..960 and y=80..432. -->
+  <g>
+    <!-- Vertical grid lines -->
+    <line class="grid-line" x1="40" y1="80" x2="40" y2="432" />
+    <line class="grid-line" x1="270" y1="80" x2="270" y2="432" />
+    <line class="grid-line" x1="500" y1="80" x2="500" y2="432" />
+    <line class="grid-line" x1="730" y1="80" x2="730" y2="432" />
+    <line class="grid-line" x1="960" y1="80" x2="960" y2="432" />
+
+    <!-- Horizontal grid lines -->
+    <line class="grid-line" x1="40" y1="80" x2="960" y2="80" />
+    <line class="grid-line" x1="40" y1="197.3" x2="960" y2="197.3" />
+    <line class="grid-line" x1="40" y1="314.7" x2="960" y2="314.7" />
+    <line class="grid-line" x1="40" y1="432" x2="960" y2="432" />
+  </g>
+
+  <!-- LEFT MECHANISM: Interpolation / Gather in Red Dual Cell -->
+  <!-- Formed by centers of four cells in the two left grid columns. -->
+  <g>
+    <!-- Red Dual Cell Area -->
+    <rect class="dual-cell" x="155" y="138.7" width="230" height="117.3" rx="4" />
+
+    <!-- Interpolation dashed lines from cell centers to particle -->
+    <line class="connector-line" x1="155" y1="138.7" x2="222.1" y2="171.9" />
+    <line class="connector-line" x1="385" y1="138.7" x2="222.1" y2="171.9" />
+    <line class="connector-line" x1="155" y1="256" x2="222.1" y2="171.9" />
+    <line class="connector-line" x1="385" y1="256" x2="222.1" y2="171.9" />
+
+    <!-- Red Cell Centers -->
+    <circle class="center-dot" cx="155" cy="138.7" r="6" />
+    <circle class="center-dot" cx="385" cy="138.7" r="6" />
+    <circle class="center-dot" cx="155" cy="256" r="6" />
+    <circle class="center-dot" cx="385" cy="256" r="6" />
+
+    <!-- Small white particle inside top-left quadrant of the red cell -->
+    <circle class="particle-main" cx="222.1" cy="171.9" r="10" />
+  </g>
+
+  <!-- RIGHT MECHANISM: Particle-to-Cell Averaging / Scatter -->
+  <!-- Averaging mechanism in the lower third grid column. -->
+  <g>
+    <!-- Elliptical influence area follows the wider cell geometry. -->
+    <ellipse class="avg-circle" cx="615" cy="373.3" rx="96" ry="49" />
+
+    <!-- Red Cell Center -->
+    <circle class="center-dot" cx="615" cy="373.3" r="6" />
+
+    <!-- Multiple small particles inside the averaging circle -->
+    <circle class="particle-main" cx="567.1" cy="357.7" r="7" />
+    <circle class="particle-main" cx="653.3" cy="347.9" r="8" />
+    <circle class="particle-main" cx="595.8" cy="401.7" r="7" />
+    <circle class="particle-main" cx="662.9" cy="387" r="6" />
+  </g>
+
+  <!-- AESTHETIC BACKGROUND PARTICLES: Low-opacity passive swarm -->
+  <g>
+    <!-- Scattered in unused grid parts -->
+    <circle class="particle-passive" cx="615" cy="138.7" r="6" />
+    <circle class="particle-passive" cx="500" cy="220.8" r="5" />
+    <circle class="particle-passive" cx="155" cy="373.3" r="7" />
+    <circle class="particle-passive" cx="327.5" cy="347.9" r="5" />
+    <!-- Added fourth-column particle cluster. -->
+    <circle class="particle-main" cx="835.4" cy="144.5" r="8" />
+    <circle class="particle-passive" cx="902.5" cy="226.7" r="6" />
+    <circle class="particle-main" cx="802.8" cy="285.3" r="7" />
+    <circle class="particle-passive" cx="879.5" cy="379.2" r="8" />
+  </g>
+</svg>

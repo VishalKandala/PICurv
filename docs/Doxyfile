@@ -52,8 +52,16 @@ GENERATE_HTML          = YES
 HTML_OUTPUT            = html
 HTML_DYNAMIC_MENUS     = YES
 SEARCHENGINE           = YES
+DISABLE_INDEX          = YES
 HTML_EXTRA_STYLESHEET  = docs/custom.css
-HTML_EXTRA_FILES       = docs/theme-sync.js
+HTML_EXTRA_FILES       = docs/theme-sync.js \
+                         docs/assets/paraview_flat_channel.png \
+                         docs/assets/picurv-mark-dark.svg \
+                         docs/assets/picurv-banner.svg \
+                         docs/assets/picurv-wordmark.svg \
+                         docs/assets/pic-facecard.svg \
+                         docs/assets/config-facecard.svg \
+                         docs/assets/hpc-facecard.svg
 IMAGE_PATH             = docs/assets docs
 VERBATIM_HEADERS      = YES
 #------------------------- LaTeX/PDF (optional) ------------
@@ -72,7 +80,7 @@ MACRO_EXPANSION        = YES
 EXPAND_ONLY_PREDEF     = NO
 ALIASES                = "pagebreak=^^<hr/>" \
                          "pagemeta{3}=@htmlonly<div class=\"pic-pagemeta\"><span class=\"pic-pagemeta-item\"><b>Type</b> \1</span><span class=\"pic-pagemeta-item\"><b>For</b> \2</span><span class=\"pic-pagemeta-item\"><b>Status</b> \3</span></div>@endhtmlonly"
-GENERATE_TREEVIEW      = YES
+GENERATE_TREEVIEW      = NO
 FULL_PATH_NAMES        = NO
 
 #------------------------- Tag/Graphs Cache ----------------

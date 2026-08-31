@@ -1,162 +1,210 @@
-@page 41_Getting_Started_Index Getting Started
+@page 41_Getting_Started_Index Quick Start
 
 @anchor _Getting_Started_Index
+@anchor p41_quicklook_sec
 
-@pagemeta{Tutorial, New users, Verified end to end}
+@pagemeta{Tutorial, New users, Current workflow}
 
-This is the fastest reliable path from a fresh clone to a finished run. It is
-ordered to minimize first-run failure: build first, run a known-good case, then
-inspect what it produced. PICurv's YAML files are modular by design, so the goal
-is to learn to recombine profiles rather than to write one large configuration
-per run.
-
-Work through it in one pass. When you want deeper explanation of any step, the
-full walkthrough is **@subpage 02_Tutorial_Programmatic_Grid**.
-
-@note **Verification status.** Every command on this page has been executed against
-current `main`, including the full solve-and-post path, which completed in about ten
-seconds on a debug build and produced the visualization file named in section 6. It is
-not yet gated by CI, so it is verified-by-execution rather than continuously enforced.
+@htmlonly
+<header class="pic-quickstart-intro">
+  <span class="pic-eyebrow">Manual · Quick Start</span>
+  <p class="pic-quickstart-lead">Run a complete PICurv simulation, post-process it,
+  and inspect the resulting velocity field.</p>
+  <ul class="pic-quickstart-facts" aria-label="Quick Start facts">
+    <li>20 timesteps</li>
+    <li>2 MPI ranks</li>
+    <li>Programmatic grid</li>
+  </ul>
+</header>
+@endhtmlonly
 
 @tableofcontents
 
-@section p41_prereq_sec 1. Prerequisites
+@section p41_prereq_sec Before you start
 
-You need:
+PICurv must be built with an MPI runtime available. Load the project environment:
 
-- PETSc configured, with `PETSC_DIR` set. `PETSC_ARCH` is required only for old-style
-  in-tree PETSc builds; prefix installs do not use it.
-- an MPI runtime,
-- **Python 3.10 or newer** if you use the managed CLI bootstrap
-  (`bootstrap_install.sh` prefers 3.12/3.11/3.10). The repository tooling itself runs
-  on 3.8, but the bootstrap path expects a newer interpreter.
-
-If any of these are missing, work through **@subpage 01_Installation** first and
-return here.
-
-@section p41_build_sec 2. Build
-
-From the repository root:
-
+@htmlonly
+<div class="pic-command-block" data-label="Terminal">
+@endhtmlonly
 ```bash
-./picurv_cli/picurv build
-source etc/picurv.sh
+source <repo>/etc/picurv.sh
+picurv --help
 ```
+@htmlonly
+</div>
+@endhtmlonly
 
-The first command builds `bin/simulator` and `bin/postprocessor`, and creates
-`bin/picurv` as a launcher. The second puts `bin/` on your PATH, exports the
-managed CLI Python when bootstrap created one, and exposes `picurv_cli/` as a
-fallback so `picurv` works from any directory even before the launcher is
-rebuilt. Add the `source` line to your shell profile to make it permanent.
+If `picurv --help` fails, complete the @ref 01_Installation "Installation guide".
+Run the remaining commands from the workspace where the new case should live.
 
-The build stream is written to `<repo>/logs/build.log`. If the build fails, return to
-**@subpage 01_Installation** and verify the PETSc/MPI toolchain.
+@section p41_init_sec 1. Create a case
 
-@section p41_init_sec 3. Create a case
+Initialize the checked-in flat-channel template and enter the new case directory:
 
+@htmlonly
+<div class="pic-command-block" data-label="Terminal">
+@endhtmlonly
 ```bash
-./bin/picurv init flat_channel --dest my_case
+picurv init flat_channel --dest my-first-run
+cd my-first-run
 ```
+@htmlonly
+</div>
+@endhtmlonly
 
-You should get:
+A successful initialization ends with:
+
+@htmlonly
+<pre class="pic-terminal-output" aria-label="Successful initialization output"><code>[SUCCESS] Case directory is ready.
+          Runtime binaries (simulator, postprocessor) are resolved from bin/ automatically.</code></pre>
+@endhtmlonly
+
+This run uses four profiles:
+
+@htmlonly
+<div class="pic-profile-grid" aria-label="The four configuration profiles used by this Quick Start">
+  <article class="pic-profile-card">
+    <span>Case</span>
+    <code>quickstart_flat_channel.yml</code>
+    <p>Grid and physics.</p>
+  </article>
+  <article class="pic-profile-card">
+    <span>Solver</span>
+    <code>Imp-MG-Standard.yml</code>
+    <p>Numerical methods.</p>
+  </article>
+  <article class="pic-profile-card">
+    <span>Monitor</span>
+    <code>quickstart_Standard_Output.yml</code>
+    <p>Logs and checkpoints.</p>
+  </article>
+  <article class="pic-profile-card">
+    <span>Post-process</span>
+    <code>quickstart_standard_analysis.yml</code>
+    <p>VTK output.</p>
+  </article>
+</div>
+@endhtmlonly
+
+@section p41_validate_sec 2. Validate the configuration
+
+Check the four profiles together:
+
+@htmlonly
+<div class="pic-command-block" data-label="Terminal">
+@endhtmlonly
+```bash
+picurv validate \
+  --case quickstart_flat_channel.yml \
+  --solver Imp-MG-Standard.yml \
+  --monitor quickstart_Standard_Output.yml \
+  --post quickstart_standard_analysis.yml
+```
+@htmlonly
+</div>
+@endhtmlonly
+
+The final line is:
+
+@htmlonly
+<pre class="pic-terminal-output" aria-label="Successful validation output"><code>[SUCCESS] Validation completed for 5 file(s).</code></pre>
+@endhtmlonly
+
+@section p41_run_sec 3. Run the solver and postprocessor
+
+Launch the 20-step case on two MPI ranks and post-process its final checkpoint:
+
+@htmlonly
+<div class="pic-command-block" data-label="Terminal">
+@endhtmlonly
+```bash
+picurv run --solve --post-process -n 2 \
+  --case quickstart_flat_channel.yml \
+  --solver Imp-MG-Standard.yml \
+  --monitor quickstart_Standard_Output.yml \
+  --post quickstart_standard_analysis.yml
+```
+@htmlonly
+</div>
+@endhtmlonly
+
+The quickstart grid contains `9 x 9 x 17` cells. A completed run ends with:
+
+@htmlonly
+<pre class="pic-terminal-output" aria-label="Abbreviated successful run output"><code>[INFO] Created new self-contained run directory:
+       runs/quickstart_flat_channel_&lt;timestamp&gt;
+
+Progress: [==================================================] 100% (Step 20/20)
+[SUCCESS] Execution finished successfully.
+
+RUN SUMMARY
+  Stages          : solve, post-process
+  Solver MPI procs: 2
+  Post MPI procs  : 2
+  Steps run       : 20
+  Post output     : runs/quickstart_flat_channel_&lt;timestamp&gt;/visualization/standard_analysis</code></pre>
+@endhtmlonly
+
+@section p41_result_sec 4. View the result
+
+The postprocessor writes one VTK structured-grid file for the final step:
 
 ```text
-my_case/
-|- flat_channel.yml
-|- Imp-MG-Standard.yml
-|- Standard_Output.yml
-`- standard_analysis.yml
+runs/quickstart_flat_channel_<timestamp>/visualization/standard_analysis/eulerian_data_00020.vts
 ```
 
-Those four files are the four runtime roles: case physics and grid, solver
-numerics, monitor and logging controls, and the post-processing pipeline. Runtime
-binaries are resolved from `bin/` through your PATH, which is what sourcing
-`etc/picurv.sh` set up.
+Open the file in ParaView, add a `Slice`, and color it by `Ucat_nodal`:
 
-@section p41_validate_sec 4. Validate before running
+@htmlonly
+<figure class="pic-result-figure">
+  <img src="paraview_flat_channel.png" alt="Velocity-field slice from the PICurv flat-channel Quick Start in ParaView" />
+  <figcaption>Velocity in the flat-channel Quick Start after nodal averaging at step 20.</figcaption>
+</figure>
+@endhtmlonly
 
-```bash
-./bin/picurv validate \
-  --case my_case/quickstart_flat_channel.yml \
-  --solver my_case/Imp-MG-Standard.yml \
-  --monitor my_case/quickstart_Standard_Output.yml \
-  --post my_case/quickstart_standard_analysis.yml
-```
+Use the @ref 04_Visualization_Tutorial "Visualization tutorial" for the complete ParaView workflow and
+other output fields.
 
-Validation catches schema and contract errors before any compute is spent, and
-reports them with the offending key and file. To preview the launch without
-executing anything, add `--dry-run` to the `run` command below; it prints the
-resolved commands and the artifacts the run would produce.
+@section p41_understand_sec How the run flows
 
-@section p41_run_sec 5. Run
+PICurv validates the four profiles and materializes a self-contained run:
 
-```bash
-./bin/picurv run --solve --post-process -n 2 \
-  --case my_case/quickstart_flat_channel.yml \
-  --solver my_case/Imp-MG-Standard.yml \
-  --monitor my_case/quickstart_Standard_Output.yml \
-  --post my_case/quickstart_standard_analysis.yml
-```
+@htmlonly
+<ol class="pic-run-pipeline" aria-label="Quick Start execution pipeline">
+  <li>YAML profiles</li>
+  <li>Validated controls</li>
+  <li>MPI solver</li>
+  <li>Checkpoint</li>
+  <li>Postprocessor</li>
+  <li>VTK output</li>
+</ol>
+@endhtmlonly
 
-The `quickstart_*` files are a deliberately small variant: a 9x9x17 grid over 20
-timesteps, which completes **solve and post-processing in about ten seconds** even in
-a PETSc debug build. The unprefixed `flat_channel.yml` files are the full case - a
-25x25x97 grid over 1000 steps - and take substantially longer in a debug build.
+For a failed command or incomplete run, use @ref 67_Troubleshooting "Troubleshooting".
 
-This validates and normalizes the configuration, writes the generated control
-artifacts, launches the solver, then launches the postprocessor.
+@section p41_next_sec Where to go next
 
-@section p41_check_sec 6. Confirm it worked
+@htmlonly
+<nav class="pic-next-cards" aria-label="Recommended next documentation">
+  <a href="14_Config_Contract.html">
+    <span>Understand the configuration</span>
+    <strong>Learn how the four YAML roles fit together.</strong>
+  </a>
+  <a href="70_Case_Design_Guide.html">
+    <span>Build your own case</span>
+    <strong>Choose the grid, physics, boundaries, and solver.</strong>
+  </a>
+  <a href="03_Tutorial_File-Based_Grid.html">
+    <span>Explore a curved domain</span>
+    <strong>Run the file-based bent-channel tutorial.</strong>
+  </a>
+</nav>
 
-Look for:
-
-- `<run.config>/` - generated runtime control artifacts, including `<run_id>.control`,
-- `<run.runtime_logs>/` - solver runtime logs,
-- `<run.scheduler>/` - the solver and postprocessor **stream** logs,
-- `<run.solver_output>/checkpoints/` - committed checkpoint bundles,
-- `<run.visualization>/standard_analysis/` - the VTK output.
-
-The quickstart writes exactly one visualization file:
-
-```text
-<run>/visualization/standard_analysis/eulerian_data_00020.vts
-```
-
-A quick visual check in ParaView: open that file, add a `Slice`, and colour by
-`Ucat_nodal`. **@subpage 04_Visualization_Tutorial** covers this properly.
-
-@note The post recipe targets a specific step. `quickstart_standard_analysis.yml`
-targets step 20 to match the quickstart run; the full `standard_analysis.yml` targets
-step 1000. A recipe asking for a step the run never reached is skipped with
-"first requested source step ... is incomplete", and no visualization is written.
-
-If something failed, **@subpage 39_Common_Fatal_Errors** maps common first-run
-failures to corrective actions.
-
-@section p41_path_sec 7. Recommended read order
-
-Once the run above succeeds:
-
-1. **@subpage 02_Tutorial_Programmatic_Grid** - the same path with full
-   explanation and artifact inspection.
-2. **@subpage 03_Tutorial_File-Based_Grid** - using an externally supplied grid.
-3. **@subpage 04_Visualization_Tutorial** - getting meaningful pictures out.
-4. **@subpage 05_The_Conductor_Script** - the command and option model.
-5. **@subpage 49_Workflow_Recipes_and_Config_Cookbook** - recombining profiles.
-
-@section p41_outputs_sec 8. What you should be able to do next
-
-- Build `bin/simulator` and `bin/postprocessor`.
-- Generate valid runtime control artifacts from YAML.
-- Execute `run --solve --post-process` locally.
-- Inspect VTK output in ParaView.
-- Recombine `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` intentionally.
-- Map a first-run failure to a corrective action.
-
-@section p41_next_sec 9. Where to go next
-
-- Authoring your own runs: **@subpage 42_User_Guide_Index**
-- Grid generation and `grid.mode: grid_gen`: **@subpage 48_Grid_Generator_Guide**
-- Running on a cluster, restarting, and reusing runs: **@subpage 52_Run_Lifecycle_Guide**
-- CI and smoke-test contract: **@subpage 40_Testing_and_Quality_Guide**
-- Full page index: **@subpage Documentation_Map**
+<nav class="pic-page-pager" aria-label="Manual page navigation">
+  <a class="pic-page-pager-next" href="06_Simulation_Anatomy.html">
+    <span>Next</span>
+    <strong>Simulation Anatomy →</strong>
+  </a>
+</nav>
+@endhtmlonly
