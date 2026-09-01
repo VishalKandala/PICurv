@@ -7,15 +7,52 @@
 
 @htmlonly
 <header class="pic-quickstart-intro">
-  <span class="pic-eyebrow">Manual · Quick Start</span>
-  <p class="pic-quickstart-lead">Run a complete PICurv simulation, post-process it,
-  and inspect the resulting velocity field.</p>
-  <ul class="pic-quickstart-facts" aria-label="Quick Start facts">
-    <li>20 timesteps</li>
-    <li>2 MPI ranks</li>
-    <li>Programmatic grid</li>
-  </ul>
+  <div class="pic-quickstart-stage">
+    <img src="paraview_flat_channel.png" alt="Cropped preview of the flat-channel velocity field produced by this Quick Start" />
+    <div class="pic-quickstart-copy">
+      <span class="pic-eyebrow">Quick Start</span>
+      <h1>Your first simulation.</h1>
+      <p class="pic-quickstart-lead">Create, validate, run, and inspect a complete
+      PICurv case from a clean workspace.</p>
+      <nav class="pic-quickstart-actions" aria-label="Quick Start shortcuts">
+        <a class="pic-button pic-button-primary" href="#p41_prereq_sec">Start the walkthrough</a>
+        <a class="pic-text-link" href="#p41_result_sec">Preview the result <span aria-hidden="true">↓</span></a>
+      </nav>
+    </div>
+    <p class="pic-preview-label">Cropped preview · <strong>Ucat_nodal</strong> at step 20</p>
+  </div>
+  <div class="pic-quickstart-context" aria-label="Simulation overview">
+    <article>
+      <span class="pic-context-label">The case</span>
+      <h2>Laminar flat-channel flow</h2>
+      <p>Flow at <strong>Re = 200</strong> moves through a straight rectangular channel with no-slip walls, a constant-velocity inlet, and a conservative outlet.</p>
+      <dl class="pic-case-facts">
+        <div><dt>9 × 9 × 17</dt><dd>grid cells</dd></div>
+        <div><dt>20</dt><dd>timesteps</dd></div>
+        <div><dt>2</dt><dd>MPI ranks</dd></div>
+      </dl>
+    </article>
+    <article>
+      <span class="pic-context-label">The solver</span>
+      <h2>Dual-time + multigrid</h2>
+      <p>Dual-time Picard–Jameson RK advances momentum. FGMRES with a three-level geometric-multigrid preconditioner solves the pressure correction.</p>
+      <a href="08_Solver_Reference.html">Explore the solver reference <span aria-hidden="true">→</span></a>
+    </article>
+  </div>
 </header>
+
+<section class="pic-quickstart-route" aria-labelledby="pic-quickstart-route-title">
+  <header>
+    <span class="pic-eyebrow">The route</span>
+    <h2 id="pic-quickstart-route-title">One case. Four clear moves.</h2>
+  </header>
+  <nav aria-label="Quick Start steps">
+    <a href="#p41_init_sec"><b>01</b><span><strong>Create</strong><small>Copy the starter case</small></span></a>
+    <a href="#p41_validate_sec"><b>02</b><span><strong>Validate</strong><small>Check every profile</small></span></a>
+    <a href="#p41_run_sec"><b>03</b><span><strong>Run</strong><small>Solve and post-process</small></span></a>
+    <a href="#p41_result_sec"><b>04</b><span><strong>Inspect</strong><small>Open the VTK result</small></span></a>
+  </nav>
+</section>
 @endhtmlonly
 
 @tableofcontents
@@ -166,20 +203,26 @@ Open the file in ParaView, add a `Slice`, and color it by `Ucat_nodal`:
 Use the @ref 04_Visualization_Tutorial "Visualization tutorial" for the complete ParaView workflow and
 other output fields.
 
-@section p41_understand_sec How the run flows
+@section p41_understand_sec The pattern behind every simulation
 
-PICurv validates the four profiles and materializes a self-contained run:
+This Quick Start is deliberately small, but it does not use a special execution path.
+Every PICurv simulation follows the same workflow: define its case and supporting profiles,
+validate them together, materialize a self-contained run, execute the MPI solver, and
+post-process checkpoints into analysis-ready output.
 
 @htmlonly
-<ol class="pic-run-pipeline" aria-label="Quick Start execution pipeline">
-  <li>YAML profiles</li>
-  <li>Validated controls</li>
-  <li>MPI solver</li>
-  <li>Checkpoint</li>
-  <li>Postprocessor</li>
-  <li>VTK output</li>
+<ol class="pic-run-pipeline" aria-label="PICurv simulation workflow">
+  <li>Define profiles</li>
+  <li>Validate controls</li>
+  <li>Self-contained run</li>
+  <li>MPI solve</li>
+  <li>Write checkpoints</li>
+  <li>Post-process outputs</li>
 </ol>
 @endhtmlonly
+
+The grid, physics, solver, monitoring, and analysis choices can change from one case to
+another; this simulation workflow stays the same.
 
 For a failed command or incomplete run, use @ref 67_Troubleshooting "Troubleshooting".
 

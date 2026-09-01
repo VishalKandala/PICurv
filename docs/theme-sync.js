@@ -97,7 +97,7 @@
     menus.className = "pic-topbar-menus";
     var groups = [
       ["Manual", [
-        ["Quickstart", "41_Getting_Started_Index.html#p41_quicklook_sec"],
+        ["Quick Start", "41_Getting_Started_Index.html#p41_quicklook_sec"],
         ["Installation", "01_Installation.html"],
         ["User Guide", "42_User_Guide_Index.html"],
         ["Configuration Reference", "14_Config_Contract.html"],
@@ -283,6 +283,9 @@
     if (page === "41_Getting_Started_Index.html") {
       document.body.classList.add("pic-manual-page", "pic-quick-start-page");
     }
+    if (page === "01_Installation.html") {
+      document.body.classList.add("pic-manual-page", "pic-installation-page");
+    }
   }
 
   function buildLinkList(className, label, links) {
@@ -312,10 +315,136 @@
     return details;
   }
 
-  // Page 41 is the pilot for the manual-page shell. Keep the navigation data
-  // local until the remaining manual pages adopt the same template.
+  // The redesigned entry pages share one manual shell and navigation model.
+  function decorateQuickStartSections(contents) {
+    var headings = Array.prototype.slice.call(contents.querySelectorAll(".textblock > h1"));
+    for (var i = 0; i < headings.length; i += 1) {
+      var heading = headings[i];
+      var nextHeading = headings[i + 1] || null;
+      var anchor = heading.querySelector("a.anchor[id]");
+      var title = heading.textContent.replace(/\s+/g, " ").trim();
+      var stepMatch = title.match(/^([1-4])\.\s*(.+)$/);
+      var section = document.createElement("section");
+      section.className = "pic-quickstart-section";
+      if (anchor) section.setAttribute("data-section", anchor.id);
+
+      if (stepMatch) {
+        section.classList.add("pic-quickstart-section--step");
+        section.setAttribute("data-step", ("0" + stepMatch[1]).slice(-2));
+        heading.setAttribute("data-step", ("0" + stepMatch[1]).slice(-2));
+        heading.setAttribute("aria-label", "Step " + stepMatch[1] + ": " + stepMatch[2]);
+        for (var j = 0; j < heading.childNodes.length; j += 1) {
+          if (heading.childNodes[j].nodeType === 3) {
+            heading.childNodes[j].textContent = heading.childNodes[j].textContent.replace(
+              /^\s*[1-4]\.\s*/, ""
+            );
+          }
+        }
+      } else {
+        section.classList.add("pic-quickstart-section--support");
+      }
+
+      heading.parentNode.insertBefore(section, heading);
+      var node = heading;
+      while (node && node !== nextHeading) {
+        var nextNode = node.nextSibling;
+        section.appendChild(node);
+        node = nextNode;
+      }
+    }
+  }
+
+  function decorateInstallationSections(contents) {
+    var headings = Array.prototype.slice.call(contents.querySelectorAll(".textblock > h1"));
+    for (var i = 0; i < headings.length; i += 1) {
+      var heading = headings[i];
+      var nextHeading = headings[i + 1] || null;
+      var anchor = heading.querySelector("a.anchor[id]");
+      var title = heading.textContent.replace(/\s+/g, " ").trim();
+      var stepMatch = title.match(/^(\d+)\.\s*(.+)$/);
+      var section = document.createElement("section");
+      section.className = "pic-install-section";
+      if (anchor) section.setAttribute("data-section", anchor.id);
+
+      if (stepMatch) {
+        var step = ("0" + stepMatch[1]).slice(-2);
+        section.setAttribute("data-step", step);
+        heading.setAttribute("aria-label", "Step " + stepMatch[1] + ": " + stepMatch[2]);
+        for (var j = 0; j < heading.childNodes.length; j += 1) {
+          if (heading.childNodes[j].nodeType === 3) {
+            heading.childNodes[j].textContent = heading.childNodes[j].textContent.replace(
+              /^\s*\d+\.\s*/, ""
+            );
+          }
+        }
+      }
+
+      if (anchor && anchor.id === "p01_automated_sec") {
+        section.classList.add("pic-install-section--featured");
+      }
+      if (anchor && anchor.id === "p01_verify_sec") {
+        section.classList.add("pic-install-section--verify");
+      }
+      if (anchor && anchor.id === "p01_common_sec") {
+        section.classList.add("pic-install-section--failures");
+      }
+      if (anchor && anchor.id === "p01_next_steps_sec") {
+        section.classList.add("pic-install-section--next");
+      }
+
+      heading.parentNode.insertBefore(section, heading);
+      var node = heading;
+      while (node && node !== nextHeading) {
+        var nextNode = node.nextSibling;
+        section.appendChild(node);
+        node = nextNode;
+      }
+    }
+
+    var fragments = contents.querySelectorAll(".pic-install-section .fragment");
+    for (var k = 0; k < fragments.length; k += 1) {
+      var fragment = fragments[k];
+      if (fragment.parentNode.classList.contains("pic-command-block")) continue;
+      var command = document.createElement("div");
+      command.className = "pic-command-block";
+      command.setAttribute("data-label", "Terminal");
+      fragment.parentNode.insertBefore(command, fragment);
+      command.appendChild(fragment);
+    }
+  }
+
+  function trackQuickStartSections() {
+    if (!("IntersectionObserver" in window)) return;
+    var sections = document.querySelectorAll(
+      ".pic-quickstart-section[data-section], .pic-install-section[data-section]"
+    );
+    var links = document.querySelectorAll(".pic-onpage-links a, .pic-onpage-mobile-links a");
+    if (!sections.length || !links.length) return;
+
+    function setCurrent(sectionId) {
+      for (var i = 0; i < links.length; i += 1) {
+        var current = links[i].getAttribute("href") === "#" + sectionId;
+        links[i].classList.toggle("is-active", current);
+        if (current) links[i].setAttribute("aria-current", "location");
+        else links[i].removeAttribute("aria-current");
+      }
+    }
+
+    var observer = new IntersectionObserver(function (entries) {
+      var visible = entries.filter(function (entry) { return entry.isIntersecting; });
+      if (!visible.length) return;
+      visible.sort(function (a, b) { return a.boundingClientRect.top - b.boundingClientRect.top; });
+      setCurrent(visible[0].target.getAttribute("data-section"));
+    }, { rootMargin: "-18% 0px -68% 0px", threshold: 0 });
+
+    for (var i = 0; i < sections.length; i += 1) observer.observe(sections[i]);
+  }
+
   function addQuickStartShell() {
-    if (currentPageName() !== "41_Getting_Started_Index.html") return;
+    var page = currentPageName();
+    var isQuickStart = page === "41_Getting_Started_Index.html";
+    var isInstallation = page === "01_Installation.html";
+    if (!isQuickStart && !isInstallation) return;
     if (document.querySelector(".pic-doc-shell")) return;
 
     var pageDoc = document.querySelector(".PageDoc");
@@ -325,8 +454,8 @@
     if (!pageHeader || !contents) return;
 
     var manualLinks = [
-      ["Quick Start", "41_Getting_Started_Index.html", true],
-      ["Installation", "01_Installation.html"],
+      ["Quick Start", "41_Getting_Started_Index.html", isQuickStart],
+      ["Installation", "01_Installation.html", isInstallation],
       ["Simulation Anatomy", "06_Simulation_Anatomy.html"],
       ["Configuration Model", "14_Config_Contract.html"],
       ["Case Design", "70_Case_Design_Guide.html"],
@@ -345,8 +474,11 @@
       if (!anchor) continue;
       var title = headings[i].textContent.replace(/\s+/g, " ").trim();
       sectionLinks.push([title, "#" + anchor.id]);
-      if (/^[1-4]\.\s/.test(title)) headings[i].classList.add("pic-numbered-step");
+      if (isQuickStart && /^[1-4]\.\s/.test(title)) headings[i].classList.add("pic-numbered-step");
     }
+
+    if (isQuickStart) decorateQuickStartSections(contents);
+    if (isInstallation) decorateInstallationSections(contents);
 
     var shell = document.createElement("div");
     shell.className = "pic-doc-shell";
@@ -385,6 +517,7 @@
     shell.appendChild(article);
     shell.appendChild(onPageAside);
     pageDoc.appendChild(shell);
+    trackQuickStartSections();
   }
 
   function copyText(value) {
@@ -410,7 +543,8 @@
   }
 
   function addQuickStartCopyButtons() {
-    if (currentPageName() !== "41_Getting_Started_Index.html") return;
+    var page = currentPageName();
+    if (page !== "41_Getting_Started_Index.html" && page !== "01_Installation.html") return;
     var blocks = document.querySelectorAll(".pic-command-block .fragment");
     for (var i = 0; i < blocks.length; i += 1) {
       (function (block) {

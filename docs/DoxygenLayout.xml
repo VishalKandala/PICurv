@@ -5,7 +5,7 @@
     <!-- Compact top-level routes with vertical child menus. This replaces the
          always-visible page tree while keeping every audience entry point nearby. -->
     <tab type="user" visible="yes" url="41_Getting_Started_Index.html" title="Start">
-      <tab type="user" visible="yes" url="41_Getting_Started_Index.html" title="Getting Started"/>
+      <tab type="user" visible="yes" url="41_Getting_Started_Index.html" title="Quick Start"/>
       <tab type="user" visible="yes" url="42_User_Guide_Index.html" title="User Guide"/>
       <tab type="user" visible="yes" url="12_Capabilities_Summary.html" title="Capabilities"/>
     </tab>

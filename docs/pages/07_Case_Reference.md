@@ -428,8 +428,6 @@ set; prefer `homogeneous` wherever the flow has a homogeneous direction.
 
 @section p07_les_width_sec 5.1 Grid Filter Width Entries
 
-@anchor p07_les_width_sec
-
 `filter_width` sets how each cell's filter width `Delta` is derived from its metrics.
 It applies to both LES models, since both scale the eddy viscosity by `Delta^2`.
 
@@ -503,8 +501,6 @@ where the largest unresolved scale is set by the long direction.
 overestimates the width and adds subgrid dissipation the flow does not need.
 
 @section p07_les_avg_sec 5.2 Coefficient Averaging Entries
-
-@anchor p07_les_avg_sec
 
 `averaging.mode` selects the set the two Germano contractions are averaged over before
 they are divided. Lilly's closure assumes the coefficient is constant across that set,
@@ -601,8 +597,6 @@ case in `tests/c/test_mpi_kernels.c`.
 wherever the flow is inhomogeneous.
 
 @section p07_les_clip_sec 5.3 Coefficient Limiting Entries
-
-@anchor p07_les_clip_sec
 
 `clipping.mode` bounds the coefficient the contraction produces. Dynamic model only.
 
