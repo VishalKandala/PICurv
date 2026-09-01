@@ -209,9 +209,9 @@ term supplies the correct stress structure while the eddy viscosity supplies the
 dissipation the gradient term lacks. The two are configured independently because they
 are independent terms.
 
-@note The gradient term is rejected by the Newton-Krylov momentum solver, which does not
-carry it in its Jacobian. The configuration layer reports this before the run rather
-than at the first solve.
+@note The gradient term is available under both momentum solver families, reaching each
+through the shared residual. Under Newton-Krylov the preconditioner does not model it,
+so Krylov iteration counts can rise with it enabled; watch them when you turn it on.
 
 @section p72_diagnostics_sec 8. Reading the Diagnostics
 

@@ -23,13 +23,23 @@ Version one is deliberately narrow and validates its inputs up front
 
 - exactly **one block**, no immersed boundaries, no moving/rotating bodies, FSI,
   or reference frames;
-- **no RANS, Clark, TwoD masking, or wall functions**;
+- **no RANS or TwoD masking**;
 - fresh starts and Eulerian field restarts (including `--continue`); the first
   solved restart step uses BDF1 because only the checkpoint state is available;
-- no masked solid cells (`Nvert` must be fluid everywhere);
+- solid cells are permitted but the immersed-boundary method is not: a masked row
+  carries no unknown and is constrained like any other such row, but the IBM velocity
+  reconstruction does not run inside this solver's residual;
 - boundary handlers limited to no-slip walls, the constant/parabolic/file inlets,
   the conservation outlet, and periodic faces (with paired periodic axes) using
   the `geometric`, `constant_flux`, or `initial_flux` handler.
+
+@note The gradient (Clark) model and wall functions both reach this solver through the
+shared residual it already evaluates. Two properties are worth knowing before using
+them. The preconditioner does not model the Clark stress, so Krylov counts can rise
+with it enabled. Wall functions obtain the friction velocity from an iterative
+root-find, and a matrix-free Jacobian action amplifies that solve's tolerance by `1/h`,
+so a loose inner tolerance shows up as a degraded Jacobian action rather than as an
+error.
 
 Within that scope it is a drop-in alternative to the dual-time Picard--Jameson
 solver and shares the same fractional-step projection, BDF time discretization,
@@ -389,9 +399,14 @@ The optional frozen-momentum/point-block matrix is a separate AIJ matrix. For ph
 it reproduces the audited same-cell 3x3 block from the reachable legacy mode-2 approximation,
 with its sign reversed to match the modern residual convention; for
 constraint rows it inserts the exact modern derivative (+1 identity for fixed
-rows, or +1/-1 for periodic duplicates). It intentionally omits pressure,
-LES/RANS viscosity values and derivatives, nonorthogonal viscous cross-couplings,
-boundary-map and IBM derivatives, and body-force derivatives.
+rows, or +1/-1 for periodic duplicates). Its viscous diagonal carries the same
+effective viscosity the residual diffuses with, `nu + nu_t`, using the residual's own
+face average of the eddy viscosity and its wall zeroing; omitting the eddy term left
+the matrix modelling a viscous diagonal smaller than the operator's by the
+eddy-to-molecular ratio, which on a developed large-eddy simulation is order one or
+more. It still intentionally omits pressure, the eddy-viscosity *derivatives* with
+respect to velocity, nonorthogonal viscous cross-couplings, the gradient (Clark)
+stress, boundary-map and IBM derivatives, and body-force derivatives.
 
 The legacy face inverse Jacobians are arithmetic averages of neighboring cell
 inverse Jacobians, and its transverse metric terms average four squared metric-vector
@@ -452,7 +467,7 @@ are exposed before their implementations exist.
 
 **Parameters it owns.** `preconditioner.structure.type`, which must be `point_block`. It is not an independent choice: the model determines it, and any other value is a validation error.
 
-**Interactions.** Requires `structure.type: point_block` and is rejected without it. The assembled matrix deliberately omits pressure, LES/RANS viscosity values and derivatives, nonorthogonal viscous cross-couplings, boundary-map and IBM derivatives, and body-force derivatives - so its quality degrades as those terms matter more.
+**Interactions.** Requires `structure.type: point_block` and is rejected without it. Its viscous diagonal carries the residual's own effective viscosity `nu + nu_t`, so a turbulence model is represented at the level the diagonal can represent it. The matrix still deliberately omits pressure, the eddy-viscosity derivatives with respect to velocity, nonorthogonal viscous cross-couplings, the gradient (Clark) stress, boundary-map and IBM derivatives, and body-force derivatives - so its quality degrades as those terms matter more.
 
 **Diagnostics.** Krylov iteration counts before and after are the only meaningful diagnostic. `PCPBJACOBI` appears in PETSc output as the internal backend mapping; it is not a user-facing numerical model and should not be read as one.
 

@@ -297,6 +297,29 @@ MomentumRowType ClassifyMomentumRow(UserCtx *user, PetscInt i, PetscInt j, Petsc
                                     PetscInt component, PetscInt *ri, PetscInt *rj, PetscInt *rk);
 
 /**
+ * @brief Reports whether a momentum row is masked out by the solid-cell field.
+ *
+ * `ComputeRHS()` zeroes the residual at a solid cell and at the staggered rows whose
+ * downstream neighbour is solid, so those rows carry no equation. A solver that only
+ * marches on the residual needs nothing more: a zero residual means no update. A solver
+ * that assembles a matrix and solves `F(X) = 0` does, because such a row has a zero
+ * Jacobian row and a zero column, leaving the unknown undetermined. Those rows must be
+ * constrained like any other row that carries no unknown.
+ *
+ * The condition mirrors the residual's own masking exactly. If one changes, so must the
+ * other, or the assembled operator stops matching the residual it preconditions.
+ *
+ * @param[in] nvert     Ghosted solid-cell field, or NULL to apply no masking.
+ * @param[in] i         Location index along xi.
+ * @param[in] j         Location index along eta.
+ * @param[in] k         Location index along zeta.
+ * @param[in] component Staggered component of the row (0 = xi, 1 = eta, 2 = zeta).
+ * @return `PETSC_TRUE` when the row is masked and therefore carries no unknown.
+ */
+PetscBool MomentumRowIsSolidMasked(const PetscReal ***nvert, PetscInt i, PetscInt j,
+                                   PetscInt k, PetscInt component);
+
+/**
  * @brief Zeroes every momentum RHS row that does not carry an independent unknown.
  *
  * The set of such rows is not restated here: each owned location and component is

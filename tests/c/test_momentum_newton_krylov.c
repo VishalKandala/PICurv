@@ -1128,10 +1128,14 @@ static PetscErrorCode TestUnsupportedConfigurationFailsBeforeAllocation(void)
     PetscFunctionBeginUser;
     PetscCall(BuildNewtonFixture(fixed_wall_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
     {
+        /* The gradient (Clark) model and wall functions are no longer rejected: both
+           reach the solver through the shared residual, which this solver already
+           evaluates. Neither is verified under Newton-Krylov yet, so neither is
+           claimed as supported; they are simply no longer refused. */
         PetscInt *unsupported_flags[] = {
             &simCtx->immersed, &simCtx->movefsi, &simCtx->rotatefsi,
             &simCtx->moveframe, &simCtx->rotateframe, &simCtx->rans,
-            &simCtx->les_gradient_model, &simCtx->TwoD, &simCtx->wallfunction
+            &simCtx->TwoD
         };
         for (size_t flag = 0; flag < sizeof(unsupported_flags) / sizeof(unsupported_flags[0]); ++flag) {
             *unsupported_flags[flag] = 1;
@@ -1151,11 +1155,20 @@ static PetscErrorCode TestUnsupportedConfigurationFailsBeforeAllocation(void)
     PetscCall(PetscPopErrorHandler());
     PetscCall(PicurvAssertBool((PetscBool)(solve_ierr != PETSC_SUCCESS), "multiblock must fail"));
     simCtx->block_number = 1;
+    /* Solid cells are no longer a rejection. The residual already zeroes their rows, so
+       they carry no unknown; the solver now gives them the same identity treatment as
+       any other row without one, instead of refusing the whole solve. A fully masked
+       domain is the degenerate case of that: every row is an identity row and the
+       system is trivially consistent. This checks the structural contract only; the
+       masked path has no physics verification because nothing in the tree currently
+       populates Nvert with a nonzero value. */
     PetscCall(VecSet(user->Nvert, 1.0));
-    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    PetscCall(VecSet(user->lNvert, 1.0));
     solve_ierr = MomentumSolver_NewtonKrylov(user, NULL, NULL);
-    PetscCall(PetscPopErrorHandler());
-    PetscCall(PicurvAssertBool((PetscBool)(solve_ierr != PETSC_SUCCESS), "masked rows must fail"));
+    PetscCall(PicurvAssertBool((PetscBool)(solve_ierr == PETSC_SUCCESS),
+                               "a fully masked domain must resolve to identity rows, not a rejection"));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(VecSet(user->lNvert, 0.0));
     PetscCall(VecSet(user->Nvert, 0.0));
     user->boundary_faces[BC_FACE_NEG_X].mathematical_type = PERIODIC;
     user->boundary_faces[BC_FACE_NEG_X].handler_type = BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX;
@@ -1326,7 +1339,11 @@ enum {
     ORACLE_CENTER_TRANSVERSE_METRICS = 1 << 1,
     ORACLE_CENTER_VELOCITY = 1 << 2,
     ORACLE_OMIT_A5 = 1 << 3,
-    ORACLE_LEGACY_SIGN = 1 << 4
+    ORACLE_LEGACY_SIGN = 1 << 4,
+    /* Two ways to get the eddy viscosity wrong that the diagonal would otherwise
+       absorb silently: leaving it out, and reading the cell instead of the face. */
+    ORACLE_OMIT_EDDY_VISCOSITY = 1 << 5,
+    ORACLE_CENTER_EDDY_VISCOSITY = 1 << 6
 };
 
 /** @brief Test-owned metric norm used by the independent legacy transcription. */
@@ -1336,16 +1353,47 @@ static PetscReal LegacyOracleMetricNormSquared(Cmpnts metric)
 }
 
 /**
+ * @brief Independently averages the eddy viscosity onto one face.
+ *
+ * Written from the residual's definition rather than from the production helper, so
+ * that a change to one does not silently validate the other.
+ */
+static PetscReal LegacyOracleFaceEddyViscosity(const UserCtx *user, const PetscReal ***nu_t,
+    PetscInt axis, PetscInt i, PetscInt j, PetscInt k, PetscInt flags)
+{
+    if (nu_t == NULL || (flags & ORACLE_OMIT_EDDY_VISCOSITY)) return 0.0;
+    if (flags & ORACLE_CENTER_EDDY_VISCOSITY) return nu_t[k][j][i];
+
+    if (axis == 0) {
+        if ((user->boundary_faces[BC_FACE_NEG_X].mathematical_type == WALL && i == 0) ||
+            (user->boundary_faces[BC_FACE_POS_X].mathematical_type == WALL && i == user->info.mx - 2))
+            return 0.0;
+        return 0.5 * (nu_t[k][j][i] + nu_t[k][j][i + 1]);
+    }
+    if (axis == 1) {
+        if ((user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == WALL && j == 0) ||
+            (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == WALL && j == user->info.my - 2))
+            return 0.0;
+        return 0.5 * (nu_t[k][j][i] + nu_t[k][j + 1][i]);
+    }
+    if ((user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == WALL && k == 0) ||
+        (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == WALL && k == user->info.mz - 2))
+        return 0.0;
+    return 0.5 * (nu_t[k][j][i] + nu_t[k + 1][j][i]);
+}
+
+/**
  * @brief Independent transcription of the audited legacy mode-2 point block.
  *
  * This intentionally shares no coefficient helper with production. Mutant flags
  * represent the historical failure modes that the nonuniform oracle must reject.
  */
-static void LegacyPointBlockOracle(const SimCtx *simCtx, const Cmpnts ***u,
+static void LegacyPointBlockOracle(const UserCtx *user, const Cmpnts ***u,
     const Cmpnts ***csi, const Cmpnts ***eta, const Cmpnts ***zet,
-    const PetscReal ***aj, PetscInt i, PetscInt j, PetscInt k, PetscInt flags,
-    PetscScalar block[9])
+    const PetscReal ***aj, const PetscReal ***nu_t, PetscInt i, PetscInt j, PetscInt k,
+    PetscInt flags, PetscScalar block[9])
 {
+    const SimCtx *simCtx = user->simCtx;
     PetscReal A[6][4] = {{0.0}};
     const PetscReal dtc = ((simCtx->step != simCtx->StartStep) && simCtx->step != 1 ? 1.5 : 1.0) /
                           simCtx->dt;
@@ -1425,23 +1473,32 @@ static void LegacyPointBlockOracle(const SimCtx *simCtx, const Cmpnts ***u,
     Sw = A[4][0] + A[4][1] + A[4][2] + A[4][3];
     if (!(flags & ORACLE_OMIT_A5)) Sw += A[5][0] + A[5][1] + A[5][2] + A[5][3];
 
-    block[0] = sign * (dtc + AJip * AJip * (g11ip + g22ip + g33ip) / simCtx->ren + Su);
+    /* The residual diffuses with nu + nu_t, so the diagonal must carry both. */
+    const PetscReal nu_i = 1.0 / simCtx->ren +
+        LegacyOracleFaceEddyViscosity(user, nu_t, 0, i, j, k, flags);
+    const PetscReal nu_j = 1.0 / simCtx->ren +
+        LegacyOracleFaceEddyViscosity(user, nu_t, 1, i, j, k, flags);
+    const PetscReal nu_k = 1.0 / simCtx->ren +
+        LegacyOracleFaceEddyViscosity(user, nu_t, 2, i, j, k, flags);
+
+    block[0] = sign * (dtc + AJip * AJip * (g11ip + g22ip + g33ip) * nu_i + Su);
     block[1] = sign * 0.5 * AJip * U1ip; block[2] = sign * 0.5 * AJip * U2ip;
     block[3] = sign * 0.5 * AJjp * U0jp;
-    block[4] = sign * (dtc + AJjp * AJjp * (g11jp + g22jp + g33jp) / simCtx->ren + Sv);
+    block[4] = sign * (dtc + AJjp * AJjp * (g11jp + g22jp + g33jp) * nu_j + Sv);
     block[5] = sign * 0.5 * AJjp * U2jp;
     block[6] = sign * 0.5 * AJkp * U0kp; block[7] = sign * 0.5 * AJkp * U1kp;
-    block[8] = sign * (dtc + AJkp * AJkp * (g11kp + g22kp + g33kp) / simCtx->ren + Sw);
+    block[8] = sign * (dtc + AJkp * AJkp * (g11kp + g22kp + g33kp) * nu_k + Sw);
 }
 
 /** @brief Seeds nonuniform, index-distinguishing coefficient fields. */
 static PetscErrorCode SeedPointBlockOracleFields(UserCtx *user)
 {
     Cmpnts ***u = NULL, ***csi = NULL, ***eta = NULL, ***zet = NULL;
-    PetscReal ***aj = NULL;
+    PetscReal ***aj = NULL, ***nu_t = NULL;
     DMDALocalInfo info = user->info;
 
     PetscFunctionBeginUser;
+    if (user->Nu_t) PetscCall(DMDAVecGetArray(user->da, user->Nu_t, &nu_t));
     PetscCall(DMDAVecGetArray(user->fda, user->Ucont, &u));
     PetscCall(DMDAVecGetArray(user->fda, user->Csi, &csi));
     PetscCall(DMDAVecGetArray(user->fda, user->Eta, &eta));
@@ -1463,7 +1520,12 @@ static PetscErrorCode SeedPointBlockOracleFields(UserCtx *user)
                 zet[k][j][i] = (Cmpnts){.x = .08 + .023 * i + .002 * j * k,
                                         .y = -.14 + .011 * j + .005 * i * k,
                                         .z = 1.2 + .037 * k + .003 * i * j};
+                /* Comparable to the molecular viscosity and varying in every direction,
+                   so a face average is distinguishable from a cell value and an omitted
+                   term is distinguishable from either. */
+                if (nu_t) nu_t[k][j][i] = .05 + .013 * i + .021 * j + .017 * k + .002 * i * k;
             }
+    if (nu_t) PetscCall(DMDAVecRestoreArray(user->da, user->Nu_t, &nu_t));
     PetscCall(DMDAVecRestoreArray(user->da, user->Aj, &aj));
     PetscCall(DMDAVecRestoreArray(user->fda, user->Zet, &zet));
     PetscCall(DMDAVecRestoreArray(user->fda, user->Eta, &eta));
@@ -1479,6 +1541,10 @@ static PetscErrorCode SeedPointBlockOracleFields(UserCtx *user)
     PetscCall(DMGlobalToLocalEnd(user->fda, user->Zet, INSERT_VALUES, user->lZet));
     PetscCall(DMGlobalToLocalBegin(user->da, user->Aj, INSERT_VALUES, user->lAj));
     PetscCall(DMGlobalToLocalEnd(user->da, user->Aj, INSERT_VALUES, user->lAj));
+    if (user->Nu_t) {
+        PetscCall(DMGlobalToLocalBegin(user->da, user->Nu_t, INSERT_VALUES, user->lNu_t));
+        PetscCall(DMGlobalToLocalEnd(user->da, user->Nu_t, INSERT_VALUES, user->lNu_t));
+    }
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -1487,7 +1553,7 @@ static PetscErrorCode CollectiveLegacyPointBlockOracle(UserCtx *user, PetscInt i
     PetscInt k, PetscInt flags, PetscScalar block[9])
 {
     Cmpnts ***u = NULL, ***csi = NULL, ***eta = NULL, ***zet = NULL;
-    PetscReal ***aj = NULL;
+    PetscReal ***aj = NULL, ***nu_t = NULL;
     PetscInt owns = i >= user->info.xs && i < user->info.xs + user->info.xm &&
                     j >= user->info.ys && j < user->info.ys + user->info.ym &&
                     k >= user->info.zs && k < user->info.zs + user->info.zm;
@@ -1501,9 +1567,11 @@ static PetscErrorCode CollectiveLegacyPointBlockOracle(UserCtx *user, PetscInt i
         PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, &eta));
         PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, &zet));
         PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, &aj));
-        LegacyPointBlockOracle(user->simCtx, (const Cmpnts ***)u, (const Cmpnts ***)csi,
+        if (user->lNu_t) PetscCall(DMDAVecGetArrayRead(user->da, user->lNu_t, &nu_t));
+        LegacyPointBlockOracle(user, (const Cmpnts ***)u, (const Cmpnts ***)csi,
             (const Cmpnts ***)eta, (const Cmpnts ***)zet, (const PetscReal ***)aj,
-            i, j, k, flags, local);
+            (const PetscReal ***)nu_t, i, j, k, flags, local);
+        if (nu_t) PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNu_t, &nu_t));
         PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, &aj));
         PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet));
         PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta));
@@ -1837,6 +1905,82 @@ static PetscErrorCode TestPointBlockPreconditionerEngine(void)
         else
             PetscCall(PicurvAssertRealNear(0.0, PetscRealPart(mutant[n] - reference[n]),
                 1e-13, "BDF order must not change off-diagonal entries"));
+    }
+
+    /* Eddy viscosity: the preconditioner diffuses with nu + nu_t like the residual.
+     * The oracle derives the face average from the residual's definition rather than
+     * from the production helper, so the two agreeing is evidence rather than a
+     * tautology. Run last so nothing above sees a turbulence model. */
+    {
+        PetscScalar molecular_reference[9];
+        PetscBool   diagonal_changed = PETSC_FALSE;
+
+        simCtx->step = 1;
+        /* The fixture may already carry an eddy-viscosity field, so both states are
+           established explicitly rather than by assuming one is absent. Only the field
+           value differs between the two assemblies; the model stays selected, which is
+           what isolates the term being measured. */
+        if (!user->Nu_t) PetscCall(DMCreateGlobalVector(user->da, &user->Nu_t));
+        if (!user->lNu_t) PetscCall(DMCreateLocalVector(user->da, &user->lNu_t));
+        simCtx->les = DYNAMIC_SMAGORINSKY;
+        PetscCall(SeedPointBlockOracleFields(user));
+        PetscCall(VecCopy(user->Ucont, x));
+
+        PetscCall(VecSet(user->lNu_t, 0.0));
+        PetscCall(MomentumPreconditionerEngine_Assemble(&engine, user, x));
+        PetscCall(CollectiveLegacyPointBlockOracle(user, target_i, target_j, target_k,
+            0, molecular_reference));
+
+        PetscCall(DMGlobalToLocalBegin(user->da, user->Nu_t, INSERT_VALUES, user->lNu_t));
+        PetscCall(DMGlobalToLocalEnd(user->da, user->Nu_t, INSERT_VALUES, user->lNu_t));
+        PetscCall(MomentumPreconditionerEngine_Assemble(&engine, user, x));
+        PetscCall(CollectiveLegacyPointBlockOracle(user, target_i, target_j, target_k,
+            0, reference));
+
+        for (PetscInt rr = 0; rr < 3; ++rr)
+            for (PetscInt cc = 0; cc < 3; ++cc) {
+                PetscCall(PreconditionerMatrixStencilEntry(user, preconditioning_matrix,
+                    target[rr], target[cc], &values[3 * rr + cc]));
+                PetscCall(PicurvAssertRealNear(PetscRealPart(reference[3 * rr + cc]),
+                    PetscRealPart(values[3 * rr + cc]), 1e-13,
+                    "eddy-viscosity point block entry must match independent oracle"));
+            }
+
+        /* The term must actually move the diagonal, or the comparison above proves
+           nothing about it. Off-diagonals are convective and must not move. */
+        for (PetscInt n = 0; n < 9; ++n) {
+            if (n == 0 || n == 4 || n == 8) {
+                if (PetscAbsScalar(reference[n] - molecular_reference[n]) > 1e-6)
+                    diagonal_changed = PETSC_TRUE;
+            } else {
+                PetscCall(PicurvAssertRealNear(PetscRealPart(molecular_reference[n]),
+                    PetscRealPart(reference[n]), 1e-13,
+                    "eddy viscosity must not disturb the convective off-diagonals"));
+            }
+        }
+        PetscCall(PicurvAssertBool(diagonal_changed,
+            "eddy viscosity must raise the viscous diagonal above its molecular value"));
+
+        /* Omitting the term, or reading the cell instead of the face, must both be
+           detectable: those are the two ways the diagonal absorbs the error silently. */
+        for (PetscInt mutant_flag = ORACLE_OMIT_EDDY_VISCOSITY;
+             mutant_flag <= ORACLE_CENTER_EDDY_VISCOSITY; mutant_flag <<= 1) {
+            PetscBool differs = PETSC_FALSE;
+            PetscCall(CollectiveLegacyPointBlockOracle(user, target_i, target_j, target_k,
+                mutant_flag, mutant));
+            for (PetscInt n = 0; n < 9; ++n)
+                if (PetscAbsScalar(reference[n] - mutant[n]) > 1e-8) differs = PETSC_TRUE;
+            PetscCall(PicurvAssertBool(differs,
+                "independent oracle must reject an eddy-viscosity mutant"));
+        }
+
+        simCtx->les = NO_LES_MODEL;
+        PetscCall(VecSet(user->Nu_t, 0.0));
+        PetscCall(VecSet(user->lNu_t, 0.0));
+        PetscCall(SeedPointBlockOracleFields(user));
+        PetscCall(VecCopy(user->Ucont, x));
+        simCtx->step = 2;
+        PetscCall(MomentumPreconditionerEngine_Assemble(&engine, user, x));
     }
 
     PetscCall(VecDuplicate(x, &px));

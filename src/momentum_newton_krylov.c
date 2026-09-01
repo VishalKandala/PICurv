@@ -224,12 +224,8 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user)
                "Newton Krylov version one does not support moving or rotating reference frames.");
     PetscCheck(!simCtx->rans, PETSC_COMM_WORLD, PETSC_ERR_SUP,
                "Newton Krylov version one does not support RANS.");
-    PetscCheck(!simCtx->les_gradient_model, PETSC_COMM_WORLD, PETSC_ERR_SUP,
-               "Newton Krylov version one does not support the Clark model.");
     PetscCheck(!simCtx->TwoD, PETSC_COMM_WORLD, PETSC_ERR_SUP,
                "Newton Krylov version one does not support TwoD component masking.");
-    PetscCheck(!simCtx->wallfunction, PETSC_COMM_WORLD, PETSC_ERR_SUP,
-               "Newton Krylov version one does not support wall functions.");
     for (PetscInt face = 0; face < 6; ++face) {
         const BoundaryFaceConfig *cfg = &user->boundary_faces[face];
         PetscBool supported = PETSC_FALSE;
@@ -276,10 +272,13 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user)
 
     PetscCheck(user->Nvert != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Newton Krylov requires the cell-mask vector Nvert.");
+    /* Solid cells no longer disqualify the solver: MomentumRowIsSolidMasked() gives
+       their rows the same constrained treatment as any other row carrying no unknown.
+       The immersed-boundary method itself remains unsupported above, because its
+       velocity reconstruction does not run inside this solver's residual. */
     PetscCall(VecMax(user->Nvert, NULL, &mask_max));
-    PetscCheck(mask_max <= 0.1, PETSC_COMM_WORLD, PETSC_ERR_SUP,
-               "Newton Krylov version one does not define equations for masked solid cells (max Nvert=%g).",
-               (double)mask_max);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Newton Krylov solid-cell mask maximum Nvert=%g.\n",
+              (double)mask_max);
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -347,20 +346,75 @@ static PetscErrorCode MomentumNewtonKrylov_ReadLinearizationConfig(
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+/**
+ * @brief Row classification with solid-cell masking folded in.
+ *
+ * A masked row's residual is identically zero for every X, so it has a zero Jacobian
+ * row and a zero column and its unknown is undetermined. It therefore needs the same
+ * identity treatment as any other row carrying no unknown. Checked after the boundary
+ * classification so a periodic duplicate keeps its representative column.
+ */
+static MomentumRowType MomentumNewtonKrylov_ClassifyRow(
+    UserCtx *user, const PetscReal ***nvert, PetscInt i, PetscInt j, PetscInt k,
+    PetscInt component, PetscInt *ri, PetscInt *rj, PetscInt *rk)
+{
+    const MomentumRowType type = ClassifyMomentumRow(user, i, j, k, component, ri, rj, rk);
+
+    if (type == MOM_ROW_PHYSICAL && MomentumRowIsSolidMasked(nvert, i, j, k, component))
+        return MOM_ROW_FIXED_HOMOGENEOUS;
+    return type;
+}
+
 /** @brief Returns the squared Euclidean norm of one metric vector. */
 static PetscReal FrozenMomentumJacobian_MetricNormSquared(Cmpnts metric)
 {
     return metric.x * metric.x + metric.y * metric.y + metric.z * metric.z;
 }
 
-/** @brief Returns the audited frozen-momentum point block in modern residual sign. */
-static void FrozenMomentumJacobian_PointBlock(const SimCtx *simCtx,
-    const Cmpnts ***ucont, const Cmpnts ***csi, const Cmpnts ***eta,
-    const Cmpnts ***zet, const PetscReal ***aj, PetscInt i, PetscInt j,
-    PetscInt k, PetscScalar block[9])
+/**
+ * @brief Returns the face-averaged eddy viscosity the residual uses on one face.
+ *
+ * Mirrors the residual's own treatment: the cell-centred field is averaged onto the
+ * face, and zeroed on a wall face where the residual zeroes it. The preconditioner has
+ * to reproduce the operator it preconditions, so this must track `Viscous()`.
+ */
+static PetscReal FrozenMomentumJacobian_FaceEddyViscosity(
+    const UserCtx *user, const PetscReal ***nu_t, PetscInt axis,
+    PetscInt i, PetscInt j, PetscInt k)
 {
+    const BCFace neg_face[3] = {BC_FACE_NEG_X, BC_FACE_NEG_Y, BC_FACE_NEG_Z};
+    const BCFace pos_face[3] = {BC_FACE_POS_X, BC_FACE_POS_Y, BC_FACE_POS_Z};
+    const PetscInt coord[3] = {i, j, k};
+    const PetscInt size[3] = {user->info.mx, user->info.my, user->info.mz};
+    PetscReal neighbour;
+
+    if (nu_t == NULL) return 0.0;
+    if ((user->boundary_faces[neg_face[axis]].mathematical_type == WALL && coord[axis] == 0) ||
+        (user->boundary_faces[pos_face[axis]].mathematical_type == WALL && coord[axis] == size[axis] - 2))
+        return 0.0;
+
+    neighbour = (axis == 0) ? nu_t[k][j][i + 1]
+              : (axis == 1) ? nu_t[k][j + 1][i]
+                            : nu_t[k + 1][j][i];
+    return 0.5 * (nu_t[k][j][i] + neighbour);
+}
+
+/** @brief Returns the audited frozen-momentum point block in modern residual sign. */
+static void FrozenMomentumJacobian_PointBlock(const UserCtx *user,
+    const Cmpnts ***ucont, const Cmpnts ***csi, const Cmpnts ***eta,
+    const Cmpnts ***zet, const PetscReal ***aj, const PetscReal ***nu_t,
+    PetscInt i, PetscInt j, PetscInt k, PetscScalar block[9])
+{
+    const SimCtx *simCtx = user->simCtx;
     const PetscReal dtc = MomentumBDFCoefficient((SimCtx *)simCtx) / simCtx->dt;
-    const PetscReal inverse_reynolds = simCtx->ren > 0.0 ? 1.0 / simCtx->ren : 0.0;
+    const PetscReal molecular = simCtx->ren > 0.0 ? 1.0 / simCtx->ren : 0.0;
+    /* The residual diffuses with nu + nu_t, so the block must too; nu_t alone is the
+       eddy contribution. Omitting it left the preconditioner modelling a viscous
+       diagonal smaller than the operator's by the eddy-to-molecular ratio, which on a
+       developed LES is order one or more. */
+    const PetscReal nu_eff_i = molecular + FrozenMomentumJacobian_FaceEddyViscosity(user, nu_t, 0, i, j, k);
+    const PetscReal nu_eff_j = molecular + FrozenMomentumJacobian_FaceEddyViscosity(user, nu_t, 1, i, j, k);
+    const PetscReal nu_eff_k = molecular + FrozenMomentumJacobian_FaceEddyViscosity(user, nu_t, 2, i, j, k);
     const PetscReal AJip = 0.5 * (aj[k][j][i] + aj[k][j][i + 1]);
     const PetscReal AJjp = 0.5 * (aj[k][j][i] + aj[k][j + 1][i]);
     const PetscReal AJkp = 0.5 * (aj[k][j][i] + aj[k + 1][j][i]);
@@ -448,9 +502,9 @@ static void FrozenMomentumJacobian_PointBlock(const SimCtx *simCtx,
          A[3][0] + A[3][1] + A[3][2] + A[3][3];
     Sw = A[4][0] + A[4][1] + A[4][2] + A[4][3] +
          A[5][0] + A[5][1] + A[5][2] + A[5][3];
-    nui = AJip * AJip * (g11ip + g22ip + g33ip) * inverse_reynolds;
-    nuj = AJjp * AJjp * (g11jp + g22jp + g33jp) * inverse_reynolds;
-    nuk = AJkp * AJkp * (g11kp + g22kp + g33kp) * inverse_reynolds;
+    nui = AJip * AJip * (g11ip + g22ip + g33ip) * nu_eff_i;
+    nuj = AJjp * AJjp * (g11jp + g22jp + g33jp) * nu_eff_j;
+    nuk = AJkp * AJkp * (g11kp + g22kp + g33kp) * nu_eff_k;
 
     /* The modern residual is the negative of the legacy residual. */
     block[0] = dtc + nui + Su; block[1] = 0.5 * AJip * U1ip; block[2] = 0.5 * AJip * U2ip;
@@ -483,7 +537,12 @@ static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
 {
     DMDALocalInfo info = user->info;
     Cmpnts ***ucont = NULL, ***csi = NULL, ***eta = NULL, ***zet = NULL;
-    PetscReal ***aj = NULL;
+    PetscReal ***aj = NULL, ***nvert = NULL, ***nu_t = NULL;
+    SimCtx *simCtx = user->simCtx;
+    /* The eddy viscosity enters the preconditioner only when a turbulence model is
+       actually producing one; without it the field may not even be allocated. */
+    const PetscBool has_eddy_viscosity =
+        (PetscBool)((simCtx->les || simCtx->rans) && user->lNu_t != NULL);
     PetscErrorCode ierr = PETSC_SUCCESS, cleanup_ierr;
 
     PetscFunctionBeginUser;
@@ -508,14 +567,18 @@ static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
     ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta); if (ierr) goto cleanup;
     ierr = DMDAVecGetArrayRead(user->fda, user->lZet, &zet); if (ierr) goto cleanup;
     ierr = DMDAVecGetArrayRead(user->da, user->lAj, &aj); if (ierr) goto cleanup;
+    ierr = DMDAVecGetArrayRead(user->da, user->lNvert, &nvert); if (ierr) goto cleanup;
+    if (has_eddy_viscosity) {
+        ierr = DMDAVecGetArrayRead(user->da, user->lNu_t, &nu_t); if (ierr) goto cleanup;
+    }
     for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
         for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
             for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
                 for (PetscInt component = 0; component < 3; ++component) {
                     MatStencil row = {.i = i, .j = j, .k = k, .c = component};
                     PetscInt ri, rj, rk;
-                    MomentumRowType type = ClassifyMomentumRow(
-                        user, i, j, k, component, &ri, &rj, &rk);
+                    MomentumRowType type = MomentumNewtonKrylov_ClassifyRow(
+                        user, (const PetscReal ***)nvert, i, j, k, component, &ri, &rj, &rk);
                     if (type == MOM_ROW_PHYSICAL) {
                         PetscScalar block[9];
                         MatStencil cols[3] = {
@@ -523,9 +586,9 @@ static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
                             {.i = i, .j = j, .k = k, .c = 1},
                             {.i = i, .j = j, .k = k, .c = 2}
                         };
-                        FrozenMomentumJacobian_PointBlock(user->simCtx, (const Cmpnts ***)ucont,
+                        FrozenMomentumJacobian_PointBlock(user, (const Cmpnts ***)ucont,
                             (const Cmpnts ***)csi, (const Cmpnts ***)eta, (const Cmpnts ***)zet,
-                            (const PetscReal ***)aj, i, j, k, block);
+                            (const PetscReal ***)aj, (const PetscReal ***)nu_t, i, j, k, block);
                         ierr = MatSetValuesStencil(preconditioning_matrix, 1, &row, 3, cols,
                                                   &block[3 * component], INSERT_VALUES);
                         if (ierr) goto cleanup;
@@ -535,6 +598,8 @@ static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
         }
     }
 cleanup:
+    if (nu_t) { cleanup_ierr = DMDAVecRestoreArrayRead(user->da, user->lNu_t, &nu_t); if (!ierr) ierr = cleanup_ierr; }
+    if (nvert) { cleanup_ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, &nvert); if (!ierr) ierr = cleanup_ierr; }
     if (aj) { cleanup_ierr = DMDAVecRestoreArrayRead(user->da, user->lAj, &aj); if (!ierr) ierr = cleanup_ierr; }
     if (zet) { cleanup_ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet); if (!ierr) ierr = cleanup_ierr; }
     if (eta) { cleanup_ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta); if (!ierr) ierr = cleanup_ierr; }
@@ -550,15 +615,17 @@ static PetscErrorCode MomentumPreconditionerEngine_ApplyConstraintRows(
     UserCtx *user, Mat preconditioning_matrix)
 {
     DMDALocalInfo info = user->info;
+    const PetscReal ***nvert = NULL;
 
     PetscFunctionBeginUser;
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, &nvert));
     for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
         for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
             for (PetscInt i = info.xs; i < info.xs + info.xm; ++i) {
                 for (PetscInt component = 0; component < 3; ++component) {
                     PetscInt ri, rj, rk;
-                    MomentumRowType type = ClassifyMomentumRow(
-                        user, i, j, k, component, &ri, &rj, &rk);
+                    MomentumRowType type = MomentumNewtonKrylov_ClassifyRow(
+                        user, nvert, i, j, k, component, &ri, &rj, &rk);
                     if (type != MOM_ROW_PHYSICAL) {
                         MatStencil row = {.i = i, .j = j, .k = k, .c = component};
                         MatStencil columns[2] = {row, row};
@@ -577,6 +644,7 @@ static PetscErrorCode MomentumPreconditionerEngine_ApplyConstraintRows(
             }
         }
     }
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, &nvert));
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -760,6 +828,7 @@ static PetscErrorCode MomentumPreconditionerEngine_CreateExactPointBlockMatrix(
     PetscInt local_size, global_size, ownership_start, ownership_end;
     PetscInt *diagonal_nnz = NULL, *offdiagonal_nnz = NULL;
     PetscInt ghost_starts[4] = {0, 0, 0, 0}, ghost_sizes[3] = {0, 0, 0};
+    const PetscReal ***nvert = NULL;
     PetscErrorCode ierr = PETSC_SUCCESS, cleanup_ierr;
 
     PetscFunctionBeginUser;
@@ -780,6 +849,7 @@ static PetscErrorCode MomentumPreconditionerEngine_CreateExactPointBlockMatrix(
                                &ghost_starts[0], &ghost_starts[1], &ghost_starts[2],
                                &ghost_sizes[0], &ghost_sizes[1], &ghost_sizes[2]);
     if (ierr) goto cleanup;
+    ierr = DMDAVecGetArrayRead(user->da, user->lNvert, &nvert); if (ierr) goto cleanup;
 
     for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
         for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
@@ -789,8 +859,8 @@ static PetscErrorCode MomentumPreconditionerEngine_CreateExactPointBlockMatrix(
                     MatStencil row_stencil = {.i = i, .j = j, .k = k, .c = component};
                     MatStencil column_stencils[3];
                     PetscInt row_local, row, column_locals[3], columns[3];
-                    MomentumRowType type = ClassifyMomentumRow(
-                        user, i, j, k, component, &ri, &rj, &rk);
+                    MomentumRowType type = MomentumNewtonKrylov_ClassifyRow(
+                        user, nvert, i, j, k, component, &ri, &rj, &rk);
 
                     if (type == MOM_ROW_PHYSICAL) {
                         column_count = 3;
@@ -885,6 +955,10 @@ static PetscErrorCode MomentumPreconditionerEngine_CreateExactPointBlockMatrix(
     matrix = NULL;
 
 cleanup:
+    if (nvert) {
+        cleanup_ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, &nvert);
+        if (!ierr) ierr = cleanup_ierr;
+    }
     cleanup_ierr = MatDestroy(&matrix); if (!ierr) ierr = cleanup_ierr;
     cleanup_ierr = PetscFree2(diagonal_nnz, offdiagonal_nnz);
     if (!ierr) ierr = cleanup_ierr;

@@ -645,6 +645,32 @@ MomentumRowType ClassifyMomentumRow(UserCtx *user, PetscInt i, PetscInt j, Petsc
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "MomentumRowIsSolidMasked"
+/**
+ * @brief Implementation of \ref MomentumRowIsSolidMasked().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/Boundaries.h`.
+ * @see MomentumRowIsSolidMasked()
+ */
+PetscBool MomentumRowIsSolidMasked(const PetscReal ***nvert, PetscInt i, PetscInt j,
+                                   PetscInt k, PetscInt component)
+{
+    /* PICURV_SOLID_THRESHOLD mirrors the 0.1 fluid test ComputeRHS() applies. */
+    const PetscReal threshold = 0.1;
+
+    if (nvert == NULL) return PETSC_FALSE;
+    /* A solid cell carries no momentum equation in any component. */
+    if (nvert[k][j][i] > threshold) return PETSC_TRUE;
+    /* A staggered row also loses its equation when the cell it points into is solid. */
+    switch (component) {
+    case 0: return (PetscBool)(nvert[k][j][i + 1] > threshold);
+    case 1: return (PetscBool)(nvert[k][j + 1][i] > threshold);
+    case 2: return (PetscBool)(nvert[k + 1][j][i] > threshold);
+    default: return PETSC_FALSE;
+    }
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "EnforceRHSBoundaryConditions"
 /**
  * @brief Implementation of \ref EnforceRHSBoundaryConditions().

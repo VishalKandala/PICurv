@@ -48,8 +48,7 @@
     not supported for that field.
   - The Clark gradient term, live in the viscous flux but reachable only through PETSc
     passthrough, is now `les.gradient_model.enabled`. Combined with a Smagorinsky closure
-    it is the mixed model; it remains unsupported by the Newton-Krylov solver, which is
-    now reported during validation rather than at the first solve.
+    it is the mixed model.
   - Turbulence option ingress is namespaced under `-les_*` and grouped into one
     `LESConfig` block, with defaults defined once in `LESConfigSetDefaults()` so the
     control-file path and the test fixtures cannot drift. The dead `-mixed`,
@@ -89,6 +88,31 @@
     - the six-component accumulator order in `statistics_accumulator.c` is tied to
       `SymTensor`'s member order by a compile-time assertion, so the two cannot
       drift apart unnoticed.
+  - Newton-Krylov reach, so the closure is not confined to one momentum solver family:
+    - the preconditioner's viscous diagonal now carries the residual's own effective
+      viscosity `nu + nu_t`, using the same face average and wall zeroing `Viscous()`
+      applies. Omitting the eddy term left the matrix modelling a viscous diagonal
+      smaller than the operator's by the eddy-to-molecular ratio, which on a developed
+      large-eddy simulation is order one or more; a plausible contributor to the
+      recorded momentum-preconditioner bottleneck;
+      The point-block oracle in `tests/c/test_momentum_newton_krylov.c` carries the
+      term as an independent transcription from the residual's definition, with mutants
+      for omitting it and for reading the cell value instead of the face average; both
+      production mutations are detected;
+    - the gradient (Clark) model and wall functions are no longer rejected. Both reach
+      the solver through the shared residual it already evaluates, so neither needed
+      solver-specific work. Two properties to know: the preconditioner does not model
+      the Clark stress, so Krylov counts can rise with it enabled, and the wall
+      function's iterative friction-velocity solve interacts with matrix-free
+      differencing, whose `1/h` amplification surfaces a loose inner tolerance as a
+      degraded Jacobian action;
+    - solid cells no longer disqualify the solver. `ComputeRHS()` already zeroes their
+      rows, which leaves a solver that marches on the residual nothing to do but leaves
+      a solver that assembles a matrix with an undetermined unknown.
+      `MomentumRowIsSolidMasked()` gives those rows the same identity treatment as any
+      other row without an unknown. The immersed-boundary method stays unsupported,
+      because its velocity reconstruction does not run inside this solver's residual.
+
   - Exposure sweep across the user-facing surfaces:
     - `les.diagnostics.yoshizawa_ci` is now a documented key. It was parsed by the C
       runtime but had no YAML spelling and no emitter, so it was reachable only

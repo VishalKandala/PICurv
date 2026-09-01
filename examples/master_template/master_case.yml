@@ -302,8 +302,9 @@ models:
           min_viscosity_ratio: 0.0
 
         # The Clark gradient (tensor-diffusivity) term, added to the viscous flux.
-        # Combined with a Smagorinsky closure this is the mixed model. Not supported by
-        # the Newton-Krylov momentum solver.
+        # Combined with a Smagorinsky closure this is the mixed model. Available under
+        # both momentum solver families; the Newton-Krylov preconditioner does not model
+        # it, so watch Krylov counts if you enable it.
         gradient_model:
           # [Boolean] -> -les_gradient_model
           enabled: false
