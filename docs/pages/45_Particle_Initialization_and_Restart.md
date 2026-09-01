@@ -49,7 +49,108 @@ Enum mapping in C (`ParticleInitializationType`):
 - `2`: `PARTICLE_INIT_POINT_SOURCE`
 - `3`: `PARTICLE_INIT_SURFACE_EDGES`
 
-@section p45_mode_behavior_sec 3. Mode Behavior in C
+@section p45_entries_sec 3. Particle Initialization Mode Entries
+
+@htmlinclude generated/capability_inventory_particle_init_mode.html
+
+@subsection p45_cap_surface_sub Surface
+
+@anchor p45_cap_surface
+
+**Identity.** `particles.init_mode: Surface` -> `-pinit 0` ->
+`ParticleInitializationType`.
+
+**What it does.** Seeds particles across a bounding surface of the domain.
+
+**When to choose it.** Studying what enters through a face - inlet seeding, or transport
+from a boundary into the interior. Choose `Volume` when you want the interior populated
+from the start.
+
+**Parameters it owns.** The particle count; the surface is derived from the configured
+inlet face.
+
+**Interactions.** Needs an identifiable inlet face; the startup log reports which face
+was chosen.
+
+**Diagnostics.** "Inlet face for particle initialization identified as Face N" at
+startup, and the per-step particle count.
+
+**Evidence.** Implemented only.
+
+**Limitations.** Concentrates particles at one boundary, so interior statistics take time
+to become meaningful.
+
+@subsection p45_cap_volume_sub Volume
+
+@anchor p45_cap_volume
+
+**Identity.** `particles.init_mode: Volume` -> `-pinit 1`.
+
+**What it does.** Distributes particles through the domain volume.
+
+**When to choose it.** Whenever you want interior statistics immediately - dispersion,
+mixing, or any case where waiting for particles to arrive from a boundary wastes the run.
+
+**Parameters it owns.** The particle count.
+
+**Interactions.** Particle density follows the cell distribution, so a graded grid gives a
+non-uniform physical density.
+
+**Diagnostics.** Per-step particle count and the lost-particle counter.
+
+**Evidence.** Production exercised - `examples/scatter_verification` seeds this way.
+
+**Limitations.** No control over the spatial distribution beyond the grid itself.
+
+@subsection p45_cap_pointsource_sub PointSource
+
+@anchor p45_cap_pointsource
+
+**Identity.** `particles.init_mode: PointSource` -> `-pinit 2`, with coordinates from
+`-psrc_x`/`-psrc_y`/`-psrc_z`.
+
+**What it does.** Releases all particles from a single specified point.
+
+**When to choose it.** Plume and dispersion studies, and the verification cases where a
+known release point makes an analytic comparison possible.
+
+**Parameters it owns.** The point-source coordinates.
+
+**Interactions.** The point must lie inside the domain; a point outside it produces
+immediate particle loss.
+
+**Diagnostics.** The lost-particle counter is the first signal of a misplaced source.
+
+**Evidence.** Production exercised - `examples/drift_uniform_flow` and
+`examples/brownian_motion` are built on this mode.
+
+**Limitations.** All particles share one origin, so early statistics are highly
+correlated.
+
+@subsection p45_cap_surfaceedges_sub SurfaceEdges
+
+@anchor p45_cap_surfaceedges
+
+**Identity.** `particles.init_mode: SurfaceEdges` -> `-pinit 3`.
+
+**What it does.** Seeds particles along the edges of a bounding surface rather than across
+its face.
+
+**When to choose it.** Exercising the locate-and-migrate machinery, where edges and
+corners are the hard cases. It is a diagnostic seeding mode more than a physical one.
+
+**Parameters it owns.** The particle count.
+
+**Interactions.** Edge and corner cells are exactly where the walking search is most
+likely to struggle, which is the point.
+
+**Diagnostics.** Search metrics at **@subpage 53_Search_Robustness_Metrics_Reference**.
+
+**Evidence.** Implemented only.
+
+**Limitations.** Not a physically motivated distribution.
+
+@section p45_mode_behavior_sec 4. Mode Behavior in C
 
 Main setup flow:
 
@@ -79,7 +180,7 @@ Mode details:
 
 - all particles start at fixed coordinates `(psrc_x, psrc_y, psrc_z)`.
 
-@section p45_restart_matrix_sec 4. Restart Behavior Matrix
+@section p45_restart_matrix_sec 5. Restart Behavior Matrix
 
 `InitializeParticleSwarm` behavior depends on `StartStep` and restart mode:
 
@@ -115,6 +216,50 @@ For loaded particles:
 1. `MigrateRestartParticlesUsingCellID` fast migration,
 2. `LocateAllParticlesInGrid` resolves invalid/missing cases,
 3. interpolation/scatter synchronize coupling state before stepping.
+
+@section p45_cap_restart_sec 5.1 Particle Restart Mode Entries
+
+@htmlinclude generated/capability_inventory_particle_restart_mode.html
+
+@subsection p45_cap_restart_init_sub init
+
+@anchor p45_cap_restart_init
+
+**Identity.** `models.physics.particles.restart_mode: init` (the default).
+
+**What it does.** Seeds the swarm from `init_mode` at the start of the run, regardless of whether Eulerian fields are being restarted. Particle state in a checkpoint is ignored.
+
+**When to choose it.** Whenever the particles are the thing you are varying: re-seeding onto a restarted flow field lets you launch a fresh swarm into developed turbulence without re-running the spin-up. Also the correct choice for any first run.
+
+**Parameters it owns.** None of its own. It selects which branch consumes `models.physics.particles.init_mode` and its parameters - see @ref p45_entries_sec.
+
+**Interactions.** Independent of `eulerian_field_source`: a run may load fields and still init particles. Combined with a field restart it is the standard 'new swarm, developed flow' configuration.
+
+**Diagnostics.** The startup banner reports the resolved particle restart mode and the seeded count. A swarm that seeds at the wrong size shows here, before the first step.
+
+**Evidence.** Integration verified - `make unit-particles` covers the seeding branches.
+
+**Limitations.** Any statistics accumulated by a previous run's particles are lost, because the particles they described no longer exist.
+
+@subsection p45_cap_restart_load_sub load
+
+@anchor p45_cap_restart_load
+
+**Identity.** `models.physics.particles.restart_mode: load`.
+
+**What it does.** Restores particle positions, velocities, and swarm fields from the checkpoint named by the restart, continuing the same particles rather than seeding new ones.
+
+**When to choose it.** When particle history matters - dispersion, mean-squared displacement, residence time - and the trajectory must continue rather than restart. Required for any statistic accumulated across a restart boundary.
+
+**Parameters it owns.** None of its own; the checkpoint supplies the state. The restart source is chosen by `--restart-from` or `--continue`, not by this key.
+
+**Interactions.** Requires a checkpoint that actually contains particle state: a run whose particles were disabled writes none. The restart matrix in @ref p45_restart_matrix_sec gives the full combination table against `eulerian_field_source`.
+
+**Diagnostics.** A missing or empty particle group in the checkpoint is a fatal startup error naming the step, not a silent reseed. The restored count is reported in the banner.
+
+**Evidence.** Integration verified - `make unit-particles` covers the restore path.
+
+**Limitations.** Restart is not bit-exact: boundary conditions are re-applied on load, which introduces a perturbation around 1e-7 regardless of solver tolerance. That is a floor on any claim of trajectory continuity across a restart.
 
 @section p45_fields_sec 6. Swarm Fields Initialized at Startup
 
@@ -162,25 +307,3 @@ For the full selector extension checklist, see **@subpage 50_Modular_Selector_Ex
 - **@subpage 26_Walking_Search_Method**
 - **@subpage 27_Trilinear_Interpolation_and_Projection**
 - **@subpage 39_Common_Fatal_Errors**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Particle Initialization and Restart Guide** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

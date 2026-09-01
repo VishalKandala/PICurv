@@ -10,6 +10,9 @@
 #include "setup.h"
 #include "statistics_config.h"
 #include "statistics_accumulator.h"
+#include <unistd.h>
+#include <limits.h>
+#include <stdlib.h>
 
 /**
  * @brief Implementation of \ref RuntimeWalltimeGuardParsePositiveSeconds().
@@ -144,6 +147,157 @@ PetscErrorCode DestroySolutionConvergenceState(SimCtx *simCtx)
         simCtx->solutionConvergenceMeanKEHistory = NULL;
     }
     simCtx->solutionConvergenceSamplesRecorded = 0;
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "LESConfigSetDefaults"
+/**
+ * @brief Implementation of \ref LESConfigSetDefaults().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/setup.h`.
+ * @see LESConfigSetDefaults()
+ */
+PetscErrorCode LESConfigSetDefaults(LESConfig *config)
+{
+    PetscFunctionBeginUser;
+    PetscCheck(config != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "LES configuration destination cannot be NULL.");
+
+    config->dynamic_frequency       = 1;
+    config->constant_cs             = 0.03;
+    config->filter_width_model      = LES_FILTER_WIDTH_CUBE_ROOT_VOLUME;
+    config->test_filter_kernel      = LES_TEST_FILTER_VOLUME_WEIGHTED_BOX;
+    config->test_filter_width_ratio = 2.0;
+    // Local averaging makes no homogeneity claim, so it is the only default that is
+    // correct on every geometry. Homogeneous and global averaging are opted into.
+    config->averaging_mode          = LES_AVERAGING_LOCAL;
+    config->averaging_direction[0]  = PETSC_FALSE;
+    config->averaging_direction[1]  = PETSC_FALSE;
+    config->averaging_direction[2]  = PETSC_FALSE;
+    config->clip_mode               = LES_CLIP_CLAMP;
+    // Roughly twice the physical Smagorinsky constant: high enough to catch a
+    // diverging coefficient, low enough that it does not shape the distribution.
+    config->max_cs                  = 0.3;
+    config->min_viscosity_ratio     = 0.0;
+    config->yoshizawa_ci            = 0.09;
+    config->diagnostics_enabled     = PETSC_FALSE;
+    config->diagnostics_cadence     = 1;
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ParseLESConfiguration"
+/**
+ * @brief Reads every LES closure parameter from the generated control file.
+ *
+ * Grouped into one routine because the parameters constrain one another: the
+ * averaging directions only mean something under homogeneous averaging, and the
+ * clip ceiling only under clamping. Selectors arrive as integers that the Python
+ * layer has already normalized from their user-facing names, which is the same
+ * contract `-les`, `-pinit`, and `-interpolation_method` follow.
+ *
+ * Values that would make the closure ill-defined are rejected here as well as in
+ * Python, so a hand-written control file fails with a reason rather than producing
+ * a plausible-looking coefficient.
+ *
+ * @param[in,out] simCtx Simulation context whose `les_config` is populated.
+ * @return PetscErrorCode 0 on success, or `PETSC_ERR_ARG_OUTOFRANGE` for a value
+ *         outside its admissible range.
+ */
+static PetscErrorCode ParseLESConfiguration(SimCtx *simCtx)
+{
+    LESConfig *config = &simCtx->les_config;
+    PetscInt   selector;
+    char       directions[8] = "";
+    PetscBool  found = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+
+    PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_constant_cs", &config->constant_cs, NULL));
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-les_dynamic_frequency", &config->dynamic_frequency, NULL));
+
+    selector = (PetscInt)config->filter_width_model;
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-les_filter_width", &selector, NULL));
+    PetscCheck(selector >= LES_FILTER_WIDTH_CUBE_ROOT_VOLUME && selector <= LES_FILTER_WIDTH_MAX_EDGE,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_filter_width must be 0 (cube_root_volume), 1 (geometric_mean), or 2 (max_edge); received %" PetscInt_FMT ".",
+               selector);
+    config->filter_width_model = (LESFilterWidthModel)selector;
+
+    selector = (PetscInt)config->test_filter_kernel;
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-les_test_filter_kernel", &selector, NULL));
+    PetscCheck(selector >= LES_TEST_FILTER_VOLUME_WEIGHTED_BOX && selector <= LES_TEST_FILTER_SIMPSON_IK,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_test_filter_kernel must be 0 (volume_weighted_box) or 1 (simpson_ik); received %" PetscInt_FMT ".",
+               selector);
+    config->test_filter_kernel = (LESTestFilterKernel)selector;
+
+    PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_test_filter_width_ratio",
+                                  &config->test_filter_width_ratio, NULL));
+    PetscCheck(config->test_filter_width_ratio > 1.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_test_filter_width_ratio must exceed 1; a test filter no wider than the grid "
+               "filter leaves the dynamic procedure nothing to measure. Received %g.",
+               (double)config->test_filter_width_ratio);
+
+    selector = (PetscInt)config->averaging_mode;
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-les_averaging_mode", &selector, NULL));
+    PetscCheck(selector >= LES_AVERAGING_LOCAL && selector <= LES_AVERAGING_GLOBAL,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_averaging_mode must be 0 (local), 1 (homogeneous), or 2 (global); received %" PetscInt_FMT ".",
+               selector);
+    config->averaging_mode = (LESAveragingMode)selector;
+
+    // A subset of "ijk". Left empty under homogeneous averaging, the periodic axes
+    // are used instead, which is what makes the common cases need no configuration.
+    PetscCall(PetscOptionsGetString(NULL, NULL, "-les_averaging_directions",
+                                    directions, sizeof(directions), &found));
+    if (found) {
+        for (size_t index = 0; directions[index] != '\0'; index++) {
+            switch (directions[index]) {
+            case 'i': config->averaging_direction[0] = PETSC_TRUE; break;
+            case 'j': config->averaging_direction[1] = PETSC_TRUE; break;
+            case 'k': config->averaging_direction[2] = PETSC_TRUE; break;
+            default:
+                SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+                        "-les_averaging_directions accepts only the characters i, j, and k; "
+                        "received '%s'.", directions);
+            }
+        }
+    }
+
+    selector = (PetscInt)config->clip_mode;
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-les_clip_mode", &selector, NULL));
+    PetscCheck(selector >= LES_CLIP_CLAMP && selector <= LES_CLIP_NONE,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_clip_mode must be 0 (clamp), 1 (clip_negative), or 2 (none); received %" PetscInt_FMT ".",
+               selector);
+    config->clip_mode = (LESClipMode)selector;
+
+    PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_clip_max_cs", &config->max_cs, NULL));
+    PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_min_viscosity_ratio",
+                                  &config->min_viscosity_ratio, NULL));
+    PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_yoshizawa_ci", &config->yoshizawa_ci, NULL));
+    PetscCall(PetscOptionsGetBool(NULL, NULL, "-les_diagnostics",
+                                  &config->diagnostics_enabled, NULL));
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-les_diagnostics_cadence",
+                                 &config->diagnostics_cadence, NULL));
+
+    PetscCheck(config->dynamic_frequency > 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_dynamic_frequency must be positive; received %" PetscInt_FMT ".",
+               config->dynamic_frequency);
+    PetscCheck(config->constant_cs >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_constant_cs must be nonnegative; received %g.", (double)config->constant_cs);
+    PetscCheck(config->max_cs >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_clip_max_cs must be nonnegative; received %g.", (double)config->max_cs);
+    PetscCheck(config->min_viscosity_ratio >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_min_viscosity_ratio must be nonnegative; received %g.",
+               (double)config->min_viscosity_ratio);
+    PetscCheck(config->diagnostics_cadence > 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_diagnostics_cadence must be positive; received %" PetscInt_FMT ".",
+               config->diagnostics_cadence);
 
     PetscFunctionReturn(0);
 }
@@ -304,11 +458,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     
     // --- Group 8: Turbulence Modeling (LES/RANS) ---
     simCtx->les = NO_LES_MODEL; simCtx->rans = 0;
-    simCtx->wallfunction = 0; simCtx->mixed = 0; simCtx->clark = 0;
-    simCtx->dynamic_freq = 1; simCtx->max_cs = 0.5;
-    simCtx->Const_CS = 0.03;
-    simCtx->testfilter_ik = 0; simCtx->testfilter_1d = 0;
-    simCtx->i_homo_filter = 0; simCtx->j_homo_filter = 0; simCtx->k_homo_filter = 0;
+    simCtx->wallfunction = 0; simCtx->les_gradient_model = 0;
+    ierr = LESConfigSetDefaults(&simCtx->les_config); CHKERRQ(ierr);
 
     // --- Group 9: Particle / DMSwarm Data & Settings ---
     simCtx->np = 0; simCtx->readFields = PETSC_FALSE;
@@ -903,16 +1054,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->les = (LESModelType)temp_les_model;
     ierr = PetscOptionsGetInt(NULL, NULL, "-rans", &simCtx->rans, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-wallfunction", &simCtx->wallfunction, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-mixed", &simCtx->mixed, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-clark", &simCtx->clark, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-dynamic_freq", &simCtx->dynamic_freq, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-max_cs", &simCtx->max_cs, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-const_cs", &simCtx->Const_CS, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-testfilter_ik", &simCtx->testfilter_ik, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-testfilter_1d", &simCtx->testfilter_1d, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-i_homo_filter", &simCtx->i_homo_filter, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-j_homo_filter", &simCtx->j_homo_filter, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-k_homo_filter", &simCtx->k_homo_filter, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetInt(NULL, NULL, "-les_gradient_model", &simCtx->les_gradient_model, NULL); CHKERRQ(ierr);
+    ierr = ParseLESConfiguration(simCtx); CHKERRQ(ierr);
 
      //  --- Group 9
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 9:  Particle / DMSwarm Data & Settings \n");
@@ -1054,6 +1197,407 @@ static PetscErrorCode PetscMkdirRecursive(const char *path)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Whether two configured directories denote the same location or nest.
+ *
+ * @details A bare `strcmp` accepted "output/" against "output", and missed
+ *          "output/sub" entirely. Comparison is done on normalized segment sequences so
+ *          trailing slashes, "./" prefixes and repeated separators cannot defeat it.
+ *
+ * @param[in] first  First directory value.
+ * @param[in] second Second directory value.
+ * @return PETSC_TRUE when one contains the other, or they are equal.
+ */
+static PetscBool DirectoriesOverlap(const char *first, const char *second)
+{
+    char        a[PETSC_MAX_PATH_LEN], b[PETSC_MAX_PATH_LEN];
+    const char *source[2];
+    char       *target[2];
+    int         which;
+
+    if (!first || !second || !*first || !*second) return PETSC_FALSE;
+    source[0] = first;  source[1] = second;
+    target[0] = a;      target[1] = b;
+
+    for (which = 0; which < 2; ++which) {
+        const char *cursor = source[which];
+        char       *out    = target[which];
+        size_t      used   = 0;
+
+        while (*cursor && used + 1 < PETSC_MAX_PATH_LEN) {
+            size_t segment;
+            while (*cursor == '/') ++cursor;
+            segment = strcspn(cursor, "/");
+            if (segment == 0) break;
+            if (segment == 1 && cursor[0] == '.') { cursor += segment; continue; }
+            if (used) out[used++] = '/';
+            if (used + segment + 1 >= PETSC_MAX_PATH_LEN) break;
+            memcpy(out + used, cursor, segment);
+            used += segment;
+            cursor += segment;
+        }
+        out[used] = '\0';
+    }
+
+    if (!*a || !*b) return PETSC_FALSE;
+    if (strcmp(a, b) == 0) return PETSC_TRUE;
+    if (strncmp(a, b, strlen(b)) == 0 && a[strlen(b)] == '/') return PETSC_TRUE;
+    if (strncmp(b, a, strlen(a)) == 0 && b[strlen(a)] == '/') return PETSC_TRUE;
+    return PETSC_FALSE;
+}
+
+/** @brief Directory names the run tree owns; a log directory must never target one. */
+static const char *kReservedRunDirectories[] = {"config", "scheduler", "checkpoints", "visualization", NULL};
+
+/**
+ * @brief Whether a configured directory name is safe to write to a PETSc options line.
+ *
+ * @details Whitespace, quotes, and comment markers change how the options file is
+ *          tokenized, so a value carrying them would be misread rather than merely
+ *          unsafe. This is never waivable: the user cannot consent to ambiguity.
+ *
+ * @param[in] value Configured directory value.
+ * @return PETSC_TRUE when the value is unambiguous.
+ */
+static PetscBool DirectoryValueIsWellFormed(const char *value)
+{
+    const char *cursor;
+
+    if (!value || value[0] == '\0') return PETSC_FALSE;
+    for (cursor = value; *cursor; ++cursor) {
+        if (isspace((unsigned char)*cursor)) return PETSC_FALSE;
+        if (*cursor == '"' || *cursor == '\'' || *cursor == '#') return PETSC_FALSE;
+    }
+    return PETSC_TRUE;
+}
+
+/**
+ * @brief Whether a directory's first path segment collides with a reserved run directory.
+ *
+ * @param[in] value Configured directory value.
+ * @return PETSC_TRUE when it collides.
+ */
+static PetscBool DirectoryHitsReservedName(const char *value)
+{
+    const char *cursor = value;
+
+    if (!value) return PETSC_FALSE;
+
+    /* Walk every path segment, skipping separators and "." components. A
+       first-segment-only check accepted "./config", ".//config", "output/" and
+       "output/sub", each of which deletes a run-owned directory. */
+    while (*cursor) {
+        size_t segment;
+        int    index;
+
+        while (*cursor == '/') ++cursor;
+        if (!*cursor) break;
+        segment = strcspn(cursor, "/");
+        if (!(segment == 1 && cursor[0] == '.')) {
+            for (index = 0; kReservedRunDirectories[index]; ++index) {
+                if (strlen(kReservedRunDirectories[index]) == segment &&
+                    strncmp(cursor, kReservedRunDirectories[index], segment) == 0) {
+                    return PETSC_TRUE;
+                }
+            }
+        }
+        cursor += segment;
+    }
+    return PETSC_FALSE;
+}
+
+typedef enum {
+    DIR_VERDICT_CONTAINED = 0,      /* Inside the working directory. Always safe.        */
+    DIR_VERDICT_MALFORMED,          /* Empty, or unwritable to an options line.          */
+    DIR_VERDICT_RESERVED,           /* Collides with a reserved run directory.           */
+    DIR_VERDICT_OVERLAP,            /* Nests with the solver output directory.           */
+    DIR_VERDICT_RUN_ROOT,           /* Resolves to the working directory itself.         */
+    DIR_VERDICT_ANCESTOR,           /* Contains the working directory.                   */
+    DIR_VERDICT_RELATIVE_ESCAPE,    /* Relative traversal, or a relative symlink escape. */
+    DIR_VERDICT_UNEXPANDED_TILDE,   /* Starts with '~', which nothing expands.           */
+    DIR_VERDICT_EXTERNAL_ABSOLUTE,  /* Absolute location outside the tree.               */
+    DIR_VERDICT_UNRESOLVABLE        /* Working directory or path could not be resolved.  */
+} DirectoryVerdict;
+
+/**
+ * @brief Lexically normalize a path, resolving "." and ".." textually.
+ *
+ * @details Used only when the target does not exist yet, so `realpath` cannot resolve
+ *          it. Resolving ".." textually is correct here precisely because there is no
+ *          file to be a symlink; the existing prefix is resolved separately with
+ *          `realpath`, which does follow symlinks.
+ *
+ * @param[in]  value Path to normalize.
+ * @param[out] out   Buffer receiving the normalized path.
+ * @param[in]  size  Size of the output buffer.
+ * @param[out] stack Caller-provided scratch of at least PETSC_MAX_PATH_LEN bytes.
+ * @return PETSC_TRUE when normalization fit in the buffer.
+ */
+static PetscBool NormalizePathLexically(const char *value, char *out, size_t size,
+                                        char *stack)
+{
+    const char *cursor = value;
+    size_t      used = 0;
+    PetscBool   absolute = (PetscBool)(value[0] == '/');
+
+    stack[0] = '\0';
+    while (*cursor) {
+        const char *slash;
+        size_t      len;
+
+        while (*cursor == '/') cursor++;
+        if (!*cursor) break;
+        slash = strchr(cursor, '/');
+        len   = slash ? (size_t)(slash - cursor) : strlen(cursor);
+
+        if (len == 1 && cursor[0] == '.') {
+            /* Nothing to do. */
+        } else if (len == 2 && cursor[0] == '.' && cursor[1] == '.') {
+            char *last = strrchr(stack, '/');
+            if (last) { *last = '\0'; used = strlen(stack); }
+            else if (used) { stack[0] = '\0'; used = 0; }
+        } else {
+            if (used + len + 2 >= PETSC_MAX_PATH_LEN) return PETSC_FALSE;
+            stack[used++] = '/';
+            memcpy(stack + used, cursor, len);
+            used += len;
+            stack[used] = '\0';
+        }
+        if (!slash) break;
+        cursor = slash + 1;
+    }
+
+    if (absolute) {
+        if (strlen(stack) + 1 >= size) return PETSC_FALSE;
+        strcpy(out, used ? stack : "/");
+    } else {
+        const char *relative = used ? stack + 1 : ".";
+        if (strlen(relative) + 1 >= size) return PETSC_FALSE;
+        strcpy(out, relative);
+    }
+    return PETSC_TRUE;
+}
+
+/**
+ * @brief Resolve a directory that may not exist yet to an absolute physical path.
+ *
+ * @details `realpath` fails on a path whose final components have not been created,
+ *          which is the normal case for a log directory. The longest existing prefix is
+ *          resolved with `realpath`, so symlinked ancestors are followed, and the
+ *          remainder is appended lexically.
+ *
+ * @param[in]  value Configured directory value.
+ * @param[in]  cwd     Current working directory, for relative values.
+ * @param[out] out     Buffer receiving the resolved absolute path.
+ * @param[in]  size    Size of the output buffer.
+ * @param[out] scratch Caller-provided scratch of at least 5*PETSC_MAX_PATH_LEN bytes.
+ * @return PETSC_TRUE when a resolution was produced.
+ */
+static PetscBool ResolveDirectoryPhysically(const char *value, const char *cwd,
+                                            char *out, size_t size, char *scratch)
+{
+    /* Five PATH_MAX buffers, on the heap. On the stack they cost 20 KB inside a call
+       chain that already carries the caller's three, and that overflowed far enough to
+       corrupt the simulation context on rank zero - the guard broke the run it was
+       there to protect. A path check must not spend the stack. */
+    char *absolute   = scratch;
+    char *normalized = scratch + PETSC_MAX_PATH_LEN;
+    char *probe      = scratch + 2 * PETSC_MAX_PATH_LEN;
+    char *resolved   = scratch + 3 * PETSC_MAX_PATH_LEN;
+    char *lexical    = scratch + 4 * PETSC_MAX_PATH_LEN;
+
+    if (value[0] == '/') {
+        if ((size_t)snprintf(absolute, PETSC_MAX_PATH_LEN, "%s", value) >= PETSC_MAX_PATH_LEN)
+            return PETSC_FALSE;
+    } else {
+        if ((size_t)snprintf(absolute, PETSC_MAX_PATH_LEN, "%s/%s", cwd, value)
+            >= PETSC_MAX_PATH_LEN)
+            return PETSC_FALSE;
+    }
+    if (!NormalizePathLexically(absolute, normalized, PETSC_MAX_PATH_LEN, lexical))
+        return PETSC_FALSE;
+
+    if ((size_t)snprintf(probe, PETSC_MAX_PATH_LEN, "%s", normalized) >= PETSC_MAX_PATH_LEN)
+        return PETSC_FALSE;
+
+    /* Walk up to the longest existing prefix, then re-append what was trimmed. */
+    for (;;) {
+        char *last;
+        if (realpath(probe, resolved)) {
+            size_t consumed = strlen(probe);
+            const char *tail = normalized + consumed;
+            if ((size_t)snprintf(out, size, "%s%s", resolved, tail) >= size) return PETSC_FALSE;
+            /* Re-normalize: `resolved` may be "/" and `tail` may start with "/". */
+            return NormalizePathLexically(out, out, size, lexical);
+        }
+        last = strrchr(probe, '/');
+        if (!last) return PETSC_FALSE;
+        if (last == probe) { probe[1] = '\0'; }   /* Down to "/" - try once more. */
+        else              { *last = '\0'; }
+        if (strcmp(probe, "/") == 0 && !realpath(probe, resolved)) return PETSC_FALSE;
+    }
+}
+
+/**
+ * @brief Whether `ancestor` is the same directory as `path`, or contains it.
+ * @param[in] ancestor Candidate containing directory, absolute and normalized.
+ * @param[in] path     Candidate contained directory, absolute and normalized.
+ * @return PETSC_TRUE when `ancestor` equals or contains `path`.
+ */
+static PetscBool PathContainsOrEquals(const char *ancestor, const char *path)
+{
+    size_t len = strlen(ancestor);
+
+    if (strcmp(ancestor, path) == 0) return PETSC_TRUE;
+    if (strcmp(ancestor, "/") == 0) return PETSC_TRUE;
+    return (PetscBool)(strncmp(path, ancestor, len) == 0 && path[len] == '/');
+}
+
+/**
+ * @brief Classify a configured log directory against the working directory.
+ *
+ * @details Every non-waivable check - lexical and physical alike - runs before the
+ *          caller is allowed to consider an authorization. An earlier version returned
+ *          `safe` as soon as it saw an absolute path with authorization set, which let
+ *          an authorized run delete its own run directory, an ancestor of it, or the
+ *          filesystem root. Classification is now total and the waiver is applied once,
+ *          to exactly one verdict.
+ *
+ * @param[in]  log_dir    Configured log directory.
+ * @param[in]  output_dir Configured output directory, for the overlap check.
+ * @param[out] reason     Set to a short explanation of the verdict.
+ * @return The verdict for this directory.
+ */
+static DirectoryVerdict ClassifyLogDirectory(const char *log_dir, const char *output_dir,
+                                             const char **reason)
+{
+    /* One heap block for every path buffer this classification needs: three here and
+       five for the physical resolution. */
+    char            *scratch = NULL;
+    char            *cwd, *resolved, *cwd_real;
+    DirectoryVerdict verdict;
+
+    *reason = "unknown";
+
+    /* --- Non-waivable: ambiguous or self-destructive targets. --- */
+    if (!log_dir || log_dir[0] == '\0') {
+        *reason = "is empty";
+        return DIR_VERDICT_MALFORMED;
+    }
+    if (!DirectoryValueIsWellFormed(log_dir)) {
+        *reason = "contains whitespace, a quote, or a comment marker";
+        return DIR_VERDICT_MALFORMED;
+    }
+    if (DirectoryHitsReservedName(log_dir)) {
+        *reason = "collides with a reserved run directory";
+        return DIR_VERDICT_RESERVED;
+    }
+    if (DirectoriesOverlap(log_dir, output_dir)) {
+        *reason = "overlaps the solver output directory";
+        return DIR_VERDICT_OVERLAP;
+    }
+    /* `~` is refused before anything else looks at the path. Nothing expands it: the
+       control file is read by PETSc rather than by a shell, and the code below resolves
+       a value not starting with '/' relative to the working directory, so `~/logs`
+       names a literal '~' directory inside the run. An earlier version of the launcher's
+       physical check expanded it and treated the result as an authorizable external
+       location, while nothing that used the value ever did; refusing it here keeps both
+       layers describing the same directory. */
+    if (log_dir[0] == '~') {
+        *reason = "starts with '~', which nothing expands - the options file is read by "
+                  "PETSc, not by a shell, so this would name a literal '~' directory "
+                  "inside the run. Give a real absolute path. This cannot be overridden";
+        return DIR_VERDICT_UNEXPANDED_TILDE;
+    }
+    /* A relative traversal is refused on the value itself, before any resolution: it
+       lands among sibling runs and study members, and no authorization covers it. */
+    if (log_dir[0] != '/' &&
+        (strcmp(log_dir, "..") == 0 || strncmp(log_dir, "../", 3) == 0 ||
+         strstr(log_dir, "/../") != NULL ||
+         (strlen(log_dir) >= 3 && strcmp(log_dir + strlen(log_dir) - 3, "/..") == 0))) {
+        *reason = "walks above the working directory by relative traversal, which cannot "
+                  "be authorized";
+        return DIR_VERDICT_RELATIVE_ESCAPE;
+    }
+
+    if (PetscMalloc1(8 * PETSC_MAX_PATH_LEN, &scratch)) {
+        *reason = "cannot be checked because scratch space could not be allocated";
+        return DIR_VERDICT_UNRESOLVABLE;
+    }
+    cwd      = scratch;
+    resolved = scratch + PETSC_MAX_PATH_LEN;
+    cwd_real = scratch + 2 * PETSC_MAX_PATH_LEN;
+
+    verdict = DIR_VERDICT_UNRESOLVABLE;
+    if (!getcwd(cwd, PETSC_MAX_PATH_LEN)) {
+        *reason = "cannot be checked because the working directory could not be determined";
+    } else if (!realpath(cwd, cwd_real)) {
+        *reason = "cannot be checked because the working directory could not be resolved";
+    } else if (!ResolveDirectoryPhysically(log_dir, cwd_real, resolved, PETSC_MAX_PATH_LEN,
+                                           scratch + 3 * PETSC_MAX_PATH_LEN)) {
+        *reason = "could not be resolved to a physical path";
+    } else if (strcmp(resolved, cwd_real) == 0) {
+        /* --- Physical verdicts, decided before authorization is consulted. --- */
+        *reason = "resolves to the working directory itself; deleting it would destroy "
+                  "the run. This cannot be overridden";
+        verdict = DIR_VERDICT_RUN_ROOT;
+    } else if (PathContainsOrEquals(resolved, cwd_real)) {
+        *reason = "contains the working directory, so deleting it recursively would "
+                  "destroy the run and everything beside it. This cannot be overridden";
+        verdict = DIR_VERDICT_ANCESTOR;
+    } else if (PathContainsOrEquals(cwd_real, resolved)) {
+        verdict = DIR_VERDICT_CONTAINED;
+    } else if (log_dir[0] == '/') {
+        /* Outside the working directory. Only an explicitly absolute value can be
+           waived: a relative name that lands outside got there through a symlink,
+           which is not a location anybody asked for. */
+        *reason = "is an absolute path outside the working directory and no "
+                  "-allow_unsafe_log_dir authorization was given";
+        verdict = DIR_VERDICT_EXTERNAL_ABSOLUTE;
+    } else {
+        *reason = "is a relative name that resolves outside the working directory "
+                  "through a symlink, which cannot be authorized";
+        verdict = DIR_VERDICT_RELATIVE_ESCAPE;
+    }
+
+    PetscFree(scratch);
+    return verdict;
+}
+
+/**
+ * @brief Final safety guard before the runtime deletes its log directory.
+ *
+ * @details `picurv` validates run directories and re-checks them at submission, but the
+ *          solver can be launched directly on a hand-written control file, and a
+ *          directory can be replaced with a symlink between validation and launch. This
+ *          is the last check before an irreversible recursive delete, so it is
+ *          deliberately independent of anything the launcher did, which is what
+ *          eliminates the validation-to-execution race.
+ *
+ *          An explicit `-allow_unsafe_log_dir` authorization waives **exactly one**
+ *          verdict: an absolute location outside the working directory that neither is
+ *          nor contains it. It never waives the working directory itself, an ancestor
+ *          of it, a reserved run directory, an overlap with the output directory, a
+ *          relative traversal, a relative symlink escape, or a malformed value. Those
+ *          destroy the run itself or corrupt the options file, and no user consent
+ *          makes them correct.
+ *
+ * @param[in]  log_dir    Configured log directory.
+ * @param[in]  output_dir Configured output directory, for the overlap check.
+ * @param[in]  authorized Whether an explicit unsafe-path authorization was supplied.
+ * @param[out] reason     Set to a short explanation when the directory is refused.
+ * @return PETSC_TRUE when the directory is safe to remove.
+ */
+static PetscBool LogDirectoryIsSafeToWipe(const char *log_dir, const char *output_dir,
+                                          PetscBool authorized, const char **reason)
+{
+    DirectoryVerdict verdict = ClassifyLogDirectory(log_dir, output_dir, reason);
+
+    if (verdict == DIR_VERDICT_CONTAINED) return PETSC_TRUE;
+    if (verdict == DIR_VERDICT_EXTERNAL_ABSOLUTE && authorized) return PETSC_TRUE;
+    return PETSC_FALSE;
+}
+
 #undef __FUNCT__
 #define __FUNCT__ "SetupSimulationEnvironment"
 /**
@@ -1130,6 +1674,26 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
         // --- Prepare Log Directory ---
         if (!simCtx->continueMode) {
             // Only wipe logs on fresh runs; continue mode appends to existing logs.
+            // Final guard: this delete is recursive and irreversible, so re-check
+            // containment here rather than trusting that the launcher validated it.
+            {
+                PetscBool   unsafe_authorized = PETSC_FALSE;
+                const char *refusal = NULL;
+                ierr = PetscOptionsGetBool(NULL, NULL, "-allow_unsafe_log_dir",
+                                           &unsafe_authorized, NULL); CHKERRQ(ierr);
+                if (!LogDirectoryIsSafeToWipe(simCtx->log_dir, simCtx->output_dir,
+                                              unsafe_authorized, &refusal)) {
+                    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
+                            "Refusing to delete log directory '%s': it %s. Configure run "
+                            "directories through monitor.io.directories.",
+                            simCtx->log_dir, refusal);
+                }
+                if (unsafe_authorized) {
+                    LOG_ALLOW(GLOBAL, LOG_WARNING,
+                              "Deleting log directory '%s' outside the working directory, "
+                              "authorized by -allow_unsafe_log_dir.\n", simCtx->log_dir);
+                }
+            }
             LOG_ALLOW(GLOBAL, LOG_DEBUG, "Creating/cleaning log directory: %s\n", simCtx->log_dir);
             ierr = PetscRMTree(simCtx->log_dir); // Wipes the directory and its contents
             if (ierr) { /* Ignore file-not-found error, but fail on others */
@@ -1516,10 +2080,14 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 ierr = DMCreateGlobalVector(user->da, &user->Nu_t); CHKERRQ(ierr); ierr = VecSet(user->Nu_t, 0.0); CHKERRQ(ierr);
                 ierr = DMCreateLocalVector(user->da, &user->lNu_t); CHKERRQ(ierr); ierr = VecSet(user->lNu_t, 0.0); CHKERRQ(ierr);
                 LOG_ALLOW(GLOBAL, LOG_DEBUG, "Turbulence viscosity (Nu_t) vectors created for LES/RANS model.\n");
-                if(simCtx->les){ 
+                // Only the dynamic model carries a coefficient field. The constant model
+                // reads its coefficient straight from configuration, so allocating,
+                // synchronizing, and checkpointing a field of one repeated number would
+                // buy nothing.
+                if(simCtx->les == DYNAMIC_SMAGORINSKY){
                 ierr = DMCreateGlobalVector(user->da,&user->CS); CHKERRQ(ierr); ierr = VecSet(user->CS,0.0); CHKERRQ(ierr);
                 ierr = DMCreateLocalVector(user->da,&user->lCs); CHKERRQ(ierr); ierr = VecSet(user->lCs,0.0); CHKERRQ(ierr);
-                LOG_ALLOW(GLOBAL, LOG_DEBUG, "Smagorinsky constant (CS) vectors created for LES model.\n");
+                LOG_ALLOW(GLOBAL, LOG_DEBUG, "Dynamic Smagorinsky coefficient (CS) vectors created.\n");
                 }
 
                 if(simCtx->wallfunction){

@@ -4396,6 +4396,41 @@ def test_summarize_plot_reports_missing_matplotlib_as_dependency_error(tmp_path)
     assert "CFG_INVALID_VALUE" not in result.stderr
 
 
+def test_summarize_exposes_les_coefficient_history_as_plot_series(tmp_path):
+    """!
+    @brief Test the LES coefficient log becomes a plottable summarize series.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = create_summary_run_dir(tmp_path)
+    (run_dir / "logs" / "les_coefficient.csv").write_text(
+        "step,time,cs_effective,cs_mean,coefficient_mean,coefficient_rms,"
+        "coefficient_min,coefficient_max,nu_t_mean,nu_t_max,nu_t_over_nu_mean,"
+        "k_sgs_mean,backscatter_fraction,limited_fraction\n"
+        "1,2.0e-03,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0e-01,0.0,0.0\n"
+        "2,4.0e-03,1.60e-01,1.61e-01,2.56e-02,1.0e-09,2.5e-02,2.6e-02,"
+        "1.5e-04,3.8e-04,3.1e-02,1.1e-01,5.0e-02,0.0\n",
+        encoding="utf-8",
+    )
+
+    context = picurv._build_summary_context(str(run_dir))
+    records = picurv._collect_summary_plot_records(context)
+    les_records = [record for record in records if record["source"] == "les"]
+
+    assert len(les_records) == 2
+    # cs_effective is the curve an LES run is judged on, so it has to be reachable.
+    assert les_records[1]["values"]["cs_effective"] == pytest.approx(0.160)
+    assert les_records[1]["values"]["backscatter_fraction"] == pytest.approx(0.05)
+    assert les_records[1]["values"]["k_sgs_mean"] == pytest.approx(0.11)
+
+    # The request carries both rows; the abscissa is physical time, not the step index.
+    request = picurv._build_summary_plot_request(
+        context, records, "les.cs_effective", None, False, None)
+    points = request["lines"][0]["points"]
+    assert [point[1] for point in points] == pytest.approx([0.0, 0.160])
+    assert points[0][0] < points[1][0]
+
+
 def test_summarize_plot_request_uses_latest_continuation_segment_and_last_window(tmp_path):
     """!
     @brief Test plot requests use only the latest continuation segment and last-N records.

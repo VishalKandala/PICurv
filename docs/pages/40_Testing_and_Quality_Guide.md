@@ -85,9 +85,10 @@ Guidance:
 
 - Use `python3 tests/tooling/audit_function_docs.py` when changing C/Python function signatures, docstrings, or test helpers. It scans production code, generators, tests, and tooling; it rejects missing documentation and name-only descriptions such as “helper function” or “internal helper implementation.”
 - Use `make test` when working on `picurv_cli/core.py`, schemas, or repository metadata.
-- Use `python3 tests/tooling/check_markdown_links.py` when changing docs/examples.
-- Use `python3 tests/tooling/audit_starter_content.py` when changing `examples/` or `config/`. It checks the complete top-level template and configuration inventories, validates every declared composition, and verifies that `picurv init` faithfully copies each template without carrying a site-specific execution sample into the new case.
-- Use `make audit-build` when you want a clean compilation audit with `logs/build.log` and `logs/build.warnings.log` captured under the repo `logs/` directory.
+- Use `python3 tests/tooling/check_markdown_links.py` when changing any Markdown in the
+  repository; it scans every tracked Markdown file, not just `docs/` and `examples/`.
+- Use `python3 tests/tooling/audit_starter_content.py` when changing `examples/` or `<repo>/config/`. It checks the complete top-level template and configuration inventories, validates every declared composition, and verifies that `picurv init` faithfully copies each template without carrying a site-specific execution sample into the new case.
+- Use `make audit-build` when you want a clean compilation audit with `<repo>/logs/build.log` and `<repo>/logs/build.warnings.log` captured under `<repo>/logs/`.
 - Use `make doctor` after provisioning PETSc on a new machine.
 - Use `make unit-setup` when changing setup, teardown, initialization, or rank-info lifecycle code.
 - Use `make unit-setup` when changing `FieldId`, `FieldDescriptor`, runtime field
@@ -104,12 +105,44 @@ Guidance:
 - Use `make check-mpi` when multi-rank MPI behavior is in scope.
 - Use `make check-full` for comprehensive branch/CI/release validation that must cover all MPI layers.
 - Use `make check-stress` when you want the full default gate plus the stress tier in one pass.
+- Use `make audit-agent-setup` after changing shared instructions, skill discovery, or
+  Claude-local configuration. Edit canonical skills under `.agents/skills/`, then use
+  `make sync-agent-skills` to refresh and audit the materialized Claude copies.
 - Run `make install-git-hooks` once per clone to make `make certify-docs` an
   automatic pre-push gate for updates to remote `main`. The hook validates only
   the checked-out commit and blocks the push on failure; GitHub Actions then
   repeats the lighter structural documentation checks after the push.
 
-@section p40_main_prepush_sec 2.1 Main-Branch Pre-Push Certification
+@subsection p40_routing_tools_sub 2.1 Review Routing and Optional Source Xrefs
+
+`make review-packet` is a bounded index into declared repository data. Its selectors are
+mutually exclusive:
+
+```bash
+make review-packet PAGE=44
+make review-packet CONTRACT=field.identity_and_layout
+make review-packet CAPABILITY=boundary.handler
+make review-packet SUBSYSTEM=boundary.periodic
+make review-packet SURFACE=boundary.system
+make review-packet CHANGED=working-tree
+```
+
+The first five join registry identifiers to source symbols or watched files, pages,
+contracts, capability families, subsystem records, freshness state, and declared test
+evidence. Changed-set mode covers staged, unstaged, and untracked nonignored paths; an
+unrouted production path returns advisory status 3 with a nearest-guide fallback and a
+targeted search. Status 0 means the join is complete over declared registry data, not
+that code behavior is correct. Unknown identifiers return 2; known but unresolved or
+environment-unavailable routes return 3 instead of an empty success.
+
+`make docs-xref` optionally adds `docs_build/xref.json`, distilled from Doxygen XML and
+stamped with current source bytes and Doxygen configuration. Review packets never build
+it implicitly and never display stale edges. Doxygen references are not a semantic call
+graph: callbacks, registry tables, function pointers, macros, PETSc dispatch, and runtime
+selection can require an intermediate or manual live-path trace. The registry route is
+usable on a fresh clone without this cache.
+
+@section p40_main_prepush_sec 2.2 Main-Branch Pre-Push Certification
 
 The tracked `.githooks/pre-push` hook enforces a commit-scoped documentation
 certificate before a local Git client updates `refs/heads/main`. Enable it in
@@ -123,7 +156,7 @@ The hook runs `make certify-docs`, which requires a clean worktree and includes
 the PETSc/MPI runtime tier, whenever runtime-relevant files changed. For
 Markdown, documentation-site, hook, and workflow-only changes it instead runs
 `make certify-docs-fast` only if a full certificate for an ancestor of the
-target commit exists in local `logs/` and is no more than three days old. Missing
+target commit exists in local `<repo>/logs/` and is no more than three days old. Missing
 or stale certificates always cause a full run. Override the interval for a
 single push with `PICURV_FULL_CERT_MAX_AGE_DAYS=<days>`.
 
@@ -132,13 +165,13 @@ to `main`, because it can only certify the exact checked-out `HEAD`. This is a
 local safeguard: Git permits bypassing hooks with `git push --no-verify`, so the
 post-push GitHub documentation gates remain a separate redundancy layer.
 
-`make certify-docs` includes Markdown-link, function-documentation,
+`make certify-docs` includes portable-agent-setup, Markdown-link, function-documentation,
 user-facing-reporting, starter-template/configuration, option-ingress,
 example/configuration regression, and zero-warning Doxygen gates before the
 PETSc/MPI `make check-full` tier. Therefore, with the tracked hook enabled, a
 normal push to `main` cannot publish the checked-out commit until all applicable
 local gates pass. The starter-content gate specifically rejects an unregistered
-example directory/YAML, an unregistered `config/` asset, a broken declared
+example directory/YAML, an unregistered `<repo>/config/` asset, a broken declared
 composition, or a template that `picurv init` does not copy faithfully.
 
 @section p40_python_sec 3. Python Suite (`test-python`)
@@ -522,25 +555,3 @@ P2 (deeper hardening):
 - long-duration nightly/weekly stability suites (beyond tiny smoke budgets)
 - numerical oracle/golden-output tolerance checks for more physical scenarios
 - performance regression gates (runtime/memory envelopes)
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Testing and Validation Guide** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

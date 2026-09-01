@@ -59,7 +59,7 @@ writes the same canonical `PICSLICE` format as the other source types. V1
 requires exact slice dimension matches; it does not interpolate or resample.
 
 `picurv run --solve` automatically materializes generated and sliced profiles under
-`runs/<run_id>/config/`, writes `profile.info`, stages a nondimensional solver
+`<run.config>/`, writes `profile.info`, stages a nondimensional solver
 copy, and passes the staged `source_file` to the C runtime.
 
 For `square_duct_poiseuille`, `bulk_velocity` is the continuous area-mean speed

@@ -123,8 +123,15 @@ the DNS, the RMS fluctuation profiles, and the realized `u_tau = sqrt(f h)`:
 
 The coarse repeat of the `Re_tau = 180` case, run **after** the DNS so the SGS
 contribution is assessed against an in-tree DNS rather than against literature
-alone. Use **constant** Smagorinsky only — the dynamic model in this tree has a
-known defect (incorrect `M_ij`, no homogeneous averaging).
+alone.
+
+> **Experimental LES.** Both LES models are implemented and unit-tested, but neither
+> has a validated coefficient magnitude. This case selects `constant_smagorinsky`,
+> which now applies its configured coefficient from the first step. The channel is
+> periodic in xi and zeta, so `dynamic_smagorinsky` with `averaging.mode: homogeneous`
+> is also available here and derives those two directions from the boundary pairs,
+> giving a wall-normal coefficient profile. See `docs/pages/07_Case_Reference.md` and
+> `docs/pages/72_LES_Turbulence_Closure.md`.
 
 ## 6. Before you launch a campaign
 
@@ -133,13 +140,12 @@ Both are described in full in `docs/pages/54_Geometric_Periodic_Boundaries.md`,
 section 5.7.
 
 **Momentum convergence.** Under the Dual Time Picard Jameson RK solver these
-periodic wall-bounded cases do not reach the pseudo-time tolerance: `dtau`
-collapses to its floor and every step logs "reached N total attempts without
-convergence", continuing from the last accepted state. This is *not* caused by
-the driven handlers — an otherwise identical case with plain `geometric`
-handlers behaves the same, and the Poisson side stays healthy throughout
-(maximum divergence around 1e-14). It must be resolved before the turbulent
-runs are meaningful.
+periodic wall-bounded cases were observed on 2026-08-24 not to reach the
+pseudo-time tolerance. That observation predates the 2026-08-25 change of the
+momentum convergence criterion and **requires re-characterization at current
+`HEAD`** — do not treat it as current solver behavior. The canonical, dated
+statement lives in `docs/pages/54_Geometric_Periodic_Boundaries.md`, section 5.7;
+check there before planning a campaign around it.
 
 **Initial-condition seeding.** The shipped cases seed with
 `streamwise_constant`, which is a laminar profile. Transition from it is slow

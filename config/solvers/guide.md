@@ -47,8 +47,8 @@ verification path. `Dual Time Picard Jameson RK` is the established pseudo-time
 fixed-point solver (tuned through pseudo-CFL and pseudo-iterations). `Newton
 Krylov` is the newer matrix-free PETSc SNES/GMRES solver with a narrower validated
 scope. See the momentum-solver overview and the dedicated Newton--Krylov page:
-- https://vishalkandala.me/picurv-docs/31_Momentum_Solvers.html
-- https://vishalkandala.me/picurv-docs/55_Newton_Krylov_Momentum_Solver.html
+- https://vishalkandala.me/docs/picurv/31_Momentum_Solvers.html
+- https://vishalkandala.me/docs/picurv/55_Newton_Krylov_Momentum_Solver.html
 
 When `strategy.momentum_solver` is `Newton Krylov`, tune it under the structured
 `momentum_solver.newton_krylov` block. Omitted fields keep the C/PETSc defaults
@@ -115,7 +115,7 @@ cell grid wants 5 levels, not 4.
 
 Full discussion, the worked tracked-vs-true residual table, and the
 coarsenability constraint:
-https://vishalkandala.me/picurv-docs/25_Pressure_Poisson_GMRES_Multigrid.html
+https://vishalkandala.me/docs/picurv/25_Pressure_Poisson_GMRES_Multigrid.html
 
 ## 5. CFD Tuning Order (Practical)
 
@@ -130,9 +130,12 @@ both non-positive, preserves the legacy update-only convergence rule. A looser
 `1.0e-2` residual-relative tolerance can be useful for exploratory LES, but
 should be treated as an explicit accuracy/runtime tradeoff.
 
-For the Picard-Jameson controller, `max_iterations` limits total attempted
-trials. The pseudo-CFL is global, rejected trials roll back globally, and the
-controller-selected next CFL carries into the next physical timestep.
+For the Picard-Jameson controller, `max_iterations` caps **accepted** pseudo-time
+iterations, not total attempts. A rejected trial rolls back and does not consume
+the accepted-iteration budget; a separate hard cap of `3 * max_iterations` total
+attempts guards against an infinite rejection loop. The pseudo-CFL is global,
+rejected trials roll back globally, and the controller-selected next CFL carries
+into the next physical timestep.
 
 Detailed behavior and tuning guidance:
-- https://vishalkandala.me/picurv-docs/24_Dual_Time_Picard_Jameson_RK.html
+- https://vishalkandala.me/docs/picurv/24_Dual_Time_Picard_Jameson_RK.html

@@ -118,10 +118,140 @@ documented numerical functions. The first implementation supports one block.
 The repository generator requires a staged PICGRID. `grid.mode: file` and
 `grid.mode: grid_gen` provide that grid directly; for single-block
 `grid.mode: programmatic_c`, the launcher materializes a nondimensional
-`config/grid.run` bridge from scalar `programmatic_settings` before invoking
+`<run.config>/grid.run` bridge from scalar `programmatic_settings` before invoking
 `ic.gen`.
 
-@section p33_euler_modes_sec 3. C Runtime Modes and Entry Points
+@section p33_entries_sec 3. Field Initialization Mode Entries
+
+@htmlinclude generated/capability_inventory_initial_field_mode.html
+
+@subsection p33_cap_zero_sub Zero
+
+@anchor p33_cap_zero
+
+**Identity.** Field mode `Zero` -> `-finit 0` -> `IC_MODE_ZERO`.
+
+**What it does.** Initializes the velocity field to zero everywhere.
+
+**When to choose it.** When the flow is driven entirely by its boundaries and you want no
+assumption about the interior - an inlet-driven channel starting from rest. Choose
+`Poiseuille` instead when you want a developed profile immediately, and `Constant` when
+you want uniform motion.
+
+**Parameters it owns.** None.
+
+**Interactions.** A zero field with periodic boundaries and no driving force stays zero;
+that combination needs a driven handler to do anything.
+
+**Diagnostics.** The startup banner reports the resolved initial-condition mode; step 0
+output shows a zero field.
+
+**Evidence.** Implemented only.
+
+**Limitations.** Transition from rest can be slow, and for turbulence it will not occur
+at all without a finite-amplitude perturbation.
+
+@subsection p33_cap_constant_sub Constant
+
+@anchor p33_cap_constant
+
+**Identity.** Field mode `Constant` -> `-finit 1` -> `IC_MODE_CONSTANT_CARTESIAN`.
+
+**What it does.** Initializes the whole field to one uniform Cartesian velocity.
+
+**When to choose it.** Plug flow, or seeding a bulk motion the boundaries will then shape.
+
+**Parameters it owns.** The constant velocity components in the initial-condition block.
+
+**Interactions.** A uniform field will not satisfy no-slip at walls; the first steps
+resolve that discontinuity, which can be abrupt.
+
+**Diagnostics.** As above.
+
+**Evidence.** Implemented only.
+
+**Limitations.** Not divergence-free in general on a curvilinear grid, so the first
+pressure solve does real work.
+
+@subsection p33_cap_poiseuille_sub Poiseuille
+
+@anchor p33_cap_poiseuille
+
+**Identity.** Field mode `Poiseuille` -> `-finit 2` -> `IC_MODE_POISEUILLE`.
+
+**What it does.** Initializes with an analytic parabolic profile.
+
+**When to choose it.** A wall-bounded channel or duct where you want a developed-looking
+start rather than a transient from rest.
+
+**Parameters it owns.** The profile scaling in the initial-condition block.
+
+**Interactions.** Assumes a wall-bounded geometry; in a domain without the expected walls
+the profile will not vanish where you expect.
+
+**Diagnostics.** As above; inspect the step-0 field before committing to a long run.
+
+**Evidence.** Implemented only.
+
+**Limitations.** An analytic approximation, not a solution of the case being run. The C
+enum also carries `IC_MODE_CONSTANT_STREAMWISE` and `IC_MODE_FILE`, which this selector
+does not expose.
+
+@htmlinclude generated/capability_inventory_initial_target_field.html
+
+@subsection p33_cap_field_ucat_sub Ucat
+
+@anchor p33_cap_field_ucat
+
+**Identity.** `initial_conditions.field: Ucat` -> the Cartesian velocity field is the
+initialization target (internal code `0`).
+
+**What it does.** Applies the chosen field mode to the Cartesian velocity, from which the
+contravariant fluxes are then derived.
+
+**When to choose it.** The normal choice, and the one that matches how the field modes are
+expressed - a uniform or parabolic profile is naturally stated in Cartesian components.
+
+**Parameters it owns.** None; it selects which field the mode writes to.
+
+**Interactions.** `Ucat` is the derived representation, so initializing it requires a
+conversion to the evolved `Ucont` fluxes before the first step. See
+**@subpage 20_Grid_Cell_Architecture_Guide**.
+
+**Diagnostics.** Step-0 output shows the initialized field.
+
+**Evidence.** Production exercised - `examples/flat_channel`.
+
+**Limitations.** On a strongly curvilinear grid the conversion from a Cartesian profile to
+fluxes is not exact in the sense of preserving the intended profile shape.
+
+@subsection p33_cap_field_ucont_sub Ucont
+
+@anchor p33_cap_field_ucont
+
+**Identity.** `initial_conditions.field: Ucont` -> the contravariant flux field is the
+initialization target (internal code `1`).
+
+**What it does.** Applies the chosen field mode directly to the evolved flux variable,
+skipping the Cartesian-to-flux conversion.
+
+**When to choose it.** When you want exact control of the initial fluxes - for instance
+setting a precise volumetric flux - rather than of the Cartesian velocity.
+
+**Parameters it owns.** None.
+
+**Interactions.** `Ucont` is what the solver actually evolves, so this path avoids one
+conversion. The field modes are still expressed in the same components, which is what
+makes this the less intuitive of the two.
+
+**Diagnostics.** Step-0 output; check the derived `Ucat` looks as intended.
+
+**Evidence.** Implemented only. No shipped example selects it.
+
+**Limitations.** Unverified by any in-tree case, and easier to get wrong because the
+values are fluxes rather than velocities.
+
+@section p33_euler_modes_sec 4. C Runtime Modes and Entry Points
 
 The launcher maps the contract to one `InitialConditionMode` enum value:
 
@@ -138,7 +268,7 @@ The launcher maps the contract to one `InitialConditionMode` enum value:
 when its field selector is `Ucat`, @ref Cart2Contra converts the loaded vector field to `Ucont`.
 After that point, the existing finalization path treats every IC source identically.
 
-@section p33_restart_modes_sec 4. Authority and Restart Branches
+@section p33_restart_modes_sec 5. Authority and Restart Branches
 
 In @ref InitializeEulerianState "InitializeEulerianState":
 
@@ -155,7 +285,7 @@ Operational note:
 - `StartStep` identifies the saved restart state being loaded, not the first new step to compute.
 - If a run completed through step `N`, restart with `start_step: N`; the first newly advanced step will be `N+1`.
 
-@section p33_particle_link_sec 5. Particle Initialization Relation
+@section p33_particle_link_sec 6. Particle Initialization Relation
 
 Particle initialization is configured in `case.yml -> models.physics.particles`, but executed by a separate subsystem.
 
@@ -164,7 +294,7 @@ For full particle mode and restart details, use:
 - **@subpage 45_Particle_Initialization_and_Restart**
 - **@subpage 34_Particle_Model_Overview**
 
-@section p33_checks_sec 6. Practical Checks
+@section p33_checks_sec 7. Practical Checks
 
 After startup, confirm:
 
@@ -193,25 +323,3 @@ Common pitfalls:
 - **@subpage 34_Particle_Model_Overview**
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 50_Modular_Selector_Extension_Guide**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Initial Condition Modes** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

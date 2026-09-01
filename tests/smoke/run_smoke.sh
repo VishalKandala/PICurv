@@ -308,19 +308,41 @@ def fail(message: str) -> None:
     raise RuntimeError(message)
 
 
-def discover_case_bundle(case_dir: str, template_name: str):
-    ymls = sorted(os.path.basename(path) for path in glob.glob(os.path.join(case_dir, "*.yml")))
-    case_file = f"{template_name}.yml"
-    if case_file not in ymls:
-        fail(f"{template_name}: expected case file '{case_file}' in {case_dir}, found {ymls}")
+# A directory may ship more than one bundle. `quickstart_` is the documented
+# short-run variant of the same case, and it is the bundle the getting-started page
+# tells a new user to run, so it is smoke-tested rather than excluded.
+BUNDLE_PREFIXES = ("", "quickstart_")
 
-    monitor_file = "Standard_Output.yml" if "Standard_Output.yml" in ymls else None
-    if not monitor_file:
-        fail(f"{template_name}: expected monitor file 'Standard_Output.yml' in {case_dir}")
+
+def bundle_prefixes(case_dir: str) -> list:
+    """Which bundle prefixes this example directory actually ships."""
+    present = [os.path.basename(path) for path in glob.glob(os.path.join(case_dir, "*.yml"))]
+    return [p for p in BUNDLE_PREFIXES
+            if any(name.startswith(p) for name in present) or p == ""]
+
+
+def discover_case_bundle(case_dir: str, template_name: str, prefix: str = ""):
+    all_ymls = sorted(os.path.basename(path) for path in glob.glob(os.path.join(case_dir, "*.yml")))
+    label = f"{template_name}[{prefix}]" if prefix else template_name
+    # Each bundle owns only the files carrying its prefix. Without this, the default
+    # bundle would see the quickstart profiles as extra solver candidates.
+    if prefix:
+        ymls = [name for name in all_ymls if name.startswith(prefix)]
+    else:
+        ymls = [name for name in all_ymls
+                if not any(name.startswith(p) for p in BUNDLE_PREFIXES if p)]
+
+    case_file = f"{prefix}{template_name}.yml"
+    if case_file not in ymls:
+        fail(f"{label}: expected case file '{case_file}' in {case_dir}, found {ymls}")
+
+    monitor_file = f"{prefix}Standard_Output.yml"
+    if monitor_file not in ymls:
+        fail(f"{label}: expected monitor file '{monitor_file}' in {case_dir}")
 
     post_candidates = [name for name in ymls if name.lower().endswith("_analysis.yml")]
     if not post_candidates:
-        fail(f"{template_name}: expected *_analysis.yml post profile in {case_dir}")
+        fail(f"{label}: expected *_analysis.yml post profile in {case_dir}")
     post_file = sorted(post_candidates)[0]
 
     excluded = {
@@ -349,13 +371,33 @@ def discover_case_bundle(case_dir: str, template_name: str):
             and not is_execution_example(name)
         )
     ]
+    if prefix and not solver_candidates:
+        # A quickstart bundle may reuse the default solver profile rather than shipping
+        # its own; that is a legitimate way to author one. Fall back to the default
+        # bundle's solver, filtering out the default bundle's own case/monitor/post so
+        # only the solver profile survives.
+        default_ymls = [name for name in all_ymls
+                        if not any(name.startswith(q) for q in BUNDLE_PREFIXES if q)]
+        default_excluded = excluded | {
+            f"{template_name}.yml",
+            "Standard_Output.yml",
+        } | {name for name in default_ymls if name.lower().endswith("_analysis.yml")}
+        solver_candidates = [
+            name for name in default_ymls
+            if name not in default_excluded
+            and "study" not in name.lower()
+            and "cluster" not in name.lower()
+            and not is_execution_example(name)
+        ]
     if len(solver_candidates) != 1:
         fail(
-            f"{template_name}: expected exactly one solver profile, found {solver_candidates} "
+            f"{label}: expected exactly one solver profile, found {solver_candidates} "
             f"(all yml: {ymls})"
         )
     return case_file, solver_candidates[0], monitor_file, post_file
 
+
+checked_bundles = []
 
 for template_name in templates:
     case_dir = os.path.join(matrix_root, template_name)
@@ -364,48 +406,52 @@ for template_name in templates:
     if init_res.returncode != 0:
         fail(f"{template_name}: init failed:\n{init_res.stdout}\n{init_res.stderr}")
 
-    case_file, solver_file, monitor_file, post_file = discover_case_bundle(case_dir, template_name)
+    for prefix in bundle_prefixes(case_dir):
+        label = f"{template_name}[{prefix}]" if prefix else template_name
+        checked_bundles.append(label)
 
-    validate_cmd = [
-        picurv_exe,
-        "validate",
-        "--case", os.path.join(case_dir, case_file),
-        "--solver", os.path.join(case_dir, solver_file),
-        "--monitor", os.path.join(case_dir, monitor_file),
-        "--post", os.path.join(case_dir, post_file),
-    ]
-    validate_res = subprocess.run(validate_cmd, cwd=case_dir, text=True, capture_output=True)
-    if validate_res.returncode != 0:
-        fail(f"{template_name}: validate failed:\n{validate_res.stdout}\n{validate_res.stderr}")
+        case_file, solver_file, monitor_file, post_file = discover_case_bundle(case_dir, template_name, prefix)
 
-    dry_cmd = [
-        picurv_exe,
-        "run",
-        "--solve",
-        "--post-process",
-        "--case", os.path.join(case_dir, case_file),
-        "--solver", os.path.join(case_dir, solver_file),
-        "--monitor", os.path.join(case_dir, monitor_file),
-        "--post", os.path.join(case_dir, post_file),
-        "--dry-run",
-        "--format", "json",
-    ]
-    dry_res = subprocess.run(dry_cmd, cwd=case_dir, text=True, capture_output=True)
-    if dry_res.returncode != 0:
-        fail(f"{template_name}: dry-run failed:\n{dry_res.stdout}\n{dry_res.stderr}")
+        validate_cmd = [
+            picurv_exe,
+            "validate",
+            "--case", os.path.join(case_dir, case_file),
+            "--solver", os.path.join(case_dir, solver_file),
+            "--monitor", os.path.join(case_dir, monitor_file),
+            "--post", os.path.join(case_dir, post_file),
+        ]
+        validate_res = subprocess.run(validate_cmd, cwd=case_dir, text=True, capture_output=True)
+        if validate_res.returncode != 0:
+            fail(f"{label}: validate failed:\n{validate_res.stdout}\n{validate_res.stderr}")
 
-    payload = json.loads(dry_res.stdout)
-    stages = payload.get("stages", {})
-    if "solve" not in stages or "post-process" not in stages:
-        fail(f"{template_name}: dry-run payload missing solve/post-process stages: {payload}")
-    solve_launch = stages["solve"].get("launch_command", [])
-    post_launch = stages["post-process"].get("launch_command", [])
-    if not solve_launch or not any(str(token).endswith("simulator") for token in solve_launch):
-        fail(f"{template_name}: solve launch command does not target simulator: {solve_launch}")
-    if not post_launch or not any(str(token).endswith("postprocessor") for token in post_launch):
-        fail(f"{template_name}: post launch command does not target postprocessor: {post_launch}")
+        dry_cmd = [
+            picurv_exe,
+            "run",
+            "--solve",
+            "--post-process",
+            "--case", os.path.join(case_dir, case_file),
+            "--solver", os.path.join(case_dir, solver_file),
+            "--monitor", os.path.join(case_dir, monitor_file),
+            "--post", os.path.join(case_dir, post_file),
+            "--dry-run",
+            "--format", "json",
+        ]
+        dry_res = subprocess.run(dry_cmd, cwd=case_dir, text=True, capture_output=True)
+        if dry_res.returncode != 0:
+            fail(f"{label}: dry-run failed:\n{dry_res.stdout}\n{dry_res.stderr}")
 
-print("template matrix smoke validated: " + ", ".join(templates))
+        payload = json.loads(dry_res.stdout)
+        stages = payload.get("stages", {})
+        if "solve" not in stages or "post-process" not in stages:
+            fail(f"{label}: dry-run payload missing solve/post-process stages: {payload}")
+        solve_launch = stages["solve"].get("launch_command", [])
+        post_launch = stages["post-process"].get("launch_command", [])
+        if not solve_launch or not any(str(token).endswith("simulator") for token in solve_launch):
+            fail(f"{label}: solve launch command does not target simulator: {solve_launch}")
+        if not post_launch or not any(str(token).endswith("postprocessor") for token in post_launch):
+            fail(f"{label}: post launch command does not target postprocessor: {post_launch}")
+
+print("template matrix smoke validated: " + ", ".join(checked_bundles))
 PY
 }
 

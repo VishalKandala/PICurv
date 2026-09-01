@@ -1,0 +1,4 @@
+{
+  "description": "Non-rendered capability scope records. These describe documentation work that is defined but deliberately not yet written, and the conditions under which a record must convert into published disclosure. Nothing here is published to the documentation site. The list is currently empty: the two LES records it held were retired when the corresponding defects were fixed and the capability entries in 07_Case_Reference were written.",
+  "records": []
+}

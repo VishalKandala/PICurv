@@ -6,6 +6,12 @@ This page describes the pressure-correction solve path used by projection in PIC
 
 @tableofcontents
 
+@dotfile multigrid_hierarchy.dot "Multigrid V-cycle over the coarsened grid hierarchy"
+
+@note Diagram shows a three-level V-cycle, the shipped default. Flagged for owner
+validation of the scientific interpretation.
+
+
 @section p25_equation_sec 1. Pressure-Correction Equation
 
 The correction solve enforces incompressibility through:
@@ -200,7 +206,7 @@ reasonable stopgap, not a scalable answer.
 ## Diagnosing tracked-vs-true residual divergence
 
 `DualKSPMonitor` (`src/logging.c`) prints both numbers to
-`logs/Poisson_Solver_Convergence_History_Block_0.log` when
+`<run.runtime_logs>/Poisson_Solver_Convergence_History_Block_0.log` when
 `monitor.yml -> solver_monitoring.poisson.pic_true_residual` is on:
 
 - **`Unprecond Norm`** is PETSc's `rnorm`, carried by the Krylov recurrence.
@@ -239,7 +245,7 @@ Diagnostic sequence:
 
 1. Turn on `pic_true_residual` and compare the two norms in the Poisson log.
 2. If they disagree, look at `level_solvers.level_0` first.
-3. Confirm the physical symptom in `logs/Continuity_Metrics.log`: a decoupled
+3. Confirm the physical symptom in `<run.runtime_logs>/Continuity_Metrics.log`: a decoupled
    residual shows up as a max divergence orders of magnitude above the solver
    tolerance you asked for.
 4. Re-run at a different rank count before concluding a configuration is clean.
@@ -288,7 +294,7 @@ Two consequences worth planning around:
 Reducing `levels` is the usual fix; also delete the now-unused
 `level_solvers.level_N` entry for the level that no longer exists. Shallower
 hierarchies converge more slowly but stay usable. Measure the cost in
-`logs/Poisson_Solver_Convergence_History_Block_0.log`: if iteration counts grow
+`<run.runtime_logs>/Poisson_Solver_Convergence_History_Block_0.log`: if iteration counts grow
 sharply, prefer lowering the rank count and restoring the deeper hierarchy.
 
 @section p25_testing_sec 5. Current test status
@@ -307,25 +313,3 @@ The main remaining gap is `PoissonSolver_MG`: it is exercised in runtime smoke, 
 - **@subpage 23_Fractional_Step_Method**
 - **@subpage 24_Dual_Time_Picard_Jameson_RK**
 - **@subpage 31_Momentum_Solvers**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Pressure-Poisson, GMRES, and Multigrid** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

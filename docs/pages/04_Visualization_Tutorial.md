@@ -10,7 +10,7 @@ Here, you will learn the fundamental skills needed to explore *any* simulation r
 
 @section p04_files_sec 1. Understanding Your Output Files
 
-After a successful run, the post-processor generates visualization files in the run output directory configured by `post.yml -> io.output_directory` (commonly `viz/`).
+After a successful run, the post-processor generates visualization files in `<run.visualization>/`, the directory configured by `post.yml -> io.output_directory`. It defaults to `viz`, and shipped recipes use both that flat form and a nested `visualization/<recipe>` layout - the whole value is configured, so nothing about the shape is fixed.
 
 You will typically find:
 
@@ -107,26 +107,3 @@ Load your `Particle..vtp` time series (if present) to visualize the Lagrangian p
 You are now equipped with the basic skills to install, run, and analyze any simulation in PICurv.
 
 The "Getting Started" section is complete. You are ready to become a **Power User**. Proceed to the **@subpage 05_The_Conductor_Script "User Guide"** to begin learning how to create your own custom simulations from scratch.
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Tutorial: A Guide to Visualizing Your Results** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

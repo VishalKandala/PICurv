@@ -333,7 +333,7 @@ grid:
 ```
 
 PICurv will validate and non-dimensionalize that source file into the new run's
-own `config/grid.run`.
+own `<run.config>/grid.run`.
 
 Generated square-duct Poiseuille inlet profile:
 
@@ -352,7 +352,7 @@ boundary_conditions:
 ```
 
 `picurv run --solve` writes the dimensional generated profile and
-`profile.info` under `runs/<run_id>/config/`, stages the solver-scale
+`profile.info` under `<run.config>/`, stages the solver-scale
 `.picslice`, and writes that staged path into `bcs.run`.
 For `square_duct_poiseuille`, `bulk_velocity` is the target inlet bulk speed.
 When a target `PICGRID` is available, generated profiles are sampled at inlet
@@ -404,7 +404,7 @@ Precompute deterministic artifacts without launching the solver:
 ./bin/picurv precompute --case case.yml --output-dir precomputed/channel
 ```
 
-This mirrors the run `config/` layout, so inspected generated artifacts can later
+This mirrors the `<run.config>/` layout, so inspected generated artifacts can later
 be reused through `grid.mode: file` and `source.type: file`.
 
 Restart with explicit particle re-initialization:
@@ -488,7 +488,7 @@ Recommended pattern:
 - use `analytical_type: ZERO_FLOW` for pure deposition checks
 - choose a scalar profile under `verification.sources.scalar`
 - reuse the production scatter operator rather than adding a second deposition path
-- read the runtime metric from `logs/scatter_metrics.csv`
+- read the runtime metric from `<run.runtime_logs>/scatter_metrics.csv`
 
 Separation rules:
 
@@ -507,7 +507,67 @@ This pathway is useful for more than one study. It enables:
 
 A complete runnable example is provided in `examples/scatter_verification/`.
 
-@section p49_next_steps_sec 8. Related Pages
+@section p49_les_recipe_sec 8. LES Closure Recipe
+
+The dynamic model's defaults are the ones that are safe on any geometry, not the ones
+that are best for yours. Two settings usually want changing, and both follow from the
+flow rather than from taste.
+
+**Pick the averaging set from the flow's homogeneous directions.** `averaging.mode`
+defaults to `local`, which assumes nothing and is correspondingly noisy: the
+denominator of the coefficient collapses wherever the resolved strain is briefly small.
+Where the flow has a homogeneous direction, say so:
+
+```yaml
+# Triply periodic box: one coefficient for the whole domain.
+averaging: {mode: homogeneous}
+
+# Plane channel periodic in xi and zeta: a wall-normal coefficient profile.
+averaging: {mode: homogeneous}
+```
+
+Both read the same because `homogeneous` derives its directions from the case's
+periodicity. Name them explicitly only when the flow is homogeneous along an axis the
+boundary conditions do not declare periodic.
+
+**Match the filter width to the cell aspect ratio.** `filter_width` defaults to
+`cube_root_volume`, which is exact for a cube and progressively optimistic as a cell is
+stretched. On a wall-normal channel mesh, `max_edge` is the defensible choice.
+
+**Turn the diagnostics on before trusting anything.**
+
+```yaml
+diagnostics: {enabled: true, cadence: 1}
+```
+
+Then read `<run.runtime_logs>/les_coefficient.csv`, or plot it directly:
+
+```bash
+./bin/picurv summarize --run-dir runs/<run_id> --list-plot-series
+./bin/picurv summarize --run-dir runs/<run_id> --plot les.cs_effective
+```
+
+What to look for:
+
+- `cs_effective` should settle, and for decaying isotropic turbulence it should settle
+  near **0.16-0.17**. A curve that drifts or oscillates is the signal to stop.
+- `limited_fraction` near zero means the `max_cs` ceiling is not shaping the result.
+  A large value means the clip is doing the modelling.
+- `backscatter_fraction` is what the clipping modes discard. Under `local` averaging it
+  is routinely large, which is the argument for averaging rather than clipping.
+- `nu_t_over_nu_mean` far above one means the model, not the molecular viscosity, is
+  setting the dissipation; far below one means it is doing nothing.
+
+**Judging resolution.** Compare `k_sgs_mean` against the resolved turbulent kinetic
+energy from `monitor.yml -> field_statistics`. Pope's criterion asks the resolved share
+to exceed roughly 80%. The two halves come from different pipelines deliberately:
+resolved turbulent energy needs the mean subtracted correctly, which the statistics
+windows do and the closure does not attempt.
+
+Full option reference at **@subpage 07_Case_Reference**; the formulation is derived in
+**@subpage 72_LES_Turbulence_Closure**.
+
+@section p49_next_steps_sec 9. Related Pages
 
 - **@subpage 05_The_Conductor_Script**
 - **@subpage 07_Case_Reference**
@@ -515,25 +575,3 @@ A complete runnable example is provided in `examples/scatter_verification/`.
 - **@subpage 52_Run_Lifecycle_Guide**
 - **@subpage 48_Grid_Generator_Guide**
 - **@subpage 45_Particle_Initialization_and_Restart**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Workflow Recipes and Config Cookbook** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

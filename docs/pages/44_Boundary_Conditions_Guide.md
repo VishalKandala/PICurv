@@ -20,63 +20,429 @@ Face names:
 
 Every block must provide all six faces exactly once.
 
-@section p44_supported_sec 2. Supported User-Facing Combinations (`picurv`)
+@section p44_types_sec 2. Boundary Types
 
-The validator accepts these type/handler pairs:
+A face's `type` says what kind of boundary it is; its `handler` says how that
+boundary is computed. The type selects which handlers are legal and fixes the
+precedence used where faces meet at an edge.
 
-| Type | Handler | Required params | Optional params | Units expected in YAML |
-|---|---|---|---|---|
-| `WALL` | `noslip` | none | none | n/a |
-| `INLET` | `constant_velocity` | `vx`, `vy`, `vz` | none | m/s |
-| `INLET` | `parabolic` | `v_max` | none | m/s |
-| `INLET` | `prescribed_flow` | `source` | `source.type: file`, `generated`, or `field_slice` | m/s scalar speeds, generator params, or old-field slice params |
-| `OUTLET` | `conservation` | none | none | n/a |
-| `PERIODIC` | `geometric` | none | none | n/a |
-| `PERIODIC` | `constant_flux` | `target_flux` | `enforce_seam_flux` | m^3/s |
-| `PERIODIC` | `initial_flux` | none | `enforce_seam_flux` | n/a |
+@htmlinclude generated/capability_inventory_boundary_type.html
 
-Notes:
+@warning `symmetry` is accepted by the type map but **no public handler supports
+it**, so any complete configuration using it is rejected. It is listed as latent
+rather than removed because the C enum still carries `SYMMETRY`; it is not a
+capability you can select today.
 
-- legacy `params.vector` and `params.velocity` are rejected; use scalar `vx/vy/vz`,
-- unknown params are rejected per handler,
-- a driven handler (`constant_flux` or `initial_flux`) must be configured, with the
-  same handler, on both faces of the periodic pair.
+@subsection p44_type_wall_sub wall
 
-@subsection p44_driven_ssec 2.1 The two driven periodic handlers
+@anchor p44_type_wall
 
-`constant_flux` and `initial_flux` are the same controller wired to different
-targets, and choosing between them is a question of where the flux comes from.
+**Identity.** `type: wall` -> `WALL` -> priority `BC_PRIORITY_WALL`.
 
-- **`constant_flux`** drives to a flux **you prescribe**. `target_flux` is
-  required, and it is a *volumetric* flux - `U_b` times the cross-sectional area -
-  not a velocity. Use it when the flux is the thing you are specifying, for
-  instance to match a literature bulk Reynolds number. The target is re-read from
-  the bcs file on every run, so editing it between restart segments takes effect.
+**What it does.** Marks a face as a solid surface. Legal handler: @ref p44_cap_noslip "noslip".
 
-- **`initial_flux`** drives to the flux **it measures** from the field the run
-  starts with, and then holds that. It takes no `target_flux`; supplying one is a
-  configuration error rather than something quietly ignored, because the two
-  handlers would otherwise be indistinguishable in a case file. Use it when you
-  have seeded a field whose flux is already what you want - a developed field
-  carried in from a precursor - and you want it preserved rather than restated.
-  The measured target is written to the checkpoint and restored on restart, so a
-  resumed run holds the original target instead of re-measuring a drifted one.
+**When to choose it.** Any impermeable physical surface.
 
-`enforce_seam_flux` is optional on both and defaults to false (`apply_trim` is
-accepted as a deprecated alias). It enables a **second,
-local actuator**: on top of the body force that sustains the flow everywhere, it
-adds a correction directly into the face fluxes of the single periodic seam plane
-to hold the flux through *that plane* on target. Off by default because it can
-reintroduce divergence the pressure solve just removed and because it injects the
-noisy single-plane flux signal into the solution at one location. The correction
-is recorded in `Bcs.Uch` whether or not it is applied, so you can inspect whether
-you need it before enabling it. Full rationale: @ref p54_driven_trim_sub.
+**Parameters it owns.** None; parameters belong to the handler.
 
-Full treatment of the control law, the update cadence and its consequences for
-both momentum solvers, the restart contract, and the worked validation cases:
-@ref p54_driven_sec.
+**Interactions.** Wall loses to `inlet` and `farfield` at shared edges and wins over
+`outlet`. Wall functions are configured separately under
+`physics.turbulence.wall_function`.
 
-@section p44_nondim_sec 3. Non-Dimensionalization Before C Input
+**Diagnostics.** The startup banner lists the resolved type and handler per face.
+
+**Evidence.** Unit verified - `make unit-boundaries`.
+
+**Limitations.** `MOVING_WALL` is present in the C enum and accepted by the C
+compatibility check, but no public handler exposes it.
+
+@subsection p44_type_inlet_sub inlet
+
+@anchor p44_type_inlet
+
+**Identity.** `type: inlet` -> `INLET` -> priority `BC_PRIORITY_INLET`.
+
+**What it does.** Marks a face where flow enters with a prescribed condition. Legal
+handlers: @ref p44_cap_constant_velocity "constant_velocity", @ref p44_cap_parabolic "parabolic",
+@ref p44_cap_prescribed_flow "prescribed_flow".
+
+**When to choose it.** Any face where you specify what enters the domain.
+
+**Parameters it owns.** None; parameters belong to the handler.
+
+**Interactions.** Highest precedence, so an inlet wins at every shared edge. A
+domain with an inlet needs an outlet to conserve against.
+
+**Diagnostics.** Startup banner reports the resolved handler and its configured
+values per face.
+
+**Evidence.** Unit verified - `make unit-boundaries`. Production exercised in
+`examples/flat_channel`.
+
+**Limitations.** Time-varying inlet types exist in the C enum but are not exposed.
+
+@subsection p44_type_outlet_sub outlet
+
+@anchor p44_type_outlet
+
+**Identity.** `type: outlet` -> `OUTLET` -> priority `BC_PRIORITY_OUTLET`.
+
+**What it does.** Marks a face where flow leaves. Legal handler:
+@ref p44_cap_conservation "conservation".
+
+**When to choose it.** The downstream face of any through-flow domain.
+
+**Parameters it owns.** None; parameters belong to the handler.
+
+**Interactions.** Lowest precedence, so inlet and wall win at shared edges. Its flux
+is derived from global conservation rather than prescribed.
+
+**Diagnostics.** The inlet/outlet flux balance is reported at startup.
+
+**Evidence.** Unit verified - `make unit-boundaries`. Production exercised in
+`examples/flat_channel`.
+
+**Limitations.** A pressure-specified outlet exists in the C enum but is not exposed.
+
+@subsection p44_type_periodic_sub periodic
+
+@anchor p44_type_periodic
+
+**Identity.** `type: periodic` -> `PERIODIC`.
+
+**What it does.** Marks a face as one half of a periodic pair. Legal handlers:
+@ref p44_cap_geometric "geometric", @ref p44_cap_constant_flux "constant_flux", @ref p44_cap_initial_flux "initial_flux".
+
+**When to choose it.** Any statistically homogeneous direction.
+
+**Parameters it owns.** None; parameters belong to the handler.
+
+**Interactions.** Periodic axes are derived from paired `PERIODIC` conditions before
+DMDA creation, so both faces must declare it and the grid must satisfy the
+translation contract. `models.domain` does not accept periodic flags. Both faces of
+a driven pair must carry the **same** driven handler.
+
+**Diagnostics.** The startup banner reports the derived periodic axes and each
+validated translation.
+
+**Evidence.** Unit verified - `make unit-periodic`. Regression verified -
+`make smoke-periodic`.
+
+**Limitations.** Requires a matching translation between paired faces; see
+@ref p54_grid_sec.
+
+@section p44_supported_sec 3. Supported Handlers
+
+The table below is generated from `BC_HANDLER_SPECS` in `picurv_cli/core.py`, the
+validation layer that decides what a case file may actually contain. It is
+regenerated by `make docs-inventory` and checked by `make audit-capability`, so it
+cannot drift from the validator.
+
+@htmlinclude generated/capability_inventory_boundary_handler.html
+
+Rules that apply across all handlers:
+
+- Legacy `params.vector` and `params.velocity` are rejected; use scalar `vx`/`vy`/`vz`.
+- Unknown parameters are rejected per handler rather than ignored.
+- A driven handler (`constant_flux` or `initial_flux`) must be configured, with the
+  **same** handler, on both faces of the periodic pair.
+- Velocities and fluxes are given in physical units in YAML and non-dimensionalized
+  before reaching C. See @ref p44_nondim_sec.
+
+@section p44_entries_sec 4. Handler Entries
+
+Each entry below follows the capability-entry contract defined in
+**@subpage 64_Documentation_Extension_Framework**: what it does, when to choose it over its
+siblings, the parameters it owns, its interactions, how to tell it is working, the
+evidence behind it, and its limitations.
+
+@subsection p44_cap_noslip_sub noslip
+
+@anchor p44_cap_noslip
+
+**Identity.** `handler: noslip` on a `WALL` face -> `BC_HANDLER_WALL_NOSLIP` ->
+@ref Create_WallNoSlip.
+
+**What it does.** Enforces zero relative velocity at the wall. Both the
+contravariant face flux and the reconstructed Cartesian velocity are driven to
+zero on the boundary, so no mass crosses the face and no slip is permitted along it.
+
+**When to choose it.** The default for any solid stationary surface. If the wall
+moves, or if you intend to model the near-wall layer rather than resolve it, this
+is not the handler you want - but note that neither alternative is exposed yet
+(see Limitations).
+
+**Parameters it owns.** None. `noslip` takes no parameters, and supplying any is a
+validation error.
+
+**Interactions.** Wall faces participate in the boundary priority ordering
+(`BC_PRIORITY_WALL`) so that inlet and farfield conditions win at shared edges.
+Wall functions are configured separately under `physics.turbulence.wall_function`
+and are not part of this handler.
+
+**Diagnostics.** The startup banner lists each face and its resolved handler.
+A wall that is silently not applied shows up as non-zero velocity in the first
+cell layer; `LOG_FIELD_MIN_MAX` on `Ucat` is the quickest check.
+
+**Evidence.** Unit verified - `make unit-boundaries` exercises the handler factory
+and direct handler behavior in `tests/c/test_boundaries.c`. Production exercised in
+every shipped wall-bounded example.
+
+**Limitations.** `MOVING_WALL` exists in the C enum but is not exposed through the
+validator, so a moving wall cannot currently be configured from YAML.
+
+@subsection p44_cap_constant_velocity_sub constant_velocity
+
+@anchor p44_cap_constant_velocity
+
+**Identity.** `handler: constant_velocity` on an `INLET` face ->
+`BC_HANDLER_INLET_CONSTANT_VELOCITY` -> @ref Create_InletConstantVelocity.
+
+**What it does.** Imposes a uniform, time-constant Cartesian velocity across the
+whole inlet face.
+
+**When to choose it.** The simplest inlet, and the right one for a uniform
+free-stream or a plug-flow entry. Choose `parabolic` instead when you want a
+developed profile without supplying data, or `prescribed_flow` when you have real
+profile data.
+
+**Parameters it owns.** `vx`, `vy`, `vz` - all three required, in m/s. Scalar
+components only; the legacy `vector`/`velocity` spellings are rejected.
+
+**Interactions.** Inlet has the highest boundary priority, so it wins over wall
+and outlet at shared edges. The outlet must be able to pass the mass this inlet
+introduces; pair it with `conservation`.
+
+**Diagnostics.** The startup banner prints the **configured** vector for the face as
+`[vx,vy,vz]`. It does not report a derived or integrated flux; runtime flux reporting
+is separate from the banner.
+
+**Evidence.** Unit verified - `make unit-boundaries`. Production exercised in
+`examples/flat_channel`.
+
+**Limitations.** Uniform in space and constant in time. Time-varying inlets
+(`BC_HANDLER_INLET_PULSATILE_FLUX`) exist in the C enum but are not exposed.
+
+@subsection p44_cap_parabolic_sub parabolic
+
+@anchor p44_cap_parabolic
+
+**Identity.** `handler: parabolic` on an `INLET` face -> `BC_HANDLER_INLET_PARABOLIC`
+-> @ref Create_InletParabolicProfile.
+
+**What it does.** Imposes an analytic parabolic profile across the inlet face,
+scaled so the centreline reaches `v_max` and the velocity falls to zero at the
+bounding walls.
+
+**When to choose it.** When you want a developed-looking channel or pipe inlet
+without generating profile data. It is an analytic approximation, not a solution
+of the flow you are about to run, so it is a starting condition rather than a
+validated developed profile. For a genuinely developed inlet, use
+`prescribed_flow` with a slice from a precursor run.
+
+**Parameters it owns.** `v_max` - required, in m/s, the centreline speed.
+
+**Interactions.** Same inlet priority and outlet-pairing considerations as
+`constant_velocity`.
+
+**Diagnostics.** The startup banner prints the **configured** `v_max` for the face,
+not an integrated flux. If the face is not bounded by walls on the axes the profile
+assumes, the profile will not vanish at the edges - inspect the inlet plane.
+
+**Evidence.** Unit verified - `make unit-boundaries`.
+
+**Limitations.** The profile shape is fixed and assumes a wall-bounded face.
+
+@subsection p44_cap_prescribed_flow_sub prescribed_flow
+
+@anchor p44_cap_prescribed_flow
+
+**Identity.** `handler: prescribed_flow` on an `INLET` face ->
+`BC_HANDLER_INLET_PROFILE_FROM_FILE` -> @ref Create_InletProfileFromFile.
+
+**What it does.** Reads a per-face velocity profile and imposes it on the inlet.
+The profile is supplied as a PICSLICE-format field whose dimensions must match the
+inlet face's cell counts.
+
+**When to choose it.** When the inlet profile matters and an analytic shape will
+not do: matching a reference DNS inlet, carrying a developed field in from a
+precursor run, or driving a duct with a computed Poiseuille solution. This is the
+only handler that accepts external data.
+
+**Parameters it owns.** `source` - required, a mapping whose `type` selects one of
+three acquisition routes:
+
+| `source.type` | Required keys | Optional keys | Use when |
+|---|---|---|---|
+| `file` | `path` | - | You already have a PICSLICE profile file |
+| `generated` | `generator` | `script`, `output_file`, `params` | A shipped generator can produce it (`square_duct_poiseuille`) |
+| `field_slice` | `field_file`, `grid_file`, and one of `source_case` or `velocity_scale` | `script`, `source_block`, `output_file`, `slice` | You are extracting a plane from an existing solution |
+
+Unknown keys inside `source` are rejected with the allowed set named, rather than
+silently dropped.
+
+**Interactions.** Profile dimensions are validated against the resolved grid block
+node counts before the run starts: a `-Xi`/`+Xi` face expects `(KM-1, JM-1)`,
+`-Eta`/`+Eta` expects `(KM-1, IM-1)`, and `-Zeta`/`+Zeta` expects `(JM-1, IM-1)`.
+A mismatch is a validation error, not a runtime surprise. `field_slice` needs
+either `source_case` (to inherit that case's scaling) or an explicit
+`velocity_scale`, because a raw field carries no units of its own.
+
+**Diagnostics.** The startup banner prints the resolved `source_file` for the face.
+Validation reports expected versus actual profile dimensions on mismatch, and the
+resolved profile file is written into the run's config directory, so what was
+actually imposed is recoverable after the fact.
+
+**Evidence.** Unit verified - `make unit-boundaries` covers the handler in
+`tests/c/test_boundaries.c`. Integration verified - `tests/test_config_regressions.py`
+exercises all three source types and the face-dimension validation. It is offered by
+`examples/master_template`; no shipped runnable example currently selects it, so
+there is no production-exercised facet.
+
+**Limitations.** The profile is steady: it is imposed once and held, with no time
+variation. `BC_HANDLER_INLET_INTERP_FROM_FILE`, which would interpolate between
+supplied profiles, exists in the C enum but is not exposed.
+
+@subsection p44_cap_conservation_sub conservation
+
+@anchor p44_cap_conservation
+
+**Identity.** `handler: conservation` on an `OUTLET` face ->
+`BC_HANDLER_OUTLET_CONSERVATION` -> @ref Create_OutletConservation.
+
+**What it does.** Sets the outlet flux to whatever global mass conservation
+requires, given everything entering the domain. It is a consequence, not a
+prescription.
+
+**When to choose it.** The default and currently only outlet. Because it derives
+its flux rather than imposing one, it pairs with any inlet without you having to
+match numbers by hand.
+
+**Parameters it owns.** None.
+
+**Interactions.** Outlet has the lowest boundary priority, so inlet and wall win at
+shared edges. There must be an inlet, or a driven periodic pair, for the outlet to
+conserve against.
+
+**Diagnostics.** The inlet/outlet flux balance is reported at startup and is the
+first thing to check when mass appears not to be conserved.
+
+**Evidence.** Unit verified - `make unit-boundaries`. Production exercised in
+`examples/flat_channel`.
+
+**Limitations.** `BC_HANDLER_OUTLET_PRESSURE`, a pressure-specified outlet, exists
+in the C enum but is not exposed.
+
+@subsection p44_cap_geometric_sub geometric
+
+@anchor p44_cap_geometric
+
+**Identity.** `handler: geometric` on a `PERIODIC` face ->
+`BC_HANDLER_PERIODIC_GEOMETRIC` -> @ref Create_PeriodicGeometric.
+
+**What it does.** Makes a face pair genuinely periodic: the two faces are treated
+as the same location, with field values and metrics synchronized across the seam.
+It imposes no forcing - whatever flux the flow has, it keeps.
+
+**When to choose it.** Any direction that is statistically homogeneous and needs no
+driving: the spanwise direction of a channel, or a decaying-turbulence box where
+the flow should decay rather than be sustained. If you need to *sustain* a flow
+against wall friction, you want one of the driven handlers instead.
+
+**Parameters it owns.** None.
+
+**Interactions.** Periodic axes are derived from paired `PERIODIC` boundary
+conditions before DMDA creation, so both faces of the pair must declare it and the
+grid must satisfy the translation contract. See @ref p54_grid_sec.
+
+**Diagnostics.** The startup banner reports the BC-derived periodic axes and each
+validated translation.
+
+**Evidence.** Unit verified - `make unit-periodic`. Regression verified -
+`make smoke-periodic`. Production exercised in the decaying-isotropic-turbulence
+example.
+
+**Limitations.** Requires a matching translation between the paired faces; a grid
+that is not truly periodic is rejected rather than approximated.
+
+@subsection p44_cap_constant_flux_sub constant_flux
+
+@anchor p44_cap_constant_flux
+
+**Identity.** `handler: constant_flux` on a `PERIODIC` face pair ->
+`BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX` -> @ref Create_PeriodicDrivenConstant.
+
+**What it does.** Periodic in the geometric sense, plus a body force that sustains
+the flow at a flux **you prescribe**. Without it a periodic wall-bounded flow decays
+under wall friction.
+
+**When to choose it.** When the flux is the quantity you are specifying - matching a
+literature bulk Reynolds number, for instance. Choose `initial_flux` instead when
+the flux you want is already present in the field you are starting from.
+
+**Parameters it owns.** `target_flux` (required) and `enforce_seam_flux` (optional,
+default false; `apply_trim` is accepted as a deprecated alias).
+
+@warning `target_flux` is a **volumetric** flux - the bulk velocity `U_b` times
+the cross-sectional area - not a velocity. Supplying a velocity here silently produces a
+flow at the wrong Reynolds number.
+
+**Interactions.** Both faces of the pair must carry the same driven handler. The
+target is re-read from the bcs file on every run, so editing it between restart
+segments takes effect - deliberately unlike `initial_flux`. `enforce_seam_flux`
+enables a second, local actuator at the seam plane; it is off by default because it
+can reintroduce divergence the pressure solve just removed.
+
+**Diagnostics.** The applied body force and the measured flux are logged each step.
+`Bcs.Uch` records the seam correction whether or not it is applied, so you can see
+whether you need it before enabling it.
+
+**Evidence.** Regression verified - `tests/smoke/run_driven_periodic_regression.sh`
+and `make smoke-driven-periodic`. Benchmark characterized against a laminar channel
+with an exact answer.
+
+**Limitations and full treatment.** The control law, update cadence and its
+consequences for both momentum solvers, the restart contract, and the worked
+validation cases are documented at @ref p54_driven_sec. That page also carries the
+current convergence caveat for periodic wall-bounded flow, which you should read
+before planning a campaign.
+
+@subsection p44_cap_initial_flux_sub initial_flux
+
+@anchor p44_cap_initial_flux
+
+**Identity.** `handler: initial_flux` on a `PERIODIC` face pair ->
+`BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX` -> @ref Create_PeriodicDrivenInitial.
+
+**What it does.** The same controller as `constant_flux`, targeting the flux it
+**measures** from the field the run starts with, then holding it.
+
+**When to choose it.** When you have seeded a field whose flux is already what you
+want - typically a developed field carried in from a precursor - and you want it
+preserved rather than restated as a number.
+
+**Parameters it owns.** `enforce_seam_flux` only (optional, default false;
+`apply_trim` is accepted as a deprecated alias, exactly as for `constant_flux`).
+`target_flux` is **rejected**, not ignored: accepting it would make the two driven
+handlers indistinguishable in a case file.
+
+**Interactions.** Both faces of the pair must carry the same driven handler. The
+measured target is written to the checkpoint and restored on restart, so a resumed
+run holds the original target rather than re-measuring a drifted one. Checkpoints
+written before that metadata existed have no entry; the controller then re-measures
+and says so in the log.
+
+**Diagnostics.** The latched target is reported once when measured and again when
+restored from a checkpoint. A restart that re-measures instead of restoring is
+logged explicitly.
+
+**Evidence.** Regression verified - `make smoke-driven-periodic`. Production
+exercised in the driven-channel examples.
+
+**Limitations and full treatment.** See @ref p54_driven_sec, including the
+convergence caveat for periodic wall-bounded flow.
+
+@section p44_nondim_sec 5. Non-Dimensionalization Before C Input
 
 `picurv` converts physical BC values to solver-scale values before writing `bcs.run`:
 
@@ -92,7 +458,7 @@ Specifically:
   while staging the solver-side `.picslice`,
 - `target_flux` is divided by `velocity_ref * length_ref^2`.
 
-@subsection p44_picslice_ssec 3.1 Prescribed Inlet Profile Files
+@subsection p44_picslice_ssec 5.1 Prescribed Inlet Profile Files
 
 `prescribed_flow` uses a face-scoped canonical `PICSLICE` file. It can be
 supplied directly with `source.type: file`, generated analytically with
@@ -171,7 +537,7 @@ The face selects the two transverse dimensions automatically:
 For `grid.mode: grid_gen`, `picurv run --solve` generates the grid first, then
 reads the generated `PICGRID` header to size the profile. For `grid.mode: file`,
 it reads the source `PICGRID` header. Generated dimensional profiles and
-`profile.info` are written under the run `config/` directory, then the staged
+`profile.info` are written under `<run.config>/`, then the staged
 solver-scale `.picslice` is referenced from `bcs.run`.
 
 For `square_duct_poiseuille`, `bulk_velocity` is the target inlet bulk speed.
@@ -212,7 +578,7 @@ other; use `orientation: same` only when both outward normals should align. The
 extractor fails if normal compatibility or flow sign checks fail. V1 requires
 exact source/target slice dimension matches and does not interpolate.
 
-@section p44_periodic_rules_sec 4. Periodicity Consistency Rules
+@section p44_periodic_rules_sec 6. Periodicity Consistency Rules
 
 Validator checks:
 
@@ -237,7 +603,7 @@ coordinate images and synchronizes cell-centered, face-family, and
 component-staggered Eulerian fields. Particle periodic wrapping is not
 implemented.
 
-@section p44_c_pipeline_sec 5. C-Side Parsing and Dispatch
+@section p44_c_pipeline_sec 7. C-Side Parsing and Dispatch
 
 Generated `bcs.run` lines use:
 
@@ -265,9 +631,10 @@ Current factory-wired handlers include:
 - inlet prescribed flow from file,
 - outlet conservation,
 - periodic geometric,
-- periodic driven constant flux.
+- periodic driven constant flux,
+- periodic driven initial flux.
 
-@section p44_c_gap_sec 6. Exposed vs Latent Options
+@section p44_c_gap_sec 8. Exposed vs Latent Options
 
 Important contributor note:
 
@@ -283,7 +650,7 @@ If you add a new BC mode, update all three layers in one change:
 2. C parser/factory/handler implementation,
 3. docs and tests (fixtures + smoke checks).
 
-@section p44_examples_sec 7. Authoring Examples
+@section p44_examples_sec 9. Authoring Examples
 
 Constant-velocity inlet + outlet conservation:
 
@@ -336,7 +703,7 @@ boundary_conditions:
     handler: noslip
 ```
 
-@section p44_troubleshoot_sec 8. Common Failure Modes
+@section p44_troubleshoot_sec 10. Common Failure Modes
 
 - `missing required key 'face'/'type'/'handler'`: malformed BC entry object.
 - `Duplicate face`: same face declared twice in one block.
@@ -346,7 +713,7 @@ boundary_conditions:
   constant nonzero translation, or the periodic axis is too short.
 - `Unknown params`: extra keys not allowed for selected handler.
 
-@section p44_refs_sec 9. Related Pages
+@section p44_refs_sec 11. Related Pages
 
 - **@subpage 07_Case_Reference**
 - **@subpage 33_Initial_Conditions**
@@ -354,26 +721,4 @@ boundary_conditions:
 - **@subpage 13_Code_Architecture**
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 50_Modular_Selector_Extension_Guide**
-- **@ref p54_geometric_periodic "Periodic Boundaries and Driven Flows"**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Boundary Conditions Guide** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+- **@subpage p54_geometric_periodic**

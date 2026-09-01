@@ -14,6 +14,7 @@
 #include "statistics_window.h"
 #include "io.h"
 #include "field_catalog.h"
+#include "les.h"
 
 #include <stdlib.h>
 
@@ -669,6 +670,89 @@ static PetscErrorCode TestStatisticsCheckpointRoundTripMultiRank(void)
 }
 
 /**
+ * @brief Tests that LES coefficient averaging does not depend on the decomposition.
+ *
+ * The averaged coefficient is a physical property of the block, so splitting the same
+ * field across more ranks must not change it. This case catches a wrong communicator,
+ * a halo entry counted as if it were owned, or a layout boundary plane included in one
+ * decomposition but not another. The reference is computed from the analytic
+ * definition over the interior index box rather than from a single-rank run, so the
+ * test does not merely compare one decomposition against itself.
+ */
+static PetscErrorCode TestLESAveragingIsDecompositionIndependent(void)
+{
+    SimCtx      *simCtx = NULL;
+    UserCtx     *user = NULL;
+    Vec          numerator, denominator, ratio;
+    SpatialTargetPlan plan;
+    PetscReal ***num = NULL, ***den = NULL, ***out = NULL;
+    DMDALocalInfo info;
+    PetscInt      xs, xe, ys, ye, zs, ze;
+    PetscReal     sampled = 0.0;
+    PetscReal     numerator_total = 0.0, denominator_total = 0.0;
+    const PetscBool all[3] = {PETSC_TRUE, PETSC_TRUE, PETSC_TRUE};
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 8, 8));
+    PetscCall(DMDAGetLocalInfo(user->da, &info));
+    PetscCall(VecSet(user->lNvert, 0.0));
+    PetscCall(VecSet(user->lAj, 1.0));
+
+    xs = (info.xs == 0) ? 1 : info.xs;
+    ys = (info.ys == 0) ? 1 : info.ys;
+    zs = (info.zs == 0) ? 1 : info.zs;
+    xe = (info.xs + info.xm == info.mx) ? info.mx - 1 : info.xs + info.xm;
+    ye = (info.ys + info.ym == info.my) ? info.my - 1 : info.ys + info.ym;
+    ze = (info.zs + info.zm == info.mz) ? info.mz - 1 : info.zs + info.zm;
+
+    PetscCall(VecDuplicate(user->lNvert, &numerator));
+    PetscCall(VecDuplicate(user->lNvert, &denominator));
+    PetscCall(VecDuplicate(user->lNvert, &ratio));
+    PetscCall(VecSet(numerator, 0.0));
+    PetscCall(VecSet(denominator, 0.0));
+    PetscCall(VecSet(ratio, 0.0));
+
+    /* Each rank writes only the cells it owns, from a closed-form function of the
+       global indices, so the distributed sums are exactly the serial ones below. */
+    PetscCall(DMDAVecGetArray(user->da, numerator, &num));
+    PetscCall(DMDAVecGetArray(user->da, denominator, &den));
+    for (PetscInt k = zs; k < ze; ++k)
+    for (PetscInt j = ys; j < ye; ++j)
+    for (PetscInt i = xs; i < xe; ++i) {
+        num[k][j][i] = (PetscReal)(i * j + k);
+        den[k][j][i] = (PetscReal)(i + 1);
+    }
+    PetscCall(DMDAVecRestoreArray(user->da, numerator, &num));
+    PetscCall(DMDAVecRestoreArray(user->da, denominator, &den));
+
+    PetscCall(SpatialTargetPlanCreate(user, FIELD_ID_CS,
+                                      PICURV_STATISTICS_MASK_FLUID, &plan));
+    PetscCall(PicurvSpatialRatioAverage(user, &plan, numerator, denominator, NULL, all,
+                                        PETSC_COMM_WORLD, ratio, NULL));
+
+    for (PetscInt k = 1; k < info.mz - 1; ++k)
+    for (PetscInt j = 1; j < info.my - 1; ++j)
+    for (PetscInt i = 1; i < info.mx - 1; ++i) {
+        numerator_total   += (PetscReal)(i * j + k);
+        denominator_total += (PetscReal)(i + 1);
+    }
+
+    PetscCall(DMDAVecGetArray(user->da, ratio, &out));
+    sampled = out[zs][ys][xs];
+    PetscCall(DMDAVecRestoreArray(user->da, ratio, &out));
+
+    PetscCall(PicurvAssertRealNear(numerator_total / denominator_total, sampled, 1.0e-10,
+                                   "the globally averaged ratio must match the serial sums "
+                                   "however the block is decomposed"));
+
+    PetscCall(VecDestroy(&numerator));
+    PetscCall(VecDestroy(&denominator));
+    PetscCall(VecDestroy(&ratio));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Runs the unit-mpi PETSc test binary.
  */
 int main(int argc, char **argv)
@@ -684,6 +768,7 @@ int main(int argc, char **argv)
         {"periodic-staggered-field-synchronization-multi-rank", TestPeriodicStaggeredFieldSynchronizationMultiRank},
         {"spatial-target-decomposition-independent", TestSpatialTargetIsDecompositionIndependent},
         {"statistics-checkpoint-round-trip-multi-rank", TestStatisticsCheckpointRoundTripMultiRank},
+        {"les-averaging-decomposition-independent", TestLESAveragingIsDecompositionIndependent},
         {"restart-cellid-migration-moves-particle-to-owner", TestRestartCellIdMigrationMovesParticleToOwner},
     };
 

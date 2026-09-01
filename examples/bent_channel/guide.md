@@ -53,4 +53,4 @@ Run naming note:
 ## Related Docs
 
 - `bent_channel.md`
-- https://vishalkandala.me/picurv-docs/03_Tutorial_File-Based_Grid.html
+- https://vishalkandala.me/docs/picurv/03_Tutorial_File-Based_Grid.html

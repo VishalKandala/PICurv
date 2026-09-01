@@ -113,7 +113,10 @@ BUILD_AUDIT_GOALS ?= cleanobj clean-unit all unit
 # --- 2. System Configuration ---
 # Select and include the appropriate configuration file based on the SYSTEM variable.
 SYSTEM ?= local
-NO_CONFIG_GOALS := test test-python coverage-python doctor install-check audit-ingress build-docs open-docs tags certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit conductor
+PORT ?= 8000
+BIND ?= 127.0.0.1
+
+NO_CONFIG_GOALS := test test-python coverage-python doctor install-check audit-ingress audit-docs-expansion audit-docs-site docs-inventory docs-topology docs-xref audit-capability audit-contracts audit-path-literals audit-family-census audit-page-types audit-inline-choices audit-subsystems audit-freshness audit-agent-setup sync-agent-skills docs-cli-reference audit-cli-reference scaffold review-packet build-docs preview-docs open-docs tags certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit conductor
 NEEDS_BUILD_CONFIG := 1
 
 ifneq ($(MAKECMDGOALS),)
@@ -186,6 +189,7 @@ UNIT_GRID_EXE     := $(TESTBINDIR)/unit_grid
 UNIT_METRIC_EXE   := $(TESTBINDIR)/unit_metric
 UNIT_BOUNDARIES_EXE := $(TESTBINDIR)/unit_boundaries
 UNIT_POISSON_RHS_EXE := $(TESTBINDIR)/unit_poisson_rhs
+UNIT_LES_EXE      := $(TESTBINDIR)/unit_les
 UNIT_RUNTIME_EXE := $(TESTBINDIR)/unit_runtime
 UNIT_MPI_EXE := $(TESTBINDIR)/unit_mpi
 UNIT_PERIODIC_DEV_EXE := $(TESTBINDIR)/unit_periodic_dev
@@ -220,6 +224,7 @@ UNIT_GRID_OBJ     := $(TESTOBJDIR)/test_grid.o
 UNIT_METRIC_OBJ   := $(TESTOBJDIR)/test_metric.o
 UNIT_BOUNDARIES_OBJ := $(TESTOBJDIR)/test_boundaries.o
 UNIT_POISSON_RHS_OBJ := $(TESTOBJDIR)/test_poisson_rhs.o
+UNIT_LES_OBJ      := $(TESTOBJDIR)/test_les.o
 UNIT_RUNTIME_OBJ := $(TESTOBJDIR)/test_runtime_kernels.o
 UNIT_MPI_OBJ := $(TESTOBJDIR)/test_mpi_kernels.o
 UNIT_PERIODIC_DEV_OBJ := $(TESTOBJDIR)/test_periodic_dev.o
@@ -418,6 +423,10 @@ $(UNIT_POISSON_RHS_EXE): $(UNIT_POISSON_RHS_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMM
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
+$(UNIT_LES_EXE): $(UNIT_LES_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
 $(UNIT_RUNTIME_EXE): $(UNIT_RUNTIME_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
@@ -438,7 +447,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev smoke-driven-periodic unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-post-eulerian-vtk-mpi unit-post-particle-vtk-mpi unit-post-compute-mpi unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev smoke-driven-periodic unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-post-eulerian-vtk-mpi unit-post-particle-vtk-mpi unit-post-compute-mpi unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-les unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs docs-xref open-docs tags audit-ingress audit-docs-expansion audit-docs-site preview-docs docs-inventory docs-topology audit-capability audit-contracts audit-path-literals audit-family-census audit-page-types audit-inline-choices audit-subsystems audit-freshness audit-agent-setup sync-agent-skills docs-cli-reference audit-cli-reference scaffold review-packet certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -605,6 +614,11 @@ unit-boundaries: $(UNIT_BOUNDARIES_EXE)
 unit-poisson-rhs: $(UNIT_POISSON_RHS_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
 
+## @target unit-les
+## @brief Runs the LES subgrid-scale closure C unit tests.
+unit-les: $(UNIT_LES_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
+
 ## @target unit-runtime
 ## @brief Runs focused runtime-kernel C unit tests.
 unit-runtime: $(UNIT_RUNTIME_EXE)
@@ -679,7 +693,7 @@ unit-simulation: unit-boundaries unit-solver unit-newton-krylov unit-poisson-rhs
 
 ## @target unit
 ## @brief Runs the full isolated C unit/component suite.
-unit: unit-geometry unit-setup unit-solver unit-newton-krylov unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-periodic
+unit: unit-geometry unit-setup unit-solver unit-newton-krylov unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-les unit-runtime unit-periodic
 
 ## @target ctest
 ## @brief Compatibility alias for `unit`.
@@ -823,13 +837,21 @@ audit-build:
 	@echo "Compilation log: $(BUILD_LOG)"
 	@echo "Compilation warnings: $(BUILD_WARNINGS_LOG)"
 
-## @target build-docs
-## @brief Generates Doxygen documentation for the project.
-build-docs: dirs
+## @target docs-xref
+## @brief Generates Doxygen output and the optional dirty-byte-stamped source-reference index.
+docs-xref: dirs
 	@echo "==> Generating Doxygen documentation..."
 	@mkdir -p $(LOGDIR)
+	@command -v doxygen >/dev/null || { echo "Doxygen is required for docs-xref; install doxygen and rerun make docs-xref." >&2; exit 1; }
 	@doxygen docs/Doxyfile
+	@python3 tests/tooling/generate_xref_index.py --repo-root .
+
+## @target build-docs
+## @brief Generates Doxygen documentation and the optional review cross-reference index.
+build-docs: docs-xref
 	@python3 tests/tooling/stamp_docs_revision.py --html-dir docs_build/html
+	@python3 tests/tooling/generate_doxygen_fallback_indexes.py --repo-root . --html-dir docs_build/html
+	@python3 tests/tooling/inject_theme_sync.py --repo-root . --html-dir docs_build/html
 	@echo "HTML documentation generated in docs_build/html/index.html"
 	@echo "Doxygen warnings log: $(LOGDIR)/doxygen.warnings"
 
@@ -868,6 +890,125 @@ tags:
 ## @brief Audits PETSc option ingress in setup/io against the maintained manifest.
 audit-ingress:
 	@python3 tests/tooling/audit_ingress.py
+
+## @target audit-docs-expansion
+## @brief Rejects generic documentation-expansion debris across the repository Markdown corpus.
+audit-docs-expansion:
+	@python3 tests/tooling/audit_generic_expansion.py
+
+## @target docs-inventory
+## @brief Regenerates the public capability inventory from the executable sources.
+docs-inventory:
+	@python3 tests/tooling/generate_capability_inventory.py
+
+## @target audit-capability
+## @brief Verifies capability parity across sources and Tier-2 documentation coverage.
+audit-capability:
+	@python3 tests/tooling/audit_capability_coverage.py
+
+## @target docs-topology
+## @brief Regenerates the run artifact topology snapshot from the CLI planner.
+docs-topology:
+	@python3 tests/tooling/extract_artifact_topology.py
+
+## @target audit-contracts
+## @brief Verifies enforced invariant contracts and reports tracked ones.
+audit-contracts:
+	@python3 tests/tooling/audit_contracts.py
+
+## @target docs-cli-reference
+## @brief Regenerates the CLI reference from the assembled argparse parser.
+docs-cli-reference:
+	@python3 tests/tooling/generate_cli_reference.py
+
+## @target audit-cli-reference
+## @brief Fails when the generated CLI reference no longer matches the live parser.
+audit-cli-reference:
+	@python3 tests/tooling/generate_cli_reference.py --check
+
+## @target audit-freshness
+## @brief Reports hard (blocking) and soft (advisory) documentation freshness suspicion.
+audit-freshness:
+	@python3 tests/tooling/audit_freshness.py
+
+## @target attest-freshness
+## @brief Records reviewed surfaces as current: `make attest-freshness ARGS="cli.parser"`.
+attest-freshness:
+	@python3 tests/tooling/audit_freshness.py --attest $(ARGS)
+
+## @target audit-subsystems
+## @brief Fails when a subsystem claims a status it has not documented.
+audit-subsystems:
+	@python3 tests/tooling/audit_subsystem_lifecycle.py
+
+## @target audit-inline-choices
+## @brief Rejects public closed choices written as unnamed inline literals.
+audit-inline-choices:
+	@python3 tests/tooling/audit_inline_choices.py
+
+## @target audit-page-types
+## @brief Fails when a published page has no declared document type.
+audit-page-types:
+	@python3 tests/tooling/audit_page_types.py
+
+## @target audit-family-census
+## @brief Reports public selector surfaces that no capability family covers.
+audit-family-census:
+	@python3 tests/tooling/audit_family_census.py
+
+## @target audit-path-literals
+## @brief Rejects unmanaged run-path literals in narrative prose.
+audit-path-literals:
+	@python3 tests/tooling/audit_path_literals.py
+
+## @target audit-agent-setup
+## @brief Verifies portable shared instructions, materialized skills, and local-settings hygiene.
+audit-agent-setup:
+	@python3 tests/tooling/audit_agent_setup.py
+
+## @target sync-agent-skills
+## @brief Materializes Claude skill copies from canonical `.agents/skills`, then audits parity.
+sync-agent-skills:
+	@python3 tests/tooling/audit_agent_setup.py --sync
+
+## @target scaffold
+## @brief Generates a documentation skeleton: `make scaffold ARGS="capability --family boundary.handler --value x"`.
+scaffold:
+	@python3 tests/tooling/scaffold_documentation.py $(ARGS)
+
+## @target review-packet
+## @brief Routes PAGE, CONTRACT, CAPABILITY, SUBSYSTEM, SURFACE, or CHANGED=working-tree.
+review-packet:
+	@python3 tests/tooling/review_packet.py \
+		$(if $(PAGE),$(PAGE)) \
+		$(if $(CONTRACT),--contract $(CONTRACT)) \
+		$(if $(CAPABILITY),--capability $(CAPABILITY)) \
+		$(if $(SUBSYSTEM),--subsystem $(SUBSYSTEM)) \
+		$(if $(SURFACE),--surface $(SURFACE)) \
+		$(if $(CHANGED),--changed $(CHANGED))
+
+## @target preview-docs
+## @brief Builds, gates, and serves the documentation site for local review.
+## @details Serves the same artifact that gets published. Override the address with
+##          `make preview-docs PORT=8080 BIND=0.0.0.0`.
+preview-docs: build-docs
+	@if [ -s $(LOGDIR)/doxygen.warnings ]; then \
+		echo "Doxygen emitted warnings; refusing to preview:"; \
+		cat $(LOGDIR)/doxygen.warnings; \
+		exit 1; \
+	fi
+	@python3 tests/tooling/audit_capability_coverage.py
+	@python3 tests/tooling/audit_docs_site.py
+	@echo ""
+	@echo "==> Serving documentation at http://localhost:$(PORT)/"
+	@echo "    (bind $(BIND):$(PORT); press Ctrl-C to stop)"
+	@echo ""
+	@python3 -m http.server $(PORT) --bind $(BIND) --directory docs_build/html
+
+## @target audit-docs-site
+## @brief Verifies project-owned documentation URLs resolve and every navigation tab has a page.
+audit-docs-site:
+	@python3 tests/tooling/audit_docs_site.py
 
 ## @target clean-project
 ## @brief Removes all build artifacts generated by this project.

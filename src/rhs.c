@@ -1,5 +1,6 @@
 #include "rhs.h"
 #include "verification_sources.h"
+#include "les.h"   /* SymTensor kernels for the gradient (Clark) closure term */
 
 #undef __FUNCT__
 #define __FUNCT__ "Convection"
@@ -475,7 +476,7 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
   const PetscInt rans = simCtx->rans;
   const PetscInt ti = simCtx->step; // Assuming simCtx->step is the new integer time counter
   const	PetscReal ren = simCtx->ren;
-  const PetscInt clark = simCtx->clark;
+  const PetscInt clark = simCtx->les_gradient_model;
   solid = 0.5;
   innerblank = 7.;
 
@@ -677,19 +678,26 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 	  ComputeCellCharacteristicLengthScale (ajc, csi[k][j][i], eta[k][j][i], zet[k][j][i], &dc, &de, &dz);
 	  double dc2=dc*dc, de2=de*de, dz2=dz*dz;
 	  
-	  double t11 = ( dudc * dudc * dc2 + dude * dude * de2 + dudz * dudz * dz2 );
-	  double t12 = ( dudc * dvdc * dc2 + dude * dvde * de2 + dudz * dvdz * dz2 );
-	  double t13 = ( dudc * dwdc * dc2 + dude * dwde * de2 + dudz * dwdz * dz2 );
-	  double t21 = t12;
-	  double t22 = ( dvdc * dvdc * dc2 + dvde * dvde * de2 + dvdz * dvdz * dz2 );
-	  double t23 = ( dvdc * dwdc * dc2 + dvde * dwde * de2 + dvdz * dwdz * dz2 );
-	  double t31 = t13;
-	  double t32 = t23;
-	  double t33 = ( dwdc * dwdc * dc2 + dwde * dwde * de2 + dwdz * dwdz * dz2 );
+	  /* The gradient-model tensor is the sum over the three computational
+	     directions of the velocity gradient's outer product with itself, each
+	     scaled by that direction's squared cell extent. It is symmetric by
+	     construction, so it is carried as one. */
+	  const Cmpnts grad_csi = { dudc, dvdc, dwdc };
+	  const Cmpnts grad_eta = { dude, dvde, dwde };
+	  const Cmpnts grad_zet = { dudz, dvdz, dwdz };
+	  const SymTensor gradient_tensor =
+	      SymTensorCombine(dc2, SymTensorSelfOuter(grad_csi), 1.0,
+	                       SymTensorCombine(de2, SymTensorSelfOuter(grad_eta),
+	                                        dz2, SymTensorSelfOuter(grad_zet)));
 	  
-	  fp1[k][j][i].x -= ( t11 * csi0 + t12 * csi1 + t13 * csi2 ) / 12.;
-	  fp1[k][j][i].y -= ( t21 * csi0 + t22 * csi1 + t23 * csi2 ) / 12.;
-	  fp1[k][j][i].z -= ( t31 * csi0 + t32 * csi1 + t33 * csi2 ) / 12.;
+	  {
+	    const Cmpnts face_normal = { csi0, csi1, csi2 };
+	    const Cmpnts gradient_flux = SymTensorTimesVector(gradient_tensor, face_normal);
+
+	    fp1[k][j][i].x -= gradient_flux.x / 12.;
+	    fp1[k][j][i].y -= gradient_flux.y / 12.;
+	    fp1[k][j][i].z -= gradient_flux.z / 12.;
+	  }
 	}
 
       }
@@ -826,19 +834,26 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 	  ComputeCellCharacteristicLengthScale(ajc, csi[k][j][i], eta[k][j][i], zet[k][j][i], &dc, &de, &dz);
 	  double dc2=dc*dc, de2=de*de, dz2=dz*dz;
 			
-	  double t11 = ( dudc * dudc * dc2 + dude * dude * de2 + dudz * dudz * dz2 );
-	  double t12 = ( dudc * dvdc * dc2 + dude * dvde * de2 + dudz * dvdz * dz2 );
-	  double t13 = ( dudc * dwdc * dc2 + dude * dwde * de2 + dudz * dwdz * dz2 );
-	  double t21 = t12;
-	  double t22 = ( dvdc * dvdc * dc2 + dvde * dvde * de2 + dvdz * dvdz * dz2 );
-	  double t23 = ( dvdc * dwdc * dc2 + dvde * dwde * de2 + dvdz * dwdz * dz2 );
-	  double t31 = t13;
-	  double t32 = t23;
-	  double t33 = ( dwdc * dwdc * dc2 + dwde * dwde * de2 + dwdz * dwdz * dz2 );
+	  /* The gradient-model tensor is the sum over the three computational
+	     directions of the velocity gradient's outer product with itself, each
+	     scaled by that direction's squared cell extent. It is symmetric by
+	     construction, so it is carried as one. */
+	  const Cmpnts grad_csi = { dudc, dvdc, dwdc };
+	  const Cmpnts grad_eta = { dude, dvde, dwde };
+	  const Cmpnts grad_zet = { dudz, dvdz, dwdz };
+	  const SymTensor gradient_tensor =
+	      SymTensorCombine(dc2, SymTensorSelfOuter(grad_csi), 1.0,
+	                       SymTensorCombine(de2, SymTensorSelfOuter(grad_eta),
+	                                        dz2, SymTensorSelfOuter(grad_zet)));
 			
-	  fp2[k][j][i].x -= ( t11 * eta0 + t12 * eta1 + t13 * eta2 ) / 12.;
-	  fp2[k][j][i].y -= ( t21 * eta0 + t22 * eta1 + t23 * eta2 ) / 12.;
-	  fp2[k][j][i].z -= ( t31 * eta0 + t32 * eta1 + t33 * eta2 ) / 12.;
+	  {
+	    const Cmpnts face_normal = { eta0, eta1, eta2 };
+	    const Cmpnts gradient_flux = SymTensorTimesVector(gradient_tensor, face_normal);
+
+	    fp2[k][j][i].x -= gradient_flux.x / 12.;
+	    fp2[k][j][i].y -= gradient_flux.y / 12.;
+	    fp2[k][j][i].z -= gradient_flux.z / 12.;
+	  }
 	}
       }
     }
@@ -966,19 +981,26 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 	  ComputeCellCharacteristicLengthScale(ajc, csi[k][j][i], eta[k][j][i], zet[k][j][i], &dc, &de, &dz);
 	  double dc2=dc*dc, de2=de*de, dz2=dz*dz;
 			
-	  double t11 = ( dudc * dudc * dc2 + dude * dude * de2 + dudz * dudz * dz2 );
-	  double t12 = ( dudc * dvdc * dc2 + dude * dvde * de2 + dudz * dvdz * dz2 );
-	  double t13 = ( dudc * dwdc * dc2 + dude * dwde * de2 + dudz * dwdz * dz2 );
-	  double t21 = t12;
-	  double t22 = ( dvdc * dvdc * dc2 + dvde * dvde * de2 + dvdz * dvdz * dz2 );
-	  double t23 = ( dvdc * dwdc * dc2 + dvde * dwde * de2 + dvdz * dwdz * dz2 );
-	  double t31 = t13;
-	  double t32 = t23;
-	  double t33 = ( dwdc * dwdc * dc2 + dwde * dwde * de2 + dwdz * dwdz * dz2 );
+	  /* The gradient-model tensor is the sum over the three computational
+	     directions of the velocity gradient's outer product with itself, each
+	     scaled by that direction's squared cell extent. It is symmetric by
+	     construction, so it is carried as one. */
+	  const Cmpnts grad_csi = { dudc, dvdc, dwdc };
+	  const Cmpnts grad_eta = { dude, dvde, dwde };
+	  const Cmpnts grad_zet = { dudz, dvdz, dwdz };
+	  const SymTensor gradient_tensor =
+	      SymTensorCombine(dc2, SymTensorSelfOuter(grad_csi), 1.0,
+	                       SymTensorCombine(de2, SymTensorSelfOuter(grad_eta),
+	                                        dz2, SymTensorSelfOuter(grad_zet)));
 			
-	  fp3[k][j][i].x -= ( t11 * zet0 + t12 * zet1 + t13 * zet2 ) / 12.;
-	  fp3[k][j][i].y -= ( t21 * zet0 + t22 * zet1 + t23 * zet2 ) / 12.;
-	  fp3[k][j][i].z -= ( t31 * zet0 + t32 * zet1 + t33 * zet2 ) / 12.;
+	  {
+	    const Cmpnts face_normal = { zet0, zet1, zet2 };
+	    const Cmpnts gradient_flux = SymTensorTimesVector(gradient_tensor, face_normal);
+
+	    fp3[k][j][i].x -= gradient_flux.x / 12.;
+	    fp3[k][j][i].y -= gradient_flux.y / 12.;
+	    fp3[k][j][i].z -= gradient_flux.z / 12.;
+	  }
 	}
       }
     }

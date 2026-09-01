@@ -36,7 +36,7 @@ Startup branch details:
 @section p46_ingestion_sec 2. Python-to-C Configuration Boundary
 
 `picurv_cli/core.py` is the control-plane generator.
-It writes normalized runtime artifacts under `runs/<run_id>/config/` and launches C binaries with `-control_file`.
+It writes normalized runtime artifacts under `<run.config>/` and launches C binaries with `-control_file`.
 
 Core generated files consumed by C:
 
@@ -179,7 +179,7 @@ High-value checks during development:
 
 Additional fast diagnostics:
 
-- compare `manifest.json` + generated `config/*.control` against expected YAML role settings
+- compare `manifest.json` + generated `<run.config>/*.control` against expected YAML role settings
 - run `picurv run --dry-run --format json` to verify launch-mode/rank assumptions before expensive runs
 - for restart issues, verify `--restart-from` / `--continue` resolution and the generated `-restart_dir` in control artifacts
 
@@ -192,25 +192,3 @@ Additional fast diagnostics:
 - **@subpage 45_Particle_Initialization_and_Restart**
 - **@subpage 56_Field_Identity_and_Layout_Catalog**
 - **@subpage 58_Field_Statistics** (per-step accumulation hook and checkpoint state)
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **C Runtime Execution Map** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

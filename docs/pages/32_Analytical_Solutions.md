@@ -6,7 +6,81 @@ Analytical mode bypasses the normal momentum/Poisson time advancement and direct
 
 @tableofcontents
 
-@section p32_activation_sec 1. Activation Path
+@section p32_entries_sec 2. Analytical Type Entries
+
+@htmlinclude generated/capability_inventory_analytical_solution_type.html
+
+@subsection p32_cap_zero_flow_sub ZERO_FLOW
+
+@anchor p32_cap_zero_flow
+
+**Identity.** `operation_mode.analytical_type: ZERO_FLOW` -> `-analytical_type ZERO_FLOW`.
+
+**What it does.** Supplies an exactly zero velocity field.
+
+**When to choose it.** Isolating a mechanism that must not depend on advection. The
+diffusivity-gradient and Brownian verification cases use it so that any particle motion
+observed is attributable to the term under test, not to the flow.
+
+**Parameters it owns.** None.
+
+**Interactions.** Requires `eulerian_source: analytical`. No flow solve runs.
+
+**Diagnostics.** The startup banner reports the analytical mode.
+
+**Evidence.** Production exercised - `examples/drift_diffusivity_gradient`.
+
+**Limitations.** No flow, by construction.
+
+@subsection p32_cap_uniform_flow_sub UNIFORM_FLOW
+
+@anchor p32_cap_uniform_flow
+
+**Identity.** `operation_mode.analytical_type: UNIFORM_FLOW` ->
+`-analytical_type UNIFORM_FLOW`, with components from the `analytical_uniform_*` options.
+
+**What it does.** Supplies a spatially uniform, constant velocity field.
+
+**When to choose it.** Verifying advection: a known constant velocity makes the exact
+particle trajectory trivially predictable, which is what turns a run into a test.
+
+**Parameters it owns.** The uniform velocity components.
+
+**Interactions.** Requires `eulerian_source: analytical`. Supported on file grids as well
+as programmatic ones.
+
+**Diagnostics.** Startup banner; particle displacement should match velocity times
+elapsed time exactly.
+
+**Evidence.** Production exercised - `examples/drift_uniform_flow`.
+
+**Limitations.** Uniform only; no shear, so it exercises no velocity-gradient behaviour.
+
+@subsection p32_cap_tgv3d_sub TGV3D
+
+@anchor p32_cap_tgv3d
+
+**Identity.** `operation_mode.analytical_type: TGV3D` -> `-analytical_type TGV3D`.
+
+**What it does.** Supplies the three-dimensional Taylor-Green vortex, a classical
+analytic solution with a known decay.
+
+**When to choose it.** Exercising a genuinely three-dimensional field with strong velocity
+gradients, where a uniform flow would test nothing.
+
+**Parameters it owns.** None beyond the analytical selector.
+
+**Interactions.** Requires `eulerian_source: analytical`. Unlike the two simpler modes it
+is not supported on the file-grid path.
+
+**Diagnostics.** Startup banner reports the mode.
+
+**Evidence.** Implemented only. No shipped example selects it.
+
+**Limitations.** Not available for file-based grids, and no in-tree case establishes its
+correctness.
+
+@section p32_activation_sec 3. Activation Path
 
 Analytical mode is selected by:
 
@@ -26,7 +100,7 @@ Current launcher contract:
 - `ZERO_FLOW` and `UNIFORM_FLOW` support `case.yml -> grid.mode: programmatic_c` and `case.yml -> grid.mode: file`
 - `grid_gen` remains outside the current documented analytical contract
 
-@section p32_types_sec 2. Supported Types In Current Code
+@section p32_types_sec 4. Supported Types In Current Code
 
 - `TGV3D`
 - `ZERO_FLOW`
@@ -38,7 +112,7 @@ Implementation touchpoints:
 - analytical geometry assignment: @ref SetAnalyticalGridInfo
 - state setter dispatch: @ref AnalyticalSolutionEngine
 
-@section p32_tgv_sec 3. TGV3D Details
+@section p32_tgv_sec 5. TGV3D Details
 
 Current `TGV3D` implementation sets fields with decaying Taylor-Green style forms in non-dimensional coordinates. Representative form:
 
@@ -55,7 +129,7 @@ Geometry behavior for `TGV3D` in function @ref SetAnalyticalGridInfo follows:
 - multi-block: requires perfect-square block count for XY decomposition.
 - the analytical geometry logic assigns the domain itself; the launcher-side programmatic grid inputs primarily provide resolution (`im/jm/km`)
 
-@section p32_zero_sec 4. ZERO_FLOW Details
+@section p32_zero_sec 6. ZERO_FLOW Details
 
 `ZERO_FLOW` sets a quiescent background state while preserving the same analytical-mode control path.
 It is useful for controlled particle-motion or postprocessing validation scenarios.
@@ -66,7 +140,7 @@ Grid behavior:
 - with `programmatic_settings` for `grid.mode: programmatic_c` and `-grid_file` ingestion for `grid.mode: file`,
 - but the flow field itself is imposed analytically as zero everywhere.
 
-@section p32_uniform_sec 5. UNIFORM_FLOW Details
+@section p32_uniform_sec 7. UNIFORM_FLOW Details
 
 `UNIFORM_FLOW` sets a constant Eulerian velocity field everywhere in the domain while keeping pressure zero.
 It is intended for deterministic particle-advection verification, where cloud centre-of-mass motion should match the configured constant velocity exactly.
@@ -86,13 +160,13 @@ Grid behavior:
 Verification-only source overrides such as `solver.yml -> verification.sources.diffusivity` may be paired with `ZERO_FLOW` when the analytical velocity field itself should remain quiescent.
 Those overrides are not general production modeling features; they exist only for otherwise-unreachable end-to-end verification scenarios.
 
-The same analytical-solutions layer now also owns verification-only scalar truth evaluation for `solver.yml -> verification.sources.scalar`. That scalar path supports `CONSTANT`, `LINEAR_X`, and `SIN_PRODUCT`, writes prescribed truth onto particle `Psi`, and supplies analytical cell-center reference values for the runtime diagnostic `logs/scatter_metrics.csv`. Keeping scalar truth in `AnalyticalSolutions` makes the feature reusable for future static deposition checks, moving-cloud verification under `UNIFORM_FLOW`, and coupled flow-plus-scatter diagnostics under `TGV3D` without pushing analytical logic into `ParticlePhysics`.
+The same analytical-solutions layer now also owns verification-only scalar truth evaluation for `solver.yml -> verification.sources.scalar`. That scalar path supports `CONSTANT`, `LINEAR_X`, and `SIN_PRODUCT`, writes prescribed truth onto particle `Psi`, and supplies analytical cell-center reference values for the runtime diagnostic `<run.runtime_logs>/scatter_metrics.csv`. Keeping scalar truth in `AnalyticalSolutions` makes the feature reusable for future static deposition checks, moving-cloud verification under `UNIFORM_FLOW`, and coupled flow-plus-scatter diagnostics under `TGV3D` without pushing analytical logic into `ParticlePhysics`.
 
-@section p32_particles_sec 6. Particle Consistency
+@section p32_particles_sec 8. Particle Consistency
 
 Particle-side analytical initialization hooks exist via @ref SetAnalyticalSolutionForParticles so particle fields can remain consistent with analytical Eulerian state when desired.
 
-@section p32_extension_sec 7. Adding A New Analytical Type
+@section p32_extension_sec 9. Adding A New Analytical Type
 
 1. add a new branch in function @ref AnalyticalSolutionEngine for the new type,
 2. define geometry policy in function @ref AnalyticalTypeRequiresCustomGeometry for that type,
@@ -105,25 +179,3 @@ Also update:
 - **@subpage 08_Solver_Reference**
 - **@subpage 48_Grid_Generator_Guide**
 - **@subpage 40_Testing_and_Quality_Guide**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Analytical Solution Modes** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

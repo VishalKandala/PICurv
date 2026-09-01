@@ -187,3 +187,127 @@ PetscBool SpatialTargetPlanMaskAllows(const SpatialTargetPlan *plan, PetscReal n
     if (plan == NULL) return PETSC_FALSE;
     return (PetscBool)(nvert_value < PICURV_STATISTICS_FLUID_THRESHOLD);
 }
+
+/**
+ * @brief Flattens the retained global indices of one point into a reduction slot.
+ *
+ * A direction being averaged over collapses to a single entry, so the buffer is
+ * indexed only by the directions left out.
+ */
+static PetscInt SpatialAverageSlot(const PetscBool average_direction[3],
+                                   const PetscInt retained_extent[3],
+                                   PetscInt i, PetscInt j, PetscInt k)
+{
+    return (average_direction[0] ? 0 : i) +
+           retained_extent[0] * ((average_direction[1] ? 0 : j) +
+           retained_extent[1] *  (average_direction[2] ? 0 : k));
+}
+
+/**
+ * @brief Implementation of \ref PicurvSpatialRatioAverage().
+ * @see PicurvSpatialRatioAverage()
+ */
+PetscErrorCode PicurvSpatialRatioAverage(UserCtx *user, const SpatialTargetPlan *plan,
+                                         Vec numerator, Vec denominator, Vec inclusion,
+                                         const PetscBool average_direction[3], MPI_Comm comm,
+                                         Vec ratio, PetscReal *scalar)
+{
+    DM             da = NULL;
+    DMDALocalInfo  info;
+    PetscInt       retained_extent[3];
+    PetscInt       buffer_size = 1;
+    PetscInt       averaged_count = 0;
+    PetscReal   ***num = NULL, ***den = NULL, ***inc = NULL, ***out = NULL, ***nvert = NULL;
+    PetscReal     *num_sum = NULL, *den_sum = NULL;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCheck(user != NULL && plan != NULL && numerator != NULL && average_direction != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Context, plan, numerator, and direction selector are required.");
+
+    da = user->da;
+    PetscCall(DMDAGetLocalInfo(da, &info));
+
+    retained_extent[0] = average_direction[0] ? 1 : info.mx;
+    retained_extent[1] = average_direction[1] ? 1 : info.my;
+    retained_extent[2] = average_direction[2] ? 1 : info.mz;
+    for (PetscInt axis = 0; axis < 3; axis++) {
+        if (average_direction[axis]) averaged_count++;
+        buffer_size *= retained_extent[axis];
+    }
+    PetscCheck(scalar == NULL || averaged_count == 3, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+               "A single averaged value exists only when every direction is averaged over; "
+               "%" PetscInt_FMT " of 3 were selected.", averaged_count);
+
+    PetscCall(DMDAVecGetArrayRead(da, numerator, &num));
+    if (denominator) PetscCall(DMDAVecGetArrayRead(da, denominator, &den));
+    if (inclusion) PetscCall(DMDAVecGetArrayRead(da, inclusion, &inc));
+    if (ratio) PetscCall(DMDAVecGetArray(da, ratio, &out));
+    PetscCall(DMDAVecGetArrayRead(da, user->lNvert, &nvert));
+
+    if (averaged_count == 0) {
+        /* Pointwise: the empty averaging set, which is a legitimate request rather
+         * than a degenerate one. It is what a local formulation asks for. */
+        for (PetscInt k = plan->start[2]; k < plan->end[2]; k++)
+        for (PetscInt j = plan->start[1]; j < plan->end[1]; j++)
+        for (PetscInt i = plan->start[0]; i < plan->end[0]; i++) {
+            const PetscReal divisor = denominator ? den[k][j][i] : 1.0;
+
+            out[k][j][i] = (PetscAbsReal(divisor) > 0.0) ? (num[k][j][i] / divisor) : 0.0;
+        }
+    } else {
+        PetscCheck(buffer_size <= PICURV_SPATIAL_AVERAGE_MAX_BUFFER, PETSC_COMM_SELF,
+                   PETSC_ERR_ARG_OUTOFRANGE,
+                   "Averaging over %" PetscInt_FMT " direction(s) would need a reduction buffer "
+                   "of %" PetscInt_FMT " entries, above the %d entry limit. Average over more "
+                   "directions.", averaged_count, buffer_size, PICURV_SPATIAL_AVERAGE_MAX_BUFFER);
+
+        PetscCall(PetscCalloc2(buffer_size, &num_sum, buffer_size, &den_sum));
+
+        for (PetscInt k = plan->start[2]; k < plan->end[2]; k++)
+        for (PetscInt j = plan->start[1]; j < plan->end[1]; j++)
+        for (PetscInt i = plan->start[0]; i < plan->end[0]; i++) {
+            PetscInt slot;
+
+            if (!SpatialTargetPlanMaskAllows(plan, nvert[k][j][i])) continue;
+            /* A point the caller marks unmeasured holds a zero that means absence, not
+             * a measurement; counting it would scale the answer toward zero. */
+            if (inc && inc[k][j][i] <= 0.0) continue;
+
+            slot = SpatialAverageSlot(average_direction, retained_extent, i, j, k);
+            num_sum[slot] += num[k][j][i];
+            den_sum[slot] += denominator ? den[k][j][i] : 1.0;
+        }
+
+        PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, num_sum, (PetscMPIInt)buffer_size,
+                                   MPIU_REAL, MPI_SUM, comm));
+        PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, den_sum, (PetscMPIInt)buffer_size,
+                                   MPIU_REAL, MPI_SUM, comm));
+
+        if (out) {
+            for (PetscInt k = plan->start[2]; k < plan->end[2]; k++)
+            for (PetscInt j = plan->start[1]; j < plan->end[1]; j++)
+            for (PetscInt i = plan->start[0]; i < plan->end[0]; i++) {
+                const PetscInt slot = SpatialAverageSlot(average_direction, retained_extent, i, j, k);
+
+                out[k][j][i] = (PetscAbsReal(den_sum[slot]) > 0.0)
+                                   ? (num_sum[slot] / den_sum[slot]) : 0.0;
+            }
+        }
+        if (scalar) {
+            *scalar = (PetscAbsReal(den_sum[0]) > 0.0) ? (num_sum[0] / den_sum[0]) : 0.0;
+        }
+
+        PetscCall(PetscFree2(num_sum, den_sum));
+    }
+
+    PetscCall(DMDAVecRestoreArrayRead(da, numerator, &num));
+    if (denominator) PetscCall(DMDAVecRestoreArrayRead(da, denominator, &den));
+    if (inclusion) PetscCall(DMDAVecRestoreArrayRead(da, inclusion, &inc));
+    if (ratio) PetscCall(DMDAVecRestoreArray(da, ratio, &out));
+    PetscCall(DMDAVecRestoreArrayRead(da, user->lNvert, &nvert));
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}

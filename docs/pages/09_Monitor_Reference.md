@@ -27,7 +27,7 @@ solution_monitoring:
 
 PICurv writes the normalized settings directly into the generated master
 `.control` file as the existing `-solution_convergence_*` options. It retains
-`logs/solution_convergence.log`, its columns, and its current observable loops.
+`<run.runtime_logs>/solution_convergence.log`, its columns, and its current observable loops.
 `enabled: false` disables that writer and its private history allocation. The
 default remains enabled `steady_deterministic` monitoring. Convergence is
 observed after every completed timestep; there is no user-facing cadence key.
@@ -54,6 +54,50 @@ surface is not compatible input and is not translated into a replacement
 workflow.
 
 @section p09_io_sec 2. io
+
+@warning **`io.directories.log` is a destructive path.** On a fresh solve the C runtime
+**recursively deletes** the configured log directory before writing to it. Never point
+two runs at one log directory.
+
+Both `log` and `output` are containment-validated, but for different reasons: `log`
+because it is deleted, and `output` because run output must stay inside the run tree
+to be archived and restored. Rejected values are those that escape the run directory,
+resolve to the run root itself, collide with a reserved directory (`config`,
+`scheduler`, `checkpoints`, `visualization`), or make `log` and `output` overlap.
+
+Directory names must also be writable to a PETSc options line without quoting, so
+whitespace, quotes, and `#` are rejected. Use a plain relative name such as `logs` or
+`diagnostics/run1`.
+
+`io.directories.allow_unsafe_paths: true` — a real YAML boolean, not a quoted string —
+waives **one** rejection and only one: an **absolute** path outside the run tree, which
+becomes a warning. Only use it if you accept that the named directory is recursively
+deleted on every fresh run.
+
+Everything else stays fatal, with or without the override:
+
+| Rejection | Waivable? | Why |
+|---|---|---|
+| Absolute path outside the run tree | Yes | A deliberate external location is a legitimate, if dangerous, choice |
+| Relative escape (`..`) | **No** | It lands among sibling runs and study members; give an absolute path if you mean it |
+| A value starting with `~` | **No** | Nothing expands it - see below |
+| The run root itself | **No** | Deleting it destroys the run being started |
+| A reserved name (`config`, `scheduler`, `checkpoints`, `visualization`) | **No** | Deleting it destroys the run's own inputs or results |
+| `log` and `output` overlapping | **No** | The delete would take the output with it |
+| Whitespace, quotes, or `#` in the value | **No** | The options line would be misread rather than merely unsafe |
+
+@warning **`~` is not an absolute path here.** The control file is read by PETSc, not
+by a shell, and nothing expands `~` anywhere in the pipeline. Every layer that uses the
+value resolves anything not starting with `/` relative to the run, so `~/logs` names a
+literal `~` directory inside the run tree - not your home directory. It is refused
+outright at every layer, and refused rather than expanded: expanding it in one place
+would only move the disagreement rather than end it. Write the real absolute path.
+
+The same rules are enforced three times: at configuration validation, again at
+submission against the staged control files, and finally in the C runtime immediately
+before the delete. The last check is deliberately independent of the launcher, so a
+hand-written control file or a symlink swapped in after validation does not get past
+it. See @ref p71_isolation_sub.
 
 ```yaml
 io:
@@ -207,7 +251,8 @@ logging:
 - Raising `verbosity` therefore does not surface a function's diagnostics on its own; name the function here as well. See **@subpage 11_User_How_To_Guides** section 3.4 for the workflow.
 - An explicitly provided `whitelist.run` must contain at least one function name; an empty whitelist file is invalid.
 - `config/monitors/Standard_Output.yml` uses `WARNING` with an empty allow-list for quiet production runs; the startup banner still reports the walltime-guard status.
-- Some runtime artifacts are independent of console verbosity. For particle-enabled runs, `logs/search_metrics.csv` is written automatically and includes both raw search counters and derived signals such as `search_failure_fraction`, `search_work_index`, and `re_search_fraction`; allow-listing `LOG_SEARCH_METRICS` only affects the optional compact console summary.
+- Some runtime artifacts are independent of console verbosity. For particle-enabled runs, `<run.runtime_logs>/search_metrics.csv` is written automatically and includes both raw search counters and derived signals such as `search_failure_fraction`, `search_work_index`, and `re_search_fraction`; allow-listing `LOG_SEARCH_METRICS` only affects the optional compact console summary.
+- LES runs with `case.yml -> models.physics.turbulence.les.diagnostics.enabled` write `<run.runtime_logs>/les_coefficient.csv`, one row per step or per configured cadence. It carries the effective model coefficient reported as `Cs`, its spatial spread, eddy-viscosity levels, the modelled subgrid kinetic energy, and the volume fractions that were backscattering or limited before clipping. Those values are instantaneous volume statistics, not time averages; window-averaged statistics of the same model's fields come from `field_statistics` instead. Column definitions are at @ref p72_diagnostics_sec, and the history is plottable without leaving the CLI: `picurv summarize --run-dir <run> --plot les.cs_effective`.
 - Use **@subpage 53_Search_Robustness_Metrics_Reference** for the exact metric definitions and formulas.
 
 Supported verbosity strings:
@@ -278,7 +323,7 @@ Rules:
   - `selected`: write only the listed functions each timestep
   - `all`: write all instrumented functions seen in a timestep
 - `timestep_output.functions` is required only when `mode: selected`
-- `timestep_output.file` sets the filename written under the run `logs/` directory
+- `timestep_output.file` sets the filename written under `<run.runtime_logs>/`
 - `final_summary.enabled` controls the end-of-run `ProfilingSummary_*.log` file
 
 @section p09_diagnostics_sec 6. diagnostics
@@ -329,13 +374,13 @@ adds PETSc startup arguments like:
 for the solver stage, with analogous `PostProcessor` log names for post runs.
 - `malloc_view`, `log_view`, and `log_trace` accept `false`, `true`, or a
   non-empty PETSc viewer/path string. When set to `true`, PICurv writes
-  run-local defaults such as `logs/PETSc_MallocView_Solver.log`,
-  `logs/PETSc_LogView_Solver.log`, and matching `PostProcessor` files.
+  run-local defaults such as `<run.runtime_logs>/PETSc_MallocView_Solver.log`,
+  `<run.runtime_logs>/PETSc_LogView_Solver.log`, and matching `PostProcessor` files.
 - `objects_dump` accepts `false`, `true`, or `all`.
 - `options_left` accepts `true`, `false`, or `null`; use `null` to omit the
   PETSc option entirely.
 - PETSc diagnostics that support output files use run-local defaults under
-  `logs/`, with solver/postprocessor-specific filenames. Boolean-only PETSc
+  `<run.runtime_logs>/`, with solver/postprocessor-specific filenames. Boolean-only PETSc
   diagnostics remain in the captured solver/post stream logs.
 - `runtime_memory_log` writes a rank-reduced, terminal-readable log with max
   process/PETSc allocation signals per step.
@@ -400,25 +445,3 @@ Also see:
 - **@subpage 15_Config_Ingestion_Map**
 - **@subpage 50_Modular_Selector_Extension_Guide**
 - **@subpage 58_Field_Statistics**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Configuration Reference: Monitor YAML** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

@@ -1,0 +1,26 @@
+digraph run_lifecycle {
+  rankdir=LR;
+  bgcolor="transparent";
+  node [shape=box, style="rounded,filled", fillcolor="#f4f4f6", color="#8a8a93",
+        fontname="Helvetica", fontsize=10, penwidth=1.2];
+  edge [color="#8a8a93", fontname="Helvetica", fontsize=9, penwidth=1.1];
+
+  authored  [label="Authored\ncase / solver /\nmonitor / post", fillcolor="#e8eef8"];
+  validated [label="Validated\npicurv validate"];
+  staged    [label="Staged\nrun dir + generated\ncontrol artifacts"];
+  running   [label="Running\nsolver, then\npostprocessor", fillcolor="#e6f2e6"];
+  complete  [label="Complete\ncheckpoints +\noutputs on disk", fillcolor="#e6f2e6"];
+  archived  [label="Archived\noffloaded via\npicurv storage", fillcolor="#f0ecf6"];
+  failed    [label="Failed\nlast accepted\nstate retained", fillcolor="#f8ecec"];
+
+  authored  -> validated [label="validate"];
+  validated -> staged    [label="run / submit\n(--dry-run previews only,\nit stages nothing)"];
+  staged    -> running   [label="launch"];
+  running   -> complete  [label="final step"];
+  running   -> failed    [label="error /\ncancel"];
+  complete  -> running   [label="--continue\n(same run)"];
+  complete  -> staged    [label="--restart-from\n(new run)"];
+  complete  -> archived  [label="storage offload"];
+  archived  -> complete  [label="storage restore"];
+  failed    -> staged    [label="--restart-from\nlast checkpoint"];
+}

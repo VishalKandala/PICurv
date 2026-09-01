@@ -6,12 +6,13 @@ The goal of this guide is to explain not only where files live, but how each doc
 
 ## Core Files and Their Roles
 
-- `Doxyfile`: controls documentation generation options, warning behavior, math rendering, and source indexing policy.
+- `Doxyfile`: controls documentation generation options, warning behavior, math rendering,
+  source browsing, and XML emitted for the optional `docs_build/xref.json` review cache.
 - `DoxygenLayout.xml`: defines navigation hierarchy and tab ordering in the generated site.
 - `mainpage.md`: root landing page (`@mainpage`) that frames the project and links users into key entry points.
 - `CHANGELOG.md`: release-oriented behavior notes (`@page 18_Changelog`) tied to contract/runtime evolution.
 - `custom.css`: site-level presentation overrides for generated HTML.
-- `Documentation_Code_Alignment_Audit_2026-03-06.md`: code-vs-doc gap audit artifact covering `src/`, `picurv_cli/`, and test suites.
+- `theme-sync.js`: injected at publish time; syncs the site theme with the host page and renders the build-provenance footer.
 
 ## Subdirectories and Intent
 
@@ -35,12 +36,12 @@ The goal of this guide is to explain not only where files live, but how each doc
 - Run the function-doc audit when C/Python executable APIs or test helpers changed:
   - `python3 tests/tooling/audit_function_docs.py`
 - Keep `docs/DoxygenLayout.xml` and `docs/mainpage.md` synchronized with new/renamed pages.
-- When changing run/cluster lifecycle behavior, keep `README.md`, `05_The_Conductor_Script.md`, `36_Cluster_Run_Guide.md`, `52_Run_Lifecycle_Guide.md`, and the relevant `config/*/guide.md` pages aligned.
+- When changing run/cluster lifecycle behavior, keep `README.md`, `05_The_Conductor_Script.md`, `36_Cluster_Run_Guide.md`, `52_Run_Lifecycle_Guide.md`, and the relevant `<repo>/config/*/guide.md` pages aligned.
 - For equations or symbols, verify MathJax rendering in the generated HTML.
 - Avoid introducing orphan pages that are discoverable only by URL.
 
 ## Entry Pages
 
-- https://vishalkandala.me/picurv-docs/41_Getting_Started_Index.html
-- https://vishalkandala.me/picurv-docs/42_User_Guide_Index.html
-- https://vishalkandala.me/picurv-docs/43_Developer_Portal_Index.html
+- https://vishalkandala.me/docs/picurv/41_Getting_Started_Index.html
+- https://vishalkandala.me/docs/picurv/42_User_Guide_Index.html
+- https://vishalkandala.me/docs/picurv/43_Developer_Portal_Index.html

@@ -36,7 +36,7 @@ but it is centered around that drifting mean.
 
 Primary output:
 
-- `<run_dir>/output/statistics/DiffusivityGradientDrift_msd.csv`
+- `<run.solver_output>/statistics/DiffusivityGradientDrift_msd.csv`
 
 ## Verification
 

@@ -16,10 +16,53 @@ For every new selector value:
 3. emit the correct generated control/post artifact mapping,
 4. add any C enum/storage and parser wiring,
 5. add the runtime dispatch/consumer branch,
-6. update tests,
-7. update the relevant reference pages.
+6. add tests,
+7. **declare the value in the capability registry**, and
+8. **write its Tier-2 capability entry**.
 
 Use the canonical value only. Do not add placeholder enum values or compatibility aliases for unimplemented options.
+
+@subsection p50_obligations_ssec 1.1 The Documentation Obligation Is Enforced
+
+Steps 7 and 8 are not advisory. Coverage is enforced for every registered family, so
+`make audit-capability` fails until they are done, and the full source chain -
+validator, C parser, enum, runtime dispatch - must agree. If the value belongs to a
+family nothing yet covers, `make audit-family-census` will have already refused the
+new public surface.
+
+Concretely, adding a selector value means:
+
+```bash
+# 1. Declare it: add an entry to value_metadata in
+#    tests/tooling/capability_families.json with its status, canonical/alias
+#    relationship, and evidence sources.
+
+# 2. Scaffold the entry with every required part already present:
+python3 tests/tooling/scaffold_documentation.py capability \
+    --family <family.id> --value '<Your Value>'
+
+# 3. Paste it into the family page, fill in the TODOs, then:
+make docs-inventory      # regenerate the inventory and its tables
+make audit-capability    # parity, coverage, evidence, lifecycle
+```
+
+The audit checks four things a reviewer would otherwise have to check by hand:
+
+- **Parity** - the value is accepted end to end, and nothing accepts a value the
+  validator does not expose.
+- **Coverage** - an entry exists, anchored outside code blocks, with all eight
+  contract parts (three for a deprecated alias).
+- **Evidence** - each declared source exists *and* is cited in the entry's Evidence
+  part, so the registry and the prose cannot drift.
+- **Lifecycle** - a `supported` value has evidence, an `experimental` or
+  `known-defective` value states limitations, a `deprecated` value gives migration.
+
+If the value is a synonym rather than a new capability, declare `spelling_of` instead
+and it inherits the canonical value's status without needing its own entry. If it is a
+retired name, declare `alias_of` and scaffold the three-part stub with
+`scaffold_documentation.py alias`.
+
+Full contract: **@subpage 64_Documentation_Extension_Framework**.
 
 @section p50_momentum_sec 2. Momentum Solver Selector
 
@@ -27,6 +70,10 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
 - Canonical values:
   - `Explicit RK4`
   - `Dual Time Picard Jameson RK`
+  - `Newton Krylov`
+- Deprecated alias:
+  - `Dual Time Picard RK4` normalizes to `Dual Time Picard Jameson RK`; the C enum
+    keeps `MOMENTUM_SOLVER_DUALTIME_PICARD_RK4` as an alias of the Jameson value.
 - Python hook:
   - `normalize_momentum_solver_type()` in `picurv_cli/core.py`
 - Generated mapping:
@@ -44,6 +91,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - **@subpage 08_Solver_Reference**
   - **@subpage 24_Dual_Time_Picard_Jameson_RK**
   - **@subpage 31_Momentum_Solvers**
+  - **@subpage 55_Newton_Krylov_Momentum_Solver**
 
 @section p50_bc_sec 3. Boundary Condition Type Or Handler
 
@@ -73,6 +121,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `tests/test_cli_smoke.py`
   - **@subpage 07_Case_Reference**
   - **@subpage 44_Boundary_Conditions_Guide**
+- **@subpage 72_LES_Turbulence_Closure**
 
 @section p50_particle_init_sec 4. Particle Initialization Mode
 
@@ -198,7 +247,7 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - thin delegation from `src/rhs.c` for diffusivity
   - analytical scalar truth in `src/AnalyticalSolutions.c`
   - gated particle-physics bypass in `src/ParticlePhysics.c`
-  - runtime metric writer in `src/logging.c` (`logs/scatter_metrics.csv`)
+  - runtime metric writer in `src/logging.c` (`<run.runtime_logs>/scatter_metrics.csv`)
 - Design boundary:
   - verification sources exist only for otherwise-unreachable verification scenarios
   - analytical truth definitions belong in `AnalyticalSolutions`, not in model-evolution code such as `ParticlePhysics`
@@ -279,32 +328,74 @@ Use the canonical value only. Do not add placeholder enum values or compatibilit
   - `tests/test_cli_smoke.py`
   - **@subpage 10_Post_Processing_Reference**
 
-@section p50_related_sec 11. Related Pages
+@section p50_turbulence_sec 12. Turbulence Closure Selectors
+
+One LES closure is active per run, chosen from an enum and dispatched by a branch, the
+same shape the momentum solvers use. There is no registry object: a closure is a
+function, not an instance with a lifecycle, which is what separates this from the
+boundary-condition handlers in section 3.
+
+- Schema home:
+  - `case.yml -> models.physics.turbulence.les`
+- Canonical values:
+  - model: `constant_smagorinsky`, `dynamic_smagorinsky`
+  - `filter_width`: `cube_root_volume`, `geometric_mean`, `max_edge`
+  - `test_filter.kernel`: `volume_weighted_box`, `simpson_ik`
+  - `averaging.mode`: `local`, `homogeneous`, `global`
+  - `clipping.mode`: `clamp`, `clip_negative`, `none`
+- Python hooks in `picurv_cli/core.py`:
+  - `normalize_les_model()`
+  - `normalize_les_filter_width()`
+  - `normalize_les_test_filter()`
+  - `normalize_les_averaging_mode()`
+  - `normalize_les_clip_mode()`
+  - `normalize_les_averaging_directions()`
+  - `validate_les_configuration()` for cross-key rules
+  - `append_les_parameter_flags()` for emission
+- Generated mapping:
+  - the `-les` and `-les_*` flags listed in **@subpage 15_Config_Ingestion_Map**
+- C enum/storage in `include/variables.h`:
+  - `LESModelType`, `LESFilterWidthModel`, `LESTestFilterKernel`,
+    `LESAveragingMode`, `LESClipMode`, and the `LESConfig` block on `SimCtx`
+- C parser:
+  - `ParseLESConfiguration()` in `src/setup.c`, called from
+    @ref CreateSimulationContext. Defaults come from `LESConfigSetDefaults()`, also in
+    `src/setup.c`, so the control-file ingress and the test fixtures cannot disagree
+    about them. Both live with the rest of the ingress rather than in `src/les.c`,
+    because the postprocessor builds a simulation context without linking the closure.
+- Runtime dispatch:
+  - @ref FlowSolver in `src/solvers.c`
+- Implementation:
+  - `src/les.c` and `src/Filter.c`
+
+@subsection p50_turbulence_kernels_ssec 12.1 Reusable Kernels
+
+A new closure should consume the existing kernels rather than restate them. They are
+declared in `include/les.h` and are the reason a second eddy-viscosity model is one
+function: @ref StrainRateFromGradients, @ref ComputeCellFilterWidth,
+@ref SymTensorDeviator, @ref SymTensorContract, @ref SymTensorTimesVector,
+@ref ClipModelCoefficient, and @ref EddyViscosityFromCoefficient. The Germano-specific
+pieces, @ref LeonardStress and @ref GermanoModelTensor, belong to the dynamic procedure
+alone.
+
+Coefficient averaging is not an LES function. It is
+@ref PicurvSpatialRatioAverage in `include/statistics_target.h`, the module that already
+owns which points a spatial operation may touch. The closure resolves a
+@ref SpatialTargetPlan for its loops through the same entry point the statistics
+pipeline uses, so both agree on which indices are physical and neither carries its own
+copy of the fluid threshold.
+
+- Tests/docs to update:
+  - `tests/c/test_les.c`
+  - `tests/test_config_regressions.py`
+  - **@subpage 07_Case_Reference**
+  - **@subpage 72_LES_Turbulence_Closure**
+  - `tests/tooling/capability_families.json` and `tests/tooling/subsystem_records.json`
+
+@section p50_related_sec 13. Related Pages
 
 - **@subpage 14_Config_Contract**
 - **@subpage 15_Config_Ingestion_Map**
 - **@subpage 16_Config_Extension_Playbook**
 - **@subpage 31_Momentum_Solvers**
 - **@subpage 44_Boundary_Conditions_Guide**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Modular Selector Extension Guide** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

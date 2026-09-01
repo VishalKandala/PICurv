@@ -1,0 +1,1011 @@
+{
+  "description": "Machine-readable subsystem lifecycle records. Obligations grow with the status a subsystem claims; see 64_Documentation_Extension_Framework section 4. Enforced by tests/tooling/audit_subsystem_lifecycle.py. A record is a claim about what is documented, not a claim that the subsystem is correct.",
+  "subsystems": [
+    {
+      "id": "momentum.dual_time_picard",
+      "title": "Dual-Time Picard--Jameson Momentum Solver",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": "supported",
+      "capability_families": [
+        "momentum.solver"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "24_Dual_Time_Picard_Jameson_RK",
+          "anchor": "p24_when_to_use_sec"
+        },
+        "intended_scope": {
+          "page": "31_Momentum_Solvers",
+          "anchor": "p31_approaches_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "31_Momentum_Solvers",
+          "anchor": "p31_status_sec"
+        },
+        "architecture_boundary": {
+          "page": "24_Dual_Time_Picard_Jameson_RK",
+          "anchor": "p24_touchpoints_sec"
+        },
+        "dependencies": {
+          "page": "23_Fractional_Step_Method"
+        },
+        "developer_entry_points": {
+          "page": "31_Momentum_Solvers",
+          "anchor": "p31_extension_sec"
+        },
+        "configuration": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_msolver_sec"
+        },
+        "selection_guidance": {
+          "page": "24_Dual_Time_Picard_Jameson_RK",
+          "anchor": "p24_when_to_use_sec"
+        },
+        "observability": {
+          "page": "24_Dual_Time_Picard_Jameson_RK",
+          "anchor": "p24_logging_sec"
+        },
+        "limitations": {
+          "page": "31_Momentum_Solvers",
+          "anchor": "p31_status_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "24_Dual_Time_Picard_Jameson_RK",
+          "anchor": "p24_practical_sec"
+        },
+        "evidence": {
+          "page": "66_Evidence_Matrix",
+          "anchor": "p66_matrix_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Lifecycle_Guide",
+          "anchor": "p52_restart_sec"
+        },
+        "operations": {
+          "page": "52_Run_Lifecycle_Guide",
+          "anchor": "p52_newrun_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_noconverge_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_flow_sec"
+        },
+        "complete_reference": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_entries_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "24_Dual_Time_Picard_Jameson_RK",
+          "anchor": "p24_model_sec"
+        },
+        "user_selector": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_entries_sec"
+        },
+        "determinism_and_reproducibility": {
+          "page": "24_Dual_Time_Picard_Jameson_RK",
+          "anchor": "p24_convergence_sec"
+        },
+        "mpi_distributed_execution": {
+          "page": "46_C_Runtime_Execution_Map",
+          "anchor": "p46_loop_sec"
+        },
+        "scientific_verification": {
+          "page": "66_Evidence_Matrix",
+          "anchor": "p66_matrix_sec"
+        }
+      }
+    },
+    {
+      "id": "momentum.newton_krylov",
+      "title": "Newton--Krylov Momentum Solver",
+      "status": "experimental",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [
+        "momentum.solver"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_scope_sec"
+        },
+        "intended_scope": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_scope_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_scope_sec"
+        },
+        "architecture_boundary": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_snes_sec"
+        },
+        "dependencies": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_precond_sec"
+        },
+        "developer_entry_points": {
+          "page": "31_Momentum_Solvers",
+          "anchor": "p31_extension_sec"
+        },
+        "configuration": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_config_sec"
+        },
+        "selection_guidance": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_vs_jameson_sec"
+        },
+        "observability": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_monitors_sec"
+        },
+        "limitations": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_scope_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_reasons_sec"
+        },
+        "evidence": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_validation_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_seed_sec"
+        },
+        "operations": {
+          "page": "52_Run_Lifecycle_Guide",
+          "anchor": "p52_newrun_sec"
+        },
+        "troubleshooting": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_reasons_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_flow_sec"
+        },
+        "complete_reference": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_msolver_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_equation_sec"
+        },
+        "user_selector": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_entries_sec"
+        },
+        "determinism_and_reproducibility": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_seed_sec"
+        },
+        "persistent_restart_state": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_scope_sec"
+        },
+        "mpi_distributed_execution": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_scope_sec"
+        },
+        "scientific_verification": {
+          "page": "55_Newton_Krylov_Momentum_Solver",
+          "anchor": "p55_validation_sec"
+        }
+      },
+      "proposed_status": "supported",
+      "promotion_rationale": "Documented to the supported bar: scope limits, configuration, monitors, failure reasons, validation coverage, restart seeding, and a complete reference. The unresolved question is production suitability - the solver is characterised on single-block cases within a narrow declared scope, and no campaign has run it at the sizes a supported claim implies."
+    },
+    {
+      "id": "momentum.explicit_rk4",
+      "title": "Explicit RK4 Momentum Advance",
+      "status": "experimental",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [
+        "momentum.solver"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "31_Momentum_Solvers",
+          "anchor": "p31_approaches_sec"
+        },
+        "intended_scope": {
+          "page": "31_Momentum_Solvers",
+          "anchor": "p31_status_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "31_Momentum_Solvers",
+          "anchor": "p31_status_sec"
+        },
+        "architecture_boundary": {
+          "page": "31_Momentum_Solvers",
+          "anchor": "p31_selection_sec"
+        },
+        "dependencies": {
+          "page": "23_Fractional_Step_Method"
+        },
+        "developer_entry_points": {
+          "page": "31_Momentum_Solvers",
+          "anchor": "p31_extension_sec"
+        },
+        "configuration": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_entries_sec"
+        },
+        "selection_guidance": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_entries_sec"
+        },
+        "observability": {
+          "page": "31_Momentum_Solvers",
+          "anchor": "p31_testing_sec"
+        },
+        "limitations": {
+          "page": "31_Momentum_Solvers",
+          "anchor": "p31_status_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "31_Momentum_Solvers",
+          "anchor": "p31_status_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "31_Momentum_Solvers",
+          "anchor": "p31_approaches_sec"
+        },
+        "user_selector": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_entries_sec"
+        },
+        "scientific_verification": {
+          "not_applicable": "No validation campaign has been run against this path; that absence is what keeps the subsystem experimental rather than supported."
+        }
+      }
+    },
+    {
+      "id": "turbulence.les",
+      "title": "Large-Eddy Simulation Subgrid Models",
+      "status": "experimental",
+      "visibility": "public",
+      "previous_status": "known-defective",
+      "capability_families": [
+        "turbulence.les_model",
+        "turbulence.les_test_filter",
+        "turbulence.les_filter_width",
+        "turbulence.les_averaging_mode",
+        "turbulence.les_clip_mode"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_les_sec"
+        },
+        "intended_scope": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_les_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_les_sec"
+        },
+        "architecture_boundary": {
+          "page": "72_LES_Turbulence_Closure"
+        },
+        "dependencies": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "developer_entry_points": {
+          "page": "50_Modular_Selector_Extension_Guide"
+        },
+        "configuration": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_les_sec"
+        },
+        "selection_guidance": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_les_sec"
+        },
+        "observability": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_les_sec"
+        },
+        "limitations": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_les_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_les_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "72_LES_Turbulence_Closure"
+        },
+        "user_selector": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_les_sec"
+        },
+        "scientific_verification": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_les_sec"
+        },
+        "backward_compatibility": {
+          "not_applicable": "The legacy les: true / les: 1 / les: 2 shorthands remain accepted and are documented as spellings; nothing has been retired."
+        }
+      },
+      "note": "Both defects that held this subsystem at known-defective are fixed. The dynamic procedure now forms the model tensor from the test filter of |S|S_ij, applies the deviatoric projection, and averages the Germano contractions over a selectable set; the constant model reads its coefficient from configuration every step and allocates no coefficient field. Status is experimental rather than supported because no reference-flow validation has been run: decaying isotropic turbulence with homogeneous averaging, where Cs(t) should settle near 0.16-0.17, is the check that would close the gap."
+    },
+    {
+      "id": "turbulence.rans",
+      "title": "RANS Turbulence Models",
+      "status": "experimental",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [
+        "turbulence.rans_model",
+        "turbulence.wall_function"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "intended_scope": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "architecture_boundary": {
+          "page": "21_Methods_Overview"
+        },
+        "dependencies": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_models_sec"
+        },
+        "developer_entry_points": {
+          "page": "50_Modular_Selector_Extension_Guide"
+        },
+        "configuration": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "selection_guidance": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "observability": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_startup_banner_sec"
+        },
+        "limitations": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "user_selector": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "scientific_verification": {
+          "not_applicable": "The k-omega path has not been validated against a reference case in this tree; no verification claim is made for it."
+        }
+      }
+    },
+    {
+      "id": "particles.transport",
+      "title": "Lagrangian Particle Transport",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": "supported",
+      "capability_families": [
+        "particle.init_mode",
+        "particle.interpolation"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "34_Particle_Model_Overview",
+          "anchor": "p34_loop_sec"
+        },
+        "intended_scope": {
+          "page": "34_Particle_Model_Overview",
+          "anchor": "p34_physics_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "34_Particle_Model_Overview",
+          "anchor": "p34_physics_sec"
+        },
+        "architecture_boundary": {
+          "page": "34_Particle_Model_Overview",
+          "anchor": "p34_loop_sec"
+        },
+        "dependencies": {
+          "page": "26_Walking_Search_Method"
+        },
+        "developer_entry_points": {
+          "page": "34_Particle_Model_Overview",
+          "anchor": "p34_extension_sec"
+        },
+        "configuration": {
+          "page": "45_Particle_Initialization_and_Restart",
+          "anchor": "p45_contract_sec"
+        },
+        "selection_guidance": {
+          "page": "45_Particle_Initialization_and_Restart",
+          "anchor": "p45_mode_values_sec"
+        },
+        "observability": {
+          "page": "53_Search_Robustness_Metrics_Reference",
+          "anchor": "p53_taxonomy_sec"
+        },
+        "limitations": {
+          "page": "34_Particle_Model_Overview",
+          "anchor": "p34_physics_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "45_Particle_Initialization_and_Restart",
+          "anchor": "p45_settle_sec"
+        },
+        "evidence": {
+          "page": "66_Evidence_Matrix",
+          "anchor": "p66_matrix_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "45_Particle_Initialization_and_Restart",
+          "anchor": "p45_restart_matrix_sec"
+        },
+        "operations": {
+          "page": "52_Run_Lifecycle_Guide",
+          "anchor": "p52_restart_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_particles_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_verify_sec"
+        },
+        "complete_reference": {
+          "page": "45_Particle_Initialization_and_Restart",
+          "anchor": "p45_entries_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "27_Trilinear_Interpolation_and_Projection"
+        },
+        "user_selector": {
+          "page": "45_Particle_Initialization_and_Restart",
+          "anchor": "p45_entries_sec"
+        },
+        "persistent_restart_state": {
+          "page": "45_Particle_Initialization_and_Restart",
+          "anchor": "p45_restart_matrix_sec"
+        },
+        "determinism_and_reproducibility": {
+          "page": "45_Particle_Initialization_and_Restart",
+          "anchor": "p45_mode_behavior_sec"
+        },
+        "mpi_distributed_execution": {
+          "page": "26_Walking_Search_Method"
+        },
+        "scientific_verification": {
+          "page": "66_Evidence_Matrix",
+          "anchor": "p66_matrix_sec"
+        }
+      }
+    },
+    {
+      "id": "post.field_statistics",
+      "title": "Online Eulerian Field Statistics",
+      "status": "experimental",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [],
+      "obligations": {
+        "purpose": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_scope_sec"
+        },
+        "intended_scope": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_scope_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_target_sec"
+        },
+        "architecture_boundary": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_architecture_sec"
+        },
+        "dependencies": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_state_sec"
+        },
+        "developer_entry_points": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_architecture_sec"
+        },
+        "configuration": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_field_statistics_sec"
+        },
+        "selection_guidance": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_window_sec"
+        },
+        "observability": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_monitoring_sec"
+        },
+        "limitations": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_identity_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_identity_sec"
+        },
+        "evidence": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_validation_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_checkpoint_sec"
+        },
+        "operations": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_field_stats_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_output_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_flow_sec"
+        },
+        "complete_reference": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_derived_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_weighting_sec"
+        },
+        "user_selector": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_field_statistics_sec"
+        },
+        "persistent_restart_state": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_checkpoint_sec"
+        },
+        "generated_artifact": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_derived_sec"
+        },
+        "file_format": {
+          "page": "56_Field_Identity_and_Layout_Catalog"
+        },
+        "determinism_and_reproducibility": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_identity_sec"
+        },
+        "mpi_distributed_execution": {
+          "page": "58_Field_Statistics",
+          "anchor": "p58_target_sec"
+        }
+      },
+      "proposed_status": "supported",
+      "promotion_rationale": "Documented to the supported bar, including checkpoint/restart continuation and window identity. The unresolved question is whether the derived statistics have been validated against a reference profile rather than only unit-tested for internal consistency."
+    },
+    {
+      "id": "post.field_statistics_extensions",
+      "title": "Planned Field-Statistics Extensions",
+      "status": "planned",
+      "visibility": "public",
+      "previous_status": null,
+      "capability_families": [],
+      "obligations": {
+        "purpose": {
+          "page": "60_Field_Statistics_Planned_Extensions",
+          "anchor": "p60_principle_sec"
+        },
+        "intended_scope": {
+          "page": "60_Field_Statistics_Planned_Extensions",
+          "anchor": "p60_order_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "not_implemented_status": {
+          "page": "60_Field_Statistics_Planned_Extensions",
+          "anchor": "p60_principle_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "60_Field_Statistics_Planned_Extensions",
+          "anchor": "p60_order_extension_sec"
+        },
+        "user_selector": {
+          "not_applicable": "Nothing here is selectable yet; the page describes the design that would have to exist before any selector is added."
+        }
+      }
+    },
+    {
+      "id": "storage.management",
+      "title": "Run Storage Management",
+      "status": "experimental",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [],
+      "obligations": {
+        "purpose": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_model_sec"
+        },
+        "intended_scope": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_model_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_cli_integration_sec"
+        },
+        "architecture_boundary": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_remote_sec"
+        },
+        "dependencies": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_setup_sec"
+        },
+        "developer_entry_points": {
+          "page": "30_Repository_Navigation"
+        },
+        "configuration": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_setup_sec"
+        },
+        "selection_guidance": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_daily_sec"
+        },
+        "observability": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_safety_sec"
+        },
+        "limitations": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_safety_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_safety_sec"
+        },
+        "evidence": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_safety_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_restore_sec"
+        },
+        "operations": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_daily_sec"
+        },
+        "troubleshooting": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_safety_sec"
+        },
+        "examples": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_daily_sec"
+        },
+        "complete_reference": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_reference_sec"
+        }
+      },
+      "concerns": {
+        "artifact_topology": {
+          "page": "71_Invariant_Contracts",
+          "anchor": "p71_topology_sec"
+        },
+        "destructive_scope": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_safety_sec"
+        },
+        "external_service": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_remote_sec"
+        },
+        "file_format": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_remote_sec"
+        },
+        "backward_compatibility": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_code_sec"
+        },
+        "security_credentials": {
+          "not_applicable": "Remote access reuses the operator's existing SSH configuration; PICurv neither stores nor prompts for credentials of its own."
+        }
+      },
+      "proposed_status": "supported",
+      "promotion_rationale": "Documented to the supported bar, including failure safety and restore. The unresolved question is operational: the offload/restore cycle has not been exercised against the owner's actual remote at campaign scale."
+    },
+    {
+      "id": "run.directory_containment",
+      "title": "Run Directory Containment Guard",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": null,
+      "capability_families": [],
+      "obligations": {
+        "purpose": {
+          "page": "71_Invariant_Contracts",
+          "anchor": "p71_why_sec"
+        },
+        "intended_scope": {
+          "page": "71_Invariant_Contracts",
+          "anchor": "p71_register_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "71_Invariant_Contracts",
+          "anchor": "p71_register_sec"
+        },
+        "architecture_boundary": {
+          "page": "15_Config_Ingestion_Map",
+          "anchor": "p15_safety_sec"
+        },
+        "dependencies": {
+          "page": "15_Config_Ingestion_Map",
+          "anchor": "p15_pipeline_sec"
+        },
+        "developer_entry_points": {
+          "page": "15_Config_Ingestion_Map",
+          "anchor": "p15_maintenance_sec"
+        },
+        "configuration": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_io_sec"
+        },
+        "selection_guidance": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_io_sec"
+        },
+        "observability": {
+          "page": "39_Common_Fatal_Errors",
+          "anchor": "p39_structured_sec"
+        },
+        "limitations": {
+          "page": "71_Invariant_Contracts",
+          "anchor": "p71_register_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_io_sec"
+        },
+        "evidence": {
+          "page": "71_Invariant_Contracts",
+          "anchor": "p71_status_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Lifecycle_Guide",
+          "anchor": "p52_layout_sec"
+        },
+        "operations": {
+          "page": "52_Run_Lifecycle_Guide",
+          "anchor": "p52_layout_sec"
+        },
+        "troubleshooting": {
+          "page": "39_Common_Fatal_Errors",
+          "anchor": "p39_structured_sec"
+        },
+        "examples": {
+          "page": "52_Run_Lifecycle_Guide",
+          "anchor": "p52_layout_sec"
+        },
+        "complete_reference": {
+          "page": "71_Invariant_Contracts",
+          "anchor": "p71_register_sec"
+        }
+      },
+      "concerns": {
+        "destructive_scope": {
+          "page": "71_Invariant_Contracts",
+          "anchor": "p71_why_sec"
+        },
+        "artifact_topology": {
+          "page": "71_Invariant_Contracts",
+          "anchor": "p71_topology_sec"
+        },
+        "user_selector": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_io_sec"
+        },
+        "backward_compatibility": {
+          "page": "15_Config_Ingestion_Map",
+          "anchor": "p15_safety_sec"
+        },
+        "mpi_distributed_execution": {
+          "not_applicable": "The guard runs on rank zero before the collective directory setup and aborts the whole job, so no rank-dependent behavior arises."
+        }
+      }
+    },
+    {
+      "id": "boundary.periodic",
+      "title": "Geometric Periodic Boundaries",
+      "status": "experimental",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [
+        "boundary.handler",
+        "boundary.type"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "p54_geometric_periodic",
+          "anchor": "p54_scope_sec"
+        },
+        "intended_scope": {
+          "page": "p54_geometric_periodic",
+          "anchor": "p54_scope_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "p54_geometric_periodic",
+          "anchor": "p54_grid_sec"
+        },
+        "architecture_boundary": {
+          "page": "p54_geometric_periodic",
+          "anchor": "p54_fields_sec"
+        },
+        "dependencies": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_periodic_rules_sec"
+        },
+        "developer_entry_points": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_c_pipeline_sec"
+        },
+        "configuration": {
+          "page": "p54_geometric_periodic",
+          "anchor": "p54_config_sec"
+        },
+        "selection_guidance": {
+          "page": "p54_geometric_periodic",
+          "anchor": "p54_driven_sec"
+        },
+        "observability": {
+          "page": "p54_geometric_periodic",
+          "anchor": "p54_diag_sec"
+        },
+        "limitations": {
+          "page": "p54_geometric_periodic",
+          "anchor": "p54_scope_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_periodic_rules_sec"
+        },
+        "evidence": {
+          "page": "p54_geometric_periodic",
+          "anchor": "p54_diag_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Lifecycle_Guide",
+          "anchor": "p52_restart_sec"
+        },
+        "operations": {
+          "page": "p54_geometric_periodic",
+          "anchor": "p54_driven_sec"
+        },
+        "troubleshooting": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_troubleshoot_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_flow_sec"
+        },
+        "complete_reference": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_entries_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "p54_geometric_periodic",
+          "anchor": "p54_fields_sec"
+        },
+        "user_selector": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_entries_sec"
+        },
+        "units_and_nondimensionalization": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_nondim_sec"
+        },
+        "mpi_distributed_execution": {
+          "page": "p54_geometric_periodic",
+          "anchor": "p54_fields_sec"
+        },
+        "determinism_and_reproducibility": {
+          "page": "p54_geometric_periodic",
+          "anchor": "p54_diag_sec"
+        }
+      },
+      "proposed_status": "supported",
+      "promotion_rationale": "Documented to the supported bar. The unresolved question is the wall-bounded pseudo-time convergence behaviour, which page 54 records as previously observed and requiring re-characterisation at current HEAD. A supported claim should not sit above an open characterisation question."
+    }
+  ],
+  "owner_decisions_note": "A record carrying `proposed_status` is documented to that higher bar but still claims the lower one. The lifecycle gate checks documentation obligations against the proposal, so nothing is under-written; what it cannot check is production suitability or scientific correctness, which is why the promotion waits for the repository owner rather than being taken by the tooling."
+}

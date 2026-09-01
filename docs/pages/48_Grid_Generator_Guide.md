@@ -152,7 +152,7 @@ Behavior in `picurv`:
 
 This means `grid_gen` remains a Python-side preprocessing workflow even though the final solver still receives a normalized file grid.
 Fresh solve runs and `--restart-from` runs stage a grid in the target run directory.
-For `--continue` solve runs, an existing `config/grid.run` is reused when present
+For `--continue` solve runs, an existing `<run.config>/grid.run` is reused when present
 so the generator is not called again. Post-only runs read the existing control
 file and do not regenerate grids.
 
@@ -182,7 +182,7 @@ non-dimensionalizes it into:
 runs/<run_id>/config/grid.run
 ```
 
-and the generated solver control file points the C runtime at `config/grid.run`.
+and the generated solver control file points the C runtime at `<run.config>/grid.run`.
 When reusing the generated mesh in another case, point `grid.source_file` at the
 `.picgrid` artifact, not at `grid.run`.
 
@@ -214,10 +214,10 @@ grid:
 
 Execution sequence:
 
-1. run `grid.gen legacy1d --input <source_file> --output <run>/config/grid.converted.picgrid`
+1. run `grid.gen legacy1d --input <source_file> --output <run.config>/grid.converted.picgrid`
 2. validate converted PICGRID payload
 3. non-dimensionalize to `grid.run`
-4. pass `-grid_file <run>/config/grid.run` to the C runtime
+4. pass `-grid_file <run.config>/grid.run` to the C runtime
 
 @section p48_choose_sec 7. When To Use Which Grid Path
 
@@ -244,6 +244,70 @@ surface must be a pointwise translated copy of its partner. The translation
 must be nonzero and constant over the entire surface; rotating, shearing, and
 nonmatching surface pairs are rejected at runtime.
 
+@section p48_cap_geom_sec 7.1 Grid Generator Geometry Entries
+
+@htmlinclude generated/capability_inventory_grid_generator_type.html
+
+@subsection p48_cap_geom_warp_sub warp
+
+@anchor p48_cap_geom_warp
+
+**Identity.** `grid.gen warp`, or `grid.generator.grid_type: warp`.
+
+**What it does.** Generates a Cartesian block optionally deformed by three independent sinusoidal amplitudes. With all amplitudes at zero it is a plain stretched box, which is how the shipped periodic cases use it.
+
+**When to choose it.** The default choice for channels, ducts, and any box-like domain generated rather than declared - it is the geometry every shipped `grid_gen` case selects. Turn the amplitudes up only to exercise curvilinear machinery on a deformation you know analytically.
+
+**Parameters it owns.** `--ncells-i`, `--ncells-j`, `--ncells-k`, `--bounds-x`, `--bounds-y`, `--bounds-z`, and the deformation amplitudes `--amp-A`, `--amp-B`, `--amp-C`.
+
+**Interactions.** Reads defaults from the `[warp]` config section - see `config/grids/` for the plane-channel and square-duct configurations. With zero amplitudes the result is equivalent to a `programmatic_c` box, and the choice between them is whether the geometry lives in a generator config or in the case file.
+
+**Diagnostics.** `grid.gen` prints mesh-quality information including normalized warpage checks; `--vts` writes a viewable mesh for inspection before a solve.
+
+**Evidence.** Production exercised - `examples/periodic_test` driven-channel and driven-duct cases all generate their meshes with this type.
+
+**Limitations.** The deformation is a fixed three-amplitude sinusoid; arbitrary warping is not expressible, and no case establishes which amplitudes stay well-conditioned.
+
+@subsection p48_cap_geom_cpipe_sub cpipe
+
+@anchor p48_cap_geom_cpipe
+
+**Identity.** `grid.gen cpipe`, or `grid.generator.grid_type: cpipe`.
+
+**What it does.** Generates a bent pipe with a **rectangular** cross-section as a single curvilinear block. The bend is parameterised by a radius factor and an angle rather than drawn.
+
+**When to choose it.** For bent-duct geometries with a square or rectangular cross-section. Choose `pipe` instead when the cross-section must be circular, and `warp` for anything unbent.
+
+**Parameters it owns.** `--ncells-i`, `--ncells-j`, `--ncells-k`, `--side-lengths`, `--rc-factor`, `--straight-factor`, `--bend-angle`, `--orientation`, plus the stretching and first-cell controls in **@ref p48_invocation_sec**.
+
+**Interactions.** Reads defaults from the `[cpipe]` section - `config/grids/coarse_square_tube_curved.cfg` ships one. `--orientation` fixes which pair of axes the bend lies in, which must match the periodic-axis choice if the case is periodic.
+
+**Diagnostics.** Mesh-quality output reports normalized warpage, which is where a too-tight bend radius shows up first.
+
+**Evidence.** Implemented only. A generator config ships, but no shipped case selects this type, so nothing here is exercised end to end.
+
+**Limitations.** One block only, and the bend is a single constant-radius arc; compound or variable-radius bends are not expressible. Experimental until a case exercises it.
+
+@subsection p48_cap_geom_pipe_sub pipe
+
+@anchor p48_cap_geom_pipe
+
+**Identity.** `grid.gen pipe`, or `grid.generator.grid_type: pipe`.
+
+**What it does.** Generates a bent pipe with a **circular** cross-section, meshed O-grid style so the centre is not a singular point.
+
+**When to choose it.** For round-pipe geometries, where a rectangular cross-section would change the physics rather than merely the mesh. The O-grid topology is what makes a circular section tractable on a structured block.
+
+**Parameters it owns.** `--ncells-phi`, `--ncells-r`, `--ncells-path`, `--diameter`, `--pinhole-factor`, `--rc-factor`, `--straight-factor`, `--bend-angle`, `--orientation`.
+
+**Interactions.** Reads defaults from the `[pipe]` config section. `--pinhole-factor` controls the O-grid core and interacts with near-axis cell quality; it is the first control to revisit when metric diagnostics complain near the centreline.
+
+**Diagnostics.** Same mesh-quality reporting as the other geometries. Near-axis cells are where warpage warnings appear first.
+
+**Evidence.** Implemented only. No shipped case or study selects it.
+
+**Limitations.** O-grid cell quality degrades toward the axis, and nothing establishes what `--pinhole-factor` should be for a given Reynolds number. Experimental until a case exercises it.
+
 @section p48_related_sec 8. Related Pages
 
 - **@subpage 07_Case_Reference**
@@ -251,25 +315,3 @@ nonmatching surface pairs are rejected at runtime.
 - **@subpage 17_Workflow_Extensibility**
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 - **@ref p54_geometric_periodic "Periodic Boundaries and Driven Flows"**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Grid Generator Guide: generators/grid.gen** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

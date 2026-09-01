@@ -564,6 +564,23 @@ PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
                                              Cmpnts *dudx, Cmpnts *dvdx, Cmpnts *dwdx);
 
 /**
+ * @brief Installs the shipped defaults for every LES closure parameter.
+ *
+ * One definition of the defaults, shared by the control-file ingress and by test
+ * fixtures, so the two cannot drift apart. It lives with the rest of the context
+ * construction because defaults are ingress, not closure behaviour, and because the
+ * postprocessor builds a simulation context without linking the LES module.
+ *
+ * Local averaging and clamped limiting are the defaults because they are the only
+ * settings valid on arbitrary geometry; cases with homogeneous directions or an
+ * interest in backscatter opt into the alternatives.
+ *
+ * @param[out] config Configuration block to populate.
+ * @return PetscErrorCode 0 on success, or `PETSC_ERR_ARG_NULL` for a null argument.
+ */
+PetscErrorCode LESConfigSetDefaults(LESConfig *config);
+
+/**
  * @brief Destroys all PETSc Vec objects within a single UserCtx structure.
  *
  * This helper function systematically destroys the Vec objects stored in a UserCtx.

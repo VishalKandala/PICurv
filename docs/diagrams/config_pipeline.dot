@@ -1,0 +1,39 @@
+digraph config_pipeline {
+  rankdir=LR;
+  bgcolor="transparent";
+  node [shape=box, style="rounded,filled", fillcolor="#f4f4f6", color="#8a8a93",
+        fontname="Helvetica", fontsize=10, penwidth=1.2];
+  edge [color="#8a8a93", fontname="Helvetica", fontsize=9, penwidth=1.1];
+
+  subgraph cluster_yaml {
+    label="Authored YAML"; fontname="Helvetica"; fontsize=10; color="#c4c4cc"; style=rounded;
+    case [label="case.yml\nphysics, domain, grid, BCs", fillcolor="#e8eef8"];
+    solver [label="solver.yml\nnumerics, tolerances", fillcolor="#e8eef8"];
+    monitor [label="monitor.yml\nlogging, cadence, output", fillcolor="#e8eef8"];
+    post [label="post.yml\nanalysis pipelines", fillcolor="#e8eef8"];
+  }
+
+  validate [label="picurv validate\nschema + contract checks\n+ nondimensionalization\n(reads only - writes nothing)"];
+  stage [label="run staging\ncreates the run directory\nand writes the artifacts", fillcolor="#f0ecf6"];
+
+  subgraph cluster_gen {
+    label="Generated control artifacts (<run>/config)"; fontname="Helvetica"; fontsize=10;
+    color="#c4c4cc"; style=rounded;
+    control [label="&lt;run_id&gt;.control\nPETSc option tokens"];
+    bcs [label="bcs.run\nper-face type + handler + params"];
+    postrun [label="post control\nresolved pipeline"];
+  }
+
+  simulator [label="bin/simulator\nC runtime", fillcolor="#e6f2e6"];
+  postproc  [label="bin/postprocessor", fillcolor="#e6f2e6"];
+  outputs   [label="<run>/logs\ncheckpoints\nVTK output", fillcolor="#e6f2e6"];
+
+  case -> validate; solver -> validate; monitor -> validate; post -> validate;
+  validate -> stage [label="on run/submit\n(not on --dry-run)"];
+  stage -> control; stage -> bcs; stage -> postrun;
+  control -> simulator [label="PetscOptions"];
+  bcs -> simulator [label="ParseAllBoundaryConditions"];
+  simulator -> outputs;
+  postrun -> postproc; outputs -> postproc [label="reads checkpoints"];
+  postproc -> outputs [label="derived fields"];
+}

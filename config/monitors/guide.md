@@ -47,7 +47,7 @@ Use `INFO` when you want more live progress detail, and reserve high verbosity
 (`DEBUG+`) for short diagnostic runs only.
 
 For particle-enabled runs, note that some runtime artifacts are written
-independently of console verbosity. In particular, `logs/search_metrics.csv` is
+independently of console verbosity. In particular, `<run.runtime_logs>/search_metrics.csv` is
 always emitted by the runtime when particle tracking is active; allow-listing
 `LOG_SEARCH_METRICS` only controls the optional compact console summary.
 

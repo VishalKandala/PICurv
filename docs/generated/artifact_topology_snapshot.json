@@ -1,0 +1,295 @@
+{
+  "default_layout": "isolated_run_tree",
+  "isolation_enforced": false,
+  "logical_artifacts": [
+    "run.root",
+    "run.config",
+    "run.control",
+    "run.runtime_logs",
+    "run.scheduler",
+    "run.solver_output",
+    "run.checkpoints",
+    "run.manifest",
+    "run.config.inputs",
+    "run.post_control",
+    "run.runtime_logs.files",
+    "run.scheduler.files",
+    "run.visualization"
+  ],
+  "scenarios": [
+    {
+      "artifacts": [
+        "<workspace>/runs/<run_id>",
+        "<workspace>/runs/<run_id>/config",
+        "<workspace>/runs/<run_id>/config/<run_id>.control",
+        "<workspace>/runs/<run_id>/config/case.yml",
+        "<workspace>/runs/<run_id>/config/monitor.yml",
+        "<workspace>/runs/<run_id>/config/post.resume.json",
+        "<workspace>/runs/<run_id>/config/post.run",
+        "<workspace>/runs/<run_id>/config/solver.yml",
+        "<workspace>/runs/<run_id>/logs",
+        "<workspace>/runs/<run_id>/logs/Runtime_Memory.log",
+        "<workspace>/runs/<run_id>/manifest.json",
+        "<workspace>/runs/<run_id>/output",
+        "<workspace>/runs/<run_id>/scheduler",
+        "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
+        "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
+        "<workspace>/runs/<run_id>/scheduler/post.lock",
+        "<workspace>/runs/<run_id>/scheduler/post.lock.json",
+        "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py",
+        "<workspace>/runs/<run_id>/visualization/standard_analysis"
+      ],
+      "identities": {
+        "mapped": {
+          "run.config": [
+            "<workspace>/runs/<run_id>/config"
+          ],
+          "run.config.inputs": [
+            "<workspace>/runs/<run_id>/config/case.yml",
+            "<workspace>/runs/<run_id>/config/monitor.yml",
+            "<workspace>/runs/<run_id>/config/solver.yml"
+          ],
+          "run.control": [
+            "<workspace>/runs/<run_id>/config/<run_id>.control"
+          ],
+          "run.manifest": [
+            "<workspace>/runs/<run_id>/manifest.json"
+          ],
+          "run.post_control": [
+            "<workspace>/runs/<run_id>/config/post.resume.json",
+            "<workspace>/runs/<run_id>/config/post.run"
+          ],
+          "run.root": [
+            "<workspace>/runs/<run_id>"
+          ],
+          "run.runtime_logs": [
+            "<workspace>/runs/<run_id>/logs"
+          ],
+          "run.runtime_logs.files": [
+            "<workspace>/runs/<run_id>/logs/Runtime_Memory.log"
+          ],
+          "run.scheduler": [
+            "<workspace>/runs/<run_id>/scheduler"
+          ],
+          "run.scheduler.files": [
+            "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
+            "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
+            "<workspace>/runs/<run_id>/scheduler/post.lock",
+            "<workspace>/runs/<run_id>/scheduler/post.lock.json",
+            "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py"
+          ],
+          "run.solver_output": [
+            "<workspace>/runs/<run_id>/output"
+          ],
+          "run.visualization": [
+            "<workspace>/runs/<run_id>/visualization/standard_analysis"
+          ]
+        },
+        "unmapped": []
+      },
+      "launch_mode": "local",
+      "scenario": "fresh_local_solve_and_post"
+    },
+    {
+      "artifacts": [
+        "<workspace>/runs/<run_id>",
+        "<workspace>/runs/<run_id>/config",
+        "<workspace>/runs/<run_id>/config/<run_id>.control",
+        "<workspace>/runs/<run_id>/config/case.yml",
+        "<workspace>/runs/<run_id>/config/monitor.yml",
+        "<workspace>/runs/<run_id>/config/solver.yml",
+        "<workspace>/runs/<run_id>/logs",
+        "<workspace>/runs/<run_id>/logs/Runtime_Memory.log",
+        "<workspace>/runs/<run_id>/manifest.json",
+        "<workspace>/runs/<run_id>/output",
+        "<workspace>/runs/<run_id>/scheduler",
+        "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log"
+      ],
+      "identities": {
+        "mapped": {
+          "run.config": [
+            "<workspace>/runs/<run_id>/config"
+          ],
+          "run.config.inputs": [
+            "<workspace>/runs/<run_id>/config/case.yml",
+            "<workspace>/runs/<run_id>/config/monitor.yml",
+            "<workspace>/runs/<run_id>/config/solver.yml"
+          ],
+          "run.control": [
+            "<workspace>/runs/<run_id>/config/<run_id>.control"
+          ],
+          "run.manifest": [
+            "<workspace>/runs/<run_id>/manifest.json"
+          ],
+          "run.root": [
+            "<workspace>/runs/<run_id>"
+          ],
+          "run.runtime_logs": [
+            "<workspace>/runs/<run_id>/logs"
+          ],
+          "run.runtime_logs.files": [
+            "<workspace>/runs/<run_id>/logs/Runtime_Memory.log"
+          ],
+          "run.scheduler": [
+            "<workspace>/runs/<run_id>/scheduler"
+          ],
+          "run.scheduler.files": [
+            "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log"
+          ],
+          "run.solver_output": [
+            "<workspace>/runs/<run_id>/output"
+          ]
+        },
+        "unmapped": []
+      },
+      "launch_mode": "local",
+      "scenario": "fresh_local_solve_only"
+    },
+    {
+      "artifacts": [
+        "<workspace>/runs/<run_id>",
+        "<workspace>/runs/<run_id>/config",
+        "<workspace>/runs/<run_id>/config/<run_id>.control",
+        "<workspace>/runs/<run_id>/config/case.yml",
+        "<workspace>/runs/<run_id>/config/monitor.yml",
+        "<workspace>/runs/<run_id>/config/post.resume.json",
+        "<workspace>/runs/<run_id>/config/post.run",
+        "<workspace>/runs/<run_id>/config/solver.yml",
+        "<workspace>/runs/<run_id>/custom_logs",
+        "<workspace>/runs/<run_id>/custom_logs/Runtime_Memory.log",
+        "<workspace>/runs/<run_id>/custom_out",
+        "<workspace>/runs/<run_id>/manifest.json",
+        "<workspace>/runs/<run_id>/scheduler",
+        "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
+        "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
+        "<workspace>/runs/<run_id>/scheduler/post.lock",
+        "<workspace>/runs/<run_id>/scheduler/post.lock.json",
+        "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py",
+        "<workspace>/runs/<run_id>/visualization/standard_analysis"
+      ],
+      "identities": {
+        "mapped": {
+          "run.config": [
+            "<workspace>/runs/<run_id>/config"
+          ],
+          "run.config.inputs": [
+            "<workspace>/runs/<run_id>/config/case.yml",
+            "<workspace>/runs/<run_id>/config/monitor.yml",
+            "<workspace>/runs/<run_id>/config/solver.yml"
+          ],
+          "run.control": [
+            "<workspace>/runs/<run_id>/config/<run_id>.control"
+          ],
+          "run.manifest": [
+            "<workspace>/runs/<run_id>/manifest.json"
+          ],
+          "run.post_control": [
+            "<workspace>/runs/<run_id>/config/post.resume.json",
+            "<workspace>/runs/<run_id>/config/post.run"
+          ],
+          "run.root": [
+            "<workspace>/runs/<run_id>"
+          ],
+          "run.runtime_logs": [
+            "<workspace>/runs/<run_id>/custom_logs"
+          ],
+          "run.runtime_logs.files": [
+            "<workspace>/runs/<run_id>/custom_logs/Runtime_Memory.log"
+          ],
+          "run.scheduler": [
+            "<workspace>/runs/<run_id>/scheduler"
+          ],
+          "run.scheduler.files": [
+            "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
+            "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
+            "<workspace>/runs/<run_id>/scheduler/post.lock",
+            "<workspace>/runs/<run_id>/scheduler/post.lock.json",
+            "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py"
+          ],
+          "run.solver_output": [
+            "<workspace>/runs/<run_id>/custom_out"
+          ],
+          "run.visualization": [
+            "<workspace>/runs/<run_id>/visualization/standard_analysis"
+          ]
+        },
+        "unmapped": []
+      },
+      "launch_mode": "local",
+      "scenario": "custom_directories"
+    },
+    {
+      "artifacts": [
+        "<workspace>/runs/<run_id>",
+        "<workspace>/runs/<run_id>/config",
+        "<workspace>/runs/<run_id>/config/<run_id>.control",
+        "<workspace>/runs/<run_id>/config/case.yml",
+        "<workspace>/runs/<run_id>/config/monitor.yml",
+        "<workspace>/runs/<run_id>/config/post.resume.json",
+        "<workspace>/runs/<run_id>/config/post.run",
+        "<workspace>/runs/<run_id>/config/solver.yml",
+        "<workspace>/runs/<run_id>/logs",
+        "<workspace>/runs/<run_id>/logs/Runtime_Memory.log",
+        "<workspace>/runs/<run_id>/manifest.json",
+        "<workspace>/runs/<run_id>/output",
+        "<workspace>/runs/<run_id>/scheduler",
+        "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
+        "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
+        "<workspace>/runs/<run_id>/scheduler/post.lock",
+        "<workspace>/runs/<run_id>/scheduler/post.lock.json",
+        "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py",
+        "<workspace>/runs/<run_id>/viz"
+      ],
+      "identities": {
+        "mapped": {
+          "run.config": [
+            "<workspace>/runs/<run_id>/config"
+          ],
+          "run.config.inputs": [
+            "<workspace>/runs/<run_id>/config/case.yml",
+            "<workspace>/runs/<run_id>/config/monitor.yml",
+            "<workspace>/runs/<run_id>/config/solver.yml"
+          ],
+          "run.control": [
+            "<workspace>/runs/<run_id>/config/<run_id>.control"
+          ],
+          "run.manifest": [
+            "<workspace>/runs/<run_id>/manifest.json"
+          ],
+          "run.post_control": [
+            "<workspace>/runs/<run_id>/config/post.resume.json",
+            "<workspace>/runs/<run_id>/config/post.run"
+          ],
+          "run.root": [
+            "<workspace>/runs/<run_id>"
+          ],
+          "run.runtime_logs": [
+            "<workspace>/runs/<run_id>/logs"
+          ],
+          "run.runtime_logs.files": [
+            "<workspace>/runs/<run_id>/logs/Runtime_Memory.log"
+          ],
+          "run.scheduler": [
+            "<workspace>/runs/<run_id>/scheduler"
+          ],
+          "run.scheduler.files": [
+            "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
+            "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
+            "<workspace>/runs/<run_id>/scheduler/post.lock",
+            "<workspace>/runs/<run_id>/scheduler/post.lock.json",
+            "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py"
+          ],
+          "run.solver_output": [
+            "<workspace>/runs/<run_id>/output"
+          ],
+          "run.visualization": [
+            "<workspace>/runs/<run_id>/viz"
+          ]
+        },
+        "unmapped": []
+      },
+      "launch_mode": "local",
+      "scenario": "flat_post_output_directory"
+    }
+  ]
+}

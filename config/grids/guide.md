@@ -73,5 +73,5 @@ Recommended workflow:
 
 ## Related Docs
 
-- https://vishalkandala.me/picurv-docs/48_Grid_Generator_Guide.html
-- https://vishalkandala.me/picurv-docs/07_Case_Reference.html
+- https://vishalkandala.me/docs/picurv/48_Grid_Generator_Guide.html
+- https://vishalkandala.me/docs/picurv/07_Case_Reference.html

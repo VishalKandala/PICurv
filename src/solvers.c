@@ -66,31 +66,28 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
     */
 
     if (simCtx->les) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Updating LES (Smagorinsky) model...\n");
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Updating LES subgrid-scale model...\n");
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-            // LES models require Cartesian velocity to compute strain rates
+            // Strain rates are formed from the Cartesian velocity, so it must be
+            // reconstructed and its ghost and periodic images refreshed first.
             const FieldId staggered_fields[] = {FIELD_ID_UCONT};
+            const FieldId cell_fields[]      = {FIELD_ID_UCAT};
+
             ierr = SynchronizePeriodicStaggeredFields(&user[bi], 1, staggered_fields); CHKERRQ(ierr);
             ierr = Contra2Cart(&user[bi]); CHKERRQ(ierr);
-            {
-                const FieldId cell_fields[] = {FIELD_ID_UCAT};
-                ierr = SynchronizePeriodicCellFields(&user[bi], 1, cell_fields); CHKERRQ(ierr);
-            }
+            ierr = SynchronizePeriodicCellFields(&user[bi], 1, cell_fields); CHKERRQ(ierr);
             ierr = UpdateLocalGhosts(&user[bi], FIELD_ID_UCAT); CHKERRQ(ierr);
-            if(simCtx->les == CONSTANT_SMAGORINSKY) {
-                LOG_ALLOW(LOCAL, LOG_INFO, "  Using constant Smagorinsky model for block %d.\n", bi);
-                // Constant Smagorinsky does not require dynamic computation
-                if(simCtx->step == simCtx->StartStep + 1){ // since step is updated before flowsolver call.
-                    ierr = ComputeSmagorinskyConstant(&user[bi]); CHKERRQ(ierr);
-                }    
-            } else if(simCtx->les == DYNAMIC_SMAGORINSKY) {
-            if (simCtx->step % simCtx->dynamic_freq == 0) {
-                LOG_ALLOW(LOCAL, LOG_DEBUG, "  Computing Smagorinsky constant for block %d.\n", bi);
-                ierr = ComputeSmagorinskyConstant(&user[bi]);
-                }
+
+            // Only the dynamic model has a coefficient to recompute, and it honours
+            // its own cadence. The constant model's coefficient never changes.
+            if (simCtx->les == DYNAMIC_SMAGORINSKY &&
+                simCtx->step % simCtx->les_config.dynamic_frequency == 0) {
+                LOG_ALLOW(LOCAL, LOG_DEBUG, "  Computing dynamic coefficient for block %d.\n", bi);
+                ierr = ComputeSmagorinskyConstant(&user[bi]); CHKERRQ(ierr);
             }
-          //  LOG_ALLOW(LOCAL, LOG_DEBUG, "  Computing eddy viscosity for block %d.\n", bi);
-          ierr = ComputeEddyViscosityLES(&user[bi]);
+
+            ierr = ComputeEddyViscosityLES(&user[bi]); CHKERRQ(ierr);
+            ierr = LogLESDiagnostics(&user[bi]); CHKERRQ(ierr);
         }
     }
     

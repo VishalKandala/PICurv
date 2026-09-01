@@ -60,7 +60,7 @@ This makes `bent_channel.yml` a useful bridge case when comparing:
 
 ## 5. Output Check
 
-Open `runs/<run_id>/visualization/standard_analysis/eulerian_data_*.vts` in ParaView and
+Open `<run.visualization>/standard_analysis/eulerian_data_*.vts` in ParaView and
 inspect streamlines colored by `Ucat_nodal` magnitude.
 
 ## 6. Cluster and Sweep Examples
@@ -86,7 +86,7 @@ Timestep sensitivity sweep:
 
 ## 7. Live Docs
 
-- https://vishalkandala.me/picurv-docs/03_Tutorial_File-Based_Grid.html
-- https://vishalkandala.me/picurv-docs/36_Cluster_Run_Guide.html
-- https://vishalkandala.me/picurv-docs/37_Sweep_Studies_Guide.html
-- https://vishalkandala.me/picurv-docs/48_Grid_Generator_Guide.html
+- https://vishalkandala.me/docs/picurv/03_Tutorial_File-Based_Grid.html
+- https://vishalkandala.me/docs/picurv/36_Cluster_Run_Guide.html
+- https://vishalkandala.me/docs/picurv/37_Sweep_Studies_Guide.html
+- https://vishalkandala.me/docs/picurv/48_Grid_Generator_Guide.html

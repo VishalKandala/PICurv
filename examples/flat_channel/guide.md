@@ -55,4 +55,4 @@ Run naming note:
 ## Related Docs
 
 - `flat_channel.md`
-- https://vishalkandala.me/picurv-docs/02_Tutorial_Programmatic_Grid.html
+- https://vishalkandala.me/docs/picurv/02_Tutorial_Programmatic_Grid.html

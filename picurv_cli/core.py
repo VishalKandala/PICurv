@@ -1053,7 +1053,7 @@ def resolve_runtime_execution_context(runtime_execution_cfg: dict, context: str)
     @param[in] context Argument passed to `resolve_runtime_execution_context()`.
     @return Value returned by `resolve_runtime_execution_context()`.
     """
-    if context not in {"local", "cluster"}:
+    if context not in LAUNCH_MODES:
         raise ValueError(f"Unsupported execution context '{context}'.")
     return merge_execution_overrides(
         runtime_execution_cfg.get("default_execution"),
@@ -1793,6 +1793,84 @@ POST_FIELD_STATISTICS_OUTPUTS = ("mean", "reynolds_stress", "rms", "tke", "flux"
 #: Output formats a post recipe may request. `vtk` writes the derived fields; `csv`
 #: appends one convergence row per processed step.
 POST_FIELD_STATISTICS_FORMATS = ("vtk", "csv")
+
+# ---------------------------------------------------------------------------
+# Authoritative public choice sets.
+#
+# Each of these was a literal written inline at its point of use, which made it
+# invisible to the capability census: a set nobody can enumerate is a set nobody can
+# document. Naming them here is the discovery contract - the census enumerates
+# module-level names with these suffixes and demands a classification for each.
+# ---------------------------------------------------------------------------
+
+#: How the grid reaches the solver.
+GRID_MODES = ("file", "programmatic_c", "grid_gen")
+
+#: Geometries the bundled grid generator can produce.
+GRID_GENERATOR_TYPES = ("cpipe", "pipe", "warp")
+
+#: Whether a run seeds particles afresh or restores them from a checkpoint.
+PARTICLE_RESTART_MODES = ("init", "load")
+
+#: Eulerian post-processing kernels selectable per pipeline entry.
+POST_EULERIAN_PIPELINE_TASKS = ("q_criterion", "normalize_field", "nodal_average")
+
+#: Lagrangian post-processing kernels selectable per pipeline entry.
+POST_LAGRANGIAN_PIPELINE_TASKS = ("specific_ke",)
+
+#: Study shapes `picurv sweep` knows how to expand and aggregate.
+STUDY_TYPES = ("grid_independence", "timestep_independence", "sensitivity")
+
+#: Preconditioning models for the Newton-Krylov momentum solve.
+NEWTON_KRYLOV_PRECONDITIONER_MODELS = ("none", "frozen_momentum_jacobian")
+
+#: Matrix structures a Newton-Krylov preconditioner model may assemble. Determined by
+#: the model rather than chosen independently: `frozen_momentum_jacobian` requires
+#: `point_block`, and `none` accepts no structure at all.
+NEWTON_KRYLOV_PRECONDITIONER_STRUCTURES = ("none", "point_block")
+
+#: Outer preconditioners the Poisson solve accepts. One canonical value today; the
+#: census fails if this grows without a capability family being registered for it.
+POISSON_PRECONDITIONER_TYPES = ("multigrid",)
+
+#: Accepted spellings for the Poisson outer preconditioner.
+POISSON_PRECONDITIONER_SPELLINGS = {"mg": "multigrid", "pcmg": "multigrid"}
+
+# Storage compression policies live in picurv_cli/storage.py, which owns them; core
+# imports storage, so declaring them here would be a cycle.
+
+#: How a prescribed Eulerian field is supplied.
+PRESCRIBED_FLOW_SOURCE_TYPES = ("file", "generated", "field_slice")
+
+#: Analytic scalar profiles the verification source may generate.
+VERIFICATION_SCALAR_PROFILES = ("CONSTANT", "LINEAR_X", "SIN_PRODUCT")
+
+#: Image formats `picurv sweep` can render study plots in.
+STUDY_PLOT_FORMATS = ("png", "pdf", "svg")
+
+#: How much per-timestep profiling output the monitor emits.
+PROFILING_TIMESTEP_MODES = ("off", "selected", "all")
+
+#: Krylov methods for which a `gmres.restart` parameter is meaningful. This does NOT
+#: restrict `poisson_solver.method`, which passes any PETSc KSP token through.
+GMRES_RESTART_METHODS = ("gmres", "fgmres", "lgmres")
+
+#: Analytical solution types the Eulerian source can impose.
+ANALYTICAL_SOLUTION_TYPES = ("TGV3D", "ZERO_FLOW", "UNIFORM_FLOW")
+
+#: Legacy capitalised spellings of the field-initialisation mode, still accepted and
+#: resolved through normalize_field_init_mode.
+LEGACY_FIELD_INIT_SPELLINGS = ("Zero", "Constant", "Poiseuille")
+
+#: Discrete operators the solenoidal projection may use.
+PROJECTION_OPERATORS = ("continuum", "picurv_discrete")
+
+#: Where `picurv sweep` reads a declared metric from.
+METRIC_SOURCE_KINDS = ("statistics_csv", "csv", "log_regex", "log")
+
+#: Where a run is launched.
+LAUNCH_MODES = ("local", "cluster")
+
 
 
 def normalize_post_spectra_config(post_cfg: dict) -> dict:
@@ -4813,7 +4891,7 @@ def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict,
     prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
     if not any(
         bc.get("handler") == "prescribed_flow"
-        and ((bc.get("params") or {}).get("source") or {}).get("type") in {"generated", "field_slice"}
+        and ((bc.get("params") or {}).get("source") or {}).get("type") in PRESCRIBED_FLOW_SOURCE_TYPES[1:]
         for block in prepared_blocks for bc in block
     ):
         return []
@@ -4829,7 +4907,7 @@ def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict,
             if bc.get("handler") != "prescribed_flow":
                 continue
             source = (bc.get("params") or {}).get("source", {})
-            if source.get("type") not in {"generated", "field_slice"}:
+            if source.get("type") not in PRESCRIBED_FLOW_SOURCE_TYPES[1:]:
                 continue
             face = bc["face"]
             dims = _bc_profile_expected_dims(face, profile_grid_dims[block_idx])
@@ -4951,6 +5029,197 @@ def normalize_boundary_conditions_layout(all_blocks_bcs, num_blocks: int):
             f"Mismatch: case.yml declares {num_blocks} block(s) but found {len(all_blocks_bcs)} BC definitions."
         )
     return all_blocks_bcs
+
+def _les_periodic_axes(case_cfg: dict) -> set:
+    """!
+    @brief Reports which logical axes a case declares periodic on both faces.
+    @param[in] case_cfg Parsed case.yml mapping.
+    @return Set of axis letters drawn from {'i', 'j', 'k'}.
+    """
+    axis_faces = {"i": ("-Xi", "+Xi"), "j": ("-Eta", "+Eta"), "k": ("-Zeta", "+Zeta")}
+    declared = {}
+    entries = case_cfg.get("boundary_conditions") or []
+    if entries and isinstance(entries[0], list):
+        entries = entries[0]
+    for entry in entries:
+        if isinstance(entry, dict):
+            declared[str(entry.get("face"))] = str(entry.get("type", "")).upper()
+    return {
+        axis for axis, faces in axis_faces.items()
+        if all(declared.get(face) == "PERIODIC" for face in faces)
+    }
+
+
+def validate_les_configuration(case_cfg: dict, les_cfg: dict, case_path: str,
+                               errors: list, warnings: list):
+    """!
+    @brief Checks the structured LES block for values the closure cannot honour.
+    @param[in] case_cfg Parsed case.yml mapping, used to read declared periodicity.
+    @param[in] les_cfg Parsed `models.physics.turbulence.les` mapping.
+    @param[in] case_path Case file path used to prefix diagnostics.
+    @param[out] errors List collecting blocking validation failures.
+    @param[out] warnings List collecting advisory messages.
+    @return None; findings are appended to `errors` and `warnings`.
+    """
+    def _numeric(container, key, path, minimum=None, exclusive_minimum=None):
+        """!
+        @brief Reads one numeric key and records a range or type failure against it.
+        @param[in] container Mapping holding the key.
+        @param[in] key Key to read; absent keys are accepted silently.
+        @param[in] path Dotted key path used in diagnostics.
+        @param[in] minimum Inclusive lower bound, or None to impose none.
+        @param[in] exclusive_minimum Exclusive lower bound, or None to impose none.
+        @return The parsed value, or None when the key is absent or unparseable.
+        """
+        if key not in container:
+            return None
+        try:
+            value = float(container[key])
+        except (TypeError, ValueError):
+            errors.append(f"  {case_path}: {path} must be numeric.")
+            return None
+        if minimum is not None and value < minimum:
+            errors.append(f"  {case_path}: {path} must be at least {minimum}.")
+        if exclusive_minimum is not None and value <= exclusive_minimum:
+            errors.append(f"  {case_path}: {path} must be greater than {exclusive_minimum}.")
+        return value
+
+    if 'enabled' in les_cfg and not isinstance(les_cfg['enabled'], bool):
+        errors.append(f"  {case_path}: models.physics.turbulence.les.enabled must be true or false.")
+
+    _numeric(les_cfg, 'constant_cs', "models.physics.turbulence.les.constant_cs", minimum=0.0)
+
+    if 'dynamic_frequency' in les_cfg:
+        try:
+            if int(les_cfg['dynamic_frequency']) <= 0:
+                errors.append(f"  {case_path}: models.physics.turbulence.les.dynamic_frequency must be positive.")
+        except (TypeError, ValueError):
+            errors.append(f"  {case_path}: models.physics.turbulence.les.dynamic_frequency must be an integer.")
+
+    for key, normalizer in (('filter_width', normalize_les_filter_width),):
+        if key in les_cfg:
+            try:
+                normalizer(les_cfg[key])
+            except ValueError as exc:
+                errors.append(f"  {case_path}: {exc}")
+
+    periodic = _les_periodic_axes(case_cfg)
+
+    test_filter = les_cfg.get('test_filter')
+    if test_filter is not None:
+        if not isinstance(test_filter, dict):
+            test_filter = {'kernel': test_filter}
+        if 'kernel' in test_filter:
+            try:
+                kernel = normalize_les_test_filter(test_filter['kernel'])
+            except ValueError as exc:
+                errors.append(f"  {case_path}: {exc}")
+            else:
+                # The Simpson stencil collapses onto the central eta-plane, which is
+                # only a valid average when xi and zeta are homogeneous.
+                if kernel == 1 and not {"i", "k"} <= periodic:
+                    errors.append(
+                        f"  {case_path}: models.physics.turbulence.les.test_filter.kernel "
+                        "'simpson_ik' assumes the xi and zeta directions are homogeneous, but "
+                        "this case does not declare both of them PERIODIC. Use "
+                        "'volume_weighted_box' instead."
+                    )
+        # A test filter no wider than the grid filter leaves the dynamic procedure with
+        # nothing to measure, because both terms of the model tensor coincide.
+        _numeric(test_filter, 'width_ratio',
+                 "models.physics.turbulence.les.test_filter.width_ratio", exclusive_minimum=1.0)
+
+    averaging = les_cfg.get('averaging')
+    if averaging is not None:
+        if not isinstance(averaging, dict):
+            averaging = {'mode': averaging}
+        mode = None
+        if 'mode' in averaging:
+            try:
+                mode = normalize_les_averaging_mode(averaging['mode'])
+            except ValueError as exc:
+                errors.append(f"  {case_path}: {exc}")
+        directions = None
+        if 'directions' in averaging:
+            try:
+                directions = normalize_les_averaging_directions(averaging['directions'])
+            except ValueError as exc:
+                errors.append(f"  {case_path}: {exc}")
+            else:
+                if not directions:
+                    errors.append(
+                        f"  {case_path}: models.physics.turbulence.les.averaging.directions "
+                        "cannot be empty; omit the key to use the periodic axes."
+                    )
+                if mode is not None and mode != 1:
+                    errors.append(
+                        f"  {case_path}: models.physics.turbulence.les.averaging.directions "
+                        "applies only to mode 'homogeneous'; local and global averaging choose "
+                        "their own directions."
+                    )
+                for axis in directions:
+                    if axis not in periodic:
+                        warnings.append(
+                            f"{case_path}: models.physics.turbulence.les.averaging.directions "
+                            f"names '{axis}', which this case does not declare PERIODIC. "
+                            "Averaging assumes the flow is statistically homogeneous there."
+                        )
+        if mode == 1 and directions is None and not periodic:
+            errors.append(
+                f"  {case_path}: models.physics.turbulence.les.averaging.mode 'homogeneous' "
+                "derives its directions from the periodic boundary pairs, and this case declares "
+                "none. Name the directions explicitly or use 'local'."
+            )
+
+    clipping = les_cfg.get('clipping')
+    if clipping is not None:
+        if not isinstance(clipping, dict):
+            clipping = {'mode': clipping}
+        mode = None
+        if 'mode' in clipping:
+            try:
+                mode = normalize_les_clip_mode(clipping['mode'])
+            except ValueError as exc:
+                errors.append(f"  {case_path}: {exc}")
+        _numeric(clipping, 'max_cs', "models.physics.turbulence.les.clipping.max_cs", minimum=0.0)
+        _numeric(clipping, 'min_viscosity_ratio',
+                 "models.physics.turbulence.les.clipping.min_viscosity_ratio", minimum=0.0)
+        if 'max_cs' in clipping and mode is not None and mode != 0:
+            warnings.append(
+                f"{case_path}: models.physics.turbulence.les.clipping.max_cs is only applied by "
+                "mode 'clamp' and will be ignored."
+            )
+
+    diagnostics = les_cfg.get('diagnostics')
+    if isinstance(diagnostics, dict):
+        if 'cadence' in diagnostics:
+            try:
+                if int(diagnostics['cadence']) <= 0:
+                    errors.append(
+                        f"  {case_path}: models.physics.turbulence.les.diagnostics.cadence must be positive."
+                    )
+            except (TypeError, ValueError):
+                errors.append(
+                    f"  {case_path}: models.physics.turbulence.les.diagnostics.cadence must be an integer."
+                )
+        _numeric(diagnostics, 'yoshizawa_ci',
+                 "models.physics.turbulence.les.diagnostics.yoshizawa_ci", minimum=0.0)
+
+    # The dynamic procedure's controls have no meaning for a prescribed coefficient.
+    # Only an explicitly named constant model triggers this: a template that documents
+    # every key while LES is switched off should not be rejected on an inferred default.
+    try:
+        model_code = normalize_les_model(les_cfg['model']) if 'model' in les_cfg else None
+    except ValueError:
+        model_code = None
+    if model_code == 1 and les_cfg.get('enabled', True):
+        for key in ('filter_width', 'test_filter', 'averaging', 'clipping'):
+            if key in les_cfg:
+                errors.append(
+                    f"  {case_path}: models.physics.turbulence.les.{key} configures the dynamic "
+                    "procedure and cannot be used with model 'constant_smagorinsky'."
+                )
+
 
 def validate_and_prepare_boundary_conditions(case_cfg: dict):
     """!
@@ -5248,7 +5517,17 @@ _CASE_SCHEMA = {
     ("models", "physics", "particles", "point_source"): {"x", "y", "z"},
     ("models", "physics", "turbulence"): {"les", "rans", "wall_function"},
     ("models", "physics", "turbulence", "les"): {
-        "enabled", "model", "constant_cs", "max_cs", "dynamic_frequency", "test_filter",
+        "enabled", "model", "constant_cs", "dynamic_frequency", "filter_width",
+        "test_filter", "averaging", "clipping", "gradient_model", "diagnostics",
+    },
+    ("models", "physics", "turbulence", "les", "test_filter"): {"kernel", "width_ratio"},
+    ("models", "physics", "turbulence", "les", "averaging"): {"mode", "directions"},
+    ("models", "physics", "turbulence", "les", "clipping"): {
+        "mode", "max_cs", "min_viscosity_ratio",
+    },
+    ("models", "physics", "turbulence", "les", "gradient_model"): {"enabled"},
+    ("models", "physics", "turbulence", "les", "diagnostics"): {
+        "enabled", "cadence", "yoshizawa_ci",
     },
     ("models", "physics", "turbulence", "rans"): {"enabled", "model"},
     ("models", "physics", "turbulence", "wall_function"): {"enabled", "model", "roughness_height"},
@@ -5368,7 +5647,7 @@ _MONITOR_SCHEMA = {
         "data_output_frequency", "particle_console_output_frequency", "particle_log_interval",
         "statistics_console_output_frequency", "directories",
     },
-    ("io", "directories"): {"output", "restart", "log"},
+    ("io", "directories"): {"output", "restart", "log", "allow_unsafe_paths"},
     ("solver_monitoring",): {"momentum", "poisson", "petsc_passthrough_options"},
     ("solver_monitoring", "momentum"): {
         "newton_krylov_history", "snes_monitor", "snes_converged_reason",
@@ -5481,6 +5760,445 @@ _STUDY_SCHEMA = {
 }
 
 
+# Directories the run owns and writes into. `log` is the safety-critical one: the C
+# runtime calls PetscRMTree on it at the start of a fresh solve, so a value that
+# escapes the run directory means the solver recursively deletes whatever is there.
+RUN_OWNED_DIRECTORY_KEYS = ("log", "output")
+UNSAFE_PATHS_OVERRIDE_KEY = "allow_unsafe_paths"
+
+# Directory names the run tree already owns. A run-owned directory must not collide
+# with one of these: the log directory in particular is recursively deleted at the
+# start of a fresh solve, so pointing it at `config` would destroy the run's own
+# provenance before the solver had produced anything.
+RESERVED_RUN_DIRECTORY_NAMES = ("config", "scheduler", "checkpoints", "visualization")
+
+# Defaults the runtime uses when a run-owned directory is not configured. An omitted
+# key is not absent at runtime, so collision checks must resolve these first.
+RUN_DIRECTORY_DEFAULTS = {"log": "logs", "output": "output"}
+
+# Runtime flags that select run-owned directories. These are reserved for
+# `monitor.io.directories`; allowing a raw passthrough to set them would route an
+# unvalidated destructive path straight to C.
+RESERVED_DIRECTORY_FLAGS = ("-log_dir", "-output_dir", "-restart_dir", "-allow_unsafe_log_dir")
+
+# PETSc indirection that could reintroduce a reserved flag without naming it. An
+# options file or an alias is evaluated by PETSc itself, so its contents are outside
+# every check this module performs.
+RESERVED_INDIRECTION_FLAGS = ("-options_file", "-options_file_yaml", "-alias")
+
+
+# Characters that cannot survive a PETSc options line unambiguously. A run
+# subdirectory name containing whitespace, quotes, or a comment marker either needs
+# quoting the generator does not apply, or changes how PETSc tokenizes the line.
+# Rejecting them keeps the generated control file unambiguous by construction.
+UNSAFE_DIRECTORY_CHARACTERS = ('"', "'", "#", "\n", "\r", "\t")
+
+
+def directory_value_charset_problem(value: str) -> str:
+    """!
+    @brief Describe why a directory value cannot be written to a PETSc options line.
+    @param[in] value Configured directory value.
+    @return Human-readable reason, or an empty string when the value is safe.
+    """
+    if any(character.isspace() for character in value):
+        return "contains whitespace"
+    for character in UNSAFE_DIRECTORY_CHARACTERS:
+        if character in value:
+            label = {'"': "a double quote", "'": "a single quote", "#": "a comment marker"}.get(
+                character, "a control character"
+            )
+            return f"contains {label}"
+    return ""
+
+
+def classify_run_directory_value(value) -> str:
+    """!
+    @brief Classify a configured run directory value.
+
+    @details Containment is judged lexically against the run directory, because the run
+             directory does not exist yet at validation time. Beyond escaping, a value
+             is rejected when it resolves to the run root itself: the log directory is
+             recursively deleted on a fresh solve, so `.` or `a/..` would delete the run.
+    @param[in] value Configured directory value from monitor `io.directories`.
+    @return One of "contained", "escaping", "tilde", "run_root", or "invalid".
+    """
+    if not isinstance(value, str) or not value.strip():
+        return "invalid"
+    candidate = value.strip()
+    # `~` is its own verdict because nothing expands it anywhere in the pipeline. The
+    # control file is read by PETSc, not by a shell, and both the planner and the C
+    # runtime treat a value not starting with `/` as relative to the run - so `~/logs`
+    # names a literal `~` directory inside the run tree.
+    #
+    # It was worse before this verdict existed: physical containment classified `~` as
+    # an authorizable external absolute location by expanding it, while every layer
+    # that actually used the value treated it literally. The two disagreed about which
+    # directory was being deleted. The fix is to refuse the value, not to expand it -
+    # expanding it in one layer would only move the disagreement.
+    if candidate.startswith("~"):
+        return "tilde"
+    if os.path.isabs(candidate):
+        return "escaping"
+    normalized = os.path.normpath(candidate)
+    if normalized == os.pardir or normalized.startswith(os.pardir + os.sep):
+        return "escaping"
+    if normalized in (".", ""):
+        return "run_root"
+    return "contained"
+
+
+def normalized_run_directory(value: str) -> str:
+    """!
+    @brief Normalized, comparable form of a contained run directory value.
+    @param[in] value Configured directory value.
+    @return Normalized relative path.
+    """
+    return os.path.normpath(str(value).strip()).replace(os.sep, "/")
+
+
+def paths_overlap(first: str, second: str) -> bool:
+    """!
+    @brief Whether two run-relative directories are the same or nested in one another.
+    @param[in] first Normalized directory.
+    @param[in] second Normalized directory.
+    @return True when one contains the other.
+    """
+    if first == second:
+        return True
+    return first.startswith(second + "/") or second.startswith(first + "/")
+
+
+def resolve_unsafe_paths_override(dirs: dict, monitor_path: str) -> tuple:
+    """!
+    @brief Resolve the unsafe-paths override, requiring a real YAML boolean.
+
+    @details A truthy string such as "false" must never enable an override that permits
+             a destructive path. Only a genuine boolean `true` enables it; any other
+             type is a configuration error rather than a silent interpretation.
+    @param[in] dirs The `io.directories` mapping.
+    @param[in] monitor_path Path to the monitor file, for error messages.
+    @return Tuple of (enabled, errors).
+    """
+    if UNSAFE_PATHS_OVERRIDE_KEY not in dirs:
+        return False, []
+    raw = dirs[UNSAFE_PATHS_OVERRIDE_KEY]
+    if raw is True:
+        return True, []
+    if raw is False:
+        return False, []
+    return False, [
+        f"  {monitor_path}: 'io.directories.{UNSAFE_PATHS_OVERRIDE_KEY}' must be a YAML boolean "
+        f"(true or false), got {raw!r}. Quoted strings and numbers are rejected so a value like "
+        f"\"false\" cannot silently enable an unsafe path."
+    ]
+
+
+def evaluate_run_directories(values: dict, override: bool, explicit: set = None) -> tuple:
+    """!
+    @brief Apply every run-directory safety rule to a set of effective directory values.
+
+    @details Single source of truth for the rules, shared by configuration validation and
+             submission preflight so the two cannot drift apart. Callers must pass
+             *effective* values with defaults filled in.
+
+             Two classes of finding are distinguished. **Waivable** findings concern a
+             deliberate external location; `allow_unsafe_paths` downgrades those to
+             warnings. **Non-waivable** findings concern self-destruction or a value that
+             cannot be written unambiguously - the run root itself, a reserved run
+             directory, log/output overlap, and malformed characters. The override was
+             granted for deliberate external storage, never for deleting the run's own
+             config or emitting an ambiguous option line, so those stay errors.
+    @param[in] values Effective mapping of directory key to configured value.
+    @param[in] override Whether the unsafe-paths override is enabled.
+    @param[in] explicit Keys the user actually configured; the rest are reported as defaults.
+    @return Tuple of (errors, warnings) as bare messages without a file prefix.
+    """
+    errors: list = []
+    warnings: list = []
+    configured_keys = set(values) if explicit is None else set(explicit)
+
+    def waivable(message: str) -> None:
+        """!
+        @brief Record a finding the unsafe-paths override may downgrade.
+        @param[in] message Finding text.
+        @return None.
+        """
+        if override:
+            warnings.append(
+                f"{message} Allowed only because '{UNSAFE_PATHS_OVERRIDE_KEY}: true' is set."
+            )
+        else:
+            errors.append(
+                f"{message} Use a directory inside the run tree, or set "
+                f"'io.directories.{UNSAFE_PATHS_OVERRIDE_KEY}: true' to override deliberately."
+            )
+
+    def fatal(message: str) -> None:
+        """!
+        @brief Record a finding the override must never waive.
+        @param[in] message Finding text.
+        @return None.
+        """
+        errors.append(f"{message} This cannot be overridden.")
+
+    destructive_note = (
+        "On a fresh solve the runtime RECURSIVELY DELETES this directory before writing to it."
+    )
+    resolved: dict = {}
+    for key in RUN_OWNED_DIRECTORY_KEYS:
+        if key not in values:
+            continue
+        raw = values[key]
+        detail = destructive_note if key == "log" else (
+            "Run output must stay inside the run directory so it can be archived and restored."
+        )
+        if not isinstance(raw, str) or not raw.strip():
+            fatal(f"'io.directories.{key}' must be a non-empty relative path (got {raw!r}).")
+            continue
+
+        # Both axes are reported. Escaping is the safety-critical property and leads,
+        # but character problems are non-waivable, so a value that is both must not be
+        # able to slip through by overriding only the escape.
+        verdict = classify_run_directory_value(raw)
+        charset_problem = directory_value_charset_problem(raw)
+        if charset_problem:
+            fatal(
+                f"'io.directories.{key}' = {raw!r} {charset_problem}. Run directory names must be "
+                f"writable to a PETSc options line without quoting; use a plain relative path such "
+                f"as 'logs' or 'diagnostics/run1'."
+            )
+        if verdict == "tilde":
+            fatal(
+                f"'io.directories.{key}' = {raw!r} starts with '~', which nothing expands. "
+                f"The control file is read by PETSc rather than by a shell, and the C "
+                f"runtime resolves a value not starting with '/' relative to the run - so "
+                f"this would be planned as one directory and deleted as another. Give a "
+                f"real absolute path if an external location is intended. This cannot be "
+                f"overridden."
+            )
+            continue
+        if verdict == "escaping":
+            if not (isinstance(raw, str) and raw.strip().startswith("/")):
+                fatal(
+                    f"'io.directories.{key}' = {raw!r} escapes the run directory by relative "
+                    f"traversal. {detail} A relative escape lands among sibling runs and study "
+                    f"members, so it is never authorizable; give an absolute path if an external "
+                    f"location is genuinely intended."
+                )
+                continue
+            # No `continue`: an authorized absolute path must still face the
+            # non-waivable checks below, or it could target a run-owned directory such
+            # as `/abs/run/config`.
+            waivable(f"'io.directories.{key}' = {raw!r} escapes the run directory. {detail}")
+        if verdict == "run_root":
+            fatal(
+                f"'io.directories.{key}' = {raw!r} resolves to the run directory itself. "
+                + (destructive_note + " That would delete the entire run."
+                   if key == "log" else "Run output must live in its own subdirectory.")
+            )
+            continue
+        if charset_problem:
+            continue
+        normalized = normalized_run_directory(raw)
+        resolved[key] = normalized
+        # Every segment is checked, not just the first: `./config`, `output/sub`, and
+        # `/abs/run/config` all target run-owned directories.
+        segments = [s for s in normalized.split("/") if s not in ("", ".")]
+        hit = next((s for s in segments if s in RESERVED_RUN_DIRECTORY_NAMES), None)
+        if hit:
+            fatal(
+                f"'io.directories.{key}' = {raw!r} targets the reserved run directory "
+                f"'{hit}'. " + (destructive_note if key == "log"
+                                else "That directory is owned by the run tree.")
+            )
+
+    if "log" in resolved and "output" in resolved and paths_overlap(resolved["log"], resolved["output"]):
+        log_source = "" if "log" in configured_keys else " (default)"
+        out_source = "" if "output" in configured_keys else " (default)"
+        fatal(
+            f"'io.directories.log' ({resolved['log']!r}{log_source}) and 'io.directories.output' "
+            f"({resolved['output']!r}{out_source}) overlap. {destructive_note} "
+            f"That would delete solver output."
+        )
+    return errors, warnings
+
+
+# Typed physical verdicts. Waivability is decided on the verdict, never on a substring
+# of the message: a finding reading "resolves to the run directory itself" contains no
+# word like "escapes", so message matching silently downgraded self-destruction to a
+# warning. Message text is for humans; these constants are for the rule.
+PHYSICAL_VERDICT_CONTAINED = "contained"
+PHYSICAL_VERDICT_RUN_ROOT = "run_root"
+PHYSICAL_VERDICT_ANCESTOR = "ancestor"
+PHYSICAL_VERDICT_RELATIVE_ESCAPE = "relative_escape"
+PHYSICAL_VERDICT_EXTERNAL_ABSOLUTE = "external_absolute"
+
+# The only verdict an explicit authorization may waive. An external absolute location
+# is a deliberate, if dangerous, choice. Deleting the run itself, or an ancestor of it,
+# or following a relative symlink out of the tree, are not choices anyone makes on
+# purpose, so no authorization reaches them.
+WAIVABLE_PHYSICAL_VERDICTS = frozenset({PHYSICAL_VERDICT_EXTERNAL_ABSOLUTE})
+
+
+def classify_physical_containment(run_dir: str, values: dict) -> list:
+    """!
+    @brief Classify where each run-owned directory physically lands.
+
+    @details Lexical containment is not enough: a contained name can be a symlink to an
+             external directory, and `PetscRMTree` follows symlinks. This resolves the
+             real path - including any symlinked ancestor - and reports a typed verdict
+             so the caller can apply the waiver rule structurally.
+    @param[in] run_dir Run directory the values are relative to.
+    @param[in] values Effective directory mapping.
+    @return List of (key, verdict, message) for every value that is not contained.
+    """
+    findings: list = []
+    try:
+        root = os.path.realpath(run_dir)
+    except OSError:
+        return findings
+    for key in RUN_OWNED_DIRECTORY_KEYS:
+        raw = values.get(key)
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        text = raw.strip()
+        # Whether the *value* was given as an absolute location, which is the only form
+        # an authorization can cover. A relative name that resolves outside the tree got
+        # there through a symlink, and that is never what an operator asked for.
+        # Only a real absolute path can be waived. `~` is refused before this point by
+        # the lexical rules, and is not expanded here either: an earlier version did
+        # expand it, which made this layer reason about a home directory no other layer
+        # ever resolves.
+        absolute = text.startswith("/")
+        candidate = os.path.join(run_dir, text)
+        real = os.path.realpath(candidate)
+
+        if real == root:
+            findings.append((key, PHYSICAL_VERDICT_RUN_ROOT,
+                f"'io.directories.{key}' = {raw!r} resolves to the run directory itself "
+                f"({real!r}); deleting it would destroy the run. This cannot be overridden."))
+        elif real == os.sep or root.startswith(real.rstrip(os.sep) + os.sep):
+            findings.append((key, PHYSICAL_VERDICT_ANCESTOR,
+                f"'io.directories.{key}' = {raw!r} resolves to {real!r}, which CONTAINS the run "
+                f"directory {root!r}. The runtime deletes this path recursively, so it would "
+                f"destroy the run and everything beside it. This cannot be overridden."))
+        elif real.startswith(root + os.sep):
+            continue
+        elif absolute:
+            findings.append((key, PHYSICAL_VERDICT_EXTERNAL_ABSOLUTE,
+                f"'io.directories.{key}' = {raw!r} resolves to {real!r}, which is outside the run "
+                f"directory {root!r}. The runtime deletes its log directory recursively."))
+        else:
+            findings.append((key, PHYSICAL_VERDICT_RELATIVE_ESCAPE,
+                f"'io.directories.{key}' = {raw!r} is a relative name that resolves to {real!r}, "
+                f"outside the run directory {root!r} - a symlink leads out of the tree. A "
+                f"relative escape is never authorizable; name an absolute path if an external "
+                f"location is genuinely intended. This cannot be overridden."))
+    return findings
+
+
+def check_physical_containment(run_dir: str, values: dict) -> list:
+    """!
+    @brief Human-readable physical containment violations.
+    @param[in] run_dir Run directory the values are relative to.
+    @param[in] values Effective directory mapping.
+    @return Violation lines.
+    """
+    return [message for _, _, message in classify_physical_containment(run_dir, values)]
+
+
+def effective_run_directories(configured: dict) -> dict:
+    """!
+    @brief Fill in defaults for run-owned directories that were not configured.
+
+    @details An omitted key is not absent at runtime, it takes its default. Checking
+             only explicit keys would miss `log: output`, which collides with the
+             default output directory and would delete solver output.
+    @param[in] configured Configured directory mapping, possibly partial.
+    @return Effective mapping with defaults applied.
+    """
+    effective = dict(RUN_DIRECTORY_DEFAULTS)
+    for key in RUN_OWNED_DIRECTORY_KEYS:
+        if key in configured:
+            effective[key] = configured[key]
+    return effective
+
+
+def validate_run_directory_containment(monitor_cfg: dict, monitor_path: str) -> tuple:
+    """!
+    @brief Reject run directories that escape the run tree or collide with run-owned paths.
+
+    @details Guards an otherwise silent data-loss path: `io.directories.log` is passed
+             through to `-log_dir`, and on a fresh solve the C runtime recursively
+             deletes that directory before writing to it. Rules live in
+             `evaluate_run_directories()`, shared with submission preflight.
+    @param[in] monitor_cfg Parsed monitor YAML dictionary.
+    @param[in] monitor_path Path to the monitor file, for error messages.
+    @return Tuple of (errors, warnings).
+    """
+    io_cfg = (monitor_cfg or {}).get("io") or {}
+    dirs = io_cfg.get("directories")
+    if not isinstance(dirs, dict):
+        return [], []
+
+    override, override_errors = resolve_unsafe_paths_override(dirs, monitor_path)
+    errors, warnings = evaluate_run_directories(
+        effective_run_directories(dirs), override, explicit=set(dirs)
+    )
+    return (
+        override_errors + [f"  {monitor_path}: {message}" for message in errors],
+        [f"  {monitor_path}: {message}" for message in warnings],
+    )
+
+
+def validate_reserved_directory_flags(config: dict, config_path: str, label: str) -> list:
+    """!
+    @brief Reject raw PETSc passthrough options that set run-owned directories.
+
+    @details Passthrough surfaces emit `{flag: value}` verbatim into the generated
+             control file, which would route an unvalidated - and for `-log_dir`,
+             destructive - path straight to the C runtime. These flags are reserved
+             for `monitor.io.directories`, which is containment-validated.
+    @param[in] config Parsed configuration mapping to scan.
+    @param[in] config_path Path to the file, for error messages.
+    @param[in] label Human-readable description of the surface being scanned.
+    @return Violation lines.
+    """
+    violations: list = []
+
+    def scan(node, trail: str) -> None:
+        """!
+        @brief Walk the mapping looking for reserved flags used as keys.
+        @param[in] node Current mapping, list, or scalar node.
+        @param[in] trail Dotted path to the current node, for error messages.
+        @return None.
+        """
+        if isinstance(node, dict):
+            for key, value in node.items():
+                token = key.strip() if isinstance(key, str) else key
+                if token in RESERVED_DIRECTORY_FLAGS:
+                    violations.append(
+                        f"  {config_path}: {label} sets the reserved flag '{token}' at "
+                        f"{trail or '<root>'}. Run directories must be configured through "
+                        f"'monitor.io.directories', which is containment-validated; raw passthrough "
+                        f"bypasses that check and can send a destructive path to the solver."
+                    )
+                elif token in RESERVED_INDIRECTION_FLAGS:
+                    violations.append(
+                        f"  {config_path}: {label} sets '{token}' at {trail or '<root>'}. PETSc "
+                        f"evaluates that indirection itself, so its contents cannot be checked "
+                        f"here and could reintroduce a run-directory flag. Configure directories "
+                        f"through 'monitor.io.directories'."
+                    )
+                scan(value, f"{trail}.{key}" if trail else str(key))
+        elif isinstance(node, list):
+            for index, item in enumerate(node):
+                scan(item, f"{trail}[{index}]")
+
+    scan(config, "")
+    return violations
+
+
 def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                                 case_path: str, solver_path: str, monitor_path: str):
     """!
@@ -5504,6 +6222,10 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
     """
     errors = []
     warnings = []
+    errors.extend(validate_reserved_directory_flags(
+        case_cfg, case_path, "case solver_parameters / passthrough"))
+    errors.extend(validate_reserved_directory_flags(
+        solver_cfg, solver_path, "solver petsc_passthrough_options"))
     eulerian_source_mode = "solve"
 
     legacy_statistics = (case_cfg.get("models", {}) or {}).get("statistics") if isinstance(case_cfg, dict) else None
@@ -5569,7 +6291,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
     # --- case.yml: grid mode ---
     grid_cfg = case_cfg.get('grid', {})
     grid_mode = grid_cfg.get('mode')
-    valid_grid_modes = ['file', 'programmatic_c', 'grid_gen']
+    valid_grid_modes = list(GRID_MODES)
     if grid_mode not in valid_grid_modes:
         errors.append(f"  {case_path}: 'grid.mode' must be one of {valid_grid_modes} (got '{grid_mode}').")
     elif grid_mode == 'file':
@@ -5653,8 +6375,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                     errors.append(f"  {case_path}: grid.generator.config_file does not exist: {config_abs}")
 
             grid_type = gen_cfg.get('grid_type')
-            if grid_type is not None and str(grid_type) not in {'cpipe', 'pipe', 'warp'}:
-                errors.append(f"  {case_path}: grid.generator.grid_type must be one of ['cpipe','pipe','warp'] (got '{grid_type}').")
+            if grid_type is not None and str(grid_type) not in GRID_GENERATOR_TYPES:
+                errors.append(f"  {case_path}: grid.generator.grid_type must be one of "
+                              f"{list(GRID_GENERATOR_TYPES)} (got '{grid_type}').")
 
             cli_args = gen_cfg.get('cli_args', [])
             if cli_args is not None and not isinstance(cli_args, list):
@@ -5740,7 +6463,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             pinit_code = None
 
         restart_mode = particles_cfg.get('restart_mode')
-        if restart_mode is not None and str(restart_mode).lower() not in {"init", "load"}:
+        if restart_mode is not None and str(restart_mode).lower() not in PARTICLE_RESTART_MODES:
             errors.append(
                 f"  {case_path}: models.physics.particles.restart_mode must be 'init' or 'load' (got '{restart_mode}')."
             )
@@ -5783,24 +6506,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         wall_cfg = turbulence_cfg.get('wall_function')
 
         if isinstance(les_cfg, dict):
-            for key in ('enabled',):
-                if key in les_cfg and not isinstance(les_cfg[key], bool):
-                    errors.append(f"  {case_path}: models.physics.turbulence.les.{key} must be true or false.")
-            for key in ('constant_cs', 'max_cs'):
-                if key in les_cfg:
-                    try:
-                        value = float(les_cfg[key])
-                        if value < 0.0:
-                            errors.append(f"  {case_path}: models.physics.turbulence.les.{key} must be nonnegative.")
-                    except (TypeError, ValueError):
-                        errors.append(f"  {case_path}: models.physics.turbulence.les.{key} must be numeric.")
-            if 'dynamic_frequency' in les_cfg:
-                try:
-                    value = int(les_cfg['dynamic_frequency'])
-                    if value <= 0:
-                        errors.append(f"  {case_path}: models.physics.turbulence.les.dynamic_frequency must be positive.")
-                except (TypeError, ValueError):
-                    errors.append(f"  {case_path}: models.physics.turbulence.les.dynamic_frequency must be an integer.")
+            validate_les_configuration(case_cfg, les_cfg, case_path, errors, warnings)
 
         if isinstance(rans_cfg, dict):
             if 'enabled' in rans_cfg and not isinstance(rans_cfg['enabled'], bool):
@@ -5911,7 +6617,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                                 f"operation_mode.analytical_type resolves to '{effective_analytical_type}'."
                             )
                 else:
-                    if grid_mode not in {'programmatic_c', 'file'}:
+                    if grid_mode not in (GRID_MODES[1], GRID_MODES[0]):
                         errors.append(
                             f"  {case_path}: grid.mode '{grid_mode}' is not supported when "
                             f"operation_mode.analytical_type is '{effective_analytical_type}'. "
@@ -5984,7 +6690,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                             errors.append(
                                 f"  {solver_path}: verification.sources.scalar.mode must be 'analytical'."
                             )
-                        if profile not in {"CONSTANT", "LINEAR_X", "SIN_PRODUCT"}:
+                        if profile not in VERIFICATION_SCALAR_PROFILES:
                             errors.append(
                                 f"  {solver_path}: verification.sources.scalar.profile must be one of CONSTANT, LINEAR_X, SIN_PRODUCT."
                             )
@@ -6202,6 +6908,13 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                 f"  {monitor_path}: 'io.particle_console_output_frequency' must be a non-negative integer "
                 f"(got {particle_console_freq})."
             )
+        containment_errors, containment_warnings = validate_run_directory_containment(
+            monitor_cfg, monitor_path
+        )
+        errors.extend(containment_errors)
+        warnings.extend(containment_warnings)
+        errors.extend(validate_reserved_directory_flags(
+            monitor_cfg, monitor_path, "monitor passthrough"))
         try:
             resolve_profiling_config(monitor_cfg)
         except ValueError as e:
@@ -6525,7 +7238,8 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
                         )
             continue
         errors.append(
-            f"  {post_path}: unsupported eulerian task '{task_name}' at eulerian_pipeline[{i}]."
+            f"  {post_path}: unsupported eulerian task '{task_name}' at eulerian_pipeline[{i}]. "
+            f"Available tasks: {list(POST_EULERIAN_PIPELINE_TASKS)}."
         )
 
     # --- Check lagrangian_pipeline entries have 'task' key ---
@@ -6780,7 +7494,7 @@ def validate_study_config(study_cfg: dict, study_path: str, skip_base_file_check
                     errors.append(f"  {study_path}: base_configs.{req} does not exist: {resolved}")
 
     study_type = study_cfg.get("study_type")
-    allowed_types = {"grid_independence", "timestep_independence", "sensitivity"}
+    allowed_types = set(STUDY_TYPES)
     if study_type not in allowed_types:
         errors.append(
             f"  {study_path}: study_type must be one of {sorted(allowed_types)} (got '{study_type}')."
@@ -6865,7 +7579,7 @@ def validate_study_config(study_cfg: dict, study_path: str, skip_base_file_check
         if enabled is not None and not isinstance(enabled, bool):
             errors.append(f"  {study_path}: plotting.enabled must be boolean when provided.")
         output_format = plotting.get("output_format")
-        if output_format is not None and output_format not in {"png", "pdf", "svg"}:
+        if output_format is not None and output_format not in STUDY_PLOT_FORMATS:
             errors.append(f"  {study_path}: plotting.output_format must be one of ['png','pdf','svg'].")
 
     execution = study_cfg.get("execution", {})
@@ -7532,7 +8246,7 @@ def resolve_profiling_config(monitor_cfg: dict) -> dict:
         functions = timestep_cfg.get("functions", [])
         timestep_file = str(timestep_cfg.get("file", "Profiling_Timestep_Summary.csv"))
 
-    if mode not in {"off", "selected", "all"}:
+    if mode not in PROFILING_TIMESTEP_MODES:
         raise ValueError("monitor.profiling.timestep_output.mode must be one of ['off', 'selected', 'all'].")
     if functions is None:
         functions = []
@@ -7715,7 +8429,15 @@ def resolve_diagnostics_config(monitor_cfg: dict, run_dir: "str | None" = None, 
             elif resolved_value and isinstance(resolved_value, str) and resolved_value.startswith(":"):
                 artifacts.append(resolved_value[1:])
         if memory_enabled:
-            artifacts.append(os.path.abspath(os.path.join(run_dir, "logs", memory_file)))
+            # The runtime writes this as "<log_dir>/<file>" (src/logging.c), so the
+            # planner must follow the configured log directory too. Hardcoding "logs"
+            # made the custom-directory topology snapshot claim two log locations.
+            configured_log_dir = (
+                (monitor_cfg.get("io") or {}).get("directories", {}) or {}
+            ).get("log", "logs")
+            artifacts.append(
+                os.path.abspath(os.path.join(run_dir, str(configured_log_dir), memory_file))
+            )
 
     return {
         "petsc": resolved_petsc,
@@ -8691,7 +9413,7 @@ def validate_newton_krylov_config(cfg: dict) -> dict:
             f"{preconditioner_path}.model is required when {preconditioner_path} is provided."
         )
     model = _method(preconditioner.get("model", "none"), f"{preconditioner_path}.model")
-    if model not in {"none", "frozen_momentum_jacobian"}:
+    if model not in NEWTON_KRYLOV_PRECONDITIONER_MODELS:
         raise ValueError(
             f"{preconditioner_path}.model supports only 'none' or 'frozen_momentum_jacobian'."
         )
@@ -8704,7 +9426,7 @@ def validate_newton_krylov_config(cfg: dict) -> dict:
     structure_type = _method(
         structure.get("type", "none"), f"{preconditioner_path}.structure.type"
     )
-    if structure_type not in {"none", "point_block"}:
+    if structure_type not in NEWTON_KRYLOV_PRECONDITIONER_STRUCTURES:
         raise ValueError(
             f"{preconditioner_path}.structure.type supports only 'none' or 'point_block'."
         )
@@ -8777,7 +9499,7 @@ def validate_newton_krylov_config(cfg: dict) -> dict:
             raise ValueError(f"{linear_path}.gmres has unsupported key(s): {unknown}.")
         linear_out["gmres"] = {}
         if "restart" in gmres:
-            if method not in {"gmres", "fgmres", "lgmres"}:
+            if method not in GMRES_RESTART_METHODS:
                 raise ValueError(
                     f"{linear_path}.gmres.restart is valid only when {linear_path}.method "
                     "is one of 'gmres', 'fgmres', or 'lgmres'."
@@ -8935,7 +9657,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
     mode = str(ic.get("mode", "")).strip()
 
     # Backward-compatible legacy spelling.
-    if mode in {"Zero", "Constant", "Poiseuille"}:
+    if mode in LEGACY_FIELD_INIT_SPELLINGS:
         finit_code = normalize_field_init_mode(mode)
         params = resolve_ic_cli_params(ic, finit_code, prepared_blocks, U_ref)
         if finit_code == 1 and params.pop("ic_coordinate_system", 0) == 1:
@@ -9043,7 +9765,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
         projection_type = str(projection.get("type", "none")).lower()
         if projection_type == "none" and "operator" not in projection:
             normalized_projection = {"type": "none"}
-        elif projection_type == "solenoidal" and str(projection.get("operator", "")).lower() in {"continuum", "picurv_discrete"}:
+        elif projection_type == "solenoidal" and str(projection.get("operator", "")).lower() in PROJECTION_OPERATORS:
             normalized_projection = {"type": "solenoidal", "operator": str(projection["operator"]).lower()}
         else:
             raise ValueError("projection must be none, or solenoidal with continuum/picurv_discrete operator.")
@@ -9415,7 +10137,7 @@ def normalize_analytical_type(value: str) -> str:
         raise ValueError("analytical_type cannot be None")
 
     normalized = str(value).strip().upper().replace("-", "_").replace(" ", "_")
-    if normalized not in {"TGV3D", "ZERO_FLOW", "UNIFORM_FLOW"}:
+    if normalized not in ANALYTICAL_SOLUTION_TYPES:
         raise ValueError(
             f"Unknown operation_mode.analytical_type '{value}'. "
             "Use one of: 'TGV3D', 'ZERO_FLOW', 'UNIFORM_FLOW'."
@@ -9563,35 +10285,156 @@ def normalize_les_model(value) -> int:
 
 def normalize_les_test_filter(value) -> int:
     """!
-    @brief Maps LES test-filter names to the C -testfilter_ik flag.
-    @param[in] value Test-filter selector name or legacy integer/bool value.
-    @return 0 for volume-weighted box, 1 for homogeneous i/k Simpson filtering.
+    @brief Maps LES test-filter kernel names to the C -les_test_filter_kernel flag.
+    @param[in] value Test-filter selector name or integer code.
+    @return 0 for the volume-weighted box filter, 1 for the i/k Simpson filter.
     @throws ValueError if the input cannot be mapped.
     """
     if isinstance(value, bool):
-        return 1 if value else 0
+        raise ValueError("models.physics.turbulence.les.test_filter.kernel must name a filter, not a boolean.")
     if isinstance(value, int):
         if value in (0, 1):
             return value
-        raise ValueError("models.physics.turbulence.les.test_filter must be 0, 1, or a supported filter name.")
+        raise ValueError("models.physics.turbulence.les.test_filter.kernel must be 0, 1, or a supported filter name.")
     if value is None:
-        raise ValueError("LES test_filter cannot be None")
+        raise ValueError("LES test_filter.kernel cannot be None")
 
     key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
     mapped = {
         "volume_weighted_box": 0,
         "box": 0,
-        "general_box": 0,
-        "homogeneous_ik": 1,
-        "ik_homogeneous": 1,
         "simpson_ik": 1,
     }.get(key)
     if mapped is None:
         raise ValueError(
-            f"Unknown LES test_filter '{value}'. Use one of: "
-            "'volume_weighted_box', 'homogeneous_ik'."
+            f"Unknown LES test filter kernel '{value}'. Use one of: "
+            "'volume_weighted_box', 'simpson_ik'."
         )
     return mapped
+
+def normalize_les_filter_width(value) -> int:
+    """!
+    @brief Maps LES grid-filter-width model names to the C -les_filter_width flag.
+    @param[in] value Filter-width model name or integer code.
+    @return 0 for cube-root volume, 1 for the geometric mean of the cell extents,
+            2 for the longest cell extent.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if isinstance(value, bool):
+        raise ValueError("models.physics.turbulence.les.filter_width must name a model, not a boolean.")
+    if isinstance(value, int):
+        if value in (0, 1, 2):
+            return value
+        raise ValueError("models.physics.turbulence.les.filter_width must be 0, 1, 2, or a supported model name.")
+    if value is None:
+        raise ValueError("LES filter_width cannot be None")
+
+    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    mapped = {
+        "cube_root_volume": 0,
+        "geometric_mean": 1,
+        "max_edge": 2,
+    }.get(key)
+    if mapped is None:
+        raise ValueError(
+            f"Unknown LES filter width model '{value}'. Use one of: "
+            "'cube_root_volume', 'geometric_mean', 'max_edge'."
+        )
+    return mapped
+
+def normalize_les_averaging_mode(value) -> int:
+    """!
+    @brief Maps LES coefficient-averaging mode names to the C -les_averaging_mode flag.
+    @param[in] value Averaging mode name or integer code.
+    @return 0 for pointwise local averaging, 1 for homogeneous directions, 2 for the
+            whole block.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if isinstance(value, bool):
+        raise ValueError("models.physics.turbulence.les.averaging.mode must name a mode, not a boolean.")
+    if isinstance(value, int):
+        if value in (0, 1, 2):
+            return value
+        raise ValueError("models.physics.turbulence.les.averaging.mode must be 0, 1, 2, or a supported mode name.")
+    if value is None:
+        raise ValueError("LES averaging.mode cannot be None")
+
+    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    mapped = {
+        "local": 0,
+        "homogeneous": 1,
+        "global": 2,
+    }.get(key)
+    if mapped is None:
+        raise ValueError(
+            f"Unknown LES averaging mode '{value}'. Use one of: "
+            "'local', 'homogeneous', 'global'."
+        )
+    return mapped
+
+def normalize_les_clip_mode(value) -> int:
+    """!
+    @brief Maps LES coefficient-limiting mode names to the C -les_clip_mode flag.
+    @param[in] value Clipping mode name or integer code.
+    @return 0 to clamp into [0, max_cs^2], 1 to discard negatives only, 2 to keep the
+            signed coefficient so backscatter survives.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if isinstance(value, bool):
+        raise ValueError("models.physics.turbulence.les.clipping.mode must name a mode, not a boolean.")
+    if isinstance(value, int):
+        if value in (0, 1, 2):
+            return value
+        raise ValueError("models.physics.turbulence.les.clipping.mode must be 0, 1, 2, or a supported mode name.")
+    if value is None:
+        raise ValueError("LES clipping.mode cannot be None")
+
+    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    mapped = {
+        "clamp": 0,
+        "clip_negative": 1,
+        "none": 2,
+    }.get(key)
+    if mapped is None:
+        raise ValueError(
+            f"Unknown LES clipping mode '{value}'. Use one of: "
+            "'clamp', 'clip_negative', 'none'."
+        )
+    return mapped
+
+#: The logical grid directions an LES averaging set may span, in canonical order.
+LES_AVERAGING_DIRECTION_AXES = ("i", "j", "k")
+
+def normalize_les_averaging_directions(value) -> str:
+    """!
+    @brief Maps a list of homogeneous logical directions to the C flag's string form.
+    @param[in] value List or string naming a subset of the i, j, and k directions.
+    @return The selected directions as a canonically ordered subset of "ijk".
+    @throws ValueError if a direction is unknown or repeated.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        tokens = [token for token in value.strip().lower()]
+    elif isinstance(value, (list, tuple)):
+        tokens = [str(token).strip().lower() for token in value]
+    else:
+        raise ValueError(
+            "models.physics.turbulence.les.averaging.directions must be a list such as [i, k]."
+        )
+
+    selected = []
+    for token in tokens:
+        if token not in LES_AVERAGING_DIRECTION_AXES:
+            raise ValueError(
+                f"Unknown LES averaging direction '{token}'. Use a subset of ['i', 'j', 'k']."
+            )
+        if token in selected:
+            raise ValueError(
+                f"LES averaging direction '{token}' is repeated; list each direction once."
+            )
+        selected.append(token)
+    return "".join(axis for axis in LES_AVERAGING_DIRECTION_AXES if axis in selected)
 
 def normalize_rans_model(value) -> int:
     """!
@@ -9650,6 +10493,78 @@ def resolve_enabled_flag(cfg: dict, path: str, default: bool = True) -> bool:
         raise ValueError(f"{path}.enabled must be true or false.")
     return cfg['enabled']
 
+def append_les_parameter_flags(les_cfg: dict, control_lines: list):
+    """!
+    @brief Appends the LES closure parameter flags from a structured les block.
+    @param[in] les_cfg Parsed `models.physics.turbulence.les` mapping.
+    @param[out] control_lines A list of strings to which C-flags will be appended.
+    @throws ValueError if a selector name or nested block shape is unsupported.
+    """
+    if 'constant_cs' in les_cfg:
+        control_lines.append(f"-les_constant_cs {format_flag_value(les_cfg['constant_cs'])}")
+    if 'dynamic_frequency' in les_cfg:
+        control_lines.append(f"-les_dynamic_frequency {format_flag_value(les_cfg['dynamic_frequency'])}")
+    if 'filter_width' in les_cfg:
+        control_lines.append(f"-les_filter_width {normalize_les_filter_width(les_cfg['filter_width'])}")
+
+    # A bare string is accepted as shorthand for naming only the kernel, matching the
+    # way the les block itself accepts either a scalar or a mapping.
+    test_filter = les_cfg.get('test_filter')
+    if test_filter is not None:
+        if not isinstance(test_filter, dict):
+            test_filter = {'kernel': test_filter}
+        if 'kernel' in test_filter:
+            control_lines.append(
+                f"-les_test_filter_kernel {normalize_les_test_filter(test_filter['kernel'])}")
+        if 'width_ratio' in test_filter:
+            control_lines.append(
+                f"-les_test_filter_width_ratio {format_flag_value(test_filter['width_ratio'])}")
+
+    averaging = les_cfg.get('averaging')
+    if averaging is not None:
+        if not isinstance(averaging, dict):
+            averaging = {'mode': averaging}
+        if 'mode' in averaging:
+            control_lines.append(
+                f"-les_averaging_mode {normalize_les_averaging_mode(averaging['mode'])}")
+        if 'directions' in averaging:
+            directions = normalize_les_averaging_directions(averaging['directions'])
+            if directions:
+                control_lines.append(f"-les_averaging_directions {directions}")
+
+    clipping = les_cfg.get('clipping')
+    if clipping is not None:
+        if not isinstance(clipping, dict):
+            clipping = {'mode': clipping}
+        if 'mode' in clipping:
+            control_lines.append(f"-les_clip_mode {normalize_les_clip_mode(clipping['mode'])}")
+        if 'max_cs' in clipping:
+            control_lines.append(f"-les_clip_max_cs {format_flag_value(clipping['max_cs'])}")
+        if 'min_viscosity_ratio' in clipping:
+            control_lines.append(
+                f"-les_min_viscosity_ratio {format_flag_value(clipping['min_viscosity_ratio'])}")
+
+    gradient_model = les_cfg.get('gradient_model')
+    if gradient_model is not None:
+        if not isinstance(gradient_model, dict):
+            gradient_model = {'enabled': gradient_model}
+        enabled = resolve_enabled_flag(gradient_model,
+                                       "models.physics.turbulence.les.gradient_model")
+        control_lines.append(f"-les_gradient_model {1 if enabled else 0}")
+
+    diagnostics = les_cfg.get('diagnostics')
+    if diagnostics is not None:
+        if not isinstance(diagnostics, dict):
+            diagnostics = {'enabled': diagnostics}
+        enabled = resolve_enabled_flag(diagnostics, "models.physics.turbulence.les.diagnostics")
+        control_lines.append(f"-les_diagnostics {'true' if enabled else 'false'}")
+        if 'cadence' in diagnostics:
+            control_lines.append(
+                f"-les_diagnostics_cadence {format_flag_value(diagnostics['cadence'])}")
+        if 'yoshizawa_ci' in diagnostics:
+            control_lines.append(
+                f"-les_yoshizawa_ci {format_flag_value(diagnostics['yoshizawa_ci'])}")
+
 def append_turbulence_flags(models: dict, control_lines: list):
     """!
     @brief Appends turbulence model flags from legacy or structured case.yml blocks.
@@ -9673,14 +10588,7 @@ def append_turbulence_flags(models: dict, control_lines: list):
         model_value = les_cfg.get('model', 'constant_smagorinsky')
         les_code = normalize_les_model(model_value) if enabled else 0
         control_lines.append(f"-les {les_code}")
-        if 'constant_cs' in les_cfg:
-            control_lines.append(f"-const_cs {format_flag_value(les_cfg['constant_cs'])}")
-        if 'max_cs' in les_cfg:
-            control_lines.append(f"-max_cs {format_flag_value(les_cfg['max_cs'])}")
-        if 'dynamic_frequency' in les_cfg:
-            control_lines.append(f"-dynamic_freq {format_flag_value(les_cfg['dynamic_frequency'])}")
-        if 'test_filter' in les_cfg:
-            control_lines.append(f"-testfilter_ik {normalize_les_test_filter(les_cfg['test_filter'])}")
+        append_les_parameter_flags(les_cfg, control_lines)
     elif les_cfg is not None:
         les_code = normalize_les_model(les_cfg)
         control_lines.append(f"-les {les_code}")
@@ -9706,6 +10614,31 @@ def append_turbulence_flags(models: dict, control_lines: list):
     elif wall_cfg is not None:
         control_lines.append(f"-wallfunction {format_flag_value(wall_cfg)}")
 
+def control_value(value, context: str):
+    """!
+    @brief Guard a value that is written verbatim into the generated control file.
+
+    @details PETSc reads the control file line by line, so a value containing a newline
+             writes additional option lines - which defeats every key-based check by
+             smuggling a whole new flag. Rejecting the value is the only safe handling;
+             there is no quoting that makes a multi-line option meaningful.
+    @param[in] value Configured value destined for a control line.
+    @param[in] context YAML path, for the error message.
+    @return The value unchanged when it is safe to emit.
+    @throws SystemExit when the value would inject an option line.
+    """
+    text = str(value)
+    if any(character in text for character in ("\n", "\r")):
+        print(
+            f"[FATAL] {context} contains a newline. Values written to the generated control "
+            f"file must occupy a single line; a multi-line value would inject additional "
+            f"PETSc options.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return value
+
+
 def append_passthrough_flags(control_lines: list, options: dict):
     """!
     @brief Appends raw CLI flags to the control list from a {flag: value} dict.
@@ -9717,11 +10650,20 @@ def append_passthrough_flags(control_lines: list, options: dict):
     if not options:
         return
     for flag, value in options.items():
+        if isinstance(flag, str) and flag.strip() in RESERVED_DIRECTORY_FLAGS:
+            # Defense in depth: validation rejects these, but the emitter must never
+            # write a run-directory flag from an unvalidated passthrough surface.
+            raise ValueError(
+                f"Refusing to emit reserved directory flag '{flag.strip()}' from passthrough "
+                f"options; configure run directories through monitor.io.directories."
+            )
         if isinstance(value, bool):
             if value:
                 control_lines.append(str(flag))
             continue
-        control_lines.append(f"{flag} {format_flag_value(value)}")
+        control_lines.append(
+            f"{flag} {control_value(format_flag_value(value), f'passthrough option {flag}')}"
+        )
 
 
 SOLVER_MONITORING_POISSON_FLAG_MAP = {
@@ -9873,7 +10815,7 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
     p_restart_mode = particles_cfg.get('restart_mode')
     if p_restart_mode:
         p_restart_mode_normalized = str(p_restart_mode).lower()
-        if p_restart_mode_normalized not in {"init", "load"}:
+        if p_restart_mode_normalized not in PARTICLE_RESTART_MODES:
             raise ValueError(f"Unknown particle restart_mode '{p_restart_mode}'. Options are 'init' or 'load'.")
         control_lines.append(f"-particle_restart_mode \"{p_restart_mode}\"")
 
@@ -10183,9 +11125,8 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         @return PETSc PC token for the supported outer preconditioner.
         """
         pc = str(value).strip().lower()
-        aliases = {"mg": "multigrid", "pcmg": "multigrid"}
-        pc = aliases.get(pc, pc)
-        if pc != "multigrid":
+        pc = POISSON_PRECONDITIONER_SPELLINGS.get(pc, pc)
+        if pc not in POISSON_PRECONDITIONER_TYPES:
             raise ValueError(
                 "poisson_solver.preconditioner.type currently supports only 'multigrid'. "
                 "The runtime Poisson solver still assumes PETSc PCMG setup."
@@ -10260,7 +11201,7 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                 if method is None:
                     method = _normalize_poisson_method(ps.get('method', 'fgmres'))
                     flags.setdefault('-ps_ksp_type', method)
-                if method not in {"gmres", "fgmres", "lgmres"}:
+                if method not in GMRES_RESTART_METHODS:
                     raise ValueError(
                         f"{source_key}.gmres.restart is valid only when {source_key}.method "
                         "is one of 'gmres', 'fgmres', or 'lgmres'."
@@ -10624,14 +11565,53 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     if 'particle_log_interval' in io_cfg: control_lines.append(f"-logfreq {io_cfg['particle_log_interval']}")
     if 'directories' in io_cfg:
         dirs = io_cfg['directories']
-        if 'output' in dirs: control_lines.append(f"-output_dir {dirs['output']}")
         if 'restart' in dirs and not restart_source_dir:
-            control_lines.append(f"-restart_dir {dirs['restart']}")
-        if 'log' in dirs: control_lines.append(f"-log_dir {dirs['log']}")
+            control_lines.append(
+                f"-restart_dir {control_value(dirs['restart'], 'monitor.io.directories.restart')}"
+            )
     if restart_source_dir:
         control_lines.append(f"-restart_dir {restart_source_dir}")
     if continue_mode:
         control_lines.append("-continue_mode true")
+
+    # Emitted last, and always: PETSc takes the final occurrence of an option, so a
+    # validated directory written here wins over anything earlier in the file. Writing
+    # them unconditionally also removes the "omitted default" gap, where an absent flag
+    # let an environment variable or PETSc configuration choose the directory instead.
+    configured_dirs = (monitor_cfg.get("io") or {}).get("directories") or {}
+    validated_dirs = effective_run_directories(configured_dirs)
+    unsafe_authorized, _ = resolve_unsafe_paths_override(configured_dirs, "monitor.yml")
+    # Physical containment at generation time, not only at submission: a contained name
+    # can be a symlink out of the run tree, and `picurv run` never went through submit.
+    physical: list = []
+    for _, verdict, message in classify_physical_containment(run_dir, validated_dirs):
+        if unsafe_authorized and verdict in WAIVABLE_PHYSICAL_VERDICTS:
+            print(f"[WARN]   {message} Allowed only because "
+                  f"'allow_unsafe_paths: true' is set.", file=sys.stderr)
+        else:
+            physical.append(message)
+    if physical:
+        print("[FATAL] Unsafe run-directory configuration:", file=sys.stderr)
+        for message in physical:
+            print(f"  {message}", file=sys.stderr)
+        sys.exit(1)
+    control_lines.append("")
+    control_lines.append("# Run-owned directories: validated for containment, emitted last so")
+    control_lines.append("# no earlier option or external PETSc configuration can override them.")
+    # Emit the NORMALIZED values: the launcher validates the normalized form, so writing
+    # the raw one made the two layers reason about different strings ("..logs" passed
+    # Python and was refused by the runtime).
+    control_lines.append(f"-output_dir {normalized_run_directory(validated_dirs['output'])}")
+    control_lines.append(f"-log_dir {normalized_run_directory(validated_dirs['log'])}")
+    if unsafe_authorized:
+        # The runtime performs its own containment check before an irreversible
+        # recursive delete. It waives the external-location restriction only when this
+        # explicit authorization is present, so the override must be carried across the
+        # boundary rather than assumed.
+        control_lines.append(
+            "# Explicit authorization: monitor.io.directories.allow_unsafe_paths was set."
+        )
+        control_lines.append("-allow_unsafe_log_dir true")
 
     final_content = generate_header(run_id, source_files) + "\n".join(control_lines)
     control_file_path = os.path.join(run_dir, "config", f"{run_id}.control")
@@ -11452,9 +12432,9 @@ def aggregate_study_metrics(study_cfg: dict, cases: list, results_dir: str) -> s
         for spec in normalized_specs:
             name = spec.get("name", "metric")
             source = str(spec.get("source", "")).lower()
-            if source in {"statistics_csv", "csv"}:
+            if source in METRIC_SOURCE_KINDS[:2]:
                 value = extract_metric_from_csv(case["run_dir"], spec)
-            elif source in {"log_regex", "log"}:
+            elif source in METRIC_SOURCE_KINDS[2:]:
                 value = extract_metric_from_log(case["run_dir"], spec)
             else:
                 value = None
@@ -11971,20 +12951,37 @@ def build_run_dry_plan(args) -> dict:
 
         config_dir = os.path.join(run_dir, "config")
         scheduler_dir = os.path.join(run_dir, "scheduler")
-        logs_dir = os.path.join(run_dir, "logs")
+        # Report the directories the run will ACTUALLY use, not the defaults. A plan
+        # that hides a configured path cannot warn about where output really lands -
+        # and the fresh-run log directory is deleted recursively by the C runtime.
+        _plan_dirs = (loaded_monitor_cfg or {}).get("io", {}).get("directories", {}) or {}
+        logs_dir = os.path.join(run_dir, _plan_dirs.get("log", "logs"))
+        planned_output_dir = os.path.join(run_dir, _plan_dirs.get("output", "output"))
         solver_control_path = os.path.join(config_dir, f"{run_id}.control")
         profile_path = os.path.join(config_dir, "profile.run")
         profiling_preview = resolve_profiling_config(loaded_monitor_cfg)
 
         plan["run_id_preview"] = run_id
         plan["run_dir_preview"] = run_dir
+        # A plan that omits what a real run would refuse is not a plan. The run
+        # directory does not exist yet, but `realpath` still normalizes it, so the
+        # run-root and ancestor verdicts are decidable here.
+        _authorized, _ = resolve_unsafe_paths_override(_plan_dirs, "monitor.yml")
+        plan.setdefault("blocking", [])
+        for _key, _verdict, _message in classify_physical_containment(
+                run_dir, effective_run_directories(_plan_dirs)):
+            if _authorized and _verdict in WAIVABLE_PHYSICAL_VERDICTS:
+                plan["warnings"].append(f"{_message} Allowed only because "
+                                        f"'allow_unsafe_paths: true' is set.")
+            else:
+                plan["blocking"].append(_message)
         plan["inputs"].update({"case": case_path, "solver": solver_path, "monitor": monitor_path})
         plan["artifacts"].extend(
             [
                 run_dir,
                 config_dir,
                 logs_dir,
-                os.path.join(run_dir, "output"),
+                planned_output_dir,
                 scheduler_dir,
                 os.path.join(config_dir, "case.yml"),
                 os.path.join(config_dir, "solver.yml"),
@@ -12286,7 +13283,7 @@ def add_planned_profile_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> N
             if bc.get("handler") != "prescribed_flow":
                 continue
             source = (bc.get("params") or {}).get("source", {})
-            if source.get("type") not in {"generated", "field_slice"}:
+            if source.get("type") not in PRESCRIBED_FLOW_SOURCE_TYPES[1:]:
                 continue
             has_generated = True
             face_token = _face_artifact_token(bc["face"])
@@ -12352,12 +13349,21 @@ def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_c
 def render_run_dry_plan(plan: dict, output_format: str = "text"):
     """!
     @brief Render dry-run plan in human or JSON format.
-    @param[in] plan Argument passed to `render_run_dry_plan()`.
-    @param[in] output_format Argument passed to `render_run_dry_plan()`.
+    @param[in] plan Dry-run plan produced by build_run_dry_plan().
+    @param[in] output_format Either "text" or "json".
+    @return 1 when the plan carries blocking findings, 0 otherwise.
     """
     if output_format == "json":
         print(json.dumps(plan, indent=2, sort_keys=True))
-        return
+        return 1 if plan.get("blocking") else 0
+
+    for message in plan.get("warnings", []):
+        print(f"[WARN]   {message}", file=sys.stderr)
+    if plan.get("blocking"):
+        print("[FATAL] This configuration would be refused. The plan below is what the "
+              "run WOULD do; it will not get that far:", file=sys.stderr)
+        for message in plan["blocking"]:
+            print(f"  {message}", file=sys.stderr)
 
     print("\n" + "=" * 60)
     print("                      DRY-RUN PLAN")
@@ -12646,6 +13652,8 @@ def run_workflow(args):
     if getattr(args, "dry_run", False):
         plan = build_run_dry_plan(args)
         render_run_dry_plan(plan, output_format=getattr(args, "output_format", "text"))
+        if plan.get("blocking"):
+            sys.exit(1)
         return
 
     run_dir = None
@@ -13228,7 +14236,20 @@ def run_workflow(args):
             print(f"  Post output    : {os.path.relpath(output_dir_abs)}")
         for stats_path in statistics_output_paths:
             print(f"  Stats output   : {os.path.relpath(stats_path)}")
-        print(f"  Logs           : {os.path.relpath(os.path.join(run_dir, 'logs'))}")
+        # Report the configured log directory, not the default. An authorized external
+        # path is exactly the case where the two differ, and it is the case where the
+        # reader most needs to know where the logs actually went.
+        configured_log_dir = 'logs'
+        if configs:
+            configured_log_dir = (
+                configs.get('monitor', {}).get('io', {}).get('directories', {}).get('log', 'logs')
+            )
+        log_display = os.path.join(run_dir, configured_log_dir)
+        relative_log = os.path.relpath(log_display)
+        # A relative path that climbs out of the working directory is harder to read
+        # than the absolute one it stands for.
+        print(f"  Logs           : "
+              f"{log_display if relative_log.startswith('..') else relative_log}")
         if cluster_mode or submission_meta.get("stages"):
             submission_file = os.path.join(run_dir, "scheduler", "submission.json")
             print(f"  Submission meta: {os.path.relpath(submission_file)}")
@@ -16138,6 +17159,41 @@ def _collect_summary_plot_records(context: dict) -> list:
                         coordinates={"solver_iteration": int(match.group("iter"))},
                     )
 
+    # The LES coefficient history. cs_effective is the curve an LES run is judged on:
+    # for decaying isotropic turbulence it should settle near Lilly's 0.16-0.17.
+    les_path = os.path.join(log_dir, "les_coefficient.csv")
+    if os.path.isfile(les_path):
+        segment = 0
+        header = []
+        with open(les_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+            for raw_line in f:
+                if _is_summary_plot_continuation_marker(raw_line):
+                    segment += 1
+                    continue
+                if raw_line.lstrip().startswith("step,"):
+                    header = [name.strip() for name in raw_line.strip().split(",")]
+                    continue
+                parts = [part.strip() for part in raw_line.strip().split(",")]
+                if not header or len(parts) != len(header):
+                    continue
+                row = dict(zip(header, parts))
+                _append_summary_plot_record(
+                    records, "les", _parse_int_loose(row.get("step")), "coefficient",
+                    {
+                        "cs_effective": _parse_float_loose(row.get("cs_effective")),
+                        "cs_mean": _parse_float_loose(row.get("cs_mean")),
+                        "coefficient_rms": _parse_float_loose(row.get("coefficient_rms")),
+                        "coefficient_min": _parse_float_loose(row.get("coefficient_min")),
+                        "coefficient_max": _parse_float_loose(row.get("coefficient_max")),
+                        "nu_t_mean": _parse_float_loose(row.get("nu_t_mean")),
+                        "nu_t_max": _parse_float_loose(row.get("nu_t_max")),
+                        "nu_t_over_nu_mean": _parse_float_loose(row.get("nu_t_over_nu_mean")),
+                        "k_sgs_mean": _parse_float_loose(row.get("k_sgs_mean")),
+                        "backscatter_fraction": _parse_float_loose(row.get("backscatter_fraction")),
+                        "limited_fraction": _parse_float_loose(row.get("limited_fraction")),
+                    },
+                    les_path, segment,
+                )
     profiling_path = os.path.join(log_dir, context["profiling_cfg"].get("timestep_file", "Profiling_Timestep_Summary.csv"))
     if os.path.isfile(profiling_path):
         segment = 0
@@ -16962,6 +18018,146 @@ def _write_submission_target_metadata(target_context: dict):
             write_json_file(manifest_path, manifest_payload)
 
 
+def staged_control_directories(control_path: str) -> tuple:
+    """!
+    @brief Read run-owned directory values from a staged control file.
+
+    @details Tokenizes with `shlex` because PETSc's options-file parser treats a
+             double-quoted span as a single token. Splitting on whitespace would read
+             `-log_dir "/tmp/VICTIM DIR"` as the value `"/tmp/VICTIM`, which looks
+             relative and contained while PETSc would use the absolute path.
+
+             Malformed quoting is reported rather than skipped: a line the parser
+             cannot interpret is exactly the case where preflight must not assume the
+             run is safe.
+    @param[in] control_path Path to a generated `.control` file.
+    @return Tuple of (values, parse_errors).
+    """
+    flag_to_key = {"-log_dir": "log", "-output_dir": "output"}
+    values: dict = {}
+    parse_errors: list = []
+    try:
+        lines = read_text_file_lines(control_path)
+    except OSError as exc:
+        return values, [f"could not be read ({exc})"]
+    for number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            tokens = shlex.split(line, comments=True)
+        except ValueError as exc:
+            parse_errors.append(
+                f"line {number} has malformed quoting and cannot be interpreted ({exc}); "
+                f"refusing to assume it is safe"
+            )
+            continue
+        if tokens and tokens[0] in RESERVED_INDIRECTION_FLAGS:
+            parse_errors.append(
+                f"line {number} uses '{tokens[0]}', which PETSc expands itself; its contents "
+                f"cannot be checked here and could set a run directory. Re-stage without it"
+            )
+            continue
+        if len(tokens) >= 2 and tokens[0] in flag_to_key:
+            values[flag_to_key[tokens[0]]] = tokens[1]
+    return values, parse_errors
+
+
+def staged_unsafe_override(root_dir: str) -> bool:
+    """!
+    @brief Read the unsafe-paths override from a staged run's own monitor configuration.
+
+    @details Preflight must honour the same override the configuration layer does,
+             otherwise a run that was deliberately and validly staged with an escaping
+             path could never be submitted.
+    @param[in] root_dir Run directory being submitted.
+    @return True when the staged monitor sets the override to boolean true.
+    """
+    monitor_path = os.path.join(root_dir, "config", "monitor.yml")
+    if not os.path.isfile(monitor_path):
+        return False
+    try:
+        monitor_cfg = read_yaml_file(monitor_path)
+    except Exception:  # noqa: BLE001 - a malformed staged file must not grant an override
+        return False
+    dirs = ((monitor_cfg or {}).get("io") or {}).get("directories")
+    if not isinstance(dirs, dict):
+        return False
+    enabled, _ = resolve_unsafe_paths_override(dirs, monitor_path)
+    return enabled
+
+
+def preflight_config_directories(root_dir: str) -> list:
+    """!
+    @brief Every config directory under a run or study root that may hold a control file.
+
+    @details A study keeps its controls under `cases/<member>/config`, not at the study
+             root, so a preflight that only looked at `<root>/config` was empty for every
+             study. This walks the tree so members and nested runs are covered.
+    @param[in] root_dir Run or study directory.
+    @return Sorted config directory paths.
+    """
+    found: set = set()
+    root = os.path.abspath(root_dir)
+    direct = os.path.join(root, "config")
+    if os.path.isdir(direct):
+        found.add(direct)
+    for current, dirnames, _ in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not os.path.islink(os.path.join(current, d))]
+        if os.path.basename(current) == "config" and glob.glob(os.path.join(current, "*.control")):
+            found.add(current)
+    return sorted(found)
+
+
+def preflight_staged_run_directories(root_dir: str) -> tuple:
+    """!
+    @brief Re-check run-directory safety against an already-staged run or study.
+
+    @details Staging validates the configuration it is given, but a staged run can be
+             edited, or produced by an older version, before submission. This re-reads the
+             effective staged control files - across study members and nested runs - and
+             applies the same rules as configuration validation, plus a physical
+             containment check that a symlink cannot slip past.
+    @param[in] root_dir Run or study directory being submitted.
+    @return Tuple of (errors, warnings).
+    """
+    errors: list = []
+    warnings: list = []
+    config_dirs = preflight_config_directories(root_dir)
+    if not config_dirs:
+        return errors, warnings
+    for config_dir in config_dirs:
+        run_root = os.path.dirname(config_dir)
+        override = staged_unsafe_override(run_root)
+        for control in sorted(glob.glob(os.path.join(config_dir, "*.control"))):
+            staged, parse_errors = staged_control_directories(control)
+            label = os.path.relpath(control)
+            errors.extend(f"  {label}: {message}" for message in parse_errors)
+            if not staged:
+                continue
+            effective = effective_run_directories(staged)
+            control_errors, control_warnings = evaluate_run_directories(
+                effective, override, explicit=set(staged)
+            )
+            errors.extend(f"  {label}: {message}" for message in control_errors)
+            warnings.extend(f"  {label}: {message}" for message in control_warnings)
+            for _, verdict, message in classify_physical_containment(run_root, effective):
+                if override and verdict in WAIVABLE_PHYSICAL_VERDICTS:
+                    warnings.append(f"  {label}: {message}")
+                else:
+                    errors.append(f"  {label}: {message}")
+    return errors, warnings
+
+
+def read_text_file_lines(path: str) -> list:
+    """!
+    @brief Read a text file into a list of lines.
+    @param[in] path File to read.
+    @return List of lines.
+    """
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        return handle.readlines()
+
+
 def submit_staged_jobs(args):
     """!
     @brief Submit previously staged Slurm artifacts from an existing run/study directory.
@@ -16975,6 +18171,24 @@ def submit_staged_jobs(args):
         require_storage_payload_local(target_context["root_dir"], "submission")
     except StorageError as exc:
         print(f"[FATAL] {exc}", file=sys.stderr)
+        sys.exit(1)
+    preflight_errors, preflight_warnings = preflight_staged_run_directories(
+        target_context["root_dir"]
+    )
+    for warning in preflight_warnings:
+        print(f"[WARN] {warning.strip()}", file=sys.stderr)
+    if preflight_errors:
+        print(
+            "[FATAL] Submission preflight failed: the staged run has an unsafe run-directory "
+            "configuration.",
+            file=sys.stderr,
+        )
+        for violation in preflight_errors:
+            print(violation, file=sys.stderr)
+        print(
+            "  Re-stage the run with a safe 'monitor.io.directories' value.",
+            file=sys.stderr,
+        )
         sys.exit(1)
     if target_context["target_kind"] == "study":
         cold_cases = cold_study_members(target_context["root_dir"])

@@ -68,9 +68,9 @@ Parameter keys can target nested case/solver/monitor/post values such as:
 - `case.run_control.dt_physical`
 
 Not every study should use the default `msd_final` metric shorthand. Cases that
-write other scalar diagnostics, such as `logs/interpolation_error.csv`, should
+write other scalar diagnostics, such as `<run.runtime_logs>/interpolation_error.csv`, should
 define explicit CSV metrics instead. Search and migration characterization
-studies can aggregate `logs/search_metrics.csv` columns such as
+studies can aggregate `<run.runtime_logs>/search_metrics.csv` columns such as
 `search_failure_fraction`, `search_work_index`, `re_search_fraction`, or
 normalized run-level signals derived from `lost_cumulative`.
 
@@ -122,7 +122,7 @@ Implementation details worth knowing:
 - within `parameters`, mapping a parent key to a list of dicts sweeps multiple sub-fields together as a unit — they are NOT cartesian-producted with each other, but ARE cross-producted against other parameters. Example: `case.run_control: [{total_steps: 400, dt_physical: 0.005}, {total_steps: 800, dt_physical: 0.0025}]` sweeps the whole `run_control` block as two groups.
 - generated case configs are revalidated through the same solver/post validators used by `picurv run`.
 - submission chain: solver array → post array (`afterok`) → metrics job (`afterany`).
-- `scheduler/submission.json` is the study-directory contract consumed by `picurv submit --study-dir ...`.
+- `<run.scheduler>/submission.json` is the study-directory contract consumed by `picurv submit --study-dir ...`.
 - generator/file grid external paths are rewritten to absolute paths during case materialization so they remain valid in `studies/<study_id>/cases/...`.
 - generated `solver_array.sbatch` exports walltime metadata for the runtime walltime guard, while `post_array.sbatch` remains a plain post-processing launcher.
 - `post_array.sbatch` uses the same `nodes * ntasks_per_node` allocation as the solver array; conflicting launcher `-n`/`-np` flags are rewritten to that task count.
@@ -170,30 +170,72 @@ manual intervention:
 This reads all case outputs, writes `results/metrics_table.csv`, and generates
 plots (if enabled in `study.yml`).
 
+@section p37_cap_study_sec 7.1 Study Type Entries
+
+@htmlinclude generated/capability_inventory_study_type.html
+
+@subsection p37_cap_study_grid_independence_sub grid_independence
+
+@anchor p37_cap_study_grid_independence
+
+**Identity.** `study.yml -> study_type: grid_independence`.
+
+**What it does.** Expands a cross-product over grid parameters and aggregates the declared metrics against resolution, so the study answers whether the result has stopped changing with the mesh.
+
+**When to choose it.** Before trusting any quantitative result from a new geometry. It is the first study to run and the one most often skipped; a converged solver on an unconverged grid is still the wrong answer.
+
+**Parameters it owns.** `parameters` naming the grid keys to vary - typically `case.grid.programmatic_settings.im/jm/km` - and `metrics` naming what to compare.
+
+**Interactions.** The sweep recognises the grid keys and orders the aggregated table by resolution. Combines naturally with `grid.mode: grid_gen`, which regenerates the mesh per case; with `mode: file` every resolution needs its own staged mesh.
+
+**Diagnostics.** `results/metrics_table.csv` carries one row per case. A metric that does not settle across the ladder is the finding, not a failure of the study.
+
+**Evidence.** Production exercised - `examples/flat_channel/grid_independence_study.yml`.
+
+**Limitations.** It varies what you list and nothing else: refining only one direction produces a table that looks converged while the unrefined direction still controls the error.
+
+@subsection p37_cap_study_timestep_independence_sub timestep_independence
+
+@anchor p37_cap_study_timestep_independence
+
+**Identity.** `study.yml -> study_type: timestep_independence`.
+
+**What it does.** Expands a cross-product over timestep parameters and aggregates metrics against dt, separating temporal discretisation error from spatial.
+
+**When to choose it.** After grid independence, and before any claim about a time-dependent quantity. Run it separately from the grid ladder: varying both at once cannot attribute the change to either.
+
+**Parameters it owns.** `parameters` naming the timestep keys, and `metrics`.
+
+**Interactions.** Independent of the momentum solver chosen, but the useful dt range is not: an explicit path is stability-limited where the implicit paths are not, so the ladder that is informative for one may not run at all for the other.
+
+**Diagnostics.** Same `results/metrics_table.csv` shape as the grid ladder, ordered by dt.
+
+**Evidence.** Implemented only. No shipped study selects it.
+
+**Limitations.** Nothing here detects that the ladder crossed a stability boundary rather than a convergence one; a diverged case appears as a missing or absurd metric row.
+
+@subsection p37_cap_study_sensitivity_sub sensitivity
+
+@anchor p37_cap_study_sensitivity
+
+**Identity.** `study.yml -> study_type: sensitivity`.
+
+**What it does.** Expands either a cross-product or explicit `parameter_sets` over arbitrary configuration keys and aggregates the declared metrics, without assuming the varied parameter is a discretisation control.
+
+**When to choose it.** For everything that is not a convergence ladder: Reynolds number, model coefficients, boundary treatments, solver tolerances. Use `parameter_sets` rather than `parameters` when the combinations are coupled and a full cross-product would include cases that make no sense.
+
+**Parameters it owns.** `parameters` (cross-product) or `parameter_sets` (explicit coupled sets), and `metrics`.
+
+**Interactions.** The only study type that does not order its table by a convergence quantity, so the aggregation is a plain comparison. `execution.max_concurrent_array_tasks` matters most here, because a sensitivity sweep is usually the widest.
+
+**Diagnostics.** `results/metrics_table.csv` with one row per case and the varied keys as columns.
+
+**Evidence.** Implemented only. No shipped study selects it.
+
+**Limitations.** It compares what you asked for and infers nothing: there is no sensitivity index, no ranking, and no detection that two varied parameters interact.
+
 @section p37_refs_sec 8. Related Pages
 
 - **@subpage 36_Cluster_Run_Guide**
 - **@subpage 10_Post_Processing_Reference**
 - **@subpage 40_Testing_and_Quality_Guide**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Sweep and Study Guide** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

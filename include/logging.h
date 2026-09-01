@@ -642,6 +642,34 @@ const char* ParticleInitializationToString(ParticleInitializationType ParticleIn
 const char* LESModelToString(LESModelType LESFlag);
 
 /**
+ * @brief Returns the user-facing name of an LES grid-filter-width model.
+ * @param[in] model The filter-width model selector.
+ * @return Pointer to a constant string naming the model.
+ */
+const char* LESFilterWidthModelToString(LESFilterWidthModel model);
+
+/**
+ * @brief Returns the user-facing name of an LES test-filter kernel.
+ * @param[in] kernel The test-filter kernel selector.
+ * @return Pointer to a constant string naming the kernel.
+ */
+const char* LESTestFilterKernelToString(LESTestFilterKernel kernel);
+
+/**
+ * @brief Returns the user-facing name of an LES coefficient-averaging mode.
+ * @param[in] mode The averaging mode selector.
+ * @return Pointer to a constant string naming the mode.
+ */
+const char* LESAveragingModeToString(LESAveragingMode mode);
+
+/**
+ * @brief Returns the user-facing name of an LES coefficient-limiting mode.
+ * @param[in] mode The limiting mode selector.
+ * @return Pointer to a constant string naming the mode.
+ */
+const char* LESClipModeToString(LESClipMode mode);
+
+/**
  * @brief Returns the canonical log token for a momentum-solver selector.
  * @param[in] SolverFlag The Momentum Solver flag value.
  * @return Pointer to a constant string representing the MomentumSolverType.

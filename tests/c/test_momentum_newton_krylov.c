@@ -1131,7 +1131,7 @@ static PetscErrorCode TestUnsupportedConfigurationFailsBeforeAllocation(void)
         PetscInt *unsupported_flags[] = {
             &simCtx->immersed, &simCtx->movefsi, &simCtx->rotatefsi,
             &simCtx->moveframe, &simCtx->rotateframe, &simCtx->rans,
-            &simCtx->clark, &simCtx->TwoD, &simCtx->wallfunction
+            &simCtx->les_gradient_model, &simCtx->TwoD, &simCtx->wallfunction
         };
         for (size_t flag = 0; flag < sizeof(unsupported_flags) / sizeof(unsupported_flags[0]); ++flag) {
             *unsupported_flags[flag] = 1;

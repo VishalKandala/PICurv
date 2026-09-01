@@ -1,5 +1,23 @@
 # Decaying isotropic turbulence
 
+
+> **Experimental LES.** This case sets `model: dynamic_smagorinsky` with
+> `averaging.mode: homogeneous`. The box is periodic in all three directions, so the
+> averaging directions are derived from the boundary pairs and the procedure produces
+> one coefficient for the whole domain each update. The formulation is unit-tested,
+> but the coefficient magnitude has not been validated against a reference: this case
+> is the run that would settle it. Treat results as uncharacterized until it has been
+> run and `Cs(t)` recorded.
+>
+> **What to check.** With `diagnostics.enabled` the solver appends a row per step to
+> `<run.runtime_logs>/les_coefficient.csv`. The `cs_effective` column is the whole-domain
+> coefficient reported as `Cs`, and after the initial transient it is expected to
+> settle near **0.16-0.17**, Lilly's value for isotropic turbulence. A curve that
+> settles elsewhere, drifts, or oscillates is the signal to investigate before
+> trusting anything downstream of it. `backscatter_fraction` and `limited_fraction`
+> in the same file show how much of the domain the clip is touching; with a
+> whole-domain average both should read near zero.
+
 This is a reproducible 64-cubed-cell LES decay benchmark in a triply periodic
 `[0,2*pi]^3` box. It is an LES demonstration, not a DNS reference.
 
@@ -35,7 +53,7 @@ two transverse polarizations. The former common-nullspace construction usually
 retained only one and is intentionally not used.
 
 Preparation writes `diagnostics/initial_condition_summary.json` and
-`diagnostics/initial_condition_spectrum.csv` under the selected output/run
+`diagnostics/initial_condition_spectrum.csv` under the selected <run.solver_output>/run
 directory. For a quick smoke run, copy the case, set `im/jm/km` to 16,
 `k_cut` to 5, multigrid levels to 2, and `total_steps` to 1 before running the
 full 64-cubed case.
@@ -62,7 +80,7 @@ picurv run --post-process --run-dir runs/<run_id> --post dit_case/post.yml
 ```
 
 That writes, per window, a `.vts` per processed step under
-`visualization/dit/` and one convergence-history `.csv` recording sample count,
+`<run.visualization>/dit/` and one convergence-history `.csv` recording sample count,
 accumulated weight, represented time, mask coverage, and the domain-mean TKE.
 
 ## Energy spectra

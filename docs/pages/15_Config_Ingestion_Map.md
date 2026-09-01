@@ -25,7 +25,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `case.models.domain.blocks` | `-nblk` | `src/setup.c` | `src/grid.c` |
 | paired `case.boundary_conditions` periodic faces | BC rows; periodic axes are derived in C | `src/Boundaries.c`, `src/io.c` (`DeterminePeriodicity`) | `src/grid.c` DMDA creation, periodic field synchronization |
 | `case.models.physics.particles.*` | `-numParticles`, `-pinit`, `-particle_restart_mode`, `-psrc_*` | `src/setup.c` | `src/ParticleSwarm.c`, `src/ParticleMotion.c`, statistics kernels |
-| `case.models.physics.turbulence.*` | `-les`, `-const_cs`, `-max_cs`, `-dynamic_freq`, `-testfilter_ik`, `-rans`, `-wallfunction`, `-wall_roughness` | `src/setup.c` | `src/solvers.c`, `src/les.c`, `src/Filter.c`, `src/Boundaries.c`, `src/wallfunction.c` |
+| `case.models.physics.turbulence.*` | `-les`, `-les_constant_cs`, `-les_dynamic_frequency`, `-les_filter_width`, `-les_test_filter_kernel`, `-les_test_filter_width_ratio`, `-les_averaging_mode`, `-les_averaging_directions`, `-les_clip_mode`, `-les_clip_max_cs`, `-les_min_viscosity_ratio`, `-les_yoshizawa_ci`, `-les_gradient_model`, `-les_diagnostics`, `-les_diagnostics_cadence`, `-rans`, `-wallfunction`, `-wall_roughness` | `src/setup.c` | `src/solvers.c`, `src/les.c`, `src/Filter.c`, `src/rhs.c`, `src/Boundaries.c`, `src/wallfunction.c` |
 | `solver.interpolation.method` | `-interpolation_method` | `src/setup.c` | `src/interpolation.c` (dispatch in @ref InterpolateEulerFieldToSwarm) |
 | `case.boundary_conditions` | `bcs*.run` rows | BC parser path (`src/Boundaries.c` + helpers) | BC handler factory and boundary application |
 | `solver.operation_mode.*` | `-euler_field_source`, `-analytical_type`, `-analytical_uniform_u/-v/-w` | `src/setup.c` | `src/initialcondition.c`, `src/grid.c`, `src/AnalyticalSolutions.c` |
@@ -105,9 +105,23 @@ Some launcher behaviors depend on other config selections before values ever rea
 This means the YAML contract is intentionally stricter than "whatever C would do with missing
 options" in several places.
 
-@section p15_maintenance_sec 6. Drift Prevention
+@section p15_safety_sec 6. Safety-Critical Ingress
 
-- Use `tests/tooling/audit_ingress.py` to compare PETSc option ingress in `setup.c/io.c` with the maintained manifest.
+`-allow_unsafe_log_dir` is generated **only** when
+`monitor.io.directories.allow_unsafe_paths` is a real YAML boolean `true`. It carries an
+explicit authorization across the Python/C boundary: the runtime performs its own
+containment check before recursively deleting the log directory, and waives the
+external-location restriction only when this option is present. It never waives a
+run-root target, a reserved run directory, a log/output overlap, or a malformed value.
+
+It is a reserved flag: raw PETSc passthrough cannot set it, so authorization cannot be
+forged. See @ref p71_isolation_sub.
+
+@section p15_maintenance_sec 7. Drift Prevention
+
+- Use `tests/tooling/audit_ingress.py` to compare PETSc option ingress with the maintained
+  manifest. The manifest's own `sources` list is authoritative for which files are scanned;
+  it currently covers `src/setup.c`, `src/io.c`, and `src/statistics_config.c`.
 - Keep this map and the manifest updated whenever new options are introduced.
 - Run manually with:
   - `python3 tests/tooling/audit_ingress.py`
@@ -115,25 +129,3 @@ options" in several places.
 
 For roadmap-oriented workflow extensions built on this contract, see **@subpage 17_Workflow_Extensibility**.
 For selector-specific contributor hook points, see **@subpage 50_Modular_Selector_Extension_Guide**.
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Developer Ingestion Map** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

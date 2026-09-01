@@ -1369,9 +1369,17 @@ def test_parse_model_flags_maps_structured_turbulence_options():
                     "les": {
                         "enabled": True,
                         "model": "dynamic_smagorinsky",
-                        "max_cs": 0.42,
                         "dynamic_frequency": 3,
-                        "test_filter": "homogeneous_ik",
+                        "filter_width": "max_edge",
+                        "test_filter": {"kernel": "simpson_ik", "width_ratio": 2.5},
+                        "averaging": {"mode": "homogeneous", "directions": ["i", "k"]},
+                        "clipping": {
+                            "mode": "none",
+                            "max_cs": 0.42,
+                            "min_viscosity_ratio": 0.25,
+                        },
+                        "gradient_model": {"enabled": True},
+                        "diagnostics": {"enabled": True, "cadence": 5, "yoshizawa_ci": 0.11},
                     },
                     "rans": {"enabled": False},
                     "wall_function": {
@@ -1388,9 +1396,19 @@ def test_parse_model_flags_maps_structured_turbulence_options():
     picurv.parse_and_add_model_flags(case_cfg, control_lines)
 
     assert "-les 2" in control_lines
-    assert "-max_cs 0.42" in control_lines
-    assert "-dynamic_freq 3" in control_lines
-    assert "-testfilter_ik 1" in control_lines
+    assert "-les_dynamic_frequency 3" in control_lines
+    assert "-les_filter_width 2" in control_lines
+    assert "-les_test_filter_kernel 1" in control_lines
+    assert "-les_test_filter_width_ratio 2.5" in control_lines
+    assert "-les_averaging_mode 1" in control_lines
+    assert "-les_averaging_directions ik" in control_lines
+    assert "-les_clip_mode 2" in control_lines
+    assert "-les_clip_max_cs 0.42" in control_lines
+    assert "-les_min_viscosity_ratio 0.25" in control_lines
+    assert "-les_gradient_model 1" in control_lines
+    assert "-les_diagnostics true" in control_lines
+    assert "-les_diagnostics_cadence 5" in control_lines
+    assert "-les_yoshizawa_ci 0.11" in control_lines
     assert "-rans 0" in control_lines
     assert "-wallfunction 1" in control_lines
     assert "-wall_roughness 1e-05" in control_lines
@@ -1415,6 +1433,212 @@ def test_parse_model_flags_preserves_legacy_les_true_constant_smagorinsky():
     picurv.parse_and_add_model_flags(case_cfg, control_lines)
 
     assert "-les 1" in control_lines
+
+
+def _les_case(les_cfg, periodic_axes="ik"):
+    """!
+    @brief Builds a minimal case mapping carrying one LES block and chosen periodicity.
+    @param[in] les_cfg The `models.physics.turbulence.les` mapping to validate.
+    @param[in] periodic_axes Subset of "ijk" whose face pairs are declared PERIODIC.
+    @return A case.yml-shaped mapping.
+    """
+    faces = {"i": ("-Xi", "+Xi"), "j": ("-Eta", "+Eta"), "k": ("-Zeta", "+Zeta")}
+    boundary = []
+    for axis, pair in faces.items():
+        bc_type = "PERIODIC" if axis in periodic_axes else "WALL"
+        handler = "geometric" if axis in periodic_axes else "noslip"
+        boundary.extend({"face": face, "type": bc_type, "handler": handler} for face in pair)
+    return {
+        "models": {"physics": {"turbulence": {"les": les_cfg}}},
+        "boundary_conditions": boundary,
+    }
+
+
+def _les_validation(les_cfg, periodic_axes="ik"):
+    """!
+    @brief Runs LES validation over one block and returns its findings.
+    @param[in] les_cfg The `models.physics.turbulence.les` mapping to validate.
+    @param[in] periodic_axes Subset of "ijk" whose face pairs are declared PERIODIC.
+    @return Tuple of (errors, warnings) as lists of strings.
+    """
+    picurv = load_picurv_module()
+    case_cfg = _les_case(les_cfg, periodic_axes)
+    errors, warnings = [], []
+    picurv.validate_les_configuration(case_cfg, les_cfg, "case.yml", errors, warnings)
+    return errors, warnings
+
+
+def test_les_homogeneous_averaging_defaults_to_the_periodic_axes():
+    """!
+    @brief Test that homogeneous averaging needs no directions when axes are periodic.
+    """
+    errors, warnings = _les_validation(
+        {"enabled": True, "model": "dynamic_smagorinsky", "averaging": {"mode": "homogeneous"}}
+    )
+    assert errors == []
+    assert warnings == []
+
+
+def test_les_homogeneous_averaging_without_any_periodic_axis_is_rejected():
+    """!
+    @brief Test that homogeneous averaging with nothing to derive from is refused.
+    """
+    errors, _ = _les_validation(
+        {"enabled": True, "model": "dynamic_smagorinsky", "averaging": {"mode": "homogeneous"}},
+        periodic_axes="",
+    )
+    assert any("declares none" in error for error in errors)
+
+
+def test_les_averaging_direction_outside_periodic_axes_warns_but_is_allowed():
+    """!
+    @brief Test that claiming homogeneity the BCs do not show is the user's to make.
+    """
+    errors, warnings = _les_validation(
+        {
+            "enabled": True,
+            "model": "dynamic_smagorinsky",
+            "averaging": {"mode": "homogeneous", "directions": ["j"]},
+        }
+    )
+    assert errors == []
+    assert any("does not declare PERIODIC" in warning for warning in warnings)
+
+
+def test_les_averaging_directions_are_rejected_outside_homogeneous_mode():
+    """!
+    @brief Test that local and global averaging refuse an explicit direction list.
+    """
+    errors, _ = _les_validation(
+        {
+            "enabled": True,
+            "model": "dynamic_smagorinsky",
+            "averaging": {"mode": "global", "directions": ["i"]},
+        }
+    )
+    assert any("applies only to mode 'homogeneous'" in error for error in errors)
+
+
+def test_les_simpson_filter_requires_declared_homogeneous_directions():
+    """!
+    @brief Test that the Simpson stencil is refused where its assumption does not hold.
+    """
+    rejected, _ = _les_validation(
+        {
+            "enabled": True,
+            "model": "dynamic_smagorinsky",
+            "test_filter": {"kernel": "simpson_ik"},
+        },
+        periodic_axes="i",
+    )
+    assert any("simpson_ik" in error for error in rejected)
+
+    accepted, _ = _les_validation(
+        {
+            "enabled": True,
+            "model": "dynamic_smagorinsky",
+            "test_filter": {"kernel": "simpson_ik"},
+        },
+        periodic_axes="ik",
+    )
+    assert accepted == []
+
+
+def test_les_test_filter_width_ratio_must_exceed_one():
+    """!
+    @brief Test that a test filter no wider than the grid filter is refused.
+    """
+    errors, _ = _les_validation(
+        {
+            "enabled": True,
+            "model": "dynamic_smagorinsky",
+            "test_filter": {"width_ratio": 1.0},
+        }
+    )
+    assert any("width_ratio" in error for error in errors)
+
+
+def test_les_dynamic_only_keys_are_rejected_for_the_constant_model():
+    """!
+    @brief Test that dynamic-procedure controls are refused for a prescribed coefficient.
+    """
+    errors, _ = _les_validation(
+        {
+            "enabled": True,
+            "model": "constant_smagorinsky",
+            "averaging": {"mode": "local"},
+        }
+    )
+    assert any("cannot be used with model 'constant_smagorinsky'" in error for error in errors)
+
+
+def test_les_max_cs_outside_clamp_mode_warns_that_it_is_ignored():
+    """!
+    @brief Test that a ceiling no mode applies is reported rather than silently dropped.
+    """
+    errors, warnings = _les_validation(
+        {
+            "enabled": True,
+            "model": "dynamic_smagorinsky",
+            "clipping": {"mode": "none", "max_cs": 0.3},
+        }
+    )
+    assert errors == []
+    assert any("only applied by" in warning for warning in warnings)
+
+
+def test_les_unknown_selector_values_are_named_in_the_error():
+    """!
+    @brief Test that a mistyped selector reports the accepted values.
+    """
+    picurv = load_picurv_module()
+    for normalizer, bad in (
+        (picurv.normalize_les_filter_width, "cuberoot"),
+        (picurv.normalize_les_averaging_mode, "planar"),
+        (picurv.normalize_les_clip_mode, "clip"),
+        (picurv.normalize_les_test_filter, "homogeneous_ik"),
+    ):
+        with pytest.raises(ValueError, match="Use one of"):
+            normalizer(bad)
+
+
+def test_les_averaging_directions_reject_repeats_and_unknown_axes():
+    """!
+    @brief Test that the direction list refuses duplicates and non-axis tokens.
+    """
+    picurv = load_picurv_module()
+    assert picurv.normalize_les_averaging_directions(["k", "i"]) == "ik"
+    with pytest.raises(ValueError, match="repeated"):
+        picurv.normalize_les_averaging_directions(["i", "i"])
+    with pytest.raises(ValueError, match="Unknown LES averaging direction"):
+        picurv.normalize_les_averaging_directions(["x"])
+
+
+def test_les_yoshizawa_constant_is_reachable_from_yaml():
+    """!
+    @brief Test the Yoshizawa constant is a documented key, not a passthrough-only flag.
+    """
+    picurv = load_picurv_module()
+    control_lines = []
+    picurv.append_les_parameter_flags(
+        {"diagnostics": {"enabled": True, "yoshizawa_ci": 0.07}}, control_lines)
+    assert "-les_yoshizawa_ci 0.07" in control_lines
+
+    errors, _ = _les_validation(
+        {"enabled": True, "model": "dynamic_smagorinsky",
+         "diagnostics": {"enabled": True, "yoshizawa_ci": -1.0}}
+    )
+    assert any("yoshizawa_ci" in error for error in errors)
+
+
+def test_les_test_filter_accepts_a_bare_kernel_name():
+    """!
+    @brief Test that the scalar shorthand for test_filter still emits the kernel flag.
+    """
+    picurv = load_picurv_module()
+    control_lines = []
+    picurv.append_les_parameter_flags({"test_filter": "volume_weighted_box"}, control_lines)
+    assert "-les_test_filter_kernel 0" in control_lines
 
 
 def test_parse_model_flags_allows_minimal_disabled_turbulence_blocks():

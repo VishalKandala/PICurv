@@ -99,6 +99,16 @@ surfaces use them: `Eddy Viscosity` for `Nu_t`, `Cs` for `CS`,
 `Center-Coordinates` for `Cent`, and the `X/Y/Z-Face-Centers` names for
 `Centx/Centy/Centz`. Aliases do not create additional field identities.
 
+@warning `CS` stores the LES model coefficient `C`, the factor multiplying
+`Delta^2 |S|` in the eddy viscosity. In the classical notation that is `Cs^2`, not
+`Cs`, and under `clipping.mode: none` it is signed, because a negative coefficient is
+backscatter. Its `Cs` alias is a display name inherited from the diagnostic surfaces,
+not a statement about the stored quantity; readers wanting `Cs` itself should take the
+signed square root, which is what @ref p72_diagnostics_sec reports. The field carries
+`FIELD_AVAILABILITY_LES_DYNAMIC` and therefore exists only for
+@ref p07_cap_les_dynamic_smagorinsky "dynamic_smagorinsky"; the constant model reads
+its coefficient from configuration and allocates no field.
+
 @section p56_layout_sec 4. Layout, Boundaries, and Ghost Values
 
 The catalog's topology is based on the solver's shifted/staggered architecture,

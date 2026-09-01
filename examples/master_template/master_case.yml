@@ -220,14 +220,113 @@ models:
       #   les: true        -> -les 1 (constant Smagorinsky)
       #   les: 1           -> constant Smagorinsky
       #   les: 2           -> dynamic Smagorinsky
+      # WARNING: both LES models are known-defective and unsafe for scientific use.
+      #   dynamic_smagorinsky - M_ij carries no dynamic content.
+      #   constant_smagorinsky - coefficient stays zero on a fresh run.
+      # Records: tests/tooling/capability_scope_records.json
       les:
+        # [Boolean] -> -les 0 when false
         enabled: false
-        # model is only needed when enabled: true. Options: constant_smagorinsky | dynamic_smagorinsky
+
+        # Which subgrid closure to evaluate. Only needed when enabled: true.
+        #   constant_smagorinsky -> a prescribed coefficient; no coefficient field is
+        #                           allocated, checkpointed, or synchronized.
+        #   dynamic_smagorinsky  -> the Germano-Lilly procedure measures the
+        #                           coefficient from the resolved field each update.
+        # [String] -> -les
         # model: "constant_smagorinsky"
-        constant_cs: 0.03             # -> -const_cs; used by constant_smagorinsky
-        max_cs: 0.5                   # -> -max_cs; clip for dynamic_smagorinsky
-        dynamic_frequency: 1          # -> -dynamic_freq; recompute dynamic Cs every N steps
-        test_filter: "volume_weighted_box" # volume_weighted_box | homogeneous_ik -> -testfilter_ik
+
+        # The fixed Smagorinsky constant. constant_smagorinsky only.
+        # [Number] -> -les_constant_cs
+        constant_cs: 0.03
+
+        # Recompute the dynamic coefficient every N steps. dynamic_smagorinsky only;
+        # the constant model has nothing to recompute.
+        # [Integer] -> -les_dynamic_frequency
+        dynamic_frequency: 1
+
+        # How each cell's grid filter width Delta is derived.
+        #   cube_root_volume -> (cell volume)^(1/3); exact for a cube and increasingly
+        #                       optimistic as the cell is stretched.
+        #   geometric_mean   -> geometric mean of the Cartesian cell extents.
+        #   max_edge         -> the longest extent; conservative on stretched grids.
+        # [String] -> -les_filter_width
+        filter_width: "cube_root_volume"
+
+        # The explicit second filter the dynamic procedure compares against the grid
+        # filter. A bare string is accepted as shorthand for naming only the kernel.
+        test_filter:
+          #   volume_weighted_box -> general curvilinear grids.
+          #   simpson_ik          -> more accurate, but assumes xi and zeta are
+          #                          homogeneous; rejected unless both are PERIODIC.
+          # [String] -> -les_test_filter_kernel
+          kernel: "volume_weighted_box"
+
+          # Test-to-grid filter width ratio. alpha is its square. Must exceed 1: a test
+          # filter no wider than the grid filter leaves nothing to measure.
+          # [Number] -> -les_test_filter_width_ratio
+          width_ratio: 2.0
+
+        # Lilly's least-squares closure assumes the coefficient is constant across the
+        # averaging set, so the set should span directions the flow is homogeneous in.
+        averaging:
+          #   local       -> pointwise; the only choice valid on arbitrary geometry.
+          #   homogeneous -> average over the directions named below, or over the
+          #                  periodic axes when none are named. A triply periodic box
+          #                  gives one coefficient; a channel gives a wall-normal profile.
+          #   global      -> average over the whole block regardless of boundaries.
+          # [String] -> -les_averaging_mode
+          mode: "local"
+
+          # Explicit homogeneous directions, overriding the periodic default.
+          # homogeneous mode only.
+          # [List] -> -les_averaging_directions
+          # directions: ["i", "k"]
+
+        clipping:
+          #   clamp         -> restrict to [0, max_cs^2].
+          #   clip_negative -> discard negatives, impose no ceiling.
+          #   none          -> keep the signed coefficient, so backscatter survives.
+          # Discarding the negative tail removes backscatter and biases the mean
+          # dissipation upward; the floor below is the safer way to bound the model.
+          # [String] -> -les_clip_mode
+          mode: "clamp"
+
+          # Ceiling on Cs, not on the stored coefficient. clamp mode only.
+          # [Number] -> -les_clip_max_cs
+          max_cs: 0.3
+
+          # Enforce nu + nu_t >= ratio * nu. Bounds the quantity that actually has to
+          # stay positive for the momentum operator to remain well posed.
+          # [Number] -> -les_min_viscosity_ratio
+          min_viscosity_ratio: 0.0
+
+        # The Clark gradient (tensor-diffusivity) term, added to the viscous flux.
+        # Combined with a Smagorinsky closure this is the mixed model. Not supported by
+        # the Newton-Krylov momentum solver.
+        gradient_model:
+          # [Boolean] -> -les_gradient_model
+          enabled: false
+
+        # Per-step coefficient statistics appended to logs/les_coefficient.csv:
+        # the effective Cs, its spread, eddy-viscosity levels, the modelled subgrid
+        # energy, and the fractions of the domain backscattering or limited before
+        # clipping. Those last two describe a state no stored field preserves.
+        diagnostics:
+          # [Boolean] -> -les_diagnostics
+          enabled: false
+
+          # Steps between rows.
+          # [Integer] -> -les_diagnostics_cadence
+          cadence: 1
+
+          # Yoshizawa constant C_I for the reported subgrid kinetic energy,
+          # k_sgs = 2 C_I Delta^2 |S|^2. Affects the k_sgs_mean column only, never the
+          # eddy viscosity or the momentum equations. Compare it against the resolved
+          # turbulent kinetic energy from monitor.yml -> field_statistics to judge how
+          # much of the energy the grid resolves.
+          # [Number] -> -les_yoshizawa_ci
+          yoshizawa_ci: 0.09
 
       # RANS selector. The k-omega runtime path is accepted but currently incomplete.
       rans:
@@ -365,7 +464,8 @@ boundary_conditions:
 #   handler: constant_flux              Drives a constant volume flux through the periodic pair.
 #     type: PERIODIC
 #     params:
-#       target_flux: 1.0              Target non-dimensional volumetric flux [m^3/s / (U_ref * L_ref^2)].
+#       target_flux: 1.0              Target volumetric flux in PHYSICAL units [m^3/s]; picurv
+#                                     divides it by (U_ref * L_ref^2) before the C runtime.
 #       enforce_seam_flux: false      [true/false] Optional, default false. Adds a local
 #                                     correction to the face fluxes of the periodic SEAM PLANE
 #                                     so the flux through that one plane matches the target.

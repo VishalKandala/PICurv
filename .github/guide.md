@@ -12,7 +12,11 @@ CI here is intentionally scoped to high-signal checks that fail fast when contra
   `make install-git-hooks` is enabled in a clone, that hook runs the full
   runtime-backed `make certify-docs` gate for runtime-relevant changes and a
   recent-certificate-aware structural gate for documentation-only changes.
-- `workflows/quality.yml`: runs CLI smoke tests and markdown link checks.
+- `workflows/quality.yml`: runs the Python and documentation-quality gates, verifies
+  the portable agent setup, builds the Doxygen/xref artifact, and checks links and
+  published-site structure.
+- `PULL_REQUEST_TEMPLATE.md`: prompts contributors for bounded scope, reuse decisions,
+  behavior/contracts, verification gaps, and confirmed versus plausible review claims.
 
 ## How To Evolve Workflows Safely
 
@@ -25,3 +29,4 @@ CI here is intentionally scoped to high-signal checks that fail fast when contra
 
 - `docs/pages/40_Testing_and_Quality_Guide.md`
 - `docs/pages/35_API_Documentation_Status.md`
+- `CONTRIBUTING.md`

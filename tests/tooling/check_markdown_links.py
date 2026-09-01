@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""Basic local markdown link checker for README, docs, and example guides."""
+"""Local markdown link checker across every Markdown file the current commit carries."""
+
+from __future__ import annotations
 
 import argparse
+import subprocess
 import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from repo_files import enumerate_repository_files  # noqa: E402
 
 
 LINK_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)|\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
@@ -17,14 +23,14 @@ def parse_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Check local markdown links for README.md plus docs/examples trees.\n"
+            "Check local markdown links across every repository Markdown file.\n"
             "HTTP(S), mailto, and in-page anchor links are skipped."
         ),
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=(
             "Examples:\n"
             "  python3 tests/tooling/check_markdown_links.py\n"
-            "  python3 tests/tooling/check_markdown_links.py --repo-root . --docs-dir docs --examples-dir examples\n"
+            "  python3 tests/tooling/check_markdown_links.py --repo-root .\n"
             "  python3 tests/tooling/check_markdown_links.py --no-readme"
         ),
     )
@@ -35,16 +41,6 @@ def parse_args() -> argparse.Namespace:
         help="Repository root directory (default: parent of this script).",
     )
     parser.add_argument(
-        "--docs-dir",
-        default="docs",
-        help="Docs subtree under repo root to scan recursively for *.md (default: docs).",
-    )
-    parser.add_argument(
-        "--examples-dir",
-        default="examples",
-        help="Examples subtree under repo root to scan recursively for *.md (default: examples).",
-    )
-    parser.add_argument(
         "--no-readme",
         action="store_true",
         help="Skip README.md in scan set.",
@@ -52,26 +48,39 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def iter_markdown_files(repo_root: Path, docs_dir: str, examples_dir: str, include_readme: bool):
+SKIP_DIRS = {".git", "docs_build", "obj", "bin", "stubs", "runs", "studies", "__pycache__", ".pytest_cache"}
+
+
+def git_markdown(repo_root: Path) -> list[Path] | None:
     """!
-    @brief Yield markdown files from configured roots.
-    @param[in] repo_root Argument passed to `iter_markdown_files()`.
-    @param[in] docs_dir Argument passed to `iter_markdown_files()`.
-    @param[in] examples_dir Argument passed to `iter_markdown_files()`.
-    @param[in] include_readme Argument passed to `iter_markdown_files()`.
+    @brief List tracked plus non-ignored untracked Markdown files, so the scan set is
+           reproducible for a given commit regardless of local build or scratch output.
+    @param[in] repo_root Repository root directory.
+    @return Sorted Markdown paths, or None when git enumeration is unavailable.
     """
-    if include_readme:
-        yield repo_root / "README.md"
+    return enumerate_repository_files(repo_root, ".md")
 
-    docs_root = repo_root / docs_dir
-    examples_root = repo_root / examples_dir
 
-    for md in sorted(docs_root.rglob("*.md")):
-        if "docs_build" in md.parts:
+def iter_markdown_files(repo_root: Path, include_readme: bool):
+    """!
+    @brief Yield every repository Markdown file the current commit would carry.
+    @param[in] repo_root Repository root directory.
+    @param[in] include_readme Whether the top-level README participates in the scan.
+    @return Generator of Markdown paths.
+    """
+    candidates = git_markdown(repo_root)
+    if candidates is None:
+        # Fallback for a non-git export: walk the tree and skip generated/scratch trees.
+        candidates = sorted(repo_root.rglob("*.md"))
+    for markdown in candidates:
+        if not markdown.is_file():
             continue
-        yield md
-    for md in sorted(examples_root.rglob("*.md")):
-        yield md
+        parts = markdown.relative_to(repo_root).parts
+        if SKIP_DIRS.intersection(parts):
+            continue
+        if not include_readme and markdown == repo_root / "README.md":
+            continue
+        yield markdown
 
 
 def should_skip_link(target: str) -> bool:
@@ -108,12 +117,8 @@ def main() -> int:
     repo_root = args.repo_root.resolve()
     failures = []
 
-    for md_file in iter_markdown_files(
-        repo_root,
-        docs_dir=args.docs_dir,
-        examples_dir=args.examples_dir,
-        include_readme=not args.no_readme,
-    ):
+    scanned = list(iter_markdown_files(repo_root, include_readme=not args.no_readme))
+    for md_file in scanned:
         if not md_file.is_file():
             failures.append((str(md_file), "<file>", "Markdown file not found"))
             continue
@@ -140,12 +145,7 @@ def main() -> int:
             print(f"  - {src}: '{target}' -> missing '{resolved}'")
         return 1
 
-    scope = []
-    if not args.no_readme:
-        scope.append("README.md")
-    scope.append(f"{args.docs_dir}/**/*.md")
-    scope.append(f"{args.examples_dir}/**/*.md")
-    print(f"Markdown link check passed for {', '.join(scope)}")
+    print(f"Markdown link check passed for {len(scanned)} repository Markdown files.")
     return 0
 
 

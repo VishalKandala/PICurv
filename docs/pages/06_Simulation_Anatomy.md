@@ -6,6 +6,15 @@ PICurv runs are composed from modular inputs. This lets you swap physics, numeri
 
 @tableofcontents
 
+@dotfile config_pipeline.dot "From authored YAML to generated artifacts to runtime"
+
+Nothing in the C runtime reads your YAML. `picurv validate` is the only translator:
+it checks the contracts, applies non-dimensionalization, and writes the generated
+control artifacts the runtime actually consumes. That is why a change that does not
+pass validation never reaches the solver, and why the generated files under
+`<run.config>` are the authoritative record of what a run was actually told to do.
+
+
 @section p06_roles_sec 1. Logical Inputs
 
 A single-run workflow uses five logical inputs:
@@ -40,7 +49,7 @@ In practice, users often keep one validated `case.yml`, then compare multiple `s
 
 @section p06_artifacts_sec 3. YAML -> Runtime Artifacts
 
-`picurv` validates inputs, then generates C-facing artifacts under `runs/<run_id>/config/`:
+`picurv` validates inputs, then generates C-facing artifacts under `<run.config>/`:
 
 - `<run_id>.control`
 - `bcs.run` or `bcs_block*.run`
@@ -76,25 +85,3 @@ For full contract and ingestion mapping, also see:
 - **@subpage 52_Run_Lifecycle_Guide**
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 - **@subpage 21_Methods_Overview**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Anatomy of a Simulation** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

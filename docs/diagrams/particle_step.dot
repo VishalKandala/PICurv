@@ -1,0 +1,23 @@
+digraph particle_step {
+  rankdir=TB;
+  bgcolor="transparent";
+  node [shape=box, style="rounded,filled", fillcolor="#f4f4f6", color="#8a8a93",
+        fontname="Helvetica", fontsize=10, penwidth=1.2];
+  edge [color="#8a8a93", fontname="Helvetica", fontsize=9, penwidth=1.1];
+
+  setup [label="Setup (t = 0)\nsettle + one interpolation\nbefore the loop begins", fillcolor="#f0ecf6"];
+  flow  [label="FlowSolver\nEulerian step -> u(t_{n+1})", fillcolor="#e8eef8"];
+  diff  [label="1. Refresh diffusivity\n(only when LES/RANS active)"];
+  adv   [label="2. Advect\nX += (u_p + grad D) dt + dX_brownian\nuses state from t_n"];
+  loc   [label="3. Settle\nlocate host cells, migrate ranks"];
+  rm    [label="4. Remove lost particles"];
+  interp[label="5. Interpolate\nNEW field -> particle state\ngives u_p(t_{n+1})", fillcolor="#e6f2e6"];
+  upd   [label="6. Update particle fields"];
+  scat  [label="7. Scatter particle Psi\nto the Eulerian Psi field\n(scalar, not momentum)"];
+
+  setup -> flow [style=dashed, label="once"];
+  flow -> diff -> adv -> loc -> rm -> interp -> upd -> scat;
+  scat -> flow [label="next physical step", constraint=false, style=dashed];
+  adv -> interp [label="advect BEFORE interpolate:\nthe defining property of this loop",
+                 style=dotted, constraint=false, fontsize=8];
+}

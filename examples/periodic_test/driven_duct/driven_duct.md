@@ -81,5 +81,11 @@ of a wall-respecting perturbed initial-condition generator — apply here too, a
 bite harder: a duct will not develop turbulence from a laminar seed at this
 Reynolds number without a finite-amplitude perturbation.
 
+The momentum-convergence blocker carries a status caveat: it was measured on
+2026-08-24 and **requires re-characterization at current `HEAD`** after the
+2026-08-25 convergence-criterion change. See
+`docs/pages/54_Geometric_Periodic_Boundaries.md`, section 5.7, for the canonical
+dated statement. The initial-condition gap is unaffected and still stands.
+
 Validate the plane channel first. It is cheaper, it has an exact laminar answer,
 and it isolates the flux controller from everything the duct adds.

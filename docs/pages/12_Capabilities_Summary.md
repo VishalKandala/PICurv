@@ -2,6 +2,8 @@
 
 @anchor _Capabilities_Summary
 
+@pagemeta{Reference, All readers, Capability statuses enforced by make audit-capability}
+
 This page summarizes current capabilities from YAML + `picurv` without editing C source.
 It is organized by workflow stage rather than just a feature bullet list.
 
@@ -41,13 +43,35 @@ Particle controls include:
 
 Particle positions are not currently wrapped across periodic boundaries.
 
+@subsection p12_turbulence_ssec 2.1 Turbulence Models
+
+Two LES closures are selectable. `constant_smagorinsky` applies a prescribed
+coefficient and allocates no coefficient field. `dynamic_smagorinsky` measures the
+coefficient each update through the Germano identity and Lilly's least-squares
+contraction, with selectable grid filter width, test-filter kernel and width ratio,
+coefficient averaging set, and limiting policy. Entries and full detail at
+@ref p07_les_sec; the formulation is derived in @ref 72_LES_Turbulence_Closure.
+
+@note Both models are **experimental**: they are implemented and unit-tested, but
+neither has been validated against a reference flow. The check that would settle the
+dynamic model is decaying isotropic turbulence with homogeneous averaging, where
+`Cs(t)` should settle near 0.16-0.17. Until such a run is recorded, treat coefficient
+magnitudes as uncharacterized.
+
+RANS (`k_omega`) is accepted by the configuration layer but its runtime update is
+incomplete. Wall functions are configured separately from both.
+
 @section p12_solver_sec 3. Numerical Solver Stack
 
 Momentum:
 
 - named momentum strategy selection,
-- active implementations: explicit RK and dual-time Picard Jameson RK,
-- tunable tolerances and pseudo-CFL controls.
+- active implementations: `Explicit RK4`, `Dual Time Picard Jameson RK`, and
+  `Newton Krylov` (see @ref p08_entries_sec for the comparison and status of each),
+- tunable tolerances and pseudo-CFL controls (Picard-Jameson only).
+
+@note `Explicit RK4` is `experimental`: it has no positive-path verification harness.
+`Dual Time Picard Jameson RK` is the production default.
 
 Pressure:
 
@@ -62,7 +86,7 @@ See method details in **@subpage 21_Methods_Overview**.
 Boundary capabilities include validated type-handler pairings across inlet/outlet/wall/periodic classes.
 Runtime controls include:
 
-- output/restart/log directory selection,
+- <run.solver_output>/restart/log directory selection,
 - function-level logging allowlists,
 - profiling critical function lists,
 - monitor verbosity and cadence controls,
@@ -131,25 +155,3 @@ Reference pages:
 2. **@subpage 21_Methods_Overview**
 3. **@subpage 31_Momentum_Solvers**
 4. **@subpage 34_Particle_Model_Overview**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Capabilities Summary** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

@@ -120,6 +120,10 @@ static PetscErrorCode PrepareContextOnlyConfig(char *tmpdir,
         "-logfreq 1\n"
         "-output_dir %s\n"
         "-restart_dir %s\n"
+        /* This fixture owns its temporary tree and wants it wiped. That is an external
+         * absolute path, so it authorizes the delete explicitly - the runtime guard
+         * makes no exception for tests. */
+        "-allow_unsafe_log_dir true\n"
         "-log_dir %s\n"
         "-numParticles 0\n"
         "-pinit 2\n",

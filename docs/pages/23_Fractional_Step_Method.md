@@ -6,6 +6,13 @@ PICurv uses a projection-style incompressible update: momentum predictor, pressu
 
 @tableofcontents
 
+@dotfile fractional_step.dot "One physical timestep of the fractional-step scheme"
+
+@note Diagram shows the sequence as implemented. The discrete forms of each stage are
+not yet written on this page - see the scaffolding note at the end. Flagged for owner
+validation of the scientific interpretation.
+
+
 @section p23_equations_sec 1. Discrete Method Skeleton
 
 Given velocity \f$\mathbf{u}^n\f$, the solver computes a provisional field \f$\mathbf{u}^*\f$ from momentum terms, then solves pressure correction:
@@ -59,26 +66,3 @@ Persistent divergence or noisy pressure correction usually indicates a Poisson t
 - **@subpage 24_Dual_Time_Picard_Jameson_RK**
 - **@subpage 25_Pressure_Poisson_GMRES_Multigrid**
 - **@subpage 39_Common_Fatal_Errors**
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Fractional-Step (Projection) Method** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
-

@@ -939,6 +939,20 @@ def runtime_stage_lock(root_path: str, stage: str):
             pass
 
 
+#: Output encodings shared with the rest of the CLI. Storage does not own this set.
+CLI_OUTPUT_FORMATS = ("text", "json")
+
+#: Archive compression policies `picurv storage` accepts. `auto` resolves to one of
+#: the concrete policies from the payload size.
+STORAGE_COMPRESSION_POLICIES = ("auto", "none", "fast", "balanced", "maximum")
+
+#: Archive suffix each resolved compression policy produces. `auto` never appears
+#: here: it resolves to one of the concrete policies before an extension is needed.
+STORAGE_COMPRESSION_EXTENSIONS = {
+    "none": ".tar", "fast": ".tar.gz", "balanced": ".tar.gz", "maximum": ".tar.xz",
+}
+
+
 def _select_compression(requested: str, total_bytes: int, profile: dict) -> str:
     """!
     @brief Resolve automatic or configured compression policy.
@@ -949,7 +963,7 @@ def _select_compression(requested: str, total_bytes: int, profile: dict) -> str:
     """
     selected = requested or profile.get("compression", "auto")
     selected = str(selected).strip().lower()
-    if selected not in {"auto", "none", "fast", "balanced", "maximum"}:
+    if selected not in STORAGE_COMPRESSION_POLICIES:
         raise StorageError("Compression must be one of: auto, none, fast, balanced, maximum.")
     if selected != "auto":
         return selected
@@ -966,7 +980,7 @@ def _chunk_extension(compression: str) -> str:
     @param[in] compression Value supplied through the `compression` argument.
     @return Result produced by this operation.
     """
-    return {"none": ".tar", "fast": ".tar.gz", "balanced": ".tar.gz", "maximum": ".tar.xz"}[compression]
+    return STORAGE_COMPRESSION_EXTENSIONS[compression]
 
 
 def _build_chunk_specs(inventory: dict, chunk_size_bytes: int) -> list:
@@ -1818,7 +1832,7 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
     setup.add_argument("--remote", required=True, help="Rclone remote and base path, such as labstore:picurv-data.")
     setup.add_argument("--profile", default=DEFAULT_PROFILE_NAME, help="Profile name (default: archive).")
     setup.add_argument("--storage-config", help=f"Storage YAML path (default: ./{STORAGE_CONFIG_FILENAME}).")
-    setup.add_argument("--compression", choices=["auto", "none", "fast", "balanced", "maximum"], default="auto")
+    setup.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES), default="auto")
     setup.add_argument("--chunk-size-gib", type=float, default=DEFAULT_CHUNK_SIZE_GIB)
     setup.add_argument("--staging-directory", help="Optional local directory for one archive chunk at a time.")
     setup.add_argument("--dry-run", action="store_true")
@@ -1847,12 +1861,12 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
 
     status = actions.add_parser("status", help="Show local, protected, cold, and busy artifact state.")
     add_local_target(status)
-    status.add_argument("--format", dest="output_format", choices=["text", "json"], default="text")
+    status.add_argument("--format", dest="output_format", choices=list(CLI_OUTPUT_FORMATS), default="text")
 
     plan = actions.add_parser("plan", help="Show packaging, dependencies, and safety checks without writing.")
     add_local_target(plan)
     add_profile_options(plan)
-    plan.add_argument("--compression", choices=["auto", "none", "fast", "balanced", "maximum"])
+    plan.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES))
 
     for name, help_text in (
         ("protect", "Upload and verify an archive while retaining all local files."),
@@ -1863,7 +1877,7 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
         add_profile_options(action_parser)
         action_parser.add_argument("--label", help="Human-readable searchable label.")
         action_parser.add_argument("--tag", dest="tags", action="append", help="Repeatable KEY=VALUE catalog tag.")
-        action_parser.add_argument("--compression", choices=["auto", "none", "fast", "balanced", "maximum"])
+        action_parser.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES))
         action_parser.add_argument("--dry-run", action="store_true")
 
     restore = actions.add_parser("restore", help="Restore a complete archive or selected checkpoints.")
@@ -1888,7 +1902,7 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
     list_parser = actions.add_parser("list", help="List/search remote archives without local directories.")
     add_profile_options(list_parser)
     list_parser.add_argument("--search", help="Case-insensitive search across IDs, labels, identities, and tags.")
-    list_parser.add_argument("--format", dest="output_format", choices=["text", "json"], default="text")
+    list_parser.add_argument("--format", dest="output_format", choices=list(CLI_OUTPUT_FORMATS), default="text")
 
     show = actions.add_parser("show", help="Print the complete manifest for one archive.")
     show.add_argument("--archive-id", required=True)

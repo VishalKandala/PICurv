@@ -1,0 +1,61 @@
+# QUICKSTART post recipe: targets step 20, matching the quickstart run length.
+# The standard recipe targets step 1000 and will skip a shorter run.
+# ==========================================================
+#         Post-Processing Profile: Standard Analysis
+# ==========================================================
+# A standard recipe to generate visualization files. It performs
+# cell-to-node averaging and calculates vorticity.
+# ==========================================================
+
+source_data:
+  directory: "<solver_output_dir>"
+
+run_control:
+  # Every step named here must be one the solver committed a checkpoint at, so the
+  # range and stride follow monitor.yml -> io.data_output_frequency, which is 100
+  # for this case over a 1000-step run. A stride finer than that cadence asks for
+  # steps that were never written, and validation rejects it.
+  # Analyze only the final timestep:
+  start_step: 20
+  end_step: 20
+  step_interval: 100
+  # For a movie over the whole run, use instead:
+  #   start_step: 0
+  #   end_step: 1000
+  #   step_interval: 100
+
+global_operations:
+  dimensionalize: true
+
+eulerian_pipeline:
+  - task: q_criterion
+
+  - task: nodal_average
+    input_field: 'P'
+    output_field: 'P_nodal'
+
+  - task: nodal_average
+    input_field: 'Ucat'
+    output_field: 'Ucat_nodal'
+
+  - task: normalize_field
+    field: 'P'
+    reference_point: [1, 1, 1]
+
+io:
+  output_directory: "visualization/standard_analysis"
+  output_filename_prefix: "eulerian_data"
+  particle_filename_prefix: "Particle"
+
+  eulerian_fields:
+    - 'Ucat_nodal'
+    - 'P_nodal'
+    - 'Qcrit'
+
+  output_particles: false
+  particle_fields: []
+  particle_subsampling_frequency: 1
+
+  input_extensions:
+    eulerian: "dat"
+    particle: "dat"

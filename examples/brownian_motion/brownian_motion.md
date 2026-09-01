@@ -45,7 +45,7 @@ the statistical noise at N = 50000.
   --post examples/brownian_motion/brownian_analysis.yml
 ```
 
-Output file: `<run_dir>/output/statistics/BrownianStats_msd.csv`
+Output file: `<run.solver_output>/statistics/BrownianStats_msd.csv`
 
 ---
 
@@ -158,5 +158,5 @@ This example is intentionally modular:
 
 For broader profile-composition examples, see:
 
-- https://vishalkandala.me/picurv-docs/49_Workflow_Recipes_and_Config_Cookbook.html
-- https://vishalkandala.me/picurv-docs/32_Analytical_Solutions.html
+- https://vishalkandala.me/docs/picurv/49_Workflow_Recipes_and_Config_Cookbook.html
+- https://vishalkandala.me/docs/picurv/32_Analytical_Solutions.html

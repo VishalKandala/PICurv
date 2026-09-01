@@ -58,8 +58,8 @@ Cell sizes: dx = dy ~ 0.196, dz ~ 0.020.
 ```
 
 Output files:
-- `<run_dir>/logs/interpolation_error.csv` -- per-step error statistics
-- `<run_dir>/viz/Particle_*.vtp` -- particle positions and velocities for ParaView
+- `<run.runtime_logs>/interpolation_error.csv` -- per-step error statistics
+- `<run.visualization>/Particle_*.vtp` -- particle positions and velocities for ParaView
 
 ---
 
@@ -103,7 +103,7 @@ Example local command:
 
 After each run, compare:
 
-- `<run_dir>/logs/interpolation_error.csv`
+- `<run.runtime_logs>/interpolation_error.csv`
 - max `L2_u`, `L2_v`, `Linf_u`, `Linf_v`
 - optional wall-clock/runtime usage from solver logs or scheduler accounting
 
@@ -117,7 +117,7 @@ aggregate comparison table, use the provided:
 
 - `particle_count_study.yml`
 
-This study uses explicit CSV metrics from `logs/interpolation_error.csv` rather
+This study uses explicit CSV metrics from `<run.runtime_logs>/interpolation_error.csv` rather
 than the default `msd_final` shorthand.
 
 Stage the study without submitting jobs:
@@ -147,7 +147,7 @@ What to inspect before submission:
 What to inspect after completion:
 
 - `studies/<study_id>/results/metrics_table.csv` (auto-collected by chained metrics job)
-- per-case `logs/interpolation_error.csv`
+- per-case `<run.runtime_logs>/interpolation_error.csv`
 - scheduler stdout/stderr files for any failed array task
 
 If a case is killed by the walltime guard (common for large particle counts),
@@ -309,6 +309,6 @@ This example is intentionally modular:
 
 ## Live Docs
 
-- https://vishalkandala.me/picurv-docs/32_Analytical_Solutions.html
-- https://vishalkandala.me/picurv-docs/37_Sweep_Studies_Guide.html
-- https://vishalkandala.me/picurv-docs/49_Workflow_Recipes_and_Config_Cookbook.html
+- https://vishalkandala.me/docs/picurv/32_Analytical_Solutions.html
+- https://vishalkandala.me/docs/picurv/37_Sweep_Studies_Guide.html
+- https://vishalkandala.me/docs/picurv/49_Workflow_Recipes_and_Config_Cookbook.html

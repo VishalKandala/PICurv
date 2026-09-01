@@ -25,25 +25,20 @@ jobs:
           sudo apt-get install -y doxygen graphviz
       - name: Run commit-scoped documentation gates
         run: python3 tests/tooling/certify_documentation.py --no-certificate
-      - name: Verify and patch key Doxygen index pages
+      # The certified build is the publication artifact: `make build-docs` already
+      # generates the structured indexes and injects theme-sync.js. This step only
+      # asserts that artifact is complete -- it must not modify it, or what ships
+      # would differ from what was certified.
+      - name: Verify certified artifact is complete
         run: |
           test -f docs_build/html/index.html
           test -f docs_build/html/pages.html
-          python3 tests/tooling/generate_doxygen_fallback_indexes.py \
-            --repo-root . \
-            --html-dir docs_build/html
+          test -f docs_build/html/files_structured.html
+          test -f docs_build/html/annotated_structured.html
+          test -f docs_build/html/theme-sync.js
+          test -f docs_build/xref.json
+          grep -q 'src="theme-sync.js"' docs_build/html/index.html
 
-          cp docs/theme-sync.js docs_build/html/theme-sync.js
-          for f in docs_build/html/*.html docs_build/html/search/*.html; do
-            [ -f "$f" ] || continue
-            case "$f" in
-              */search/*) sync_path="../theme-sync.js" ;;
-              *) sync_path="theme-sync.js" ;;
-            esac
-            if ! grep -q "theme-sync.js" "$f"; then
-              sed -i "s#</head>#<script type=\"text/javascript\" src=\"${sync_path}\"></script>\n</head>#g" "$f"
-            fi
-          done
       - name: Upload build artifact (for mirroring)
         uses: actions/upload-artifact@v4
         with:

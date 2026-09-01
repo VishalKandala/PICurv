@@ -1,0 +1,55 @@
+# QUICKSTART monitor: writes output every 10 steps so a 20-step run has something
+# to post-process. Use Standard_Output.yml for real work.
+# ==============================================================================
+#                   Monitor Profile: Standard Output
+# ==============================================================================
+# PURPOSE:
+# A standard monitoring profile for production runs. Keeps console output quiet
+# while preserving warnings and regular data output.
+# ==============================================================================
+
+# --- Logging ---
+logging:
+  verbosity: WARNING
+  enabled_functions: [] # Empty = use the C runtime's default allow-list.
+
+# --- Profiling ---
+profiling:
+  timestep_output:
+    mode: "off"
+  final_summary:
+    enabled: true
+
+diagnostics:
+  petsc:
+    malloc_debug: false
+    malloc_test: false
+    malloc_dump: false
+    malloc_view: false
+    malloc_view_threshold: null
+    memory_view: false
+    log_view: false
+    log_view_memory: false
+    log_all: false
+    log_trace: false
+    objects_dump: false
+    options_left: null
+  runtime_memory_log:
+    enabled: true
+    file: "Runtime_Memory.log"
+
+# --- I/O AND DATA MANAGEMENT ---
+io:
+  data_output_frequency: 10   # bounded quickstart: write often enough to post-process
+  particle_console_output_frequency: 100 # -> -particle_console_output_freq
+  particle_log_interval: 100  # -> -logfreq (row subsampling within snapshots)
+
+  directories:
+    output: "output"
+    restart: "restart"
+    log: "logs"
+
+solver_monitoring:
+  poisson:
+    pic_true_residual: false
+    converged_reason: false

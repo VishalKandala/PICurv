@@ -2,6 +2,8 @@
 
 @anchor _Config_Contract
 
+@pagemeta{Reference, Users and contributors, Current behavior}
+
 This page is the user-facing source of truth for the configuration contract implemented by `picurv`.
 It describes the launcher-level contract, which may be stricter or more explicit than the raw C defaults because `picurv` validates and normalizes inputs before runtime.
 
@@ -18,7 +20,7 @@ It describes the launcher-level contract, which may be stricter or more explicit
 5. MPI launch settings (`-n`, executable stage selection).
    - `-n/--num-procs` sizes both solver and field postprocessor launches.
    - optional site execution defaults can be supplied via nearest `.picurv-execution.yml`.
-6. (Cluster mode) `cluster.yml`: scheduler/resource/launcher contract.
+6. (Cluster mode) `cluster.yml`: <run.scheduler>/resource/launcher contract.
 7. (Sweep mode) `study.yml`: parameter matrix + metrics/plot contract.
 
 You can name files however you want. File names are not hardcoded on the C side; `picurv` resolves paths and emits generated artifacts.
@@ -55,7 +57,7 @@ For each run, `picurv` generates:
 - `boundary_conditions` supports single-block list or multi-block list-of-lists.
 - `INLET` + `prescribed_flow` supports `source.type: file`, `source.type: generated`,
   and `source.type: field_slice`. Generated square-duct Poiseuille profiles and
-  old-field slices are produced by Python, written under `config/`, summarized
+  old-field slices are produced by Python, written under `<run.config>/`, summarized
   in `profile.info`, then converted to the existing C-side `source_file` contract.
 - `solver_parameters` is an advanced passthrough map for raw flags not yet modeled in schema.
 - `properties.initial_conditions.mode` is `generated` or `file`.
@@ -136,10 +138,22 @@ For each run, `picurv` generates:
   are the structured scalar/Brownian transport controls; do not use passthrough
   for ordinary Schmidt-number tuning.
 - `case.yml -> models.physics.turbulence` is the structured turbulence control surface.
-  LES uses `les.enabled/model` plus `constant_cs`, `max_cs`, `dynamic_frequency`,
-  and `test_filter`; wall functions use `wall_function.enabled/model/roughness_height`.
-  Legacy `les: true` remains constant Smagorinsky (`-les 1`), while `les: 2`
-  selects dynamic Smagorinsky.
+  LES uses `les.enabled/model` plus `constant_cs` -> `-les_constant_cs`,
+  `dynamic_frequency` -> `-les_dynamic_frequency`, `filter_width` ->
+  `-les_filter_width`, the `test_filter` block (`kernel`, `width_ratio`), the
+  `averaging` block (`mode`, `directions`), the `clipping` block (`mode`, `max_cs`,
+  `min_viscosity_ratio`), `gradient_model.enabled` -> `-les_gradient_model`, and the
+  `diagnostics` block (`enabled`, `cadence`, `yoshizawa_ci`). Wall functions use
+  `wall_function.enabled/model/roughness_height`. Legacy `les: true` remains constant
+  Smagorinsky (`-les 1`), while `les: 2` selects dynamic Smagorinsky.
+
+  The dynamic-procedure blocks are rejected under `model: constant_smagorinsky` rather
+  than silently ignored, and `test_filter.kernel: simpson_ik` is rejected unless the
+  case declares both xi and zeta `PERIODIC`, since that stencil assumes they are
+  homogeneous.
+
+@note Both LES models are **experimental**: implemented and unit-tested, but not yet
+validated against a reference flow. See @ref p07_les_sec.
 
 Analytical-mode compatibility rule:
 
@@ -151,7 +165,7 @@ Verification-pathway rule:
 
 - `solver.yml -> verification.sources.diffusivity` and `solver.yml -> verification.sources.scalar` are reserved for verification-only source overrides when no cleaner end-to-end path exists.
 - they are only valid for analytical solver runs.
-- `verification.sources.scalar` prescribes particle `Psi` and drives the runtime diagnostic `logs/scatter_metrics.csv` while leaving ordinary production runs unchanged when absent.
+- `verification.sources.scalar` prescribes particle `Psi` and drives the runtime diagnostic `<run.runtime_logs>/scatter_metrics.csv` while leaving ordinary production runs unchanged when absent.
 - new verification source overrides belong in `verification_sources.*`, with production call sites kept as thin delegation points.
 
 @section p14_monitor_sec 5. Monitor Contract Highlights
@@ -242,10 +256,10 @@ Optional shared runtime execution file:
 - cluster precedence is: `cluster.yml.execution` -> `.picurv-execution.yml cluster_execution` -> `.picurv-execution.yml default_execution` -> default `srun`
 
 `picurv run --cluster ...` generates:
-- `runs/<run_id>/scheduler/solver.sbatch`
-- `runs/<run_id>/scheduler/post.sbatch`
-- `runs/<run_id>/scheduler/solver_<jobid>.out/.err` and `post_<jobid>.out/.err` after submission
-- `runs/<run_id>/scheduler/submission.json`
+- `<run.scheduler>/solver.sbatch`
+- `<run.scheduler>/post.sbatch`
+- `<run.scheduler>/solver_<jobid>.out/.err` and `post_<jobid>.out/.err` after submission
+- `<run.scheduler>/submission.json`
 
 @section p14_study_sec 8. Study Contract Highlights (study.yml)
 
@@ -299,25 +313,3 @@ Examples:
 For workflow growth patterns (grid generation orchestration, multi-run studies, and ML coupling paths), see **@subpage 17_Workflow_Extensibility**.
 For worked examples and profile-composition patterns, see **@subpage 49_Workflow_Recipes_and_Config_Cookbook**.
 For selector-specific contributor hook points, see **@subpage 50_Modular_Selector_Extension_Guide**.
-
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Configuration Contract (YAML -> Generated Artifacts -> Runtime)** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.

@@ -44,9 +44,16 @@ models:
     particles:
       count: 0
     turbulence:
-      # Constant Smagorinsky ONLY. The dynamic model in this tree has a known
-      # defect (incorrect M_ij and no homogeneous averaging) and must not be
-      # used for validation - see docs/pages/54_Driven_Periodic_Flows.md.
+      # Both LES models are experimental: implemented and unit-tested, but with no
+      # validated coefficient magnitude. The constant model applies constant_cs from
+      # the first step and allocates no coefficient field.
+      #
+      # The channel is periodic in xi and zeta, so dynamic_smagorinsky with
+      # averaging.mode: homogeneous derives those directions from the boundary pairs
+      # and produces a wall-normal Cs profile instead of a single constant. That is
+      # the physically better choice here; it is not selected by default because this
+      # case exists to assess the SGS contribution against an in-tree DNS with the
+      # simplest closure first.
       les:
         enabled: true
         model: "constant_smagorinsky"

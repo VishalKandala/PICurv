@@ -201,6 +201,12 @@
       "solver": "examples/periodic_test/driven_duct/solver_newton_krylov.yml",
       "monitor": "examples/periodic_test/driven_duct/monitor.yml",
       "post": "examples/periodic_test/driven_duct/post.yml"
+    },
+    {
+      "case": "examples/flat_channel/quickstart_flat_channel.yml",
+      "solver": "examples/flat_channel/Imp-MG-Standard.yml",
+      "monitor": "examples/flat_channel/quickstart_Standard_Output.yml",
+      "post": "examples/flat_channel/quickstart_standard_analysis.yml"
     }
   ],
   "study_bundles": [

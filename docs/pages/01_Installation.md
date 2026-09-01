@@ -1,23 +1,104 @@
-@page 01_Installation Installation Guide
+@page 01_Installation Installation
 
 @anchor _Installation
 
-This guide covers dependency setup, PETSc configuration, and binary build verification for PICurv.
+@pagemeta{How-to, New users, Local and HPC}
+
+@htmlonly
+<header class="pic-install-hero">
+  <div class="pic-install-hero-copy">
+    <span class="pic-eyebrow">Installation</span>
+    <h1>Build the solver.<br />Prove the toolchain.</h1>
+    <p>Set up PICurv, connect it to PETSc and MPI, and leave the installation with three verified command-line tools.</p>
+    <nav class="pic-install-actions" aria-label="Installation shortcuts">
+      <a class="pic-button pic-button-primary" href="#p01_automated_sec">Use the bootstrap installer</a>
+      <a class="pic-text-link" href="#p01_install_tools_sec">Follow the manual path <span aria-hidden="true">→</span></a>
+    </nav>
+  </div>
+  <div class="pic-install-outcome" aria-label="A completed PICurv installation">
+    <span class="pic-install-outcome-label">A complete install</span>
+    <div class="pic-install-stack" aria-hidden="true">
+      <span>C compiler</span><b>+</b><span>MPI</span><b>+</b><span>PETSc</span>
+    </div>
+    <div class="pic-install-binaries">
+      <code>simulator</code>
+      <code>postprocessor</code>
+      <code>picurv</code>
+    </div>
+    <p><strong>Compile.</strong> <strong>Launch.</strong> <strong>Validate.</strong></p>
+  </div>
+</header>
+
+<section class="pic-install-route" aria-labelledby="pic-install-route-title">
+  <header>
+    <span class="pic-eyebrow">The route</span>
+    <h2 id="pic-install-route-title">From dependencies to a verified build.</h2>
+  </header>
+  <nav aria-label="Installation stages">
+    <a href="#p01_prereqs_sec"><b>01</b><span><strong>Prepare</strong><small>Check the toolchain</small></span></a>
+    <a href="#p01_clone_sec"><b>02</b><span><strong>Clone</strong><small>Get the source</small></span></a>
+    <a href="#p01_automated_sec"><b>03</b><span><strong>Install</strong><small>Bootstrap PICurv</small></span></a>
+    <a href="#p01_verify_sec"><b>04</b><span><strong>Verify</strong><small>Exercise the build</small></span></a>
+  </nav>
+</section>
+
+<section class="pic-install-paths" aria-labelledby="pic-install-paths-title">
+  <header>
+    <span class="pic-eyebrow">Choose your path</span>
+    <h2 id="pic-install-paths-title">Match the install to your machine.</h2>
+  </header>
+  <div>
+    <a class="pic-install-path pic-install-path--recommended" href="#p01_automated_sec">
+      <span>Recommended</span><strong>Local workstation</strong>
+      <small>Use bootstrap to create the managed Python environment and build the tools.</small><b aria-hidden="true">→</b>
+    </a>
+    <a class="pic-install-path" href="#p01_automated_sec">
+      <span>Existing modules</span><strong>HPC cluster</strong>
+      <small>Keep the site toolchain and ask bootstrap to skip operating-system packages.</small><b aria-hidden="true">→</b>
+    </a>
+    <a class="pic-install-path" href="#p01_install_tools_sec">
+      <span>Full control</span><strong>Manual setup</strong>
+      <small>Install the base tools and PETSc yourself, then build through the PICurv CLI.</small><b aria-hidden="true">→</b>
+    </a>
+  </div>
+</section>
+@endhtmlonly
 
 @tableofcontents
 
 @section p01_prereqs_sec 1. Prerequisites
 
-Install these first:
+PICurv sits on a compact scientific-computing toolchain. Have these components
+available before starting the build:
 
-- C compiler (`gcc` or `clang`)
-- MPI implementation (`mpich` or `openmpi`)
-- GNU Make
-- Python 3.10+ + pip for the managed PICurv CLI environment
-- Git
-- PETSc 3.20.3+ with `DMSwarm` support
+@htmlonly
+<div class="pic-dependency-grid" aria-label="PICurv installation prerequisites">
+  <article><span>Compiler</span><strong>C compiler</strong><small><code>gcc</code> or <code>clang</code></small></article>
+  <article><span>Parallel runtime</span><strong>MPI</strong><small><code>mpich</code> or <code>openmpi</code></small></article>
+  <article><span>Build</span><strong>GNU Make</strong><small><code>make</code></small></article>
+  <article><span>CLI runtime</span><strong>Python 3.10+</strong><small>with <code>pip</code></small></article>
+  <article><span>Source control</span><strong>Git</strong><small><code>git</code></small></article>
+  <article><span>Numerics</span><strong>PETSc 3.20.3+</strong><small>with <code>DMSwarm</code></small></article>
+</div>
+@endhtmlonly
 
-@section p01_automated_sec 2. Automated Install (Recommended)
+If PETSc is the only missing component, bootstrap can build it during the
+automated path.
+
+@section p01_clone_sec 2. Clone PICurv
+
+```bash
+git clone https://github.com/VishalKandala/PICurv.git
+cd PICurv
+```
+
+The remaining commands run from this repository root.
+
+@section p01_automated_sec 3. Automated Install (Recommended)
+
+@htmlonly
+<p class="pic-section-lead">The bootstrap path is the shortest route to a repeatable local installation. It checks the native toolchain, isolates the Python CLI, and builds the three PICurv launch targets.</p>
+@endhtmlonly
 
 From the PICurv repo root:
 
@@ -76,7 +157,11 @@ updates smaller and avoids unnecessary package churn on quota-constrained
 cluster home directories. Pass `--upgrade-pip` when an explicit upgrade is
 needed.
 
-@section p01_install_tools_sec 3. Install Base Toolchain (Manual Path)
+@section p01_install_tools_sec 4. Install Base Toolchain (Manual Path)
+
+@htmlonly
+<aside class="pic-install-manual-note"><span>Manual path</span><p>Use the remaining setup sections when system packages, cluster policy, or a custom PETSc build make bootstrap unsuitable.</p><a href="#p01_automated_sec">Back to the recommended path ↑</a></aside>
+@endhtmlonly
 
 Debian/Ubuntu:
 
@@ -106,7 +191,7 @@ Bootstrap verifies `yaml`, `numpy`, `packaging`, and `matplotlib` imports with
 environment used by the `picurv` launcher and catches dependencies that are
 visible only through a loaded cluster module.
 
-@section p01_petsc_sec 4. Install PETSc
+@section p01_petsc_sec 5. Install PETSc
 
 Recommended source install:
 
@@ -141,7 +226,7 @@ Official references:
 - https://petsc.org/release/install/
 - https://petsc.org/release/docs/manual/
 
-@section p01_env_sec 5. Configure Environment Variables
+@section p01_env_sec 6. Configure Environment Variables
 
 Add to your shell profile (`~/.bashrc` or equivalent):
 
@@ -179,13 +264,6 @@ test -f "$PETSC_DIR/include/petscdmswarm.h" && echo "DMSwarm header found"
 test -f "$PETSC_DIR/$PETSC_ARCH/include/petscconf.h" || test -f "$PETSC_DIR/include/petscconf.h"
 ```
 
-@section p01_clone_sec 6. Clone PICurv
-
-```bash
-git clone https://github.com/VishalKandala/PICurv.git
-cd PICurv
-```
-
 @section p01_build_sec 7. Build with picurv
 
 ```bash
@@ -207,11 +285,15 @@ make audit-build
 ```
 
 After `source etc/picurv.sh`, use `picurv` directly from any directory.
-`./picurv_cli/picurv build` writes `logs/build.log` in the source repo. If you are
+`./picurv_cli/picurv build` writes `<repo>/logs/build.log` in the source repo. If you are
 auditing compiler warnings from a direct Make invocation, use `make audit-build`
-to generate both `logs/build.log` and `logs/build.warnings.log`.
+to generate both `<repo>/logs/build.log` and `<repo>/logs/build.warnings.log`.
 
 @section p01_verify_sec 8. Verify Installation
+
+@htmlonly
+<p class="pic-section-lead">Verification progresses from the installed PETSc toolchain to the complete MPI validation sweep. Start small, then choose the depth appropriate for your machine.</p>
+@endhtmlonly
 
 ```bash
 make doctor
@@ -219,17 +301,14 @@ make doctor
 
 Recommended sequence after a successful build:
 
-1. `make doctor`
-2. `make smoke` (stronger executable-level sanity check)
-3. `make check` (full local validation sweep)
-4. `make check-full` (comprehensive MPI-inclusive validation sweep)
-
-What these prove:
-
-- `make doctor` proves the local PETSc installation can build and run a minimal PETSc-backed binary.
-- `make smoke` proves the compiled PICurv executables still launch.
-- `make check` runs Python regressions plus PETSc-backed validation.
-- `make check-full` additionally validates dedicated MPI unit coverage, fixed-size multi-rank smoke, and rank-matrix smoke in one pass.
+@htmlonly
+<ol class="pic-verification-ladder">
+  <li><span>01</span><code>make doctor</code><p>Builds and runs a minimal PETSc-backed binary.</p></li>
+  <li><span>02</span><code>make smoke</code><p>Confirms that the compiled PICurv executables launch.</p></li>
+  <li><span>03</span><code>make check</code><p>Runs Python regressions and PETSc-backed validation.</p></li>
+  <li><span>04</span><code>make check-full</code><p>Adds MPI units, fixed-size multi-rank smoke, and rank-matrix smoke.</p></li>
+</ol>
+@endhtmlonly
 
 What `make doctor` does not prove:
 
@@ -238,15 +317,21 @@ What `make doctor` does not prove:
 
 @section p01_common_sec 9. Common Installation Failures
 
-- `PETSC_DIR` unset or pointing at the wrong PETSc installation; `PETSC_ARCH` is only required for old-style in-tree PETSc builds.
-- MPI compiler wrappers unavailable in PATH.
-- Python interpreter too old for default bootstrap (load Python 3.10+, pass `--python-bin`, or use `--no-venv`).
-- Visualization modules leaking incompatible Python packages into `PYTHONPATH`; prefer the managed venv launcher from bootstrap for normal CLI use.
-- Managed venv Python cannot find `libpython`; rerun bootstrap after pulling current source so `.picurv-python-env` records the seed Python library path.
-- Old checkouts where `bin/picurv` is still a symlink; rerun `make -B conductor` after pulling current source.
-- PETSc configured without required downloaded dependencies.
-- missing X11 dev library at link time (`cannot find -lX11` on Linux; install `libx11-dev`).
-- stale object files after toolchain changes (use `clean-project`).
+@htmlonly
+<div class="pic-failure-list">
+  <ul>
+    <li><code>PETSC_DIR</code> is unset or points at the wrong PETSc installation; <code>PETSC_ARCH</code> is only required for old-style in-tree PETSc builds.</li>
+    <li>MPI compiler wrappers are unavailable in <code>PATH</code>.</li>
+    <li>The Python interpreter is too old for default bootstrap; load Python 3.10+, pass <code>--python-bin</code>, or use <code>--no-venv</code>.</li>
+    <li>Visualization modules leak incompatible Python packages into <code>PYTHONPATH</code>; prefer the managed venv launcher for normal CLI use.</li>
+    <li>The managed venv cannot find <code>libpython</code>; rerun bootstrap so <code>.picurv-python-env</code> records the seed runtime library path.</li>
+    <li>An old checkout still uses a <code>bin/picurv</code> symlink; rerun <code>make -B conductor</code> after pulling current source.</li>
+    <li>PETSc was configured without the required downloaded dependencies.</li>
+    <li>The X11 development library is missing at link time; install <code>libx11-dev</code> when Linux reports <code>cannot find -lX11</code>.</li>
+    <li>Object files are stale after a toolchain change; use <code>clean-project</code>.</li>
+  </ul>
+</div>
+@endhtmlonly
 
 For runtime-level failures after successful build, see **@subpage 39_Common_Fatal_Errors**.
 
@@ -254,26 +339,26 @@ For the full testing model after installation, see **@subpage 40_Testing_and_Qua
 
 @section p01_next_steps_sec 10. Next Steps
 
-- First simulation walkthrough: **@subpage 02_Tutorial_Programmatic_Grid**
+@htmlonly
+<nav class="pic-next-cards pic-install-next-cards" aria-label="Recommended next documentation">
+  <a href="41_Getting_Started_Index.html">
+    <span>Run your first case</span>
+    <strong>Create, validate, solve, and inspect the Quick Start simulation.</strong>
+  </a>
+  <a href="67_Troubleshooting.html">
+    <span>Resolve a failure</span>
+    <strong>Trace installation, configuration, MPI, and runtime symptoms.</strong>
+  </a>
+  <a href="40_Testing_and_Quality_Guide.html">
+    <span>Understand the checks</span>
+    <strong>See what each test layer verifies and where its evidence comes from.</strong>
+  </a>
+</nav>
 
-<!-- DOC_EXPANSION_CFD_GUIDANCE -->
-
-## CFD Reader Guidance and Practical Use
-
-This page describes **Installation Guide** within the PICurv workflow. For CFD users, the most reliable reading strategy is to map the page content to a concrete run decision: what is configured, what runtime stage it influences, and which diagnostics should confirm expected behavior.
-
-Treat this page as both a conceptual reference and a runbook. If you are debugging, pair the method/procedure described here with monitor output, generated runtime artifacts under `runs/<run_id>/config`, and the associated solver/post logs so numerical intent and implementation behavior stay aligned.
-
-### What To Extract Before Changing A Case
-
-- Identify which YAML role or runtime stage this page governs.
-- List the primary control knobs (tolerances, cadence, paths, selectors, or mode flags).
-- Record expected success indicators (convergence trend, artifact presence, or stable derived metrics).
-- Record failure signals that require rollback or parameter isolation.
-
-### Practical CFD Troubleshooting Pattern
-
-1. Reproduce the issue on a tiny case or narrow timestep window.
-2. Change one control at a time and keep all other roles/configs fixed.
-3. Validate generated artifacts and logs after each change before scaling up.
-4. If behavior remains inconsistent, compare against a known-good baseline example and re-check grid/BC consistency.
+<nav class="pic-page-pager" aria-label="Manual page navigation">
+  <a class="pic-page-pager-next" href="41_Getting_Started_Index.html">
+    <span>Next</span>
+    <strong>Quick Start →</strong>
+  </a>
+</nav>
+@endhtmlonly

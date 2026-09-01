@@ -6,6 +6,105 @@
 
 ## Unreleased
 
+- LES subgrid closure corrected and consolidated. **Results from earlier revisions of
+  this tree are not reproducible under it, and neither LES model previously applied the
+  dissipation it claimed to.**
+  - The dynamic procedure now evaluates the Germano identity. `M_ij` previously built
+    both of its terms from separately test-filtered quantities, so they shared an
+    identical factor and the tensor collapsed to a fixed multiple of the filtered strain
+    rate. The scale-similarity relation was therefore never evaluated: the model had no
+    dynamic content, while still producing a positive, dimensionally correct,
+    flow-responsive coefficient — which is why the defect survived. The second term is
+    now the test filter of the product `|S| S_ij`, which is what the identity requires,
+    and `M_ij` is projected trace-free so the Leonard stress's trace cannot enter the
+    contraction through discrete divergence error.
+  - The constant model no longer allocates a coefficient field. It previously filled a
+    whole DMDA vector with one configured number, synchronized it, and checkpointed it —
+    and on a fresh run never filled it at all, because its only call site hit the
+    early-return that holds the coefficient at zero for the first steps. It now reads
+    `constant_cs` directly each step, which both fixes the defect and removes a global
+    vector, a local vector, a ghost exchange, and a periodic synchronization from that
+    path.
+  - Coefficient averaging is implemented, replacing a comment that said the logic
+    "would go here". `averaging.mode` selects `local`, `homogeneous`, or `global`;
+    homogeneous derives its directions from the case's periodic boundary pairs unless
+    they are named, so a triply periodic box yields one coefficient and a channel yields
+    a wall-normal profile with no extra configuration. Sums are volume-weighted, exclude
+    solid cells and the periodic duplicate planes, and are reduced over the block's
+    communicator, so the result does not depend on the decomposition.
+  - Limiting is selectable. `clipping.mode: none` keeps the signed coefficient so
+    backscatter survives, bounded instead by a total-viscosity floor that constrains the
+    quantity which actually has to stay positive. The clipping modes remain available and
+    remain biased: discarding only the negative tail raises the mean dissipation. The
+    `max_cs` default drops from 0.5 to 0.3.
+  - The grid filter width and the test-to-grid width ratio are exposed rather than
+    hardcoded, and the dead `ComputeCellCharacteristicLengthScale` call that passed one
+    output pointer twice is gone.
+  - The solid mask is unified on the repository-wide `nvert < 0.1` fluid test; the
+    dynamic pass previously used a different threshold from the eddy-viscosity pass.
+  - `CS` now carries `FIELD_AVAILABILITY_LES_DYNAMIC` and holds the coefficient `C`
+    that multiplies `Delta^2 |S|` — `Cs^2` in the classical notation, signed when
+    backscatter is admitted. Restarting from a checkpoint written before this change is
+    not supported for that field.
+  - The Clark gradient term, live in the viscous flux but reachable only through PETSc
+    passthrough, is now `les.gradient_model.enabled`. Combined with a Smagorinsky closure
+    it is the mixed model; it remains unsupported by the Newton-Krylov solver, which is
+    now reported during validation rather than at the first solve.
+  - Turbulence option ingress is namespaced under `-les_*` and grouped into one
+    `LESConfig` block, with defaults defined once in `LESConfigSetDefaults()` so the
+    control-file path and the test fixtures cannot drift. The dead `-mixed`,
+    `-testfilter_1d`, and `-i/j/k_homo_filter` options are removed; the homogeneous-filter
+    intent they carried is served by `averaging.directions`.
+  - Per-step diagnostics are written to `<run.runtime_logs>/les_coefficient.csv`,
+    including the pre-clipping backscattering and limited fractions, which no stored
+    field preserves.
+  - `les.c` is rebuilt from named kernels — symmetric-tensor algebra, strain rate, filter
+    width, the two Germano tensors, averaging, limiting, and viscosity assembly — each
+    unit-tested in the new `tests/c/test_les.c` (`make unit-les`), with a
+    decomposition-independence case in `tests/c/test_mpi_kernels.c`.
+  - The subsystem moves from `known-defective` to `experimental`, and both capability
+    scope records are retired. It is not `supported`: the coefficient magnitude has not
+    been validated against a reference flow. The check that would close that gap is
+    `examples/decaying_isotropic_turbulence` with homogeneous averaging, where `Cs(t)`
+    should settle near 0.16-0.17.
+  - New page **72_LES_Turbulence_Closure** derives the formulation and documents the
+    averaging, limiting, and diagnostic choices.
+  - Follow-up consolidation, so the closure shares rather than restates:
+    - the closure resolves its iteration domain through `SpatialTargetPlanCreate()`
+      and its solid mask through `SpatialTargetPlanMaskAllows()`, retiring a
+      local range helper and a duplicate fluid threshold;
+    - the coefficient averaging moved out of `les.c` to
+      `PicurvSpatialRatioAverage()` in `statistics_target.*`, generalised with an
+      optional denominator, an optional inclusion mask, and a caller-chosen
+      communicator. `PicurvWindowSpatialMean()` is now a thin caller of it; the
+      statistics pipeline keeps count weighting and its existing communicator, so
+      its output is unchanged. Volume weighting stays the LES caller's choice and
+      is folded into the two contraction fields before the reduction;
+    - per-axis periodicity comes from the resolved `SimCtx` flags rather than a
+      second read of the boundary faces. The loader rejects a case whose opposite
+      faces or whose blocks disagree, so the two cannot differ, and the flags are
+      what both the DMDA and the spatial target were already built from;
+    - the Clark gradient term in `rhs.c` uses `SymTensor` instead of nine
+      hand-written components repeated in three places;
+    - the six-component accumulator order in `statistics_accumulator.c` is tied to
+      `SymTensor`'s member order by a compile-time assertion, so the two cannot
+      drift apart unnoticed.
+  - Exposure sweep across the user-facing surfaces:
+    - `les.diagnostics.yoshizawa_ci` is now a documented key. It was parsed by the C
+      runtime but had no YAML spelling and no emitter, so it was reachable only
+      through PETSc passthrough — the same hidden-control defect the Clark term had;
+    - the startup banner reports the resolved closure: filter width, test filter and
+      width ratio, dynamic cadence, averaging mode and directions, limiting mode and
+      ceiling, viscosity floor, gradient term, and diagnostics state. Previously it
+      printed the model name alone, so nothing confirmed a setting had landed. Three
+      of the new lines are pinned by the user-facing reporting contract;
+    - `picurv summarize` reads `les_coefficient.csv`, so `--list-plot-series` offers
+      the `les.*` histories and `--plot les.cs_effective` renders the coefficient
+      curve an LES run is judged on;
+    - new LES recipe in the cookbook, troubleshooting section keyed to the diagnostic
+      columns, and glossary entries for the closure vocabulary. The closure page is
+      now reachable from both the user and developer index pages.
+
 - Stopped the dual-time pseudo-CFL controller re-discovering the same stability limit, and
   stopped a rejected trial voting on the next decision.
   - The EMA-smoothed residual ratio is now committed only when its trial is accepted. A
