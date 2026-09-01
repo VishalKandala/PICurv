@@ -56,9 +56,20 @@ the user-facing PICurv runtime.
   manifest or a vanished watched path is an integrity failure and always blocks. Re-attest
   with `make attest-freshness ARGS="<surface-id>"` **after** actually comparing the page
   with its sources. Attestation records that a review happened, not that it found nothing.
-- `review_packet.py`: assembles a bounded review packet for a page or a contract, including
-  the freshness surfaces that route review to it. Run via `make review-packet PAGE=44` or
-  `CONTRACT=<id>`.
+- `review_packet.py`: joins declared routing for a page, contract, capability family,
+  subsystem, freshness surface, or the current changed set. It prints whether registry
+  routing is complete, incomplete, or unavailable and keeps that claim separate from code
+  behavior. Run via `make review-packet PAGE=44`, `CONTRACT=<id>`, `CAPABILITY=<id>`,
+  `SUBSYSTEM=<id>`, `SURFACE=<id>`, or `CHANGED=working-tree`.
+- `generate_xref_index.py`: distills Doxygen XML into the ignored
+  `docs_build/xref.json` source-reference cache, stamped from current source bytes and the
+  Doxyfile. `make docs-xref` builds it; review packets consume it only while current and
+  never treat its edges as a semantic call graph.
+- `audit_agent_setup.py`: verifies that `AGENTS.md` is the regular canonical instruction
+  file, `CLAUDE.md` imports it, Claude's local settings have an exact repository ignore,
+  and the three `.claude/skills/` trees are materialized byte-identical copies of
+  `.agents/skills/`. Run `make sync-agent-skills` after an intentional canonical skill
+  edit and `make audit-agent-setup` in verification.
 - `capability_scope_records.json`: non-rendered records for documentation that is scoped
   but deliberately not yet written, with the conditions that force it to be published.
 - `inject_theme_sync.py`: injects the theme-sync script into the generated HTML so the

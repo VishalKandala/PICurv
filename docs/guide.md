@@ -6,7 +6,8 @@ The goal of this guide is to explain not only where files live, but how each doc
 
 ## Core Files and Their Roles
 
-- `Doxyfile`: controls documentation generation options, warning behavior, math rendering, and source indexing policy.
+- `Doxyfile`: controls documentation generation options, warning behavior, math rendering,
+  source browsing, and XML emitted for the optional `docs_build/xref.json` review cache.
 - `DoxygenLayout.xml`: defines navigation hierarchy and tab ordering in the generated site.
 - `mainpage.md`: root landing page (`@mainpage`) that frames the project and links users into key entry points.
 - `CHANGELOG.md`: release-oriented behavior notes (`@page 18_Changelog`) tied to contract/runtime evolution.

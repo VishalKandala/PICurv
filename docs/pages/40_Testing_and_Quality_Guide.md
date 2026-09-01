@@ -105,12 +105,44 @@ Guidance:
 - Use `make check-mpi` when multi-rank MPI behavior is in scope.
 - Use `make check-full` for comprehensive branch/CI/release validation that must cover all MPI layers.
 - Use `make check-stress` when you want the full default gate plus the stress tier in one pass.
+- Use `make audit-agent-setup` after changing shared instructions, skill discovery, or
+  Claude-local configuration. Edit canonical skills under `.agents/skills/`, then use
+  `make sync-agent-skills` to refresh and audit the materialized Claude copies.
 - Run `make install-git-hooks` once per clone to make `make certify-docs` an
   automatic pre-push gate for updates to remote `main`. The hook validates only
   the checked-out commit and blocks the push on failure; GitHub Actions then
   repeats the lighter structural documentation checks after the push.
 
-@section p40_main_prepush_sec 2.1 Main-Branch Pre-Push Certification
+@subsection p40_routing_tools_sub 2.1 Review Routing and Optional Source Xrefs
+
+`make review-packet` is a bounded index into declared repository data. Its selectors are
+mutually exclusive:
+
+```bash
+make review-packet PAGE=44
+make review-packet CONTRACT=field.identity_and_layout
+make review-packet CAPABILITY=boundary.handler
+make review-packet SUBSYSTEM=boundary.periodic
+make review-packet SURFACE=boundary.system
+make review-packet CHANGED=working-tree
+```
+
+The first five join registry identifiers to source symbols or watched files, pages,
+contracts, capability families, subsystem records, freshness state, and declared test
+evidence. Changed-set mode covers staged, unstaged, and untracked nonignored paths; an
+unrouted production path returns advisory status 3 with a nearest-guide fallback and a
+targeted search. Status 0 means the join is complete over declared registry data, not
+that code behavior is correct. Unknown identifiers return 2; known but unresolved or
+environment-unavailable routes return 3 instead of an empty success.
+
+`make docs-xref` optionally adds `docs_build/xref.json`, distilled from Doxygen XML and
+stamped with current source bytes and Doxygen configuration. Review packets never build
+it implicitly and never display stale edges. Doxygen references are not a semantic call
+graph: callbacks, registry tables, function pointers, macros, PETSc dispatch, and runtime
+selection can require an intermediate or manual live-path trace. The registry route is
+usable on a fresh clone without this cache.
+
+@section p40_main_prepush_sec 2.2 Main-Branch Pre-Push Certification
 
 The tracked `.githooks/pre-push` hook enforces a commit-scoped documentation
 certificate before a local Git client updates `refs/heads/main`. Enable it in
@@ -133,7 +165,7 @@ to `main`, because it can only certify the exact checked-out `HEAD`. This is a
 local safeguard: Git permits bypassing hooks with `git push --no-verify`, so the
 post-push GitHub documentation gates remain a separate redundancy layer.
 
-`make certify-docs` includes Markdown-link, function-documentation,
+`make certify-docs` includes portable-agent-setup, Markdown-link, function-documentation,
 user-facing-reporting, starter-template/configuration, option-ingress,
 example/configuration regression, and zero-warning Doxygen gates before the
 PETSc/MPI `make check-full` tier. Therefore, with the tracked hook enabled, a

@@ -36,6 +36,7 @@ jobs:
           test -f docs_build/html/files_structured.html
           test -f docs_build/html/annotated_structured.html
           test -f docs_build/html/theme-sync.js
+          test -f docs_build/xref.json
           grep -q 'src="theme-sync.js"' docs_build/html/index.html
 
       - name: Upload build artifact (for mirroring)

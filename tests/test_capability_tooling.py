@@ -1156,8 +1156,8 @@ def test_markdown_heading_anchors_are_available_for_unrendered_files():
     """
     assert SITE.heading_anchor("## Where work goes") == "where-work-goes"
     assert SITE.heading_anchor("### A `code` heading!") == "a-code-heading"
-    anchors = SITE.markdown_anchors(REPO_ROOT / "CLAUDE.md")
-    assert anchors, "CLAUDE.md should expose heading anchors"
+    anchors = SITE.markdown_anchors(REPO_ROOT / "AGENTS.md")
+    assert anchors, "the canonical AGENTS.md instructions should expose heading anchors"
 
 
 def test_repository_fragment_links_resolve_repo_wide():

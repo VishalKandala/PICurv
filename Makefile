@@ -116,7 +116,7 @@ SYSTEM ?= local
 PORT ?= 8000
 BIND ?= 127.0.0.1
 
-NO_CONFIG_GOALS := test test-python coverage-python doctor install-check audit-ingress audit-docs-expansion audit-docs-site docs-inventory docs-topology audit-capability audit-contracts audit-path-literals audit-family-census audit-page-types audit-inline-choices audit-subsystems audit-freshness docs-cli-reference audit-cli-reference scaffold review-packet build-docs preview-docs open-docs tags certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit conductor
+NO_CONFIG_GOALS := test test-python coverage-python doctor install-check audit-ingress audit-docs-expansion audit-docs-site docs-inventory docs-topology docs-xref audit-capability audit-contracts audit-path-literals audit-family-census audit-page-types audit-inline-choices audit-subsystems audit-freshness audit-agent-setup sync-agent-skills docs-cli-reference audit-cli-reference scaffold review-packet build-docs preview-docs open-docs tags certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit conductor
 NEEDS_BUILD_CONFIG := 1
 
 ifneq ($(MAKECMDGOALS),)
@@ -447,7 +447,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev smoke-driven-periodic unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-post-eulerian-vtk-mpi unit-post-particle-vtk-mpi unit-post-compute-mpi unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-les unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress audit-docs-expansion audit-docs-site preview-docs docs-inventory docs-topology audit-capability audit-contracts audit-path-literals audit-family-census audit-page-types audit-inline-choices audit-subsystems audit-freshness docs-cli-reference audit-cli-reference scaffold review-packet certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev smoke-driven-periodic unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-post-eulerian-vtk-mpi unit-post-particle-vtk-mpi unit-post-compute-mpi unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-les unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs docs-xref open-docs tags audit-ingress audit-docs-expansion audit-docs-site preview-docs docs-inventory docs-topology audit-capability audit-contracts audit-path-literals audit-family-census audit-page-types audit-inline-choices audit-subsystems audit-freshness audit-agent-setup sync-agent-skills docs-cli-reference audit-cli-reference scaffold review-packet certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -837,12 +837,18 @@ audit-build:
 	@echo "Compilation log: $(BUILD_LOG)"
 	@echo "Compilation warnings: $(BUILD_WARNINGS_LOG)"
 
-## @target build-docs
-## @brief Generates Doxygen documentation for the project.
-build-docs: dirs
+## @target docs-xref
+## @brief Generates Doxygen output and the optional dirty-byte-stamped source-reference index.
+docs-xref: dirs
 	@echo "==> Generating Doxygen documentation..."
 	@mkdir -p $(LOGDIR)
+	@command -v doxygen >/dev/null || { echo "Doxygen is required for docs-xref; install doxygen and rerun make docs-xref." >&2; exit 1; }
 	@doxygen docs/Doxyfile
+	@python3 tests/tooling/generate_xref_index.py --repo-root .
+
+## @target build-docs
+## @brief Generates Doxygen documentation and the optional review cross-reference index.
+build-docs: docs-xref
 	@python3 tests/tooling/stamp_docs_revision.py --html-dir docs_build/html
 	@python3 tests/tooling/generate_doxygen_fallback_indexes.py --repo-root . --html-dir docs_build/html
 	@python3 tests/tooling/inject_theme_sync.py --repo-root . --html-dir docs_build/html
@@ -955,19 +961,31 @@ audit-family-census:
 audit-path-literals:
 	@python3 tests/tooling/audit_path_literals.py
 
+## @target audit-agent-setup
+## @brief Verifies portable shared instructions, materialized skills, and local-settings hygiene.
+audit-agent-setup:
+	@python3 tests/tooling/audit_agent_setup.py
+
+## @target sync-agent-skills
+## @brief Materializes Claude skill copies from canonical `.agents/skills`, then audits parity.
+sync-agent-skills:
+	@python3 tests/tooling/audit_agent_setup.py --sync
+
 ## @target scaffold
 ## @brief Generates a documentation skeleton: `make scaffold ARGS="capability --family boundary.handler --value x"`.
 scaffold:
 	@python3 tests/tooling/scaffold_documentation.py $(ARGS)
 
 ## @target review-packet
-## @brief Assembles a bounded review packet: `make review-packet PAGE=44` or `CONTRACT=<id>`.
+## @brief Routes PAGE, CONTRACT, CAPABILITY, SUBSYSTEM, SURFACE, or CHANGED=working-tree.
 review-packet:
-ifdef CONTRACT
-	@python3 tests/tooling/review_packet.py --contract $(CONTRACT)
-else
-	@python3 tests/tooling/review_packet.py $(PAGE)
-endif
+	@python3 tests/tooling/review_packet.py \
+		$(if $(PAGE),$(PAGE)) \
+		$(if $(CONTRACT),--contract $(CONTRACT)) \
+		$(if $(CAPABILITY),--capability $(CAPABILITY)) \
+		$(if $(SUBSYSTEM),--subsystem $(SUBSYSTEM)) \
+		$(if $(SURFACE),--surface $(SURFACE)) \
+		$(if $(CHANGED),--changed $(CHANGED))
 
 ## @target preview-docs
 ## @brief Builds, gates, and serves the documentation site for local review.

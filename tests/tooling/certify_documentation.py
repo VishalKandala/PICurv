@@ -192,6 +192,7 @@ def write_certificate(sha: str, runtime_checked: bool) -> Path:
         "# PICurv Documentation Certification\n\n"
         f"- Certified commit: `{sha}`\n"
         f"- Certified at (UTC): `{timestamp}`\n"
+        "- Portable shared agent instructions and skill parity: passed\n"
         "- Markdown links (all tracked and non-ignored Markdown): passed\n"
         "- Public-header and implementation comment audit: passed\n"
         "- User-facing C/Python reporting audit: passed\n"
@@ -256,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     try:
         sha = require_clean_revision()
+        run([sys.executable, "tests/tooling/audit_agent_setup.py"], "portable agent setup")
         run([sys.executable, "tests/tooling/check_markdown_links.py"], "Markdown links")
         run([sys.executable, "tests/tooling/audit_function_docs.py"], "function documentation")
         run([sys.executable, "tests/tooling/audit_user_facing_reporting.py"], "user-facing reporting")

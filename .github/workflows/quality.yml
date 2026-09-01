@@ -25,6 +25,9 @@ jobs:
       - name: Run function documentation audit
         run: python tests/tooling/audit_function_docs.py
 
+      - name: Verify portable agent setup
+        run: python tests/tooling/audit_agent_setup.py
+
       # One invocation covers every suite, including the capability-tooling and
       # run-directory containment regressions. Re-running those separately would
       # duplicate work without adding coverage.

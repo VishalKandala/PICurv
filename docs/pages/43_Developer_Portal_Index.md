@@ -51,15 +51,43 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 
 @section p43_contribution_flow_sec 5. Suggested Contributor Read Path
 
-1. **@subpage 13_Code_Architecture**
-2. **@subpage 14_Config_Contract**
-3. **@subpage 15_Config_Ingestion_Map**
-4. **@subpage 16_Config_Extension_Playbook**
-5. **@subpage 50_Modular_Selector_Extension_Guide**
-6. **@subpage 46_C_Runtime_Execution_Map**
-7. **@subpage 56_Field_Identity_and_Layout_Catalog**
-8. **@subpage 58_Field_Statistics**
-9. **@subpage 21_Methods_Overview**
+Begin with the repository-root `CONTRIBUTING.md` for issue metadata, pull-request
+scope, reuse expectations, and verification reporting. Then choose only the route
+needed by the change:
+
+1. **@subpage 13_Code_Architecture** and the nearest directory `guide.md` for ownership.
+2. **@subpage 14_Config_Contract**, **@subpage 15_Config_Ingestion_Map**, and
+   **@subpage 16_Config_Extension_Playbook** for configuration ingress.
+3. **@subpage 64_Documentation_Extension_Framework** and
+   **@subpage 50_Modular_Selector_Extension_Guide** for capability or subsystem work.
+4. **@subpage 46_C_Runtime_Execution_Map** and
+   **@subpage 56_Field_Identity_and_Layout_Catalog** for runtime/spatial changes.
+5. **@subpage 40_Testing_and_Quality_Guide** plus `tests/guide.md` for the narrowest
+   evidence that answers the change's risk.
+
+@subsection p43_agent_development_sub 5.1 Agent-Assisted Development
+
+Agent use is optional. `AGENTS.md` is the canonical shared working agreement;
+`CLAUDE.md` imports it. The canonical reusable skills live under `.agents/skills/`
+and byte-identical materialized copies under `.claude/skills/` make the setup work in
+clones whose toolchains do not follow the same discovery convention. Run
+`make audit-agent-setup` to verify portability and `make sync-agent-skills` after an
+intentional canonical skill edit.
+
+Agents use documentation and registries as a bounded index, then inspect the routed
+code and tests because runtime behavior remains authoritative. The review-packet modes
+documented in **@subpage 64_Documentation_Extension_Framework** join those declarations;
+an optional current Doxygen source-reference cache can further bound caller inspection.
+Neither mechanism proves behavior. Human and agent contributions owe the same focused
+scope, reuse search, tests, and explicit list of what was not verified.
+
+@subsection p43_environment_sub 5.2 Clone and Environment Portability
+
+The tracked agent audit rejects symlink-only instruction/skill layouts and verifies that
+`.claude/settings.local.json` stays untracked through the repository's own exact ignore
+rule rather than a developer's global Git configuration. Machine-specific permissions
+remain local. Contributor setup, tests, and documentation commands do not require either
+Codex or Claude Code.
 
 @section p43_developer_outcomes_sec 6. Expected Outcomes
 

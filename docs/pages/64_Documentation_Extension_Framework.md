@@ -231,19 +231,58 @@ The `.md` snapshot in the same directory is a diff-friendly record, not the incl
 target: Doxygen's plain include command inserts Markdown verbatim as a code block,
 so including it renders the table as unformatted text.
 
+@subsection p64_review_packets_sub 6.1 Declared Routing Packets
+
+Use the router to join an identifier across the existing registries instead of copying
+another file map into prose:
+
+```bash
+make review-packet PAGE=44
+make review-packet CONTRACT=field.identity_and_layout
+make review-packet CAPABILITY=boundary.handler
+make review-packet SUBSYSTEM=boundary.periodic
+make review-packet SURFACE=boundary.system
+make review-packet CHANGED=working-tree
+```
+
+The selectors are mutually exclusive. Page and contract modes preserve documentation
+review routing. Capability mode joins family to symbols, family page, contracts,
+freshness, subsystems, and evidence. Subsystem mode joins its families, obligation and
+concern pages, contracts, freshness, and evidence. Surface mode reverses a freshness
+record through watched paths and its related pages. Changed-set mode classifies staged,
+unstaged, and untracked nonignored paths and reports a production path not covered by a
+declared route.
+
+`ROUTE: complete over declared registry data (not over code behavior)` is deliberately
+narrow. A known identifier with an unresolved declaration, or a changed production path
+with no declaration, returns status 3. Unknown input returns status 2 and lists valid or
+nearby identifiers. Missing Git metadata is unavailable, also status 3. These states
+prevent an empty packet from looking like successful coverage.
+
+`make docs-xref` creates the optional ignored `docs_build/xref.json` cache from Doxygen
+XML. It is stamped from dirty source bytes and `docs/Doxyfile`; packets show direct and
+one-intermediate reference edges only while the stamp is current. This is navigation
+evidence, not a semantic call graph. Registry tables, callbacks, function pointers,
+macros, PETSc dispatch, and runtime-selected paths still require code tracing, and no
+direct edge does not prove a symbol unused. A fresh clone needs no xref cache for the
+base registry route.
+
 @section p64_adding_sec 7. Adding a Capability Value: Procedure
 
-1. Implement the value end to end - validator, generated mapping, C parser, factory
+1. Run `make review-packet CAPABILITY=<family-id>` and trace the nearest live sibling in
+   the routed code; the packet is an index, not proof of behavior.
+2. Implement the value end to end - validator, generated mapping, C parser, factory
    dispatch, runtime behavior.
-2. Add it to the family's public surface in `picurv_cli/core.py`.
-3. Run `make docs-inventory`. The value appears in the generated table.
-4. Write its capability entry on the family page, with the required anchor.
-5. Declare which concern modules apply; answer them or record a reasoned N/A.
-6. Add tests, and name them in the entry's Evidence part.
-7. Run `make audit-capability`. Parity and coverage must pass.
-8. Run `make preview-docs` and read the entry as a reader would.
+3. Add it to the family's declared public surface.
+4. Run `make docs-inventory`. The value appears in the generated table.
+5. Write its capability entry on the family page, with the required anchor.
+6. Declare which concern modules apply; answer them or record a reasoned N/A.
+7. Add tests, and name them in the entry's Evidence part.
+8. Run `make audit-capability`. Parity and coverage must pass.
+9. Run `make review-packet CHANGED=working-tree`; investigate every unrouted production
+   path, then run `make preview-docs` and read the entry as a reader would.
 
-Skipping step 4 fails step 7 - coverage is enforced for every registered family. That
+Skipping step 5 fails step 8 - coverage is enforced for every registered family. That
 is the intent: the documentation obligation lands at the same moment the capability
 becomes selectable. Adding a value to a family that does not exist yet fails earlier
 still, at `make audit-family-census`, which refuses a public selector surface no

@@ -527,6 +527,21 @@ Repository contract note:
 Detailed guide:
 - https://vishalkandala.me/docs/picurv/40_Testing_and_Quality_Guide.html
 
+## Contributing
+
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) for reproducible issue reports,
+focused pull requests, reuse expectations, and honest verification reporting. The
+[Developer Portal](docs/pages/43_Developer_Portal_Index.md) routes architecture and
+extension work; [tests/guide.md](tests/guide.md) and the
+[testing guide](docs/pages/40_Testing_and_Quality_Guide.md) route checks; the
+[documentation extension framework](docs/pages/64_Documentation_Extension_Framework.md)
+defines capability and subsystem obligations.
+
+Agent assistance is optional. Repository-aware agents share the same rules through
+`AGENTS.md`, with portable skills under `.agents/skills/` and `.claude/skills/`.
+Human- and agent-authored changes have the same scope, reuse, testing, and evidence
+requirements.
+
 ## Documentation (Live)
 
 - Docs home: https://vishalkandala.me/docs/picurv/

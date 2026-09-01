@@ -66,6 +66,8 @@ IMAGE_PATH             = docs/assets docs
 VERBATIM_HEADERS      = YES
 #------------------------- LaTeX/PDF (optional) ------------
 GENERATE_LATEX         = NO
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
 
 #------------------------- Source Browsing -----------------
 SOURCE_BROWSER         = YES

@@ -58,6 +58,7 @@ is a test-local routine.
   - `make smoke-periodic-dev`
   - `make smoke-driven-periodic`
 - documentation gates:
+  - `make audit-agent-setup`
   - `make audit-ingress`
   - `make audit-docs-expansion`
   - `make certify-docs-fast`
@@ -94,6 +95,14 @@ is a test-local routine.
   - validates example bundles and study bundles via `picurv validate`
   - scans docs/examples/tests for stale/forbidden contract literals
   - wraps the repository-wide function documentation audit script
+- `test_review_packet.py`
+  - page mode renders every published page, including pages owning no invariant contract
+  - page mode reports only the freshness surfaces that route review to that page
+  - page-mode output does not depend on the order contracts are iterated
+  - contract mode renders every registered contract and rejects unknown ids
+  - capability, subsystem, and freshness-surface modes render every declared identifier
+  - optional xrefs are accepted only when schema and dirty-byte stamps are current
+  - changed-path classification distinguishes routed production paths from declared gaps
 
 ## C Unit Files (`tests/c/test_*.c`)
 
@@ -178,6 +187,9 @@ Useful env knobs:
   - `make test-python`
 - editing C/Python functions or helper/test docstrings:
   - `python3 tests/tooling/audit_function_docs.py`
+- editing shared agent instructions or canonical skills:
+  - `make sync-agent-skills`
+  - `make audit-agent-setup`
 - editing one C subsystem:
   - targeted `make unit-<area>`
 - editing setup/teardown lifecycle code:
