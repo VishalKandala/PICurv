@@ -29,6 +29,27 @@ outlive the session or be shared with a human.
 `picurv_cli`. Let the tooling create them. Do not hand-create them, write
 unrelated files into them, or invent parallel alternatives.
 
+Those rows describe the project's own output. Your own trial runs, pilots, and
+sweeps are scratch and do not belong there. Initialize a throwaway case inside
+`sandbox/` and work inside it:
+
+```bash
+./bin/picurv init flat_channel --dest sandbox/<name>
+```
+
+`picurv init` places the case relative to the current working directory, and every
+artifact a run produces is written under the case it belongs to, so that case's
+own `runs/` and `studies/` sit inside `sandbox/<name>/`. Deleting that one
+directory removes the experiment whole, which is the point: delete it once it has
+answered its question.
+
+Do not instead redirect a repository-root run's directories into `sandbox/`. The
+run-directory containment guard rejects paths that escape their run root, and it
+is right to.
+
+Never delete, move, or reorganize the user's own runs; `picurv storage` owns their
+lifecycle.
+
 ## Sandbox hygiene
 
 `sandbox/` is scratch, not a staging area for deliverables. Its contents are
@@ -38,6 +59,48 @@ promoted out per the promotion rules in `sandbox/guide.md`, or it is lost.
 
 Clean up after yourself: delete scratch you created once it has served its
 purpose, rather than leaving it for the next session to inherit.
+
+## Long jobs go to the user's cluster, not to your session
+
+Estimate wall-clock cost before starting any solve, sweep, or post-processing
+run. The cheapest estimate is a pilot: run a handful of timesteps at the real
+grid and rank layout, take the per-step time, and extrapolate to the requested
+step count. This is the same warmup-and-extrapolate estimator the generated
+scheduler jobs already use for their walltime guard. Do not guess from grid size
+alone, and do not start a long run to see how it goes.
+
+**Under 45 minutes estimated:** run it locally and report the result.
+
+**Over 45 minutes estimated:** stop and hand the job to the user. Do not start
+it anyway, do not detach it into the background, and do not chop it into shorter
+local pieces to stay under the threshold. Hours of local solving cost the user
+wall-clock time and burn session context that the eventual answer does not need.
+Say what you estimated and how, so the user can overrule you with real numbers.
+
+Stage the handoff with the tooling that already owns it, rather than assembling
+a bundle by hand:
+
+```bash
+./bin/picurv run   ... --cluster <cluster.yml> --no-submit   # stages runs/<run_id>
+./bin/picurv sweep ... --cluster <cluster.yml> --no-submit   # stages studies/<study_id>
+```
+
+If the case has no cluster profile, start from
+`examples/master_template/master_cluster.yml` and name the account, partition,
+and walltime values the user has to fill in. Do not invent site policy.
+
+Then put in `sandbox/` the part the tooling does not generate:
+
+- the analysis scripts that turn raw solver output into the answer you need,
+- a short note stating the question being asked, the submit command
+  (`picurv submit --run-dir ...` or `--study-dir ...`), and exactly which files
+  to bring back.
+
+Ask for derived data, not raw state: metrics, summaries, spectra, profiles,
+solver and scheduler text output, post-processing results. Request checkpoint or
+field binaries only when the set is small and nothing derived can answer the
+question. Returned data lands in `sandbox/`, and the analysis continues there
+under the same hygiene and cleanup rules as any other scratch.
 
 ## Committing
 

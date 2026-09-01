@@ -10,6 +10,10 @@
 - temporary implementation notes,
 - exploratory config snippets,
 - one-off data transforms before promotion.
+- throwaway cases initialized with `picurv init --dest sandbox/<name>`, whose
+  runs and studies stay inside the case directory and are deleted with it.
+- cluster handoff material: the analysis scripts and note that accompany a
+  staged long run, and the derived results brought back from it.
 
 ## Bad Uses
 
