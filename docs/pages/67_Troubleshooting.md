@@ -123,7 +123,48 @@ checks are worth doing before anything else:
    what has actually been verified. An unverified capability is a candidate suspect.
 3. **Check for known limitations** on the capability entry for each selector you set.
 
-@section p67_related_sec 9. Related Documentation
+@section p67_les_sec 9. LES Results Look Wrong
+
+The closure is quiet when it misbehaves: a wrong coefficient still produces a run that
+completes and plots that look plausible. Turn the diagnostics on
+(`les.diagnostics.enabled: true`) and read `<run.runtime_logs>/les_coefficient.csv`
+before anything else.
+
+**`cs_effective` is zero for the whole run.** Expected for the first two steps of a run
+started from rest, because the procedure has no developed field to sample. Beyond that,
+check that the model is `dynamic_smagorinsky`; the constant model reports the
+coefficient you configured, not a measured one.
+
+**`cs_effective` is far from 0.16-0.17 in isotropic turbulence.** Check the grid first,
+not the model. That value assumes the grid cutoff sits in an inertial range; at low
+`Re_lambda` a smaller coefficient is correct. Then check `limited_fraction` — if the
+clip is binding, the ceiling is setting the answer.
+
+**`cs_effective` is noisy or oscillating.** Almost always `averaging.mode: local`,
+where the coefficient's denominator collapses wherever the resolved strain is briefly
+small. If the flow has a homogeneous direction, use `averaging.mode: homogeneous`.
+
+**`limited_fraction` is large.** The `max_cs` ceiling is doing the modelling. Either
+the coefficient is genuinely diverging, which is a resolution or stability problem, or
+the ceiling is set too low for the flow.
+
+**`backscatter_fraction` is large and the run is over-dissipative.** The clipping modes
+discard only the negative tail, which biases mean dissipation upward. Averaging over a
+homogeneous set lets forward and reverse transfer cancel the way the physics intends;
+`clipping.mode: none` keeps the sign and bounds the total viscosity instead.
+
+**`nu_t_over_nu_mean` is far below one.** The model is contributing nothing. Check that
+LES is actually enabled, and that the grid is coarse enough for a subgrid model to be
+the right tool.
+
+**Validation rejected `simpson_ik`.** That stencil averages over the central eta-plane
+only and assumes xi and zeta are homogeneous. The check requires both declared
+`PERIODIC`. Use `volume_weighted_box` on any other geometry.
+
+More detail on every setting at **@subpage 07_Case_Reference**, and the reasoning at
+**@subpage 72_LES_Turbulence_Closure**.
+
+@section p67_related_sec 10. Related Documentation
 
 - **@subpage 39_Common_Fatal_Errors** — organized by error message
 - **@subpage 66_Evidence_Matrix** — what is verified and what is not

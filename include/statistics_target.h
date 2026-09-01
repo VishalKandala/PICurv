@@ -123,4 +123,60 @@ PetscErrorCode SpatialTargetPlanGlobalPointCount(const SpatialTargetPlan *plan, 
  */
 PetscBool SpatialTargetPlanMaskAllows(const SpatialTargetPlan *plan, PetscReal nvert_value);
 
+/** @brief Largest reduction buffer a directional average will allocate, in entries. */
+#define PICURV_SPATIAL_AVERAGE_MAX_BUFFER 4000000
+
+/**
+ * @brief Averages two fields over a target domain and divides the results.
+ *
+ * Computes `ratio = <numerator> / <denominator>`, where each average is taken
+ * separately over the points the plan admits, and then divides. The order matters:
+ * the mean of the pointwise quotients is a different number from the quotient of the
+ * means, and several callers need the second one. The LES dynamic procedure is one,
+ * because Lilly's least-squares closure is defined that way.
+ *
+ * `average_direction` selects which logical directions collapse into the average.
+ * Selecting none makes the operation pointwise, which lets a caller express a local
+ * and an averaged formulation through one code path rather than two. Selecting all
+ * three yields one number for the whole domain. Selecting a subset retains a profile
+ * along the directions left out — averaging over xi and zeta on a plane channel, for
+ * example, leaves a wall-normal profile.
+ *
+ * Weighting is the caller's, not this function's: scale @p numerator and
+ * @p denominator by whatever weight the average should carry before calling. A
+ * caller wanting a volume-weighted average multiplies both by the cell volume; a
+ * caller wanting each admitted point to count once passes them unscaled.
+ *
+ * The reduction runs over @p comm, so a result is independent of how the domain is
+ * decomposed across ranks. The plan already excludes PETSc halo storage and the
+ * solver's boundary, dummy, and duplicate-periodic indices, so no physical point is
+ * counted twice.
+ *
+ * @param[in]  user        Block context supplying the DMDA and the solid mask.
+ * @param[in]  plan        Resolved iteration domain, from `SpatialTargetPlanCreate()`.
+ * @param[in]  numerator   Ghosted local field to average in the numerator.
+ * @param[in]  denominator Ghosted local field to average in the denominator, or NULL
+ *                         to divide by the number of admitted points.
+ * @param[in]  inclusion   Optional second mask: points where this field is not
+ *                         positive are skipped. Use it to exclude points that hold a
+ *                         zero meaning "never measured" rather than a measurement.
+ *                         NULL applies the plan's mask alone.
+ * @param[in]  average_direction Directions to average over, in `(xi, eta, zeta)` order.
+ * @param[in]  comm        Communicator to reduce over.
+ * @param[out] ratio       Ghosted local field receiving the quotient, or NULL when only
+ *                         the scalar is wanted. Zero wherever the averaged denominator
+ *                         underflows.
+ * @param[out] scalar      Receives the single averaged value, or NULL. Valid only when
+ *                         every direction is averaged, since otherwise there is no
+ *                         single value to report.
+ * @return Zero on success, `PETSC_ERR_ARG_OUTOFRANGE` when the retained directions
+ *         would need an unreasonably large reduction buffer, or
+ *         `PETSC_ERR_ARG_WRONGSTATE` when a scalar is requested from a result that
+ *         still varies in space.
+ */
+PetscErrorCode PicurvSpatialRatioAverage(UserCtx *user, const SpatialTargetPlan *plan,
+                                         Vec numerator, Vec denominator, Vec inclusion,
+                                         const PetscBool average_direction[3], MPI_Comm comm,
+                                         Vec ratio, PetscReal *scalar);
+
 #endif /* PICURV_STATISTICS_TARGET_H */

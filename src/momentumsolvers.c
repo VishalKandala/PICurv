@@ -434,7 +434,7 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
        (simCtx->bulkVelocityCorrection) inside ComputeRHS, so within a pseudo-solve they are a
        constant forcing with ZERO velocity Jacobian (consistent with the frozen-pressure
        treatment) -- they do not make the estimate incomplete. */
-    rep->estimate_incomplete = (PetscBool)(simCtx->clark || simCtx->rans);
+    rep->estimate_incomplete = (PetscBool)(simCtx->les_gradient_model || simCtx->rans);
 
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 

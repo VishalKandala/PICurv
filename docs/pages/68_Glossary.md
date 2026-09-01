@@ -95,7 +95,53 @@ specific statement over the general phrase.
 using the velocity interpolated at the *previous* step, and interpolation closes the
 step rather than opening it. See **@subpage 34_Particle_Model_Overview**.
 
-@section p68_docs_sec 5. Documentation Terms
+@section p68_turbulence_sec 5. Turbulence Closure Terms
+
+**Subgrid stress** — the momentum transfer done by eddies smaller than a grid cell.
+It involves the unfiltered velocity, which the simulation never had, so it is modelled
+rather than computed. Closing it is the entire content of an LES model.
+
+**`Cs`, and the coefficient `C`** — `Cs` is the Smagorinsky constant of the classical
+form, near 0.16 for isotropic turbulence. `C` is the coefficient that multiplies
+`Delta^2 |S|` in the eddy viscosity, which is `Cs^2`. The distinction matters here
+because the `CS` field stores `C`, not `Cs`: the dynamic procedure produces `C` as a
+ratio, and diagnostics convert to `Cs` only where a human reads the number.
+
+**Test filter** — a second, wider filter applied to the already-filtered field. The
+stress carried between the grid filter and the test filter is computable from resolved
+data, which is what lets the dynamic procedure measure a coefficient instead of
+assuming one.
+
+**Germano identity** — the exact algebraic relation between the stresses at the grid
+filter, the test filter, and the band in between. It contains no modelling. See
+@ref p72_germano_sec.
+
+**Leonard stress (`L_ij`)** — the computable stress in that band; the measurement the
+dynamic procedure fits its coefficient to.
+
+**Backscatter** — energy flowing from unresolved scales back to resolved ones, which
+appears as a negative coefficient and a negative eddy viscosity. It is physical, and
+common pointwise in developed turbulence. Clipping modes discard it; `clipping.mode:
+none` keeps it and bounds the total viscosity instead.
+
+**Homogeneous direction** — an axis along which the flow is statistically invariant.
+Averaging the dynamic coefficient over such directions is what Lilly's least-squares
+closure assumes, and `averaging.mode: homogeneous` derives them from the case's
+periodicity.
+
+**Filter width (`Delta`)** — the length scale separating resolved from modelled
+motions, derived per cell from its metrics. Selectable, because the cube root of the
+cell volume is exact only for a cube.
+
+**Gradient (Clark) model** — a tensor-diffusivity term added to the viscous flux,
+the leading term of a Taylor expansion of the Leonard stress. Not purely dissipative;
+combined with an eddy-viscosity closure it forms the classical mixed model.
+
+**`k_sgs`** — the modelled subgrid kinetic energy. Reported as a diagnostic, never
+conflated with the resolved turbulent kinetic energy that the field-statistics
+pipeline derives from velocity fluctuations.
+
+@section p68_docs_sec 6. Documentation Terms
 
 **Capability entry (Tier 2)** — the standard eight-part description of one selectable
 value. Defined in **@subpage 64_Documentation_Extension_Framework**.
@@ -107,7 +153,7 @@ form a ladder. See **@subpage 62_Capability_Status_Vocabulary**.
 migration story (`smagorinsky` for `constant_smagorinsky`); a deprecated alias is a
 retired name that should be migrated away from (`Dual Time Picard RK4`).
 
-@section p68_deprecated_sec 6. Deprecated and Renamed Terms
+@section p68_deprecated_sec 7. Deprecated and Renamed Terms
 
 | You may see | Current name | Notes |
 |---|---|---|
@@ -118,7 +164,7 @@ retired name that should be migrated away from (`Dual Time Picard RK4`).
 | `58_Turbulence_Statistics_Pipeline_Specification` | `58_Field_Statistics` | Page renamed |
 | `/picurv-docs/<page>.html` | `/docs/picurv/<page>.html` | Old page URLs do not resolve |
 
-@section p68_related_sec 7. Related Documentation
+@section p68_related_sec 8. Related Documentation
 
 - **@subpage 56_Field_Identity_and_Layout_Catalog** — authoritative field definitions
 - **@subpage 62_Capability_Status_Vocabulary** — status and evidence words

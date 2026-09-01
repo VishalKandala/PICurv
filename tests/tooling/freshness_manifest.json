@@ -43,7 +43,7 @@
         "10_Post_Processing_Reference",
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:e69612dec87c97b64a82193fbeeaccc768d3fc34bf37d3944dbbde605b423761"
+      "attested_digest": "sha256:40b0120c64f8fea887f7f91a380cba30fdc1b1fdfa4c412f3cf25fa29999c6c6"
     },
     {
       "id": "capability.evidence_matrix",
@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:8aa95c9a0f19f7ecce45c8f2a57316b1360ddef26f239542ba2fe72ca7c789aa"
+      "attested_digest": "sha256:2f21f6dcc2164b4e4fce209a5ec22cb4f7246ed4b36c8f0bf72e3646d54d5160"
     },
     {
       "id": "artifact.topology",
@@ -87,7 +87,7 @@
       "dependent_pages": [
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:120cda2b1241e10122f5d52e6c7ed237e3f1edb6998b06346927000844430825"
+      "attested_digest": "sha256:812fb7c343d69147e1a691bcc5700fdaf59af42efb2b459252b7c3222e3ef222"
     },
     {
       "id": "docs.page_types",
@@ -101,7 +101,7 @@
       "dependent_pages": [
         "Documentation_Map"
       ],
-      "attested_digest": "sha256:6a4685abaf8dd8ed5f780de8ec19450d4880685e62ecdfe9a93a19f95817c65e"
+      "attested_digest": "sha256:1294337e6fb24ffce07e48a1f42ac1f9d06c36f434fc074b537222ca616872ef"
     },
     {
       "id": "docs.contract_registry",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:baf21a9a18c17676fe5f080bb5e5f0e94c77b14c5bf9831f7a0d64dfa5e6046b",
+      "attested_digest": "sha256:a3717e2f759fd951c752db648ed3e38615a90535c635f63b25017f1575387007",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
@@ -148,7 +148,7 @@
       "dependent_pages": [
         "21_Methods_Overview"
       ],
-      "attested_digest": "sha256:03a6761c473374b790133b569cb32107ac768a796be98b092e87d252a7d9a1c3",
+      "attested_digest": "sha256:1d3882fd27b9542ac7d77f41b19202f6ed0bed47cf92fa469653ac74430c9646",
       "note": "Both models are documented as defective. If this file changes, the defect disclosure is the first thing to re-check."
     },
     {

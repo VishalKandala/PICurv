@@ -5030,6 +5030,197 @@ def normalize_boundary_conditions_layout(all_blocks_bcs, num_blocks: int):
         )
     return all_blocks_bcs
 
+def _les_periodic_axes(case_cfg: dict) -> set:
+    """!
+    @brief Reports which logical axes a case declares periodic on both faces.
+    @param[in] case_cfg Parsed case.yml mapping.
+    @return Set of axis letters drawn from {'i', 'j', 'k'}.
+    """
+    axis_faces = {"i": ("-Xi", "+Xi"), "j": ("-Eta", "+Eta"), "k": ("-Zeta", "+Zeta")}
+    declared = {}
+    entries = case_cfg.get("boundary_conditions") or []
+    if entries and isinstance(entries[0], list):
+        entries = entries[0]
+    for entry in entries:
+        if isinstance(entry, dict):
+            declared[str(entry.get("face"))] = str(entry.get("type", "")).upper()
+    return {
+        axis for axis, faces in axis_faces.items()
+        if all(declared.get(face) == "PERIODIC" for face in faces)
+    }
+
+
+def validate_les_configuration(case_cfg: dict, les_cfg: dict, case_path: str,
+                               errors: list, warnings: list):
+    """!
+    @brief Checks the structured LES block for values the closure cannot honour.
+    @param[in] case_cfg Parsed case.yml mapping, used to read declared periodicity.
+    @param[in] les_cfg Parsed `models.physics.turbulence.les` mapping.
+    @param[in] case_path Case file path used to prefix diagnostics.
+    @param[out] errors List collecting blocking validation failures.
+    @param[out] warnings List collecting advisory messages.
+    @return None; findings are appended to `errors` and `warnings`.
+    """
+    def _numeric(container, key, path, minimum=None, exclusive_minimum=None):
+        """!
+        @brief Reads one numeric key and records a range or type failure against it.
+        @param[in] container Mapping holding the key.
+        @param[in] key Key to read; absent keys are accepted silently.
+        @param[in] path Dotted key path used in diagnostics.
+        @param[in] minimum Inclusive lower bound, or None to impose none.
+        @param[in] exclusive_minimum Exclusive lower bound, or None to impose none.
+        @return The parsed value, or None when the key is absent or unparseable.
+        """
+        if key not in container:
+            return None
+        try:
+            value = float(container[key])
+        except (TypeError, ValueError):
+            errors.append(f"  {case_path}: {path} must be numeric.")
+            return None
+        if minimum is not None and value < minimum:
+            errors.append(f"  {case_path}: {path} must be at least {minimum}.")
+        if exclusive_minimum is not None and value <= exclusive_minimum:
+            errors.append(f"  {case_path}: {path} must be greater than {exclusive_minimum}.")
+        return value
+
+    if 'enabled' in les_cfg and not isinstance(les_cfg['enabled'], bool):
+        errors.append(f"  {case_path}: models.physics.turbulence.les.enabled must be true or false.")
+
+    _numeric(les_cfg, 'constant_cs', "models.physics.turbulence.les.constant_cs", minimum=0.0)
+
+    if 'dynamic_frequency' in les_cfg:
+        try:
+            if int(les_cfg['dynamic_frequency']) <= 0:
+                errors.append(f"  {case_path}: models.physics.turbulence.les.dynamic_frequency must be positive.")
+        except (TypeError, ValueError):
+            errors.append(f"  {case_path}: models.physics.turbulence.les.dynamic_frequency must be an integer.")
+
+    for key, normalizer in (('filter_width', normalize_les_filter_width),):
+        if key in les_cfg:
+            try:
+                normalizer(les_cfg[key])
+            except ValueError as exc:
+                errors.append(f"  {case_path}: {exc}")
+
+    periodic = _les_periodic_axes(case_cfg)
+
+    test_filter = les_cfg.get('test_filter')
+    if test_filter is not None:
+        if not isinstance(test_filter, dict):
+            test_filter = {'kernel': test_filter}
+        if 'kernel' in test_filter:
+            try:
+                kernel = normalize_les_test_filter(test_filter['kernel'])
+            except ValueError as exc:
+                errors.append(f"  {case_path}: {exc}")
+            else:
+                # The Simpson stencil collapses onto the central eta-plane, which is
+                # only a valid average when xi and zeta are homogeneous.
+                if kernel == 1 and not {"i", "k"} <= periodic:
+                    errors.append(
+                        f"  {case_path}: models.physics.turbulence.les.test_filter.kernel "
+                        "'simpson_ik' assumes the xi and zeta directions are homogeneous, but "
+                        "this case does not declare both of them PERIODIC. Use "
+                        "'volume_weighted_box' instead."
+                    )
+        # A test filter no wider than the grid filter leaves the dynamic procedure with
+        # nothing to measure, because both terms of the model tensor coincide.
+        _numeric(test_filter, 'width_ratio',
+                 "models.physics.turbulence.les.test_filter.width_ratio", exclusive_minimum=1.0)
+
+    averaging = les_cfg.get('averaging')
+    if averaging is not None:
+        if not isinstance(averaging, dict):
+            averaging = {'mode': averaging}
+        mode = None
+        if 'mode' in averaging:
+            try:
+                mode = normalize_les_averaging_mode(averaging['mode'])
+            except ValueError as exc:
+                errors.append(f"  {case_path}: {exc}")
+        directions = None
+        if 'directions' in averaging:
+            try:
+                directions = normalize_les_averaging_directions(averaging['directions'])
+            except ValueError as exc:
+                errors.append(f"  {case_path}: {exc}")
+            else:
+                if not directions:
+                    errors.append(
+                        f"  {case_path}: models.physics.turbulence.les.averaging.directions "
+                        "cannot be empty; omit the key to use the periodic axes."
+                    )
+                if mode is not None and mode != 1:
+                    errors.append(
+                        f"  {case_path}: models.physics.turbulence.les.averaging.directions "
+                        "applies only to mode 'homogeneous'; local and global averaging choose "
+                        "their own directions."
+                    )
+                for axis in directions:
+                    if axis not in periodic:
+                        warnings.append(
+                            f"{case_path}: models.physics.turbulence.les.averaging.directions "
+                            f"names '{axis}', which this case does not declare PERIODIC. "
+                            "Averaging assumes the flow is statistically homogeneous there."
+                        )
+        if mode == 1 and directions is None and not periodic:
+            errors.append(
+                f"  {case_path}: models.physics.turbulence.les.averaging.mode 'homogeneous' "
+                "derives its directions from the periodic boundary pairs, and this case declares "
+                "none. Name the directions explicitly or use 'local'."
+            )
+
+    clipping = les_cfg.get('clipping')
+    if clipping is not None:
+        if not isinstance(clipping, dict):
+            clipping = {'mode': clipping}
+        mode = None
+        if 'mode' in clipping:
+            try:
+                mode = normalize_les_clip_mode(clipping['mode'])
+            except ValueError as exc:
+                errors.append(f"  {case_path}: {exc}")
+        _numeric(clipping, 'max_cs', "models.physics.turbulence.les.clipping.max_cs", minimum=0.0)
+        _numeric(clipping, 'min_viscosity_ratio',
+                 "models.physics.turbulence.les.clipping.min_viscosity_ratio", minimum=0.0)
+        if 'max_cs' in clipping and mode is not None and mode != 0:
+            warnings.append(
+                f"{case_path}: models.physics.turbulence.les.clipping.max_cs is only applied by "
+                "mode 'clamp' and will be ignored."
+            )
+
+    diagnostics = les_cfg.get('diagnostics')
+    if isinstance(diagnostics, dict):
+        if 'cadence' in diagnostics:
+            try:
+                if int(diagnostics['cadence']) <= 0:
+                    errors.append(
+                        f"  {case_path}: models.physics.turbulence.les.diagnostics.cadence must be positive."
+                    )
+            except (TypeError, ValueError):
+                errors.append(
+                    f"  {case_path}: models.physics.turbulence.les.diagnostics.cadence must be an integer."
+                )
+        _numeric(diagnostics, 'yoshizawa_ci',
+                 "models.physics.turbulence.les.diagnostics.yoshizawa_ci", minimum=0.0)
+
+    # The dynamic procedure's controls have no meaning for a prescribed coefficient.
+    # Only an explicitly named constant model triggers this: a template that documents
+    # every key while LES is switched off should not be rejected on an inferred default.
+    try:
+        model_code = normalize_les_model(les_cfg['model']) if 'model' in les_cfg else None
+    except ValueError:
+        model_code = None
+    if model_code == 1 and les_cfg.get('enabled', True):
+        for key in ('filter_width', 'test_filter', 'averaging', 'clipping'):
+            if key in les_cfg:
+                errors.append(
+                    f"  {case_path}: models.physics.turbulence.les.{key} configures the dynamic "
+                    "procedure and cannot be used with model 'constant_smagorinsky'."
+                )
+
+
 def validate_and_prepare_boundary_conditions(case_cfg: dict):
     """!
     @brief Validate BC entries against currently supported C-side handlers/types and
@@ -5326,7 +5517,17 @@ _CASE_SCHEMA = {
     ("models", "physics", "particles", "point_source"): {"x", "y", "z"},
     ("models", "physics", "turbulence"): {"les", "rans", "wall_function"},
     ("models", "physics", "turbulence", "les"): {
-        "enabled", "model", "constant_cs", "max_cs", "dynamic_frequency", "test_filter",
+        "enabled", "model", "constant_cs", "dynamic_frequency", "filter_width",
+        "test_filter", "averaging", "clipping", "gradient_model", "diagnostics",
+    },
+    ("models", "physics", "turbulence", "les", "test_filter"): {"kernel", "width_ratio"},
+    ("models", "physics", "turbulence", "les", "averaging"): {"mode", "directions"},
+    ("models", "physics", "turbulence", "les", "clipping"): {
+        "mode", "max_cs", "min_viscosity_ratio",
+    },
+    ("models", "physics", "turbulence", "les", "gradient_model"): {"enabled"},
+    ("models", "physics", "turbulence", "les", "diagnostics"): {
+        "enabled", "cadence", "yoshizawa_ci",
     },
     ("models", "physics", "turbulence", "rans"): {"enabled", "model"},
     ("models", "physics", "turbulence", "wall_function"): {"enabled", "model", "roughness_height"},
@@ -6305,24 +6506,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         wall_cfg = turbulence_cfg.get('wall_function')
 
         if isinstance(les_cfg, dict):
-            for key in ('enabled',):
-                if key in les_cfg and not isinstance(les_cfg[key], bool):
-                    errors.append(f"  {case_path}: models.physics.turbulence.les.{key} must be true or false.")
-            for key in ('constant_cs', 'max_cs'):
-                if key in les_cfg:
-                    try:
-                        value = float(les_cfg[key])
-                        if value < 0.0:
-                            errors.append(f"  {case_path}: models.physics.turbulence.les.{key} must be nonnegative.")
-                    except (TypeError, ValueError):
-                        errors.append(f"  {case_path}: models.physics.turbulence.les.{key} must be numeric.")
-            if 'dynamic_frequency' in les_cfg:
-                try:
-                    value = int(les_cfg['dynamic_frequency'])
-                    if value <= 0:
-                        errors.append(f"  {case_path}: models.physics.turbulence.les.dynamic_frequency must be positive.")
-                except (TypeError, ValueError):
-                    errors.append(f"  {case_path}: models.physics.turbulence.les.dynamic_frequency must be an integer.")
+            validate_les_configuration(case_cfg, les_cfg, case_path, errors, warnings)
 
         if isinstance(rans_cfg, dict):
             if 'enabled' in rans_cfg and not isinstance(rans_cfg['enabled'], bool):
@@ -10101,35 +10285,156 @@ def normalize_les_model(value) -> int:
 
 def normalize_les_test_filter(value) -> int:
     """!
-    @brief Maps LES test-filter names to the C -testfilter_ik flag.
-    @param[in] value Test-filter selector name or legacy integer/bool value.
-    @return 0 for volume-weighted box, 1 for homogeneous i/k Simpson filtering.
+    @brief Maps LES test-filter kernel names to the C -les_test_filter_kernel flag.
+    @param[in] value Test-filter selector name or integer code.
+    @return 0 for the volume-weighted box filter, 1 for the i/k Simpson filter.
     @throws ValueError if the input cannot be mapped.
     """
     if isinstance(value, bool):
-        return 1 if value else 0
+        raise ValueError("models.physics.turbulence.les.test_filter.kernel must name a filter, not a boolean.")
     if isinstance(value, int):
         if value in (0, 1):
             return value
-        raise ValueError("models.physics.turbulence.les.test_filter must be 0, 1, or a supported filter name.")
+        raise ValueError("models.physics.turbulence.les.test_filter.kernel must be 0, 1, or a supported filter name.")
     if value is None:
-        raise ValueError("LES test_filter cannot be None")
+        raise ValueError("LES test_filter.kernel cannot be None")
 
     key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
     mapped = {
         "volume_weighted_box": 0,
         "box": 0,
-        "general_box": 0,
-        "homogeneous_ik": 1,
-        "ik_homogeneous": 1,
         "simpson_ik": 1,
     }.get(key)
     if mapped is None:
         raise ValueError(
-            f"Unknown LES test_filter '{value}'. Use one of: "
-            "'volume_weighted_box', 'homogeneous_ik'."
+            f"Unknown LES test filter kernel '{value}'. Use one of: "
+            "'volume_weighted_box', 'simpson_ik'."
         )
     return mapped
+
+def normalize_les_filter_width(value) -> int:
+    """!
+    @brief Maps LES grid-filter-width model names to the C -les_filter_width flag.
+    @param[in] value Filter-width model name or integer code.
+    @return 0 for cube-root volume, 1 for the geometric mean of the cell extents,
+            2 for the longest cell extent.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if isinstance(value, bool):
+        raise ValueError("models.physics.turbulence.les.filter_width must name a model, not a boolean.")
+    if isinstance(value, int):
+        if value in (0, 1, 2):
+            return value
+        raise ValueError("models.physics.turbulence.les.filter_width must be 0, 1, 2, or a supported model name.")
+    if value is None:
+        raise ValueError("LES filter_width cannot be None")
+
+    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    mapped = {
+        "cube_root_volume": 0,
+        "geometric_mean": 1,
+        "max_edge": 2,
+    }.get(key)
+    if mapped is None:
+        raise ValueError(
+            f"Unknown LES filter width model '{value}'. Use one of: "
+            "'cube_root_volume', 'geometric_mean', 'max_edge'."
+        )
+    return mapped
+
+def normalize_les_averaging_mode(value) -> int:
+    """!
+    @brief Maps LES coefficient-averaging mode names to the C -les_averaging_mode flag.
+    @param[in] value Averaging mode name or integer code.
+    @return 0 for pointwise local averaging, 1 for homogeneous directions, 2 for the
+            whole block.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if isinstance(value, bool):
+        raise ValueError("models.physics.turbulence.les.averaging.mode must name a mode, not a boolean.")
+    if isinstance(value, int):
+        if value in (0, 1, 2):
+            return value
+        raise ValueError("models.physics.turbulence.les.averaging.mode must be 0, 1, 2, or a supported mode name.")
+    if value is None:
+        raise ValueError("LES averaging.mode cannot be None")
+
+    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    mapped = {
+        "local": 0,
+        "homogeneous": 1,
+        "global": 2,
+    }.get(key)
+    if mapped is None:
+        raise ValueError(
+            f"Unknown LES averaging mode '{value}'. Use one of: "
+            "'local', 'homogeneous', 'global'."
+        )
+    return mapped
+
+def normalize_les_clip_mode(value) -> int:
+    """!
+    @brief Maps LES coefficient-limiting mode names to the C -les_clip_mode flag.
+    @param[in] value Clipping mode name or integer code.
+    @return 0 to clamp into [0, max_cs^2], 1 to discard negatives only, 2 to keep the
+            signed coefficient so backscatter survives.
+    @throws ValueError if the input cannot be mapped.
+    """
+    if isinstance(value, bool):
+        raise ValueError("models.physics.turbulence.les.clipping.mode must name a mode, not a boolean.")
+    if isinstance(value, int):
+        if value in (0, 1, 2):
+            return value
+        raise ValueError("models.physics.turbulence.les.clipping.mode must be 0, 1, 2, or a supported mode name.")
+    if value is None:
+        raise ValueError("LES clipping.mode cannot be None")
+
+    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    mapped = {
+        "clamp": 0,
+        "clip_negative": 1,
+        "none": 2,
+    }.get(key)
+    if mapped is None:
+        raise ValueError(
+            f"Unknown LES clipping mode '{value}'. Use one of: "
+            "'clamp', 'clip_negative', 'none'."
+        )
+    return mapped
+
+#: The logical grid directions an LES averaging set may span, in canonical order.
+LES_AVERAGING_DIRECTION_AXES = ("i", "j", "k")
+
+def normalize_les_averaging_directions(value) -> str:
+    """!
+    @brief Maps a list of homogeneous logical directions to the C flag's string form.
+    @param[in] value List or string naming a subset of the i, j, and k directions.
+    @return The selected directions as a canonically ordered subset of "ijk".
+    @throws ValueError if a direction is unknown or repeated.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        tokens = [token for token in value.strip().lower()]
+    elif isinstance(value, (list, tuple)):
+        tokens = [str(token).strip().lower() for token in value]
+    else:
+        raise ValueError(
+            "models.physics.turbulence.les.averaging.directions must be a list such as [i, k]."
+        )
+
+    selected = []
+    for token in tokens:
+        if token not in LES_AVERAGING_DIRECTION_AXES:
+            raise ValueError(
+                f"Unknown LES averaging direction '{token}'. Use a subset of ['i', 'j', 'k']."
+            )
+        if token in selected:
+            raise ValueError(
+                f"LES averaging direction '{token}' is repeated; list each direction once."
+            )
+        selected.append(token)
+    return "".join(axis for axis in LES_AVERAGING_DIRECTION_AXES if axis in selected)
 
 def normalize_rans_model(value) -> int:
     """!
@@ -10188,6 +10493,78 @@ def resolve_enabled_flag(cfg: dict, path: str, default: bool = True) -> bool:
         raise ValueError(f"{path}.enabled must be true or false.")
     return cfg['enabled']
 
+def append_les_parameter_flags(les_cfg: dict, control_lines: list):
+    """!
+    @brief Appends the LES closure parameter flags from a structured les block.
+    @param[in] les_cfg Parsed `models.physics.turbulence.les` mapping.
+    @param[out] control_lines A list of strings to which C-flags will be appended.
+    @throws ValueError if a selector name or nested block shape is unsupported.
+    """
+    if 'constant_cs' in les_cfg:
+        control_lines.append(f"-les_constant_cs {format_flag_value(les_cfg['constant_cs'])}")
+    if 'dynamic_frequency' in les_cfg:
+        control_lines.append(f"-les_dynamic_frequency {format_flag_value(les_cfg['dynamic_frequency'])}")
+    if 'filter_width' in les_cfg:
+        control_lines.append(f"-les_filter_width {normalize_les_filter_width(les_cfg['filter_width'])}")
+
+    # A bare string is accepted as shorthand for naming only the kernel, matching the
+    # way the les block itself accepts either a scalar or a mapping.
+    test_filter = les_cfg.get('test_filter')
+    if test_filter is not None:
+        if not isinstance(test_filter, dict):
+            test_filter = {'kernel': test_filter}
+        if 'kernel' in test_filter:
+            control_lines.append(
+                f"-les_test_filter_kernel {normalize_les_test_filter(test_filter['kernel'])}")
+        if 'width_ratio' in test_filter:
+            control_lines.append(
+                f"-les_test_filter_width_ratio {format_flag_value(test_filter['width_ratio'])}")
+
+    averaging = les_cfg.get('averaging')
+    if averaging is not None:
+        if not isinstance(averaging, dict):
+            averaging = {'mode': averaging}
+        if 'mode' in averaging:
+            control_lines.append(
+                f"-les_averaging_mode {normalize_les_averaging_mode(averaging['mode'])}")
+        if 'directions' in averaging:
+            directions = normalize_les_averaging_directions(averaging['directions'])
+            if directions:
+                control_lines.append(f"-les_averaging_directions {directions}")
+
+    clipping = les_cfg.get('clipping')
+    if clipping is not None:
+        if not isinstance(clipping, dict):
+            clipping = {'mode': clipping}
+        if 'mode' in clipping:
+            control_lines.append(f"-les_clip_mode {normalize_les_clip_mode(clipping['mode'])}")
+        if 'max_cs' in clipping:
+            control_lines.append(f"-les_clip_max_cs {format_flag_value(clipping['max_cs'])}")
+        if 'min_viscosity_ratio' in clipping:
+            control_lines.append(
+                f"-les_min_viscosity_ratio {format_flag_value(clipping['min_viscosity_ratio'])}")
+
+    gradient_model = les_cfg.get('gradient_model')
+    if gradient_model is not None:
+        if not isinstance(gradient_model, dict):
+            gradient_model = {'enabled': gradient_model}
+        enabled = resolve_enabled_flag(gradient_model,
+                                       "models.physics.turbulence.les.gradient_model")
+        control_lines.append(f"-les_gradient_model {1 if enabled else 0}")
+
+    diagnostics = les_cfg.get('diagnostics')
+    if diagnostics is not None:
+        if not isinstance(diagnostics, dict):
+            diagnostics = {'enabled': diagnostics}
+        enabled = resolve_enabled_flag(diagnostics, "models.physics.turbulence.les.diagnostics")
+        control_lines.append(f"-les_diagnostics {'true' if enabled else 'false'}")
+        if 'cadence' in diagnostics:
+            control_lines.append(
+                f"-les_diagnostics_cadence {format_flag_value(diagnostics['cadence'])}")
+        if 'yoshizawa_ci' in diagnostics:
+            control_lines.append(
+                f"-les_yoshizawa_ci {format_flag_value(diagnostics['yoshizawa_ci'])}")
+
 def append_turbulence_flags(models: dict, control_lines: list):
     """!
     @brief Appends turbulence model flags from legacy or structured case.yml blocks.
@@ -10211,14 +10588,7 @@ def append_turbulence_flags(models: dict, control_lines: list):
         model_value = les_cfg.get('model', 'constant_smagorinsky')
         les_code = normalize_les_model(model_value) if enabled else 0
         control_lines.append(f"-les {les_code}")
-        if 'constant_cs' in les_cfg:
-            control_lines.append(f"-const_cs {format_flag_value(les_cfg['constant_cs'])}")
-        if 'max_cs' in les_cfg:
-            control_lines.append(f"-max_cs {format_flag_value(les_cfg['max_cs'])}")
-        if 'dynamic_frequency' in les_cfg:
-            control_lines.append(f"-dynamic_freq {format_flag_value(les_cfg['dynamic_frequency'])}")
-        if 'test_filter' in les_cfg:
-            control_lines.append(f"-testfilter_ik {normalize_les_test_filter(les_cfg['test_filter'])}")
+        append_les_parameter_flags(les_cfg, control_lines)
     elif les_cfg is not None:
         les_code = normalize_les_model(les_cfg)
         control_lines.append(f"-les {les_code}")
@@ -16789,6 +17159,41 @@ def _collect_summary_plot_records(context: dict) -> list:
                         coordinates={"solver_iteration": int(match.group("iter"))},
                     )
 
+    # The LES coefficient history. cs_effective is the curve an LES run is judged on:
+    # for decaying isotropic turbulence it should settle near Lilly's 0.16-0.17.
+    les_path = os.path.join(log_dir, "les_coefficient.csv")
+    if os.path.isfile(les_path):
+        segment = 0
+        header = []
+        with open(les_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+            for raw_line in f:
+                if _is_summary_plot_continuation_marker(raw_line):
+                    segment += 1
+                    continue
+                if raw_line.lstrip().startswith("step,"):
+                    header = [name.strip() for name in raw_line.strip().split(",")]
+                    continue
+                parts = [part.strip() for part in raw_line.strip().split(",")]
+                if not header or len(parts) != len(header):
+                    continue
+                row = dict(zip(header, parts))
+                _append_summary_plot_record(
+                    records, "les", _parse_int_loose(row.get("step")), "coefficient",
+                    {
+                        "cs_effective": _parse_float_loose(row.get("cs_effective")),
+                        "cs_mean": _parse_float_loose(row.get("cs_mean")),
+                        "coefficient_rms": _parse_float_loose(row.get("coefficient_rms")),
+                        "coefficient_min": _parse_float_loose(row.get("coefficient_min")),
+                        "coefficient_max": _parse_float_loose(row.get("coefficient_max")),
+                        "nu_t_mean": _parse_float_loose(row.get("nu_t_mean")),
+                        "nu_t_max": _parse_float_loose(row.get("nu_t_max")),
+                        "nu_t_over_nu_mean": _parse_float_loose(row.get("nu_t_over_nu_mean")),
+                        "k_sgs_mean": _parse_float_loose(row.get("k_sgs_mean")),
+                        "backscatter_fraction": _parse_float_loose(row.get("backscatter_fraction")),
+                        "limited_fraction": _parse_float_loose(row.get("limited_fraction")),
+                    },
+                    les_path, segment,
+                )
     profiling_path = os.path.join(log_dir, context["profiling_cfg"].get("timestep_file", "Profiling_Timestep_Summary.csv"))
     if os.path.isfile(profiling_path):
         segment = 0

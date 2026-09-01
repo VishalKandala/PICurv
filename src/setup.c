@@ -152,6 +152,157 @@ PetscErrorCode DestroySolutionConvergenceState(SimCtx *simCtx)
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "LESConfigSetDefaults"
+/**
+ * @brief Implementation of \ref LESConfigSetDefaults().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/setup.h`.
+ * @see LESConfigSetDefaults()
+ */
+PetscErrorCode LESConfigSetDefaults(LESConfig *config)
+{
+    PetscFunctionBeginUser;
+    PetscCheck(config != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "LES configuration destination cannot be NULL.");
+
+    config->dynamic_frequency       = 1;
+    config->constant_cs             = 0.03;
+    config->filter_width_model      = LES_FILTER_WIDTH_CUBE_ROOT_VOLUME;
+    config->test_filter_kernel      = LES_TEST_FILTER_VOLUME_WEIGHTED_BOX;
+    config->test_filter_width_ratio = 2.0;
+    // Local averaging makes no homogeneity claim, so it is the only default that is
+    // correct on every geometry. Homogeneous and global averaging are opted into.
+    config->averaging_mode          = LES_AVERAGING_LOCAL;
+    config->averaging_direction[0]  = PETSC_FALSE;
+    config->averaging_direction[1]  = PETSC_FALSE;
+    config->averaging_direction[2]  = PETSC_FALSE;
+    config->clip_mode               = LES_CLIP_CLAMP;
+    // Roughly twice the physical Smagorinsky constant: high enough to catch a
+    // diverging coefficient, low enough that it does not shape the distribution.
+    config->max_cs                  = 0.3;
+    config->min_viscosity_ratio     = 0.0;
+    config->yoshizawa_ci            = 0.09;
+    config->diagnostics_enabled     = PETSC_FALSE;
+    config->diagnostics_cadence     = 1;
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ParseLESConfiguration"
+/**
+ * @brief Reads every LES closure parameter from the generated control file.
+ *
+ * Grouped into one routine because the parameters constrain one another: the
+ * averaging directions only mean something under homogeneous averaging, and the
+ * clip ceiling only under clamping. Selectors arrive as integers that the Python
+ * layer has already normalized from their user-facing names, which is the same
+ * contract `-les`, `-pinit`, and `-interpolation_method` follow.
+ *
+ * Values that would make the closure ill-defined are rejected here as well as in
+ * Python, so a hand-written control file fails with a reason rather than producing
+ * a plausible-looking coefficient.
+ *
+ * @param[in,out] simCtx Simulation context whose `les_config` is populated.
+ * @return PetscErrorCode 0 on success, or `PETSC_ERR_ARG_OUTOFRANGE` for a value
+ *         outside its admissible range.
+ */
+static PetscErrorCode ParseLESConfiguration(SimCtx *simCtx)
+{
+    LESConfig *config = &simCtx->les_config;
+    PetscInt   selector;
+    char       directions[8] = "";
+    PetscBool  found = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+
+    PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_constant_cs", &config->constant_cs, NULL));
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-les_dynamic_frequency", &config->dynamic_frequency, NULL));
+
+    selector = (PetscInt)config->filter_width_model;
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-les_filter_width", &selector, NULL));
+    PetscCheck(selector >= LES_FILTER_WIDTH_CUBE_ROOT_VOLUME && selector <= LES_FILTER_WIDTH_MAX_EDGE,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_filter_width must be 0 (cube_root_volume), 1 (geometric_mean), or 2 (max_edge); received %" PetscInt_FMT ".",
+               selector);
+    config->filter_width_model = (LESFilterWidthModel)selector;
+
+    selector = (PetscInt)config->test_filter_kernel;
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-les_test_filter_kernel", &selector, NULL));
+    PetscCheck(selector >= LES_TEST_FILTER_VOLUME_WEIGHTED_BOX && selector <= LES_TEST_FILTER_SIMPSON_IK,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_test_filter_kernel must be 0 (volume_weighted_box) or 1 (simpson_ik); received %" PetscInt_FMT ".",
+               selector);
+    config->test_filter_kernel = (LESTestFilterKernel)selector;
+
+    PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_test_filter_width_ratio",
+                                  &config->test_filter_width_ratio, NULL));
+    PetscCheck(config->test_filter_width_ratio > 1.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_test_filter_width_ratio must exceed 1; a test filter no wider than the grid "
+               "filter leaves the dynamic procedure nothing to measure. Received %g.",
+               (double)config->test_filter_width_ratio);
+
+    selector = (PetscInt)config->averaging_mode;
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-les_averaging_mode", &selector, NULL));
+    PetscCheck(selector >= LES_AVERAGING_LOCAL && selector <= LES_AVERAGING_GLOBAL,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_averaging_mode must be 0 (local), 1 (homogeneous), or 2 (global); received %" PetscInt_FMT ".",
+               selector);
+    config->averaging_mode = (LESAveragingMode)selector;
+
+    // A subset of "ijk". Left empty under homogeneous averaging, the periodic axes
+    // are used instead, which is what makes the common cases need no configuration.
+    PetscCall(PetscOptionsGetString(NULL, NULL, "-les_averaging_directions",
+                                    directions, sizeof(directions), &found));
+    if (found) {
+        for (size_t index = 0; directions[index] != '\0'; index++) {
+            switch (directions[index]) {
+            case 'i': config->averaging_direction[0] = PETSC_TRUE; break;
+            case 'j': config->averaging_direction[1] = PETSC_TRUE; break;
+            case 'k': config->averaging_direction[2] = PETSC_TRUE; break;
+            default:
+                SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+                        "-les_averaging_directions accepts only the characters i, j, and k; "
+                        "received '%s'.", directions);
+            }
+        }
+    }
+
+    selector = (PetscInt)config->clip_mode;
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-les_clip_mode", &selector, NULL));
+    PetscCheck(selector >= LES_CLIP_CLAMP && selector <= LES_CLIP_NONE,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_clip_mode must be 0 (clamp), 1 (clip_negative), or 2 (none); received %" PetscInt_FMT ".",
+               selector);
+    config->clip_mode = (LESClipMode)selector;
+
+    PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_clip_max_cs", &config->max_cs, NULL));
+    PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_min_viscosity_ratio",
+                                  &config->min_viscosity_ratio, NULL));
+    PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_yoshizawa_ci", &config->yoshizawa_ci, NULL));
+    PetscCall(PetscOptionsGetBool(NULL, NULL, "-les_diagnostics",
+                                  &config->diagnostics_enabled, NULL));
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-les_diagnostics_cadence",
+                                 &config->diagnostics_cadence, NULL));
+
+    PetscCheck(config->dynamic_frequency > 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_dynamic_frequency must be positive; received %" PetscInt_FMT ".",
+               config->dynamic_frequency);
+    PetscCheck(config->constant_cs >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_constant_cs must be nonnegative; received %g.", (double)config->constant_cs);
+    PetscCheck(config->max_cs >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_clip_max_cs must be nonnegative; received %g.", (double)config->max_cs);
+    PetscCheck(config->min_viscosity_ratio >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_min_viscosity_ratio must be nonnegative; received %g.",
+               (double)config->min_viscosity_ratio);
+    PetscCheck(config->diagnostics_cadence > 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_diagnostics_cadence must be positive; received %" PetscInt_FMT ".",
+               config->diagnostics_cadence);
+
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "CreateSimulationContext"
 
 /**
@@ -307,11 +458,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     
     // --- Group 8: Turbulence Modeling (LES/RANS) ---
     simCtx->les = NO_LES_MODEL; simCtx->rans = 0;
-    simCtx->wallfunction = 0; simCtx->mixed = 0; simCtx->clark = 0;
-    simCtx->dynamic_freq = 1; simCtx->max_cs = 0.5;
-    simCtx->Const_CS = 0.03;
-    simCtx->testfilter_ik = 0; simCtx->testfilter_1d = 0;
-    simCtx->i_homo_filter = 0; simCtx->j_homo_filter = 0; simCtx->k_homo_filter = 0;
+    simCtx->wallfunction = 0; simCtx->les_gradient_model = 0;
+    ierr = LESConfigSetDefaults(&simCtx->les_config); CHKERRQ(ierr);
 
     // --- Group 9: Particle / DMSwarm Data & Settings ---
     simCtx->np = 0; simCtx->readFields = PETSC_FALSE;
@@ -906,16 +1054,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->les = (LESModelType)temp_les_model;
     ierr = PetscOptionsGetInt(NULL, NULL, "-rans", &simCtx->rans, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-wallfunction", &simCtx->wallfunction, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-mixed", &simCtx->mixed, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-clark", &simCtx->clark, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-dynamic_freq", &simCtx->dynamic_freq, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-max_cs", &simCtx->max_cs, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-const_cs", &simCtx->Const_CS, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-testfilter_ik", &simCtx->testfilter_ik, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-testfilter_1d", &simCtx->testfilter_1d, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-i_homo_filter", &simCtx->i_homo_filter, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-j_homo_filter", &simCtx->j_homo_filter, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-k_homo_filter", &simCtx->k_homo_filter, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetInt(NULL, NULL, "-les_gradient_model", &simCtx->les_gradient_model, NULL); CHKERRQ(ierr);
+    ierr = ParseLESConfiguration(simCtx); CHKERRQ(ierr);
 
      //  --- Group 9
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 9:  Particle / DMSwarm Data & Settings \n");
@@ -1940,10 +2080,14 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 ierr = DMCreateGlobalVector(user->da, &user->Nu_t); CHKERRQ(ierr); ierr = VecSet(user->Nu_t, 0.0); CHKERRQ(ierr);
                 ierr = DMCreateLocalVector(user->da, &user->lNu_t); CHKERRQ(ierr); ierr = VecSet(user->lNu_t, 0.0); CHKERRQ(ierr);
                 LOG_ALLOW(GLOBAL, LOG_DEBUG, "Turbulence viscosity (Nu_t) vectors created for LES/RANS model.\n");
-                if(simCtx->les){ 
+                // Only the dynamic model carries a coefficient field. The constant model
+                // reads its coefficient straight from configuration, so allocating,
+                // synchronizing, and checkpointing a field of one repeated number would
+                // buy nothing.
+                if(simCtx->les == DYNAMIC_SMAGORINSKY){
                 ierr = DMCreateGlobalVector(user->da,&user->CS); CHKERRQ(ierr); ierr = VecSet(user->CS,0.0); CHKERRQ(ierr);
                 ierr = DMCreateLocalVector(user->da,&user->lCs); CHKERRQ(ierr); ierr = VecSet(user->lCs,0.0); CHKERRQ(ierr);
-                LOG_ALLOW(GLOBAL, LOG_DEBUG, "Smagorinsky constant (CS) vectors created for LES model.\n");
+                LOG_ALLOW(GLOBAL, LOG_DEBUG, "Dynamic Smagorinsky coefficient (CS) vectors created.\n");
                 }
 
                 if(simCtx->wallfunction){

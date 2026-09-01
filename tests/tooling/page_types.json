@@ -1,5 +1,5 @@
 {
-  "description": "Machine-readable page-type assignment for every published page. A page may also declare its type inline with @pagemeta; where both exist they must agree. The registry exists so 70 pages can be typed without adding repetitive chrome to each one - see 63_Page_Type_Contract for what each type owes.",
+  "description": "Machine-readable page-type assignment for every published page. A page may also declare its type inline with @pagemeta; where both exist they must agree. The registry exists so 71 pages can be typed without adding repetitive chrome to each one - see 63_Page_Type_Contract for what each type owes.",
   "valid_types": [
     "Tutorial",
     "How-to",
@@ -65,6 +65,7 @@
     "58_Field_Statistics": "Reference",
     "59_Function_Identity_and_Observability_Specification": "Reference",
     "60_Field_Statistics_Planned_Extensions": "Reference",
+    "72_LES_Turbulence_Closure": "Explanation",
     "61_Storage_Management_Guide": "How-to",
     "62_Capability_Status_Vocabulary": "Reference",
     "63_Page_Type_Contract": "Reference",

@@ -125,8 +125,13 @@ The coarse repeat of the `Re_tau = 180` case, run **after** the DNS so the SGS
 contribution is assessed against an in-tree DNS rather than against literature
 alone.
 
-> **Known-defective LES.** Both LES models are currently **known-defective** and unsafe for scientific use: `dynamic_smagorinsky` computes an `M_ij` carrying no dynamic content, and `constant_smagorinsky` leaves the coefficient at zero on fresh runs. See `docs/pages/07_Case_Reference.md` and the records in `tests/tooling/capability_scope_records.json`. This case cannot produce a usable
-> LES result until they are fixed.
+> **Experimental LES.** Both LES models are implemented and unit-tested, but neither
+> has a validated coefficient magnitude. This case selects `constant_smagorinsky`,
+> which now applies its configured coefficient from the first step. The channel is
+> periodic in xi and zeta, so `dynamic_smagorinsky` with `averaging.mode: homogeneous`
+> is also available here and derives those two directions from the boundary pairs,
+> giving a wall-normal coefficient profile. See `docs/pages/07_Case_Reference.md` and
+> `docs/pages/72_LES_Turbulence_Closure.md`.
 
 ## 6. Before you launch a campaign
 

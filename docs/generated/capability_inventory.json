@@ -452,23 +452,8 @@
         "spelling_of": "volume_weighted_box",
         "status": "experimental"
       },
-      "general_box": {
-        "maps_to": 0,
-        "spelling_of": "volume_weighted_box",
-        "status": "experimental"
-      },
-      "homogeneous_ik": {
-        "maps_to": 1,
-        "status": "experimental"
-      },
-      "ik_homogeneous": {
-        "maps_to": 1,
-        "spelling_of": "homogeneous_ik",
-        "status": "experimental"
-      },
       "simpson_ik": {
         "maps_to": 1,
-        "spelling_of": "homogeneous_ik",
         "status": "experimental"
       },
       "volume_weighted_box": {
@@ -476,8 +461,71 @@
         "status": "experimental"
       }
     },
-    "selector": "case.yml -> models.physics.turbulence.les.test_filter",
+    "selector": "case.yml -> models.physics.turbulence.les.test_filter.kernel",
     "title": "LES Test Filters"
+  },
+  {
+    "family_page": "07_Case_Reference",
+    "id": "turbulence.les_filter_width",
+    "parity": [],
+    "public_values": {
+      "cube_root_volume": {
+        "maps_to": 0,
+        "status": "experimental"
+      },
+      "geometric_mean": {
+        "maps_to": 1,
+        "status": "experimental"
+      },
+      "max_edge": {
+        "maps_to": 2,
+        "status": "experimental"
+      }
+    },
+    "selector": "case.yml -> models.physics.turbulence.les.filter_width",
+    "title": "LES Grid Filter Width Models"
+  },
+  {
+    "family_page": "07_Case_Reference",
+    "id": "turbulence.les_averaging_mode",
+    "parity": [],
+    "public_values": {
+      "global": {
+        "maps_to": 2,
+        "status": "experimental"
+      },
+      "homogeneous": {
+        "maps_to": 1,
+        "status": "experimental"
+      },
+      "local": {
+        "maps_to": 0,
+        "status": "experimental"
+      }
+    },
+    "selector": "case.yml -> models.physics.turbulence.les.averaging.mode",
+    "title": "LES Coefficient Averaging Modes"
+  },
+  {
+    "family_page": "07_Case_Reference",
+    "id": "turbulence.les_clip_mode",
+    "parity": [],
+    "public_values": {
+      "clamp": {
+        "maps_to": 0,
+        "status": "experimental"
+      },
+      "clip_negative": {
+        "maps_to": 1,
+        "status": "experimental"
+      },
+      "none": {
+        "maps_to": 2,
+        "status": "experimental"
+      }
+    },
+    "selector": "case.yml -> models.physics.turbulence.les.clipping.mode",
+    "title": "LES Coefficient Limiting Modes"
   },
   {
     "family_page": "32_Analytical_Solutions",

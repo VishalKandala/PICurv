@@ -362,6 +362,7 @@ Typical sources:
 - `<run.runtime_logs>/solution_convergence.log` (mode-specific speed/KE drift and L2 norms)
 - `<run.runtime_logs>/Profiling_Timestep_Summary.csv` when enabled
 - `<run.runtime_logs>/Runtime_Memory.log` when `monitor.diagnostics.runtime_memory_log.enabled` is true
+- `<run.runtime_logs>/les_coefficient.csv` when `case.yml -> models.physics.turbulence.les.diagnostics.enabled` is true; the `les.*` series carry the effective coefficient, its spread, eddy-viscosity levels, the modelled subgrid energy, and the pre-clipping backscattering and limited fractions
 - `<run.runtime_logs>/PETSc_*_Solver.log` / `<run.runtime_logs>/PETSc_*_PostProcessor.log` when file-backed PETSc diagnostics are enabled
 - `<run.scheduler>/*_solver.log` or `<run.scheduler>/solver_*.out` for sampled particle snapshot previews
 

@@ -748,6 +748,79 @@ const char* LESModelToString(LESModelType LESFlag)
     }
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "LESFilterWidthModelToString"
+/**
+ * @brief Implementation of \ref LESFilterWidthModelToString().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/logging.h`.
+ * @see LESFilterWidthModelToString()
+ */
+const char* LESFilterWidthModelToString(LESFilterWidthModel model)
+{
+    /* These spellings are the user-facing YAML values, so a banner line can be pasted
+       back into a case file without translation. */
+    switch(model){
+        case LES_FILTER_WIDTH_CUBE_ROOT_VOLUME: return "cube_root_volume";
+        case LES_FILTER_WIDTH_GEOMETRIC_MEAN:   return "geometric_mean";
+        case LES_FILTER_WIDTH_MAX_EDGE:         return "max_edge";
+        default: return "unknown";
+    }
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "LESTestFilterKernelToString"
+/**
+ * @brief Implementation of \ref LESTestFilterKernelToString().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/logging.h`.
+ * @see LESTestFilterKernelToString()
+ */
+const char* LESTestFilterKernelToString(LESTestFilterKernel kernel)
+{
+    switch(kernel){
+        case LES_TEST_FILTER_VOLUME_WEIGHTED_BOX: return "volume_weighted_box";
+        case LES_TEST_FILTER_SIMPSON_IK:          return "simpson_ik";
+        default: return "unknown";
+    }
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "LESAveragingModeToString"
+/**
+ * @brief Implementation of \ref LESAveragingModeToString().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/logging.h`.
+ * @see LESAveragingModeToString()
+ */
+const char* LESAveragingModeToString(LESAveragingMode mode)
+{
+    switch(mode){
+        case LES_AVERAGING_LOCAL:       return "local";
+        case LES_AVERAGING_HOMOGENEOUS: return "homogeneous";
+        case LES_AVERAGING_GLOBAL:      return "global";
+        default: return "unknown";
+    }
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "LESClipModeToString"
+/**
+ * @brief Implementation of \ref LESClipModeToString().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/logging.h`.
+ * @see LESClipModeToString()
+ */
+const char* LESClipModeToString(LESClipMode mode)
+{
+    switch(mode){
+        case LES_CLIP_CLAMP:         return "clamp";
+        case LES_CLIP_CLIP_NEGATIVE: return "clip_negative";
+        case LES_CLIP_NONE:          return "none";
+        default: return "unknown";
+    }
+}
+
 /**
  * @brief Implementation of \ref MomentumSolverTypeToString().
  * @details Full API contract (arguments, ownership, side effects) is documented with

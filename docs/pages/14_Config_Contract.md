@@ -138,16 +138,22 @@ For each run, `picurv` generates:
   are the structured scalar/Brownian transport controls; do not use passthrough
   for ordinary Schmidt-number tuning.
 - `case.yml -> models.physics.turbulence` is the structured turbulence control surface.
-  LES uses `les.enabled/model` plus `constant_cs`, `max_cs`, `dynamic_frequency`,
-  and `test_filter`; wall functions use `wall_function.enabled/model/roughness_height`.
-  Legacy `les: true` remains constant Smagorinsky (`-les 1`), while `les: 2`
-  selects dynamic Smagorinsky.
+  LES uses `les.enabled/model` plus `constant_cs` -> `-les_constant_cs`,
+  `dynamic_frequency` -> `-les_dynamic_frequency`, `filter_width` ->
+  `-les_filter_width`, the `test_filter` block (`kernel`, `width_ratio`), the
+  `averaging` block (`mode`, `directions`), the `clipping` block (`mode`, `max_cs`,
+  `min_viscosity_ratio`), `gradient_model.enabled` -> `-les_gradient_model`, and the
+  `diagnostics` block (`enabled`, `cadence`, `yoshizawa_ci`). Wall functions use
+  `wall_function.enabled/model/roughness_height`. Legacy `les: true` remains constant
+  Smagorinsky (`-les 1`), while `les: 2` selects dynamic Smagorinsky.
 
-@warning Both LES models are currently **known-defective** and unsafe for scientific
-use: `dynamic_smagorinsky` (`les: 2`) computes an `M_ij` carrying no dynamic content,
-and `constant_smagorinsky` (`les: 1`) leaves the coefficient at zero on fresh runs.
-See @ref p07_cap_les_constant_smagorinsky and the records in
-`tests/tooling/capability_scope_records.json`.
+  The dynamic-procedure blocks are rejected under `model: constant_smagorinsky` rather
+  than silently ignored, and `test_filter.kernel: simpson_ik` is rejected unless the
+  case declares both xi and zeta `PERIODIC`, since that stencil assumes they are
+  homogeneous.
+
+@note Both LES models are **experimental**: implemented and unit-tested, but not yet
+validated against a reference flow. See @ref p07_les_sec.
 
 Analytical-mode compatibility rule:
 

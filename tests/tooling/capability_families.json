@@ -551,7 +551,7 @@
     {
       "id": "turbulence.les_test_filter",
       "title": "LES Test Filters",
-      "selector": "case.yml -> models.physics.turbulence.les.test_filter",
+      "selector": "case.yml -> models.physics.turbulence.les.test_filter.kernel",
       "public_surface": {
         "kind": "python_normalizer",
         "module": "picurv_cli.core",
@@ -571,22 +571,103 @@
           "canonical": false,
           "spelling_of": "volume_weighted_box"
         },
-        "general_box": {
-          "canonical": false,
-          "spelling_of": "volume_weighted_box"
-        },
-        "homogeneous_ik": {
+        "simpson_ik": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "turbulence.les_filter_width",
+      "title": "LES Grid Filter Width Models",
+      "selector": "case.yml -> models.physics.turbulence.les.filter_width",
+      "public_surface": {
+        "kind": "python_normalizer",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_les_filter_width"
+      },
+      "parity_sources": [],
+      "family_page": "07_Case_Reference",
+      "entry_anchor_prefix": "p07_cap_width_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "cube_root_volume": {
           "status": "experimental",
           "canonical": true,
           "evidence": {}
         },
-        "ik_homogeneous": {
-          "canonical": false,
-          "spelling_of": "homogeneous_ik"
+        "geometric_mean": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
         },
-        "simpson_ik": {
-          "canonical": false,
-          "spelling_of": "homogeneous_ik"
+        "max_edge": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "turbulence.les_averaging_mode",
+      "title": "LES Coefficient Averaging Modes",
+      "selector": "case.yml -> models.physics.turbulence.les.averaging.mode",
+      "public_surface": {
+        "kind": "python_normalizer",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_les_averaging_mode"
+      },
+      "parity_sources": [],
+      "family_page": "07_Case_Reference",
+      "entry_anchor_prefix": "p07_cap_avg_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "local": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "homogeneous": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "global": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "turbulence.les_clip_mode",
+      "title": "LES Coefficient Limiting Modes",
+      "selector": "case.yml -> models.physics.turbulence.les.clipping.mode",
+      "public_surface": {
+        "kind": "python_normalizer",
+        "module": "picurv_cli.core",
+        "symbol": "normalize_les_clip_mode"
+      },
+      "parity_sources": [],
+      "family_page": "07_Case_Reference",
+      "entry_anchor_prefix": "p07_cap_clip_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "clamp": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "clip_negative": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "none": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
         }
       }
     },

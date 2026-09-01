@@ -92,6 +92,7 @@ Use this page instead of the raw generated page dump.
 - **@subpage 56_Field_Identity_and_Layout_Catalog** — typed Eulerian and persistent particle field contracts
 - **@subpage 57_Future_Architecture_Specifications** — proposed-architecture status and dependency index
 - **@subpage 58_Field_Statistics** — window semantics, weighting, checkpoint state, derived quantities, and extension points
+- **@subpage 72_LES_Turbulence_Closure** — subgrid closure formulation, the Germano-Lilly procedure, averaging, limiting, and diagnostics
 - **@subpage 60_Field_Statistics_Planned_Extensions** — spatial targets, further products, histories, and their dependency order
 - **@subpage 59_Function_Identity_and_Observability_Specification** — deferred logging/profiling identity optimization
 - **@subpage 35_API_Documentation_Status**

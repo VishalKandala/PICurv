@@ -189,6 +189,7 @@ UNIT_GRID_EXE     := $(TESTBINDIR)/unit_grid
 UNIT_METRIC_EXE   := $(TESTBINDIR)/unit_metric
 UNIT_BOUNDARIES_EXE := $(TESTBINDIR)/unit_boundaries
 UNIT_POISSON_RHS_EXE := $(TESTBINDIR)/unit_poisson_rhs
+UNIT_LES_EXE      := $(TESTBINDIR)/unit_les
 UNIT_RUNTIME_EXE := $(TESTBINDIR)/unit_runtime
 UNIT_MPI_EXE := $(TESTBINDIR)/unit_mpi
 UNIT_PERIODIC_DEV_EXE := $(TESTBINDIR)/unit_periodic_dev
@@ -223,6 +224,7 @@ UNIT_GRID_OBJ     := $(TESTOBJDIR)/test_grid.o
 UNIT_METRIC_OBJ   := $(TESTOBJDIR)/test_metric.o
 UNIT_BOUNDARIES_OBJ := $(TESTOBJDIR)/test_boundaries.o
 UNIT_POISSON_RHS_OBJ := $(TESTOBJDIR)/test_poisson_rhs.o
+UNIT_LES_OBJ      := $(TESTOBJDIR)/test_les.o
 UNIT_RUNTIME_OBJ := $(TESTOBJDIR)/test_runtime_kernels.o
 UNIT_MPI_OBJ := $(TESTOBJDIR)/test_mpi_kernels.o
 UNIT_PERIODIC_DEV_OBJ := $(TESTOBJDIR)/test_periodic_dev.o
@@ -421,6 +423,10 @@ $(UNIT_POISSON_RHS_EXE): $(UNIT_POISSON_RHS_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMM
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
 
+$(UNIT_LES_EXE): $(UNIT_LES_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
+	@echo "--- Linking Test Executable: $(@) ---"
+	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
+
 $(UNIT_RUNTIME_EXE): $(UNIT_RUNTIME_OBJ) $(TEST_SUPPORT_OBJ) $(TEST_COMMON_OBJS) | dirs
 	@echo "--- Linking Test Executable: $(@) ---"
 	$(LINKER_TO_USE) -o $@ $^ $(LIBS_TO_USE)
@@ -441,7 +447,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev smoke-driven-periodic unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-post-eulerian-vtk-mpi unit-post-particle-vtk-mpi unit-post-compute-mpi unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress audit-docs-expansion audit-docs-site preview-docs docs-inventory docs-topology audit-capability audit-contracts audit-path-literals audit-family-census audit-page-types audit-inline-choices audit-subsystems audit-freshness docs-cli-reference audit-cli-reference scaffold review-packet certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev smoke-driven-periodic unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-post-eulerian-vtk-mpi unit-post-particle-vtk-mpi unit-post-compute-mpi unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-les unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs open-docs tags audit-ingress audit-docs-expansion audit-docs-site preview-docs docs-inventory docs-topology audit-capability audit-contracts audit-path-literals audit-family-census audit-page-types audit-inline-choices audit-subsystems audit-freshness docs-cli-reference audit-cli-reference scaffold review-packet certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -608,6 +614,11 @@ unit-boundaries: $(UNIT_BOUNDARIES_EXE)
 unit-poisson-rhs: $(UNIT_POISSON_RHS_EXE)
 	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
 
+## @target unit-les
+## @brief Runs the LES subgrid-scale closure C unit tests.
+unit-les: $(UNIT_LES_EXE)
+	@$(MPI_LAUNCHER) -n $(TEST_NPROCS) $<
+
 ## @target unit-runtime
 ## @brief Runs focused runtime-kernel C unit tests.
 unit-runtime: $(UNIT_RUNTIME_EXE)
@@ -682,7 +693,7 @@ unit-simulation: unit-boundaries unit-solver unit-newton-krylov unit-poisson-rhs
 
 ## @target unit
 ## @brief Runs the full isolated C unit/component suite.
-unit: unit-geometry unit-setup unit-solver unit-newton-krylov unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-runtime unit-periodic
+unit: unit-geometry unit-setup unit-solver unit-newton-krylov unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-les unit-runtime unit-periodic
 
 ## @target ctest
 ## @brief Compatibility alias for `unit`.

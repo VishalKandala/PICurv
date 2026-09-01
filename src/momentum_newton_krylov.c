@@ -224,7 +224,7 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user)
                "Newton Krylov version one does not support moving or rotating reference frames.");
     PetscCheck(!simCtx->rans, PETSC_COMM_WORLD, PETSC_ERR_SUP,
                "Newton Krylov version one does not support RANS.");
-    PetscCheck(!simCtx->clark, PETSC_COMM_WORLD, PETSC_ERR_SUP,
+    PetscCheck(!simCtx->les_gradient_model, PETSC_COMM_WORLD, PETSC_ERR_SUP,
                "Newton Krylov version one does not support the Clark model.");
     PetscCheck(!simCtx->TwoD, PETSC_COMM_WORLD, PETSC_ERR_SUP,
                "Newton Krylov version one does not support TwoD component masking.");

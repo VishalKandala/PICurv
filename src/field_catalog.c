@@ -45,8 +45,11 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_TURBULENCE,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC |
                 FIELD_CAPABILITY_CHECKPOINT, Nu_t, lNu_t),
+    /* Holds the model coefficient C that multiplies Delta^2 |S|, which is Cs^2 in the
+       classical notation and is signed once backscatter is admitted. Exists only for
+       the dynamic model; the constant model prescribes its coefficient from config. */
     FIELD_ENTRY(FIELD_ID_CS, "CS", "Cs", NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
-                FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_LES,
+                FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_LES_DYNAMIC,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC |
                 FIELD_CAPABILITY_CHECKPOINT, CS, lCs),
     FIELD_ENTRY(FIELD_ID_DIFFUSIVITY, "Diffusivity", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,

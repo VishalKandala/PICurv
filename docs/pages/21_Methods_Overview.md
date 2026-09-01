@@ -47,6 +47,7 @@ The method pages below document each major stage in detail.
 - **@subpage 26_Walking_Search_Method**: particle cell location and migration orchestration.
 - **@subpage 27_Trilinear_Interpolation_and_Projection**: Eulerian-Lagrangian field exchange.
 - **@subpage 28_IEM_and_Statistical_Averaging**: particle micromixing and post statistics kernels.
+- **@subpage 72_LES_Turbulence_Closure**: subgrid closure, the Germano-Lilly dynamic procedure, coefficient averaging, and limiting.
 - **@subpage 31_Momentum_Solvers**: supported momentum-solver options and dispatch status.
 - **@subpage 32_Analytical_Solutions**: analytical Eulerian modes and geometry policies.
 - **@subpage 33_Initial_Conditions**: Eulerian and particle initialization modes.

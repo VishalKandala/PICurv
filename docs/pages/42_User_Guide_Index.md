@@ -22,6 +22,7 @@ If Getting Started proves the toolchain works, this section is where production 
 @section p42_config_sec 2. Configuration References
 
 - **@subpage 07_Case_Reference**: physics/domain/grid/BC controls.
+- **@subpage 72_LES_Turbulence_Closure**: what the subgrid models do, how to choose their averaging and limiting, and how to read the coefficient diagnostics.
 - **@subpage 08_Solver_Reference**: numerical strategy and solver tuning.
 - **@subpage 09_Monitor_Reference**: logging/profiling/diagnostics/output cadence.
 - **@subpage 10_Post_Processing_Reference**: analysis tasks and VTK export controls.

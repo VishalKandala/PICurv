@@ -13,6 +13,8 @@
 #include "io.h"
 #include "logging.h"
 
+#include <stddef.h>
+
 /** @brief Longest output list a recipe may request. */
 #define STATISTICS_DERIVED_OUTPUT_LENGTH 256
 
@@ -27,6 +29,20 @@
  */
 static const PetscInt kProductFirst[6]  = {0, 0, 0, 1, 1, 2};
 static const PetscInt kProductSecond[6] = {0, 1, 2, 1, 2, 2};
+
+/* That pair order is (xx, xy, xz, yy, yz, zz), which is exactly the order `SymTensor`
+ * declares its members in. The correspondence is not incidental: it is what lets a
+ * six-component accumulator and a `SymTensor` name the same entry by the same index,
+ * the way a three-component vector field and `Cmpnts` already do. Nothing in the type
+ * system enforces it, so it is asserted here; if either order is ever changed
+ * independently, this fails at compile time rather than silently mislabelling every
+ * Reynolds stress. */
+_Static_assert(offsetof(SymTensor, xx) == 0 * sizeof(PetscReal), "SymTensor order: xx is component 0");
+_Static_assert(offsetof(SymTensor, xy) == 1 * sizeof(PetscReal), "SymTensor order: xy is component 1");
+_Static_assert(offsetof(SymTensor, xz) == 2 * sizeof(PetscReal), "SymTensor order: xz is component 2");
+_Static_assert(offsetof(SymTensor, yy) == 3 * sizeof(PetscReal), "SymTensor order: yy is component 3");
+_Static_assert(offsetof(SymTensor, yz) == 4 * sizeof(PetscReal), "SymTensor order: yz is component 4");
+_Static_assert(offsetof(SymTensor, zz) == 5 * sizeof(PetscReal), "SymTensor order: zz is component 5");
 
 /** @brief Axis labels indexing the pair table above. */
 static const char *const kAxisName[3] = {"x", "y", "z"};
@@ -730,12 +746,8 @@ PetscErrorCode PicurvWindowSpatialMean(UserCtx *user, const PicurvWindowDefiniti
                                        PetscReal *mean)
 {
     SpatialTargetPlan plan;
-    const PetscReal ***values = NULL;
-    PetscReal ***weight_arr = NULL;
-    PetscReal local_sum = 0.0;
-    PetscReal local_count = 0.0;
-    PetscReal totals[2] = {0.0, 0.0};
-    PetscReal reduced[2] = {0.0, 0.0};
+    /* Every direction collapses: a window mean is one number for the domain. */
+    const PetscBool   whole_domain[3] = {PETSC_TRUE, PETSC_TRUE, PETSC_TRUE};
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -747,26 +759,13 @@ PetscErrorCode PicurvWindowSpatialMean(UserCtx *user, const PicurvWindowDefiniti
 
     PetscCall(SpatialTargetPlanCreate(user, (FieldId)definition->fields[0].field_id,
                                       PICURV_STATISTICS_MASK_FLUID, &plan));
-    PetscCall(DMDAVecGetArrayRead(user->da, field, &values));
-    PetscCall(DMDAVecGetArray(user->da, storage->weight, &weight_arr));
-    for (PetscInt k = plan.start[2]; k < plan.end[2]; ++k) {
-        for (PetscInt j = plan.start[1]; j < plan.end[1]; ++j) {
-            for (PetscInt i = plan.start[0]; i < plan.end[0]; ++i) {
-                /* A point with no accumulated weight holds a zero that means "never
-                 * measured", so it is excluded from both the sum and the count. */
-                if (weight_arr[k][j][i] <= 0.0) continue;
-                local_sum += values[k][j][i];
-                local_count += 1.0;
-            }
-        }
-    }
-    PetscCall(DMDAVecRestoreArray(user->da, storage->weight, &weight_arr));
-    PetscCall(DMDAVecRestoreArrayRead(user->da, field, &values));
-
-    totals[0] = local_sum;
-    totals[1] = local_count;
-    PetscCallMPI(MPI_Allreduce(totals, reduced, 2, MPIU_REAL, MPIU_SUM, PETSC_COMM_WORLD));
-    if (reduced[1] > 0.0) *mean = reduced[0] / reduced[1];
+    /* No denominator means each admitted point counts once, so the result is the mean
+     * of the field over those points rather than a volume-weighted average. The
+     * accumulated weight is passed as the inclusion mask: a point the window never
+     * sampled holds a zero that means "never measured", and averaging it in would
+     * scale the answer down by the fraction of the domain the window never covered. */
+    PetscCall(PicurvSpatialRatioAverage(user, &plan, field, NULL, storage->weight,
+                                        whole_domain, PETSC_COMM_WORLD, NULL, mean));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

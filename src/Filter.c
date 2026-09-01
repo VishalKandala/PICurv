@@ -115,21 +115,62 @@ static double ApplyVolumeWeightedBoxFilter(double values[3][3][3], double weight
 #undef __FUNCT__
 #define __FUNCT__ "ApplyLESTestFilter"
 /**
- * @brief Internal helper implementation: `ApplyLESTestFilter()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref ApplyLESTestFilter().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Filter.h`.
+ * @see ApplyLESTestFilter()
  */
-double ApplyLESTestFilter(const SimCtx *simCtx, double values[3][3][3], double weights[3][3][3])
+double ApplyLESTestFilter(LESTestFilterKernel kernel, double values[3][3][3], double weights[3][3][3])
 {
-	// This function acts as a dispatcher. It reads the simulation configuration
-    // and calls the appropriate internal filtering routine.
-	if (simCtx->testfilter_ik) {
-        // If the "-testfilter_ik" flag is set, it indicates that the simulation
-        // is homogeneous in the i and k directions, so we use the specialized,
-        // more accurate Simpson's rule filter. The `weights` are ignored in this case.
+	// This function acts as a dispatcher over the configured stencil.
+	switch (kernel) {
+	case LES_TEST_FILTER_SIMPSON_IK:
+		// The caller has declared the i and k directions homogeneous, so the more
+		// accurate Simpson stencil applies. Volume weights are irrelevant there.
 		return ApplySimpsonRuleHomogeneousFilter(values);
-    } else {
-        // This is the default case for general, non-uniform, curvilinear grids.
-        // The volume-weighted box filter is used to ensure correct averaging.
-        return ApplyVolumeWeightedBoxFilter(values, weights);
-    }
+	case LES_TEST_FILTER_VOLUME_WEIGHTED_BOX:
+	default:
+		// Default for general, non-uniform, curvilinear grids. The volume-weighted
+		// box filter keeps the average correct when neighbouring cells differ in size.
+		return ApplyVolumeWeightedBoxFilter(values, weights);
+	}
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ApplyLESTestFilterSymTensor"
+/**
+ * @brief Implementation of \ref ApplyLESTestFilterSymTensor().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Filter.h`.
+ * @see ApplyLESTestFilterSymTensor()
+ */
+PetscErrorCode ApplyLESTestFilterSymTensor(LESTestFilterKernel kernel, SymTensor values[3][3][3],
+                                           double weights[3][3][3], SymTensor *filtered)
+{
+	// One scratch plane per component keeps the scalar filter unaware of tensors.
+	double component[6][3][3][3];
+
+	PetscFunctionBeginUser;
+	PetscCheck(filtered != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+	           "Filtered tensor destination cannot be NULL.");
+
+	for (PetscInt r = 0; r < 3; r++)
+	for (PetscInt q = 0; q < 3; q++)
+	for (PetscInt p = 0; p < 3; p++) {
+		component[0][r][q][p] = values[r][q][p].xx;
+		component[1][r][q][p] = values[r][q][p].xy;
+		component[2][r][q][p] = values[r][q][p].xz;
+		component[3][r][q][p] = values[r][q][p].yy;
+		component[4][r][q][p] = values[r][q][p].yz;
+		component[5][r][q][p] = values[r][q][p].zz;
+	}
+
+	filtered->xx = ApplyLESTestFilter(kernel, component[0], weights);
+	filtered->xy = ApplyLESTestFilter(kernel, component[1], weights);
+	filtered->xz = ApplyLESTestFilter(kernel, component[2], weights);
+	filtered->yy = ApplyLESTestFilter(kernel, component[3], weights);
+	filtered->yz = ApplyLESTestFilter(kernel, component[4], weights);
+	filtered->zz = ApplyLESTestFilter(kernel, component[5], weights);
+
+	PetscFunctionReturn(0);
 }

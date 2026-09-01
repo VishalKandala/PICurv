@@ -121,6 +121,7 @@ Full contract: **@subpage 64_Documentation_Extension_Framework**.
   - `tests/test_cli_smoke.py`
   - **@subpage 07_Case_Reference**
   - **@subpage 44_Boundary_Conditions_Guide**
+- **@subpage 72_LES_Turbulence_Closure**
 
 @section p50_particle_init_sec 4. Particle Initialization Mode
 
@@ -327,7 +328,71 @@ Full contract: **@subpage 64_Documentation_Extension_Framework**.
   - `tests/test_cli_smoke.py`
   - **@subpage 10_Post_Processing_Reference**
 
-@section p50_related_sec 11. Related Pages
+@section p50_turbulence_sec 12. Turbulence Closure Selectors
+
+One LES closure is active per run, chosen from an enum and dispatched by a branch, the
+same shape the momentum solvers use. There is no registry object: a closure is a
+function, not an instance with a lifecycle, which is what separates this from the
+boundary-condition handlers in section 3.
+
+- Schema home:
+  - `case.yml -> models.physics.turbulence.les`
+- Canonical values:
+  - model: `constant_smagorinsky`, `dynamic_smagorinsky`
+  - `filter_width`: `cube_root_volume`, `geometric_mean`, `max_edge`
+  - `test_filter.kernel`: `volume_weighted_box`, `simpson_ik`
+  - `averaging.mode`: `local`, `homogeneous`, `global`
+  - `clipping.mode`: `clamp`, `clip_negative`, `none`
+- Python hooks in `picurv_cli/core.py`:
+  - `normalize_les_model()`
+  - `normalize_les_filter_width()`
+  - `normalize_les_test_filter()`
+  - `normalize_les_averaging_mode()`
+  - `normalize_les_clip_mode()`
+  - `normalize_les_averaging_directions()`
+  - `validate_les_configuration()` for cross-key rules
+  - `append_les_parameter_flags()` for emission
+- Generated mapping:
+  - the `-les` and `-les_*` flags listed in **@subpage 15_Config_Ingestion_Map**
+- C enum/storage in `include/variables.h`:
+  - `LESModelType`, `LESFilterWidthModel`, `LESTestFilterKernel`,
+    `LESAveragingMode`, `LESClipMode`, and the `LESConfig` block on `SimCtx`
+- C parser:
+  - `ParseLESConfiguration()` in `src/setup.c`, called from
+    @ref CreateSimulationContext. Defaults come from `LESConfigSetDefaults()`, also in
+    `src/setup.c`, so the control-file ingress and the test fixtures cannot disagree
+    about them. Both live with the rest of the ingress rather than in `src/les.c`,
+    because the postprocessor builds a simulation context without linking the closure.
+- Runtime dispatch:
+  - @ref FlowSolver in `src/solvers.c`
+- Implementation:
+  - `src/les.c` and `src/Filter.c`
+
+@subsection p50_turbulence_kernels_ssec 12.1 Reusable Kernels
+
+A new closure should consume the existing kernels rather than restate them. They are
+declared in `include/les.h` and are the reason a second eddy-viscosity model is one
+function: @ref StrainRateFromGradients, @ref ComputeCellFilterWidth,
+@ref SymTensorDeviator, @ref SymTensorContract, @ref SymTensorTimesVector,
+@ref ClipModelCoefficient, and @ref EddyViscosityFromCoefficient. The Germano-specific
+pieces, @ref LeonardStress and @ref GermanoModelTensor, belong to the dynamic procedure
+alone.
+
+Coefficient averaging is not an LES function. It is
+@ref PicurvSpatialRatioAverage in `include/statistics_target.h`, the module that already
+owns which points a spatial operation may touch. The closure resolves a
+@ref SpatialTargetPlan for its loops through the same entry point the statistics
+pipeline uses, so both agree on which indices are physical and neither carries its own
+copy of the fluid threshold.
+
+- Tests/docs to update:
+  - `tests/c/test_les.c`
+  - `tests/test_config_regressions.py`
+  - **@subpage 07_Case_Reference**
+  - **@subpage 72_LES_Turbulence_Closure**
+  - `tests/tooling/capability_families.json` and `tests/tooling/subsystem_records.json`
+
+@section p50_related_sec 13. Related Pages
 
 - **@subpage 14_Config_Contract**
 - **@subpage 15_Config_Ingestion_Map**

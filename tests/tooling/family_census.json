@@ -1,6 +1,6 @@
 {
   "description": "Census of public choice sets in the CLI. A surface must either be covered by a registered capability family or be classified here with a reason. Discovery is over `normalize_*` functions and module-level constants whose names end in one of audit_family_census.CHOICE_SET_SUFFIXES - which is why a closed choice set must be a named constant rather than a literal inline at its point of use. This exists because a registry that only checks itself cannot report a family nobody registered: the original failure mode, recreated at the registry boundary.",
-  "status": "All 26 public capability families are registered with enforced Tier-2 coverage; no family is public_pending. Every other discovered choice set carries a typed classification and a reason below.",
+  "status": "All 29 public capability families are registered with enforced Tier-2 coverage; no family is public_pending. Every other discovered choice set carries a typed classification and a reason below.",
   "acknowledged_uncovered": {
     "picurv_cli.cli::CLI_OUTPUT_FORMATS": {
       "classification": "cli_inventory_sufficient",
@@ -138,6 +138,11 @@
     "picurv_cli.core::normalize_flow_direction_token": {
       "classification": "not_public",
       "reason": "Axis/face direction tokens (+Xi/-Xi and so on), not a choice between behaviours. They also collide under the entry-anchor slug rule, which the coverage audit reports. Consistent with BC_FACE_MAP being classified the same way."
+    },
+    "picurv_cli.core::normalize_les_averaging_directions": {
+      "classification": "parameter_of_entry",
+      "owner": "turbulence.les_averaging_mode::homogeneous",
+      "reason": "Parses `models.physics.turbulence.les.averaging.directions` into the subset of \"ijk\" the coefficient is averaged over. The choice set is the three logical grid directions, which are a property of the grid rather than a menu of behaviours: there is no per-value when-to-use answer, only the question of which directions the flow is homogeneous in. That question belongs to the averaging mode it parameterises, `turbulence.les_averaging_mode`, whose `homogeneous` entry at p07_cap_avg_homogeneous answers it and states that the directions default to the case's periodic axes."
     },
     "picurv_cli.core::normalize_metric_spec": {
       "classification": "not_public",

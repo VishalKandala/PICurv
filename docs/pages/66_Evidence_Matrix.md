@@ -58,11 +58,12 @@ likely to matter:
   against exact solutions, but a numerical acceptance threshold has not been run and
   gated as part of this work. Design intent is not evidence, so no tick was recorded.
 
-- **Both LES models are `known-defective`.** `dynamic_smagorinsky` computes an
-  `M_ij` with no dynamic content, and `constant_smagorinsky` is inert on fresh runs
-  because the coefficient is only computed at a step where it is forced to zero.
-  Neither is safe for scientific use. Records:
-  `tests/tooling/capability_scope_records.json`.
+- **Both LES models are `experimental`.** Both are implemented and carry unit
+  coverage in `tests/c/test_les.c`, including an analytic check of the Germano model
+  tensor and a decomposition-independence check of the coefficient averaging. Neither
+  has a validated coefficient magnitude: no reference-flow comparison has been run and
+  gated. The check that would close the gap is decaying isotropic turbulence with
+  homogeneous averaging, where `Cs(t)` should settle near 0.16-0.17.
 
 @section p66_updating_sec 4. Keeping It Current
 

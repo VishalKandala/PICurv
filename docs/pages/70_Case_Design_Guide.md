@@ -103,13 +103,14 @@ before switching. `Newton Krylov` is the right escalation when pseudo-time stall
 `Explicit RK4` currently has **no positive-path verification** (see
 **@subpage 66_Evidence_Matrix**) and should not be a first choice.
 
-**Turbulence model.** Use none.
+**Turbulence model.** Use none unless the grid genuinely cannot resolve the flow.
 
-@warning Both LES models are **known-defective** and unsafe for scientific use:
-@ref p07_cap_les_constant_smagorinsky "constant_smagorinsky" is inert on fresh runs, and
-@ref p07_cap_les_dynamic_smagorinsky "dynamic_smagorinsky" has no dynamic content. There is
-currently no usable subgrid model in this tree. If your problem requires LES, that is a
-blocker to resolve before designing the case, not a setting to choose.
+@note Both LES models are **experimental**: implemented and unit-tested, but with no
+validated coefficient magnitude. If you need a subgrid model, prefer
+@ref p07_cap_les_dynamic_smagorinsky "dynamic_smagorinsky" with
+`averaging.mode: homogeneous` wherever the flow has a homogeneous direction, since the
+local coefficient is noisy and the least-squares closure it comes from assumes an
+averaging set. Enable `diagnostics` and read `Cs(t)` before trusting the result.
 
 @section p70_stability_sec 6. Stability and Convergence
 

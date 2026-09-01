@@ -366,6 +366,7 @@ PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
     simCtx->solutionConvergenceEnabled = PETSC_TRUE;
     simCtx->poisson = 0;
     simCtx->ren = 1.0;
+    PetscCall(LESConfigSetDefaults(&simCtx->les_config));
     simCtx->schmidt_number = 1.0;
     simCtx->StartStep = 0;
     simCtx->StepsToRun = 1;

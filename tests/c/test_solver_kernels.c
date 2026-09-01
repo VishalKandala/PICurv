@@ -17,12 +17,10 @@
 
 static PetscErrorCode TestLESTestFilterPaths(void)
 {
-    SimCtx simCtx;
     double values[3][3][3];
     double weights[3][3][3];
 
     PetscFunctionBeginUser;
-    PetscCall(PetscMemzero(&simCtx, sizeof(simCtx)));
     for (PetscInt k = 0; k < 3; ++k) {
         for (PetscInt j = 0; j < 3; ++j) {
             for (PetscInt i = 0; i < 3; ++i) {
@@ -32,12 +30,10 @@ static PetscErrorCode TestLESTestFilterPaths(void)
         }
     }
 
-    simCtx.testfilter_ik = 1;
-    PetscCall(PicurvAssertRealNear(2.0, ApplyLESTestFilter(&simCtx, values, weights), 1.0e-12,
+    PetscCall(PicurvAssertRealNear(2.0, ApplyLESTestFilter(LES_TEST_FILTER_SIMPSON_IK, values, weights), 1.0e-12,
                                    "Simpson-rule filter should preserve a constant field"));
 
-    simCtx.testfilter_ik = 0;
-    PetscCall(PicurvAssertRealNear(2.0, ApplyLESTestFilter(&simCtx, values, weights), 1.0e-12,
+    PetscCall(PicurvAssertRealNear(2.0, ApplyLESTestFilter(LES_TEST_FILTER_VOLUME_WEIGHTED_BOX, values, weights), 1.0e-12,
                                    "box filter should preserve a constant field"));
 
     for (PetscInt k = 0; k < 3; ++k) {
@@ -47,7 +43,7 @@ static PetscErrorCode TestLESTestFilterPaths(void)
             }
         }
     }
-    PetscCall(PicurvAssertRealNear(0.0, ApplyLESTestFilter(&simCtx, values, weights), 1.0e-12,
+    PetscCall(PicurvAssertRealNear(0.0, ApplyLESTestFilter(LES_TEST_FILTER_VOLUME_WEIGHTED_BOX, values, weights), 1.0e-12,
                                    "box filter should return zero when all weights are zero"));
     PetscFunctionReturn(0);
 }
@@ -414,10 +410,15 @@ static PetscErrorCode TestComputeEddyViscosityLESDeterministicField(void)
     UserCtx *user = NULL;
     Cmpnts ***ucat = NULL;
     PetscReal ***nu_t = NULL;
+    /* CS stores the coefficient C that multiplies Delta^2 |S|, so C = 0.25 is the
+       Cs = 0.5 of the classical form. With Aj = 1 the filter width is 1, and the
+       linear field below gives |S| = sqrt(2). */
+    const PetscReal coefficient   = 0.25;
     const PetscReal expected_nu_t = 0.25 * PetscSqrtReal(2.0);
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
+    simCtx->les = DYNAMIC_SMAGORINSKY;
     PetscCall(DMCreateGlobalVector(user->da, &user->Nu_t));
     PetscCall(DMCreateLocalVector(user->da, &user->lNu_t));
     PetscCall(DMCreateGlobalVector(user->da, &user->CS));
@@ -425,7 +426,7 @@ static PetscErrorCode TestComputeEddyViscosityLESDeterministicField(void)
 
     PetscCall(VecSet(user->Aj, 1.0));
     PetscCall(VecSet(user->Nu_t, 0.0));
-    PetscCall(VecSet(user->CS, 0.5));
+    PetscCall(VecSet(user->CS, coefficient));
     PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
     for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
         for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
@@ -669,7 +670,7 @@ static PetscErrorCode MomMakeUnitGridP(SimCtx **simCtx, UserCtx **user, PetscInt
     (*simCtx)->dt = 0.1; (*simCtx)->step = 1; (*simCtx)->StartStep = 0;   /* a0=1 -> lambda_t=10 */
     (*simCtx)->ren = 1.0; (*simCtx)->les = 0; (*simCtx)->rans = 0;
     (*simCtx)->central = 0; (*simCtx)->invicid = 0; (*simCtx)->block_number = 1;
-    (*simCtx)->TwoD = 0; (*simCtx)->clark = 0;
+    (*simCtx)->TwoD = 0; (*simCtx)->les_gradient_model = 0;
     /* The minimal fixture does not allocate lNu_t (LES off by default); create a
        zeroed one so the estimator can read it when a test enables LES/RANS. */
     if (!(*user)->lNu_t) PetscCall(DMCreateLocalVector((*user)->da, &(*user)->lNu_t));

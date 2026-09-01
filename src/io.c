@@ -75,7 +75,7 @@ static PetscBool CheckpointFieldIsEnabled(const SimCtx *simCtx, const FieldDescr
 
     if (!simCtx || !descriptor || !(descriptor->capabilities & FIELD_CAPABILITY_CHECKPOINT)) return PETSC_FALSE;
     if ((availability & FIELD_AVAILABILITY_TURBULENCE) && !(simCtx->les || simCtx->rans)) return PETSC_FALSE;
-    if ((availability & FIELD_AVAILABILITY_LES) && !simCtx->les) return PETSC_FALSE;
+    if ((availability & FIELD_AVAILABILITY_LES_DYNAMIC) && simCtx->les != DYNAMIC_SMAGORINSKY) return PETSC_FALSE;
     if ((availability & FIELD_AVAILABILITY_RANS) && !simCtx->rans) return PETSC_FALSE;
     if ((availability & FIELD_AVAILABILITY_PARTICLES) && simCtx->np <= 0) return PETSC_FALSE;
     return PETSC_TRUE;
@@ -1509,7 +1509,7 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
         if (!CheckpointFieldIsEnabled(simCtx, descriptor)) continue;
         if ((descriptor->availability & FIELD_AVAILABILITY_PARTICLES) &&
             (!particles_saved || strcmp(simCtx->particleRestartMode, "load"))) continue;
-        if ((descriptor->availability & FIELD_AVAILABILITY_LES) && !les_saved) continue;
+        if ((descriptor->availability & FIELD_AVAILABILITY_LES_DYNAMIC) && !les_saved) continue;
         if ((descriptor->availability & FIELD_AVAILABILITY_RANS) && !rans_saved) continue;
         if ((descriptor->availability & FIELD_AVAILABILITY_TURBULENCE) &&
             !((simCtx->les && les_saved) || (simCtx->rans && rans_saved))) continue;
@@ -2012,7 +2012,10 @@ PetscErrorCode WriteSimulationFields(UserCtx *user, const char *checkpoint_direc
     simCtx->current_io_directory = simCtx->_io_context_buffer;
 
     if (simCtx->les) {
-        PetscCall(CopyOwnedLocalScalarToGlobal(user->da, user->lCs, user->CS));
+        // The constant model holds no coefficient field to stage.
+        if (simCtx->les == DYNAMIC_SMAGORINSKY) {
+            PetscCall(CopyOwnedLocalScalarToGlobal(user->da, user->lCs, user->CS));
+        }
         PetscCall(CopyOwnedLocalScalarToGlobal(user->da, user->lNu_t, user->Nu_t));
     }
     for (PetscInt raw_id = 0; raw_id < FIELD_ID_COUNT; ++raw_id) {
@@ -3020,6 +3023,56 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                     ierr = PetscPrintf(PETSC_COMM_WORLD," Convergence Window          : %d step(s)\n", simCtx->solutionConvergenceWindowSteps); CHKERRQ(ierr);
                 }
                 ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESModelToString(simCtx->les)); CHKERRQ(ierr);
+                if (simCtx->les != NO_LES_MODEL) {
+                    const LESConfig *les = &simCtx->les_config;
+
+                    /* Reported with the user-facing spellings, so a line here can be
+                       matched against the case file that produced it. */
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," LES Filter Width            : %s\n",
+                                       LESFilterWidthModelToString(les->filter_width_model)); CHKERRQ(ierr);
+                    if (simCtx->les == CONSTANT_SMAGORINSKY) {
+                        ierr = PetscPrintf(PETSC_COMM_WORLD," LES Smagorinsky Constant    : %.4f (no coefficient field)\n",
+                                           (double)les->constant_cs); CHKERRQ(ierr);
+                    } else {
+                        char directions[8] = "";
+                        PetscInt used = 0;
+
+                        if (les->averaging_direction[0]) directions[used++] = 'i';
+                        if (les->averaging_direction[1]) directions[used++] = 'j';
+                        if (les->averaging_direction[2]) directions[used++] = 'k';
+                        directions[used] = '\0';
+
+                        ierr = PetscPrintf(PETSC_COMM_WORLD," LES Test Filter             : %s (width ratio %.3f)\n",
+                                           LESTestFilterKernelToString(les->test_filter_kernel),
+                                           (double)les->test_filter_width_ratio); CHKERRQ(ierr);
+                        ierr = PetscPrintf(PETSC_COMM_WORLD," LES Dynamic Update Cadence  : every %d step(s)\n",
+                                           (int)les->dynamic_frequency); CHKERRQ(ierr);
+                        /* An empty direction list under homogeneous averaging is not a
+                           missing answer: the directions are derived from periodicity at
+                           the first update, once the block is known. */
+                        ierr = PetscPrintf(PETSC_COMM_WORLD," LES Coefficient Averaging   : %s%s%s\n",
+                                           LESAveragingModeToString(les->averaging_mode),
+                                           used > 0 ? " over " : "",
+                                           used > 0 ? directions : ""); CHKERRQ(ierr);
+                        if (les->clip_mode == LES_CLIP_CLAMP) {
+                            ierr = PetscPrintf(PETSC_COMM_WORLD," LES Coefficient Limiting    : clamp (max Cs %.3f)\n",
+                                               (double)les->max_cs); CHKERRQ(ierr);
+                        } else {
+                            ierr = PetscPrintf(PETSC_COMM_WORLD," LES Coefficient Limiting    : %s\n",
+                                               LESClipModeToString(les->clip_mode)); CHKERRQ(ierr);
+                        }
+                        ierr = PetscPrintf(PETSC_COMM_WORLD," LES Total Viscosity Floor   : %.3f x molecular\n",
+                                           (double)les->min_viscosity_ratio); CHKERRQ(ierr);
+                    }
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," LES Gradient (Clark) Term   : %s\n",
+                                       simCtx->les_gradient_model ? "ENABLED" : "DISABLED"); CHKERRQ(ierr);
+                    if (les->diagnostics_enabled) {
+                        ierr = PetscPrintf(PETSC_COMM_WORLD," LES Coefficient Diagnostics : ENABLED (les_coefficient.csv, every %d step(s))\n",
+                                           (int)les->diagnostics_cadence); CHKERRQ(ierr);
+                    } else {
+                        ierr = PetscPrintf(PETSC_COMM_WORLD," LES Coefficient Diagnostics : DISABLED\n"); CHKERRQ(ierr);
+                    }
+                }
             }
             if (strcmp(simCtx->eulerianSource, "load") == 0) {
                 ierr = PetscPrintf(PETSC_COMM_SELF, " Eulerian State Source       : load (%s)\n",

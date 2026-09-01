@@ -290,13 +290,15 @@
     {
       "id": "turbulence.les",
       "title": "Large-Eddy Simulation Subgrid Models",
-      "status": "known-defective",
+      "status": "experimental",
       "visibility": "public",
-      "previous_status": "experimental",
-      "peak_status": "experimental",
+      "previous_status": "known-defective",
       "capability_families": [
         "turbulence.les_model",
-        "turbulence.les_test_filter"
+        "turbulence.les_test_filter",
+        "turbulence.les_filter_width",
+        "turbulence.les_averaging_mode",
+        "turbulence.les_clip_mode"
       ],
       "obligations": {
         "purpose": {
@@ -315,7 +317,7 @@
           "anchor": "p07_les_sec"
         },
         "architecture_boundary": {
-          "page": "21_Methods_Overview"
+          "page": "72_LES_Turbulence_Closure"
         },
         "dependencies": {
           "page": "07_Case_Reference",
@@ -343,19 +345,11 @@
         "safe_use_boundaries": {
           "page": "07_Case_Reference",
           "anchor": "p07_les_sec"
-        },
-        "defect_disclosure": {
-          "page": "07_Case_Reference",
-          "anchor": "p07_les_sec"
-        },
-        "defect_scope_record": {
-          "value": "tests/tooling/capability_scope_records.json: turbulence.les.dynamic_smagorinsky"
         }
       },
       "concerns": {
         "numerical_method": {
-          "page": "07_Case_Reference",
-          "anchor": "p07_les_sec"
+          "page": "72_LES_Turbulence_Closure"
         },
         "user_selector": {
           "page": "07_Case_Reference",
@@ -369,7 +363,7 @@
           "not_applicable": "The legacy les: true / les: 1 / les: 2 shorthands remain accepted and are documented as spellings; nothing has been retired."
         }
       },
-      "note": "Both models are defective: the dynamic procedure has no dynamic content, and the constant model is inert on fresh runs because its only call site hits the step<2 early return. Fixing either is runtime work outside the documentation contract."
+      "note": "Both defects that held this subsystem at known-defective are fixed. The dynamic procedure now forms the model tensor from the test filter of |S|S_ij, applies the deviatoric projection, and averages the Germano contractions over a selectable set; the constant model reads its coefficient from configuration every step and allocates no coefficient field. Status is experimental rather than supported because no reference-flow validation has been run: decaying isotropic turbulence with homogeneous averaging, where Cs(t) should settle near 0.16-0.17, is the check that would close the gap."
     },
     {
       "id": "turbulence.rans",

@@ -335,49 +335,41 @@ Accepted spellings: `constant`, `smagorinsky`. The legacy shorthand `les: true` 
 `les: 1` both select this model.
 
 **What it does.** Applies a Smagorinsky eddy viscosity built from a **fixed**
-coefficient and the local strain-rate magnitude, added to the molecular viscosity.
+coefficient and the local strain-rate magnitude, added to the molecular viscosity:
+`nu_t = Cs^2 Delta^2 |S|`.
 
-**When to choose it.** **Not currently** - see the status below. On a fresh run the
-coefficient is never computed, so this model applies no subgrid dissipation at all.
-It is the model the shipped LES cases are configured for, which is why those cases
-inherit the defect rather than escaping it. If the defect is fixed, this becomes the
-model to choose whenever you want subgrid dissipation and are prepared to pick a
-coefficient appropriate to your flow.
+**When to choose it.** When you want subgrid dissipation, know a coefficient
+appropriate to your flow, and would rather not pay for the dynamic procedure. It is
+also the right choice on a geometry with no homogeneous direction, where a local
+dynamic coefficient is at its noisiest.
 
-**Parameters it owns.** `constant_cs` -> `-const_cs`, the fixed Smagorinsky
-coefficient.
+**Parameters it owns.** `constant_cs` -> `-les_constant_cs`, the fixed coefficient, and
+`filter_width` -> `-les_filter_width`, which sets how `Delta` is derived per cell.
 
 @warning `constant_cs` defaults to **0.03**, which is a wall-bounded value. Isotropic
 turbulence conventionally uses Lilly's 0.16-0.17, but only where the grid cutoff sits
 in an inertial range; at low `Re_lambda` a smaller value near 0.1 is more appropriate.
 The default is not a universal choice - set it deliberately for your flow.
 
-**Interactions.** Mutually exclusive with RANS. The test-filter and dynamic-frequency
-controls belong to the dynamic model, not this one, and have no effect here.
+**Interactions.** Mutually exclusive with RANS. The test-filter, averaging, and
+clipping controls belong to the dynamic procedure and are rejected here rather than
+silently ignored.
 
-**Diagnostics.** The startup banner reports the resolved turbulence **model**; it does
-not print the coefficient. `ComputeSmagorinskyConstant` logs the coefficient at
-`LOG_INFO` when it actually runs - and its absence from the log is exactly the
-symptom of the defect below. The eddy-viscosity field is available for output.
+**Storage.** This model allocates no coefficient field. The coefficient is a number
+from the configuration, so `nu_t` is built from it directly; nothing is synchronized,
+checkpointed, or written to disk on its behalf.
 
-**Evidence.** Implemented only. `examples/periodic_test/driven_channel/les_retau180`
-selects this model, but that case inherits the defect below, so its selection is not
-evidence that the model works. `decaying_isotropic_turbulence` selects the dynamic
-model instead.
+**Diagnostics.** The startup banner reports the resolved turbulence model. With
+`diagnostics.enabled` set, `<run.runtime_logs>/les_coefficient.csv` records the eddy-viscosity levels
+and the modelled subgrid energy each step. The eddy-viscosity field is available for
+output.
 
-@warning **Status: known-defective on fresh runs. Do not use for published work.**
-On a fresh run (`StartStep == 0`), `FlowSolver` calls `ComputeSmagorinskyConstant`
-only at `step == StartStep + 1`, i.e. step 1. That call hits the early-return branch
-that sets `CS = 0` for `step < 2`, and for the constant model the function is never
-called again. The result is a run that reports LES as enabled while the Smagorinsky
-coefficient stays zero - no subgrid dissipation is applied. The existing unit test
-invokes the helper directly at step 2 and therefore does not exercise this lifecycle.
-This is a runtime defect tracked outside the documentation work; it has not been
-fixed here.
+**Evidence.** Implemented, with unit coverage: `tests/c/test_les.c` case
+`constant-model-needs-no-coefficient-field` runs the model with no coefficient field
+allocated and checks the resulting `nu_t` against the closed form.
 
-**Limitations.** Beyond the defect above: the coefficient is constant in space and
-time, so it cannot adapt near walls and does not vanish in laminar regions the way a
-dynamic procedure would.
+**Limitations.** The coefficient is constant in space and time, so it cannot adapt near
+walls and does not vanish in laminar regions the way a dynamic procedure does.
 
 @subsection p07_cap_les_dynamic_smagorinsky_sub dynamic_smagorinsky
 
@@ -386,43 +378,316 @@ dynamic procedure would.
 **Identity.** `model: dynamic_smagorinsky` -> `-les 2` -> `DYNAMIC_SMAGORINSKY`.
 Accepted spelling: `dynamic`. The legacy shorthand `les: 2` selects it.
 
-**What it does.** Intended to compute the Smagorinsky coefficient dynamically from a
-test-filtered field via the Germano identity, rather than from a fixed constant.
+**What it does.** Measures the model coefficient from the resolved field each update
+rather than prescribing it, using the Germano identity and Lilly's least-squares
+contraction. The resolved velocity is filtered a second time at a wider test scale; the
+stress carried between the two scales is computable, and matching the model against it
+determines the coefficient. The full derivation is in
+**@subpage 72_LES_Turbulence_Closure**.
 
-**When to choose it.** Not currently. See the status below.
+**When to choose it.** When the coefficient should respond to the flow: transitional
+regions, near walls, or decaying turbulence, where a single constant is wrong somewhere
+in the domain.
 
-**Parameters it owns.** `dynamic_frequency` -> `-dynamic_freq`, `test_filter` ->
-`-testfilter_ik`, and `max_cs` -> `-max_cs` (the coefficient clip). The
-`-i_homo_filter`/`-j_homo_filter`/`-k_homo_filter` options are parsed but inert while
-the averaging they gate remains unimplemented.
+**Parameters it owns.** `dynamic_frequency` -> `-les_dynamic_frequency`, plus the
+`filter_width`, `test_filter`, `averaging`, and `clipping` blocks documented below.
 
 **Interactions.** Mutually exclusive with RANS. `constant_cs` belongs to the constant
-model and has no effect here.
+model and is rejected here.
 
-**Diagnostics.** `ComputeSmagorinskyConstant` logs the maximum computed coefficient
-and the clip value when it runs.
+**Storage.** The coefficient field is stored in `CS` and checkpointed. It holds `C`, the
+factor multiplying `Delta^2 |S|`, which is `Cs^2` in the classical notation - not `Cs`.
+Under `clipping.mode: none` it is signed, because a negative coefficient is backscatter.
 
-**Evidence.** Implemented only. No facet is claimed.
+**Diagnostics.** With `diagnostics.enabled`, `<run.runtime_logs>/les_coefficient.csv` records the
+effective coefficient converted to `Cs`, its spatial spread, eddy-viscosity levels, and
+the fractions of the domain that were backscattering or limited before clipping. Those
+last two describe a pre-clipping state that no stored field preserves.
+`diagnostics.cadence` sets the interval, and `diagnostics.yoshizawa_ci` sets the
+constant in the reported subgrid kinetic energy; neither affects the solution.
+`picurv summarize --plot les.cs_effective` renders the coefficient history directly.
 
-@warning **Status: known-defective. Do not use for scientific work.** The model tensor
-is built from separately filtered quantities rather than the test filter of the
-product, so both terms share an identical factor and `M_ij` collapses to a fixed
-scalar multiple of the filtered strain-rate tensor. The Germano scale-similarity
-relation is therefore never evaluated - the procedure has no dynamic content. The
-homogeneous averaging it assumes is also an unimplemented placeholder.
+**Evidence.** Implemented, with unit coverage in `tests/c/test_les.c`: the model tensor
+is checked against its closed form on constant strain, the filtered product is pinned
+apart from the product of filtered factors, the procedure returns exactly zero on
+uniform flow, and global averaging is checked to give one coefficient per block. The
+averaging reduction is checked to be decomposition-independent in
+`tests/c/test_mpi_kernels.c`.
 
-**Limitations.** Beyond the defect: the detailed formulation, averaging strategy, and
-validation evidence for this model are **deliberately deferred** until the
-implementation is corrected. The scoped record of what that documentation must cover
-is in `tests/tooling/capability_scope_records.json`.
+@note **Status: experimental.** The formulation is correct and unit-tested, but the
+coefficient has not yet been validated against a reference flow. The check that would
+settle it is decaying isotropic turbulence with homogeneous averaging, where `Cs(t)`
+should settle near 0.16-0.17; until that run is recorded, treat the magnitude as
+uncharacterized.
 
-@warning **Neither LES model is currently safe for scientific use.**
-`dynamic_smagorinsky` is selectable but known-defective and deliberately undocumented
-(record: `tests/tooling/capability_scope_records.json`).
-`constant_smagorinsky` is inert on fresh runs, as described above. The shipped
-`decaying_isotropic_turbulence` example selects the dynamic model and inherits its
-defect. Treat LES results from this tree as uncharacterized until both issues are
-fixed and tested end to end.
+**Limitations.** The procedure needs a developed field to sample, so the coefficient is
+held at zero for the first two steps of a run started from rest. With
+`averaging.mode: local` the coefficient is noisy and the least-squares closure is
+formally inconsistent, since it assumes the coefficient is constant over the averaging
+set; prefer `homogeneous` wherever the flow has a homogeneous direction.
+
+@section p07_les_width_sec 5.1 Grid Filter Width Entries
+
+@anchor p07_les_width_sec
+
+`filter_width` sets how each cell's filter width `Delta` is derived from its metrics.
+It applies to both LES models, since both scale the eddy viscosity by `Delta^2`.
+
+@htmlinclude generated/capability_inventory_turbulence_les_filter_width.html
+
+@subsection p07_cap_width_cube_root_volume_sub cube_root_volume
+
+@anchor p07_cap_width_cube_root_volume
+
+**Identity.** `les.filter_width: cube_root_volume` -> `-les_filter_width 0`. The default.
+
+**What it does.** Sets `Delta` to the cube root of the cell volume.
+
+**When to choose it.** Near-isotropic cells, where it is exact and cheapest.
+
+**Parameters it owns.** None.
+
+**Interactions.** None beyond scaling `nu_t`.
+
+**Diagnostics.** No dedicated output; its effect appears in the eddy-viscosity level.
+
+**Evidence.** Implemented, covered by `tests/c/test_les.c` case
+`filter-width-models-separate-on-stretched-cell`.
+
+**Limitations.** Underestimates the width on a stretched cell, because a geometric mean
+is dominated by the short directions.
+
+@subsection p07_cap_width_geometric_mean_sub geometric_mean
+
+@anchor p07_cap_width_geometric_mean
+
+**Identity.** `les.filter_width: geometric_mean` -> `-les_filter_width 1`.
+
+**What it does.** Sets `Delta` to the geometric mean of the Cartesian cell extents
+resolved from the cell metrics rather than from the volume alone.
+
+**When to choose it.** Curvilinear grids where the cell volume and the metric-derived
+extents disagree, so the width should follow the actual cell shape.
+
+**Parameters it owns.** None.
+
+**Interactions.** None beyond scaling `nu_t`.
+
+**Diagnostics.** As above.
+
+**Evidence.** Implemented, covered by the same unit case.
+
+**Limitations.** Still a geometric mean, so it shares the cube-root model's optimism on
+strongly stretched cells.
+
+@subsection p07_cap_width_max_edge_sub max_edge
+
+@anchor p07_cap_width_max_edge
+
+**Identity.** `les.filter_width: max_edge` -> `-les_filter_width 2`.
+
+**What it does.** Sets `Delta` to the longest Cartesian cell extent.
+
+**When to choose it.** Strongly stretched grids, such as a wall-normal channel mesh,
+where the largest unresolved scale is set by the long direction.
+
+**Parameters it owns.** None.
+
+**Interactions.** None beyond scaling `nu_t`.
+
+**Diagnostics.** As above.
+
+**Evidence.** Implemented, covered by the same unit case.
+
+**Limitations.** The most dissipative of the three; on a near-isotropic grid it
+overestimates the width and adds subgrid dissipation the flow does not need.
+
+@section p07_les_avg_sec 5.2 Coefficient Averaging Entries
+
+@anchor p07_les_avg_sec
+
+`averaging.mode` selects the set the two Germano contractions are averaged over before
+they are divided. Lilly's closure assumes the coefficient is constant across that set,
+so the set should span directions in which the flow really is statistically
+homogeneous. Dynamic model only.
+
+@htmlinclude generated/capability_inventory_turbulence_les_averaging_mode.html
+
+@subsection p07_cap_avg_local_sub local
+
+@anchor p07_cap_avg_local
+
+**Identity.** `les.averaging.mode: local` -> `-les_averaging_mode 0`. The default.
+
+**What it does.** Divides the two contractions cell by cell, giving a coefficient field
+that varies pointwise.
+
+**When to choose it.** Geometry with no homogeneous direction, where no larger averaging
+set can be justified.
+
+**Parameters it owns.** None.
+
+**Interactions.** `averaging.directions` does not apply and is rejected.
+
+**Diagnostics.** The coefficient spread columns in `<run.runtime_logs>/les_coefficient.csv` show how
+noisy the field is.
+
+**Evidence.** Implemented, covered by `tests/c/test_les.c` case
+`average-ratio-local-is-pointwise`.
+
+**Limitations.** The denominator collapses wherever the resolved strain is briefly
+small, so the coefficient is noisy, and the least-squares derivation is formally
+inconsistent because the coefficient it assumes constant is not.
+
+@subsection p07_cap_avg_homogeneous_sub homogeneous
+
+@anchor p07_cap_avg_homogeneous
+
+**Identity.** `les.averaging.mode: homogeneous` -> `-les_averaging_mode 1`.
+
+**What it does.** Averages both contractions over the homogeneous directions, then
+divides. The directions come from `averaging.directions` when given, and otherwise from
+the case's resolved periodicity, which the loader derives from the boundary pairs and
+rejects the case unless opposite faces, and all blocks, agree on. A triply periodic box therefore yields one coefficient for the
+whole domain, and a channel periodic in `i` and `k` yields a wall-normal profile, in
+both cases with no extra configuration.
+
+**When to choose it.** Whenever the flow has a homogeneous direction. This is the mode
+the dynamic procedure was derived for.
+
+**Parameters it owns.** `averaging.directions` -> `-les_averaging_directions`, a subset
+of `[i, j, k]` overriding the periodic default.
+
+**Interactions.** Naming a direction the case does not declare `PERIODIC` is accepted
+with a warning, since homogeneity is the user's claim to make. Requesting this mode with
+neither periodic pairs nor an explicit list is rejected.
+
+**Diagnostics.** `cs_effective` in `<run.runtime_logs>/les_coefficient.csv` is the whole-domain value
+regardless of mode, so it stays comparable across modes.
+
+**Evidence.** Implemented, covered by `tests/c/test_les.c` cases
+`homogeneous-averaging-derives-periodic-axes` and
+`average-ratio-retains-unaveraged-direction`.
+
+**Limitations.** Averaging over a direction the flow is not homogeneous in smears real
+spatial variation into a single number.
+
+@subsection p07_cap_avg_global_sub global
+
+@anchor p07_cap_avg_global
+
+**Identity.** `les.averaging.mode: global` -> `-les_averaging_mode 2`.
+
+**What it does.** Averages both contractions over the entire block, giving one
+coefficient per block per update.
+
+**When to choose it.** A domain you know is homogeneous but have not declared periodic.
+Where the domain is periodic in all three directions, `homogeneous` reaches the same
+answer without asserting anything the boundary conditions do not already say.
+
+**Parameters it owns.** None.
+
+**Interactions.** `averaging.directions` does not apply and is rejected. In a
+multi-block case the average is per block.
+
+**Diagnostics.** As above.
+
+**Evidence.** Implemented, covered by `tests/c/test_les.c` cases
+`average-ratio-divides-summed-fields` and
+`dynamic-procedure-global-average-is-uniform`, and by the decomposition-independence
+case in `tests/c/test_mpi_kernels.c`.
+
+**Limitations.** Discards all spatial variation in the coefficient, which is wrong
+wherever the flow is inhomogeneous.
+
+@section p07_les_clip_sec 5.3 Coefficient Limiting Entries
+
+@anchor p07_les_clip_sec
+
+`clipping.mode` bounds the coefficient the contraction produces. Dynamic model only.
+
+@htmlinclude generated/capability_inventory_turbulence_les_clip_mode.html
+
+@subsection p07_cap_clip_clamp_sub clamp
+
+@anchor p07_cap_clip_clamp
+
+**Identity.** `les.clipping.mode: clamp` -> `-les_clip_mode 0`. The default.
+
+**What it does.** Restricts the coefficient to `[0, max_cs^2]`.
+
+**When to choose it.** The conservative default, and the safe choice when a run is at
+risk of a diverging coefficient.
+
+**Parameters it owns.** `clipping.max_cs` -> `-les_clip_max_cs`, a ceiling on `Cs` and
+not on the stored coefficient. Defaults to 0.3, roughly twice the physical value, so it
+catches divergence without shaping the ordinary distribution.
+
+**Interactions.** Removes backscatter, so the total-viscosity floor never engages from
+below.
+
+**Diagnostics.** `limited_fraction` in `<run.runtime_logs>/les_coefficient.csv` reports the volume
+fraction the clip modified. A ceiling that is doing nothing reads near zero.
+
+**Evidence.** Implemented, covered by `tests/c/test_les.c` case
+`clip-model-coefficient-modes`.
+
+**Limitations.** Discarding the negative tail is not neutral: the positives that would
+have cancelled it survive, so the mean subgrid dissipation is biased upward.
+
+@subsection p07_cap_clip_clip_negative_sub clip_negative
+
+@anchor p07_cap_clip_clip_negative
+
+**Identity.** `les.clipping.mode: clip_negative` -> `-les_clip_mode 1`.
+
+**What it does.** Discards negative coefficients but imposes no ceiling.
+
+**When to choose it.** When backscatter is not wanted but a ceiling would distort a
+coefficient you have reason to trust at large values.
+
+**Parameters it owns.** None; `clipping.max_cs` is not applied and is warned about.
+
+**Interactions.** As for `clamp`.
+
+**Diagnostics.** As for `clamp`.
+
+**Evidence.** Implemented, covered by the same unit case.
+
+**Limitations.** Carries the same upward bias in mean dissipation as `clamp`, without
+the divergence guard.
+
+@subsection p07_cap_clip_none_sub none
+
+@anchor p07_cap_clip_none
+
+**Identity.** `les.clipping.mode: none` -> `-les_clip_mode 2`.
+
+**What it does.** Keeps the signed coefficient, so cells where the resolved scales are
+receiving energy from the unresolved ones - backscatter - are represented rather than
+zeroed.
+
+**When to choose it.** When the physics of backscatter matters, or when the upward bias
+the clipping modes introduce in mean dissipation is itself the thing under study.
+
+**Parameters it owns.** None directly, but it is the mode that makes
+`clipping.min_viscosity_ratio` -> `-les_min_viscosity_ratio` load-bearing: the total
+viscosity is floored at `ratio * nu`, which bounds the quantity that actually has to
+stay positive for the momentum operator to remain well posed.
+
+**Interactions.** The stored coefficient field becomes signed. Anything reading `CS`
+must expect negative values.
+
+**Diagnostics.** `backscatter_fraction` in `<run.runtime_logs>/les_coefficient.csv` reports the volume
+fraction with a negative coefficient, which is exactly what the other two modes discard.
+
+**Evidence.** Implemented, covered by `tests/c/test_les.c` cases
+`clip-model-coefficient-modes` and `eddy-viscosity-floor-bounds-total-viscosity`.
+
+**Limitations.** A locally averaged coefficient is negative at a large fraction of
+points in developed turbulence, so this mode leans hard on the viscosity floor. Pair it
+with `averaging.mode: homogeneous`, where the averaged coefficient is negative only when
+the whole homogeneous set is backscattering on balance.
 
 @section p07_rans_filter_sec 6. RANS and Test-Filter Entries
 
@@ -485,54 +750,56 @@ closure is selectable.
 
 @anchor p07_cap_filter_volume_weighted_box
 
-**Identity.** `les.test_filter: volume_weighted_box` -> `-testfilter_ik 0`. Accepted
-spellings: `box`, `general_box`.
+**Identity.** `les.test_filter.kernel: volume_weighted_box` -> `-les_test_filter_kernel 0`.
+Accepted spelling: `box`. The default.
 
-**What it does.** Applies a volume-weighted box test filter over the local stencil,
-making no assumption about which directions are homogeneous.
+**What it does.** Averages the 3x3x3 stencil with cell-volume weights, so neighbouring
+cells of different size contribute in proportion to the volume they represent. Makes no
+assumption about which directions are homogeneous, and excludes solid cells.
 
 **When to choose it.** The general-purpose choice, and the only defensible one on a
 geometry with no homogeneous direction.
 
-**Parameters it owns.** None; it selects the filter shape used by the dynamic procedure.
+**Parameters it owns.** None. `test_filter.width_ratio` belongs to the block, not to the
+kernel, and applies to either kernel.
 
-**Interactions.** Only consulted by @ref p07_cap_les_dynamic_smagorinsky "dynamic_smagorinsky",
-which is known-defective. With the constant model or with LES off, this setting has no
-effect.
+**Interactions.** Consulted only by @ref p07_cap_les_dynamic_smagorinsky "dynamic_smagorinsky".
 
-**Diagnostics.** No dedicated output; its effect is visible only through the dynamic
-coefficient, which the defect renders meaningless.
+**Diagnostics.** No dedicated output; its effect reaches
+`<run.runtime_logs>/les_coefficient.csv` through the coefficient.
 
-**Evidence.** Implemented only.
+**Evidence.** Implemented, covered by `tests/c/test_solver_kernels.c`, which checks that
+it preserves a constant field and returns zero when the stencil is entirely solid.
 
-**Limitations.** Inherits the dynamic model's defect: selecting a filter cannot rescue a
-procedure that never evaluates the Germano identity.
+**Limitations.** Less accurate than a Simpson stencil where one is admissible.
 
-@subsection p07_cap_filter_homogeneous_ik_sub homogeneous_ik
+@subsection p07_cap_filter_simpson_ik_sub simpson_ik
 
-@anchor p07_cap_filter_homogeneous_ik
+@anchor p07_cap_filter_simpson_ik
 
-**Identity.** `les.test_filter: homogeneous_ik` -> `-testfilter_ik 1`. Accepted
-spellings: `ik_homogeneous`, `simpson_ik`.
+**Identity.** `les.test_filter.kernel: simpson_ik` -> `-les_test_filter_kernel 1`.
 
-**What it does.** Applies Simpson-weighted filtering in the i and k directions, assuming
-those are statistically homogeneous.
+**What it does.** Applies a two-dimensional Simpson stencil across the central eta-plane
+of the 3x3x3 neighbourhood, weighting the nine samples 1, 4, and 16. Volume weights are
+not used: the stencil assumes uniform spacing in the plane it averages over.
 
-**When to choose it.** A plane channel, where the streamwise and spanwise directions are
-homogeneous and filtering along them is physically justified.
+**When to choose it.** A plane channel or any flow homogeneous in xi and zeta, where the
+higher-order stencil is both admissible and more accurate.
 
 **Parameters it owns.** None.
 
-**Interactions.** The homogeneity assumption is the user's to make; nothing validates that
-i and k actually are homogeneous for your geometry. Same dynamic-model dependency as
-above.
+**Interactions.** The homogeneity assumption is now checked rather than trusted:
+selecting this kernel without declaring both xi and zeta `PERIODIC` is rejected during
+validation.
 
 **Diagnostics.** As above.
 
-**Evidence.** Implemented only.
+**Evidence.** Implemented, covered by `tests/c/test_solver_kernels.c` alongside the box
+filter.
 
-**Limitations.** Wrong on any geometry where i and k are not homogeneous, and inherits the
-dynamic model's defect regardless.
+**Limitations.** Averages over only the central eta-plane, so it ignores variation in
+the wall-normal direction entirely; that is the point on a channel and wrong anywhere
+else.
 
 @htmlinclude generated/capability_inventory_turbulence_wall_function.html
 

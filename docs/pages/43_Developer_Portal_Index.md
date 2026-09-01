@@ -20,6 +20,7 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 - **@subpage 46_C_Runtime_Execution_Map**: startup/timestep execution trace across C modules.
 - **@subpage 56_Field_Identity_and_Layout_Catalog**: typed Eulerian/particle field identities, runtime views, and coupling metadata.
 - **@subpage 58_Field_Statistics**: scientific field statistics — accumulation, monitoring, checkpoint state, derived output, and extension points.
+- **@subpage 72_LES_Turbulence_Closure**: subgrid closure formulation, the Germano-Lilly procedure, coefficient averaging and limiting, and the kernels a new closure reuses.
 - **@subpage 57_Future_Architecture_Specifications**: status and sequencing of proposed future architecture.
 - **@subpage 60_Field_Statistics_Planned_Extensions**: spatial targets, further products, and histories, with their dependency order.
 - **@subpage 59_Function_Identity_and_Observability_Specification**: deferred, benchmark-gated logging/profiling identity design.

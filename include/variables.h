@@ -108,6 +108,18 @@ typedef struct Cmpnts2 {
     PetscScalar x, y;
 } Cmpnts2;
 
+/** @brief A symmetric second-order tensor stored by its six independent components.
+ *
+ * The three missing components are recovered by symmetry: `yx == xy`, `zx == xz`,
+ * and `zy == yz`. Contractions must therefore double the off-diagonal terms, which
+ * is what `SymTensorContract()` exists to do in one place instead of at every call
+ * site. Used for strain rates and for the Germano identity's Leonard and model
+ * tensors.
+ */
+typedef struct SymTensor {
+    PetscReal xx, xy, xz, yy, yz, zz;
+} SymTensor;
+
 /** @brief A 2D vector of PETSc real numbers (for geometry/coordinates). */
 typedef struct Cpt2D {
   PetscReal	x, y;
@@ -516,12 +528,104 @@ typedef struct Cstart {
 //--------------------------------------------------------------------------------
 //               7. LES/RANS TURBULENCE MODEL STRUCTS & ENUMS
 //--------------------------------------------------------------------------------
-/** @brief Identifies the six logical faces of a structured computational block. */
+/** @brief Identifies the subgrid-scale closure evaluated during a timestep.
+ *
+ * Add new enum values only when the parser, runtime dispatch, docs, and tests
+ * are updated in the same change.
+ */
 typedef enum {
     NO_LES_MODEL = 0,
     CONSTANT_SMAGORINSKY = 1,
     DYNAMIC_SMAGORINSKY = 2
 } LESModelType;
+
+/** @brief Selects how a cell's grid filter width is derived from its metrics.
+ *
+ * `CUBE_ROOT_VOLUME` is exact for a cube and progressively underestimates the
+ * width as a cell is stretched; the other two recover the anisotropy from the
+ * Cartesian cell extents. See @ref ComputeCellFilterWidth.
+ */
+typedef enum {
+    LES_FILTER_WIDTH_CUBE_ROOT_VOLUME = 0,
+    LES_FILTER_WIDTH_GEOMETRIC_MEAN   = 1,
+    LES_FILTER_WIDTH_MAX_EDGE         = 2
+} LESFilterWidthModel;
+
+/** @brief Selects the discrete test-filter kernel used by the dynamic procedure.
+ *
+ * `SIMPSON_IK` collapses onto the central eta-plane and is valid only when the
+ * xi and zeta directions are homogeneous; the ingress layer enforces that.
+ */
+typedef enum {
+    LES_TEST_FILTER_VOLUME_WEIGHTED_BOX = 0,
+    LES_TEST_FILTER_SIMPSON_IK          = 1
+} LESTestFilterKernel;
+
+/** @brief Selects the set over which the Germano contractions are averaged.
+ *
+ * Lilly's least-squares closure assumes the model coefficient is constant across
+ * the averaging set, so the set should span directions in which the flow really is
+ * statistically homogeneous. `LOCAL` makes no such claim and is the only choice
+ * valid on arbitrary geometry. `HOMOGENEOUS` derives its directions from the
+ * periodic boundary pairs unless they are named explicitly.
+ */
+typedef enum {
+    LES_AVERAGING_LOCAL       = 0,
+    LES_AVERAGING_HOMOGENEOUS = 1,
+    LES_AVERAGING_GLOBAL      = 2
+} LESAveragingMode;
+
+/** @brief Selects the admissible range imposed on the dynamic model coefficient.
+ *
+ * `NONE` keeps the coefficient signed, so subgrid-to-resolved energy transfer
+ * (backscatter) survives; stability then rests on the total-viscosity floor
+ * rather than on the coefficient's sign. The clipping modes discard the negative
+ * tail, which removes backscatter and biases the mean dissipation upward.
+ */
+typedef enum {
+    LES_CLIP_CLAMP         = 0,
+    LES_CLIP_CLIP_NEGATIVE = 1,
+    LES_CLIP_NONE          = 2
+} LESClipMode;
+
+/** @brief Every user-selectable parameter of the LES closure.
+ *
+ * Resolved once from the generated control file by @ref CreateSimulationContext and
+ * read-only thereafter. The model selector itself stays on `SimCtx::les` beside
+ * `SimCtx::rans`, because dispatch and field availability are decided from it
+ * throughout the runtime.
+ */
+typedef struct LESConfig {
+    PetscInt            dynamic_frequency;       ///< Recompute the dynamic coefficient every N steps.
+    PetscReal           constant_cs;             ///< Fixed Cs for CONSTANT_SMAGORINSKY; unused by the dynamic model.
+    LESFilterWidthModel filter_width_model;      ///< How the grid filter width Delta is derived per cell.
+    LESTestFilterKernel test_filter_kernel;      ///< Discrete test-filter stencil.
+    PetscReal           test_filter_width_ratio; ///< Test-to-grid width ratio; alpha is its square.
+    LESAveragingMode    averaging_mode;          ///< Averaging set for the Germano contractions.
+    PetscBool           averaging_direction[3];  ///< Averaged-over logical directions (xi, eta, zeta).
+    LESClipMode         clip_mode;               ///< Admissible range for the coefficient.
+    PetscReal           max_cs;                  ///< Ceiling on Cs under LES_CLIP_CLAMP.
+    PetscReal           min_viscosity_ratio;     ///< Enforce nu + nu_t >= ratio * nu.
+    PetscReal           yoshizawa_ci;            ///< Yoshizawa constant for the reported SGS kinetic energy.
+    PetscBool           diagnostics_enabled;     ///< Append per-step coefficient statistics to the run log directory.
+    PetscInt            diagnostics_cadence;     ///< Steps between diagnostic rows.
+} LESConfig;
+
+/** @brief Pre-clipping volume statistics captured by one dynamic-coefficient update.
+ *
+ * The backscattering and limited fractions describe the coefficient field as the
+ * Germano contraction produced it. Clipping overwrites that state, and no stored
+ * field preserves it, so it is recorded here on the way past and consumed by
+ * @ref LogLESDiagnostics.
+ */
+typedef struct LESDiagnosticsState {
+    PetscReal contraction_lm;      ///< Volume-weighted sum of `L_ij M_ij` over fluid cells.
+    PetscReal contraction_mm;      ///< Volume-weighted sum of `M_ij M_ij` over fluid cells.
+    PetscReal backscatter_volume;  ///< Fluid volume whose raw coefficient was negative.
+    PetscReal limited_volume;      ///< Fluid volume whose coefficient the clip modified.
+    PetscReal fluid_volume;        ///< Total fluid volume sampled.
+    PetscBool valid;               ///< Set once a dynamic update has populated this state.
+} LESDiagnosticsState;
 //--------------------------------------------------------------------------------
 //               8. MULTIGRID, SOLVERS AND POST-PROCESSING STRUCTS AND ENUMS
 //--------------------------------------------------------------------------------
@@ -818,10 +922,11 @@ typedef struct SimCtx {
     PetscReal  ratio;
   
     //================ Group 8: Turbulence Modeling (LES/RANS) ================
-    PetscInt  les, rans;
-    PetscInt  wallfunction, mixed, clark, dynamic_freq;
-    PetscReal max_cs,Const_CS;
-    PetscInt  testfilter_ik, testfilter_1d, i_homo_filter, j_homo_filter, k_homo_filter;
+    PetscInt  les;                  ///< Active LES closure; an ::LESModelType value.
+    PetscInt  rans;                 ///< Active RANS closure; the k-omega runtime path is incomplete.
+    PetscInt  wallfunction;         ///< Enable wall functions on WALL faces.
+    PetscInt  les_gradient_model;   ///< Add the Clark gradient (tensor-diffusivity) term to the viscous flux.
+    LESConfig les_config;           ///< Parameters of the LES closure selected by `les`.
   
     //================ Group 9: Particle / DMSwarm Data & Settings ================
     PetscInt  np;
@@ -980,6 +1085,7 @@ typedef struct UserCtx {
 
   // --- Turbulence Modeling (LES/RANS) ---
   Vec Nu_t, lNu_t, CS, lCs, K_Omega, lK_Omega, K_Omega_o, lK_Omega_o, Distance;
+  LESDiagnosticsState les_diagnostics; ///< Pre-clipping statistics from the last dynamic update.
 
   // --- Immersed Boundary Method (IBM) ---
   IBMNodes *ibm; IBMList *ibmlist;

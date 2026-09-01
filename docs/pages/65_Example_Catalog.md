@@ -69,17 +69,17 @@ documentation work. That is why **@subpage 66_Evidence_Matrix** records no
 
 | Example | Kind | Demonstrates | Status |
 |---|---|---|---|
-| `decaying_isotropic_turbulence` | Benchmark | LES decay in a triply periodic box, 64³ cells | **Selects a known-defective model** — see below |
+| `decaying_isotropic_turbulence` | Benchmark | LES decay in a triply periodic box, 64³ cells | Selects an experimental model — see below |
 | `periodic_test/driven_channel` | Benchmark | Driven periodic channel; DNS and LES variants | See caveat below |
 | `periodic_test/driven_duct` | Benchmark | Square duct with secondary flow of the second kind | See caveat below |
 
-@warning **The shipped LES configuration is not scientifically usable.**
-`decaying_isotropic_turbulence` selects `model: dynamic_smagorinsky`, which is
-**known-defective** (its `M_ij` carries no dynamic content). The alternative,
-`constant_smagorinsky`, is **also known-defective**: on a fresh run its coefficient
-is only computed at a step where it is forced to zero, so no subgrid dissipation is
-applied. Both are recorded in `tests/tooling/capability_scope_records.json`. Treat
-LES output from this tree as uncharacterized until both are fixed.
+@note **The shipped LES configuration is experimental.**
+`decaying_isotropic_turbulence` selects `model: dynamic_smagorinsky` with
+`averaging.mode: homogeneous`, which on a triply periodic box gives one coefficient
+for the whole domain and writes `Cs(t)` to `<run.runtime_logs>/les_coefficient.csv`. The
+formulation is unit-tested but the coefficient magnitude has not been validated: this
+case is the run that would settle it, and `Cs(t)` is expected to settle near
+0.16-0.17. Until that is recorded, treat the magnitude as uncharacterized.
 
 @warning The `periodic_test` campaigns carry an open status: pseudo-time momentum
 convergence on periodic wall-bounded flow was observed to stall on 2026-08-24 and

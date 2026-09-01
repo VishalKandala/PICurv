@@ -252,6 +252,7 @@ logging:
 - An explicitly provided `whitelist.run` must contain at least one function name; an empty whitelist file is invalid.
 - `config/monitors/Standard_Output.yml` uses `WARNING` with an empty allow-list for quiet production runs; the startup banner still reports the walltime-guard status.
 - Some runtime artifacts are independent of console verbosity. For particle-enabled runs, `<run.runtime_logs>/search_metrics.csv` is written automatically and includes both raw search counters and derived signals such as `search_failure_fraction`, `search_work_index`, and `re_search_fraction`; allow-listing `LOG_SEARCH_METRICS` only affects the optional compact console summary.
+- LES runs with `case.yml -> models.physics.turbulence.les.diagnostics.enabled` write `<run.runtime_logs>/les_coefficient.csv`, one row per step or per configured cadence. It carries the effective model coefficient reported as `Cs`, its spatial spread, eddy-viscosity levels, the modelled subgrid kinetic energy, and the volume fractions that were backscattering or limited before clipping. Those values are instantaneous volume statistics, not time averages; window-averaged statistics of the same model's fields come from `field_statistics` instead. Column definitions are at @ref p72_diagnostics_sec, and the history is plottable without leaving the CLI: `picurv summarize --run-dir <run> --plot les.cs_effective`.
 - Use **@subpage 53_Search_Robustness_Metrics_Reference** for the exact metric definitions and formulas.
 
 Supported verbosity strings:

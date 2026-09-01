@@ -217,8 +217,12 @@ def test_defective_status_requires_a_peak(records, pages, families, published):
     @param[in] published Fixture.
     @return None.
     """
-    defective = copy.deepcopy(next(r for r in records if r["status"] == "known-defective"))
-    defective.pop("peak_status")
+    # Built from a live record rather than taken from one, because the tree is not
+    # guaranteed to hold a defective subsystem at any given time: fixing the last one
+    # would otherwise delete this rule's coverage exactly when it stops being exercised.
+    defective = copy.deepcopy(next(r for r in records if r["status"] == "experimental"))
+    defective["status"] = "known-defective"
+    defective.pop("peak_status", None)
     problems = _violations(defective, pages, families, published)
     assert any("requires peak_status" in p for p in problems)
 

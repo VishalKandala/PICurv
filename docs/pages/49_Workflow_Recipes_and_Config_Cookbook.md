@@ -507,7 +507,67 @@ This pathway is useful for more than one study. It enables:
 
 A complete runnable example is provided in `examples/scatter_verification/`.
 
-@section p49_next_steps_sec 8. Related Pages
+@section p49_les_recipe_sec 8. LES Closure Recipe
+
+The dynamic model's defaults are the ones that are safe on any geometry, not the ones
+that are best for yours. Two settings usually want changing, and both follow from the
+flow rather than from taste.
+
+**Pick the averaging set from the flow's homogeneous directions.** `averaging.mode`
+defaults to `local`, which assumes nothing and is correspondingly noisy: the
+denominator of the coefficient collapses wherever the resolved strain is briefly small.
+Where the flow has a homogeneous direction, say so:
+
+```yaml
+# Triply periodic box: one coefficient for the whole domain.
+averaging: {mode: homogeneous}
+
+# Plane channel periodic in xi and zeta: a wall-normal coefficient profile.
+averaging: {mode: homogeneous}
+```
+
+Both read the same because `homogeneous` derives its directions from the case's
+periodicity. Name them explicitly only when the flow is homogeneous along an axis the
+boundary conditions do not declare periodic.
+
+**Match the filter width to the cell aspect ratio.** `filter_width` defaults to
+`cube_root_volume`, which is exact for a cube and progressively optimistic as a cell is
+stretched. On a wall-normal channel mesh, `max_edge` is the defensible choice.
+
+**Turn the diagnostics on before trusting anything.**
+
+```yaml
+diagnostics: {enabled: true, cadence: 1}
+```
+
+Then read `<run.runtime_logs>/les_coefficient.csv`, or plot it directly:
+
+```bash
+./bin/picurv summarize --run-dir runs/<run_id> --list-plot-series
+./bin/picurv summarize --run-dir runs/<run_id> --plot les.cs_effective
+```
+
+What to look for:
+
+- `cs_effective` should settle, and for decaying isotropic turbulence it should settle
+  near **0.16-0.17**. A curve that drifts or oscillates is the signal to stop.
+- `limited_fraction` near zero means the `max_cs` ceiling is not shaping the result.
+  A large value means the clip is doing the modelling.
+- `backscatter_fraction` is what the clipping modes discard. Under `local` averaging it
+  is routinely large, which is the argument for averaging rather than clipping.
+- `nu_t_over_nu_mean` far above one means the model, not the molecular viscosity, is
+  setting the dissipation; far below one means it is doing nothing.
+
+**Judging resolution.** Compare `k_sgs_mean` against the resolved turbulent kinetic
+energy from `monitor.yml -> field_statistics`. Pope's criterion asks the resolved share
+to exceed roughly 80%. The two halves come from different pipelines deliberately:
+resolved turbulent energy needs the mean subtracted correctly, which the statistics
+windows do and the closure does not attempt.
+
+Full option reference at **@subpage 07_Case_Reference**; the formulation is derived in
+**@subpage 72_LES_Turbulence_Closure**.
+
+@section p49_next_steps_sec 9. Related Pages
 
 - **@subpage 05_The_Conductor_Script**
 - **@subpage 07_Case_Reference**

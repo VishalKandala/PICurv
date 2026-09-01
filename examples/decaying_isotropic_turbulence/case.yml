@@ -54,9 +54,21 @@ models:
       les:
         enabled: true
         model: dynamic_smagorinsky
-        max_cs: 0.5
         dynamic_frequency: 1
-        test_filter: volume_weighted_box
+        test_filter:
+          kernel: volume_weighted_box
+          width_ratio: 2.0
+        # The box is homogeneous in all three directions, so the coefficient is one
+        # number for the whole domain. This is both the physically correct averaging
+        # set and what makes Cs(t) a readable curve instead of a noisy field.
+        averaging:
+          mode: homogeneous
+        clipping:
+          mode: clamp
+          max_cs: 0.3
+        diagnostics:
+          enabled: true
+          cadence: 1
       rans: {enabled: false}
       wall_function: {enabled: false}
 

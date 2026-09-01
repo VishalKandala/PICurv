@@ -121,16 +121,43 @@ Selector: `case.yml -> models.physics.turbulence.rans.model`
 
 ### LES Test Filters
 
-Selector: `case.yml -> models.physics.turbulence.les.test_filter`
+Selector: `case.yml -> models.physics.turbulence.les.test_filter.kernel`
 
 | Value | Maps to |
 |---|---|
 | `box` | `0` |
-| `general_box` | `0` |
-| `homogeneous_ik` | `1` |
-| `ik_homogeneous` | `1` |
 | `simpson_ik` | `1` |
 | `volume_weighted_box` | `0` |
+
+### LES Grid Filter Width Models
+
+Selector: `case.yml -> models.physics.turbulence.les.filter_width`
+
+| Value | Maps to |
+|---|---|
+| `cube_root_volume` | `0` |
+| `geometric_mean` | `1` |
+| `max_edge` | `2` |
+
+### LES Coefficient Averaging Modes
+
+Selector: `case.yml -> models.physics.turbulence.les.averaging.mode`
+
+| Value | Maps to |
+|---|---|
+| `global` | `2` |
+| `homogeneous` | `1` |
+| `local` | `0` |
+
+### LES Coefficient Limiting Modes
+
+Selector: `case.yml -> models.physics.turbulence.les.clipping.mode`
+
+| Value | Maps to |
+|---|---|
+| `clamp` | `0` |
+| `clip_negative` | `1` |
+| `none` | `2` |
 
 ### Analytical Solution Types
 
