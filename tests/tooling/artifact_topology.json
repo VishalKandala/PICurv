@@ -11,15 +11,25 @@
       "path_rule": "<workspace>/runs/<run_id>",
       "configurable": false,
       "owner": "picurv run staging",
-      "writers": ["picurv"],
-      "readers": ["picurv", "simulator", "postprocessor", "storage"],
+      "writers": [
+        "picurv"
+      ],
+      "readers": [
+        "picurv",
+        "simulator",
+        "postprocessor",
+        "storage"
+      ],
       "mutability": "append",
       "retention": "until offloaded",
       "restart_role": "identity anchor",
       "isolation_model": "isolated_run_tree",
       "namespace_key": "run_id",
       "containment": "fixed below the initialized workspace runs root",
-      "destructive_operations": ["storage policy pruning", "verified storage offload"],
+      "destructive_operations": [
+        "storage policy pruning",
+        "verified storage offload"
+      ],
       "destructive_scope": "one run"
     },
     {
@@ -27,8 +37,15 @@
       "path_rule": "<run.root>/config",
       "configurable": false,
       "owner": "picurv",
-      "writers": ["picurv"],
-      "readers": ["picurv", "simulator", "postprocessor", "humans"],
+      "writers": [
+        "picurv"
+      ],
+      "readers": [
+        "picurv",
+        "simulator",
+        "postprocessor",
+        "humans"
+      ],
       "mutability": "append revisions; active.json is atomically replaced",
       "retention": "essential",
       "restart_role": "configuration provenance",
@@ -42,8 +59,13 @@
       "path_rule": "<run.config>/history",
       "configurable": false,
       "owner": "picurv continuation staging",
-      "writers": ["picurv"],
-      "readers": ["picurv", "humans"],
+      "writers": [
+        "picurv"
+      ],
+      "readers": [
+        "picurv",
+        "humans"
+      ],
       "mutability": "append one immutable revision directory per continuation",
       "retention": "essential",
       "restart_role": "records configuration evolution",
@@ -57,8 +79,13 @@
       "path_rule": "<run.config>/active.json",
       "configurable": false,
       "owner": "picurv",
-      "writers": ["picurv"],
-      "readers": ["picurv", "humans"],
+      "writers": [
+        "picurv"
+      ],
+      "readers": [
+        "picurv",
+        "humans"
+      ],
       "mutability": "atomically replaced when the active revision changes",
       "retention": "essential",
       "restart_role": "selects the active configuration revision",
@@ -72,8 +99,15 @@
       "path_rule": "<run.config>/post-recipes",
       "configurable": false,
       "owner": "picurv post staging",
-      "writers": ["picurv", "postprocessor"],
-      "readers": ["picurv", "postprocessor", "humans"],
+      "writers": [
+        "picurv",
+        "postprocessor"
+      ],
+      "readers": [
+        "picurv",
+        "postprocessor",
+        "humans"
+      ],
       "mutability": "append by stable recipe identity",
       "retention": "essential",
       "restart_role": "post-processing provenance and resume state",
@@ -87,8 +121,15 @@
       "path_rule": "<run.post_recipes>/<recipe>/<name>",
       "configurable": false,
       "owner": "picurv and postprocessor",
-      "writers": ["picurv", "postprocessor"],
-      "readers": ["picurv", "postprocessor", "humans"],
+      "writers": [
+        "picurv",
+        "postprocessor"
+      ],
+      "readers": [
+        "picurv",
+        "postprocessor",
+        "humans"
+      ],
       "mutability": "recipe and state scoped",
       "retention": "essential",
       "restart_role": "recipe-specific post resume state",
@@ -102,8 +143,12 @@
       "path_rule": "<run.config>/<run_id>.control",
       "configurable": false,
       "owner": "picurv generation",
-      "writers": ["picurv"],
-      "readers": ["simulator"],
+      "writers": [
+        "picurv"
+      ],
+      "readers": [
+        "simulator"
+      ],
       "mutability": "active revision is replaced; earlier revisions are retained",
       "retention": "essential",
       "restart_role": "records the emitted PETSc options",
@@ -117,8 +162,13 @@
       "path_rule": "<run.config>/<role>.yml",
       "configurable": false,
       "owner": "picurv staging",
-      "writers": ["picurv"],
-      "readers": ["picurv", "humans"],
+      "writers": [
+        "picurv"
+      ],
+      "readers": [
+        "picurv",
+        "humans"
+      ],
       "mutability": "initial snapshot is immutable; continuations append under history",
       "retention": "essential",
       "restart_role": "records exact structured inputs",
@@ -132,14 +182,22 @@
       "path_rule": "<run.root>/inputs",
       "configurable": false,
       "owner": "picurv asset materialization",
-      "writers": ["picurv"],
-      "readers": ["simulator", "postprocessor", "picurv"],
+      "writers": [
+        "picurv"
+      ],
+      "readers": [
+        "simulator",
+        "postprocessor",
+        "picurv"
+      ],
       "mutability": "fixed for a staged run revision",
       "retention": "essential or recoverable by asset digest",
       "restart_role": "runtime-ready inputs",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.root",
-      "destructive_operations": ["storage metadata-only pruning after remote asset verification"],
+      "destructive_operations": [
+        "storage metadata-only pruning after remote asset verification"
+      ],
       "destructive_scope": "materialized copies for one run"
     },
     {
@@ -147,14 +205,22 @@
       "path_rule": "<run.inputs>/<role>",
       "configurable": false,
       "owner": "picurv",
-      "writers": ["picurv"],
-      "readers": ["simulator", "postprocessor", "picurv"],
+      "writers": [
+        "picurv"
+      ],
+      "readers": [
+        "simulator",
+        "postprocessor",
+        "picurv"
+      ],
       "mutability": "fixed for a staged run revision",
       "retention": "policy driven",
       "restart_role": "grid, initial condition, inlet profile, or restart input",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.inputs",
-      "destructive_operations": ["storage policy pruning"],
+      "destructive_operations": [
+        "storage policy pruning"
+      ],
       "destructive_scope": "one input role in one run"
     },
     {
@@ -162,8 +228,14 @@
       "path_rule": "<run.inputs>/assets.lock.yml",
       "configurable": false,
       "owner": "picurv",
-      "writers": ["picurv"],
-      "readers": ["picurv", "storage", "humans"],
+      "writers": [
+        "picurv"
+      ],
+      "readers": [
+        "picurv",
+        "storage",
+        "humans"
+      ],
       "mutability": "atomically replaced for the active run revision",
       "retention": "essential",
       "restart_role": "records exact immutable asset digests and runtime providers",
@@ -177,14 +249,22 @@
       "path_rule": "<run.inputs>/<role>/<name>",
       "configurable": false,
       "owner": "picurv asset materialization",
-      "writers": ["picurv"],
-      "readers": ["simulator", "postprocessor", "picurv"],
+      "writers": [
+        "picurv"
+      ],
+      "readers": [
+        "simulator",
+        "postprocessor",
+        "picurv"
+      ],
       "mutability": "immutable materialization",
       "retention": "policy driven and recoverable by asset digest when archived",
       "restart_role": "runtime input payload",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.inputs",
-      "destructive_operations": ["storage policy pruning"],
+      "destructive_operations": [
+        "storage policy pruning"
+      ],
       "destructive_scope": "one run materialization"
     },
     {
@@ -192,14 +272,23 @@
       "path_rule": "<run.root>/logs",
       "configurable": false,
       "owner": "C runtime and launch wrappers",
-      "writers": ["simulator", "postprocessor", "picurv"],
-      "readers": ["humans", "picurv"],
+      "writers": [
+        "simulator",
+        "postprocessor",
+        "picurv"
+      ],
+      "readers": [
+        "humans",
+        "picurv"
+      ],
       "mutability": "append",
       "retention": "essential",
       "restart_role": "none",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.root and independently guarded before a fresh-run cleanup",
-      "destructive_operations": ["fresh simulator invocation clears only this directory"],
+      "destructive_operations": [
+        "fresh simulator invocation clears only this directory"
+      ],
       "destructive_scope": "logs of one run"
     },
     {
@@ -207,14 +296,23 @@
       "path_rule": "<run.runtime_logs>/<name>",
       "configurable": false,
       "owner": "C runtime and PETSc",
-      "writers": ["simulator", "postprocessor", "PETSc"],
-      "readers": ["humans", "picurv"],
+      "writers": [
+        "simulator",
+        "postprocessor",
+        "PETSc"
+      ],
+      "readers": [
+        "humans",
+        "picurv"
+      ],
       "mutability": "append or replace by named diagnostic",
       "retention": "essential",
       "restart_role": "none",
       "isolation_model": "isolated_run_tree",
       "containment": "inherits run.runtime_logs",
-      "destructive_operations": ["fresh-run log cleanup"],
+      "destructive_operations": [
+        "fresh-run log cleanup"
+      ],
       "destructive_scope": "logs of one run"
     },
     {
@@ -222,14 +320,22 @@
       "path_rule": "<run.root>/scheduler",
       "configurable": false,
       "owner": "picurv and scheduler",
-      "writers": ["picurv", "scheduler"],
-      "readers": ["picurv", "humans"],
+      "writers": [
+        "picurv",
+        "scheduler"
+      ],
+      "readers": [
+        "picurv",
+        "humans"
+      ],
       "mutability": "stage scoped",
       "retention": "essential",
       "restart_role": "submission and process state",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.root",
-      "destructive_operations": ["lock removal after stage completion"],
+      "destructive_operations": [
+        "lock removal after stage completion"
+      ],
       "destructive_scope": "one stage lock"
     },
     {
@@ -237,14 +343,22 @@
       "path_rule": "<run.scheduler>/<name>",
       "configurable": false,
       "owner": "picurv and scheduler",
-      "writers": ["picurv", "scheduler"],
-      "readers": ["picurv", "humans"],
+      "writers": [
+        "picurv",
+        "scheduler"
+      ],
+      "readers": [
+        "picurv",
+        "humans"
+      ],
       "mutability": "stage scoped",
       "retention": "essential",
       "restart_role": "submission metadata, wrappers, locks, and stream logs",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.scheduler",
-      "destructive_operations": ["lock removal after stage completion"],
+      "destructive_operations": [
+        "lock removal after stage completion"
+      ],
       "destructive_scope": "one stage lock"
     },
     {
@@ -252,14 +366,24 @@
       "path_rule": "<run.root>/output",
       "configurable": false,
       "owner": "C runtime",
-      "writers": ["simulator", "postprocessor"],
-      "readers": ["simulator", "postprocessor", "picurv", "humans"],
+      "writers": [
+        "simulator",
+        "postprocessor"
+      ],
+      "readers": [
+        "simulator",
+        "postprocessor",
+        "picurv",
+        "humans"
+      ],
       "mutability": "append",
       "retention": "policy driven",
       "restart_role": "parent of checkpoints and derived output",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.root",
-      "destructive_operations": ["storage policy pruning"],
+      "destructive_operations": [
+        "storage policy pruning"
+      ],
       "destructive_scope": "selected semantic components of one run"
     },
     {
@@ -267,14 +391,23 @@
       "path_rule": "<run.solver_output>/checkpoints",
       "configurable": false,
       "owner": "C runtime",
-      "writers": ["simulator"],
-      "readers": ["simulator", "postprocessor", "picurv"],
+      "writers": [
+        "simulator"
+      ],
+      "readers": [
+        "simulator",
+        "postprocessor",
+        "picurv"
+      ],
       "mutability": "append transactional step bundles",
       "retention": "policy driven; latest may be retained locally",
       "restart_role": "restart source",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.solver_output",
-      "destructive_operations": ["checkpoint pruning", "storage offload"],
+      "destructive_operations": [
+        "checkpoint pruning",
+        "storage offload"
+      ],
       "destructive_scope": "selected bundles in one run"
     },
     {
@@ -282,14 +415,23 @@
       "path_rule": "<run.solver_output>/analysis",
       "configurable": false,
       "owner": "simulator, postprocessor, and picurv",
-      "writers": ["simulator", "postprocessor", "picurv"],
-      "readers": ["picurv", "humans"],
+      "writers": [
+        "simulator",
+        "postprocessor",
+        "picurv"
+      ],
+      "readers": [
+        "picurv",
+        "humans"
+      ],
       "mutability": "append by semantic family and recipe",
       "retention": "derived; policy driven",
       "restart_role": "statistics may be carried explicitly",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.solver_output",
-      "destructive_operations": ["storage policy pruning"],
+      "destructive_operations": [
+        "storage policy pruning"
+      ],
       "destructive_scope": "derived output of one run"
     },
     {
@@ -297,14 +439,22 @@
       "path_rule": "<run.analysis>/metrics",
       "configurable": false,
       "owner": "C runtime",
-      "writers": ["simulator", "postprocessor"],
-      "readers": ["picurv", "humans"],
+      "writers": [
+        "simulator",
+        "postprocessor"
+      ],
+      "readers": [
+        "picurv",
+        "humans"
+      ],
       "mutability": "append",
       "retention": "analysis-ready policy",
       "restart_role": "none",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.analysis",
-      "destructive_operations": ["storage policy pruning"],
+      "destructive_operations": [
+        "storage policy pruning"
+      ],
       "destructive_scope": "metrics of one run"
     },
     {
@@ -312,14 +462,22 @@
       "path_rule": "<run.analysis>/statistics",
       "configurable": false,
       "owner": "simulator and postprocessor",
-      "writers": ["simulator", "postprocessor"],
-      "readers": ["picurv", "humans"],
+      "writers": [
+        "simulator",
+        "postprocessor"
+      ],
+      "readers": [
+        "picurv",
+        "humans"
+      ],
       "mutability": "append by window and recipe",
       "retention": "analysis-ready policy",
       "restart_role": "may be reset or carried explicitly",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.analysis",
-      "destructive_operations": ["storage policy pruning"],
+      "destructive_operations": [
+        "storage policy pruning"
+      ],
       "destructive_scope": "statistics of one run"
     },
     {
@@ -327,14 +485,22 @@
       "path_rule": "<run.analysis>/spectra",
       "configurable": false,
       "owner": "postprocessor and picurv",
-      "writers": ["postprocessor", "picurv"],
-      "readers": ["picurv", "humans"],
+      "writers": [
+        "postprocessor",
+        "picurv"
+      ],
+      "readers": [
+        "picurv",
+        "humans"
+      ],
       "mutability": "append by recipe",
       "retention": "analysis-ready policy",
       "restart_role": "none",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.analysis",
-      "destructive_operations": ["storage policy pruning"],
+      "destructive_operations": [
+        "storage policy pruning"
+      ],
       "destructive_scope": "spectra of one run"
     },
     {
@@ -342,14 +508,20 @@
       "path_rule": "<run.analysis>/plots",
       "configurable": false,
       "owner": "picurv",
-      "writers": ["picurv"],
-      "readers": ["humans"],
+      "writers": [
+        "picurv"
+      ],
+      "readers": [
+        "humans"
+      ],
       "mutability": "append or replace by plot name",
       "retention": "analysis-ready policy",
       "restart_role": "none",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.analysis",
-      "destructive_operations": ["storage policy pruning"],
+      "destructive_operations": [
+        "storage policy pruning"
+      ],
       "destructive_scope": "plots of one run"
     },
     {
@@ -357,14 +529,21 @@
       "path_rule": "<run.solver_output>/visualization",
       "configurable": false,
       "owner": "postprocessor",
-      "writers": ["postprocessor"],
-      "readers": ["humans", "ParaView"],
+      "writers": [
+        "postprocessor"
+      ],
+      "readers": [
+        "humans",
+        "ParaView"
+      ],
       "mutability": "append by stable recipe identity",
       "retention": "derived; policy driven",
       "restart_role": "none",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.solver_output",
-      "destructive_operations": ["storage policy pruning"],
+      "destructive_operations": [
+        "storage policy pruning"
+      ],
       "destructive_scope": "visualization output of one run"
     },
     {
@@ -372,14 +551,21 @@
       "path_rule": "<run.visualization>/<recipe>",
       "configurable": false,
       "owner": "postprocessor",
-      "writers": ["postprocessor"],
-      "readers": ["humans", "ParaView"],
+      "writers": [
+        "postprocessor"
+      ],
+      "readers": [
+        "humans",
+        "ParaView"
+      ],
       "mutability": "recipe scoped",
       "retention": "derived; policy driven",
       "restart_role": "none",
       "isolation_model": "isolated_run_tree",
       "containment": "fixed relative to run.visualization",
-      "destructive_operations": ["storage policy pruning"],
+      "destructive_operations": [
+        "storage policy pruning"
+      ],
       "destructive_scope": "one recipe output"
     },
     {
@@ -387,8 +573,14 @@
       "path_rule": "<run.root>/manifest.json",
       "configurable": false,
       "owner": "picurv",
-      "writers": ["picurv"],
-      "readers": ["picurv", "storage", "humans"],
+      "writers": [
+        "picurv"
+      ],
+      "readers": [
+        "picurv",
+        "storage",
+        "humans"
+      ],
       "mutability": "atomically replaced as lifecycle state changes",
       "retention": "essential",
       "restart_role": "identity, lineage, topology, software, and asset lock summary",
@@ -401,7 +593,74 @@
   "default_layout": "isolated_run_tree",
   "default_layout_note": "The workspace and run skeletons are fixed. YAML may select what is generated, but it cannot redirect mutable run output to peer diagnostics or results directories. Imported or generated reusable inputs live in the workspace asset store and are materialized into the run-owned inputs tree.",
   "resolved_safety_history": {
-    "note": "The former configurable output/log topology and its unsafe-path override were removed before compatibility guarantees applied. Generated controls now emit the canonical run-local paths last, and staged-control preflight plus the C log cleanup guard remain defense in depth.",
-    "entries": []
+    "note": "Defects that were found and closed. Kept because the enforcement they produced is only intelligible next to the failure that motivated it, and because a reader needs to know the guard is deliberate rather than incidental. The configurable output/log topology that made this defect reachable has since been removed entirely; the guards it produced remain as defense in depth. Nothing here is an open defect.",
+    "entries": [
+      {
+        "id": "run.log_dir.unvalidated_destructive",
+        "severity": "data loss",
+        "state": "resolved",
+        "was": "monitor io.directories.log is passed through to -log_dir with no containment validation, and on a fresh solve the C runtime calls PetscRMTree on that directory, recursively deleting it and its contents.",
+        "observed": [
+          "picurv_cli/core.py emitted '-log_dir <value>' verbatim from monitor io.directories.log.",
+          "src/setup.c called PetscRMTree(simCtx->log_dir) unconditionally when !continueMode.",
+          "An absolute path outside the run tree was ACCEPTED by picurv validate and by run --dry-run (rc=0, no warning).",
+          "The dry-run planner reported <run>/logs regardless, so the configured destination was not visible in the plan."
+        ],
+        "consequence": "An accepted configuration can cause the solver to recursively delete an arbitrary directory, including one shared by other runs or holding unrelated data.",
+        "documentation_surfaces": [
+          "docs/pages/71_Invariant_Contracts.md",
+          "docs/pages/09_Monitor_Reference.md",
+          "docs/pages/52_Run_Artifact_Lifecycle_Contract.md"
+        ],
+        "resolution": {
+          "approach": "First, picurv rejected io.directories.log and io.directories.output values that escaped the run directory, targeted the run root, named a reserved directory, or overlapped each other, with io.directories.allow_unsafe_paths waiving exactly one verdict; src/setup.c independently classified the log directory immediately before PetscRMTree. Then the surface itself was removed: run-owned directory names are fixed by the workspace contract, io.directories is no longer part of the monitor schema, and no override waives anything. The classifier and the C guard are both retained as defense in depth against a hand-edited or older staged control.",
+          "implementation": [
+            "picurv_cli/core.py::classify_run_directory_value",
+            "picurv_cli/core.py::effective_run_directories",
+            "picurv_cli/core.py::evaluate_run_directories (shared rule set)",
+            "picurv_cli/core.py::validate_run_directory_containment",
+            "picurv_cli/core.py::validate_reserved_directory_flags",
+            "picurv_cli/core.py::append_passthrough_flags (emitter guard)",
+            "picurv_cli/core.py::preflight_staged_run_directories",
+            "picurv_cli/core.py::directory_value_charset_problem",
+            "picurv_cli/core.py::staged_control_directories (shlex tokenization)",
+            "picurv_cli/core.py::classify_physical_containment (typed physical verdicts)",
+            "src/setup.c::ClassifyLogDirectory (total classification, no authorization input)",
+            "src/setup.c::ResolveDirectoryPhysically (resolves a not-yet-created path)",
+            "src/setup.c::LogDirectoryIsSafeToWipe (applies the waiver to one verdict)",
+            "picurv_cli/core.py::CANONICAL_RUN_PATHS (the canonical values preflight compares against)"
+          ],
+          "tests": [
+            "tests/test_run_directory_containment.py",
+            "tests/test_c_guard_behaviour.py (drives the built simulator)"
+          ],
+          "residual_risk": "The restart input is deliberately not containment-checked as a destination: it is a read path materialized from a validated source. The C guard classifies the log directory it is handed, so a simulator invoked by hand with a non-canonical -log_dir is protected by that guard alone, not by preflight. And nothing here establishes that the retained classifier and guard agree with the canonical set under every future layout change; the canonical values are asserted in one place, CANONICAL_RUN_PATHS, and both readers derive from it.",
+          "enforcement_points": [
+            "configuration validation (validate / run / submit)",
+            "reserved-flag rejection across case, solver, and monitor passthrough",
+            "control-file emitter guard",
+            "dry-run planner (reports what a real run would refuse)",
+            "submission preflight over the staged .control file",
+            "the C runtime guard immediately before PetscRMTree, independent of the launcher"
+          ],
+          "rejected_conditions": [
+            "any run-owned directory flag whose value is not the canonical one (never waivable)",
+            "a value starting with '~', which nothing expands",
+            "escapes the run tree by relative traversal",
+            "resolves to the run root itself",
+            "resolves to a directory CONTAINING the run root, up to the filesystem root",
+            "a relative name that resolves outside the tree through a symlink",
+            "collides with a reserved run directory (config, scheduler, checkpoints, visualization)",
+            "log and output overlap, including against a defaulted value",
+            "directory values that cannot be written to a PETSc options line unambiguously (whitespace, quotes, comment markers)",
+            "an absolute location outside the run tree - formerly the one waivable condition, now refused like the rest"
+          ],
+          "shared_rule_set": "Configuration validation and submission preflight both call evaluate_run_directories() over effective values with defaults applied, so the two cannot drift apart and both honour the override identically.",
+          "parser_contract": "Staged control files are tokenized with shlex, matching PETSc's treatment of a double-quoted span as one token. Splitting on whitespace read '-log_dir \"/tmp/VICTIM DIR\"' as the value '\"/tmp/VICTIM', which looks contained while PETSc would use the absolute path. Malformed quoting is a preflight error, never a skipped line.",
+          "superseded_surface": "io.directories and io.directories.allow_unsafe_paths were removed from the monitor schema with the fixed workspace topology. evaluate_run_directories() is still called by staged-control preflight, which now passes override=False unconditionally.",
+          "verdict_rule": "Waivability was decided on a typed verdict, never on message text; with the waiver removed, every verdict is terminal. The typed classification is retained because the C guard still consumes it."
+        }
+      }
+    ]
   }
 }

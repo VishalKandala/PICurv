@@ -690,19 +690,25 @@ def test_every_planned_artifact_maps_to_an_identity():
         )
 
 
-def test_topology_snapshot_covers_custom_directories():
+def test_topology_snapshot_covers_the_fixed_run_skeleton():
     """!
-    @brief A custom output/log directory must appear in the plan, not be hidden by defaults.
+    @brief Every scenario must plan the fixed run directories rather than hide them.
+
+    @details This replaces a check that a *custom* output/log directory reached the
+             plan. Custom directories no longer exist, but the failure it guarded does:
+             a planner that reports defaults instead of what the run will really write.
     @return None.
     """
     snapshot = json.loads(
         (REPO_ROOT / "docs" / "generated" / "artifact_topology_snapshot.json").read_text(encoding="utf-8")
     )
-    names = {s["scenario"] for s in snapshot["scenarios"]}
-    assert "custom_directories" in names
-    custom = next(s for s in snapshot["scenarios"] if s["scenario"] == "custom_directories")
-    assert any("custom_logs" in a for a in custom["artifacts"]), "configured log dir not visible in plan"
-    assert any("custom_out" in a for a in custom["artifacts"]), "configured output dir not visible in plan"
+    assert snapshot["scenarios"], "the snapshot exercises no scenario at all"
+    for scenario in snapshot["scenarios"]:
+        mapped = scenario["identities"]["mapped"]
+        for identity in ("run.config", "run.runtime_logs", "run.solver_output"):
+            assert mapped.get(identity), (
+                f"{scenario['scenario']} plans no {identity}"
+            )
 
 
 def test_isolation_is_not_claimed_as_enforced():
@@ -1282,65 +1288,78 @@ def test_repository_fragment_links_resolve_repo_wide():
     assert SITE.check_page_cross_references(html_dir) == []
 
 
-def test_solver_output_is_recorded_as_containment_validated():
+def test_run_owned_directories_are_recorded_as_fixed():
     """!
-    @brief The lifecycle record must not claim configured solver output is unvalidated.
+    @brief Every mutable run-owned directory must be recorded as fixed, not configurable.
 
-    @details It said "configured overrides are not containment-validated" long after
-             `io.directories.output` joined the shared Python rule set. A reader
-             checking whether their configured output directory is checked would have
-             been told no.
+    @details The contract previously described a configurable output/log topology and
+             had to state which values `picurv` validated. That topology was removed:
+             the names are now fixed relative to the run root. The failure this guards
+             is the same one in the other direction - a record that still advertises a
+             selector a reader cannot actually use.
     @return None.
     """
     contract = json.loads(
         (REPO_ROOT / "tests" / "tooling" / "artifact_topology.json").read_text(encoding="utf-8")
     )
     records = {a["id"]: a for a in contract["artifacts"]}
-    output = records["run.solver_output"]
-    assert "not containment-validated" not in output["containment"]
-    assert "validated by picurv" in output["containment"]
-    # And it must not overclaim in the other direction: the independent C guard stands
-    # in front of PetscRMTree, which only ever deletes the log directory.
-    assert "no independent C guard" in output["containment"]
+    for identity in ("run.solver_output", "run.runtime_logs", "run.visualization",
+                     "run.analysis", "run.checkpoints"):
+        record = records[identity]
+        assert record["configurable"] is False, identity
+        assert record["containment"].startswith("fixed relative to"), identity
+    # The independent C guard stands in front of PetscRMTree, which only ever deletes
+    # the log directory. The record must not imply it covers the output tree too.
+    assert "independently guarded" in records["run.runtime_logs"]["containment"]
+    assert "independently guarded" not in records["run.solver_output"]["containment"]
     note = contract["default_layout_note"]
-    assert "BOTH" in note and "only the log directory" in note
+    assert "fixed" in note and "cannot redirect" in note
 
 
-def test_post_output_is_recorded_as_configurable():
+def test_post_output_is_recorded_as_fixed_and_recipe_addressed():
     """!
-    @brief Post-processing output is configured, not a fixed `visualization/<recipe>`.
+    @brief Post output is a fixed run-owned tree addressed by recipe identity.
 
-    @details `post.yml -> io.output_directory` defaults to `viz` and is resolved
-             directly against the run directory, and shipped recipes use both a flat
-             and a nested layout. Recording it as fixed made the contract describe one
-             example rather than the rule.
+    @details `post.yml -> io.output_directory` no longer redirects the tree; a
+             normalized recipe gets a stable ID and its own subdirectory beneath the
+             canonical visualization home. Recording it as configurable would send a
+             reader looking for a selector that was removed.
     @return None.
     """
     contract = json.loads(
         (REPO_ROOT / "tests" / "tooling" / "artifact_topology.json").read_text(encoding="utf-8")
     )
-    visualization = {a["id"]: a for a in contract["artifacts"]}["run.visualization"]
-    assert visualization["configurable"] is True
-    assert "configured post output dir" in visualization["path_rule"]
-    assert "NOT containment-validated" in visualization["containment"]
+    records = {a["id"]: a for a in contract["artifacts"]}
+    visualization = records["run.visualization"]
+    assert visualization["configurable"] is False
+    assert visualization["path_rule"] == "<run.solver_output>/visualization"
+    assert "recipe identity" in visualization["mutability"]
+    assert records["run.visualization.recipe"]["configurable"] is False
 
 
-def test_the_snapshot_exercises_more_than_one_post_layout():
+def test_the_snapshot_records_a_canonicalized_post_output_request():
     """!
-    @brief The extractor must not let the snapshot collapse to one post layout.
+    @brief The snapshot must show a redirect request being canonicalized, not honoured.
+
+    @details The extractor used to prove the layout was configurable by exercising two
+             post layouts. Since the tree is fixed, the property worth proving is that
+             a recipe asking for somewhere else still lands in the canonical home.
     @return None.
     """
     snapshot = json.loads(
         (REPO_ROOT / "docs" / "generated" / "artifact_topology_snapshot.json").read_text(
             encoding="utf-8")
     )
+    scenarios = {s["scenario"]: s for s in snapshot["scenarios"]}
+    assert "post_output_request_is_canonicalized" in scenarios, (
+        "no scenario shows what happens to a post recipe requesting another directory"
+    )
     layouts = set()
     for scenario in snapshot["scenarios"]:
         for token in scenario["identities"]["mapped"].get("run.visualization", []):
             layouts.add(token)
-    assert len(layouts) >= 2, (
-        "only one post output layout is exercised; the snapshot would record the "
-        "quickstart's nested path as though it were the fixed shape"
+    assert layouts, "the snapshot maps no visualization output at all"
+    assert all(token.endswith("/output/visualization") for token in layouts), (
+        f"post output escaped the canonical home: {sorted(layouts)}"
     )
-    assert any(token.endswith("/viz") for token in layouts)
     assert not any(scenario["identities"]["unmapped"] for scenario in snapshot["scenarios"])

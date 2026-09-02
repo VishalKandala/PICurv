@@ -22,7 +22,6 @@ io:
   particle_console_output_frequency: 0
   particle_log_interval: 1
   statistics_console_output_frequency: 100
-  directories: {output: output, restart: restart, log: logs}
 
 # One window, opened after the flow has had time to leave its initial state. The
 # first and second moments of Ucat are what the literature comparison needs: the

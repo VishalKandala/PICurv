@@ -297,7 +297,11 @@ def test_submission_preflight_rejects_reserved_collision(tmp_path):
     config.mkdir()
     (config / "r.control").write_text("-log_dir config\n-output_dir output\n", encoding="utf-8")
     errors, _ = preflight_staged_run_directories(str(tmp_path))
-    assert len(errors) == 1 and "reserved run directory" in errors[0]
+    # Two independent refusals: the value is not the canonical one, and it also names
+    # a reserved directory the runtime would delete.
+    assert len(errors) == 2
+    assert any("the canonical value is 'logs'" in message for message in errors)
+    assert any("reserved run directory" in message for message in errors)
 
 
 def test_submission_preflight_accepts_contained_control(tmp_path):
@@ -412,7 +416,9 @@ def test_preflight_rejects_explicit_staged_overlap(tmp_path):
     errors, _ = preflight_staged_run_directories(
         staged(tmp_path, "-log_dir output\n-output_dir output\n")
     )
-    assert len(errors) == 1 and "overlap" in errors[0]
+    assert len(errors) == 2
+    assert any("the canonical value is 'logs'" in message for message in errors)
+    assert any("overlap" in message for message in errors)
 
 
 def test_preflight_rejects_overlap_against_missing_flag(tmp_path):
@@ -422,12 +428,14 @@ def test_preflight_rejects_overlap_against_missing_flag(tmp_path):
     @return None.
     """
     errors, _ = preflight_staged_run_directories(staged(tmp_path, "-log_dir output\n"))
-    assert len(errors) == 1 and "overlap" in errors[0] and "(default)" in errors[0]
+    assert len(errors) == 2
+    assert any("the canonical value is 'logs'" in message for message in errors)
+    assert any("overlap" in message and "(default)" in message for message in errors)
 
 
-def test_preflight_honours_staged_unsafe_override(tmp_path):
+def test_preflight_refuses_staged_unsafe_override_under_fixed_topology(tmp_path):
     """!
-    @brief A deliberately staged unsafe run must remain submittable, with a warning.
+    @brief The legacy unsafe-path override no longer waives a non-canonical staged path.
     @param[in] tmp_path Pytest temporary directory.
     @return None.
     """
@@ -438,8 +446,11 @@ def test_preflight_honours_staged_unsafe_override(tmp_path):
             "io:\n  directories:\n    allow_unsafe_paths: true\n",
         )
     )
-    assert errors == []
-    assert warnings and any("Allowed only because" in w for w in warnings)
+    # Run-owned directories are fixed, so there is nothing left to waive: the escape is
+    # refused outright rather than downgraded to a warning by a staged override.
+    assert warnings == []
+    assert any("the canonical value is 'logs'" in message for message in errors)
+    assert any("escapes the run directory" in message for message in errors)
 
 
 def test_preflight_ignores_non_boolean_staged_override(tmp_path):
@@ -1201,9 +1212,9 @@ def test_staged_control_naming_an_ancestor_is_refused_at_submission(tmp_path):
     assert any("CONTAINS the run directory" in message for message in errors)
 
 
-def test_staged_external_absolute_is_waived_at_submission(tmp_path):
+def test_staged_external_absolute_is_refused_at_submission(tmp_path):
     """!
-    @brief The one waivable case must still be waivable at submission.
+    @brief The formerly waivable external absolute path is now refused at submission.
     @param[in] tmp_path Pytest temporary directory.
     @return None.
     """
@@ -1224,8 +1235,9 @@ def test_staged_external_absolute_is_waived_at_submission(tmp_path):
         encoding="utf-8",
     )
     errors, warnings = preflight_staged_run_directories(str(run))
-    assert errors == []
-    assert warnings
+    assert warnings == []
+    assert any("the canonical value is 'logs'" in message for message in errors)
+    assert any("outside the run directory" in message for message in errors)
 
 
 def test_the_guard_does_not_spend_the_stack_on_path_buffers():

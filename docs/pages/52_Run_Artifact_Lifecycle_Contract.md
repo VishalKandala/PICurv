@@ -68,8 +68,9 @@ picurv run --solve --post-process -n 4 \
 ```
 
 Generator descriptions such as grid `.cfg` files and `expressions.cfg` belong in
-`config/grids/`, `config/initial_conditions/`, or `config/inlet_profiles/`.
-User-supplied data belong in the matching `inputs/` directory. Register an external
+`<workspace>/config/grids/`, `<workspace>/config/initial_conditions/`, or
+`<workspace>/config/inlet_profiles/`. User-supplied data belong in the matching
+`<workspace>/inputs/` directory. Register an external
 file explicitly so its checksum and ownership mode are catalogued:
 
 ```bash
@@ -88,7 +89,7 @@ blocking provider dependencies without creating the directory.
 
 @section p52_layout_sec 3. Reusable Assets And The Run Snapshot
 
-`picurv precompute --case config/case.yml` resolves a dependency graph for grid,
+`picurv precompute --case <workspace>/config/case.yml` resolves a dependency graph for grid,
 initial-condition, and inlet-profile providers. File and Python providers build in
 an isolated temporary run layout. PICurv publishes their complete output only after
 every selected provider succeeds:
@@ -137,12 +138,12 @@ runs/<title>_<timestamp>/
 ```
 
 No peer `diagnostics/`, `results/`, or arbitrary monitor-selected output root is
-created. C runtime metrics use `output/analysis/metrics`; post statistics and spectra
-use their analysis homes; renderable VTK output uses `output/visualization`.
+created. C runtime metrics use `<run.analysis.metrics>`; post statistics and spectra
+use their analysis homes; renderable VTK output uses `<run.visualization>`.
 
 The initial YAML snapshot is immutable evidence. An in-place continuation stores the
-new YAML and generated controls under `config/history/<revision>/` and updates
-`config/active.json`; it does not erase the original. `manifest.json` records the
+new YAML and generated controls under `<run.config.history>/<revision>/` and updates
+`<run.config.active>`; it does not erase the original. `manifest.json` records the
 workspace identity, active build, canonical paths, stages, and locked assets.
 
 @section p52_launchers_sec 4. Local, Login-Node, and Batch Launch Resolution
@@ -232,8 +233,10 @@ picurv run --solve --continue --run-dir runs/my_run \
 Operational meaning:
 
 - `case.yml -> run_control.start_step` must be the saved checkpoint step and must be greater than zero; use a normal run without `--continue` for a fresh start at step zero,
-- PICurv validates and reads the requested immutable bundle directly from
-  `output/checkpoints/`; it does not create a second in-place copy,
+- PICurv validates the requested immutable bundle in `<run.checkpoints>` and
+  materializes it into `<run.inputs>/restart`, the one restart home every mode uses,
+  so the generated control carries a single canonical path. Same-filesystem reflink
+  or hardlink materialization makes this metadata-cheap rather than a second copy,
 - the solver resumes from that checkpoint,
 - logs append to the existing log files and remain independent of checkpoint payloads,
 - all output stays within the same `runs/my_run/` directory.
@@ -274,9 +277,9 @@ Use this when:
 - you do not want to rerun the solver.
 
 PICurv auto-identifies the active case, monitor, and control artifacts from
-`config/active.json` and its referenced revision. Every normalized recipe gets a stable
-ID. Its controls live under `config/post-recipes/<recipe-id>/`, its field visualization
-under `output/visualization/<recipe-id>/`, and its statistics/spectra below the matching
+`<run.config.active>` and its referenced revision. Every normalized recipe gets a stable
+ID. Its controls live under `<run.post_recipes>/<recipe-id>/`, its field visualization
+under `<run.visualization>/<recipe-id>/`, and its statistics/spectra below the matching
 analysis directories. Two changed recipes therefore coexist instead of overwriting one
 another.
 

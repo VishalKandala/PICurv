@@ -114,11 +114,12 @@ automated check earns the most.
 @section p71_topology_sec 4. Artifact Topology
 
 The one invariant given a full contract so far is where a run puts its files.
-`tests/tooling/artifact_topology.json` names the run root, configuration revisions,
+`tests/tooling/artifact_topology.json` names 26
+logical identities — `run.root`, `run.config`, `run.config.history`, `run.config.active`, `run.post_recipes`, `run.post_recipe.files`, `run.control`, `run.config.inputs`, `run.inputs`, `run.input.roles`, `run.asset_lock`, `run.input.files`, `run.runtime_logs`, `run.runtime_logs.files`, `run.scheduler`, `run.scheduler.files`, `run.solver_output`, `run.checkpoints`, `run.analysis`, `run.analysis.metrics`, `run.analysis.statistics`, `run.analysis.spectra`, `run.analysis.plots`, `run.visualization`, `run.visualization.recipe`, `run.manifest` — covering the run root, configuration revisions,
 materialized input roles, runtime logs, scheduler state, solver output, checkpoints,
-analysis families, recipe-specific visualization, and manifest. Each identity records
-its resolution rule, owner, writers and readers, mutability, retention, restart role,
-and destructive scope.
+analysis families, recipe-specific visualization, and the manifest. Each identity
+records its resolution rule, owner, writers and readers, mutability, retention,
+restart role, and destructive scope.
 
 Narrative pages should refer to these **logical identities**, and use `<run.config>`
 notation rather than repeating physical paths. The concrete layout is extracted from
@@ -160,15 +161,48 @@ runs comes from the run id namespace and fixed run-local paths.
 | `isolated_run_tree` | Mutable run state is namespaced and self-contained. **Enforced.** |
 | `shared_content_addressed` | Immutable workspace assets are shared by digest and materialized read-only into a run. |
 
-The generated control writes canonical `-log_dir`, `-output_dir`, `-restart_dir`, and
-`-analysis_dir` values last so passthrough input cannot override them. Submission
-preflight re-reads staged controls, and the C runtime independently refuses a log
-cleanup target outside the run. These are defense-in-depth checks for edited or
-hand-written controls, not a supported directory-customization surface.
+@note **The fixed names are enforced, not merely defaulted.** A configurable
+`io.directories` surface once let a monitor point the log directory anywhere, and on a
+fresh solve the C runtime calls `PetscRMTree` on that directory — so an escaping value
+meant the solver recursively deleted whatever was there. The surface was removed rather
+than guarded further, but the guards it produced were kept: a hand-edited control file,
+or one staged by an older version, still has to get past them.
 
-External source files use a different contract: `picurv inputs add --mode reference`
-stores a small `.reference.yml` descriptor in the workspace. Validation fails loudly
-when its target is unavailable. Mutable runtime output never uses that indirection.
+Containment is checked at six points:
+
+1. configuration validation (`validate`, `run`, `submit`), which rejects a monitor
+   still carrying the removed `io.directories` surface;
+2. the reserved-flag guard that stops raw PETSc passthrough in any of case, solver, or
+   monitor from setting `-log_dir`, `-output_dir`, `-restart_dir`, `-analysis_dir`, or
+   `-allow_unsafe_log_dir`;
+3. the control-file emitter, which writes the canonical values last and
+   unconditionally — PETSc takes the final occurrence, so a validated directory written
+   there wins over anything earlier, and writing them always removes the omitted-default
+   gap where an environment variable could choose the directory instead;
+4. the dry-run planner, so a plan reports what a real run would refuse;
+5. a submission preflight that re-reads the staged `.control` file rather than trusting
+   that staging validated it, and refuses any run-owned flag whose value is not the
+   canonical one; and
+6. independently of all of those, the C runtime's own guard immediately before the
+   delete.
+
+The last one matters because the first five live in `picurv`, and the solver can be
+launched directly on a hand-written control file. `ClassifyLogDirectory`
+(`src/setup.c`) re-derives the decision from the options actually in force, resolves
+the path physically — including a directory that does not exist yet, through its
+longest existing prefix — and returns a typed verdict.
+
+@warning **Residual risk.** The restart input is not containment-checked as a
+destination: it is a read path materialized from a source that was itself validated.
+A simulator invoked by hand with a non-canonical `-log_dir` is protected by the C
+guard alone, since no preflight ran. And the canonical values are asserted in one
+place, `CANONICAL_RUN_PATHS`; a future layout change that updated the constant without
+re-reading its consumers would move the guards with it silently.
+
+External source files use a different contract: `picurv inputs import <kind> <source>
+--mode reference` stores a small `.reference.yml` descriptor in the workspace.
+Validation fails loudly when its target is unavailable. Mutable runtime output never
+uses that indirection.
 
 @section p71_change_sec 5. When a Contract Changes
 

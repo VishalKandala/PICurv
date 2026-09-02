@@ -73,9 +73,10 @@ picurv init <template_name> [--dest <new_dir>] [--pin-binaries]
 Behavior:
 
 - copies `examples/<template_name>/` into a new working directory,
-- creates the uniform `config/`, `inputs/`, `assets/`, `runs/`, and `studies/` tree,
-- classifies and relocates template YAML to canonical roles under `config/`, preserving
-  colliding variants below `config/variants/`,
+- creates the uniform `<workspace>/config/`, `<workspace>/inputs/`, `<workspace>/assets/`,
+  `<workspace>/runs/`, and `<workspace>/studies/` tree,
+- classifies and relocates template YAML to canonical roles under `<workspace>/config/`,
+  preserving colliding variants below `<workspace>/config/variants/`,
 - writes `.picurv-workspace.yml`; `software.picurv` is empty by default and therefore
   means the latest active installation,
 - optionally renames the destination via `--dest`,
@@ -932,13 +933,13 @@ must make the same path available or the reference must be replaced.
 @section p05_artifacts_sec 13. Generated Runtime Artifacts
 
 Single run (`run`):
-- `config/*.control`, `bcs*.run`, immutable YAML snapshots, plus optional
+- `<run.config>/*.control`, `bcs*.run`, immutable YAML snapshots, plus optional
   `whitelist.run` / `profile.run` sidecars when enabled
-- `config/history/<revision>/` (new active config snapshots for continuation)
-- `config/post-recipes/<recipe-id>/{post.yml,post.run,state.json}`
-- `inputs/{grid,initial_condition,inlet_profiles,restart}/` and `inputs/assets.lock.yml`
-- `output/checkpoints/`, `output/analysis/`, and `output/visualization/`
-- `logs/` (runtime logs) and `scheduler/` (scripts, stream logs, and submission state)
+- `<run.config.history>/<revision>/` (new active config snapshots for continuation)
+- `<run.post_recipes>/<recipe-id>/{post.yml,post.run,state.json}`
+- `<run.inputs>/{grid,initial_condition,inlet_profiles,restart}/` and `<run.asset_lock>`
+- `<run.checkpoints>/`, `<run.analysis>/`, and `<run.visualization>/`
+- `<run.runtime_logs>/` and `<run.scheduler>/` (scripts, stream logs, and submission state)
 - `runs/<run_id>/manifest.json`
 
 Sweep (`sweep`):

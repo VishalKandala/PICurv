@@ -827,5 +827,68 @@
     },
     "selector": "picurv storage --compression / storage.yml -> compression",
     "title": "Storage Compression Policies"
+  },
+  {
+    "family_page": "52_Run_Artifact_Lifecycle_Contract",
+    "id": "run.restart_statistics_state",
+    "parity": [],
+    "public_values": {
+      "carry": {
+        "maps_to": "carry",
+        "status": "experimental"
+      },
+      "reset": {
+        "maps_to": "reset",
+        "status": "supported"
+      }
+    },
+    "selector": "picurv run --statistics-state",
+    "title": "Restart Statistics State"
+  },
+  {
+    "family_page": "05_The_Conductor_Script",
+    "id": "workspace.input_import_mode",
+    "parity": [],
+    "public_values": {
+      "copy": {
+        "maps_to": "copy",
+        "status": "supported"
+      },
+      "hardlink": {
+        "maps_to": "hardlink",
+        "status": "experimental"
+      },
+      "reference": {
+        "maps_to": "reference",
+        "status": "supported"
+      },
+      "reflink": {
+        "maps_to": "reflink",
+        "status": "experimental"
+      }
+    },
+    "selector": "picurv inputs import --mode",
+    "title": "Workspace Input Import Modes"
+  },
+  {
+    "family_page": "61_Storage_Management_Guide",
+    "id": "storage.offload_policy",
+    "parity": [],
+    "public_values": {
+      "analysis-ready": {
+        "maps_to": "analysis-ready",
+        "status": "supported"
+      },
+      "metadata-only": {
+        "maps_to": "metadata-only",
+        "status": "supported"
+      },
+      "restart-ready": {
+        "maps_to": "restart-ready",
+        "status": "supported"
+      }
+    },
+    "selector": "picurv storage offload --policy / storage profile -> offload_policy",
+    "title": "Storage Offload Policies"
   }
 ]

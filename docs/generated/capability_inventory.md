@@ -304,3 +304,33 @@ Selector: `picurv storage --compression / storage.yml -> compression`
 | `fast` | `fast` |
 | `maximum` | `maximum` |
 | `none` | `none` |
+
+### Restart Statistics State
+
+Selector: `picurv run --statistics-state`
+
+| Value | Maps to |
+|---|---|
+| `carry` | `carry` |
+| `reset` | `reset` |
+
+### Workspace Input Import Modes
+
+Selector: `picurv inputs import --mode`
+
+| Value | Maps to |
+|---|---|
+| `copy` | `copy` |
+| `hardlink` | `hardlink` |
+| `reference` | `reference` |
+| `reflink` | `reflink` |
+
+### Storage Offload Policies
+
+Selector: `picurv storage offload --policy / storage profile -> offload_policy`
+
+| Value | Maps to |
+|---|---|
+| `analysis-ready` | `analysis-ready` |
+| `metadata-only` | `metadata-only` |
+| `restart-ready` | `restart-ready` |

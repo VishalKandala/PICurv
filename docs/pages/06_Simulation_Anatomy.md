@@ -31,8 +31,8 @@ Cluster/sweep extensions add:
 7. `study.yml`: parameter matrix + metrics/plot contract (`sweep --study`)
 
 Inside an initialized workspace the active files have canonical homes under
-`config/`; variants may have any descriptive name under `config/variants/` or the
-role-specific configuration directories. C binaries do not read YAML names.
+`<workspace>/config/`; variants may have any descriptive name under
+`<workspace>/config/variants/` or the role-specific configuration directories. C binaries do not read YAML names.
 
 @section p06_compose_sec 2. Composition in Practice
 

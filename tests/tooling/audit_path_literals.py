@@ -20,10 +20,14 @@ SKIP_DIRS = {".git", "docs_build", "obj", "bin", "stubs", "runs", "studies", "__
 # Historical records describe layouts as they were; rewriting them would falsify history.
 HISTORICAL = {"docs/CHANGELOG.md"}
 
-# Directories a run owns. Two of them - the log and output directories - are
-# CONFIGURABLE, which is exactly why prose may not name them concretely: a page saying
-# `logs/Runtime_Memory.log` is wrong the moment io.directories.log is customized, and
-# that customization is the storage-layout case this contract exists for.
+# Directories a run owns. Their names are now fixed rather than configurable, but a
+# bare `logs/...` in prose is still wrong for a different reason: three different
+# owners ship a directory by that kind of name - the repository's own build logs and
+# `config/` library, a workspace's editable `config/` and `inputs/`, and a run's
+# generated tree. A bare prefix does not say which one is meant, and a reader
+# following it lands in the wrong place. Logical identities name the owner as well as
+# the path, and artifact_topology.json is where the mapping is enumerated, so a layout
+# change is a contract change rather than a prose hunt.
 RUN_OWNED = "config|logs|output|scheduler|visualization|checkpoints"
 
 # Concrete run-relative directories that a layout change would invalidate.
@@ -52,6 +56,12 @@ BARE_PREFIX = re.compile(
 # shipped `config/` library from a run's config directory - all of which otherwise
 # read identically in prose while naming directories with different owners.
 REPO_OWNED = re.compile(r"<repo>/[A-Za-z0-9_][A-Za-z0-9_./*<>-]*")
+
+# A workspace-owned path, written with an explicit `<workspace>/` prefix. An
+# initialized workspace owns `config/`, `inputs/`, and `assets/` directories whose
+# names match a run's, so the prefix is what tells a reader which of the two a
+# sentence means.
+WORKSPACE_OWNED = re.compile(r"<workspace>/[A-Za-z0-9_][A-Za-z0-9_./*<>-]*")
 
 # Bare prefixes that are not run-owned paths at all: repository directories that
 # happen to share a name. `config/` is a real top-level source directory.
@@ -118,22 +128,23 @@ def main() -> int:
             # looking for bare prefixes, so the distinct notation actually buys the
             # author something rather than leaving a bare `logs/` behind.
             probe = REPO_OWNED.sub("", probe)
+            probe = WORKSPACE_OWNED.sub("", probe)
             if MANAGED.search(line):
                 found, advice = "unmanaged run-path literal", (
                     "Use logical notation such as `<run.config>`, or move the concrete "
                     "path into a runnable command block.")
             elif PLACEHOLDER_ROOT.search(line):
                 found, advice = "run-owned directory named under an unresolved run root", (
-                    "`<run_dir>/logs/...` still hardcodes which subdirectory. Use the "
-                    "logical identity - `<run.runtime_logs>/...` - because the log and "
-                    "output directories are configurable.")
+                    "`<run_dir>/logs/...` names a subdirectory without naming the "
+                    "contract that fixes it. Use the logical identity - "
+                    "`<run.runtime_logs>/...` - which artifact_topology.json maps.")
             elif BARE_PREFIX.search(probe):
                 match = BARE_PREFIX.search(probe)
                 found, advice = f"bare run-owned prefix `{match.group(0)}`", (
-                    "A bare `logs/...` or `output/...` is wrong the moment "
-                    "io.directories is customized. Use `<run.runtime_logs>/...` or "
-                    "`<run.solver_output>/...`; for the repository's own logs write "
-                    "`<repo>/logs/...`.")
+                    "A bare `logs/...` or `config/...` does not say which owner is "
+                    "meant. Use the run's logical identity - `<run.runtime_logs>/...`, "
+                    "`<run.solver_output>/...` - or name the other owner explicitly "
+                    "with `<repo>/logs/...` or `<workspace>/config/...`.")
             else:
                 continue
             violations.append(

@@ -319,11 +319,11 @@ The storage layer is additive and remains in the Python conductor. It does not c
   does not need bulk checkpoint payload.
 - `cancel` continues to use retained scheduler metadata. Active Slurm jobs also prevent archival/offload in the first place.
 
-Run creation snapshots initial YAML under `config/`; continuations append revisions
-under `config/history/`; post recipes live under `config/post-recipes/<recipe-id>/`.
+Run creation snapshots initial YAML under `<run.config>`; continuations append revisions
+under `<run.config.history>`; post recipes live under `<run.post_recipes>/<recipe-id>/`.
 Storage classifies these as metadata, run-local materialized assets as inputs, and
 canonical output subtrees by semantic component. Study creation uses the same fixed
-member layout and stores aggregate analysis below `output/analysis/`.
+member layout and stores aggregate analysis below `<run.analysis>`.
 
 @section p61_code_sec 7. Code and Configuration Reproducibility
 
@@ -562,9 +562,9 @@ a selective remote restore.
 
 **Identity.** `picurv storage offload --policy analysis-ready`.
 
-**What it does.** Retains metadata, logs, `output/analysis`, and
-`output/visualization` while pruning raw output, inputs, and checkpoints unless the
-latest checkpoint option is added.
+**What it does.** Retains metadata, logs, `<run.analysis>`, and `<run.visualization>`
+while pruning raw output, inputs, and checkpoints unless the latest checkpoint option
+is added.
 
 **When to choose it.** Use it after solver work is done but figures, statistics,
 spectra, or comparisons remain active. Choose `metadata-only` when even derived output
