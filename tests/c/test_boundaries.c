@@ -1366,6 +1366,69 @@ static PetscErrorCode TestApplyWallFunctionSkipsNonWallFaces(void)
 }
 
 /**
+ * @brief Tests that every wall law's friction velocity responds to the flow it is given.
+ *
+ * A law that ignores the resolved velocity and reports a fixed number still slows the
+ * first cell and still differs from the other laws, so the selector test above passes
+ * over it. Driving a law at two different speeds and requiring the friction velocity to
+ * follow is what distinguishes a model from a constant.
+ *
+ * Werner-Wengle is deliberately excluded and would fail this: `wall_function()` reports
+ * its Newton initial guess rather than solving, so every wall cell in a run carries the
+ * same u_tau. The solver it needs, `find_utau_Werner()`, exists and is unit-tested but is
+ * never called, and it cannot simply be wired in - it inverts the explicit cell-averaged
+ * Werner-Wengle relation, which is not the inverse of the pointwise profile `u_Werner()`
+ * that the correction evaluates, so pairing them makes the corrected cell faster than the
+ * reference cell it sits inside of. Closing that needs a decision about which of the two
+ * formulations the model should carry, not a wiring change. Recorded against
+ * turbulence.wall_function.
+ */
+static PetscErrorCode TestWallModelFrictionVelocityRespondsToTheFlow(void)
+{
+    SimCtx        *simCtx = NULL;
+    UserCtx       *user = NULL;
+    PetscReal   ***utau = NULL;
+    const PetscInt models[2] = {WALL_FUNCTION_LOG_LAW, WALL_FUNCTION_CABOT};
+    const char    *names[2] = {"the log law must respond to the flow it is given",
+                               "Cabot must respond to the flow it is given"};
+    const PetscReal speeds[2] = {0.5, 2.0};
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    simCtx->ren = 1000.0;
+    simCtx->wall_roughness_height = 1.0e-16;
+    PetscCall(SeedWallFrictionVelocityStorage(user));
+    user->boundary_faces[BC_FACE_NEG_X].mathematical_type = WALL;
+
+    for (PetscInt m = 0; m < 2; ++m) {
+        PetscReal stored[2] = {0.0, 0.0};
+
+        simCtx->wallfunction = models[m];
+        for (PetscInt s = 0; s < 2; ++s) {
+            PetscCall(SeedWallFunctionFixture(user, speeds[s]));
+            PetscCall(ApplyWallFunction(user));
+            PetscCall(DMDAVecGetArrayRead(user->da, user->Friction_Velocity,
+                                          (const PetscReal ***)&utau));
+            stored[s] = utau[2][2][1];
+            PetscCall(DMDAVecRestoreArrayRead(user->da, user->Friction_Velocity,
+                                              (const PetscReal ***)&utau));
+            PetscCall(PicurvAssertBool((PetscBool)(stored[s] > 0.0),
+                                       "a wall law must report a positive friction velocity"));
+        }
+
+        /* Faster flow, more wall stress. Any law that reports its initial guess, or any
+           other constant, fails here whatever that constant is. */
+        PetscCall(PicurvAssertBool((PetscBool)(stored[1] > stored[0] * 1.05),
+                                   names[m]));
+    }
+
+    PetscCall(VecDestroy(&user->Friction_Velocity));
+    PetscCall(VecDestroy(&user->lFriction_Velocity));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests that the friction-velocity storage matches what the field catalog declares.
  *
  * The wall model reaches its storage through a DM, and PETSc only rejects a mismatched
@@ -1516,6 +1579,7 @@ int main(int argc, char **argv)
         {"apply-wall-function-matches-the-log-law", TestApplyWallFunctionMatchesTheLogLawItDispatches},
         {"apply-wall-function-skips-non-wall-faces", TestApplyWallFunctionSkipsNonWallFaces},
         {"wall-function-model-selector-chooses-the-law", TestWallFunctionModelSelectorChoosesTheLaw},
+        {"wall-model-friction-velocity-responds-to-the-flow", TestWallModelFrictionVelocityRespondsToTheFlow},
         {"wall-friction-velocity-storage-matches-the-catalog", TestWallFrictionVelocityStorageMatchesTheCatalog},
         {"wall-model-diagnostics-record-the-corrected-cells", TestWallModelDiagnosticsRecordTheCorrectedCells},
     };

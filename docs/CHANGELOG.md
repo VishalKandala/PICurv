@@ -37,6 +37,17 @@
   a soft freshness surface watches `src/logging.c` and `include/logging.h`. The supported
   claim is about its behavioural contracts, which `tests/c/test_logging.c` covers; it is
   not a claim about any quantity another subsystem hands it to print.
+- A toy channel exercising all three wall laws end to end found Werner-Wengle
+  non-functional: `wall_function()` reports its Newton initial guess as the friction
+  velocity rather than solving, so every wall cell carries the same `u_tau`. It was
+  invisible before this change because `u_tau` was discarded; the new `u_tau_min`/
+  `u_tau_max` columns collapse to a single value and make it obvious. `find_utau_Werner()`
+  exists and is unit-tested but is never called, and it cannot simply be wired in - it
+  inverts the explicit cell-averaged relation, not the pointwise profile the correction
+  evaluates, so the pair makes the corrected cell faster than the reference cell. Recorded
+  as a known defect against `turbulence.wall_function` and flagged on page 07; `log_law`
+  and `cabot` both solve correctly and respond to the local flow. Not fixed here, because
+  choosing between the two formulations is a physics decision.
 - `les.clipping.max_cs` under a mode that imposes no ceiling is now an error rather than
   a warning. A ceiling that is not in force reads as one that is.
 - The Newton-Krylov preconditioner's omission of the Clark stress is now documented as

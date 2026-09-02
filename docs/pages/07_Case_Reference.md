@@ -873,6 +873,17 @@ has been run.
 
 **Limitations.** No roughness. The power-law constants are fixed.
 
+@warning This selection is currently non-functional and should not be used. The
+implementation reports its Newton initial guess as the friction velocity instead of
+solving for one, so every wall cell in a run carries the same `u_tau` regardless of the
+local flow - visible directly in the `u_tau_min`/`u_tau_max` columns of
+`<run.runtime_logs>/wall_model.csv`, which collapse to one value. The solver it needs,
+`find_utau_Werner()`, exists and carries unit coverage but is never called, and wiring it
+in is not sufficient: it inverts the explicit cell-averaged Werner-Wengle relation, which
+is not the inverse of the pointwise profile the correction evaluates, so the two together
+make the corrected cell faster than the reference cell it sits inside. Deciding which of
+the two formulations the model should carry is open work. Use `log_law` or `cabot`.
+
 @subsection p07_cap_wall_cabot_sub cabot
 
 @anchor p07_cap_wall_cabot
