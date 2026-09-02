@@ -194,6 +194,7 @@ def write_certificate(sha: str, runtime_checked: bool) -> Path:
         f"- Certified at (UTC): `{timestamp}`\n"
         "- Portable shared agent instructions and skill parity: passed\n"
         "- Markdown links (all tracked and non-ignored Markdown): passed\n"
+        "- Field catalog identity and layout: passed\n"
         "- Public-header and implementation comment audit: passed\n"
         "- User-facing C/Python reporting audit: passed\n"
         "- Starter template, example, and configuration audit: passed\n"
@@ -286,6 +287,8 @@ def main(argv: list[str] | None = None) -> int:
         # generated HTML, so an excluded or renamed page cannot pass on a source declaration.
         run([sys.executable, "tests/tooling/audit_docs_site.py"], "published-site URLs and navigation")
         run([sys.executable, "tests/tooling/audit_page_types.py"], "page-type coverage")
+        run([sys.executable, "tests/tooling/audit_field_catalog.py"],
+            "field catalog identity and layout")
         run([sys.executable, "tests/tooling/audit_inline_choices.py"],
             "named public choice sets")
         run([sys.executable, "tests/tooling/audit_subsystem_lifecycle.py"],

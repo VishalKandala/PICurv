@@ -81,5 +81,8 @@ jobs:
       - name: Verify page-type coverage
         run: python tests/tooling/audit_page_types.py
 
+      - name: Verify field catalog identity and layout
+        run: python tests/tooling/audit_field_catalog.py
+
       - name: Verify invariant contract registry
         run: python tests/tooling/audit_contracts.py

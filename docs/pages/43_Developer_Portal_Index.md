@@ -60,8 +60,8 @@ needed by the change:
    **@subpage 16_Config_Extension_Playbook** for configuration ingress.
 3. **@subpage 64_Documentation_Extension_Framework** and
    **@subpage 50_Modular_Selector_Extension_Guide** for capability or subsystem work.
-4. **@subpage 46_C_Runtime_Execution_Map** and
-   **@subpage 56_Field_Identity_and_Layout_Catalog** for runtime/spatial changes.
+4. **@subpage 46_C_Runtime_Execution_Map** for runtime changes, and the ordered
+   route in @ref p43_spatial_model_sub for field storage, boundary, or ghost work.
 5. **@subpage 40_Testing_and_Quality_Guide** plus `tests/guide.md` for the narrowest
    evidence that answers the change's risk.
 
@@ -88,6 +88,27 @@ The tracked agent audit rejects symlink-only instruction/skill layouts and verif
 rule rather than a developer's global Git configuration. Machine-specific permissions
 remain local. Contributor setup, tests, and documentation commands do not require either
 Codex or Claude Code.
+
+@subsection p43_spatial_model_sub 5.3 Spatial Data Model Read Path
+
+Field storage, boundary treatment, and ghost exchange are owned by separate pages
+rather than one narrative. Read them in dependency order:
+
+1. **@subpage 20_Grid_Cell_Architecture_Guide**: nodes versus cells, face-centered
+   flux storage, and the shifted-index convention cell-centered variables use.
+2. **@subpage 56_Field_Identity_and_Layout_Catalog**, sections 3 through 5: the
+   per-field descriptor, the layout-to-boundary conventions, and what
+   `UpdateLocalGhosts` does after the global-to-local scatter. Section 4 separates
+   decomposition halo entries from solver-layout boundary and dummy indices; read it
+   before writing any kernel that indexes neighbors.
+3. **@subpage p54_geometric_periodic** for the periodic grid contract and
+   field synchronization, then **@subpage 44_Boundary_Conditions_Guide** for handler
+   dispatch.
+
+The catalog's `field.identity_and_layout` contract is report-only, so confirm layout
+facts against the code and the live DM before relying on them. `make review-packet
+CONTRACT=field.identity_and_layout` reaches the declared symbols and sources without
+reading these pages end to end.
 
 @section p43_developer_outcomes_sec 6. Expected Outcomes
 

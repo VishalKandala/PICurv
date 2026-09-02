@@ -100,6 +100,63 @@ is a test-local routine.
   - page mode reports only the freshness surfaces that route review to that page
   - page-mode output does not depend on the order contracts are iterated
   - contract mode renders every registered contract and rejects unknown ids
+- `test_storage.py`
+  - rclone backend round trip, protect/offload/restore, and remote-only recovery
+  - incomplete-checkpoint archival refusal and partial-restore markers
+  - cold-run guards so `post` and `submit` refuse before missing data is misdiagnosed
+- `test_run_directory_containment.py`
+  - escaping log/output directories are errors; restart directories are exempt
+  - override semantics, reserved-directory collisions, and run-root rejection
+- `test_c_guard_behaviour.py`
+  - C write-authorization guard: contained paths accepted, run-root, ancestor, and
+    relative-symlink escapes refused, and the escapes authorization never waives
+- `test_repo_file_enumeration.py`
+  - enumeration used by every scanner: deletions, staged deletions, untracked files,
+    honoured skip directories, and the non-Git fallback
+  - each scanner runs against the current dirty tree
+- `test_post_spectra_config.py`
+  - spectra recipe normalization, task identity, and stage selection
+  - periodic-box preconditions, and refusal of wall-bounded or multi-block domains
+  - recipe signature, predicted artifacts, and staged follow commands
+- `test_spectra_shell_spectrum.py`
+  - determinism, prescribed-envelope recovery, and Parseval closure for both symbols
+  - DMDA interior extraction, and refusal of stretched or curvilinear grids
+- `test_spectral_random_velocity.py`
+  - solenoidal projection, component-energy balance, and directional isotropy
+  - PETSc axis mapping, Nyquist reality, and subordination to a restarted state
+- `test_profile_field_slice.py`
+  - cell-centered DMDA slice length, dummy layers never sampled, and each face
+    reading its adjacent interior cell
+- `test_picgrid.py`
+  - PICGRID writers share round-trip-safe precision
+- `test_capability_tooling.py`
+  - capability parity, value metadata, and coverage-entry shape
+  - contract registry and artifact-topology snapshot validation
+  - documentation scaffolding output, and repository-wide fragment-link resolution
+- `test_field_catalog.py`
+  - the published field inventory matches the compiled Eulerian and particle catalogs
+  - missing fields, wrong layout groups, undocumented layout values, and renamed
+    inventory groups are each rejected
+  - the invariant contract registers this audit as its blocking checker
+- `test_subsystem_lifecycle.py`
+  - what each status owes, illegal transitions, and reasoned "not applicable"
+  - dangling obligation page and anchor references are rejected
+- `test_freshness.py`
+  - manifest structure, hard-blocking versus soft-advisory drift, and promotion rules
+  - attestation digests are path-sensitive, order-independent, and never a commit sha
+- `test_inline_choices.py`
+  - unnamed inline choice sets and argparse `choices` lists are detected
+  - every waiver is typed, reasoned, and claims no pending family
+- `test_path_notation.py`
+  - bare run-owned prefixes rejected, logical identities accepted
+  - runnable command blocks keep concrete paths; repository directories survive
+- `test_family_census_classifications.py`
+  - every census entry typed and reasoned, with parameter and alias entries naming
+    a real owner
+  - discovery covers every authoritative constant
+- `test_documentation_counts.py`
+  - counts stated in prose match the registries they describe: contracts, logical
+    identities, containment points, and census status lines
   - capability, subsystem, and freshness-surface modes render every declared identifier
   - optional xrefs are accepted only when schema and dirty-byte stamps are current
   - changed-path classification distinguishes routed production paths from declared gaps
