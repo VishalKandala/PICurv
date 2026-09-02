@@ -609,4 +609,4 @@ this table describes only what is actually covered.
 - @subpage 56_Field_Identity_and_Layout_Catalog — typed field identity and layout
 - @subpage 28_IEM_and_Statistical_Averaging — particle mixing and particle statistics
 - @subpage 29_Maintenance_Backlog — measured restart fidelity floor and open validation items
-- @subpage 52_Run_Lifecycle_Guide — committed checkpoint bundles and restart modes
+- @subpage 52_Run_Artifact_Lifecycle_Contract — committed checkpoint bundles and restart modes

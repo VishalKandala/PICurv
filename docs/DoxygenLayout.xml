@@ -14,8 +14,8 @@
       <tab type="user" visible="yes" url="06_Simulation_Anatomy.html" title="Simulation Anatomy"/>
       <tab type="user" visible="yes" url="04_Visualization_Tutorial.html" title="Visualization"/>
     </tab>
-    <tab type="user" visible="yes" url="52_Run_Lifecycle_Guide.html" title="Workflows">
-      <tab type="user" visible="yes" url="52_Run_Lifecycle_Guide.html" title="Run Lifecycle"/>
+    <tab type="user" visible="yes" url="52_Run_Artifact_Lifecycle_Contract.html" title="Workflows">
+      <tab type="user" visible="yes" url="52_Run_Artifact_Lifecycle_Contract.html" title="Run Lifecycle"/>
       <tab type="user" visible="yes" url="37_Sweep_Studies_Guide.html" title="Sweep Studies"/>
       <tab type="user" visible="yes" url="67_Troubleshooting.html" title="Troubleshooting"/>
     </tab>

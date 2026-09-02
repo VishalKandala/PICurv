@@ -304,7 +304,7 @@ See also:
 - **@subpage 09_Monitor_Reference**
 - **@subpage 33_Initial_Conditions**
 - **@subpage 45_Particle_Initialization_and_Restart**
-- **@subpage 52_Run_Lifecycle_Guide**
+- **@subpage 52_Run_Artifact_Lifecycle_Contract**
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 
@@ -347,7 +347,7 @@ Behavior notes:
 - if you change the recipe itself, PICurv starts from that recipe's configured `start_step` instead of inheriting completion from the earlier recipe.
 - if you omit `--continue`, PICurv honors the requested window exactly and treats the run as an explicit rerun.
 
-For the broader run-directory lifecycle around restart, post-only reuse, and generated scheduler artifacts, see **@subpage 52_Run_Lifecycle_Guide**.
+For the broader run-directory lifecycle around restart, post-only reuse, and generated scheduler artifacts, see **@subpage 52_Run_Artifact_Lifecycle_Contract**.
 
 @subsection p11_qcrit_ssec 4.2 Add Q-Criterion to Eulerian Pipeline
 

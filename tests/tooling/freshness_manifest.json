@@ -16,7 +16,7 @@
         "05_The_Conductor_Script"
       ],
       "dependent_pages": [
-        "52_Run_Lifecycle_Guide",
+        "52_Run_Artifact_Lifecycle_Contract",
         "61_Storage_Management_Guide",
         "36_Cluster_Run_Guide",
         "37_Sweep_Studies_Guide"
@@ -69,7 +69,7 @@
         "71_Invariant_Contracts"
       ],
       "dependent_pages": [
-        "52_Run_Lifecycle_Guide",
+        "52_Run_Artifact_Lifecycle_Contract",
         "61_Storage_Management_Guide",
         "37_Sweep_Studies_Guide"
       ],

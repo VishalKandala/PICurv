@@ -1,6 +1,6 @@
-@page 52_Run_Lifecycle_Guide Run Lifecycle Guide
+@page 52_Run_Artifact_Lifecycle_Contract Run Artifact Lifecycle Contract
 
-@anchor _Run_Lifecycle_Guide
+@anchor _Run_Artifact_Lifecycle_Contract
 
 @pagemeta{How-to, Operators running and restarting jobs, Current behavior}
 

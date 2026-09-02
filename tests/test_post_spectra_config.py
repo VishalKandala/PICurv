@@ -208,7 +208,7 @@ def test_predicted_artifacts_match_the_task_basenames(tmp_path):
     paths = CORE.get_post_spectra_output_artifacts(cfg, str(tmp_path), {})
     assert len(paths) == 2
     for path in paths:
-        assert os.path.dirname(path).endswith(os.path.join("output", "spectra"))
+        assert os.path.dirname(path).endswith(CORE.CANONICAL_RUN_PATHS["spectra"])
     assert CORE.get_post_spectra_output_artifacts({}, str(tmp_path), {}) == []
 
 

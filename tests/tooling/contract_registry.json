@@ -77,7 +77,7 @@
         "--check"
       ],
       "canonical_documentation": [
-        "52_Run_Lifecycle_Guide",
+        "52_Run_Artifact_Lifecycle_Contract",
         "06_Simulation_Anatomy"
       ],
       "dependent_pages": [
@@ -148,7 +148,7 @@
       "extractor": null,
       "checker": null,
       "canonical_documentation": [
-        "52_Run_Lifecycle_Guide"
+        "52_Run_Artifact_Lifecycle_Contract"
       ],
       "dependent_pages": [
         "45_Particle_Initialization_and_Restart",
@@ -219,7 +219,7 @@
       "extractor": null,
       "checker": null,
       "canonical_documentation": [
-        "52_Run_Lifecycle_Guide",
+        "52_Run_Artifact_Lifecycle_Contract",
         "61_Storage_Management_Guide"
       ],
       "dependent_pages": [
@@ -242,7 +242,7 @@
         "05_The_Conductor_Script"
       ],
       "dependent_pages": [
-        "52_Run_Lifecycle_Guide",
+        "52_Run_Artifact_Lifecycle_Contract",
         "40_Testing_and_Quality_Guide"
       ],
       "enforcement": "report-only",
@@ -312,7 +312,7 @@
         "71_Invariant_Contracts"
       ],
       "dependent_pages": [
-        "52_Run_Lifecycle_Guide",
+        "52_Run_Artifact_Lifecycle_Contract",
         "61_Storage_Management_Guide",
         "09_Monitor_Reference"
       ],
@@ -336,7 +336,7 @@
         "71_Invariant_Contracts"
       ],
       "dependent_pages": [
-        "52_Run_Lifecycle_Guide",
+        "52_Run_Artifact_Lifecycle_Contract",
         "05_The_Conductor_Script",
         "36_Cluster_Run_Guide"
       ],
@@ -387,7 +387,7 @@
       ],
       "dependent_pages": [
         "11_User_How_To_Guides",
-        "52_Run_Lifecycle_Guide",
+        "52_Run_Artifact_Lifecycle_Contract",
         "61_Storage_Management_Guide"
       ],
       "enforcement": "blocking",

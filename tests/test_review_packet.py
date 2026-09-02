@@ -157,7 +157,7 @@ def test_representative_pages_render():
     module = load_review_packet_module()
     for stem in ("16_Config_Extension_Playbook",
                  "20_Grid_Cell_Architecture_Guide",
-                 "52_Run_Lifecycle_Guide"):
+                 "52_Run_Artifact_Lifecycle_Contract"):
         assert (PAGES_DIR / f"{stem}.md").is_file(), f"{stem} is no longer published"
         status, _ = render(module, [stem])
         assert status == 0, f"page mode failed for {stem}"

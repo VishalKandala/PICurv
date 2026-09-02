@@ -428,7 +428,7 @@ objects automatically and writes the exact selection to `inputs/assets.lock.yml`
 
 Providers owned by the C runtime are reported but never approximated by Python. A
 selected C-only provider makes precompute fail before publication. See
-**@subpage 52_Run_Lifecycle_Guide** for the directory and dependency contracts.
+**@subpage 52_Run_Artifact_Lifecycle_Contract** for the directory and dependency contracts.
 
 @section p05_submit_sec 5b. submit: Execute Existing Staged Artifacts
 

@@ -98,6 +98,6 @@ For full contract and ingestion mapping, also see:
 - **@subpage 14_Config_Contract**
 - **@subpage 15_Config_Ingestion_Map**
 - **@subpage 16_Config_Extension_Playbook**
-- **@subpage 52_Run_Lifecycle_Guide**
+- **@subpage 52_Run_Artifact_Lifecycle_Contract**
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 - **@subpage 21_Methods_Overview**

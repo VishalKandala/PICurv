@@ -27,19 +27,7 @@ def _write_workspace(root: Path) -> Path:
     @return Created workspace path.
     """
     root.mkdir()
-    core.ensure_workspace_layout(str(root))
-    core.write_yaml_file(
-        str(root / core.WORKSPACE_CONFIG_FILENAME),
-        {
-            "schema_version": core.WORKSPACE_SCHEMA_VERSION,
-            "workspace": {"id": root.name, "template": "test"},
-            "software": {},
-            "paths": {
-                "config": "config", "inputs": "inputs", "assets": "assets",
-                "runs": "runs", "studies": "studies",
-            },
-        },
-    )
+    core.initialize_workspace_root(str(root), "test")
     return root
 
 

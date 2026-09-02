@@ -62,11 +62,11 @@
           "anchor": "p66_matrix_sec"
         },
         "lifecycle_and_restart": {
-          "page": "52_Run_Lifecycle_Guide",
+          "page": "52_Run_Artifact_Lifecycle_Contract",
           "anchor": "p52_restart_sec"
         },
         "operations": {
-          "page": "52_Run_Lifecycle_Guide",
+          "page": "52_Run_Artifact_Lifecycle_Contract",
           "anchor": "p52_newrun_sec"
         },
         "troubleshooting": {
@@ -171,7 +171,7 @@
           "anchor": "p55_seed_sec"
         },
         "operations": {
-          "page": "52_Run_Lifecycle_Guide",
+          "page": "52_Run_Artifact_Lifecycle_Contract",
           "anchor": "p52_newrun_sec"
         },
         "troubleshooting": {
@@ -576,7 +576,7 @@
           "anchor": "p45_restart_matrix_sec"
         },
         "operations": {
-          "page": "52_Run_Lifecycle_Guide",
+          "page": "52_Run_Artifact_Lifecycle_Contract",
           "anchor": "p52_restart_sec"
         },
         "troubleshooting": {
@@ -930,11 +930,11 @@
           "anchor": "p71_status_sec"
         },
         "lifecycle_and_restart": {
-          "page": "52_Run_Lifecycle_Guide",
+          "page": "52_Run_Artifact_Lifecycle_Contract",
           "anchor": "p52_layout_sec"
         },
         "operations": {
-          "page": "52_Run_Lifecycle_Guide",
+          "page": "52_Run_Artifact_Lifecycle_Contract",
           "anchor": "p52_layout_sec"
         },
         "troubleshooting": {
@@ -942,7 +942,7 @@
           "anchor": "p39_structured_sec"
         },
         "examples": {
-          "page": "52_Run_Lifecycle_Guide",
+          "page": "52_Run_Artifact_Lifecycle_Contract",
           "anchor": "p52_layout_sec"
         },
         "complete_reference": {
@@ -1033,7 +1033,7 @@
           "anchor": "p54_diag_sec"
         },
         "lifecycle_and_restart": {
-          "page": "52_Run_Lifecycle_Guide",
+          "page": "52_Run_Artifact_Lifecycle_Contract",
           "anchor": "p52_restart_sec"
         },
         "operations": {
@@ -1141,7 +1141,7 @@
           "anchor": "p09_logging_sec"
         },
         "operations": {
-          "page": "52_Run_Lifecycle_Guide",
+          "page": "52_Run_Artifact_Lifecycle_Contract",
           "anchor": "p52_layout_sec"
         },
         "troubleshooting": {

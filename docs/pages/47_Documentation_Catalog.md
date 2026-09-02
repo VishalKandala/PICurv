@@ -27,7 +27,7 @@ Use this page instead of the raw generated page dump.
 - **@subpage 05_The_Conductor_Script**
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 - **@subpage 06_Simulation_Anatomy**
-- **@subpage 52_Run_Lifecycle_Guide**
+- **@subpage 52_Run_Artifact_Lifecycle_Contract**
 - **@subpage 61_Storage_Management_Guide**
 - **@subpage 53_Search_Robustness_Metrics_Reference**
 - **@subpage 36_Cluster_Run_Guide**
@@ -66,7 +66,7 @@ Use this page instead of the raw generated page dump.
 - **@subpage 33_Initial_Conditions**
 - **@subpage 34_Particle_Model_Overview**
 - **@subpage 45_Particle_Initialization_and_Restart**
-- **@subpage 52_Run_Lifecycle_Guide**
+- **@subpage 52_Run_Artifact_Lifecycle_Contract**
 - **@subpage 61_Storage_Management_Guide**
 
 @section p47_methods_axis_sec 3. Numerical Methods and Models

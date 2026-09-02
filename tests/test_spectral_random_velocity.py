@@ -344,7 +344,7 @@ def test_spectral_ic_is_subordinate_to_restart_eulerian_state(tmp_path):
     monitor_path = example / "monitor.yml"
     CORE.write_yaml_file(str(case_path), restarted_case)
     run_dir = tmp_path / "run"
-    (run_dir / "config").mkdir(parents=True)
+    CORE.ensure_run_layout(str(run_dir))
     monitor_files = CORE.prepare_monitor_files(
         str(run_dir), "restart", monitor,
         {"Case": str(case_path), "Solver": str(solver_path), "Monitor": str(monitor_path)},
@@ -357,7 +357,8 @@ def test_spectral_ic_is_subordinate_to_restart_eulerian_state(tmp_path):
             "monitor": monitor, "monitor_path": str(monitor_path),
         },
         1, monitor_files,
-        restart_source_dir=str(tmp_path / "restart"), continue_mode=True,
+        restart_source_dir=str(run_dir / CORE.CANONICAL_RUN_PATHS["restart"]),
+        continue_mode=True,
     )
     control = Path(control_path).read_text(encoding="utf-8")
     assert "-finit 0" in control

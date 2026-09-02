@@ -106,7 +106,7 @@
       ["Workflows", [
         ["Examples", "65_Example_Catalog.html"],
         ["Recipes", "49_Workflow_Recipes_and_Config_Cookbook.html"],
-        ["Run Lifecycle", "52_Run_Lifecycle_Guide.html"],
+        ["Run Lifecycle", "52_Run_Artifact_Lifecycle_Contract.html"],
         ["Cluster Runs", "36_Cluster_Run_Guide.html"],
         ["Sweep Studies", "37_Sweep_Studies_Guide.html"],
         ["Visualization", "04_Visualization_Tutorial.html"]

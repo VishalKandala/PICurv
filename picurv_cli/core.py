@@ -366,6 +366,12 @@ CANONICAL_RUN_PATHS = {
     "scheduler": "scheduler",
 }
 
+#: Run-relative path of the staged initial-condition spectrum. It sits beside the
+#: post-produced spectra but is a reference overlay, not a selectable spectrum task.
+INITIAL_CONDITION_SPECTRUM_RELPATH = os.path.join(
+    CANONICAL_RUN_PATHS["spectra"], "initial_condition_spectrum.csv"
+)
+
 _WORKSPACE_ARTIFACT_ROOT_VALUES = {"runs", "studies"}
 _ASSET_SOURCE_REFERENCE_KEYS = {
     "source_file", "path", "config_file", "field_file", "grid_file", "source_case", "script"
@@ -506,6 +512,35 @@ def ensure_workspace_layout(workspace_root: str) -> None:
     """
     for relative in WORKSPACE_DIRECTORY_LAYOUT:
         os.makedirs(os.path.join(workspace_root, *relative.split("/")), exist_ok=True)
+
+
+def initialize_workspace_root(workspace_root: str, template_name: str) -> str:
+    """!
+    @brief Create the workspace skeleton and its identity file at one root.
+    @param[in] workspace_root Workspace root to initialize.
+    @param[in] template_name Example template the workspace was created from.
+    @return Path to the written workspace configuration file.
+    """
+    workspace_root = os.path.abspath(workspace_root)
+    ensure_workspace_layout(workspace_root)
+    config_path = os.path.join(workspace_root, WORKSPACE_CONFIG_FILENAME)
+    write_yaml_file(config_path, {
+        "schema_version": WORKSPACE_SCHEMA_VERSION,
+        "workspace": {
+            "id": os.path.basename(workspace_root),
+            "template": template_name,
+            "created_at": datetime.now().astimezone().isoformat(),
+        },
+        "software": {},
+        "paths": {
+            "config": "config",
+            "inputs": "inputs",
+            "assets": "assets",
+            "runs": "runs",
+            "studies": "studies",
+        },
+    })
+    return config_path
 
 
 def ensure_run_layout(run_dir: str) -> None:
@@ -10429,7 +10464,7 @@ GENERATED_IC_PROVIDERS = {
         "requires_fresh_3d": True,
         "diagnostic_artifacts": (
             ("summary_json", os.path.join(CANONICAL_RUN_PATHS["metrics"], "initial_condition_summary.json")),
-            ("spectrum_csv", os.path.join(CANONICAL_RUN_PATHS["spectra"], "initial_condition_spectrum.csv")),
+            ("spectrum_csv", INITIAL_CONDITION_SPECTRUM_RELPATH),
         ),
     },
 }
@@ -10714,7 +10749,7 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
         if not os.path.isfile(staged_grid):
             raise ValueError("spectral_random_velocity requires a staged PICGRID at inputs/grid/grid.run.")
         summary_path = os.path.join(run_dir, "output", "analysis", "metrics", "initial_condition_summary.json")
-        spectrum_path = os.path.join(run_dir, "output", "analysis", "spectra", "initial_condition_spectrum.csv")
+        spectrum_path = os.path.join(run_dir, INITIAL_CONDITION_SPECTRUM_RELPATH)
         os.makedirs(os.path.dirname(summary_path), exist_ok=True)
         os.makedirs(os.path.dirname(spectrum_path), exist_ok=True)
         cmd = [sys.executable, script, "--generator", "spectral_random_velocity",
@@ -10774,7 +10809,7 @@ def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict
         if resolved_ic["kind"] == "spectral_random_velocity":
             summary["diagnostics"] = [
                 os.path.join(run_dir, "output", "analysis", "metrics", "initial_condition_summary.json"),
-                os.path.join(run_dir, "output", "analysis", "spectra", "initial_condition_spectrum.csv"),
+                os.path.join(run_dir, INITIAL_CONDITION_SPECTRUM_RELPATH),
             ]
         return summary
     if is_generated_ic_provider(resolved_ic):
@@ -10793,7 +10828,7 @@ def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict
     if resolved_ic["kind"] == "spectral_random_velocity":
         summary["diagnostics"] = [
             os.path.join(run_dir, "output", "analysis", "metrics", "initial_condition_summary.json"),
-            os.path.join(run_dir, "output", "analysis", "spectra", "initial_condition_spectrum.csv"),
+            os.path.join(run_dir, INITIAL_CONDITION_SPECTRUM_RELPATH),
         ]
     return summary
 
@@ -14177,7 +14212,7 @@ def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_c
         if resolved["kind"] == "spectral_random_velocity":
             plan["artifacts"].extend([
                 os.path.join(run_dir, "output", "analysis", "metrics", "initial_condition_summary.json"),
-                os.path.join(run_dir, "output", "analysis", "spectra", "initial_condition_spectrum.csv"),
+                os.path.join(run_dir, INITIAL_CONDITION_SPECTRUM_RELPATH),
             ])
 
 
@@ -18967,9 +19002,14 @@ def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
     )
     candidates = []
     if os.path.isdir(spectra_dir):
+        # The staged initial-condition spectrum shares this directory but is the
+        # reference overlay, never a task a user can select.
+        reference_name = os.path.basename(INITIAL_CONDITION_SPECTRUM_RELPATH)
         candidates = sorted(
             name for name in os.listdir(spectra_dir)
-            if name.endswith(".csv") and not name.endswith("_history.csv")
+            if name.endswith(".csv")
+            and not name.endswith("_history.csv")
+            and name != reference_name
         )
     if not candidates:
         raise ValueError(
@@ -19003,10 +19043,7 @@ def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
 
     lines = []
     if reference:
-        reference_path = os.path.join(
-            context["run_dir"], CANONICAL_RUN_PATHS["spectra"],
-            "initial_condition_spectrum.csv",
-        )
+        reference_path = os.path.join(context["run_dir"], INITIAL_CONDITION_SPECTRUM_RELPATH)
         if os.path.isfile(reference_path):
             points = []
             with open(reference_path, "r", encoding="utf-8", errors="replace") as stream:
@@ -20377,25 +20414,8 @@ def organize_initialized_workspace(workspace_root: str, template_name: str,
                     rewritten["base_configs"][role] = canonical
         write_yaml_file(str(path), rewritten)
 
-    workspace_payload = {
-        "schema_version": WORKSPACE_SCHEMA_VERSION,
-        "workspace": {
-            "id": os.path.basename(workspace_root),
-            "template": template_name,
-            "created_at": datetime.now().astimezone().isoformat(),
-        },
-        "software": {},
-        "paths": {
-            "config": "config",
-            "inputs": "inputs",
-            "assets": "assets",
-            "runs": "runs",
-            "studies": "studies",
-        },
-    }
-    write_yaml_file(os.path.join(workspace_root, WORKSPACE_CONFIG_FILENAME), workspace_payload)
     return {
-        "workspace_config": os.path.join(workspace_root, WORKSPACE_CONFIG_FILENAME),
+        "workspace_config": initialize_workspace_root(workspace_root, template_name),
         "canonical_roles": {
             role: os.path.join(workspace_root, "config", f"{role}.yml")
             for role in ("case", "solver", "monitor", "post", "cluster")

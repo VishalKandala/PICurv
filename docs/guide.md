@@ -36,7 +36,7 @@ The goal of this guide is to explain not only where files live, but how each doc
 - Run the function-doc audit when C/Python executable APIs or test helpers changed:
   - `python3 tests/tooling/audit_function_docs.py`
 - Keep `docs/DoxygenLayout.xml` and `docs/mainpage.md` synchronized with new/renamed pages.
-- When changing run/cluster lifecycle behavior, keep `README.md`, `05_The_Conductor_Script.md`, `36_Cluster_Run_Guide.md`, `52_Run_Lifecycle_Guide.md`, and the relevant `<repo>/config/*/guide.md` pages aligned.
+- When changing run/cluster lifecycle behavior, keep `README.md`, `05_The_Conductor_Script.md`, `36_Cluster_Run_Guide.md`, `52_Run_Artifact_Lifecycle_Contract.md`, and the relevant `<repo>/config/*/guide.md` pages aligned.
 - For equations or symbols, verify MathJax rendering in the generated HTML.
 - Avoid introducing orphan pages that are discoverable only by URL.
 

@@ -48,6 +48,52 @@ def run_picurv(args, cwd=REPO_ROOT, env=None):
     return subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True, timeout=60, check=False, env=merged_env)
 
 
+def make_workspace(root: Path, name: str = "workspace") -> Path:
+    """!
+    @brief Create an initialized PICurv workspace for commands that require one.
+    @param[in] root Parent directory the workspace is created beneath.
+    @param[in] name Workspace directory name.
+    @return Initialized workspace root.
+    """
+    picurv = load_picurv_module()
+    workspace = root / name
+    workspace.mkdir()
+    picurv.initialize_workspace_root(str(workspace), "test")
+    return workspace
+
+
+def published_asset_payload(workspace: Path, kind: str) -> Path:
+    """!
+    @brief Resolve the payload root of the one published asset object of a kind.
+    @param[in] workspace Initialized workspace root.
+    @param[in] kind Asset kind key, such as `grid` or `initial-condition`.
+    @return Payload directory inside the published content-addressed object.
+    """
+    picurv = load_picurv_module()
+    kind_root = workspace / "assets" / "objects" / picurv.ASSET_KIND_DIRECTORIES[kind]
+    objects = sorted(path for path in kind_root.iterdir() if path.is_dir())
+    assert len(objects) == 1, f"expected exactly one published {kind} object, found {objects}"
+    return objects[0] / "payload"
+
+
+def read_profile_info(payload_root: Path) -> dict:
+    """!
+    @brief Parse the generated `profile.info` summary into per-profile mappings.
+    @param[in] payload_root Published inlet-profile payload root.
+    @return Mapping of profile section name to its key/value pairs.
+    """
+    text = (payload_root / "inputs" / "inlet_profiles" / "profile.info").read_text(encoding="utf-8")
+    profiles, current = {}, None
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith("[") and line.endswith("]"):
+            current = profiles.setdefault(line[1:-1], {})
+        elif current is not None and "=" in line:
+            key, _, value = line.partition("=")
+            current[key.strip()] = value.strip()
+    return profiles
+
+
 def write_eulerian_checkpoint(
     directory: Path,
     step: int,
@@ -669,30 +715,33 @@ def test_precompute_materializes_ic_gen_initial_condition(tmp_path, monkeypatch)
     """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
+    workspace = make_workspace(tmp_path)
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
-    source = write_petsc_vec_binary(tmp_path / "generator_input.dat", [1.0, 2.0, 3.0])
+    write_petsc_vec_binary(
+        workspace / "config" / "initial_conditions" / "generator_input.dat", [1.0, 2.0, 3.0]
+    )
     write_fake_ic_generator(tmp_path / "ic.gen")
     monkeypatch.setattr(picurv, "GENERATORS_PATH", str(tmp_path))
-    grid = write_canonical_picgrid(tmp_path / "grid.picgrid")
-    case_cfg["grid"] = {"mode": "file", "source_file": str(grid)}
+    write_canonical_picgrid(workspace / "inputs" / "grids" / "grid.picgrid")
+    case_cfg["grid"] = {"mode": "file", "source_file": "inputs/grids/grid.picgrid"}
     case_cfg["properties"]["initial_conditions"] = {
         "mode": "generated",
         "generator": "ic_gen",
         "params": {
             "field": "Ucont",
-            "config_file": str(source),
+            "config_file": "config/initial_conditions/generator_input.dat",
         },
     }
-    case_path = tmp_path / "case.yml"
+    case_path = workspace / "config" / "case.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
-    output_dir = tmp_path / "precomputed"
 
-    picurv.precompute_workflow(SimpleNamespace(case=str(case_path), output_dir=str(output_dir)))
+    picurv.precompute_workflow(SimpleNamespace(case=str(case_path), only="all"))
 
-    assert (output_dir / "inputs" / "initial_condition" / "initial_condition.generated.dat").is_file()
-    assert (output_dir / "inputs" / "initial_condition" / "vfield00000_0.dat").is_file()
-    manifest = json.loads((output_dir / "config" / "precompute.manifest.json").read_text(encoding="utf-8"))
-    assert manifest["initial_condition"]["staged"].endswith("vfield00000_0.dat")
+    payload = published_asset_payload(workspace, "initial-condition")
+    assert (payload / "inputs" / "initial_condition" / "vfield00000_0.dat").is_file()
+    # The generator's own intermediate output is deliberately excluded from the
+    # published object: only the staged field the solver consumes is an asset.
+    assert not (payload / "inputs" / "initial_condition" / "initial_condition.generated.dat").exists()
 
 
 def test_precompute_materializes_repository_ic_gen_on_staged_file_grid(tmp_path):
@@ -702,28 +751,32 @@ def test_precompute_materializes_repository_ic_gen_on_staged_file_grid(tmp_path)
     """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
+    workspace = make_workspace(tmp_path)
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
-    grid = write_stretched_picgrid(tmp_path / "grid.picgrid", dims=(3, 3, 3))
-    config = tmp_path / "initial_condition.cfg"
+    write_stretched_picgrid(workspace / "inputs" / "grids" / "grid.picgrid", dims=(3, 3, 3))
+    config = workspace / "config" / "initial_conditions" / "initial_condition.cfg"
     config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
-    case_cfg["grid"] = {"mode": "file", "source_file": str(grid)}
+    case_cfg["grid"] = {"mode": "file", "source_file": "inputs/grids/grid.picgrid"}
     case_cfg["properties"]["initial_conditions"] = {
         "mode": "generated",
         "generator": "ic_gen",
-        "params": {"field": "Ucat", "config_file": str(config)},
+        "params": {
+            "field": "Ucat",
+            "config_file": "config/initial_conditions/initial_condition.cfg",
+        },
     }
-    case_path = tmp_path / "case.yml"
+    case_path = workspace / "config" / "case.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
-    output_dir = tmp_path / "precomputed"
 
-    picurv.precompute_workflow(SimpleNamespace(case=str(case_path), output_dir=str(output_dir)))
+    picurv.precompute_workflow(SimpleNamespace(case=str(case_path), only="all"))
 
-    assert (output_dir / "inputs" / "grid" / "grid.run").is_file()
-    generated = output_dir / "inputs" / "initial_condition" / "initial_condition.generated.dat"
-    staged = output_dir / "inputs" / "initial_condition" / "ufield00000_0.dat"
-    assert generated.is_file()
-    assert staged.read_bytes() == generated.read_bytes()
-    assert len(read_petsc_vec_binary(generated)) == 4 * 4 * 4 * 3
+    assert (published_asset_payload(workspace, "grid") / "inputs" / "grid" / "grid.run").is_file()
+    staged = (
+        published_asset_payload(workspace, "initial-condition")
+        / "inputs" / "initial_condition" / "ufield00000_0.dat"
+    )
+    assert staged.is_file()
+    assert len(read_petsc_vec_binary(staged)) == 4 * 4 * 4 * 3
 
 
 def test_precompute_materializes_ic_gen_with_programmatic_grid(tmp_path):
@@ -733,8 +786,9 @@ def test_precompute_materializes_ic_gen_with_programmatic_grid(tmp_path):
     """
     valid = FIXTURES / "valid"
     picurv = load_picurv_module()
+    workspace = make_workspace(tmp_path)
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
-    config = tmp_path / "ic.cfg"
+    config = workspace / "config" / "initial_conditions" / "ic.cfg"
     config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
     case_cfg["grid"] = {
         "mode": "programmatic_c",
@@ -750,14 +804,13 @@ def test_precompute_materializes_ic_gen_with_programmatic_grid(tmp_path):
     case_cfg["properties"]["initial_conditions"] = {
         "mode": "generated",
         "generator": "ic_gen",
-        "params": {"field": "Ucat", "config_file": str(config)},
+        "params": {"field": "Ucat", "config_file": "config/initial_conditions/ic.cfg"},
     }
-    case_path = tmp_path / "case.yml"
+    case_path = workspace / "config" / "case.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
-    output_dir = tmp_path / "precomputed"
 
-    with pytest.raises(ValueError, match="generated only inside the simulator"):
-        picurv.precompute_workflow(SimpleNamespace(case=str(case_path), output_dir=str(output_dir)))
+    with pytest.raises(ValueError, match="cannot execute simulator-runtime providers"):
+        picurv.precompute_workflow(SimpleNamespace(case=str(case_path), only="all"))
 
 
 def write_canonical_picslice(path: Path, dims=(3, 3), start=1.0) -> Path:
@@ -1180,12 +1233,12 @@ def create_summary_run_dir(
     @return Value returned by `create_summary_run_dir()`.
     """
     run_dir = tmp_path / "runs" / name
+    # Build the canonical run skeleton so summarize sees the same fixed topology a
+    # real run has, including the analysis home the C runtime writes its CSVs to.
+    load_picurv_module().ensure_run_layout(str(run_dir))
     config_dir = run_dir / "config"
     logs_dir = run_dir / "logs"
     scheduler_dir = run_dir / "scheduler"
-    config_dir.mkdir(parents=True)
-    logs_dir.mkdir()
-    scheduler_dir.mkdir()
 
     (config_dir / "monitor.yml").write_text(
         "\n".join(
@@ -3094,25 +3147,22 @@ def test_precompute_generates_profile_artifacts_from_case(tmp_path):
             }
         },
     }
-    case_path = tmp_path / "case_precompute.yml"
-    output_dir = tmp_path / "precomputed" / "channel"
+    workspace = make_workspace(tmp_path)
+    case_path = workspace / "config" / "case.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
 
     result = run_picurv(
-        ["precompute", "--case", str(case_path), "--output-dir", str(output_dir)],
-        cwd=tmp_path,
+        ["precompute", "--case", str(case_path), "--only", "inlet-profiles"],
+        cwd=workspace,
     )
 
     assert result.returncode == 0, result.stderr
-    config_dir = output_dir / "config"
-    profile_dir = output_dir / "inputs" / "inlet_profiles"
-    profile = profile_dir / "inlet_profile_block0_negZeta.generated.dimensional.picslice"
-    manifest = config_dir / "precompute.manifest.json"
-    assert profile.is_file()
-    assert (profile_dir / "profile.info").is_file()
-    payload = json.loads(manifest.read_text(encoding="utf-8"))
-    assert payload["profiles"][0]["face"] == "-Zeta"
-    assert payload["profiles"][0]["dims"] == [8, 8]
+    payload = published_asset_payload(workspace, "inlet-profiles")
+    profile_dir = payload / "inputs" / "inlet_profiles"
+    assert (profile_dir / "inlet_profile_block0_negZeta.generated.dimensional.picslice").is_file()
+    summary = read_profile_info(payload)["profile_0"]
+    assert summary["face"] == "-Zeta"
+    assert summary["dimensions"] == "8 8"
 
 
 def test_precompute_generates_field_slice_profile_artifacts_from_case(tmp_path):
@@ -3121,21 +3171,24 @@ def test_precompute_generates_field_slice_profile_artifacts_from_case(tmp_path):
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
+    workspace = make_workspace(tmp_path)
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
-    grid = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(9, 9, 9))
+    write_canonical_picgrid(workspace / "inputs" / "grids" / "grid.picgrid", dims=(9, 9, 9))
     values = []
     # Cell-centered Ucat occupies a DMDA sized (IM+1, JM+1, KM+1).
     for _k in range(10):
         for _j in range(10):
             for _i in range(10):
                 values.extend([0.0, 0.0, 2.0])
-    field = write_petsc_vec_binary(tmp_path / "ufield00010_0.dat", values)
-    old_case = tmp_path / "old_case.yml"
+    write_petsc_vec_binary(
+        workspace / "inputs" / "reference_fields" / "ufield00010_0.dat", values
+    )
+    old_case = workspace / "config" / "inlet_profiles" / "old_case.yml"
     old_case.write_text(
         yaml.safe_dump({"properties": {"scaling": {"velocity_ref": 2.0}}}, sort_keys=False),
         encoding="utf-8",
     )
-    case_cfg["grid"] = {"mode": "file", "source_file": str(grid)}
+    case_cfg["grid"] = {"mode": "file", "source_file": "inputs/grids/grid.picgrid"}
     case_cfg["boundary_conditions"][4] = {
         "face": "-Zeta",
         "type": "INLET",
@@ -3143,31 +3196,32 @@ def test_precompute_generates_field_slice_profile_artifacts_from_case(tmp_path):
         "params": {
             "source": {
                 "type": "field_slice",
-                "field_file": str(field),
-                "grid_file": str(grid),
-                "source_case": str(old_case),
+                "field_file": "inputs/reference_fields/ufield00010_0.dat",
+                "grid_file": "inputs/grids/grid.picgrid",
+                "source_case": "config/inlet_profiles/old_case.yml",
                 "slice": {"face": "+Zeta", "orientation": "opposite"},
             }
         },
     }
-    case_path = tmp_path / "case_precompute_field_slice.yml"
-    output_dir = tmp_path / "precomputed" / "slice"
+    case_path = workspace / "config" / "case.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
 
     result = run_picurv(
-        ["precompute", "--case", str(case_path), "--output-dir", str(output_dir)],
-        cwd=tmp_path,
+        ["precompute", "--case", str(case_path), "--only", "inlet-profiles"],
+        cwd=workspace,
     )
 
     assert result.returncode == 0, result.stderr
-    config_dir = output_dir / "config"
-    profile = output_dir / "inputs" / "inlet_profiles" / "inlet_profile_block0_negZeta.sliced.dimensional.picslice"
-    manifest = config_dir / "precompute.manifest.json"
+    payload = published_asset_payload(workspace, "inlet-profiles")
+    profile = (
+        payload / "inputs" / "inlet_profiles"
+        / "inlet_profile_block0_negZeta.sliced.dimensional.picslice"
+    )
     assert profile.is_file()
-    payload = json.loads(manifest.read_text(encoding="utf-8"))
-    assert payload["profiles"][0]["generator"] == "field_slice"
-    assert payload["profiles"][0]["normal_dot"] == pytest.approx(-1.0)
-    assert payload["profiles"][0]["velocity_scale"] == pytest.approx(2.0)
+    summary = read_profile_info(payload)["profile_0"]
+    assert summary["generator"] == "field_slice"
+    assert float(summary["normal_dot"]) == pytest.approx(-1.0)
+    assert float(summary["velocity_scale"]) == pytest.approx(2.0)
 
 
 def test_local_no_submit_stages_grid_gen_before_generated_profile(tmp_path):
@@ -4395,7 +4449,7 @@ def test_summarize_exposes_les_coefficient_history_as_plot_series(tmp_path):
     """
     picurv = load_picurv_module()
     run_dir = create_summary_run_dir(tmp_path)
-    (run_dir / "logs" / "les_coefficient.csv").write_text(
+    (run_dir / picurv.CANONICAL_RUN_PATHS["metrics"] / "les_coefficient.csv").write_text(
         "step,time,cs_effective,cs_mean,coefficient_mean,coefficient_rms,"
         "coefficient_min,coefficient_max,nu_t_mean,nu_t_max,nu_t_over_nu_mean,"
         "k_sgs_mean,backscatter_fraction,limited_fraction\n"
@@ -4488,17 +4542,15 @@ def test_spectrum_plot_request_selects_representative_states_and_report_labels(t
     """
     picurv = load_picurv_module()
     run_dir = tmp_path / "run"
-    spectra_dir = run_dir / "output" / "spectra"
-    diagnostics_dir = run_dir / "diagnostics"
-    spectra_dir.mkdir(parents=True)
-    diagnostics_dir.mkdir(parents=True)
+    picurv.ensure_run_layout(str(run_dir))
+    spectra_dir = run_dir / picurv.CANONICAL_RUN_PATHS["spectra"]
     spectrum_path = spectra_dir / "Spectrum_shell_spectrum_Ucat_block0000_continuum.csv"
     rows = ["step,time,k,energy"]
     for step in range(10):
         for wavenumber in (1.0, 2.0, 4.0):
             rows.append(f"{step},{0.1 * step:g},{wavenumber:g},{1.0 / ((step + 1) * wavenumber):g}")
     spectrum_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
-    (diagnostics_dir / "initial_condition_spectrum.csv").write_text(
+    (spectra_dir / "initial_condition_spectrum.csv").write_text(
         "k,energy\n1,1\n2,0.5\n4,0.25\n", encoding="utf-8"
     )
 
@@ -5944,9 +5996,10 @@ def test_restart_from_copies_checkpoint_and_sets_restart_dir(tmp_path):
 
     assert not is_continue
     assert resolved is not None
-    # Verify files were copied to new_run/restart/
-    assert (Path(resolved) / "eulerian" / "block_0000" / "Ucat.dat").exists()
-    assert (Path(resolved) / "particles" / "position.dat").exists()
+    # The committed bundle is materialized whole into the run's canonical restart input.
+    bundle = Path(resolved) / "checkpoints" / "step_000000000005"
+    assert (bundle / "eulerian" / "block_0000" / "Ucat.dat").exists()
+    assert (bundle / "particles" / "position.dat").exists()
 
     # Verify control file uses the resolved path
     (new_run_dir / "config").mkdir(parents=True)
@@ -5972,8 +6025,11 @@ def test_restart_from_copies_checkpoint_and_sets_restart_dir(tmp_path):
         restart_source_dir=resolved,
     )
 
+    # The control file carries the run-relative canonical path, not an absolute one,
+    # so a restored or relocated run stays valid without rewriting it.
     content = Path(control_file).read_text(encoding="utf-8")
-    assert f"-restart_dir {resolved}" in content
+    assert f"-restart_dir {picurv.CANONICAL_RUN_PATHS['restart']}" in content
+    assert os.path.relpath(resolved, str(new_run_dir)) == picurv.CANONICAL_RUN_PATHS["restart"]
 
 
 def test_restart_rejects_incomplete_eulerian_checkpoint_without_replacing_curated_data(tmp_path):
@@ -6030,9 +6086,9 @@ def test_checkpoint_discovery_rejects_tampered_or_uncommitted_bundles(tmp_path):
         picurv.validate_committed_checkpoint(str(output), 6)
 
 
-def test_restart_from_load_mode_uses_direct_reference(tmp_path):
+def test_restart_from_load_mode_materializes_the_consumed_sequence(tmp_path):
     """!
-    @brief Test that --restart-from with eulerian "load" mode uses direct reference (no copy).
+    @brief Test that --restart-from with eulerian "load" mode copies the whole sequence in.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
@@ -6068,8 +6124,12 @@ def test_restart_from_load_mode_uses_direct_reference(tmp_path):
     )
 
     assert not is_continue
-    # Direct reference: points to source output, not a copy
-    assert resolved == str(source_run_dir / "output")
+    # Load mode materializes the whole consumed sequence into this run, so the new run
+    # never depends on the source run remaining on local disk.
+    assert resolved == str(new_run_dir / picurv.CANONICAL_RUN_PATHS["restart"])
+    for step in range(4):
+        bundle = Path(resolved) / "checkpoints" / f"step_{step:012d}"
+        assert (bundle / "eulerian" / "block_0000" / "Ucat.dat").exists()
 
 
 def test_restart_from_load_mode_missing_step_files_fails(tmp_path):
@@ -6138,8 +6198,11 @@ def test_continue_mode_auto_populates_restart(tmp_path):
 
     assert is_continue
     assert resolved is not None
-    # Continue reads the immutable output bundle directly.
-    assert (Path(resolved) / "eulerian" / "block_0000" / "Ucat.dat").exists()
+    # Continuation resolves to the same fixed restart-input home every other mode uses,
+    # so the generated control carries one canonical path regardless of restart mode.
+    assert resolved == str(run_dir / picurv.CANONICAL_RUN_PATHS["restart"])
+    bundle = Path(resolved) / "checkpoints" / "step_000000000010"
+    assert (bundle / "eulerian" / "block_0000" / "Ucat.dat").exists()
 
 
 def test_continue_mode_ignores_uncommitted_restart_staging(tmp_path):
@@ -6172,7 +6235,14 @@ def test_continue_mode_ignores_uncommitted_restart_staging(tmp_path):
     )
 
     assert is_continue
-    assert resolved == str(output_bundle)
+    assert resolved == str(run_dir / picurv.CANONICAL_RUN_PATHS["restart"])
+    # The committed output bundle is the source; the uncommitted staging file is not
+    # consulted and is never promoted into the restart input.
+    materialized = Path(resolved) / "checkpoints" / "step_000000000010"
+    assert (materialized / "eulerian" / "block_0000" / "Ucat.dat").read_text(
+        encoding="utf-8"
+    ) == (Path(output_bundle) / "eulerian" / "block_0000" / "Ucat.dat").read_text(encoding="utf-8")
+    assert not (materialized / "stale.dat").exists()
 
 
 def test_continue_rejects_physical_case_change(tmp_path):

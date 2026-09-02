@@ -163,5 +163,5 @@ You finish this page with decisions, not with a case. To turn them into one:
 @section p70_related_sec 11. Related Documentation
 
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook** — recombining profiles
-- **@subpage 52_Run_Lifecycle_Guide** — running, restarting, archiving
+- **@subpage 52_Run_Artifact_Lifecycle_Contract** — running, restarting, archiving
 - **@subpage 67_Troubleshooting** — when it does not work

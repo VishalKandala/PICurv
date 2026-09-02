@@ -1269,7 +1269,7 @@
         "symbol": "WORKSPACE_INPUT_MODES"
       },
       "parity_sources": [],
-      "family_page": "05_CLI_Usage",
+      "family_page": "05_The_Conductor_Script",
       "entry_anchor_prefix": "p05_cap_input_mode_",
       "coverage_enforced": true,
       "value_metadata": {

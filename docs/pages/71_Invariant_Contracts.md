@@ -191,5 +191,5 @@ safe. Those remain human decisions.
 @section p71_related_sec 6. Related Documentation
 
 - **@subpage 64_Documentation_Extension_Framework** — the capability side
-- **@subpage 52_Run_Lifecycle_Guide** — what the run topology means operationally
+- **@subpage 52_Run_Artifact_Lifecycle_Contract** — what the run topology means operationally
 - **@subpage 61_Storage_Management_Guide** — archiving and restoring runs

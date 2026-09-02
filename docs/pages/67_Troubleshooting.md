@@ -90,7 +90,7 @@ configuration mistake.
 @section p67_restart_sec 6. Restart Is Rejected or Behaves Unexpectedly
 
 1. Confirm you want the operation you asked for: `--continue` resumes the same run;
-   `--restart-from` seeds a new one. See **@subpage 52_Run_Lifecycle_Guide**.
+   `--restart-from` seeds a new one. See **@subpage 52_Run_Artifact_Lifecycle_Contract**.
 2. Check that what you changed is compatible with continuing — @ref p52_compat_sec.
 3. Restart is **not** bit-exact. A small difference immediately after restart is
    expected and documented in **@subpage 29_Maintenance_Backlog**; it is a structural

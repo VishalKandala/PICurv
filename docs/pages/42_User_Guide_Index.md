@@ -14,7 +14,7 @@ If Getting Started proves the toolchain works, this section is where production 
 - **@subpage 05_The_Conductor_Script**: command model and flag contracts.
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**: practical run patterns and modular profile combinations.
 - **@subpage 06_Simulation_Anatomy**: runtime artifact graph and execution stages.
-- **@subpage 52_Run_Lifecycle_Guide**: operational path from new run to restart, post-only reuse, and batch job generation.
+- **@subpage 52_Run_Artifact_Lifecycle_Contract**: operational path from new run to restart, post-only reuse, and batch job generation.
 - **@subpage 61_Storage_Management_Guide**: recurring run/study archival, offload, catalog, and restore workflows.
 - **@subpage 36_Cluster_Run_Guide**: Slurm submission path for single runs.
 - **@subpage 37_Sweep_Studies_Guide**: parameter studies and array jobs.

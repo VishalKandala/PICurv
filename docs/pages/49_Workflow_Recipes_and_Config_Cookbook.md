@@ -572,6 +572,6 @@ Full option reference at **@subpage 07_Case_Reference**; the formulation is deri
 - **@subpage 05_The_Conductor_Script**
 - **@subpage 07_Case_Reference**
 - **@subpage 14_Config_Contract**
-- **@subpage 52_Run_Lifecycle_Guide**
+- **@subpage 52_Run_Artifact_Lifecycle_Contract**
 - **@subpage 48_Grid_Generator_Guide**
 - **@subpage 45_Particle_Initialization_and_Restart**
