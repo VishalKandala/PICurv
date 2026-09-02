@@ -273,6 +273,117 @@ FULL_ENTRY = """
 """
 
 
+MEASUREMENT = {
+    "id": "les-dynamic-dit-coefficient",
+    "question": "Does the dynamic coefficient settle in the 0.16-0.17 reference band?",
+    "date": "2026-09-01",
+    "commit": "abc1234",
+    "environment": "cluster, 4 nodes, 192 ranks",
+    "configuration": "examples/decaying_isotropic_turbulence, 128^3, homogeneous averaging",
+    "result": {"measured": "0.164", "threshold": "0.16-0.17", "verdict": "met"},
+    "limitations": "One resolution and one Reynolds number; says nothing about wall-bounded flow.",
+    "artifacts": [],
+}
+
+
+def measurement_registry(tmp_path, monkeypatch, records):
+    """!
+    @brief Point the capability audit at a synthetic measurement registry.
+    @param[in] tmp_path Pytest temporary directory.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @param[in] records Measurement records to publish.
+    @return None.
+    """
+    path = tmp_path / "measurement_records.json"
+    path.write_text(json.dumps({"records": records}), encoding="utf-8")
+    monkeypatch.setattr(AUDIT, "MEASUREMENTS_PATH", path)
+
+
+def test_a_complete_measurement_record_is_accepted(tmp_path, monkeypatch):
+    """!
+    @brief A record carrying every required part passes.
+    @param[in] tmp_path Pytest temporary directory.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @return None.
+    """
+    measurement_registry(tmp_path, monkeypatch, [MEASUREMENT])
+    assert AUDIT.check_measurement_records() == []
+
+
+def test_a_measurement_source_resolves_to_its_record(tmp_path, monkeypatch):
+    """!
+    @brief `measurement:<id>` is a real evidence source only when the record exists.
+    @param[in] tmp_path Pytest temporary directory.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @return None.
+    """
+    measurement_registry(tmp_path, monkeypatch, [MEASUREMENT])
+    assert AUDIT.source_exists("measurement:les-dynamic-dit-coefficient")
+    assert not AUDIT.source_exists("measurement:never-run")
+
+
+def test_a_measurement_missing_a_required_part_is_rejected(tmp_path, monkeypatch):
+    """!
+    @brief Every required field must be present and non-empty.
+    @param[in] tmp_path Pytest temporary directory.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @return None.
+    """
+    for field in ("question", "date", "commit", "environment", "configuration", "limitations"):
+        incomplete = dict(MEASUREMENT)
+        incomplete[field] = ""
+        measurement_registry(tmp_path, monkeypatch, [incomplete])
+        assert any(field in line for line in AUDIT.check_measurement_records()), field
+
+
+def test_a_measurement_claiming_no_limitations_is_rejected(tmp_path, monkeypatch):
+    """!
+    @brief A record must say what it does not establish.
+    @param[in] tmp_path Pytest temporary directory.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @return None.
+    """
+    for evasion in ("none", "N/A", "-"):
+        record = dict(MEASUREMENT, limitations=evasion)
+        measurement_registry(tmp_path, monkeypatch, [record])
+        assert any("does not establish" in line for line in AUDIT.check_measurement_records()), evasion
+
+
+def test_a_negative_or_inconclusive_verdict_is_a_valid_record(tmp_path, monkeypatch):
+    """!
+    @brief Recording that a threshold was missed is legitimate; an invented verdict is not.
+    @param[in] tmp_path Pytest temporary directory.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @return None.
+    """
+    for verdict in ("not-met", "inconclusive"):
+        record = dict(MEASUREMENT, result=dict(MEASUREMENT["result"], verdict=verdict))
+        measurement_registry(tmp_path, monkeypatch, [record])
+        assert AUDIT.check_measurement_records() == [], verdict
+    record = dict(MEASUREMENT, result=dict(MEASUREMENT["result"], verdict="passed"))
+    measurement_registry(tmp_path, monkeypatch, [record])
+    assert any("verdict" in line for line in AUDIT.check_measurement_records())
+
+
+def test_duplicate_measurement_ids_are_rejected(tmp_path, monkeypatch):
+    """!
+    @brief Two records cannot share an id, since evidence cites it.
+    @param[in] tmp_path Pytest temporary directory.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @return None.
+    """
+    measurement_registry(tmp_path, monkeypatch, [MEASUREMENT, dict(MEASUREMENT)])
+    assert any("duplicate id" in line for line in AUDIT.check_measurement_records())
+
+
+def test_the_committed_measurement_registry_is_valid():
+    """!
+    @brief The registry shipped in the repository passes its own contract.
+    @return None.
+    """
+    assert AUDIT.check_measurement_records() == []
+
+
 def test_coverage_accepts_a_complete_entry(tmp_path, monkeypatch):
     """!
     @brief A complete entry passes coverage.

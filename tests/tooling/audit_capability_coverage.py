@@ -324,6 +324,7 @@ def entry_body(prose: str, anchor: str) -> str:
 
 
 SCOPE_RECORDS_PATH = REPO_ROOT / "tests" / "tooling" / "capability_scope_records.json"
+MEASUREMENTS_PATH = REPO_ROOT / "tests" / "tooling" / "measurement_records.json"
 
 
 def source_exists(identifier: str) -> bool:
@@ -338,7 +339,58 @@ def source_exists(identifier: str) -> bool:
         return re.search(rf"^{re.escape(value)}\s*:", makefile, re.M) is not None
     if kind in {"example", "file"}:
         return (REPO_ROOT / value).exists()
+    if kind == "measurement":
+        return value in {record.get("id") for record in measurement_records()}
     return False
+
+
+def measurement_records() -> list:
+    """!
+    @brief Every recorded measurement available as an evidence source.
+    @return List of measurement records.
+    """
+    if not MEASUREMENTS_PATH.is_file():
+        return []
+    return json.loads(MEASUREMENTS_PATH.read_text(encoding="utf-8")).get("records", [])
+
+
+def check_measurement_records() -> list:
+    """!
+    @brief Verify every recorded measurement carries what a reader needs to judge it.
+
+    @details A measurement is cited in place of a re-runnable artifact, so the record
+             has to stand on its own: what was asked, at what revision, on what
+             machine and configuration, what the verdict was, and what it does not
+             establish. A verdict of `not-met` or `inconclusive` is a legitimate
+             record; an absent or empty field is not.
+    @return Violation lines.
+    """
+    violations: list = []
+    required = ("id", "question", "date", "commit", "environment", "configuration",
+                "result", "limitations")
+    seen: set = set()
+    for index, record in enumerate(measurement_records()):
+        label = record.get("id") or f"record #{index + 1}"
+        for field in required:
+            value = record.get(field)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                violations.append(f"measurement {label}: '{field}' is required and must not be empty")
+        if record.get("id") in seen:
+            violations.append(f"measurement {label}: duplicate id")
+        seen.add(record.get("id"))
+        stated = str(record.get("limitations", "")).strip().lower()
+        if stated in {"none", "n/a", "na", "-"}:
+            violations.append(
+                f"measurement {label}: 'limitations' must say what the measurement does not "
+                "establish; 'none' is not an acceptable answer"
+            )
+        verdict = (record.get("result") or {}).get("verdict") if isinstance(record.get("result"), dict) else None
+        if verdict is not None and verdict not in {"met", "not-met", "inconclusive"}:
+            violations.append(
+                f"measurement {label}: result verdict '{verdict}' is not one of "
+                "met, not-met, inconclusive"
+            )
+    return violations
 
 
 def source_token(identifier: str) -> str:
@@ -534,7 +586,7 @@ def main() -> int:
         return 1
     inventory = json.loads(INVENTORY_PATH.read_text(encoding="utf-8"))
 
-    blocking = check_generated_current() + check_scope_records()
+    blocking = check_generated_current() + check_scope_records() + check_measurement_records()
     advisory: list[str] = []
     for family in inventory:
         entry = registry[family["id"]]
