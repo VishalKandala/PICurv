@@ -801,6 +801,35 @@ else.
 
 @htmlinclude generated/capability_inventory_turbulence_wall_function.html
 
+A wall model supplies the stress of a boundary layer the mesh does not resolve, so it is
+only meaningful when the unresolved motions are modelled somewhere. Three pairings are
+therefore rejected before a run starts.
+
+- **No turbulence model.** A wall model with LES and RANS both off is refused. This
+  solver has no implicit-LES scheme to stand in for the missing closure: its convection
+  is QUICK, whose numerical dissipation is linear and upwind-biased rather than a
+  limiter-based truncation error standing in for a subgrid stress. Enable LES, or
+  resolve the wall and switch the wall function off.
+- **`cabot` with RANS.** Cabot closes the wall layer with its own mixing-length eddy
+  viscosity. Under a RANS model that layer would carry two closures with no matching
+  between them.
+- **`werner` with RANS.** Werner-Wengle applies its power law to an instantaneous
+  filtered velocity, which is a large-eddy quantity. A RANS field is already averaged and
+  wants a law derived for the mean profile.
+
+A wall model on a laminar case is refused for the same reason from the other direction:
+these laws describe a turbulent boundary layer, and below transition there is no inertial
+region for them to represent.
+
+Where the model's stress actually enters is worth stating, because it is not obvious. The
+correction sets the near-wall velocity, and the momentum equation reaches the wall through
+a viscosity times a velocity gradient - so the modelled stress arrives only if that
+viscosity is the one which reproduces it, `nu_eff = tau_w y / u`. Molecular viscosity
+alone delivers a fraction `u+/y+` of the stress, which at `y+ = 267` is about a
+fourteenth of it. The wall model therefore installs its own effective eddy viscosity at
+its wall face, in place of the subgrid value, which is zero there in a wall-resolved run.
+`nu_wall_over_nu_mean` in `<run.runtime_logs>/wall_model.csv` reports it.
+
 @subsection p07_cap_wall_log_law_sub log_law
 
 @anchor p07_cap_wall_log_law

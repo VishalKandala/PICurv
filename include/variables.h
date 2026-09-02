@@ -660,6 +660,7 @@ typedef struct WallModelDiagnosticsState {
     PetscReal wall_distance_sum;      ///< Sum of the first-cell wall distance.
     PetscReal y_plus_sum;             ///< Sum of `u_tau * y / nu` over corrected cells.
     PetscReal y_plus_max;             ///< Largest first-cell `y+` this rank corrected.
+    PetscReal wall_viscosity_sum;     ///< Sum of the effective wall eddy viscosity.
     PetscInt  cells;                  ///< Number of cells this rank corrected.
 } WallModelDiagnosticsState;
 //--------------------------------------------------------------------------------
@@ -1077,6 +1078,10 @@ typedef struct UserCtx {
        it alongside the global Ucat it corrects - and the local view is its ghosted
        image, refreshed through the field catalog like every other cell field. */
     Vec       Friction_Velocity, lFriction_Velocity;
+    /* Eddy viscosity the wall model needs at its wall face for the discrete viscous
+       flux to deliver the stress the model computed. Derived, rebuilt by every wall
+       pass, and never restored from a checkpoint. */
+    Vec       Nu_Wall, lNu_Wall;
     PetscReal FluxIntpSum,FluxIntfcSum;
 
     // --- Primary Flow Fields (Global & Local Views) ---
@@ -1126,6 +1131,7 @@ typedef struct UserCtx {
   Vec Nu_t, lNu_t, CS, lCs, K_Omega, lK_Omega, K_Omega_o, lK_Omega_o, Distance;
   LESDiagnosticsState les_diagnostics; ///< Pre-clipping statistics from the last dynamic update.
   WallModelDiagnosticsState wall_diagnostics; ///< Near-wall statistics from the last wall-model pass.
+  PetscInt wall_yplus_excursions; ///< Consecutive diagnostic samples with the first cell outside the selected law's valid y+ range.
 
   // --- Immersed Boundary Method (IBM) ---
   IBMNodes *ibm; IBMList *ibmlist;

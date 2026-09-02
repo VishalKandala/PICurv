@@ -5050,6 +5050,107 @@ def _les_periodic_axes(case_cfg: dict) -> set:
     }
 
 
+def validate_wall_model_pairing(case_cfg: dict, les_cfg, rans_cfg, wall_cfg,
+                                case_path: str, errors: list, warnings: list):
+    """!
+    @brief Rejects wall-model selections that no turbulence treatment can support.
+
+    A wall model replaces the near-wall flow with an analytic profile so that the
+    boundary layer need not be resolved. That only means something if the unresolved
+    motions are modelled somewhere. Three combinations cannot be, and each fails here
+    rather than after the mesh is built.
+
+    @param case_cfg Parsed case configuration, read for the Reynolds number.
+    @param les_cfg  `models.physics.turbulence.les`, or None.
+    @param rans_cfg `models.physics.turbulence.rans`, or None.
+    @param wall_cfg `models.physics.turbulence.wall_function`, or None.
+    @param case_path Case path, for message prefixes.
+    @param errors   Collected blocking messages, appended to.
+    @param warnings Collected advisory messages, appended to.
+    """
+    if not isinstance(wall_cfg, dict):
+        return
+    if not bool(wall_cfg.get('enabled', False)):
+        return
+
+    try:
+        model = normalize_wall_function_model(wall_cfg.get('model', 'log_law'))
+    except ValueError:
+        return  # The selector's own validation already reported this.
+
+    les_on = isinstance(les_cfg, dict) and bool(les_cfg.get('enabled', False)) \
+        and str(les_cfg.get('model', 'dynamic_smagorinsky')).strip().lower() != 'none'
+    rans_on = isinstance(rans_cfg, dict) and bool(rans_cfg.get('enabled', False))
+
+    # A wall model with nothing to sit on. The convective scheme here is QUICK, whose
+    # dissipation is linear and upwind-biased; it is not a limiter-based scheme whose
+    # truncation error stands in for a subgrid stress, so there is no implicit LES to
+    # appeal to.
+    if not les_on and not rans_on:
+        errors.append(
+            f"  {case_path}: models.physics.turbulence.wall_function is enabled with no "
+            "turbulence model. A wall model supplies the stress of a boundary layer it "
+            "does not resolve, which needs the unresolved motions modelled somewhere. "
+            "This solver has no implicit-LES scheme to supply that - its convection is "
+            "QUICK, whose numerical dissipation is not a subgrid model - so enable "
+            "models.physics.turbulence.les, or resolve the wall and disable the wall "
+            "function.")
+
+    # Cabot carries a mixing-length eddy viscosity in the wall layer, which is itself a
+    # RANS closure; nesting it inside a RANS model is two closures for one layer with no
+    # defined matching between them. Werner-Wengle applies its power law to an
+    # instantaneous filtered velocity, which is an LES construct and has no standing as a
+    # RANS wall function.
+    if rans_on and model == 3:
+        errors.append(
+            f"  {case_path}: models.physics.turbulence.wall_function.model 'cabot' cannot "
+            "be used with RANS. Cabot solves the wall layer with its own mixing-length "
+            "eddy viscosity, so under a RANS model the near-wall layer would carry two "
+            "turbulence closures with no matching between them. Use 'log_law' with RANS.")
+    if rans_on and model == 2:
+        errors.append(
+            f"  {case_path}: models.physics.turbulence.wall_function.model 'werner' cannot "
+            "be used with RANS. Werner-Wengle applies its power law to the instantaneous "
+            "filtered velocity, which is a large-eddy quantity; a RANS field is already "
+            "averaged and wants a wall law derived for the mean profile. Use 'log_law' "
+            "with RANS.")
+
+    # A wall law describes a turbulent boundary layer. Below transition there is no
+    # inertial region for it to stand on, and it would impose a profile the flow does not
+    # have. The threshold is deliberately far below any transitional value, so that it
+    # only catches cases that are unambiguously laminar.
+    reynolds = _case_reynolds_number(case_cfg)
+    if reynolds is not None and reynolds < 1000.0:
+        errors.append(
+            f"  {case_path}: models.physics.turbulence.wall_function is enabled at "
+            f"Reynolds number {reynolds:g}, which is laminar. The log law and the "
+            "Werner-Wengle power law both describe a turbulent boundary layer; at this "
+            "Reynolds number there is no inertial region for either to represent, and "
+            "the model would impose a profile the flow does not have. Resolve the wall "
+            "instead.")
+
+
+def _case_reynolds_number(case_cfg: dict):
+    """!
+    @brief Reynolds number implied by a case's scaling and fluid properties.
+    @param case_cfg Parsed case configuration.
+    @return The Reynolds number, or None when the inputs are absent or unusable.
+    """
+    try:
+        props = case_cfg.get('properties', {}) or {}
+        scaling = props.get('scaling', {}) or {}
+        fluid = props.get('fluid', {}) or {}
+        density = float(fluid.get('density'))
+        viscosity = float(fluid.get('viscosity'))
+        length_ref = float(scaling.get('length_ref'))
+        velocity_ref = float(scaling.get('velocity_ref'))
+    except (TypeError, ValueError):
+        return None
+    if viscosity <= 0.0:
+        return None
+    return density * velocity_ref * length_ref / viscosity
+
+
 def validate_les_configuration(case_cfg: dict, les_cfg: dict, case_path: str,
                                errors: list, warnings: list):
     """!
@@ -6508,6 +6609,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
 
         if isinstance(les_cfg, dict):
             validate_les_configuration(case_cfg, les_cfg, case_path, errors, warnings)
+
+        validate_wall_model_pairing(case_cfg, les_cfg, rans_cfg, wall_cfg, case_path,
+                                    errors, warnings)
 
         if isinstance(rans_cfg, dict):
             if 'enabled' in rans_cfg and not isinstance(rans_cfg['enabled'], bool):
@@ -17255,6 +17359,7 @@ def _collect_summary_plot_records(context: dict) -> list:
                     "y_plus_mean": _parse_float_loose(row.get("y_plus_mean")),
                     "y_plus_max": _parse_float_loose(row.get("y_plus_max")),
                     "wall_distance_mean": _parse_float_loose(row.get("wall_distance_mean")),
+                    "nu_wall_over_nu_mean": _parse_float_loose(row.get("nu_wall_over_nu_mean")),
                     "wall_cells": _parse_int_loose(row.get("wall_cells")),
                 },
                 wall_path, segment,

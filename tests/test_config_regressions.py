@@ -1572,6 +1572,80 @@ def test_les_dynamic_only_keys_are_rejected_for_the_constant_model():
     assert any("cannot be used with model 'constant_smagorinsky'" in error for error in errors)
 
 
+def _wall_pairing_errors(les=None, rans=None, wall=None, viscosity=0.001):
+    """!
+    @brief Runs the wall-model pairing validation over one turbulence block.
+    @param les       The `les` block, or None.
+    @param rans      The `rans` block, or None.
+    @param wall      The `wall_function` block, or None.
+    @param viscosity Fluid viscosity, which with unit reference scales sets the Reynolds number.
+    @return The list of blocking messages it produced.
+    """
+    picurv = load_picurv_module()
+    case_cfg = {
+        "properties": {
+            "scaling": {"length_ref": 1.0, "velocity_ref": 1.0},
+            "fluid": {"density": 1.0, "viscosity": viscosity},
+        }
+    }
+    errors, warnings = [], []
+    picurv.validate_wall_model_pairing(case_cfg, les, rans, wall, "case.yml", errors, warnings)
+    return errors
+
+
+def test_wall_model_without_a_turbulence_model_is_rejected():
+    """!
+    @brief Test that a wall model with nothing to sit on fails, naming why.
+
+    The convection scheme's dissipation is not a subgrid model, so there is no implicit
+    LES to appeal to; the message has to say that rather than leave the user assuming it.
+    """
+    errors = _wall_pairing_errors(
+        les={"enabled": False}, rans={"enabled": False}, wall={"enabled": True})
+    assert any("no turbulence model" in e for e in errors)
+    assert any("implicit-LES" in e for e in errors)
+
+    # With LES on, the same wall model is accepted.
+    assert _wall_pairing_errors(
+        les={"enabled": True, "model": "dynamic_smagorinsky"},
+        rans={"enabled": False}, wall={"enabled": True}) == []
+
+    # A wall model that is present but disabled is not a pairing at all.
+    assert _wall_pairing_errors(
+        les={"enabled": False}, rans={"enabled": False}, wall={"enabled": False}) == []
+
+
+def test_les_only_wall_models_are_rejected_under_rans():
+    """!
+    @brief Test that the two large-eddy wall laws are refused with RANS, and log law is not.
+    """
+    for model, fragment in (("cabot", "mixing-length"), ("werner", "instantaneous")):
+        errors = _wall_pairing_errors(
+            les={"enabled": False}, rans={"enabled": True},
+            wall={"enabled": True, "model": model})
+        assert any(fragment in e for e in errors), model
+        assert any("Use 'log_law' with RANS" in e for e in errors), model
+
+    assert _wall_pairing_errors(
+        les={"enabled": False}, rans={"enabled": True},
+        wall={"enabled": True, "model": "log_law"}) == []
+
+
+def test_wall_model_on_a_laminar_case_is_rejected():
+    """!
+    @brief Test that a wall law is refused where there is no turbulent layer to model.
+    """
+    laminar = _wall_pairing_errors(
+        les={"enabled": True, "model": "constant_smagorinsky"},
+        wall={"enabled": True}, viscosity=0.1)          # Re = 10
+    assert any("laminar" in e for e in laminar)
+
+    turbulent = _wall_pairing_errors(
+        les={"enabled": True, "model": "constant_smagorinsky"},
+        wall={"enabled": True}, viscosity=1.0e-5)       # Re = 100000
+    assert turbulent == []
+
+
 def test_les_max_cs_outside_clamp_mode_is_rejected():
     """!
     @brief Test that a ceiling no mode applies is rejected rather than silently dropped.

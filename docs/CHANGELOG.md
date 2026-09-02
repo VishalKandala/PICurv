@@ -27,6 +27,23 @@
     `picurv summarize --plot wall_model.y_plus_mean`.
   - The banner no longer prints a roughness height beside Werner-Wengle or Cabot, which
     discard it, and now reports the Yoshizawa coefficient with the diagnostics line.
+- The wall model's stress now reaches the momentum equation. The correction sets a
+  near-wall velocity, and the viscous operator reaches the wall through a viscosity times
+  a gradient - so with the subgrid viscosity zeroed at wall faces, only the molecular
+  fraction `u+/y+` of the modelled stress was delivered, about a fourteenth of it at
+  `y+ = 267`. That zeroing is right for a wall-resolved run and backwards for a
+  wall-modelled one. The wall pass now publishes an effective wall eddy viscosity,
+  `nu_eff = tau_w y / u`, formed where the stress, the distance and the corrected speed
+  are all still in hand, and the viscous flux uses it at that face. Reported as
+  `nu_wall_over_nu_mean`; a 30-step channel shows the solutions with and without it
+  separating monotonically.
+- Three wall-model pairings are now rejected at validation, each naming why: a wall model
+  with no turbulence model (there is no implicit-LES scheme here to stand in - the
+  convection is QUICK, whose dissipation is not a subgrid model), and `cabot` or `werner`
+  under RANS. A wall model on a laminar case is refused for the same reason from the other
+  side. And because whether the first cell lands in the law's valid range depends on the
+  mesh rather than the configuration, a `y+` excursion warns on every diagnostic sample
+  and stops the run after ten consecutive ones.
 - Logging is now a registered subsystem, `observability.logging`, at `supported`. It had
   been in no subsystem record, no capability family, no contract, no freshness surface,
   and in neither `src/guide.md` nor the module map of `13_Code_Architecture` - the shape

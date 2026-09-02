@@ -2113,6 +2113,10 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 ierr = VecSet(user->Friction_Velocity, 0.0); CHKERRQ(ierr);
                 ierr = DMCreateLocalVector(user->da, &user->lFriction_Velocity); CHKERRQ(ierr);
                 ierr = VecSet(user->lFriction_Velocity, 0.0); CHKERRQ(ierr);
+                ierr = DMCreateGlobalVector(user->da, &user->Nu_Wall); CHKERRQ(ierr);
+                ierr = VecSet(user->Nu_Wall, 0.0); CHKERRQ(ierr);
+                ierr = DMCreateLocalVector(user->da, &user->lNu_Wall); CHKERRQ(ierr);
+                ierr = VecSet(user->lNu_Wall, 0.0); CHKERRQ(ierr);
             }
 	    // --- Group H: Particle Methods 	
 	    if(simCtx->np>0){
@@ -4137,6 +4141,8 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->lNu_t) { ierr = VecDestroy(&user->lNu_t); CHKERRQ(ierr); }
     if (user->CS) { ierr = VecDestroy(&user->CS); CHKERRQ(ierr); }
     if (user->lCs) { ierr = VecDestroy(&user->lCs); CHKERRQ(ierr); }
+    if (user->Nu_Wall) { ierr = VecDestroy(&user->Nu_Wall); CHKERRQ(ierr); }
+    if (user->lNu_Wall) { ierr = VecDestroy(&user->lNu_Wall); CHKERRQ(ierr); }
     if (user->Friction_Velocity) { ierr = VecDestroy(&user->Friction_Velocity); CHKERRQ(ierr); }
     if (user->lFriction_Velocity) { ierr = VecDestroy(&user->lFriction_Velocity); CHKERRQ(ierr); }
     if (user->K_Omega) { ierr = VecDestroy(&user->K_Omega); CHKERRQ(ierr); }
