@@ -27,6 +27,25 @@
     `picurv summarize --plot wall_model.y_plus_mean`.
   - The banner no longer prints a roughness height beside Werner-Wengle or Cabot, which
     discard it, and now reports the Yoshizawa coefficient with the diagnostics line.
+- New example, `turbulent_channel`: a driven periodic plane channel at `Re_tau ~ 1000`,
+  wall-modelled. It is the wall-model counterpart to `decaying_isotropic_turbulence` -
+  that case exercises the subgrid closure where there is no wall, this one exercises what
+  only exists because there is: the wall model and its three laws, coefficient averaging
+  over the two homogeneous axes of a wall-normal-inhomogeneous flow, the driven periodic
+  pair, and the near-wall diagnostics. Distinct from
+  `periodic_test/driven_channel/les_retau180`, which is wall-resolved
+  constant-Smagorinsky at a Reynolds number forty times lower. Its uniform wall-normal
+  grid puts the first cell at `y+ ~ 51`, which is where a wall model belongs and why the
+  same mesh cannot be reused with the wall model off - a wall-resolved run needs a first
+  cell near `y+ = 1`, clustered at both walls, which the programmatic generator's
+  one-sided geometric stretch cannot produce. Verified as configuration and plumbing: it
+  validates and runs, and reports `y+` between 39 and 50 with the effective wall
+  viscosity matching `y+/u+ - 1`. It ships a laminar Poiseuille initial condition and
+  **will not become turbulent from it**; no generator here produces a perturbed field for
+  a wall-bounded domain, since `generators/ic.gen` projects spectrally and assumes
+  periodicity in all three directions. Its literature anchors - the log law, Dean's
+  correlation, and Lee & Moser (2015) - are what it is built to be compared against, not
+  comparisons that have been run.
 - Documentation currency pass. Two tier-2 registry claims had gone stale and were
   contradicting the code: `capability_families.json` still marked both LES models
   `known-defective` with empty evidence, citing the Germano defect and the inert constant

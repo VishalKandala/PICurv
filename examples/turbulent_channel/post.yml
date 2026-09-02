@@ -1,0 +1,25 @@
+source_data: {directory: "<solver_output_dir>"}
+# Must be a multiple of the monitor's io.data_output_frequency, or the pipeline
+# asks for checkpoints the solver never wrote.
+run_control: {start_step: 0, end_step: 1000, step_interval: 100}
+global_operations: {dimensionalize: true}
+eulerian_pipeline:
+  - {task: nodal_average, input_field: P, output_field: P_nodal}
+  - {task: nodal_average, input_field: Ucat, output_field: Ucat_nodal}
+field_statistics:
+  windows: [developed]
+  # The mean gives u+ against y+ for the log-law comparison; the Reynolds stresses
+  # are what Lee & Moser (2015) at Re_tau = 1000 are compared against.
+  outputs: [mean, reynolds_stress, rms, tke]
+  formats: [vtk, csv]
+
+# No spectra task. A shell-averaged spectrum is defined for a triply periodic
+# homogeneous box, which a channel is not: it has walls on the Eta pair, and the
+# flow is inhomogeneous across them.
+
+io:
+  output_directory: visualization/channel
+  output_filename_prefix: channel
+  eulerian_fields: [Ucat_nodal, P_nodal]
+  output_particles: false
+  input_extensions: {eulerian: dat, particle: dat}
