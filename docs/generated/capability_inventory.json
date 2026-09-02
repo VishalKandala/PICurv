@@ -258,11 +258,11 @@
       "constant": {
         "maps_to": 1,
         "spelling_of": "constant_smagorinsky",
-        "status": "known-defective"
+        "status": "experimental"
       },
       "constant_smagorinsky": {
         "maps_to": 1,
-        "status": "known-defective"
+        "status": "experimental"
       },
       "disabled": {
         "maps_to": 0,
@@ -272,11 +272,11 @@
       "dynamic": {
         "maps_to": 2,
         "spelling_of": "dynamic_smagorinsky",
-        "status": "known-defective"
+        "status": "experimental"
       },
       "dynamic_smagorinsky": {
         "maps_to": 2,
-        "status": "known-defective"
+        "status": "experimental"
       },
       "no_les": {
         "maps_to": 0,
@@ -295,7 +295,7 @@
       "smagorinsky": {
         "maps_to": 1,
         "spelling_of": "constant_smagorinsky",
-        "status": "known-defective"
+        "status": "experimental"
       }
     },
     "selector": "case.yml -> models.physics.turbulence.les.model",

@@ -62,7 +62,18 @@ RANS (`k_omega`) is accepted by the configuration layer but its runtime update i
 incomplete. Wall functions are configured separately from both, and offer three
 laws - `log_law`, `werner`, and `cabot`. The correction is applied inside the
 momentum solve and again before the LES strain rates are formed, so a
-wall-modelled large-eddy simulation is coupled in both directions.
+wall-modelled large-eddy simulation is coupled in both directions, and the modelled
+stress reaches the momentum equation through an effective eddy viscosity installed at
+the wall face.
+
+@note A wall model is not independent of the turbulence model in the way its
+configuration placement suggests. It supplies the stress of a layer the mesh does not
+resolve, which is only meaningful if the unresolved motions are modelled somewhere, so
+a wall model with LES and RANS both disabled is rejected - there is no implicit-LES
+scheme here to stand in. `cabot` and `werner` are rejected under RANS, being large-eddy
+constructs, and a wall model on a laminar case is rejected outright. Whether the first
+cell falls in the selected law's valid range depends on the mesh and is checked at
+runtime instead.
 
 @section p12_solver_sec 3. Numerical Solver Stack
 

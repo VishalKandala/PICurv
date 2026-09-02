@@ -63,7 +63,11 @@ likely to matter:
   tensor and a decomposition-independence check of the coefficient averaging. Neither
   has a validated coefficient magnitude: no reference-flow comparison has been run and
   gated. The check that would close the gap is decaying isotropic turbulence with
-  homogeneous averaging, where `Cs(t)` should settle near 0.16-0.17.
+  homogeneous averaging, where `Cs(t)` should settle near 0.16-0.17. The dynamic model
+  declares `examples/decaying_isotropic_turbulence` as production evidence, which records
+  that the model runs there and reproduces the trends a correct implementation must show
+  - not that the coefficient has been checked against a reference. The constant model
+  declares none, because no shipped example selects it.
 
 @section p66_updating_sec 4. Keeping It Current
 

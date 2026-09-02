@@ -416,7 +416,11 @@ is checked against its closed form on constant strain, the filtered product is p
 apart from the product of filtered factors, the procedure returns exactly zero on
 uniform flow, and global averaging is checked to give one coefficient per block. The
 averaging reduction is checked to be decomposition-independent in
-`tests/c/test_mpi_kernels.c`.
+`tests/c/test_mpi_kernels.c`. `examples/decaying_isotropic_turbulence` exercises the
+model end to end; on a shortened 32^3 run of it the coefficient field comes out uniform
+to roundoff under `averaging.mode: homogeneous`, as averaging over a homogeneous set
+must, and `Cs` climbs monotonically from a random initial field. That is a trend check,
+not a validation - the run was not carried far enough for `Cs` to settle.
 
 @note **Status: experimental.** The formulation is correct and unit-tested, but the
 coefficient has not yet been validated against a reference flow. The check that would

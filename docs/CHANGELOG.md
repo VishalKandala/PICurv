@@ -27,6 +27,17 @@
     `picurv summarize --plot wall_model.y_plus_mean`.
   - The banner no longer prints a roughness height beside Werner-Wengle or Cabot, which
     discard it, and now reports the Yoshizawa coefficient with the diagnostics line.
+- Documentation currency pass. Two tier-2 registry claims had gone stale and were
+  contradicting the code: `capability_families.json` still marked both LES models
+  `known-defective` with empty evidence, citing the Germano defect and the inert constant
+  model that were fixed in this campaign, and pointed at `capability_scope_records.json`
+  for deferred material that file does not contain; and the `turbulence.wall_function`
+  record still said the integration "dispatches to the log law unconditionally", which
+  stopped being true when the model selector was wired. Both models are now recorded
+  `experimental` with the decaying-isotropic example as production evidence for the
+  dynamic one - the constant model declares none, because no shipped example selects it.
+  `12_Capabilities_Summary` and `56_Field_Identity_and_Layout_Catalog` were updated for
+  the stress delivery, the pairing rules, and the two wall-model fields.
 - The wall model's stress now reaches the momentum equation. The correction sets a
   near-wall velocity, and the viscous operator reaches the wall through a viscosity times
   a gradient - so with the subgrid viscosity zeroed at wall faces, only the molecular
