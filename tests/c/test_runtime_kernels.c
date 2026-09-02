@@ -1250,10 +1250,53 @@ static PetscErrorCode TestWallModelVelocityHelpers(void)
     PetscCall(PicurvAssertRealNear(target_velocity, u_loglaw(wall_distance, utau_loglaw, roughness_length), 1.0e-12,
                                    "simple log-law inversion should reconstruct the target velocity"));
 
+    /* The retained iterative pair. It round-trips only in the viscous sublayer, which is
+       where this sample sits (y+ ~ 4.5); above y+ = 11.81 its branches invert different
+       relations. Kept as coverage of the helpers themselves, not of the solver path. */
     utau_werner = find_utau_Werner(kinematic_viscosity, target_velocity, wall_distance, 0.1);
     PetscCall(PicurvAssertBool((PetscBool)(utau_werner > 0.0), "Werner-Wengle friction velocity should remain positive"));
     PetscCall(PicurvAssertRealNear(target_velocity, u_Werner(kinematic_viscosity, wall_distance, utau_werner), 1.0e-6,
                                    "Werner-Wengle inversion should reconstruct the target velocity"));
+
+    /* The closed-form pair the solver actually uses. Round-tripping must hold on both
+       sides of the switch, because the defect this replaced was a mismatch that only
+       showed above it. */
+    {
+        const PetscReal A = 8.3, Bexp = 1.0 / 7.0;
+        const PetscReal u_m = 0.5 * kinematic_viscosity / wall_distance *
+                              PetscPowReal(A, 2.0 / (1.0 - Bexp));
+        const PetscReal samples[2] = {0.25 * u_m, 4.0 * u_m};
+
+        for (PetscInt i = 0; i < 2; ++i) {
+            const PetscReal tau = taw_Werner(kinematic_viscosity, samples[i], wall_distance);
+
+            PetscCall(PicurvAssertBool((PetscBool)(tau > 0.0),
+                                       "the explicit Werner-Wengle stress must be positive"));
+            PetscCall(PicurvAssertRealNear(
+                samples[i], u_Werner_explicit(kinematic_viscosity, wall_distance, tau),
+                1.0e-9 + 1.0e-9 * samples[i],
+                "the explicit Werner-Wengle pair must round-trip on both branches"));
+        }
+
+        /* The branches meet at the switch, so approaching it from either side must give
+           the same stress. A threshold written through the friction velocity, as the
+           iterative residual's is, cannot satisfy this. */
+        PetscCall(PicurvAssertRealNear(
+            taw_Werner(kinematic_viscosity, u_m * (1.0 - 1.0e-9), wall_distance),
+            taw_Werner(kinematic_viscosity, u_m * (1.0 + 1.0e-9), wall_distance), 1.0e-9,
+            "the Werner-Wengle branches must be continuous at the transition speed"));
+
+        /* Nearer the wall is slower, whatever the branch. This is the property the
+           previous mismatched pairing violated. */
+        {
+            const PetscReal tau = taw_Werner(kinematic_viscosity, 4.0 * u_m, wall_distance);
+
+            PetscCall(PicurvAssertBool(
+                (PetscBool)(u_Werner_explicit(kinematic_viscosity, 0.5 * wall_distance, tau) <
+                            u_Werner_explicit(kinematic_viscosity, wall_distance, tau)),
+                "a cell nearer the wall must be assigned the slower speed"));
+        }
+    }
 
     find_utau_Cabot(kinematic_viscosity, target_velocity, wall_distance, 0.1, 0.0, 0.0,
                     &utau_cabot, &wall_shear_velocity, &wall_shear_normal);

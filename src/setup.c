@@ -2094,21 +2094,26 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 LOG_ALLOW(GLOBAL, LOG_DEBUG, "Dynamic Smagorinsky coefficient (CS) vectors created.\n");
                 }
 
-                if(simCtx->wallfunction){
-                  /* Scalar per cell, so it lives on `da`. It was previously created from
-                     `fda`, whose dof is 3, while every reader opens it through `da` - a
-                     pairing PETSc rejects outright. */
-                  ierr = DMCreateGlobalVector(user->da,&user->Friction_Velocity); CHKERRQ(ierr);
-                  ierr = VecSet(user->Friction_Velocity,0.0); CHKERRQ(ierr);
-                  ierr = DMCreateLocalVector(user->da,&user->lFriction_Velocity); CHKERRQ(ierr);
-                  ierr = VecSet(user->lFriction_Velocity,0.0); CHKERRQ(ierr);
-                }
 	              // Add K_Omega etc. here as needed
 
                 // Note: Add any other vectors from the legacy MG_Initial here as needed.
                 // For example: Rhs, Forcing, turbulence Vecs (K_Omega, Nu_t)...
 		
 	        }
+
+            /* A wall model is configured independently of LES and RANS - `wall_function`
+               is their sibling in the schema, not their child - so its storage cannot sit
+               inside their block. It did, which left `ApplyWallFunction` dereferencing a
+               null vector on any case that enabled a wall model without one of them. */
+            if (simCtx->wallfunction) {
+                /* Scalar per cell, so it lives on `da`. It was previously created from
+                   `fda`, whose dof is 3, while every reader opens it through `da` - a
+                   pairing PETSc rejects outright. */
+                ierr = DMCreateGlobalVector(user->da, &user->Friction_Velocity); CHKERRQ(ierr);
+                ierr = VecSet(user->Friction_Velocity, 0.0); CHKERRQ(ierr);
+                ierr = DMCreateLocalVector(user->da, &user->lFriction_Velocity); CHKERRQ(ierr);
+                ierr = VecSet(user->lFriction_Velocity, 0.0); CHKERRQ(ierr);
+            }
 	    // --- Group H: Particle Methods 	
 	    if(simCtx->np>0){
 	      ierr = DMCreateGlobalVector(user->da,&user->ParticleCount); CHKERRQ(ierr); ierr = VecSet(user->ParticleCount,0.0); CHKERRQ(ierr);

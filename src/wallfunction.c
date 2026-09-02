@@ -490,6 +490,9 @@ void find_utau_Cabot(double kinematic_viscosity, double velocity, double wall_di
 double u_Werner(double kinematic_viscosity, double wall_distance,
                 double friction_velocity)
 {
+    /* The pointwise profile. Not the production path: the correction uses the cell
+       integral of this profile, `u_Werner_explicit()`, which is what the Werner-Wengle
+       model actually specifies. Retained for reference and unit coverage. */
     double yplus = friction_velocity * wall_distance / kinematic_viscosity;
     
     // Werner-Wengle constants
@@ -510,9 +513,89 @@ double u_Werner(double kinematic_viscosity, double wall_distance,
     return velocity;
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "taw_Werner"
+/**
+ * @brief Implementation of \ref taw_Werner().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/wallfunction.h`.
+ */
+double taw_Werner(double kinematic_viscosity, double velocity, double wall_distance)
+{
+    const double A = 8.3;
+    const double B = 1.0 / 7.0;
+    const double speed = fabs(velocity);
+    const double nu_over_y = kinematic_viscosity / wall_distance;
+
+    /* The switch is written in terms of the geometry alone. Expressing it through the
+       friction velocity, as the iterative residual does, makes the branch depend on the
+       answer and forces a Newton solve the closed form does not need. */
+    const double transition_speed = 0.5 * nu_over_y * pow(A, 2.0 / (1.0 - B));
+
+    if (speed <= transition_speed) {
+        /* Integrating u+ = y+ across the cell leaves the factor of two that separates
+           this from the pointwise relation tau_w = nu u / y. */
+        return 2.0 * kinematic_viscosity * speed / wall_distance;
+    }
+
+    {
+        const double term1 = 0.5 * (1.0 - B) * pow(A, (1.0 + B) / (1.0 - B)) *
+                             pow(nu_over_y, 1.0 + B);
+        const double term2 = (1.0 + B) / A * pow(nu_over_y, B) * speed;
+
+        return pow(term1 + term2, 2.0 / (1.0 + B));
+    }
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "u_Werner_explicit"
+/**
+ * @brief Implementation of \ref u_Werner_explicit().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/wallfunction.h`.
+ */
+double u_Werner_explicit(double kinematic_viscosity, double wall_distance,
+                         double wall_shear_stress)
+{
+    const double A = 8.3;
+    const double B = 1.0 / 7.0;
+    const double stress = fabs(wall_shear_stress);
+    const double nu_over_y = kinematic_viscosity / wall_distance;
+
+    /* The same threshold as taw_Werner(), carried over to the stress side. The two
+       branches meet here exactly, so selecting on the stress cannot land on the wrong
+       side of the velocity switch. */
+    const double transition_stress = nu_over_y * nu_over_y * pow(A, 2.0 / (1.0 - B));
+
+    if (stress <= transition_stress) {
+        return stress * wall_distance / (2.0 * kinematic_viscosity);
+    }
+
+    {
+        const double offset = 0.5 * (1.0 - B) * pow(A, (1.0 + B) / (1.0 - B)) *
+                              pow(nu_over_y, 1.0 + B);
+        /* Non-negative by construction above the threshold - it is zero only in the
+           limit of the switch - so the max guards roundoff, not a modelling case. */
+        const double bracket = PetscMax(pow(stress, 0.5 * (1.0 + B)) - offset, 0.0);
+
+        return A / (1.0 + B) * pow(1.0 / nu_over_y, B) * bracket;
+    }
+}
+
 /**
  * @brief Internal helper implementation: `f_Werner()`.
  * @details Local to this translation unit.
+ *
+ *          Not wired into the solver. Retained with `df_Werner()` and
+ *          `find_utau_Werner()` for reference and for their unit coverage; the
+ *          production path is the closed-form `taw_Werner()` / `u_Werner_explicit()`
+ *          pair. Two things keep this residual out of it. Its branch threshold is
+ *          written through the friction velocity it is solving for, so the branch can
+ *          flip mid-iteration and a Newton solve becomes necessary where the model's
+ *          own inversion needs none. And its branches invert different relations - the
+ *          sublayer branch is pointwise (tau_w = nu u / y), the power branch is the cell
+ *          integral - so it reconstructs `u_Werner()` only below y+ = 11.81, which is
+ *          the range its unit test happens to sample.
  */
 double f_Werner(double kinematic_viscosity, double velocity,
                 double wall_distance, double friction_velocity)
@@ -670,12 +753,18 @@ void wall_function(UserCtx *user, double distance_reference, double distance_bou
                                       tangential_v * tangential_v +
                                       tangential_w * tangential_w);
     
-    // Apply Werner-Wengle wall function
-    double utau_guess = 0.05;
-    double tangential_modeled = u_Werner(kinematic_viscosity, distance_boundary, utau_guess);
+    /* Werner-Wengle inverts in closed form, so the wall stress comes straight from the
+       reference cell's speed with no inner iteration, and the boundary cell's velocity
+       comes back through the exact inverse of that same relation. Using two relations
+       here - the cell integral one way and the pointwise profile the other - is what
+       previously drove the corrected cell faster than the reference cell it sits inside.
+       Same two distances, in the same roles, as the log-law and Cabot paths. */
+    double wall_shear_stress = taw_Werner(kinematic_viscosity, tangential_magnitude,
+                                          distance_reference);
+    double tangential_modeled = u_Werner_explicit(kinematic_viscosity, distance_boundary,
+                                                  wall_shear_stress);
     if (friction_velocity) {
-        // Werner-Wengle path currently uses a fixed u_tau estimate.
-        *friction_velocity = (PetscReal)utau_guess;
+        *friction_velocity = (PetscReal)sqrt(wall_shear_stress);
     }
     
     // Scale tangential components

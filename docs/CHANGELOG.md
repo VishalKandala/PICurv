@@ -37,17 +37,24 @@
   a soft freshness surface watches `src/logging.c` and `include/logging.h`. The supported
   claim is about its behavioural contracts, which `tests/c/test_logging.c` covers; it is
   not a claim about any quantity another subsystem hands it to print.
-- A toy channel exercising all three wall laws end to end found Werner-Wengle
-  non-functional: `wall_function()` reports its Newton initial guess as the friction
-  velocity rather than solving, so every wall cell carries the same `u_tau`. It was
-  invisible before this change because `u_tau` was discarded; the new `u_tau_min`/
-  `u_tau_max` columns collapse to a single value and make it obvious. `find_utau_Werner()`
-  exists and is unit-tested but is never called, and it cannot simply be wired in - it
-  inverts the explicit cell-averaged relation, not the pointwise profile the correction
-  evaluates, so the pair makes the corrected cell faster than the reference cell. Recorded
-  as a known defect against `turbulence.wall_function` and flagged on page 07; `log_law`
-  and `cabot` both solve correctly and respond to the local flow. Not fixed here, because
-  choosing between the two formulations is a physics decision.
+- A toy channel exercising all three wall laws end to end found two defects that unit
+  coverage could not reach, both now fixed.
+  - Werner-Wengle reported one identical `u_tau` at every wall cell: `wall_function()`
+    used its Newton initial guess as the answer. It now uses a closed-form
+    `taw_Werner()`/`u_Werner_explicit()` pair - the profile integrated across the first
+    cell, which is the Werner-Wengle model proper and inverts without any root-find, so
+    the no-inner-iteration property the model is selected for is now real rather than
+    claimed. The iterative `f_Werner`/`df_Werner`/`find_utau_Werner` helpers are retained
+    but unwired, with the reasons recorded at their definitions: their branch threshold
+    is written through the friction velocity being solved for, and their two branches
+    invert different relations, so they reconstruct the pointwise `u_Werner()` only below
+    `y+ = 11.81` - which is the only range their unit test samples.
+  - The friction-velocity storage was allocated inside the `les || rans` block, so
+    enabling a wall model without either of them left `ApplyWallFunction` dereferencing a
+    null vector. `wall_function` is their sibling in the schema, not their child;
+    allocation is now gated on the wall model alone.
+  All three laws now vary cell to cell and differ at `y+ ~ 10-14`, and agree exactly at
+  `y+ ~ 1.4`, where every wall model must reduce to `u+ = y+`.
 - `les.clipping.max_cs` under a mode that imposes no ceiling is now an error rather than
   a warning. A ceiling that is not in force reads as one that is.
 - The Newton-Krylov preconditioner's omission of the Clark stress is now documented as

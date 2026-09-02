@@ -848,9 +848,12 @@ which nothing checks for you.
 **Identity.** `turbulence.wall_function.model: werner` -> `-wallfunction 2`. Accepted
 spelling: `werner_wengle`.
 
-**What it does.** Applies the Werner-Wengle power-law wall model, which replaces the
-logarithmic profile with a two-layer power law and solves for the friction velocity
-without an iterative root-find in the linear region.
+**What it does.** Applies the Werner-Wengle power-law wall model. The two-layer profile
+- linear below `y+ = 11.81`, `u+ = 8.3 (y+)^(1/7)` above - is assumed to hold across the
+first cell and integrated, which inverts in closed form: the wall stress comes straight
+from the resolved speed with no root-find at all, in either region. The corrected
+velocity is produced by the exact inverse of that same relation, so a cell nearer the
+wall is always assigned the slower speed.
 
 **When to choose it.** When the first cell may fall inside or near the viscous sublayer,
 where a pure log law has no valid branch. Its explicit form also avoids the inner
@@ -871,18 +874,10 @@ selected model by name.
 dispatches to it is covered in `tests/c/test_boundaries.c`. No reference-flow comparison
 has been run.
 
-**Limitations.** No roughness. The power-law constants are fixed.
+**Limitations.** No roughness. The power-law constants are fixed, and the model carries
+no pressure-gradient term, so it describes an equilibrium layer only - `cabot` is the
+selection when the near-wall layer is not in equilibrium.
 
-@warning This selection is currently non-functional and should not be used. The
-implementation reports its Newton initial guess as the friction velocity instead of
-solving for one, so every wall cell in a run carries the same `u_tau` regardless of the
-local flow - visible directly in the `u_tau_min`/`u_tau_max` columns of
-`<run.runtime_logs>/wall_model.csv`, which collapse to one value. The solver it needs,
-`find_utau_Werner()`, exists and carries unit coverage but is never called, and wiring it
-in is not sufficient: it inverts the explicit cell-averaged Werner-Wengle relation, which
-is not the inverse of the pointwise profile the correction evaluates, so the two together
-make the corrected cell faster than the reference cell it sits inside. Deciding which of
-the two formulations the model should carry is open work. Use `log_law` or `cabot`.
 
 @subsection p07_cap_wall_cabot_sub cabot
 

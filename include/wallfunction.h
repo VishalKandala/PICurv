@@ -362,7 +362,58 @@ double u_Werner(double kinematic_viscosity, double wall_distance,
 
 
 /**
+ * @brief Wall shear stress from the explicit Werner-Wengle inversion.
+ *
+ * This is the Werner-Wengle model proper: the power-law profile is assumed to hold
+ * across the first cell and integrated, which inverts in closed form and is the whole
+ * reason the model exists - it reaches the wall stress without an inner iteration, so
+ * the residual it feeds stays smooth for a matrix-free Jacobian.
+ *
+ *   |u| <= u_m : tau_w = 2 nu |u| / y
+ *   |u| >  u_m : tau_w = [ (1-B)/2 A^((1+B)/(1-B)) (nu/y)^(1+B)
+ *                          + (1+B)/A (nu/y)^B |u| ]^(2/(1+B))
+ *
+ * with A = 8.3, B = 1/7, and the switch at u_m = nu/(2y) A^(2/(1-B)). That threshold
+ * depends only on the geometry and the fluid, which is what makes the inversion
+ * explicit; a threshold written in terms of the friction velocity would reintroduce the
+ * iteration the model exists to avoid. The two branches meet exactly at u_m.
+ *
+ * Pairs with @ref u_Werner_explicit(), which inverts it. Do not pair it with
+ * @ref u_Werner(), which is the pointwise profile rather than its cell integral.
+ *
+ * @param[in] kinematic_viscosity Kinematic viscosity.
+ * @param[in] velocity            Wall-parallel speed at `wall_distance`, sign ignored.
+ * @param[in] wall_distance       Normal distance the profile is integrated over.
+ * @return    Wall shear stress, equal to the square of the friction velocity.
+ */
+double taw_Werner(double kinematic_viscosity, double velocity, double wall_distance);
+
+/**
+ * @brief Wall-parallel velocity at a distance, from the Werner-Wengle wall stress.
+ *
+ * The exact inverse of @ref taw_Werner(), branch for branch, so that a stress obtained
+ * from a velocity at one distance reproduces a consistent velocity at another. It is
+ * monotonically increasing in `wall_distance`, so a cell nearer the wall than the one
+ * the stress came from is always assigned the slower speed.
+ *
+ * The branch is selected on the stress rather than the velocity it is about to produce,
+ * using the same threshold expressed as tau_m = (nu/y)^2 A^(2/(1-B)).
+ *
+ * @param[in] kinematic_viscosity Kinematic viscosity.
+ * @param[in] wall_distance       Normal distance to evaluate at.
+ * @param[in] wall_shear_stress   Wall shear stress from @ref taw_Werner().
+ * @return    Wall-parallel speed at `wall_distance`, non-negative.
+ */
+double u_Werner_explicit(double kinematic_viscosity, double wall_distance,
+                         double wall_shear_stress);
+
+
+/**
  * @brief Residual function for Werner-Wengle iteration
+ *
+ * @note Not wired into the solver. The production path uses the closed-form
+ *       @ref taw_Werner() / @ref u_Werner_explicit() pair instead; see the note on
+ *       @ref find_utau_Werner() for why this residual is not used.
  *
  * Computes residual: f(u_τ) = u_τ² - g(u, y, ν)
  * where g is derived from the velocity profile inversion.
@@ -390,6 +441,16 @@ double df_Werner(double kinematic_viscosity, double velocity,
 				 
 /**
  * @brief Solves for friction velocity using Werner-Wengle wall function
+ *
+ * @note Retained but not wired into the solver, and kept for reference and for its unit
+ *       coverage rather than for use. Two reasons it is not the production path. Its
+ *       residual switches branches on a threshold that depends on the friction velocity
+ *       being solved for, so it needs a Newton iteration that the Werner-Wengle model
+ *       does not otherwise require - the model's defining property is that its inversion
+ *       is closed form. And its two branches disagree about which relation they invert:
+ *       the sublayer branch is the pointwise one while the power branch is the cell
+ *       integral, which is why it round-trips against @ref u_Werner() only below
+ *       y+ = 11.81. Use @ref taw_Werner() instead.
  *
  * @param[in] kinematic_viscosity Kinematic viscosity
  * @param[in] velocity            Velocity at reference point

@@ -1373,23 +1373,20 @@ static PetscErrorCode TestApplyWallFunctionSkipsNonWallFaces(void)
  * over it. Driving a law at two different speeds and requiring the friction velocity to
  * follow is what distinguishes a model from a constant.
  *
- * Werner-Wengle is deliberately excluded and would fail this: `wall_function()` reports
- * its Newton initial guess rather than solving, so every wall cell in a run carries the
- * same u_tau. The solver it needs, `find_utau_Werner()`, exists and is unit-tested but is
- * never called, and it cannot simply be wired in - it inverts the explicit cell-averaged
- * Werner-Wengle relation, which is not the inverse of the pointwise profile `u_Werner()`
- * that the correction evaluates, so pairing them makes the corrected cell faster than the
- * reference cell it sits inside of. Closing that needs a decision about which of the two
- * formulations the model should carry, not a wiring change. Recorded against
- * turbulence.wall_function.
+ * All three laws are covered. Werner-Wengle is the reason this case exists: it used to
+ * report its Newton initial guess rather than solving, so every wall cell in a run
+ * carried the same u_tau while still slowing the cell and still differing from the other
+ * laws, which is everything the selector test above checks.
  */
 static PetscErrorCode TestWallModelFrictionVelocityRespondsToTheFlow(void)
 {
     SimCtx        *simCtx = NULL;
     UserCtx       *user = NULL;
     PetscReal   ***utau = NULL;
-    const PetscInt models[2] = {WALL_FUNCTION_LOG_LAW, WALL_FUNCTION_CABOT};
-    const char    *names[2] = {"the log law must respond to the flow it is given",
+    const PetscInt models[3] = {WALL_FUNCTION_LOG_LAW, WALL_FUNCTION_WERNER,
+                                WALL_FUNCTION_CABOT};
+    const char    *names[3] = {"the log law must respond to the flow it is given",
+                               "Werner-Wengle must respond to the flow it is given",
                                "Cabot must respond to the flow it is given"};
     const PetscReal speeds[2] = {0.5, 2.0};
 
@@ -1400,7 +1397,7 @@ static PetscErrorCode TestWallModelFrictionVelocityRespondsToTheFlow(void)
     PetscCall(SeedWallFrictionVelocityStorage(user));
     user->boundary_faces[BC_FACE_NEG_X].mathematical_type = WALL;
 
-    for (PetscInt m = 0; m < 2; ++m) {
+    for (PetscInt m = 0; m < 3; ++m) {
         PetscReal stored[2] = {0.0, 0.0};
 
         simCtx->wallfunction = models[m];
