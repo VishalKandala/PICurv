@@ -70,6 +70,7 @@ documentation work. That is why **@subpage 66_Evidence_Matrix** records no
 | Example | Kind | Demonstrates | Status |
 |---|---|---|---|
 | `decaying_isotropic_turbulence` | Benchmark | LES decay in a triply periodic box, 64³ cells | Selects an experimental model — see below |
+| `turbulent_channel` | Benchmark | Wall-modelled LES of a driven channel at `Re_tau ~ 1000` | Plumbing verified; ships a laminar IC — see below |
 | `periodic_test/driven_channel` | Benchmark | Driven periodic channel; DNS and LES variants | See caveat below |
 | `periodic_test/driven_duct` | Benchmark | Square duct with secondary flow of the second kind | See caveat below |
 
@@ -80,6 +81,26 @@ for the whole domain and writes `Cs(t)` to `<run.runtime_logs>/les_coefficient.c
 formulation is unit-tested but the coefficient magnitude has not been validated: this
 case is the run that would settle it, and `Cs(t)` is expected to settle near
 0.16-0.17. Until that is recorded, treat the magnitude as uncharacterized.
+
+`turbulent_channel` is the wall-model counterpart to the case above it. Where
+`decaying_isotropic_turbulence` exercises the subgrid closure in a flow with no wall,
+this one exercises the wall model, its three laws, and coefficient averaging over the two
+homogeneous axes of a wall-normal-inhomogeneous flow. Its uniform wall-normal grid puts
+the first cell at `y+ ~ 51`, which is where a wall model belongs and why the same mesh
+cannot be reused with the wall model switched off. It is distinct from
+`periodic_test/driven_channel/les_retau180`, which is wall-resolved constant-Smagorinsky
+at a Reynolds number forty times lower.
+
+@warning `turbulent_channel` ships the laminar Poiseuille profile that carries its target
+flux, and **will not become turbulent from it** - nothing in a well-behaved implicit solve
+makes a one-dimensional laminar channel three-dimensional. A perturbed field is needed,
+and no generator in this repository produces one for a wall-bounded domain:
+`generators/ic.gen` projects onto a solenoidal field by a spectral method that assumes
+periodicity in all three directions. What the case is verified as is a configuration and
+plumbing exercise; treat statistics gathered from the shipped initial condition as
+laminar. Its literature anchors - the log law, Dean's correlation, and Lee & Moser (2015)
+at `Re_tau = 1000` - are what it is built to be compared against, not comparisons that
+have been run.
 
 @warning The `periodic_test` campaigns carry an open status: pseudo-time momentum
 convergence on periodic wall-bounded flow was observed to stall on 2026-08-24 and

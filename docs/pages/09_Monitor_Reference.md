@@ -208,7 +208,15 @@ logging:
 - `config/monitors/Standard_Output.yml` uses `WARNING` with an empty allow-list for quiet production runs; the startup banner still reports the walltime-guard status.
 - Some runtime artifacts are independent of console verbosity. For particle-enabled runs, `<run.runtime_logs>/search_metrics.csv` is written automatically and includes both raw search counters and derived signals such as `search_failure_fraction`, `search_work_index`, and `re_search_fraction`; allow-listing `LOG_SEARCH_METRICS` only affects the optional compact console summary.
 - LES runs with `case.yml -> models.physics.turbulence.les.diagnostics.enabled` write `<run.runtime_logs>/les_coefficient.csv`, one row per step or per configured cadence. It carries the effective model coefficient reported as `Cs`, its spatial spread, eddy-viscosity levels, the modelled subgrid kinetic energy, and the volume fractions that were backscattering or limited before clipping. Those values are instantaneous volume statistics, not time averages; window-averaged statistics of the same model's fields come from `field_statistics` instead. Column definitions are at @ref p72_diagnostics_sec, and the history is plottable without leaving the CLI: `picurv summarize --run-dir <run> --plot les.cs_effective`.
+- Runs with `case.yml -> models.physics.turbulence.wall_function.enabled` write `<run.runtime_logs>/wall_model.csv`, one row per step, independently of whether LES is active. It carries the friction velocity the selected law produced - mean, RMS, and extrema over the corrected cells - together with the first-cell `y+` and wall distance those cells sit at, and the number of cells corrected. `y_plus_mean` is the column to read first: it says whether the first cell lies where the selected law is valid, and it cannot be recovered afterwards from the corrected velocity field. A step that corrects no cell writes no row and warns instead, so an empty file means no `WALL` face was reached rather than a wall with nothing happening at it. `nu_wall_over_nu_mean` is the other one to read: it is the eddy viscosity the model installs at its own wall face so the discrete viscous flux delivers the stress it computed, reported as a multiple of the molecular value. A wall-resolved run has no such face; a wall-modelled one at `y+ = 267` carries roughly 13, which is `y+/u+ - 1`. A value near zero with a large `y+` means the wall model is reporting a stress the momentum equation is not receiving. Runtime checks accompany these columns: a first-cell `y+` outside the selected law's valid range warns on every sample and stops the run after ten consecutive ones, since that is a property of the mesh and cannot be caught before the grid exists. Plottable the same way: `picurv summarize --run-dir <run> --plot wall_model.y_plus_mean`.
 - Use **@subpage 53_Search_Robustness_Metrics_Reference** for the exact metric definitions and formulas.
+- Every one of these runtime files is opened for append, not truncated, and carries its
+  column header only once. A run continued in place therefore extends the file it already
+  has rather than replacing it, and the seam is marked with a `# Continuation from step N`
+  comment on the first row the continuation produces. That marker is what lets a reader -
+  and `picurv summarize --plot` - treat the segments either as one history or as separate
+  series, instead of inferring a restart from a discontinuity in the data. A restart into
+  a *new* run directory starts fresh files, because the log directory is new.
 
 Supported verbosity strings:
 - `ERROR`
@@ -229,6 +237,11 @@ walltime-guard status, and active state source.
   interpolation are shown only when particles are configured.
 - Eulerian source details distinguish a fresh initial condition, a restart, and
   `load` authority.
+- Turbulence lines report the resolved closure rather than the model name alone: the
+  filter width, test filter, dynamic cadence, averaging mode and directions, limiting
+  mode and ceiling, viscosity floor, gradient term, and diagnostics state, followed by
+  the wall-function model and its roughness height. A setting can therefore be confirmed
+  to have landed without re-reading the generated control file.
 - `Initial Pseudo-CFL (Courant)` appears only for `Dual Time Picard Jameson RK`.
   It is intentionally absent for `Newton Krylov` and explicit RK, where that
   controller is not active.

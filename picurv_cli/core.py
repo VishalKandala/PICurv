@@ -5733,6 +5733,107 @@ def _les_periodic_axes(case_cfg: dict) -> set:
     }
 
 
+def validate_wall_model_pairing(case_cfg: dict, les_cfg, rans_cfg, wall_cfg,
+                                case_path: str, errors: list, warnings: list):
+    """!
+    @brief Rejects wall-model selections that no turbulence treatment can support.
+
+    A wall model replaces the near-wall flow with an analytic profile so that the
+    boundary layer need not be resolved. That only means something if the unresolved
+    motions are modelled somewhere. Three combinations cannot be, and each fails here
+    rather than after the mesh is built.
+
+    @param case_cfg Parsed case configuration, read for the Reynolds number.
+    @param les_cfg  `models.physics.turbulence.les`, or None.
+    @param rans_cfg `models.physics.turbulence.rans`, or None.
+    @param wall_cfg `models.physics.turbulence.wall_function`, or None.
+    @param case_path Case path, for message prefixes.
+    @param errors   Collected blocking messages, appended to.
+    @param warnings Collected advisory messages, appended to.
+    """
+    if not isinstance(wall_cfg, dict):
+        return
+    if not bool(wall_cfg.get('enabled', False)):
+        return
+
+    try:
+        model = normalize_wall_function_model(wall_cfg.get('model', 'log_law'))
+    except ValueError:
+        return  # The selector's own validation already reported this.
+
+    les_on = isinstance(les_cfg, dict) and bool(les_cfg.get('enabled', False)) \
+        and str(les_cfg.get('model', 'dynamic_smagorinsky')).strip().lower() != 'none'
+    rans_on = isinstance(rans_cfg, dict) and bool(rans_cfg.get('enabled', False))
+
+    # A wall model with nothing to sit on. The convective scheme here is QUICK, whose
+    # dissipation is linear and upwind-biased; it is not a limiter-based scheme whose
+    # truncation error stands in for a subgrid stress, so there is no implicit LES to
+    # appeal to.
+    if not les_on and not rans_on:
+        errors.append(
+            f"  {case_path}: models.physics.turbulence.wall_function is enabled with no "
+            "turbulence model. A wall model supplies the stress of a boundary layer it "
+            "does not resolve, which needs the unresolved motions modelled somewhere. "
+            "This solver has no implicit-LES scheme to supply that - its convection is "
+            "QUICK, whose numerical dissipation is not a subgrid model - so enable "
+            "models.physics.turbulence.les, or resolve the wall and disable the wall "
+            "function.")
+
+    # Cabot carries a mixing-length eddy viscosity in the wall layer, which is itself a
+    # RANS closure; nesting it inside a RANS model is two closures for one layer with no
+    # defined matching between them. Werner-Wengle applies its power law to an
+    # instantaneous filtered velocity, which is an LES construct and has no standing as a
+    # RANS wall function.
+    if rans_on and model == 3:
+        errors.append(
+            f"  {case_path}: models.physics.turbulence.wall_function.model 'cabot' cannot "
+            "be used with RANS. Cabot solves the wall layer with its own mixing-length "
+            "eddy viscosity, so under a RANS model the near-wall layer would carry two "
+            "turbulence closures with no matching between them. Use 'log_law' with RANS.")
+    if rans_on and model == 2:
+        errors.append(
+            f"  {case_path}: models.physics.turbulence.wall_function.model 'werner' cannot "
+            "be used with RANS. Werner-Wengle applies its power law to the instantaneous "
+            "filtered velocity, which is a large-eddy quantity; a RANS field is already "
+            "averaged and wants a wall law derived for the mean profile. Use 'log_law' "
+            "with RANS.")
+
+    # A wall law describes a turbulent boundary layer. Below transition there is no
+    # inertial region for it to stand on, and it would impose a profile the flow does not
+    # have. The threshold is deliberately far below any transitional value, so that it
+    # only catches cases that are unambiguously laminar.
+    reynolds = _case_reynolds_number(case_cfg)
+    if reynolds is not None and reynolds < 1000.0:
+        errors.append(
+            f"  {case_path}: models.physics.turbulence.wall_function is enabled at "
+            f"Reynolds number {reynolds:g}, which is laminar. The log law and the "
+            "Werner-Wengle power law both describe a turbulent boundary layer; at this "
+            "Reynolds number there is no inertial region for either to represent, and "
+            "the model would impose a profile the flow does not have. Resolve the wall "
+            "instead.")
+
+
+def _case_reynolds_number(case_cfg: dict):
+    """!
+    @brief Reynolds number implied by a case's scaling and fluid properties.
+    @param case_cfg Parsed case configuration.
+    @return The Reynolds number, or None when the inputs are absent or unusable.
+    """
+    try:
+        props = case_cfg.get('properties', {}) or {}
+        scaling = props.get('scaling', {}) or {}
+        fluid = props.get('fluid', {}) or {}
+        density = float(fluid.get('density'))
+        viscosity = float(fluid.get('viscosity'))
+        length_ref = float(scaling.get('length_ref'))
+        velocity_ref = float(scaling.get('velocity_ref'))
+    except (TypeError, ValueError):
+        return None
+    if viscosity <= 0.0:
+        return None
+    return density * velocity_ref * length_ref / viscosity
+
+
 def validate_les_configuration(case_cfg: dict, les_cfg: dict, case_path: str,
                                errors: list, warnings: list):
     """!
@@ -5868,9 +5969,10 @@ def validate_les_configuration(case_cfg: dict, les_cfg: dict, case_path: str,
         _numeric(clipping, 'min_viscosity_ratio',
                  "models.physics.turbulence.les.clipping.min_viscosity_ratio", minimum=0.0)
         if 'max_cs' in clipping and mode is not None and mode != 0:
-            warnings.append(
-                f"{case_path}: models.physics.turbulence.les.clipping.max_cs is only applied by "
-                "mode 'clamp' and will be ignored."
+            errors.append(
+                f"  {case_path}: models.physics.turbulence.les.clipping.max_cs applies only to "
+                "mode 'clamp'; 'positive' and 'signed' impose no upper bound. Remove the key or "
+                "select mode 'clamp'."
             )
 
     diagnostics = les_cfg.get('diagnostics')
@@ -7198,6 +7300,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         if isinstance(les_cfg, dict):
             validate_les_configuration(case_cfg, les_cfg, case_path, errors, warnings)
 
+        validate_wall_model_pairing(case_cfg, les_cfg, rans_cfg, wall_cfg, case_path,
+                                    errors, warnings)
+
         if isinstance(rans_cfg, dict):
             if 'enabled' in rans_cfg and not isinstance(rans_cfg['enabled'], bool):
                 errors.append(f"  {case_path}: models.physics.turbulence.rans.enabled must be true or false.")
@@ -7224,6 +7329,18 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                         errors.append(f"  {case_path}: models.physics.turbulence.wall_function.roughness_height must be nonnegative.")
                 except (TypeError, ValueError):
                     errors.append(f"  {case_path}: models.physics.turbulence.wall_function.roughness_height must be numeric.")
+                # Only the log law has a roughness formulation. Werner-Wengle has no
+                # roughness term and Cabot discards the argument, so accepting the key
+                # for either would silently ignore a value the user set deliberately.
+                try:
+                    wall_model = normalize_wall_function_model(wall_cfg.get('model'))
+                except ValueError:
+                    wall_model = None
+                if wall_model in (2, 3):
+                    errors.append(
+                        f"  {case_path}: models.physics.turbulence.wall_function.roughness_height "
+                        "applies only to model 'log_law'; 'werner' has no roughness formulation and "
+                        "'cabot' ignores it. Remove the key or select 'log_law'.")
 
     # --- solver.yml: basic structure ---
     if not isinstance(solver_cfg, dict) or not solver_cfg:
@@ -11177,19 +11294,33 @@ def normalize_rans_model(value) -> int:
         raise ValueError(f"Unknown RANS model '{value}'. Use one of: 'none', 'k_omega'.")
     return mapped
 
-def normalize_wall_function_model(value) -> str:
+def normalize_wall_function_model(value) -> int:
     """!
-    @brief Validates wall-function model selectors exposed in YAML.
-    @param[in] value Wall-function selector name.
-    @return Canonical wall-function model name.
+    @brief Maps wall-function model selectors to the C -wallfunction flag.
+    @param[in] value Wall-function selector name, or None for the default.
+    @return Integer code accepted by -wallfunction; 1 log law, 2 Werner-Wengle, 3 Cabot.
     @throws ValueError if the input cannot be mapped.
     """
     if value is None:
-        return "log_law"
+        return 1
+    if isinstance(value, bool):
+        raise ValueError("models.physics.turbulence.wall_function.model must name a model, not a boolean.")
+    if isinstance(value, int):
+        if value in (1, 2, 3):
+            return value
+        raise ValueError("models.physics.turbulence.wall_function.model must be 1, 2, 3, or a supported model name.")
     key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
-    if key in {"log_law", "loglaw"}:
-        return "log_law"
-    raise ValueError("Unknown wall_function model '%s'. Use: 'log_law'." % value)
+    mapped = {
+        "log_law": 1,
+        "loglaw": 1,
+        "werner": 2,
+        "werner_wengle": 2,
+        "cabot": 3,
+    }.get(key)
+    if mapped is None:
+        raise ValueError(
+            "Unknown wall_function model '%s'. Use one of: 'log_law', 'werner', 'cabot'." % value)
+    return mapped
 
 def resolve_enabled_flag(cfg: dict, path: str, default: bool = True) -> bool:
     """!
@@ -11320,8 +11451,10 @@ def append_turbulence_flags(models: dict, control_lines: list):
 
     if isinstance(wall_cfg, dict):
         enabled = resolve_enabled_flag(wall_cfg, "models.physics.turbulence.wall_function")
-        normalize_wall_function_model(wall_cfg.get('model'))
-        control_lines.append(f"-wallfunction {1 if enabled else 0}")
+        # The flag carries the model, with zero meaning disabled, so a selector change
+        # reaches the runtime instead of being validated and dropped.
+        wall_model = normalize_wall_function_model(wall_cfg.get('model'))
+        control_lines.append(f"-wallfunction {wall_model if enabled else 0}")
         if 'roughness_height' in wall_cfg:
             control_lines.append(f"-wall_roughness {format_flag_value(wall_cfg['roughness_height'])}")
     elif wall_cfg is not None:
@@ -16363,6 +16496,7 @@ def _build_summary_context(run_dir: str) -> dict:
         "run_dir": run_dir,
         "config_dir": config_dir,
         "log_dir": os.path.join(run_dir, CANONICAL_RUN_PATHS["logs"]),
+        "metrics_dir": os.path.join(run_dir, CANONICAL_RUN_PATHS["metrics"]),
         "scheduler_dir": scheduler_dir,
         "monitor_cfg": monitor_cfg,
         "case_cfg": case_cfg,
@@ -18376,6 +18510,35 @@ def _summary_physical_time(context: dict, record: dict) -> "float | None":
     return float(record["step"]) * dt if math.isfinite(dt) and dt > 0.0 else None
 
 
+def _read_runtime_diagnostics_csv(path):
+    """!
+    @brief Yields `(segment, row)` for each data line of a runtime diagnostics CSV.
+
+    The solver's runtime CSVs share one shape: a `step,...` header written once, data
+    rows appended across the run, and a comment marker at each seam where a continuation
+    resumed. Rows before the header, or whose width disagrees with it, are skipped rather
+    than guessed at. `segment` counts the continuations seen so far, so a caller can keep
+    restarts as separate series instead of drawing a line across the seam.
+
+    @param path Diagnostics CSV to read.
+    @return Generator of `(segment_index, {column: text})` pairs.
+    """
+    segment = 0
+    header = []
+    with open(path, "r", encoding="utf-8", errors="replace", newline="") as handle:
+        for raw_line in handle:
+            if _is_summary_plot_continuation_marker(raw_line):
+                segment += 1
+                continue
+            if raw_line.lstrip().startswith("step,"):
+                header = [name.strip() for name in raw_line.strip().split(",")]
+                continue
+            parts = [part.strip() for part in raw_line.strip().split(",")]
+            if not header or len(parts) != len(header):
+                continue
+            yield segment, dict(zip(header, parts))
+
+
 def _append_summary_plot_record(records: list, source: str, step, line: str, values: dict,
                                 source_path: str, segment: int = 0, coordinates: dict = None):
     """!
@@ -18426,6 +18589,9 @@ def _collect_summary_plot_records(context: dict) -> list:
     """
     records = []
     log_dir = context["log_dir"]
+    # The C runtime writes its per-step diagnostics CSVs to the analysis metrics home,
+    # not beside the text logs; PicurvOpenDiagnosticsCsv() owns that placement.
+    metrics_dir = context["metrics_dir"]
 
     continuity_path = os.path.join(log_dir, "Continuity_Metrics.log")
     if os.path.isfile(continuity_path):
@@ -18576,39 +18742,48 @@ def _collect_summary_plot_records(context: dict) -> list:
 
     # The LES coefficient history. cs_effective is the curve an LES run is judged on:
     # for decaying isotropic turbulence it should settle near Lilly's 0.16-0.17.
-    les_path = os.path.join(log_dir, "les_coefficient.csv")
+    les_path = os.path.join(metrics_dir, "les_coefficient.csv")
     if os.path.isfile(les_path):
-        segment = 0
-        header = []
-        with open(les_path, "r", encoding="utf-8", errors="replace", newline="") as f:
-            for raw_line in f:
-                if _is_summary_plot_continuation_marker(raw_line):
-                    segment += 1
-                    continue
-                if raw_line.lstrip().startswith("step,"):
-                    header = [name.strip() for name in raw_line.strip().split(",")]
-                    continue
-                parts = [part.strip() for part in raw_line.strip().split(",")]
-                if not header or len(parts) != len(header):
-                    continue
-                row = dict(zip(header, parts))
-                _append_summary_plot_record(
-                    records, "les", _parse_int_loose(row.get("step")), "coefficient",
-                    {
-                        "cs_effective": _parse_float_loose(row.get("cs_effective")),
-                        "cs_mean": _parse_float_loose(row.get("cs_mean")),
-                        "coefficient_rms": _parse_float_loose(row.get("coefficient_rms")),
-                        "coefficient_min": _parse_float_loose(row.get("coefficient_min")),
-                        "coefficient_max": _parse_float_loose(row.get("coefficient_max")),
-                        "nu_t_mean": _parse_float_loose(row.get("nu_t_mean")),
-                        "nu_t_max": _parse_float_loose(row.get("nu_t_max")),
-                        "nu_t_over_nu_mean": _parse_float_loose(row.get("nu_t_over_nu_mean")),
-                        "k_sgs_mean": _parse_float_loose(row.get("k_sgs_mean")),
-                        "backscatter_fraction": _parse_float_loose(row.get("backscatter_fraction")),
-                        "limited_fraction": _parse_float_loose(row.get("limited_fraction")),
-                    },
-                    les_path, segment,
-                )
+        for segment, row in _read_runtime_diagnostics_csv(les_path):
+            _append_summary_plot_record(
+                records, "les", _parse_int_loose(row.get("step")), "coefficient",
+                {
+                    "cs_effective": _parse_float_loose(row.get("cs_effective")),
+                    "cs_mean": _parse_float_loose(row.get("cs_mean")),
+                    "coefficient_rms": _parse_float_loose(row.get("coefficient_rms")),
+                    "coefficient_min": _parse_float_loose(row.get("coefficient_min")),
+                    "coefficient_max": _parse_float_loose(row.get("coefficient_max")),
+                    "nu_t_mean": _parse_float_loose(row.get("nu_t_mean")),
+                    "nu_t_max": _parse_float_loose(row.get("nu_t_max")),
+                    "nu_t_over_nu_mean": _parse_float_loose(row.get("nu_t_over_nu_mean")),
+                    "k_sgs_mean": _parse_float_loose(row.get("k_sgs_mean")),
+                    "backscatter_fraction": _parse_float_loose(row.get("backscatter_fraction")),
+                    "limited_fraction": _parse_float_loose(row.get("limited_fraction")),
+                },
+                les_path, segment,
+            )
+
+    # The wall-model history. y_plus_mean is what says whether the first cell sits where
+    # the selected law is valid; u_tau is what a channel run is scored against.
+    wall_path = os.path.join(metrics_dir, "wall_model.csv")
+    if os.path.isfile(wall_path):
+        for segment, row in _read_runtime_diagnostics_csv(wall_path):
+            _append_summary_plot_record(
+                records, "wall_model", _parse_int_loose(row.get("step")), "near wall",
+                {
+                    "u_tau_mean": _parse_float_loose(row.get("u_tau_mean")),
+                    "u_tau_rms": _parse_float_loose(row.get("u_tau_rms")),
+                    "u_tau_min": _parse_float_loose(row.get("u_tau_min")),
+                    "u_tau_max": _parse_float_loose(row.get("u_tau_max")),
+                    "y_plus_mean": _parse_float_loose(row.get("y_plus_mean")),
+                    "y_plus_max": _parse_float_loose(row.get("y_plus_max")),
+                    "wall_distance_mean": _parse_float_loose(row.get("wall_distance_mean")),
+                    "nu_wall_over_nu_mean": _parse_float_loose(row.get("nu_wall_over_nu_mean")),
+                    "wall_cells": _parse_int_loose(row.get("wall_cells")),
+                },
+                wall_path, segment,
+            )
+
     profiling_path = os.path.join(log_dir, context["profiling_cfg"].get("timestep_file", "Profiling_Timestep_Summary.csv"))
     if os.path.isfile(profiling_path):
         segment = 0

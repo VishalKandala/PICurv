@@ -276,7 +276,7 @@
       "family_page": "07_Case_Reference",
       "entry_anchor_prefix": "p07_cap_les_",
       "coverage_enforced": true,
-      "coverage_note": "Coverage is enforced. Both models carry status known-defective: the dynamic procedure has no dynamic content, and the constant model is inert on fresh runs. The deferred material is the dynamic model's formulation and validation, recorded in capability_scope_records.json - not the disclosure, which is published.",
+      "coverage_note": "Coverage is enforced. Both models were previously known-defective - the dynamic procedure built both terms of the Germano tensor from separately test-filtered quantities, so it had no dynamic content, and the constant model never produced an eddy viscosity on a fresh run. Both defects are fixed and carry mutation-tested unit coverage plus an end-to-end trend check. They are experimental rather than supported because no reference-flow comparison has been run: the decaying isotropic turbulence benchmark that would settle Cs near 0.16-0.17 has not been carried to a developed state.",
       "value_metadata": {
         "none": {
           "status": "supported",
@@ -301,7 +301,7 @@
           "spelling_of": "none"
         },
         "constant_smagorinsky": {
-          "status": "known-defective",
+          "status": "experimental",
           "canonical": true,
           "evidence": {}
         },
@@ -314,9 +314,13 @@
           "spelling_of": "constant_smagorinsky"
         },
         "dynamic_smagorinsky": {
-          "status": "known-defective",
+          "status": "experimental",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "production": [
+              "example:examples/decaying_isotropic_turbulence"
+            ]
+          }
         },
         "dynamic": {
           "canonical": false,
@@ -715,7 +719,7 @@
       "title": "Wall Function Models",
       "selector": "case.yml -> models.physics.turbulence.wall_function.model",
       "public_surface": {
-        "kind": "python_membership",
+        "kind": "python_normalizer",
         "module": "picurv_cli.core",
         "symbol": "normalize_wall_function_model"
       },
@@ -732,6 +736,20 @@
         "loglaw": {
           "canonical": false,
           "spelling_of": "log_law"
+        },
+        "werner": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "werner_wengle": {
+          "canonical": false,
+          "spelling_of": "werner"
+        },
+        "cabot": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
         }
       }
     },

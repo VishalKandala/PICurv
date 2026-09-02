@@ -35,8 +35,15 @@ Version one is deliberately narrow and validates its inputs up front
 
 @note The gradient (Clark) model and wall functions both reach this solver through the
 shared residual it already evaluates. Two properties are worth knowing before using
-them. The preconditioner does not model the Clark stress, so Krylov counts can rise
-with it enabled. Wall functions obtain the friction velocity from an iterative
+them. The preconditioner deliberately does not model the Clark stress, so Krylov counts
+can rise with it enabled. That omission is a design choice rather than a gap: the Clark
+term is a higher-order gradient contribution, small in magnitude next to the eddy-viscosity
+term the diagonal already carries, and unlike that term it is not diagonally dominant - it
+couples a cell to its neighbours through a velocity-gradient product, which a point-block
+matrix cannot represent without ceasing to be a point block. Including it would cost
+assembly and a denser preconditioner for a term whose effect on the diagonal is second
+order. Whether that trade is right for a given grid is a measurement nobody has taken; the
+Krylov count with and without `gradient_model.enabled` is what would settle it. Wall functions obtain the friction velocity from an iterative
 root-find, and a matrix-free Jacobian action amplifies that solve's tolerance by `1/h`,
 so a loose inner tolerance shows up as a degraded Jacobian action rather than as an
 error.
@@ -406,7 +413,11 @@ the matrix modelling a viscous diagonal smaller than the operator's by the
 eddy-to-molecular ratio, which on a developed large-eddy simulation is order one or
 more. It still intentionally omits pressure, the eddy-viscosity *derivatives* with
 respect to velocity, nonorthogonal viscous cross-couplings, the gradient (Clark)
-stress, boundary-map and IBM derivatives, and body-force derivatives.
+stress, boundary-map and IBM derivatives, and body-force derivatives. The eddy viscosity
+and the Clark stress are omitted for different reasons, and only one of them was a
+judgement call: the eddy term was restored because it changes the viscous diagonal by the
+eddy-to-molecular ratio, while the Clark term is higher order and non-diagonal, so
+representing it would change what kind of matrix this is.
 
 The legacy face inverse Jacobians are arithmetic averages of neighboring cell
 inverse Jacobians, and its transverse metric terms average four squared metric-vector

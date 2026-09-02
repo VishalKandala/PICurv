@@ -292,7 +292,8 @@ models:
           # [String] -> -les_clip_mode
           mode: "clamp"
 
-          # Ceiling on Cs, not on the stored coefficient. clamp mode only.
+          # Ceiling on Cs, not on the stored coefficient. clamp mode only; naming it
+          # under another mode is an error, since no ceiling would be in force.
           # [Number] -> -les_clip_max_cs
           max_cs: 0.3
 
@@ -335,12 +336,28 @@ models:
         # model is only needed when enabled: true. Currently supported: k_omega
         # model: "k_omega"
 
-      # Wall functions are independent of LES/RANS and apply on WALL faces.
+      # Wall functions are independent of LES/RANS and apply on WALL faces. The
+      # correction is applied inside the momentum solve's boundary pass and again
+      # before the LES strain rates are formed, so the closure and the momentum
+      # equation agree about the near-wall velocity.
       wall_function:
+        # [Boolean] -> -wallfunction 0 when false
         enabled: false
-        # model is only needed when enabled: true. Currently supported: log_law
+
+        # Which wall law to apply. Only needed when enabled: true.
+        #   log_law -> logarithmic profile with roughness; iterative friction velocity
+        #   werner  -> Werner-Wengle power law; explicit, no roughness, valid into the
+        #              viscous sublayer, and free of the inner iteration that a
+        #              matrix-free Jacobian amplifies
+        #   cabot   -> integrated mixing-length eddy viscosity. The pressure gradient
+        #              its non-equilibrium form needs is supplied as zero, so it
+        #              currently reduces to the equilibrium form.
+        # [String] -> -wallfunction
         # model: "log_law"
-        roughness_height: 1.0e-16     # -> -wall_roughness
+
+        # Wall roughness height. Used by log_law only; werner and cabot ignore it.
+        # [Number] -> -wall_roughness
+        roughness_height: 1.0e-16
   
 # ==============================================================================
 # 5. BOUNDARY CONDITIONS

@@ -2475,6 +2475,119 @@ PetscErrorCode UpdateCornerNodes(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Applies the configured wall model at one near-wall cell.
+ *
+ * The six face cases differ only in which indices they address, so the choice of law
+ * is made here once rather than repeated at each of them. Every model writes the
+ * corrected near-wall velocity and the friction velocity through the same two
+ * pointers, which is what lets one call site serve all of them.
+ *
+ * Cabot's non-equilibrium form takes a pressure gradient, which is why the caller
+ * supplies the read-only pressure array: the gradient is evaluated at the cell rather
+ * than assumed zero, since zero would silently reduce the model to its equilibrium form.
+ * The other two laws ignore that array.
+ */
+static PetscErrorCode ApplyWallModelAtCell(UserCtx *user, PetscReal ***pressure,
+                                 PetscReal ***wall_eddy_viscosity,
+                                 PetscInt i, PetscInt j, PetscInt k,
+                                 PetscReal roughness_height,
+                                 PetscReal distance_reference, PetscReal distance_boundary,
+                                 Cmpnts velocity_wall, Cmpnts velocity_reference,
+                                 Cmpnts *velocity_boundary, PetscReal *friction_velocity,
+                                 PetscReal normal_x, PetscReal normal_y, PetscReal normal_z)
+{
+    PetscFunctionBeginUser;
+    switch ((WallFunctionModel)user->simCtx->wallfunction) {
+    case WALL_FUNCTION_WERNER:
+        wall_function(user, distance_reference, distance_boundary,
+                      velocity_wall, velocity_reference, velocity_boundary,
+                      friction_velocity, normal_x, normal_y, normal_z);
+        break;
+    case WALL_FUNCTION_CABOT: {
+        /* Cabot's departure from an equilibrium profile is driven by the pressure
+           gradient in the wall layer, so it is supplied from the resolved pressure at
+           this cell rather than assumed zero. Zero would silently reduce the model to
+           its equilibrium form, which is not the model the user selected. The pressure
+           is the previous projection's, which is the same lag every other explicit use
+           of it carries. */
+        Cmpnts pressure_gradient = {0.0, 0.0, 0.0};
+
+        if (pressure) {
+            PetscCall(ComputeScalarFieldDerivatives(user, i, j, k, pressure, &pressure_gradient));
+        }
+        wall_function_Cabot(user, roughness_height, distance_reference, distance_boundary,
+                            velocity_wall, velocity_reference, velocity_boundary,
+                            friction_velocity, normal_x, normal_y, normal_z,
+                            pressure_gradient.x, pressure_gradient.y, pressure_gradient.z, 0);
+        break;
+    }
+    case WALL_FUNCTION_LOG_LAW:
+    default:
+        wall_function_loglaw(user, roughness_height, distance_reference, distance_boundary,
+                             velocity_wall, velocity_reference, velocity_boundary,
+                             friction_velocity, normal_x, normal_y, normal_z);
+        break;
+    }
+
+    /* Every face case reaches the model through here, so this is the one place that sees
+       both the wall distance and the friction velocity the law produced. y+ is formed
+       here for that reason: nothing downstream still holds the distance. */
+    {
+        WallModelDiagnosticsState *diagnostics = &user->wall_diagnostics;
+        const PetscReal            molecular   = 1.0 / user->simCtx->ren;
+        const PetscReal            u_tau       = *friction_velocity;
+        const PetscReal            y_plus      = u_tau * distance_boundary / molecular;
+
+        /* The viscous operator reaches the wall through a viscosity times a velocity
+           gradient, so the modelled stress arrives only if the viscosity is the one that
+           reproduces it across this cell: nu_eff = tau_w y / u. Molecular viscosity alone
+           delivers a fraction u+/y+ of the stress, which is where most of it was going.
+           Formed here because this is the one place holding the stress, the distance and
+           the corrected speed together; nothing downstream still has all three. */
+        if (wall_eddy_viscosity) {
+            const Cmpnts    relative = {velocity_boundary->x - velocity_wall.x,
+                                        velocity_boundary->y - velocity_wall.y,
+                                        velocity_boundary->z - velocity_wall.z};
+            const PetscReal normal_component = relative.x * normal_x + relative.y * normal_y +
+                                               relative.z * normal_z;
+            const PetscReal tangential[3] = {relative.x - normal_component * normal_x,
+                                             relative.y - normal_component * normal_y,
+                                             relative.z - normal_component * normal_z};
+            const PetscReal speed = PetscSqrtReal(tangential[0] * tangential[0] +
+                                                  tangential[1] * tangential[1] +
+                                                  tangential[2] * tangential[2]);
+
+            /* A cell the model brought to rest carries no stress to deliver, and the
+               quotient below would be meaningless there. */
+            if (speed > 1.0e-10) {
+                const PetscReal effective = u_tau * u_tau * distance_boundary / speed;
+
+                wall_eddy_viscosity[k][j][i] = PetscMax(effective - molecular, 0.0);
+                diagnostics->wall_viscosity_sum += wall_eddy_viscosity[k][j][i];
+            } else {
+                wall_eddy_viscosity[k][j][i] = 0.0;
+            }
+        }
+
+        if (diagnostics->cells == 0) {
+            diagnostics->friction_velocity_min = u_tau;
+            diagnostics->friction_velocity_max = u_tau;
+            diagnostics->y_plus_max            = y_plus;
+        } else {
+            diagnostics->friction_velocity_min = PetscMin(diagnostics->friction_velocity_min, u_tau);
+            diagnostics->friction_velocity_max = PetscMax(diagnostics->friction_velocity_max, u_tau);
+            diagnostics->y_plus_max            = PetscMax(diagnostics->y_plus_max, y_plus);
+        }
+        diagnostics->friction_velocity_sum += u_tau;
+        diagnostics->friction_velocity_sq  += u_tau * u_tau;
+        diagnostics->wall_distance_sum     += distance_boundary;
+        diagnostics->y_plus_sum            += y_plus;
+        diagnostics->cells                 += 1;
+    }
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 #undef __FUNCT__
 #define __FUNCT__ "ApplyWallFunction"
 /**
@@ -2497,6 +2610,12 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
     }
     
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Processing wall function boundaries.\n");
+
+    /* One pass, one sample set: the state describes this pass and nothing earlier. */
+    ierr = PetscMemzero(&user->wall_diagnostics, sizeof(user->wall_diagnostics)); CHKERRQ(ierr);
+    /* Cells the model does not reach must not keep a stale wall viscosity from an
+       earlier pass, so the field is cleared rather than accumulated into. */
+    ierr = VecSet(user->Nu_Wall, 0.0); CHKERRQ(ierr);
     
     // =========================================================================
     // STEP 1: Get read/write access to all necessary field arrays
@@ -2507,7 +2626,9 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
     Cmpnts ***csi, ***eta, ***zet;         // Metric tensor components (face normals)
     PetscReal ***node_vertex_flag;          // Fluid/solid indicator (0=fluid, 1=solid)
     PetscReal ***cell_jacobian;             // Grid Jacobian (1/volume)
-    PetscReal ***friction_velocity;         // u_tau (friction velocity field)
+    PetscReal ***wall_eddy_viscosity;    // Effective wall eddy viscosity (written)
+    PetscReal ***friction_velocity;
+    PetscReal ***wall_pressure = NULL;         // u_tau (friction velocity field)
     
     ierr = DMDAVecGetArray(user->fda, user->Ucat, &velocity_cartesian); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->Ucont, &velocity_contravariant); CHKERRQ(ierr);
@@ -2517,7 +2638,13 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
     ierr = DMDAVecGetArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&node_vertex_flag); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->da, user->lAj, (const PetscReal***)&cell_jacobian); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->da, user->lFriction_Velocity, &friction_velocity); CHKERRQ(ierr);
+    /* The global view, like the Ucat this pass corrects: every cell it writes is one
+       this rank owns, and the ghosted image is refreshed by the caller afterwards. */
+    ierr = DMDAVecGetArray(user->da, user->Friction_Velocity, &friction_velocity); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->da, user->Nu_Wall, &wall_eddy_viscosity); CHKERRQ(ierr);
+    /* Read-only pressure for the wall models that need its gradient; Cabot is the only
+       one that does, and it reads the previous projection's field. */
+    ierr = DMDAVecGetArrayRead(user->da, user->lP, (const PetscReal ***)&wall_pressure); CHKERRQ(ierr);
     
     // =========================================================================
     // STEP 2: Define loop bounds (owned portion of the grid for this MPI rank)
@@ -2620,12 +2747,14 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
                                       wall_normal[0], wall_normal[1], wall_normal[2]);
                                 
                                 // Step 2: Apply log-law correction (improves near-wall velocity)
-                                wall_function_loglaw(user, wall_roughness_height,
+                                ierr = ApplyWallModelAtCell(user, wall_pressure, wall_eddy_viscosity,
+                                                    first_interior_cell, j, k,
+                                                    wall_roughness_height,
                                                     distance_to_second_cell, distance_to_first_cell,
                                                     wall_velocity, reference_velocity,
                                                     &velocity_cartesian[k][j][first_interior_cell],
                                                     &friction_velocity[k][j][first_interior_cell],
-                                                    wall_normal[0], wall_normal[1], wall_normal[2]);
+                                                    wall_normal[0], wall_normal[1], wall_normal[2]); CHKERRQ(ierr);
                                 
                                 // Ensure ghost cell BC remains zero (required for proper extrapolation)
                                 velocity_boundary[k][j][ghost_cell_index].x = 0.0;
@@ -2677,12 +2806,14 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
                                       &velocity_cartesian[k][j][first_interior_cell],
                                       wall_normal[0], wall_normal[1], wall_normal[2]);
                                 
-                                wall_function_loglaw(user, wall_roughness_height,
+                                ierr = ApplyWallModelAtCell(user, wall_pressure, wall_eddy_viscosity,
+                                                    first_interior_cell, j, k,
+                                                    wall_roughness_height,
                                                     distance_to_second_cell, distance_to_first_cell,
                                                     wall_velocity, reference_velocity,
                                                     &velocity_cartesian[k][j][first_interior_cell],
                                                     &friction_velocity[k][j][first_interior_cell],
-                                                    wall_normal[0], wall_normal[1], wall_normal[2]);
+                                                    wall_normal[0], wall_normal[1], wall_normal[2]); CHKERRQ(ierr);
                                 
                                 velocity_boundary[k][j][ghost_cell_index].x = 0.0;
                                 velocity_boundary[k][j][ghost_cell_index].y = 0.0;
@@ -2732,12 +2863,14 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
                                       &velocity_cartesian[k][first_interior_cell][i],
                                       wall_normal[0], wall_normal[1], wall_normal[2]);
                                 
-                                wall_function_loglaw(user, wall_roughness_height,
+                                ierr = ApplyWallModelAtCell(user, wall_pressure, wall_eddy_viscosity,
+                                                    i, first_interior_cell, k,
+                                                    wall_roughness_height,
                                                     distance_to_second_cell, distance_to_first_cell,
                                                     wall_velocity, reference_velocity,
                                                     &velocity_cartesian[k][first_interior_cell][i],
                                                     &friction_velocity[k][first_interior_cell][i],
-                                                    wall_normal[0], wall_normal[1], wall_normal[2]);
+                                                    wall_normal[0], wall_normal[1], wall_normal[2]); CHKERRQ(ierr);
                                 
                                 velocity_boundary[k][ghost_cell_index][i].x = 0.0;
                                 velocity_boundary[k][ghost_cell_index][i].y = 0.0;
@@ -2787,12 +2920,14 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
                                       &velocity_cartesian[k][first_interior_cell][i],
                                       wall_normal[0], wall_normal[1], wall_normal[2]);
                                 
-                                wall_function_loglaw(user, wall_roughness_height,
+                                ierr = ApplyWallModelAtCell(user, wall_pressure, wall_eddy_viscosity,
+                                                    i, first_interior_cell, k,
+                                                    wall_roughness_height,
                                                     distance_to_second_cell, distance_to_first_cell,
                                                     wall_velocity, reference_velocity,
                                                     &velocity_cartesian[k][first_interior_cell][i],
                                                     &friction_velocity[k][first_interior_cell][i],
-                                                    wall_normal[0], wall_normal[1], wall_normal[2]);
+                                                    wall_normal[0], wall_normal[1], wall_normal[2]); CHKERRQ(ierr);
                                 
                                 velocity_boundary[k][ghost_cell_index][i].x = 0.0;
                                 velocity_boundary[k][ghost_cell_index][i].y = 0.0;
@@ -2842,12 +2977,14 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
                                       &velocity_cartesian[first_interior_cell][j][i],
                                       wall_normal[0], wall_normal[1], wall_normal[2]);
                                 
-                                wall_function_loglaw(user, wall_roughness_height,
+                                ierr = ApplyWallModelAtCell(user, wall_pressure, wall_eddy_viscosity,
+                                                    i, j, first_interior_cell,
+                                                    wall_roughness_height,
                                                     distance_to_second_cell, distance_to_first_cell,
                                                     wall_velocity, reference_velocity,
                                                     &velocity_cartesian[first_interior_cell][j][i],
                                                     &friction_velocity[first_interior_cell][j][i],
-                                                    wall_normal[0], wall_normal[1], wall_normal[2]);
+                                                    wall_normal[0], wall_normal[1], wall_normal[2]); CHKERRQ(ierr);
                                 
                                 velocity_boundary[ghost_cell_index][j][i].x = 0.0;
                                 velocity_boundary[ghost_cell_index][j][i].y = 0.0;
@@ -2897,12 +3034,14 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
                                       &velocity_cartesian[first_interior_cell][j][i],
                                       wall_normal[0], wall_normal[1], wall_normal[2]);
                                 
-                                wall_function_loglaw(user, wall_roughness_height,
+                                ierr = ApplyWallModelAtCell(user, wall_pressure, wall_eddy_viscosity,
+                                                    i, j, first_interior_cell,
+                                                    wall_roughness_height,
                                                     distance_to_second_cell, distance_to_first_cell,
                                                     wall_velocity, reference_velocity,
                                                     &velocity_cartesian[first_interior_cell][j][i],
                                                     &friction_velocity[first_interior_cell][j][i],
-                                                    wall_normal[0], wall_normal[1], wall_normal[2]);
+                                                    wall_normal[0], wall_normal[1], wall_normal[2]); CHKERRQ(ierr);
                                 
                                 velocity_boundary[ghost_cell_index][j][i].x = 0.0;
                                 velocity_boundary[ghost_cell_index][j][i].y = 0.0;
@@ -2927,10 +3066,170 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&node_vertex_flag); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da, user->lAj, (const PetscReal***)&cell_jacobian); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->da, user->lFriction_Velocity, &friction_velocity); CHKERRQ(ierr);
-    
+    ierr = DMDAVecRestoreArrayRead(user->da, user->lP, (const PetscReal ***)&wall_pressure); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->da, user->Nu_Wall, &wall_eddy_viscosity); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->da, user->Friction_Velocity, &friction_velocity); CHKERRQ(ierr);
+
+    /* The correction wrote the global view; refresh the ghosted image here so that every
+       caller sees a consistent field rather than each remembering to do it. */
+    ierr = UpdateLocalGhosts(user, FIELD_ID_U_TAU); CHKERRQ(ierr);
+    ierr = UpdateLocalGhosts(user, FIELD_ID_NU_WALL); CHKERRQ(ierr);
+
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Complete.\n");
     
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "LogWallModelDiagnostics"
+/**
+ * @brief Implementation of \ref LogWallModelDiagnostics().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/Boundaries.h`.
+ */
+PetscErrorCode LogWallModelDiagnostics(UserCtx *user)
+{
+    SimCtx   *simCtx = user->simCtx;
+    const WallModelDiagnosticsState *state = &user->wall_diagnostics;
+    MPI_Comm  comm;
+
+    /* Index 0..3: cell count, u_tau sum, u_tau^2 sum, y+ sum. Index 4..5: wall-distance
+       and wall-viscosity sums. One collective rather than six. */
+    PetscReal local_sum[6], global_sum[6];
+    PetscReal local_max[2], global_max[2];
+    PetscReal local_min, global_min;
+
+    PetscFunctionBeginUser;
+
+    if (!simCtx->wallfunction) PetscFunctionReturn(0);
+
+    PetscCall(PetscObjectGetComm((PetscObject)user->da, &comm));
+
+    local_sum[0] = (PetscReal)state->cells;
+    local_sum[1] = state->friction_velocity_sum;
+    local_sum[2] = state->friction_velocity_sq;
+    local_sum[3] = state->y_plus_sum;
+    local_sum[4] = state->wall_distance_sum;
+    local_sum[5] = state->wall_viscosity_sum;
+    local_max[0] = (state->cells > 0) ? state->friction_velocity_max : 0.0;
+    local_max[1] = (state->cells > 0) ? state->y_plus_max : 0.0;
+    /* A rank that owns no wall face must not win the minimum with a zero it never
+       measured, so it contributes the identity instead. */
+    local_min    = (state->cells > 0) ? state->friction_velocity_min : PETSC_MAX_REAL;
+
+    PetscCallMPI(MPI_Allreduce(local_sum, global_sum, 6, MPIU_REAL, MPI_SUM, comm));
+    PetscCallMPI(MPI_Allreduce(local_max, global_max, 2, MPIU_REAL, MPI_MAX, comm));
+    PetscCallMPI(MPI_Allreduce(&local_min, &global_min, 1, MPIU_REAL, MPI_MIN, comm));
+
+    if (simCtx->rank == 0) {
+        const PetscReal cells = global_sum[0];
+        FILE           *file  = NULL;
+        PetscReal       mean, mean_square, variance;
+
+        /* No wall face anywhere is a configuration fact, not a data point: a run with
+           wall functions enabled and no WALL boundary would otherwise emit a row of
+           zeros that reads like a converged answer. */
+        if (cells <= 0.0) {
+            LOG_ALLOW(GLOBAL, LOG_WARNING,
+                      "Wall model is enabled but no WALL face was corrected this step; "
+                      "no diagnostics written.\n");
+            PetscFunctionReturn(0);
+        }
+
+        mean        = global_sum[1] / cells;
+        mean_square = global_sum[2] / cells;
+        variance    = PetscMax(mean_square - mean * mean, 0.0);
+
+        PetscCall(PicurvOpenDiagnosticsCsv(simCtx, "wall_model.csv",
+                                           "step,time,wall_cells,u_tau_mean,u_tau_rms,"
+                                           "u_tau_min,u_tau_max,y_plus_mean,y_plus_max,"
+                                           "wall_distance_mean,nu_wall_over_nu_mean", &file));
+        fprintf(file,
+                "%d,%.6e,%d,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e\n",
+                (int)simCtx->step, (double)simCtx->ti, (int)cells,
+                (double)mean, (double)PetscSqrtReal(variance),
+                (double)global_min, (double)global_max[0],
+                (double)(global_sum[3] / cells), (double)global_max[1],
+                (double)(global_sum[4] / cells),
+                (double)(global_sum[5] / cells * simCtx->ren));
+        PetscCheck(fclose(file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                   "Unable to close the wall-model diagnostics file.");
+
+        LOG_ALLOW(GLOBAL, LOG_INFO,
+                  "  Wall model (%s): u_tau=%.4e, y+ (mean)=%.2f, y+ (max)=%.2f over %d cell(s)\n",
+                  WallFunctionModelToString((WallFunctionModel)simCtx->wallfunction),
+                  (double)mean, (double)(global_sum[3] / cells),
+                  (double)global_max[1], (int)cells);
+    }
+
+    /* Whether the first cell sits where the selected law is valid is a property of the
+       mesh, not of the configuration, so it cannot be settled before the grid exists.
+       It is checked here instead, and a run that stays outside the range is stopped
+       rather than left to spend its walltime producing a wall stress the law cannot
+       support. */
+    {
+        /* Consecutive samples tolerated outside the range. A startup transient or a
+           brief excursion is not worth ending a run over; a mesh that is simply wrong
+           never comes back. */
+        const PetscInt  PICURV_WALL_YPLUS_GRACE_SAMPLES = 10;
+        const PetscReal y_plus_mean = (global_sum[0] > 0.0) ? global_sum[3] / global_sum[0] : 0.0;
+        PetscReal       lower = 0.0, upper = 300.0;
+        const char     *range_reason = NULL;
+
+        switch ((WallFunctionModel)simCtx->wallfunction) {
+        case WALL_FUNCTION_LOG_LAW:
+            /* Below 30 the first cell is under the logarithmic region; above 300 the
+               law's own implementation reports no valid branch and the correction
+               silently falls back to leaving the velocity alone. */
+            lower = 30.0;
+            upper = 300.0;
+            range_reason = "the logarithmic region the law describes";
+            break;
+        case WALL_FUNCTION_WERNER:
+            /* The two-layer form has a valid branch below y+ = 11.81, so only the upper
+               end is a limit. */
+            lower = 0.0;
+            upper = 300.0;
+            range_reason = "the region the power law describes";
+            break;
+        default:
+            /* Cabot integrates across the wall layer, so it has no lower bound worth
+               asserting; a first cell far outside the layer leaves its ODE nothing to
+               integrate over. */
+            lower = 0.0;
+            upper = 1000.0;
+            range_reason = "the wall layer the model integrates over";
+            break;
+        }
+
+        if (global_sum[0] > 0.0 && (y_plus_mean < lower || y_plus_mean > upper)) {
+            user->wall_yplus_excursions += 1;
+            LOG_ALLOW(GLOBAL, LOG_WARNING,
+                      "Wall model (%s): first-cell y+ is %.2f, outside %s (%.0f to %.0f). "
+                      "The stress it reports is not one the law supports here. Sample %d "
+                      "of %d before this run is stopped.\n",
+                      WallFunctionModelToString((WallFunctionModel)simCtx->wallfunction),
+                      (double)y_plus_mean, range_reason, (double)lower, (double)upper,
+                      (int)user->wall_yplus_excursions,
+                      (int)PICURV_WALL_YPLUS_GRACE_SAMPLES);
+
+            PetscCheck(user->wall_yplus_excursions < PICURV_WALL_YPLUS_GRACE_SAMPLES,
+                       PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+                       "Wall model (%s): first-cell y+ has been outside %s (%.0f to %.0f) "
+                       "for %d consecutive samples, most recently %.2f. Refine or coarsen "
+                       "the wall-normal spacing so the first cell lands in range, or "
+                       "resolve the wall and disable the wall function. Stopping now "
+                       "rather than spending the run producing a stress the law cannot "
+                       "support.",
+                       WallFunctionModelToString((WallFunctionModel)simCtx->wallfunction),
+                       range_reason, (double)lower, (double)upper,
+                       (int)user->wall_yplus_excursions, (double)y_plus_mean);
+        } else {
+            /* Consecutive, so a sample back in range clears the count. */
+            user->wall_yplus_excursions = 0;
+        }
+    }
+
     PetscFunctionReturn(0);
 }
 

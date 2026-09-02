@@ -102,6 +102,31 @@ field binaries only when the set is small and nothing derived can answer the
 question. Returned data lands in `sandbox/`, and the analysis continues there
 under the same hygiene and cleanup rules as any other scratch.
 
+## Re-run what the change touched, not everything
+
+While iterating on a failure, the question is which tests the fix could have
+changed the answer for. Re-running only the test that failed is not enough: a fix
+can break a test that was passing. Re-running the whole suite after every fix is
+the other extreme, and on a change confined to one module most of it is answering
+a question nobody asked.
+
+Re-run the tests that cover the modules the fix touched. `tests/guide.md` maps
+subsystems to their narrowest targets, and `make review-packet CHANGED=working-tree`
+names the test targets declared for the paths you actually changed. When the packet
+reports a changed path as unrouted, fall back to the nearest directory `guide.md`
+and choose by responsibility; do not treat an unrouted path as "nothing to re-run".
+
+Run the full suite once, before committing — not after each fix in the loop.
+
+Do not pre-run the merge gates. `make certify-docs` and `certify-docs-fast` are
+commit-scoped by construction: they refuse a dirty tree, because a certificate is
+claimed for one commit. The pre-push hook and CI run them on the way to `main`
+anyway. Running them mid-iteration returns an error, not an answer.
+
+A test that was passing before your change is not evidence that it still passes.
+State which targets you re-ran and which you did not, so the difference is visible
+rather than assumed.
+
 ## Committing
 
 Do not commit scratch, temp files, run output, or generated artifacts. Before

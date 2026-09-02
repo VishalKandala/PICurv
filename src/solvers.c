@@ -78,6 +78,19 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
             ierr = SynchronizePeriodicCellFields(&user[bi], 1, cell_fields); CHKERRQ(ierr);
             ierr = UpdateLocalGhosts(&user[bi], FIELD_ID_UCAT); CHKERRQ(ierr);
 
+            // Contra2Cart rebuilds the Cartesian field from the contravariant one and so
+            // discards any near-wall correction the previous momentum solve applied. The
+            // wall model is re-applied here, before the strain rates are formed, so the
+            // closure and the momentum equation agree about the near-wall velocity. On
+            // the coarse grids a wall model exists to serve, the uncorrected strain is
+            // under-predicted, and the eddy viscosity with it. Mirrors the order the
+            // boundary pass itself uses: reconstruct, exchange, correct, exchange.
+            if (simCtx->wallfunction) {
+                ierr = ApplyWallFunction(&user[bi]); CHKERRQ(ierr);
+                ierr = SynchronizePeriodicCellFields(&user[bi], 1, cell_fields); CHKERRQ(ierr);
+                ierr = UpdateLocalGhosts(&user[bi], FIELD_ID_UCAT); CHKERRQ(ierr);
+            }
+
             // Only the dynamic model has a coefficient to recompute, and it honours
             // its own cadence. The constant model's coefficient never changes.
             if (simCtx->les == DYNAMIC_SMAGORINSKY &&
@@ -161,6 +174,11 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
 
 	// -- Log Continuity metrics ----
 	ierr = LOG_CONTINUITY_METRICS(&user[bi]);
+
+        /* Reported here rather than beside the LES block, because a wall model is
+           configured independently of LES and its last pass this step is the boundary
+           pass, not the closure prologue. A no-op when no wall model is active. */
+        ierr = LogWallModelDiagnostics(&user[bi]); CHKERRQ(ierr);
         /*
         // --- Immersed Boundary Interpolation (Post-Correction) ---
         // This step would update the velocity values AT the IB nodes to match the

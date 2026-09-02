@@ -10,6 +10,172 @@
 
 ## 0.2.0 — 2026-09-02
 
+- Wall-model observability, and a defect that made the wall model unusable.
+  - `lFriction_Velocity` was created from `fda`, whose dof is 3, while every reader
+    opened it through `da`, whose dof is 1. PETSc rejects that pairing outright, so
+    enabling wall functions on a case with a `WALL` face aborted at the first boundary
+    pass with `Vector local size N is not compatible with DMDA local sizes N/3`. The unit
+    fixtures allocated it correctly and so never saw it. Storage is now created on `da`
+    as a global/local pair, and `tests/c/test_boundaries.c` allocates the way production
+    does and checks the allocation against the field catalog descriptor, so a DM or dof
+    mismatch fails in the suite rather than only in a run.
+  - The friction velocity was computed every step and discarded: no field, no column, no
+    checkpoint. It is now the catalogued field `Utau`, written when a wall model is
+    active. It is not read back on restart, because the first boundary pass of the
+    restarted run recomputes it from the restored velocity.
+  - New `<run.runtime_logs>/wall_model.csv`, one row per step: the friction velocity's
+    mean, RMS and extrema over the corrected cells, the first-cell `y+` and wall
+    distance, and the cell count. `y+` is formed inside the wall-model dispatch, where
+    the wall distance is still in hand; nothing downstream can recover it. A step that
+    corrects no cell warns and writes nothing rather than emitting zeros. Plottable as
+    `picurv summarize --plot wall_model.y_plus_mean`.
+  - The banner no longer prints a roughness height beside Werner-Wengle or Cabot, which
+    discard it, and now reports the Yoshizawa coefficient with the diagnostics line.
+- New example, `turbulent_channel`: a driven periodic plane channel at `Re_tau ~ 1000`,
+  wall-modelled. It is the wall-model counterpart to `decaying_isotropic_turbulence` -
+  that case exercises the subgrid closure where there is no wall, this one exercises what
+  only exists because there is: the wall model and its three laws, coefficient averaging
+  over the two homogeneous axes of a wall-normal-inhomogeneous flow, the driven periodic
+  pair, and the near-wall diagnostics. Distinct from
+  `periodic_test/driven_channel/les_retau180`, which is wall-resolved
+  constant-Smagorinsky at a Reynolds number forty times lower. Its uniform wall-normal
+  grid puts the first cell at `y+ ~ 51`, which is where a wall model belongs and why the
+  same mesh cannot be reused with the wall model off - a wall-resolved run needs a first
+  cell near `y+ = 1`, clustered at both walls, which the programmatic generator's
+  one-sided geometric stretch cannot produce. Verified as configuration and plumbing: it
+  validates and runs, and reports `y+` between 39 and 50 with the effective wall
+  viscosity matching `y+/u+ - 1`. It ships a laminar Poiseuille initial condition and
+  **will not become turbulent from it**; no generator here produces a perturbed field for
+  a wall-bounded domain, since `generators/ic.gen` projects spectrally and assumes
+  periodicity in all three directions. Its literature anchors - the log law, Dean's
+  correlation, and Lee & Moser (2015) - are what it is built to be compared against, not
+  comparisons that have been run.
+- Documentation currency pass. Two tier-2 registry claims had gone stale and were
+  contradicting the code: `capability_families.json` still marked both LES models
+  `known-defective` with empty evidence, citing the Germano defect and the inert constant
+  model that were fixed in this campaign, and pointed at `capability_scope_records.json`
+  for deferred material that file does not contain; and the `turbulence.wall_function`
+  record still said the integration "dispatches to the log law unconditionally", which
+  stopped being true when the model selector was wired. Both models are now recorded
+  `experimental` with the decaying-isotropic example as production evidence for the
+  dynamic one - the constant model declares none, because no shipped example selects it.
+  `12_Capabilities_Summary` and `56_Field_Identity_and_Layout_Catalog` were updated for
+  the stress delivery, the pairing rules, and the two wall-model fields.
+- The wall model's stress now reaches the momentum equation. The correction sets a
+  near-wall velocity, and the viscous operator reaches the wall through a viscosity times
+  a gradient - so with the subgrid viscosity zeroed at wall faces, only the molecular
+  fraction `u+/y+` of the modelled stress was delivered, about a fourteenth of it at
+  `y+ = 267`. That zeroing is right for a wall-resolved run and backwards for a
+  wall-modelled one. The wall pass now publishes an effective wall eddy viscosity,
+  `nu_eff = tau_w y / u`, formed where the stress, the distance and the corrected speed
+  are all still in hand, and the viscous flux uses it at that face. Reported as
+  `nu_wall_over_nu_mean`; a 30-step channel shows the solutions with and without it
+  separating monotonically.
+- Three wall-model pairings are now rejected at validation, each naming why: a wall model
+  with no turbulence model (there is no implicit-LES scheme here to stand in - the
+  convection is QUICK, whose dissipation is not a subgrid model), and `cabot` or `werner`
+  under RANS. A wall model on a laminar case is refused for the same reason from the other
+  side. And because whether the first cell lands in the law's valid range depends on the
+  mesh rather than the configuration, a `y+` excursion warns on every diagnostic sample
+  and stops the run after ten consecutive ones.
+- Logging is now a registered subsystem, `observability.logging`, at `supported`. It had
+  been in no subsystem record, no capability family, no contract, no freshness surface,
+  and in neither `src/guide.md` nor the module map of `13_Code_Architecture` - the shape
+  that leaves a module unowned is precisely that everything reports through it and nothing
+  depends on it for a result. A change to what a user sees therefore tripped no staleness
+  suspicion anywhere. Both module maps now carry it, `09_Monitor_Reference` documents the
+  append-and-continuation-marker lifecycle its runtime files follow across a restart, and
+  a soft freshness surface watches `src/logging.c` and `include/logging.h`. The supported
+  claim is about its behavioural contracts, which `tests/c/test_logging.c` covers; it is
+  not a claim about any quantity another subsystem hands it to print.
+- A toy channel exercising all three wall laws end to end found two defects that unit
+  coverage could not reach, both now fixed.
+  - Werner-Wengle reported one identical `u_tau` at every wall cell: `wall_function()`
+    used its Newton initial guess as the answer. It now uses a closed-form
+    `taw_Werner()`/`u_Werner_explicit()` pair - the profile integrated across the first
+    cell, which is the Werner-Wengle model proper and inverts without any root-find, so
+    the no-inner-iteration property the model is selected for is now real rather than
+    claimed. The iterative `f_Werner`/`df_Werner`/`find_utau_Werner` helpers are retained
+    but unwired, with the reasons recorded at their definitions: their branch threshold
+    is written through the friction velocity being solved for, and their two branches
+    invert different relations, so they reconstruct the pointwise `u_Werner()` only below
+    `y+ = 11.81` - which is the only range their unit test samples.
+  - The friction-velocity storage was allocated inside the `les || rans` block, so
+    enabling a wall model without either of them left `ApplyWallFunction` dereferencing a
+    null vector. `wall_function` is their sibling in the schema, not their child;
+    allocation is now gated on the wall model alone.
+  All three laws now vary cell to cell and differ at `y+ ~ 10-14`, and agree exactly at
+  `y+ ~ 1.4`, where every wall model must reduce to `u+ = y+`.
+- `les.clipping.max_cs` under a mode that imposes no ceiling is now an error rather than
+  a warning. A ceiling that is not in force reads as one that is.
+- The Newton-Krylov preconditioner's omission of the Clark stress is now documented as
+  the deliberate choice it is - the term is higher order and not diagonally dominant, so
+  representing it would change what kind of matrix the point block is - rather than as an
+  unexplained gap. The Krylov cost of that choice has not been measured.
+- Stale flag mappings in `07_Case_Reference` corrected: `-const_cs`, `-max_cs`,
+  `-dynamic_freq` and `-testfilter_ik` no longer exist, and `les.max_cs` is not an
+  accepted key. The list now matches what the CLI emits.
+- `tests/c/test_les.c` was never listed in `tests/guide.md`, and the `2026-03-20` coverage
+  snapshot for `src/les.c` described a file that has since been rewritten. Both corrected;
+  the assembled LES model path has not been re-measured.
+
+- Wall function boundary treatment: integration coverage, its own lifecycle record,
+  and two corrected claims.
+  - `ApplyWallFunction()` had no test. The velocity laws and their friction-velocity
+    root-finds were already covered, but the wiring around them was not, and its
+    plausible failures are silent: feeding the reference and boundary wall distances in
+    the wrong order, or taking the reference velocity from the wrong cell, still
+    produces a plausible corrected velocity. `tests/c/test_boundaries.c` now checks that
+    the corrected first interior velocity is the modelled profile at that cell's wall
+    distance for the friction velocity the integration stored, and separately that the
+    stored friction velocity inverts the law at the *reference* cell's distance. Swapping
+    the two distances in production is detected.
+  - The startup banner now reports the wall-function model and roughness height.
+    `07_Case_Reference` claimed it already did; `io.c` contained no such line. The claim
+    is made true rather than removed, and the line is pinned by the user-facing
+    reporting contract.
+  - `turbulence.wall_function` has its own subsystem record. It was owned by the
+    `turbulence.rans` record, which is the wrong home: a wall function is configured
+    independently of both LES and RANS, and the RANS runtime update is incomplete while
+    this treatment is separately usable.
+  - The model selector now reaches the runtime. `-wallfunction` previously carried
+    only an enable flag: the configured `model` was validated by the Python layer and
+    then discarded, so every case ran the log law whatever it asked for, and
+    `ApplyWallFunction()` dispatched to it unconditionally at all six faces. The flag
+    now carries a `WallFunctionModel` code, one dispatcher replaces the six hardcoded
+    call sites, and `werner` and `cabot` join `log_law` as selectable. Both were
+    already implemented and unit-tested in `src/wallfunction.c` and had simply never
+    been reachable. `WallFunctionModelToString()` reports the choice in the banner.
+    Cabot's non-equilibrium pressure-gradient term is supplied as zero, reducing it to
+    the equilibrium form; that is documented on its capability entry rather than
+    implied.
+  - Wall-overwritten cells are excluded from the dynamic procedure. The correction is
+    an imposed analytic profile, so the Germano identity evaluated there measures that
+    profile rather than resolved turbulence. No averaging mode escapes it: the biased
+    set is the whole domain under `global`, the wall plane under `homogeneous` retaining
+    the wall-normal direction, and that cell alone under `local`. A cell left with no
+    data takes a zero coefficient, which is what a wall model already supplying the
+    stress calls for. Carried through the averaging kernel's inclusion mask, which was
+    already there for the statistics pipeline.
+  - `PicurvSpatialRatioAverage()` now honours the target mask and the inclusion mask in
+    its pointwise branch as well as its averaged one. It previously applied neither when
+    no direction was selected, so an exclusion silently changed meaning depending on the
+    averaging mode.
+  - Cabot receives the resolved wall-parallel pressure gradient, taken from the
+    near-wall pressure through `ComputeScalarFieldDerivatives()`. Supplying zero would
+    have reduced it to its equilibrium form - not the model the selector names.
+  - `roughness_height` is rejected under `werner` and `cabot`. Neither has a roughness
+    formulation - Werner-Wengle has no such term and Cabot discards the argument - so
+    accepting the key would silently drop a value set on purpose.
+  - **The wall correction now reaches the LES closure.** `Contra2Cart` rebuilds the
+    Cartesian field at the top of each timestep and discarded the previous solve's
+    near-wall correction, so the eddy viscosity was computed from the uncorrected field
+    while the momentum equation used the corrected one - the two halves of one timestep
+    disagreeing about the velocity. The wall model is re-applied before the strain rates
+    are formed. **This changes results for any case combining LES with a wall
+    function.** The remaining caveat, that an imposed profile contaminates the dynamic
+    coefficient at the wall-adjacent cell, is documented on the closure page.
+
 - LES subgrid closure corrected and consolidated. **Results from earlier revisions of
   this tree are not reproducible under it, and neither LES model previously applied the
   dissipation it claimed to.**

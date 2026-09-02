@@ -1586,19 +1586,106 @@ def test_les_dynamic_only_keys_are_rejected_for_the_constant_model():
     assert any("cannot be used with model 'constant_smagorinsky'" in error for error in errors)
 
 
-def test_les_max_cs_outside_clamp_mode_warns_that_it_is_ignored():
+def _wall_pairing_errors(les=None, rans=None, wall=None, viscosity=0.001):
     """!
-    @brief Test that a ceiling no mode applies is reported rather than silently dropped.
+    @brief Runs the wall-model pairing validation over one turbulence block.
+    @param les       The `les` block, or None.
+    @param rans      The `rans` block, or None.
+    @param wall      The `wall_function` block, or None.
+    @param viscosity Fluid viscosity, which with unit reference scales sets the Reynolds number.
+    @return The list of blocking messages it produced.
     """
-    errors, warnings = _les_validation(
+    picurv = load_picurv_module()
+    case_cfg = {
+        "properties": {
+            "scaling": {"length_ref": 1.0, "velocity_ref": 1.0},
+            "fluid": {"density": 1.0, "viscosity": viscosity},
+        }
+    }
+    errors, warnings = [], []
+    picurv.validate_wall_model_pairing(case_cfg, les, rans, wall, "case.yml", errors, warnings)
+    return errors
+
+
+def test_wall_model_without_a_turbulence_model_is_rejected():
+    """!
+    @brief Test that a wall model with nothing to sit on fails, naming why.
+
+    The convection scheme's dissipation is not a subgrid model, so there is no implicit
+    LES to appeal to; the message has to say that rather than leave the user assuming it.
+    """
+    errors = _wall_pairing_errors(
+        les={"enabled": False}, rans={"enabled": False}, wall={"enabled": True})
+    assert any("no turbulence model" in e for e in errors)
+    assert any("implicit-LES" in e for e in errors)
+
+    # With LES on, the same wall model is accepted.
+    assert _wall_pairing_errors(
+        les={"enabled": True, "model": "dynamic_smagorinsky"},
+        rans={"enabled": False}, wall={"enabled": True}) == []
+
+    # A wall model that is present but disabled is not a pairing at all.
+    assert _wall_pairing_errors(
+        les={"enabled": False}, rans={"enabled": False}, wall={"enabled": False}) == []
+
+
+def test_les_only_wall_models_are_rejected_under_rans():
+    """!
+    @brief Test that the two large-eddy wall laws are refused with RANS, and log law is not.
+    """
+    for model, fragment in (("cabot", "mixing-length"), ("werner", "instantaneous")):
+        errors = _wall_pairing_errors(
+            les={"enabled": False}, rans={"enabled": True},
+            wall={"enabled": True, "model": model})
+        assert any(fragment in e for e in errors), model
+        assert any("Use 'log_law' with RANS" in e for e in errors), model
+
+    assert _wall_pairing_errors(
+        les={"enabled": False}, rans={"enabled": True},
+        wall={"enabled": True, "model": "log_law"}) == []
+
+
+def test_wall_model_on_a_laminar_case_is_rejected():
+    """!
+    @brief Test that a wall law is refused where there is no turbulent layer to model.
+    """
+    laminar = _wall_pairing_errors(
+        les={"enabled": True, "model": "constant_smagorinsky"},
+        wall={"enabled": True}, viscosity=0.1)          # Re = 10
+    assert any("laminar" in e for e in laminar)
+
+    turbulent = _wall_pairing_errors(
+        les={"enabled": True, "model": "constant_smagorinsky"},
+        wall={"enabled": True}, viscosity=1.0e-5)       # Re = 100000
+    assert turbulent == []
+
+
+def test_les_max_cs_outside_clamp_mode_is_rejected():
+    """!
+    @brief Test that a ceiling no mode applies is rejected rather than silently dropped.
+
+    A `max_cs` under a mode that imposes no ceiling reads as a bound that is in force
+    when none is, so it fails the case rather than being carried through as a warning
+    the user can miss.
+    """
+    for mode in ("none", "clip_negative"):
+        errors, _ = _les_validation(
+            {
+                "enabled": True,
+                "model": "dynamic_smagorinsky",
+                "clipping": {"mode": mode, "max_cs": 0.3},
+            }
+        )
+        assert any("applies only to mode 'clamp'" in error for error in errors), mode
+
+    errors, _ = _les_validation(
         {
             "enabled": True,
             "model": "dynamic_smagorinsky",
-            "clipping": {"mode": "none", "max_cs": 0.3},
+            "clipping": {"mode": "clamp", "max_cs": 0.3},
         }
     )
     assert errors == []
-    assert any("only applied by" in warning for warning in warnings)
 
 
 def test_les_unknown_selector_values_are_named_in_the_error():
@@ -1626,6 +1713,46 @@ def test_les_averaging_directions_reject_repeats_and_unknown_axes():
         picurv.normalize_les_averaging_directions(["i", "i"])
     with pytest.raises(ValueError, match="Unknown LES averaging direction"):
         picurv.normalize_les_averaging_directions(["x"])
+
+
+def test_wall_function_model_names_map_to_their_runtime_codes():
+    """!
+    @brief Test each wall model name resolves to the code the runtime dispatches on.
+    """
+    picurv = load_picurv_module()
+    assert picurv.normalize_wall_function_model("log_law") == 1
+    assert picurv.normalize_wall_function_model("werner") == 2
+    assert picurv.normalize_wall_function_model("cabot") == 3
+    assert picurv.normalize_wall_function_model(None) == 1
+
+
+def test_wall_function_model_selector_reaches_the_control_file():
+    """!
+    @brief Test the wall model is emitted, not validated and dropped.
+    """
+    picurv = load_picurv_module()
+    for name, code in (("log_law", 1), ("werner", 2), ("werner_wengle", 2), ("cabot", 3)):
+        control_lines = []
+        picurv.append_turbulence_flags(
+            {"physics": {"turbulence": {"wall_function": {"enabled": True, "model": name}}}},
+            control_lines)
+        assert f"-wallfunction {code}" in control_lines, name
+
+    # Disabled outranks the model.
+    control_lines = []
+    picurv.append_turbulence_flags(
+        {"physics": {"turbulence": {"wall_function": {"enabled": False, "model": "cabot"}}}},
+        control_lines)
+    assert "-wallfunction 0" in control_lines
+
+
+def test_wall_function_rejects_an_unknown_model():
+    """!
+    @brief Test an unknown wall model names the accepted values.
+    """
+    picurv = load_picurv_module()
+    with pytest.raises(ValueError, match="log_law"):
+        picurv.normalize_wall_function_model("spalding")
 
 
 def test_les_yoshizawa_constant_is_reachable_from_yaml():

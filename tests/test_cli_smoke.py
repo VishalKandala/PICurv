@@ -6335,6 +6335,40 @@ def test_continue_with_zero_start_step_fails(tmp_path):
         )
 
 
+def test_wall_function_roughness_is_rejected_for_models_without_one(tmp_path):
+    """!
+    @brief Test roughness_height is refused for wall models that have no roughness term.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+
+    for model in ("werner", "cabot"):
+        case_dir = tmp_path / model
+        case_dir.mkdir()
+        for name in ("case.yml", "solver.yml", "monitor.yml", "post.yml"):
+            shutil.copy(valid / name, case_dir / name)
+        case_cfg = picurv.read_yaml_file(str(case_dir / "case.yml"))
+        turbulence = (case_cfg.setdefault("models", {}).setdefault("physics", {})
+                              .setdefault("turbulence", {}))
+        # Werner-Wengle has no roughness formulation and Cabot discards the argument, so
+        # a roughness set here would be silently dropped rather than applied.
+        turbulence["wall_function"] = {
+            "enabled": True, "model": model, "roughness_height": 1.0e-4,
+        }
+        picurv.write_yaml_file(str(case_dir / "case.yml"), case_cfg)
+
+        result = run_picurv(
+            ["validate", "--case", str(case_dir / "case.yml"),
+             "--solver", str(case_dir / "solver.yml"),
+             "--monitor", str(case_dir / "monitor.yml"),
+             "--post", str(case_dir / "post.yml")],
+            cwd=tmp_path)
+        assert result.returncode != 0, model
+        assert "roughness_height" in result.stderr + result.stdout, model
+        assert "log_law" in result.stderr + result.stdout, model
+
+
 def test_needs_restart_source_analytical_init_no_source(tmp_path):
     """!
     @brief Test that analytical + init + start_step > 0 does not need restart source (F3).

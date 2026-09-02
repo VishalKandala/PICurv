@@ -30,6 +30,7 @@ from generate_xref_index import (  # noqa: E402
 
 CONTRACTS = TOOLING_DIR / "contract_registry.json"
 FRESHNESS = TOOLING_DIR / "freshness_manifest.json"
+MEASUREMENTS = TOOLING_DIR / "measurement_records.json"
 FAMILIES = TOOLING_DIR / "capability_families.json"
 SUBSYSTEMS = TOOLING_DIR / "subsystem_records.json"
 SCOPE = TOOLING_DIR / "capability_scope_records.json"
@@ -325,6 +326,21 @@ def evidence_sources(family: dict) -> list[str]:
     return sorted(sources)
 
 
+def recorded_measurements(sources: list[str]) -> list:
+    """!
+    @brief Measurement records cited by declared evidence sources.
+    @param[in] sources Declared evidence source identifiers.
+    @return Matching measurement records, in citation order.
+    """
+
+    wanted = [s.split(":", 1)[1] for s in sources if s.startswith("measurement:")]
+    if not wanted or not MEASUREMENTS.is_file():
+        return []
+    by_id = {r.get("id"): r for r in
+             json.loads(MEASUREMENTS.read_text(encoding="utf-8")).get("records", [])}
+    return [by_id[i] for i in wanted if i in by_id]
+
+
 def make_targets(sources: list[str]) -> list[str]:
     """!
     @brief Make targets named by declared evidence sources.
@@ -456,6 +472,25 @@ def format_xref_node(index: dict, refid: str) -> str:
     location = record.get("definition", {})
     line = f":{location.get('line')}" if location.get("line") else ""
     return f"{record.get('qualified_name', record.get('name', refid))} ({location.get('path', '?')}{line})"
+
+
+def print_measurements(records: list) -> None:
+    """!
+    @brief Print the measurements already recorded against this route.
+    @param[in] records Measurement records to render.
+    @return None.
+    """
+
+    if not records:
+        return
+    print("MEASUREMENTS ALREADY RECORDED (read before running anything expensive)")
+    for record in records:
+        result = record.get("result") or {}
+        verdict = result.get("verdict", "?") if isinstance(result, dict) else "?"
+        print(f"  [{verdict}] {record.get('id')} - {record.get('question')}")
+        print(f"      taken {record.get('date')} at {record.get('commit')} on {record.get('environment')}")
+        print(f"      does not establish: {record.get('limitations')}")
+    print("")
 
 
 def print_xref(specs: list[tuple[str, str, str]], paths: list[str] | None = None) -> None:
@@ -654,6 +689,7 @@ def capability_mode(capability_id: str) -> int:
     for source in evidence or ["(none declared)"]:
         print(f"  {source}")
     print("")
+    print_measurements(recorded_measurements(evidence))
     print_xref(specs)
     print("VERIFY WITH")
     for command in sorted(set(make_targets(evidence))):

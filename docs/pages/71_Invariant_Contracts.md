@@ -2,7 +2,7 @@
 
 @anchor _Invariant_Contracts
 
-@pagemeta{Reference, Maintainers and contributors, 12 enforced of 20 registered}
+@pagemeta{Reference, Maintainers and contributors, 13 enforced of 20 registered}
 
 PICurv documentation covers two kinds of truth, and only one of them is a choice.
 
@@ -43,19 +43,26 @@ would be told. Most invariants in this project are currently tracked.
 
 @section p71_register_sec 3. The Register
 
-Run `make audit-contracts` for the live list. Currently **12 enforced, 7 tracked,
+Run `make audit-contracts` for the live list. Currently **13 enforced, 6 tracked,
 1 planned**.
 
 **Enforced.** PETSc option ingress; user-facing reporting grammar; run artifact
 **path** topology; logical run-path locators in prose; the public capability surface;
 the capability family census; published-site integrity; the generated CLI reference;
 page-type coverage; named public choice sets; subsystem lifecycle obligations;
-documentation freshness attestation.
+documentation freshness attestation; the field identity and layout inventory.
 
-**Tracked.** Run artifact **lifecycle semantics**; checkpoint bundle schema; field
-identity and layout; units and non-dimensionalization; run/study/submission/storage
-manifest schemas; CLI structured output schemas; durable file formats such as PICGRID
-and PICSLICE.
+**Tracked.** Run artifact **lifecycle semantics**; checkpoint bundle schema; units and
+non-dimensionalization; run/study/submission/storage manifest schemas; CLI structured
+output schemas; durable file formats such as PICGRID and PICSLICE.
+
+@warning `field.identity_and_layout` is enforced over the catalog's **identity and
+layout** only: `audit_field_catalog.py` compares the field names and their layout
+assignment in `56_Field_Identity_and_Layout_Catalog` section 6, and the layout
+vocabulary in section 4, against `src/field_catalog.c`,
+`src/particle_field_catalog.c`, and `include/field_catalog.h`. Degrees of freedom, DM
+family, synchronization class, availability conditions, capability flags, and whether
+the runtime actually allocates a field are **not** checked and remain human review.
 
 @warning The artifact contract is deliberately **split**. `run.artifact_topology` is
 enforced and covers only the planned path set: the extractor compares what the CLI

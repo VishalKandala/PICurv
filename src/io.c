@@ -78,6 +78,7 @@ static PetscBool CheckpointFieldIsEnabled(const SimCtx *simCtx, const FieldDescr
     if ((availability & FIELD_AVAILABILITY_LES_DYNAMIC) && simCtx->les != DYNAMIC_SMAGORINSKY) return PETSC_FALSE;
     if ((availability & FIELD_AVAILABILITY_RANS) && !simCtx->rans) return PETSC_FALSE;
     if ((availability & FIELD_AVAILABILITY_PARTICLES) && simCtx->np <= 0) return PETSC_FALSE;
+    if ((availability & FIELD_AVAILABILITY_WALL_MODEL) && !simCtx->wallfunction) return PETSC_FALSE;
     return PETSC_TRUE;
 }
 
@@ -1510,6 +1511,11 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
         if ((descriptor->availability & FIELD_AVAILABILITY_PARTICLES) &&
             (!particles_saved || strcmp(simCtx->particleRestartMode, "load"))) continue;
         if ((descriptor->availability & FIELD_AVAILABILITY_LES_DYNAMIC) && !les_saved) continue;
+        /* Wall-model state is derived, not carried: the first boundary pass of the
+           restarted run recomputes it from the restored velocity field. Writing it keeps
+           it available to postprocessing; reading it would only tie a restart to whether
+           the source checkpoint happened to have a wall model enabled. */
+        if (descriptor->availability & FIELD_AVAILABILITY_WALL_MODEL) continue;
         if ((descriptor->availability & FIELD_AVAILABILITY_RANS) && !rans_saved) continue;
         if ((descriptor->availability & FIELD_AVAILABILITY_TURBULENCE) &&
             !((simCtx->les && les_saved) || (simCtx->rans && rans_saved))) continue;
@@ -3073,9 +3079,29 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                     if (les->diagnostics_enabled) {
                         ierr = PetscPrintf(PETSC_COMM_WORLD," LES Coefficient Diagnostics : ENABLED (les_coefficient.csv, every %d step(s))\n",
                                            (int)les->diagnostics_cadence); CHKERRQ(ierr);
+                        /* The Yoshizawa coefficient scales only the reported subgrid kinetic
+                           energy, so it belongs with the diagnostics line rather than above it. */
+                        ierr = PetscPrintf(PETSC_COMM_WORLD," LES Yoshizawa Coefficient   : %.4f (subgrid energy estimate)\n",
+                                           (double)les->yoshizawa_ci); CHKERRQ(ierr);
                     } else {
                         ierr = PetscPrintf(PETSC_COMM_WORLD," LES Coefficient Diagnostics : DISABLED\n"); CHKERRQ(ierr);
                     }
+                }
+                /* Reported independently of LES and RANS, because a wall function is
+                   configured independently of both. */
+                if (simCtx->wallfunction) {
+                    /* Only the log law has a roughness term. Printing the height beside a
+                       model that discards it would report a control that is not in force. */
+                    if ((WallFunctionModel)simCtx->wallfunction == WALL_FUNCTION_LOG_LAW) {
+                        ierr = PetscPrintf(PETSC_COMM_WORLD," Wall Function Model         : %s (roughness height %.3e)\n",
+                                           WallFunctionModelToString((WallFunctionModel)simCtx->wallfunction),
+                                           (double)simCtx->wall_roughness_height); CHKERRQ(ierr);
+                    } else {
+                        ierr = PetscPrintf(PETSC_COMM_WORLD," Wall Function Model         : %s (smooth wall; no roughness term)\n",
+                                           WallFunctionModelToString((WallFunctionModel)simCtx->wallfunction)); CHKERRQ(ierr);
+                    }
+                } else {
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," Wall Function Model         : DISABLED\n"); CHKERRQ(ierr);
                 }
             }
             if (strcmp(simCtx->eulerianSource, "load") == 0) {

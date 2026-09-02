@@ -64,11 +64,6 @@
       "classification": "cli_inventory_sufficient",
       "reason": "Scheduler kinds resolved from `--cluster` and the scheduler profile. The generated CLI reference lists the flags, and the cluster guide explains when each applies; a Tier-2 entry per scheduler would restate that page."
     },
-    "picurv_cli.core::{log_law,loglaw}": {
-      "classification": "spelling_alias",
-      "reason": "Accepted spellings of the log-law wall function. A spelling inherits the status of the value it resolves to and owns no entry of its own.",
-      "owner": "turbulence.wall_function"
-    },
     "picurv_cli.core::{mode,per,ph,ref,step,time,win}": {
       "classification": "not_public",
       "reason": "Abbreviated column headers of an internally formatted diagnostic table. Never configured and never parsed from user input."

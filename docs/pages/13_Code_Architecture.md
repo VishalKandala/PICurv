@@ -83,6 +83,18 @@ High-level stages:
   - `src/postprocessor.c`
   - `src/postprocessing_kernels.c`
   - `src/vtk_io.c`
+- Observability:
+  - `src/logging.c`
+
+Observability sits apart from the list above rather than inside one of its rows, because
+every other module reports through it. `logging.c` owns the console tier system, the
+runtime metric emitters, and the lifecycle of the per-run diagnostic files in
+`<run.runtime_logs>`. Its dependency direction is one-way and deliberate: it reads
+`SimCtx` for the step, physical time, log directory, rank, and continuation state, and it
+depends on PETSc for collectives and formatted output, but no solver module depends on
+logging for a numerical result. That is what lets any module report without acquiring a
+dependency on any other, and it is why a change here can alter what a user sees without
+altering what the solver computes.
 
 @subsection p13_module_api_matrix_ssec 5.1 File-Level API Entry Points
 

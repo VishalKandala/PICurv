@@ -1,0 +1,15 @@
+{
+  "description": "Recorded measurements that back an evidence claim. A capability value cites one as 'measurement:<id>' in its evidence mapping, the same way it cites 'make:<target>' or 'example:<case>'. The difference is what the source is: a make target or example is re-runnable on demand, while a measurement is a run that already happened and cannot be cheaply repeated - a cluster campaign, a refinement study, a reference comparison. Recording it here is what lets a later reader, human or agent, see that the question was already answered, on what, and to what threshold, instead of running it again.",
+  "record_contract": {
+    "id": "stable identifier, referenced as measurement:<id> and cited by name in the capability entry",
+    "question": "the single question the campaign was run to answer",
+    "date": "ISO date the measurement was taken",
+    "commit": "repository revision the measurement was taken at",
+    "environment": "machine, scheduler, and rank layout the run actually used",
+    "configuration": "case, grid, and the settings that determine the result",
+    "result": "what was measured, the threshold it was judged against, and the verdict: met, not-met, or inconclusive",
+    "limitations": "what this measurement does not establish; required, and 'none' is not an acceptable value",
+    "artifacts": "committed derived data supporting the result; may be empty when the numbers in 'result' are the whole record"
+  },
+  "records": []
+}

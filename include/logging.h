@@ -670,6 +670,13 @@ const char* LESAveragingModeToString(LESAveragingMode mode);
 const char* LESClipModeToString(LESClipMode mode);
 
 /**
+ * @brief Returns the user-facing name of a wall-function model.
+ * @param[in] model The wall-model selector.
+ * @return Pointer to a constant string naming the model, or "none" when disabled.
+ */
+const char* WallFunctionModelToString(WallFunctionModel model);
+
+/**
  * @brief Returns the canonical log token for a momentum-solver selector.
  * @param[in] SolverFlag The Momentum Solver flag value.
  * @return Pointer to a constant string representing the MomentumSolverType.
@@ -1008,4 +1015,27 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user);
  * @return          PetscErrorCode 0 on success.
  */
 PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName);
+
+/**
+ * @brief Opens a per-run diagnostics CSV in the run's analysis directory for appending.
+ *
+ * The runtime diagnostics files share a lifecycle rather than a schema: they live in
+ * `simCtx->analysis_dir`, are appended to across a run, carry their column header only
+ * once, and mark the seam where a continuation resumed so a reader can tell a restart
+ * from a discontinuity in the data. This owns that lifecycle; the caller owns the
+ * columns.
+ *
+ * Call on rank 0 only - the file is a serial artifact, and a collective write to it
+ * would interleave. The caller closes the handle.
+ *
+ * @param[in]  simCtx   Simulation context supplying the analysis directory, step, and
+ *                      continuation state.
+ * @param[in]  filename Basename of the CSV, including the extension.
+ * @param[in]  header   Column header written when the file is created, without a
+ *                      trailing newline.
+ * @param[out] file     Open append handle, never NULL on success.
+ * @return PetscErrorCode 0 on success; `PETSC_ERR_FILE_OPEN` if the file cannot be opened.
+ */
+PetscErrorCode PicurvOpenDiagnosticsCsv(const SimCtx *simCtx, const char *filename,
+                                        const char *header, FILE **file);
 #endif // LOGGING_H

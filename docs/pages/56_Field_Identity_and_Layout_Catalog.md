@@ -96,8 +96,14 @@ Eulerian `FIELD_ID_PSI`; no name coincidence is used to infer that bridge.
 
 The registered aliases are retained because current diagnostic and boundary
 surfaces use them: `Eddy Viscosity` for `Nu_t`, `Cs` for `CS`,
+`Friction Velocity` for `Utau`, `Wall Eddy Viscosity` for `NuWall`,
 `Center-Coordinates` for `Cent`, and the `X/Y/Z-Face-Centers` names for
 `Centx/Centy/Centz`. Aliases do not create additional field identities.
+
+`Utau` and `NuWall` exist only while a wall model is active, and neither is restored on
+restart: the first boundary pass of a restarted run recomputes both from the restored
+velocity field. `Utau` is written to checkpoints so postprocessing can read it; `NuWall`
+is not written at all, being rebuilt by every wall pass within a step.
 
 @warning `CS` stores the LES model coefficient `C`, the factor multiplying
 `Delta^2 |S|` in the eddy viscosity. In the classical notation that is `Cs^2`, not
@@ -156,16 +162,26 @@ string comparison remains in the periodic field dispatcher.
 
 @section p56_inventory_sec 6. Catalog Inventory
 
-The initial catalog groups fields as follows:
+The catalog groups fields by layout as follows:
 
-- node-centered: `Coordinates`;
-- shifted cell-centered: `Ucat`, `P`, `Nu_t`, `CS`, `Diffusivity`,
+- node-centered: `Coordinates`, `CellScalarAtCorner`, and `CellVectorAtCorner`;
+- shifted cell-centered: `Ucat`, `P`, `Nu_t`, `CS`, `Utau`, `NuWall`, `Diffusivity`,
   `DiffusivityGradient`, `Nvert`, `Aj`, `Cent`, `GridSpace`, `Phi`, `Psi`,
-  `Nvert_o`, `ParticleCount`, `K_Omega`, and `K_Omega_o`;
+  `Nvert_o`, `ParticleCount`, `K_Omega`, `K_Omega_o`, `PostScalar`, and
+  `PostVector`;
 - component-staggered: `Ucont`, `Ucont_o`, and `Ucont_rm1`;
 - I-face family: `Csi`, `Centx`, `ICsi`, `IEta`, `IZet`, and `IAj`;
 - J-face family: `Eta`, `Centy`, `JCsi`, `JEta`, `JZet`, and `JAj`;
 - K-face family: `Zet`, `Centz`, `KCsi`, `KEta`, `KZet`, and `KAj`.
+
+Four of those entries are staging workspaces rather than solver state, and none of
+them is checkpointed. `CellScalarAtCorner` and `CellVectorAtCorner` hold the result
+of writing cell-centered data onto grid corners, which is why they are node-centered
+by construction; they are transient scratch rebuilt on every conversion. `PostScalar`
+and `PostVector` stage a derived post-processing statistic, which is config-counted
+and therefore has no compile-time offset of its own; staging it under a catalog
+identity lets the existing ghost, nodal-average, and logging paths address it by name
+instead of each growing a second, view-based entry point.
 
 `K_Omega` entries preserve the compiled RANS call surface, but the catalog does
 not claim that the current setup path allocates their storage. The runtime view

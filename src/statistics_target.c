@@ -248,12 +248,20 @@ PetscErrorCode PicurvSpatialRatioAverage(UserCtx *user, const SpatialTargetPlan 
 
     if (averaged_count == 0) {
         /* Pointwise: the empty averaging set, which is a legitimate request rather
-         * than a degenerate one. It is what a local formulation asks for. */
+         * than a degenerate one. It is what a local formulation asks for. The masks
+         * mean the same thing here as they do for an averaged set - a point they
+         * exclude contributes nothing and receives nothing - so that a caller can
+         * switch between the two without its exclusions quietly changing meaning. */
         for (PetscInt k = plan->start[2]; k < plan->end[2]; k++)
         for (PetscInt j = plan->start[1]; j < plan->end[1]; j++)
         for (PetscInt i = plan->start[0]; i < plan->end[0]; i++) {
             const PetscReal divisor = denominator ? den[k][j][i] : 1.0;
 
+            if (!SpatialTargetPlanMaskAllows(plan, nvert[k][j][i]) ||
+                (inc && inc[k][j][i] <= 0.0)) {
+                out[k][j][i] = 0.0;
+                continue;
+            }
             out[k][j][i] = (PetscAbsReal(divisor) > 0.0) ? (num[k][j][i] / divisor) : 0.0;
         }
     } else {

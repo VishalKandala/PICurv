@@ -33,6 +33,9 @@ This directory contains the C implementation for the solver, postprocessor, and 
 - field statistics:
   - files: `statistics_moments.c`, `statistics_window.c`, `statistics_accumulator.c`, `statistics_target.c`, `statistics_config.c`
   - APIs: `ParseFieldStatisticsConfig`, `FieldStatisticsIsActive`, `FieldStatisticsUpdateWindows`, `PicurvWindowOfferState`, `PicurvWindowAccumulate`, `FieldStatisticsPipeline`
+- observability:
+  - files: `logging.c`
+  - APIs: `LOG_ALLOW`, `get_log_level`, `is_function_allowed`, `PicurvOpenDiagnosticsCsv`, `LOG_CONTINUITY_METRICS`, `LOG_SEARCH_METRICS`, `EmitStatisticsConsoleSnapshot`
 - analytical/initialization:
   - files: `AnalyticalSolutions.c`, `initialcondition.c`
   - APIs: `AnalyticalSolutionEngine`, `InitializeEulerianState`, `SetInitialInteriorField`

@@ -52,6 +52,24 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_LES_DYNAMIC,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC |
                 FIELD_CAPABILITY_CHECKPOINT, CS, lCs),
+    /* Wall-model friction velocity, nonzero only in the first interior cell of a WALL
+       face. It is the quantity a wall model is scored against, so it is checkpointed and
+       exposed to postprocessing rather than being recomputed from the corrected velocity,
+       which no longer carries the law that produced it. */
+    FIELD_ENTRY(FIELD_ID_U_TAU, "Utau", "Friction Velocity", NULL, 1, FIELD_DM_DA,
+                FIELD_LAYOUT_CELL_CENTERED, FIELD_SYNC_STANDARD,
+                FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_WALL_MODEL,
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC |
+                FIELD_CAPABILITY_CHECKPOINT, Friction_Velocity, lFriction_Velocity),
+    /* The wall model's effective eddy viscosity at its own wall face. A wall-resolved
+       run has no such face and carries zero here; the field exists so the viscous flux
+       can deliver the modelled stress without re-deriving the wall distance and
+       tangential speed that produced it. Derived state, so not checkpointed. */
+    FIELD_ENTRY(FIELD_ID_NU_WALL, "NuWall", "Wall Eddy Viscosity", NULL, 1, FIELD_DM_DA,
+                FIELD_LAYOUT_CELL_CENTERED, FIELD_SYNC_STANDARD,
+                FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_WALL_MODEL,
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC,
+                Nu_Wall, lNu_Wall),
     FIELD_ENTRY(FIELD_ID_DIFFUSIVITY, "Diffusivity", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC, Diffusivity, lDiffusivity),

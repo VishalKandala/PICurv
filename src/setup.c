@@ -1076,6 +1076,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->les = (LESModelType)temp_les_model;
     ierr = PetscOptionsGetInt(NULL, NULL, "-rans", &simCtx->rans, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-wallfunction", &simCtx->wallfunction, NULL); CHKERRQ(ierr);
+    PetscCheck(simCtx->wallfunction >= WALL_FUNCTION_NONE && simCtx->wallfunction <= WALL_FUNCTION_CABOT,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-wallfunction must be 0 (none), 1 (log_law), 2 (werner), or 3 (cabot); received %" PetscInt_FMT ".",
+               simCtx->wallfunction);
     ierr = PetscOptionsGetInt(NULL, NULL, "-les_gradient_model", &simCtx->les_gradient_model, NULL); CHKERRQ(ierr);
     ierr = ParseLESConfiguration(simCtx); CHKERRQ(ierr);
 
@@ -2113,15 +2117,30 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 LOG_ALLOW(GLOBAL, LOG_DEBUG, "Dynamic Smagorinsky coefficient (CS) vectors created.\n");
                 }
 
-                if(simCtx->wallfunction){
-                  ierr = DMCreateLocalVector(user->fda,&user->lFriction_Velocity); CHKERRQ(ierr); ierr = VecSet(user->lFriction_Velocity,0.0);
-                }
 	              // Add K_Omega etc. here as needed
 
                 // Note: Add any other vectors from the legacy MG_Initial here as needed.
                 // For example: Rhs, Forcing, turbulence Vecs (K_Omega, Nu_t)...
 		
 	        }
+
+            /* A wall model is configured independently of LES and RANS - `wall_function`
+               is their sibling in the schema, not their child - so its storage cannot sit
+               inside their block. It did, which left `ApplyWallFunction` dereferencing a
+               null vector on any case that enabled a wall model without one of them. */
+            if (simCtx->wallfunction) {
+                /* Scalar per cell, so it lives on `da`. It was previously created from
+                   `fda`, whose dof is 3, while every reader opens it through `da` - a
+                   pairing PETSc rejects outright. */
+                ierr = DMCreateGlobalVector(user->da, &user->Friction_Velocity); CHKERRQ(ierr);
+                ierr = VecSet(user->Friction_Velocity, 0.0); CHKERRQ(ierr);
+                ierr = DMCreateLocalVector(user->da, &user->lFriction_Velocity); CHKERRQ(ierr);
+                ierr = VecSet(user->lFriction_Velocity, 0.0); CHKERRQ(ierr);
+                ierr = DMCreateGlobalVector(user->da, &user->Nu_Wall); CHKERRQ(ierr);
+                ierr = VecSet(user->Nu_Wall, 0.0); CHKERRQ(ierr);
+                ierr = DMCreateLocalVector(user->da, &user->lNu_Wall); CHKERRQ(ierr);
+                ierr = VecSet(user->lNu_Wall, 0.0); CHKERRQ(ierr);
+            }
 	    // --- Group H: Particle Methods 	
 	    if(simCtx->np>0){
 	      ierr = DMCreateGlobalVector(user->da,&user->ParticleCount); CHKERRQ(ierr); ierr = VecSet(user->ParticleCount,0.0); CHKERRQ(ierr);
@@ -4145,6 +4164,9 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->lNu_t) { ierr = VecDestroy(&user->lNu_t); CHKERRQ(ierr); }
     if (user->CS) { ierr = VecDestroy(&user->CS); CHKERRQ(ierr); }
     if (user->lCs) { ierr = VecDestroy(&user->lCs); CHKERRQ(ierr); }
+    if (user->Nu_Wall) { ierr = VecDestroy(&user->Nu_Wall); CHKERRQ(ierr); }
+    if (user->lNu_Wall) { ierr = VecDestroy(&user->lNu_Wall); CHKERRQ(ierr); }
+    if (user->Friction_Velocity) { ierr = VecDestroy(&user->Friction_Velocity); CHKERRQ(ierr); }
     if (user->lFriction_Velocity) { ierr = VecDestroy(&user->lFriction_Velocity); CHKERRQ(ierr); }
     if (user->K_Omega) { ierr = VecDestroy(&user->K_Omega); CHKERRQ(ierr); }
     if (user->lK_Omega) { ierr = VecDestroy(&user->lK_Omega); CHKERRQ(ierr); }

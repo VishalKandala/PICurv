@@ -10,7 +10,8 @@
     "master_template",
     "periodic_test",
     "scatter_verification",
-    "search_robustness"
+    "search_robustness",
+    "turbulent_channel"
   ],
   "reference_only_templates": [
     "master_template",
@@ -207,6 +208,12 @@
       "solver": "examples/flat_channel/Imp-MG-Standard.yml",
       "monitor": "examples/flat_channel/quickstart_Standard_Output.yml",
       "post": "examples/flat_channel/quickstart_standard_analysis.yml"
+    },
+    {
+      "case": "examples/turbulent_channel/case.yml",
+      "solver": "examples/turbulent_channel/solver.yml",
+      "monitor": "examples/turbulent_channel/monitor.yml",
+      "post": "examples/turbulent_channel/post.yml"
     }
   ],
   "study_bundles": [

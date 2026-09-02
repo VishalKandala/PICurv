@@ -960,6 +960,11 @@ audit-inline-choices:
 audit-page-types:
 	@python3 tests/tooling/audit_page_types.py
 
+## @target audit-field-catalog
+## @brief Fails when the published field inventory and the compiled catalog disagree.
+audit-field-catalog:
+	@python3 tests/tooling/audit_field_catalog.py
+
 ## @target audit-family-census
 ## @brief Reports public selector surfaces that no capability family covers.
 audit-family-census:

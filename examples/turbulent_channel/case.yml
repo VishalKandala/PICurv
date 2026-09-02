@@ -1,0 +1,112 @@
+# =============================================================================
+#  Turbulent plane channel, wall-modelled large-eddy simulation
+# =============================================================================
+# A driven periodic channel at Re_tau ~ 1000. This is the wall-model counterpart
+# to decaying_isotropic_turbulence: that case exercises the subgrid closure where
+# there is no wall, this one exercises everything that only appears when there is.
+#
+# Why a channel and why these numbers. The flow is homogeneous in the two
+# directions along the walls and inhomogeneous across them, which is the case
+# `averaging.mode: homogeneous` is built for - the coefficient becomes a profile
+# across the channel instead of one number. The Reynolds number is chosen so a
+# uniform wall-normal grid puts the first cell at y+ ~ 51, inside the logarithmic
+# region where a wall model is meant to be applied. That is deliberate: it is the
+# resolution a wall model exists to permit, and it is checked at runtime.
+#
+# Literature anchors, none of which this repository has yet run:
+#   - the log law itself, u+ = (1/0.41) ln(y+) + 5.2 above y+ ~ 30;
+#   - Dean's correlation, C_f = 0.073 Re_b^(-1/4) with Re_b = 2 U_b delta / nu,
+#     which at Re_b = 40000 gives C_f = 5.16e-3 and u_tau/U_b = 0.0508;
+#   - Lee & Moser (2015) channel DNS at Re_tau = 1000 for mean and stress profiles.
+
+run_control:
+  start_step: 0
+  # A spin-up length, not a campaign length. Converged statistics need order 50
+  # flow-through times; see README.md before drawing conclusions from a short run.
+  total_steps: 1000
+  dt_physical: 0.02
+
+properties:
+  # Half-height and bulk velocity are both unity, so Re = U_b delta / nu = 20000
+  # and Re_b = 2 U_b delta / nu = 40000, which is Re_tau ~ 1016 by Dean.
+  scaling: {length_ref: 1.0, velocity_ref: 1.0}
+  fluid: {density: 1.0, viscosity: 5.0e-5}
+  initial_conditions:
+    # The laminar profile carrying the target flux. It is the right mean and the
+    # wrong state: a channel started here stays laminar, because nothing in a
+    # well-behaved implicit solve makes it three-dimensional. See README.md - the
+    # case needs a perturbed field to become turbulent, and this repository has no
+    # generator that produces one for a wall-bounded domain.
+    mode: generated
+    generator: poiseuille
+    params:
+      # Parabolic, so the centreline is 1.5 times the bulk velocity the driven
+      # pair is asked to hold. The two must agree or the first steps fight.
+      peak_velocity_physical: 1.5
+      # No INLET face to infer the streamwise axis from, so it is named. The
+      # driven pair is on Zeta, and the profile has to point the same way.
+      flow_direction: "+Zeta"
+
+grid:
+  mode: programmatic_c
+  programmatic_settings:
+    # Spanwise x Wall-normal x Streamwise. Uniform in all three: a wall-modelled
+    # channel wants its first cell in the log layer, not packed against the wall,
+    # so no stretching is called for. In wall units at Re_tau = 1016: dz+ = 100
+    # spanwise, dx+ = 133 streamwise, and the first cell centre at y+ = 51. The
+    # laminar start runs a lower u_tau and so a lower y+, around 40, still clear
+    # of the 30 below which the log law has no region to describe.
+    im: 33
+    jm: 21
+    km: 49
+    xMins: 0.0
+    xMaxs: 3.14159265358979
+    yMins: 0.0
+    yMaxs: 2.0
+    zMins: 0.0
+    zMaxs: 6.28318530717959
+    rxs: 1.0
+    rys: 1.0
+    rzs: 1.0
+    cgrids: 0
+
+models:
+  domain: {blocks: 1}
+  physics:
+    dimensionality: 3D
+    fsi: {immersed: false, moving_fsi: false}
+    particles: {count: 0, restart_mode: init}
+    turbulence:
+      les:
+        enabled: true
+        model: dynamic_smagorinsky
+        dynamic_frequency: 1
+        test_filter: {kernel: volume_weighted_box, width_ratio: 2.0}
+        averaging:
+          # The channel is homogeneous along the walls and not across them, so the
+          # coefficient is averaged over the two periodic axes and left free to
+          # vary in the wall-normal direction. Naming them is equivalent to the
+          # default here, and is written out because it is the point of the case.
+          mode: homogeneous
+          directions: ["i", "k"]
+        clipping: {mode: clamp, max_cs: 0.3}
+        diagnostics: {enabled: true, cadence: 10}
+      rans: {enabled: false}
+      wall_function:
+        # Switch this off and the case becomes an under-resolved wall-resolved LES
+        # on a grid far too coarse for it - see README.md, which explains why the
+        # two cannot share one mesh.
+        enabled: true
+        model: log_law
+        roughness_height: 0.0
+
+boundary_conditions:
+  # Spanwise and streamwise are periodic; the streamwise pair is driven, because a
+  # periodic wall-bounded flow decays under wall friction without a body force.
+  - {face: "-Xi",   type: PERIODIC, handler: geometric}
+  - {face: "+Xi",   type: PERIODIC, handler: geometric}
+  - {face: "-Eta",  type: WALL,     handler: noslip}
+  - {face: "+Eta",  type: WALL,     handler: noslip}
+  # target_flux is volumetric: U_b times the cross-section, 1.0 * (pi * 2).
+  - {face: "-Zeta", type: PERIODIC, handler: constant_flux, params: {target_flux: 6.28318530717959}}
+  - {face: "+Zeta", type: PERIODIC, handler: constant_flux, params: {target_flux: 6.28318530717959}}

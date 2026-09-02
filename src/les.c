@@ -68,6 +68,56 @@ static PetscErrorCode LESResolveDomain(UserCtx *user, SpatialTargetPlan *plan)
 }
 
 /**
+ * @brief Marks the near-wall cells a wall model overwrites, so the procedure skips them.
+ *
+ * A wall model replaces the first interior cell's velocity with an analytic profile.
+ * The Germano identity evaluated there measures that imposed profile rather than
+ * resolved turbulence, so the cell is excluded from both contraction sums. This is not
+ * a modelling preference: the data at those cells is not a measurement, and averaging it
+ * in biases whatever set it belongs to. Under global averaging that set is the whole
+ * domain; under homogeneous averaging retaining the wall-normal direction it is the wall
+ * plane, whose value would otherwise be entirely imposed.
+ *
+ * A cell left with no data receives a zero coefficient, which is the right answer where
+ * a wall model is already supplying the stress.
+ *
+ * Only meaningful while a wall model is active; with none, nothing is imposed and every
+ * cell carries a real measurement.
+ */
+static PetscErrorCode BuildWallModelExclusionMask(UserCtx *user, Vec inclusion)
+{
+    const DMDALocalInfo info = user->info;
+    const BCFace negative[3] = {BC_FACE_NEG_X, BC_FACE_NEG_Y, BC_FACE_NEG_Z};
+    const BCFace positive[3] = {BC_FACE_POS_X, BC_FACE_POS_Y, BC_FACE_POS_Z};
+    const PetscInt extent[3] = {info.mx, info.my, info.mz};
+    PetscReal ***mask = NULL;
+    SpatialTargetPlan plan;
+
+    PetscFunctionBeginUser;
+    PetscCall(VecSet(inclusion, 1.0));
+    PetscCall(LESResolveDomain(user, &plan));
+    PetscCall(DMDAVecGetArray(user->da, inclusion, &mask));
+    for (PetscInt k = plan.start[2]; k < plan.end[2]; k++)
+    for (PetscInt j = plan.start[1]; j < plan.end[1]; j++)
+    for (PetscInt i = plan.start[0]; i < plan.end[0]; i++) {
+        const PetscInt coord[3] = {i, j, k};
+
+        for (PetscInt axis = 0; axis < 3; axis++) {
+            /* Index 1 and extent-2 are the first interior cells the wall model writes. */
+            if ((user->boundary_faces[negative[axis]].mathematical_type == WALL &&
+                 coord[axis] == 1) ||
+                (user->boundary_faces[positive[axis]].mathematical_type == WALL &&
+                 coord[axis] == extent[axis] - 2)) {
+                mask[k][j][i] = 0.0;
+                break;
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->da, inclusion, &mask));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Reports the block's per-axis periodicity in `(xi, eta, zeta)` order.
  *
  * Reads the resolved global flags rather than the boundary face configuration. The two
@@ -580,6 +630,7 @@ PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
     PetscReal        alpha;
 
     Vec lStrainDiag, lStrainOff, lStrainAbs, lLM, lMM, lCsq;
+    Vec lWallMask = NULL;
 
     Cmpnts    ***ucat = NULL, ***strain_diag = NULL, ***strain_off = NULL;
     Cmpnts    ***csi = NULL, ***eta = NULL, ***zet = NULL;
@@ -628,6 +679,12 @@ PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
     PetscCall(VecSet(lLM, 0.0));
     PetscCall(VecSet(lMM, 0.0));
     PetscCall(VecSet(lCsq, 0.0));
+    /* A wall model overwrites the first interior cell, so those cells carry an imposed
+       profile rather than a measurement and are kept out of the contraction sums. */
+    if (simCtx->wallfunction) {
+        PetscCall(VecDuplicate(user->lNvert, &lWallMask));
+        PetscCall(BuildWallModelExclusionMask(user, lWallMask));
+    }
 
     PetscCall(DMDAVecGetArray(fda, user->lUcat, &ucat));
 
@@ -724,7 +781,7 @@ PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
     // --- 3. Average the two contractions, then divide ---------------------------
     // Both sums are formed before the division. Averaging the pointwise quotients
     // instead would not be the least-squares coefficient Lilly's closure defines.
-    PetscCall(PicurvSpatialRatioAverage(user, &plan, lLM, lMM, NULL, average_direction,
+    PetscCall(PicurvSpatialRatioAverage(user, &plan, lLM, lMM, lWallMask, average_direction,
                                         PetscObjectComm((PetscObject)da), lCsq, NULL));
 
     // --- 4. Limit the coefficient and record what limiting cost -----------------
@@ -774,6 +831,7 @@ PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
     PetscCall(VecDestroy(&lLM));
     PetscCall(VecDestroy(&lMM));
     PetscCall(VecDestroy(&lCsq));
+    if (lWallMask) PetscCall(VecDestroy(&lWallMask));
 
     user->les_diagnostics = diagnostics;
     PetscCall(FinalizeSmagorinskyConstantField(user));
@@ -965,7 +1023,6 @@ PetscErrorCode LogLESDiagnostics(UserCtx *user)
         const PetscReal molecular     = 1.0 / simCtx->ren;
         const PetscReal effective     = (global_contraction[1] > LES_EPSILON)
                                             ? (global_contraction[0] / global_contraction[1]) : 0.0;
-        char  path[PETSC_MAX_PATH_LEN + 32];
         FILE *file = NULL;
 
         // Reported as Cs rather than as the stored coefficient, because that is the
@@ -976,19 +1033,11 @@ PetscErrorCode LogLESDiagnostics(UserCtx *user)
                                                           : -PetscSqrtReal(-effective);
         const PetscReal cs_mean      = (mean >= 0.0) ? PetscSqrtReal(mean) : -PetscSqrtReal(-mean);
 
-        PetscCall(PetscSNPrintf(path, sizeof(path), "%s/les_coefficient.csv", simCtx->analysis_dir));
-        file = fopen(path, "a");
-        PetscCheck(file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
-                   "Unable to open LES diagnostics file '%s'.", path);
-        if (ftell(file) == 0) {
-            fprintf(file,
-                    "step,time,cs_effective,cs_mean,coefficient_mean,coefficient_rms,"
-                    "coefficient_min,coefficient_max,nu_t_mean,nu_t_max,nu_t_over_nu_mean,"
-                    "k_sgs_mean,backscatter_fraction,limited_fraction\n");
-        }
-        if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
-            fprintf(file, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
-        }
+        PetscCall(PicurvOpenDiagnosticsCsv(simCtx, "les_coefficient.csv",
+                                           "step,time,cs_effective,cs_mean,coefficient_mean,"
+                                           "coefficient_rms,coefficient_min,coefficient_max,"
+                                           "nu_t_mean,nu_t_max,nu_t_over_nu_mean,k_sgs_mean,"
+                                           "backscatter_fraction,limited_fraction", &file));
         fprintf(file,
                 "%d,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e\n",
                 (int)simCtx->step, (double)simCtx->ti,
@@ -1000,7 +1049,7 @@ PetscErrorCode LogLESDiagnostics(UserCtx *user)
                 (double)(global_sum[4] / volume),
                 (double)(global_sum[5] / volume), (double)(global_sum[6] / volume));
         PetscCheck(fclose(file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
-                   "Unable to close LES diagnostics file '%s'.", path);
+                   "Unable to close the LES diagnostics file.");
 
         LOG_ALLOW(GLOBAL, LOG_INFO,
                   "  LES coefficient: Cs_effective=%.4f, nu_t/nu (mean)=%.3e, backscatter=%.1f%%\n",

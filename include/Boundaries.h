@@ -540,6 +540,26 @@ PetscErrorCode UpdateCornerNodes(UserCtx *user);
 PetscErrorCode ApplyWallFunction(UserCtx *user);
 
 /**
+ * @brief Appends one row of near-wall statistics to `<run.runtime_logs>/wall_model.csv`.
+ *
+ * Reduces the state @ref ApplyWallFunction accumulated over the wall faces this rank owns
+ * and writes the run-wide row from rank 0. `y+` is the column that matters: it says
+ * whether the first cell sits where the selected law is valid, and no stored field can
+ * answer that after the fact.
+ *
+ * A no-op when no wall model is active. When a wall model is active but no cell was
+ * corrected - wall functions enabled on a case with no WALL face - it warns and writes
+ * nothing rather than emitting a row of zeros.
+ *
+ * Collective on the block's communicator; call it on every rank, once per step, after
+ * @ref ApplyWallFunction.
+ *
+ * @param[in] user Block context whose wall-model pass has already run this step.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode LogWallModelDiagnostics(UserCtx *user);
+
+/**
  * @brief Finalizes cell-centered fields after the projection step.
  *
  * This function completes the cell-centered state derived from the final,

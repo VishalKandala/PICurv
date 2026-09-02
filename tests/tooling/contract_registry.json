@@ -163,14 +163,16 @@
       "id": "field.identity_and_layout",
       "title": "Field Identity and Layout",
       "kind": "identity",
-      "status": "tracked",
+      "status": "enforced",
       "authoritative_sources": [
         "src/field_catalog.c",
         "src/particle_field_catalog.c",
         "include/variables.h"
       ],
       "extractor": null,
-      "checker": null,
+      "checker": [
+        "tests/tooling/audit_field_catalog.py"
+      ],
       "canonical_documentation": [
         "56_Field_Identity_and_Layout_Catalog"
       ],
@@ -179,7 +181,7 @@
         "10_Post_Processing_Reference",
         "68_Glossary"
       ],
-      "enforcement": "report-only",
+      "enforcement": "blocking",
       "requires_built_docs": false
     },
     {

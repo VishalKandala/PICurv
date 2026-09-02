@@ -43,7 +43,7 @@
         "10_Post_Processing_Reference",
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:40b0120c64f8fea887f7f91a380cba30fdc1b1fdfa4c412f3cf25fa29999c6c6"
+      "attested_digest": "sha256:fb6528650465af2eeb4a9eaa489163fa3e9d008109a0de14ac6570c07fa04247"
     },
     {
       "id": "capability.evidence_matrix",
@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:2f21f6dcc2164b4e4fce209a5ec22cb4f7246ed4b36c8f0bf72e3646d54d5160"
+      "attested_digest": "sha256:42e495314439ceac3e3ae9425e4ed0c94ee9b6adf201f9fe80cf2ff9a6260912"
     },
     {
       "id": "artifact.topology",
@@ -87,7 +87,7 @@
       "dependent_pages": [
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:812fb7c343d69147e1a691bcc5700fdaf59af42efb2b459252b7c3222e3ef222"
+      "attested_digest": "sha256:b304b949badc4f0344603efd7091a4e11d43806ce1751b75d4084c42eeeac326"
     },
     {
       "id": "docs.page_types",
@@ -113,7 +113,7 @@
         "71_Invariant_Contracts"
       ],
       "dependent_pages": [],
-      "attested_digest": "sha256:8e3fbb27776c552fa6c09824b4142e3e788cbf29ac9af24e93a30ba7ab09eadf"
+      "attested_digest": "sha256:0641766f972b163f5eed1603a4018684c7d06df391d0ff8421d8ca849256e546"
     },
     {
       "id": "run.containment_guard",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:a3717e2f759fd951c752db648ed3e38615a90535c635f63b25017f1575387007",
+      "attested_digest": "sha256:cd9b0878675e2b5fa28ad161e3d15a4aa0f3c1d1463140b82453b717a9799281",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
@@ -148,7 +148,7 @@
       "dependent_pages": [
         "21_Methods_Overview"
       ],
-      "attested_digest": "sha256:1d3882fd27b9542ac7d77f41b19202f6ed0bed47cf92fa469653ac74430c9646",
+      "attested_digest": "sha256:86807cdafad0c973c5d4f0d975f550e53da100e0d170657476897e605001ea51",
       "note": "Both models are documented as defective. If this file changes, the defect disclosure is the first thing to re-check."
     },
     {
@@ -283,6 +283,24 @@
       ],
       "dependent_pages": [
         "32_Analytical_Solutions"
+      ],
+      "attested_digest": "unattested"
+    },
+    {
+      "id": "observability.logging",
+      "title": "Logging and runtime observability implementation",
+      "tier": "soft",
+      "watched_paths": [
+        "src/logging.c",
+        "include/logging.h"
+      ],
+      "owning_pages": [
+        "09_Monitor_Reference"
+      ],
+      "dependent_pages": [
+        "11_User_How_To_Guides",
+        "13_Code_Architecture",
+        "53_Search_Robustness_Metrics_Reference"
       ],
       "attested_digest": "unattested"
     }
