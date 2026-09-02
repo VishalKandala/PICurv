@@ -602,7 +602,8 @@ PetscErrorCode FieldStatisticsPipeline(UserCtx *user, PostProcessParams *pps, Pe
         }
 
         if (want_csv) {
-            ierr = ComputeWindowStatisticsSummary(user, window_index, pps->output_prefix,
+            ierr = ComputeWindowStatisticsSummary(user, window_index,
+                                                  pps->field_statistics_output_prefix,
                                                   ti); CHKERRQ(ierr);
         }
 
@@ -820,6 +821,7 @@ int main(int argc, char **argv)
     PetscErrorCode    ierr;
     SimCtx            *simCtx = NULL;
 
+    if (PicurvHandleVersionArgument(argc, argv, "postprocessor")) return 0;
     // === I. INITIALIZE PETSC & MPI ===========================================
     ierr = PetscInitialize(&argc, &argv, (char *)0, "Unified Post-Processing Tool"); CHKERRQ(ierr);
 

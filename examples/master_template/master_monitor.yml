@@ -205,22 +205,8 @@ io:
   # [Integer] -> -logfreq
   particle_log_interval: 50
 
-  # --- Directory Management ---
-  # Specifies subdirectory names within the run folder. If omitted, C-code
-  # defaults will be used.
-  directories:
-    output: "output"    # [string] -> -output_dir. Must stay inside the run directory.
-    restart: "restart"  # [string] -> -restart_dir. Read path; may point at another run.
-    log: "logs"         # [string] -> -log_dir. Must stay inside the run directory.
-    #
-    # WARNING: on a fresh solve the runtime RECURSIVELY DELETES the log directory
-    # before writing to it. `output` and `log` are therefore containment-validated:
-    # absolute paths, "~", and parent traversal ("../") are rejected.
-    #
-    # allow_unsafe_paths: false   # [bool] Optional. Setting true permits an escaping
-    #                             # output/log path with a loud warning. Only do this
-    #                             # if you accept that the named log directory will be
-    #                             # deleted on every fresh run.
+  # Run directories are fixed by the workspace contract: output/, inputs/restart/,
+  # logs/, and output/analysis/. They are intentionally not configurable here.
 
 # ==============================================================================
 # 7. SOLVER MONITORING

@@ -20,6 +20,16 @@
 #ifndef VARIABLES_H
 #define VARIABLES_H
 
+#ifndef PICURV_RELEASE_VERSION
+#define PICURV_RELEASE_VERSION "0.0.0"
+#endif
+#ifndef PICURV_GIT_COMMIT
+#define PICURV_GIT_COMMIT "unknown"
+#endif
+#ifndef PICURV_BUILD_DIRTY
+#define PICURV_BUILD_DIRTY "unknown"
+#endif
+
 /*================================================================================*
  *                        PETSC & SYSTEM LIBRARIES                                *
  *================================================================================*/
@@ -727,6 +737,8 @@ typedef struct PostProcessParams {
     char field_statistics_outputs[MAX_FIELD_LIST_LENGTH];
     /** Comma-separated formats: vtk for derived fields, csv for the convergence history. */
     char field_statistics_formats[MAX_FIELD_LIST_LENGTH];
+    /** Analysis prefix for CSV summaries; VTK continues to use output_prefix. */
+    char field_statistics_output_prefix[PETSC_MAX_PATH_LEN];
     /** Committed step supplying the state; negative means the step being processed. */
     PetscInt field_statistics_source_step;
 
@@ -820,6 +832,7 @@ typedef struct SimCtx {
     char restart_dir[PETSC_MAX_PATH_LEN];
     char output_dir[PETSC_MAX_PATH_LEN];
     char log_dir[PETSC_MAX_PATH_LEN];
+    char analysis_dir[PETSC_MAX_PATH_LEN];
     char _io_context_buffer[PETSC_MAX_PATH_LEN]; // Persistent store for I/O context strings.
     char *current_io_directory; // Pointer into the above buffer.
     char checkpointGeometrySHA256[65];

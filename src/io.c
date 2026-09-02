@@ -2331,6 +2331,9 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
         PetscCheck(fprintf(manifest,
                            "-checkpoint_format %s\n"
                            "-checkpoint_version %d\n"
+                           "-checkpoint_picurv_release %s\n"
+                           "-checkpoint_picurv_commit %s\n"
+                           "-checkpoint_picurv_dirty %s\n"
                            "-checkpoint_step %" PetscInt_FMT "\n"
                            "-checkpoint_time %.17g\n"
                            "-checkpoint_dt %.17g\n"
@@ -2343,6 +2346,7 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
                            "-checkpoint_rans %s\n"
                            "-checkpoint_payload_count %" PetscInt_FMT "\n",
                            PICURV_CHECKPOINT_FORMAT, PICURV_CHECKPOINT_VERSION,
+                           PICURV_RELEASE_VERSION, PICURV_GIT_COMMIT, PICURV_BUILD_DIRTY,
                            simCtx->step, (double)simCtx->ti, (double)simCtx->dt,
                            reason, geometry_digest, simCtx->block_number,
                            simCtx->np > 0 ? "true" : "false",
@@ -3164,6 +3168,7 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     pps->field_statistics_windows[0] = '\0';
     strcpy(pps->field_statistics_outputs, "mean,reynolds_stress,rms,tke,flux");
     strcpy(pps->field_statistics_formats, "vtk");
+    strcpy(pps->field_statistics_output_prefix, "Field");
     pps->field_statistics_source_step = -1;
     pps->reference[0] = pps->reference[1] = pps->reference[2] = 1;
     strncpy(pps->source_dir, simCtx->output_dir, sizeof(pps->source_dir) - 1);
@@ -3200,6 +3205,11 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
                     pps->field_statistics_outputs[MAX_FIELD_LIST_LENGTH - 1] = '\0';
                 } else if (strcasecmp(key, "field_statistics_source_step") == 0) {
                     pps->field_statistics_source_step = atoi(value);
+                } else if (strcasecmp(key, "field_statistics_output_prefix") == 0) {
+                    strncpy(pps->field_statistics_output_prefix, value,
+                            sizeof(pps->field_statistics_output_prefix) - 1);
+                    pps->field_statistics_output_prefix[
+                        sizeof(pps->field_statistics_output_prefix) - 1] = '\0';
                 } else if (strcasecmp(key, "output_fields_instantaneous") == 0) {
                     strncpy(pps->output_fields_instantaneous, value, MAX_FIELD_LIST_LENGTH - 1);
                     pps->output_fields_instantaneous[MAX_FIELD_LIST_LENGTH - 1] = '\0';

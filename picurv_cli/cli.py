@@ -14,6 +14,15 @@ CLI_OUTPUT_FORMATS = ("text", "json")
 #: Which stages `--only` may select.
 RUN_STAGE_CHOICES = ("all", "solve", "post-process")
 
+#: State carried from a restart checkpoint into a branched run.
+RESTART_STATISTICS_MODES = ("reset", "carry")
+
+#: Canonical workspace homes accepted by `picurv inputs import`.
+WORKSPACE_INPUT_KINDS = ("grid", "initial-condition", "inlet-profile", "reference-field")
+
+#: Materialization modes accepted by `picurv inputs import`.
+WORKSPACE_INPUT_MODES = ("copy", "reflink", "hardlink", "reference")
+
 
 def _add_run_parser(subparsers):
     """!
@@ -54,9 +63,26 @@ def _add_run_parser(subparsers):
     solver_group.add_argument("--solver", help="Path to the solver settings profile (e.g., solver.yml).")
     solver_group.add_argument("--monitor", help="Path to the monitoring, diagnostics, and I/O profile (e.g., monitor.yml).")
     solver_group.add_argument(
-        "--restart-from",
+        "--restart-from", "--from",
+        dest="restart_from",
         help="Path to an existing run directory to restart from.\n"
-             "Creates a new run directory and copies/references checkpoint data from the source.",
+             "Use 'latest' to select the newest compatible local workspace run.",
+    )
+    solver_group.add_argument(
+        "--statistics-state",
+        choices=RESTART_STATISTICS_MODES,
+        default="reset",
+        help="For a branched restart, reset field-statistics state (default) or carry compatible checkpoint state.",
+    )
+    solver_group.add_argument(
+        "--require-precomputed",
+        action="store_true",
+        help="Refuse to build missing or stale deterministic assets while staging the run.",
+    )
+    solver_group.add_argument(
+        "--fetch-missing",
+        action="store_true",
+        help="Try the configured storage profile before rebuilding a missing workspace asset.",
     )
     run_group.add_argument(
         "--continue",
@@ -184,19 +210,72 @@ def _add_precompute_parser(subparsers):
         description=(
             "Generate configured deterministic artifacts, such as grid_gen grids,\n"
             "generated prescribed-flow inlet profiles, and ic_gen initial conditions,\n"
-            "into a run-like config layout.\n\n"
+            "as immutable objects in the initialized workspace asset store.\n\n"
             "Examples:\n"
-            "  picurv precompute --case case.yml\n"
-            "  picurv precompute --case case.yml --output-dir precomputed/channel"
+            "  picurv precompute --case config/case.yml\n"
+            "  picurv precompute --case config/case.yml --only grid,initial-condition"
         ),
-        epilog="Next: inspect generated artifacts or run solve with the configured generated modes directly.",
+        epilog="Next: inspect the reported asset set, then stage a run that reuses it.",
     )
     p_precompute.add_argument("--case", required=True, help="Path to case.yml containing grid/profile/IC generator settings.")
     p_precompute.add_argument(
-        "--output-dir",
-        help="Directory where precomputed artifacts should be written. Defaults to precomputed/<case-name>.",
+        "--only",
+        default="all",
+        help="Comma-separated asset kinds (grid, initial-condition, inlet-profiles), or all.",
     )
     return p_precompute
+
+
+def _add_inputs_parser(subparsers):
+    """!
+    @brief Attach explicit workspace input-ingress commands.
+    @param[in] subparsers Top-level argparse subparser collection.
+    @return Configured inputs command parser.
+    """
+    parser = subparsers.add_parser(
+        "inputs",
+        help="Import or register files used by workspace configurations.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    actions = parser.add_subparsers(dest="inputs_action", required=True)
+    p_import = actions.add_parser("import", help="Import one external file into its canonical workspace home.")
+    p_import.add_argument(
+        "kind",
+        choices=WORKSPACE_INPUT_KINDS,
+    )
+    p_import.add_argument("source", help="Existing source file.")
+    p_import.add_argument("--name", help="Destination name; defaults to the source basename.")
+    p_import.add_argument(
+        "--mode", choices=WORKSPACE_INPUT_MODES, default="copy",
+        help="How to retain the input. Reference mode records but does not copy an external path.",
+    )
+    p_import.add_argument("--workspace", help="Workspace root; defaults to discovery from the current directory.")
+    return parser
+
+
+def _add_version_parsers(subparsers):
+    """!
+    @brief Attach unified source/build/workspace-version commands.
+    @param[in] subparsers Top-level argparse subparser collection.
+    @return Version, versions, and source command parsers.
+    """
+    p_version = subparsers.add_parser("version", help="Report the active PICurv release and build identity.")
+    p_version.add_argument("--format", dest="output_format", choices=list(CLI_OUTPUT_FORMATS), default="text")
+
+    p_versions = subparsers.add_parser("versions", help="List, install, or activate PICurv source versions.")
+    actions = p_versions.add_subparsers(dest="versions_action", required=True)
+    actions.add_parser("list", help="List local Git tags and the active build.")
+    p_install = actions.add_parser("install", help="Fetch a named version and build it in the source checkout.")
+    p_install.add_argument("version")
+    p_activate = actions.add_parser("activate", help="Checkout and build the version required by this workspace.")
+    p_activate.add_argument("version", nargs="?", help="Version/tag; defaults to the workspace requirement.")
+    p_activate.add_argument("--workspace", help="Workspace root; defaults to discovery from the current directory.")
+
+    p_source = subparsers.add_parser("source", help="Manage the source checkout used by PICurv.")
+    source_actions = p_source.add_subparsers(dest="source_action", required=True)
+    p_update = source_actions.add_parser("update", help="Fetch source updates without changing the active version.")
+    p_update.add_argument("--remote", default="origin")
+    return p_version, p_versions, p_source
 
 
 def _add_summarize_parser(subparsers):
@@ -604,7 +683,7 @@ def build_main_parser():
             "  picurv validate --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml\n"
             "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run\n"
             "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --no-submit\n"
-            "  picurv precompute --case case.yml --output-dir precomputed/my_case\n"
+            "  picurv precompute --case config/case.yml --only grid,initial-condition\n"
             "  picurv run --post-process --continue --run-dir runs/my_run --post post.yml\n"
             "  picurv summarize --run-dir runs/my_run --latest\n"
             "  picurv summarize --run-dir runs/my_run --list-plot-series\n"
@@ -630,6 +709,7 @@ def build_main_parser():
     _add_sweep_parser(subparsers)
     _add_validate_parser(subparsers)
     _add_precompute_parser(subparsers)
+    _add_inputs_parser(subparsers)
     _add_summarize_parser(subparsers)
     _add_submit_parser(subparsers)
     _add_cancel_parser(subparsers)
@@ -639,6 +719,7 @@ def build_main_parser():
     _add_sync_config_parser(subparsers)
     _add_pull_source_parser(subparsers)
     _add_status_source_parser(subparsers)
+    _add_version_parsers(subparsers)
     add_storage_parser(subparsers)
     return parser
 
@@ -692,6 +773,30 @@ def dispatch_command(args):
                 file_path=getattr(args, "case", "-"),
                 message=str(e),
             )
+            sys.exit(1)
+        return
+    if args.command == "inputs":
+        try:
+            inputs_workflow(args)
+        except ValueError as exc:
+            print(f"[FATAL] {exc}", file=sys.stderr)
+            sys.exit(1)
+        return
+    if args.command == "version":
+        version_workflow(args)
+        return
+    if args.command == "versions":
+        try:
+            versions_workflow(args)
+        except ValueError as exc:
+            print(f"[FATAL] {exc}", file=sys.stderr)
+            sys.exit(1)
+        return
+    if args.command == "source":
+        try:
+            source_workflow(args)
+        except ValueError as exc:
+            print(f"[FATAL] {exc}", file=sys.stderr)
             sys.exit(1)
         return
     if args.command == "summarize":

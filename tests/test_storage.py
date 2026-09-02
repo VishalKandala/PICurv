@@ -267,6 +267,9 @@ def test_storage_setup_writes_only_non_secret_profile_data(tmp_path, local_rclon
                 "remote": "fake:picurv-data",
                 "compression": "auto",
                 "chunk_size_gib": 2.0,
+                "workers": storage.DEFAULT_STORAGE_WORKERS,
+                "offload_policy": "metadata-only",
+                "keep_latest_checkpoint": False,
             }
         },
     }
@@ -284,7 +287,9 @@ def test_inventory_recognizes_committed_checkpoint_and_components(tmp_path):
     assert inventory["checkpoint_steps"] == [10]
     assert inventory["incomplete_checkpoints"] == []
     assert inventory["total_bytes"] > 0
-    assert {entry["component"] for entry in inventory["entries"]} >= {"metadata", "logs", "data", "checkpoint:10"}
+    assert {entry["component"] for entry in inventory["entries"]} >= {
+        "metadata", "logs", "raw-output", "checkpoint:10"
+    }
 
 
 def test_incomplete_checkpoint_refuses_archival(tmp_path, local_rclone):
@@ -519,3 +524,175 @@ def test_relocated_restore_rebases_known_generated_paths(tmp_path, local_rclone)
     restored_control = destination / "config" / "original.control"
     assert str(destination / "output") in restored_control.read_text(encoding="utf-8")
     assert storage.read_storage_state(str(destination))["relocated_from"] == str(run)
+
+
+def test_offload_policy_reports_and_retains_latest_checkpoint(tmp_path, local_rclone):
+    """!
+    @brief Plan reports semantic retention sizes and offload can keep only the latest checkpoint.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    run = _write_run(tmp_path / "runs" / "retained")
+    latest = run / "output" / "checkpoints" / "step_000000000020"
+    shutil.copytree(run / "output" / "checkpoints" / "step_000000000010", latest)
+    (run / "inputs" / "grid").mkdir(parents=True)
+    (run / "inputs" / "grid" / "grid.run").write_bytes(b"grid-input")
+    (run / "output" / "analysis" / "metrics").mkdir(parents=True)
+    (run / "output" / "analysis" / "metrics" / "summary.json").write_text("{}\n", encoding="utf-8")
+    (run / "output" / "visualization").mkdir(parents=True)
+    (run / "output" / "visualization" / "field.vts").write_text("vtk\n", encoding="utf-8")
+    target = storage.resolve_local_storage_targets(str(run), None)[0]
+
+    plan = storage.build_storage_plan(
+        target, _profile(tmp_path), policy="metadata-only", keep_latest_checkpoint=True,
+    )
+    assert plan["offload_policy"] == {
+        "name": "metadata-only",
+        "retained_components": ["logs", "metadata"],
+        "keep_latest_checkpoint": True,
+    }
+    assert plan["retained_local_bytes"] > 0
+    assert plan["pruned_local_bytes"] > 0
+    storage.archive_artifact(
+        target, _profile(tmp_path), prune_local=True,
+        policy="metadata-only", keep_latest_checkpoint=True,
+    )
+    assert latest.is_dir()
+    assert not (run / "output" / "checkpoints" / "step_000000000010").exists()
+    assert not (run / "inputs" / "grid" / "grid.run").exists()
+    assert (run / "config" / "case.yml").is_file()
+    state = storage.read_storage_state(str(run))
+    assert "checkpoint:20" in state["retained_components"]
+
+
+def test_offload_policy_profiles_have_distinct_semantic_retention():
+    """!
+    @brief Named offload policies map to metadata, restart, and analysis use cases.
+    @return None.
+    """
+    profile = {"offload_policy": "metadata-only", "keep_latest_checkpoint": False}
+    metadata = storage._resolve_offload_policy(profile)
+    restart = storage._resolve_offload_policy(profile, "restart-ready", False)
+    analysis = storage._resolve_offload_policy(profile, "analysis-ready", True)
+    assert metadata["retained_components"] == ["logs", "metadata"]
+    assert restart["retained_components"] == ["inputs", "logs", "metadata"]
+    assert restart["keep_latest_checkpoint"] is True
+    assert analysis["retained_components"] == ["analysis", "logs", "metadata", "visualization"]
+    assert analysis["keep_latest_checkpoint"] is True
+
+
+@pytest.mark.skipif(
+    shutil.which("tar") is None or shutil.which("xz") is None,
+    reason="parallel native maximum compression requires tar and xz",
+)
+def test_maximum_compression_uses_requested_native_cpu_workers(tmp_path):
+    """!
+    @brief Maximum compression passes the requested CPU count to native xz.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return None.
+    """
+    root = tmp_path / "payload"
+    root.mkdir()
+    (root / "data.bin").write_bytes(b"repetitive-data" * 1000)
+    destination = tmp_path / "chunk.tar.xz"
+    compressor = storage._write_tar_chunk(
+        str(root), {"entries": ["data.bin"]}, str(destination), "maximum", workers=3
+    )
+    assert compressor == "xz:3"
+    extracted = tmp_path / "extracted"
+    extracted.mkdir()
+    storage._extract_chunk(str(destination), str(extracted))
+    assert (extracted / "data.bin").read_bytes() == (root / "data.bin").read_bytes()
+
+
+def test_python_archive_and_restore_parallelize_independent_chunks(
+    tmp_path, local_rclone, monkeypatch
+):
+    """!
+    @brief Fallback archive and restore use bounded worker pools across independent chunks.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @return None.
+    """
+    observed = []
+    real_executor = storage.concurrent.futures.ThreadPoolExecutor
+
+    class RecordingExecutor(real_executor):
+        """! @brief Thread pool that records requested concurrency for the test. """
+
+        def __init__(self, max_workers=None, *args, **kwargs):
+            """!
+            @brief Record and delegate thread-pool construction.
+            @param[in] max_workers Requested worker count.
+            @param[in] args Additional positional arguments.
+            @param[in] kwargs Additional keyword arguments.
+            """
+            observed.append(max_workers)
+            super().__init__(max_workers=max_workers, *args, **kwargs)
+
+    monkeypatch.setattr(storage.concurrent.futures, "ThreadPoolExecutor", RecordingExecutor)
+    run = _write_run(tmp_path / "runs" / "parallel")
+    profile = _profile(tmp_path)
+    profile["chunk_size_bytes"] = 1
+    target = storage.resolve_local_storage_targets(str(run), None)[0]
+    manifest = storage.archive_artifact(target, profile, workers=3)
+    assert 3 in observed
+    shutil.rmtree(run)
+    storage.restore_archive(profile, manifest["archive_id"], destination=str(run), workers=2)
+    assert 2 in observed
+    assert (run / "config" / "case.yml").is_file()
+
+
+def test_remote_catalog_recovers_missing_workspace_asset(tmp_path, local_rclone):
+    """!
+    @brief An archived run can reconstruct a deleted shared asset object by provider identity.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    run = _write_run(tmp_path / "runs" / "asset-source")
+    grid = run / "inputs" / "grid" / "grid.run"
+    grid.parent.mkdir(parents=True)
+    grid.write_bytes(b"canonical-grid")
+    digest = hashlib.sha256(grid.read_bytes()).hexdigest()
+    asset_id = "a" * 64
+    spec_hash = "b" * 64
+    (run / "inputs" / "assets.lock.yml").write_text(
+        yaml.safe_dump({
+            "assets": {
+                "grid": {
+                    "asset_id": asset_id,
+                    "kind": "grid",
+                    "provider": "file",
+                    "provider_spec_sha256": spec_hash,
+                    "files": [{"path": "inputs/grid/grid.run", "sha256": digest}],
+                }
+            }
+        }, sort_keys=False),
+        encoding="utf-8",
+    )
+    target = storage.resolve_local_storage_targets(str(run), None)[0]
+    storage.archive_artifact(target, _profile(tmp_path))
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "assets").mkdir()
+    (workspace / storage.STORAGE_CONFIG_FILENAME).write_text(
+        yaml.safe_dump({
+            "default_profile": "archive",
+            "profiles": {
+                "archive": {
+                    "remote": "fake:picurv-data", "compression": "none",
+                    "chunk_size_gib": 1.0, "workers": 2,
+                }
+            },
+        }),
+        encoding="utf-8",
+    )
+    restored = storage.restore_missing_workspace_assets(str(workspace), [spec_hash])
+    assert restored[spec_hash]["asset_id"] == asset_id
+    object_root = workspace / restored[spec_hash]["object"]
+    assert (object_root / "asset.json").is_file()
+    assert (object_root / "payload" / "inputs" / "grid" / "grid.run").read_bytes() == b"canonical-grid"

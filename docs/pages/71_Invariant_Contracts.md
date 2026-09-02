@@ -107,23 +107,23 @@ automated check earns the most.
 @section p71_topology_sec 4. Artifact Topology
 
 The one invariant given a full contract so far is where a run puts its files.
-`tests/tooling/artifact_topology.json` names 13 logical identities — `run.root`, `run.config`, `run.control`, `run.runtime_logs`, `run.scheduler`, `run.solver_output`, `run.checkpoints`, `run.manifest`, `run.config.inputs`, `run.post_control`, `run.runtime_logs.files`, `run.scheduler.files`, `run.visualization` — each recording its
-resolution rule, owner, writers and readers, mutability, retention, restart role, and
-destructive scope.
+`tests/tooling/artifact_topology.json` names the run root, configuration revisions,
+materialized input roles, runtime logs, scheduler state, solver output, checkpoints,
+analysis families, recipe-specific visualization, and manifest. Each identity records
+its resolution rule, owner, writers and readers, mutability, retention, restart role,
+and destructive scope.
 
 Narrative pages should refer to these **logical identities**, and use `<run.config>`
 notation rather than repeating physical paths. The concrete layout is extracted from
 the CLI's own dry-run planner and normalized, so the recorded shape cannot drift from
 what the tool actually plans.
 
-@subsection p71_notation_sub 4.1 How Prose Must Name These Paths
+@subsection p71_notation_sub 4.1 How Prose Names These Paths
 
-Two of the run-owned directories - the log and output directories - are
-**configurable**. A page that names one concretely is therefore wrong the moment
-`io.directories` is customized, which is exactly the storage-layout case this contract
-exists for. `make audit-path-literals` enforces the notation, and the counter-examples
-below sit in a code block because the audit would otherwise reject the page that
-defines the rule:
+Narrative documentation uses logical names because they express ownership and storage
+policy, not because users may redirect the directories. `make audit-path-literals`
+enforces that notation, and these counter-examples sit in a code block because the
+audit would otherwise reject the page that defines the rule:
 
 ```text
 write                                     instead of
@@ -134,80 +134,34 @@ write                                     instead of
 <repo>/logs/build.log                     logs/build.log
 ```
 
-The first three are the ordinary case: a logical identity instead of a path string.
-The fourth matters because a placeholder run root still hardcodes which subdirectory
-follows it. The fifth is the one that bites: the repository's own build and test log
-directory is a **different** directory that no run configuration moves, and in prose it
-used to be indistinguishable from a run's runtime logs. The `<repo>/` prefix is not
-decoration.
+The logical identity lets storage and lifecycle documentation say whether an artifact
+is essential, restart-bearing, raw, or derived without duplicating a physical path.
+The `<repo>/` prefix distinguishes repository build/test logs from run-owned logs.
 
 Runnable command blocks may keep concrete paths - a reader has to type something - and
 the changelog is exempt, because rewriting history would falsify it.
 
-@subsection p71_isolation_sub 4.2 Default Layout, Not Enforced Isolation
+@subsection p71_isolation_sub 4.2 Fixed Run Trees and Shared Immutable Assets
 
-`isolated_run_tree` is the **default layout** a run gets when monitor
-`io.directories` values are left alone. The run-owned directories (`log`, `output`)
-are containment-validated, so they cannot be pointed outside the run tree without an
-explicit override. Isolation between *separate runs* still rests on distinct run ids
-rather than on an enforced storage model, which is why this is described as a layout
-rather than a guarantee.
+`isolated_run_tree` is the enforced mutable-output layout. Each initialized run owns
+its complete `config`, `inputs`, `output`, `logs`, and `scheduler` tree. YAML cannot
+redirect those homes to peer `diagnostics` or `results` directories. Isolation between
+runs comes from the run id namespace and fixed run-local paths.
 
 | Model | Meaning |
 |---|---|
-| `isolated_run_tree` | Each run owns a complete tree; nothing shared. **Default, not enforced.** |
-| `shared_root_namespaced` | Runs share a parent root, namespaced by run id |
-| `shared_pooled` | Shared storage with no per-run namespacing |
+| `isolated_run_tree` | Mutable run state is namespaced and self-contained. **Enforced.** |
+| `shared_content_addressed` | Immutable workspace assets are shared by digest and materialized read-only into a run. |
 
-@note **Run-owned directories are containment-validated.** `io.directories.log` and
-`io.directories.output` must resolve inside the run directory. Absolute paths, values
-starting with `~`, and parent traversal are rejected by `picurv validate` and therefore by `run` and
-`submit`. This closes a real data-loss path: on a fresh solve the C runtime calls
-`PetscRMTree` on its configured log directory, so an escaping value meant the solver
-recursively deleted whatever was there.
+The generated control writes canonical `-log_dir`, `-output_dir`, `-restart_dir`, and
+`-analysis_dir` values last so passthrough input cannot override them. Submission
+preflight re-reads staged controls, and the C runtime independently refuses a log
+cleanup target outside the run. These are defense-in-depth checks for edited or
+hand-written controls, not a supported directory-customization surface.
 
-An **absolute** path outside the run tree can still be used deliberately by setting
-`io.directories.allow_unsafe_paths: true`, which downgrades that one rejection to a
-prominent warning naming the consequence. It is never the right default, and it waives
-nothing else: a relative escape, the run root itself, a reserved directory name, a
-`log`/`output` overlap, and a value carrying whitespace, quotes or `#` stay fatal with
-the override set. A relative escape is refused outright because it lands among sibling
-runs and study members; if an external location is genuinely intended, name it
-absolutely. A value starting with `~` is refused outright rather than
-expanded: nothing expands it anywhere in the pipeline, so it names a literal `~`
-directory inside the run tree. An earlier version of the physical containment check
-did expand it and classified the result as an authorizable external location, while
-every layer that consumed the value treated it literally - the two disagreed about
-which directory was about to be deleted. Refusing the value ends that disagreement;
-expanding it in one layer would only have moved it.
-
-Containment is checked at six points:
-
-1. configuration validation (`validate`, `run`, `submit`);
-2. the reserved-flag guard that stops raw PETSc passthrough from setting
-   `-log_dir`/`-output_dir`/`-restart_dir`;
-3. the control-file emitter itself;
-4. the dry-run planner, so a plan reports what a real run would refuse;
-5. a submission preflight that re-reads the staged `.control` file rather than
-   trusting that staging validated it; and
-6. independently of all of those, the C runtime's own guard immediately before the
-   delete.
-
-The last one matters because the first five live in `picurv`, and the solver can be
-launched directly on a hand-written control file. `ClassifyLogDirectory`
-(`src/setup.c`) re-derives the decision from the options actually in force, resolves
-the path physically — including a directory that does not exist yet, through its
-longest existing prefix — and returns a typed verdict. `LogDirectoryIsSafeToWipe`
-then applies the waiver to exactly one of those verdicts. The classifier never sees
-the authorization, so no ordering mistake can let it short-circuit a physical check.
-`-allow_unsafe_log_dir` is reserved, so raw PETSc passthrough cannot forge it.
-
-@warning **Residual risk.** `io.directories.restart` is deliberately not
-containment-checked, because it is a read path that may legitimately point at another
-run's checkpoints. And an authorization is exactly what it says: with
-`allow_unsafe_paths: true` and an absolute external `log`, the runtime *will*
-recursively delete that directory on every fresh solve. The guard establishes that the
-deletion was asked for, not that it is wise.
+External source files use a different contract: `picurv inputs add --mode reference`
+stores a small `.reference.yml` descriptor in the workspace. Validation fails loudly
+when its target is unavailable. Mutable runtime output never uses that indirection.
 
 @section p71_change_sec 5. When a Contract Changes
 

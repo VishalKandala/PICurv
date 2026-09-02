@@ -294,8 +294,14 @@
       "authoritative_sources": [
         "tests/tooling/artifact_topology.json",
         "picurv_cli/core.py",
+        "picurv_cli/storage.py",
+        "include/setup.h",
+        "include/variables.h",
         "src/setup.c",
-        "src/io.c"
+        "src/io.c",
+        "src/logging.c",
+        "src/postprocessor.c",
+        "src/simulator.c"
       ],
       "extractor": null,
       "checker": null,
@@ -309,7 +315,7 @@
         "09_Monitor_Reference"
       ],
       "enforcement": "report-only",
-      "note": "Ownership, writers/readers, mutability, atomicity, retention, restart role, containment and destructive scope are declared by hand and reviewed by humans. Nothing verifies them against the sources, so they must not be described as verified. Includes the open run.log_dir.unvalidated_destructive safety defect."
+      "note": "Ownership, writers/readers, mutability, atomicity, retention, restart role, containment and destructive scope are declared by hand and reviewed by humans. Nothing verifies them against the sources, so they must not be described as verified."
     },
     {
       "id": "docs.run_path_literals",

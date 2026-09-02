@@ -708,7 +708,7 @@ def test_validated_directory_flags_are_emitted_last_and_always(tmp_path):
     @return None.
     """
     source = (REPO_ROOT / "picurv_cli" / "core.py").read_text(encoding="utf-8")
-    marker = "# Run-owned directories: validated for containment, emitted last"
+    marker = "# Canonical run-owned directories are fixed by the workspace contract."
     assert marker in source
     tail = source[source.index(marker) :]
     assert "-output_dir" in tail and "-log_dir" in tail
@@ -776,16 +776,15 @@ def test_c_guard_waives_only_the_external_restriction():
     )
 
 
-def test_control_file_carries_authorization_only_when_overridden():
+def test_control_file_never_carries_obsolete_directory_authorization():
     """!
-    @brief The override must cross the Python/C boundary explicitly, never be assumed.
+    @brief Canonical fixed paths make the former external-directory waiver unnecessary.
     @return None.
     """
     source = (REPO_ROOT / "picurv_cli" / "core.py").read_text(encoding="utf-8")
-    assert "-allow_unsafe_log_dir true" in source
-    marker = source.index("-allow_unsafe_log_dir true")
-    preceding = source[max(0, marker - 600) : marker]
-    assert "unsafe_authorized" in preceding, "authorization must be conditional on the override"
+    assert "-allow_unsafe_log_dir true" not in source
+    assert "-output_dir {CANONICAL_RUN_PATHS['output']}" in source
+    assert "-log_dir {CANONICAL_RUN_PATHS['logs']}" in source
 
 
 PICURV_CLI = REPO_ROOT / "picurv_cli" / "picurv"

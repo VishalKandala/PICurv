@@ -40,7 +40,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `monitor.io.particle_console_output_frequency` | `-particle_console_output_freq` | `src/setup.c` | `src/io.c`, `src/setup.c`, particle console logging |
 | `monitor.io.particle_log_interval` | `-logfreq` | `src/setup.c` | particle console row subsampling |
 | `monitor.io.statistics_console_output_frequency` | `-statistics_console_output_freq` | `src/statistics_config.c` | `src/logging.c` statistics console snapshot, `src/runloop.c` |
-| `monitor.io.directories.*` | `-output_dir`, `-restart_dir`, `-log_dir` | `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c` |
+| fixed run topology | canonical `-output_dir`, `-restart_dir`, `-log_dir`, `-analysis_dir` | `picurv_cli/core.py`, then `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c`, `src/logging.c` |
 | `monitor.logging.*` | `whitelist.run`, `LOG_LEVEL` env | `src/setup.c` + `src/logging.c` | logging macros/system |
 | `monitor.profiling.*` | `profile.run` (selected-mode only) + explicit profiling flags in `*.control` | `src/setup.c` + profiling init | profiler summaries |
 | `monitor.diagnostics.petsc.*` | solver/postprocessor executable arguments (`-malloc_*`, `-log_view`, `-objects_dump`, etc.) | PETSc initialization | PETSc memory/log/object diagnostics |
@@ -74,7 +74,7 @@ These keys are consumed by `picurv` orchestration only:
 | `study.metrics` | `metrics_table.csv` extraction contract | `picurv_cli/core.py` metric extractors | study aggregation/reporting |
 | `study.plotting` | `results/plots/*` output controls | `picurv_cli/core.py` plotting pipeline | study reporting |
 | `post.spectra.tasks[*]` | `spectra.gen shell-spectrum` arguments | `picurv_cli/core.py` (`normalize_post_spectra_config`) | `run_post_spectra_stage`, `generators/spectra.gen` |
-| `post.spectra.output_prefix` | spectra CSV basenames under `<monitor output>/spectra/` | `picurv_cli/core.py` (`post_spectra_task_basename`) | `run_post_spectra_stage` |
+| `post.spectra.output_prefix` | spectra CSV basenames under `<run.analysis>/spectra/<recipe_id>/` | `picurv_cli/core.py` (`post_spectra_task_basename`) | `run_post_spectra_stage` |
 
 @section p15_exceptions_sec 4. Important Exceptions
 
@@ -107,15 +107,11 @@ options" in several places.
 
 @section p15_safety_sec 6. Safety-Critical Ingress
 
-`-allow_unsafe_log_dir` is generated **only** when
-`monitor.io.directories.allow_unsafe_paths` is a real YAML boolean `true`. It carries an
-explicit authorization across the Python/C boundary: the runtime performs its own
-containment check before recursively deleting the log directory, and waives the
-external-location restriction only when this option is present. It never waives a
-run-root target, a reserved run directory, a log/output overlap, or a malformed value.
-
-It is a reserved flag: raw PETSc passthrough cannot set it, so authorization cannot be
-forged. See @ref p71_isolation_sub.
+Run-owned directories are not user ingress. The generator emits the canonical
+`-output_dir`, `-restart_dir`, `-log_dir`, and `-analysis_dir` values after all
+user-derived flags, and rejects those flags in raw PETSc passthrough. Submission
+preflight rechecks staged controls, while the C runtime independently checks the log
+cleanup target immediately before recursive deletion. See @ref p71_isolation_sub.
 
 @section p15_maintenance_sec 7. Drift Prevention
 

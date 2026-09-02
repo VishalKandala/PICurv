@@ -48,7 +48,7 @@ python3 tests/tooling/audit_starter_content.py
    - `./bin/picurv validate --case ... --solver ... --monitor ... --post ...`
 3. If the case uses `grid_gen` or generated inlet profiles, optionally inspect
    deterministic artifacts first:
-   - `./bin/picurv precompute --case ... --output-dir precomputed/<name>`
+   - `./bin/picurv precompute --case <workspace>/config/case.yml`
 4. Run dry-run planning, then actual solve/post execution.
 
 For long or live runs, keep the full post-analysis window in `post.yml`, then use:

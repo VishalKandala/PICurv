@@ -1207,7 +1207,104 @@
         "maximum": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "unit": [
+              "file:tests/test_storage.py"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "run.restart_statistics_state",
+      "title": "Restart Statistics State",
+      "selector": "picurv run --statistics-state",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.cli",
+        "symbol": "RESTART_STATISTICS_MODES"
+      },
+      "parity_sources": [],
+      "family_page": "52_Run_Artifact_Lifecycle_Contract",
+      "entry_anchor_prefix": "p52_cap_restart_stats_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "reset": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {"unit": ["file:tests/test_workspace_lifecycle.py"]}
+        },
+        "carry": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {"unit": ["file:tests/test_workspace_lifecycle.py"]}
+        }
+      }
+    },
+    {
+      "id": "workspace.input_import_mode",
+      "title": "Workspace Input Import Modes",
+      "selector": "picurv inputs import --mode",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.cli",
+        "symbol": "WORKSPACE_INPUT_MODES"
+      },
+      "parity_sources": [],
+      "family_page": "05_CLI_Usage",
+      "entry_anchor_prefix": "p05_cap_input_mode_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "copy": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {"unit": ["file:tests/test_workspace_lifecycle.py"]}
+        },
+        "reflink": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {"unit": ["file:tests/test_workspace_lifecycle.py"]}
+        },
+        "hardlink": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {"unit": ["file:tests/test_workspace_lifecycle.py"]}
+        },
+        "reference": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {"unit": ["file:tests/test_workspace_lifecycle.py"]}
+        }
+      }
+    },
+    {
+      "id": "storage.offload_policy",
+      "title": "Storage Offload Policies",
+      "selector": "picurv storage offload --policy / storage profile -> offload_policy",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.storage",
+        "symbol": "STORAGE_OFFLOAD_POLICIES"
+      },
+      "parity_sources": [],
+      "family_page": "61_Storage_Management_Guide",
+      "entry_anchor_prefix": "p61_cap_policy_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "metadata-only": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {"unit": ["file:tests/test_storage.py"]}
+        },
+        "restart-ready": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {"unit": ["file:tests/test_storage.py"]}
+        },
+        "analysis-ready": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {"unit": ["file:tests/test_storage.py"]}
         }
       }
     }

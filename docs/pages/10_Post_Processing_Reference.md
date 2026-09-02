@@ -573,7 +573,7 @@ picurv summarize --run-dir runs/my_run --plot spectra.resolved_kinetic_energy
 ```
 
 `--plot-spectrum` draws one curve per processed step on log-log axes, overlaid on
-`diagnostics/initial_condition_spectrum.csv` when the run has one. Pass a task-name
+`<run.analysis>/spectra/initial_condition_spectrum.csv` when the run has one. Pass a task-name
 substring when a recipe measured more than one spectrum. The per-step scalars are
 ordinary series, so `--list-plot-series` finds them and `--plot` draws them.
 

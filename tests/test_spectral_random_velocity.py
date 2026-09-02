@@ -336,7 +336,7 @@ def test_spectral_ic_is_subordinate_to_restart_eulerian_state(tmp_path):
     # the same source-authority contract.
     CORE.validate_simulation_configs(
         restarted_case, solver, monitor,
-        "restart-case.yml", "solver.yml", "monitor.yml",
+        str(example / "case.yml"), str(example / "solver.yml"), str(example / "monitor.yml"),
     )
 
     case_path = tmp_path / "case.yml"
@@ -352,7 +352,7 @@ def test_spectral_ic_is_subordinate_to_restart_eulerian_state(tmp_path):
     control_path = CORE.generate_solver_control_file(
         str(run_dir), "restart",
         {
-            "case": restarted_case, "case_path": str(case_path),
+            "case": restarted_case, "case_path": str(example / "case.yml"),
             "solver": solver, "solver_path": str(solver_path),
             "monitor": monitor, "monitor_path": str(monitor_path),
         },
@@ -372,7 +372,7 @@ def test_spectral_ic_is_subordinate_to_restart_eulerian_state(tmp_path):
         inactive_case["properties"]["initial_conditions"] = inactive_ic
         CORE.validate_simulation_configs(
             inactive_case, solver, monitor,
-            "restart-case.yml", "solver.yml", "monitor.yml",
+            str(example / "case.yml"), str(example / "solver.yml"), str(example / "monitor.yml"),
         )
 
 

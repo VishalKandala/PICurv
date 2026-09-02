@@ -33,6 +33,40 @@ if [ "$main_oid" != "$head_oid" ]; then
   exit 1
 fi
 
+release_version="$(git show "${main_oid}:VERSION" 2>/dev/null || true)"
+release_version="${release_version//$'\n'/}"
+if ! [[ "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+  echo "Refusing to push main: VERSION must contain one semantic version." >&2
+  exit 1
+fi
+
+remote_release_version=''
+if [ "$main_remote_oid" != "$zero_oid" ]; then
+  remote_release_version="$(git show "${main_remote_oid}:VERSION" 2>/dev/null || true)"
+  remote_release_version="${remote_release_version//$'\n'/}"
+fi
+if [ "$release_version" = "$remote_release_version" ]; then
+  echo "Refusing to push main: VERSION was not updated (${release_version})." >&2
+  echo "Every main update is a release; increment VERSION and add its changelog entry." >&2
+  exit 1
+fi
+
+if [ "$main_remote_oid" != "$zero_oid" ] && \
+   ! git diff --quiet "$main_remote_oid" "$main_oid" -- docs/CHANGELOG.md; then
+  :
+elif [ "$main_remote_oid" = "$zero_oid" ] && git cat-file -e "${main_oid}:docs/CHANGELOG.md" 2>/dev/null; then
+  :
+else
+  echo "Refusing to push main: docs/CHANGELOG.md was not updated for ${release_version}." >&2
+  exit 1
+fi
+if ! git show "${main_oid}:docs/CHANGELOG.md" | \
+     awk -v version="$release_version" \
+       '$1 == "##" && ($2 == version || $2 == "v" version) { found = 1 } END { exit !found }'; then
+  echo "Refusing to push main: docs/CHANGELOG.md has no '## ${release_version}' entry." >&2
+  exit 1
+fi
+
 if ! [[ "$max_full_age_days" =~ ^[0-9]+$ ]]; then
   echo "PICURV_FULL_CERT_MAX_AGE_DAYS must be a non-negative integer." >&2
   exit 1

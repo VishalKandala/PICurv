@@ -3,11 +3,6 @@ io:
   particle_console_output_frequency: 1
   particle_log_interval: 256
 
-  directories:
-    output: "output"
-    restart: "restart"
-    log: "logs"
-
 logging:
   # scatter_metrics.csv is always written when scalar verification is active.
   # This whitelist entry only controls the optional console summary.

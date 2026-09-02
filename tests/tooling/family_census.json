@@ -10,6 +10,10 @@
       "classification": "cli_inventory_sufficient",
       "reason": "Values of `picurv run --only`. The generated CLI reference lists them, and page 10 explains when to run spectra alone - which is the only stage selection with a real trade-off behind it."
     },
+    "picurv_cli.cli::WORKSPACE_INPUT_KINDS": {
+      "classification": "cli_inventory_sufficient",
+      "reason": "Semantic destinations accepted by `picurv inputs import`. The generated CLI reference enumerates the tokens and the workspace lifecycle page maps each token to its fixed directory; they classify data rather than selecting competing behavior."
+    },
     "picurv_cli.core::BC_FACE_MAP": {
       "classification": "not_public",
       "reason": "Face naming, not a user choice between behaviours."

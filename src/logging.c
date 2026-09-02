@@ -2972,7 +2972,7 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
     /* --- CSV output (always, rank 0 only) --- */
     if (simCtx->rank == 0) {
         char csv_path[PETSC_MAX_PATH_LEN + 32];
-        ierr = PetscSNPrintf(csv_path, sizeof(csv_path), "%s/interpolation_error.csv", simCtx->log_dir); CHKERRQ(ierr);
+        ierr = PetscSNPrintf(csv_path, sizeof(csv_path), "%s/interpolation_error.csv", simCtx->analysis_dir); CHKERRQ(ierr);
         FILE *f = fopen(csv_path, "a");
         if (f) {
             if (ftell(f) == 0) {
@@ -3121,7 +3121,7 @@ PetscErrorCode LOG_SCATTER_METRICS(UserCtx *user)
     if (simCtx->rank == 0) {
         char csv_path[PETSC_MAX_PATH_LEN + 32];
         FILE *f = NULL;
-        ierr = PetscSNPrintf(csv_path, sizeof(csv_path), "%s/scatter_metrics.csv", simCtx->log_dir); CHKERRQ(ierr);
+        ierr = PetscSNPrintf(csv_path, sizeof(csv_path), "%s/scatter_metrics.csv", simCtx->analysis_dir); CHKERRQ(ierr);
         f = fopen(csv_path, "a");
         if (f) {
             if (ftell(f) == 0) {
@@ -3283,7 +3283,7 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
         char csv_path[PETSC_MAX_PATH_LEN + 32];
         FILE *f = NULL;
 
-        ierr = PetscSNPrintf(csv_path, sizeof(csv_path), "%s/search_metrics.csv", simCtx->log_dir); CHKERRQ(ierr);
+        ierr = PetscSNPrintf(csv_path, sizeof(csv_path), "%s/search_metrics.csv", simCtx->analysis_dir); CHKERRQ(ierr);
         f = fopen(csv_path, "a");
         if (!f) {
             LOG_ALLOW(GLOBAL, LOG_WARNING, "LOG_SEARCH_METRICS: could not open '%s' for writing.\n", csv_path);

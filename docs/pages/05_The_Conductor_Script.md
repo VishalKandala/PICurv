@@ -26,12 +26,12 @@ If `bin/picurv` does not exist yet, run `./picurv_cli/picurv build` or `make con
 Primary commands:
 - `init`
 - `build`
-- `sync-binaries`
+- `version`, `versions`, and `source`
+- `inputs`
 - `sync-config`
-- `pull-source`
-- `status-source`
 - `run`
 - `precompute`
+- `storage`
 - `summarize`
 - `submit`
 - `cancel`
@@ -50,10 +50,11 @@ Help:
 ./bin/picurv --help
 ./bin/picurv init --help
 ./picurv_cli/picurv build --help
-./bin/picurv sync-binaries --help
+./bin/picurv version --help
+./bin/picurv versions --help
+./bin/picurv source --help
+./bin/picurv inputs --help
 ./bin/picurv sync-config --help
-./bin/picurv pull-source --help
-./bin/picurv status-source --help
 ./bin/picurv run --help
 ./bin/picurv precompute --help
 ./bin/picurv summarize --help
@@ -72,6 +73,11 @@ picurv init <template_name> [--dest <new_dir>] [--pin-binaries]
 Behavior:
 
 - copies `examples/<template_name>/` into a new working directory,
+- creates the uniform `config/`, `inputs/`, `assets/`, `runs/`, and `studies/` tree,
+- classifies and relocates template YAML to canonical roles under `config/`, preserving
+  colliding variants below `config/variants/`,
+- writes `.picurv-workspace.yml`; `software.picurv` is empty by default and therefore
+  means the latest active installation,
 - optionally renames the destination via `--dest`,
 - writes `.picurv-origin.json` with the source repo path and template name,
 - writes `.picurv-execution.yml` for optional site-specific launcher overrides,
@@ -133,9 +139,19 @@ Examples:
 make audit-build
 ```
 
-@section p05_sync_sec 3b. sync-binaries / sync-config / pull-source / status-source
+@section p05_sync_sec 3b. Source, Version, And Legacy Maintenance Commands
 
-These commands are intended for case directories created by `init`.
+`picurv version` prints the release, Git commit, and dirty-tree build identity shared
+by the Python conductor, `simulator --version`, and `postprocessor --version`.
+`picurv source update` fetches branches and tags without changing the active checkout.
+`picurv versions list` reports tags; `versions install <version>` or
+`versions activate [version]` requires a clean source checkout, selects the exact Git
+version, and rebuilds. With no argument, `activate` reads the workspace's exact
+`software.picurv` value and refuses ranges.
+
+`sync-binaries`, `pull-source`, and `status-source` remain legacy maintenance surfaces.
+New workspaces normally use the active installation and the version commands instead
+of copying executables into every case.
 
 `sync-binaries` copies `simulator` and `postprocessor` from the source repo `bin/`
 into a case directory for version-pinning (optional — normally binaries are resolved via PATH):
@@ -308,7 +324,7 @@ Behavior:
 - plotting requires `matplotlib`, which bootstrap installs in the managed PICurv environment by default,
 - continued runs write `# Continuation from step <N>` separators into append-only logs,
 - plots use the latest continuation segment by default; `--last <n>` keeps its last N chronological records per line,
-- `--plot-output <path>` saves without opening a window; headless interactive requests save under `summary/plots/`,
+- `--plot-output <path>` saves without opening a window; headless interactive requests save under `<run.analysis>/plots/`,
 - builds a best-effort step summary without changing solver output,
 - works for active runs and completed runs,
 - reports unavailable sections when a source log is missing or disabled.
@@ -397,29 +413,22 @@ Common `run` use cases:
 @section p05_precompute_sec 5a. precompute: Generate Deterministic Artifacts
 
 ```bash
-./bin/picurv precompute --case case.yml [--output-dir precomputed/<name>]
+picurv precompute --case config/case.yml [--only grid,initial-condition,inlet-profiles]
 ```
 
-`precompute` materializes deterministic case artifacts without launching the
-solver. It uses the same `case.yml` generator settings as `run --solve`:
+`precompute` creates immutable, content-addressed workspace assets without launching
+the solver. It uses exactly the same provider graph as `run --solve`: grids build
+before any Python initial condition or inlet slice that consumes them. Provider
+settings, referenced-file checksums, and software identity determine reuse.
 
-- `grid.mode: grid_gen` writes the configured dimensional `PICGRID`; file and
-  generated grids are also validated and staged as nondimensional `<run.config>/grid.run`,
-- `prescribed_flow.source.type: generated` delegates dimensional `.picslice`
-  profile generation to `generators/profile.gen` or optional `source.script` and writes `profile.info`,
-- `prescribed_flow.source.type: field_slice` extracts a dimensional `.picslice`
-  from an old Cartesian `ufield*.dat` plus its old `PICGRID`,
-- `initial_conditions.generator: ic_gen` runs `generators/ic.gen` or optional `params.script` and
-  stages its PETSc vector output after the run grid is available,
-- `<run.config>/precompute.manifest.json` records generated paths, profile stats, and IC staging.
+The build occurs under `assets/.precompute-*` and publishes to `assets/objects/` only
+after the whole requested dependency closure succeeds. The mutable pointer in
+`assets/sets/` records which objects match the current case. A normal run reuses those
+objects automatically and writes the exact selection to `inputs/assets.lock.yml`.
 
-The output layout mirrors `<run.config>/` so inspected artifacts can be
-reused later with file-backed grid, profile, and initial-condition modes.
-
-Design intent: `precompute` is the extensible artifact-materialization route for
-deterministic case inputs. It should host future grid/profile/IC preprocessing that
-can be inspected before launch, while `run --solve` should perform the same
-materialization automatically for generator-style case settings.
+Providers owned by the C runtime are reported but never approximated by Python. A
+selected C-only provider makes precompute fail before publication. See
+**@subpage 52_Run_Lifecycle_Guide** for the directory and dependency contracts.
 
 @section p05_submit_sec 5b. submit: Execute Existing Staged Artifacts
 
@@ -582,7 +591,7 @@ above is hand-written and complements it; this section is the exhaustive referen
 - required:
   - `--case <path>`
 - optional:
-  - `--output-dir <path>` (defaults to `precomputed/<case-name>`)
+  - `--only <grid,initial-condition,inlet-profiles>` (defaults to all configured providers)
 
 `summarize`:
 - required:
@@ -798,8 +807,9 @@ For prebuilt reusable profiles, also see the local guides under:
 - Rebuilding `simulator`/`postprocessor` (`make all`) overwrites the binaries in `bin/`.
   If a Slurm job references `bin/simulator` by absolute path and has not yet started, the running
   binary may be replaced before execution begins.
-- To protect against this, use `--pin-binaries` at init time or `sync-binaries` before submission.
-  Case-local copies are isolated from repo rebuilds.
+- For a queued production job, use a tagged release checkout or an explicitly pinned
+  legacy binary copy. The run manifest records the build identity that staged it;
+  `picurv version` checks the currently active identity.
 
 **Recommended workflow for concurrent development and production:**
 
@@ -810,15 +820,125 @@ picurv run --solve --cluster cluster.yml ...   # uses case-local binaries
 make all
 ```
 
+@section p05_cap_input_mode_sec 12.1 Workspace Input Import Mode Entries
+
+@htmlinclude generated/capability_inventory_workspace_input_import_mode.html
+
+@subsection p05_cap_input_mode_copy_sub copy
+
+@anchor p05_cap_input_mode_copy
+
+**Identity.** `picurv inputs import <kind> <source> --mode copy`.
+
+**What it does.** Copies the source into its canonical workspace `inputs/` home and
+catalogues the source checksum, size, and new relative path.
+
+**When to choose it.** Default to `copy` when portability and independent ownership
+matter more than local disk duplication. Unlike links, the workspace remains valid if
+the source is moved or deleted.
+
+**Parameters it owns.** Optional `--name` supplies the destination basename.
+
+**Interactions.** Storage includes the copied file when a run locks and materializes
+an asset derived from it.
+
+**Diagnostics.** Success prints the catalog ID and relative path; an existing target
+or missing source fails before the catalog changes.
+
+**Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` checks the copied
+bytes and catalog entry.
+
+**Limitations.** Uses additional disk space equal to the imported file.
+
+@subsection p05_cap_input_mode_reflink_sub reflink
+
+@anchor p05_cap_input_mode_reflink
+
+**Identity.** `picurv inputs import <kind> <source> --mode reflink`.
+
+**What it does.** Requests a copy-on-write clone through `cp --reflink=always`, then
+catalogues it like a copy.
+
+**When to choose it.** Prefer it for very large local inputs on a filesystem that
+supports reflinks: it begins space-efficiently but remains independently writable,
+unlike `hardlink`.
+
+**Parameters it owns.** Optional `--name` supplies the destination basename.
+
+**Interactions.** Failure does not fall back silently; choose `copy` explicitly when
+the filesystem reports that reflinks are unsupported.
+
+**Diagnostics.** The import fails with the native copy error if reflink creation is
+unavailable and writes no catalog record.
+
+**Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` verifies the mode is
+part of the public parser and catalog contract.
+
+**Limitations.** Experimental across cluster filesystems; support depends on the local
+`cp` and filesystem.
+
+@subsection p05_cap_input_mode_hardlink_sub hardlink
+
+@anchor p05_cap_input_mode_hardlink
+
+**Identity.** `picurv inputs import <kind> <source> --mode hardlink`.
+
+**What it does.** Creates a second directory entry for the same inode and catalogues
+the imported path.
+
+**When to choose it.** Use it only for immutable, same-filesystem inputs when avoiding
+a full copy matters and every owner agrees not to modify the bytes.
+
+**Parameters it owns.** Optional `--name` supplies the destination basename.
+
+**Interactions.** Source and destination share mutations. Asset checksums detect a
+changed provider input and prevent stale object reuse, but cannot undo the mutation.
+
+**Diagnostics.** Cross-filesystem or permission failures are reported before the
+catalog changes.
+
+**Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` verifies the mode is
+part of the public parser and catalog contract.
+
+**Limitations.** Experimental because shared-inode ownership is easy to misuse and it
+cannot cross filesystems.
+
+@subsection p05_cap_input_mode_reference_sub reference
+
+@anchor p05_cap_input_mode_reference
+
+**Identity.** `picurv inputs import <kind> <source> --mode reference`.
+
+**What it does.** Writes a small `.reference.yml` containing the absolute target,
+registration checksum, and byte count; it does not copy the target.
+
+**When to choose it.** Use it for an authoritative shared dataset that should remain
+externally owned. Choose `copy` when the workspace or storage archive must be portable.
+
+**Parameters it owns.** Optional `--name` names the reference record.
+
+**Interactions.** Resolution checks the target loudly. Storage records the dependency
+but neither archives nor prunes the external file.
+
+**Diagnostics.** Registration prints an external-reference warning; missing targets
+fail when registered or consumed.
+
+**Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` checks reference
+content and catalog identity.
+
+**Limitations.** Restoring the workspace cannot restore an external target; its owner
+must make the same path available or the reference must be replaced.
+
 @section p05_artifacts_sec 13. Generated Runtime Artifacts
 
 Single run (`run`):
-- `<run.config>/*.control`, `bcs*.run`, `post.run`, plus optional
+- `config/*.control`, `bcs*.run`, immutable YAML snapshots, plus optional
   `whitelist.run` / `profile.run` sidecars when enabled
-- `<run.runtime_logs>/*` (runtime logs and metrics written by solver/postprocessor)
-- `<run.scheduler>/solver.sbatch`, `post.sbatch` (cluster mode)
-- `<run.scheduler>/solver_<jobid>.out/.err`, `post_<jobid>.out/.err` (cluster mode, after submission)
-- `<run.scheduler>/submission.json` (cluster mode)
+- `config/history/<revision>/` (new active config snapshots for continuation)
+- `config/post-recipes/<recipe-id>/{post.yml,post.run,state.json}`
+- `inputs/{grid,initial_condition,inlet_profiles,restart}/` and `inputs/assets.lock.yml`
+- `output/checkpoints/`, `output/analysis/`, and `output/visualization/`
+- `logs/` (runtime logs) and `scheduler/` (scripts, stream logs, and submission state)
 - `runs/<run_id>/manifest.json`
 
 Sweep (`sweep`):
@@ -828,8 +948,8 @@ Sweep (`sweep`):
 - `studies/<study_id>/scheduler/post_array.sbatch`
 - `studies/<study_id>/scheduler/solver_<array_jobid>_<taskid>.out/.err`, `post_<array_jobid>_<taskid>.out/.err`
 - `studies/<study_id>/scheduler/submission.json`
-- `studies/<study_id>/results/metrics_table.csv`
-- `studies/<study_id>/results/plots/*.png` (if plotting enabled and matplotlib available)
+- `studies/<study_id>/output/analysis/metrics_table.csv`
+- `studies/<study_id>/output/analysis/plots/*.png` (if plotting enabled and matplotlib available)
 - `studies/<study_id>/study_manifest.json`
 
 @section p05_storage_sec 14. `storage`

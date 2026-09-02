@@ -219,7 +219,7 @@ and writes runtime deposition diagnostics to `<run.runtime_logs>/scatter_metrics
 Optional: generate deterministic artifacts before launch, such as `grid_gen`
 grids and generated inlet profiles:
 ```bash
-./bin/picurv precompute --case my_case/flat_channel.yml --output-dir precomputed/flat_channel
+./bin/picurv precompute --case my_case/config/case.yml
 ```
 
 7. Run solver + post:

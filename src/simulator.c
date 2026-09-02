@@ -31,6 +31,7 @@ int main(int argc, char **argv)
   PetscErrorCode    ierr;
   SimCtx *simCtx = NULL; // The single, top-level context object
 
+  if (PicurvHandleVersionArgument(argc, argv, "simulator")) return 0;
   // === I. INITIALIZE =======================================================
   ierr = PetscInitialize(&argc, &argv, (char *)0, "PICurv Simulator"); CHKERRQ(ierr);
   ierr = InitializeRuntimeSignalHandlers(); CHKERRQ(ierr);

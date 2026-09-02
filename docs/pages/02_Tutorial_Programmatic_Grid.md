@@ -86,9 +86,14 @@ Typical output structure:
 runs/
 `- flat_channel_YYYYMMDD-HHMMSS/
    |- config/
+   |- inputs/
    |- logs/
    |- output/
-   `- viz/
+   |  |- checkpoints/
+   |  |- analysis/
+   |  `- visualization/
+   |- scheduler/
+   `- manifest.json
 ```
 
 Interpretation:
@@ -96,7 +101,7 @@ Interpretation:
 - `<run.config>/`: exact runtime artifact snapshot for reproducibility,
 - `<run.runtime_logs>/`: function-level and solver monitor traces,
 - `<run.solver_output>/`: solver field outputs,
-- `<run.visualization>/`: postprocessed VTK files for ParaView (`viz/` by default).
+- `<run.visualization>/<recipe_id>/`: postprocessed VTK files for ParaView.
 
 @section p02_checks_sec 7. First Validation Checks
 
@@ -106,7 +111,8 @@ After run completion, verify:
 - non-empty VTK outputs in visualization directory,
 - expected time sequence naming (`Field_*.vts`, optionally `Particle_*.vtp`).
 
-If results are missing, check `post.yml` output toggles and directory settings first.
+If results are missing, check the recipe-specific post state under
+`<run.config>/post-recipes/` and the `post.yml` output toggles first.
 
 @section p02_viz_sec 8. Visualize in ParaView
 

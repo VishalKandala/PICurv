@@ -152,6 +152,16 @@ each clone with:
 make install-git-hooks
 ```
 
+Every update to `main` is also a release boundary. The repository-root
+`VERSION` file contains the semantic release version shared by the CLI,
+simulator, and postprocessor. Before allowing a main-branch push, the hook
+requires that the pushed range changes both `VERSION` and `docs/CHANGELOG.md`,
+that the version differs from the remote main version, and that the changelog
+contains a matching `## <version>` heading. Feature-branch commits do not each
+need a version bump; the branch receives one coherent version and changelog
+entry when it is prepared for main. A concise commit-message summary is enough
+for the changelog when it accurately describes the user-visible change.
+
 The hook runs `make certify-docs`, which requires a clean worktree and includes
 the PETSc/MPI runtime tier, whenever runtime-relevant files changed. For
 Markdown, documentation-site, hook, and workflow-only changes it instead runs
@@ -172,7 +182,8 @@ PETSc/MPI `make check-full` tier. Therefore, with the tracked hook enabled, a
 normal push to `main` cannot publish the checked-out commit until all applicable
 local gates pass. The starter-content gate specifically rejects an unregistered
 example directory/YAML, an unregistered `<repo>/config/` asset, a broken declared
-composition, or a template that `picurv init` does not copy faithfully.
+composition, or a template whose canonical relocation by `picurv init` loses or
+rewrites starter content incorrectly.
 
 @section p40_python_sec 3. Python Suite (`test-python`)
 

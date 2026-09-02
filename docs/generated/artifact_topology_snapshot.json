@@ -4,17 +4,30 @@
   "logical_artifacts": [
     "run.root",
     "run.config",
+    "run.config.history",
+    "run.config.active",
+    "run.post_recipes",
+    "run.post_recipe.files",
     "run.control",
+    "run.config.inputs",
+    "run.inputs",
+    "run.input.roles",
+    "run.asset_lock",
+    "run.input.files",
     "run.runtime_logs",
+    "run.runtime_logs.files",
     "run.scheduler",
+    "run.scheduler.files",
     "run.solver_output",
     "run.checkpoints",
-    "run.manifest",
-    "run.config.inputs",
-    "run.post_control",
-    "run.runtime_logs.files",
-    "run.scheduler.files",
-    "run.visualization"
+    "run.analysis",
+    "run.analysis.metrics",
+    "run.analysis.statistics",
+    "run.analysis.spectra",
+    "run.analysis.plots",
+    "run.visualization",
+    "run.visualization.recipe",
+    "run.manifest"
   ],
   "scenarios": [
     {
@@ -22,27 +35,70 @@
         "<workspace>/runs/<run_id>",
         "<workspace>/runs/<run_id>/config",
         "<workspace>/runs/<run_id>/config/<run_id>.control",
+        "<workspace>/runs/<run_id>/config/active.json",
         "<workspace>/runs/<run_id>/config/case.yml",
+        "<workspace>/runs/<run_id>/config/history",
         "<workspace>/runs/<run_id>/config/monitor.yml",
-        "<workspace>/runs/<run_id>/config/post.resume.json",
-        "<workspace>/runs/<run_id>/config/post.run",
+        "<workspace>/runs/<run_id>/config/post-recipes",
+        "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-e73fbd2e0917/post.run",
+        "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-e73fbd2e0917/state.json",
         "<workspace>/runs/<run_id>/config/solver.yml",
+        "<workspace>/runs/<run_id>/inputs",
+        "<workspace>/runs/<run_id>/inputs/assets.lock.yml",
+        "<workspace>/runs/<run_id>/inputs/grid",
+        "<workspace>/runs/<run_id>/inputs/initial_condition",
+        "<workspace>/runs/<run_id>/inputs/inlet_profiles",
+        "<workspace>/runs/<run_id>/inputs/restart",
         "<workspace>/runs/<run_id>/logs",
         "<workspace>/runs/<run_id>/logs/Runtime_Memory.log",
         "<workspace>/runs/<run_id>/manifest.json",
         "<workspace>/runs/<run_id>/output",
+        "<workspace>/runs/<run_id>/output/analysis",
+        "<workspace>/runs/<run_id>/output/analysis/metrics",
+        "<workspace>/runs/<run_id>/output/analysis/plots",
+        "<workspace>/runs/<run_id>/output/analysis/spectra",
+        "<workspace>/runs/<run_id>/output/analysis/statistics",
+        "<workspace>/runs/<run_id>/output/checkpoints",
+        "<workspace>/runs/<run_id>/output/visualization",
+        "<workspace>/runs/<run_id>/output/visualization/eulerian_data-e73fbd2e0917",
         "<workspace>/runs/<run_id>/scheduler",
         "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
         "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
-        "<workspace>/runs/<run_id>/scheduler/post.lock",
-        "<workspace>/runs/<run_id>/scheduler/post.lock.json",
-        "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py",
-        "<workspace>/runs/<run_id>/visualization/standard_analysis"
+        "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-e73fbd2e0917.lock",
+        "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-e73fbd2e0917.lock.json",
+        "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py"
       ],
       "identities": {
         "mapped": {
+          "run.analysis": [
+            "<workspace>/runs/<run_id>/output/analysis"
+          ],
+          "run.analysis.metrics": [
+            "<workspace>/runs/<run_id>/output/analysis/metrics"
+          ],
+          "run.analysis.plots": [
+            "<workspace>/runs/<run_id>/output/analysis/plots"
+          ],
+          "run.analysis.spectra": [
+            "<workspace>/runs/<run_id>/output/analysis/spectra"
+          ],
+          "run.analysis.statistics": [
+            "<workspace>/runs/<run_id>/output/analysis/statistics"
+          ],
+          "run.asset_lock": [
+            "<workspace>/runs/<run_id>/inputs/assets.lock.yml"
+          ],
+          "run.checkpoints": [
+            "<workspace>/runs/<run_id>/output/checkpoints"
+          ],
           "run.config": [
             "<workspace>/runs/<run_id>/config"
+          ],
+          "run.config.active": [
+            "<workspace>/runs/<run_id>/config/active.json"
+          ],
+          "run.config.history": [
+            "<workspace>/runs/<run_id>/config/history"
           ],
           "run.config.inputs": [
             "<workspace>/runs/<run_id>/config/case.yml",
@@ -52,12 +108,24 @@
           "run.control": [
             "<workspace>/runs/<run_id>/config/<run_id>.control"
           ],
+          "run.input.roles": [
+            "<workspace>/runs/<run_id>/inputs/grid",
+            "<workspace>/runs/<run_id>/inputs/initial_condition",
+            "<workspace>/runs/<run_id>/inputs/inlet_profiles",
+            "<workspace>/runs/<run_id>/inputs/restart"
+          ],
+          "run.inputs": [
+            "<workspace>/runs/<run_id>/inputs"
+          ],
           "run.manifest": [
             "<workspace>/runs/<run_id>/manifest.json"
           ],
-          "run.post_control": [
-            "<workspace>/runs/<run_id>/config/post.resume.json",
-            "<workspace>/runs/<run_id>/config/post.run"
+          "run.post_recipe.files": [
+            "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-e73fbd2e0917/post.run",
+            "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-e73fbd2e0917/state.json"
+          ],
+          "run.post_recipes": [
+            "<workspace>/runs/<run_id>/config/post-recipes"
           ],
           "run.root": [
             "<workspace>/runs/<run_id>"
@@ -74,15 +142,18 @@
           "run.scheduler.files": [
             "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
             "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
-            "<workspace>/runs/<run_id>/scheduler/post.lock",
-            "<workspace>/runs/<run_id>/scheduler/post.lock.json",
+            "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-e73fbd2e0917.lock",
+            "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-e73fbd2e0917.lock.json",
             "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py"
           ],
           "run.solver_output": [
             "<workspace>/runs/<run_id>/output"
           ],
           "run.visualization": [
-            "<workspace>/runs/<run_id>/visualization/standard_analysis"
+            "<workspace>/runs/<run_id>/output/visualization"
+          ],
+          "run.visualization.recipe": [
+            "<workspace>/runs/<run_id>/output/visualization/eulerian_data-e73fbd2e0917"
           ]
         },
         "unmapped": []
@@ -95,20 +166,63 @@
         "<workspace>/runs/<run_id>",
         "<workspace>/runs/<run_id>/config",
         "<workspace>/runs/<run_id>/config/<run_id>.control",
+        "<workspace>/runs/<run_id>/config/active.json",
         "<workspace>/runs/<run_id>/config/case.yml",
+        "<workspace>/runs/<run_id>/config/history",
         "<workspace>/runs/<run_id>/config/monitor.yml",
+        "<workspace>/runs/<run_id>/config/post-recipes",
         "<workspace>/runs/<run_id>/config/solver.yml",
+        "<workspace>/runs/<run_id>/inputs",
+        "<workspace>/runs/<run_id>/inputs/assets.lock.yml",
+        "<workspace>/runs/<run_id>/inputs/grid",
+        "<workspace>/runs/<run_id>/inputs/initial_condition",
+        "<workspace>/runs/<run_id>/inputs/inlet_profiles",
+        "<workspace>/runs/<run_id>/inputs/restart",
         "<workspace>/runs/<run_id>/logs",
         "<workspace>/runs/<run_id>/logs/Runtime_Memory.log",
         "<workspace>/runs/<run_id>/manifest.json",
         "<workspace>/runs/<run_id>/output",
+        "<workspace>/runs/<run_id>/output/analysis",
+        "<workspace>/runs/<run_id>/output/analysis/metrics",
+        "<workspace>/runs/<run_id>/output/analysis/plots",
+        "<workspace>/runs/<run_id>/output/analysis/spectra",
+        "<workspace>/runs/<run_id>/output/analysis/statistics",
+        "<workspace>/runs/<run_id>/output/checkpoints",
+        "<workspace>/runs/<run_id>/output/visualization",
         "<workspace>/runs/<run_id>/scheduler",
         "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log"
       ],
       "identities": {
         "mapped": {
+          "run.analysis": [
+            "<workspace>/runs/<run_id>/output/analysis"
+          ],
+          "run.analysis.metrics": [
+            "<workspace>/runs/<run_id>/output/analysis/metrics"
+          ],
+          "run.analysis.plots": [
+            "<workspace>/runs/<run_id>/output/analysis/plots"
+          ],
+          "run.analysis.spectra": [
+            "<workspace>/runs/<run_id>/output/analysis/spectra"
+          ],
+          "run.analysis.statistics": [
+            "<workspace>/runs/<run_id>/output/analysis/statistics"
+          ],
+          "run.asset_lock": [
+            "<workspace>/runs/<run_id>/inputs/assets.lock.yml"
+          ],
+          "run.checkpoints": [
+            "<workspace>/runs/<run_id>/output/checkpoints"
+          ],
           "run.config": [
             "<workspace>/runs/<run_id>/config"
+          ],
+          "run.config.active": [
+            "<workspace>/runs/<run_id>/config/active.json"
+          ],
+          "run.config.history": [
+            "<workspace>/runs/<run_id>/config/history"
           ],
           "run.config.inputs": [
             "<workspace>/runs/<run_id>/config/case.yml",
@@ -118,8 +232,20 @@
           "run.control": [
             "<workspace>/runs/<run_id>/config/<run_id>.control"
           ],
+          "run.input.roles": [
+            "<workspace>/runs/<run_id>/inputs/grid",
+            "<workspace>/runs/<run_id>/inputs/initial_condition",
+            "<workspace>/runs/<run_id>/inputs/inlet_profiles",
+            "<workspace>/runs/<run_id>/inputs/restart"
+          ],
+          "run.inputs": [
+            "<workspace>/runs/<run_id>/inputs"
+          ],
           "run.manifest": [
             "<workspace>/runs/<run_id>/manifest.json"
+          ],
+          "run.post_recipes": [
+            "<workspace>/runs/<run_id>/config/post-recipes"
           ],
           "run.root": [
             "<workspace>/runs/<run_id>"
@@ -138,6 +264,9 @@
           ],
           "run.solver_output": [
             "<workspace>/runs/<run_id>/output"
+          ],
+          "run.visualization": [
+            "<workspace>/runs/<run_id>/output/visualization"
           ]
         },
         "unmapped": []
@@ -150,100 +279,70 @@
         "<workspace>/runs/<run_id>",
         "<workspace>/runs/<run_id>/config",
         "<workspace>/runs/<run_id>/config/<run_id>.control",
+        "<workspace>/runs/<run_id>/config/active.json",
         "<workspace>/runs/<run_id>/config/case.yml",
+        "<workspace>/runs/<run_id>/config/history",
         "<workspace>/runs/<run_id>/config/monitor.yml",
-        "<workspace>/runs/<run_id>/config/post.resume.json",
-        "<workspace>/runs/<run_id>/config/post.run",
+        "<workspace>/runs/<run_id>/config/post-recipes",
+        "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-e73fbd2e0917/post.run",
+        "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-e73fbd2e0917/state.json",
         "<workspace>/runs/<run_id>/config/solver.yml",
-        "<workspace>/runs/<run_id>/custom_logs",
-        "<workspace>/runs/<run_id>/custom_logs/Runtime_Memory.log",
-        "<workspace>/runs/<run_id>/custom_out",
-        "<workspace>/runs/<run_id>/manifest.json",
-        "<workspace>/runs/<run_id>/scheduler",
-        "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
-        "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
-        "<workspace>/runs/<run_id>/scheduler/post.lock",
-        "<workspace>/runs/<run_id>/scheduler/post.lock.json",
-        "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py",
-        "<workspace>/runs/<run_id>/visualization/standard_analysis"
-      ],
-      "identities": {
-        "mapped": {
-          "run.config": [
-            "<workspace>/runs/<run_id>/config"
-          ],
-          "run.config.inputs": [
-            "<workspace>/runs/<run_id>/config/case.yml",
-            "<workspace>/runs/<run_id>/config/monitor.yml",
-            "<workspace>/runs/<run_id>/config/solver.yml"
-          ],
-          "run.control": [
-            "<workspace>/runs/<run_id>/config/<run_id>.control"
-          ],
-          "run.manifest": [
-            "<workspace>/runs/<run_id>/manifest.json"
-          ],
-          "run.post_control": [
-            "<workspace>/runs/<run_id>/config/post.resume.json",
-            "<workspace>/runs/<run_id>/config/post.run"
-          ],
-          "run.root": [
-            "<workspace>/runs/<run_id>"
-          ],
-          "run.runtime_logs": [
-            "<workspace>/runs/<run_id>/custom_logs"
-          ],
-          "run.runtime_logs.files": [
-            "<workspace>/runs/<run_id>/custom_logs/Runtime_Memory.log"
-          ],
-          "run.scheduler": [
-            "<workspace>/runs/<run_id>/scheduler"
-          ],
-          "run.scheduler.files": [
-            "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
-            "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
-            "<workspace>/runs/<run_id>/scheduler/post.lock",
-            "<workspace>/runs/<run_id>/scheduler/post.lock.json",
-            "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py"
-          ],
-          "run.solver_output": [
-            "<workspace>/runs/<run_id>/custom_out"
-          ],
-          "run.visualization": [
-            "<workspace>/runs/<run_id>/visualization/standard_analysis"
-          ]
-        },
-        "unmapped": []
-      },
-      "launch_mode": "local",
-      "scenario": "custom_directories"
-    },
-    {
-      "artifacts": [
-        "<workspace>/runs/<run_id>",
-        "<workspace>/runs/<run_id>/config",
-        "<workspace>/runs/<run_id>/config/<run_id>.control",
-        "<workspace>/runs/<run_id>/config/case.yml",
-        "<workspace>/runs/<run_id>/config/monitor.yml",
-        "<workspace>/runs/<run_id>/config/post.resume.json",
-        "<workspace>/runs/<run_id>/config/post.run",
-        "<workspace>/runs/<run_id>/config/solver.yml",
+        "<workspace>/runs/<run_id>/inputs",
+        "<workspace>/runs/<run_id>/inputs/assets.lock.yml",
+        "<workspace>/runs/<run_id>/inputs/grid",
+        "<workspace>/runs/<run_id>/inputs/initial_condition",
+        "<workspace>/runs/<run_id>/inputs/inlet_profiles",
+        "<workspace>/runs/<run_id>/inputs/restart",
         "<workspace>/runs/<run_id>/logs",
         "<workspace>/runs/<run_id>/logs/Runtime_Memory.log",
         "<workspace>/runs/<run_id>/manifest.json",
         "<workspace>/runs/<run_id>/output",
+        "<workspace>/runs/<run_id>/output/analysis",
+        "<workspace>/runs/<run_id>/output/analysis/metrics",
+        "<workspace>/runs/<run_id>/output/analysis/plots",
+        "<workspace>/runs/<run_id>/output/analysis/spectra",
+        "<workspace>/runs/<run_id>/output/analysis/statistics",
+        "<workspace>/runs/<run_id>/output/checkpoints",
+        "<workspace>/runs/<run_id>/output/visualization",
+        "<workspace>/runs/<run_id>/output/visualization/eulerian_data-e73fbd2e0917",
         "<workspace>/runs/<run_id>/scheduler",
         "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
         "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
-        "<workspace>/runs/<run_id>/scheduler/post.lock",
-        "<workspace>/runs/<run_id>/scheduler/post.lock.json",
-        "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py",
-        "<workspace>/runs/<run_id>/viz"
+        "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-e73fbd2e0917.lock",
+        "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-e73fbd2e0917.lock.json",
+        "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py"
       ],
       "identities": {
         "mapped": {
+          "run.analysis": [
+            "<workspace>/runs/<run_id>/output/analysis"
+          ],
+          "run.analysis.metrics": [
+            "<workspace>/runs/<run_id>/output/analysis/metrics"
+          ],
+          "run.analysis.plots": [
+            "<workspace>/runs/<run_id>/output/analysis/plots"
+          ],
+          "run.analysis.spectra": [
+            "<workspace>/runs/<run_id>/output/analysis/spectra"
+          ],
+          "run.analysis.statistics": [
+            "<workspace>/runs/<run_id>/output/analysis/statistics"
+          ],
+          "run.asset_lock": [
+            "<workspace>/runs/<run_id>/inputs/assets.lock.yml"
+          ],
+          "run.checkpoints": [
+            "<workspace>/runs/<run_id>/output/checkpoints"
+          ],
           "run.config": [
             "<workspace>/runs/<run_id>/config"
+          ],
+          "run.config.active": [
+            "<workspace>/runs/<run_id>/config/active.json"
+          ],
+          "run.config.history": [
+            "<workspace>/runs/<run_id>/config/history"
           ],
           "run.config.inputs": [
             "<workspace>/runs/<run_id>/config/case.yml",
@@ -253,12 +352,24 @@
           "run.control": [
             "<workspace>/runs/<run_id>/config/<run_id>.control"
           ],
+          "run.input.roles": [
+            "<workspace>/runs/<run_id>/inputs/grid",
+            "<workspace>/runs/<run_id>/inputs/initial_condition",
+            "<workspace>/runs/<run_id>/inputs/inlet_profiles",
+            "<workspace>/runs/<run_id>/inputs/restart"
+          ],
+          "run.inputs": [
+            "<workspace>/runs/<run_id>/inputs"
+          ],
           "run.manifest": [
             "<workspace>/runs/<run_id>/manifest.json"
           ],
-          "run.post_control": [
-            "<workspace>/runs/<run_id>/config/post.resume.json",
-            "<workspace>/runs/<run_id>/config/post.run"
+          "run.post_recipe.files": [
+            "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-e73fbd2e0917/post.run",
+            "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-e73fbd2e0917/state.json"
+          ],
+          "run.post_recipes": [
+            "<workspace>/runs/<run_id>/config/post-recipes"
           ],
           "run.root": [
             "<workspace>/runs/<run_id>"
@@ -275,21 +386,24 @@
           "run.scheduler.files": [
             "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
             "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
-            "<workspace>/runs/<run_id>/scheduler/post.lock",
-            "<workspace>/runs/<run_id>/scheduler/post.lock.json",
+            "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-e73fbd2e0917.lock",
+            "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-e73fbd2e0917.lock.json",
             "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py"
           ],
           "run.solver_output": [
             "<workspace>/runs/<run_id>/output"
           ],
           "run.visualization": [
-            "<workspace>/runs/<run_id>/viz"
+            "<workspace>/runs/<run_id>/output/visualization"
+          ],
+          "run.visualization.recipe": [
+            "<workspace>/runs/<run_id>/output/visualization/eulerian_data-e73fbd2e0917"
           ]
         },
         "unmapped": []
       },
       "launch_mode": "local",
-      "scenario": "flat_post_output_directory"
+      "scenario": "post_output_request_is_canonicalized"
     }
   ]
 }

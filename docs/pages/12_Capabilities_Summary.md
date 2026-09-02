@@ -86,7 +86,7 @@ See method details in **@subpage 21_Methods_Overview**.
 Boundary capabilities include validated type-handler pairings across inlet/outlet/wall/periodic classes.
 Runtime controls include:
 
-- <run.solver_output>/restart/log directory selection,
+- fixed run-owned output, restart-input, log, and analysis homes,
 - function-level logging allowlists,
 - profiling critical function lists,
 - monitor verbosity and cadence controls,

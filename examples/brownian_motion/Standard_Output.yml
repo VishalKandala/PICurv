@@ -18,11 +18,6 @@ io:
   # The statistics pipeline still reads particle positions from written files.
   particle_log_interval: 100
 
-  directories:
-    output: "output"
-    restart: "restart"
-    log: "logs"
-
 logging:
   # WARNING keeps production runs quiet while still surfacing shutdown/fallback
   # notices. The startup banner still prints the effective walltime-guard

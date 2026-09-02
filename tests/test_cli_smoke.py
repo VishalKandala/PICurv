@@ -293,7 +293,7 @@ def write_fake_ic_generator(path: Path, require_grid_run: bool = False) -> Path:
     @param[in] require_grid_run Require a staged run grid before generation.
     @return Script output path.
     """
-    grid_assertion = "assert pathlib.Path(a.output).with_name('grid.run').is_file()\n" if require_grid_run else ""
+    grid_assertion = "assert a.grid and pathlib.Path(a.grid).is_file()\n" if require_grid_run else ""
     path.write_text(
         "import argparse, pathlib, shutil\n"
         "p=argparse.ArgumentParser()\n"
@@ -535,7 +535,7 @@ def test_generate_solver_control_file_stages_ic_gen_after_grid(tmp_path):
     assert "-solution_convergence_mode \"STEADY_DETERMINISTIC\"" in content
     assert "-observations_config_file" not in content
     assert not (run_dir / "config" / "observations.run").exists()
-    assert (run_dir / "config" / "initial_condition" / "ufield00000_0.dat").is_file()
+    assert (run_dir / "inputs" / "initial_condition" / "ufield00000_0.dat").is_file()
 
 
 def test_generate_solver_control_file_stages_ic_gen_with_programmatic_grid(tmp_path):
@@ -581,29 +581,21 @@ def test_generate_solver_control_file_stages_ic_gen_with_programmatic_grid(tmp_p
     }
     monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo", monitor_cfg, source_files)
 
-    control_file = picurv.generate_solver_control_file(
-        str(run_dir),
-        "demo",
-        {
-            "case": case_cfg,
-            "case_path": str(case_path),
-            "solver": solver_cfg,
-            "solver_path": str(valid / "solver.yml"),
-            "monitor": monitor_cfg,
-            "monitor_path": str(valid / "monitor.yml"),
-        },
-        1,
-        monitor_files,
-    )
-
-    grid_run = run_dir / "config" / "grid.run"
-    assert grid_run.is_file(), "grid.run must be materialized for ic_gen with programmatic_c"
-    assert grid_run.read_text(encoding="utf-8").startswith("PICGRID")
-    content = Path(control_file).read_text(encoding="utf-8")
-    assert "-finit 4" in content
-    assert "-ic_field 0" in content
-    assert "-ic_dir " in content
-    assert (run_dir / "config" / "initial_condition" / "ufield00000_0.dat").is_file()
+    with pytest.raises(SystemExit):
+        picurv.generate_solver_control_file(
+            str(run_dir),
+            "demo",
+            {
+                "case": case_cfg,
+                "case_path": str(case_path),
+                "solver": solver_cfg,
+                "solver_path": str(valid / "solver.yml"),
+                "monitor": monitor_cfg,
+                "monitor_path": str(valid / "monitor.yml"),
+            },
+            1,
+            monitor_files,
+        )
 
 
 @pytest.mark.parametrize(
@@ -665,7 +657,7 @@ def test_generate_solver_control_file_ignores_superseded_file_ic(
     captured = capsys.readouterr()
     assert "-finit 0" in content
     assert "-ic_dir " not in content
-    assert not (run_dir / "config" / "initial_condition").exists()
+    assert not (run_dir / "inputs" / "initial_condition" / "ufield00000_0.dat").exists()
     assert "Ignoring configured initial condition" in captured.err
 
 
@@ -681,6 +673,8 @@ def test_precompute_materializes_ic_gen_initial_condition(tmp_path, monkeypatch)
     source = write_petsc_vec_binary(tmp_path / "generator_input.dat", [1.0, 2.0, 3.0])
     write_fake_ic_generator(tmp_path / "ic.gen")
     monkeypatch.setattr(picurv, "GENERATORS_PATH", str(tmp_path))
+    grid = write_canonical_picgrid(tmp_path / "grid.picgrid")
+    case_cfg["grid"] = {"mode": "file", "source_file": str(grid)}
     case_cfg["properties"]["initial_conditions"] = {
         "mode": "generated",
         "generator": "ic_gen",
@@ -695,8 +689,8 @@ def test_precompute_materializes_ic_gen_initial_condition(tmp_path, monkeypatch)
 
     picurv.precompute_workflow(SimpleNamespace(case=str(case_path), output_dir=str(output_dir)))
 
-    assert (output_dir / "config" / "initial_condition.generated.dat").is_file()
-    assert (output_dir / "config" / "initial_condition" / "vfield00000_0.dat").is_file()
+    assert (output_dir / "inputs" / "initial_condition" / "initial_condition.generated.dat").is_file()
+    assert (output_dir / "inputs" / "initial_condition" / "vfield00000_0.dat").is_file()
     manifest = json.loads((output_dir / "config" / "precompute.manifest.json").read_text(encoding="utf-8"))
     assert manifest["initial_condition"]["staged"].endswith("vfield00000_0.dat")
 
@@ -724,9 +718,9 @@ def test_precompute_materializes_repository_ic_gen_on_staged_file_grid(tmp_path)
 
     picurv.precompute_workflow(SimpleNamespace(case=str(case_path), output_dir=str(output_dir)))
 
-    assert (output_dir / "config" / "grid.run").is_file()
-    generated = output_dir / "config" / "initial_condition.generated.dat"
-    staged = output_dir / "config" / "initial_condition" / "ufield00000_0.dat"
+    assert (output_dir / "inputs" / "grid" / "grid.run").is_file()
+    generated = output_dir / "inputs" / "initial_condition" / "initial_condition.generated.dat"
+    staged = output_dir / "inputs" / "initial_condition" / "ufield00000_0.dat"
     assert generated.is_file()
     assert staged.read_bytes() == generated.read_bytes()
     assert len(read_petsc_vec_binary(generated)) == 4 * 4 * 4 * 3
@@ -762,20 +756,8 @@ def test_precompute_materializes_ic_gen_with_programmatic_grid(tmp_path):
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
     output_dir = tmp_path / "precomputed"
 
-    picurv.precompute_workflow(SimpleNamespace(case=str(case_path), output_dir=str(output_dir)))
-
-    grid_run = output_dir / "config" / "grid.run"
-    assert grid_run.is_file(), "grid.run must be materialized for ic_gen with programmatic_c"
-    assert grid_run.read_text(encoding="utf-8").startswith("PICGRID")
-    generated = output_dir / "config" / "initial_condition.generated.dat"
-    staged = output_dir / "config" / "initial_condition" / "ufield00000_0.dat"
-    assert generated.is_file()
-    assert staged.read_bytes() == generated.read_bytes()
-    # im=jm=km=2 cells → 3 nodes per dim → full DMDA Ucat shape (km+1, jm+1, im+1, 3) = (4,4,4,3)
-    assert len(read_petsc_vec_binary(generated)) == 4 * 4 * 4 * 3
-    manifest = json.loads((output_dir / "config" / "precompute.manifest.json").read_text(encoding="utf-8"))
-    assert any(a.endswith("grid.run") for a in manifest["artifacts"])
-    assert manifest["initial_condition"]["staged"].endswith("ufield00000_0.dat")
+    with pytest.raises(ValueError, match="generated only inside the simulator"):
+        picurv.precompute_workflow(SimpleNamespace(case=str(case_path), output_dir=str(output_dir)))
 
 
 def write_canonical_picslice(path: Path, dims=(3, 3), start=1.0) -> Path:
@@ -881,6 +863,9 @@ def create_post_outputs(
     @param[in] particle_steps Argument passed to `create_post_outputs()`.
     @param[in] stats_steps Argument passed to `create_post_outputs()`.
     """
+    picurv = load_picurv_module()
+    if not isinstance(post_cfg.get("_picurv_paths"), dict):
+        post_cfg, _ = picurv.apply_canonical_post_paths(post_cfg, str(run_dir))
     io_cfg = post_cfg.get("io", {}) or {}
     output_dir = run_dir / io_cfg.get("output_directory", "viz")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -891,7 +876,6 @@ def create_post_outputs(
         (output_dir / f"{io_cfg.get('particle_filename_prefix', 'Particle')}_{step:05d}.vtp").write_text("vtp\n", encoding="utf-8")
 
     if stats_steps:
-        picurv = load_picurv_module()
         for stats_path in picurv.get_post_statistics_output_artifacts(post_cfg, str(run_dir), monitor_cfg):
             stats_file = Path(stats_path)
             stats_file.parent.mkdir(parents=True, exist_ok=True)
@@ -908,8 +892,11 @@ def write_legacy_post_recipe(run_dir: Path, run_id: str, post_cfg: dict, monitor
     @param[in] monitor_cfg Argument passed to `write_legacy_post_recipe()`.
     """
     picurv = load_picurv_module()
-    resolved_source = picurv._resolve_post_source_directory_preview(str(run_dir), monitor_cfg, post_cfg)
-    resolved_post_cfg = picurv.prepare_effective_post_config(post_cfg, resolved_source)
+    canonical_post_cfg, _ = picurv.apply_canonical_post_paths(post_cfg, str(run_dir))
+    resolved_source = picurv._resolve_post_source_directory_preview(
+        str(run_dir), monitor_cfg, canonical_post_cfg
+    )
+    resolved_post_cfg = picurv.prepare_effective_post_config(canonical_post_cfg, resolved_source)
     recipe_cfg = picurv.build_post_recipe_config(resolved_post_cfg, monitor_cfg)
     lines = ["# legacy post.run"]
     for key, value in recipe_cfg.items():
@@ -1434,7 +1421,7 @@ def test_top_level_version_smoke():
     for flag in ("-v", "--version"):
         result = run_picurv([flag])
         assert result.returncode == 0
-        assert result.stdout.strip() == "picurv 0.1.0"
+        assert result.stdout.strip().startswith("picurv 0.2.0+")
 
 
 def test_run_help_smoke():
@@ -2124,7 +2111,7 @@ def test_prescribed_flow_bcs_generation_stages_source_file(tmp_path):
     bcs_text = Path(generated[0]).read_text(encoding="utf-8")
     assert "prescribed_flow" in bcs_text
     assert "source_file=" in bcs_text
-    staged = config_dir / "inlet_profile_block0_negZeta.picslice"
+    staged = run_dir / "inputs" / "inlet_profiles" / "inlet_profile_block0_negZeta.picslice"
     assert staged.is_file()
     staged_lines = staged.read_text(encoding="utf-8").splitlines()
     assert staged_lines[:3] == ["PICSLICE", "1", "8 8"]
@@ -2175,11 +2162,12 @@ def test_prescribed_flow_bcs_generation_materializes_generated_source(tmp_path):
     bcs_text = Path(generated[0]).read_text(encoding="utf-8")
     assert "prescribed_flow" in bcs_text
     assert "source_file=" in bcs_text
-    dimensional = config_dir / "inlet_profile_block0_negZeta.generated.picslice"
-    staged = config_dir / "inlet_profile_block0_negZeta.picslice"
+    profile_dir = run_dir / "inputs" / "inlet_profiles"
+    dimensional = profile_dir / "inlet_profile_block0_negZeta.generated.dimensional.picslice"
+    staged = profile_dir / "inlet_profile_block0_negZeta.picslice"
     assert dimensional.is_file()
     assert staged.is_file()
-    assert (config_dir / "profile.info").is_file()
+    assert (profile_dir / "profile.info").is_file()
     staged_lines = staged.read_text(encoding="utf-8").splitlines()
     assert staged_lines[:3] == ["PICSLICE", "1", "8 8"]
 
@@ -2216,8 +2204,9 @@ def test_prescribed_flow_generated_source_uses_target_grid_geometry(tmp_path):
         str(run_dir), "unit", case_cfg, {"Case": str(case_path), "Solver": "solver.yml", "Monitor": "monitor.yml"}
     )
 
-    info_text = (config_dir / "profile.info").read_text(encoding="utf-8")
-    staged_lines = (config_dir / "inlet_profile_block0_negZeta.picslice").read_text(encoding="utf-8").splitlines()
+    profile_dir = run_dir / "inputs" / "inlet_profiles"
+    info_text = (profile_dir / "profile.info").read_text(encoding="utf-8")
+    staged_lines = (profile_dir / "inlet_profile_block0_negZeta.picslice").read_text(encoding="utf-8").splitlines()
     assert generated
     assert staged_lines[:3] == ["PICSLICE", "1", "8 8"]
     assert "normalization = geometric_area" in info_text
@@ -2269,11 +2258,12 @@ def test_prescribed_flow_bcs_generation_materializes_field_slice_source(tmp_path
     bcs_text = Path(generated[0]).read_text(encoding="utf-8")
     assert "prescribed_flow" in bcs_text
     assert "source_file=" in bcs_text
-    sliced = config_dir / "inlet_profile_block0_negZeta.sliced.picslice"
-    staged = config_dir / "inlet_profile_block0_negZeta.picslice"
+    profile_dir = run_dir / "inputs" / "inlet_profiles"
+    sliced = profile_dir / "inlet_profile_block0_negZeta.sliced.dimensional.picslice"
+    staged = profile_dir / "inlet_profile_block0_negZeta.picslice"
     assert sliced.is_file()
     assert staged.is_file()
-    info = (config_dir / "profile.info").read_text(encoding="utf-8")
+    info = (profile_dir / "profile.info").read_text(encoding="utf-8")
     assert "generator = field_slice" in info
     assert "orientation = opposite" in info
     staged_lines = staged.read_text(encoding="utf-8").splitlines()
@@ -2860,10 +2850,10 @@ def test_dry_run_grid_gen_lists_planned_grid_artifacts(tmp_path):
     run_dir = Path(payload["run_dir_preview"])
     artifacts = {Path(path) for path in payload["artifacts"]}
 
-    assert run_dir / "config" / "grid.run" in artifacts
-    assert run_dir / "config" / "grid.generated.picgrid" in artifacts
-    assert run_dir / "config" / "grid.generated.info" in artifacts
-    assert run_dir / "config" / "grid.generated.vts" in artifacts
+    assert run_dir / "inputs" / "grid" / "grid.run" in artifacts
+    assert run_dir / "inputs" / "grid" / "grid.generated.picgrid" in artifacts
+    assert run_dir / "output" / "analysis" / "metrics" / "grid.info" in artifacts
+    assert run_dir / "output" / "visualization" / "precompute" / "grid.vts" in artifacts
     assert not run_dir.exists()
 
 
@@ -2901,15 +2891,10 @@ def test_dry_run_programmatic_ic_gen_lists_materialized_grid_artifact(tmp_path):
         cwd=tmp_path,
     )
 
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1
     payload = json.loads(result.stdout)
-    run_dir = Path(payload["run_dir_preview"])
-    artifacts = {Path(path) for path in payload["artifacts"]}
-
-    assert run_dir / "config" / "grid.run" in artifacts
-    assert run_dir / "config" / "initial_condition.generated.dat" in artifacts
-    assert run_dir / "config" / "initial_condition" / "ufield00000_0.dat" in artifacts
-    assert not run_dir.exists()
+    assert any("generated only inside the simulator" in item for item in payload["blocking"])
+    assert not Path(payload["run_dir_preview"]).exists()
 
 
 def test_grid_gen_hyphenated_generator_keys_warn_without_aliasing(tmp_path):
@@ -3032,9 +3017,10 @@ def test_dry_run_generated_profile_lists_planned_artifacts(tmp_path):
     run_dir = Path(payload["run_dir_preview"])
     artifacts = {Path(path) for path in payload["artifacts"]}
 
-    assert run_dir / "config" / "inlet_profile_block0_negZeta.generated.picslice" in artifacts
-    assert run_dir / "config" / "inlet_profile_block0_negZeta.picslice" in artifacts
-    assert run_dir / "config" / "profile.info" in artifacts
+    profile_dir = run_dir / "inputs" / "inlet_profiles"
+    assert profile_dir / "inlet_profile_block0_negZeta.generated.dimensional.picslice" in artifacts
+    assert profile_dir / "inlet_profile_block0_negZeta.picslice" in artifacts
+    assert profile_dir / "profile.info" in artifacts
     assert not run_dir.exists()
 
 
@@ -3075,8 +3061,8 @@ def test_local_no_submit_solve_stages_grid_gen_without_executing(tmp_path):
     run_dirs = sorted((tmp_path / "runs").glob("case_grid_gen_*"))
     assert len(run_dirs) == 1
     run_dir = run_dirs[0]
-    assert (run_dir / "config" / "grid.generated.picgrid").is_file()
-    assert (run_dir / "config" / "grid.run").is_file()
+    assert (run_dir / "inputs" / "grid" / "grid.generated.picgrid").is_file()
+    assert (run_dir / "inputs" / "grid" / "grid.run").is_file()
     assert next((run_dir / "config").glob("*.control")).is_file()
     assert not list((run_dir / "scheduler").glob("*solver.log"))
 
@@ -3119,10 +3105,11 @@ def test_precompute_generates_profile_artifacts_from_case(tmp_path):
 
     assert result.returncode == 0, result.stderr
     config_dir = output_dir / "config"
-    profile = config_dir / "inlet_profile_block0_negZeta.generated.picslice"
+    profile_dir = output_dir / "inputs" / "inlet_profiles"
+    profile = profile_dir / "inlet_profile_block0_negZeta.generated.dimensional.picslice"
     manifest = config_dir / "precompute.manifest.json"
     assert profile.is_file()
-    assert (config_dir / "profile.info").is_file()
+    assert (profile_dir / "profile.info").is_file()
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     assert payload["profiles"][0]["face"] == "-Zeta"
     assert payload["profiles"][0]["dims"] == [8, 8]
@@ -3174,7 +3161,7 @@ def test_precompute_generates_field_slice_profile_artifacts_from_case(tmp_path):
 
     assert result.returncode == 0, result.stderr
     config_dir = output_dir / "config"
-    profile = config_dir / "inlet_profile_block0_negZeta.sliced.picslice"
+    profile = output_dir / "inputs" / "inlet_profiles" / "inlet_profile_block0_negZeta.sliced.dimensional.picslice"
     manifest = config_dir / "precompute.manifest.json"
     assert profile.is_file()
     payload = json.loads(manifest.read_text(encoding="utf-8"))
@@ -3231,10 +3218,11 @@ def test_local_no_submit_stages_grid_gen_before_generated_profile(tmp_path):
     assert result.returncode == 0, result.stderr
     run_dirs = sorted((tmp_path / "runs").glob("case_grid_profile_*"))
     assert len(run_dirs) == 1
-    config_dir = run_dirs[0] / "config"
-    assert (config_dir / "grid.generated.picgrid").is_file()
-    assert (config_dir / "inlet_profile_block0_negZeta.generated.picslice").is_file()
-    staged_lines = (config_dir / "inlet_profile_block0_negZeta.picslice").read_text(encoding="utf-8").splitlines()
+    run_dir = run_dirs[0]
+    assert (run_dir / "inputs" / "grid" / "grid.generated.picgrid").is_file()
+    profile_dir = run_dir / "inputs" / "inlet_profiles"
+    assert (profile_dir / "inlet_profile_block0_negZeta.generated.dimensional.picslice").is_file()
+    staged_lines = (profile_dir / "inlet_profile_block0_negZeta.picslice").read_text(encoding="utf-8").splitlines()
     assert staged_lines[:3] == ["PICSLICE", "1", "4 3"]
 
 
@@ -3289,9 +3277,9 @@ def test_local_no_submit_materializes_field_slice_profile(tmp_path):
     assert result.returncode == 0, result.stderr
     run_dirs = sorted((tmp_path / "runs").glob("case_field_slice_*"))
     assert len(run_dirs) == 1
-    config_dir = run_dirs[0] / "config"
-    assert (config_dir / "inlet_profile_block0_negZeta.sliced.picslice").is_file()
-    assert (config_dir / "inlet_profile_block0_negZeta.picslice").is_file()
+    profile_dir = run_dirs[0] / "inputs" / "inlet_profiles"
+    assert (profile_dir / "inlet_profile_block0_negZeta.sliced.dimensional.picslice").is_file()
+    assert (profile_dir / "inlet_profile_block0_negZeta.picslice").is_file()
 
 
 def test_local_no_submit_solve_post_stages_post_with_deferred_sources(tmp_path):
@@ -3322,8 +3310,10 @@ def test_local_no_submit_solve_post_stages_post_with_deferred_sources(tmp_path):
     run_dirs = sorted((tmp_path / "runs").glob("case_*"))
     assert len(run_dirs) == 1
     run_dir = run_dirs[0]
-    assert (run_dir / "config" / "post.run").is_file()
-    assert (run_dir / "config" / "post.yml").read_text(encoding="utf-8") == (valid / "post.yml").read_text(encoding="utf-8")
+    recipe_dirs = list((run_dir / "config" / "post-recipes").iterdir())
+    assert len(recipe_dirs) == 1
+    assert (recipe_dirs[0] / "post.run").is_file()
+    assert (recipe_dirs[0] / "post.yml").read_text(encoding="utf-8") == (valid / "post.yml").read_text(encoding="utf-8")
     assert (run_dir / "scheduler" / "post_lock_wrapper.py").is_file()
 
     submission = json.loads((run_dir / "scheduler" / "submission.json").read_text(encoding="utf-8"))
@@ -3695,8 +3685,10 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
     assert calls[0]["command"][0].endswith("post_lock_wrapper.py")
     assert any(token.endswith("/postprocessor") for token in calls[0]["command"])
     assert calls[0]["log_filename"] == os.path.join("scheduler", "existing_run_eulerian_data.log")
-    assert (config_dir / "post.run").is_file()
-    assert (config_dir / "post.yml").read_text(encoding="utf-8") == post_path.read_text(encoding="utf-8")
+    recipe_dirs = list((config_dir / "post-recipes").iterdir())
+    assert len(recipe_dirs) == 1
+    assert (recipe_dirs[0] / "post.run").is_file()
+    assert (recipe_dirs[0] / "post.yml").read_text(encoding="utf-8") == post_path.read_text(encoding="utf-8")
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["stages_completed_or_submitted"] == ["post-process"]
 
@@ -5102,7 +5094,8 @@ def test_generate_solver_control_file_reuses_grid_gen_grid_on_continue(tmp_path,
     run_dir = tmp_path / "run_grid_gen_continue"
     config_dir = run_dir / "config"
     config_dir.mkdir(parents=True)
-    staged_grid = config_dir / "grid.run"
+    staged_grid = run_dir / "inputs" / "grid" / "grid.run"
+    staged_grid.parent.mkdir(parents=True)
     staged_grid.write_text("PICGRID\n1\n2 2 2\n", encoding="utf-8")
 
     def fail_grid_generator(*args, **kwargs):
@@ -5476,8 +5469,8 @@ def test_generate_solver_control_file_converts_legacy_grid_when_enabled(tmp_path
         monitor_files,
     )
 
-    grid_run_path = run_dir / "config" / "grid.run"
-    converted_path = run_dir / "config" / "grid.converted.picgrid"
+    grid_run_path = run_dir / "inputs" / "grid" / "grid.run"
+    converted_path = run_dir / "inputs" / "grid" / "grid.converted.picgrid"
     assert grid_run_path.is_file()
     assert converted_path.is_file()
     lines = grid_run_path.read_text(encoding="utf-8").splitlines()
@@ -8188,7 +8181,7 @@ def test_sweep_no_submit_writes_array_stdout_stderr_to_scheduler_dir(tmp_path):
     assert "-walltime_guard_enabled true" in sample_control_text
     assert "-walltime_guard_warmup_steps 10" in sample_control_text
 
-    assert not (study_dir / "logs").exists()
+    assert (study_dir / "logs").is_dir()
 
 
 def test_sweep_no_submit_uses_cluster_ranks_for_mpirun_post(tmp_path):

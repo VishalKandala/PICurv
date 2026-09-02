@@ -22,8 +22,6 @@ io:
   particle_console_output_frequency: 0
   particle_log_interval: 1
   statistics_console_output_frequency: 50
-  directories: {output: output, restart: restart, log: logs}
-
 # Two windows over disjoint stretches of the decay. Isotropy makes the result
 # checkable: the three normal Reynolds stresses should agree and the shear
 # components should vanish, and the later window should carry the lower TKE.

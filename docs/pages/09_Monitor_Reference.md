@@ -55,49 +55,11 @@ workflow.
 
 @section p09_io_sec 2. io
 
-@warning **`io.directories.log` is a destructive path.** On a fresh solve the C runtime
-**recursively deletes** the configured log directory before writing to it. Never point
-two runs at one log directory.
-
-Both `log` and `output` are containment-validated, but for different reasons: `log`
-because it is deleted, and `output` because run output must stay inside the run tree
-to be archived and restored. Rejected values are those that escape the run directory,
-resolve to the run root itself, collide with a reserved directory (`config`,
-`scheduler`, `checkpoints`, `visualization`), or make `log` and `output` overlap.
-
-Directory names must also be writable to a PETSc options line without quoting, so
-whitespace, quotes, and `#` are rejected. Use a plain relative name such as `logs` or
-`diagnostics/run1`.
-
-`io.directories.allow_unsafe_paths: true` — a real YAML boolean, not a quoted string —
-waives **one** rejection and only one: an **absolute** path outside the run tree, which
-becomes a warning. Only use it if you accept that the named directory is recursively
-deleted on every fresh run.
-
-Everything else stays fatal, with or without the override:
-
-| Rejection | Waivable? | Why |
-|---|---|---|
-| Absolute path outside the run tree | Yes | A deliberate external location is a legitimate, if dangerous, choice |
-| Relative escape (`..`) | **No** | It lands among sibling runs and study members; give an absolute path if you mean it |
-| A value starting with `~` | **No** | Nothing expands it - see below |
-| The run root itself | **No** | Deleting it destroys the run being started |
-| A reserved name (`config`, `scheduler`, `checkpoints`, `visualization`) | **No** | Deleting it destroys the run's own inputs or results |
-| `log` and `output` overlapping | **No** | The delete would take the output with it |
-| Whitespace, quotes, or `#` in the value | **No** | The options line would be misread rather than merely unsafe |
-
-@warning **`~` is not an absolute path here.** The control file is read by PETSc, not
-by a shell, and nothing expands `~` anywhere in the pipeline. Every layer that uses the
-value resolves anything not starting with `/` relative to the run, so `~/logs` names a
-literal `~` directory inside the run tree - not your home directory. It is refused
-outright at every layer, and refused rather than expanded: expanding it in one place
-would only move the disagreement rather than end it. Write the real absolute path.
-
-The same rules are enforced three times: at configuration validation, again at
-submission against the staged control files, and finally in the C runtime immediately
-before the delete. The last check is deliberately independent of the launcher, so a
-hand-written control file or a symlink swapped in after validation does not get past
-it. See @ref p71_isolation_sub.
+`io` controls output cadence and console sampling. Directory selection is not a
+monitor option: every run uses the fixed homes declared by the workspace contract.
+Solver state goes under `<run.solver_output>`, checkpoints under `<run.checkpoints>`,
+runtime logs under `<run.runtime_logs>`, and restart materializations under
+`<run.inputs>/restart`. A `directories` block is rejected as unsupported input.
 
 ```yaml
 io:
@@ -105,10 +67,6 @@ io:
   particle_console_output_frequency: 100
   statistics_console_output_frequency: 100
   particle_log_interval: 10
-  directories:
-    output: "output"
-    restart: "restart"
-    log: "logs"
 ```
 
 Mappings:
@@ -116,9 +74,6 @@ Mappings:
 - `particle_console_output_frequency` -> `-particle_console_output_freq`
 - `statistics_console_output_frequency` -> `-statistics_console_output_freq`
 - `particle_log_interval` -> `-logfreq`
-- `directories.output` -> `-output_dir`
-- `directories.restart` -> `-restart_dir`
-- `directories.log` -> `-log_dir`
 
 Semantics:
 - `data_output_frequency` controls committed-checkpoint cadence. Initial and

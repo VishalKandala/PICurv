@@ -23,6 +23,15 @@
 #include "ParticleMotion.h" // Functions related to motion of particles
 #include "Boundaries.h"     //  Functions related to Boundary conditions
 
+/**
+ * @brief Print the shared native build identity when a version flag is present.
+ * @param[in] argc Native executable argument count.
+ * @param[in] argv Native executable argument vector.
+ * @param[in] executable_name User-facing executable name printed with the identity.
+ * @return Nonzero when a version flag was handled and execution should stop.
+ */
+int PicurvHandleVersionArgument(int argc, char **argv, const char *executable_name);
+
 
 /* Macro to automatically select the correct allocation function */
 #define Allocate3DArray(array, nz, ny, nx)  \

@@ -45,11 +45,6 @@ io:
   particle_console_output_frequency: 0
   particle_log_interval: 1
   statistics_console_output_frequency: 2000
-  directories:
-    output: "output"
-    restart: "restart"
-    log: "logs"
-
 # One window over the statistically stationary stretch. The window carries the
 # first and second moments of Ucat, which is what the wall-normal profile tool
 # reduces into U+ and the RMS profiles. Physical-time weighting keeps the

@@ -19,74 +19,131 @@ operations with different provenance, and choosing between them is the decision 
 page exists to support.
 
 
-@section p52_scope_sec 1. What A Run Lifecycle Means
+@section p52_scope_sec 1. Workspace, Run, And Study Identities
 
-For PICurv, a "run" is not just a solver launch.
-It is the full set of generated artifacts under `runs/<run_id>/`, including:
+`picurv init <template> --dest <workspace>` creates one self-contained campaign
+workspace. Editable files, imported inputs, reusable generated assets, standalone
+runs, and studies all have fixed homes beneath it:
 
-- normalized runtime config artifacts under `<run.config>/`,
-- solver and post logs under `<run.runtime_logs>/`,
-- solver outputs and restart files,
-- optional scheduler scripts and submission metadata under `<run.scheduler>/`.
-
-Key rule:
-
-- every `picurv run --solve ...` creates a fresh run directory,
-- `picurv` does not mutate an old run directory in place when you start a new solve,
-- restart workflows (`--restart-from`) read from an existing run but still create a new run directory for the restarted continuation,
-- continuation workflows (`--continue --run-dir`) resume inside the same run directory.
-
-`run_id` is generated automatically as `<case_basename>_<timestamp>`.
-
-@section p52_newrun_sec 2. Start A New Run
-
-Typical local solve + post:
-
-```bash
-./bin/picurv run --solve --post-process -n 4 \
-  --case my_case/case.yml \
-  --solver my_case/solver.yml \
-  --monitor my_case/monitor.yml \
-  --post my_case/post.yml
+```text
+<workspace>/
+  .picurv-workspace.yml
+  config/
+    case.yml  solver.yml  monitor.yml  post.yml  cluster.yml
+    studies/  grids/  initial_conditions/  inlet_profiles/
+    variants/
+  inputs/
+    grids/  initial_conditions/  inlet_profiles/  reference_fields/
+  assets/
+    objects/{grids,initial_conditions,inlet_profiles}/
+    sets/
+    catalog.yml
+  runs/
+  studies/
 ```
 
-Typical cluster solve + post:
+The directories are created at initialization even when empty. Files inside them
+are created only when used. This gives every workspace the same navigable shape
+without generating unused data.
+
+`case.yml -> title` is the human run label. A fresh run is named
+`<sanitized-title>_<timestamp>`; the title, manifest, and asset hashes carry
+identity, so users do not need to rename run directories to remember them. A study
+uses its own title the same way and keeps numbered members below `cases/case_####`.
+When an umbrella example contains repeated filenames, initialization preserves the
+extra configurations below `config/variants/<original-path>` instead of overwriting
+them.
+
+@section p52_newrun_sec 2. Editable Configurations And Imported Files
+
+Run commands from the workspace and refer to canonical configuration paths:
 
 ```bash
-./bin/picurv run --solve --post-process \
-  --case my_case/case.yml \
-  --solver my_case/solver.yml \
-  --monitor my_case/monitor.yml \
-  --post my_case/post.yml \
-  --cluster my_case/cluster.yml
+picurv validate \
+  --case config/case.yml --solver config/solver.yml --monitor config/monitor.yml
+
+picurv run --solve --post-process -n 4 \
+  --case config/case.yml --solver config/solver.yml \
+  --monitor config/monitor.yml --post config/post.yml
 ```
 
-Recommended preflight:
+Generator descriptions such as grid `.cfg` files and `expressions.cfg` belong in
+`config/grids/`, `config/initial_conditions/`, or `config/inlet_profiles/`.
+User-supplied data belong in the matching `inputs/` directory. Register an external
+file explicitly so its checksum and ownership mode are catalogued:
 
-1. `picurv validate ...`
-2. `picurv run ... --dry-run`
-3. `picurv run ... --no-submit` to stage local commands, or add `--cluster ...` to stage Slurm scripts
+```bash
+picurv inputs import grid /archive/mesh.picgrid --mode copy
+picurv inputs import initial-condition /archive/ufield.dat --mode reflink
+picurv inputs import reference-field /shared/baseline.dat --mode reference
+```
 
-This sequence verifies contract correctness before consuming runtime or queue time.
+`reference` writes a small `.reference.yml`; it never silently copies, archives, or
+prunes the external target. Configuration paths resolve from the workspace root.
+Missing configured inputs fail loudly before submission.
 
-@section p52_layout_sec 3. Read The Run Directory Correctly
+Recommended preflight is `validate`, then `run --dry-run`, then `run --no-submit`.
+The dry run reports the proposed run identity, canonical paths, asset actions, and
+blocking provider dependencies without creating the directory.
 
-A typical run directory contains:
+@section p52_layout_sec 3. Reusable Assets And The Run Snapshot
 
-- `<run.config>/`: generated `.control`, BC files, copied YAML inputs,
-  and `post.run`
-- `<run.runtime_logs>/`: solver/postprocessor runtime logs and metrics written by PICurv itself
-- `<run.solver_output>/checkpoints/step_<12 digits>/`: immutable committed
-  solver checkpoints when monitor paths use the default layout
-- `<run.scheduler>/`: generated Slurm scripts, `submission.json`, and cluster stdout/stderr in cluster mode
-- `runs/<run_id>/manifest.json`: top-level run metadata
+`picurv precompute --case config/case.yml` resolves a dependency graph for grid,
+initial-condition, and inlet-profile providers. File and Python providers build in
+an isolated temporary run layout. PICurv publishes their complete output only after
+every selected provider succeeds:
 
-Practical interpretation:
+```text
+assets/objects/<kind>/<content-hash>/
+  asset.json
+  payload/...
+assets/sets/<case-name>-<path-hash>.yml
+```
 
-- if validation succeeds but runtime is wrong, inspect `<run.config>/` first,
-- if scheduler behavior is wrong, inspect `<run.scheduler>/solver.sbatch` or `<run.scheduler>/post.sbatch`,
-- `<run.scheduler>/submission.json` is the source of truth for delayed `submit` and run-directory-based `cancel`,
-- if restart/post-only behavior is wrong, confirm the previous run directory contents before changing YAML again.
+The object identity includes normalized provider settings, checksums of referenced
+files, and the PICurv build. Changing an equation, grid config, imported field, inlet
+parameters, or generator code therefore selects a new object. Unchanged inputs reuse
+the existing object. `--only grid,initial-condition` selects a dependency closure;
+publication remains all-or-nothing for that invocation.
+
+A provider executed only in C is reported as `runtime-c`. Precompute does not imitate
+it in Python. If a Python initial-condition generator needs a grid configured as
+`programmatic_c`, precompute and run planning fail and tell the user to choose `file`
+or `grid_gen`. Otherwise the simulator announces the runtime provider and generates it
+during startup.
+
+Fresh runs reuse valid assets automatically. `--require-precomputed` refuses a missing
+or stale object instead of building it, while `--fetch-missing` searches configured
+storage archives before rebuilding. Each run receives physical run-local files by
+reflink, hardlink, or copy and records the exact object/checksum mapping in
+`inputs/assets.lock.yml`.
+
+Every run has this fixed shape:
+
+```text
+runs/<title>_<timestamp>/
+  manifest.json
+  config/
+    active.json  case.yml  solver.yml  monitor.yml  cluster.yml
+    history/<revision>/
+    post-recipes/<recipe-id>/{post.yml,post.run,state.json}
+  inputs/{grid,initial_condition,inlet_profiles,restart}/
+  output/
+    checkpoints/
+    analysis/{metrics,statistics,spectra,plots}/
+    visualization/
+  logs/
+  scheduler/
+```
+
+No peer `diagnostics/`, `results/`, or arbitrary monitor-selected output root is
+created. C runtime metrics use `output/analysis/metrics`; post statistics and spectra
+use their analysis homes; renderable VTK output uses `output/visualization`.
+
+The initial YAML snapshot is immutable evidence. An in-place continuation stores the
+new YAML and generated controls under `config/history/<revision>/` and updates
+`config/active.json`; it does not erase the original. `manifest.json` records the
+workspace identity, active build, canonical paths, stages, and locked assets.
 
 @section p52_launchers_sec 4. Local, Login-Node, and Batch Launch Resolution
 
@@ -139,7 +196,7 @@ Relevant YAML settings:
 Operational meaning:
 
 - PICurv validates the requested committed bundle and copies that whole bundle
-  into the new run's `restart/checkpoints/` directory,
+  into the new run's `inputs/restart/checkpoints/` directory,
 - the solver loads that checkpoint and continues from step 501,
 - all new output is written into a fresh `runs/<new_run_id>/` directory.
 
@@ -176,7 +233,7 @@ Operational meaning:
 
 - `case.yml -> run_control.start_step` must be the saved checkpoint step and must be greater than zero; use a normal run without `--continue` for a fresh start at step zero,
 - PICurv validates and reads the requested immutable bundle directly from
-  `<run.solver_output>/checkpoints/`; it does not create a second in-place copy,
+  `output/checkpoints/`; it does not create a second in-place copy,
 - the solver resumes from that checkpoint,
 - logs append to the existing log files and remain independent of checkpoint payloads,
 - all output stays within the same `runs/my_run/` directory.
@@ -216,7 +273,12 @@ Use this when:
 - solver data are already on disk,
 - you do not want to rerun the solver.
 
-PICurv will auto-identify the required case/monitor/control artifacts from `<run.config>/`.
+PICurv auto-identifies the active case, monitor, and control artifacts from
+`config/active.json` and its referenced revision. Every normalized recipe gets a stable
+ID. Its controls live under `config/post-recipes/<recipe-id>/`, its field visualization
+under `output/visualization/<recipe-id>/`, and its statistics/spectra below the matching
+analysis directories. Two changed recipes therefore coexist instead of overwriting one
+another.
 
 Operational patterns for post-only reuse:
 
@@ -232,7 +294,9 @@ Operational patterns for post-only reuse:
 - Interrupted batch example: if `Field_00070.vts` exists but the required MSD CSV still stops at `60`, step `70` is treated as incomplete and the next `--continue` run restarts from `70`.
 - Explicit rerun example: if you omit `--continue`, PICurv honors the requested window exactly, rewrites any overlapping VTK files for those steps, and rewrites repeated statistics rows so each step still appears once in the final CSV.
 - Changed recipe example: if you point the same `run_dir` at a different `post.yml` recipe, such as adding `Qcrit` or changing the statistics prefix, PICurv starts from that recipe's configured `start_step` instead of inheriting completion from the previous recipe.
-- Concurrency rule: PICurv holds a run-directory post lock while the post stage is active. A second post job targeting the same `runs/<run_id>` is refused immediately so two writers cannot race on the same output tree.
+- Concurrency rule: PICurv holds a post lock while the stage is active. A second writer
+  targeting the same output lineage is refused so generated controls and result files
+  cannot race.
 
 @section p52_cluster_sec 7. Batch Job Generation And Reuse
 
@@ -361,6 +425,67 @@ every run, so editing it between segments takes effect deliberately.
 @ref p44_cap_initial_flux "initial_flux" instead restores its latched target from the
 checkpoint, so a resumed run holds the original target rather than re-measuring a
 drifted one.
+
+@section p52_cap_restart_stats_sec 8.6 Restart Statistics State Entries
+
+@htmlinclude generated/capability_inventory_run_restart_statistics_state.html
+
+@subsection p52_cap_restart_stats_reset_sub reset
+
+@anchor p52_cap_restart_stats_reset
+
+**Identity.** `picurv run --solve --restart-from ... --statistics-state reset`.
+
+**What it does.** Starts field-statistics accumulators empty in the new branched run;
+the checkpoint still seeds physical fields.
+
+**When to choose it.** Use `reset` for a changed case, a new measurement window, or
+whenever the new run should stand alone statistically. It is the default and is safer
+than `carry` when solver or monitoring definitions changed.
+
+**Parameters it owns.** None.
+
+**Interactions.** Applies to a new run created with `--restart-from`; in-place
+`--continue` already continues the same run state. It does not change checkpoint
+selection or Eulerian restart authority.
+
+**Diagnostics.** The generated control omits `-field_statistics_continue true`, and
+the new run's active configuration records `statistics_state: reset`.
+
+**Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` exercises the CLI
+choice and generated run control surface.
+
+**Limitations.** It cannot merge old and new statistics later; preserve or postprocess
+the old window separately if both are needed.
+
+@subsection p52_cap_restart_stats_carry_sub carry
+
+@anchor p52_cap_restart_stats_carry
+
+**Identity.** `picurv run --solve --restart-from ... --statistics-state carry`.
+
+**What it does.** Requests compatible checkpointed field-statistics accumulator state
+for the new run before sampling continues.
+
+**When to choose it.** Use `carry` only when the grid, field-statistics windows,
+weighting, fields, and covariance definitions are unchanged and the new run is a
+scientific continuation of the same measurement.
+
+**Parameters it owns.** None.
+
+**Interactions.** Emits `-field_statistics_continue true`. Checkpoint compatibility
+validation still owns grid layout and required state; changing the statistics recipe
+can make the requested state unusable.
+
+**Diagnostics.** The generated control contains the continue flag. A missing or
+incompatible checkpoint statistics payload fails during restart setup rather than
+silently resetting.
+
+**Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` exercises the CLI
+choice and generated run control surface.
+
+**Limitations.** Experimental: numerical equivalence across every change of MPI layout
+and optional field combination has not been characterized.
 
 @section p52_rules_sec 9. Safe Rules Of Thumb
 

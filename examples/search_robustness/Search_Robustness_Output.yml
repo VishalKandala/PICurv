@@ -7,11 +7,6 @@ io:
   particle_console_output_frequency: 0
   particle_log_interval: 100
 
-  directories:
-    output: "output"
-    restart: "restart"
-    log: "logs"
-
 logging:
   # search_metrics.csv is always written for particle-enabled runs.
   # Raise verbosity to DEBUG to also see compact LOG_SEARCH_METRICS summaries.

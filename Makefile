@@ -109,6 +109,13 @@ C_COVERAGE_MIN ?= 70
 BUILD_LOG := $(LOGDIR)/build.log
 BUILD_WARNINGS_LOG := $(LOGDIR)/build.warnings.log
 BUILD_AUDIT_GOALS ?= cleanobj clean-unit all unit
+PICURV_RELEASE_VERSION := $(strip $(shell test -f VERSION && cat VERSION || echo 0.0.0))
+PICURV_GIT_COMMIT := $(strip $(shell git rev-parse HEAD 2>/dev/null || echo unknown))
+PICURV_BUILD_DIRTY := $(if $(strip $(shell git status --porcelain --untracked-files=no 2>/dev/null)),true,false)
+PICURV_IDENTITY_CFLAGS := \
+  -DPICURV_RELEASE_VERSION='"$(PICURV_RELEASE_VERSION)"' \
+  -DPICURV_GIT_COMMIT='"$(PICURV_GIT_COMMIT)"' \
+  -DPICURV_BUILD_DIRTY='"$(PICURV_BUILD_DIRTY)"'
 
 # --- 2. System Configuration ---
 # Select and include the appropriate configuration file based on the SYSTEM variable.
@@ -134,6 +141,8 @@ else
 endif
 $(info Building for system: $(SYSTEM_NAME))
 endif
+
+CFLAGS_TO_USE += $(PICURV_IDENTITY_CFLAGS)
 
 ifeq ($(COVERAGE),1)
 CFLAGS_TO_USE += --coverage

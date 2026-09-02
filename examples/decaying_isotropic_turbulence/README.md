@@ -25,9 +25,10 @@ Create and validate it with:
 
 ```bash
 picurv init decaying_isotropic_turbulence --dest dit_case
-picurv validate --case dit_case/case.yml --solver dit_case/solver.yml --monitor dit_case/monitor.yml --post dit_case/post.yml
-picurv precompute --case dit_case/case.yml --output-dir /tmp/dit-precompute
-picurv run --solve -n 8 --case dit_case/case.yml --solver dit_case/solver.yml --monitor dit_case/monitor.yml
+cd dit_case
+picurv validate --case config/case.yml --solver config/solver.yml --monitor config/monitor.yml --post config/post.yml
+picurv precompute --case config/case.yml
+picurv run --solve -n 8 --case config/case.yml --solver config/solver.yml --monitor config/monitor.yml
 ```
 
 This example configures the reusable `spectral_random_velocity` provider in
@@ -52,9 +53,11 @@ projection can be selected instead; either single-operator projector retains
 two transverse polarizations. The former common-nullspace construction usually
 retained only one and is intentionally not used.
 
-Preparation writes `diagnostics/initial_condition_summary.json` and
-`diagnostics/initial_condition_spectrum.csv` under the selected <run.solver_output>/run
-directory. For a quick smoke run, copy the case, set `im/jm/km` to 16,
+Precompute publishes the field and its inspection data as one immutable workspace
+asset. When a run selects it, PICurv materializes
+`<run.analysis>/metrics/initial_condition_summary.json` and
+`<run.analysis>/spectra/initial_condition_spectrum.csv` beside the exact input field.
+For a quick smoke run, copy the case configuration, set `im/jm/km` to 16,
 `k_cut` to 5, multigrid levels to 2, and `total_steps` to 1 before running the
 full 64-cubed case.
 
@@ -76,11 +79,12 @@ represents, so the averages stay correct if the timestep ever varies.
 and the pressure-velocity flux:
 
 ```bash
-picurv run --post-process --run-dir runs/<run_id> --post dit_case/post.yml
+picurv run --post-process --run-dir runs/<run_id> --post config/post.yml
 ```
 
 That writes, per window, a `.vts` per processed step under
-`<run.visualization>/dit/` and one convergence-history `.csv` recording sample count,
+`<run.visualization>/<recipe_id>/` and one convergence-history `.csv` under
+`<run.analysis>/statistics/<recipe_id>/` recording sample count,
 accumulated weight, represented time, mask coverage, and the domain-mean TKE.
 
 ## Energy spectra
@@ -90,13 +94,13 @@ spectrum back is the most direct statement of what the solver did to it.
 `post.yml` requests one:
 
 ```bash
-picurv run --post-process --only spectra --run-dir runs/<run_id> --post dit_case/post.yml
+picurv run --post-process --only spectra --run-dir runs/<run_id> --post config/post.yml
 picurv summarize --run-dir runs/<run_id> --plot-spectrum
 ```
 
 `--only spectra` skips the field post-processor, which makes re-measuring cheap.
 The report plot draws up to six evenly spaced measured states (always including
-the first and last) over `diagnostics/initial_condition_spectrum.csv`; the CSV
+the first and last) over `<run.analysis>/spectra/initial_condition_spectrum.csv`; the CSV
 still retains every processed state. The per-step scalars
 (`spectra.resolved_kinetic_energy`, `spectra.integral_length_scale`,
 `spectra.taylor_microscale`, `spectra.dissipation_over_viscosity`) are ordinary

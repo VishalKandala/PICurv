@@ -35,6 +35,9 @@ from datetime import datetime
 import time
 import filecmp
 import importlib.util
+import errno
+import tempfile
+from pathlib import Path
 
 try:
     from .storage import (
@@ -185,8 +188,74 @@ if os.path.basename(SCRIPT_PATH) == "bin":
 else:
     DEFAULT_BIN_DIR = os.path.join(PROJECT_ROOT, "bin")
 
-PICURV_VERSION = "0.1.0"
+VERSION_FILE = os.path.join(PACKAGE_PROJECT_ROOT, "VERSION")
+
+
+def _read_release_version() -> str:
+    """!
+    @brief Read the single release version shared by every PICurv executable.
+    @return Release version from VERSION, or a safe development fallback.
+    """
+    configured = os.environ.get("PICURV_RELEASE_VERSION")
+    if configured:
+        return configured.strip()
+    try:
+        with open(VERSION_FILE, "r", encoding="utf-8") as stream:
+            value = stream.read().strip()
+    except OSError:
+        value = "0.0.0"
+    return value or "0.0.0"
+
+
+def _source_build_identity(release_version: str) -> dict:
+    """!
+    @brief Resolve reproducible release, commit, and dirty-tree build identity.
+    @param[in] release_version Release version read from VERSION.
+    @return Mapping suitable for manifests and user-facing status output.
+    """
+    identity = {
+        "release_version": release_version,
+        "version": release_version,
+        "git_commit": None,
+        "git_short_commit": None,
+        "dirty": None,
+        "build_id": release_version,
+    }
+    try:
+        commit_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=PACKAGE_PROJECT_ROOT,
+            text=True, capture_output=True, check=False,
+        )
+        dirty_result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=PACKAGE_PROJECT_ROOT, text=True, capture_output=True, check=False,
+        )
+        if commit_result.returncode == 0:
+            commit = commit_result.stdout.strip()
+            identity["git_commit"] = commit
+            identity["git_short_commit"] = commit[:12]
+        if dirty_result.returncode == 0:
+            identity["dirty"] = bool(dirty_result.stdout.strip())
+    except OSError:
+        pass
+    if identity["git_short_commit"]:
+        suffix = f"+g{identity['git_short_commit']}"
+        if identity["dirty"]:
+            suffix += ".dirty"
+        identity["build_id"] = release_version + suffix
+        identity["version"] = identity["build_id"]
+    return identity
+
+
+PICURV_RELEASE_VERSION = _read_release_version()
+PICURV_BUILD = _source_build_identity(PICURV_RELEASE_VERSION)
+PICURV_VERSION = PICURV_BUILD["version"]
 CASE_ORIGIN_METADATA_FILENAME = ".picurv-origin.json"
+WORKSPACE_CONFIG_FILENAME = ".picurv-workspace.yml"
+WORKSPACE_SCHEMA_VERSION = 1
+RUN_MANIFEST_SCHEMA_VERSION = 2
+ASSET_MANIFEST_SCHEMA_VERSION = 1
+ASSET_LOCK_SCHEMA_VERSION = 1
 RUNTIME_EXECUTION_CONFIG_FILENAME = ".picurv-execution.yml"
 LEGACY_LOCAL_RUNTIME_CONFIG_FILENAME = ".picurv-local.yml"
 RUNTIME_EXECUTION_EXAMPLE_FILENAME = "execution.example.yml"
@@ -238,6 +307,408 @@ CHECKPOINT_FORMAT = "picurv-checkpoint"
 CHECKPOINT_VERSION = 1
 CHECKPOINT_STEP_WIDTH = 12
 CHECKPOINT_REQUIRED_EULERIAN_FIELDS = {"Ucat", "Ucont", "Ucont_rm1", "P", "Nvert"}
+
+WORKSPACE_DIRECTORY_LAYOUT = (
+    "config",
+    "config/studies",
+    "config/grids",
+    "config/initial_conditions",
+    "config/inlet_profiles",
+    "inputs",
+    "inputs/grids",
+    "inputs/initial_conditions",
+    "inputs/inlet_profiles",
+    "inputs/reference_fields",
+    "assets",
+    "assets/objects",
+    "assets/objects/grids",
+    "assets/objects/initial_conditions",
+    "assets/objects/inlet_profiles",
+    "assets/sets",
+    "runs",
+    "studies",
+)
+
+RUN_DIRECTORY_LAYOUT = (
+    "config",
+    "config/history",
+    "config/post-recipes",
+    "inputs",
+    "inputs/grid",
+    "inputs/initial_condition",
+    "inputs/inlet_profiles",
+    "inputs/restart",
+    "output",
+    "output/checkpoints",
+    "output/analysis",
+    "output/analysis/metrics",
+    "output/analysis/statistics",
+    "output/analysis/spectra",
+    "output/analysis/plots",
+    "output/visualization",
+    "logs",
+    "scheduler",
+)
+
+CANONICAL_RUN_PATHS = {
+    "config": "config",
+    "inputs": "inputs",
+    "restart": "inputs/restart",
+    "output": "output",
+    "checkpoints": "output/checkpoints",
+    "analysis": "output/analysis",
+    "metrics": "output/analysis/metrics",
+    "statistics": "output/analysis/statistics",
+    "spectra": "output/analysis/spectra",
+    "plots": "output/analysis/plots",
+    "visualization": "output/visualization",
+    "logs": "logs",
+    "scheduler": "scheduler",
+}
+
+_WORKSPACE_ARTIFACT_ROOT_VALUES = {"runs", "studies"}
+_ASSET_SOURCE_REFERENCE_KEYS = {
+    "source_file", "path", "config_file", "field_file", "grid_file", "source_case", "script"
+}
+_PYTHON_INITIAL_CONDITION_PROVIDERS = {"ic_gen", "spectral_random_velocity"}
+_FILE_BACKED_GRID_VALUES = {"file", "grid_gen"}
+_WORKSPACE_MANAGED_PATHS = {"assets", "inputs", "runs", "studies"}
+_VENDORABLE_CONFIG_REFERENCE_KEYS = {"config_file", "script"}
+_PLAIN_FILENAME_SENTINELS = {"", ".", ".."}
+_VERSION_BUILD_ACTIONS = {"install", "activate"}
+
+
+def _find_named_file_upwards(start: str, filename: str):
+    """!
+    @brief Find a named file at or above an arbitrary filesystem anchor.
+    @param[in] start File or directory from which to search.
+    @param[in] filename Basename to locate.
+    @return Absolute path when found, otherwise None.
+    """
+    current = os.path.abspath(start or os.getcwd())
+    if os.path.isfile(current):
+        current = os.path.dirname(current)
+    while True:
+        candidate = os.path.join(current, filename)
+        if os.path.isfile(candidate):
+            return candidate
+        parent = os.path.dirname(current)
+        if parent == current:
+            return None
+        current = parent
+
+
+def find_workspace_root(*anchors):
+    """!
+    @brief Locate the nearest initialized PICurv workspace for supplied anchors.
+    @param[in] anchors Candidate config, run, study, or current-working-directory paths.
+    @return Workspace root path when found, otherwise None.
+    """
+    for anchor in anchors or (os.getcwd(),):
+        if not anchor:
+            continue
+        found = _find_named_file_upwards(str(anchor), WORKSPACE_CONFIG_FILENAME)
+        if found:
+            return os.path.dirname(found)
+    return None
+
+
+def load_workspace_config(workspace_root: str) -> dict:
+    """!
+    @brief Load and validate the immutable workspace identity/configuration file.
+    @param[in] workspace_root Initialized workspace directory.
+    @return Parsed workspace configuration mapping.
+    """
+    path = os.path.join(os.path.abspath(workspace_root), WORKSPACE_CONFIG_FILENAME)
+    payload = read_yaml_file(path)
+    if payload.get("schema_version") != WORKSPACE_SCHEMA_VERSION:
+        raise ValueError(
+            f"{path}: unsupported workspace schema_version "
+            f"{payload.get('schema_version')!r}; expected {WORKSPACE_SCHEMA_VERSION}."
+        )
+    return payload
+
+
+def enforce_workspace_version(workspace_root: str) -> dict:
+    """!
+    @brief Enforce an optional workspace PICurv version requirement.
+    @param[in] workspace_root Initialized workspace directory.
+    @return Current build identity after successful validation.
+    """
+    payload = load_workspace_config(workspace_root)
+    software = payload.get("software") or {}
+    requirement = software.get("picurv") if isinstance(software, dict) else None
+    if requirement in (None, ""):
+        return dict(PICURV_BUILD)
+    try:
+        from packaging.specifiers import SpecifierSet
+        from packaging.version import Version
+        requirement_text = str(requirement).strip()
+        if not any(token in requirement_text for token in "<>=!~"):
+            requirement_text = "==" + requirement_text
+        matches = Version(PICURV_RELEASE_VERSION) in SpecifierSet(requirement_text)
+    except Exception as exc:
+        raise ValueError(
+            f"{WORKSPACE_CONFIG_FILENAME}: software.picurv={requirement!r} is not a valid "
+            "version or version range."
+        ) from exc
+    if not matches:
+        raise ValueError(
+            f"Workspace requires PICurv {requirement!r}, but the active release is "
+            f"{PICURV_RELEASE_VERSION} (build {PICURV_BUILD['build_id']}).\n"
+            f"Activate a matching installation with 'picurv versions activate <version>' "
+            "and retry."
+        )
+    return dict(PICURV_BUILD)
+
+
+def resolve_workspace_path(anchor_file: str, candidate: str, *, allow_external: bool = False) -> str:
+    """!
+    @brief Resolve a user path against its workspace and reject implicit escapes.
+    @param[in] anchor_file Config file whose workspace owns the reference.
+    @param[in] candidate Workspace-relative path text.
+    @param[in] allow_external Whether an explicit import/reference operation permits an absolute path.
+    @return Absolute resolved path.
+    """
+    if not isinstance(candidate, str) or not candidate.strip():
+        raise ValueError("Referenced path must be a non-empty string.")
+    text = os.path.expanduser(candidate.strip())
+    workspace_root = find_workspace_root(anchor_file)
+    if not workspace_root:
+        return os.path.abspath(text if os.path.isabs(text) else os.path.join(os.path.dirname(os.path.abspath(anchor_file)), text))
+    if os.path.isabs(text):
+        if allow_external:
+            return os.path.abspath(text)
+        raise ValueError(
+            f"{anchor_file}: absolute path {candidate!r} is not allowed in workspace configuration; "
+            "import it with 'picurv inputs import' or use an explicit reference-mode import."
+        )
+    resolved = os.path.abspath(os.path.join(workspace_root, text))
+    if os.path.commonpath([workspace_root, resolved]) != os.path.abspath(workspace_root):
+        raise ValueError(
+            f"{anchor_file}: path {candidate!r} escapes the workspace; parent traversal is not allowed."
+        )
+    if resolved.endswith(".reference.yml") and os.path.isfile(resolved):
+        pointer = read_yaml_file(resolved)
+        external = pointer.get("picurv_external_reference") if isinstance(pointer, dict) else None
+        if not isinstance(external, str) or not os.path.isabs(external):
+            raise ValueError(f"Invalid external-reference descriptor: {resolved}")
+        if not os.path.isfile(external):
+            raise ValueError(f"Registered external input is unavailable: {external}")
+        return external
+    return resolved
+
+
+def ensure_workspace_layout(workspace_root: str) -> None:
+    """!
+    @brief Materialize the uniform, cheap directory skeleton for one workspace.
+    @param[in] workspace_root Workspace root to initialize.
+    """
+    for relative in WORKSPACE_DIRECTORY_LAYOUT:
+        os.makedirs(os.path.join(workspace_root, *relative.split("/")), exist_ok=True)
+
+
+def ensure_run_layout(run_dir: str) -> None:
+    """!
+    @brief Materialize the uniform, cheap directory skeleton for one run.
+    @param[in] run_dir Run root to initialize.
+    """
+    for relative in RUN_DIRECTORY_LAYOUT:
+        os.makedirs(os.path.join(run_dir, *relative.split("/")), exist_ok=True)
+
+
+def case_run_label(case_cfg: dict, case_path: str) -> str:
+    """!
+    @brief Resolve the stable human-facing portion of a generated run identifier.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] case_path Source case YAML path.
+    @return Filesystem-safe case title, name, or source stem.
+    """
+    metadata = case_cfg.get("metadata") or {}
+    candidate = (
+        case_cfg.get("title")
+        or (metadata.get("title") if isinstance(metadata, dict) else None)
+        or (metadata.get("name") if isinstance(metadata, dict) else None)
+        or Path(case_path).stem
+    )
+    label = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(candidate).strip()).strip("-.")
+    return label or "case"
+
+
+def workspace_artifact_root(workspace_root: str, kind: str) -> str:
+    """!
+    @brief Return the canonical workspace-owned root for runs or studies.
+    @param[in] workspace_root Initialized workspace, or None for standalone mode.
+    @param[in] kind Either runs or studies.
+    @return Absolute artifact root.
+    """
+    if kind not in _WORKSPACE_ARTIFACT_ROOT_VALUES:
+        raise ValueError(f"Unsupported workspace artifact kind: {kind}")
+    if workspace_root:
+        return os.path.join(os.path.abspath(workspace_root), kind)
+    return os.path.abspath(kind)
+
+
+def _relative_to_workspace(path: str, workspace_root: str):
+    """!
+    @brief Return a portable workspace-relative path when possible.
+    @param[in] path Path to normalize.
+    @param[in] workspace_root Optional initialized workspace root.
+    @return Workspace-relative POSIX path, absolute path, or None.
+    """
+    if not path:
+        return None
+    absolute = os.path.abspath(path)
+    if workspace_root and os.path.commonpath([absolute, workspace_root]) == os.path.abspath(workspace_root):
+        return os.path.relpath(absolute, workspace_root).replace(os.sep, "/")
+    return absolute
+
+
+def snapshot_run_configuration(run_dir: str, source_paths: dict,
+                               continuation: bool = False) -> dict:
+    """!
+    @brief Snapshot editable YAML inputs without erasing prior continuation state.
+    @param[in] run_dir Owning run directory.
+    @param[in] source_paths Role-to-source-path mapping.
+    @param[in] continuation Whether this is a continuation configuration revision.
+    @return Active snapshot metadata.
+    """
+    config_root = os.path.join(run_dir, "config")
+    os.makedirs(config_root, exist_ok=True)
+    revision = None
+    destination_root = config_root
+    if continuation:
+        revision = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        destination_root = os.path.join(config_root, "history", revision)
+        os.makedirs(destination_root, exist_ok=False)
+    snapshots = {}
+    for role, source in source_paths.items():
+        if not source:
+            continue
+        source = os.path.abspath(source)
+        suffix = os.path.splitext(source)[1] or ".yml"
+        name = f"{role}{suffix}" if role != "cluster" else "cluster.yml"
+        destination = os.path.join(destination_root, name)
+        shutil.copy2(source, destination)
+        snapshots[role] = os.path.relpath(destination, run_dir).replace(os.sep, "/")
+    active = {
+        "schema_version": 1,
+        "revision": revision or "initial",
+        "updated_at": datetime.now().astimezone().isoformat(),
+        "files": snapshots,
+    }
+    write_json_file(os.path.join(config_root, "active.json"), active)
+    return active
+
+
+def load_active_run_configuration(run_dir: str) -> dict:
+    """!
+    @brief Load the active immutable configuration revision for a run.
+    @param[in] run_dir Run directory.
+    @return Role-to-absolute-path mapping.
+    """
+    config_root = os.path.join(os.path.abspath(run_dir), "config")
+    active = _read_json_if_exists(os.path.join(config_root, "active.json"))
+    if isinstance(active, dict) and isinstance(active.get("files"), dict):
+        return {
+            role: os.path.join(run_dir, *relative.split("/"))
+            for role, relative in active["files"].items()
+            if isinstance(relative, str)
+        }
+    return {
+        role: os.path.join(config_root, f"{role}.yml")
+        for role in ("case", "solver", "monitor", "cluster")
+        if os.path.isfile(os.path.join(config_root, f"{role}.yml"))
+    }
+
+
+def archive_active_generated_configuration(run_dir: str, paths: list) -> dict:
+    """!
+    @brief Preserve generated control sidecars beside a continuation's YAML revision.
+    @param[in] run_dir Owning run.
+    @param[in] paths Generated control and sidecar paths.
+    @return Updated active configuration record.
+    """
+    config_root = os.path.join(os.path.abspath(run_dir), "config")
+    active_path = os.path.join(config_root, "active.json")
+    active = _read_json_if_exists(active_path) or {"schema_version": 1, "revision": "initial", "files": {}}
+    revision = active.get("revision", "initial")
+    target_root = config_root if revision == "initial" else os.path.join(config_root, "history", revision)
+    os.makedirs(target_root, exist_ok=True)
+    files = active.setdefault("files", {})
+    for source in paths:
+        if not source or not os.path.isfile(source):
+            continue
+        source = os.path.abspath(source)
+        destination = os.path.join(target_root, os.path.basename(source))
+        if source != destination:
+            shutil.copy2(source, destination)
+        relative = os.path.relpath(destination, run_dir).replace(os.sep, "/")
+        if destination.endswith(".control"):
+            files["control"] = relative
+        else:
+            files.setdefault("generated", []).append(relative)
+    active["updated_at"] = datetime.now().astimezone().isoformat()
+    write_json_file(active_path, active)
+    return active
+
+
+def build_run_manifest(run_dir: str, run_id: str, *, workspace_root=None,
+                       launch_mode: str = "local", num_procs: int = 1,
+                       post_num_procs: int = 1, stages_requested=None,
+                       stages_completed=None, inputs=None, asset_lock=None,
+                       submission=None) -> dict:
+    """!
+    @brief Build the authoritative run identity, topology, and lifecycle manifest.
+    @param[in] run_dir Owning run directory.
+    @param[in] run_id Stable run identity.
+    @param[in] workspace_root Optional initialized workspace root.
+    @param[in] launch_mode Local or scheduler-backed launch mode.
+    @param[in] num_procs Effective solver process count.
+    @param[in] post_num_procs Effective post-process count.
+    @param[in] stages_requested Requested stage mapping.
+    @param[in] stages_completed Completed or submitted stage names.
+    @param[in] inputs Active configuration identities.
+    @param[in] asset_lock Resolved run asset lock.
+    @param[in] submission Scheduler submission metadata.
+    @return JSON-serializable run manifest.
+    """
+    existing = _read_json_if_exists(os.path.join(run_dir, "manifest.json")) or {}
+    created_at = existing.get("created_at") or datetime.now().astimezone().isoformat()
+    payload = {
+        "schema_version": RUN_MANIFEST_SCHEMA_VERSION,
+        "artifact_type": "run",
+        "run_id": run_id,
+        "created_at": created_at,
+        "updated_at": datetime.now().astimezone().isoformat(),
+        "workspace": (
+            (load_workspace_config(workspace_root).get("workspace") or {})
+            if workspace_root else None
+        ),
+        "software": dict(PICURV_BUILD),
+        "launch_mode": launch_mode,
+        "num_procs": num_procs,
+        "solver_num_procs": num_procs,
+        "post_num_procs": post_num_procs,
+        "stages_requested": stages_requested or {},
+        "stages_completed_or_submitted": stages_completed or [],
+        "inputs": inputs or {},
+        "paths": dict(CANONICAL_RUN_PATHS),
+        "components": {
+            "configuration": {"path": "config", "retention": "essential"},
+            "inputs": {"path": "inputs", "retention": "essential"},
+            "checkpoints": {"path": "output/checkpoints", "retention": "policy"},
+            "raw_output": {"path": "output", "retention": "policy"},
+            "analysis": {"path": "output/analysis", "retention": "derived"},
+            "visualization": {"path": "output/visualization", "retention": "derived"},
+            "logs": {"path": "logs", "retention": "essential"},
+            "scheduler": {"path": "scheduler", "retention": "essential"},
+        },
+        "assets": (asset_lock or {}).get("assets", {}),
+        "runtime_providers": (asset_lock or {}).get("runtime_providers", {}),
+        "submission": submission or {},
+    }
+    return payload
 
 
 def _checkpoint_bundle_path(source_dir: str, step: int) -> str:
@@ -697,9 +1168,14 @@ def write_yaml_file(filepath: str, data: dict):
     @param[in] filepath Argument passed to `write_yaml_file()`.
     @param[in] data Argument passed to `write_yaml_file()`.
     """
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    with open(filepath, "w") as f:
+    path = os.path.abspath(filepath)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temporary = f"{path}.tmp.{os.getpid()}"
+    with open(temporary, "w") as f:
         yaml.safe_dump(data, f, sort_keys=False)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temporary, path)
 
 def write_json_file(filepath: str, payload: dict):
     """!
@@ -707,10 +1183,15 @@ def write_json_file(filepath: str, payload: dict):
     @param[in] filepath Argument passed to `write_json_file()`.
     @param[in] payload Argument passed to `write_json_file()`.
     """
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    with open(filepath, "w") as f:
+    path = os.path.abspath(filepath)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temporary = f"{path}.tmp.{os.getpid()}"
+    with open(temporary, "w") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
         f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temporary, path)
 
 
 def write_runtime_execution_file(filepath: str, template_source_path: str = None) -> str:
@@ -1544,9 +2025,7 @@ def resolve_path(anchor_file: str, candidate: str) -> str:
     """
     if candidate is None:
         return None
-    if os.path.isabs(candidate):
-        return os.path.abspath(candidate)
-    return os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(anchor_file)), candidate))
+    return resolve_workspace_path(anchor_file, candidate)
 
 
 POST_RUN_CONTROL_ALIASES = {
@@ -1686,15 +2165,8 @@ def get_monitor_output_directory(monitor_cfg: dict, default: str = "output") -> 
     @param[in] default Argument passed to `get_monitor_output_directory()`.
     @return Value returned by `get_monitor_output_directory()`.
     """
-    io_cfg = monitor_cfg.get("io")
-    if isinstance(io_cfg, dict):
-        directories = io_cfg.get("directories")
-        if isinstance(directories, dict):
-            output_dir = directories.get("output")
-            if isinstance(output_dir, str) and output_dir.strip():
-                return output_dir.strip()
-
-    return default
+    del monitor_cfg, default
+    return CANONICAL_RUN_PATHS["output"]
 
 
 def get_post_statistics_output_prefix(post_cfg: dict, default: str = "Stats") -> str:
@@ -1732,8 +2204,8 @@ def resolve_post_statistics_output_prefix(post_cfg: dict, monitor_cfg=None, defa
     if os.path.dirname(prefix):
         return prefix
 
-    monitor_output_dir = get_monitor_output_directory(monitor_cfg or {})
-    return os.path.join(monitor_output_dir, "statistics", prefix)
+    del monitor_cfg
+    return os.path.join(CANONICAL_RUN_PATHS["statistics"], prefix)
 
 
 def get_post_statistics_output_artifacts(post_cfg: dict, run_dir: str, monitor_cfg=None):
@@ -1744,6 +2216,8 @@ def get_post_statistics_output_artifacts(post_cfg: dict, run_dir: str, monitor_c
     @param[in] monitor_cfg Optional monitor configuration used to anchor the default statistics home.
     @return Value returned by `get_post_statistics_output_artifacts()`.
     """
+    if not isinstance((post_cfg or {}).get("_picurv_paths"), dict):
+        post_cfg, _ = apply_canonical_post_paths(post_cfg, run_dir)
     token_to_suffix = {
         "ComputeMSD": "_msd.csv",
     }
@@ -2151,11 +2625,13 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
     script = os.path.join(GENERATORS_PATH, "spectra.gen")
     if not os.path.isfile(script):
         raise ValueError(f"spectra.gen script not found: {script}")
-    staged_grid = os.path.join(run_dir, "config", "grid.run")
+    staged_grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
     if not os.path.isfile(staged_grid):
         raise ValueError(f"spectra require a staged PICGRID at {staged_grid}.")
 
-    output_dir = os.path.join(os.path.abspath(run_dir), resolve_post_spectra_output_dir(monitor_cfg))
+    output_dir = os.path.join(
+        os.path.abspath(run_dir), resolve_recipe_spectra_output_dir(post_cfg, monitor_cfg)
+    )
     os.makedirs(output_dir, exist_ok=True)
 
     requested = sorted(set(int(step) for step in steps))
@@ -2244,7 +2720,19 @@ def resolve_post_spectra_output_dir(monitor_cfg=None) -> str:
     @param[in] monitor_cfg Optional monitor configuration anchoring the output root.
     @return Run-relative directory path.
     """
-    return os.path.join(get_monitor_output_directory(monitor_cfg or {}), "spectra")
+    del monitor_cfg
+    return CANONICAL_RUN_PATHS["spectra"]
+
+
+def resolve_recipe_spectra_output_dir(post_cfg: dict, monitor_cfg=None) -> str:
+    """!
+    @brief Resolve the canonical spectra directory for one versioned recipe.
+    @param[in] post_cfg Parsed runtime post config.
+    @param[in] monitor_cfg Optional monitor config for standalone compatibility.
+    @return Run-relative spectra directory.
+    """
+    internal = (post_cfg or {}).get("_picurv_paths", {}) or {}
+    return internal.get("spectra") or resolve_post_spectra_output_dir(monitor_cfg)
 
 
 def get_post_spectra_output_artifacts(post_cfg: dict, run_dir: str, monitor_cfg=None) -> list:
@@ -2262,7 +2750,7 @@ def get_post_spectra_output_artifacts(post_cfg: dict, run_dir: str, monitor_cfg=
         return []
     if not spectra["tasks"]:
         return []
-    base = os.path.join(os.path.abspath(run_dir), resolve_post_spectra_output_dir(monitor_cfg))
+    base = os.path.join(os.path.abspath(run_dir), resolve_recipe_spectra_output_dir(post_cfg, monitor_cfg))
     paths = []
     for task_cfg in spectra["tasks"]:
         name = post_spectra_task_basename(task_cfg, spectra["output_prefix"])
@@ -2416,15 +2904,23 @@ def get_post_field_statistics_artifacts(post_cfg: dict, run_dir: str):
     if not config["windows"]:
         return []
     io_cfg = post_cfg.get("io", {}) or {}
-    output_dir_abs = _post_output_directory_abs(run_dir, post_cfg)
-    prefix = io_cfg.get("output_filename_prefix", "Field")
+    internal = (post_cfg or {}).get("_picurv_paths", {}) or {}
+    visualization_dir = _post_output_directory_abs(run_dir, post_cfg)
+    visualization_prefix = io_cfg.get("output_filename_prefix", "Field")
+    csv_prefix_path = None
+    if internal.get("field_statistics_prefix"):
+        csv_prefix_path = os.path.join(run_dir, internal["field_statistics_prefix"])
     artifacts = []
     for window in config["windows"]:
-        base = os.path.join(output_dir_abs, f"{prefix}_statistics_{window}")
         if "vtk" in config["formats"]:
-            artifacts.append(("vtk", base))
+            artifacts.append(("vtk", os.path.join(
+                visualization_dir, f"{visualization_prefix}_statistics_{window}"
+            )))
         if "csv" in config["formats"]:
-            artifacts.append(("csv", base + ".csv"))
+            csv_base = csv_prefix_path or os.path.join(
+                visualization_dir, str(visualization_prefix)
+            )
+            artifacts.append(("csv", f"{csv_base}_statistics_{window}.csv"))
     return artifacts
 
 
@@ -2491,6 +2987,7 @@ def build_post_recipe_config(post_cfg: dict, monitor_cfg=None) -> dict:
         c_config['statistics_output_prefix'] = statistics_output_prefix
 
     io = post_cfg.get('io', {})
+    internal_paths = post_cfg.get('_picurv_paths', {}) or {}
     field_statistics = normalize_post_field_statistics_config(post_cfg)
     if field_statistics["windows"]:
         c_config['field_statistics_windows'] = ",".join(field_statistics["windows"])
@@ -2500,6 +2997,8 @@ def build_post_recipe_config(post_cfg: dict, monitor_cfg=None) -> dict:
         # bundle, which is what turns a multi-step recipe into a convergence history.
         if field_statistics["source_step"] is not None:
             c_config['field_statistics_source_step'] = field_statistics["source_step"]
+        if internal_paths.get("field_statistics_prefix"):
+            c_config['field_statistics_output_prefix'] = internal_paths["field_statistics_prefix"]
 
     c_config['output_prefix'] = io.get('output_directory', 'viz') + '/' + io.get('output_filename_prefix', 'Field')
     c_config['particle_output_prefix'] = io.get('output_directory', 'viz') + '/' + io.get('particle_filename_prefix', 'Particle')
@@ -2530,6 +3029,70 @@ def build_post_recipe_config(post_cfg: dict, monitor_cfg=None) -> dict:
         c_config['spectra_signature'] = compute_post_spectra_signature(spectra)
 
     return c_config
+
+
+def compute_post_recipe_id(post_cfg: dict) -> str:
+    """!
+    @brief Compute a stable human-readable identity for one post recipe.
+    @param[in] post_cfg Parsed post configuration before runtime path injection.
+    @return Filesystem-safe recipe identity.
+    """
+    normalized = copy.deepcopy(post_cfg or {})
+    normalized.pop("_picurv_paths", None)
+    source = normalized.get("source_data")
+    if isinstance(source, dict):
+        source.pop("directory", None)
+    io = normalized.get("io")
+    label = "post"
+    if isinstance(io, dict):
+        io.pop("output_directory", None)
+        raw_label = io.get("output_filename_prefix")
+        if isinstance(raw_label, str) and raw_label.strip():
+            label = re.sub(r"[^A-Za-z0-9_.-]+", "-", raw_label.strip()).strip("-") or "post"
+    run_control = normalized.get("run_control")
+    if isinstance(run_control, dict):
+        for key in POST_RUN_CONTROL_ALIASES["start_step"] + POST_RUN_CONTROL_ALIASES["end_step"]:
+            run_control.pop(key, None)
+    digest = hashlib.sha256(
+        json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:12]
+    return f"{label}-{digest}"
+
+
+def apply_canonical_post_paths(post_cfg: dict, run_dir: str) -> "tuple[dict, str]":
+    """!
+    @brief Route every post artifact into its fixed analysis or visualization home.
+    @param[in] post_cfg Parsed user recipe.
+    @param[in] run_dir Run receiving derived artifacts.
+    @return Runtime-only config copy and stable recipe id.
+    """
+    recipe_id = compute_post_recipe_id(post_cfg)
+    runtime = copy.deepcopy(post_cfg)
+    if not isinstance(runtime.get("source_data"), dict):
+        runtime["source_data"] = {}
+    runtime["source_data"]["directory"] = os.path.join(
+        os.path.abspath(run_dir), CANONICAL_RUN_PATHS["output"]
+    )
+    io = runtime.setdefault("io", {})
+    io["output_directory"] = os.path.join(CANONICAL_RUN_PATHS["visualization"], recipe_id)
+    output_prefix = io.get("output_filename_prefix", "Field")
+    stats_cfg = runtime.get("statistics_pipeline")
+    if isinstance(stats_cfg, dict):
+        basename = stats_cfg.get("output_prefix", "Stats")
+        stats_cfg["output_prefix"] = os.path.join(
+            CANONICAL_RUN_PATHS["statistics"], recipe_id, os.path.basename(str(basename))
+        )
+    runtime["_picurv_paths"] = {
+        "recipe_id": recipe_id,
+        "recipe_root": os.path.join("config", "post-recipes", recipe_id),
+        "visualization": io["output_directory"],
+        "statistics": os.path.join(CANONICAL_RUN_PATHS["statistics"], recipe_id),
+        "field_statistics_prefix": os.path.join(
+            CANONICAL_RUN_PATHS["statistics"], recipe_id, str(output_prefix)
+        ),
+        "spectra": os.path.join(CANONICAL_RUN_PATHS["spectra"], recipe_id),
+    }
+    return runtime, recipe_id
 
 
 def normalize_post_recipe_signature(recipe_cfg: dict) -> dict:
@@ -2583,25 +3146,42 @@ def parse_post_recipe_file(post_recipe_path: str):
     return recipe_cfg
 
 
-def get_post_resume_state_path(run_dir: str) -> str:
+def get_post_resume_state_path(run_dir: str, post_cfg: dict = None) -> str:
     """!
     @brief Return the JSON resume metadata path for a run directory.
     @param[in] run_dir Argument passed to `get_post_resume_state_path()`.
+    @param[in] post_cfg Optional versioned post recipe configuration.
     @return Value returned by `get_post_resume_state_path()`.
     """
-    return os.path.join(run_dir, 'config', POST_RESUME_STATE_FILENAME)
+    if post_cfg is None:
+        return os.path.join(run_dir, 'config', POST_RESUME_STATE_FILENAME)
+    return os.path.join(get_post_recipe_root(run_dir, post_cfg), "state.json")
 
 
-def get_post_lock_paths(run_dir: str) -> dict:
+def get_post_recipe_root(run_dir: str, post_cfg: dict) -> str:
+    """!
+    @brief Return the versioned run-local control directory for one post recipe.
+    @param[in] run_dir Owning run root.
+    @param[in] post_cfg Runtime post config with canonical paths, or a user recipe.
+    @return Absolute recipe control directory.
+    """
+    internal = (post_cfg or {}).get("_picurv_paths", {}) or {}
+    recipe_id = internal.get("recipe_id") or compute_post_recipe_id(post_cfg)
+    return os.path.join(os.path.abspath(run_dir), "config", "post-recipes", recipe_id)
+
+
+def get_post_lock_paths(run_dir: str, recipe_id: str = None) -> dict:
     """!
     @brief Return lock-wrapper related paths for a run directory.
     @param[in] run_dir Argument passed to `get_post_lock_paths()`.
+    @param[in] recipe_id Optional stable recipe identity used to scope the lock.
     @return Value returned by `get_post_lock_paths()`.
     """
     scheduler_dir = os.path.join(run_dir, 'scheduler')
+    suffix = f".{recipe_id}" if recipe_id else ""
     return {
-        'lock_file': os.path.join(scheduler_dir, POST_LOCK_FILENAME),
-        'metadata_file': os.path.join(scheduler_dir, POST_LOCK_METADATA_FILENAME),
+        'lock_file': os.path.join(scheduler_dir, f"post{suffix}.lock"),
+        'metadata_file': os.path.join(scheduler_dir, f"post{suffix}.lock.json"),
         'wrapper_path': os.path.join(scheduler_dir, POST_LOCK_WRAPPER_FILENAME),
     }
 
@@ -2614,7 +3194,11 @@ def _post_output_directory_abs(run_dir: str, post_cfg: dict) -> str:
     @return Value returned by `_post_output_directory_abs()`.
     """
     io_cfg = post_cfg.get('io', {}) or {}
-    return os.path.abspath(os.path.join(run_dir, io_cfg.get('output_directory', 'viz')))
+    internal = (post_cfg or {}).get("_picurv_paths", {}) or {}
+    relative = internal.get("visualization") or io_cfg.get('output_directory')
+    if not relative:
+        relative = os.path.join(CANONICAL_RUN_PATHS["visualization"], compute_post_recipe_id(post_cfg))
+    return os.path.abspath(os.path.join(run_dir, relative))
 
 
 def _post_requests_eulerian_output(post_cfg: dict) -> bool:
@@ -2930,7 +3514,7 @@ def persist_post_resume_state(run_dir: str, plan: dict, last_successful_requeste
     @param[in] last_successful_requested_end_step Argument passed to `persist_post_resume_state()`.
     @return Value returned by `persist_post_resume_state()`.
     """
-    state_path = get_post_resume_state_path(run_dir)
+    state_path = plan.get("resume_state_path") or get_post_resume_state_path(run_dir)
     payload = {
         'schema_version': POST_RESUME_SCHEMA_VERSION,
         'run_id': plan.get('run_id'),
@@ -3090,13 +3674,15 @@ def build_post_execution_plan(
     @param[in] allow_source_frontier_scan Argument passed to `build_post_execution_plan()`.
     @return Value returned by `build_post_execution_plan()`.
     """
+    if not isinstance((post_cfg or {}).get("_picurv_paths"), dict):
+        post_cfg, _ = apply_canonical_post_paths(post_cfg, run_dir)
     requested_start_step, requested_end_step, step_interval = resolve_post_requested_window(post_cfg, case_cfg)
     resolved_source_dir = _resolve_post_source_directory_preview(run_dir, monitor_cfg, post_cfg)
     resolved_post_cfg = prepare_effective_post_config(post_cfg, resolved_source_dir)
     recipe_cfg = build_post_recipe_config(resolved_post_cfg, monitor_cfg)
     recipe_signature, recipe_fingerprint = compute_post_recipe_fingerprint(recipe_cfg)
 
-    state_path = get_post_resume_state_path(run_dir)
+    state_path = get_post_resume_state_path(run_dir, resolved_post_cfg)
     state_payload = _read_json_if_exists(state_path)
     state_match = bool(isinstance(state_payload, dict) and state_payload.get('recipe_fingerprint') == recipe_fingerprint)
 
@@ -3196,7 +3782,9 @@ def build_post_execution_plan(
         'skip_reason': skip_reason,
         'resolved_post_cfg': resolved_post_cfg,
         'effective_post_cfg': effective_post_cfg,
-        'lock_paths': get_post_lock_paths(run_dir),
+        'lock_paths': get_post_lock_paths(
+            run_dir, ((resolved_post_cfg.get("_picurv_paths") or {}).get("recipe_id"))
+        ),
     }
 
 
@@ -3231,9 +3819,8 @@ def resolve_run_output_dir(run_dir: str, monitor_cfg: dict) -> str:
     @param[in] monitor_cfg Parsed monitor YAML dictionary.
     @return Absolute path to the output directory.
     """
-    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
-    output_rel = dirs.get("output", "output")
-    return os.path.abspath(os.path.join(run_dir, output_rel))
+    del monitor_cfg
+    return os.path.abspath(os.path.join(run_dir, CANONICAL_RUN_PATHS["output"]))
 
 
 def resolve_run_restart_dir(run_dir: str, monitor_cfg: dict) -> str:
@@ -3243,9 +3830,8 @@ def resolve_run_restart_dir(run_dir: str, monitor_cfg: dict) -> str:
     @param[in] monitor_cfg Parsed monitor YAML dictionary.
     @return Absolute path to the restart directory.
     """
-    dirs = (monitor_cfg.get("io", {}) or {}).get("directories", {}) or {}
-    restart_rel = dirs.get("restart", "restart")
-    return os.path.abspath(os.path.join(run_dir, restart_rel))
+    del monitor_cfg
+    return os.path.abspath(os.path.join(run_dir, CANONICAL_RUN_PATHS["restart"]))
 
 
 def compute_physical_case_identity(case_cfg: dict) -> str:
@@ -3286,43 +3872,58 @@ def validate_continue_case_identity(run_dir: str, case_cfg: dict) -> None:
         )
 
 
-def populate_restart_directory(source_output: str, target_restart: str, start_step: int, monitor_cfg: dict):
+def populate_restart_directory(source_output: str, target_restart: str, start_step: int,
+                               monitor_cfg: dict, end_step: "int | None" = None):
     """!
-    @brief Copy checkpoint files for a specific step from source output to target restart.
+    @brief Atomically materialize an immutable checkpoint interval into a run.
     @param[in] source_output Path to the source output directory containing checkpoint data.
     @param[in] target_restart Path to the target restart directory to populate.
-    @param[in] start_step The step number whose checkpoint files should be copied.
+    @param[in] start_step First checkpoint step to materialize.
     @param[in] monitor_cfg Parsed monitor YAML dictionary (for subdirectory names).
-    @return Exact path to the copied committed checkpoint bundle.
+    @param[in] end_step Optional inclusive last checkpoint step.
+    @return Canonical restart root containing committed checkpoint bundles.
     """
     del monitor_cfg
-    source = validate_committed_checkpoint(source_output, start_step)["bundle"]
     checkpoints_root = os.path.join(os.path.abspath(target_restart), "checkpoints")
-    destination = os.path.join(
-        checkpoints_root, f"step_{start_step:0{CHECKPOINT_STEP_WIDTH}d}"
-    )
-    if os.path.isdir(destination):
-        validate_committed_checkpoint(destination, start_step)
-        print(f"[INFO] Reusing committed restart bundle: {destination}")
-        return destination
-
     os.makedirs(checkpoints_root, exist_ok=True)
-    temporary = os.path.join(
-        checkpoints_root,
-        f".step_{start_step:0{CHECKPOINT_STEP_WIDTH}d}.copying.{os.getpid()}",
-    )
-    if os.path.exists(temporary):
-        raise ValueError(f"Restart staging path already exists: {temporary}")
-    try:
-        shutil.copytree(source, temporary)
-        validate_committed_checkpoint(temporary, start_step)
-        os.replace(temporary, destination)
-    except Exception:
-        if os.path.isdir(temporary):
-            shutil.rmtree(temporary)
-        raise
-    print(f"[INFO] Copied committed restart bundle for step {start_step}: {destination}")
-    return destination
+    final_step = start_step if end_step is None else end_step
+    if final_step < start_step:
+        raise ValueError("Restart checkpoint interval end must not precede its start.")
+    for step in range(start_step, final_step + 1):
+        source = validate_committed_checkpoint(source_output, step)["bundle"]
+        destination = os.path.join(
+            checkpoints_root, f"step_{step:0{CHECKPOINT_STEP_WIDTH}d}"
+        )
+        if os.path.isdir(destination):
+            validate_committed_checkpoint(destination, step)
+            print(f"[INFO] Reusing committed restart bundle: {destination}")
+            continue
+        temporary = os.path.join(
+            checkpoints_root,
+            f".step_{step:0{CHECKPOINT_STEP_WIDTH}d}.copying.{os.getpid()}",
+        )
+        if os.path.exists(temporary):
+            raise ValueError(f"Restart staging path already exists: {temporary}")
+        try:
+            os.makedirs(temporary)
+            for current, dirnames, filenames in os.walk(source):
+                relative = os.path.relpath(current, source)
+                target_dir = temporary if relative == "." else os.path.join(temporary, relative)
+                os.makedirs(target_dir, exist_ok=True)
+                for dirname in dirnames:
+                    os.makedirs(os.path.join(target_dir, dirname), exist_ok=True)
+                for filename in filenames:
+                    _materialize_asset_file(
+                        os.path.join(current, filename), os.path.join(target_dir, filename)
+                    )
+            validate_committed_checkpoint(temporary, step)
+            os.replace(temporary, destination)
+        except Exception:
+            if os.path.isdir(temporary):
+                shutil.rmtree(temporary)
+            raise
+        print(f"[INFO] Materialized committed restart bundle for step {step}: {destination}")
+    return os.path.abspath(target_restart)
 
 
 def validate_eulerian_checkpoint(source_dir: str, step: int, monitor_cfg: dict):
@@ -3420,6 +4021,57 @@ def read_monitor_from_run(run_dir: str) -> dict:
     return read_yaml_file(monitor_path)
 
 
+def resolve_latest_restart_run(case_cfg: dict, case_path: str, start_step: int) -> str:
+    """!
+    @brief Select the newest local workspace run compatible with a requested restart.
+    @param[in] case_cfg Current case configuration.
+    @param[in] case_path Current case path.
+    @param[in] start_step Required committed checkpoint.
+    @return Absolute source run directory.
+    """
+    workspace_root = find_workspace_root(case_path, os.getcwd())
+    if not workspace_root:
+        raise ValueError("--from latest requires an initialized workspace.")
+    current_graph = build_case_asset_graph(case_cfg, case_path)
+    current_grid = next(
+        (item for item in current_graph.get("providers", []) if item.get("kind") == "grid"),
+        None,
+    )
+    candidates = []
+    for candidate in Path(workspace_root, "runs").iterdir():
+        if not candidate.is_dir():
+            continue
+        manifest = _read_json_if_exists(str(candidate / "manifest.json")) or {}
+        lock = read_yaml_file(str(candidate / "inputs" / "assets.lock.yml")) \
+            if (candidate / "inputs" / "assets.lock.yml").is_file() else {}
+        locked_grid = (lock.get("assets") or {}).get("grid")
+        runtime_grid = (lock.get("runtime_providers") or {}).get("grid")
+        if current_grid:
+            recorded_hash = None
+            if isinstance(locked_grid, dict):
+                recorded_hash = locked_grid.get("provider_spec_sha256")
+            elif isinstance(runtime_grid, dict):
+                recorded_hash = runtime_grid.get("provider_spec_sha256")
+            if recorded_hash and recorded_hash != current_grid.get("spec_sha256"):
+                continue
+        output_root = candidate / CANONICAL_RUN_PATHS["output"]
+        try:
+            validate_committed_checkpoint(str(output_root), start_step)
+        except (OSError, ValueError):
+            continue
+        ordering = manifest.get("updated_at") or manifest.get("created_at") or ""
+        candidates.append((ordering, candidate.stat().st_mtime_ns, str(candidate)))
+    if not candidates:
+        raise ValueError(
+            f"No local workspace run has a compatible committed checkpoint at step {start_step}. "
+            "Restore a run from storage first, or name one explicitly with --from <run-dir>."
+        )
+    candidates.sort(reverse=True)
+    selected = candidates[0][2]
+    print(f"[INFO] Selected latest compatible restart run: {os.path.relpath(selected, workspace_root)}")
+    return selected
+
+
 def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: dict, run_dir: str):
     """!
     @brief Resolve the restart source directory based on --restart-from or --continue CLI flags.
@@ -3466,16 +4118,24 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
         )
 
     if restart_from:
+        if str(restart_from).strip().lower() == "latest":
+            restart_from = resolve_latest_restart_run(
+                case_cfg, getattr(args, "case", "case.yml"), start_step
+            )
         # Statistics continuation is tied to --continue. A branch may follow a
         # different physical trajectory than the samples already collected, so the
         # specification requires an explicit opt-in that does not exist yet; without
         # it the windows would silently restart from zero and report a sample count
         # that describes a shorter average than the user expects.
-        if normalize_field_statistics_config(monitor_cfg or {})["enabled"]:
-            raise ValueError(
-                "--restart-from cannot carry accumulated field statistics forward: the windows "
-                "would silently restart from zero. Use --continue to resume a run in place, or "
-                "set 'field_statistics.enabled: false' to branch without them."
+        statistics_state = str(getattr(args, "statistics_state", "reset") or "reset").lower()
+        statistics_enabled = normalize_field_statistics_config(monitor_cfg or {})["enabled"]
+        if statistics_state == "carry" and not statistics_enabled:
+            raise ValueError("--statistics-state carry requires field_statistics.enabled: true.")
+        if statistics_enabled and statistics_state == "reset":
+            print(
+                "[INFO] Branched restart will reset field-statistics windows; use "
+                "--statistics-state carry to resume compatible saved window state.",
+                file=sys.stderr,
             )
 
         # === MODE 1: New run, restart from another run ===
@@ -3501,20 +4161,26 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
             return None, False
 
         if eulerian_source == "load":
-            # R3/R4/R5: Direct reference to source output
+            # A load-mode run may consume a complete saved sequence. Materialize it
+            # into this run so storage never depends on another run remaining local.
             validate_load_mode_step_range(source_output, start_step, total_steps, source_monitor)
-            if particle_needs:
-                validate_particle_checkpoint(source_output, start_step, source_monitor)
-            return source_output, False
-        else:
-            # Copy one immutable bundle into the new run's restart staging area.
             target_restart = resolve_run_restart_dir(run_dir, monitor_cfg)
-            restart_bundle = populate_restart_directory(
+            restart_root = populate_restart_directory(
+                source_output, target_restart, start_step, monitor_cfg,
+                end_step=start_step + total_steps,
+            )
+            if particle_needs:
+                validate_particle_checkpoint(restart_root, start_step, monitor_cfg)
+            return restart_root, False
+        else:
+            # Materialize one immutable bundle into the new run's restart input.
+            target_restart = resolve_run_restart_dir(run_dir, monitor_cfg)
+            restart_root = populate_restart_directory(
                 source_output, target_restart, start_step, monitor_cfg
             )
             if particle_needs:
-                validate_particle_checkpoint(restart_bundle, start_step, monitor_cfg)
-            return restart_bundle, False
+                validate_particle_checkpoint(restart_root, start_step, monitor_cfg)
+            return restart_root, False
 
     elif continue_run:
         # === MODE 2: Continue in-place ===
@@ -3540,20 +4206,30 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
             )
 
         if eulerian_source == "load":
-            # C3/C4: Direct reference to output/ (all euler steps there, can't copy)
+            # Preserve the saved sequence under the run's immutable restart input.
             validate_load_mode_step_range(source_output, start_step, total_steps, monitor_cfg)
+            target_restart = resolve_run_restart_dir(run_dir, monitor_cfg)
+            restart_root = populate_restart_directory(
+                source_output, target_restart, start_step, monitor_cfg,
+                end_step=start_step + total_steps,
+            )
             if particle_needs:
-                validate_particle_checkpoint(source_output, start_step, monitor_cfg)
-            return source_output, True
+                validate_particle_checkpoint(restart_root, start_step, monitor_cfg)
+            return restart_root, True
         elif not requires_source:
             # C6: analytical + init — only log-append behavior, no data needed
             return None, True
         else:
-            # In-place continuation reads the immutable committed bundle directly.
-            checkpoint = validate_committed_checkpoint(
-                source_output, start_step, require_particles=particle_needs
+            # In-place continuation also uses the fixed restart-input home. Reflink or
+            # hardlink materialization normally makes this metadata-cheap.
+            target_restart = resolve_run_restart_dir(run_dir, monitor_cfg)
+            restart_root = populate_restart_directory(
+                source_output, target_restart, start_step, monitor_cfg
             )
-            return checkpoint["bundle"], True
+            validate_committed_checkpoint(
+                restart_root, start_step, require_particles=particle_needs
+            )
+            return restart_root, True
 
     elif requires_source:
         raise ValueError(
@@ -3570,6 +4246,11 @@ def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
     @param[in] case_cfg Argument passed to `absolutize_case_external_paths()`.
     @param[in] case_anchor_path Argument passed to `absolutize_case_external_paths()`.
     """
+    # Initialized workspaces deliberately keep portable, root-relative paths in
+    # every materialized study member.  The run/study directory remains below
+    # the workspace, so normal resolution can still find the owning manifest.
+    if find_workspace_root(case_anchor_path):
+        return
     grid_cfg = case_cfg.get("grid", {})
     if not isinstance(grid_cfg, dict):
         return
@@ -4049,10 +4730,8 @@ def _resolve_generator_script(configured_script: str, case_path: str, default_na
     if not isinstance(configured_script, str) or not configured_script.strip():
         raise ValueError(f"Generator script override for {default_name} must be a non-empty path.")
     script = configured_script.strip()
-    if os.path.isabs(script):
-        return os.path.abspath(script)
     case_dir = os.path.dirname(os.path.abspath(case_path)) if case_path else os.getcwd()
-    return os.path.abspath(os.path.join(case_dir, script))
+    return _resolve_case_relative_path(script, case_dir)
 
 def _normalize_square_duct_poiseuille_params(params, field_name: str) -> dict:
     """!
@@ -4346,6 +5025,25 @@ def _resolve_case_relative_path(path_value: str, case_dir: str) -> str:
     """
     if not isinstance(path_value, str) or not path_value.strip():
         raise ValueError("path value must be a non-empty string.")
+    workspace_root = find_workspace_root(case_dir)
+    if workspace_root:
+        if os.path.isabs(path_value):
+            raise ValueError(
+                f"absolute path {path_value!r} is not allowed in workspace case configuration; "
+                "use 'picurv inputs import --mode reference' for an explicit external reference."
+            )
+        resolved = os.path.abspath(os.path.join(workspace_root, path_value))
+        if os.path.commonpath([workspace_root, resolved]) != os.path.abspath(workspace_root):
+            raise ValueError(f"path {path_value!r} escapes the workspace.")
+        if resolved.endswith(".reference.yml") and os.path.isfile(resolved):
+            pointer = read_yaml_file(resolved)
+            external = pointer.get("picurv_external_reference") if isinstance(pointer, dict) else None
+            if not isinstance(external, str) or not os.path.isabs(external):
+                raise ValueError(f"Invalid external-reference descriptor: {resolved}")
+            if not os.path.isfile(external):
+                raise ValueError(f"Registered external input is unavailable: {external}")
+            return external
+        return resolved
     if os.path.isabs(path_value):
         return os.path.abspath(path_value)
     return os.path.abspath(os.path.join(case_dir, path_value))
@@ -4392,12 +5090,10 @@ def resolve_target_grid_for_field_slice(case_cfg: dict, case_path: str, run_dir:
             source_grid = convert_legacy_grid_with_gridgen(case_path, run_dir, grid_cfg, source_grid)
         return source_grid
     if grid_mode == "grid_gen":
-        generator = grid_cfg.get("generator", {})
-        output_file = generator.get("output_file", os.path.join("config", "grid.generated.picgrid"))
-        candidate = output_file if os.path.isabs(output_file) else os.path.abspath(os.path.join(run_dir, output_file))
+        candidate = os.path.abspath(os.path.join(run_dir, "inputs", "grid", "grid.generated.picgrid"))
         if os.path.isfile(candidate):
             return candidate
-        staged = os.path.join(run_dir, "config", "grid.run")
+        staged = os.path.join(run_dir, "inputs", "grid", "grid.run")
         if os.path.isfile(staged):
             return staged
         raise ValueError("field_slice requires the generated target PICGRID to exist before profile extraction.")
@@ -4490,22 +5186,21 @@ def run_grid_generator(case_path: str, run_dir: str, grid_cfg: dict) -> str:
 
     case_dir = os.path.dirname(os.path.abspath(case_path))
     gridgen_script = generator.get("script", os.path.join(GENERATORS_PATH, "grid.gen"))
-    if not os.path.isabs(gridgen_script):
-        gridgen_script = os.path.abspath(os.path.join(case_dir, gridgen_script))
+    if generator.get("script"):
+        gridgen_script = _resolve_case_relative_path(gridgen_script, case_dir)
+    else:
+        gridgen_script = os.path.abspath(gridgen_script)
     if not os.path.isfile(gridgen_script):
         raise ValueError(f"grid.gen script not found: {gridgen_script}")
 
     config_file = generator.get("config_file")
     if not config_file:
         raise ValueError("grid.generator.config_file is required when grid.mode is 'grid_gen'.")
-    if not os.path.isabs(config_file):
-        config_file = os.path.abspath(os.path.join(case_dir, config_file))
+    config_file = _resolve_case_relative_path(config_file, case_dir)
     if not os.path.isfile(config_file):
         raise ValueError(f"grid.generator.config_file not found: {config_file}")
 
-    output_file = generator.get("output_file", os.path.join("config", "grid.generated.picgrid"))
-    if not os.path.isabs(output_file):
-        output_file = os.path.abspath(os.path.join(run_dir, output_file))
+    output_file = os.path.abspath(os.path.join(run_dir, "inputs", "grid", "grid.generated.picgrid"))
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
     grid_type = generator.get("grid_type")
@@ -4523,15 +5218,13 @@ def run_grid_generator(case_path: str, run_dir: str, grid_cfg: dict) -> str:
 
     vts_file = generator.get("vts_file")
     if vts_file:
-        if not os.path.isabs(vts_file):
-            vts_file = os.path.abspath(os.path.join(run_dir, vts_file))
+        vts_file = os.path.abspath(os.path.join(run_dir, "output", "visualization", "precompute", "grid.vts"))
         os.makedirs(os.path.dirname(vts_file), exist_ok=True)
         cmd.extend(["--vts", vts_file])
 
     stats_file = generator.get("stats_file")
     if stats_file:
-        if not os.path.isabs(stats_file):
-            stats_file = os.path.abspath(os.path.join(run_dir, stats_file))
+        stats_file = os.path.abspath(os.path.join(run_dir, "output", "analysis", "metrics", "grid.info"))
         os.makedirs(os.path.dirname(stats_file), exist_ok=True)
         cmd.extend(["--stats-file", stats_file])
 
@@ -4596,16 +5289,14 @@ def convert_legacy_grid_with_gridgen(case_path: str, run_dir: str, grid_cfg: dic
     gridgen_script = legacy_cfg.get("script", os.path.join(GENERATORS_PATH, "grid.gen"))
     if not isinstance(gridgen_script, str) or not gridgen_script.strip():
         raise ValueError("grid.legacy_conversion.script must be a non-empty string when provided.")
-    if not os.path.isabs(gridgen_script):
-        gridgen_script = os.path.abspath(os.path.join(case_dir, gridgen_script))
+    if legacy_cfg.get("script"):
+        gridgen_script = _resolve_case_relative_path(gridgen_script, case_dir)
+    else:
+        gridgen_script = os.path.abspath(gridgen_script)
     if not os.path.isfile(gridgen_script):
         raise ValueError(f"grid.legacy_conversion.script not found: {gridgen_script}")
 
-    output_file = legacy_cfg.get("output_file", os.path.join("config", "grid.converted.picgrid"))
-    if not isinstance(output_file, str) or not output_file.strip():
-        raise ValueError("grid.legacy_conversion.output_file must be a non-empty string when provided.")
-    if not os.path.isabs(output_file):
-        output_file = os.path.abspath(os.path.join(run_dir, output_file))
+    output_file = os.path.abspath(os.path.join(run_dir, "inputs", "grid", "grid.converted.picgrid"))
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
     axis_columns = legacy_cfg.get("axis_columns", [0, 1, 2])
@@ -4855,19 +5546,16 @@ def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, r
         source_grid = grid_cfg.get("source_file")
         if not isinstance(source_grid, str) or not source_grid.strip():
             raise ValueError("grid.source_file is required for file-grid prescribed_flow profile validation.")
-        if not os.path.isabs(source_grid):
-            source_grid = os.path.abspath(os.path.join(case_dir, source_grid))
+        source_grid = _resolve_case_relative_path(source_grid, case_dir)
         if isinstance(grid_cfg.get("legacy_conversion"), dict) and run_dir:
             source_grid = convert_legacy_grid_with_gridgen(case_path, run_dir, grid_cfg, source_grid)
         return read_picgrid_header_dimensions(source_grid, expected_nblk=num_blocks)
 
     if grid_mode == "grid_gen":
-        generator = grid_cfg.get("generator", {})
-        output_file = generator.get("output_file", os.path.join("config", "grid.generated.picgrid"))
         candidates = []
         if run_dir:
-            candidates.append(output_file if os.path.isabs(output_file) else os.path.abspath(os.path.join(run_dir, output_file)))
-            candidates.append(os.path.join(run_dir, "config", "grid.run"))
+            candidates.append(os.path.join(run_dir, "inputs", "grid", "grid.generated.picgrid"))
+            candidates.append(os.path.join(run_dir, "inputs", "grid", "grid.run"))
         for candidate in candidates:
             if os.path.isfile(candidate):
                 return read_picgrid_header_dimensions(candidate, expected_nblk=num_blocks)
@@ -4898,7 +5586,7 @@ def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict,
     if profile_grid_dims is None:
         profile_grid_dims = resolve_grid_block_dimensions_for_profiles(case_cfg, case_path, run_dir)
 
-    config_dir = os.path.join(run_dir, "config")
+    profile_dir = os.path.join(run_dir, "inputs", "inlet_profiles")
     target_grid = None
     generated_target_grid = None
     summaries = []
@@ -4913,14 +5601,9 @@ def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict,
             dims = _bc_profile_expected_dims(face, profile_grid_dims[block_idx])
             face_token = _face_artifact_token(face)
             suffix = "generated" if source.get("type") == "generated" else "sliced"
-            default_output = os.path.join(
-                "config", f"inlet_profile_block{block_idx}_{face_token}.{suffix}.picslice"
-            )
-            output_path = _resolve_run_artifact_path(
-                run_dir,
-                source.get("output_file"),
-                default_output,
-                default_to_config_dir=True,
+            output_path = os.path.join(
+                profile_dir,
+                f"inlet_profile_block{block_idx}_{face_token}.{suffix}.dimensional.picslice",
             )
             if source.get("type") == "generated" and source["generator"] == "square_duct_poiseuille":
                 if generated_target_grid is None:
@@ -4957,7 +5640,7 @@ def materialize_generated_prescribed_flow_profiles(run_dir: str, case_cfg: dict,
             )
 
     if summaries:
-        info_path = write_profile_info(config_dir, summaries)
+        info_path = write_profile_info(profile_dir, summaries)
         print(f"[SUCCESS] Wrote generated profile summary: {os.path.relpath(info_path)}")
     return summaries
 
@@ -5480,7 +6163,7 @@ def _validate_yaml_schema_keys(cfg, schema: dict, file_path: str, errors: list, 
 
 _CASE_SCHEMA = {
     (): {
-        "properties", "run_control", "grid", "models", "boundary_conditions", "solver_parameters",
+        "title", "properties", "run_control", "grid", "models", "boundary_conditions", "solver_parameters",
     },
     ("run_control",): {"start_step", "total_steps", "dt_physical"},
     ("properties",): {"scaling", "fluid", "initial_conditions"},
@@ -5645,9 +6328,8 @@ _MONITOR_SCHEMA = {
     ("diagnostics", "runtime_memory_log"): {"enabled", "file"},
     ("io",): {
         "data_output_frequency", "particle_console_output_frequency", "particle_log_interval",
-        "statistics_console_output_frequency", "directories",
+        "statistics_console_output_frequency",
     },
-    ("io", "directories"): {"output", "restart", "log", "allow_unsafe_paths"},
     ("solver_monitoring",): {"momentum", "poisson", "petsc_passthrough_options"},
     ("solver_monitoring", "momentum"): {
         "newton_krylov_history", "snes_monitor", "snes_converged_reason",
@@ -5745,7 +6427,7 @@ _CLUSTER_SCHEMA = {
 
 _STUDY_SCHEMA = {
     (): {
-        "base_configs", "study_type", "parameters", "parameter_sets", "metrics", "plotting", "execution",
+        "title", "base_configs", "study_type", "parameters", "parameter_sets", "metrics", "plotting", "execution",
     },
     ("base_configs",): {"case", "solver", "monitor", "post"},
     ("parameters",): None,
@@ -5776,10 +6458,12 @@ RESERVED_RUN_DIRECTORY_NAMES = ("config", "scheduler", "checkpoints", "visualiza
 # key is not absent at runtime, so collision checks must resolve these first.
 RUN_DIRECTORY_DEFAULTS = {"log": "logs", "output": "output"}
 
-# Runtime flags that select run-owned directories. These are reserved for
-# `monitor.io.directories`; allowing a raw passthrough to set them would route an
-# unvalidated destructive path straight to C.
-RESERVED_DIRECTORY_FLAGS = ("-log_dir", "-output_dir", "-restart_dir", "-allow_unsafe_log_dir")
+# Runtime flags that select run-owned directories. The workspace contract owns them;
+# raw passthrough must not replace the canonical values emitted by the generator.
+RESERVED_DIRECTORY_FLAGS = (
+    "-log_dir", "-output_dir", "-restart_dir", "-analysis_dir",
+    "-allow_unsafe_log_dir",
+)
 
 # PETSc indirection that could reintroduce a reserved flag without naming it. An
 # options file or an alias is evaluated by PETSc itself, so its contents are outside
@@ -6126,12 +6810,10 @@ def effective_run_directories(configured: dict) -> dict:
 
 def validate_run_directory_containment(monitor_cfg: dict, monitor_path: str) -> tuple:
     """!
-    @brief Reject run directories that escape the run tree or collide with run-owned paths.
-
-    @details Guards an otherwise silent data-loss path: `io.directories.log` is passed
-             through to `-log_dir`, and on a fresh solve the C runtime recursively
-             deletes that directory before writing to it. Rules live in
-             `evaluate_run_directories()`, shared with submission preflight.
+    @brief Classify legacy directory values as defense-in-depth during validation.
+    @details The monitor schema rejects this removed surface. Keeping the stricter
+             classifier here ensures malformed or manually constructed configurations
+             still receive the safety findings that protect recursive log cleanup.
     @param[in] monitor_cfg Parsed monitor YAML dictionary.
     @param[in] monitor_path Path to the monitor file, for error messages.
     @return Tuple of (errors, warnings).
@@ -6140,7 +6822,6 @@ def validate_run_directory_containment(monitor_cfg: dict, monitor_path: str) -> 
     dirs = io_cfg.get("directories")
     if not isinstance(dirs, dict):
         return [], []
-
     override, override_errors = resolve_unsafe_paths_override(dirs, monitor_path)
     errors, warnings = evaluate_run_directories(
         effective_run_directories(dirs), override, explicit=set(dirs)
@@ -6156,9 +6837,8 @@ def validate_reserved_directory_flags(config: dict, config_path: str, label: str
     @brief Reject raw PETSc passthrough options that set run-owned directories.
 
     @details Passthrough surfaces emit `{flag: value}` verbatim into the generated
-             control file, which would route an unvalidated - and for `-log_dir`,
-             destructive - path straight to the C runtime. These flags are reserved
-             for `monitor.io.directories`, which is containment-validated.
+             control file. Run-owned path flags are reserved for the fixed workspace
+             topology and may only be emitted by the generator.
     @param[in] config Parsed configuration mapping to scan.
     @param[in] config_path Path to the file, for error messages.
     @param[in] label Human-readable description of the surface being scanned.
@@ -6179,16 +6859,14 @@ def validate_reserved_directory_flags(config: dict, config_path: str, label: str
                 if token in RESERVED_DIRECTORY_FLAGS:
                     violations.append(
                         f"  {config_path}: {label} sets the reserved flag '{token}' at "
-                        f"{trail or '<root>'}. Run directories must be configured through "
-                        f"'monitor.io.directories', which is containment-validated; raw passthrough "
-                        f"bypasses that check and can send a destructive path to the solver."
+                        f"{trail or '<root>'}. Run directories are fixed by the workspace "
+                        "contract; raw passthrough cannot override them."
                     )
                 elif token in RESERVED_INDIRECTION_FLAGS:
                     violations.append(
                         f"  {config_path}: {label} sets '{token}' at {trail or '<root>'}. PETSc "
                         f"evaluates that indirection itself, so its contents cannot be checked "
-                        f"here and could reintroduce a run-directory flag. Configure directories "
-                        f"through 'monitor.io.directories'."
+                        "here and could reintroduce a run-directory flag. Remove the indirection."
                     )
                 scan(value, f"{trail}.{key}" if trail else str(key))
         elif isinstance(node, list):
@@ -6299,9 +6977,13 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         if not source_file:
             errors.append(f"  {case_path}: 'grid.source_file' is required when grid.mode is 'file'.")
         else:
-            source_abs = source_file if os.path.isabs(source_file) else os.path.abspath(os.path.join(os.path.dirname(case_path), source_file))
-            if not os.path.isfile(source_abs):
-                errors.append(f"  {case_path}: grid.source_file does not exist: {source_abs}")
+            try:
+                source_abs = resolve_workspace_path(case_path, source_file)
+            except ValueError as exc:
+                errors.append(f"  {case_path}: {exc}")
+            else:
+                if not os.path.isfile(source_abs):
+                    errors.append(f"  {case_path}: grid.source_file does not exist: {source_abs}")
 
         legacy_cfg = grid_cfg.get("legacy_conversion")
         if legacy_cfg is not None:
@@ -6327,9 +7009,13 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                     if not isinstance(script_path, str) or not script_path.strip():
                         errors.append(f"  {case_path}: grid.legacy_conversion.script must be a non-empty string.")
                     else:
-                        script_abs = script_path if os.path.isabs(script_path) else os.path.abspath(os.path.join(os.path.dirname(case_path), script_path))
-                        if not os.path.isfile(script_abs):
-                            errors.append(f"  {case_path}: grid.legacy_conversion.script does not exist: {script_abs}")
+                        try:
+                            script_abs = resolve_workspace_path(case_path, script_path)
+                        except ValueError as exc:
+                            errors.append(f"  {case_path}: {exc}")
+                        else:
+                            if not os.path.isfile(script_abs):
+                                errors.append(f"  {case_path}: grid.legacy_conversion.script does not exist: {script_abs}")
 
                 output_file = legacy_cfg.get("output_file")
                 if output_file is not None and (not isinstance(output_file, str) or not output_file.strip()):
@@ -6370,9 +7056,13 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             if not config_file:
                 errors.append(f"  {case_path}: 'grid.generator.config_file' is required for grid.mode='grid_gen'.")
             else:
-                config_abs = config_file if os.path.isabs(config_file) else os.path.abspath(os.path.join(os.path.dirname(case_path), config_file))
-                if not os.path.isfile(config_abs):
-                    errors.append(f"  {case_path}: grid.generator.config_file does not exist: {config_abs}")
+                try:
+                    config_abs = resolve_workspace_path(case_path, config_file)
+                except ValueError as exc:
+                    errors.append(f"  {case_path}: {exc}")
+                else:
+                    if not os.path.isfile(config_abs):
+                        errors.append(f"  {case_path}: grid.generator.config_file does not exist: {config_abs}")
 
             grid_type = gen_cfg.get('grid_type')
             if grid_type is not None and str(grid_type) not in GRID_GENERATOR_TYPES:
@@ -7138,7 +7828,7 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
     elif not isinstance(io_cfg, dict):
         errors.append(f"  {post_path}: 'io' must be a mapping.")
     else:
-        for k in ['output_directory', 'output_filename_prefix']:
+        for k in ['output_filename_prefix']:
             if k not in io_cfg:
                 errors.append(f"  {post_path}: missing required key 'io.{k}'.")
         for key_name in ('output_directory', 'output_filename_prefix', 'particle_filename_prefix'):
@@ -8190,7 +8880,9 @@ def generate_header(run_id: str, source_files: dict) -> str:
     ])
     return "\n".join(header_parts)
 
-def generate_simple_list_file(run_dir: str, run_id: str, cfg: dict, section: str, key: str, filename: str, header_sources: dict) -> str:
+def generate_simple_list_file(run_dir: str, run_id: str, cfg: dict, section: str, key: str,
+                              filename: str, header_sources: dict,
+                              config_dir: str = None) -> str:
     """!
     @brief Generic function to create a file containing a simple list of strings.
     @param[in] run_dir The path to the main run directory.
@@ -8200,10 +8892,12 @@ def generate_simple_list_file(run_dir: str, run_id: str, cfg: dict, section: str
     @param[in] key The second-level key whose value is the list of strings.
     @param[in] filename The name of the file to generate (e.g., 'whitelist.run').
     @param[in] header_sources A dictionary of source files for the header.
+    @param[in] config_dir Optional configuration revision directory.
     @return The absolute path to the generated file.
     """
     print(f"[INFO] Generating {filename}...")
-    config_dir = os.path.join(run_dir, "config")
+    config_dir = config_dir or os.path.join(run_dir, "config")
+    os.makedirs(config_dir, exist_ok=True)
     file_path = os.path.join(config_dir, filename)
     
     lines = [generate_header(run_id, header_sources)]
@@ -8339,7 +9033,7 @@ def _diagnostic_default_file(run_dir: str, filename: str) -> str:
     @param[in] filename Diagnostics filename.
     @return Absolute diagnostics path under the run logs directory.
     """
-    return os.path.abspath(os.path.join(run_dir, "logs", filename))
+    return os.path.abspath(os.path.join(run_dir, CANONICAL_RUN_PATHS["logs"], filename))
 
 
 def _diagnostic_resolve_path_or_default(value, run_dir: str, default_filename: str):
@@ -8429,14 +9123,10 @@ def resolve_diagnostics_config(monitor_cfg: dict, run_dir: "str | None" = None, 
             elif resolved_value and isinstance(resolved_value, str) and resolved_value.startswith(":"):
                 artifacts.append(resolved_value[1:])
         if memory_enabled:
-            # The runtime writes this as "<log_dir>/<file>" (src/logging.c), so the
-            # planner must follow the configured log directory too. Hardcoding "logs"
-            # made the custom-directory topology snapshot claim two log locations.
-            configured_log_dir = (
-                (monitor_cfg.get("io") or {}).get("directories", {}) or {}
-            ).get("log", "logs")
             artifacts.append(
-                os.path.abspath(os.path.join(run_dir, str(configured_log_dir), memory_file))
+                os.path.abspath(os.path.join(
+                    run_dir, CANONICAL_RUN_PATHS["logs"], memory_file
+                ))
             )
 
     return {
@@ -8819,13 +9509,15 @@ def resolve_solution_monitoring_flags(monitor_cfg: dict) -> dict:
     return flags
 
 
-def prepare_monitor_files(run_dir: str, run_id: str, monitor_cfg: dict, source_files: dict) -> dict:
+def prepare_monitor_files(run_dir: str, run_id: str, monitor_cfg: dict, source_files: dict,
+                          config_dir: str = None) -> dict:
     """!
     @brief Generate monitor sidecar files and resolve profiling reporting behavior.
     @param[in] run_dir Argument passed to `prepare_monitor_files()`.
     @param[in] run_id Argument passed to `prepare_monitor_files()`.
     @param[in] monitor_cfg Argument passed to `prepare_monitor_files()`.
     @param[in] source_files Argument passed to `prepare_monitor_files()`.
+    @param[in] config_dir Optional configuration revision directory.
     @return Value returned by `prepare_monitor_files()`.
     """
     print("[INFO] Generating monitoring files...")
@@ -8833,7 +9525,8 @@ def prepare_monitor_files(run_dir: str, run_id: str, monitor_cfg: dict, source_f
     whitelist_path = None
     if has_explicit_monitor_whitelist(monitor_cfg):
         whitelist_path = generate_simple_list_file(
-            run_dir, run_id, monitor_cfg, "logging", "enabled_functions", "whitelist.run", source_files
+            run_dir, run_id, monitor_cfg, "logging", "enabled_functions", "whitelist.run", source_files,
+            config_dir=config_dir,
         )
     else:
         print("[INFO] logging.enabled_functions is empty; omitting whitelist.run so the C runtime uses its default allow-list.")
@@ -8850,6 +9543,7 @@ def prepare_monitor_files(run_dir: str, run_id: str, monitor_cfg: dict, source_f
             "selected_functions",
             "profile.run",
             source_files,
+            config_dir=config_dir,
         )
     else:
         print(f"[INFO] profiling.timestep_output.mode is '{profiling_cfg['mode']}'; no profile.run function list is needed.")
@@ -8860,7 +9554,8 @@ def prepare_monitor_files(run_dir: str, run_id: str, monitor_cfg: dict, source_f
         "profiling": profiling_cfg,
     }
 
-def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_files: dict) -> list:
+def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_files: dict,
+                             config_dir: str = None) -> list:
     """!
     @brief Parses multi-block BCs from YAML, generates a .run file for each block,
            and returns a list of their absolute paths.
@@ -8870,11 +9565,15 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
     @param[in] run_id The unique identifier for the run.
     @param[in] case_cfg The parsed case.yml configuration dictionary.
     @param[in] source_files A dictionary of source files for the header.
+    @param[in] config_dir Optional configuration revision directory.
     @return A list of absolute paths to the generated BC files.
     @throws ValueError if the number of BC definitions does not match the number of blocks.
     """
     print("[INFO] Generating boundary condition files...")
-    config_dir = os.path.join(run_dir, "config")
+    config_dir = config_dir or os.path.join(run_dir, "config")
+    os.makedirs(config_dir, exist_ok=True)
+    profile_dir = os.path.join(run_dir, "inputs", "inlet_profiles")
+    os.makedirs(profile_dir, exist_ok=True)
     num_blocks = int(case_cfg.get('models', {}).get('domain', {}).get('blocks', 1))
     prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
     case_path = source_files.get("Case") if source_files else None
@@ -8903,21 +9602,35 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                 source = params.pop("source")
                 expected_dims = _bc_profile_expected_dims(face, profile_grid_dims[i])
                 staged_name = f"inlet_profile_block{i}_{face.replace('+', 'pos').replace('-', 'neg')}.picslice"
-                staged_path = os.path.join(config_dir, staged_name)
-                if source["type"] == "file":
-                    source_path = source["path"]
-                    if case_path and not os.path.isabs(source_path):
-                        source_path = os.path.abspath(os.path.join(os.path.dirname(case_path), source_path))
-                elif source["type"] == "generated":
-                    default_output = os.path.join(
-                        "config",
-                        f"inlet_profile_block{i}_{_face_artifact_token(face)}.generated.picslice",
+                staged_path = os.path.join(profile_dir, staged_name)
+                if os.path.isfile(staged_path):
+                    with open(staged_path, "r", encoding="utf-8") as stream:
+                        header = [line.strip() for line in stream if line.strip() and not line.lstrip().startswith("#")]
+                    if len(header) < 3 or header[0] != "PICSLICE":
+                        raise ValueError(f"Locked inlet profile is not a PICSLICE file: {staged_path}")
+                    try:
+                        actual_dims = tuple(int(token) for token in header[2].split())
+                    except ValueError as exc:
+                        raise ValueError(f"Locked inlet profile has invalid dimensions: {staged_path}") from exc
+                    if actual_dims != tuple(expected_dims):
+                        raise ValueError(
+                            f"Locked inlet profile {staged_path} has dimensions {actual_dims}; "
+                            f"expected {tuple(expected_dims)}."
+                        )
+                    print(
+                        f"[INFO] Reusing locked prescribed_flow profile for block {i}, "
+                        f"face {face}: {os.path.relpath(staged_path)}"
                     )
-                    source_path = _resolve_run_artifact_path(
-                        run_dir,
-                        source.get("output_file"),
-                        default_output,
-                        default_to_config_dir=True,
+                    params["source_file"] = os.path.abspath(staged_path)
+                    source = None
+                elif source["type"] == "file":
+                    source_path = _resolve_case_relative_path(
+                        source["path"], os.path.dirname(os.path.abspath(case_path))
+                    )
+                elif source["type"] == "generated":
+                    source_path = os.path.join(
+                        profile_dir,
+                        f"inlet_profile_block{i}_{_face_artifact_token(face)}.generated.dimensional.picslice",
                     )
                     if os.path.abspath(source_path) == os.path.abspath(staged_path):
                         raise ValueError(
@@ -8941,15 +9654,9 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                     summary.update({"block": i, "face": face})
                     generated_profile_summaries.append(summary)
                 elif source["type"] == "field_slice":
-                    default_output = os.path.join(
-                        "config",
-                        f"inlet_profile_block{i}_{_face_artifact_token(face)}.sliced.picslice",
-                    )
-                    source_path = _resolve_run_artifact_path(
-                        run_dir,
-                        source.get("output_file"),
-                        default_output,
-                        default_to_config_dir=True,
+                    source_path = os.path.join(
+                        profile_dir,
+                        f"inlet_profile_block{i}_{_face_artifact_token(face)}.sliced.dimensional.picslice",
                     )
                     if os.path.abspath(source_path) == os.path.abspath(staged_path):
                         raise ValueError(
@@ -8968,14 +9675,15 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                     )
                     summary.update({"block": i, "face": face})
                     generated_profile_summaries.append(summary)
-                else:
+                elif source is not None:
                     raise ValueError(f"Unsupported prescribed_flow source type '{source.get('type')}'.")
-                summary = validate_and_nondimensionalize_picslice(source_path, staged_path, U_ref, expected_dims)
-                print(
-                    f"[SUCCESS] Staged prescribed_flow profile for block {i}, face {face}: "
-                    f"{os.path.relpath(staged_path)} dims={summary['dims']}"
-                )
-                params["source_file"] = os.path.abspath(staged_path)
+                if source is not None:
+                    summary = validate_and_nondimensionalize_picslice(source_path, staged_path, U_ref, expected_dims)
+                    print(
+                        f"[SUCCESS] Staged prescribed_flow profile for block {i}, face {face}: "
+                        f"{os.path.relpath(staged_path)} dims={summary['dims']}"
+                    )
+                    params["source_file"] = os.path.abspath(staged_path)
             params_str = ""
             if params:
                 parts = []
@@ -8994,7 +9702,7 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
         generated_files.append(os.path.abspath(bcs_file_path))
 
     if generated_profile_summaries:
-        info_path = write_profile_info(config_dir, generated_profile_summaries)
+        info_path = write_profile_info(profile_dir, generated_profile_summaries)
         print(f"[SUCCESS] Wrote generated profile summary: {os.path.relpath(info_path)}")
         
     return generated_files
@@ -9603,8 +10311,8 @@ GENERATED_IC_PROVIDERS = {
         "requires_periodic_geometric": True,
         "requires_fresh_3d": True,
         "diagnostic_artifacts": (
-            ("summary_json", os.path.join("diagnostics", "initial_condition_summary.json")),
-            ("spectrum_csv", os.path.join("diagnostics", "initial_condition_spectrum.csv")),
+            ("summary_json", os.path.join(CANONICAL_RUN_PATHS["metrics"], "initial_condition_summary.json")),
+            ("spectrum_csv", os.path.join(CANONICAL_RUN_PATHS["spectra"], "initial_condition_spectrum.csv")),
         ),
     },
 }
@@ -9883,20 +10591,15 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
     case_dir = os.path.dirname(os.path.abspath(case_path))
     if resolved_ic["kind"] == "spectral_random_velocity":
         script = os.path.join(GENERATORS_PATH, "ic.gen")
-        output_path = _resolve_run_artifact_path(
-            run_dir, resolved_ic.get("output_file"), os.path.join("config", "initial_condition.generated.dat"),
-            default_to_config_dir=True,
-        )
+        output_path = os.path.join(run_dir, "inputs", "initial_condition", "initial_condition.generated.dat")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        staged_grid = os.path.join(run_dir, "config", "grid.run")
+        staged_grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
         if not os.path.isfile(staged_grid):
-            raise ValueError("spectral_random_velocity requires a staged PICGRID at config/grid.run.")
-        summary_path = _resolve_run_artifact_path(
-            run_dir, resolved_ic.get("summary_json"), os.path.join("diagnostics", "initial_condition_summary.json")
-        )
-        spectrum_path = _resolve_run_artifact_path(
-            run_dir, resolved_ic.get("spectrum_csv"), os.path.join("diagnostics", "initial_condition_spectrum.csv")
-        )
+            raise ValueError("spectral_random_velocity requires a staged PICGRID at inputs/grid/grid.run.")
+        summary_path = os.path.join(run_dir, "output", "analysis", "metrics", "initial_condition_summary.json")
+        spectrum_path = os.path.join(run_dir, "output", "analysis", "spectra", "initial_condition_spectrum.csv")
+        os.makedirs(os.path.dirname(summary_path), exist_ok=True)
+        os.makedirs(os.path.dirname(spectrum_path), exist_ok=True)
         cmd = [sys.executable, script, "--generator", "spectral_random_velocity",
                "--grid", staged_grid, "--output", output_path,
                "--params-json", json.dumps(resolved_ic["params"], sort_keys=True),
@@ -9911,20 +10614,17 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
         return output_path
     script = _resolve_generator_script(resolved_ic.get("script"), case_path, "ic.gen")
     config_file = resolved_ic["config_file"]
-    config_file = config_file if os.path.isabs(config_file) else os.path.abspath(os.path.join(case_dir, config_file))
+    config_file = _resolve_case_relative_path(config_file, case_dir)
     if not os.path.isfile(script):
         raise ValueError(f"ic.gen script not found: {script}")
     if not os.path.isfile(config_file):
         raise ValueError(f"initial-condition generator config file not found: {config_file}")
-    default_output = os.path.join("config", "initial_condition.generated.dat")
-    output_path = _resolve_run_artifact_path(
-        run_dir, resolved_ic.get("output_file"), default_output, default_to_config_dir=True
-    )
+    output_path = os.path.join(run_dir, "inputs", "initial_condition", "initial_condition.generated.dat")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     cmd = [sys.executable, script, "-c", config_file, "--field",
            "Ucat" if resolved_ic["field_code"] == 0 else "Ucont",
            "--output", output_path]
-    staged_grid = os.path.join(run_dir, "config", "grid.run")
+    staged_grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
     if os.path.isfile(staged_grid):
         cmd.extend(["--grid", staged_grid])
     cmd.extend(str(token) for token in resolved_ic.get("cli_args", []))
@@ -9943,27 +10643,40 @@ def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict
     @param[in] resolved_ic Normalized file-backed IC contract.
     @return Source, staged path, and staging-directory summary.
     """
+    stage_dir = os.path.join(run_dir, "inputs", "initial_condition")
+    os.makedirs(stage_dir, exist_ok=True)
+    staged_path = os.path.join(stage_dir, f"{resolved_ic['field_name']}00000_0.dat")
+    if os.path.isfile(staged_path):
+        validate_petsc_vec_binary(staged_path)
+        summary = {
+            "source": os.path.abspath(staged_path),
+            "staged": os.path.abspath(staged_path),
+            "directory": os.path.abspath(stage_dir),
+            "reused": True,
+        }
+        if resolved_ic["kind"] == "spectral_random_velocity":
+            summary["diagnostics"] = [
+                os.path.join(run_dir, "output", "analysis", "metrics", "initial_condition_summary.json"),
+                os.path.join(run_dir, "output", "analysis", "spectra", "initial_condition_spectrum.csv"),
+            ]
+        return summary
     if is_generated_ic_provider(resolved_ic):
         source_path = run_initial_condition_generator(case_path, run_dir, resolved_ic)
     else:
-        source_path = resolved_ic["source_file"]
-        if not os.path.isabs(source_path):
-            source_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(case_path)), source_path))
+        source_path = _resolve_case_relative_path(
+            resolved_ic["source_file"], os.path.dirname(os.path.abspath(case_path))
+        )
         if not os.path.isfile(source_path):
             raise ValueError(f"Initial-condition source file not found: {source_path}")
         validate_petsc_vec_binary(source_path)
-    stage_dir = os.path.join(run_dir, "config", "initial_condition")
-    os.makedirs(stage_dir, exist_ok=True)
-    staged_path = os.path.join(stage_dir, f"{resolved_ic['field_name']}00000_0.dat")
     if os.path.abspath(source_path) != os.path.abspath(staged_path):
         shutil.copy2(source_path, staged_path)
     summary = {"source": os.path.abspath(source_path), "staged": os.path.abspath(staged_path),
                "directory": os.path.abspath(stage_dir)}
-    diagnostic_specs = GENERATED_IC_PROVIDERS.get(resolved_ic["kind"], {}).get("diagnostic_artifacts", ())
-    if diagnostic_specs:
+    if resolved_ic["kind"] == "spectral_random_velocity":
         summary["diagnostics"] = [
-            _resolve_run_artifact_path(run_dir, resolved_ic.get(key), default)
-            for key, default in diagnostic_specs
+            os.path.join(run_dir, "output", "analysis", "metrics", "initial_condition_summary.json"),
+            os.path.join(run_dir, "output", "analysis", "spectra", "initial_condition_spectrum.csv"),
         ]
     return summary
 
@@ -10655,7 +11368,7 @@ def append_passthrough_flags(control_lines: list, options: dict):
             # write a run-directory flag from an unvalidated passthrough surface.
             raise ValueError(
                 f"Refusing to emit reserved directory flag '{flag.strip()}' from passthrough "
-                f"options; configure run directories through monitor.io.directories."
+                "options; run directories are fixed by the workspace contract."
             )
         if isinstance(value, bool):
             if value:
@@ -11328,7 +12041,9 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         print("  - Momentum Solver: Explicit RK (no pseudo-time controller)")
     return flags
 
-def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_files, restart_source_dir=None, continue_mode=False):
+def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_files,
+                                 restart_source_dir=None, continue_mode=False,
+                                 config_dir: str = None):
     """!
     @brief Generates the main .control file for the C-solver.
     @details Orchestrates the conversion of all YAML configurations (case, solver, monitor)
@@ -11340,6 +12055,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     @param[in] monitor_files Argument passed to `generate_solver_control_file()`.
     @param[in] restart_source_dir Argument passed to `generate_solver_control_file()`.
     @param[in] continue_mode If True, appends -continue_mode flag for the C solver.
+    @param[in] config_dir Optional configuration revision directory.
     @return Value returned by `generate_solver_control_file()`.
     """
     print("[INFO] Generating master solver control file...")
@@ -11440,38 +12156,37 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     if grid_mode == 'file':
         print("[INFO] Grid Mode: Using external file...")
         case_file_dir = os.path.dirname(configs['case_path'])
-        source_grid = grid_cfg['source_file']
-        if not os.path.isabs(source_grid):
-            source_grid = os.path.abspath(os.path.join(case_file_dir, source_grid))
-        grid_for_validation = source_grid
-        legacy_cfg = grid_cfg.get("legacy_conversion")
-        if isinstance(legacy_cfg, dict):
-            if legacy_cfg.get("enabled", True):
-                print("[INFO] Grid file legacy conversion enabled; converting with grid.gen...")
-            grid_for_validation = convert_legacy_grid_with_gridgen(
-                configs['case_path'],
-                run_dir,
-                grid_cfg,
-                source_grid,
-            )
-        nondim_grid_path = os.path.join(run_dir, "config", "grid.run")
-        try:
-            summary = validate_and_nondimensionalize_picgrid(
-                grid_for_validation, nondim_grid_path, L_ref, expected_nblk=expected_nblk
-            )
-            print(
-                f"[SUCCESS] Validated and non-dimensionalized grid: {os.path.relpath(nondim_grid_path)} "
-                f"(nblk={summary['nblk']}, total_nodes={summary['total_nodes']})"
-            )
+        nondim_grid_path = os.path.join(run_dir, "inputs", "grid", "grid.run")
+        if os.path.isfile(nondim_grid_path):
+            print(f"[INFO] Reusing locked grid asset: {os.path.relpath(nondim_grid_path)}")
             control_lines.append(f"-grid_file {nondim_grid_path}")
-        except Exception as e:
-            print(f"[FATAL] Failed to process grid file '{source_grid}': {e}", file=sys.stderr)
-            sys.exit(1)
+        else:
+            source_grid = _resolve_case_relative_path(grid_cfg['source_file'], case_file_dir)
+            grid_for_validation = source_grid
+            legacy_cfg = grid_cfg.get("legacy_conversion")
+            if isinstance(legacy_cfg, dict):
+                if legacy_cfg.get("enabled", True):
+                    print("[INFO] Grid file legacy conversion enabled; converting with grid.gen...")
+                grid_for_validation = convert_legacy_grid_with_gridgen(
+                    configs['case_path'], run_dir, grid_cfg, source_grid,
+                )
+            try:
+                summary = validate_and_nondimensionalize_picgrid(
+                    grid_for_validation, nondim_grid_path, L_ref, expected_nblk=expected_nblk
+                )
+                print(
+                    f"[SUCCESS] Validated and non-dimensionalized grid: {os.path.relpath(nondim_grid_path)} "
+                    f"(nblk={summary['nblk']}, total_nodes={summary['total_nodes']})"
+                )
+                control_lines.append(f"-grid_file {nondim_grid_path}")
+            except Exception as e:
+                print(f"[FATAL] Failed to process grid file '{source_grid}': {e}", file=sys.stderr)
+                sys.exit(1)
     elif grid_mode == 'grid_gen':
         print("[INFO] Grid Mode: Generating external grid via grid.gen...")
-        nondim_grid_path = os.path.join(run_dir, "config", "grid.run")
-        if continue_mode and os.path.isfile(nondim_grid_path):
-            print(f"[INFO] Continue mode: reusing staged grid: {os.path.relpath(nondim_grid_path)}")
+        nondim_grid_path = os.path.join(run_dir, "inputs", "grid", "grid.run")
+        if os.path.isfile(nondim_grid_path):
+            print(f"[INFO] Reusing locked grid asset: {os.path.relpath(nondim_grid_path)}")
             control_lines.append(f"-grid_file {nondim_grid_path}")
         else:
             try:
@@ -11496,18 +12211,13 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
             grid_settings.pop(p_key, None)
         for key, value in grid_settings.items(): control_lines.append(f"-{key} {format_flag_value(value)}")
         if resolved_ic and is_generated_ic_provider(resolved_ic) and ic_is_authoritative:
-            nondim_grid_path = os.path.join(run_dir, "config", "grid.run")
-            try:
-                summary = generate_picgrid_from_programmatic_settings(
-                    grid_cfg.get('programmatic_settings', {}), nondim_grid_path, L_ref
-                )
-                print(
-                    f"[INFO] Materialized grid.run for generated IC: {os.path.relpath(nondim_grid_path)} "
-                    f"(nblk={summary['nblk']}, total_nodes={summary['total_nodes']})"
-                )
-            except Exception as e:
-                print(f"[FATAL] Failed to generate grid.run for generated IC: {e}", file=sys.stderr)
-                sys.exit(1)
+            print(
+                "[FATAL] The selected Python initial-condition provider requires a file-backed "
+                "grid, but grid.mode=programmatic_c is generated only inside the simulator. "
+                "Select grid.mode=file or grid_gen so the dependency can be inspected and reused.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
     else:
         raise ValueError(f"Unknown or missing grid mode '{grid_mode}' in case.yml.")
 
@@ -11524,7 +12234,9 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         print(f"  - Staged initial condition: {os.path.relpath(staged_ic['staged'])}")
 
     try:
-        bcs_files = generate_multi_block_bcs(run_dir, run_id, case_cfg, source_files)
+        bcs_files = generate_multi_block_bcs(
+            run_dir, run_id, case_cfg, source_files, config_dir=config_dir
+        )
     except ValueError as e:
         print(f"[FATAL] Invalid boundary_conditions in case.yml: {e}", file=sys.stderr)
         sys.exit(1)
@@ -11563,58 +12275,35 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     if statistics_console_output_freq is not None:
         control_lines.append(f"-statistics_console_output_freq {statistics_console_output_freq}")
     if 'particle_log_interval' in io_cfg: control_lines.append(f"-logfreq {io_cfg['particle_log_interval']}")
-    if 'directories' in io_cfg:
-        dirs = io_cfg['directories']
-        if 'restart' in dirs and not restart_source_dir:
-            control_lines.append(
-                f"-restart_dir {control_value(dirs['restart'], 'monitor.io.directories.restart')}"
-            )
     if restart_source_dir:
-        control_lines.append(f"-restart_dir {restart_source_dir}")
+        expected_restart = os.path.abspath(
+            os.path.join(run_dir, CANONICAL_RUN_PATHS["restart"])
+        )
+        if os.path.abspath(restart_source_dir) != expected_restart:
+            raise ValueError(
+                "Restart data was not materialized in the canonical run input: "
+                f"expected {expected_restart}, got {restart_source_dir}."
+            )
     if continue_mode:
         control_lines.append("-continue_mode true")
+    elif str(configs.get("statistics_state", "reset")).lower() == "carry":
+        control_lines.append("-field_statistics_continue true")
 
     # Emitted last, and always: PETSc takes the final occurrence of an option, so a
     # validated directory written here wins over anything earlier in the file. Writing
     # them unconditionally also removes the "omitted default" gap, where an absent flag
     # let an environment variable or PETSc configuration choose the directory instead.
-    configured_dirs = (monitor_cfg.get("io") or {}).get("directories") or {}
-    validated_dirs = effective_run_directories(configured_dirs)
-    unsafe_authorized, _ = resolve_unsafe_paths_override(configured_dirs, "monitor.yml")
-    # Physical containment at generation time, not only at submission: a contained name
-    # can be a symlink out of the run tree, and `picurv run` never went through submit.
-    physical: list = []
-    for _, verdict, message in classify_physical_containment(run_dir, validated_dirs):
-        if unsafe_authorized and verdict in WAIVABLE_PHYSICAL_VERDICTS:
-            print(f"[WARN]   {message} Allowed only because "
-                  f"'allow_unsafe_paths: true' is set.", file=sys.stderr)
-        else:
-            physical.append(message)
-    if physical:
-        print("[FATAL] Unsafe run-directory configuration:", file=sys.stderr)
-        for message in physical:
-            print(f"  {message}", file=sys.stderr)
-        sys.exit(1)
     control_lines.append("")
-    control_lines.append("# Run-owned directories: validated for containment, emitted last so")
-    control_lines.append("# no earlier option or external PETSc configuration can override them.")
-    # Emit the NORMALIZED values: the launcher validates the normalized form, so writing
-    # the raw one made the two layers reason about different strings ("..logs" passed
-    # Python and was refused by the runtime).
-    control_lines.append(f"-output_dir {normalized_run_directory(validated_dirs['output'])}")
-    control_lines.append(f"-log_dir {normalized_run_directory(validated_dirs['log'])}")
-    if unsafe_authorized:
-        # The runtime performs its own containment check before an irreversible
-        # recursive delete. It waives the external-location restriction only when this
-        # explicit authorization is present, so the override must be carried across the
-        # boundary rather than assumed.
-        control_lines.append(
-            "# Explicit authorization: monitor.io.directories.allow_unsafe_paths was set."
-        )
-        control_lines.append("-allow_unsafe_log_dir true")
+    control_lines.append("# Canonical run-owned directories are fixed by the workspace contract.")
+    control_lines.append(f"-output_dir {CANONICAL_RUN_PATHS['output']}")
+    control_lines.append(f"-restart_dir {CANONICAL_RUN_PATHS['restart']}")
+    control_lines.append(f"-log_dir {CANONICAL_RUN_PATHS['logs']}")
+    control_lines.append(f"-analysis_dir {CANONICAL_RUN_PATHS['metrics']}")
 
     final_content = generate_header(run_id, source_files) + "\n".join(control_lines)
-    control_file_path = os.path.join(run_dir, "config", f"{run_id}.control")
+    config_dir = config_dir or os.path.join(run_dir, "config")
+    os.makedirs(config_dir, exist_ok=True)
+    control_file_path = os.path.join(config_dir, f"{run_id}.control")
     with open(control_file_path, "w") as f: f.write(final_content)
     print(f"[SUCCESS] Generated solver control file: {os.path.relpath(control_file_path)}")
     return os.path.abspath(control_file_path)
@@ -11633,7 +12322,10 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
     @return The absolute path to the generated post.run recipe file.
     """
     print("[INFO] Generating post-processor recipe file (post.run)...")
-    config_dir = os.path.join(run_dir, "config")
+    if not isinstance((post_cfg or {}).get("_picurv_paths"), dict):
+        post_cfg, _ = apply_canonical_post_paths(post_cfg, run_dir)
+    config_dir = get_post_recipe_root(run_dir, post_cfg)
+    os.makedirs(config_dir, exist_ok=True)
     post_recipe_path = os.path.join(config_dir, "post.run")
 
     lines = [generate_header(run_id, source_files)]
@@ -12047,6 +12739,14 @@ def auto_identify_run_inputs(config_dir: str):
     @param[in] config_dir Argument passed to `auto_identify_run_inputs()`.
     @return Value returned by `auto_identify_run_inputs()`.
     """
+    run_dir = os.path.dirname(os.path.abspath(config_dir))
+    active = load_active_run_configuration(run_dir)
+    if active:
+        case_path = active.get("case")
+        monitor_path = active.get("monitor")
+        solver_control_path = active.get("control")
+        if all(path and os.path.isfile(path) for path in (case_path, monitor_path, solver_control_path)):
+            return case_path, monitor_path, solver_control_path
     all_yml_files = glob.glob(os.path.join(config_dir, "*.yml"))
     case_path, monitor_path = None, None
     for f_path in all_yml_files:
@@ -12075,8 +12775,7 @@ def resolve_post_source_directory(run_dir: str, monitor_cfg: dict, post_cfg: dic
     @param[in] strict Argument passed to `resolve_post_source_directory()`.
     @return Value returned by `resolve_post_source_directory()`.
     """
-    solver_output_dir_rel = monitor_cfg.get('io', {}).get('directories', {}).get('output', 'output')
-    solver_output_dir_abs = os.path.join(run_dir, solver_output_dir_rel)
+    solver_output_dir_abs = os.path.join(run_dir, CANONICAL_RUN_PATHS["output"])
     source_dir_template = get_post_source_directory_template(post_cfg)
     if source_dir_template == '<solver_output_dir>':
         resolved_source_dir = solver_output_dir_abs
@@ -12816,8 +13515,7 @@ def _resolve_post_source_directory_preview(run_dir: str, monitor_cfg: dict, post
     @param[in] post_cfg Argument passed to `_resolve_post_source_directory_preview()`.
     @return Value returned by `_resolve_post_source_directory_preview()`.
     """
-    solver_output_dir_rel = monitor_cfg.get('io', {}).get('directories', {}).get('output', 'output')
-    solver_output_dir_abs = os.path.join(run_dir, solver_output_dir_rel)
+    solver_output_dir_abs = os.path.join(run_dir, CANONICAL_RUN_PATHS["output"])
     source_dir_template = get_post_source_directory_template(post_cfg)
     if source_dir_template == '<solver_output_dir>':
         return solver_output_dir_abs
@@ -12907,6 +13605,9 @@ def build_run_dry_plan(args) -> dict:
 
     if args.solve:
         case_path = os.path.abspath(args.case)
+        workspace_root = find_workspace_root(case_path, args.solver, args.monitor, os.getcwd())
+        if workspace_root:
+            enforce_workspace_version(workspace_root)
         solver_path = os.path.abspath(args.solver)
         monitor_path = os.path.abspath(args.monitor)
         loaded_case_cfg = read_yaml_file(case_path)
@@ -12931,10 +13632,10 @@ def build_run_dry_plan(args) -> dict:
                 sys.exit(1)
             run_id = os.path.basename(run_dir)
         else:
-            case_name = os.path.splitext(os.path.basename(case_path))[0]
+            case_name = case_run_label(loaded_case_cfg, case_path)
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             run_id = f"{case_name}_{timestamp}"
-            run_dir = os.path.abspath(os.path.join("runs", run_id))
+            run_dir = os.path.join(workspace_artifact_root(workspace_root, "runs"), run_id)
 
         try:
             resolved_restart_source_dir, is_continue = resolve_restart_source(
@@ -12954,9 +13655,9 @@ def build_run_dry_plan(args) -> dict:
         # Report the directories the run will ACTUALLY use, not the defaults. A plan
         # that hides a configured path cannot warn about where output really lands -
         # and the fresh-run log directory is deleted recursively by the C runtime.
-        _plan_dirs = (loaded_monitor_cfg or {}).get("io", {}).get("directories", {}) or {}
-        logs_dir = os.path.join(run_dir, _plan_dirs.get("log", "logs"))
-        planned_output_dir = os.path.join(run_dir, _plan_dirs.get("output", "output"))
+        _plan_dirs = {}
+        logs_dir = os.path.join(run_dir, CANONICAL_RUN_PATHS["logs"])
+        planned_output_dir = os.path.join(run_dir, CANONICAL_RUN_PATHS["output"])
         solver_control_path = os.path.join(config_dir, f"{run_id}.control")
         profile_path = os.path.join(config_dir, "profile.run")
         profiling_preview = resolve_profiling_config(loaded_monitor_cfg)
@@ -12976,16 +13677,33 @@ def build_run_dry_plan(args) -> dict:
             else:
                 plan["blocking"].append(_message)
         plan["inputs"].update({"case": case_path, "solver": solver_path, "monitor": monitor_path})
+        asset_plan = plan_run_assets(loaded_case_cfg, case_path)
+        plan["asset_actions"] = [
+            {"kind": item["kind"], "provider": item["provider"], "action": item["action"]}
+            for item in asset_plan["actions"]
+        ]
+        runtime_kinds = {
+            item["kind"] for item in asset_plan["actions"]
+            if item["execution"] == "runtime-c"
+        }
+        for item in asset_plan["actions"]:
+            blocked_dependencies = runtime_kinds.intersection(item.get("dependencies", []))
+            if item["execution"] == "precomputable" and blocked_dependencies:
+                plan["blocking"].append(
+                    f"{item['kind']}={item['provider']} requires a file-backed "
+                    f"{', '.join(sorted(blocked_dependencies))}, but that dependency is generated "
+                    "only inside the simulator. Select a precomputable provider for the dependency."
+                )
         plan["artifacts"].extend(
             [
                 run_dir,
-                config_dir,
-                logs_dir,
-                planned_output_dir,
-                scheduler_dir,
+                *(os.path.join(run_dir, *relative.split("/"))
+                  for relative in RUN_DIRECTORY_LAYOUT),
                 os.path.join(config_dir, "case.yml"),
                 os.path.join(config_dir, "solver.yml"),
                 os.path.join(config_dir, "monitor.yml"),
+                os.path.join(config_dir, "active.json"),
+                os.path.join(run_dir, CANONICAL_RUN_PATHS["inputs"], "assets.lock.yml"),
                 solver_control_path,
                 os.path.join(run_dir, "manifest.json"),
             ]
@@ -13086,6 +13804,7 @@ def build_run_dry_plan(args) -> dict:
             if solver_control_path is None:
                 solver_control_path = os.path.join(config_dir, f"{run_id}.control")
 
+        post_cfg, recipe_id = apply_canonical_post_paths(post_cfg, run_dir)
         allow_source_frontier_scan = not args.solve
         post_plan = build_post_execution_plan(
             run_dir,
@@ -13097,15 +13816,15 @@ def build_run_dry_plan(args) -> dict:
             allow_source_frontier_scan=allow_source_frontier_scan,
         )
 
-        post_recipe_path = os.path.join(config_dir, "post.run")
+        post_recipe_path = os.path.join(get_post_recipe_root(run_dir, post_cfg), "post.run")
         output_dir_rel = post_cfg.get("io", {}).get("output_directory")
         output_prefix = post_cfg.get("io", {}).get("output_filename_prefix")
-        if not output_dir_rel or not output_prefix:
+        if not output_prefix:
             emit_structured_error(
                 ERROR_CODE_CFG_MISSING_KEY,
-                key="io.output_directory/io.output_filename_prefix",
+                key="io.output_filename_prefix",
                 file_path=post_path,
-                message="Missing required post IO keys.",
+                message="Missing required post output filename prefix.",
             )
             sys.exit(1)
         output_dir_abs = os.path.abspath(os.path.join(run_dir, output_dir_rel))
@@ -13238,32 +13957,23 @@ def add_planned_grid_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> None
         return
 
     mode = grid_cfg.get("mode")
-    config_dir = os.path.join(run_dir, "config")
+    grid_dir = os.path.join(run_dir, "inputs", "grid")
 
     if mode == "file":
-        plan["artifacts"].append(os.path.join(config_dir, "grid.run"))
+        plan["artifacts"].append(os.path.join(grid_dir, "grid.run"))
         legacy_cfg = grid_cfg.get("legacy_conversion")
         if isinstance(legacy_cfg, dict) and legacy_cfg.get("enabled", True):
-            output_file = legacy_cfg.get("output_file", os.path.join("config", "grid.converted.picgrid"))
-            if isinstance(output_file, str) and output_file.strip():
-                if not os.path.isabs(output_file):
-                    output_file = os.path.abspath(os.path.join(run_dir, output_file))
-                plan["artifacts"].append(output_file)
+            plan["artifacts"].append(os.path.join(grid_dir, "grid.converted.picgrid"))
     elif mode == "grid_gen":
         generator = grid_cfg.get("generator", {})
         if not isinstance(generator, dict):
             return
-        plan["artifacts"].append(os.path.join(config_dir, "grid.run"))
-        for key, default in (
-            ("output_file", os.path.join("config", "grid.generated.picgrid")),
-            ("stats_file", None),
-            ("vts_file", None),
-        ):
-            artifact_path = generator.get(key, default)
-            if isinstance(artifact_path, str) and artifact_path.strip():
-                if not os.path.isabs(artifact_path):
-                    artifact_path = os.path.abspath(os.path.join(run_dir, artifact_path))
-                plan["artifacts"].append(artifact_path)
+        plan["artifacts"].extend([
+            os.path.join(grid_dir, "grid.run"),
+            os.path.join(grid_dir, "grid.generated.picgrid"),
+            os.path.join(run_dir, "output", "analysis", "metrics", "grid.info"),
+            os.path.join(run_dir, "output", "visualization", "precompute", "grid.vts"),
+        ])
 
 def add_planned_profile_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> None:
     """!
@@ -13276,7 +13986,7 @@ def add_planned_profile_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> N
         prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
     except ValueError:
         return
-    config_dir = os.path.join(run_dir, "config")
+    profile_dir = os.path.join(run_dir, "inputs", "inlet_profiles")
     has_generated = False
     for block_idx, block in enumerate(prepared_blocks):
         for bc in block:
@@ -13288,20 +13998,14 @@ def add_planned_profile_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> N
             has_generated = True
             face_token = _face_artifact_token(bc["face"])
             suffix = "generated" if source.get("type") == "generated" else "sliced"
-            default_output = os.path.join(
-                "config", f"inlet_profile_block{block_idx}_{face_token}.{suffix}.picslice"
+            generated_path = os.path.join(
+                profile_dir, f"inlet_profile_block{block_idx}_{face_token}.{suffix}.dimensional.picslice"
             )
-            generated_path = _resolve_run_artifact_path(
-                run_dir,
-                source.get("output_file"),
-                default_output,
-                default_to_config_dir=True,
-            )
-            staged_path = os.path.join(config_dir, f"inlet_profile_block{block_idx}_{face_token}.picslice")
+            staged_path = os.path.join(profile_dir, f"inlet_profile_block{block_idx}_{face_token}.picslice")
             plan["artifacts"].append(generated_path)
             plan["artifacts"].append(staged_path)
     if has_generated:
-        plan["artifacts"].append(os.path.join(config_dir, "profile.info"))
+        plan["artifacts"].append(os.path.join(profile_dir, "profile.info"))
 
 def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_cfg: dict, run_dir: str) -> None:
     """!
@@ -13329,21 +14033,19 @@ def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_c
         return
     if resolved["kind"] != "file" and not is_generated_ic_provider(resolved):
         return
-    config_dir = os.path.join(run_dir, "config")
+    initial_dir = os.path.join(run_dir, "inputs", "initial_condition")
     plan["artifacts"].append(
-        os.path.join(config_dir, "initial_condition", f"{resolved['field_name']}00000_0.dat")
+        os.path.join(initial_dir, f"{resolved['field_name']}00000_0.dat")
     )
     if is_generated_ic_provider(resolved):
         if (case_cfg.get("grid", {}) or {}).get("mode") == "programmatic_c":
-            plan["artifacts"].append(os.path.join(config_dir, "grid.run"))
-        plan["artifacts"].append(_resolve_run_artifact_path(
-            run_dir, resolved.get("output_file"), os.path.join("config", "initial_condition.generated.dat"),
-            default_to_config_dir=True,
-        ))
-        plan["artifacts"].extend(
-            _resolve_run_artifact_path(run_dir, resolved.get(key), default)
-            for key, default in GENERATED_IC_PROVIDERS[resolved["kind"]].get("diagnostic_artifacts", ())
-        )
+            plan["artifacts"].append(os.path.join(run_dir, "inputs", "grid", "grid.run"))
+        plan["artifacts"].append(os.path.join(initial_dir, "initial_condition.generated.dat"))
+        if resolved["kind"] == "spectral_random_velocity":
+            plan["artifacts"].extend([
+                os.path.join(run_dir, "output", "analysis", "metrics", "initial_condition_summary.json"),
+                os.path.join(run_dir, "output", "analysis", "spectra", "initial_condition_spectrum.csv"),
+            ])
 
 
 def render_run_dry_plan(plan: dict, output_format: str = "text"):
@@ -13394,6 +14096,11 @@ def render_run_dry_plan(plan: dict, output_format: str = "text"):
                 print(f"      skipped: {details.get('skip_reason')}")
             else:
                 print(f"      {details.get('launch_command_string')}")
+
+    if plan.get("asset_actions"):
+        print("\n  Asset resolution:")
+        for item in plan["asset_actions"]:
+            print(f"    - {item['kind']}: {item['action']} ({item['provider']})")
 
     diagnostics_artifacts = [item for item in plan.get("artifacts", []) if "PETSc_" in os.path.basename(str(item)) or os.path.basename(str(item)) == "Runtime_Memory.log"]
     if diagnostics_artifacts:
@@ -13555,94 +14262,711 @@ def validate_workflow(args):
     for path in checked:
         print(f"  - {path}")
 
-def precompute_workflow(args):
+ASSET_KIND_DIRECTORIES = {
+    "grid": "grids",
+    "initial-condition": "initial_conditions",
+    "inlet-profiles": "inlet_profiles",
+}
+
+
+def _asset_file_sha256(path: str) -> str:
     """!
-    @brief Generate deterministic case artifacts without launching solver/post stages.
-    @param[in] args Parsed precompute command arguments.
+    @brief Hash an asset source or payload without loading it into memory.
+    @param[in] path File to hash.
+    @return Lowercase SHA-256 digest.
     """
-    case_path = os.path.abspath(args.case)
-    case_cfg = read_yaml_file(case_path)
-    case_name = os.path.splitext(os.path.basename(case_path))[0]
-    output_dir = args.output_dir or os.path.join("precomputed", case_name)
-    output_dir = os.path.abspath(output_dir)
-    config_dir = os.path.join(output_dir, "config")
-    os.makedirs(config_dir, exist_ok=True)
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
-    print(f"[INFO] Precomputing deterministic artifacts for case: {case_path}")
-    print(f"[INFO] Output directory: {output_dir}")
-    validate_and_prepare_boundary_conditions(case_cfg)
 
-    artifacts = []
+def _stable_mapping_sha256(payload) -> str:
+    """!
+    @brief Hash a JSON-compatible value with deterministic serialization.
+    @param[in] payload Value to hash.
+    @return Lowercase SHA-256 digest.
+    """
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _provider_source_fingerprints(value, case_path: str, key: str = "") -> dict:
+    """!
+    @brief Hash every existing file explicitly referenced by an asset provider.
+    @param[in] value Provider subtree to inspect.
+    @param[in] case_path Owning case configuration path.
+    @param[in] key Current dotted key for diagnostics.
+    @return Mapping of dotted path identity to path/content fingerprint.
+    """
+    result = {}
+    if isinstance(value, dict):
+        for child_key, child in value.items():
+            dotted = f"{key}.{child_key}" if key else str(child_key)
+            result.update(_provider_source_fingerprints(child, case_path, dotted))
+        return result
+    if isinstance(value, list):
+        for index, child in enumerate(value):
+            result.update(_provider_source_fingerprints(child, case_path, f"{key}[{index}]"))
+        return result
+    basename = key.rsplit(".", 1)[-1]
+    if basename not in _ASSET_SOURCE_REFERENCE_KEYS or not isinstance(value, str) or not value.strip():
+        return result
+    try:
+        resolved = resolve_workspace_path(case_path, value)
+    except ValueError:
+        return result
+    if os.path.isfile(resolved):
+        workspace_root = find_workspace_root(case_path)
+        display = (
+            os.path.relpath(resolved, workspace_root).replace(os.sep, "/")
+            if workspace_root and os.path.commonpath([workspace_root, resolved]) == workspace_root
+            else resolved
+        )
+        result[key] = {"path": display, "sha256": _asset_file_sha256(resolved)}
+    return result
+
+
+def build_case_asset_graph(case_cfg: dict, case_path: str) -> dict:
+    """!
+    @brief Classify case inputs into precomputable or simulator-runtime providers.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] case_path Owning case YAML path.
+    @return Provider graph with stable identities and explicit dependencies.
+    """
+    providers = []
+    grid_cfg = copy.deepcopy(case_cfg.get("grid", {}) or {})
+    grid_mode = str(grid_cfg.get("mode", "")).strip().lower()
+    if isinstance(grid_cfg.get("generator"), dict):
+        grid_cfg["generator"].pop("output_file", None)
+        grid_cfg["generator"].pop("vts_file", None)
+        grid_cfg["generator"].pop("stats_file", None)
+    if isinstance(grid_cfg.get("legacy_conversion"), dict):
+        grid_cfg["legacy_conversion"].pop("output_file", None)
+    grid_provider = {
+        "kind": "grid",
+        "provider": grid_mode or "missing",
+        "execution": "runtime-c" if grid_mode == "programmatic_c" else "precomputable",
+        "dependencies": [],
+        "spec": grid_cfg,
+    }
+    providers.append(grid_provider)
+
+    initial = copy.deepcopy(
+        ((case_cfg.get("properties") or {}).get("initial_conditions") or {})
+    )
+    initial_mode = str(initial.get("mode", "generated")).strip().lower()
+    initial_generator = str(initial.get("generator", "constant")).strip().lower()
+    for key in ("output_file", "summary_json", "spectrum_csv"):
+        initial.pop(key, None)
+        if isinstance(initial.get("params"), dict):
+            initial["params"].pop(key, None)
+    generated_python = (
+        initial_mode == "generated"
+        and initial_generator in _PYTHON_INITIAL_CONDITION_PROVIDERS
+    )
+    initial_provider = {
+        "kind": "initial-condition",
+        "provider": "file" if initial_mode == "file" else initial_generator,
+        "execution": "precomputable" if initial_mode == "file" or generated_python else "runtime-c",
+        "dependencies": ["grid"] if generated_python else [],
+        "spec": initial,
+    }
+    providers.append(initial_provider)
+
+    inlet_specs = []
+    raw_blocks = case_cfg.get("boundary_conditions") or []
+    if raw_blocks and isinstance(raw_blocks[0], dict):
+        raw_blocks = [raw_blocks]
+    for block_index, block in enumerate(raw_blocks):
+        for entry in block or []:
+            if not isinstance(entry, dict) or str(entry.get("handler", "")).strip().lower() != "prescribed_flow":
+                continue
+            source = copy.deepcopy(((entry.get("params") or {}).get("source") or {}))
+            source.pop("output_file", None)
+            inlet_specs.append({"block": block_index, "face": entry.get("face"), "source": source})
+    if inlet_specs:
+        field_slice = any((item.get("source") or {}).get("type") == "field_slice" for item in inlet_specs)
+        providers.append({
+            "kind": "inlet-profiles",
+            "provider": "prescribed-flow",
+            "execution": "precomputable",
+            "dependencies": ["grid"] if field_slice or grid_mode in _FILE_BACKED_GRID_VALUES else [],
+            "spec": inlet_specs,
+        })
+
+    for provider in providers:
+        provider["source_files"] = _provider_source_fingerprints(provider["spec"], case_path)
+        provider["software"] = {
+            "release_version": PICURV_RELEASE_VERSION,
+            "git_commit": PICURV_BUILD.get("git_commit"),
+        }
+        provider["spec_sha256"] = _stable_mapping_sha256({
+            "kind": provider["kind"],
+            "provider": provider["provider"],
+            "spec": provider["spec"],
+            "source_files": provider["source_files"],
+            "software": provider["software"],
+        })
+    return {
+        "case_sha256": _stable_mapping_sha256(case_cfg),
+        "providers": providers,
+    }
+
+
+def _asset_selection(graph: dict, requested=None, *, precomputable_only: bool = False) -> list:
+    """!
+    @brief Resolve requested asset kinds plus dependency closure.
+    @param[in] graph Provider graph returned by build_case_asset_graph.
+    @param[in] requested Optional iterable of requested kind names.
+    @param[in] precomputable_only Exclude runtime-C providers for normal-run staging.
+    @return Ordered provider list.
+    """
+    by_kind = {item["kind"]: item for item in graph["providers"]}
+    requested_set = set(requested or by_kind)
+    unknown = requested_set - set(by_kind)
+    if unknown:
+        raise ValueError(
+            f"No configured provider exists for asset kind(s): {sorted(unknown)}. "
+            f"Configured kinds: {sorted(by_kind)}."
+        )
+    closure = set()
+
+    def add(kind):
+        """!
+        @brief Add one requested asset kind and its dependency closure.
+        @param[in] kind Asset kind to include.
+        @return None.
+        """
+        if kind in closure:
+            return
+        closure.add(kind)
+        for dependency in by_kind[kind].get("dependencies", []):
+            if dependency in by_kind:
+                add(dependency)
+
+    for kind in requested_set:
+        add(kind)
+    selected = [item for item in graph["providers"] if item["kind"] in closure]
+    if precomputable_only:
+        selected = [item for item in selected if item["execution"] == "precomputable"]
+    return selected
+
+
+def _asset_payload_files(build_root: str, kind: str) -> list:
+    """!
+    @brief Enumerate canonical files belonging to one asset kind in a build tree.
+    @param[in] build_root Temporary run-like build root.
+    @param[in] kind Asset kind.
+    @return Absolute payload file paths.
+    """
+    roots = {
+        "grid": ["inputs/grid", "output/analysis/metrics", "output/visualization/precompute"],
+        "initial-condition": ["inputs/initial_condition", "output/analysis/spectra", "output/analysis/metrics"],
+        "inlet-profiles": ["inputs/inlet_profiles"],
+    }[kind]
+    result = []
+    for relative in roots:
+        root = Path(build_root, *relative.split("/"))
+        if root.is_dir():
+            result.extend(str(path) for path in sorted(root.rglob("*")) if path.is_file())
+    intermediate_names = {
+        "grid": {"grid.generated.picgrid", "grid.converted.picgrid"},
+        "initial-condition": {"initial_condition.generated.dat"},
+        "inlet-profiles": set(),
+    }[kind]
+    return [
+        path for path in dict.fromkeys(result)
+        if os.path.basename(path) not in intermediate_names
+    ]
+
+
+def _build_selected_asset_payloads(build_root: str, case_cfg: dict, case_path: str,
+                                   selected: list) -> dict:
+    """!
+    @brief Execute existing generators into one isolated run-like build tree.
+    @param[in] build_root Temporary output root.
+    @param[in] case_cfg Parsed case config.
+    @param[in] case_path Owning case path.
+    @param[in] selected Ordered selected providers.
+    @return Asset-kind to generated file list.
+    """
+    ensure_run_layout(build_root)
+    selected_kinds = {item["kind"] for item in selected}
+    payloads = {}
+
+    def fingerprint(kind):
+        """!
+        @brief Snapshot current payload checksums for one asset kind.
+        @param[in] kind Asset kind to inspect.
+        @return Absolute-path to checksum mapping.
+        """
+        return {
+            path: _asset_file_sha256(path)
+            for path in _asset_payload_files(build_root, kind)
+        }
+
+    def record_changes(kind, before):
+        """!
+        @brief Record files created or changed by one provider stage.
+        @param[in] kind Asset kind whose build just completed.
+        @param[in] before Pre-build checksum mapping.
+        @return None.
+        """
+        after = fingerprint(kind)
+        payloads[kind] = [
+            path for path, digest in after.items()
+            if before.get(path) != digest
+        ]
+
     grid_cfg = case_cfg.get("grid", {}) or {}
-    grid_mode = grid_cfg.get("mode")
     scaling = (case_cfg.get("properties", {}) or {}).get("scaling", {}) or {}
     length_ref = float(scaling.get("length_ref", 1.0))
     expected_nblk = int((case_cfg.get("models", {}) or {}).get("domain", {}).get("blocks", 1))
-    staged_grid = os.path.join(config_dir, "grid.run")
-    if grid_mode == "grid_gen":
-        print("[INFO] Precomputing grid via grid.gen...")
-        generated_grid = run_grid_generator(case_path, output_dir, grid_cfg)
-        artifacts.append(os.path.abspath(generated_grid))
-        validate_and_nondimensionalize_picgrid(generated_grid, staged_grid, length_ref, expected_nblk=expected_nblk)
-        artifacts.append(os.path.abspath(staged_grid))
-    elif grid_mode == "file":
-        source_grid = _resolve_case_relative_path(grid_cfg.get("source_file"), os.path.dirname(case_path))
-        if isinstance(grid_cfg.get("legacy_conversion"), dict):
-            source_grid = convert_legacy_grid_with_gridgen(case_path, output_dir, grid_cfg, source_grid)
-        validate_and_nondimensionalize_picgrid(source_grid, staged_grid, length_ref, expected_nblk=expected_nblk)
-        artifacts.append(os.path.abspath(staged_grid))
-        print(f"[INFO] Precomputed validated file grid: {staged_grid}")
-    elif grid_mode == "programmatic_c":
-        print(f"[INFO] Grid mode '{grid_mode}' does not require precomputed grid generation.")
-    else:
-        raise ValueError(f"Unsupported grid.mode '{grid_mode}' for precompute.")
+    staged_grid = os.path.join(build_root, "inputs", "grid", "grid.run")
+    if "grid" in selected_kinds:
+        before = fingerprint("grid")
+        if grid_cfg.get("mode") == "grid_gen":
+            generated = run_grid_generator(case_path, build_root, grid_cfg)
+            validate_and_nondimensionalize_picgrid(
+                generated, staged_grid, length_ref, expected_nblk=expected_nblk
+            )
+        elif grid_cfg.get("mode") == "file":
+            source = _resolve_case_relative_path(
+                grid_cfg.get("source_file"), os.path.dirname(os.path.abspath(case_path))
+            )
+            if isinstance(grid_cfg.get("legacy_conversion"), dict):
+                source = convert_legacy_grid_with_gridgen(case_path, build_root, grid_cfg, source)
+            validate_and_nondimensionalize_picgrid(
+                source, staged_grid, length_ref, expected_nblk=expected_nblk
+            )
+        record_changes("grid", before)
 
-    profile_summaries = materialize_generated_prescribed_flow_profiles(output_dir, case_cfg, case_path)
-    artifacts.extend(summary["path"] for summary in profile_summaries)
-    if profile_summaries:
-        artifacts.append(os.path.join(config_dir, "profile.info"))
+    if "inlet-profiles" in selected_kinds:
+        before = fingerprint("inlet-profiles")
+        generate_multi_block_bcs(
+            build_root, "asset-build", case_cfg,
+            {"Case": case_path},
+        )
+        record_changes("inlet-profiles", before)
 
-    initial_condition = None
-    fluid_scaling = resolve_fluid_scaling(case_cfg)
-    resolved_ic = resolve_initial_condition_config(
-        (case_cfg.get("properties", {}) or {}).get("initial_conditions", {}),
-        validate_and_prepare_boundary_conditions(case_cfg),
-        U_ref=fluid_scaling["velocity_ref"],
-        provider_context={"kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]},
-    )
-    if is_generated_ic_provider(resolved_ic):
-        if grid_mode == "programmatic_c":
+    if "initial-condition" in selected_kinds:
+        before = fingerprint("initial-condition")
+        fluid_scaling = resolve_fluid_scaling(case_cfg)
+        resolved_ic = resolve_initial_condition_config(
+            (case_cfg.get("properties", {}) or {}).get("initial_conditions", {}),
+            validate_and_prepare_boundary_conditions(case_cfg),
+            U_ref=fluid_scaling["velocity_ref"],
+            provider_context={
+                "kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]
+            },
+        )
+        stage_initial_condition_file(build_root, case_path, resolved_ic)
+        record_changes("initial-condition", before)
+    return payloads
+
+
+def _publish_asset_object(workspace_root: str, build_root: str, provider: dict,
+                          payload_files: list) -> dict:
+    """!
+    @brief Publish one immutable content-addressed asset object atomically.
+    @param[in] workspace_root Owning workspace.
+    @param[in] build_root Temporary build root.
+    @param[in] provider Provider metadata.
+    @param[in] payload_files Files produced for the provider.
+    @return Asset reference written to the asset set.
+    """
+    file_inventory = []
+    for path in payload_files:
+        relative = os.path.relpath(path, build_root).replace(os.sep, "/")
+        file_inventory.append({
+            "path": relative,
+            "bytes": os.path.getsize(path),
+            "sha256": _asset_file_sha256(path),
+        })
+    asset_id = _stable_mapping_sha256({
+        "provider_spec_sha256": provider["spec_sha256"],
+        "files": file_inventory,
+    })
+    kind_dir = ASSET_KIND_DIRECTORIES[provider["kind"]]
+    object_root = os.path.join(workspace_root, "assets", "objects", kind_dir, asset_id)
+    if not os.path.isdir(object_root):
+        parent = os.path.dirname(object_root)
+        os.makedirs(parent, exist_ok=True)
+        temporary = tempfile.mkdtemp(prefix=f".{asset_id[:12]}-", dir=parent)
+        try:
+            for item, source in zip(file_inventory, payload_files):
+                destination = os.path.join(temporary, "payload", *item["path"].split("/"))
+                os.makedirs(os.path.dirname(destination), exist_ok=True)
+                shutil.copy2(source, destination)
+            manifest = {
+                "schema_version": ASSET_MANIFEST_SCHEMA_VERSION,
+                "asset_id": asset_id,
+                "kind": provider["kind"],
+                "provider": provider["provider"],
+                "provider_execution": provider["execution"],
+                "provider_spec_sha256": provider["spec_sha256"],
+                "provider_spec": provider["spec"],
+                "source_files": provider["source_files"],
+                "software": provider["software"],
+                "created_at": datetime.now().astimezone().isoformat(),
+                "files": file_inventory,
+            }
+            write_json_file(os.path.join(temporary, "asset.json"), manifest)
             try:
-                summary = generate_picgrid_from_programmatic_settings(
-                    grid_cfg.get('programmatic_settings', {}), staged_grid, length_ref
-                )
-                artifacts.append(os.path.abspath(staged_grid))
-                print(
-                    f"[INFO] Materialized programmatic grid.run for generated IC: {staged_grid} "
-                    f"(nblk={summary['nblk']}, total_nodes={summary['total_nodes']})"
-                )
-            except Exception as e:
-                raise RuntimeError(f"Failed to generate grid.run for generated IC: {e}") from e
-        initial_condition = stage_initial_condition_file(output_dir, case_path, resolved_ic)
-        artifacts.extend([initial_condition["source"], initial_condition["staged"]])
-        artifacts.extend(initial_condition.get("diagnostics", []))
-    elif resolved_ic["kind"] == "file":
-        print("[INFO] File initial condition does not require generated precompute output.")
-    else:
-        print(f"[INFO] Built-in initial-condition generator '{resolved_ic['label']}' runs in the C solver.")
-
-    manifest = {
-        "case": case_path,
-        "output_dir": output_dir,
-        "grid_mode": grid_mode,
-        "artifacts": artifacts,
-        "profiles": profile_summaries,
-        "initial_condition": initial_condition,
+                os.replace(temporary, object_root)
+            except OSError as exc:
+                if exc.errno != errno.ENOTEMPTY and not os.path.isdir(object_root):
+                    raise
+        finally:
+            if os.path.isdir(temporary):
+                shutil.rmtree(temporary, ignore_errors=True)
+    return {
+        "asset_id": asset_id,
+        "kind": provider["kind"],
+        "provider": provider["provider"],
+        "provider_spec_sha256": provider["spec_sha256"],
+        "object": os.path.relpath(object_root, workspace_root).replace(os.sep, "/"),
+        "files": file_inventory,
     }
-    manifest_path = os.path.join(config_dir, "precompute.manifest.json")
-    write_json_file(manifest_path, manifest)
-    print(f"[SUCCESS] Wrote precompute manifest: {os.path.relpath(manifest_path)}")
-    print(f"[SUCCESS] Precompute completed with {len(artifacts)} artifact(s).")
+
+
+def _workspace_asset_set_name(workspace_root: str, case_path: str) -> str:
+    """!
+    @brief Return a collision-free, readable mutable asset-set name.
+    @param[in] workspace_root Owning initialized workspace.
+    @param[in] case_path Source case configuration path.
+    @return Stable asset-set filename stem.
+    """
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "-", Path(case_path).stem).strip("-") or "case"
+    relative = _relative_to_workspace(case_path, workspace_root) or os.path.abspath(case_path)
+    digest = hashlib.sha256(str(relative).encode("utf-8")).hexdigest()[:10]
+    return f"{stem}-{digest}"
+
+
+def _write_workspace_asset_set(workspace_root: str, case_path: str, graph: dict,
+                               references: dict) -> str:
+    """!
+    @brief Atomically update the named asset set and workspace asset catalog.
+    @param[in] workspace_root Owning workspace.
+    @param[in] case_path Source case YAML.
+    @param[in] graph Complete provider graph.
+    @param[in] references Newly published or reused asset references.
+    @return Asset-set YAML path.
+    """
+    name = _workspace_asset_set_name(workspace_root, case_path)
+    set_path = os.path.join(workspace_root, "assets", "sets", f"{name}.yml")
+    existing = read_yaml_file(set_path) if os.path.isfile(set_path) else {}
+    assets = dict(existing.get("assets") or {})
+    assets.update(references)
+    payload = {
+        "schema_version": ASSET_LOCK_SCHEMA_VERSION,
+        "name": name,
+        "case": os.path.relpath(case_path, workspace_root).replace(os.sep, "/"),
+        "case_sha256": graph["case_sha256"],
+        "updated_at": datetime.now().astimezone().isoformat(),
+        "assets": assets,
+        "runtime_providers": {
+            item["kind"]: {
+                "provider": item["provider"],
+                "provider_spec_sha256": item["spec_sha256"],
+            }
+            for item in graph["providers"] if item["execution"] == "runtime-c"
+        },
+    }
+    write_yaml_file(set_path, payload)
+    catalog_path = os.path.join(workspace_root, "assets", "catalog.yml")
+    catalog = read_yaml_file(catalog_path) if os.path.isfile(catalog_path) else {
+        "schema_version": 1, "objects": {}
+    }
+    objects = catalog.setdefault("objects", {})
+    for reference in references.values():
+        objects[reference["asset_id"]] = {
+            "kind": reference["kind"],
+            "provider": reference["provider"],
+            "object": reference["object"],
+        }
+    write_yaml_file(catalog_path, catalog)
+    return set_path
+
+
+def precompute_case_assets(workspace_root: str, case_cfg: dict, case_path: str,
+                           requested=None) -> dict:
+    """!
+    @brief Build and publish a selected deterministic asset dependency closure.
+    @param[in] workspace_root Owning workspace.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] case_path Source case path.
+    @param[in] requested Requested asset kinds, or all configured providers.
+    @return Provider graph, selected providers, references, and asset-set path.
+    """
+    enforce_workspace_version(workspace_root)
+    graph = build_case_asset_graph(case_cfg, case_path)
+    selected = _asset_selection(graph, requested)
+    runtime = [item for item in selected if item["execution"] == "runtime-c"]
+    if runtime:
+        details = ", ".join(f"{item['kind']}={item['provider']}" for item in runtime)
+        raise ValueError(
+            "Precompute is atomic and cannot execute simulator-runtime providers. "
+            f"Selected dependency graph requires C generation: {details}. "
+            "Use --only to select an independent precomputable subset, or run the case; "
+            "the simulator will report each runtime provider before generation."
+        )
+    if not selected:
+        raise ValueError("The selected case has no precomputable providers.")
+    staging_parent = os.path.join(workspace_root, "assets")
+    os.makedirs(staging_parent, exist_ok=True)
+    build_root = tempfile.mkdtemp(prefix=".precompute-", dir=staging_parent)
+    references = {}
+    try:
+        payloads = _build_selected_asset_payloads(build_root, case_cfg, case_path, selected)
+        for provider in selected:
+            files = payloads.get(provider["kind"], [])
+            if not files:
+                raise ValueError(
+                    f"Provider {provider['kind']}={provider['provider']} produced no files."
+                )
+            references[provider["kind"]] = _publish_asset_object(
+                workspace_root, build_root, provider, files
+            )
+    finally:
+        shutil.rmtree(build_root, ignore_errors=True)
+    set_path = _write_workspace_asset_set(workspace_root, case_path, graph, references)
+    return {"graph": graph, "selected": selected, "assets": references, "set_path": set_path}
+
+
+def _workspace_asset_set_path(workspace_root: str, case_path: str) -> str:
+    """!
+    @brief Return the mutable asset-set pointer associated with a case config name.
+    @param[in] workspace_root Owning workspace.
+    @param[in] case_path Source case path.
+    @return Absolute asset-set YAML path.
+    """
+    name = _workspace_asset_set_name(workspace_root, case_path)
+    return os.path.join(workspace_root, "assets", "sets", f"{name}.yml")
+
+
+def plan_run_assets(case_cfg: dict, case_path: str) -> dict:
+    """!
+    @brief Plan reuse/build/runtime actions for all configured run providers.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] case_path Source case path.
+    @return Workspace, graph, set path, and per-provider actions.
+    """
+    workspace_root = find_workspace_root(case_path)
+    graph = build_case_asset_graph(case_cfg, case_path)
+    asset_set = {}
+    set_path = None
+    if workspace_root:
+        set_path = _workspace_asset_set_path(workspace_root, case_path)
+        if os.path.isfile(set_path):
+            asset_set = read_yaml_file(set_path)
+    refs = asset_set.get("assets", {}) if isinstance(asset_set, dict) else {}
+    actions = []
+    for provider in graph["providers"]:
+        reference = refs.get(provider["kind"]) if isinstance(refs, dict) else None
+        matches = bool(
+            isinstance(reference, dict)
+            and reference.get("provider_spec_sha256") == provider["spec_sha256"]
+            and workspace_root
+            and os.path.isfile(os.path.join(
+                workspace_root, reference.get("object", ""), "asset.json"
+            ))
+        )
+        if provider["execution"] == "runtime-c":
+            action = "runtime-c"
+        elif matches:
+            action = "reuse"
+        else:
+            action = "build"
+        actions.append({**provider, "action": action, "reference": reference if matches else None})
+    return {
+        "workspace_root": workspace_root,
+        "graph": graph,
+        "asset_set_path": set_path,
+        "actions": actions,
+    }
+
+
+def _materialize_asset_file(source: str, destination: str) -> str:
+    """!
+    @brief Expose one immutable shared-asset file through reflink, hardlink, or copy.
+    @param[in] source Immutable asset payload file.
+    @param[in] destination Run-local destination.
+    @return Materialization mode used.
+    """
+    os.makedirs(os.path.dirname(destination), exist_ok=True)
+    temporary = f"{destination}.tmp.{os.getpid()}"
+    try:
+        cp = shutil.which("cp")
+        if cp:
+            result = subprocess.run(
+                [cp, "--reflink=always", "--preserve=mode,timestamps", source, temporary],
+                text=True, capture_output=True, check=False,
+            )
+            if result.returncode == 0:
+                os.replace(temporary, destination)
+                return "reflink"
+            if os.path.lexists(temporary):
+                os.remove(temporary)
+        try:
+            os.link(source, temporary)
+            os.replace(temporary, destination)
+            return "hardlink"
+        except OSError:
+            if os.path.lexists(temporary):
+                os.remove(temporary)
+        shutil.copy2(source, temporary)
+        os.replace(temporary, destination)
+        return "copy"
+    finally:
+        if os.path.lexists(temporary):
+            os.remove(temporary)
+
+
+def materialize_run_assets(run_dir: str, case_cfg: dict, case_path: str,
+                           require_precomputed: bool = False,
+                           fetch_missing: bool = False) -> dict:
+    """!
+    @brief Resolve/build workspace assets and write the exact run input lock.
+    @param[in] run_dir Run receiving immutable input exposures.
+    @param[in] case_cfg Parsed case config.
+    @param[in] case_path Source case path.
+    @param[in] require_precomputed Refuse any missing deterministic asset.
+    @param[in] fetch_missing Request remote fetch before local build.
+    @return Written lock mapping, or a standalone-provider summary outside a workspace.
+    """
+    plan = plan_run_assets(case_cfg, case_path)
+    workspace_root = plan["workspace_root"]
+    if not workspace_root:
+        return {
+            "schema_version": ASSET_LOCK_SCHEMA_VERSION,
+            "workspace": None,
+            "assets": {},
+            "runtime_providers": {
+                item["kind"]: item["provider"] for item in plan["actions"]
+                if item["execution"] == "runtime-c"
+            },
+        }
+    enforce_workspace_version(workspace_root)
+    missing = [item for item in plan["actions"] if item["action"] == "build"]
+    if missing and fetch_missing:
+        # Storage imports this module indirectly, so remote asset recovery is routed
+        # through a late import that cannot create a module cycle at startup.
+        try:
+            from .storage import restore_missing_workspace_assets
+        except ImportError:
+            restore_missing_workspace_assets = getattr(
+                _storage_module, "restore_missing_workspace_assets", None
+            )
+        restored = restore_missing_workspace_assets(
+            workspace_root, [item["spec_sha256"] for item in missing]
+        ) if restore_missing_workspace_assets else {}
+        if restored:
+            recovered_refs = {
+                item["kind"]: restored[item["spec_sha256"]]
+                for item in missing if item["spec_sha256"] in restored
+            }
+            if recovered_refs:
+                _write_workspace_asset_set(
+                    workspace_root, case_path, plan["graph"], recovered_refs
+                )
+            plan = plan_run_assets(case_cfg, case_path)
+            missing = [item for item in plan["actions"] if item["action"] == "build"]
+    if missing and require_precomputed:
+        names = ", ".join(f"{item['kind']}={item['provider']}" for item in missing)
+        raise ValueError(
+            f"Required precomputed asset(s) are missing or stale: {names}. "
+            f"Run 'picurv precompute --case {case_path} --only "
+            + ",".join(item["kind"] for item in missing) + "'."
+        )
+    if missing:
+        precompute_case_assets(
+            workspace_root, case_cfg, case_path,
+            requested=[item["kind"] for item in missing],
+        )
+        plan = plan_run_assets(case_cfg, case_path)
+        still_missing = [item for item in plan["actions"] if item["action"] == "build"]
+        if still_missing:
+            raise ValueError(
+                "Asset generation completed without satisfying: "
+                + ", ".join(item["kind"] for item in still_missing)
+            )
+
+    assets = {}
+    for item in plan["actions"]:
+        reference = item.get("reference")
+        if item["action"] != "reuse" or not isinstance(reference, dict):
+            continue
+        object_root = os.path.join(workspace_root, reference["object"])
+        manifest = _read_json_if_exists(os.path.join(object_root, "asset.json"))
+        if not isinstance(manifest, dict) or manifest.get("asset_id") != reference.get("asset_id"):
+            raise ValueError(f"Asset object is missing or invalid: {object_root}")
+        exposed = []
+        for file_info in manifest.get("files", []):
+            relative = file_info["path"]
+            source = os.path.join(object_root, "payload", *relative.split("/"))
+            if _asset_file_sha256(source) != file_info.get("sha256"):
+                raise ValueError(f"Asset payload checksum mismatch: {source}")
+            destination = os.path.join(run_dir, *relative.split("/"))
+            mode = _materialize_asset_file(source, destination)
+            exposed.append({"path": relative, "mode": mode, "sha256": file_info["sha256"]})
+        assets[item["kind"]] = {**reference, "exposed": exposed}
+        print(f"[INFO] Asset {item['kind']}: reuse {reference['asset_id']}")
+    runtime_providers = {
+        item["kind"]: {
+            "provider": item["provider"],
+            "provider_spec_sha256": item["spec_sha256"],
+        }
+        for item in plan["actions"] if item["execution"] == "runtime-c"
+    }
+    for kind, provider in runtime_providers.items():
+        print(f"[INFO] Runtime provider {kind}: {provider['provider']} (generated by simulator)")
+    lock = {
+        "schema_version": ASSET_LOCK_SCHEMA_VERSION,
+        "workspace": workspace_root,
+        "case_sha256": plan["graph"]["case_sha256"],
+        "created_at": datetime.now().astimezone().isoformat(),
+        "assets": assets,
+        "runtime_providers": runtime_providers,
+    }
+    write_yaml_file(os.path.join(run_dir, "inputs", "assets.lock.yml"), lock)
+    return lock
+
+
+def precompute_workflow(args):
+    """!
+    @brief Resolve, preflight, and atomically publish reusable workspace assets.
+    @param[in] args Parsed precompute command arguments.
+    """
+    case_path = os.path.abspath(args.case)
+    workspace_root = find_workspace_root(case_path, os.getcwd())
+    if not workspace_root:
+        raise ValueError(
+            "Precompute requires an initialized PICurv workspace. Run 'picurv init ...', "
+            "then use its config/case.yml."
+        )
+    case_cfg = read_yaml_file(case_path)
+    raw_only = getattr(args, "only", None)
+    requested = None
+    if raw_only and str(raw_only).strip().lower() != "all":
+        requested = [token.strip() for token in str(raw_only).split(",") if token.strip()]
+    graph = build_case_asset_graph(case_cfg, case_path)
+    selected = _asset_selection(graph, requested)
+    print(f"[INFO] Workspace : {workspace_root}")
+    print(f"[INFO] Case      : {os.path.relpath(case_path, workspace_root)}")
+    print("[INFO] Asset dependency plan:")
+    for provider in selected:
+        dependencies = ",".join(provider.get("dependencies", [])) or "none"
+        print(
+            f"  - {provider['kind']}: {provider['provider']} "
+            f"[{provider['execution']}], dependencies={dependencies}"
+        )
+    result = precompute_case_assets(workspace_root, case_cfg, case_path, requested=requested)
+    for kind, reference in sorted(result["assets"].items()):
+        print(f"[SUCCESS] {kind}: {reference['asset_id']} ({reference['object']})")
+    print(f"[SUCCESS] Asset set: {os.path.relpath(result['set_path'], workspace_root)}")
 
 def run_workflow(args):
     """!
@@ -13722,12 +15046,17 @@ def run_workflow(args):
 
     # --- Stage 1: Solver (if requested) ---
     if args.solve:
+        case_input_path = os.path.abspath(args.case)
+        workspace_root = find_workspace_root(case_input_path, args.solver, args.monitor, os.getcwd())
+        if workspace_root:
+            enforce_workspace_version(workspace_root)
         walltime_guard_policy = resolve_walltime_guard_policy(cluster_cfg) if cluster_mode else None
         configs = {
-            'case': read_yaml_file(args.case), 'case_path': os.path.abspath(args.case),
+            'case': read_yaml_file(args.case), 'case_path': case_input_path,
             'solver': read_yaml_file(args.solver), 'solver_path': os.path.abspath(args.solver),
             'monitor': read_yaml_file(args.monitor), 'monitor_path': os.path.abspath(args.monitor),
             'walltime_guard_policy': walltime_guard_policy,
+            'statistics_state': getattr(args, "statistics_state", "reset"),
         }
 
         print("\n[INFO] Validating configuration files...")
@@ -13753,10 +15082,16 @@ def run_workflow(args):
                 sys.exit(1)
             run_id = os.path.basename(run_dir)
         else:
-            case_name = os.path.splitext(os.path.basename(args.case))[0]
+            case_name = case_run_label(configs["case"], configs["case_path"])
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             run_id = f"{case_name}_{timestamp}"
-            run_dir = os.path.abspath(os.path.join("runs", run_id))
+            run_dir = os.path.join(workspace_artifact_root(workspace_root, "runs"), run_id)
+
+        if workspace_root and os.path.commonpath([os.path.abspath(run_dir), workspace_root]) != workspace_root:
+            fail_cli_usage("A workspace run directory must remain below the owning workspace.")
+        if not continue_mode and os.path.exists(run_dir):
+            raise ValueError(f"Generated run directory already exists: {run_dir}")
+        ensure_run_layout(run_dir)
 
         try:
             resolved_restart_source_dir, is_continue = resolve_restart_source(
@@ -13772,25 +15107,39 @@ def run_workflow(args):
             sys.exit(1)
 
         config_dir = os.path.join(run_dir, "config")
-        if not continue_mode:
-            for d in [config_dir, os.path.join(run_dir, "scheduler")]:
-                os.makedirs(d, exist_ok=True)
-        else:
-            os.makedirs(config_dir, exist_ok=True)
         if continue_mode:
             print(f"[INFO] Continuing in existing run directory: {os.path.relpath(run_dir)}")
         else:
             print(f"[INFO] Created new self-contained run directory: {os.path.relpath(run_dir)}")
 
-        shutil.copy(args.case, os.path.join(config_dir, "case.yml"))
-        shutil.copy(args.solver, os.path.join(config_dir, "solver.yml"))
-        shutil.copy(args.monitor, os.path.join(config_dir, "monitor.yml"))
-        if cluster_mode:
-            shutil.copy(cluster_path, os.path.join(config_dir, "cluster.yml"))
+        active_config = snapshot_run_configuration(
+            run_dir,
+            {
+                "case": args.case,
+                "solver": args.solver,
+                "monitor": args.monitor,
+                "cluster": cluster_path if cluster_mode else None,
+            },
+            continuation=continue_mode,
+        )
+        asset_lock = materialize_run_assets(
+            run_dir,
+            configs["case"],
+            configs["case_path"],
+            require_precomputed=bool(getattr(args, "require_precomputed", False)),
+            fetch_missing=bool(getattr(args, "fetch_missing", False)),
+        )
 
         print("\n" + "="*25 + " SOLVER STAGE " + "="*25)
         source_files = {'Case': args.case, 'Solver': args.solver, 'Monitor': args.monitor}
-        monitor_files = prepare_monitor_files(run_dir, run_id, configs['monitor'], source_files)
+        generated_config_dir = (
+            config_dir if active_config["revision"] == "initial"
+            else os.path.join(config_dir, "history", active_config["revision"])
+        )
+        monitor_files = prepare_monitor_files(
+            run_dir, run_id, configs['monitor'], source_files,
+            config_dir=generated_config_dir,
+        )
         if resolved_restart_source_dir:
             print(f"[INFO] Restart source: {resolved_restart_source_dir}")
         if is_continue:
@@ -13803,7 +15152,18 @@ def run_workflow(args):
             monitor_files,
             restart_source_dir=resolved_restart_source_dir,
             continue_mode=is_continue,
+            config_dir=generated_config_dir,
         )
+        active_config = archive_active_generated_configuration(
+            run_dir,
+            [
+                control_file,
+                monitor_files.get("whitelist"),
+                monitor_files.get("profile"),
+                *glob.glob(os.path.join(generated_config_dir, "bcs*.run")),
+            ],
+        )
+        control_file = load_active_run_configuration(run_dir).get("control", control_file)
 
         solver_exe = resolve_runtime_executable("simulator")
         solver_args = build_petsc_diagnostics_args(configs["monitor"], run_dir, "Solver") + ["-control_file", control_file]
@@ -13925,7 +15285,15 @@ def run_workflow(args):
         validate_post_config(post_cfg, args.post, monitor_cfg, case_cfg)
         print("[SUCCESS] Post-processing configuration passed validation.\n")
 
-        archived_post_path = os.path.join(config_dir, "post.yml")
+        post_cfg, recipe_id = apply_canonical_post_paths(post_cfg, run_dir)
+        for relative in (
+            post_cfg["_picurv_paths"]["visualization"],
+            post_cfg["_picurv_paths"]["statistics"],
+            post_cfg["_picurv_paths"]["spectra"],
+        ):
+            os.makedirs(os.path.join(run_dir, relative), exist_ok=True)
+        archived_post_path = os.path.join(get_post_recipe_root(run_dir, post_cfg), "post.yml")
+        os.makedirs(os.path.dirname(archived_post_path), exist_ok=True)
         if os.path.abspath(args.post) != os.path.abspath(archived_post_path):
             shutil.copy2(args.post, archived_post_path)
 
@@ -13945,11 +15313,8 @@ def run_workflow(args):
         if post_stages != set(POST_STAGE_NAMES):
             print(f"[INFO] Post stages selected: {','.join(sorted(post_stages))}")
 
-        source_template = get_post_source_directory_template(post_cfg)
-        if source_template == '<solver_output_dir>':
-            print(f"[INFO] Post-processor source data: {os.path.relpath(post_plan['source_data_directory'])}")
-        else:
-            print(f"[INFO] Post-processor source data (user-defined): {os.path.relpath(post_plan['source_data_directory'])}")
+        print(f"[INFO] Post recipe: {recipe_id}")
+        print(f"[INFO] Post-processor source data: {os.path.relpath(post_plan['source_data_directory'])}")
 
         if getattr(args, 'continue_run', False):
             if post_plan['resume_recipe_match']:
@@ -14180,28 +15545,33 @@ def run_workflow(args):
                     stages_completed.append('post-process')
 
     if run_dir:
-        manifest = {
-            "run_id": run_id,
-            "created_at": datetime.now().isoformat(),
-            "launch_mode": "slurm" if cluster_mode else "local",
-            "git_commit": get_git_commit(),
-            "num_procs": solver_num_procs_effective,
-            "solver_num_procs": solver_num_procs_effective,
-            "post_num_procs": post_num_procs_effective,
-            "stages_requested": {"solve": bool(args.solve), "post_process": bool(args.post_process)},
-            "stages_completed_or_submitted": stages_completed,
-            "inputs": {},
-        }
+        workspace_root = find_workspace_root(run_dir)
+        manifest_inputs = {}
         if args.solve:
-            manifest["inputs"]["case"] = os.path.abspath(args.case)
-            manifest["inputs"]["solver"] = os.path.abspath(args.solver)
-            manifest["inputs"]["monitor"] = os.path.abspath(args.monitor)
+            manifest_inputs["case"] = _relative_to_workspace(args.case, workspace_root)
+            manifest_inputs["solver"] = _relative_to_workspace(args.solver, workspace_root)
+            manifest_inputs["monitor"] = _relative_to_workspace(args.monitor, workspace_root)
         if args.post_process:
-            manifest["inputs"]["post"] = os.path.abspath(args.post)
+            manifest_inputs["post"] = _relative_to_workspace(args.post, workspace_root)
         if cluster_mode:
-            manifest["inputs"]["cluster"] = cluster_path
+            manifest_inputs["cluster"] = _relative_to_workspace(cluster_path, workspace_root)
         if submission_meta.get("stages"):
             write_json_file(os.path.join(run_dir, "scheduler", "submission.json"), submission_meta)
+        asset_lock = read_yaml_file(os.path.join(run_dir, "inputs", "assets.lock.yml")) \
+            if os.path.isfile(os.path.join(run_dir, "inputs", "assets.lock.yml")) else {}
+        manifest = build_run_manifest(
+            run_dir,
+            run_id,
+            workspace_root=workspace_root,
+            launch_mode="slurm" if cluster_mode else "local",
+            num_procs=solver_num_procs_effective,
+            post_num_procs=post_num_procs_effective,
+            stages_requested={"solve": bool(args.solve), "post_process": bool(args.post_process)},
+            stages_completed=stages_completed,
+            inputs=manifest_inputs,
+            asset_lock=asset_lock,
+            submission=submission_meta,
+        )
         write_json_file(os.path.join(run_dir, "manifest.json"), manifest)
 
     if stages_completed:
@@ -14229,7 +15599,7 @@ def run_workflow(args):
             print(f"  Post MPI procs  : {post_num_procs_effective}")
         if args.solve and configs:
             total_steps = configs['case'].get('run_control', {}).get('total_steps', '?')
-            result_dir = os.path.join(run_dir, configs['monitor'].get('io', {}).get('directories', {}).get('output', 'output'))
+            result_dir = os.path.join(run_dir, CANONICAL_RUN_PATHS['output'])
             print(f"  Steps run      : {total_steps}")
             print(f"  Solver output  : {os.path.relpath(result_dir)}")
         if 'post-process' in stages_completed and output_dir_abs:
@@ -14239,12 +15609,7 @@ def run_workflow(args):
         # Report the configured log directory, not the default. An authorized external
         # path is exactly the case where the two differ, and it is the case where the
         # reader most needs to know where the logs actually went.
-        configured_log_dir = 'logs'
-        if configs:
-            configured_log_dir = (
-                configs.get('monitor', {}).get('io', {}).get('directories', {}).get('log', 'logs')
-            )
-        log_display = os.path.join(run_dir, configured_log_dir)
+        log_display = os.path.join(run_dir, CANONICAL_RUN_PATHS['logs'])
         relative_log = os.path.relpath(log_display)
         # A relative path that climbs out of the working directory is harder to read
         # than the absolute one it stands for.
@@ -14289,20 +15654,23 @@ def sweep_workflow(args):
     """
     study_path = os.path.abspath(args.study)
     cluster_path = os.path.abspath(args.cluster)
+    workspace_root = find_workspace_root(study_path, cluster_path, os.getcwd())
+    if workspace_root:
+        enforce_workspace_version(workspace_root)
 
     study_cfg = read_yaml_file(study_path)
     cluster_cfg = read_yaml_file(cluster_path)
     validate_study_config(study_cfg, study_path)
     validate_cluster_config(cluster_cfg, cluster_path)
 
-    study_name = os.path.splitext(os.path.basename(study_path))[0]
+    study_name = case_run_label(study_cfg, study_path)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     study_id = f"{study_name}_{timestamp}"
-    study_dir = os.path.abspath(os.path.join("studies", study_id))
+    study_dir = os.path.join(workspace_artifact_root(workspace_root, "studies"), study_id)
     cases_dir = os.path.join(study_dir, "cases")
     scheduler_dir = os.path.join(study_dir, "scheduler")
-    results_dir = os.path.join(study_dir, "results")
-    for path in [cases_dir, scheduler_dir, results_dir]:
+    results_dir = os.path.join(study_dir, "output", "analysis")
+    for path in [cases_dir, scheduler_dir, results_dir, os.path.join(study_dir, "logs")]:
         os.makedirs(path, exist_ok=True)
 
     print(f"[INFO] Creating study directory: {os.path.relpath(study_dir)}")
@@ -14342,9 +15710,7 @@ def sweep_workflow(args):
         case_id = f"case_{idx:04d}"
         run_dir = os.path.join(cases_dir, case_id)
         config_dir = os.path.join(run_dir, "config")
-        os.makedirs(config_dir, exist_ok=True)
-        os.makedirs(os.path.join(run_dir, "logs"), exist_ok=True)
-        os.makedirs(os.path.join(run_dir, "output"), exist_ok=True)
+        ensure_run_layout(run_dir)
 
         case_cfg = copy.deepcopy(base_case)
         solver_cfg = copy.deepcopy(base_solver)
@@ -14367,9 +15733,21 @@ def sweep_workflow(args):
         write_yaml_file(solver_path, solver_cfg)
         write_yaml_file(monitor_path, monitor_cfg)
         write_yaml_file(post_path, post_cfg)
+        write_json_file(os.path.join(config_dir, "active.json"), {
+            "schema_version": 1,
+            "revision": "initial",
+            "updated_at": datetime.now().astimezone().isoformat(),
+            "files": {
+                "case": "config/case.yml",
+                "solver": "config/solver.yml",
+                "monitor": "config/monitor.yml",
+            },
+        })
 
         validate_simulation_configs(case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path)
         validate_post_config(post_cfg, post_path, monitor_cfg, case_cfg)
+
+        asset_lock = materialize_run_assets(run_dir, case_cfg, case_path)
 
         source_files = {'Case': case_path, 'Solver': solver_path, 'Monitor': monitor_path}
         monitor_files = prepare_monitor_files(run_dir, case_id, monitor_cfg, source_files)
@@ -14380,11 +15758,23 @@ def sweep_workflow(args):
             "walltime_guard_policy": resolve_walltime_guard_policy(cluster_cfg),
         }
         control_file = generate_solver_control_file(run_dir, case_id, configs, cluster_tasks, monitor_files)
+        archive_active_generated_configuration(
+            run_dir,
+            [control_file, monitor_files.get("whitelist"), monitor_files.get("profile"),
+             *glob.glob(os.path.join(config_dir, "bcs*.run"))],
+        )
 
         source_dir = resolve_post_source_directory(run_dir, monitor_cfg, post_cfg, strict=False)
         if not isinstance(post_cfg.get('source_data'), dict):
             post_cfg['source_data'] = {}
         post_cfg['source_data']['directory'] = source_dir
+        post_cfg, recipe_id = apply_canonical_post_paths(post_cfg, run_dir)
+        for relative in (
+            post_cfg["_picurv_paths"]["visualization"],
+            post_cfg["_picurv_paths"]["statistics"],
+            post_cfg["_picurv_paths"]["spectra"],
+        ):
+            os.makedirs(os.path.join(run_dir, relative), exist_ok=True)
         output_prefix = post_cfg.get("io", {}).get("output_filename_prefix", "post")
         post_recipe = generate_post_recipe_file(run_dir, case_id, post_cfg, {'Case': case_path, 'Post-Profile': post_path}, monitor_cfg)
 
@@ -14400,6 +15790,21 @@ def sweep_workflow(args):
             "post_diagnostic_args": shlex.join(build_petsc_diagnostics_args(monitor_cfg, run_dir, "PostProcessor")),
             "parameters": combo,
         })
+        write_json_file(
+            os.path.join(run_dir, "manifest.json"),
+            build_run_manifest(
+                run_dir, case_id, workspace_root=workspace_root, launch_mode="slurm",
+                num_procs=cluster_tasks, post_num_procs=cluster_tasks,
+                stages_requested={"solve": True, "post_process": True},
+                inputs={
+                    "case": _relative_to_workspace(case_path, workspace_root),
+                    "solver": _relative_to_workspace(solver_path, workspace_root),
+                    "monitor": _relative_to_workspace(monitor_path, workspace_root),
+                    "post": _relative_to_workspace(post_path, workspace_root),
+                },
+                asset_lock=asset_lock,
+            ),
+        )
 
     with open(case_index_file, "w") as f:
         for entry in case_entries:
@@ -14495,9 +15900,11 @@ def sweep_workflow(args):
     plots = generate_study_plots(study_cfg, metrics_csv, os.path.join(results_dir, "plots"))
 
     summary = {
+        "schema_version": 2,
+        "artifact_type": "study",
         "study_id": study_id,
         "created_at": datetime.now().isoformat(),
-        "git_commit": get_git_commit(),
+        "software": dict(PICURV_BUILD),
         "study_type": study_cfg.get("study_type"),
         "num_cases": len(case_entries),
         "paths": {
@@ -14560,7 +15967,7 @@ def sweep_continue_workflow(args):
 
     scheduler_dir = os.path.join(study_dir, "scheduler")
     cases_dir = os.path.join(study_dir, "cases")
-    results_dir = os.path.join(study_dir, "results")
+    results_dir = os.path.join(study_dir, "output", "analysis")
     case_index_file = os.path.join(scheduler_dir, "case_index.tsv")
     if not os.path.isfile(case_index_file):
         print(f"[FATAL] Case index not found: {case_index_file}", file=sys.stderr)
@@ -14811,7 +16218,7 @@ def sweep_reaggregate_workflow(args):
         entry["parameters"] = combo
         case_entries.append(entry)
 
-    results_dir = os.path.join(study_dir, "results")
+    results_dir = os.path.join(study_dir, "output", "analysis")
     metrics_csv = aggregate_study_metrics(study_cfg, case_entries, results_dir)
     plots = generate_study_plots(study_cfg, metrics_csv, os.path.join(results_dir, "plots"))
 
@@ -14931,8 +16338,6 @@ def _build_summary_context(run_dir: str) -> dict:
     manifest = _read_json_if_exists(os.path.join(run_dir, "manifest.json")) or {}
 
     io_cfg = monitor_cfg.get("io", {}) if isinstance(monitor_cfg, dict) else {}
-    io_dirs = io_cfg.get("directories", {}) if isinstance(io_cfg, dict) else {}
-    log_dir_name = io_dirs.get("log", "logs")
     scheduler_dir = os.path.join(run_dir, "scheduler")
 
     profiling_cfg = {"mode": "off", "functions": [], "timestep_file": "Profiling_Timestep_Summary.csv", "final_summary_enabled": True}
@@ -14957,7 +16362,7 @@ def _build_summary_context(run_dir: str) -> dict:
     return {
         "run_dir": run_dir,
         "config_dir": config_dir,
-        "log_dir": os.path.join(run_dir, log_dir_name),
+        "log_dir": os.path.join(run_dir, CANONICAL_RUN_PATHS["logs"]),
         "scheduler_dir": scheduler_dir,
         "monitor_cfg": monitor_cfg,
         "case_cfg": case_cfg,
@@ -15007,12 +16412,15 @@ def _build_run_overview(context: dict) -> dict:
     @return Curated run metadata mapping.
     """
     manifest = context["manifest"]
+    software = manifest.get("software") if isinstance(manifest.get("software"), dict) else {}
     return {
         "run_id": manifest.get("run_id", os.path.basename(context["run_dir"])),
         "run_dir": context["run_dir"],
         "created_at": manifest.get("created_at"),
         "launch_mode": manifest.get("launch_mode"),
-        "git_commit": manifest.get("git_commit"),
+        "release_version": software.get("release_version"),
+        "build_id": software.get("build_id"),
+        "git_commit": software.get("git_commit", manifest.get("git_commit")),
         "solver_num_procs": manifest.get("solver_num_procs", manifest.get("num_procs")),
         "post_num_procs": manifest.get("post_num_procs"),
         "stages_requested": manifest.get("stages_requested"),
@@ -15183,7 +16591,12 @@ def _build_monitor_overview(context: dict) -> dict:
             "data_output_frequency": io_cfg.get("data_output_frequency"),
             "particle_console_output_frequency": resolve_particle_console_output_frequency(io_cfg),
             "particle_log_interval": io_cfg.get("particle_log_interval"),
-            "directories": io_cfg.get("directories", {}),
+            "directories": {
+                "output": CANONICAL_RUN_PATHS["output"],
+                "restart": CANONICAL_RUN_PATHS["restart"],
+                "logs": CANONICAL_RUN_PATHS["logs"],
+                "analysis": CANONICAL_RUN_PATHS["analysis"],
+            },
         },
         "solver_monitoring": {
             "enabled_flags": sorted(flag for flag, value in monitoring_flags.items() if value not in (False, None)),
@@ -16593,6 +18006,8 @@ def _render_run_overview_text(summary: dict):
             ("Run directory", os.path.relpath(summary.get("run_dir")) if summary.get("run_dir") else None),
             ("Created", summary.get("created_at")),
             ("Launch mode", summary.get("launch_mode")),
+            ("PICurv release", summary.get("release_version")),
+            ("Build", summary.get("build_id")),
             ("Git commit", summary.get("git_commit")),
         ],
     )
@@ -17413,8 +18828,10 @@ def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
 
     lines = []
     if reference:
-        reference_path = os.path.join(context["run_dir"], "diagnostics",
-                                      "initial_condition_spectrum.csv")
+        reference_path = os.path.join(
+            context["run_dir"], CANONICAL_RUN_PATHS["spectra"],
+            "initial_condition_spectrum.csv",
+        )
         if os.path.isfile(reference_path):
             points = []
             with open(reference_path, "r", encoding="utf-8", errors="replace") as stream:
@@ -17447,7 +18864,9 @@ def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
         })
 
     name = matches[0][: -len(".csv")]
-    fallback = os.path.join(context["run_dir"], "summary", "plots", f"{name}.png")
+    fallback = os.path.join(
+        context["run_dir"], CANONICAL_RUN_PATHS["plots"], f"{name}.png"
+    )
     task_match = re.search(r"_(?P<field>[^_]+)_block(?P<block>\d+)_(?P<symbol>[^_]+)$", name)
     subtitle = None
     if task_match:
@@ -17560,7 +18979,10 @@ def _build_summary_plot_request(context: dict, records: list, series: str, last_
     use_log = not linear_y and field in _SUMMARY_PLOT_LOG_SCALE_FIELDS and all(value > 0 for value in all_values)
     window_token = f"last-{last_n}" if last_n is not None else "full"
     safe_series = re.sub(r"[^A-Za-z0-9_.-]+", "_", series)
-    fallback = os.path.join(context["run_dir"], "summary", "plots", f"{safe_series}_{window_token}.png")
+    fallback = os.path.join(
+        context["run_dir"], CANONICAL_RUN_PATHS["plots"],
+        f"{safe_series}_{window_token}.png",
+    )
     field_label = _summary_field_label(field)
     source_title = _SUMMARY_PLOT_SOURCE_TITLES.get(source, _humanize_plot_identifier(source))
     title = f"{source_title}: {field_label}"
@@ -18033,7 +19455,12 @@ def staged_control_directories(control_path: str) -> tuple:
     @param[in] control_path Path to a generated `.control` file.
     @return Tuple of (values, parse_errors).
     """
-    flag_to_key = {"-log_dir": "log", "-output_dir": "output"}
+    flag_to_key = {
+        "-log_dir": "log",
+        "-output_dir": "output",
+        "-restart_dir": "restart",
+        "-analysis_dir": "analysis",
+    }
     values: dict = {}
     parse_errors: list = []
     try:
@@ -18060,30 +19487,6 @@ def staged_control_directories(control_path: str) -> tuple:
         if len(tokens) >= 2 and tokens[0] in flag_to_key:
             values[flag_to_key[tokens[0]]] = tokens[1]
     return values, parse_errors
-
-
-def staged_unsafe_override(root_dir: str) -> bool:
-    """!
-    @brief Read the unsafe-paths override from a staged run's own monitor configuration.
-
-    @details Preflight must honour the same override the configuration layer does,
-             otherwise a run that was deliberately and validly staged with an escaping
-             path could never be submitted.
-    @param[in] root_dir Run directory being submitted.
-    @return True when the staged monitor sets the override to boolean true.
-    """
-    monitor_path = os.path.join(root_dir, "config", "monitor.yml")
-    if not os.path.isfile(monitor_path):
-        return False
-    try:
-        monitor_cfg = read_yaml_file(monitor_path)
-    except Exception:  # noqa: BLE001 - a malformed staged file must not grant an override
-        return False
-    dirs = ((monitor_cfg or {}).get("io") or {}).get("directories")
-    if not isinstance(dirs, dict):
-        return False
-    enabled, _ = resolve_unsafe_paths_override(dirs, monitor_path)
-    return enabled
 
 
 def preflight_config_directories(root_dir: str) -> list:
@@ -18125,26 +19528,35 @@ def preflight_staged_run_directories(root_dir: str) -> tuple:
     config_dirs = preflight_config_directories(root_dir)
     if not config_dirs:
         return errors, warnings
+    canonical = {
+        "log": CANONICAL_RUN_PATHS["logs"],
+        "output": CANONICAL_RUN_PATHS["output"],
+        "restart": CANONICAL_RUN_PATHS["restart"],
+        "analysis": CANONICAL_RUN_PATHS["metrics"],
+    }
     for config_dir in config_dirs:
         run_root = os.path.dirname(config_dir)
-        override = staged_unsafe_override(run_root)
         for control in sorted(glob.glob(os.path.join(config_dir, "*.control"))):
             staged, parse_errors = staged_control_directories(control)
             label = os.path.relpath(control)
             errors.extend(f"  {label}: {message}" for message in parse_errors)
             if not staged:
                 continue
+            for key, expected in canonical.items():
+                actual = staged.get(key)
+                if actual is not None and normalized_run_directory(actual) != expected:
+                    errors.append(
+                        f"  {label}: -{key}_dir is {actual!r}; the canonical value is "
+                        f"{expected!r}. Re-stage the run instead of editing its path flags."
+                    )
             effective = effective_run_directories(staged)
             control_errors, control_warnings = evaluate_run_directories(
-                effective, override, explicit=set(staged)
+                effective, False, explicit=set(staged)
             )
             errors.extend(f"  {label}: {message}" for message in control_errors)
             warnings.extend(f"  {label}: {message}" for message in control_warnings)
             for _, verdict, message in classify_physical_containment(run_root, effective):
-                if override and verdict in WAIVABLE_PHYSICAL_VERDICTS:
-                    warnings.append(f"  {label}: {message}")
-                else:
-                    errors.append(f"  {label}: {message}")
+                errors.append(f"  {label}: {message}")
     return errors, warnings
 
 
@@ -18186,7 +19598,7 @@ def submit_staged_jobs(args):
         for violation in preflight_errors:
             print(violation, file=sys.stderr)
         print(
-            "  Re-stage the run with a safe 'monitor.io.directories' value.",
+            "  Re-stage the run so PICurv regenerates its canonical path flags.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -18542,6 +19954,514 @@ def cancel_run_jobs(args):
         sys.exit(1)
 
 
+def _workspace_yaml_role(path: str):
+    """!
+    @brief Infer the owned workspace role of one copied YAML file.
+    @param[in] path YAML file copied from an example template.
+    @return One of case, solver, monitor, post, cluster, study, or None.
+    """
+    try:
+        payload = read_yaml_file(path)
+    except (OSError, ValueError):
+        return None
+    keys = set(payload)
+    if {"grid", "properties", "run_control"} <= keys:
+        return "case"
+    if "base_configs" in keys and ("study_type" in keys or "parameters" in keys or "parameter_sets" in keys):
+        return "study"
+    if "scheduler" in keys and "resources" in keys:
+        return "cluster"
+    if "source_data" in keys or "eulerian_pipeline" in keys or "lagrangian_pipeline" in keys:
+        return "post"
+    if "io" in keys and ("logging" in keys or "profiling" in keys or "diagnostics" in keys):
+        return "monitor"
+    if "momentum_solver" in keys or "poisson_solver" in keys or "operation_mode" in keys:
+        return "solver"
+    return None
+
+
+def _rewrite_workspace_path_values(value, replacements: dict):
+    """!
+    @brief Rewrite copied template path scalars to workspace-root-relative homes.
+    @param[in] value YAML subtree to rewrite.
+    @param[in] replacements Old relative/basename paths mapped to new workspace paths.
+    @return Rewritten YAML subtree.
+    """
+    if isinstance(value, dict):
+        return {key: _rewrite_workspace_path_values(item, replacements) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_rewrite_workspace_path_values(item, replacements) for item in value]
+    if not isinstance(value, str):
+        return value
+    normalized = value.replace("\\", "/").lstrip("./")
+    return replacements.get(normalized, replacements.get(os.path.basename(normalized), value))
+
+
+def _choose_primary_workspace_role(candidates: list, role: str, template_name: str):
+    """!
+    @brief Select the canonical role file from a template that may carry variants.
+    @param[in] candidates Candidate absolute YAML paths.
+    @param[in] role Config role being selected.
+    @param[in] template_name Source example directory name.
+    @return Selected absolute path or None.
+    """
+    if not candidates:
+        return None
+    preferred = {
+        "case": ("case.yml", f"{template_name}.yml", "master_case.yml"),
+        "solver": ("solver.yml", "Imp-MG-Standard.yml", "master_solver.yml"),
+        "monitor": ("monitor.yml", "Standard_Output.yml", "master_monitor.yml"),
+        "post": ("post.yml", "standard_analysis.yml", "master_postprocessor.yml"),
+        "cluster": ("cluster.yml", "slurm_cluster.yml", "master_cluster.yml"),
+    }.get(role, ())
+    by_name = {os.path.basename(path): path for path in candidates}
+    for name in preferred:
+        if name in by_name:
+            return by_name[name]
+    return sorted(candidates)[0]
+
+
+def organize_initialized_workspace(workspace_root: str, template_name: str,
+                                   source_template_root: str = None) -> dict:
+    """!
+    @brief Convert a copied example into the canonical editable workspace layout.
+    @param[in] workspace_root Newly copied workspace root.
+    @param[in] template_name Example template identity.
+    @param[in] source_template_root Optional original template root used to vendor references.
+    @return Mapping of canonical config roles and relocated imported inputs.
+    """
+    workspace_root = os.path.abspath(workspace_root)
+    ensure_workspace_layout(workspace_root)
+    yaml_files = [
+        str(path) for path in Path(workspace_root).rglob("*.yml")
+        if path.name not in {RUNTIME_EXECUTION_EXAMPLE_FILENAME, RUNTIME_EXECUTION_CONFIG_FILENAME}
+        and "runs" not in path.parts and "studies" not in path.parts
+    ]
+    yaml_files.extend(
+        str(path) for path in Path(workspace_root).rglob("*.yaml")
+        if path.name not in {RUNTIME_EXECUTION_EXAMPLE_FILENAME, RUNTIME_EXECUTION_CONFIG_FILENAME}
+        and "runs" not in path.parts and "studies" not in path.parts
+    )
+    vendored_replacements = {}
+    if source_template_root:
+        source_template_root = os.path.abspath(source_template_root)
+
+        def vendor_references(value, source_yaml: str, dotted: str = ""):
+            """!
+            @brief Vendor referenced generator inputs into canonical workspace homes.
+            @param[in] value YAML subtree to inspect.
+            @param[in] source_yaml Original template YAML path.
+            @param[in] dotted Current dotted key path.
+            @return None.
+            """
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    vendor_references(child, source_yaml, f"{dotted}.{key}" if dotted else str(key))
+                return
+            if isinstance(value, list):
+                for index, child in enumerate(value):
+                    vendor_references(child, source_yaml, f"{dotted}[{index}]")
+                return
+            key = dotted.rsplit(".", 1)[-1]
+            if key not in _VENDORABLE_CONFIG_REFERENCE_KEYS or not isinstance(value, str) or not value.strip():
+                return
+            origin = os.path.abspath(os.path.join(os.path.dirname(source_yaml), value))
+            if not os.path.isfile(origin):
+                return
+            if key == "script":
+                home = "config/generators"
+            elif "grid" in dotted:
+                home = "config/grids"
+            elif "initial_condition" in dotted:
+                home = "config/initial_conditions"
+            elif "inlet" in dotted or "boundary_conditions" in dotted:
+                home = "config/inlet_profiles"
+            else:
+                home = "config"
+            destination = os.path.join(workspace_root, *home.split("/"), os.path.basename(origin))
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            if not os.path.exists(destination):
+                shutil.copy2(origin, destination)
+            relative = os.path.relpath(destination, workspace_root).replace(os.sep, "/")
+            vendored_replacements[value.replace("\\", "/").lstrip("./")] = relative
+            vendored_replacements[os.path.basename(value)] = relative
+
+        for copied_yaml in sorted(set(yaml_files)):
+            relative = os.path.relpath(copied_yaml, workspace_root)
+            source_yaml = os.path.join(source_template_root, relative)
+            if not os.path.isfile(source_yaml):
+                continue
+            try:
+                vendor_references(read_yaml_file(copied_yaml), source_yaml)
+            except (OSError, ValueError):
+                continue
+    roles = {}
+    for path in sorted(set(yaml_files)):
+        role = _workspace_yaml_role(path)
+        if role:
+            roles.setdefault(role, []).append(path)
+
+    selected = {
+        role: _choose_primary_workspace_role(paths, role, template_name)
+        for role, paths in roles.items() if role != "study"
+    }
+    destinations = {}
+    occupied = set()
+    for role, paths in roles.items():
+        for source in paths:
+            if role == "study":
+                relative = os.path.join("config", "studies", os.path.basename(source))
+            elif source == selected.get(role):
+                relative = os.path.join("config", f"{role}.yml")
+            else:
+                relative = os.path.join("config", os.path.basename(source))
+            destination = os.path.join(workspace_root, relative)
+            if os.path.abspath(source) == os.path.abspath(destination):
+                destinations[source] = relative.replace(os.sep, "/")
+                occupied.add(os.path.abspath(destination))
+                continue
+            if os.path.abspath(destination) in occupied or os.path.exists(destination):
+                original_relative = os.path.relpath(source, workspace_root)
+                relative = os.path.join("config", "variants", original_relative)
+                destination = os.path.join(workspace_root, relative)
+                counter = 2
+                while os.path.abspath(destination) in occupied or os.path.exists(destination):
+                    stem, suffix = os.path.splitext(relative)
+                    destination = os.path.join(workspace_root, f"{stem}-{counter}{suffix}")
+                    counter += 1
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            shutil.move(source, destination)
+            destinations[source] = relative.replace(os.sep, "/")
+            occupied.add(os.path.abspath(destination))
+
+    input_extensions = {
+        ".picgrid": "inputs/grids",
+        ".vts": "inputs/grids",
+        ".picslice": "inputs/inlet_profiles",
+        ".dat": "inputs/initial_conditions",
+    }
+    input_moves = {}
+    for path in sorted(Path(workspace_root).rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in input_extensions:
+            continue
+        if any(part in _WORKSPACE_MANAGED_PATHS for part in path.relative_to(workspace_root).parts):
+            continue
+        destination_dir = os.path.join(workspace_root, *input_extensions[path.suffix.lower()].split("/"))
+        destination = os.path.join(destination_dir, path.name)
+        if os.path.exists(destination):
+            continue
+        old_relative = path.relative_to(workspace_root).as_posix()
+        shutil.move(str(path), destination)
+        new_relative = os.path.relpath(destination, workspace_root).replace(os.sep, "/")
+        input_moves[old_relative] = new_relative
+        input_moves[path.name] = new_relative
+
+    config_replacements = {}
+    basename_counts = {}
+    for source in destinations:
+        basename = os.path.basename(source)
+        basename_counts[basename] = basename_counts.get(basename, 0) + 1
+    for source, relative in destinations.items():
+        old_relative = os.path.relpath(source, workspace_root).replace(os.sep, "/")
+        config_replacements[old_relative] = relative
+        if basename_counts[os.path.basename(source)] == 1:
+            config_replacements[os.path.basename(source)] = relative
+    replacements = {**config_replacements, **input_moves, **vendored_replacements}
+    for path in sorted(Path(workspace_root, "config").rglob("*.yml")):
+        payload = read_yaml_file(str(path))
+        local_replacements = dict(replacements)
+        original_source = next(
+            (
+                source for source, relative in destinations.items()
+                if os.path.abspath(os.path.join(workspace_root, relative)) == os.path.abspath(path)
+            ),
+            None,
+        )
+        if original_source:
+            original_parent = os.path.dirname(original_source)
+            for candidate_source, candidate_relative in destinations.items():
+                relative_reference = os.path.relpath(candidate_source, original_parent).replace(os.sep, "/")
+                local_replacements[relative_reference] = candidate_relative
+                if os.path.dirname(candidate_source) == original_parent:
+                    local_replacements[os.path.basename(candidate_source)] = candidate_relative
+        rewritten = _rewrite_workspace_path_values(payload, local_replacements)
+        role = _workspace_yaml_role(str(path))
+        if role == "monitor" and isinstance(rewritten.get("io"), dict):
+            rewritten["io"].pop("directories", None)
+        if role == "case" and path == Path(workspace_root, "config", "case.yml"):
+            rewritten.setdefault("title", template_name)
+        if role == "post":
+            if isinstance(rewritten.get("source_data"), dict):
+                rewritten["source_data"].pop("directory", None)
+            if isinstance(rewritten.get("io"), dict):
+                rewritten["io"].pop("output_directory", None)
+        if role == "study" and isinstance(rewritten.get("base_configs"), dict):
+            for role in ("case", "solver", "monitor", "post"):
+                canonical = os.path.join("config", f"{role}.yml").replace(os.sep, "/")
+                if os.path.isfile(os.path.join(workspace_root, canonical)):
+                    rewritten["base_configs"][role] = canonical
+        write_yaml_file(str(path), rewritten)
+
+    workspace_payload = {
+        "schema_version": WORKSPACE_SCHEMA_VERSION,
+        "workspace": {
+            "id": os.path.basename(workspace_root),
+            "template": template_name,
+            "created_at": datetime.now().astimezone().isoformat(),
+        },
+        "software": {},
+        "paths": {
+            "config": "config",
+            "inputs": "inputs",
+            "assets": "assets",
+            "runs": "runs",
+            "studies": "studies",
+        },
+    }
+    write_yaml_file(os.path.join(workspace_root, WORKSPACE_CONFIG_FILENAME), workspace_payload)
+    return {
+        "workspace_config": os.path.join(workspace_root, WORKSPACE_CONFIG_FILENAME),
+        "canonical_roles": {
+            role: os.path.join(workspace_root, "config", f"{role}.yml")
+            for role in ("case", "solver", "monitor", "post", "cluster")
+            if os.path.isfile(os.path.join(workspace_root, "config", f"{role}.yml"))
+        },
+        "input_moves": input_moves,
+    }
+
+
+WORKSPACE_INPUT_DIRECTORIES = {
+    "grid": "inputs/grids",
+    "initial-condition": "inputs/initial_conditions",
+    "inlet-profile": "inputs/inlet_profiles",
+    "reference-field": "inputs/reference_fields",
+}
+
+
+def import_workspace_input(workspace_root: str, kind: str, source: str,
+                           name: str = None, mode: str = "copy") -> dict:
+    """!
+    @brief Explicitly import or register one workspace input.
+    @param[in] workspace_root Initialized workspace root.
+    @param[in] kind Semantic input kind.
+    @param[in] source Existing source file path.
+    @param[in] name Optional destination basename.
+    @param[in] mode Copy, reflink, hardlink, or external-reference mode.
+    @return Catalog entry describing the durable input identity.
+    """
+    workspace_root = os.path.abspath(workspace_root)
+    load_workspace_config(workspace_root)
+    ensure_workspace_layout(workspace_root)
+    if kind not in WORKSPACE_INPUT_DIRECTORIES:
+        raise ValueError(f"Unsupported input kind: {kind}")
+    source = os.path.abspath(os.path.expanduser(source))
+    if not os.path.isfile(source):
+        raise ValueError(f"Input source is not a file: {source}")
+    basename = name or os.path.basename(source)
+    if basename != os.path.basename(basename) or basename in _PLAIN_FILENAME_SENTINELS:
+        raise ValueError("--name must be a plain filename without directory traversal.")
+    target_dir = os.path.join(workspace_root, *WORKSPACE_INPUT_DIRECTORIES[kind].split("/"))
+    os.makedirs(target_dir, exist_ok=True)
+    if mode == "reference":
+        destination = os.path.join(target_dir, basename + ".reference.yml")
+        write_yaml_file(destination, {
+            "schema_version": 1,
+            "picurv_external_reference": source,
+            "sha256_at_registration": _asset_file_sha256(source),
+            "bytes_at_registration": os.path.getsize(source),
+        })
+    else:
+        destination = os.path.join(target_dir, basename)
+        if os.path.exists(destination):
+            raise ValueError(f"Workspace input already exists: {destination}")
+        temporary = f"{destination}.tmp.{os.getpid()}"
+        try:
+            if mode == "copy":
+                shutil.copy2(source, temporary)
+            elif mode == "hardlink":
+                os.link(source, temporary)
+            elif mode == "reflink":
+                cp = shutil.which("cp")
+                if not cp:
+                    raise ValueError("reflink mode requires the 'cp' command.")
+                result = subprocess.run(
+                    [cp, "--reflink=always", "--preserve=mode,timestamps", source, temporary],
+                    text=True, capture_output=True, check=False,
+                )
+                if result.returncode != 0:
+                    raise ValueError((result.stderr or "reflink copy failed").strip())
+            else:
+                raise ValueError(f"Unsupported import mode: {mode}")
+            os.replace(temporary, destination)
+        finally:
+            if os.path.lexists(temporary):
+                os.remove(temporary)
+    relative = os.path.relpath(destination, workspace_root).replace(os.sep, "/")
+    entry_id = _stable_mapping_sha256({"kind": kind, "path": relative, "source": source})[:16]
+    catalog_path = os.path.join(workspace_root, "inputs", "catalog.yml")
+    catalog = read_yaml_file(catalog_path) if os.path.isfile(catalog_path) else {
+        "schema_version": 1, "inputs": {}
+    }
+    catalog.setdefault("inputs", {})[entry_id] = {
+        "kind": kind,
+        "path": relative,
+        "mode": mode,
+        "sha256": _asset_file_sha256(source),
+        "bytes": os.path.getsize(source),
+        "source": source if mode == "reference" else None,
+        "registered_at": datetime.now().astimezone().isoformat(),
+    }
+    write_yaml_file(catalog_path, catalog)
+    return {"id": entry_id, **catalog["inputs"][entry_id]}
+
+
+def inputs_workflow(args):
+    """!
+    @brief Handle explicit workspace input management.
+    @param[in] args Parsed inputs command arguments.
+    @return None.
+    """
+    workspace_root = os.path.abspath(args.workspace) if args.workspace else find_workspace_root(os.getcwd())
+    if not workspace_root:
+        raise ValueError("No initialized workspace found; run picurv init first or pass --workspace.")
+    if args.inputs_action != "import":
+        raise ValueError(f"Unsupported inputs action: {args.inputs_action}")
+    entry = import_workspace_input(
+        workspace_root, args.kind, args.source, name=args.name, mode=args.mode
+    )
+    print(f"[SUCCESS] Registered input {entry['id']}: {entry['path']}")
+    if entry["mode"] == "reference":
+        print("[WARNING] This is an external reference. Storage will record it but will not copy or prune its target.")
+
+
+def version_workflow(args):
+    """!
+    @brief Report the one build identity shared by conductor and native executables.
+    @param[in] args Parsed version command arguments.
+    @return None.
+    """
+    workspace_root = find_workspace_root(os.getcwd())
+    payload = dict(PICURV_BUILD)
+    payload["source_root"] = PACKAGE_PROJECT_ROOT
+    payload["workspace"] = workspace_root
+    payload["workspace_requirement"] = None
+    if workspace_root:
+        software = load_workspace_config(workspace_root).get("software") or {}
+        payload["workspace_requirement"] = software.get("picurv") if isinstance(software, dict) else None
+    if getattr(args, "output_format", "text") == "json":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return
+    print(f"PICurv release : {payload['release_version']}")
+    print(f"Build identity : {payload['build_id']}")
+    print(f"Git commit     : {payload.get('git_commit') or 'unavailable'}")
+    print(f"Dirty tree     : {payload.get('dirty') if payload.get('dirty') is not None else 'unknown'}")
+    if workspace_root:
+        print(f"Workspace      : {workspace_root}")
+        print(f"Requirement    : {payload['workspace_requirement'] or 'latest active version'}")
+
+
+def _require_clean_source_checkout(action: str) -> None:
+    """!
+    @brief Refuse version-changing Git operations in a dirty source checkout.
+    @param[in] action User-facing action name.
+    @return None.
+    """
+    result = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=PACKAGE_PROJECT_ROOT,
+        text=True, capture_output=True, check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"{action}: cannot inspect the PICurv Git checkout.")
+    if result.stdout.strip():
+        raise ValueError(
+            f"{action}: the PICurv source checkout has uncommitted changes. "
+            "Commit or stash them before changing versions."
+        )
+
+
+def _git_source_command(arguments: list) -> subprocess.CompletedProcess:
+    """!
+    @brief Run a checked Git command against the active PICurv source checkout.
+    @param[in] arguments Git arguments excluding the executable.
+    @return Completed successful Git process.
+    """
+    result = subprocess.run(
+        ["git", *arguments], cwd=PACKAGE_PROJECT_ROOT,
+        text=True, capture_output=True, check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError((result.stderr or result.stdout or "Git command failed.").strip())
+    return result
+
+
+def source_workflow(args):
+    """!
+    @brief Fetch source history without silently changing the active code.
+    @param[in] args Parsed source command arguments.
+    @return None.
+    """
+    if args.source_action != "update":
+        raise ValueError(f"Unsupported source action: {args.source_action}")
+    _git_source_command(["fetch", "--tags", "--prune", args.remote])
+    print(f"[SUCCESS] Fetched branches and tags from {args.remote}; active checkout was not changed.")
+
+
+def _workspace_requested_version(workspace_root: str):
+    """!
+    @brief Resolve an exact version requested by an initialized workspace.
+    @param[in] workspace_root Initialized workspace root.
+    @return Exact version or tag text.
+    """
+    software = load_workspace_config(workspace_root).get("software") or {}
+    requirement = software.get("picurv") if isinstance(software, dict) else None
+    if not requirement:
+        raise ValueError(
+            f"{workspace_root}/{WORKSPACE_CONFIG_FILENAME} has no software.picurv pin; "
+            "name a version explicitly."
+        )
+    if any(token in str(requirement) for token in "<>=!~,*"):
+        raise ValueError(
+            "Automatic activation needs an exact release/tag, not a version range. "
+            f"Pass the desired version explicitly (workspace requires {requirement!r})."
+        )
+    return str(requirement)
+
+
+def versions_workflow(args):
+    """!
+    @brief List or activate a release using the existing source/build owners.
+    @param[in] args Parsed versions command arguments.
+    @return None.
+    """
+    action = args.versions_action
+    if action == "list":
+        result = _git_source_command(["tag", "--list", "--sort=-version:refname"])
+        print(f"Active: {PICURV_BUILD['build_id']}")
+        tags = [line for line in result.stdout.splitlines() if line.strip()]
+        if tags:
+            print("Installed/available tags:")
+            for tag in tags:
+                print(f"  {tag}")
+        else:
+            print("No version tags are present in this checkout.")
+        return
+    version = getattr(args, "version", None)
+    if action == "activate" and not version:
+        workspace_root = os.path.abspath(args.workspace) if args.workspace else find_workspace_root(os.getcwd())
+        if not workspace_root:
+            raise ValueError("No workspace found and no version was named.")
+        version = _workspace_requested_version(workspace_root)
+    if action not in _VERSION_BUILD_ACTIONS:
+        raise ValueError(f"Unsupported versions action: {action}")
+    _require_clean_source_checkout(f"versions {action}")
+    _git_source_command(["fetch", "--tags", "origin"])
+    _git_source_command(["checkout", "--detach", str(version)])
+    result = subprocess.run(["make", "all"], cwd=PACKAGE_PROJECT_ROOT, check=False)
+    if result.returncode != 0:
+        raise ValueError(f"Build failed after activating {version!r}.")
+    print(f"[SUCCESS] Activated and built PICurv {version}.")
+
+
 def init_case(args):
     """!
     @brief Implements the 'init' command.
@@ -18575,6 +20495,20 @@ def init_case(args):
         os.remove(copied_runtime_example)
 
     try:
+        workspace_layout = organize_initialized_workspace(
+            dest_path, args.template_name, source_template_root=template_path
+        )
+        print(f"[INFO] Wrote workspace identity: {os.path.relpath(workspace_layout['workspace_config'])}")
+        if workspace_layout["canonical_roles"]:
+            print("[INFO] Canonical editable configurations:")
+            for role, path in sorted(workspace_layout["canonical_roles"].items()):
+                print(f"  - {role}: {os.path.relpath(path)}")
+    except Exception as exc:
+        print(f"[FATAL] Failed to create canonical workspace layout: {exc}", file=sys.stderr)
+        shutil.rmtree(dest_path, ignore_errors=True)
+        sys.exit(1)
+
+    try:
         runtime_result = ensure_case_runtime_execution_config(dest_path, source_project_root, overwrite=True)
         print(f"[INFO] Wrote optional runtime launcher config: {os.path.relpath(runtime_result['path'])}")
         if runtime_result["seed_source"] and os.path.basename(runtime_result["seed_source"]) == RUNTIME_EXECUTION_CONFIG_FILENAME:
@@ -18601,7 +20535,8 @@ def init_case(args):
         {
             os.path.basename(path)
             for pattern in ("*cluster*.yml", "*cluster*.yaml")
-            for path in glob.glob(os.path.join(dest_path, pattern))
+            for search_root in (dest_path, os.path.join(dest_path, "config"))
+            for path in glob.glob(os.path.join(search_root, pattern))
         }
     )
     if cluster_profile_candidates:
@@ -18623,8 +20558,8 @@ def init_case(args):
             print("          No binaries were pinned. Run 'picurv build' first.", file=sys.stderr)
     else:
         print("[SUCCESS] Case directory is ready.")
-        print("          Runtime binaries (simulator, postprocessor) are resolved from bin/ automatically.")
-        print("          To pin specific binary versions, re-run with --pin-binaries or use: picurv sync-binaries")
+        print("          Runtime binaries (simulator, postprocessor) are resolved from the active PICurv installation.")
+        print("          Pin software.picurv in .picurv-workspace.yml only when this workspace needs a release constraint.")
     print("          Ensure 'picurv' is on your PATH (source etc/picurv.sh) to run from any directory.")
 
 

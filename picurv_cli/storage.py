@@ -12,8 +12,10 @@ leaves a small local state marker whenever payload data is pruned.
 
 import argparse
 import base64
+import concurrent.futures
 import contextlib
 import datetime
+import errno
 import hashlib
 import json
 import os
@@ -39,12 +41,17 @@ REMOTE_MANIFEST_FILENAME = "manifest.json"
 REMOTE_COMPLETE_FILENAME = "COMPLETE"
 DEFAULT_PROFILE_NAME = "archive"
 DEFAULT_CHUNK_SIZE_GIB = 8.0
+DEFAULT_STORAGE_WORKERS = max(1, min(8, os.cpu_count() or 1))
 AUTO_NO_COMPRESSION_BYTES = 256 * 1024 * 1024
 AUTO_MAXIMUM_COMPRESSION_BYTES = 20 * 1024 * 1024 * 1024
 CHECKPOINT_DIRECTORY_PATTERN = re.compile(r"^step_(\d{12})$")
 INCOMPLETE_CHECKPOINT_PATTERN = re.compile(r"^\.step_\d{12}\.incomplete\.")
 ARCHIVE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 KNOWN_CHECKPOINT_VERSION = 1
+STORAGE_RESTORE_COMPONENTS = (
+    "inputs", "raw-output", "analysis", "visualization", "logs", "assets"
+)
+_PARALLEL_GZIP_VALUES = {"fast", "balanced"}
 
 
 class StorageError(RuntimeError):
@@ -192,6 +199,21 @@ def load_storage_profile(profile_name: str = None, config_path: str = None) -> d
     if chunk_size_gib <= 0.0:
         raise StorageError(f"Storage profile '{selected}' chunk_size_gib must be positive.")
     result["chunk_size_bytes"] = int(chunk_size_gib * 1024 ** 3)
+    try:
+        workers = int(result.get("workers", DEFAULT_STORAGE_WORKERS))
+    except (TypeError, ValueError) as exc:
+        raise StorageError(f"Storage profile '{selected}' workers must be an integer.") from exc
+    if workers <= 0:
+        raise StorageError(f"Storage profile '{selected}' workers must be positive.")
+    result["workers"] = workers
+    offload_policy = str(result.get("offload_policy", "metadata-only"))
+    if offload_policy not in STORAGE_OFFLOAD_POLICIES:
+        raise StorageError(
+            f"Storage profile '{selected}' offload_policy must be one of: "
+            + ", ".join(STORAGE_OFFLOAD_POLICIES)
+        )
+    result["offload_policy"] = offload_policy
+    result["keep_latest_checkpoint"] = bool(result.get("keep_latest_checkpoint", False))
     return result
 
 
@@ -397,6 +419,7 @@ def require_storage_payload_local(
     if checkpoints is not None:
         required_steps.update(int(step) for step in checkpoints)
     restored = set(state.get("restored_components") or [])
+    restored.update(state.get("retained_components") or [])
     missing_steps = sorted(
         step for step in required_steps if f"checkpoint:{step}" not in restored
     )
@@ -547,52 +570,25 @@ def _artifact_runtime_roots(root: str) -> list:
 
 def _discover_external_paths(root: str) -> list:
     """!
-    @brief Report configured data paths that escape the archived directory boundary.
+    @brief Report explicit external-reference descriptors inside an artifact.
     @param[in] root Value supplied through the `root` argument.
     @return Result produced by this operation.
     """
-    archive_root = os.path.abspath(root)
     external = []
-    for runtime_root in _artifact_runtime_roots(root):
-        config_dir = os.path.join(runtime_root, "config")
-        source_prefix = os.path.relpath(runtime_root, archive_root).replace(os.sep, "/")
-        source_prefix = "" if source_prefix == "." else source_prefix + ":"
-        monitor_path = os.path.join(config_dir, "monitor.yml")
-        if os.path.isfile(monitor_path):
-            try:
-                with open(monitor_path, "r", encoding="utf-8") as stream:
-                    monitor = yaml.safe_load(stream) or {}
-                directories = ((monitor.get("io") or {}).get("directories") or {})
-                if isinstance(directories, dict):
-                    for key, value in directories.items():
-                        if isinstance(value, str) and value.strip():
-                            resolved = _resolve_configured_path(runtime_root, value.strip())
-                            if not _path_is_within(archive_root, resolved):
-                                external.append({
-                                    "source": f"{source_prefix}monitor.io.directories.{key}",
-                                    "path": resolved,
-                                })
-            except (OSError, ValueError, TypeError):
-                pass
-        post_path = os.path.join(config_dir, "post.yml")
-        if not os.path.isfile(post_path):
-            continue
+    archive_root = os.path.abspath(root)
+    for descriptor in Path(archive_root).glob("**/*.reference.yml"):
         try:
-            with open(post_path, "r", encoding="utf-8") as stream:
-                post = yaml.safe_load(stream) or {}
-            values = [
-                ("post.io.output_directory", (post.get("io") or {}).get("output_directory")),
-                ("post.source_data.directory", (post.get("source_data") or {}).get("directory")),
-            ]
-            for source, value in values:
-                if not isinstance(value, str) or not value.strip() or value == "<solver_output_dir>":
-                    continue
-                resolved = _resolve_configured_path(runtime_root, value.strip())
-                if not _path_is_within(archive_root, resolved):
-                    external.append({"source": f"{source_prefix}{source}", "path": resolved})
+            with descriptor.open("r", encoding="utf-8") as stream:
+                payload = yaml.safe_load(stream) or {}
+            target = payload.get("picurv_external_reference")
+            if isinstance(target, str) and os.path.isabs(target):
+                external.append({
+                    "source": os.path.relpath(descriptor, archive_root).replace(os.sep, "/"),
+                    "path": os.path.abspath(target),
+                })
         except (OSError, ValueError, TypeError):
             pass
-    return external
+    return sorted(external, key=lambda item: (item["source"], item["path"]))
 
 
 def _discover_dependencies(root: str) -> list:
@@ -699,19 +695,32 @@ def _classify_component(relative_path: str) -> str:
     if checkpoint:
         return checkpoint
     parts = relative_path.split("/")
-    first = parts[0]
+    component_parts = parts
+    first = component_parts[0]
     base = os.path.basename(relative_path)
     if len(parts) >= 3 and parts[0] == "cases" and re.fullmatch(r"case_\d+", parts[1]):
-        first = parts[2]
+        component_parts = parts[2:]
+        first = component_parts[0]
     if first in {"config", "scheduler"} or base in {
         "manifest.json", "study_manifest.json", "study.yml", "cluster.yml"
     }:
         return "metadata"
+    if first == "inputs":
+        return "inputs"
+    if first == "assets":
+        return "assets"
+    if first == "output":
+        nested = component_parts[1] if len(component_parts) > 1 else ""
+        if nested == "analysis":
+            return "analysis"
+        if nested == "visualization":
+            return "visualization"
+        return "raw-output"
     if first == "results":
-        return "results"
+        return "analysis"
     if first == "logs":
         return "logs"
-    return "data"
+    return "payload"
 
 
 def _checkpoint_steps(entries: list) -> list:
@@ -805,21 +814,32 @@ def _slurm_activity(root: str) -> dict:
     squeue = shutil.which("squeue")
     if not squeue:
         return {"job_ids": sorted(job_ids), "active": [], "unknown": True}
-    result = subprocess.run(
-        [squeue, "-h", "-j", ",".join(sorted(job_ids)), "-o", "%i|%T"],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        return {"job_ids": sorted(job_ids), "active": [], "unknown": True}
     active = []
-    for line in result.stdout.splitlines():
-        if not line.strip():
+    unknown_ids = []
+    for recorded_id in sorted(job_ids):
+        result = subprocess.run(
+            [squeue, "-h", "-j", recorded_id, "-o", "%i|%T"],
+            text=True, capture_output=True, check=False,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").lower()
+            # Slurm returns nonzero for a valid historical/purged job id. Such an id
+            # cannot be queued, so it is inactive rather than an ambiguous failure.
+            if "invalid job id" in detail or "invalid job/step" in detail:
+                continue
+            unknown_ids.append(recorded_id)
             continue
-        job_id, _, state = line.partition("|")
-        active.append({"job_id": job_id.strip(), "state": state.strip() or "UNKNOWN"})
-    return {"job_ids": sorted(job_ids), "active": active, "unknown": False}
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                continue
+            job_id, _, state = line.partition("|")
+            active.append({"job_id": job_id.strip(), "state": state.strip() or "UNKNOWN"})
+    return {
+        "job_ids": sorted(job_ids),
+        "active": active,
+        "unknown": bool(unknown_ids),
+        "unknown_job_ids": unknown_ids,
+    }
 
 
 def inspect_artifact(target: dict, query_scheduler: bool = True) -> dict:
@@ -945,6 +965,7 @@ CLI_OUTPUT_FORMATS = ("text", "json")
 #: Archive compression policies `picurv storage` accepts. `auto` resolves to one of
 #: the concrete policies from the payload size.
 STORAGE_COMPRESSION_POLICIES = ("auto", "none", "fast", "balanced", "maximum")
+STORAGE_OFFLOAD_POLICIES = ("metadata-only", "restart-ready", "analysis-ready")
 
 #: Archive suffix each resolved compression policy produces. `auto` never appears
 #: here: it resolves to one of the concrete policies before an extension is needed.
@@ -1026,14 +1047,58 @@ def _safe_component_name(component: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "-", component).strip("-") or "data"
 
 
-def _write_tar_chunk(root: str, spec: dict, destination: str, compression: str) -> None:
+def _write_tar_chunk(root: str, spec: dict, destination: str, compression: str,
+                     workers: int = 1) -> str:
     """!
     @brief Package explicitly inventoried entries without following symlinks.
     @param[in] root Value supplied through the `root` argument.
     @param[in] spec Value supplied through the `spec` argument.
     @param[in] destination Value supplied through the `destination` argument.
     @param[in] compression Value supplied through the `compression` argument.
+    @param[in] workers Maximum compressor worker count.
+    @return Compressor implementation used for the archive chunk.
     """
+    tar_executable = shutil.which("tar")
+    compressor = None
+    compressor_args = []
+    if compression in _PARALLEL_GZIP_VALUES and shutil.which("pigz"):
+        compressor = shutil.which("pigz")
+        compressor_args = [compressor, "-c", "-p", str(workers), "-1" if compression == "fast" else "-6"]
+    elif compression == "maximum" and shutil.which("xz"):
+        compressor = shutil.which("xz")
+        compressor_args = [compressor, "-c", "-T", str(workers), "-9e"]
+    if compressor and tar_executable:
+        list_file = tempfile.NamedTemporaryFile(prefix="picurv-tar-list-", delete=False)
+        try:
+            list_file.write(b"\0".join(path.encode("utf-8") for path in spec["entries"]) + b"\0")
+            list_file.close()
+            tar_command = [
+                tar_executable, "-C", root, "--null", "--verbatim-files-from", "--no-recursion",
+                "-T", list_file.name, "-cf", "-",
+            ]
+            with tempfile.TemporaryFile() as tar_stderr, open(destination, "wb") as output:
+                producer = subprocess.Popen(tar_command, stdout=subprocess.PIPE, stderr=tar_stderr)
+                consumer = subprocess.Popen(
+                    compressor_args, stdin=producer.stdout, stdout=output, stderr=subprocess.PIPE
+                )
+                producer.stdout.close()
+                _, compressor_stderr = consumer.communicate()
+                producer_code = producer.wait()
+                if producer_code != 0 or consumer.returncode != 0:
+                    tar_stderr.seek(0)
+                    detail = (
+                        tar_stderr.read().decode("utf-8", "replace")
+                        or compressor_stderr.decode("utf-8", "replace")
+                        or "parallel archive command failed"
+                    ).strip()
+                    raise StorageError(detail)
+            return f"{os.path.basename(compressor)}:{workers}"
+        finally:
+            try:
+                os.remove(list_file.name)
+            except FileNotFoundError:
+                pass
+
     kwargs = {}
     if compression == "none":
         mode = "w"
@@ -1052,6 +1117,7 @@ def _write_tar_chunk(root: str, spec: dict, destination: str, compression: str) 
             if not os.path.lexists(source):
                 raise StorageError(f"Artifact changed during packaging; entry disappeared: {source}")
             archive.add(source, arcname=relative, recursive=False)
+    return "python-tarfile"
 
 
 def _capture_study_context(target: dict) -> list:
@@ -1079,6 +1145,55 @@ def _capture_study_context(target: dict) -> list:
             "mode": int(path.stat().st_mode & 0o7777),
             "content_base64": base64.b64encode(path.read_bytes()).decode("ascii"),
         })
+    return captured
+
+
+def _capture_run_assets(root: str) -> list:
+    """!
+    @brief Record reusable asset references carried by run-local input snapshots.
+    @param[in] root Run or study artifact root.
+    @return Portable asset references for the remote archive catalog.
+    """
+    captured = []
+    archive_root = Path(os.path.abspath(root))
+    for runtime_root_text in _artifact_runtime_roots(root):
+        runtime_root = Path(runtime_root_text)
+        lock_path = runtime_root / "inputs" / "assets.lock.yml"
+        if not lock_path.is_file():
+            continue
+        try:
+            payload = yaml.safe_load(lock_path.read_text(encoding="utf-8")) or {}
+        except (OSError, ValueError, TypeError):
+            continue
+        assets = payload.get("assets") if isinstance(payload, dict) else None
+        if not isinstance(assets, dict):
+            continue
+        runtime_prefix = runtime_root.relative_to(archive_root).as_posix()
+        for kind, reference in sorted(assets.items()):
+            if not isinstance(reference, dict):
+                continue
+            files = reference.get("files") or reference.get("exposed") or []
+            normalized_files = []
+            for item in files:
+                if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                    continue
+                run_path = item["path"]
+                archived_path = (
+                    f"{runtime_prefix}/{run_path}" if runtime_prefix != "." else run_path
+                )
+                normalized_files.append({
+                    "path": run_path,
+                    "archived_path": archived_path,
+                    "bytes": item.get("bytes"),
+                    "sha256": item.get("sha256"),
+                })
+            captured.append({
+                "kind": kind,
+                "asset_id": reference.get("asset_id"),
+                "provider": reference.get("provider"),
+                "provider_spec_sha256": reference.get("provider_spec_sha256"),
+                "files": normalized_files,
+            })
     return captured
 
 
@@ -1140,21 +1255,102 @@ def _parse_tags(raw_tags) -> dict:
     return tags
 
 
-def build_storage_plan(target: dict, profile: dict, compression: str = None) -> dict:
+def _resolve_offload_policy(profile: dict, requested: str = None,
+                            keep_latest_checkpoint=None) -> dict:
+    """!
+    @brief Resolve semantic local-retention behavior for an offload.
+    @param[in] profile Active storage profile.
+    @param[in] requested Optional command-level policy override.
+    @param[in] keep_latest_checkpoint Optional checkpoint-retention override.
+    @return Normalized retention policy mapping.
+    """
+    name = requested or profile.get("offload_policy", "metadata-only")
+    if name not in STORAGE_OFFLOAD_POLICIES:
+        raise StorageError("Offload policy must be one of: " + ", ".join(STORAGE_OFFLOAD_POLICIES))
+    if keep_latest_checkpoint is None:
+        keep_latest_checkpoint = bool(profile.get("keep_latest_checkpoint", False))
+    retained = {
+        "metadata-only": {"metadata", "logs"},
+        "restart-ready": {"metadata", "logs", "inputs"},
+        "analysis-ready": {"metadata", "logs", "analysis", "visualization"},
+    }[name]
+    return {
+        "name": name,
+        "retained_components": sorted(retained),
+        "keep_latest_checkpoint": bool(keep_latest_checkpoint or name == "restart-ready"),
+    }
+
+
+def _entry_retained_by_policy(entry: dict, policy: dict, latest_step) -> bool:
+    """!
+    @brief Return whether one inventoried entry remains local after offload.
+    @param[in] entry Inventoried artifact entry.
+    @param[in] policy Normalized offload policy.
+    @param[in] latest_step Newest committed checkpoint step, if any.
+    @return True when the entry is retained locally.
+    """
+    component = entry["component"]
+    if component in set(policy["retained_components"]):
+        return True
+    return bool(
+        policy["keep_latest_checkpoint"]
+        and latest_step is not None
+        and component == f"checkpoint:{latest_step}"
+    )
+
+
+def _compression_size_range(source_bytes: int, compression: str) -> tuple:
+    """!
+    @brief Return a deliberately broad planning estimate, never a promised ratio.
+    @param[in] source_bytes Uncompressed payload byte count.
+    @param[in] compression Selected compression policy.
+    @return Estimated low and high archive sizes in bytes.
+    """
+    ratios = {
+        "none": (1.0, 1.03),
+        "fast": (0.45, 0.90),
+        "balanced": (0.35, 0.85),
+        "maximum": (0.25, 0.80),
+    }
+    low, high = ratios[compression]
+    return int(source_bytes * low), int(source_bytes * high)
+
+
+def build_storage_plan(target: dict, profile: dict, compression: str = None,
+                       policy: str = None, keep_latest_checkpoint=None,
+                       workers: int = None) -> dict:
     """!
     @brief Build the read-only plan consumed by protect and offload.
     @param[in] target Value supplied through the `target` argument.
     @param[in] profile Value supplied through the `profile` argument.
     @param[in] compression Value supplied through the `compression` argument.
+    @param[in] policy Optional semantic retention policy override.
+    @param[in] keep_latest_checkpoint Optional newest-checkpoint retention override.
+    @param[in] workers Optional compression worker count override.
     @return Result produced by this operation.
     """
     inventory = inspect_artifact(target)
     selected_compression = _select_compression(compression, inventory["total_bytes"], profile)
     specs = _build_chunk_specs(inventory, profile["chunk_size_bytes"])
+    retention = _resolve_offload_policy(profile, policy, keep_latest_checkpoint)
+    latest_step = max(inventory["checkpoint_steps"], default=None)
+    retained_bytes = sum(
+        entry["size"] for entry in inventory["entries"]
+        if entry["type"] != "directory" and _entry_retained_by_policy(entry, retention, latest_step)
+    )
+    worker_count = int(workers or profile.get("workers", DEFAULT_STORAGE_WORKERS))
+    if worker_count <= 0:
+        raise StorageError("Storage workers must be positive.")
+    compressed_range = _compression_size_range(inventory["total_bytes"], selected_compression)
     return {
         "inventory": inventory,
         "compression": selected_compression,
         "chunk_count": len(specs),
+        "workers": worker_count,
+        "offload_policy": retention,
+        "retained_local_bytes": retained_bytes,
+        "pruned_local_bytes": max(0, inventory["total_bytes"] - retained_bytes),
+        "estimated_stored_bytes": {"low": compressed_range[0], "high": compressed_range[1]},
         "chunks": [
             {
                 "component": spec["component"],
@@ -1179,7 +1375,20 @@ def _render_plan(plan: dict) -> None:
     print(f"[INFO] Files         : {inventory['file_count']}")
     print(f"[INFO] Checkpoints   : {len(inventory['checkpoint_steps'])}")
     print(f"[INFO] Compression   : {plan['compression']}")
+    print(f"[INFO] CPU workers   : {plan['workers']}")
     print(f"[INFO] Archive chunks: {plan['chunk_count']}")
+    estimate = plan["estimated_stored_bytes"]
+    print(
+        f"[INFO] Remote estimate: {_human_bytes(estimate['low'])}–"
+        f"{_human_bytes(estimate['high'])} (content-dependent)"
+    )
+    policy = plan["offload_policy"]
+    print(f"[INFO] Offload policy: {policy['name']}")
+    print(f"[INFO] Retained local: {_human_bytes(plan['retained_local_bytes'])}")
+    print(f"[INFO] Pruned local  : {_human_bytes(plan['pruned_local_bytes'])}")
+    if policy["keep_latest_checkpoint"]:
+        latest = max(inventory["checkpoint_steps"], default=None)
+        print(f"[INFO] Kept checkpoint: {latest if latest is not None else 'none available'}")
     if inventory["external_paths"]:
         print("[WARNING] External configured paths are recorded but are not followed automatically:")
         for item in inventory["external_paths"]:
@@ -1191,7 +1400,9 @@ def _render_plan(plan: dict) -> None:
 
 
 def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
-                     compression: str = None, prune_local: bool = False) -> dict:
+                     compression: str = None, prune_local: bool = False,
+                     policy: str = None, keep_latest_checkpoint=None,
+                     workers: int = None) -> dict:
     """!
     @brief Package, upload, verify, register, and optionally prune one artifact.
     @param[in] target Value supplied through the `target` argument.
@@ -1200,10 +1411,16 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
     @param[in] tags Value supplied through the `tags` argument.
     @param[in] compression Value supplied through the `compression` argument.
     @param[in] prune_local Value supplied through the `prune_local` argument.
+    @param[in] policy Optional semantic retention policy override.
+    @param[in] keep_latest_checkpoint Optional newest-checkpoint retention override.
+    @param[in] workers Optional compression worker count override.
     @return Result produced by this operation.
     """
     with storage_operation_lock(target["root_path"], "offload" if prune_local else "protect"):
-        plan = build_storage_plan(target, profile, compression)
+        plan = build_storage_plan(
+            target, profile, compression, policy=policy,
+            keep_latest_checkpoint=keep_latest_checkpoint, workers=workers,
+        )
         inventory = plan["inventory"]
         _assert_archive_safe(inventory)
         archive_id = uuid.uuid4().hex
@@ -1214,8 +1431,13 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
             os.makedirs(staging_parent, exist_ok=True)
         print(f"[INFO] Creating archive {archive_id} for {target['root_path']}")
         with tempfile.TemporaryDirectory(prefix="picurv-storage-", dir=staging_parent) as staging:
-            chunks = []
-            for index, spec in enumerate(specs):
+            def package_and_upload(index_spec):
+                """!
+                @brief Package and verify one component chunk.
+                @param[in] index_spec Tuple of chunk index and inventory specification.
+                @return Uploaded chunk manifest entry.
+                """
+                index, spec = index_spec
                 component = _safe_component_name(spec["component"])
                 filename = f"{index:05d}_{component}{_chunk_extension(plan['compression'])}"
                 local_chunk = os.path.join(staging, filename)
@@ -1223,17 +1445,40 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
                     f"[INFO] Packaging chunk {index + 1}/{len(specs)}: "
                     f"{spec['component']} ({_human_bytes(spec['uncompressed_bytes'])})"
                 )
-                _write_tar_chunk(target["root_path"], spec, local_chunk, plan["compression"])
+                compressor = _write_tar_chunk(
+                    target["root_path"], spec, local_chunk, plan["compression"],
+                    workers=plan["workers"],
+                )
                 remote_path = _object_remote(profile, archive_id, "chunks", filename)
-                verified = _upload_verified(local_chunk, remote_path)
-                chunks.append({
-                    "name": filename,
-                    "component": spec["component"],
-                    "file_count": len(spec["entries"]),
-                    "uncompressed_bytes": spec["uncompressed_bytes"],
-                    "stored_bytes": verified["stored_bytes"],
-                    "sha256": verified["sha256"],
-                })
+                try:
+                    verified = _upload_verified(local_chunk, remote_path)
+                    return {
+                        "name": filename,
+                        "component": spec["component"],
+                        "file_count": len(spec["entries"]),
+                        "uncompressed_bytes": spec["uncompressed_bytes"],
+                        "stored_bytes": verified["stored_bytes"],
+                        "sha256": verified["sha256"],
+                        "compressor": compressor,
+                    }
+                finally:
+                    try:
+                        os.remove(local_chunk)
+                    except FileNotFoundError:
+                        pass
+
+            # pigz/xz already use every requested CPU on one large chunk. The
+            # Python fallback instead gains parallelism across independent chunks.
+            native_parallel = (
+                plan["compression"] in _PARALLEL_GZIP_VALUES and shutil.which("pigz")
+            ) or (plan["compression"] == "maximum" and shutil.which("xz"))
+            task_workers = 1 if native_parallel else min(plan["workers"], max(1, len(specs)))
+            if task_workers == 1:
+                chunks = [package_and_upload(item) for item in enumerate(specs)]
+            else:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=task_workers) as executor:
+                    chunks = list(executor.map(package_and_upload, enumerate(specs)))
+            chunks.sort(key=lambda item: item["name"])
 
             manifest = {
                 "storage_schema_version": STORAGE_SCHEMA_VERSION,
@@ -1252,6 +1497,8 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
                 "source_bytes": inventory["total_bytes"],
                 "source_file_count": inventory["file_count"],
                 "compression": plan["compression"],
+                "workers": plan["workers"],
+                "offload_policy": plan["offload_policy"],
                 "checkpoint_format_version": KNOWN_CHECKPOINT_VERSION,
                 "checkpoint_steps": inventory["checkpoint_steps"],
                 "chunks": chunks,
@@ -1260,6 +1507,7 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
                 "external_paths": inventory["external_paths"],
                 "dependencies": inventory["dependencies"],
                 "study_context": _capture_study_context(target),
+                "run_assets": _capture_run_assets(target["root_path"]),
                 "capabilities": {
                     "restorable": True,
                     "continuable": bool(inventory["checkpoint_steps"]),
@@ -1285,12 +1533,19 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
             "archived_at": manifest["created_at"],
             "local_pruned": False,
             "restored_components": [],
+            "retained_components": [],
         }
         _atomic_write_json(_state_path(target["root_path"]), state)
         if prune_local:
-            _prune_archived_payload(target["root_path"], inventory)
+            _prune_archived_payload(target["root_path"], inventory, plan["offload_policy"])
             state["local_pruned"] = True
             state["pruned_at"] = _utc_now()
+            state["offload_policy"] = plan["offload_policy"]
+            latest_step = max(inventory["checkpoint_steps"], default=None)
+            retained = list(plan["offload_policy"]["retained_components"])
+            if plan["offload_policy"]["keep_latest_checkpoint"] and latest_step is not None:
+                retained.append(f"checkpoint:{latest_step}")
+            state["retained_components"] = retained
             _atomic_write_json(_state_path(target["root_path"]), state)
         print(
             f"[SUCCESS] {'Offloaded' if prune_local else 'Protected'} {target['root_path']} "
@@ -1299,16 +1554,16 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
         return manifest
 
 
-def _prune_archived_payload(root: str, inventory: dict) -> None:
+def _prune_archived_payload(root: str, inventory: dict, policy: dict) -> None:
     """!
     @brief Remove only verified heavy payload while retaining control-plane files.
     @param[in] root Value supplied through the `root` argument.
     @param[in] inventory Value supplied through the `inventory` argument.
+    @param[in] policy Normalized semantic retention policy.
     """
-    removable = {"data"}
-    removable.update(f"checkpoint:{step}" for step in inventory["checkpoint_steps"])
+    latest_step = max(inventory["checkpoint_steps"], default=None)
     for entry in sorted(inventory["entries"], key=lambda item: item["path"], reverse=True):
-        if entry["component"] not in removable or entry["type"] == "directory":
+        if entry["type"] == "directory" or _entry_retained_by_policy(entry, policy, latest_step):
             continue
         path = os.path.join(root, *entry["path"].split("/"))
         try:
@@ -1451,6 +1706,163 @@ def _merge_tree(source: str, destination: str) -> None:
             shutil.copy2(entry.path, target)
 
 
+def _download_archive_components(profile: dict, manifest: dict, components: set,
+                                 destination: str, workers: int = None) -> None:
+    """!
+    @brief Download and safely merge selected semantic archive components.
+    @param[in] profile Active storage profile.
+    @param[in] manifest Verified remote archive manifest.
+    @param[in] components Semantic components to retrieve.
+    @param[in] destination Directory receiving merged content.
+    @param[in] workers Optional parallel worker count.
+    @return None.
+    """
+    chunks = [
+        chunk for chunk in manifest.get("chunks", [])
+        if str(chunk.get("component", "")) in components
+    ]
+    if not chunks:
+        raise StorageError(
+            f"Archive {manifest.get('archive_id')} has none of the requested components: "
+            + ", ".join(sorted(components))
+        )
+    worker_count = int(workers or profile.get("workers", DEFAULT_STORAGE_WORKERS))
+    if worker_count <= 0:
+        raise StorageError("Restore workers must be positive.")
+    os.makedirs(destination, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="picurv-component-restore-") as staging:
+        def download_and_extract(index_chunk):
+            """!
+            @brief Download, verify, and extract one selected chunk.
+            @param[in] index_chunk Tuple of chunk index and manifest entry.
+            @return Chunk index and extraction directory.
+            """
+            index, chunk = index_chunk
+            chunk_root = os.path.join(staging, f"extract-{index:05d}")
+            os.makedirs(chunk_root)
+            local_chunk = os.path.join(staging, chunk["name"])
+            _run_rclone([
+                "copyto",
+                _object_remote(profile, manifest["archive_id"], "chunks", chunk["name"]),
+                local_chunk,
+            ])
+            actual = _sha256_file(local_chunk)
+            if actual != chunk.get("sha256"):
+                raise StorageError(
+                    f"Downloaded chunk checksum mismatch: {chunk['name']} "
+                    f"(expected {chunk.get('sha256')}, got {actual})."
+                )
+            _extract_chunk(local_chunk, chunk_root)
+            return index, chunk_root
+
+        task_workers = min(worker_count, len(chunks))
+        if task_workers == 1:
+            extracted = [download_and_extract(item) for item in enumerate(chunks)]
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=task_workers) as executor:
+                extracted = list(executor.map(download_and_extract, enumerate(chunks)))
+        for _, chunk_root in sorted(extracted):
+            _merge_tree(chunk_root, destination)
+
+
+def restore_missing_workspace_assets(workspace_root: str, provider_spec_hashes) -> dict:
+    """!
+    @brief Recover immutable workspace assets from archived run-local input copies.
+    @param[in] workspace_root Initialized workspace receiving recovered objects.
+    @param[in] provider_spec_hashes Required provider-specification hashes.
+    @return Provider-specification hash to recovered asset-reference mapping.
+    """
+    requested = {str(value) for value in provider_spec_hashes if value}
+    if not requested:
+        return {}
+    workspace = Path(os.path.abspath(workspace_root))
+    (workspace / "assets").mkdir(parents=True, exist_ok=True)
+    profile = load_storage_profile(config_path=str(workspace / STORAGE_CONFIG_FILENAME))
+    matches = {}
+    for manifest in sorted(
+        list_remote_manifests(profile), key=lambda item: item.get("created_at", ""), reverse=True
+    ):
+        for reference in manifest.get("run_assets", []):
+            spec_hash = reference.get("provider_spec_sha256")
+            if spec_hash in requested and spec_hash not in matches:
+                matches[spec_hash] = (manifest, reference)
+        if requested <= set(matches):
+            break
+    if not matches:
+        return {}
+
+    restored = {}
+    by_archive = {}
+    for spec_hash, (manifest, reference) in matches.items():
+        group = by_archive.setdefault(manifest["archive_id"], {"manifest": manifest, "items": []})
+        group["items"].append((spec_hash, reference))
+    kind_directories = {
+        "grid": "grids",
+        "initial-condition": "initial_conditions",
+        "inlet-profiles": "inlet_profiles",
+    }
+    for group in by_archive.values():
+        with tempfile.TemporaryDirectory(prefix=".asset-restore-", dir=workspace / "assets") as temporary:
+            _download_archive_components(profile, group["manifest"], {"inputs"}, temporary)
+            for spec_hash, reference in group["items"]:
+                kind = reference.get("kind")
+                asset_id = reference.get("asset_id")
+                if kind not in kind_directories or not asset_id:
+                    continue
+                object_relative = f"assets/objects/{kind_directories[kind]}/{asset_id}"
+                object_root = workspace / object_relative
+                if not object_root.is_dir():
+                    object_root.parent.mkdir(parents=True, exist_ok=True)
+                    object_staging = Path(tempfile.mkdtemp(
+                        prefix=f".{asset_id[:12]}-", dir=object_root.parent
+                    ))
+                    try:
+                        files = []
+                        for item in reference.get("files", []):
+                            source = Path(temporary, *item["archived_path"].split("/"))
+                            if not source.is_file() or (
+                                item.get("sha256") and _sha256_file(str(source)) != item["sha256"]
+                            ):
+                                raise StorageError(
+                                    f"Archived asset payload is missing or corrupt: {item['archived_path']}"
+                                )
+                            destination = object_staging / "payload" / item["path"]
+                            destination.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(source, destination)
+                            files.append({
+                                "path": item["path"],
+                                "bytes": destination.stat().st_size,
+                                "sha256": _sha256_file(str(destination)),
+                            })
+                        _atomic_write_json(str(object_staging / "asset.json"), {
+                            "schema_version": 1,
+                            "asset_id": asset_id,
+                            "kind": kind,
+                            "provider": reference.get("provider"),
+                            "provider_spec_sha256": spec_hash,
+                            "recovered_from_archive": group["manifest"]["archive_id"],
+                            "files": files,
+                        })
+                        try:
+                            os.replace(object_staging, object_root)
+                        except OSError as exc:
+                            if exc.errno != errno.ENOTEMPTY and not object_root.is_dir():
+                                raise
+                    finally:
+                        if object_staging.is_dir():
+                            shutil.rmtree(object_staging, ignore_errors=True)
+                restored[spec_hash] = {
+                    "asset_id": asset_id,
+                    "kind": kind,
+                    "provider": reference.get("provider"),
+                    "provider_spec_sha256": spec_hash,
+                    "object": object_relative,
+                    "files": reference.get("files", []),
+                }
+                print(f"[INFO] Restored shared asset {kind}: {asset_id}")
+    return restored
+
+
 def _rebase_restored_text_paths(root: str, replacements: list) -> list:
     """!
     @brief Rebase known generated text artifacts after an explicit relocated restore.
@@ -1480,7 +1892,8 @@ def _rebase_restored_text_paths(root: str, replacements: list) -> list:
 
 
 def restore_archive(profile: dict, archive_id: str, destination: str = None,
-                    checkpoints=None, force: bool = False) -> dict:
+                    checkpoints=None, force: bool = False,
+                    workers: int = None, components=None) -> dict:
     """!
     @brief Download, verify, extract, and materialize an archive or selected checkpoints.
     @param[in] profile Value supplied through the `profile` argument.
@@ -1488,19 +1901,24 @@ def restore_archive(profile: dict, archive_id: str, destination: str = None,
     @param[in] destination Value supplied through the `destination` argument.
     @param[in] checkpoints Value supplied through the `checkpoints` argument.
     @param[in] force Value supplied through the `force` argument.
+    @param[in] workers Optional parallel download and extraction worker count.
+    @param[in] components Optional semantic components to restore.
     @return Result produced by this operation.
     """
     manifest = _load_remote_manifest(profile, archive_id)
     original = os.path.abspath(manifest["original_path"])
     destination_abs = os.path.abspath(destination or original)
     selected_steps = {int(step) for step in (checkpoints or [])}
+    selected_components = {str(component) for component in (components or [])}
     chunks = []
     for chunk in manifest.get("chunks", []):
         component = str(chunk.get("component", ""))
-        if selected_steps:
+        if selected_steps or selected_components:
             if component == "metadata":
                 chunks.append(chunk)
             elif component.startswith("checkpoint:") and int(component.split(":", 1)[1]) in selected_steps:
+                chunks.append(chunk)
+            elif component in selected_components:
                 chunks.append(chunk)
         else:
             chunks.append(chunk)
@@ -1522,7 +1940,24 @@ def restore_archive(profile: dict, archive_id: str, destination: str = None,
     materialized = os.path.join(temporary, "materialized")
     os.makedirs(materialized)
     try:
-        for index, chunk in enumerate(chunks):
+        newly_restored = (
+            [f"checkpoint:{step}" for step in sorted(selected_steps)]
+            + sorted(selected_components)
+        )
+        prior_restored = (existing_state or {}).get("restored_components") or []
+        worker_count = int(workers or profile.get("workers", DEFAULT_STORAGE_WORKERS))
+        if worker_count <= 0:
+            raise StorageError("Restore workers must be positive.")
+
+        def download_and_extract(index_chunk):
+            """!
+            @brief Download, verify, and extract one archive chunk.
+            @param[in] index_chunk Tuple of chunk index and manifest entry.
+            @return Chunk index and extraction directory.
+            """
+            index, chunk = index_chunk
+            chunk_root = os.path.join(temporary, f"extract-{index:05d}")
+            os.makedirs(chunk_root)
             local_chunk = os.path.join(temporary, chunk["name"])
             remote_chunk = _object_remote(profile, archive_id, "chunks", chunk["name"])
             print(f"[INFO] Restoring chunk {index + 1}/{len(chunks)}: {chunk['component']}")
@@ -1533,7 +1968,18 @@ def restore_archive(profile: dict, archive_id: str, destination: str = None,
                     f"Downloaded chunk checksum mismatch: {chunk['name']} "
                     f"(expected {chunk.get('sha256')}, got {actual})."
                 )
-            _extract_chunk(local_chunk, materialized)
+            _extract_chunk(local_chunk, chunk_root)
+            os.remove(local_chunk)
+            return index, chunk_root
+
+        task_workers = min(worker_count, max(1, len(chunks)))
+        if task_workers == 1:
+            extracted = [download_and_extract(item) for item in enumerate(chunks)]
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=task_workers) as executor:
+                extracted = list(executor.map(download_and_extract, enumerate(chunks)))
+        for _, chunk_root in sorted(extracted):
+            _merge_tree(chunk_root, materialized)
 
         if os.path.isdir(destination_abs):
             _merge_tree(materialized, destination_abs)
@@ -1554,8 +2000,9 @@ def restore_archive(profile: dict, archive_id: str, destination: str = None,
             "label": manifest.get("label"),
             "archived_at": manifest.get("created_at"),
             "restored_at": _utc_now(),
-            "local_pruned": bool(selected_steps),
-            "restored_components": [f"checkpoint:{step}" for step in sorted(selected_steps)],
+            "local_pruned": bool(selected_steps or selected_components),
+            "restored_components": sorted(set(prior_restored) | set(newly_restored)),
+            "retained_components": (existing_state or {}).get("retained_components") or [],
             "relocated_from": original if original != destination_abs else None,
             "rebased_files": len(rebased),
         }
@@ -1623,6 +2070,9 @@ def storage_setup_workflow(args) -> None:
         "remote": args.remote.rstrip("/"),
         "compression": args.compression,
         "chunk_size_gib": args.chunk_size_gib,
+        "workers": getattr(args, "workers", DEFAULT_STORAGE_WORKERS),
+        "offload_policy": getattr(args, "offload_policy", "metadata-only"),
+        "keep_latest_checkpoint": bool(getattr(args, "keep_latest_checkpoint", False)),
     }
     if args.staging_directory:
         profile["staging_directory"] = os.path.abspath(os.path.expanduser(args.staging_directory))
@@ -1680,7 +2130,12 @@ def storage_plan_workflow(args) -> None:
     for index, target in enumerate(targets):
         if index:
             print()
-        plan = build_storage_plan(target, profile, args.compression)
+        plan = build_storage_plan(
+            target, profile, args.compression,
+            policy=getattr(args, "policy", None),
+            keep_latest_checkpoint=getattr(args, "keep_latest_checkpoint", None),
+            workers=getattr(args, "workers", None),
+        )
         _render_plan(plan)
         _assert_archive_safe(plan["inventory"])
 
@@ -1695,7 +2150,12 @@ def storage_archive_workflow(args, prune_local: bool) -> None:
     targets = resolve_local_storage_targets(args.run_dir, args.study_dir, args.case_ids)
     for target in targets:
         if args.dry_run:
-            _render_plan(build_storage_plan(target, profile, args.compression))
+            _render_plan(build_storage_plan(
+                target, profile, args.compression,
+                policy=getattr(args, "policy", None),
+                keep_latest_checkpoint=getattr(args, "keep_latest_checkpoint", None),
+                workers=getattr(args, "workers", None),
+            ))
             print("[INFO] Dry-run only. No files were packaged, uploaded, or pruned.")
             continue
         archive_artifact(
@@ -1705,6 +2165,9 @@ def storage_archive_workflow(args, prune_local: bool) -> None:
             tags=args.tags,
             compression=args.compression,
             prune_local=prune_local,
+            policy=getattr(args, "policy", None),
+            keep_latest_checkpoint=getattr(args, "keep_latest_checkpoint", None),
+            workers=getattr(args, "workers", None),
         )
 
 
@@ -1721,6 +2184,8 @@ def storage_restore_workflow(args) -> None:
         destination=args.destination,
         checkpoints=args.checkpoints,
         force=args.force,
+        workers=getattr(args, "workers", None),
+        components=getattr(args, "components", None),
     )
 
 
@@ -1834,6 +2299,11 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
     setup.add_argument("--storage-config", help=f"Storage YAML path (default: ./{STORAGE_CONFIG_FILENAME}).")
     setup.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES), default="auto")
     setup.add_argument("--chunk-size-gib", type=float, default=DEFAULT_CHUNK_SIZE_GIB)
+    setup.add_argument("--workers", type=int, default=DEFAULT_STORAGE_WORKERS,
+                       help="CPU workers for compression and restoration.")
+    setup.add_argument("--offload-policy", choices=list(STORAGE_OFFLOAD_POLICIES), default="metadata-only")
+    setup.add_argument("--keep-latest-checkpoint", action="store_true",
+                       help="Retain the newest committed checkpoint after offload.")
     setup.add_argument("--staging-directory", help="Optional local directory for one archive chunk at a time.")
     setup.add_argument("--dry-run", action="store_true")
 
@@ -1867,6 +2337,12 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
     add_local_target(plan)
     add_profile_options(plan)
     plan.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES))
+    plan.add_argument("--policy", choices=list(STORAGE_OFFLOAD_POLICIES))
+    plan.add_argument("--workers", type=int)
+    plan_checkpoint = plan.add_mutually_exclusive_group()
+    plan_checkpoint.add_argument("--keep-latest-checkpoint", dest="keep_latest_checkpoint", action="store_true")
+    plan_checkpoint.add_argument("--drop-all-checkpoints", dest="keep_latest_checkpoint", action="store_false")
+    plan.set_defaults(keep_latest_checkpoint=None)
 
     for name, help_text in (
         ("protect", "Upload and verify an archive while retaining all local files."),
@@ -1878,6 +2354,12 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
         action_parser.add_argument("--label", help="Human-readable searchable label.")
         action_parser.add_argument("--tag", dest="tags", action="append", help="Repeatable KEY=VALUE catalog tag.")
         action_parser.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES))
+        action_parser.add_argument("--policy", choices=list(STORAGE_OFFLOAD_POLICIES))
+        action_parser.add_argument("--workers", type=int)
+        checkpoint_group = action_parser.add_mutually_exclusive_group()
+        checkpoint_group.add_argument("--keep-latest-checkpoint", dest="keep_latest_checkpoint", action="store_true")
+        checkpoint_group.add_argument("--drop-all-checkpoints", dest="keep_latest_checkpoint", action="store_false")
+        action_parser.set_defaults(keep_latest_checkpoint=None)
         action_parser.add_argument("--dry-run", action="store_true")
 
     restore = actions.add_parser("restore", help="Restore a complete archive or selected checkpoints.")
@@ -1889,7 +2371,13 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
     add_profile_options(restore)
     restore.add_argument("--to", dest="destination", help="Optional alternate restore destination.")
     restore.add_argument("--checkpoint", dest="checkpoints", action="append", type=int)
+    restore.add_argument(
+        "--component", dest="components", action="append",
+        choices=STORAGE_RESTORE_COMPONENTS,
+        help="Restore one semantic component; repeat as needed.",
+    )
     restore.add_argument("--force", action="store_true", help="Allow merge into a non-matching existing destination.")
+    restore.add_argument("--workers", type=int, help="Parallel download/extraction workers.")
 
     verify = actions.add_parser("verify", help="Verify a remote archive completion marker and chunk checksums.")
     verify_source = verify.add_mutually_exclusive_group(required=True)

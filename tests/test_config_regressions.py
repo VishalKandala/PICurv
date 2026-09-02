@@ -170,7 +170,11 @@ def test_generate_post_recipe_defaults_statistics_output_prefix_under_monitor_ou
     content = recipe_path.read_text(encoding="utf-8")
 
     assert "statistics_pipeline = ComputeMSD" in content
-    assert "statistics_output_prefix = results/statistics/Stats" in content
+    recipe_id = picurv.compute_post_recipe_id(post_cfg)
+    assert (
+        f"statistics_output_prefix = output/analysis/statistics/{recipe_id}/Stats"
+        in content
+    )
 
 
 def test_validate_post_rejects_unsupported_eulerian_task(tmp_path):
@@ -439,7 +443,10 @@ def test_statistics_output_artifacts_are_relative_to_run_directory(tmp_path):
 
     stats_paths = picurv.get_post_statistics_output_artifacts(post_cfg, str(tmp_path))
 
-    assert stats_paths == [str((tmp_path / "stats" / "BrownianStats_msd.csv").resolve())]
+    recipe_id = picurv.compute_post_recipe_id(post_cfg)
+    assert stats_paths == [str((
+        tmp_path / "output" / "analysis" / "statistics" / recipe_id / "BrownianStats_msd.csv"
+    ).resolve())]
 
 
 def test_statistics_output_artifacts_default_under_monitor_output_statistics_dir(tmp_path):
@@ -467,7 +474,10 @@ def test_statistics_output_artifacts_default_under_monitor_output_statistics_dir
 
     stats_paths = picurv.get_post_statistics_output_artifacts(post_cfg, str(tmp_path), monitor_cfg)
 
-    assert stats_paths == [str((tmp_path / "results" / "statistics" / "Stats_msd.csv").resolve())]
+    recipe_id = picurv.compute_post_recipe_id(post_cfg)
+    assert stats_paths == [str(
+        (tmp_path / "output" / "analysis" / "statistics" / recipe_id / "Stats_msd.csv").resolve()
+    )]
 
 
 def test_dry_run_json_reports_predicted_statistics_csv_artifact(tmp_path):
@@ -508,7 +518,11 @@ def test_dry_run_json_reports_predicted_statistics_csv_artifact(tmp_path):
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    expected_stats_path = str((Path(payload["run_dir_preview"]) / "stats" / "BrownianStats_msd.csv").resolve())
+    recipe_id = picurv.compute_post_recipe_id(post_cfg)
+    expected_stats_path = str((
+        Path(payload["run_dir_preview"])
+        / "output" / "analysis" / "statistics" / recipe_id / "BrownianStats_msd.csv"
+    ).resolve())
     assert expected_stats_path in payload["artifacts"]
 
 

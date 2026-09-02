@@ -281,8 +281,8 @@ Before launching a restart, verify:
 
 - the previous run actually wrote solver outputs for the target `start_step`,
 - the `--restart-from` path points to the intended previous run directory,
-- `monitor.yml -> io.directories.restart` points to the intended restart directory name,
-- `monitor.yml -> io.directories.output` matches where the prior run wrote field data,
+- the selected previous run has its checkpoint component locally available (restore
+  it with `picurv storage restore --component checkpoints` when cold),
 - restart source files for the requested step exist,
 - `start_step` matches an actual saved timestep, not just a desired number.
 
@@ -295,7 +295,7 @@ Common restart mistakes:
 
 Verification:
 
-- confirm restart directory and step indices in run logs,
+- confirm the selected checkpoint bundle and step in run logs,
 - confirm the banner/load path shows the expected restart step,
 - if particles are enabled, confirm the log shows the intended particle restart mode.
 
@@ -379,8 +379,7 @@ statistics_pipeline:
 
 Verification:
 
-- check `<run.solver_output>/statistics/Stats_msd.csv` by default, unless `statistics_pipeline.output_prefix`
-  includes an explicit relative or absolute path.
+- check `<run.analysis>/statistics/<recipe_id>/Stats_msd.csv`.
 
 @subsection p11_spectra_ssec 4.4 Measure Turbulent Energy Spectra
 
@@ -408,7 +407,7 @@ binning or the fluctuation definition costs seconds rather than a full rebuild o
 
 Verification:
 
-- `<run.solver_output>/spectra/Spectrum_shell_spectrum_Ucat_block0000_continuum.csv` holds
+- `<run.analysis>/spectra/<recipe_id>/Spectrum_shell_spectrum_Ucat_block0000_continuum.csv` holds
   `step,time,k,energy`, one row per shell per processed step.
 - the `_history.csv` beside it holds one row per step; `parseval_residual` there must
   stay at round-off, since summed shell energy must equal the resolved kinetic energy.

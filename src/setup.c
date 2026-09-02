@@ -15,6 +15,24 @@
 #include <stdlib.h>
 
 /**
+ * @brief Implementation of \ref PicurvHandleVersionArgument().
+ * @details The public argument and return contract is documented in `include/setup.h`.
+ * @see PicurvHandleVersionArgument()
+ */
+int PicurvHandleVersionArgument(int argc, char **argv, const char *executable_name)
+{
+    for (int index = 1; index < argc; ++index) {
+        if (!strcmp(argv[index], "--version") || !strcmp(argv[index], "-version")) {
+            printf("%s %s+g%.12s%s\n", executable_name, PICURV_RELEASE_VERSION,
+                   PICURV_GIT_COMMIT,
+                   !strcmp(PICURV_BUILD_DIRTY, "true") ? ".dirty" : "");
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/**
  * @brief Implementation of \ref RuntimeWalltimeGuardParsePositiveSeconds().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/setup.h`.
@@ -343,6 +361,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     strcpy(simCtx->restart_dir,"restart");
     strcpy(simCtx->output_dir,"output");
     strcpy(simCtx->log_dir,"logs");
+    strcpy(simCtx->analysis_dir,"output/analysis/metrics");
     simCtx->_io_context_buffer[0] = '\0';
     simCtx->current_io_directory = NULL;
     simCtx->checkpointGeometrySHA256[0] = '\0';
@@ -650,6 +669,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
      * default; branching with --restart-from must opt in, because the branch may
      * follow a different physical trajectory than the samples already collected. */
     simCtx->fieldStatisticsContinue = simCtx->continueMode;
+    ierr = PetscOptionsGetBool(NULL, NULL, "-field_statistics_continue",
+                               &simCtx->fieldStatisticsContinue, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-dt", &simCtx->dt, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-tio", &simCtx->tiout, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-particle_console_output_freq", &simCtx->particleConsoleOutputFreq, &particle_console_output_freq_flg); CHKERRQ(ierr);
@@ -660,6 +681,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetString(NULL,NULL,"-output_dir",simCtx->output_dir,sizeof(simCtx->output_dir),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-restart_dir",simCtx->restart_dir,sizeof(simCtx->restart_dir),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-log_dir",simCtx->log_dir,sizeof(simCtx->log_dir),NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetString(NULL,NULL,"-analysis_dir",simCtx->analysis_dir,sizeof(simCtx->analysis_dir),NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-walltime_guard_enabled", &simCtx->walltimeGuardEnabled, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-walltime_guard_warmup_steps", &simCtx->walltimeGuardWarmupSteps, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-walltime_guard_multiplier", &simCtx->walltimeGuardMultiplier, NULL); CHKERRQ(ierr);
@@ -1715,6 +1737,7 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
             LOG_ALLOW(GLOBAL, LOG_INFO, "Output directory not found. Creating: %s\n", simCtx->output_dir);
             ierr = PetscMkdir(simCtx->output_dir); CHKERRQ(ierr);
         }
+        ierr = PetscMkdir(simCtx->analysis_dir); CHKERRQ(ierr);
       } else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Preparing post-processing output directories ...\n");
 

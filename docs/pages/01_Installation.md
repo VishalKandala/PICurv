@@ -157,6 +157,11 @@ updates smaller and avoids unnecessary package churn on quota-constrained
 cluster home directories. Pass `--upgrade-pip` when an explicit upgrade is
 needed.
 
+Bootstrap writes `.picurv-python` and `.picurv-python-env` atomically, then checks
+that `picurv`, `simulator`, and `postprocessor` all report the release in the root
+`VERSION` file. A partial interpreter record or mixed-version native build therefore
+fails installation instead of becoming a latent cluster-launch error.
+
 @section p01_install_tools_sec 4. Install Base Toolchain (Manual Path)
 
 @htmlonly
@@ -300,6 +305,15 @@ make doctor
 ```
 
 Recommended sequence after a successful build:
+
+```bash
+picurv version
+simulator --version
+postprocessor --version
+```
+
+All three must report the same release. `picurv version --format json` also reports
+the Git commit, dirty-tree state, active workspace, and optional workspace requirement.
 
 @htmlonly
 <ol class="pic-verification-ladder">

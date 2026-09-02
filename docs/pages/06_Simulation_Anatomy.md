@@ -21,7 +21,7 @@ A single-run workflow uses five logical inputs:
 
 1. `case.yml`: physics/domain/grid/BC/run control
 2. `solver.yml`: numerical strategy and solver controls
-3. `monitor.yml`: logging, profiling, diagnostics, output cadence, directories
+3. `monitor.yml`: logging, profiling, diagnostics, and output cadence
 4. `post.yml`: post-processing pipeline recipe
 5. Launch settings: stage selection + MPI process count (`-n`)
 
@@ -30,7 +30,9 @@ Cluster/sweep extensions add:
 6. `cluster.yml`: Slurm resource/scheduler contract (`run --cluster`, `sweep --cluster`)
 7. `study.yml`: parameter matrix + metrics/plot contract (`sweep --study`)
 
-You can choose any file names. C binaries do not require fixed YAML names.
+Inside an initialized workspace the active files have canonical homes under
+`config/`; variants may have any descriptive name under `config/variants/` or the
+role-specific configuration directories. C binaries do not read YAML names.
 
 @section p06_compose_sec 2. Composition in Practice
 
@@ -38,9 +40,9 @@ Example solve invocation:
 
 ```bash
 ./bin/picurv run --solve -n 16 \
-  --case my_cases/channel_case.yml \
-  --solver config/solvers/Imp-MG-Standard.yml \
-  --monitor config/monitors/Standard_Output.yml
+  --case config/case.yml \
+  --solver config/solver.yml \
+  --monitor config/monitor.yml
 ```
 
 Only numerics/monitoring can be swapped without touching case physics.
@@ -49,30 +51,44 @@ In practice, users often keep one validated `case.yml`, then compare multiple `s
 
 @section p06_artifacts_sec 3. YAML -> Runtime Artifacts
 
-`picurv` validates inputs, then generates C-facing artifacts under `<run.config>/`:
+`picurv` validates inputs, resolves the workspace asset graph, and then generates
+C-facing artifacts under `<run.config>/`:
 
 - `<run_id>.control`
 - `bcs.run` or `bcs_block*.run`
 - `whitelist.run`
 - `profile.run`
-- `post.run`
+- `post-recipes/<recipe_id>/post.run`
+- `active.json`, which selects the immutable configuration revision
 
-These are the concrete contract consumed by C-side parsers in `setup.c`, `io.c`, and BC/profile loaders.
+`<run.inputs>/assets.lock.yml` and the remaining `<run.inputs>/` tree hold the exact reusable grid, initial-condition,
+and inlet-profile objects selected for the run. These are the concrete contracts
+consumed by C-side parsers in `setup.c`, `io.c`, and BC/profile loaders. A continuation
+adds a timestamped configuration revision under `<run.config>/history/` instead of
+erasing the inputs used earlier.
 
 @section p06_libraries_sec 4. Reusable Config Libraries
 
-Project-level shared profiles live in:
+Workspace configuration and imported source files live in:
 
 ```text
-config/
-|- solvers/
-|- monitors/
-|- postprocessors/
-|- schedulers/
+config/                       editable YAML and provider configs
+|- grids/
+|- initial_conditions/
+|- inlet_profiles/
 `- studies/
+inputs/                       user-supplied source files
+|- grids/
+|- initial_conditions/
+|- inlet_profiles/
+`- reference_fields/
+assets/objects/               immutable content-addressed payloads
+`- assets/sets/               named selections written by precompute
 ```
 
-Use these as reusable baselines and keep case-specific physics in study-local files.
+Use `picurv inputs import` to copy, reflink, hardlink, or explicitly reference imported
+files. Use `picurv precompute` to publish a validated asset set; subsequent runs reuse
+that set when its provider configuration has the same digest.
 
 @section p06_next_steps_sec 5. Next Steps
 

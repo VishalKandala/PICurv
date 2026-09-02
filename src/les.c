@@ -976,7 +976,7 @@ PetscErrorCode LogLESDiagnostics(UserCtx *user)
                                                           : -PetscSqrtReal(-effective);
         const PetscReal cs_mean      = (mean >= 0.0) ? PetscSqrtReal(mean) : -PetscSqrtReal(-mean);
 
-        PetscCall(PetscSNPrintf(path, sizeof(path), "%s/les_coefficient.csv", simCtx->log_dir));
+        PetscCall(PetscSNPrintf(path, sizeof(path), "%s/les_coefficient.csv", simCtx->analysis_dir));
         file = fopen(path, "a");
         PetscCheck(file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
                    "Unable to open LES diagnostics file '%s'.", path);

@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- No changes yet.
+
+## 0.2.0 — 2026-09-02
+
 - LES subgrid closure corrected and consolidated. **Results from earlier revisions of
   this tree are not reproducible under it, and neither LES model previously applied the
   dissipation it claimed to.**

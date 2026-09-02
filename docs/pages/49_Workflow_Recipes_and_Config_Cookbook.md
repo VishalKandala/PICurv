@@ -401,7 +401,7 @@ same file-backed C path. V1 requires matching source and target slice sizes.
 Precompute deterministic artifacts without launching the solver:
 
 ```bash
-./bin/picurv precompute --case case.yml --output-dir precomputed/channel
+./bin/picurv precompute --case config/case.yml
 ```
 
 This mirrors the `<run.config>/` layout, so inspected generated artifacts can later

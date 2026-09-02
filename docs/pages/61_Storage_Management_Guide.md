@@ -12,8 +12,8 @@ The storage catalog supplies the memorable names. Keep generated directory ident
 
 PICurv creates two kinds of top-level artifacts:
 
-- a standalone run at `runs/<case-yaml-stem>_<timestamp>/`, and
-- a sweep at `studies/<study-yaml-stem>_<timestamp>/`, containing numbered run directories at `cases/case_0000`, `cases/case_0001`, and so on.
+- a standalone run at `runs/<case-title>_<timestamp>/`, and
+- a sweep at `studies/<study-title>_<timestamp>/`, containing numbered run directories at `cases/case_0000`, `cases/case_0001`, and so on.
 
 Storage operations use those existing paths as selectors. No second naming scheme is introduced:
 
@@ -29,7 +29,12 @@ There are two archival actions:
 - `protect` uploads and verifies an immutable archive but keeps every local file;
 - `offload` performs the same upload and verification, then removes the verified heavy payload while keeping a small, useful local skeleton.
 
-For a run or study member, that skeleton retains configuration, scheduler metadata, logs, results, and the storage marker. Checkpoint payloads and other bulk data are pruned. Whole-study offload applies the same classification inside every numbered member and retains the study-level scheduler and aggregate results.
+What remains after `offload` is selected by a semantic policy. `metadata-only`
+retains configuration, scheduler metadata, logs, and the storage marker;
+`restart-ready` also retains run inputs and the newest committed checkpoint;
+`analysis-ready` retains analysis and visualization products. An explicit
+`--keep-latest-checkpoint` can add the newest checkpoint to another policy. Whole-study
+offload applies the same component classification inside each numbered member.
 
 The local state shown by `status` and `summarize` is:
 
@@ -50,7 +55,9 @@ picurv storage setup \
   --remote labstore:picurv-data \
   --profile archive \
   --compression auto \
-  --chunk-size-gib 8
+  --chunk-size-gib 8 \
+  --workers 16 \
+  --offload-policy metadata-only
 ```
 
 This verifies remote access, creates the remote `objects/` directory if necessary, and writes `.picurv-storage.yml`:
@@ -62,6 +69,9 @@ profiles:
     remote: labstore:picurv-data
     compression: auto
     chunk_size_gib: 8.0
+    workers: 16
+    offload_policy: metadata-only
+    keep_latest_checkpoint: false
 ```
 
 PICurv finds `.picurv-storage.yml` by searching upward from the current directory. Use `--storage-config /path/to/storage.yml` to select another file. Multiple profiles can share one file; select one with `--profile`. A fast local scratch filesystem can be selected during setup with `--staging-directory`.
@@ -88,6 +98,7 @@ Then offload it with a name and catalog fields that will still make sense months
 ```bash
 picurv storage offload \
   --run-dir runs/channel_20260824-143000 \
+  --policy restart-ready \
   --label "pilot 64, stable baseline" \
   --tag campaign=pilot-64 \
   --tag mesh=64 \
@@ -152,7 +163,7 @@ picurv storage offload --run-dir runs/large_run --compression maximum
 picurv storage offload --run-dir runs/medium_run --compression fast
 ```
 
-The available policies are:
+The available compression policies are:
 
 - `none`: uncompressed tar chunks;
 - `fast`: gzip level 1;
@@ -161,6 +172,14 @@ The available policies are:
 - `auto`: no compression below 256 MiB, balanced compression from 256 MiB through 20 GiB, and maximum compression at 20 GiB and above.
 
 `--chunk-size-gib` is a transfer/staging target. PICurv places a file wholly in one chunk, so a single file larger than the target remains one larger chunk. Checkpoints are component-addressable, which enables selective restore.
+
+Compression and restore are CPU-aware. `fast` and `balanced` use `pigz -p <workers>`
+when installed; `maximum` uses `xz -T <workers>`. When native parallel compressors are
+unavailable, PICurv uses Python codecs and parallelizes independent chunks. Restore
+downloads, verifies, and extracts independent chunks concurrently. Set the reusable
+profile default with `storage setup --workers N`, or override an operation with
+`--workers N`. The plan reports the selected worker count, a broad compressed-size
+range, retained local bytes, and bytes eligible for pruning.
 
 @section p61_restore_sec 4. Finding and Restoring Old Data
 
@@ -226,13 +245,36 @@ The result is `PARTIAL`. Restart and continuation proceed when their required ch
 
 `--force` permits a restore to merge into an existing directory that is not already the matching cold artifact. Because matching archived files can be replaced, use it only after inspecting the destination. Prefer a new `--to` path for recovery experiments.
 
+@subsection p61_restore_component 4.4 Only One Semantic Component Is Needed
+
+Use repeatable `--component` selectors when post-processing or inspection needs less
+than the complete archive:
+
+```bash
+picurv storage restore --archive-id <id> --component analysis --component visualization
+picurv storage restore --archive-id <id> --component inputs
+```
+
+Valid components are `inputs`, `raw-output`, `analysis`, `visualization`, `logs`, and
+`assets`; checkpoint steps use `--checkpoint`. Metadata is always restored with a
+partial selection so identity and config evidence remain available.
+
+Archived run manifests also catalog the exact reusable assets in
+`inputs/assets.lock.yml`. If the workspace's shared `assets/objects/` directory was
+deleted, `picurv run --fetch-missing ...` searches remote manifests by provider-spec
+hash, retrieves only the archived inputs component, verifies checksums, reconstructs
+the immutable objects, and then binds the current case's asset set. If no matching
+remote object exists, normal run behavior builds it; combine `--fetch-missing` with
+`--require-precomputed` to refuse rebuilding.
+
 @section p61_safety_sec 5. Verification and Failure Safety
 
 PICurv uses this order for both `protect` and `offload`:
 
 1. inventory the selected artifact without following symlinks;
 2. reject known unsafe activity;
-3. package bounded component chunks in a temporary staging directory;
+3. package bounded component chunks in a temporary staging directory, deleting each
+   local chunk after its verified upload so staging does not grow to archive size;
 4. upload each chunk with `rclone` and compare its remote SHA-256 with the local SHA-256;
 5. upload a versioned manifest;
 6. publish a `COMPLETE` marker bound to that manifest;
@@ -251,7 +293,10 @@ Archival/offload is refused when PICurv sees:
 
 Use `storage plan` immediately before a real operation. Do not archive while an external process that PICurv cannot observe is modifying files.
 
-Symlinks are stored as links and are never followed to pull unrelated data into an archive. Absolute monitor/post output paths outside the selected artifact and absolute restart dependencies are reported by `plan` and recorded in the manifest, but are not copied automatically. Protect or restore those dependencies separately.
+Symlinks are stored as links and are never followed to pull unrelated data into an
+archive. Explicit external input references are reported by `plan` and recorded in the
+manifest, but are not copied automatically. Protect or restore those dependencies
+separately.
 
 Verify an archive again at any time:
 
@@ -270,10 +315,15 @@ The storage layer is additive and remains in the Python conductor. It does not c
 - `sweep --continue` refuses cold members instead of interpreting pruned checkpoints as incomplete cases.
 - `sweep --reaggregate` refuses cold members instead of replacing unavailable metrics with blank values.
 - `summarize` remains usable from retained logs and displays the storage state, archive ID, and label. A requested summary that depends on pruned files can still report that those particular data are unavailable.
-- `validate` checks YAML contracts and is unchanged; it does not need bulk checkpoint payload.
+- `validate` checks YAML contracts and the optional workspace release requirement; it
+  does not need bulk checkpoint payload.
 - `cancel` continues to use retained scheduler metadata. Active Slurm jobs also prevent archival/offload in the first place.
 
-Run creation now keeps the analysis input with the artifact: when post-processing is requested, the validated post profile is copied to `<run.config>/post.yml`. Study creation snapshots all four base YAML files under `base_configs/`, writes a portable `study.yml` that refers to those copies, and preserves the originally supplied study file as `study.source.yml`.
+Run creation snapshots initial YAML under `config/`; continuations append revisions
+under `config/history/`; post recipes live under `config/post-recipes/<recipe-id>/`.
+Storage classifies these as metadata, run-local materialized assets as inputs, and
+canonical output subtrees by semantic component. Study creation uses the same fixed
+member layout and stores aggregate analysis below `output/analysis/`.
 
 @section p61_code_sec 7. Code and Configuration Reproducibility
 
@@ -286,11 +336,16 @@ Every remote manifest records:
 - compression and chunk checksums;
 - checkpoint steps and checkpoint format version;
 - SHA-256 values for canonical copied YAML files;
-- best-effort Git commit and dirty-worktree state;
+- the shared release version, Git commit, and dirty-worktree build identity;
 - external paths and restart dependencies; and
 - declared restore/continue/reprocess capabilities.
 
-The archive preserves generated configs and data, but it deliberately does not bundle the PICurv source tree, build tree, compiler/MPI libraries, or solver binaries. `exact_binary_reproduction` is therefore false in the manifest. For long-term scientific reproducibility, retain the referenced Git revision and the build/container or environment record used for the campaign. Use `storage show` before restoring very old data, then select a PICurv revision compatible with the recorded checkpoint format and configuration.
+The archive preserves generated configs and data, but it deliberately does not bundle
+the source tree, compiler/MPI libraries, or binaries. Use `picurv version` to inspect
+the active build and `picurv versions activate <release>` to select a recorded tagged
+release before processing old data. Exact binary reproduction still requires the
+original build/container environment; the release and commit identify source, not
+external libraries.
 
 The storage schema is versioned. Unsupported future or older schema versions are rejected explicitly rather than guessed.
 
@@ -378,13 +433,15 @@ Use `picurv storage --help` and `picurv storage <action> --help` for the complet
 
 **Identity.** `--compression fast` -> a `.tar.gz` archive.
 
-**What it does.** Compresses with gzip at a speed-favouring setting.
+**What it does.** Compresses with `pigz` level 1 across the requested CPU workers when
+available, otherwise gzip level 1 across independent archive chunks.
 
 **When to choose it.** When offload time is on the critical path - clearing scratch before a deadline, or archiving between queued jobs. It gives most of `balanced`'s size reduction for noticeably less CPU.
 
 **Parameters it owns.** None.
 
-**Interactions.** Produces the same `.tar.gz` extension as `balanced`, so the suffix does not distinguish them; the catalog record does.
+**Interactions.** Produces the same `.tar.gz` extension as `balanced`, so the suffix
+does not distinguish them; the catalog records the policy, worker count, and compressor.
 
 **Diagnostics.** Catalog metadata records the policy used, which is the only way to tell `fast` and `balanced` archives apart afterwards.
 
@@ -398,7 +455,8 @@ Use `picurv storage --help` and `picurv storage <action> --help` for the complet
 
 **Identity.** `--compression balanced` -> a `.tar.gz` archive. What `auto` selects in the middle size band.
 
-**What it does.** Compresses with gzip at a default setting that trades CPU against size without favouring either.
+**What it does.** Compresses with `pigz` level 6 across requested workers when
+available, otherwise gzip level 6 across independent chunks.
 
 **When to choose it.** The sensible fixed choice when you want to pin a policy rather than let `auto` decide - typically so that archive sizes stay comparable across a campaign as run sizes drift across the `auto` thresholds.
 
@@ -416,16 +474,112 @@ Use `picurv storage --help` and `picurv storage <action> --help` for the complet
 
 **Identity.** `--compression maximum` -> a `.tar.xz` archive. What `auto` selects at or above 20 GiB.
 
-**What it does.** Compresses with xz, which reaches the smallest archives of the four at substantially higher CPU and memory cost.
+**What it does.** Compresses with `xz -T <workers> -9e`, which reaches the smallest
+archives of the four at substantially higher CPU and memory cost.
 
 **When to choose it.** For long-term archival of large campaigns that will rarely be restored - where storage is the recurring cost and decompression time is paid once, if ever.
 
 **Parameters it owns.** None.
 
-**Interactions.** Restore is markedly slower than the gzip policies, which matters if the archive is part of an active workflow rather than cold storage.
+**Interactions.** Restore also parallelizes independent chunks. A single very large xz
+chunk may still dominate latency, so chunk size and worker count should be planned
+together.
 
 **Diagnostics.** The `.tar.xz` suffix identifies it, and `picurv storage plan` reports it in advance.
 
-**Evidence.** Implemented only.
+**Evidence.** Unit verified — `tests/test_storage.py` creates and extracts a native xz
+chunk while asserting the requested worker count.
 
-**Limitations.** xz memory use scales with its window, so a very large archive can be expensive to decompress on a small login node - the machine that usually runs the restore.
+**Limitations.** xz memory use scales with its window and worker count. Request the
+compression on a compute node when cluster login-node policy or memory is restrictive.
+
+@section p61_cap_policy_sec 9.2 Offload Policy Entries
+
+@htmlinclude generated/capability_inventory_storage_offload_policy.html
+
+@subsection p61_cap_policy_metadata_only_sub metadata-only
+
+@anchor p61_cap_policy_metadata_only
+
+**Identity.** `picurv storage offload --policy metadata-only`, or
+`offload_policy: metadata-only` in a profile. The default.
+
+**What it does.** Retains the local manifest, configuration, scheduler state, logs,
+and storage marker after verified upload; other semantic payload is pruned.
+
+**When to choose it.** Use it when the run is finished locally and the goal is maximum
+scratch recovery while leaving enough identity to search, summarize logs, cancel, or
+restore. Choose `restart-ready` for likely near-term continuation and `analysis-ready`
+for local derived-data work.
+
+**Parameters it owns.** `--keep-latest-checkpoint` optionally retains the newest
+committed checkpoint in addition to the policy baseline.
+
+**Interactions.** Post, restart, and continuation guards read the storage marker and
+request the precise missing checkpoint or component instead of treating pruned data as
+an incomplete run.
+
+**Diagnostics.** `storage plan` reports retained and pruned byte estimates and names
+the policy; `storage status` reports `COLD` after offload.
+
+**Evidence.** Unit verified — `tests/test_storage.py` exercises the policy mapping,
+pruning, state marker, and remote round trip.
+
+**Limitations.** Logs and metadata can still be large in pathological runs; the policy
+does not truncate them.
+
+@subsection p61_cap_policy_restart_ready_sub restart-ready
+
+@anchor p61_cap_policy_restart_ready
+
+**Identity.** `picurv storage offload --policy restart-ready`.
+
+**What it does.** Retains metadata, logs, all run-local inputs, and the latest committed
+checkpoint while pruning older checkpoints and derived/bulk output.
+
+**When to choose it.** Use it for completed segments that are likely to continue soon.
+It consumes more local space than `metadata-only` but avoids downloading the common
+restart path. Use `analysis-ready` instead when plots and post outputs matter locally.
+
+**Parameters it owns.** Latest-checkpoint retention is intrinsic and cannot be disabled
+without selecting another policy.
+
+**Interactions.** `--continue` and `--restart-from` can proceed if they request the
+retained step. Other steps remain cold and trigger a selective restore instruction.
+
+**Diagnostics.** The plan names the exact retained checkpoint; the storage marker lists
+`inputs` and `checkpoint:<step>` in `retained_components`.
+
+**Evidence.** Unit verified — `tests/test_storage.py` exercises the policy mapping and
+latest-checkpoint retention behavior.
+
+**Limitations.** It retains only one checkpoint; branching from older states requires
+a selective remote restore.
+
+@subsection p61_cap_policy_analysis_ready_sub analysis-ready
+
+@anchor p61_cap_policy_analysis_ready
+
+**Identity.** `picurv storage offload --policy analysis-ready`.
+
+**What it does.** Retains metadata, logs, `output/analysis`, and
+`output/visualization` while pruning raw output, inputs, and checkpoints unless the
+latest checkpoint option is added.
+
+**When to choose it.** Use it after solver work is done but figures, statistics,
+spectra, or comparisons remain active. Choose `metadata-only` when even derived output
+can be cold, or `restart-ready` when continuation is more likely than analysis.
+
+**Parameters it owns.** `--keep-latest-checkpoint` optionally adds restart readiness.
+
+**Interactions.** Existing derived results remain readable; rerunning post may still
+require restoring source checkpoints or raw output.
+
+**Diagnostics.** `storage plan` separates retained analysis/visualization bytes from
+pruned bytes, and the marker records both retained components.
+
+**Evidence.** Unit verified — `tests/test_storage.py` exercises all named policy
+mappings and semantic component classification.
+
+**Limitations.** It cannot infer whether a particular future analysis needs raw fields;
+restore those inputs explicitly when required.

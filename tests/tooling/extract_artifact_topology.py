@@ -44,7 +44,7 @@ def normalize(paths: list, workspace: Path, run_id: str) -> list:
 
 
 def run_plan(workspace: Path, case_dir: Path, monitor: str, extra: list,
-             post: str = "standard_analysis.yml") -> dict:
+             post: str = "post.yml") -> dict:
     """!
     @brief Invoke the dry-run planner for one scenario and return its raw plan.
     @param[in] workspace Scenario workspace.
@@ -58,10 +58,10 @@ def run_plan(workspace: Path, case_dir: Path, monitor: str, extra: list,
     result = subprocess.run(
         [
             sys.executable, str(PICURV), "run", "--dry-run", "--format", "json",
-            "--case", str(case_dir / "flat_channel.yml"),
-            "--solver", str(case_dir / "Imp-MG-Standard.yml"),
-            "--monitor", str(case_dir / monitor),
-            "--post", str(case_dir / post),
+            "--case", str(case_dir / "config" / "case.yml"),
+            "--solver", str(case_dir / "config" / "solver.yml"),
+            "--monitor", str(case_dir / "config" / monitor),
+            "--post", str(case_dir / "config" / post),
             *extra,
         ],
         cwd=workspace, capture_output=True, text=True, check=False, timeout=180,
@@ -88,43 +88,23 @@ def init_case(workspace: Path) -> Path:
     return case_dir
 
 
-def custom_monitor(case_dir: Path) -> str:
-    """!
-    @brief Write a monitor variant with non-default output and log directory names.
-
-    Custom directory names must appear in the plan. A planner that reported defaults
-    regardless would hide the directory the runtime deletes on a fresh solve.
-    @param[in] case_dir Case directory to write into.
-    @return File name of the variant monitor.
-    """
-    source = (case_dir / "Standard_Output.yml").read_text(encoding="utf-8")
-    source = re.sub(r'^(\s*)output:\s*"output"', r'\1output: "custom_out"', source, flags=re.M)
-    source = re.sub(r'^(\s*)log:\s*"logs"', r'\1log: "custom_logs"', source, flags=re.M)
-    (case_dir / "Custom_Dirs.yml").write_text(source, encoding="utf-8")
-    return "Custom_Dirs.yml"
-
-
 def flat_post_recipe(case_dir: Path) -> str:
     """!
-    @brief Write a post recipe using the flat default output directory.
+    @brief Write a post recipe requesting a non-canonical output directory.
 
-    @details Shipped recipes use both a flat `viz` and a nested
-             `visualization/<recipe>` layout, and `post.yml -> io.output_directory` is
-             resolved directly against the run directory. Exercising only the nested
-             form let the snapshot look as though `visualization/<recipe>` were the
-             fixed shape, which is how that identity came to be recorded as
-             non-configurable.
+    @details Runtime path injection must replace this request with the stable
+             `output/visualization/<recipe_id>` home.
     @param[in] case_dir Case directory to write into.
     @return File name of the variant recipe.
     """
-    source = (case_dir / "standard_analysis.yml").read_text(encoding="utf-8")
+    source = (case_dir / "config" / "post.yml").read_text(encoding="utf-8")
     source = re.sub(r'^(\s*)output_directory:\s*.*$', r'\1output_directory: "viz"',
                     source, flags=re.M)
-    (case_dir / "Flat_Viz_Analysis.yml").write_text(source, encoding="utf-8")
+    (case_dir / "config" / "Flat_Viz_Analysis.yml").write_text(source, encoding="utf-8")
     return "Flat_Viz_Analysis.yml"
 
 
-def map_to_identities(artifacts: list, contract: dict, configured: dict = None) -> dict:
+def map_to_identities(artifacts: list, contract: dict) -> dict:
     """!
     @brief Map each normalized artifact token onto a declared logical identity.
 
@@ -133,49 +113,26 @@ def map_to_identities(artifacts: list, contract: dict, configured: dict = None) 
     contract exists to surface.
     @param[in] artifacts Normalized artifact tokens.
     @param[in] contract Parsed topology contract.
-    @param[in] configured Actual directory names this scenario used, so the two
-               configurable identities resolve to distinct paths rather than sharing an
-               ambiguous single-segment wildcard.
     @return Mapping of identity id to matched tokens, plus an `unmapped` list.
     """
-    configured = configured or {}
-    concrete = {
-        "run.runtime_logs": configured.get("log", "logs"),
-        "run.solver_output": configured.get("output", "output"),
-        # The post output directory may be several segments deep, so the scenario's
-        # actual configured value is substituted rather than a single-segment wildcard.
-        "run.visualization": configured.get("post_output", "viz"),
+    logical_roots = {
+        "<run.root>": r"<workspace>/runs/<run_id>",
+        "<run.config>": r"<workspace>/runs/<run_id>/config",
+        "<run.post_recipes>": r"<workspace>/runs/<run_id>/config/post\-recipes",
+        "<run.inputs>": r"<workspace>/runs/<run_id>/inputs",
+        "<run.runtime_logs>": r"<workspace>/runs/<run_id>/logs",
+        "<run.scheduler>": r"<workspace>/runs/<run_id>/scheduler",
+        "<run.solver_output>": r"<workspace>/runs/<run_id>/output",
+        "<run.analysis>": r"<workspace>/runs/<run_id>/output/analysis",
+        "<run.visualization>": r"<workspace>/runs/<run_id>/output/visualization",
     }
     rules = []
     for record in contract["artifacts"]:
         rule = record["path_rule"]
         pattern = re.escape(rule)
         pattern = pattern.replace(re.escape("<workspace>"), r"<workspace>")
-        pattern = pattern.replace(re.escape("<run.root>"), r"<workspace>/runs/<run_id>")
-        pattern = pattern.replace(re.escape("<run.config>"), r"<workspace>/runs/<run_id>/config")
-        pattern = pattern.replace(re.escape("<run.solver_output>"), r"<workspace>/runs/<run_id>/[^/]+")
-        pattern = pattern.replace(re.escape("<run.runtime_logs>"), r"<workspace>/runs/<run_id>/[^/]+")
-        pattern = pattern.replace(re.escape("<run.scheduler>"), r"<workspace>/runs/<run_id>/scheduler")
-        pattern = pattern.replace(
-            re.escape('<configured log dir, default "logs">'),
-            re.escape(concrete["run.runtime_logs"]),
-        )
-        pattern = pattern.replace(
-            re.escape('<configured output dir, default "output">'),
-            re.escape(concrete["run.solver_output"]),
-        )
-        pattern = pattern.replace(
-            re.escape('<configured post output dir, default "viz">'),
-            re.escape(concrete["run.visualization"]),
-        )
-        pattern = pattern.replace(
-            re.escape("<run.runtime_logs>"),
-            r"<workspace>/runs/<run_id>/" + re.escape(concrete["run.runtime_logs"]),
-        )
-        pattern = pattern.replace(
-            re.escape("<run.solver_output>"),
-            r"<workspace>/runs/<run_id>/" + re.escape(concrete["run.solver_output"]),
-        )
+        for token, resolved in logical_roots.items():
+            pattern = pattern.replace(re.escape(token), resolved)
         pattern = pattern.replace(re.escape("<role>"), r"[^/]+")
         pattern = pattern.replace(re.escape("<ext>"), r"[^/]+")
         pattern = pattern.replace(re.escape("<name>"), r"[^/]+")
@@ -219,31 +176,24 @@ def build_snapshot() -> dict:
     workspace = Path(tempfile.mkdtemp(prefix="picurv-topology-"))
     try:
         case_dir = init_case(workspace)
-        variant = custom_monitor(case_dir)
         flat_post = flat_post_recipe(case_dir)
         cases = [
-            ("fresh_local_solve_and_post", "Standard_Output.yml",
-             ["--solve", "--post-process"], "standard_analysis.yml"),
-            ("fresh_local_solve_only", "Standard_Output.yml", ["--solve"],
-             "standard_analysis.yml"),
-            ("custom_directories", variant, ["--solve", "--post-process"],
-             "standard_analysis.yml"),
-            # A second post layout, so the snapshot records that the post output
-            # directory is configured rather than fixed.
-            ("flat_post_output_directory", "Standard_Output.yml",
+            ("fresh_local_solve_and_post", "monitor.yml",
+             ["--solve", "--post-process"], "post.yml"),
+            ("fresh_local_solve_only", "monitor.yml", ["--solve"],
+             "post.yml"),
+            # A non-canonical request proves the runtime path is still fixed.
+            ("post_output_request_is_canonicalized", "monitor.yml",
              ["--solve", "--post-process"], flat_post),
         ]
         for name, monitor, extra, post in cases:
-            dirs = {"log": "custom_logs", "output": "custom_out"} if monitor == variant else {}
-            dirs["post_output"] = ("viz" if post == flat_post
-                                   else "visualization/standard_analysis")
             plan = run_plan(workspace, case_dir, monitor, extra, post)
-            artifacts = normalize(plan.get("artifacts", []), workspace, plan["run_id_preview"])
+            artifacts = normalize(plan.get("artifacts", []), case_dir, plan["run_id_preview"])
             scenarios.append({
                 "scenario": name,
                 "launch_mode": plan.get("launch_mode"),
                 "artifacts": artifacts,
-                "identities": map_to_identities(artifacts, contract, dirs),
+                "identities": map_to_identities(artifacts, contract),
             })
     finally:
         shutil.rmtree(workspace, ignore_errors=True)

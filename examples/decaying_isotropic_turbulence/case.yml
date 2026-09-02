@@ -28,21 +28,36 @@ properties:
       remove_mean: true
 
 grid:
-  mode: programmatic_c
-  programmatic_settings:
-    im: 64
-    jm: 64
-    km: 64
-    xMins: 0.0
-    xMaxs: 6.283185307179586
-    yMins: 0.0
-    yMaxs: 6.283185307179586
-    zMins: 0.0
-    zMaxs: 6.283185307179586
-    rxs: 1.0
-    rys: 1.0
-    rzs: 1.0
-    cgrids: 0
+  # The spectral initial condition is a reusable Python asset and therefore
+  # needs an inspectable file-backed grid asset, not a grid created later in C.
+  mode: grid_gen
+  generator:
+    config_file: ../../config/grids/coarse_square_tube_curved.cfg
+    grid_type: warp
+    cli_args:
+      - --ncells-i
+      - '64'
+      - --ncells-j
+      - '64'
+      - --ncells-k
+      - '64'
+      - --bounds-x
+      - '0.0'
+      - '6.283185307179586'
+      - --bounds-y
+      - '0.0'
+      - '6.283185307179586'
+      - --bounds-z
+      - '0.0'
+      - '6.283185307179586'
+      - --amp-A
+      - '0.0'
+      - --amp-B
+      - '0.0'
+      - --amp-C
+      - '0.0'
+      - --no-show-stats
+      - --no-write-vtk
 
 models:
   domain: {blocks: 1}

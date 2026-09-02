@@ -790,7 +790,7 @@
           "anchor": "p61_code_sec"
         },
         "security_credentials": {
-          "not_applicable": "Remote access reuses the operator's existing SSH configuration; PICurv neither stores nor prompts for credentials of its own."
+          "not_applicable": "Remote access reuses the operator's existing rclone remote and credentials; PICurv stores only the remote name/path and never copies provider credentials into a workspace."
         }
       },
       "proposed_status": "supported",
@@ -886,12 +886,10 @@
           "anchor": "p71_topology_sec"
         },
         "user_selector": {
-          "page": "09_Monitor_Reference",
-          "anchor": "p09_io_sec"
+          "not_applicable": "Run-owned directory names are fixed; there is no public selector."
         },
         "backward_compatibility": {
-          "page": "15_Config_Ingestion_Map",
-          "anchor": "p15_safety_sec"
+          "not_applicable": "The fixed workspace topology was introduced before compatibility guarantees; legacy monitor directory overrides are intentionally rejected."
         },
         "mpi_distributed_execution": {
           "not_applicable": "The guard runs on rank zero before the collective directory setup and aborts the whole job, so no rank-dependent behavior arises."

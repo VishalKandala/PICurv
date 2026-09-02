@@ -48,16 +48,16 @@ that the periodic axis has at least four physical nodes.
 
 ```bash
 ./bin/picurv run \
-    --case my_bent_channel_run/bent_channel.yml \
-    --solver my_bent_channel_run/Imp-MG-Standard.yml \
-    --monitor my_bent_channel_run/Standard_Output.yml \
-    --post my_bent_channel_run/standard_analysis.yml \
+    --case my_bent_channel_run/config/case.yml \
+    --solver my_bent_channel_run/config/solver.yml \
+    --monitor my_bent_channel_run/config/monitor.yml \
+    --post my_bent_channel_run/config/post.yml \
     -n 4 --solve --post-process
 ```
 
 @section p03_viz_sec 4. Visualize Results
 
-1. Open `<run.visualization>/Field_*.vts` (by default `viz/` inside the run directory; `post.yml -> io.output_directory` decides).
+1. Open `<run.visualization>/<recipe_id>/Field_*.vts`.
 2. Use `Stream Tracer` seeded near inlet.
 3. Color by `Ucat_nodal` magnitude.
 

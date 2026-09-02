@@ -16,11 +16,6 @@ io:
   # 10000/100 = 100 rows per snapshot -- sufficient for spot-checking.
   particle_log_interval: 100
 
-  directories:
-    output: "output"
-    restart: "restart"
-    log: "logs"
-
 logging:
   # Interpolation error is always written to logs/interpolation_error.csv
   # regardless of verbosity. Set to INFO to also see error on console.

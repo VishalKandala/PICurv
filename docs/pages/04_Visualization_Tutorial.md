@@ -10,7 +10,11 @@ Here, you will learn the fundamental skills needed to explore *any* simulation r
 
 @section p04_files_sec 1. Understanding Your Output Files
 
-After a successful run, the post-processor generates visualization files in `<run.visualization>/`, the directory configured by `post.yml -> io.output_directory`. It defaults to `viz`, and shipped recipes use both that flat form and a nested `visualization/<recipe>` layout - the whole value is configured, so nothing about the shape is fixed.
+After a successful run, the postprocessor writes visualization files under
+`<run.visualization>/<recipe_id>/`. The recipe id combines a readable output prefix
+with a stable digest of the recipe, so repeated use resumes the same result while
+different recipes coexist. `post.yml -> io.output_directory` is runtime-managed and
+cannot redirect output outside this home.
 
 You will typically find:
 

@@ -173,7 +173,8 @@ Verification-pathway rule:
 - `io.data_output_frequency` -> `-tio`
 - `io.particle_console_output_frequency` -> `-particle_console_output_freq` (defaults to `data_output_frequency` when omitted)
 - `io.particle_log_interval` -> `-logfreq`
-- `io.directories.output/restart/log` -> `-output_dir/-restart_dir/-log_dir`
+- run-owned output, restart materialization, logs, and analysis paths are fixed by
+  the workspace contract; `io.directories` is rejected
 - checkpoint-internal directory and payload names are fixed; monitor YAML does
   not expose Eulerian or particle checkpoint subdirectory overrides
 - `profiling.timestep_output` -> `profile.run` when `mode: selected`, plus profiling control flags
