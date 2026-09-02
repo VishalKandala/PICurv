@@ -180,6 +180,36 @@ not active. It is the better guard where backscatter matters, and it pairs natur
 with homogeneous averaging, where the averaged coefficient goes negative only when the
 whole homogeneous set is backscattering on balance.
 
+@section p72_walls_sec 5.1 Walls
+
+The closure has no wall treatment of its own. The coefficient is whatever the dynamic
+procedure measures or the constant model prescribes, right down to the first cell, and
+nothing damps it toward the wall.
+
+A wall function is configured separately at
+@ref p07_cap_wall_log_law "turbulence.wall_function", and it does reach this closure.
+`Contra2Cart` rebuilds the Cartesian field from the contravariant one at the top of each
+timestep, discarding the previous solve's near-wall correction, so the wall model is
+re-applied before the strain rates are formed. Without that the eddy viscosity would be
+built from the uncorrected near-wall field while the momentum equation used the corrected
+one, and on the coarse grids that motivate a wall model the uncorrected strain is
+under-predicted.
+
+The correction is an imposed analytic profile, so the Germano identity evaluated at the
+cell it overwrites would measure that profile rather than resolved turbulence. Those
+cells are therefore excluded from both contraction sums whenever a wall model is active.
+The exclusion is not a preference: the data there is not a measurement, and averaging it
+in biases whatever set it belongs to. Which set depends on the mode - the whole domain
+under `global`, the wall plane under `homogeneous` retaining the wall-normal direction,
+and that cell alone under `local` - so no mode escapes it. A cell left with no data takes
+a zero coefficient, which is the right answer where the wall model is already supplying
+the stress.
+
+`averaging.mode: homogeneous` does give a channel a wall-normal coefficient profile, so
+the coefficient can fall toward the wall on its own where the resolved field supports it.
+That is not a substitute for a wall treatment on a grid too coarse to resolve the
+sublayer.
+
 @section p72_widths_sec 6. Filter Widths
 
 Two widths enter, and both are configurable because neither has a universally right

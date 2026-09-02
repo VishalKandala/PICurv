@@ -1054,6 +1054,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->les = (LESModelType)temp_les_model;
     ierr = PetscOptionsGetInt(NULL, NULL, "-rans", &simCtx->rans, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-wallfunction", &simCtx->wallfunction, NULL); CHKERRQ(ierr);
+    PetscCheck(simCtx->wallfunction >= WALL_FUNCTION_NONE && simCtx->wallfunction <= WALL_FUNCTION_CABOT,
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-wallfunction must be 0 (none), 1 (log_law), 2 (werner), or 3 (cabot); received %" PetscInt_FMT ".",
+               simCtx->wallfunction);
     ierr = PetscOptionsGetInt(NULL, NULL, "-les_gradient_model", &simCtx->les_gradient_model, NULL); CHKERRQ(ierr);
     ierr = ParseLESConfiguration(simCtx); CHKERRQ(ierr);
 
@@ -2091,7 +2095,13 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 }
 
                 if(simCtx->wallfunction){
-                  ierr = DMCreateLocalVector(user->fda,&user->lFriction_Velocity); CHKERRQ(ierr); ierr = VecSet(user->lFriction_Velocity,0.0);
+                  /* Scalar per cell, so it lives on `da`. It was previously created from
+                     `fda`, whose dof is 3, while every reader opens it through `da` - a
+                     pairing PETSc rejects outright. */
+                  ierr = DMCreateGlobalVector(user->da,&user->Friction_Velocity); CHKERRQ(ierr);
+                  ierr = VecSet(user->Friction_Velocity,0.0); CHKERRQ(ierr);
+                  ierr = DMCreateLocalVector(user->da,&user->lFriction_Velocity); CHKERRQ(ierr);
+                  ierr = VecSet(user->lFriction_Velocity,0.0); CHKERRQ(ierr);
                 }
 	              // Add K_Omega etc. here as needed
 
@@ -4122,6 +4132,7 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->lNu_t) { ierr = VecDestroy(&user->lNu_t); CHKERRQ(ierr); }
     if (user->CS) { ierr = VecDestroy(&user->CS); CHKERRQ(ierr); }
     if (user->lCs) { ierr = VecDestroy(&user->lCs); CHKERRQ(ierr); }
+    if (user->Friction_Velocity) { ierr = VecDestroy(&user->Friction_Velocity); CHKERRQ(ierr); }
     if (user->lFriction_Velocity) { ierr = VecDestroy(&user->lFriction_Velocity); CHKERRQ(ierr); }
     if (user->K_Omega) { ierr = VecDestroy(&user->K_Omega); CHKERRQ(ierr); }
     if (user->lK_Omega) { ierr = VecDestroy(&user->lK_Omega); CHKERRQ(ierr); }

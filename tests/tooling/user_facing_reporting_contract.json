@@ -14,7 +14,9 @@
       "Solution Convergence Mode",
       "Large Eddy Simulation Model",
       "LES Coefficient Averaging",
-      "LES Coefficient Diagnostics"
+      "LES Coefficient Diagnostics",
+      "LES Yoshizawa Coefficient",
+      "Wall Function Model"
     ]
   },
   "cli_commands": {

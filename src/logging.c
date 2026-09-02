@@ -821,6 +821,26 @@ const char* LESClipModeToString(LESClipMode mode)
     }
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "WallFunctionModelToString"
+/**
+ * @brief Implementation of \ref WallFunctionModelToString().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/logging.h`.
+ * @see WallFunctionModelToString()
+ */
+const char* WallFunctionModelToString(WallFunctionModel model)
+{
+    /* User-facing YAML spellings, so a banner line can be pasted back into a case. */
+    switch(model){
+        case WALL_FUNCTION_NONE:    return "none";
+        case WALL_FUNCTION_LOG_LAW: return "log_law";
+        case WALL_FUNCTION_WERNER:  return "werner";
+        case WALL_FUNCTION_CABOT:   return "cabot";
+        default: return "unknown";
+    }
+}
+
 /**
  * @brief Implementation of \ref MomentumSolverTypeToString().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -3442,5 +3462,39 @@ PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName)
                         (double)simCtx->particleLoadImbalance, (int)simCtx->migrationPassesLastStep);
         fclose(f);
     }
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "PicurvOpenDiagnosticsCsv"
+/**
+ * @brief Implementation of \ref PicurvOpenDiagnosticsCsv().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/logging.h`.
+ */
+PetscErrorCode PicurvOpenDiagnosticsCsv(const SimCtx *simCtx, const char *filename,
+                                        const char *header, FILE **file)
+{
+    char  path[PETSC_MAX_PATH_LEN + 64];
+    FILE *handle = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCheck(simCtx && filename && header && file, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "A diagnostics CSV needs a context, a name, a header, and somewhere to "
+               "return the handle.");
+
+    PetscCall(PetscSNPrintf(path, sizeof(path), "%s/%s", simCtx->log_dir, filename));
+    handle = fopen(path, "a");
+    PetscCheck(handle != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
+               "Unable to open diagnostics file '%s'.", path);
+
+    if (ftell(handle) == 0) fprintf(handle, "%s\n", header);
+    /* Written once, on the first step a continuation produces, so that a reader can tell
+       a resumed run from a jump in the data itself. */
+    if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
+        fprintf(handle, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
+    }
+
+    *file = handle;
     PetscFunctionReturn(0);
 }

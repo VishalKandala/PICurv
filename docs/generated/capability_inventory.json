@@ -553,13 +553,26 @@
     "id": "turbulence.wall_function",
     "parity": [],
     "public_values": {
+      "cabot": {
+        "maps_to": 3,
+        "status": "experimental"
+      },
       "log_law": {
-        "maps_to": "log_law",
+        "maps_to": 1,
         "status": "experimental"
       },
       "loglaw": {
-        "maps_to": "loglaw",
+        "maps_to": 1,
         "spelling_of": "log_law",
+        "status": "experimental"
+      },
+      "werner": {
+        "maps_to": 2,
+        "status": "experimental"
+      },
+      "werner_wengle": {
+        "maps_to": 2,
+        "spelling_of": "werner",
         "status": "experimental"
       }
     },

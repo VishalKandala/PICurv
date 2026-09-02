@@ -175,8 +175,11 @@ Selector: `case.yml -> models.physics.turbulence.wall_function.model`
 
 | Value | Maps to |
 |---|---|
-| `log_law` | `log_law` |
-| `loglaw` | `loglaw` |
+| `cabot` | `3` |
+| `log_law` | `1` |
+| `loglaw` | `1` |
+| `werner` | `2` |
+| `werner_wengle` | `2` |
 
 ### Initial Condition Target Field
 

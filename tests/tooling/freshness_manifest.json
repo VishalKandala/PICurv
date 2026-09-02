@@ -43,7 +43,7 @@
         "10_Post_Processing_Reference",
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:40b0120c64f8fea887f7f91a380cba30fdc1b1fdfa4c412f3cf25fa29999c6c6"
+      "attested_digest": "sha256:85ecd7610c479d647551fcce7aa279bc370755af588ee68d52f3295857b91fac"
     },
     {
       "id": "capability.evidence_matrix",
@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:2f21f6dcc2164b4e4fce209a5ec22cb4f7246ed4b36c8f0bf72e3646d54d5160"
+      "attested_digest": "sha256:791bf4072b49805c1db32dff6bfe4504255c0078df8f9b97db987f824278eef4"
     },
     {
       "id": "artifact.topology",
@@ -87,7 +87,7 @@
       "dependent_pages": [
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:812fb7c343d69147e1a691bcc5700fdaf59af42efb2b459252b7c3222e3ef222"
+      "attested_digest": "sha256:aa1f5d26d912684160ae870e82c65152770108408b09534fbc051c3eb81539b6"
     },
     {
       "id": "docs.page_types",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:a3717e2f759fd951c752db648ed3e38615a90535c635f63b25017f1575387007",
+      "attested_digest": "sha256:392ba3821df29d15df4bff10eff1ead02c0e997f98f4717e2600ea2279bdab18",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
@@ -148,7 +148,7 @@
       "dependent_pages": [
         "21_Methods_Overview"
       ],
-      "attested_digest": "sha256:1d3882fd27b9542ac7d77f41b19202f6ed0bed47cf92fa469653ac74430c9646",
+      "attested_digest": "sha256:86807cdafad0c973c5d4f0d975f550e53da100e0d170657476897e605001ea51",
       "note": "Both models are documented as defective. If this file changes, the defect disclosure is the first thing to re-check."
     },
     {
@@ -283,6 +283,24 @@
       ],
       "dependent_pages": [
         "32_Analytical_Solutions"
+      ],
+      "attested_digest": "unattested"
+    },
+    {
+      "id": "observability.logging",
+      "title": "Logging and runtime observability implementation",
+      "tier": "soft",
+      "watched_paths": [
+        "src/logging.c",
+        "include/logging.h"
+      ],
+      "owning_pages": [
+        "09_Monitor_Reference"
+      ],
+      "dependent_pages": [
+        "11_User_How_To_Guides",
+        "13_Code_Architecture",
+        "53_Search_Robustness_Metrics_Reference"
       ],
       "attested_digest": "unattested"
     }

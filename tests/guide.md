@@ -127,7 +127,8 @@ is a test-local routine.
 - `test_statistics_config.c`: field-statistics control resolution from the generated control file
 - `test_grid.c`: local/global bounding-box helpers
 - `test_metric.c`: metric inversion, contravariant velocity, face geometry helpers
-- `test_boundaries.c`: boundary factory plus direct handler-behavior checks
+- `test_boundaries.c`: boundary factory, direct handler-behavior checks, and wall-model dispatch across the log law, Werner-Wengle, and Cabot
+- `test_les.c`: LES closure kernels - symmetric-tensor algebra, strain rate, filter width, the Germano model tensor and Leonard stress, coefficient clipping and the viscosity floor, and homogeneous-direction resolution
 - `test_periodic_dev.c`: gating geometric-periodic boundary and synchronization harness
 - `test_poisson_rhs.c`: pressure update, RHS, projection, body-force and diffusivity helpers
 - `test_runtime_kernels.c`: setup/runloop/particle/interpolation/scatter/wall/walltime-guard/LES helper contracts
@@ -227,7 +228,7 @@ Useful env knobs:
   - broaden the richer runtime fixture to more geometry/topology variants; current setup coverage is production-faithful but still mostly tiny Cartesian cases
 - coverage follow-up:
   - `2026-03-20` audit snapshot: `src/AnalyticalSolutions.c` (`23.93%`) and `src/BodyForces.c` (`11.69%`) still need direct unit harnesses
-  - `2026-03-20` audit snapshot: `src/les.c` (`22.58%`) still needs broader LES-model-path coverage
+  - `src/les.c` was rewritten after the `2026-03-20` snapshot, so that figure no longer describes the file; `test_les.c` covers the kernels directly, and the assembled model path has not been re-measured
   - `2026-03-20` audit snapshot: `src/poisson.c` (`45.66%`) and `src/rhs.c` (`61.95%`) still need deeper direct branch coverage
   - `2026-03-20` audit snapshot: `src/runloop.c` (`64.76%`) still needs more runtime-orchestration branch coverage
   - `2026-03-20` audit snapshot: `src/Boundaries.c` (`68.10%`) still needs additional non-periodic boundary edge-case coverage

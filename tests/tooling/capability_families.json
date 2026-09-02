@@ -715,7 +715,7 @@
       "title": "Wall Function Models",
       "selector": "case.yml -> models.physics.turbulence.wall_function.model",
       "public_surface": {
-        "kind": "python_membership",
+        "kind": "python_normalizer",
         "module": "picurv_cli.core",
         "symbol": "normalize_wall_function_model"
       },
@@ -732,6 +732,20 @@
         "loglaw": {
           "canonical": false,
           "spelling_of": "log_law"
+        },
+        "werner": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "werner_wengle": {
+          "canonical": false,
+          "spelling_of": "werner"
+        },
+        "cabot": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
         }
       }
     },

@@ -372,8 +372,7 @@
       "visibility": "public",
       "previous_status": "experimental",
       "capability_families": [
-        "turbulence.rans_model",
-        "turbulence.wall_function"
+        "turbulence.rans_model"
       ],
       "obligations": {
         "purpose": {
@@ -435,6 +434,81 @@
           "not_applicable": "The k-omega path has not been validated against a reference case in this tree; no verification claim is made for it."
         }
       }
+    },
+    {
+      "id": "turbulence.wall_function",
+      "title": "Wall Function Boundary Treatment",
+      "status": "experimental",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [
+        "turbulence.wall_function"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "intended_scope": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "architecture_boundary": {
+          "page": "21_Methods_Overview"
+        },
+        "dependencies": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_models_sec"
+        },
+        "developer_entry_points": {
+          "page": "50_Modular_Selector_Extension_Guide"
+        },
+        "configuration": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "selection_guidance": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "observability": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_logging_sec"
+        },
+        "limitations": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "user_selector": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "scientific_verification": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_rans_filter_sec"
+        },
+        "backward_compatibility": {
+          "not_applicable": "The wall_function block and its -wallfunction / -wall_roughness flags are unchanged; nothing has been renamed or retired."
+        }
+      },
+      "note": "Separated from the RANS record because a wall function is configured independently of both LES and RANS, and because the RANS runtime update is incomplete while this treatment is separately usable. The velocity laws and their friction-velocity root-finds carry unit coverage, and the integration that applies them across the six faces is covered by tests/c/test_boundaries.c, which checks that the corrected first-interior velocity is the modelled profile at that cell's wall distance. Status is experimental rather than supported because no reference-flow comparison has been run, no shipped case enables it, and only the log law is reachable: the Cabot and Werner-Wengle kernels exist and are unit-tested but the integration dispatches to the log law unconditionally. The pass now records the friction velocity as the catalogued field `Utau` and writes near-wall statistics to <run.runtime_logs>/wall_model.csv, including the first-cell y+ that says whether the selected law is being applied where it is valid; before that, u_tau was computed every step and discarded, so no wall diagnostic existed. Its storage was also allocated from the dof-3 DM while every reader opened it through the dof-1 DM, a pairing PETSc rejects, so enabling wall functions on a case with a WALL face aborted; tests/c/test_boundaries.c now allocates the way production does and compares the allocation against the field catalog descriptor, which is what makes that class of mismatch fail in the suite."
     },
     {
       "id": "particles.transport",
@@ -1005,6 +1079,109 @@
       },
       "proposed_status": "supported",
       "promotion_rationale": "Documented to the supported bar. The unresolved question is the wall-bounded pseudo-time convergence behaviour, which page 54 records as previously observed and requiring re-characterisation at current HEAD. A supported claim should not sit above an open characterisation question."
+    },
+    {
+      "id": "observability.logging",
+      "title": "Logging and Runtime Observability",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": null,
+      "capability_families": [],
+      "obligations": {
+        "purpose": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_logging_sec"
+        },
+        "intended_scope": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_logging_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_logging_sec"
+        },
+        "architecture_boundary": {
+          "page": "13_Code_Architecture",
+          "anchor": "p13_modules_sec"
+        },
+        "dependencies": {
+          "page": "13_Code_Architecture",
+          "anchor": "p13_modules_sec"
+        },
+        "developer_entry_points": {
+          "page": "51_C_Test_Suite_Developer_Guide"
+        },
+        "configuration": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_logging_sec"
+        },
+        "selection_guidance": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_logging_ssec"
+        },
+        "observability": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_diagnostics_sec"
+        },
+        "limitations": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_logging_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_logging_sec"
+        },
+        "evidence": {
+          "page": "40_Testing_and_Quality_Guide",
+          "anchor": "p40_c_file_matrix_ssec"
+        },
+        "lifecycle_and_restart": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_logging_sec"
+        },
+        "operations": {
+          "page": "52_Run_Lifecycle_Guide",
+          "anchor": "p52_layout_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_output_sec"
+        },
+        "examples": {
+          "not_applicable": "Logging is configured per run in monitor.yml rather than per case, so it has no example family in 65_Example_Catalog. Every shipped example exercises it through whichever monitor profile the run selects, and the profiles in config/monitors/ - Standard_Output.yml for quiet production runs - are its reference configurations. An example case that existed to demonstrate logging would be demonstrating the monitor profile, which 09_Monitor_Reference already specifies directly."
+        },
+        "complete_reference": {
+          "page": "09_Monitor_Reference"
+        }
+      },
+      "concerns": {
+        "user_selector": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_logging_sec"
+        },
+        "generated_artifact": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_diagnostics_sec"
+        },
+        "file_format": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_logging_sec"
+        },
+        "mpi_distributed_execution": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_logging_sec"
+        },
+        "numerical_method": {
+          "not_applicable": "Logging reports the solver's state and never participates in it. The dependency direction is one-way, as 13_Code_Architecture section 5 records: logging reads SimCtx, and no solver module depends on logging for a numerical result, so there is no numerical method here to specify."
+        },
+        "scientific_verification": {
+          "not_applicable": "Nothing logging produces is a scientific claim of its own; it reports quantities the subsystems that compute them are separately accountable for. Its own contracts - level gating, allow-list behaviour, snapshot cadence, string conversion - are behavioural and are covered by tests/c/test_logging.c rather than by physical validation."
+        }
+      },
+      "note": "Registered as its own subsystem because every other module reports through it while nothing depends on it for a result, which is exactly the shape that leaves a module unowned: before this record it appeared in no subsystem, no capability family, no contract, no freshness surface, and in neither src/guide.md nor the module map of 13_Code_Architecture, despite owning the console tier system, the runtime metric emitters, and the lifecycle of every file in <run.runtime_logs>. A change to what a user sees therefore tripped no staleness suspicion anywhere. Status is supported rather than experimental because the console contracts carry direct unit coverage in tests/c/test_logging.c and the configuration surface has been stable and user-facing across releases; the claim is about those behavioural contracts, not about the correctness of any quantity another subsystem hands it to print."
     }
   ],
   "owner_decisions_note": "A record carrying `proposed_status` is documented to that higher bar but still claims the lower one. The lifecycle gate checks documentation obligations against the proposal, so nothing is under-written; what it cannot check is production suitability or scientific correctness, which is why the promotion waits for the repository owner rather than being taken by the tooling."

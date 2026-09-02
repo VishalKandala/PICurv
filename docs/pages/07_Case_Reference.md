@@ -265,13 +265,17 @@ Common mappings:
   DMDA creation; `models.domain` does not accept periodic flags
 - `physics.dimensionality: "2D"` -> `-TwoD 1`
 - `physics.turbulence.les.enabled/model` -> `-les` (`0` none, `1` constant Smagorinsky, `2` dynamic Smagorinsky)
-- `physics.turbulence.les.constant_cs` -> `-const_cs`
-- `physics.turbulence.les.max_cs` -> `-max_cs`
-- `physics.turbulence.les.dynamic_frequency` -> `-dynamic_freq`
-- `physics.turbulence.les.test_filter` -> `-testfilter_ik` (`volume_weighted_box` = 0, `homogeneous_ik` = 1)
+- `physics.turbulence.les.constant_cs` -> `-les_constant_cs`
+- `physics.turbulence.les.dynamic_frequency` -> `-les_dynamic_frequency`
+- `physics.turbulence.les.filter_width` -> `-les_filter_width`
+- `physics.turbulence.les.test_filter.kernel/width_ratio` -> `-les_test_filter_kernel`, `-les_test_filter_width_ratio`
+- `physics.turbulence.les.averaging.mode/directions` -> `-les_averaging_mode`, `-les_averaging_directions`
+- `physics.turbulence.les.clipping.mode/max_cs/min_viscosity_ratio` -> `-les_clip_mode`, `-les_clip_max_cs`, `-les_min_viscosity_ratio`
+- `physics.turbulence.les.gradient_model.enabled` -> `-les_gradient_model`
+- `physics.turbulence.les.diagnostics.enabled/cadence/yoshizawa_ci` -> `-les_diagnostics`, `-les_diagnostics_cadence`, `-les_yoshizawa_ci`
 - `physics.turbulence.rans.enabled/model` -> `-rans` (`k_omega` accepted; runtime update currently incomplete)
-- `physics.turbulence.wall_function.enabled` -> `-wallfunction`
-- `physics.turbulence.wall_function.roughness_height` -> `-wall_roughness`
+- `physics.turbulence.wall_function.enabled/model` -> `-wallfunction` (`1` log law, `2` Werner-Wengle, `3` Cabot)
+- `physics.turbulence.wall_function.roughness_height` -> `-wall_roughness` (`log_law` only)
 - `physics.particles.count` -> `-numParticles`
 - `physics.particles.init_mode` -> `-pinit` (`Surface`, `Volume`, `PointSource`, `SurfaceEdges`)
 - `physics.particles.restart_mode` -> `-particle_restart_mode`
@@ -640,7 +644,7 @@ have cancelled it survive, so the mean subgrid dissipation is biased upward.
 **When to choose it.** When backscatter is not wanted but a ceiling would distort a
 coefficient you have reason to trust at large values.
 
-**Parameters it owns.** None; `clipping.max_cs` is not applied and is warned about.
+**Parameters it owns.** None; `clipping.max_cs` imposes no bound here, and naming it under this mode is rejected rather than ignored.
 
 **Interactions.** As for `clamp`.
 
@@ -818,13 +822,86 @@ does not imply a wall function, and vice versa. The wall handler itself remains
 @ref p44_cap_noslip "noslip"; the wall function changes how the stress is imposed, not the
 BC selection.
 
+The correction also reaches the LES closure. `Contra2Cart` rebuilds the Cartesian field
+from the contravariant one at the top of each timestep and so discards the previous
+solve's near-wall correction; the wall model is re-applied before the subgrid strain
+rates are formed, so the closure and the momentum equation agree about the near-wall
+velocity rather than disagreeing within one timestep.
+
 **Diagnostics.** The startup banner reports whether wall functions are enabled and the
-configured roughness.
+configured roughness height.
 
-**Evidence.** Implemented only. No shipped example enables it.
+**Evidence.** Implemented, with unit coverage of the velocity laws and their
+friction-velocity root-finds in `tests/c/test_runtime_kernels.c` - each is checked to
+invert its own law - and of the integration in `tests/c/test_boundaries.c`, which checks
+that the corrected first interior velocity is the modelled profile at that cell's wall
+distance, for the friction velocity the integration itself stored. No shipped example
+enables it and no reference-flow comparison has been run.
 
-**Limitations.** The only exposed model. Its validity depends on the first cell falling in
-the logarithmic region, which nothing checks for you.
+**Limitations.** Validity depends on the first cell falling in the logarithmic region,
+which nothing checks for you.
+
+@subsection p07_cap_wall_werner_sub werner
+
+@anchor p07_cap_wall_werner
+
+**Identity.** `turbulence.wall_function.model: werner` -> `-wallfunction 2`. Accepted
+spelling: `werner_wengle`.
+
+**What it does.** Applies the Werner-Wengle power-law wall model, which replaces the
+logarithmic profile with a two-layer power law and solves for the friction velocity
+without an iterative root-find in the linear region.
+
+**When to choose it.** When the first cell may fall inside or near the viscous sublayer,
+where a pure log law has no valid branch. Its explicit form also avoids the inner
+iteration the log law needs, which matters for a matrix-free Jacobian: an iterative inner
+solve makes the residual only piecewise smooth.
+
+**Parameters it owns.** None. It has no roughness formulation, so `roughness_height` is
+rejected rather than accepted and ignored - a rough wall is not representable through
+this model.
+
+**Interactions.** As for @ref p07_cap_wall_log_law "log_law".
+
+**Diagnostics.** As for @ref p07_cap_wall_log_law "log_law"; the banner reports the
+selected model by name.
+
+**Evidence.** Implemented, with unit coverage of `find_utau_Werner` and `u_Werner` in
+`tests/c/test_runtime_kernels.c`, each checked to invert the other. The integration that
+dispatches to it is covered in `tests/c/test_boundaries.c`. No reference-flow comparison
+has been run.
+
+**Limitations.** No roughness. The power-law constants are fixed.
+
+@subsection p07_cap_wall_cabot_sub cabot
+
+@anchor p07_cap_wall_cabot
+
+**Identity.** `turbulence.wall_function.model: cabot` -> `-wallfunction 3`.
+
+**What it does.** Applies Cabot's wall model, which integrates a mixing-length eddy
+viscosity across the wall layer rather than assuming a profile shape.
+
+**When to choose it.** When the near-wall flow departs from equilibrium enough that a
+fixed profile is a poor fit, and you are prepared to pay for the integration.
+
+**Parameters it owns.** None currently.
+
+**What it needs.** Cabot's departure from an equilibrium profile is driven by the
+wall-parallel pressure gradient, which is taken from the resolved pressure at the
+near-wall cell through @ref ComputeScalarFieldDerivatives. The pressure is the previous
+projection's, the same lag every other explicit use of it carries.
+
+**Interactions.** As for @ref p07_cap_wall_log_law "log_law".
+
+**Diagnostics.** As for @ref p07_cap_wall_log_law "log_law".
+
+**Evidence.** Implemented, with unit coverage of `find_utau_Cabot` and `u_Cabot` in
+`tests/c/test_runtime_kernels.c`. The integration that dispatches to it is covered in
+`tests/c/test_boundaries.c`. No reference-flow comparison has been run.
+
+**Limitations.** No roughness formulation, so `roughness_height` is rejected rather than
+accepted and ignored. The mixing-length constant is fixed.
 
 @section p07_bc_sec 7. boundary_conditions
 

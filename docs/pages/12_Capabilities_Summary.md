@@ -59,7 +59,10 @@ dynamic model is decaying isotropic turbulence with homogeneous averaging, where
 magnitudes as uncharacterized.
 
 RANS (`k_omega`) is accepted by the configuration layer but its runtime update is
-incomplete. Wall functions are configured separately from both.
+incomplete. Wall functions are configured separately from both, and offer three
+laws - `log_law`, `werner`, and `cabot`. The correction is applied inside the
+momentum solve and again before the LES strain rates are formed, so a
+wall-modelled large-eddy simulation is coupled in both directions.
 
 @section p12_solver_sec 3. Numerical Solver Stack
 

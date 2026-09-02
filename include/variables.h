@@ -539,6 +539,22 @@ typedef enum {
     DYNAMIC_SMAGORINSKY = 2
 } LESModelType;
 
+/** @brief Selects the wall model applied on WALL faces.
+ *
+ * The value doubles as the enable switch: ::WALL_FUNCTION_NONE disables the treatment,
+ * and every other value both enables it and names the law. Configured independently of
+ * LES and RANS.
+ *
+ * Add new enum values only when the parser, runtime dispatch, docs, and tests are
+ * updated in the same change.
+ */
+typedef enum {
+    WALL_FUNCTION_NONE    = 0,
+    WALL_FUNCTION_LOG_LAW = 1,
+    WALL_FUNCTION_WERNER  = 2,
+    WALL_FUNCTION_CABOT   = 3
+} WallFunctionModel;
+
 /** @brief Selects how a cell's grid filter width is derived from its metrics.
  *
  * `CUBE_ROOT_VOLUME` is exact for a cube and progressively underestimates the
@@ -626,6 +642,26 @@ typedef struct LESDiagnosticsState {
     PetscReal fluid_volume;        ///< Total fluid volume sampled.
     PetscBool valid;               ///< Set once a dynamic update has populated this state.
 } LESDiagnosticsState;
+
+/** @brief Near-wall statistics captured by one wall-model pass.
+ *
+ * The wall model evaluates the wall distance and the friction velocity together at each
+ * corrected cell. `y+` is the number that says whether the model is being asked to work
+ * in the range it is valid for, and it cannot be recovered afterwards from the corrected
+ * velocity field, which no longer carries the law that produced it. Recomputing the wall
+ * distance in the diagnostic would duplicate geometry the correction already has in hand,
+ * so it is accumulated on the way past and consumed by @ref LogWallModelDiagnostics.
+ */
+typedef struct WallModelDiagnosticsState {
+    PetscReal friction_velocity_sum;  ///< Sum of `u_tau` over corrected cells.
+    PetscReal friction_velocity_sq;   ///< Sum of `u_tau^2`, for the RMS.
+    PetscReal friction_velocity_min;  ///< Smallest `u_tau` this rank corrected.
+    PetscReal friction_velocity_max;  ///< Largest `u_tau` this rank corrected.
+    PetscReal wall_distance_sum;      ///< Sum of the first-cell wall distance.
+    PetscReal y_plus_sum;             ///< Sum of `u_tau * y / nu` over corrected cells.
+    PetscReal y_plus_max;             ///< Largest first-cell `y+` this rank corrected.
+    PetscInt  cells;                  ///< Number of cells this rank corrected.
+} WallModelDiagnosticsState;
 //--------------------------------------------------------------------------------
 //               8. MULTIGRID, SOLVERS AND POST-PROCESSING STRUCTS AND ENUMS
 //--------------------------------------------------------------------------------
@@ -1037,7 +1073,10 @@ typedef struct UserCtx {
     PetscBool inletFaceDefined;
     BCFace    identifiedInletBCFace;
     BCS       Bcs;
-    Vec       lFriction_Velocity; 
+    /* Wall-model friction velocity. Global is authoritative - the wall model writes
+       it alongside the global Ucat it corrects - and the local view is its ghosted
+       image, refreshed through the field catalog like every other cell field. */
+    Vec       Friction_Velocity, lFriction_Velocity;
     PetscReal FluxIntpSum,FluxIntfcSum;
 
     // --- Primary Flow Fields (Global & Local Views) ---
@@ -1086,6 +1125,7 @@ typedef struct UserCtx {
   // --- Turbulence Modeling (LES/RANS) ---
   Vec Nu_t, lNu_t, CS, lCs, K_Omega, lK_Omega, K_Omega_o, lK_Omega_o, Distance;
   LESDiagnosticsState les_diagnostics; ///< Pre-clipping statistics from the last dynamic update.
+  WallModelDiagnosticsState wall_diagnostics; ///< Near-wall statistics from the last wall-model pass.
 
   // --- Immersed Boundary Method (IBM) ---
   IBMNodes *ibm; IBMList *ibmlist;

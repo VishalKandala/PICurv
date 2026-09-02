@@ -6,6 +6,107 @@
 
 ## Unreleased
 
+- Wall-model observability, and a defect that made the wall model unusable.
+  - `lFriction_Velocity` was created from `fda`, whose dof is 3, while every reader
+    opened it through `da`, whose dof is 1. PETSc rejects that pairing outright, so
+    enabling wall functions on a case with a `WALL` face aborted at the first boundary
+    pass with `Vector local size N is not compatible with DMDA local sizes N/3`. The unit
+    fixtures allocated it correctly and so never saw it. Storage is now created on `da`
+    as a global/local pair, and `tests/c/test_boundaries.c` allocates the way production
+    does and checks the allocation against the field catalog descriptor, so a DM or dof
+    mismatch fails in the suite rather than only in a run.
+  - The friction velocity was computed every step and discarded: no field, no column, no
+    checkpoint. It is now the catalogued field `Utau`, written when a wall model is
+    active. It is not read back on restart, because the first boundary pass of the
+    restarted run recomputes it from the restored velocity.
+  - New `<run.runtime_logs>/wall_model.csv`, one row per step: the friction velocity's
+    mean, RMS and extrema over the corrected cells, the first-cell `y+` and wall
+    distance, and the cell count. `y+` is formed inside the wall-model dispatch, where
+    the wall distance is still in hand; nothing downstream can recover it. A step that
+    corrects no cell warns and writes nothing rather than emitting zeros. Plottable as
+    `picurv summarize --plot wall_model.y_plus_mean`.
+  - The banner no longer prints a roughness height beside Werner-Wengle or Cabot, which
+    discard it, and now reports the Yoshizawa coefficient with the diagnostics line.
+- Logging is now a registered subsystem, `observability.logging`, at `supported`. It had
+  been in no subsystem record, no capability family, no contract, no freshness surface,
+  and in neither `src/guide.md` nor the module map of `13_Code_Architecture` - the shape
+  that leaves a module unowned is precisely that everything reports through it and nothing
+  depends on it for a result. A change to what a user sees therefore tripped no staleness
+  suspicion anywhere. Both module maps now carry it, `09_Monitor_Reference` documents the
+  append-and-continuation-marker lifecycle its runtime files follow across a restart, and
+  a soft freshness surface watches `src/logging.c` and `include/logging.h`. The supported
+  claim is about its behavioural contracts, which `tests/c/test_logging.c` covers; it is
+  not a claim about any quantity another subsystem hands it to print.
+- `les.clipping.max_cs` under a mode that imposes no ceiling is now an error rather than
+  a warning. A ceiling that is not in force reads as one that is.
+- The Newton-Krylov preconditioner's omission of the Clark stress is now documented as
+  the deliberate choice it is - the term is higher order and not diagonally dominant, so
+  representing it would change what kind of matrix the point block is - rather than as an
+  unexplained gap. The Krylov cost of that choice has not been measured.
+- Stale flag mappings in `07_Case_Reference` corrected: `-const_cs`, `-max_cs`,
+  `-dynamic_freq` and `-testfilter_ik` no longer exist, and `les.max_cs` is not an
+  accepted key. The list now matches what the CLI emits.
+- `tests/c/test_les.c` was never listed in `tests/guide.md`, and the `2026-03-20` coverage
+  snapshot for `src/les.c` described a file that has since been rewritten. Both corrected;
+  the assembled LES model path has not been re-measured.
+
+- Wall function boundary treatment: integration coverage, its own lifecycle record,
+  and two corrected claims.
+  - `ApplyWallFunction()` had no test. The velocity laws and their friction-velocity
+    root-finds were already covered, but the wiring around them was not, and its
+    plausible failures are silent: feeding the reference and boundary wall distances in
+    the wrong order, or taking the reference velocity from the wrong cell, still
+    produces a plausible corrected velocity. `tests/c/test_boundaries.c` now checks that
+    the corrected first interior velocity is the modelled profile at that cell's wall
+    distance for the friction velocity the integration stored, and separately that the
+    stored friction velocity inverts the law at the *reference* cell's distance. Swapping
+    the two distances in production is detected.
+  - The startup banner now reports the wall-function model and roughness height.
+    `07_Case_Reference` claimed it already did; `io.c` contained no such line. The claim
+    is made true rather than removed, and the line is pinned by the user-facing
+    reporting contract.
+  - `turbulence.wall_function` has its own subsystem record. It was owned by the
+    `turbulence.rans` record, which is the wrong home: a wall function is configured
+    independently of both LES and RANS, and the RANS runtime update is incomplete while
+    this treatment is separately usable.
+  - The model selector now reaches the runtime. `-wallfunction` previously carried
+    only an enable flag: the configured `model` was validated by the Python layer and
+    then discarded, so every case ran the log law whatever it asked for, and
+    `ApplyWallFunction()` dispatched to it unconditionally at all six faces. The flag
+    now carries a `WallFunctionModel` code, one dispatcher replaces the six hardcoded
+    call sites, and `werner` and `cabot` join `log_law` as selectable. Both were
+    already implemented and unit-tested in `src/wallfunction.c` and had simply never
+    been reachable. `WallFunctionModelToString()` reports the choice in the banner.
+    Cabot's non-equilibrium pressure-gradient term is supplied as zero, reducing it to
+    the equilibrium form; that is documented on its capability entry rather than
+    implied.
+  - Wall-overwritten cells are excluded from the dynamic procedure. The correction is
+    an imposed analytic profile, so the Germano identity evaluated there measures that
+    profile rather than resolved turbulence. No averaging mode escapes it: the biased
+    set is the whole domain under `global`, the wall plane under `homogeneous` retaining
+    the wall-normal direction, and that cell alone under `local`. A cell left with no
+    data takes a zero coefficient, which is what a wall model already supplying the
+    stress calls for. Carried through the averaging kernel's inclusion mask, which was
+    already there for the statistics pipeline.
+  - `PicurvSpatialRatioAverage()` now honours the target mask and the inclusion mask in
+    its pointwise branch as well as its averaged one. It previously applied neither when
+    no direction was selected, so an exclusion silently changed meaning depending on the
+    averaging mode.
+  - Cabot receives the resolved wall-parallel pressure gradient, taken from the
+    near-wall pressure through `ComputeScalarFieldDerivatives()`. Supplying zero would
+    have reduced it to its equilibrium form - not the model the selector names.
+  - `roughness_height` is rejected under `werner` and `cabot`. Neither has a roughness
+    formulation - Werner-Wengle has no such term and Cabot discards the argument - so
+    accepting the key would silently drop a value set on purpose.
+  - **The wall correction now reaches the LES closure.** `Contra2Cart` rebuilds the
+    Cartesian field at the top of each timestep and discarded the previous solve's
+    near-wall correction, so the eddy viscosity was computed from the uncorrected field
+    while the momentum equation used the corrected one - the two halves of one timestep
+    disagreeing about the velocity. The wall model is re-applied before the strain rates
+    are formed. **This changes results for any case combining LES with a wall
+    function.** The remaining caveat, that an imposed profile contaminates the dynamic
+    coefficient at the wall-adjacent cell, is documented on the closure page.
+
 - LES subgrid closure corrected and consolidated. **Results from earlier revisions of
   this tree are not reproducible under it, and neither LES model previously applied the
   dissipation it claimed to.**
