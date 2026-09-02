@@ -31,7 +31,7 @@ whether its routes are complete and current, not by what it explains.
 
 Every published page is assigned exactly one of these types in
 `tests/tooling/page_types.json`. The registry is central rather than per-page so that
-typing 70 pages costs no visible chrome on any of them; a page may still declare its
+typing 71 pages costs no visible chrome on any of them; a page may still declare its
 type inline with `@pagemeta`, and where both exist `make audit-page-types` requires
 them to agree.
 

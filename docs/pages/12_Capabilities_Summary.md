@@ -134,7 +134,43 @@ Study flow (`sweep`):
 - metric aggregation and optional plots,
 - study manifest and reproducible directory structure.
 
-@section p12_inspection_sec 7. Run Inspection and Plotting
+@section p12_lifecycle_sec 7. Workspace, Assets, and Data Lifecycle
+
+`picurv init` creates a workspace whose editable configuration, imported inputs,
+reusable assets, runs, and studies each have a fixed home. Run-owned directory names
+are part of that contract rather than a monitor setting; the topology and the guards
+that hold it are in @ref p71_topology_sec.
+
+External files enter a workspace explicitly. `picurv inputs import <kind> <source>`
+records a checksum and an ownership mode, and `reference` mode registers a path
+without copying it, so an unavailable external target fails loudly instead of
+silently. Entries at @ref p05_cap_input_mode_sec.
+
+`picurv precompute` resolves the grid, initial-condition, and inlet-profile provider
+graph and publishes each result as an immutable content-addressed object in the
+workspace asset store. Identity covers the normalized provider settings, the checksums
+of referenced files, and the PICurv build, so an unchanged input reuses its object and
+any change selects a new one. Runs materialize what they need by reflink, hardlink, or
+copy and record the mapping. `--require-precomputed` refuses to build a missing object
+instead of quietly rebuilding it; `--fetch-missing` looks in configured storage first.
+A provider that only exists inside the simulator is reported rather than imitated.
+
+Branching a run with `--restart-from` carries the checkpoint's physical fields but
+starts field-statistics accumulators empty unless `--statistics-state carry` asks for
+the saved window state. Entries at @ref p52_cap_restart_stats_sec.
+
+`picurv storage` moves finished runs, studies, and study members through an `rclone`
+remote. `protect` uploads and verifies while keeping every local file; `offload` does
+the same and then prunes the verified payload according to an offload policy that
+chooses what stays local. Compression policy entries are at @ref p61_cap_comp_sec and
+offload policy entries at @ref p61_cap_policy_sec. Cold data is marked, so continuation,
+post-processing, submission, and study reaggregation refuse it with the restore command
+rather than mistaking pruned output for output that was never produced.
+
+`picurv version`, `picurv versions`, and `picurv source` report and select the release
+and build identity that runs, checkpoints, and archives are stamped with.
+
+@section p12_inspection_sec 8. Run Inspection and Plotting
 
 `picurv summarize` supports:
 
@@ -147,7 +183,7 @@ Study flow (`sweep`):
 PICurv owns run/log interpretation; standalone `generators/plot.gen` renders
 versioned normalized JSON requests without knowing run-directory layouts.
 
-@section p12_extension_sec 8. Extensibility Status
+@section p12_extension_sec 9. Extensibility Status
 
 Current extension pathways are documented and active for:
 
@@ -163,7 +199,7 @@ Reference pages:
 - **@subpage 16_Config_Extension_Playbook**
 - **@subpage 17_Workflow_Extensibility**
 
-@section p12_next_steps_sec 9. Suggested Reading Order
+@section p12_next_steps_sec 10. Suggested Reading Order
 
 1. **@subpage 13_Code_Architecture**
 2. **@subpage 21_Methods_Overview**

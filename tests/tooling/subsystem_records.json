@@ -764,6 +764,104 @@
       }
     },
     {
+      "id": "workspace.asset_lifecycle",
+      "title": "Workspace Topology and Reusable Asset Lifecycle",
+      "status": "experimental",
+      "visibility": "public",
+      "capability_families": [
+        "workspace.input_import_mode",
+        "run.restart_statistics_state"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_scope_sec"
+        },
+        "intended_scope": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_scope_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_layout_sec"
+        },
+        "architecture_boundary": {
+          "page": "71_Invariant_Contracts",
+          "anchor": "p71_topology_sec"
+        },
+        "dependencies": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_init_sec"
+        },
+        "developer_entry_points": {
+          "page": "30_Repository_Navigation"
+        },
+        "configuration": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_newrun_sec"
+        },
+        "selection_guidance": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_cap_input_mode_sec"
+        },
+        "observability": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_precompute_sec"
+        },
+        "limitations": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_layout_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "71_Invariant_Contracts",
+          "anchor": "p71_isolation_sub"
+        }
+      },
+      "concerns": {
+        "artifact_topology": {
+          "page": "71_Invariant_Contracts",
+          "anchor": "p71_topology_sec"
+        },
+        "generated_artifact": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_layout_sec"
+        },
+        "determinism_and_reproducibility": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_layout_sec"
+        },
+        "persistent_restart_state": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_restart_sec"
+        },
+        "file_format": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_layout_sec"
+        },
+        "destructive_scope": {
+          "page": "71_Invariant_Contracts",
+          "anchor": "p71_isolation_sub"
+        },
+        "user_selector": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_cap_input_mode_sec"
+        },
+        "backward_compatibility": {
+          "not_applicable": "The workspace layout, the asset store, and the fixed run tree were introduced together and replaced the configurable directory surface outright; there is no earlier workspace format to migrate from, and monitor io.directories is rejected rather than translated."
+        },
+        "mpi_distributed_execution": {
+          "not_applicable": "Workspace discovery, asset publication, and run materialization all run in the Python conductor on one process before the solver launches; no rank-dependent behaviour or collective call is involved."
+        },
+        "security_credentials": {
+          "not_applicable": "Imports and asset publication read and write local paths under the invoking user's own permissions; reference-mode imports store a path, never a credential."
+        }
+      },
+      "note": "Content-addressed asset identity covers the normalized provider settings, the checksums of referenced files, and the PICurv build, so an unchanged input reuses its object and any change to an equation, grid configuration, imported field, inlet parameter, or generator selects a new one. Publication is all-or-nothing per invocation: providers build into an isolated temporary run layout and nothing is published unless every selected provider succeeds. Status is experimental rather than supported because the reuse and materialization paths carry unit coverage in tests/test_workspace_lifecycle.py and the migrated precompute coverage in tests/test_cli_smoke.py, but no campaign has exercised the store at the scale where reflink availability, object accumulation, and pruning policy start to matter, and no retention policy for orphaned objects exists yet. A provider that only exists inside the simulator is reported as runtime-c and never imitated in Python, so a Python initial-condition generator paired with a programmatic_c grid fails at planning time rather than producing a silently different field."
+    },
+    {
       "id": "storage.management",
       "title": "Run Storage Management",
       "status": "experimental",
