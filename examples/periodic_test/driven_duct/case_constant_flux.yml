@@ -50,8 +50,6 @@ grid:
   generator:
     config_file: "../../../config/grids/square_duct_reb4410.cfg"
     grid_type: warp
-    output_file: "config/grid.generated.picgrid"
-    stats_file: "config/grid.generated.info"
 
 models:
   domain:

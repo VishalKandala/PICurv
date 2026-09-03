@@ -2458,10 +2458,13 @@ GRID_GENERATOR_HYPHEN_KEY_HINTS = {
     "config-file": "config_file",
     "grid-type": "grid_type",
     "cli-args": "cli_args",
-    "output-file": "output_file",
-    "stats-file": "stats_file",
-    "vts-file": "vts_file",
 }
+
+#: Generator keys that used to name their own output destinations. PICurv owns where
+#: generated artifacts go, so accepting these would let a configuration file create a
+#: competing output directory outside the asset store.
+RETIRED_GENERATOR_DESTINATION_KEYS = ("output_file", "stats_file", "vts_file",
+                                      "output-file", "stats-file", "vts-file")
 
 
 def _mapping_value_with_aliases(mapping: dict, *keys, default=None):
@@ -2507,6 +2510,24 @@ def warn_on_grid_generator_hyphen_keys(generator: dict, case_path: str, warnings
             warnings.append(
                 f"{case_path}: grid.generator.{bad_key} is ignored; use grid.generator.{expected_key}."
             )
+
+
+def reject_generator_destination_keys(generator, case_path: str, label: str) -> list:
+    """!
+    @brief Reject generator settings that try to choose their own output destination.
+    @param[in] generator Generator mapping from the case configuration.
+    @param[in] case_path Case file path for diagnostics.
+    @param[in] label Dotted configuration path being checked, for the message.
+    @return List of error strings.
+    """
+    if not isinstance(generator, dict):
+        return []
+    return [
+        f"  {case_path}: '{label}.{key}' is no longer accepted. PICurv chooses where "
+        "generated artifacts go; the published asset carries the payload, its preview, "
+        "and its validation record."
+        for key in RETIRED_GENERATOR_DESTINATION_KEYS if key in generator
+    ]
 
 
 def get_post_source_data(post_cfg: dict):
@@ -5654,17 +5675,20 @@ def run_grid_generator(case_path: str, run_dir: str, grid_cfg: dict) -> str:
     cmd.extend([str(token) for token in cli_args])
     cmd.extend(["--output", output_file])
 
-    vts_file = generator.get("vts_file")
-    if vts_file:
-        vts_file = os.path.abspath(os.path.join(run_dir, "output", "visualization", "precompute", "grid.vts"))
-        os.makedirs(os.path.dirname(vts_file), exist_ok=True)
-        cmd.extend(["--vts", vts_file])
+    # Destinations are PICurv's, not the user's. Inspection material is produced
+    # unconditionally so a published asset is always something the user can look at,
+    # rather than only when a configuration file happened to name an output path.
+    vts_file = os.path.abspath(
+        os.path.join(run_dir, "output", "visualization", "precompute", "grid.vts")
+    )
+    os.makedirs(os.path.dirname(vts_file), exist_ok=True)
+    cmd.extend(["--vts", vts_file])
 
-    stats_file = generator.get("stats_file")
-    if stats_file:
-        stats_file = os.path.abspath(os.path.join(run_dir, "output", "analysis", "metrics", "grid.info"))
-        os.makedirs(os.path.dirname(stats_file), exist_ok=True)
-        cmd.extend(["--stats-file", stats_file])
+    stats_file = os.path.abspath(
+        os.path.join(run_dir, "output", "analysis", "metrics", "grid.info")
+    )
+    os.makedirs(os.path.dirname(stats_file), exist_ok=True)
+    cmd.extend(["--stats-file", stats_file])
 
     print(f"[INFO] Grid generator command: {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
@@ -7591,6 +7615,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             errors.append(f"  {case_path}: 'grid.generator' must be a mapping when grid.mode is 'grid_gen'.")
         else:
             warn_on_grid_generator_hyphen_keys(gen_cfg, case_path, warnings)
+            errors.extend(
+                reject_generator_destination_keys(gen_cfg, case_path, "grid.generator")
+            )
 
             config_file = gen_cfg.get('config_file')
             if not config_file:
@@ -15182,6 +15209,183 @@ def _build_selected_asset_payloads(build_root: str, case_cfg: dict, case_path: s
     return payloads
 
 
+#: Largest grid, in nodes, for which a published asset carries an inline VTS preview.
+#: Beyond this the ASCII payload costs more than the inspection is worth, and
+#: validation.json records that it was skipped rather than silently omitting it.
+ASSET_PREVIEW_NODE_LIMIT = 2_000_000
+
+
+def _picgrid_geometry_summary(path: str) -> dict:
+    """!
+    @brief Read a canonical PICGRID and summarize what a user would want to check.
+    @param[in] path Staged PICGRID file.
+    @return Mapping of block dimensions, bounds, and spacing extremes.
+    """
+    dims = read_picgrid_header_dimensions(path)
+    bounds = [[float("inf")] * 3, [float("-inf")] * 3]
+    nodes = 0
+    with open(path, "r", encoding="utf-8", errors="replace") as stream:
+        iterator = _iter_nonempty_noncomment_lines(stream)
+        # Header token, block count, and one dimension row per block.
+        for _ in range(2 + len(dims)):
+            next(iterator, None)
+        for _lineno, line in iterator:
+            parts = line.split()
+            if len(parts) != 3:
+                continue
+            try:
+                point = [float(value) for value in parts]
+            except ValueError:
+                continue
+            nodes += 1
+            for axis in range(3):
+                bounds[0][axis] = min(bounds[0][axis], point[axis])
+                bounds[1][axis] = max(bounds[1][axis], point[axis])
+    extent = [bounds[1][axis] - bounds[0][axis] for axis in range(3)] if nodes else [0.0, 0.0, 0.0]
+    return {
+        "blocks": len(dims),
+        "dimensions": [list(item) for item in dims],
+        "total_nodes": nodes,
+        "bounds_min": bounds[0] if nodes else None,
+        "bounds_max": bounds[1] if nodes else None,
+        "extent": extent,
+    }
+
+
+def _write_structured_grid_preview(picgrid_path: str, destination: str, dims) -> bool:
+    """!
+    @brief Write a single-block ASCII VTS preview of a staged PICGRID.
+
+    @details Only the first block is written: the preview exists so a user can confirm
+             the shape they configured, not to reproduce the solver's view of a
+             multi-block domain.
+    @param[in] picgrid_path Staged PICGRID file.
+    @param[in] destination Preview path to write.
+    @param[in] dims Per-block dimension triples.
+    @return True when a preview was written.
+    """
+    if not dims:
+        return False
+    im, jm, km = (int(value) for value in dims[0])
+    if im * jm * km > ASSET_PREVIEW_NODE_LIMIT:
+        return False
+    coordinates = []
+    with open(picgrid_path, "r", encoding="utf-8", errors="replace") as stream:
+        iterator = _iter_nonempty_noncomment_lines(stream)
+        for _ in range(2 + len(dims)):
+            next(iterator, None)
+        for _lineno, line in iterator:
+            parts = line.split()
+            if len(parts) == 3:
+                coordinates.append(line)
+            if len(coordinates) >= im * jm * km:
+                break
+    if len(coordinates) < im * jm * km:
+        return False
+    os.makedirs(os.path.dirname(destination), exist_ok=True)
+    with open(destination, "w", encoding="utf-8") as out:
+        extent = f"0 {im - 1} 0 {jm - 1} 0 {km - 1}"
+        out.write('<?xml version="1.0"?>\n')
+        out.write('<VTKFile type="StructuredGrid" version="1.0" byte_order="LittleEndian">\n')
+        out.write(f'  <StructuredGrid WholeExtent="{extent}">\n')
+        out.write(f'    <Piece Extent="{extent}">\n')
+        out.write('      <Points>\n')
+        out.write('        <DataArray type="Float64" NumberOfComponents="3" format="ascii">\n')
+        for row in coordinates:
+            out.write(f"          {row}\n")
+        out.write('        </DataArray>\n      </Points>\n')
+        out.write('    </Piece>\n  </StructuredGrid>\n</VTKFile>\n')
+    return True
+
+
+def _build_asset_inspection(kind: str, build_root: str, provider: dict,
+                            payload_files: list) -> dict:
+    """!
+    @brief Produce the inspection material published beside an asset's payload.
+
+    @details Precompute exists so a user can look at a grid, field, or profile and
+             change it before committing a solve. An asset that carries only opaque
+             solver input cannot serve that purpose, so every published object gets a
+             validation record and, where it is affordable, a preview.
+    @param[in] kind Asset kind.
+    @param[in] build_root Temporary build tree.
+    @param[in] provider Provider metadata for the asset.
+    @param[in] payload_files Absolute payload paths produced for this asset.
+    @return Mapping of published inspection filename to its absolute source path.
+    """
+    inspection_dir = os.path.join(build_root, ".inspection")
+    os.makedirs(inspection_dir, exist_ok=True)
+    published = {}
+    validation = {
+        "asset_kind": kind,
+        "provider": provider["provider"],
+        "generated_at": datetime.now().astimezone().isoformat(),
+        "files": [os.path.relpath(path, build_root).replace(os.sep, "/") for path in payload_files],
+    }
+
+    if kind == "grid":
+        staged = os.path.join(build_root, "inputs", "grid", "grid.run")
+        if os.path.isfile(staged):
+            try:
+                geometry = _picgrid_geometry_summary(staged)
+                validation["geometry"] = geometry
+                preview = os.path.join(inspection_dir, "preview.vts")
+                if _write_structured_grid_preview(staged, preview, geometry["dimensions"]):
+                    published["preview.vts"] = preview
+                else:
+                    validation["preview"] = (
+                        "skipped: the first block exceeds "
+                        f"{ASSET_PREVIEW_NODE_LIMIT} nodes"
+                    )
+            except (OSError, ValueError, StopIteration) as exc:
+                validation["geometry_error"] = str(exc)
+        generator_preview = os.path.join(
+            build_root, "output", "visualization", "precompute", "grid.vts"
+        )
+        if os.path.isfile(generator_preview):
+            published["preview.vts"] = generator_preview
+            validation.pop("preview", None)
+        info = os.path.join(build_root, "output", "analysis", "metrics", "grid.info")
+        if os.path.isfile(info):
+            published["grid.info"] = info
+
+    elif kind == "initial-condition":
+        # The generators name these for the run tree they were written into; the asset
+        # publishes them under the names the object contract uses.
+        for published_name, suffix in (
+            ("summary.json", "_summary.json"), ("spectrum.csv", "_spectrum.csv"),
+        ):
+            for candidate in payload_files:
+                base = os.path.basename(candidate)
+                if base == published_name or base.endswith(suffix):
+                    published[published_name] = candidate
+                    break
+        validation["fields"] = sorted(
+            os.path.basename(path) for path in payload_files if path.endswith(".dat")
+        )
+        summary_source = published.get("summary.json")
+        if summary_source:
+            try:
+                with open(summary_source, "r", encoding="utf-8") as stream:
+                    validation["summary"] = json.load(stream)
+            except (OSError, ValueError):
+                pass
+
+    elif kind == "inlet-profiles":
+        for candidate in payload_files:
+            if os.path.basename(candidate) == "profile.info":
+                published["profile.info"] = candidate
+        validation["profiles"] = sorted(
+            os.path.basename(path) for path in payload_files
+            if path.endswith(".picslice")
+        )
+
+    validation_path = os.path.join(inspection_dir, "validation.json")
+    write_json_file(validation_path, validation)
+    published["validation.json"] = validation_path
+    return published
+
+
 def _publish_asset_object(workspace_root: str, build_root: str, provider: dict,
                           payload_files: list) -> dict:
     """!
@@ -15204,6 +15408,11 @@ def _publish_asset_object(workspace_root: str, build_root: str, provider: dict,
         "provider_spec_sha256": provider["spec_sha256"],
         "files": file_inventory,
     })
+    # Identity is the payload's; inspection material describes it and must not change
+    # which object a run resolves to.
+    inspection = _build_asset_inspection(
+        provider["kind"], build_root, provider, payload_files
+    )
     kind_dir = ASSET_KIND_DIRECTORIES[provider["kind"]]
     object_root = os.path.join(workspace_root, "assets", "objects", kind_dir, asset_id)
     if not os.path.isdir(object_root):
@@ -15215,6 +15424,8 @@ def _publish_asset_object(workspace_root: str, build_root: str, provider: dict,
                 destination = os.path.join(temporary, "payload", *item["path"].split("/"))
                 os.makedirs(os.path.dirname(destination), exist_ok=True)
                 shutil.copy2(source, destination)
+            for name, source in sorted(inspection.items()):
+                shutil.copy2(source, os.path.join(temporary, name))
             manifest = {
                 "schema_version": ASSET_MANIFEST_SCHEMA_VERSION,
                 "asset_id": asset_id,
@@ -15227,6 +15438,7 @@ def _publish_asset_object(workspace_root: str, build_root: str, provider: dict,
                 "software": provider["software"],
                 "created_at": datetime.now().astimezone().isoformat(),
                 "files": file_inventory,
+                "inspection": sorted(inspection),
             }
             write_json_file(os.path.join(temporary, "asset.json"), manifest)
             try:
@@ -15244,6 +15456,7 @@ def _publish_asset_object(workspace_root: str, build_root: str, provider: dict,
         "provider_spec_sha256": provider["spec_sha256"],
         "object": os.path.relpath(object_root, workspace_root).replace(os.sep, "/"),
         "files": file_inventory,
+        "inspection": sorted(inspection),
     }
 
 

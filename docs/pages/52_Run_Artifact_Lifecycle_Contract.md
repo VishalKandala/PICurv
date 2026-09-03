@@ -99,12 +99,34 @@ every selected provider succeeds:
 
 ```text
 assets/objects/<kind>/<content-hash>/
-  asset.json
-  payload/...
+  asset.json          identity, provider settings, checksums, provenance
+  validation.json     what was produced: dimensions, bounds, fields, checks
+  preview.vts         inspectable geometry, when the grid is small enough
+  summary.json        initial-condition statistics, when the provider emits them
+  spectrum.csv        initial-condition spectrum, when the provider emits one
+  payload/...         the solver-ready files, at their run-relative paths
 assets/sets/<case-name>-<path-hash>.yml
 ```
 
-The object identity includes normalized provider settings, checksums of referenced
+Precompute exists so a grid, field, or profile can be looked at and corrected before a
+solve is committed, so every published object carries inspection material beside its
+payload. A preview is skipped, and `validation.json` says so, when the first block
+exceeds two million nodes: past that the ASCII geometry costs more than the look is
+worth. Inspection material describes the payload and is deliberately excluded from the
+object's identity, so changing a preview format does not re-identify every asset.
+
+Generated destinations are PICurv's. `grid.generator.output_file`, `stats_file`, and
+`vts_file` are rejected rather than honoured: a configuration file that names its own
+output path creates a competing directory outside the store, which is what the fixed
+topology exists to prevent.
+
+The payload keeps its run-relative shape rather than a flat set of canonical filenames,
+because an inlet-profile asset holds one file per block and face and a flat root cannot
+express that. Materialization exposes each payload path into the run at the same
+relative location.
+
+The object identity includes normalized provider settings, the case values each build
+reads, the identities of the assets it depends on, checksums of referenced
 files, and the PICurv build. Changing an equation, grid config, imported field, inlet
 parameters, or generator code therefore selects a new object. Unchanged inputs reuse
 the existing object. `--only grid,initial-condition` selects a dependency closure;

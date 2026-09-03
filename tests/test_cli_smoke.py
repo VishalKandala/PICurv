@@ -2878,8 +2878,6 @@ def test_dry_run_grid_gen_lists_planned_grid_artifacts(tmp_path):
         "generator": {
             "config_file": "grid.cfg",
             "grid_type": "warp",
-            "stats_file": "config/grid.generated.info",
-            "vts_file": "config/grid.generated.vts",
         },
     }
     case_path = tmp_path / "case_grid_gen.yml"
@@ -2909,6 +2907,8 @@ def test_dry_run_grid_gen_lists_planned_grid_artifacts(tmp_path):
 
     assert run_dir / "inputs" / "grid" / "grid.run" in artifacts
     assert run_dir / "inputs" / "grid" / "grid.generated.picgrid" in artifacts
+    # The case asks for neither of these. PICurv produces inspection material for every
+    # generated grid, so the plan lists them without being told to.
     assert run_dir / "output" / "analysis" / "metrics" / "grid.info" in artifacts
     assert run_dir / "output" / "visualization" / "precompute" / "grid.vts" in artifacts
     assert not run_dir.exists()
@@ -2965,15 +2965,15 @@ def test_grid_gen_hyphenated_generator_keys_warn_without_aliasing(tmp_path):
         "mode": "grid_gen",
         "generator": {
             "config_file": str(REPO_ROOT / "config" / "grids" / "coarse_square_tube_curved.cfg"),
+            "grid-type": "cpipe",
             "grid_type": "cpipe",
-            "stats-file": "config/grid.generated.info",
             "cli_args": ["--ncells-i", "2", "--ncells-j", "2", "--ncells-k", "4", "--no-show-stats", "--no-write-vtk"],
         },
     }
     case_path = tmp_path / "case_grid_gen_hyphen.yml"
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
 
-    warning = "grid.generator.stats-file is ignored; use grid.generator.stats_file."
+    warning = "grid.generator.grid-type is ignored; use grid.generator.grid_type."
 
     validate_result = run_picurv(
         [
@@ -8910,3 +8910,39 @@ def test_post_validation_allows_mixed_windows(tmp_path):
                              "outputs": ["mean", "tke", "flux"]},
     }
     picurv.validate_post_config(post, str(tmp_path / "post.yml"), monitor)
+
+
+def test_generator_destination_keys_are_rejected(tmp_path):
+    """!
+    @brief A generator may not choose where its output goes.
+
+    @details Destinations belong to PICurv: the published asset carries the payload,
+             its preview, and its validation record. Accepting these keys let a
+             configuration file create a competing output directory outside the store.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    (tmp_path / "grid.cfg").write_text("grid_type = warp\n", encoding="utf-8")
+    case_cfg["grid"] = {
+        "mode": "grid_gen",
+        "generator": {
+            "config_file": "grid.cfg",
+            "grid_type": "warp",
+            "output_file": "config/grid.generated.picgrid",
+            "vts_file": "somewhere/else.vts",
+        },
+    }
+    case_path = tmp_path / "case_destinations.yml"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+
+    result = run_picurv(
+        ["validate", "--case", str(case_path), "--solver", str(valid / "solver.yml"),
+         "--monitor", str(valid / "monitor.yml")],
+        cwd=tmp_path,
+    )
+
+    assert result.returncode != 0
+    assert "grid.generator.output_file" in result.stderr
+    assert "grid.generator.vts_file" in result.stderr
+    assert "PICurv chooses where generated artifacts go" in result.stderr

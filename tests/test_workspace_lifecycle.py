@@ -431,3 +431,43 @@ def test_reproducibility_policy_refuses_a_development_build(tmp_path, monkeypatc
     payload.pop("reproducibility")
     core.write_yaml_file(str(config), payload)
     assert core.enforce_reproducibility_policy(str(workspace)) == {}
+
+
+def test_published_assets_carry_inspection_material(tmp_path):
+    """!
+    @brief A published asset is something the user can look at, not only solver input.
+
+    @details Precompute exists so a grid, field, or profile can be checked and changed
+             before a solve is committed. Objects that carried only opaque payload
+             could not serve that purpose.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return None.
+    """
+    workspace = _write_workspace(tmp_path / "ws")
+    case, case_path = _write_file_grid_case(workspace)
+    published = core.precompute_case_assets(
+        str(workspace), case, str(case_path), requested=["grid"]
+    )
+    reference = published["assets"]["grid"]
+    obj = workspace / reference["object"]
+
+    assert "validation.json" in reference["inspection"]
+    validation = json.loads((obj / "validation.json").read_text(encoding="utf-8"))
+    assert validation["asset_kind"] == "grid"
+    geometry = validation["geometry"]
+    assert geometry["total_nodes"] > 0
+    assert len(geometry["bounds_min"]) == 3 and len(geometry["bounds_max"]) == 3
+    assert all(
+        high >= low for low, high in zip(geometry["bounds_min"], geometry["bounds_max"])
+    )
+
+    preview = obj / "preview.vts"
+    assert preview.is_file(), sorted(p.name for p in obj.iterdir())
+    assert preview.read_text(encoding="utf-8").lstrip().startswith("<?xml")
+
+    # Inspection material describes the payload; it must not change which object a run
+    # resolves to, or every asset would re-identify whenever a preview format changed.
+    again = core.precompute_case_assets(
+        str(workspace), case, str(case_path), requested=["grid"]
+    )
+    assert again["assets"]["grid"]["asset_id"] == reference["asset_id"]

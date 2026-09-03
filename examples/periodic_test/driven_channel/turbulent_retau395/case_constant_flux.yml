@@ -38,8 +38,6 @@ grid:
   generator:
     config_file: "../../../../config/grids/plane_channel_retau395.cfg"
     grid_type: warp
-    output_file: "config/grid.generated.picgrid"
-    stats_file: "config/grid.generated.info"
 
 models:
   domain:
