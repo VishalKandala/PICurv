@@ -1741,7 +1741,10 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
             LOG_ALLOW(GLOBAL, LOG_INFO, "Output directory not found. Creating: %s\n", simCtx->output_dir);
             ierr = PetscMkdir(simCtx->output_dir); CHKERRQ(ierr);
         }
-        ierr = PetscMkdir(simCtx->analysis_dir); CHKERRQ(ierr);
+        // The analysis home is nested (output/analysis/metrics by default), so it
+        // needs the recursive create the postprocessor branch already uses; PetscMkdir
+        // fails on a path whose parents do not exist yet.
+        ierr = PetscMkdirRecursive(simCtx->analysis_dir); CHKERRQ(ierr);
       } else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Preparing post-processing output directories ...\n");
 

@@ -229,6 +229,7 @@ static PetscErrorCode PrepareTinyRuntimeConfig(const char *bcs_contents,
     char post_path[PETSC_MAX_PATH_LEN];
     char output_dir[PETSC_MAX_PATH_LEN];
     char log_dir[PETSC_MAX_PATH_LEN];
+    char analysis_dir[PETSC_MAX_PATH_LEN];
     char control_buffer[8192];
     const char *particle_block = NULL;
     const char *default_bcs =
@@ -245,6 +246,9 @@ static PetscErrorCode PrepareTinyRuntimeConfig(const char *bcs_contents,
     PetscCall(PetscSNPrintf(post_path, sizeof(post_path), "%s/post.run", tmpdir));
     PetscCall(PetscSNPrintf(output_dir, sizeof(output_dir), "%s/results", tmpdir));
     PetscCall(PetscSNPrintf(log_dir, sizeof(log_dir), "%s/logs", tmpdir));
+    /* The analysis home defaults to a run-relative path, which would resolve against
+     * the harness's working directory instead of this fixture's tree. */
+    PetscCall(PetscSNPrintf(analysis_dir, sizeof(analysis_dir), "%s/results/analysis/metrics", tmpdir));
     PetscCall(PetscSNPrintf(control_path, control_path_len, "%s/test.control", tmpdir));
 
     PetscCall(WriteTextFileForTests(bcs_path, bcs_contents ? bcs_contents : default_bcs));
@@ -313,12 +317,14 @@ static PetscErrorCode PrepareTinyRuntimeConfig(const char *bcs_contents,
          * would - the runtime guard makes no exception for tests. */
         "-allow_unsafe_log_dir true\n"
         "-log_dir %s\n"
+        "-analysis_dir %s\n"
         "%s",
         bcs_path,
         post_path,
         output_dir,
         output_dir,
         log_dir,
+        analysis_dir,
         particle_block));
     PetscCall(WriteTextFileForTests(control_path, control_buffer));
     PetscFunctionReturn(0);
@@ -814,6 +820,7 @@ PetscErrorCode PicurvBuildMomentumPurityRuntimeContext(const char *bcs_contents,
     char post_path[PETSC_MAX_PATH_LEN];
     char output_dir[PETSC_MAX_PATH_LEN];
     char log_dir[PETSC_MAX_PATH_LEN];
+    char analysis_dir[PETSC_MAX_PATH_LEN];
     char control_path[PETSC_MAX_PATH_LEN];
     char control_buffer[8192];
     SimCtx *simCtx = NULL;
@@ -834,6 +841,9 @@ PetscErrorCode PicurvBuildMomentumPurityRuntimeContext(const char *bcs_contents,
     PetscCall(PetscSNPrintf(post_path, sizeof(post_path), "%s/post.run", tmpdir));
     PetscCall(PetscSNPrintf(output_dir, sizeof(output_dir), "%s/results", tmpdir));
     PetscCall(PetscSNPrintf(log_dir, sizeof(log_dir), "%s/logs", tmpdir));
+    /* The analysis home defaults to a run-relative path, which would resolve against
+     * the harness's working directory instead of this fixture's tree. */
+    PetscCall(PetscSNPrintf(analysis_dir, sizeof(analysis_dir), "%s/results/analysis/metrics", tmpdir));
     PetscCall(PetscSNPrintf(control_path, sizeof(control_path), "%s/test.control", tmpdir));
     PetscCall(WriteTextFileForTests(bcs_path, bcs_contents ? bcs_contents : default_bcs));
     PetscCall(WriteTextFileForTests(post_path,
@@ -857,8 +867,9 @@ PetscErrorCode PicurvBuildMomentumPurityRuntimeContext(const char *bcs_contents,
         "-mg_level 1\n-poisson 0\n-tio 0\n-numParticles 0\n-pinit 2\n"
         "-particle_console_output_freq 0\n-logfreq 1\n"
         /* See the note above: the harness authorizes deletion of its own temp tree. */
-        "-output_dir %s\n-restart_dir %s\n-allow_unsafe_log_dir true\n-log_dir %s\n",
-        bcs_path, post_path, output_dir, output_dir, log_dir));
+        "-output_dir %s\n-restart_dir %s\n-allow_unsafe_log_dir true\n-log_dir %s\n"
+        "-analysis_dir %s\n",
+        bcs_path, post_path, output_dir, output_dir, log_dir, analysis_dir));
     PetscCall(WriteTextFileForTests(control_path, control_buffer));
     PetscCall(PetscOptionsSetValue(NULL, "-control_file", control_path));
     PetscCall(CreateSimulationContext(0, NULL, &simCtx));

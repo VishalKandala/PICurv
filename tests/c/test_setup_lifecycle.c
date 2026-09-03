@@ -310,7 +310,7 @@ static PetscErrorCode TestSetupLifecycleScatterMetricsAtStepZero(void)
     PetscCall(InitializeParticleSwarm(simCtx));
     PetscCall(PerformInitializedParticleSetup(simCtx));
 
-    PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/logs/scatter_metrics.csv", tmpdir));
+    PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/results/analysis/metrics/scatter_metrics.csv", tmpdir));
     PetscCall(PicurvAssertFileExists(metrics_path,
                                      "PerformInitializedParticleSetup should emit scatter_metrics.csv for a zero-step scalar verification run"));
     PetscCall(PicurvAssertBool((PetscBool)(user->swarm != NULL),

@@ -1135,12 +1135,15 @@ static PetscErrorCode TestEnforceRHSBoundaryConditionsMatchesRowClassification(v
 }
 
 /**
- * @brief Allocates the friction-velocity pair the way production allocates it.
+ * @brief Allocates the wall-model storage the way production allocates it.
  *
- * Production creates the global on `da` and ghosts it into the local view. A fixture that
- * allocates differently - a different DM, or only one of the pair - tests a layout the
- * solver never uses, which is how a DM/dof mismatch survived in `ApplyWallFunction`
- * while these cases passed. Every wall case routes through here so the two cannot drift.
+ * Production creates each global on `da` and ghosts it into the local view. A fixture
+ * that allocates differently - a different DM, only one of a pair, or only one of the
+ * fields the same block creates - tests a layout the solver never uses, which is how a
+ * DM/dof mismatch survived in `ApplyWallFunction` while these cases passed. The wall
+ * eddy viscosity is allocated in that same block and cleared at the top of every pass,
+ * so a fixture omitting it dereferences a null vector before reaching any assertion.
+ * Every wall case routes through here so the two cannot drift.
  */
 static PetscErrorCode SeedWallFrictionVelocityStorage(UserCtx *user)
 {
@@ -1149,6 +1152,10 @@ static PetscErrorCode SeedWallFrictionVelocityStorage(UserCtx *user)
     PetscCall(VecSet(user->Friction_Velocity, 0.0));
     PetscCall(DMCreateLocalVector(user->da, &user->lFriction_Velocity));
     PetscCall(VecSet(user->lFriction_Velocity, 0.0));
+    PetscCall(DMCreateGlobalVector(user->da, &user->Nu_Wall));
+    PetscCall(VecSet(user->Nu_Wall, 0.0));
+    PetscCall(DMCreateLocalVector(user->da, &user->lNu_Wall));
+    PetscCall(VecSet(user->lNu_Wall, 0.0));
     PetscFunctionReturn(0);
 }
 

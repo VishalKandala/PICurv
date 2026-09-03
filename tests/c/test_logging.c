@@ -1060,7 +1060,7 @@ static PetscErrorCode TestScatterMetricsLogging(void)
     PetscCall(ScatterAllParticleFieldsToEulerFields(user));
     PetscCall(LOG_SCATTER_METRICS(user));
 
-    PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/scatter_metrics.csv", simCtx->log_dir));
+    PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/scatter_metrics.csv", simCtx->analysis_dir));
     PetscCall(PicurvAssertFileExists(metrics_path, "LOG_SCATTER_METRICS should write scatter_metrics.csv"));
     PetscCall(AssertFileContains(metrics_path, "relative_L2_error",
                                  "Scatter metrics CSV header should include relative_L2_error"));
@@ -1368,7 +1368,7 @@ static PetscErrorCode TestSearchMetricsLogging(void)
 
     PetscCall(LOG_SEARCH_METRICS(user));
 
-    PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/search_metrics.csv", simCtx->log_dir));
+    PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/search_metrics.csv", simCtx->analysis_dir));
     PetscCall(PicurvAssertFileExists(metrics_path, "LOG_SEARCH_METRICS should write search_metrics.csv"));
     PetscCall(AssertFileContains(metrics_path, "search_attempts", "Search metrics CSV header should include search_attempts"));
     PetscCall(AssertFileContains(metrics_path, "search_population", "Search metrics CSV header should include search_population"));
