@@ -570,6 +570,28 @@ def case_run_label(case_cfg: dict, case_path: str) -> str:
     return label or "case"
 
 
+def allocate_generated_run_id(runs_root: str, case_cfg: dict, case_path: str) -> str:
+    """!
+    @brief Build the generated run identity, disambiguating a same-second collision.
+
+    @details The identity is `<run label>_<timestamp>` at one-second resolution, so two
+             runs of the same case launched back to back - a script, or a smoke
+             sequence - would otherwise name the same directory. Creating a run never
+             writes into an existing one, so the identity is advanced instead of the
+             launch being refused for a clock artifact.
+    @param[in] runs_root Directory generated runs are created beneath.
+    @param[in] case_cfg Parsed case configuration supplying the run label.
+    @param[in] case_path Case path, for the label's fallback.
+    @return Run identity that does not currently exist under `runs_root`.
+    """
+    base = f"{case_run_label(case_cfg, case_path)}_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    run_id, suffix = base, 1
+    while os.path.exists(os.path.join(runs_root, run_id)):
+        suffix += 1
+        run_id = f"{base}-{suffix}"
+    return run_id
+
+
 def workspace_artifact_root(workspace_root: str, kind: str) -> str:
     """!
     @brief Return the canonical workspace-owned root for runs or studies.
@@ -3908,7 +3930,8 @@ def validate_continue_case_identity(run_dir: str, case_cfg: dict) -> None:
 
 
 def populate_restart_directory(source_output: str, target_restart: str, start_step: int,
-                               monitor_cfg: dict, end_step: "int | None" = None):
+                               monitor_cfg: dict, end_step: "int | None" = None,
+                               materialize: bool = True):
     """!
     @brief Atomically materialize an immutable checkpoint interval into a run.
     @param[in] source_output Path to the source output directory containing checkpoint data.
@@ -3916,16 +3939,22 @@ def populate_restart_directory(source_output: str, target_restart: str, start_st
     @param[in] start_step First checkpoint step to materialize.
     @param[in] monitor_cfg Parsed monitor YAML dictionary (for subdirectory names).
     @param[in] end_step Optional inclusive last checkpoint step.
+    @param[in] materialize Whether to copy the bundles, or only validate and resolve
+               the path a real run would use. The dry-run planner needs the second:
+               it reports what a run would refuse, and promises to write nothing.
     @return Canonical restart root containing committed checkpoint bundles.
     """
     del monitor_cfg
     checkpoints_root = os.path.join(os.path.abspath(target_restart), "checkpoints")
-    os.makedirs(checkpoints_root, exist_ok=True)
+    if materialize:
+        os.makedirs(checkpoints_root, exist_ok=True)
     final_step = start_step if end_step is None else end_step
     if final_step < start_step:
         raise ValueError("Restart checkpoint interval end must not precede its start.")
     for step in range(start_step, final_step + 1):
         source = validate_committed_checkpoint(source_output, step)["bundle"]
+        if not materialize:
+            continue
         destination = os.path.join(
             checkpoints_root, f"step_{step:0{CHECKPOINT_STEP_WIDTH}d}"
         )
@@ -4107,7 +4136,8 @@ def resolve_latest_restart_run(case_cfg: dict, case_path: str, start_step: int) 
     return selected
 
 
-def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: dict, run_dir: str):
+def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
+                           run_dir: str, materialize: bool = True):
     """!
     @brief Resolve the restart source directory based on --restart-from or --continue CLI flags.
     @details Implements the full restart resolution logic including smart resolution for
@@ -4118,6 +4148,8 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
     @param[in] solver_cfg Parsed solver YAML dictionary.
     @param[in] monitor_cfg Parsed monitor YAML dictionary.
     @param[in] run_dir Path to the current run directory.
+    @param[in] materialize Whether to copy restart bundles into the run. The dry-run
+               planner passes False: it still validates and resolves, but writes nothing.
     @return Tuple of (restart_source_dir, continue_mode) where restart_source_dir is the
             resolved path (or None) and continue_mode is a boolean.
     """
@@ -4202,19 +4234,24 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
             target_restart = resolve_run_restart_dir(run_dir, monitor_cfg)
             restart_root = populate_restart_directory(
                 source_output, target_restart, start_step, monitor_cfg,
-                end_step=start_step + total_steps,
+                end_step=start_step + total_steps, materialize=materialize,
             )
             if particle_needs:
-                validate_particle_checkpoint(restart_root, start_step, monitor_cfg)
+                validate_particle_checkpoint(
+                    restart_root if materialize else source_output, start_step, monitor_cfg
+                )
             return restart_root, False
         else:
             # Materialize one immutable bundle into the new run's restart input.
             target_restart = resolve_run_restart_dir(run_dir, monitor_cfg)
             restart_root = populate_restart_directory(
-                source_output, target_restart, start_step, monitor_cfg
+                source_output, target_restart, start_step, monitor_cfg,
+                materialize=materialize,
             )
             if particle_needs:
-                validate_particle_checkpoint(restart_root, start_step, monitor_cfg)
+                validate_particle_checkpoint(
+                    restart_root if materialize else source_output, start_step, monitor_cfg
+                )
             return restart_root, False
 
     elif continue_run:
@@ -4246,10 +4283,12 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
             target_restart = resolve_run_restart_dir(run_dir, monitor_cfg)
             restart_root = populate_restart_directory(
                 source_output, target_restart, start_step, monitor_cfg,
-                end_step=start_step + total_steps,
+                end_step=start_step + total_steps, materialize=materialize,
             )
             if particle_needs:
-                validate_particle_checkpoint(restart_root, start_step, monitor_cfg)
+                validate_particle_checkpoint(
+                    restart_root if materialize else source_output, start_step, monitor_cfg
+                )
             return restart_root, True
         elif not requires_source:
             # C6: analytical + init — only log-append behavior, no data needed
@@ -4259,10 +4298,12 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
             # hardlink materialization normally makes this metadata-cheap.
             target_restart = resolve_run_restart_dir(run_dir, monitor_cfg)
             restart_root = populate_restart_directory(
-                source_output, target_restart, start_step, monitor_cfg
+                source_output, target_restart, start_step, monitor_cfg,
+                materialize=materialize,
             )
             validate_committed_checkpoint(
-                restart_root, start_step, require_particles=particle_needs
+                restart_root if materialize else source_output, start_step,
+                require_particles=particle_needs,
             )
             return restart_root, True
 
@@ -13800,14 +13841,14 @@ def build_run_dry_plan(args) -> dict:
                 sys.exit(1)
             run_id = os.path.basename(run_dir)
         else:
-            case_name = case_run_label(loaded_case_cfg, case_path)
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            run_id = f"{case_name}_{timestamp}"
-            run_dir = os.path.join(workspace_artifact_root(workspace_root, "runs"), run_id)
+            runs_root = workspace_artifact_root(workspace_root, "runs")
+            run_id = allocate_generated_run_id(runs_root, loaded_case_cfg, case_path)
+            run_dir = os.path.join(runs_root, run_id)
 
         try:
             resolved_restart_source_dir, is_continue = resolve_restart_source(
-                args, loaded_case_cfg, solver_cfg, loaded_monitor_cfg, run_dir
+                args, loaded_case_cfg, solver_cfg, loaded_monitor_cfg, run_dir,
+                materialize=False,
             )
         except ValueError as e:
             emit_structured_error(
@@ -15250,10 +15291,11 @@ def run_workflow(args):
                 sys.exit(1)
             run_id = os.path.basename(run_dir)
         else:
-            case_name = case_run_label(configs["case"], configs["case_path"])
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            run_id = f"{case_name}_{timestamp}"
-            run_dir = os.path.join(workspace_artifact_root(workspace_root, "runs"), run_id)
+            runs_root = workspace_artifact_root(workspace_root, "runs")
+            run_id = allocate_generated_run_id(
+                runs_root, configs["case"], configs["case_path"]
+            )
+            run_dir = os.path.join(runs_root, run_id)
 
         if workspace_root and os.path.commonpath([os.path.abspath(run_dir), workspace_root]) != workspace_root:
             fail_cli_usage("A workspace run directory must remain below the owning workspace.")

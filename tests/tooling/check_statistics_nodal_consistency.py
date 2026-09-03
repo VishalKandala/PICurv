@@ -16,17 +16,37 @@ producer leaving structural zeros on the layout boundary, which halves every
 boundary node and biases a whole-domain mean without any other symptom.
 
 @code
-check_statistics_nodal_consistency.py RUN_DIR VIZ_SUBDIR WINDOW_NAME
+check_statistics_nodal_consistency.py RUN_DIR WINDOW_NAME
 @endcode
 """
 
 #: Usage line reported when the arguments do not parse.
-USAGE = "usage: check_statistics_nodal_consistency.py RUN_DIR VIZ_SUBDIR WINDOW_NAME"
+USAGE = "usage: check_statistics_nodal_consistency.py RUN_DIR WINDOW_NAME"
 
 import csv
 import os
 import re
 import sys
+
+
+def sole_recipe_dir(run_dir: str, canonical_relative: str) -> str:
+    """!
+    @brief Resolve the one per-recipe subdirectory beneath a canonical output home.
+    @param[in] run_dir Run directory being inspected.
+    @param[in] canonical_relative Run-relative canonical home, such as output/visualization.
+    @return Absolute path to the single recipe subdirectory.
+    @throws ValueError when the home is absent or holds anything but one recipe.
+    """
+    root = os.path.join(run_dir, canonical_relative)
+    if not os.path.isdir(root):
+        raise ValueError(f"{canonical_relative} does not exist under {run_dir}.")
+    entries = sorted(name for name in os.listdir(root)
+                     if os.path.isdir(os.path.join(root, name)))
+    if len(entries) != 1:
+        raise ValueError(
+            f"expected exactly one recipe directory under {root}, found {entries}."
+        )
+    return os.path.join(root, entries[0])
 
 
 def require_numpy():
@@ -146,11 +166,15 @@ def main(argv=None):
     """
     numpy = require_numpy()
     args = list(sys.argv[1:] if argv is None else argv)
-    if len(args) != 3:
+    if len(args) != 2:
         print(USAGE, file=sys.stderr)
         return 2
-    run_dir, viz_subdir, window = args
-    viz_dir = os.path.join(run_dir, viz_subdir)
+    run_dir, window = args
+    # The two artifacts no longer share a directory: derived VTK lands in the run's
+    # visualization home and the convergence history in its statistics home, each
+    # under the producing recipe's own identity.
+    viz_dir = sole_recipe_dir(run_dir, os.path.join("output", "visualization"))
+    stats_dir = sole_recipe_dir(run_dir, os.path.join("output", "analysis", "statistics"))
 
     try:
         vts_path = newest_window_vts(viz_dir, window)
@@ -168,11 +192,11 @@ def main(argv=None):
         field = arrays[tke_name].reshape(nodes[2], nodes[1], nodes[0])
 
         csv_path = next(
-            (os.path.join(viz_dir, n) for n in sorted(os.listdir(viz_dir))
+            (os.path.join(stats_dir, n) for n in sorted(os.listdir(stats_dir))
              if n.endswith(f"_statistics_{window}.csv")), None
         )
         if csv_path is None:
-            raise ValueError(f"no convergence-history CSV for window '{window}' in {viz_dir}.")
+            raise ValueError(f"no convergence-history CSV for window '{window}' in {stats_dir}.")
         rows = list(csv.DictReader(open(csv_path, "r", encoding="utf-8")))
         if not rows or "mean_tke" not in rows[0]:
             print(f"[SKIP] {os.path.basename(csv_path)} records no mean_tke column.")

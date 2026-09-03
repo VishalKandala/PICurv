@@ -48,7 +48,10 @@ without generating unused data.
 
 `case.yml -> title` is the human run label. A fresh run is named
 `<sanitized-title>_<timestamp>`; the title, manifest, and asset hashes carry
-identity, so users do not need to rename run directories to remember them. A study
+identity, so users do not need to rename run directories to remember them. The
+timestamp has one-second resolution, so two runs of the same case started within the
+same second would name the same directory; the second one takes a `-2` suffix rather
+than being refused, because creating a run never writes into an existing one. A study
 uses its own title the same way and keeps numbered members below `cases/case_####`.
 When an umbrella example contains repeated filenames, initialization preserves the
 extra configurations below `config/variants/<original-path>` instead of overwriting

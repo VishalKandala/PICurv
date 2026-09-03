@@ -308,93 +308,78 @@ def fail(message: str) -> None:
     raise RuntimeError(message)
 
 
-# A directory may ship more than one bundle. `quickstart_` is the documented
+# A workspace may ship more than one bundle. `quickstart_` is the documented
 # short-run variant of the same case, and it is the bundle the getting-started page
 # tells a new user to run, so it is smoke-tested rather than excluded.
 BUNDLE_PREFIXES = ("", "quickstart_")
 
+# Roles an initialized workspace is guaranteed to place at a canonical path. Before
+# the workspace layout existed this had to be inferred from a flat pile of YAML -
+# "exactly one file that is not the case, monitor, post, study, or cluster profile".
+# The layout makes that guessing unnecessary, and a template whose roles did not land
+# where init promises is exactly the failure this phase should report.
+CANONICAL_ROLES = ("case", "solver", "monitor", "post")
+
+
+def config_dir(case_dir: str) -> str:
+    """The workspace configuration home init writes canonical roles into."""
+    return os.path.join(case_dir, "config")
+
 
 def bundle_prefixes(case_dir: str) -> list:
-    """Which bundle prefixes this example directory actually ships."""
-    present = [os.path.basename(path) for path in glob.glob(os.path.join(case_dir, "*.yml"))]
+    """Which bundle prefixes this initialized workspace actually ships."""
+    present = [os.path.basename(path)
+               for path in glob.glob(os.path.join(config_dir(case_dir), "*.yml"))]
     return [p for p in BUNDLE_PREFIXES
-            if any(name.startswith(p) for name in present) or p == ""]
+            if p == "" or any(name.startswith(p) for name in present)]
 
 
 def discover_case_bundle(case_dir: str, template_name: str, prefix: str = ""):
-    all_ymls = sorted(os.path.basename(path) for path in glob.glob(os.path.join(case_dir, "*.yml")))
+    """Resolve one bundle's four role files from the canonical workspace layout.
+
+    A prefixed bundle overrides whichever roles it ships and inherits the rest from
+    the canonical set, which is a legitimate way to author a short-run variant: the
+    quickstart bundles reuse the default solver profile rather than duplicating it.
+    """
+    configs = config_dir(case_dir)
     label = f"{template_name}[{prefix}]" if prefix else template_name
-    # Each bundle owns only the files carrying its prefix. Without this, the default
-    # bundle would see the quickstart profiles as extra solver candidates.
-    if prefix:
-        ymls = [name for name in all_ymls if name.startswith(prefix)]
-    else:
-        ymls = [name for name in all_ymls
-                if not any(name.startswith(p) for p in BUNDLE_PREFIXES if p)]
+    if not os.path.isdir(configs):
+        fail(f"{label}: init produced no config/ directory in {case_dir}")
 
-    case_file = f"{prefix}{template_name}.yml"
-    if case_file not in ymls:
-        fail(f"{label}: expected case file '{case_file}' in {case_dir}, found {ymls}")
-
-    monitor_file = f"{prefix}Standard_Output.yml"
-    if monitor_file not in ymls:
-        fail(f"{label}: expected monitor file '{monitor_file}' in {case_dir}")
-
-    post_candidates = [name for name in ymls if name.lower().endswith("_analysis.yml")]
-    if not post_candidates:
-        fail(f"{label}: expected *_analysis.yml post profile in {case_dir}")
-    post_file = sorted(post_candidates)[0]
-
-    excluded = {
-        case_file,
-        monitor_file,
-        post_file,
-        "slurm_cluster.yml",
-        "grid_independence_study.yml",
-        "timestep_sensitivity_study.yml",
-    }
-
-    def is_execution_example(name: str) -> bool:
-        path = os.path.join(case_dir, name)
-        with open(path, "r", encoding="utf-8") as f:
-            payload = yaml.safe_load(f) or {}
-        if not isinstance(payload, dict):
-            return False
-        return any(key in payload for key in ("default_execution", "local_execution", "cluster_execution"))
-
-    solver_candidates = [
-        name for name in ymls
-        if (
-            name not in excluded
-            and "study" not in name.lower()
-            and "cluster" not in name.lower()
-            and not is_execution_example(name)
+    present = {os.path.basename(path)
+               for path in glob.glob(os.path.join(configs, "*.yml"))}
+    resolved = []
+    for role in CANONICAL_ROLES:
+        canonical = f"{role}.yml"
+        # The quickstart bundles keep the example's own names for the roles they
+        # override, so match on the prefix rather than on a canonical name.
+        override = sorted(
+            name for name in present
+            if prefix and name.startswith(prefix) and _role_of(configs, name) == role
         )
-    ]
-    if prefix and not solver_candidates:
-        # A quickstart bundle may reuse the default solver profile rather than shipping
-        # its own; that is a legitimate way to author one. Fall back to the default
-        # bundle's solver, filtering out the default bundle's own case/monitor/post so
-        # only the solver profile survives.
-        default_ymls = [name for name in all_ymls
-                        if not any(name.startswith(q) for q in BUNDLE_PREFIXES if q)]
-        default_excluded = excluded | {
-            f"{template_name}.yml",
-            "Standard_Output.yml",
-        } | {name for name in default_ymls if name.lower().endswith("_analysis.yml")}
-        solver_candidates = [
-            name for name in default_ymls
-            if name not in default_excluded
-            and "study" not in name.lower()
-            and "cluster" not in name.lower()
-            and not is_execution_example(name)
-        ]
-    if len(solver_candidates) != 1:
-        fail(
-            f"{label}: expected exactly one solver profile, found {solver_candidates} "
-            f"(all yml: {ymls})"
-        )
-    return case_file, solver_candidates[0], monitor_file, post_file
+        chosen = override[0] if override else canonical
+        if chosen not in present:
+            fail(f"{label}: expected {role} profile '{chosen}' in {configs}, "
+                 f"found {sorted(present)}")
+        resolved.append(os.path.join("config", chosen))
+    return tuple(resolved)
+
+
+def _role_of(configs: str, name: str) -> str:
+    """Classify one prefixed profile by the top-level keys it carries."""
+    with open(os.path.join(configs, name), "r", encoding="utf-8") as handle:
+        payload = yaml.safe_load(handle) or {}
+    if not isinstance(payload, dict):
+        return ""
+    if "grid" in payload or "run_control" in payload:
+        return "case"
+    if "strategy" in payload or "operation_mode" in payload:
+        return "solver"
+    if "io" in payload or "logging" in payload:
+        return "monitor"
+    if "eulerian_pipeline" in payload or "lagrangian_pipeline" in payload:
+        return "post"
+    return ""
 
 
 checked_bundles = []
@@ -522,8 +507,8 @@ run_petsc_diagnostics_smoke() {
   "${picurv_exe}" init flat_channel --dest "${diag_case}" >/dev/null
   prepare_flat_case_les "${diag_case}"
   python3 - \
-    "${diag_case}/flat_channel.yml" \
-    "${diag_case}/Standard_Output.yml" <<'PY'
+    "${diag_case}/config/case.yml" \
+    "${diag_case}/config/monitor.yml" <<'PY'
 import sys
 import yaml
 
@@ -562,9 +547,9 @@ PY
     "${picurv_exe}" run \
       --solve \
       -n 1 \
-      --case "${diag_case}/flat_channel.yml" \
-      --solver "${diag_case}/Imp-MG-Standard.yml" \
-      --monitor "${diag_case}/Standard_Output.yml" >"${output_log}" 2>&1
+      --case "${diag_case}/config/case.yml" \
+      --solver "${diag_case}/config/solver.yml" \
+      --monitor "${diag_case}/config/monitor.yml" >"${output_log}" 2>&1
   ) || {
     echo "Smoke failure: PETSc diagnostics solve failed." >&2
     sed -n '1,220p' "${output_log}" >&2
@@ -618,9 +603,7 @@ run_restart_resolution_smoke() {
   cp "${valid_fixtures_dir}/monitor.yml" "${monitor_cfg}"
   cat >"${prior_run}/config/monitor.yml" <<'YAML'
 io:
-  directories:
-    output: "output"
-    restart: "restart"
+  data_output_frequency: 1
 YAML
 
   # Create complete fake bundles for load mode validation (steps 5-15).
@@ -654,26 +637,36 @@ PY
       --solver "${solver_cfg}" \
       --monitor "${monitor_cfg}" \
       --dry-run \
-      --format json >"${plan_json}"
+      --format json >"${plan_json}" 2>"${plan_json}.err" || {
+        echo "restart resolution dry-run failed:" >&2
+        cat "${plan_json}.err" >&2
+        exit 1
+      }
   )
 
-  python3 - "${plan_json}" "${prior_output_dir}" <<'PY'
+  python3 - "${plan_json}" "${restart_root}" <<'PY'
 import json
 import os
 import sys
-plan_path = sys.argv[1]
-expected_restart = os.path.abspath(sys.argv[2])
+plan_path, restart_root = sys.argv[1], os.path.abspath(sys.argv[2])
 with open(plan_path, "r", encoding="utf-8") as f:
     payload = json.load(f)
 solve_stage = payload.get("stages", {}).get("solve", {})
-assert solve_stage.get("restart_source_directory") == expected_restart, \
-    f"Expected {expected_restart}, got {solve_stage.get('restart_source_directory')}"
+resolved = solve_stage.get("restart_source_directory")
+# Load mode materializes the consumed sequence into the new run rather than reading
+# the source run in place, so the plan must name this run's own restart input.
+assert resolved and resolved.startswith(os.path.join(restart_root, "runs") + os.sep), \
+    f"restart source is not inside this workspace's runs tree: {resolved}"
+assert resolved.endswith(os.path.join("inputs", "restart")), \
+    f"restart source is not the canonical restart input: {resolved}"
+# A dry run promises to write nothing, so the directory it names must not exist yet.
+assert not os.path.exists(resolved), f"dry run materialized {resolved}"
 PY
 }
 
 prepare_flat_case_les() {
   local case_dir="$1"
-  python3 - "${case_dir}/flat_channel.yml" "${case_dir}/Imp-MG-Standard.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/standard_analysis.yml" <<'PY'
+  python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
 import sys
 import yaml
 case_path, solver_path, monitor_path, post_path = sys.argv[1:]
@@ -728,7 +721,7 @@ PY
 
 prepare_flat_case_particles_base() {
   local case_dir="$1"
-  python3 - "${case_dir}/flat_channel.yml" "${case_dir}/Imp-MG-Standard.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/standard_analysis.yml" <<'PY'
+  python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
 import sys
 import yaml
 case_path, solver_path, monitor_path, post_path = sys.argv[1:]
@@ -789,7 +782,7 @@ PY
 
 prepare_flat_case_particles_corner_averaged() {
   local case_dir="$1"
-  python3 - "${case_dir}/flat_channel.yml" "${case_dir}/Imp-MG-Standard.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/standard_analysis.yml" <<'PY'
+  python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
 import sys
 import yaml
 case_path, solver_path, monitor_path, post_path = sys.argv[1:]
@@ -904,10 +897,10 @@ prepare_flat_restart_equivalence_case() {
   local post_start_step="$7"
   local post_end_step="$8"
   python3 - \
-    "${case_dir}/flat_channel.yml" \
-    "${case_dir}/Imp-MG-Standard.yml" \
-    "${case_dir}/Standard_Output.yml" \
-    "${case_dir}/standard_analysis.yml" \
+    "${case_dir}/config/case.yml" \
+    "${case_dir}/config/solver.yml" \
+    "${case_dir}/config/monitor.yml" \
+    "${case_dir}/config/post.yml" \
     "${start_step}" \
     "${total_steps}" \
     "${eulerian_source}" \
@@ -994,10 +987,10 @@ prepare_flat_case_field_statistics() {
   local verbosity="$4"
   local post_output_dir="$5"
   python3 - \
-    "${case_dir}/flat_channel.yml" \
-    "${case_dir}/Imp-MG-Standard.yml" \
-    "${case_dir}/Standard_Output.yml" \
-    "${case_dir}/standard_analysis.yml" \
+    "${case_dir}/config/case.yml" \
+    "${case_dir}/config/solver.yml" \
+    "${case_dir}/config/monitor.yml" \
+    "${case_dir}/config/post.yml" \
     "${statistics_enabled}" \
     "${console_frequency}" \
     "${verbosity}" \
@@ -1112,7 +1105,7 @@ PY
 
 prepare_brownian_case_analytical() {
   local case_dir="$1"
-  python3 - "${case_dir}/brownian_motion.yml" "${case_dir}/Analytical-Zero.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/brownian_analysis.yml" <<'PY'
+  python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
 import sys
 import yaml
 case_path, solver_path, monitor_path, post_path = sys.argv[1:]
@@ -1172,7 +1165,7 @@ PY
 
 prepare_bent_case_tiny() {
   local case_dir="$1"
-  python3 - "${case_dir}/bent_channel.yml" "${case_dir}/Imp-MG-Standard.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/standard_analysis.yml" <<'PY'
+  python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
 import sys
 import yaml
 case_path, solver_path, monitor_path, post_path = sys.argv[1:]
@@ -1220,7 +1213,7 @@ PY
 }
 prepare_bent_case_analytical_uniform_tiny() {
   local case_dir="$1"
-  python3 - "${case_dir}/bent_channel.yml" "${case_dir}/Imp-MG-Standard.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/standard_analysis.yml" <<'PY'
+  python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
 import sys
 import yaml
 case_path, solver_path, monitor_path, post_path = sys.argv[1:]
@@ -1272,7 +1265,7 @@ PY
 
 prepare_flat_case_particles_stress() {
   local case_dir="$1"
-  python3 - "${case_dir}/flat_channel.yml" "${case_dir}/Imp-MG-Standard.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/standard_analysis.yml" <<'PY'
+  python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
 import sys
 import yaml
 case_path, solver_path, monitor_path, post_path = sys.argv[1:]
@@ -1333,7 +1326,7 @@ PY
 
 prepare_flat_case_parabolic_stress() {
   local case_dir="$1"
-  python3 - "${case_dir}/flat_channel.yml" "${case_dir}/Imp-MG-Standard.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/standard_analysis.yml" <<'PY'
+  python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
 import sys
 import yaml
 case_path, solver_path, monitor_path, post_path = sys.argv[1:]
@@ -1396,7 +1389,7 @@ PY
 
 prepare_flat_case_periodic_flux_stress() {
   local case_dir="$1"
-  python3 - "${case_dir}/flat_channel.yml" "${case_dir}/Imp-MG-Standard.yml" "${case_dir}/Standard_Output.yml" "${case_dir}/standard_analysis.yml" <<'PY'
+  python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
 import sys
 import yaml
 case_path, solver_path, monitor_path, post_path = sys.argv[1:]
@@ -1544,10 +1537,10 @@ run_restart_equivalence_smoke() {
   prepare_flat_restart_equivalence_case "${continuous_case}" 0 4 "solve" "" "viz/restart_equivalence_continuous" 0 4
   run_case_workflow \
     "${continuous_case}" \
-    "${continuous_case}/flat_channel.yml" \
-    "${continuous_case}/Imp-MG-Standard.yml" \
-    "${continuous_case}/Standard_Output.yml" \
-    "${continuous_case}/standard_analysis.yml" \
+    "${continuous_case}/config/case.yml" \
+    "${continuous_case}/config/solver.yml" \
+    "${continuous_case}/config/monitor.yml" \
+    "${continuous_case}/config/post.yml" \
     "restart_equiv_continuous"
 
   continuous_run="${LAST_RUN_DIR}"
@@ -1558,20 +1551,20 @@ run_restart_equivalence_smoke() {
   prepare_flat_restart_equivalence_case "${split_case}" 0 3 "solve" "" "viz/restart_equivalence_split_base" 0 3
   run_case_workflow \
     "${split_case}" \
-    "${split_case}/flat_channel.yml" \
-    "${split_case}/Imp-MG-Standard.yml" \
-    "${split_case}/Standard_Output.yml" \
-    "${split_case}/standard_analysis.yml" \
+    "${split_case}/config/case.yml" \
+    "${split_case}/config/solver.yml" \
+    "${split_case}/config/monitor.yml" \
+    "${split_case}/config/post.yml" \
     "restart_equiv_split_base"
 
   split_base_run="${LAST_RUN_DIR}"
   prepare_flat_restart_equivalence_case "${split_case}" 2 2 "solve" "${split_base_run}" "viz/restart_equivalence_split_restart" 2 4
   run_case_workflow \
     "${split_case}" \
-    "${split_case}/flat_channel.yml" \
-    "${split_case}/Imp-MG-Standard.yml" \
-    "${split_case}/Standard_Output.yml" \
-    "${split_case}/standard_analysis.yml" \
+    "${split_case}/config/case.yml" \
+    "${split_case}/config/solver.yml" \
+    "${split_case}/config/monitor.yml" \
+    "${split_case}/config/post.yml" \
     "restart_equiv_split_restart" \
     "${split_base_run}"
 
@@ -1686,7 +1679,7 @@ run_newton_krylov_flat_channel_startup_smoke() {
     case_dir="${tmp_root}/newton-krylov-flat-channel-${profile_name}"
     "${picurv_exe}" init flat_channel --dest "${case_dir}" >/dev/null
     cp "${profile_source}" "${case_dir}/solver.yml"
-    python3 - "${case_dir}/flat_channel.yml" "${case_dir}/solver.yml" <<'PY'
+    python3 - "${case_dir}/config/case.yml" "${case_dir}/solver.yml" <<'PY'
 import sys
 import yaml
 
@@ -1711,10 +1704,10 @@ with open(solver_path, "w", encoding="utf-8") as f:
 PY
     run_case_workflow \
       "${case_dir}" \
-      "${case_dir}/flat_channel.yml" \
+      "${case_dir}/config/case.yml" \
       "${case_dir}/solver.yml" \
-      "${case_dir}/Standard_Output.yml" \
-      "${case_dir}/standard_analysis.yml" \
+      "${case_dir}/config/monitor.yml" \
+      "${case_dir}/config/post.yml" \
       "newton_krylov_flat_channel_${profile_name}"
     summary_file="${LAST_RUN_DIR}/logs/Momentum_Solver_Newton_Krylov_Summary_Block_0.log"
     require_file "${summary_file}" "Newton--Krylov ${profile_name} flat-channel summary"
@@ -1747,10 +1740,10 @@ run_full_runtime_smoke() {
   prepare_flat_case_les "${flat_les_case}"
   run_case_workflow \
     "${flat_les_case}" \
-    "${flat_les_case}/flat_channel.yml" \
-    "${flat_les_case}/Imp-MG-Standard.yml" \
-    "${flat_les_case}/Standard_Output.yml" \
-    "${flat_les_case}/standard_analysis.yml" \
+    "${flat_les_case}/config/case.yml" \
+    "${flat_les_case}/config/solver.yml" \
+    "${flat_les_case}/config/monitor.yml" \
+    "${flat_les_case}/config/post.yml" \
     "flat_les"
 
   local flat_les_run
@@ -1758,7 +1751,7 @@ run_full_runtime_smoke() {
   require_dir "${flat_les_run}/output/checkpoints" "flat LES checkpoint directory"
   require_count_ge "${flat_les_run}/output/checkpoints" "COMMITTED" 1 "flat LES committed checkpoints"
   require_count_ge "${flat_les_run}/output/checkpoints" "Ucat.dat" 1 "flat LES Eulerian checkpoint payloads"
-  require_count_ge "${flat_les_run}/viz/les_smoke" "*.vts" 1 "flat LES post VTS files"
+  require_count_ge "${flat_les_run}/output/visualization" "*.vts" 1 "flat LES post VTS files"
   require_file_contains "${LAST_SOLVER_LOG}" "Run Mode                   : Full Simulation" "runtime banner run mode"
   require_file_contains "${LAST_SOLVER_LOG}" "Field/Restart Cadence      : every 1 step(s)" "runtime banner field cadence"
   require_file_contains "${LAST_SOLVER_LOG}" "Immersed Boundary          : DISABLED" "runtime banner immersed-boundary state"
@@ -1771,10 +1764,10 @@ run_full_runtime_smoke() {
   prepare_bent_case_tiny "${bent_case}"
   run_case_workflow \
     "${bent_case}" \
-    "${bent_case}/bent_channel.yml" \
-    "${bent_case}/Imp-MG-Standard.yml" \
-    "${bent_case}/Standard_Output.yml" \
-    "${bent_case}/standard_analysis.yml" \
+    "${bent_case}/config/case.yml" \
+    "${bent_case}/config/solver.yml" \
+    "${bent_case}/config/monitor.yml" \
+    "${bent_case}/config/post.yml" \
     "bent_les"
 
   local bent_run
@@ -1782,17 +1775,17 @@ run_full_runtime_smoke() {
   require_dir "${bent_run}/output/checkpoints" "bent checkpoint directory"
   require_count_ge "${bent_run}/output/checkpoints" "COMMITTED" 1 "bent committed checkpoints"
   require_count_ge "${bent_run}/output/checkpoints" "Ucat.dat" 1 "bent Eulerian checkpoint payloads"
-  require_count_ge "${bent_run}/viz/bent_smoke" "*.vts" 1 "bent post VTS files"
+  require_count_ge "${bent_run}/output/visualization" "*.vts" 1 "bent post VTS files"
 
   local bent_analytical_case="${tmp_root}/bent-analytical"
   "${picurv_exe}" init bent_channel --dest "${bent_analytical_case}" >/dev/null
   prepare_bent_case_analytical_uniform_tiny "${bent_analytical_case}"
   run_case_workflow \
     "${bent_analytical_case}" \
-    "${bent_analytical_case}/bent_channel.yml" \
-    "${bent_analytical_case}/Imp-MG-Standard.yml" \
-    "${bent_analytical_case}/Standard_Output.yml" \
-    "${bent_analytical_case}/standard_analysis.yml" \
+    "${bent_analytical_case}/config/case.yml" \
+    "${bent_analytical_case}/config/solver.yml" \
+    "${bent_analytical_case}/config/monitor.yml" \
+    "${bent_analytical_case}/config/post.yml" \
     "bent_analytical_uniform"
 
   local bent_analytical_run
@@ -1800,22 +1793,22 @@ run_full_runtime_smoke() {
   require_dir "${bent_analytical_run}/output/checkpoints" "bent analytical checkpoint directory"
   require_count_ge "${bent_analytical_run}/output/checkpoints" "COMMITTED" 1 "bent analytical committed checkpoints"
   require_count_ge "${bent_analytical_run}/output/checkpoints" "Ucat.dat" 1 "bent analytical Eulerian checkpoint payloads"
-  require_count_ge "${bent_analytical_run}/viz/bent_analytical_smoke" "*.vts" 1 "bent analytical post VTS files"
+  require_count_ge "${bent_analytical_run}/output/visualization" "*.vts" 1 "bent analytical post VTS files"
   require_file_contains "${LAST_SOLVER_LOG}" "Analytical Solution Type : UNIFORM_FLOW" "bent analytical uniform-flow runtime branch"
   "${picurv_exe}" init flat_channel --dest "${flat_particles_case}" >/dev/null
   prepare_flat_case_particles_base "${flat_particles_case}"
   run_case_workflow \
     "${flat_particles_case}" \
-    "${flat_particles_case}/flat_channel.yml" \
-    "${flat_particles_case}/Imp-MG-Standard.yml" \
-    "${flat_particles_case}/Standard_Output.yml" \
-    "${flat_particles_case}/standard_analysis.yml" \
+    "${flat_particles_case}/config/case.yml" \
+    "${flat_particles_case}/config/solver.yml" \
+    "${flat_particles_case}/config/monitor.yml" \
+    "${flat_particles_case}/config/post.yml" \
     "flat_particles_base"
 
   local base_particles_run
   base_particles_run="${LAST_RUN_DIR}"
   require_count_ge "${base_particles_run}/output/checkpoints" "position.dat" 1 "particle checkpoint payloads"
-  require_count_ge "${base_particles_run}/viz/particle_smoke" "*.vtp" 1 "particle VTP files"
+  require_count_ge "${base_particles_run}/output/visualization" "*.vtp" 1 "particle VTP files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 32" "particle runtime banner particle count"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence   : DISABLED" "particle runtime banner disabled particle console cadence"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Log Row Sampling  : every 1 particle(s)" "particle runtime banner row sampling"
@@ -1826,28 +1819,28 @@ run_full_runtime_smoke() {
   prepare_flat_case_particles_corner_averaged "${flat_particles_ca_case}"
   run_case_workflow \
     "${flat_particles_ca_case}" \
-    "${flat_particles_ca_case}/flat_channel.yml" \
-    "${flat_particles_ca_case}/Imp-MG-Standard.yml" \
-    "${flat_particles_ca_case}/Standard_Output.yml" \
-    "${flat_particles_ca_case}/standard_analysis.yml" \
+    "${flat_particles_ca_case}/config/case.yml" \
+    "${flat_particles_ca_case}/config/solver.yml" \
+    "${flat_particles_ca_case}/config/monitor.yml" \
+    "${flat_particles_ca_case}/config/post.yml" \
     "flat_particles_corner_averaged"
 
   require_count_ge "${LAST_RUN_DIR}/output/checkpoints" "position.dat" 1 "corner-averaged particle checkpoint payloads"
-  require_count_ge "${LAST_RUN_DIR}/viz/particle_corner_averaged_smoke" "*.vtp" 1 "corner-averaged particle VTP files"
+  require_count_ge "${LAST_RUN_DIR}/output/visualization" "*.vtp" 1 "corner-averaged particle VTP files"
   require_file_contains "${LAST_SOLVER_LOG}" "Interpolation Method       : CornerAveraged (legacy)" "corner-averaged runtime banner interpolation method"
 
   local case_restart_load="${flat_particles_case}/case_restart_load.yml"
   local solver_restart_load="${flat_particles_case}/solver_restart_load.yml"
   local post_restart_load="${flat_particles_case}/post_restart_load.yml"
-  cp "${flat_particles_case}/flat_channel.yml" "${case_restart_load}"
-  cp "${flat_particles_case}/Imp-MG-Standard.yml" "${solver_restart_load}"
-  cp "${flat_particles_case}/standard_analysis.yml" "${post_restart_load}"
+  cp "${flat_particles_case}/config/case.yml" "${case_restart_load}"
+  cp "${flat_particles_case}/config/solver.yml" "${solver_restart_load}"
+  cp "${flat_particles_case}/config/post.yml" "${post_restart_load}"
   prepare_flat_restart_variant "${case_restart_load}" "${solver_restart_load}" "${post_restart_load}" "${base_particles_run}" "load" "viz/restart_load"
   run_case_workflow \
     "${flat_particles_case}" \
     "${case_restart_load}" \
     "${solver_restart_load}" \
-    "${flat_particles_case}/Standard_Output.yml" \
+    "${flat_particles_case}/config/monitor.yml" \
     "${post_restart_load}" \
     "flat_particles_restart_load" \
     "${base_particles_run}"
@@ -1860,15 +1853,15 @@ run_full_runtime_smoke() {
   local case_restart_init="${flat_particles_case}/case_restart_init.yml"
   local solver_restart_init="${flat_particles_case}/solver_restart_init.yml"
   local post_restart_init="${flat_particles_case}/post_restart_init.yml"
-  cp "${flat_particles_case}/flat_channel.yml" "${case_restart_init}"
-  cp "${flat_particles_case}/Imp-MG-Standard.yml" "${solver_restart_init}"
-  cp "${flat_particles_case}/standard_analysis.yml" "${post_restart_init}"
+  cp "${flat_particles_case}/config/case.yml" "${case_restart_init}"
+  cp "${flat_particles_case}/config/solver.yml" "${solver_restart_init}"
+  cp "${flat_particles_case}/config/post.yml" "${post_restart_init}"
   prepare_flat_restart_variant "${case_restart_init}" "${solver_restart_init}" "${post_restart_init}" "${base_particles_run}" "init" "viz/restart_init"
   run_case_workflow \
     "${flat_particles_case}" \
     "${case_restart_init}" \
     "${solver_restart_init}" \
-    "${flat_particles_case}/Standard_Output.yml" \
+    "${flat_particles_case}/config/monitor.yml" \
     "${post_restart_init}" \
     "flat_particles_restart_init" \
     "${base_particles_run}"
@@ -1885,17 +1878,18 @@ run_full_runtime_smoke() {
   prepare_brownian_case_analytical "${brownian_case}"
   run_case_workflow \
     "${brownian_case}" \
-    "${brownian_case}/brownian_motion.yml" \
-    "${brownian_case}/Analytical-Zero.yml" \
-    "${brownian_case}/Standard_Output.yml" \
-    "${brownian_case}/brownian_analysis.yml" \
+    "${brownian_case}/config/case.yml" \
+    "${brownian_case}/config/solver.yml" \
+    "${brownian_case}/config/monitor.yml" \
+    "${brownian_case}/config/post.yml" \
     "brownian_analytical"
 
   local brownian_run
   brownian_run="${LAST_RUN_DIR}"
-  require_count_ge "${brownian_run}/viz/brownian_smoke" "*.vts" 1 "brownian eulerian VTS files"
-  require_count_ge "${brownian_run}/viz/brownian_smoke" "*.vtp" 1 "brownian particle VTP files"
-  require_file "${brownian_run}/output/statistics/BrownianStats_msd.csv" "brownian MSD statistics CSV"
+  require_count_ge "${brownian_run}/output/visualization" "*.vts" 1 "brownian eulerian VTS files"
+  require_count_ge "${brownian_run}/output/visualization" "*.vtp" 1 "brownian particle VTP files"
+  require_count_ge "${brownian_run}/output/analysis/statistics" "BrownianStats_msd.csv" 1 \
+    "brownian MSD statistics CSV"
   require_file_contains "${LAST_SOLVER_LOG}" "Analytical Solution Type" "analytical runtime branch"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 64" "brownian runtime banner particle count"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence   : DISABLED" "brownian runtime banner disabled particle console cadence"
@@ -1912,16 +1906,16 @@ run_multi_rank_runtime_smoke() {
   prepare_flat_case_les "${flat_case}"
   run_case_workflow \
     "${flat_case}" \
-    "${flat_case}/flat_channel.yml" \
-    "${flat_case}/Imp-MG-Standard.yml" \
-    "${flat_case}/Standard_Output.yml" \
-    "${flat_case}/standard_analysis.yml" \
+    "${flat_case}/config/case.yml" \
+    "${flat_case}/config/solver.yml" \
+    "${flat_case}/config/monitor.yml" \
+    "${flat_case}/config/post.yml" \
     "flat_mpi"
 
   local flat_run
   flat_run="${LAST_RUN_DIR}"
   require_count_ge "${flat_run}/output/checkpoints" "Ucat.dat" 1 "flat MPI Eulerian checkpoint payloads"
-  require_count_ge "${flat_run}/viz/les_smoke" "*.vts" 1 "flat MPI post VTS files"
+  require_count_ge "${flat_run}/output/visualization" "*.vts" 1 "flat MPI post VTS files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "flat MPI rank count in runtime summary"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 0" "flat MPI runtime banner particle count"
   require_file_not_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence" "flat MPI runtime banner particle console cadence omission"
@@ -1931,32 +1925,32 @@ run_multi_rank_runtime_smoke() {
   prepare_bent_case_tiny "${bent_case}"
   run_case_workflow \
     "${bent_case}" \
-    "${bent_case}/bent_channel.yml" \
-    "${bent_case}/Imp-MG-Standard.yml" \
-    "${bent_case}/Standard_Output.yml" \
-    "${bent_case}/standard_analysis.yml" \
+    "${bent_case}/config/case.yml" \
+    "${bent_case}/config/solver.yml" \
+    "${bent_case}/config/monitor.yml" \
+    "${bent_case}/config/post.yml" \
     "bent_mpi"
 
   local bent_run
   bent_run="${LAST_RUN_DIR}"
   require_count_ge "${bent_run}/output/checkpoints" "Ucat.dat" 1 "bent MPI Eulerian checkpoint payloads"
-  require_count_ge "${bent_run}/viz/bent_smoke" "*.vts" 1 "bent MPI post VTS files"
+  require_count_ge "${bent_run}/output/visualization" "*.vts" 1 "bent MPI post VTS files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "bent MPI rank count in runtime summary"
 
   "${picurv_exe}" init flat_channel --dest "${flat_particles_case}" >/dev/null
   prepare_flat_case_particles_base "${flat_particles_case}"
   run_case_workflow \
     "${flat_particles_case}" \
-    "${flat_particles_case}/flat_channel.yml" \
-    "${flat_particles_case}/Imp-MG-Standard.yml" \
-    "${flat_particles_case}/Standard_Output.yml" \
-    "${flat_particles_case}/standard_analysis.yml" \
+    "${flat_particles_case}/config/case.yml" \
+    "${flat_particles_case}/config/solver.yml" \
+    "${flat_particles_case}/config/monitor.yml" \
+    "${flat_particles_case}/config/post.yml" \
     "flat_particles_mpi_base"
 
   local base_particles_run
   base_particles_run="${LAST_RUN_DIR}"
   require_count_ge "${base_particles_run}/output/checkpoints" "position.dat" 1 "MPI particle checkpoint payloads"
-  require_count_ge "${base_particles_run}/viz/particle_smoke" "*.vtp" 1 "MPI particle VTP files"
+  require_count_ge "${base_particles_run}/output/visualization" "*.vtp" 1 "MPI particle VTP files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI particle run rank count in runtime summary"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 32" "MPI particle runtime banner particle count"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence   : DISABLED" "MPI particle runtime banner disabled particle console cadence"
@@ -1966,15 +1960,15 @@ run_multi_rank_runtime_smoke() {
   local case_restart_load="${flat_particles_case}/case_restart_load.yml"
   local solver_restart_load="${flat_particles_case}/solver_restart_load.yml"
   local post_restart_load="${flat_particles_case}/post_restart_load.yml"
-  cp "${flat_particles_case}/flat_channel.yml" "${case_restart_load}"
-  cp "${flat_particles_case}/Imp-MG-Standard.yml" "${solver_restart_load}"
-  cp "${flat_particles_case}/standard_analysis.yml" "${post_restart_load}"
+  cp "${flat_particles_case}/config/case.yml" "${case_restart_load}"
+  cp "${flat_particles_case}/config/solver.yml" "${solver_restart_load}"
+  cp "${flat_particles_case}/config/post.yml" "${post_restart_load}"
   prepare_flat_restart_variant "${case_restart_load}" "${solver_restart_load}" "${post_restart_load}" "${base_particles_run}" "load" "viz/restart_load_mpi"
   run_case_workflow \
     "${flat_particles_case}" \
     "${case_restart_load}" \
     "${solver_restart_load}" \
-    "${flat_particles_case}/Standard_Output.yml" \
+    "${flat_particles_case}/config/monitor.yml" \
     "${post_restart_load}" \
     "flat_particles_mpi_restart_load" \
     "${base_particles_run}"
@@ -1985,15 +1979,15 @@ run_multi_rank_runtime_smoke() {
   local case_restart_init="${flat_particles_case}/case_restart_init.yml"
   local solver_restart_init="${flat_particles_case}/solver_restart_init.yml"
   local post_restart_init="${flat_particles_case}/post_restart_init.yml"
-  cp "${flat_particles_case}/flat_channel.yml" "${case_restart_init}"
-  cp "${flat_particles_case}/Imp-MG-Standard.yml" "${solver_restart_init}"
-  cp "${flat_particles_case}/standard_analysis.yml" "${post_restart_init}"
+  cp "${flat_particles_case}/config/case.yml" "${case_restart_init}"
+  cp "${flat_particles_case}/config/solver.yml" "${solver_restart_init}"
+  cp "${flat_particles_case}/config/post.yml" "${post_restart_init}"
   prepare_flat_restart_variant "${case_restart_init}" "${solver_restart_init}" "${post_restart_init}" "${base_particles_run}" "init" "viz/restart_init_mpi"
   run_case_workflow \
     "${flat_particles_case}" \
     "${case_restart_init}" \
     "${solver_restart_init}" \
-    "${flat_particles_case}/Standard_Output.yml" \
+    "${flat_particles_case}/config/monitor.yml" \
     "${post_restart_init}" \
     "flat_particles_mpi_restart_init" \
     "${base_particles_run}"
@@ -2039,10 +2033,10 @@ run_rank_change_restart_smoke() {
   prepare_flat_restart_equivalence_case "${case_dir}" 0 2 "solve" "" "viz/rank_change_base" 0 2
   run_case_workflow \
     "${case_dir}" \
-    "${case_dir}/flat_channel.yml" \
-    "${case_dir}/Imp-MG-Standard.yml" \
-    "${case_dir}/Standard_Output.yml" \
-    "${case_dir}/standard_analysis.yml" \
+    "${case_dir}/config/case.yml" \
+    "${case_dir}/config/solver.yml" \
+    "${case_dir}/config/monitor.yml" \
+    "${case_dir}/config/post.yml" \
     "rank_change_base"
   base_run="${LAST_RUN_DIR}"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${saved_nprocs}" \
@@ -2054,10 +2048,10 @@ run_rank_change_restart_smoke() {
   prepare_flat_restart_equivalence_case "${case_dir}" 2 2 "solve" "${base_run}" "viz/rank_change_restart_one" 2 4
   run_case_workflow \
     "${case_dir}" \
-    "${case_dir}/flat_channel.yml" \
-    "${case_dir}/Imp-MG-Standard.yml" \
-    "${case_dir}/Standard_Output.yml" \
-    "${case_dir}/standard_analysis.yml" \
+    "${case_dir}/config/case.yml" \
+    "${case_dir}/config/solver.yml" \
+    "${case_dir}/config/monitor.yml" \
+    "${case_dir}/config/post.yml" \
     "rank_change_restart_one" \
     "${base_run}"
   restart_one_run="${LAST_RUN_DIR}"
@@ -2078,10 +2072,10 @@ run_rank_change_restart_smoke() {
   prepare_flat_restart_equivalence_case "${case_dir}" 2 2 "solve" "${base_run}" "viz/rank_change_restart_many" 2 4
   run_case_workflow \
     "${case_dir}" \
-    "${case_dir}/flat_channel.yml" \
-    "${case_dir}/Imp-MG-Standard.yml" \
-    "${case_dir}/Standard_Output.yml" \
-    "${case_dir}/standard_analysis.yml" \
+    "${case_dir}/config/case.yml" \
+    "${case_dir}/config/solver.yml" \
+    "${case_dir}/config/monitor.yml" \
+    "${case_dir}/config/post.yml" \
     "rank_change_restart_many" \
     "${base_run}"
   restart_many_run="${LAST_RUN_DIR}"
@@ -2117,10 +2111,10 @@ run_field_statistics_variant() {
     "${verbosity}" "viz/${label}"
   run_case_workflow \
     "${case_dir}" \
-    "${case_dir}/flat_channel.yml" \
-    "${case_dir}/Imp-MG-Standard.yml" \
-    "${case_dir}/Standard_Output.yml" \
-    "${case_dir}/standard_analysis.yml" \
+    "${case_dir}/config/case.yml" \
+    "${case_dir}/config/solver.yml" \
+    "${case_dir}/config/monitor.yml" \
+    "${case_dir}/config/post.yml" \
     "${label}"
 }
 
@@ -2140,17 +2134,19 @@ run_field_statistics_smoke() {
   require_dir "${reported_run}/${stats_dir}" "committed accumulator payloads"
   require_count_ge "${reported_run}/${stats_dir}" "*.dat" 5 \
     "accumulator payloads for two fields, a second moment, and a covariance"
-  require_count_ge "${reported_run}/viz/field_statistics_reported" \
+  require_count_ge "${reported_run}/output/visualization" \
     "Field_statistics_equivalence_*.vts" 2 "derived statistics VTK output per processed step"
-  require_file "${reported_run}/viz/field_statistics_reported/Field_statistics_equivalence.csv" \
-    "statistics convergence history CSV"
+  require_count_ge "${reported_run}/output/analysis/statistics" \
+    "Field_statistics_equivalence.csv" 1 "statistics convergence history CSV"
   # The derived VTK field and the convergence CSV come from paths that share no code,
   # so comparing them catches a layout boundary an interior-only producer left unwritten.
   if ! python3 "${repo_root}/tests/tooling/check_statistics_nodal_consistency.py" \
-       "${reported_run}" "viz/field_statistics_reported" "equivalence"; then
+       "${reported_run}" "equivalence"; then
     die "derived statistics VTK output disagrees with the convergence history CSV."
   fi
-  require_file_contains "${reported_run}/viz/field_statistics_reported/Field_statistics_equivalence.csv" \
+  require_file_contains \
+    "$(find "${reported_run}/output/analysis/statistics" -type f \
+        -name Field_statistics_equivalence.csv | head -1)" \
     "step,state,samples" "statistics convergence history header"
 
   # (2) The same accumulation below LOG_INFO: the banner still records the cadence, so a
@@ -2225,42 +2221,42 @@ run_stress_smoke() {
   prepare_flat_case_particles_stress "${particle_case}"
   run_case_workflow \
     "${particle_case}" \
-    "${particle_case}/flat_channel.yml" \
-    "${particle_case}/Imp-MG-Standard.yml" \
-    "${particle_case}/Standard_Output.yml" \
-    "${particle_case}/standard_analysis.yml" \
+    "${particle_case}/config/case.yml" \
+    "${particle_case}/config/solver.yml" \
+    "${particle_case}/config/monitor.yml" \
+    "${particle_case}/config/post.yml" \
     "flat_particles_stress"
   require_count_ge "${LAST_RUN_DIR}/output/checkpoints" "position.dat" 2 "stress particle checkpoint payloads"
-  require_count_ge "${LAST_RUN_DIR}/viz/particle_stress" "*.vtp" 1 "stress particle VTP files"
+  require_count_ge "${LAST_RUN_DIR}/output/visualization" "*.vtp" 1 "stress particle VTP files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 96" "stress particle count in runtime summary"
 
   "${picurv_exe}" init flat_channel --dest "${restart_case}" >/dev/null
   prepare_flat_restart_equivalence_case "${restart_case}" 0 3 "solve" "" "viz/restart_chain_base" 0 3
   run_case_workflow \
     "${restart_case}" \
-    "${restart_case}/flat_channel.yml" \
-    "${restart_case}/Imp-MG-Standard.yml" \
-    "${restart_case}/Standard_Output.yml" \
-    "${restart_case}/standard_analysis.yml" \
+    "${restart_case}/config/case.yml" \
+    "${restart_case}/config/solver.yml" \
+    "${restart_case}/config/monitor.yml" \
+    "${restart_case}/config/post.yml" \
     "restart_chain_base"
   local restart_base_run="${LAST_RUN_DIR}"
   prepare_flat_restart_equivalence_case "${restart_case}" 2 2 "solve" "${restart_base_run}" "viz/restart_chain_mid" 2 4
   run_case_workflow \
     "${restart_case}" \
-    "${restart_case}/flat_channel.yml" \
-    "${restart_case}/Imp-MG-Standard.yml" \
-    "${restart_case}/Standard_Output.yml" \
-    "${restart_case}/standard_analysis.yml" \
+    "${restart_case}/config/case.yml" \
+    "${restart_case}/config/solver.yml" \
+    "${restart_case}/config/monitor.yml" \
+    "${restart_case}/config/post.yml" \
     "restart_chain_mid" \
     "${restart_base_run}"
   local restart_mid_run="${LAST_RUN_DIR}"
   prepare_flat_restart_equivalence_case "${restart_case}" 4 2 "solve" "${restart_mid_run}" "viz/restart_chain_final" 4 6
   run_case_workflow \
     "${restart_case}" \
-    "${restart_case}/flat_channel.yml" \
-    "${restart_case}/Imp-MG-Standard.yml" \
-    "${restart_case}/Standard_Output.yml" \
-    "${restart_case}/standard_analysis.yml" \
+    "${restart_case}/config/case.yml" \
+    "${restart_case}/config/solver.yml" \
+    "${restart_case}/config/monitor.yml" \
+    "${restart_case}/config/post.yml" \
     "restart_chain_final" \
     "${restart_mid_run}"
   require_file "${LAST_RUN_DIR}/logs/Continuity_Metrics.log" "restart-chain continuity metrics log"
@@ -2269,12 +2265,12 @@ run_stress_smoke() {
   prepare_flat_case_parabolic_stress "${parabolic_case}"
   run_case_workflow \
     "${parabolic_case}" \
-    "${parabolic_case}/flat_channel.yml" \
-    "${parabolic_case}/Imp-MG-Standard.yml" \
-    "${parabolic_case}/Standard_Output.yml" \
-    "${parabolic_case}/standard_analysis.yml" \
+    "${parabolic_case}/config/case.yml" \
+    "${parabolic_case}/config/solver.yml" \
+    "${parabolic_case}/config/monitor.yml" \
+    "${parabolic_case}/config/post.yml" \
     "flat_parabolic_stress"
-  require_count_ge "${LAST_RUN_DIR}/viz/parabolic_stress" "*.vts" 1 "parabolic stress VTS files"
+  require_count_ge "${LAST_RUN_DIR}/output/visualization" "*.vts" 1 "parabolic stress VTS files"
 
   if [[ "${saved_nprocs}" -gt 1 ]]; then
     stress_mpi_nprocs=$((saved_nprocs + 1))
@@ -2287,18 +2283,18 @@ run_stress_smoke() {
   (
     cd "${periodic_case}"
     "${picurv_exe}" validate \
-      --case "${periodic_case}/flat_channel.yml" \
-      --solver "${periodic_case}/Imp-MG-Standard.yml" \
-      --monitor "${periodic_case}/Standard_Output.yml" \
-      --post "${periodic_case}/standard_analysis.yml" >/dev/null
+      --case "${periodic_case}/config/case.yml" \
+      --solver "${periodic_case}/config/solver.yml" \
+      --monitor "${periodic_case}/config/monitor.yml" \
+      --post "${periodic_case}/config/post.yml" >/dev/null
     "${picurv_exe}" run \
       --solve \
       --post-process \
       -n "${periodic_nprocs}" \
-      --case "${periodic_case}/flat_channel.yml" \
-      --solver "${periodic_case}/Imp-MG-Standard.yml" \
-      --monitor "${periodic_case}/Standard_Output.yml" \
-      --post "${periodic_case}/standard_analysis.yml" \
+      --case "${periodic_case}/config/case.yml" \
+      --solver "${periodic_case}/config/solver.yml" \
+      --monitor "${periodic_case}/config/monitor.yml" \
+      --post "${periodic_case}/config/post.yml" \
       --dry-run \
       --format json >"${tmp_root}/flat_periodic_flux_stress_plan.json"
   )
@@ -2320,7 +2316,7 @@ PY
   nprocs="${stress_mpi_nprocs}"
   "${picurv_exe}" init flat_channel --dest "${mpi_particle_case}" >/dev/null
   prepare_flat_case_particles_stress "${mpi_particle_case}"
-  python3 - "${mpi_particle_case}/standard_analysis.yml" <<'PY'
+  python3 - "${mpi_particle_case}/config/post.yml" <<'PY'
 import sys
 import yaml
 post_path = sys.argv[1]
@@ -2333,13 +2329,13 @@ with open(post_path, "w", encoding="utf-8") as f:
 PY
   run_case_workflow \
     "${mpi_particle_case}" \
-    "${mpi_particle_case}/flat_channel.yml" \
-    "${mpi_particle_case}/Imp-MG-Standard.yml" \
-    "${mpi_particle_case}/Standard_Output.yml" \
-    "${mpi_particle_case}/standard_analysis.yml" \
+    "${mpi_particle_case}/config/case.yml" \
+    "${mpi_particle_case}/config/solver.yml" \
+    "${mpi_particle_case}/config/monitor.yml" \
+    "${mpi_particle_case}/config/post.yml" \
     "flat_particles_stress_mpi"
   nprocs="${saved_nprocs}"
-  require_count_ge "${LAST_RUN_DIR}/viz/particle_stress_mpi" "*.vtp" 1 "MPI particle stress VTP files"
+  require_count_ge "${LAST_RUN_DIR}/output/visualization" "*.vtp" 1 "MPI particle stress VTP files"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${stress_mpi_nprocs}" "MPI stress rank count in runtime summary"
 }
 
