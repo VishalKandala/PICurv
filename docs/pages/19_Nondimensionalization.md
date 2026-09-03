@@ -80,11 +80,22 @@ the solver's own units exactly. Only derived output is scaled, so a `.dat` under
 `<run.checkpoints>` and a `.vts` under `<run.visualization>` are deliberately in different
 unit systems.
 
-The grid is the one quantity converted on the way *in* rather than out: a `.picgrid` is
-supplied dimensional and is divided by `L_ref` when the conductor publishes it as an
-asset, so the solver reads geometry already in solver units. Coordinates written by
-post-processing are multiplied back. `grid.mode: programmatic_c` is the exception - its
-`xMins`/`xMaxs` bounds are authored directly in solver units and nothing divides them.
+The grid is the one quantity converted on the way *in* rather than out, in all three
+`grid.mode` values, so the round trip is uniform regardless of which one a case uses:
+
+- `file` and `grid_gen`: a `.picgrid` is supplied dimensional and is divided by
+  `L_ref` when the conductor publishes it as an asset, so the solver reads geometry
+  already in solver units.
+- `programmatic_c`: `xMins`/`xMaxs`/`yMins`/... are likewise supplied dimensional.
+  `ReadGridGenerationInputs()` (`src/io.c`) divides each bound by `L_ref` after
+  `ParseScalingInformation()` has resolved it, immediately before assigning
+  `user->Min_X`/`Max_X`/etc - the same division a `file` grid receives in Python, just
+  performed in C because this mode has no Python staging step to perform it in.
+
+Coordinates written by post-processing are multiplied back by `L_ref` unconditionally
+(`DimensionalizeField("Coordinates")`), so a case authored with `length_ref: 1.0` is
+unaffected either way, and a case using another reference length gets back the same
+physical bounds it specified, whichever grid mode produced them.
 
 @section p19_notes_sec 5. Practical Notes
 

@@ -190,7 +190,8 @@
       "kind": "units",
       "status": "tracked",
       "authoritative_sources": [
-        "picurv_cli/core.py"
+        "picurv_cli/core.py",
+        "src/io.c"
       ],
       "extractor": null,
       "checker": null,
@@ -204,7 +205,7 @@
         "68_Glossary"
       ],
       "enforcement": "report-only",
-      "note": "High risk: unit errors are silent. A dedicated extractor over the conversion table is the obvious next contract to promote to enforced.",
+      "note": "High risk: unit errors are silent. A dedicated extractor over the conversion table is the obvious next contract to promote to enforced. src/io.c performs the length_ref division for grid.mode=programmatic_c (ReadGridGenerationInputs), the one grid mode whose bounds are staged directly in the C runtime rather than in the Python conductor.",
       "requires_built_docs": false
     },
     {

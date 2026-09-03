@@ -497,25 +497,39 @@ PetscErrorCode ReadGridGenerationInputs(UserCtx *user)
     count = nblk; ierr = PetscOptionsGetRealArray(NULL, NULL, "-rzs", rzs, &count, &found); CHKERRQ(ierr);
     count = nblk; ierr = PetscOptionsGetIntArray(NULL, NULL, "-cgrids", cgrids, &count, &found); CHKERRQ(ierr);
 
+    /* Domain bounds are supplied in physical units, exactly like a `.picgrid`. A file
+     * grid is divided by the reference length when the conductor publishes it as an
+     * asset; a programmatically generated one has no such staging step, so the same
+     * division happens here. Without it this mode alone would take non-dimensional
+     * input while post-processing multiplied its coordinates back by L_ref, inflating
+     * the reported geometry whenever length_ref differed from one. */
+    const PetscReal length_ref = simCtx->scaling.L_ref;
+
+    PetscCheck(length_ref > 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "Reference length L_ref must be positive to non-dimensionalize the "
+               "programmatic domain bounds. Got %g", (double)length_ref);
+
     // --- Assign the parsed values to the specific UserCtx struct passed in ---
     user->IM = IMs[block_index];
     user->JM = JMs[block_index];
     user->KM = KMs[block_index];
-    user->Min_X = xMins[block_index];
-    user->Max_X = xMaxs[block_index];
+    user->Min_X = xMins[block_index] / length_ref;
+    user->Max_X = xMaxs[block_index] / length_ref;
     user->rx = rxs[block_index];
-    user->Min_Y = yMins[block_index];
-    user->Max_Y = yMaxs[block_index];
+    user->Min_Y = yMins[block_index] / length_ref;
+    user->Max_Y = yMaxs[block_index] / length_ref;
     user->ry = rys[block_index];
-    user->Min_Z = zMins[block_index];
-    user->Max_Z = zMaxs[block_index];
+    user->Min_Z = zMins[block_index] / length_ref;
+    user->Max_Z = zMaxs[block_index] / length_ref;
     user->rz = rzs[block_index];
     user->cgrid = cgrids[block_index];
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %d grid generation inputs set: IM=%d, JM=%d, KM=%d\n",
               simCtx->rank, block_index, user->IM, user->JM, user->KM);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %d bounds: X=[%.2f, %.2f], Y=[%.2f, %.2f], Z=[%.2f, %.2f]\n",
-              simCtx->rank, block_index, user->Min_X, user->Max_X, user->Min_Y, user->Max_Y, user->Min_Z, user->Max_Z);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %d bounds after L_ref=%.4g: X=[%.4g, %.4g], "
+              "Y=[%.4g, %.4g], Z=[%.4g, %.4g]\n",
+              simCtx->rank, block_index, (double)length_ref,
+              user->Min_X, user->Max_X, user->Min_Y, user->Max_Y, user->Min_Z, user->Max_Z);
 
     // --- Clean up temporary storage ---
     ierr = PetscFree4(IMs, JMs, KMs, cgrids); CHKERRQ(ierr);

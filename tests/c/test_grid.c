@@ -6,6 +6,7 @@
 #include "test_support.h"
 
 #include "grid.h"
+#include "io.h"
 
 #include <stdlib.h>
 /**
@@ -77,6 +78,75 @@ static PetscErrorCode TestGatherAndBroadcastBoundingBoxes(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests that programmatic domain bounds are non-dimensionalized by L_ref.
+ *
+ * A file-backed grid is divided by the reference length when the conductor publishes
+ * it as an asset; a programmatic grid has no such staging step, so ReadGridGenerationInputs()
+ * must perform the same division so all three grid modes take dimensional user input
+ * and the postprocessor's unconditional `Coordinates * L_ref` round-trips correctly.
+ */
+static PetscErrorCode TestReadGridGenerationInputsNonDimensionalizesBounds(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+
+    PetscCall(PetscOptionsSetValue(NULL, "-im", "4"));
+    PetscCall(PetscOptionsSetValue(NULL, "-jm", "4"));
+    PetscCall(PetscOptionsSetValue(NULL, "-km", "4"));
+    PetscCall(PetscOptionsSetValue(NULL, "-xMins", "0.0"));
+    PetscCall(PetscOptionsSetValue(NULL, "-xMaxs", "0.2"));
+    PetscCall(PetscOptionsSetValue(NULL, "-yMins", "0.0"));
+    PetscCall(PetscOptionsSetValue(NULL, "-yMaxs", "0.2"));
+    PetscCall(PetscOptionsSetValue(NULL, "-zMins", "0.0"));
+    PetscCall(PetscOptionsSetValue(NULL, "-zMaxs", "0.4"));
+
+    /* Authored in physical units (metres); L_ref converts to the solver units the
+     * simulator evolves in. 0.2 m at L_ref=0.05 is a domain of 4 solver units, the same
+     * shape a nondimensional-input user would have written by hand. */
+    simCtx->scaling.L_ref = 0.05;
+    PetscCall(ReadGridGenerationInputs(user));
+
+    PetscCall(PicurvAssertRealNear(0.0, user->Min_X, 1.0e-12, "xMin divides by L_ref"));
+    PetscCall(PicurvAssertRealNear(4.0, user->Max_X, 1.0e-12, "0.2 / 0.05 = 4.0 solver units"));
+    PetscCall(PicurvAssertRealNear(4.0, user->Max_Y, 1.0e-12, "yMax non-dimensionalized"));
+    PetscCall(PicurvAssertRealNear(8.0, user->Max_Z, 1.0e-12, "0.4 / 0.05 = 8.0 solver units"));
+
+    /* L_ref = 1.0 is a no-op, so an author already working in solver units is
+     * unaffected - this is the common case and must not silently change behaviour. */
+    simCtx->scaling.L_ref = 1.0;
+    PetscCall(ReadGridGenerationInputs(user));
+    PetscCall(PicurvAssertRealNear(0.2, user->Max_X, 1.0e-12, "L_ref=1.0 leaves bounds unchanged"));
+
+    /* A non-positive reference length is refused rather than dividing by zero or
+     * flipping the domain's sign silently. */
+    {
+        PetscErrorCode bad = 0;
+
+        simCtx->scaling.L_ref = 0.0;
+        PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+        bad = ReadGridGenerationInputs(user);
+        PetscCall(PetscPopErrorHandler());
+        PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_OUTOFRANGE, bad,
+                                       "L_ref <= 0 is refused rather than dividing by zero"));
+    }
+
+    PetscCall(PetscOptionsClearValue(NULL, "-im"));
+    PetscCall(PetscOptionsClearValue(NULL, "-jm"));
+    PetscCall(PetscOptionsClearValue(NULL, "-km"));
+    PetscCall(PetscOptionsClearValue(NULL, "-xMins"));
+    PetscCall(PetscOptionsClearValue(NULL, "-xMaxs"));
+    PetscCall(PetscOptionsClearValue(NULL, "-yMins"));
+    PetscCall(PetscOptionsClearValue(NULL, "-yMaxs"));
+    PetscCall(PetscOptionsClearValue(NULL, "-zMins"));
+    PetscCall(PetscOptionsClearValue(NULL, "-zMaxs"));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Runs the unit-grid PETSc test binary.
  */
 
@@ -86,6 +156,8 @@ int main(int argc, char **argv)
     const PicurvTestCase cases[] = {
         {"compute-local-bbox-uniform-grid", TestComputeLocalBoundingBoxUniformGrid},
         {"gather-and-broadcast-bboxes", TestGatherAndBroadcastBoundingBoxes},
+        {"read-grid-generation-inputs-nondimensionalizes-bounds",
+         TestReadGridGenerationInputsNonDimensionalizesBounds},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv grid tests");

@@ -125,6 +125,10 @@ but the shared top-level `grid.da_processors_*` form is preferred.
 Dimension contract:
 - `im/jm/km` in YAML are cell counts.
 - `picurv` converts them to node counts before emitting `-im/-jm/-km` for the C runtime.
+- `xMins/xMaxs/yMins/yMaxs/zMins/zMaxs` are physical units, exactly like a `file`-mode
+  `.picgrid`. The C runtime divides each bound by `properties.scaling.length_ref`
+  immediately after parsing them, so the domain the solver evolves is non-dimensional
+  regardless of which `grid.mode` produced it. See @ref p19_fields_sec.
 
 Important constraint:
 - `grid.da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block processor decomposition is not implemented.
