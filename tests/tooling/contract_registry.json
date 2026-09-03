@@ -214,7 +214,7 @@
       "status": "tracked",
       "authoritative_sources": [
         "picurv_cli/core.py",
-        "picurv_cli/storage.py"
+        "picurv_cli/storage/"
       ],
       "extractor": null,
       "checker": null,
@@ -296,7 +296,7 @@
       "authoritative_sources": [
         "tests/tooling/artifact_topology.json",
         "picurv_cli/core.py",
-        "picurv_cli/storage.py",
+        "picurv_cli/storage/",
         "include/setup.h",
         "include/variables.h",
         "src/setup.c",
@@ -374,7 +374,7 @@
       "status": "enforced",
       "authoritative_sources": [
         "picurv_cli/cli.py",
-        "picurv_cli/storage.py"
+        "picurv_cli/storage/"
       ],
       "extractor": "generate_cli_reference",
       "checker": [

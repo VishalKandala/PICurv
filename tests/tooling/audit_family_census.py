@@ -15,6 +15,30 @@ REGISTRY = REPO_ROOT / "tests" / "tooling" / "capability_families.json"
 CENSUS = REPO_ROOT / "tests" / "tooling" / "family_census.json"
 
 
+#: Modules whose public constants the census reads, paired with the dotted name a
+#: capability family refers to. A package is scanned file by file but reported under
+#: the package, because that is the surface an importer and a registry address.
+SCANNED_MODULE_ROOTS = ("picurv_cli/core.py", "picurv_cli/storage", "picurv_cli/cli.py")
+
+
+def scanned_modules():
+    """!
+    @brief Resolve the module roots into concrete files and their public dotted names.
+    @return List of `(repo-relative path, dotted module name)` pairs.
+    """
+    resolved = []
+    for root in SCANNED_MODULE_ROOTS:
+        path = REPO_ROOT / root
+        if path.is_dir():
+            dotted = root.replace("/", ".")
+            for child in sorted(path.glob("*.py")):
+                if child.name != "__init__.py":
+                    resolved.append((str(child.relative_to(REPO_ROOT)), dotted))
+        else:
+            resolved.append((root, root.replace("/", ".")[: -len(".py")]))
+    return resolved
+
+
 def declared_surfaces() -> set:
     """!
     @brief Public surfaces already covered by a registered capability family.
@@ -53,11 +77,10 @@ def candidate_surfaces() -> dict:
     @return Mapping of `module::symbol` to a short description.
     """
     found: dict = {}
-    for module in ("picurv_cli/core.py", "picurv_cli/storage.py", "picurv_cli/cli.py"):
+    for module, dotted in scanned_modules():
         path = REPO_ROOT / module
         if not path.is_file():
             continue
-        dotted = module.replace("/", ".")[: -len(".py")]
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in tree.body:
             if isinstance(node, ast.FunctionDef) and re.fullmatch(r"normalize_\w+", node.name):

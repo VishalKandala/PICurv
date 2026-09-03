@@ -89,9 +89,11 @@ def audit_cli_contract(contract: dict) -> list[str]:
     """
 
     cli_text = (REPO_ROOT / "picurv_cli" / "cli.py").read_text(encoding="utf-8")
+    # A handler may live in a package under picurv_cli, so the whole conductor tree is
+    # read rather than only its top-level modules.
     handler_text = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in sorted((REPO_ROOT / "picurv_cli").glob("*.py"))
+        for path in sorted((REPO_ROOT / "picurv_cli").rglob("*.py"))
     )
     findings: list[str] = []
     for command, entry in contract["cli_commands"].items():

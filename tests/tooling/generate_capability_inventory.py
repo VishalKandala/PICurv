@@ -42,6 +42,29 @@ def literal(node: ast.AST):
     return ast.literal_eval(node)
 
 
+def module_syntax(module: str) -> ast.Module:
+    """!
+    @brief Parse a dotted module into one syntax tree, whether file or package.
+
+    @details A public surface may be a package: `picurv_cli.storage` exposes its
+             constants through its `__init__`, but they are defined across its
+             modules. Concatenating their bodies lets the readers below stay written
+             against a single tree, which is what they mean by "the module".
+    @param[in] module Dotted module name.
+    @return Syntax tree covering every file the module resolves to.
+    """
+    relative = Path(*module.split("."))
+    package = REPO_ROOT / relative
+    if package.is_dir():
+        combined = ast.Module(body=[], type_ignores=[])
+        for child in sorted(package.glob("*.py")):
+            if child.name == "__init__.py":
+                continue
+            combined.body.extend(ast.parse(child.read_text(encoding="utf-8")).body)
+        return combined
+    return ast.parse((REPO_ROOT / relative.with_suffix(".py")).read_text(encoding="utf-8"))
+
+
 def python_dict_values(module: str, symbol: str) -> dict[str, dict]:
     """!
     @brief Read a public-surface dictionary from the CLI package without importing PETSc.
@@ -49,8 +72,7 @@ def python_dict_values(module: str, symbol: str) -> dict[str, dict]:
     @param[in] symbol Module-level dictionary name.
     @return Mapping of selector value to its declared parameter contract.
     """
-    source = REPO_ROOT / Path(*module.split(".")).with_suffix(".py")
-    tree = ast.parse(source.read_text(encoding="utf-8"))
+    tree = module_syntax(module)
     for node in tree.body:
         if not isinstance(node, ast.Assign):
             continue
@@ -79,8 +101,7 @@ def python_normalizer_values(module: str, symbol: str) -> dict[str, dict]:
     @param[in] symbol Normalizer function name.
     @return Mapping of canonical value to the runtime token it maps to.
     """
-    source = REPO_ROOT / Path(*module.split(".")).with_suffix(".py")
-    tree = ast.parse(source.read_text(encoding="utf-8"))
+    tree = module_syntax(module)
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == symbol:
             for inner in ast.walk(node):
@@ -129,8 +150,7 @@ def python_membership_values(module: str, symbol: str) -> dict:
     @param[in] symbol Normalizer function name.
     @return Mapping of accepted value to the token it resolves to.
     """
-    source = REPO_ROOT / Path(*module.split(".")).with_suffix(".py")
-    tree = ast.parse(source.read_text(encoding="utf-8"))
+    tree = module_syntax(module)
     for node in ast.walk(tree):
         if not (isinstance(node, ast.FunctionDef) and node.name == symbol):
             continue
@@ -160,8 +180,7 @@ def python_equality_chain_values(module: str, symbol: str) -> dict:
     @param[in] symbol Normalizer function name.
     @return Mapping of accepted value to itself.
     """
-    source = REPO_ROOT / Path(*module.split(".")).with_suffix(".py")
-    tree = ast.parse(source.read_text(encoding="utf-8"))
+    tree = module_syntax(module)
     for node in ast.walk(tree):
         if not (isinstance(node, ast.FunctionDef) and node.name == symbol):
             continue
@@ -282,8 +301,7 @@ def python_constant_values(module: str, symbol: str) -> dict:
     @param[in] symbol Constant name.
     @return Mapping of accepted value to the token it resolves to.
     """
-    source = REPO_ROOT / Path(*module.split(".")).with_suffix(".py")
-    tree = ast.parse(source.read_text(encoding="utf-8"))
+    tree = module_syntax(module)
     for node in tree.body:
         if not isinstance(node, ast.Assign):
             continue

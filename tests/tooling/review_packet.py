@@ -88,11 +88,18 @@ def source_path(source: str) -> str:
 def module_path(module: str) -> str:
     """!
     @brief Convert a Python module identifier to its repository path.
+
+    @details A dotted name may address a package rather than a single file - the
+             storage surface is one - in which case the package directory is the
+             source, because that is what an importer resolves the name to.
     @param[in] module Dotted Python module.
     @return Repository-relative Python path.
     """
 
-    return module.replace(".", "/") + ".py"
+    relative = module.replace(".", "/")
+    if (REPO_ROOT / relative).is_dir():
+        return relative
+    return relative + ".py"
 
 
 @lru_cache(maxsize=1)
@@ -240,7 +247,7 @@ def freshness_state(surface: dict) -> str:
     """
 
     paths = freshness_paths(surface)
-    missing = [path for path in paths if not (REPO_ROOT / path).is_file()]
+    missing = [path for path in paths if not (REPO_ROOT / path).exists()]
     if missing:
         return f"INTEGRITY FAILURE - missing {', '.join(missing)}"
     attested = surface.get("attested_digest")
@@ -654,7 +661,10 @@ def capability_mode(capability_id: str) -> int:
         return unknown_identifier("capability", capability_id, sorted(known))
     specs = family_source_specs(family)
     page = family["family_page"]
-    unresolved = [f"missing declared source {path}" for path, _, _ in specs if not (REPO_ROOT / path).is_file()]
+    unresolved = [
+        f"missing declared source {path}" for path, _, _ in specs
+        if not (REPO_ROOT / path).exists()
+    ]
     if not specs:
         unresolved.append("no public or parity source symbol is declared")
     if not (PAGES_DIR / f"{page}.md").is_file():
@@ -771,7 +781,10 @@ def surface_mode(surface_id: str) -> int:
         canonical_page(page)
         for page in surface.get("owning_pages", []) + surface.get("dependent_pages", [])
     }
-    unresolved = [f"missing watched path {path}" for path in paths if not (REPO_ROOT / path).is_file()]
+    unresolved = [
+        f"missing watched path {path}" for path in paths
+        if not (REPO_ROOT / path).exists()
+    ]
     unresolved.extend(f"missing page docs/pages/{page}.md" for page in pages if not (PAGES_DIR / f"{page}.md").is_file())
     families = [family for family in records(FAMILIES, "families") if family["family_page"] in pages]
     related_contracts = [

@@ -50,13 +50,13 @@ try:
         storage_state_summary,
     )
 except ImportError:
-    # White-box tests also load core.py directly rather than as a package module.
-    _storage_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "storage.py")
-    _storage_spec = importlib.util.spec_from_file_location("picurv_storage_standalone", _storage_path)
-    if _storage_spec is None or _storage_spec.loader is None:
-        raise ImportError(f"Cannot load the PICurv storage module from {_storage_path}")
-    _storage_module = importlib.util.module_from_spec(_storage_spec)
-    _storage_spec.loader.exec_module(_storage_module)
+    # White-box tests also load core.py directly rather than as a package module. The
+    # storage package resolves its own siblings by relative import, so it is loaded by
+    # putting its parent on the path rather than by file location.
+    _package_parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _package_parent not in sys.path:
+        sys.path.insert(0, _package_parent)
+    _storage_module = importlib.import_module("picurv_cli.storage")
     StorageError = _storage_module.StorageError
     cold_study_members = _storage_module.cold_study_members
     restore_cold_study_members = _storage_module.restore_cold_study_members

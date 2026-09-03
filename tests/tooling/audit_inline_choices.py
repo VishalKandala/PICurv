@@ -22,8 +22,32 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WAIVERS = REPO_ROOT / "tests" / "tooling" / "inline_choice_waivers.json"
-MODULES = ("picurv_cli/core.py", "picurv_cli/cli.py", "picurv_cli/storage.py",
-           "picurv_cli/main.py")
+#: A package is scanned file by file but reported under the package name, because that
+#: is the surface a waiver and a registry address.
+MODULE_ROOTS = ("picurv_cli/core.py", "picurv_cli/cli.py", "picurv_cli/storage",
+                "picurv_cli/main.py")
+
+
+def _resolve_modules():
+    """!
+    @brief Expand the module roots into `(path, dotted name)` pairs.
+    @return List of scanned module pairs.
+    """
+    resolved = []
+    for root in MODULE_ROOTS:
+        path = REPO_ROOT / root
+        if path.is_dir():
+            dotted = root.replace("/", ".")
+            for child in sorted(path.glob("*.py")):
+                if child.name != "__init__.py":
+                    resolved.append((str(child.relative_to(REPO_ROOT)), dotted))
+        else:
+            resolved.append((root, root.replace("/", ".")[: -len(".py")]))
+    return resolved
+
+
+MODULES = tuple(item[0] for item in _resolve_modules())
+MODULE_DOTTED = dict(_resolve_modules())
 
 # The census vocabulary, minus `public_pending`: an inline literal cannot be a pending
 # family, because a family needs a named surface to point at.
@@ -64,7 +88,7 @@ def find_inline_choices() -> dict:
         path = REPO_ROOT / module
         if not path.is_file():
             continue
-        dotted = module.replace("/", ".")[: -len(".py")]
+        dotted = MODULE_DOTTED.get(module, module.replace("/", ".")[: -len(".py")])
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             values = None

@@ -113,7 +113,7 @@
         "71_Invariant_Contracts"
       ],
       "dependent_pages": [],
-      "attested_digest": "sha256:f64af1a8b511b17178262e23c1b10510316108ce08b2b22edfd28388eac37e17"
+      "attested_digest": "sha256:28e4a7932ff5a0b1876f333026c9a9748664cfdc74c5f5f93c602d7add1de596"
     },
     {
       "id": "run.containment_guard",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:b303be57b87742e3f341d28a9bb8935eaabc80b75cdc6cb5cd5beb93d2656d8a",
+      "attested_digest": "sha256:6fef97c4eb89ab0be528d711858af22da0941a8b8d54d2c8b017e3e934971149",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },

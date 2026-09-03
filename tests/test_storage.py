@@ -199,8 +199,10 @@ def local_rclone(monkeypatch, tmp_path):
         """
         return resolve(remote_path).read_bytes()
 
-    monkeypatch.setattr(storage, "_run_rclone", fake_run)
-    monkeypatch.setattr(storage, "_read_remote_bytes", fake_read)
+    # The package routes every rclone call through this one boundary, so replacing it
+    # here reaches all of them.
+    monkeypatch.setattr(storage.transport, "_run_rclone", fake_run)
+    monkeypatch.setattr(storage.transport, "_read_remote_bytes", fake_read)
     return remote_root
 
 
@@ -957,7 +959,10 @@ def test_identical_content_is_stored_once_across_archives(tmp_path, local_rclone
     """
     profile = _profile(tmp_path)
     first = _write_run(tmp_path / "runs" / "first")
-    second = _write_run(tmp_path / "runs" / "second")
+    # A faithful copy, so the payload really is identical: writing a second fixture
+    # would differ by modification time alone and prove nothing about deduplication.
+    second = tmp_path / "runs" / "second"
+    shutil.copytree(first, second, copy_function=shutil.copy2)
     manifests = [
         storage.archive_artifact(
             storage.resolve_local_storage_targets(str(run), None)[0], profile
@@ -972,8 +977,7 @@ def test_identical_content_is_stored_once_across_archives(tmp_path, local_rclone
         chunk["sha256"] for manifest in manifests for chunk in manifest["chunks"]
     }
     assert stored == digests
-    # The two runs differ only by directory name, so their checkpoint payload is
-    # identical and is stored once.
+    # The two runs hold the same bytes, so their checkpoint payload is stored once.
     checkpoints = [
         chunk["sha256"] for manifest in manifests for chunk in manifest["chunks"]
         if chunk["component"].startswith("checkpoint:")
@@ -994,7 +998,7 @@ def test_an_interrupted_upload_resumes_without_re_uploading(tmp_path, local_rclo
     run = _write_run(tmp_path / "runs" / "interrupted")
     target = storage.resolve_local_storage_targets(str(run), None)[0]
 
-    real_upload = storage._upload_verified
+    real_upload = storage.transport._upload_verified
     calls = {"count": 0}
 
     def failing_upload(local_path, remote_path):
@@ -1009,7 +1013,7 @@ def test_an_interrupted_upload_resumes_without_re_uploading(tmp_path, local_rclo
             raise storage.StorageError("simulated transfer failure")
         return real_upload(local_path, remote_path)
 
-    monkeypatch.setattr(storage, "_upload_verified", failing_upload)
+    monkeypatch.setattr(storage.transport, "_upload_verified", failing_upload)
     with pytest.raises(storage.StorageError, match="simulated transfer failure"):
         storage.archive_artifact(target, profile)
     landed = {path.name for path in (local_rclone / "picurv-data" / "blobs").rglob("*") if path.is_file()}
@@ -1017,7 +1021,7 @@ def test_an_interrupted_upload_resumes_without_re_uploading(tmp_path, local_rclo
 
     # Local data is untouched by the failure, and the rerun uploads only what is missing.
     assert (run / "output" / "checkpoints" / "step_000000000010" / "COMMITTED").is_file()
-    monkeypatch.setattr(storage, "_upload_verified", real_upload)
+    monkeypatch.setattr(storage.transport, "_upload_verified", real_upload)
     capsys.readouterr()
     manifest = storage.archive_artifact(target, profile)
     assert "already stored; skipping upload" in capsys.readouterr().out
