@@ -1,5 +1,5 @@
 """!
-@file __init__.py
+@file picurv_cli/storage/__init__.py
 @brief PICurv run, study, and workspace storage lifecycle.
 
 The package is split by responsibility - models, transport, safety, inventory,
