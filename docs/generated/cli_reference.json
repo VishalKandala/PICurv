@@ -202,6 +202,119 @@
       "name": "init",
       "subcommands": {}
     },
+    "inputs": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          }
+        ]
+      },
+      "help": "",
+      "name": "inputs",
+      "subcommands": {
+        "import": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "name",
+                "flags": [
+                  "--name"
+                ],
+                "help": "Destination name; defaults to the source basename.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [
+                  "copy",
+                  "hardlink",
+                  "reference",
+                  "reflink"
+                ],
+                "default": "copy",
+                "dest": "mode",
+                "flags": [
+                  "--mode"
+                ],
+                "help": "How to retain the input. Reference mode records but does not copy an external path.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "workspace",
+                "flags": [
+                  "--workspace"
+                ],
+                "help": "Workspace root; defaults to discovery from the current directory.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              }
+            ],
+            "positional arguments": [
+              {
+                "choices": [
+                  "grid",
+                  "initial-condition",
+                  "inlet-profile",
+                  "reference-field"
+                ],
+                "default": null,
+                "dest": "kind",
+                "flags": [],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": true
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "source",
+                "flags": [],
+                "help": "Existing source file.",
+                "is_flag": false,
+                "nargs": null,
+                "required": true
+              }
+            ]
+          },
+          "help": "",
+          "name": "import",
+          "subcommands": {}
+        }
+      }
+    },
     "precompute": {
       "groups": {
         "optional arguments": [
@@ -232,12 +345,12 @@
           },
           {
             "choices": [],
-            "default": null,
-            "dest": "output_dir",
+            "default": "all",
+            "dest": "only",
             "flags": [
-              "--output-dir"
+              "--only"
             ],
-            "help": "Directory where precomputed artifacts should be written. Defaults to precomputed/<case-name>.",
+            "help": "Comma-separated asset kinds (grid, initial-condition, inlet-profiles), or all.",
             "is_flag": false,
             "nargs": null,
             "required": false
@@ -515,11 +628,51 @@
             "default": null,
             "dest": "restart_from",
             "flags": [
-              "--restart-from"
+              "--restart-from",
+              "--from"
             ],
-            "help": "Path to an existing run directory to restart from.\nCreates a new run directory and copies/references checkpoint data from the source.",
+            "help": "Path to an existing run directory to restart from.\nUse 'latest' to select the newest compatible local workspace run.",
             "is_flag": false,
             "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [
+              "carry",
+              "reset"
+            ],
+            "default": "reset",
+            "dest": "statistics_state",
+            "flags": [
+              "--statistics-state"
+            ],
+            "help": "For a branched restart, reset field-statistics state (default) or carry compatible checkpoint state.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "require_precomputed",
+            "flags": [
+              "--require-precomputed"
+            ],
+            "help": "Refuse to build missing or stale deterministic assets while staging the run.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "fetch_missing",
+            "flags": [
+              "--fetch-missing"
+            ],
+            "help": "Try the configured storage profile before rebuilding a missing workspace asset.",
+            "is_flag": true,
+            "nargs": "0",
             "required": false
           }
         ],
@@ -565,6 +718,63 @@
       "help": "Execute solver and/or post-processing stages.",
       "name": "run",
       "subcommands": {}
+    },
+    "source": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          }
+        ]
+      },
+      "help": "",
+      "name": "source",
+      "subcommands": {
+        "update": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": "origin",
+                "dest": "remote",
+                "flags": [
+                  "--remote"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              }
+            ]
+          },
+          "help": "",
+          "name": "update",
+          "subcommands": {}
+        }
+      }
     },
     "status-source": {
       "groups": {
@@ -852,6 +1062,58 @@
                 "required": false
               },
               {
+                "choices": [
+                  "analysis-ready",
+                  "metadata-only",
+                  "restart-ready"
+                ],
+                "default": null,
+                "dest": "policy",
+                "flags": [
+                  "--policy"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "workers",
+                "flags": [
+                  "--workers"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "keep_latest_checkpoint",
+                "flags": [
+                  "--keep-latest-checkpoint"
+                ],
+                "help": "",
+                "is_flag": true,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "keep_latest_checkpoint",
+                "flags": [
+                  "--drop-all-checkpoints"
+                ],
+                "help": "",
+                "is_flag": true,
+                "nargs": "0",
+                "required": false
+              },
+              {
                 "choices": [],
                 "default": "False",
                 "dest": "dry_run",
@@ -961,6 +1223,58 @@
                 "help": "",
                 "is_flag": false,
                 "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [
+                  "analysis-ready",
+                  "metadata-only",
+                  "restart-ready"
+                ],
+                "default": null,
+                "dest": "policy",
+                "flags": [
+                  "--policy"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "workers",
+                "flags": [
+                  "--workers"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "keep_latest_checkpoint",
+                "flags": [
+                  "--keep-latest-checkpoint"
+                ],
+                "help": "",
+                "is_flag": true,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "keep_latest_checkpoint",
+                "flags": [
+                  "--drop-all-checkpoints"
+                ],
+                "help": "",
+                "is_flag": true,
+                "nargs": "0",
                 "required": false
               }
             ]
@@ -1085,6 +1399,58 @@
                 "help": "",
                 "is_flag": false,
                 "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [
+                  "analysis-ready",
+                  "metadata-only",
+                  "restart-ready"
+                ],
+                "default": null,
+                "dest": "policy",
+                "flags": [
+                  "--policy"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "workers",
+                "flags": [
+                  "--workers"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "keep_latest_checkpoint",
+                "flags": [
+                  "--keep-latest-checkpoint"
+                ],
+                "help": "",
+                "is_flag": true,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "keep_latest_checkpoint",
+                "flags": [
+                  "--drop-all-checkpoints"
+                ],
+                "help": "",
+                "is_flag": true,
+                "nargs": "0",
                 "required": false
               },
               {
@@ -1218,6 +1584,25 @@
                 "required": false
               },
               {
+                "choices": [
+                  "analysis",
+                  "assets",
+                  "inputs",
+                  "logs",
+                  "raw-output",
+                  "visualization"
+                ],
+                "default": null,
+                "dest": "components",
+                "flags": [
+                  "--component"
+                ],
+                "help": "Restore one semantic component; repeat as needed.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
                 "choices": [],
                 "default": "False",
                 "dest": "force",
@@ -1227,6 +1612,18 @@
                 "help": "Allow merge into a non-matching existing destination.",
                 "is_flag": true,
                 "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "workers",
+                "flags": [
+                  "--workers"
+                ],
+                "help": "Parallel download/extraction workers.",
+                "is_flag": false,
+                "nargs": null,
                 "required": false
               }
             ]
@@ -1315,6 +1712,46 @@
                 "help": "",
                 "is_flag": false,
                 "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": "8",
+                "dest": "workers",
+                "flags": [
+                  "--workers"
+                ],
+                "help": "CPU workers for compression and restoration.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [
+                  "analysis-ready",
+                  "metadata-only",
+                  "restart-ready"
+                ],
+                "default": "metadata-only",
+                "dest": "offload_policy",
+                "flags": [
+                  "--offload-policy"
+                ],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": "False",
+                "dest": "keep_latest_checkpoint",
+                "flags": [
+                  "--keep-latest-checkpoint"
+                ],
+                "help": "Retain the newest committed checkpoint after offload.",
+                "is_flag": true,
+                "nargs": "0",
                 "required": false
               },
               {
@@ -2252,6 +2689,168 @@
       "help": "Validate one or more config roles. No solver/post execution and no run/study artifact writes.",
       "name": "validate",
       "subcommands": {}
+    },
+    "version": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "text",
+            "dest": "output_format",
+            "flags": [
+              "--format"
+            ],
+            "help": "",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          }
+        ]
+      },
+      "help": "",
+      "name": "version",
+      "subcommands": {}
+    },
+    "versions": {
+      "groups": {
+        "optional arguments": [
+          {
+            "choices": [],
+            "default": null,
+            "dest": "help",
+            "flags": [
+              "-h",
+              "--help"
+            ],
+            "help": "show this help message and exit",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          }
+        ]
+      },
+      "help": "",
+      "name": "versions",
+      "subcommands": {
+        "activate": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "workspace",
+                "flags": [
+                  "--workspace"
+                ],
+                "help": "Workspace root; defaults to discovery from the current directory.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              }
+            ],
+            "positional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "version",
+                "flags": [],
+                "help": "Version/tag; defaults to the workspace requirement.",
+                "is_flag": false,
+                "nargs": "?",
+                "required": false
+              }
+            ]
+          },
+          "help": "",
+          "name": "activate",
+          "subcommands": {}
+        },
+        "install": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              }
+            ],
+            "positional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "version",
+                "flags": [],
+                "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": true
+              }
+            ]
+          },
+          "help": "",
+          "name": "install",
+          "subcommands": {}
+        },
+        "list": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              }
+            ]
+          },
+          "help": "",
+          "name": "list",
+          "subcommands": {}
+        }
+      }
     }
   },
   "program": "generate_cli_reference.py"

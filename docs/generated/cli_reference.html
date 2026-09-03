@@ -2,7 +2,7 @@
      Source of truth: the assembled argparse parser (picurv_cli.cli.build_main_parser),
      including registrars delegated from other modules such as storage.py.
      Regenerate with: make docs-cli-reference -->
-<p>14 top-level commands.</p>
+<p>18 top-level commands.</p>
 <h3 id="cli_build"><code>picurv build</code></h3>
 <p>Calls the project's Makefile directly through `make`.</p>
 <p><b>positional arguments</b></p>
@@ -42,13 +42,31 @@ Useful when running from a copied case without metadata.</td></tr>
 Use this to freeze specific binary versions for reproducibility
 or to protect running jobs from concurrent rebuilds.</td></tr>
 </table>
+<h3 id="cli_inputs"><code>picurv inputs</code></h3>
+<p><b>optional arguments</b></p>
+<table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
+<tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
+</table>
+<h4 id="cli_inputs_import"><code>picurv inputs import</code></h4>
+<p><b>positional arguments</b></p>
+<table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
+<tr><td class="markdownTableBodyNone"><code>kind</code> (positional)</td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone"><code>grid</code>, <code>initial-condition</code>, <code>inlet-profile</code>, <code>reference-field</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>source</code> (positional)</td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Existing source file.</td></tr>
+</table>
+<p><b>optional arguments</b></p>
+<table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
+<tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--name</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Destination name; defaults to the source basename.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--mode</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>copy</code>, <code>hardlink</code>, <code>reference</code>, <code>reflink</code></td><td class="markdownTableBodyNone"><code>copy</code></td><td class="markdownTableBodyNone">How to retain the input. Reference mode records but does not copy an external path.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--workspace</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Workspace root; defaults to discovery from the current directory.</td></tr>
+</table>
 <h3 id="cli_precompute"><code>picurv precompute</code></h3>
 <p>Generate configured deterministic artifacts, such as grid_gen grids,</p>
 <p><b>optional arguments</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--case</code></td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to case.yml containing grid/profile/IC generator settings.</td></tr>
-<tr><td class="markdownTableBodyNone"><code>--output-dir</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Directory where precomputed artifacts should be written. Defaults to precomputed/&lt;case-name&gt;.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--only</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>all</code></td><td class="markdownTableBodyNone">Comma-separated asset kinds (grid, initial-condition, inlet-profiles), or all.</td></tr>
 </table>
 <h3 id="cli_pull_source"><code>picurv pull-source</code></h3>
 <p>Update the source repository without leaving an initialized case directory.</p>
@@ -88,8 +106,11 @@ and skips already-complete work inside the current live source frontier.</td></t
 <tr><td class="markdownTableBodyNone"><code>--case</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to the case definition file (e.g., case.yml).</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--solver</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to the solver settings profile (e.g., solver.yml).</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--monitor</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to the monitoring, diagnostics, and I/O profile (e.g., monitor.yml).</td></tr>
-<tr><td class="markdownTableBodyNone"><code>--restart-from</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to an existing run directory to restart from.
-Creates a new run directory and copies/references checkpoint data from the source.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--restart-from</code>, <code>--from</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to an existing run directory to restart from.
+Use 'latest' to select the newest compatible local workspace run.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--statistics-state</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>carry</code>, <code>reset</code></td><td class="markdownTableBodyNone"><code>reset</code></td><td class="markdownTableBodyNone">For a branched restart, reset field-statistics state (default) or carry compatible checkpoint state.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--require-precomputed</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Refuse to build missing or stale deterministic assets while staging the run.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--fetch-missing</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Try the configured storage profile before rebuilding a missing workspace asset.</td></tr>
 </table>
 <p><b>post-processor inputs (required for --post-process)</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
@@ -99,6 +120,17 @@ Creates a new run directory and copies/references checkpoint data from the sourc
 <tr><td class="markdownTableBodyNone"><code>--only</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Comma-separated post stages to run: 'fields' (the field post-processor)
 and/or 'spectra'. Defaults to every stage.
 Use --only spectra to re-measure spectra without rebuilding field output.</td></tr>
+</table>
+<h3 id="cli_source"><code>picurv source</code></h3>
+<p><b>optional arguments</b></p>
+<table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
+<tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
+</table>
+<h4 id="cli_source_update"><code>picurv source update</code></h4>
+<p><b>optional arguments</b></p>
+<table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
+<tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--remote</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>origin</code></td><td class="markdownTableBodyNone"></td></tr>
 </table>
 <h3 id="cli_status_source"><code>picurv status-source</code></h3>
 <p>Inspect whether the source repo, copied binaries, and template-managed files have drifted</p>
@@ -137,6 +169,10 @@ Use --only spectra to re-measure spectra without rebuilding field output.</td></
 <tr><td class="markdownTableBodyNone"><code>--label</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Human-readable searchable label.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--tag</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Repeatable KEY=VALUE catalog tag.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--compression</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>auto</code>, <code>balanced</code>, <code>fast</code>, <code>maximum</code>, <code>none</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--policy</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>analysis-ready</code>, <code>metadata-only</code>, <code>restart-ready</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--workers</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--keep-latest-checkpoint</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--drop-all-checkpoints</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 <tr><td class="markdownTableBodyNone"><code>--dry-run</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone"></td></tr>
 </table>
 <h4 id="cli_storage_plan"><code>picurv storage plan</code></h4>
@@ -149,6 +185,10 @@ Use --only spectra to re-measure spectra without rebuilding field output.</td></
 <tr><td class="markdownTableBodyNone"><code>--profile</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Configured storage profile name.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--storage-config</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Explicit storage YAML path.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--compression</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>auto</code>, <code>balanced</code>, <code>fast</code>, <code>maximum</code>, <code>none</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--policy</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>analysis-ready</code>, <code>metadata-only</code>, <code>restart-ready</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--workers</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--keep-latest-checkpoint</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--drop-all-checkpoints</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 </table>
 <h4 id="cli_storage_protect"><code>picurv storage protect</code></h4>
 <p><b>optional arguments</b></p>
@@ -162,6 +202,10 @@ Use --only spectra to re-measure spectra without rebuilding field output.</td></
 <tr><td class="markdownTableBodyNone"><code>--label</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Human-readable searchable label.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--tag</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Repeatable KEY=VALUE catalog tag.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--compression</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>auto</code>, <code>balanced</code>, <code>fast</code>, <code>maximum</code>, <code>none</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--policy</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>analysis-ready</code>, <code>metadata-only</code>, <code>restart-ready</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--workers</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--keep-latest-checkpoint</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--drop-all-checkpoints</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 <tr><td class="markdownTableBodyNone"><code>--dry-run</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone"></td></tr>
 </table>
 <h4 id="cli_storage_restore"><code>picurv storage restore</code></h4>
@@ -176,7 +220,9 @@ Use --only spectra to re-measure spectra without rebuilding field output.</td></
 <tr><td class="markdownTableBodyNone"><code>--storage-config</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Explicit storage YAML path.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--to</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Optional alternate restore destination.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--checkpoint</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--component</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>analysis</code>, <code>assets</code>, <code>inputs</code>, <code>logs</code>, <code>raw-output</code>, <code>visualization</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Restore one semantic component; repeat as needed.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--force</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Allow merge into a non-matching existing destination.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--workers</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Parallel download/extraction workers.</td></tr>
 </table>
 <h4 id="cli_storage_setup"><code>picurv storage setup</code></h4>
 <p><b>optional arguments</b></p>
@@ -187,6 +233,9 @@ Use --only spectra to re-measure spectra without rebuilding field output.</td></
 <tr><td class="markdownTableBodyNone"><code>--storage-config</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Storage YAML path (default: ./.picurv-storage.yml).</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--compression</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>auto</code>, <code>balanced</code>, <code>fast</code>, <code>maximum</code>, <code>none</code></td><td class="markdownTableBodyNone"><code>auto</code></td><td class="markdownTableBodyNone"></td></tr>
 <tr><td class="markdownTableBodyNone"><code>--chunk-size-gib</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>8.0</code></td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--workers</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>8</code></td><td class="markdownTableBodyNone">CPU workers for compression and restoration.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--offload-policy</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>analysis-ready</code>, <code>metadata-only</code>, <code>restart-ready</code></td><td class="markdownTableBodyNone"><code>metadata-only</code></td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--keep-latest-checkpoint</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Retain the newest committed checkpoint after offload.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--staging-directory</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Optional local directory for one archive chunk at a time.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--dry-run</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone"></td></tr>
 </table>
@@ -301,4 +350,39 @@ task-name substring when the recipe measured more than one spectrum
 <tr><td class="markdownTableBodyNone"><code>--cluster</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to cluster.yml</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--study</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to study.yml</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--strict</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Enable additional strict checks for selected roles.</td></tr>
+</table>
+<h3 id="cli_version"><code>picurv version</code></h3>
+<p><b>optional arguments</b></p>
+<table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
+<tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--format</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>json</code>, <code>text</code></td><td class="markdownTableBodyNone"><code>text</code></td><td class="markdownTableBodyNone"></td></tr>
+</table>
+<h3 id="cli_versions"><code>picurv versions</code></h3>
+<p><b>optional arguments</b></p>
+<table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
+<tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
+</table>
+<h4 id="cli_versions_activate"><code>picurv versions activate</code></h4>
+<p><b>positional arguments</b></p>
+<table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
+<tr><td class="markdownTableBodyNone"><code>version</code> (positional)</td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Version/tag; defaults to the workspace requirement.</td></tr>
+</table>
+<p><b>optional arguments</b></p>
+<table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
+<tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--workspace</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Workspace root; defaults to discovery from the current directory.</td></tr>
+</table>
+<h4 id="cli_versions_install"><code>picurv versions install</code></h4>
+<p><b>positional arguments</b></p>
+<table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
+<tr><td class="markdownTableBodyNone"><code>version</code> (positional)</td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+</table>
+<p><b>optional arguments</b></p>
+<table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
+<tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
+</table>
+<h4 id="cli_versions_list"><code>picurv versions list</code></h4>
+<p><b>optional arguments</b></p>
+<table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
+<tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 </table>

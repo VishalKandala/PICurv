@@ -565,10 +565,17 @@ above is hand-written and complements it; this section is the exhaustive referen
 - solver inputs:
   - `--case <path>`
   - `--solver <path>`
-  - `--monitor <path>` (logging, diagnostics, profiling, output cadence, directories)
+  - `--monitor <path>` (logging, diagnostics, profiling, output cadence)
 - post inputs:
   - `--post <path>`
   - `--run-dir <path>`
+- restart and asset selection:
+  - `--restart-from <run-dir|latest>` (alias `--from`; `latest` picks the newest
+    compatible workspace run)
+  - `--statistics-state {reset,carry}` (branched restart only; entries at
+    @ref p52_cap_restart_stats_sec)
+  - `--require-precomputed` (refuse to build a missing or stale workspace asset)
+  - `--fetch-missing` (try the configured storage profile before rebuilding one)
 - launch controls:
   - `-n, --num-procs <int>` (solver and field postprocessor stages)
   - `--cluster <cluster.yml>` (enables Slurm mode)
