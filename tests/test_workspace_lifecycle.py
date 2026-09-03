@@ -219,3 +219,61 @@ def test_restart_statistics_carry_emits_native_continue_flag(tmp_path):
         1, monitor_files,
     )
     assert "-field_statistics_continue true" in Path(control).read_text(encoding="utf-8")
+
+
+def _fake_binary(path: Path, output: str) -> Path:
+    """!
+    @brief Write an executable stub that prints one fixed --version line.
+    @param[in] path Executable path to create.
+    @param[in] output Line the stub prints on stdout.
+    @return Created executable path.
+    """
+    path.write_text(f'#!/bin/sh\necho "{output}"\n', encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def test_binary_build_identity_is_read_back_from_the_executable(tmp_path):
+    """!
+    @brief The stamped identity is parsed from what the executable actually reports.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    clean = _fake_binary(tmp_path / "simulator", "simulator 0.2.0+gabcdef123456")
+    dirty = _fake_binary(tmp_path / "postprocessor", "postprocessor 0.2.0+gabcdef123456.dirty")
+
+    clean_identity = core.read_binary_build_identity(str(clean))
+    assert clean_identity["available"] is True
+    assert clean_identity["release_version"] == "0.2.0"
+    assert clean_identity["git_commit"] == "abcdef123456"
+    assert clean_identity["dirty"] is False
+    assert core.read_binary_build_identity(str(dirty))["dirty"] is True
+
+    # A binary predating the identity flag, or any other output, is recorded as
+    # unavailable rather than guessed at: a wrong provenance claim is worse than none.
+    legacy = _fake_binary(tmp_path / "legacy", "PICurv simulator")
+    assert core.read_binary_build_identity(str(legacy))["available"] is False
+    missing = core.read_binary_build_identity(str(tmp_path / "absent"))
+    assert missing["available"] is False
+
+
+def test_stale_runtime_binaries_are_reported_against_the_active_source(tmp_path, capsys, monkeypatch):
+    """!
+    @brief A binary built from another commit is named, not silently accepted.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] capsys Pytest capture fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    monkeypatch.setitem(core.PICURV_BUILD, "git_commit", "abcdef1234567890abcdef")
+    monkeypatch.setitem(core.PICURV_BUILD, "dirty", False)
+    monkeypatch.setitem(core.PICURV_BUILD, "build_id", "0.2.0+gabcdef123456")
+    _fake_binary(tmp_path / "simulator", "simulator 0.2.0+gabcdef123456")
+    _fake_binary(tmp_path / "postprocessor", "postprocessor 0.2.0+g999999999999")
+    monkeypatch.setattr(core, "INVOKED_SCRIPT_DIR", str(tmp_path))
+
+    identities = core.runtime_build_identities()
+    assert identities["simulator"]["matches_source"] is True
+    assert identities["postprocessor"]["matches_source"] is False
+
+    stale = core.warn_on_stale_runtime_binaries(identities)
+    assert stale == ["postprocessor"]
+    assert "postprocessor was built from" in capsys.readouterr().err

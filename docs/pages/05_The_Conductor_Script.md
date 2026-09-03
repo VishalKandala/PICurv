@@ -142,8 +142,18 @@ make audit-build
 
 @section p05_sync_sec 3b. Source, Version, And Legacy Maintenance Commands
 
-`picurv version` prints the release, Git commit, and dirty-tree build identity shared
-by the Python conductor, `simulator --version`, and `postprocessor --version`.
+`picurv version` prints the release, Git commit, and dirty-tree build identity of the
+Python conductor, then reads back what `simulator --version` and
+`postprocessor --version` actually report. Those two identities are not the same fact:
+the conductor's says which source staged a run, the binaries' says which build produced
+its checkpoints, and an edited C tree that was never rebuilt makes them disagree. The
+run manifest records both, and `run` warns at staging when a binary is stale.
+
+`make` delivers the identity through a generated `include/picurv_build_identity.h`
+rather than command-line defines, so ordinary header-dependency tracking rebuilds the
+two translation units that stamp it whenever the commit or dirty state changes. A
+binary reporting release `0.0.0` was built outside `make` and carries no identity.
+
 `picurv source update` fetches branches and tags without changing the active checkout.
 `picurv versions list` reports tags; `versions install <version>` or
 `versions activate [version]` requires a clean source checkout, selects the exact Git

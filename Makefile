@@ -112,10 +112,11 @@ BUILD_AUDIT_GOALS ?= cleanobj clean-unit all unit
 PICURV_RELEASE_VERSION := $(strip $(shell test -f VERSION && cat VERSION || echo 0.0.0))
 PICURV_GIT_COMMIT := $(strip $(shell git rev-parse HEAD 2>/dev/null || echo unknown))
 PICURV_BUILD_DIRTY := $(if $(strip $(shell git status --porcelain --untracked-files=no 2>/dev/null)),true,false)
-PICURV_IDENTITY_CFLAGS := \
-  -DPICURV_RELEASE_VERSION='"$(PICURV_RELEASE_VERSION)"' \
-  -DPICURV_GIT_COMMIT='"$(PICURV_GIT_COMMIT)"' \
-  -DPICURV_BUILD_DIRTY='"$(PICURV_BUILD_DIRTY)"'
+# The identity is delivered through a generated header rather than -D flags so that
+# the ordinary -MMD dependency tracking rebuilds the two translation units that
+# consume it when the commit or dirty state changes. Passed on the command line it is
+# invisible to make, and a binary keeps stamping a commit it was not built from.
+PICURV_IDENTITY_HEADER := $(INCDIR)/picurv_build_identity.h
 
 # --- 2. System Configuration ---
 # Select and include the appropriate configuration file based on the SYSTEM variable.
@@ -142,7 +143,6 @@ endif
 $(info Building for system: $(SYSTEM_NAME))
 endif
 
-CFLAGS_TO_USE += $(PICURV_IDENTITY_CFLAGS)
 
 ifeq ($(COVERAGE),1)
 CFLAGS_TO_USE += --coverage
@@ -311,13 +311,33 @@ $(CONDUCTOR_EXE): FORCE $(PICURV_ENTRYPOINT) | dirs
 	} > $@
 	@chmod +x $@
 
+# Regenerate the build-identity header only when its content changes, so an unrelated
+# make does not invalidate every object that includes it.
+.PHONY: build-identity
+build-identity:
+	@mkdir -p $(INCDIR)
+	@printf '%s\n' \
+	  '/* GENERATED FILE - do not edit. Rewritten by make when the identity changes. */' \
+	  '#ifndef PICURV_BUILD_IDENTITY_H' \
+	  '#define PICURV_BUILD_IDENTITY_H' \
+	  '#define PICURV_RELEASE_VERSION "$(PICURV_RELEASE_VERSION)"' \
+	  '#define PICURV_GIT_COMMIT "$(PICURV_GIT_COMMIT)"' \
+	  '#define PICURV_BUILD_DIRTY "$(PICURV_BUILD_DIRTY)"' \
+	  '#endif' > $(PICURV_IDENTITY_HEADER).tmp
+	@if ! cmp -s $(PICURV_IDENTITY_HEADER).tmp $(PICURV_IDENTITY_HEADER); then \
+	  mv $(PICURV_IDENTITY_HEADER).tmp $(PICURV_IDENTITY_HEADER); \
+	  echo "--- Build identity: $(PICURV_RELEASE_VERSION)+g$(PICURV_GIT_COMMIT) (dirty=$(PICURV_BUILD_DIRTY)) ---"; \
+	else \
+	  rm -f $(PICURV_IDENTITY_HEADER).tmp; \
+	fi
+
 # Generic rule for compiling any .c file from SRCDIR into an object file in OBJDIR.
-$(OBJDIR)/%.o: $(SRCDIR)/%.c | dirs
+$(OBJDIR)/%.o: $(SRCDIR)/%.c | dirs build-identity
 	@echo "--- Compiling: $< ---"
 	$(CC_TO_USE) $(CFLAGS_TO_USE) $(DEPFLAGS) -c $< -o $@
 
 # Generic rule for compiling any test .c file from TESTCDIR into TESTOBJDIR.
-$(TESTOBJDIR)/%.o: $(TESTCDIR)/%.c | dirs
+$(TESTOBJDIR)/%.o: $(TESTCDIR)/%.c | dirs build-identity
 	@echo "--- Compiling Test: $< ---"
 	$(CC_TO_USE) $(TEST_CFLAGS_TO_USE) $(DEPFLAGS) -c $< -o $@
 

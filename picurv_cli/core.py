@@ -743,6 +743,10 @@ def build_run_manifest(run_dir: str, run_id: str, *, workspace_root=None,
             if workspace_root else None
         ),
         "software": dict(PICURV_BUILD),
+        # The conductor's identity says which source staged the run; the binaries'
+        # says which build produced its checkpoints. They can differ - an edited C
+        # tree that was never rebuilt - so provenance records both.
+        "binaries": runtime_build_identities(),
         "launch_mode": launch_mode,
         "num_procs": num_procs,
         "solver_num_procs": num_procs,
@@ -1028,6 +1032,89 @@ def resolve_runtime_executable(executable_name: str) -> str:
     if os.path.isfile(local_candidate):
         return os.path.abspath(local_candidate)
     return os.path.join(DEFAULT_BIN_DIR, executable_name)
+
+
+#: Identity a native executable prints for `--version`: `<name> <release>+g<commit>[.dirty]`.
+_BINARY_VERSION_PATTERN = re.compile(
+    r"^(?P<name>\S+)\s+(?P<release>[^+\s]+)\+g(?P<commit>[0-9a-f]+)(?P<dirty>\.dirty)?\s*$"
+)
+
+
+def read_binary_build_identity(executable_path: str) -> dict:
+    """!
+    @brief Read the build identity a native executable was compiled with.
+
+    @details The Makefile stamps the release, commit, and dirty state into the
+             binaries, and they are written into every checkpoint manifest. Reading it
+             back is what makes the run manifest's provenance a statement about the
+             binary that ran rather than about whatever source happens to be checked
+             out when the conductor is invoked.
+    @param[in] executable_path Path to `simulator` or `postprocessor`.
+    @return Identity mapping, or an `available: False` mapping when it cannot be read.
+    """
+    if not os.path.isfile(executable_path) or not os.access(executable_path, os.X_OK):
+        return {"available": False, "reason": "not built", "path": executable_path}
+    try:
+        result = subprocess.run(
+            [executable_path, "--version"], text=True, capture_output=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"available": False, "reason": str(exc), "path": executable_path}
+    match = _BINARY_VERSION_PATTERN.match((result.stdout or "").strip())
+    if not match:
+        # A binary from before the identity flag existed, or a wrapper that prints
+        # something else. Recorded as unavailable rather than guessed at.
+        return {"available": False, "reason": "no build identity reported",
+                "path": executable_path}
+    return {
+        "available": True,
+        "path": executable_path,
+        "release_version": match.group("release"),
+        "git_commit": match.group("commit"),
+        "dirty": bool(match.group("dirty")),
+        "build_id": (
+            f"{match.group('release')}+g{match.group('commit')}"
+            f"{'.dirty' if match.group('dirty') else ''}"
+        ),
+    }
+
+
+def runtime_build_identities() -> dict:
+    """!
+    @brief Read the build identity of every native executable a run would launch.
+    @return Mapping of executable name to its identity, each carrying `matches_source`.
+    """
+    identities = {}
+    source_commit = str(PICURV_BUILD.get("git_commit") or "")
+    for name in ("simulator", "postprocessor"):
+        identity = read_binary_build_identity(resolve_runtime_executable(name))
+        if identity.get("available"):
+            # The stamped commit is abbreviated, so compare on the prefix it carries.
+            identity["matches_source"] = bool(
+                source_commit
+                and source_commit.startswith(identity["git_commit"])
+                and identity["dirty"] == bool(PICURV_BUILD.get("dirty"))
+            )
+        identities[name] = identity
+    return identities
+
+
+def warn_on_stale_runtime_binaries(identities: dict) -> list:
+    """!
+    @brief Report native executables whose build identity is not the active source.
+    @param[in] identities Mapping returned by `runtime_build_identities()`.
+    @return Names of executables that disagree with the active source identity.
+    """
+    stale = [name for name, identity in sorted(identities.items())
+             if identity.get("available") and not identity.get("matches_source")]
+    for name in stale:
+        print(
+            f"[WARN] {name} was built from {identities[name]['build_id']}, but the active "
+            f"source is {PICURV_BUILD['build_id']}. Checkpoints will record the binary's "
+            "identity, not the source's. Run 'make all' to rebuild.",
+            file=sys.stderr,
+        )
+    return stale
 
 # Standardized error codes used for CLI/validation reporting.
 ERROR_CODE_CLI_USAGE_INVALID = "CLI_USAGE_INVALID"
@@ -15376,6 +15463,9 @@ def run_workflow(args):
         control_file = load_active_run_configuration(run_dir).get("control", control_file)
 
         solver_exe = resolve_runtime_executable("simulator")
+        # Staging is the last point before the binary's identity becomes the one written
+        # into this run's checkpoints, so a stale build is worth saying out loud here.
+        warn_on_stale_runtime_binaries(runtime_build_identities())
         solver_args = build_petsc_diagnostics_args(configs["monitor"], run_dir, "Solver") + ["-control_file", control_file]
         if cluster_mode:
             scheduler_dir = os.path.join(run_dir, "scheduler")
@@ -20585,6 +20675,7 @@ def version_workflow(args):
     if workspace_root:
         software = load_workspace_config(workspace_root).get("software") or {}
         payload["workspace_requirement"] = software.get("picurv") if isinstance(software, dict) else None
+    payload["binaries"] = runtime_build_identities()
     if getattr(args, "output_format", "text") == "json":
         print(json.dumps(payload, indent=2, sort_keys=True))
         return
@@ -20595,6 +20686,14 @@ def version_workflow(args):
     if workspace_root:
         print(f"Workspace      : {workspace_root}")
         print(f"Requirement    : {payload['workspace_requirement'] or 'latest active version'}")
+    print("\nNative executables")
+    for name, identity in sorted(payload["binaries"].items()):
+        if not identity.get("available"):
+            print(f"  {name:<14}: unavailable ({identity.get('reason', 'unknown')})")
+            continue
+        agreement = "matches source" if identity["matches_source"] else "STALE - rebuild"
+        print(f"  {name:<14}: {identity['build_id']} ({agreement})")
+    warn_on_stale_runtime_binaries(payload["binaries"])
 
 
 def _require_clean_source_checkout(action: str) -> None:

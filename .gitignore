@@ -23,3 +23,4 @@ __pycache__/
 # Agent/developer scratch: keep the guide, ignore the contents
 /sandbox/*
 !/sandbox/guide.md
+include/picurv_build_identity.h
