@@ -299,7 +299,7 @@ PICurv uses this order for both `protect` and `offload`:
 7. write the local storage marker;
 8. for `offload` only, prune the verified heavy payload.
 
-If packaging, transfer, or verification fails, local payload is not pruned. Incomplete remote objects have no valid completion marker and are ignored by `storage list`.
+If packaging, transfer, or verification fails, local payload is not pruned. Incomplete remote objects have no valid completion marker and are ignored by `storage list`, and the payload that did land is reused by the next attempt rather than re-sent.
 
 Archival/offload is refused when PICurv sees:
 
@@ -410,14 +410,21 @@ The storage schema is versioned. Unsupported future or older schema versions are
 Each archive is an immutable object below the configured remote:
 
 ```text
-<remote>/objects/<archive-id>/
-  chunks/
-    00000_checkpoint-500.tar.xz
-    00001_metadata.tar.xz
-    ...
-  manifest.json
-  COMPLETE
+<remote>/
+  objects/<archive-id>/
+    manifest.json          identity, provenance, and the chunks this archive is made of
+    COMPLETE               written last, bound to the manifest digest
+  blobs/<aa>/<sha256>      the payload itself, addressed by content
 ```
+
+Payload is content-addressed and shared by every archive on the remote, which buys two
+things. Identical content is stored once: a checkpoint that appears in two runs, or a
+run archived twice under different labels, costs one copy. And an interrupted transfer
+resumes — rerunning the same command re-packages the chunks but uploads only the ones
+that are not already there, reporting each skip.
+
+Archives written before this layout keep their payload beside their manifest and remain
+restorable from the same catalog; the manifest records which form it uses.
 
 The globally unique archive ID is the durable machine identity. `--label` and `--tag KEY=VALUE` are the human control surface. `storage list --search` searches archive IDs, labels, run/study/case identities, and tags case-insensitively. For scripts and audits, use JSON output:
 

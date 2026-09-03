@@ -35,8 +35,13 @@ import yaml
 STORAGE_CONFIG_FILENAME = ".picurv-storage.yml"
 STORAGE_STATE_FILENAME = ".picurv-storage.json"
 STORAGE_LOCK_FILENAME = ".picurv-storage.lock.json"
-STORAGE_SCHEMA_VERSION = 1
+#: Schema 2 stores chunk payloads in a content-addressed blob store shared by every
+#: archive, so identical content is uploaded once and an interrupted upload resumes.
+STORAGE_SCHEMA_VERSION = 2
 REMOTE_OBJECTS_DIRECTORY = "objects"
+
+#: Content-addressed payload store, shared across every archive on this remote.
+REMOTE_BLOBS_DIRECTORY = "blobs"
 REMOTE_MANIFEST_FILENAME = "manifest.json"
 REMOTE_COMPLETE_FILENAME = "COMPLETE"
 DEFAULT_PROFILE_NAME = "archive"
@@ -260,6 +265,48 @@ def _object_remote(profile: dict, archive_id: str, *parts: str) -> str:
     @return Result produced by this operation.
     """
     return _remote_join(profile["remote"], REMOTE_OBJECTS_DIRECTORY, archive_id, *parts)
+
+
+def _blob_remote(profile: dict, digest: str) -> str:
+    """!
+    @brief Return the remote path of one content-addressed payload blob.
+    @param[in] profile Active storage profile.
+    @param[in] digest Payload SHA-256.
+    @return Remote path, fanned out by digest prefix to keep directories small.
+    """
+    return _remote_join(profile["remote"], REMOTE_BLOBS_DIRECTORY, digest[:2], digest)
+
+
+def _chunk_remote_path(profile: dict, archive_id: str, chunk: dict) -> str:
+    """!
+    @brief Resolve where one manifest chunk's payload lives on the remote.
+
+    @details Schema 1 archives keep their payload beside the manifest; schema 2 and
+             later resolve it out of the shared content-addressed store, so both remain
+             restorable from the same catalog.
+    @param[in] profile Active storage profile.
+    @param[in] archive_id Owning archive id.
+    @param[in] chunk Manifest chunk entry.
+    @return Remote path of the chunk payload.
+    """
+    if chunk.get("blob"):
+        return _blob_remote(profile, chunk["sha256"])
+    return _object_remote(profile, archive_id, "chunks", chunk["name"])
+
+
+def _remote_blob_present(profile: dict, digest: str) -> bool:
+    """!
+    @brief Whether a blob with this digest is already stored and intact.
+    @param[in] profile Active storage profile.
+    @param[in] digest Payload SHA-256.
+    @return True when the remote already holds exactly this content.
+    """
+    try:
+        return _remote_sha256(_blob_remote(profile, digest)) == digest
+    except (StorageError, OSError):
+        # An absent blob is the normal case, not an error; anything else that stops us
+        # from confirming it is treated the same way, and the chunk is uploaded.
+        return False
 
 
 def _run_rclone(arguments: list, check: bool = True) -> subprocess.CompletedProcess:
@@ -1870,9 +1917,18 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
                     target["root_path"], spec, local_chunk, plan["compression"],
                     workers=plan["workers"],
                 )
-                remote_path = _object_remote(profile, archive_id, "chunks", filename)
                 try:
-                    verified = _upload_verified(local_chunk, remote_path)
+                    digest = _sha256_file(local_chunk)
+                    # Content-addressed: an identical chunk anywhere on this remote is
+                    # already stored, so a rerun after a failed upload skips what
+                    # succeeded, and two archives of the same checkpoint share one copy.
+                    if _remote_blob_present(profile, digest):
+                        print(f"[INFO] Chunk {index + 1}/{len(specs)} already stored; skipping upload.")
+                        verified = {
+                            "sha256": digest, "stored_bytes": os.path.getsize(local_chunk),
+                        }
+                    else:
+                        verified = _upload_verified(local_chunk, _blob_remote(profile, digest))
                     return {
                         "name": filename,
                         "component": spec["component"],
@@ -1881,6 +1937,7 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
                         "stored_bytes": verified["stored_bytes"],
                         "sha256": verified["sha256"],
                         "compressor": compressor,
+                        "blob": True,
                     }
                 finally:
                     try:
@@ -2098,8 +2155,7 @@ def verify_remote_archive(profile: dict, archive_id: str) -> dict:
     """
     manifest = _load_remote_manifest(profile, archive_id)
     for chunk in manifest.get("chunks", []):
-        remote = _object_remote(profile, archive_id, "chunks", chunk["name"])
-        actual = _remote_sha256(remote)
+        actual = _remote_sha256(_chunk_remote_path(profile, archive_id, chunk))
         if actual != chunk.get("sha256"):
             raise StorageError(
                 f"Archive {archive_id} chunk checksum mismatch: {chunk['name']} "
@@ -2226,9 +2282,11 @@ def _download_archive_components(profile: dict, manifest: dict, components: set,
             chunk_root = os.path.join(staging, f"extract-{index:05d}")
             os.makedirs(chunk_root)
             local_chunk = os.path.join(staging, chunk["name"])
+            # Schema 1 archives keep their payload beside the manifest; schema 2 and
+            # later resolve it out of the shared content-addressed store.
             _run_rclone([
                 "copyto",
-                _object_remote(profile, manifest["archive_id"], "chunks", chunk["name"]),
+                _chunk_remote_path(profile, manifest["archive_id"], chunk),
                 local_chunk,
             ])
             actual = _sha256_file(local_chunk)
@@ -2444,9 +2502,10 @@ def restore_archive(profile: dict, archive_id: str, destination: str = None,
             chunk_root = os.path.join(temporary, f"extract-{index:05d}")
             os.makedirs(chunk_root)
             local_chunk = os.path.join(temporary, chunk["name"])
-            remote_chunk = _object_remote(profile, archive_id, "chunks", chunk["name"])
             print(f"[INFO] Restoring chunk {index + 1}/{len(chunks)}: {chunk['component']}")
-            _run_rclone(["copyto", remote_chunk, local_chunk])
+            _run_rclone([
+                "copyto", _chunk_remote_path(profile, archive_id, chunk), local_chunk,
+            ])
             actual = _sha256_file(local_chunk)
             if actual != chunk.get("sha256"):
                 raise StorageError(
