@@ -1004,6 +1004,58 @@ def _chunk_extension(compression: str) -> str:
     return STORAGE_COMPRESSION_EXTENSIONS[compression]
 
 
+def _inventory_fingerprint(inventory: dict) -> str:
+    """!
+    @brief Stable digest of the file set an archive would package.
+
+    @details Built from each entry's run-relative path, size, and modification time -
+             the same signals ordinary change detection uses - so it can be computed
+             without reading file contents. Two archives of the same artifact agree on
+             it exactly when nothing has been written since, which is what makes a
+             re-upload detectably redundant.
+    @param[in] inventory Inventory returned by `inspect_artifact()`.
+    @return Hex digest over the normalized entry list.
+    """
+    digest = hashlib.sha256()
+    for entry in sorted(inventory["entries"], key=lambda item: item["path"]):
+        digest.update(
+            f"{entry['path']}\0{entry.get('kind')}\0{entry.get('bytes')}\0"
+            f"{entry.get('mtime_ns')}\n".encode("utf-8")
+        )
+    return digest.hexdigest()
+
+
+def _find_reusable_archive(profile: dict, target: dict, fingerprint: str) -> dict:
+    """!
+    @brief Find a completed archive of this artifact whose content is already current.
+    @param[in] profile Resolved storage profile.
+    @param[in] target Local artifact target.
+    @param[in] fingerprint Inventory fingerprint of the artifact as it stands now.
+    @return Matching remote manifest, or None.
+    """
+    if not fingerprint:
+        return None
+    identity = (target["artifact_type"], target.get("run_id"),
+                target.get("study_id"), target.get("case_id"))
+    try:
+        candidates = list_remote_manifests(profile)
+    except StorageError as exc:
+        # Reuse is an optimization. A remote that cannot be listed - not yet created,
+        # briefly unreachable - must fall through to a normal upload, never fail here.
+        print(f"[INFO] Could not check for a reusable archive ({exc}); uploading.")
+        return None
+    newest = None
+    for manifest in candidates:
+        if manifest.get("inventory_sha256") != fingerprint:
+            continue
+        if (manifest.get("artifact_type"), manifest.get("run_id"),
+                manifest.get("study_id"), manifest.get("case_id")) != identity:
+            continue
+        if newest is None or str(manifest.get("created_at", "")) > str(newest.get("created_at", "")):
+            newest = manifest
+    return newest
+
+
 def _build_chunk_specs(inventory: dict, chunk_size_bytes: int) -> list:
     """!
     @brief Group archive entries into independently transferable component chunks.
@@ -1012,18 +1064,34 @@ def _build_chunk_specs(inventory: dict, chunk_size_bytes: int) -> list:
     @return Result produced by this operation.
     """
     groups = {}
-    directories = []
+    directory_groups = {}
     for entry in inventory["entries"]:
         if entry["type"] == "directory":
-            directories.append(entry["path"])
+            # A directory belongs to the same component as the files inside it. Sweeping
+            # every directory into `metadata` instead meant restoring one checkpoint
+            # recreated the empty directory tree of every other checkpoint, so a
+            # partially restored run listed steps whose payload was not there.
+            directory_groups.setdefault(entry["component"], []).append(entry["path"])
             continue
         groups.setdefault(entry["component"], []).append(entry)
     specs = []
-    if directories:
-        specs.append({"component": "metadata", "entries": directories, "uncompressed_bytes": 0})
-    component_order = sorted(groups, key=lambda name: (not name.startswith("checkpoint:"), name))
+    component_order = sorted(
+        set(groups) | set(directory_groups),
+        key=lambda name: (not name.startswith("checkpoint:"), name),
+    )
     for component in component_order:
-        current = []
+        # Directories ride in the first chunk of their own component, so extracting
+        # that component creates its tree and no one else's.
+        pending_directories = sorted(directory_groups.get(component, []))
+        if component not in groups:
+            if pending_directories:
+                specs.append({
+                    "component": component,
+                    "entries": pending_directories,
+                    "uncompressed_bytes": 0,
+                })
+            continue
+        current = list(pending_directories)
         current_bytes = 0
         for entry in groups[component]:
             entry_size = max(1, int(entry["size"]))
@@ -1423,6 +1491,21 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
         )
         inventory = plan["inventory"]
         _assert_archive_safe(inventory)
+        fingerprint = _inventory_fingerprint(inventory)
+        reusable = _find_reusable_archive(profile, target, fingerprint)
+        if reusable is not None:
+            # `protect` then `offload` is the documented workflow for "back it up now,
+            # free the space later". Re-packaging and re-uploading an unchanged artifact
+            # would store a second full copy of it, which for a campaign-sized run is
+            # the most expensive thing this command can do for no benefit.
+            print(
+                f"[INFO] Reusing verified archive {reusable['archive_id']}: "
+                f"{target['root_path']} is unchanged since it was archived."
+            )
+            return _register_existing_archive(
+                target, profile, reusable, inventory, plan, prune_local=prune_local,
+                label=label, tags=tags,
+            )
         archive_id = uuid.uuid4().hex
         specs = _build_chunk_specs(inventory, profile["chunk_size_bytes"])
         staging_parent = profile.get("staging_directory")
@@ -1496,6 +1579,7 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
                 "remote": profile["remote"],
                 "source_bytes": inventory["total_bytes"],
                 "source_file_count": inventory["file_count"],
+                "inventory_sha256": fingerprint,
                 "compression": plan["compression"],
                 "workers": plan["workers"],
                 "offload_policy": plan["offload_policy"],
@@ -1552,6 +1636,60 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
             f"as archive {archive_id}."
         )
         return manifest
+
+
+def _register_existing_archive(target: dict, profile: dict, manifest: dict,
+                               inventory: dict, plan: dict, *, prune_local: bool,
+                               label: str = None, tags=None) -> dict:
+    """!
+    @brief Point an artifact at an already-uploaded archive of its current content.
+
+    @details Used when nothing has changed since a previous `protect` or `offload`. The
+             remote object is immutable and is not rewritten; only this artifact's local
+             marker is updated, and a label or tags supplied now are recorded there so
+             the second invocation is not silently less descriptive than the first.
+    @param[in] target Local artifact target.
+    @param[in] profile Resolved storage profile.
+    @param[in] manifest Remote manifest being reused.
+    @param[in] inventory Current local inventory.
+    @param[in] plan Storage plan carrying the requested offload policy.
+    @param[in] prune_local Whether to prune the verified payload afterwards.
+    @param[in] label Optional label supplied to this invocation.
+    @param[in] tags Optional tags supplied to this invocation.
+    @return The reused remote manifest.
+    """
+    state = {
+        "storage_schema_version": STORAGE_SCHEMA_VERSION,
+        "archive_id": manifest["archive_id"],
+        "profile": profile["name"],
+        "remote": profile["remote"],
+        "label": label or manifest.get("label") or os.path.basename(target["root_path"]),
+        "archived_at": manifest.get("created_at"),
+        "reused_existing_archive": True,
+        "local_pruned": False,
+        "restored_components": [],
+        "retained_components": [],
+    }
+    parsed_tags = _parse_tags(tags)
+    if parsed_tags:
+        state["tags"] = parsed_tags
+    _atomic_write_json(_state_path(target["root_path"]), state)
+    if prune_local:
+        _prune_archived_payload(target["root_path"], inventory, plan["offload_policy"])
+        state["local_pruned"] = True
+        state["pruned_at"] = _utc_now()
+        state["offload_policy"] = plan["offload_policy"]
+        latest_step = max(inventory["checkpoint_steps"], default=None)
+        retained = list(plan["offload_policy"]["retained_components"])
+        if plan["offload_policy"]["keep_latest_checkpoint"] and latest_step is not None:
+            retained.append(f"checkpoint:{latest_step}")
+        state["retained_components"] = retained
+        _atomic_write_json(_state_path(target["root_path"]), state)
+    print(
+        f"[SUCCESS] {'Offloaded' if prune_local else 'Protected'} {target['root_path']} "
+        f"using existing archive {manifest['archive_id']}."
+    )
+    return manifest
 
 
 def _prune_archived_payload(root: str, inventory: dict, policy: dict) -> None:

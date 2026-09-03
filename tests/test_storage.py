@@ -360,6 +360,42 @@ def test_selective_checkpoint_restore_leaves_partial_marker(tmp_path, local_rclo
     storage.require_storage_payload_local(str(run), "post-processing", checkpoints=[10])
     with pytest.raises(storage.StorageError, match=r"--checkpoint 20"):
         storage.require_storage_payload_local(str(run), "post-processing", checkpoints=[10, 20])
+    # Only the requested step may appear. Directory entries used to be swept into the
+    # metadata chunk regardless of component, so restoring one checkpoint recreated the
+    # empty tree of every other one and a partial run listed steps it did not hold.
+    present = sorted(p.name for p in (run / "output" / "checkpoints").iterdir())
+    assert present == ["step_000000000010"], present
+
+
+def test_an_unchanged_artifact_is_not_uploaded_twice(tmp_path, local_rclone):
+    """!
+    @brief Offloading after protecting reuses the verified archive instead of re-uploading.
+
+    @details `protect` now, `offload` later is the documented way to keep a backup while
+             still working locally. Uploading a second full copy of an unchanged artifact
+             doubles remote cost for the largest runs and buys nothing.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] local_rclone Value supplied through the `local_rclone` argument.
+    """
+    run = _write_run(tmp_path / "runs" / "reused")
+    target = storage.resolve_local_storage_targets(str(run), None)[0]
+    protected = storage.archive_artifact(
+        target, _profile(tmp_path), label="kept", prune_local=False
+    )
+    offloaded = storage.archive_artifact(target, _profile(tmp_path), prune_local=True)
+
+    assert offloaded["archive_id"] == protected["archive_id"]
+    objects = sorted((local_rclone / "picurv-data" / "objects").iterdir())
+    assert len(objects) == 1, [p.name for p in objects]
+    state = storage.storage_state_summary(str(run))
+    assert state["state"] == "COLD"
+    # The label from the first invocation is not lost by the second.
+    assert state["label"] == "kept"
+
+    # A real change must still produce a new archive rather than silently reusing.
+    (run / "logs" / "late.log").write_text("appended after archiving", encoding="utf-8")
+    changed = storage.archive_artifact(target, _profile(tmp_path), prune_local=False)
+    assert changed["archive_id"] != protected["archive_id"]
 
 
 def test_study_member_archive_restores_parent_context(tmp_path, local_rclone):

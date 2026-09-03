@@ -592,6 +592,26 @@ def allocate_generated_run_id(runs_root: str, case_cfg: dict, case_path: str) ->
     return run_id
 
 
+def discard_unused_run_directory(run_dir: str, *, created: bool) -> bool:
+    """!
+    @brief Remove a generated run directory that never received any content.
+
+    @details Only a directory this invocation created, and which still holds no files,
+             is removed: an existing run, or one that already produced output, is never
+             touched by a staging failure.
+    @param[in] run_dir Run directory that was about to be staged.
+    @param[in] created Whether this invocation created the directory.
+    @return True when the directory was removed.
+    """
+    if not created or not os.path.isdir(run_dir):
+        return False
+    for _root, _dirs, files in os.walk(run_dir):
+        if files:
+            return False
+    shutil.rmtree(run_dir, ignore_errors=True)
+    return True
+
+
 def workspace_artifact_root(workspace_root: str, kind: str) -> str:
     """!
     @brief Return the canonical workspace-owned root for runs or studies.
@@ -14692,7 +14712,44 @@ def build_case_asset_graph(case_cfg: dict, case_path: str) -> dict:
             "spec": inlet_specs,
         })
 
-    for provider in providers:
+    # A provider's identity has to cover every case value its build reads, not only its
+    # own configuration subtree. The grid build nondimensionalizes by
+    # properties.scaling.length_ref and validates against the declared block count;
+    # both are outside `grid:`, and a change to either produces different payload bytes
+    # from an identical provider spec. Left out, the staleness check reports `reuse`
+    # and the solver silently receives geometry scaled by the wrong reference length.
+    scaling = (case_cfg.get("properties") or {}).get("scaling") or {}
+    fluid = (case_cfg.get("properties") or {}).get("fluid") or {}
+    domain_blocks = (case_cfg.get("models") or {}).get("domain", {}).get("blocks", 1)
+    build_contexts = {
+        "grid": {
+            "length_ref": scaling.get("length_ref"),
+            "blocks": domain_blocks,
+        },
+        # The IC build resolves fluid scaling and the prepared boundary conditions.
+        "initial-condition": {
+            "length_ref": scaling.get("length_ref"),
+            "velocity_ref": scaling.get("velocity_ref"),
+            "density": fluid.get("density"),
+            "viscosity": fluid.get("viscosity"),
+            "boundary_conditions": case_cfg.get("boundary_conditions"),
+        },
+        # Profile generation dimensionalizes against the same scaling contract.
+        "inlet-profiles": {
+            "length_ref": scaling.get("length_ref"),
+            "velocity_ref": scaling.get("velocity_ref"),
+            "blocks": domain_blocks,
+        },
+    }
+
+    # Hash in dependency order so a provider built on top of another re-identifies when
+    # the thing it was built from changes.
+    by_kind = {provider["kind"]: provider for provider in providers}
+    resolved_order = sorted(
+        providers, key=lambda provider: len(provider.get("dependencies") or [])
+    )
+    for provider in resolved_order:
+        provider["build_context"] = build_contexts.get(provider["kind"], {})
         provider["source_files"] = _provider_source_fingerprints(provider["spec"], case_path)
         provider["software"] = {
             "release_version": PICURV_RELEASE_VERSION,
@@ -14702,8 +14759,14 @@ def build_case_asset_graph(case_cfg: dict, case_path: str) -> dict:
             "kind": provider["kind"],
             "provider": provider["provider"],
             "spec": provider["spec"],
+            "build_context": provider["build_context"],
             "source_files": provider["source_files"],
             "software": provider["software"],
+            "dependencies": {
+                name: by_kind[name].get("spec_sha256")
+                for name in (provider.get("dependencies") or [])
+                if name in by_kind
+            },
         })
     return {
         "case_sha256": _stable_mapping_sha256(case_cfg),
@@ -15395,6 +15458,11 @@ def run_workflow(args):
                 args, configs["case"], configs["solver"], configs["monitor"], run_dir
             )
         except ValueError as e:
+            # Restart resolution is the first thing that can refuse a run, and the
+            # skeleton is already on disk. Leaving it behind puts an empty directory in
+            # runs/ that is indistinguishable from a real run to `ls`, to storage
+            # status, and to anyone browsing the workspace, once per refused attempt.
+            discard_unused_run_directory(run_dir, created=not continue_mode)
             emit_structured_error(
                 ERROR_CODE_CFG_INCONSISTENT_COMBO,
                 key="restart",

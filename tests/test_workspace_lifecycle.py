@@ -277,3 +277,100 @@ def test_stale_runtime_binaries_are_reported_against_the_active_source(tmp_path,
     stale = core.warn_on_stale_runtime_binaries(identities)
     assert stale == ["postprocessor"]
     assert "postprocessor was built from" in capsys.readouterr().err
+
+
+def test_asset_identity_covers_case_values_the_build_reads(tmp_path):
+    """!
+    @brief A change that alters an asset's bytes must not be reported as reusable.
+
+    @details The grid build nondimensionalizes by properties.scaling.length_ref, which
+             lives outside the `grid:` subtree. When identity covered only that subtree,
+             editing length_ref left the staleness check reporting `reuse` and the solver
+             silently received geometry scaled by the wrong reference length.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return None.
+    """
+    workspace = _write_workspace(tmp_path / "ws")
+    case, case_path = _write_file_grid_case(workspace)
+    core.precompute_case_assets(str(workspace), case, str(case_path), requested=["grid"])
+
+    def actions(cfg):
+        """!
+        @brief Planned action per provider kind.
+        @param[in] cfg Case mapping.
+        @return Mapping of provider kind to planned action.
+        """
+        plan = core.plan_run_assets(cfg, str(case_path))
+        return {item["kind"]: item["action"] for item in plan["actions"]}
+
+    assert actions(case)["grid"] == "reuse"
+
+    # An edit the build never reads must not invalidate a published object.
+    unrelated = yaml.safe_load(case_path.read_text(encoding="utf-8"))
+    unrelated.setdefault("run_control", {})["total_steps"] = 999
+    assert actions(unrelated)["grid"] == "reuse"
+
+    # An edit the build does read must.
+    rescaled = yaml.safe_load(case_path.read_text(encoding="utf-8"))
+    rescaled["properties"]["scaling"]["length_ref"] = float(
+        rescaled["properties"]["scaling"]["length_ref"]
+    ) * 2.0
+    assert actions(rescaled)["grid"] == "build"
+
+
+def test_asset_identity_follows_the_dependencies_it_declares(tmp_path):
+    """!
+    @brief A provider re-identifies when the asset it is built on top of changes.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    workspace = _write_workspace(tmp_path / "ws")
+    case, case_path = _write_file_grid_case(workspace)
+    graph = core.build_case_asset_graph(case, str(case_path))
+    dependent = [p for p in graph["providers"] if p.get("dependencies")]
+    if not dependent:
+        pytest.skip("this case declares no dependent providers")
+    before = {p["kind"]: p["spec_sha256"] for p in graph["providers"]}
+
+    rescaled = yaml.safe_load(case_path.read_text(encoding="utf-8"))
+    rescaled["properties"]["scaling"]["length_ref"] = float(
+        rescaled["properties"]["scaling"]["length_ref"]
+    ) * 2.0
+    after = {p["kind"]: p["spec_sha256"]
+             for p in core.build_case_asset_graph(rescaled, str(case_path))["providers"]}
+
+    assert before["grid"] != after["grid"]
+    for provider in dependent:
+        assert before[provider["kind"]] != after[provider["kind"]], (
+            f"{provider['kind']} declares a dependency on {provider['dependencies']} "
+            "but did not re-identify when it changed"
+        )
+
+
+def test_a_refused_run_leaves_no_empty_run_directory(tmp_path):
+    """!
+    @brief A run refused during staging must not leave a skeleton behind.
+
+    @details The layout is created before restart resolution can refuse, so every
+             rejected attempt used to leave an empty directory in runs/ that is
+             indistinguishable from a real run to anyone listing the workspace.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    run_dir = tmp_path / "runs" / "case_20260101-000000"
+    core.ensure_run_layout(str(run_dir))
+    assert run_dir.is_dir()
+
+    assert core.discard_unused_run_directory(str(run_dir), created=True) is True
+    assert not run_dir.exists()
+
+    # A directory that already holds output is never removed by a staging failure,
+    # and neither is one this invocation did not create.
+    populated = tmp_path / "runs" / "populated"
+    core.ensure_run_layout(str(populated))
+    (populated / "logs" / "solver.log").write_text("output", encoding="utf-8")
+    assert core.discard_unused_run_directory(str(populated), created=True) is False
+    assert populated.is_dir()
+
+    existing = tmp_path / "runs" / "existing"
+    core.ensure_run_layout(str(existing))
+    assert core.discard_unused_run_directory(str(existing), created=False) is False
+    assert existing.is_dir()
