@@ -67,11 +67,11 @@ def _write_run(root: Path, with_checkpoint: bool = True) -> Path:
     )
     (root / "config" / "solver.yml").write_text("operation_mode:\n  eulerian_field_source: solve\n", encoding="utf-8")
     (root / "config" / "monitor.yml").write_text(
-        "io:\n  directories:\n    output: output\n    restart: restart\n    log: logs\nlogging:\n  verbosity: INFO\n",
+        "io:\n  data_output_frequency: 10\nlogging:\n  verbosity: INFO\n",
         encoding="utf-8",
     )
     (root / "config" / "post.yml").write_text(
-        "source_data:\n  directory: <solver_output_dir>\nio:\n  output_directory: viz\n  output_filename_prefix: Field\n",
+        "source_data: {}\nio:\n  output_filename_prefix: Field\n",
         encoding="utf-8",
     )
     (root / "config" / f"{root.name}.control").write_text(
@@ -81,8 +81,9 @@ def _write_run(root: Path, with_checkpoint: bool = True) -> Path:
     (root / "config" / "grid.run").write_bytes(b"grid")
     (root / "logs" / "solver.log").write_text("finished\n", encoding="utf-8")
     (root / "manifest.json").write_text(json.dumps({"run_id": root.name}) + "\n", encoding="utf-8")
-    (root / "viz").mkdir()
-    (root / "viz" / "Field_00010.vts").write_bytes(b"derived-output")
+    visualization = root / "output" / "visualization" / "Field-0123456789ab"
+    visualization.mkdir(parents=True)
+    (visualization / "Field_00010.vts").write_bytes(b"derived-output")
     if with_checkpoint:
         bundle = root / "output" / "checkpoints" / "step_000000000010"
         (bundle / "eulerian" / "block_0000").mkdir(parents=True)
@@ -226,7 +227,7 @@ def test_real_rclone_local_backend_round_trip(tmp_path):
     manifest = storage.archive_artifact(target, profile, label="real transport", prune_local=True)
     shutil.rmtree(run)
     storage.restore_archive(profile, manifest["archive_id"])
-    assert (run / "viz" / "Field_00010.vts").read_bytes() == b"derived-output"
+    assert (run / "output" / "visualization" / "Field-0123456789ab" / "Field_00010.vts").read_bytes() == b"derived-output"
     assert storage.verify_remote_archive(profile, manifest["archive_id"])["label"] == "real transport"
     assert [item["archive_id"] for item in storage.list_remote_manifests(profile)] == [manifest["archive_id"]]
 
@@ -333,13 +334,13 @@ def test_offload_then_remote_only_restore_recovers_deleted_run(tmp_path, local_r
     target = storage.resolve_local_storage_targets(str(run), None)[0]
     manifest = storage.archive_artifact(target, _profile(tmp_path), label="cold run", prune_local=True)
     assert storage.is_artifact_cold(str(run))
-    assert not (run / "viz" / "Field_00010.vts").exists()
+    assert not (run / "output" / "visualization" / "Field-0123456789ab" / "Field_00010.vts").exists()
     assert (run / "config" / "case.yml").is_file()
 
     shutil.rmtree(run)
     restored = tmp_path / "recovered" / "cold"
     storage.restore_archive(_profile(tmp_path), manifest["archive_id"], destination=str(restored))
-    assert (restored / "viz" / "Field_00010.vts").read_bytes() == b"derived-output"
+    assert (restored / "output" / "visualization" / "Field-0123456789ab" / "Field_00010.vts").read_bytes() == b"derived-output"
     assert (restored / "output" / "checkpoints" / "step_000000000010" / "eulerian" / "block_0000" / "Ucat.dat").read_bytes() == b"checkpoint-data"
     assert storage.storage_state_summary(str(restored))["state"] == "PROTECTED"
 
@@ -355,7 +356,7 @@ def test_selective_checkpoint_restore_leaves_partial_marker(tmp_path, local_rclo
     manifest = storage.archive_artifact(target, _profile(tmp_path), prune_local=True)
     storage.restore_archive(_profile(tmp_path), manifest["archive_id"], checkpoints=[10])
     assert (run / "output" / "checkpoints" / "step_000000000010" / "COMMITTED").is_file()
-    assert not (run / "viz" / "Field_00010.vts").exists()
+    assert not (run / "output" / "visualization" / "Field-0123456789ab" / "Field_00010.vts").exists()
     assert storage.storage_state_summary(str(run))["state"] == "PARTIAL"
     storage.require_storage_payload_local(str(run), "post-processing", checkpoints=[10])
     with pytest.raises(storage.StorageError, match=r"--checkpoint 20"):
@@ -429,7 +430,7 @@ def test_whole_study_offload_retains_each_member_control_plane(tmp_path, local_r
         case = study / "cases" / case_id
         assert (case / "config" / "case.yml").is_file()
         assert (case / "logs" / "solver.log").is_file()
-        assert (case / "viz" / "Field_00010.vts").exists() is False
+        assert (case / "output" / "visualization" / "Field-0123456789ab" / "Field_00010.vts").exists() is False
         assert storage.is_artifact_cold(str(case))
     assert storage.cold_study_members(str(study)) == ["case_0000", "case_0001"]
 
@@ -576,7 +577,7 @@ def test_offload_policy_reports_and_retains_latest_checkpoint(tmp_path, local_rc
     (run / "inputs" / "grid" / "grid.run").write_bytes(b"grid-input")
     (run / "output" / "analysis" / "metrics").mkdir(parents=True)
     (run / "output" / "analysis" / "metrics" / "summary.json").write_text("{}\n", encoding="utf-8")
-    (run / "output" / "visualization").mkdir(parents=True)
+    (run / "output" / "visualization").mkdir(parents=True, exist_ok=True)
     (run / "output" / "visualization" / "field.vts").write_text("vtk\n", encoding="utf-8")
     target = storage.resolve_local_storage_targets(str(run), None)[0]
 
@@ -732,3 +733,37 @@ def test_remote_catalog_recovers_missing_workspace_asset(tmp_path, local_rclone)
     object_root = workspace / restored[spec_hash]["object"]
     assert (object_root / "asset.json").is_file()
     assert (object_root / "payload" / "inputs" / "grid" / "grid.run").read_bytes() == b"canonical-grid"
+
+
+def test_unclassified_files_are_archived_but_never_pruned(tmp_path, local_rclone):
+    """!
+    @brief A file storage cannot classify is retained locally by every offload policy.
+
+    @details The classifier's fallback used to be an ordinary component, which no policy
+             retained, so offloading deleted any file storage did not recognise - a
+             user's own notes beside a run, a tool's output, anything unregistered.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    run = _write_run(tmp_path / "runs" / "unknown")
+    stray = run / "NOTES.md"
+    stray.write_text("my own notes about this run\n", encoding="utf-8")
+    nested = run / "hand_analysis" / "fit.csv"
+    nested.parent.mkdir()
+    nested.write_text("x,y\n1,2\n", encoding="utf-8")
+
+    target = storage.resolve_local_storage_targets(str(run), None)[0]
+    inventory = storage.inspect_artifact(target, query_scheduler=False)
+    unknown = {
+        entry["path"] for entry in inventory["entries"]
+        if entry["component"] == storage.UNCLASSIFIED_COMPONENT and entry["type"] != "directory"
+    }
+    assert unknown == {"NOTES.md", "hand_analysis/fit.csv"}
+
+    for policy in storage.STORAGE_OFFLOAD_POLICIES:
+        storage.archive_artifact(target, _profile(tmp_path), prune_local=True, policy=policy)
+        assert stray.is_file(), f"{policy} deleted an unclassified file"
+        assert nested.is_file(), f"{policy} deleted an unclassified file"
+    # They are archived too, so a later restore brings them back.
+    assert stray.read_text(encoding="utf-8") == "my own notes about this run\n"

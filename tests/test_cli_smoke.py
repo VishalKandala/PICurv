@@ -1471,10 +1471,14 @@ def test_top_level_version_smoke():
     """!
     @brief Test that top level version flags report the development version.
     """
+    # release[.devN]+g<commit>[.dirty] - the dev distance is what distinguishes a
+    # development build from the release it names.
+    pattern = re.compile(r"^picurv \d+\.\d+\.\d+(\.dev\d+)?\+g[0-9a-f]{7,}(\.dirty)?$")
     for flag in ("-v", "--version"):
         result = run_picurv([flag])
         assert result.returncode == 0
-        assert result.stdout.strip().startswith("picurv 0.2.0+")
+        reported = result.stdout.strip()
+        assert pattern.match(reported), reported
 
 
 def test_run_help_smoke():

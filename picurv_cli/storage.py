@@ -48,6 +48,10 @@ CHECKPOINT_DIRECTORY_PATTERN = re.compile(r"^step_(\d{12})$")
 INCOMPLETE_CHECKPOINT_PATTERN = re.compile(r"^\.step_\d{12}\.incomplete\.")
 ARCHIVE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 KNOWN_CHECKPOINT_VERSION = 1
+#: Component assigned to any path the classifier does not recognize. Retained locally
+#: by every offload policy, so an unregistered file is reported rather than removed.
+UNCLASSIFIED_COMPONENT = "unclassified"
+
 STORAGE_RESTORE_COMPONENTS = (
     "inputs", "raw-output", "analysis", "visualization", "logs", "assets"
 )
@@ -445,7 +449,15 @@ def storage_state_summary(root_path: str) -> dict:
     """
     state = read_storage_state(root_path)
     if not state:
+        # A marker that exists but cannot be read is worse than none: the artifact
+        # claims a remote copy nobody can locate.
+        if os.path.exists(_state_path(root_path)):
+            return {"state": "BROKEN", "archive_id": None, "label": None,
+                    "detail": "storage marker is present but unreadable"}
         return {"state": "LOCAL", "archive_id": None, "label": None}
+    if not state.get("archive_id"):
+        return {"state": "BROKEN", "archive_id": None, "label": state.get("label"),
+                "detail": "storage marker names no archive"}
     if state.get("local_pruned"):
         status = "PARTIAL" if state.get("restored_components") else "COLD"
     else:
@@ -720,7 +732,9 @@ def _classify_component(relative_path: str) -> str:
         return "analysis"
     if first == "logs":
         return "logs"
-    return "payload"
+    # Nothing recognized this path. It is archived like everything else, but it is
+    # never pruned: storage must not delete a file whose purpose it cannot state.
+    return UNCLASSIFIED_COMPONENT
 
 
 def _checkpoint_steps(entries: list) -> list:
@@ -1216,6 +1230,64 @@ def _capture_study_context(target: dict) -> list:
     return captured
 
 
+def _capture_parameter_summary(root: str) -> dict:
+    """!
+    @brief Capture the few case values that identify what a run actually solved.
+
+    @details `storage show` has to answer "which run was this?" months later without
+             restoring anything, and an id plus a label does not. These are read from
+             the run's own configuration snapshot, so they describe the run rather than
+             whatever the editable workspace says now.
+    @param[in] root Artifact root directory.
+    @return Parameter summary, empty when no readable case snapshot exists.
+    """
+    for relative in (("config", "case.yml"), ("cases", "case_0000", "config", "case.yml")):
+        case_path = os.path.join(root, *relative)
+        if os.path.isfile(case_path):
+            break
+    else:
+        return {}
+    try:
+        with open(case_path, "r", encoding="utf-8") as stream:
+            case = yaml.safe_load(stream) or {}
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(case, dict):
+        return {}
+    properties = case.get("properties") or {}
+    scaling = properties.get("scaling") or {}
+    fluid = properties.get("fluid") or {}
+    grid = case.get("grid") or {}
+    run_control = case.get("run_control") or {}
+    summary = {
+        "title": case.get("title"),
+        "grid_mode": grid.get("mode"),
+        "grid_dimensions": None,
+        "blocks": ((case.get("models") or {}).get("domain") or {}).get("blocks"),
+        "start_step": run_control.get("start_step"),
+        "total_steps": run_control.get("total_steps"),
+        "dt_physical": run_control.get("dt_physical"),
+        "length_ref": scaling.get("length_ref"),
+        "velocity_ref": scaling.get("velocity_ref"),
+        "density": fluid.get("density"),
+        "viscosity": fluid.get("viscosity"),
+        "reynolds": None,
+    }
+    programmatic = grid.get("programmatic_settings")
+    if isinstance(programmatic, dict):
+        dims = [programmatic.get(key) for key in ("im", "jm", "km")]
+        if all(isinstance(value, int) for value in dims):
+            summary["grid_dimensions"] = dims
+    try:
+        summary["reynolds"] = (
+            float(fluid["density"]) * float(scaling["velocity_ref"])
+            * float(scaling["length_ref"]) / float(fluid["viscosity"])
+        )
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        summary["reynolds"] = None
+    return {key: value for key, value in summary.items() if value is not None}
+
+
 def _capture_run_assets(root: str) -> list:
     """!
     @brief Record reusable asset references carried by run-local input snapshots.
@@ -1358,6 +1430,8 @@ def _entry_retained_by_policy(entry: dict, policy: dict, latest_step) -> bool:
     @return True when the entry is retained locally.
     """
     component = entry["component"]
+    if component == UNCLASSIFIED_COMPONENT:
+        return True
     if component in set(policy["retained_components"]):
         return True
     return bool(
@@ -1465,12 +1539,26 @@ def _render_plan(plan: dict) -> None:
         print("[WARNING] External run dependencies:")
         for item in inventory["dependencies"]:
             print(f"  - {item['kind']}: {item['path']}")
+    unclassified = [
+        entry for entry in inventory["entries"]
+        if entry["type"] != "directory" and entry["component"] == UNCLASSIFIED_COMPONENT
+    ]
+    if unclassified:
+        print(
+            f"[WARNING] {len(unclassified)} file(s) are not part of any known component. "
+            "They are archived, and retained locally by every policy, because storage "
+            "does not delete files whose purpose it cannot state:"
+        )
+        for entry in unclassified[:10]:
+            print(f"  - {entry['path']}")
+        if len(unclassified) > 10:
+            print(f"  - ... and {len(unclassified) - 10} more")
 
 
 def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
                      compression: str = None, prune_local: bool = False,
                      policy: str = None, keep_latest_checkpoint=None,
-                     workers: int = None) -> dict:
+                     workers: int = None, notes: str = None) -> dict:
     """!
     @brief Package, upload, verify, register, and optionally prune one artifact.
     @param[in] target Value supplied through the `target` argument.
@@ -1482,6 +1570,7 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
     @param[in] policy Optional semantic retention policy override.
     @param[in] keep_latest_checkpoint Optional newest-checkpoint retention override.
     @param[in] workers Optional compression worker count override.
+    @param[in] notes Optional free-text note recorded with the archive.
     @return Result produced by this operation.
     """
     with storage_operation_lock(target["root_path"], "offload" if prune_local else "protect"):
@@ -1504,7 +1593,7 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
             )
             return _register_existing_archive(
                 target, profile, reusable, inventory, plan, prune_local=prune_local,
-                label=label, tags=tags,
+                label=label, tags=tags, notes=notes,
             )
         archive_id = uuid.uuid4().hex
         specs = _build_chunk_specs(inventory, profile["chunk_size_bytes"])
@@ -1572,7 +1661,11 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
                 "study_id": target.get("study_id"),
                 "case_id": target.get("case_id"),
                 "label": label or os.path.basename(target["root_path"]),
+                "notes": notes,
                 "tags": _parse_tags(tags),
+                # What was actually solved, so `storage show` answers "which run was
+                # this?" without restoring anything.
+                "parameters": _capture_parameter_summary(target["root_path"]),
                 "original_path": target["original_path"],
                 "original_study_path": target.get("study_path"),
                 "profile": profile["name"],
@@ -1640,7 +1733,7 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
 
 def _register_existing_archive(target: dict, profile: dict, manifest: dict,
                                inventory: dict, plan: dict, *, prune_local: bool,
-                               label: str = None, tags=None) -> dict:
+                               label: str = None, tags=None, notes: str = None) -> dict:
     """!
     @brief Point an artifact at an already-uploaded archive of its current content.
 
@@ -1656,6 +1749,7 @@ def _register_existing_archive(target: dict, profile: dict, manifest: dict,
     @param[in] prune_local Whether to prune the verified payload afterwards.
     @param[in] label Optional label supplied to this invocation.
     @param[in] tags Optional tags supplied to this invocation.
+    @param[in] notes Optional free-text note supplied to this invocation.
     @return The reused remote manifest.
     """
     state = {
@@ -1673,6 +1767,8 @@ def _register_existing_archive(target: dict, profile: dict, manifest: dict,
     parsed_tags = _parse_tags(tags)
     if parsed_tags:
         state["tags"] = parsed_tags
+    if notes:
+        state["notes"] = notes
     _atomic_write_json(_state_path(target["root_path"]), state)
     if prune_local:
         _prune_archived_payload(target["root_path"], inventory, plan["offload_policy"])
@@ -2306,6 +2402,7 @@ def storage_archive_workflow(args, prune_local: bool) -> None:
             policy=getattr(args, "policy", None),
             keep_latest_checkpoint=getattr(args, "keep_latest_checkpoint", None),
             workers=getattr(args, "workers", None),
+            notes=getattr(args, "notes", None),
         )
 
 
@@ -2490,6 +2587,9 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
         add_local_target(action_parser)
         add_profile_options(action_parser)
         action_parser.add_argument("--label", help="Human-readable searchable label.")
+        action_parser.add_argument(
+            "--notes", help="Free-text note recorded with the archive and shown by `show`."
+        )
         action_parser.add_argument("--tag", dest="tags", action="append", help="Repeatable KEY=VALUE catalog tag.")
         action_parser.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES))
         action_parser.add_argument("--policy", choices=list(STORAGE_OFFLOAD_POLICIES))

@@ -238,8 +238,33 @@ def _source_build_identity(release_version: str) -> dict:
             identity["dirty"] = bool(dirty_result.stdout.strip())
     except OSError:
         pass
+    # Commits since the release tag, so a development build is visibly ahead of the
+    # release it names rather than claiming to be that release.
+    identity["dev_distance"] = None
+    identity["released"] = False
+    try:
+        tag_result = subprocess.run(
+            ["git", "describe", "--tags", "--match", f"v{release_version}", "--long"],
+            cwd=PACKAGE_PROJECT_ROOT, text=True, capture_output=True, check=False,
+        )
+        if tag_result.returncode == 0:
+            parts = tag_result.stdout.strip().rsplit("-", 2)
+            if len(parts) == 3 and parts[1].isdigit():
+                identity["dev_distance"] = int(parts[1])
+        else:
+            # No tag for this release yet: every commit is development toward it.
+            count_result = subprocess.run(
+                ["git", "rev-list", "--count", "HEAD"], cwd=PACKAGE_PROJECT_ROOT,
+                text=True, capture_output=True, check=False,
+            )
+            if count_result.returncode == 0 and count_result.stdout.strip().isdigit():
+                identity["dev_distance"] = int(count_result.stdout.strip())
+    except OSError:
+        pass
+    identity["released"] = identity["dev_distance"] == 0 and not identity["dirty"]
     if identity["git_short_commit"]:
-        suffix = f"+g{identity['git_short_commit']}"
+        development = "" if identity["dev_distance"] in (0, None) else f".dev{identity['dev_distance']}"
+        suffix = f"{development}+g{identity['git_short_commit']}"
         if identity["dirty"]:
             suffix += ".dirty"
         identity["build_id"] = release_version + suffix
@@ -468,6 +493,64 @@ def enforce_workspace_version(workspace_root: str) -> dict:
     return dict(PICURV_BUILD)
 
 
+def enforce_reproducibility_policy(workspace_root: str) -> dict:
+    """!
+    @brief Enforce an optional workspace policy demanding a clean, released build.
+
+    @details Exploratory work should stay frictionless, so this is opt-in: a workspace
+             running a campaign that will be published sets it once, and PICurv then
+             refuses to stage from a modified or untagged tree instead of recording the
+             compromise in a manifest nobody reads until later.
+    @param[in] workspace_root Initialized workspace directory, or None.
+    @return The resolved policy mapping, empty when none is configured.
+    @throws ValueError when the active build does not satisfy the configured policy.
+    """
+    if not workspace_root:
+        return {}
+    payload = load_workspace_config(workspace_root)
+    policy = payload.get("reproducibility") or {}
+    if not isinstance(policy, dict) or not policy:
+        return {}
+    if policy.get("require_clean_release"):
+        problems = []
+        if PICURV_BUILD.get("dirty"):
+            problems.append("the source tree has uncommitted changes")
+        if PICURV_BUILD.get("dev_distance"):
+            problems.append(
+                f"HEAD is {PICURV_BUILD['dev_distance']} commit(s) past the "
+                f"v{PICURV_RELEASE_VERSION} release tag"
+            )
+        elif PICURV_BUILD.get("dev_distance") is None:
+            problems.append("the release tag could not be resolved from this checkout")
+        if problems:
+            raise ValueError(
+                f"{WORKSPACE_CONFIG_FILENAME} sets reproducibility.require_clean_release, "
+                f"but this build is {PICURV_BUILD['build_id']}: " + "; ".join(problems) + ".\n"
+                "Commit and tag the release, or clear the policy for exploratory work."
+            )
+    if policy.get("pin_executables"):
+        stale = [
+            name for name, identity in sorted(runtime_build_identities().items())
+            if identity.get("available") and not identity.get("matches_source")
+        ]
+        unavailable = [
+            name for name, identity in sorted(runtime_build_identities().items())
+            if not identity.get("available")
+        ]
+        if stale or unavailable:
+            detail = []
+            if stale:
+                detail.append("built from another revision: " + ", ".join(stale))
+            if unavailable:
+                detail.append("no build identity available: " + ", ".join(unavailable))
+            raise ValueError(
+                f"{WORKSPACE_CONFIG_FILENAME} sets reproducibility.pin_executables, but "
+                "the executables do not match the active source (" + "; ".join(detail) + ").\n"
+                "Run 'make all' so the run records the build that produced it."
+            )
+    return dict(policy)
+
+
 def resolve_workspace_path(anchor_file: str, candidate: str, *, allow_external: bool = False) -> str:
     """!
     @brief Resolve a user path against its workspace and reject implicit escapes.
@@ -612,6 +695,117 @@ def discard_unused_run_directory(run_dir: str, *, created: bool) -> bool:
     return True
 
 
+def _file_sha256(path: str):
+    """!
+    @brief Content digest of one file, or None when it cannot be read.
+    @param[in] path File to digest.
+    @return Hex digest, or None.
+    """
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+def build_software_lock() -> dict:
+    """!
+    @brief Capture the exact software identity a run is about to execute with.
+
+    @details The release and commit say which source is checked out; they do not say
+             which bytes ran. Hashing the executables and the generators pins that, so
+             a queued job rebuilt out from under it is detectable afterwards rather
+             than merely suspected.
+    @return Software lock mapping.
+    """
+    lock = {
+        "schema_version": 1,
+        "picurv_version": PICURV_RELEASE_VERSION,
+        "build_id": PICURV_BUILD.get("build_id"),
+        "git_commit": PICURV_BUILD.get("git_commit"),
+        "git_dirty": PICURV_BUILD.get("dirty"),
+        "captured_at": datetime.now().astimezone().isoformat(),
+        "executables": {},
+        "generators": {},
+        "environment": _toolchain_identity(),
+    }
+    for name in ("simulator", "postprocessor"):
+        path = resolve_runtime_executable(name)
+        identity = read_binary_build_identity(path)
+        lock["executables"][name] = {
+            "path": path,
+            "sha256": _file_sha256(path),
+            "build_id": identity.get("build_id"),
+            "matches_source": identity.get("matches_source"),
+        }
+    conductor = os.path.join(PACKAGE_PROJECT_ROOT, "picurv_cli", "core.py")
+    lock["python_conductor_sha256"] = _file_sha256(conductor)
+    if os.path.isdir(GENERATORS_PATH):
+        for entry in sorted(os.listdir(GENERATORS_PATH)):
+            candidate = os.path.join(GENERATORS_PATH, entry)
+            if os.path.isfile(candidate):
+                lock["generators"][entry] = _file_sha256(candidate)
+    return lock
+
+
+def _toolchain_identity() -> dict:
+    """!
+    @brief Best-effort record of the PETSc, MPI, and compiler the binaries were built on.
+    @return Mapping of what could be determined; absent keys mean it could not be read.
+    """
+    identity = {}
+    petsc_dir = os.environ.get("PETSC_DIR")
+    if petsc_dir:
+        identity["petsc_dir"] = petsc_dir
+        version_header = os.path.join(petsc_dir, "include", "petscversion.h")
+        try:
+            with open(version_header, "r", encoding="utf-8", errors="replace") as stream:
+                numbers = {}
+                for line in stream:
+                    match = re.match(
+                        r"#define\s+PETSC_VERSION_(MAJOR|MINOR|SUBMINOR)\s+(\d+)", line
+                    )
+                    if match:
+                        numbers[match.group(1)] = match.group(2)
+                if len(numbers) == 3:
+                    identity["petsc_version"] = (
+                        f"{numbers['MAJOR']}.{numbers['MINOR']}.{numbers['SUBMINOR']}"
+                    )
+        except OSError:
+            pass
+    if os.environ.get("PETSC_ARCH"):
+        identity["petsc_arch"] = os.environ["PETSC_ARCH"]
+    for tool, key in (("mpiexec", "mpi"), ("mpicc", "compiler")):
+        executable = shutil.which(tool)
+        if not executable:
+            continue
+        try:
+            result = subprocess.run(
+                [executable, "--version"], text=True, capture_output=True, timeout=20, check=False
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        first = (result.stdout or result.stderr or "").strip().splitlines()
+        if first:
+            identity[key] = first[0][:200]
+    return identity
+
+
+def write_software_lock(run_dir: str) -> str:
+    """!
+    @brief Write the run's software lock beside its asset lock.
+    @param[in] run_dir Run directory receiving the lock.
+    @return Path to the written lock.
+    """
+    path = os.path.join(run_dir, CANONICAL_RUN_PATHS["inputs"], "software.lock.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    write_json_file(path, build_software_lock())
+    return path
+
+
 def workspace_artifact_root(workspace_root: str, kind: str) -> str:
     """!
     @brief Return the canonical workspace-owned root for runs or studies.
@@ -730,6 +924,73 @@ def archive_active_generated_configuration(run_dir: str, paths: list) -> dict:
     return active
 
 
+#: Storage states in which a run's heavy payload is no longer wholly local. A component
+#: absent under one of these was archived, not skipped.
+STORAGE_OFFLOADED_STATES = frozenset({"COLD", "PARTIAL"})
+
+#: Lifecycle states a run component can be in, as reported by the run manifest.
+RUN_COMPONENT_STATES = (
+    "not_requested", "planned", "running", "partial", "complete", "failed", "offloaded",
+)
+
+#: Run components, their canonical home, and the retention class storage applies.
+RUN_COMPONENT_LAYOUT = (
+    ("configuration", "config", "essential"),
+    ("inputs", "inputs", "essential"),
+    ("checkpoints", "output/checkpoints", "policy"),
+    ("analysis", "output/analysis", "derived"),
+    ("field_statistics", "output/analysis/statistics", "derived"),
+    ("spectra", "output/analysis/spectra", "derived"),
+    ("visualization", "output/visualization", "derived"),
+    ("logs", "logs", "essential"),
+    ("scheduler", "scheduler", "essential"),
+)
+
+
+def _run_component_states(run_dir: str, stages_requested: dict) -> dict:
+    """!
+    @brief Report each run component's home, retention class, and lifecycle state.
+
+    @details The skeleton is created whole, so an empty directory says nothing about
+             whether its contents were requested. This is where that question is
+             answered, and it is answered for every component whether or not it ran.
+    @param[in] run_dir Run directory being described.
+    @param[in] stages_requested Mapping of requested stage names to booleans.
+    @return Component name to `{path, retention, state}` mapping.
+    """
+    marker = storage_state_summary(run_dir) if os.path.isdir(run_dir) else {"state": "LOCAL"}
+    offloaded = marker.get("state") in STORAGE_OFFLOADED_STATES
+    solve_requested = bool(stages_requested.get("solve"))
+    post_requested = bool(stages_requested.get("post_process"))
+    requested = {
+        "configuration": True,
+        "inputs": True,
+        "logs": True,
+        "scheduler": True,
+        "checkpoints": solve_requested,
+        "analysis": post_requested,
+        "field_statistics": post_requested,
+        "spectra": post_requested,
+        "visualization": post_requested,
+    }
+    components = {}
+    for name, relative, retention in RUN_COMPONENT_LAYOUT:
+        path = os.path.join(run_dir, *relative.split("/"))
+        populated = False
+        if os.path.isdir(path):
+            populated = any(files for _root, _dirs, files in os.walk(path))
+        if populated:
+            state = "offloaded" if offloaded and retention != "essential" else "complete"
+        elif not requested.get(name, False):
+            state = "not_requested"
+        elif offloaded:
+            state = "offloaded"
+        else:
+            state = "planned"
+        components[name] = {"path": relative, "retention": retention, "state": state}
+    return components
+
+
 def build_run_manifest(run_dir: str, run_id: str, *, workspace_root=None,
                        launch_mode: str = "local", num_procs: int = 1,
                        post_num_procs: int = 1, stages_requested=None,
@@ -775,16 +1036,10 @@ def build_run_manifest(run_dir: str, run_id: str, *, workspace_root=None,
         "stages_completed_or_submitted": stages_completed or [],
         "inputs": inputs or {},
         "paths": dict(CANONICAL_RUN_PATHS),
-        "components": {
-            "configuration": {"path": "config", "retention": "essential"},
-            "inputs": {"path": "inputs", "retention": "essential"},
-            "checkpoints": {"path": "output/checkpoints", "retention": "policy"},
-            "raw_output": {"path": "output", "retention": "policy"},
-            "analysis": {"path": "output/analysis", "retention": "derived"},
-            "visualization": {"path": "output/visualization", "retention": "derived"},
-            "logs": {"path": "logs", "retention": "essential"},
-            "scheduler": {"path": "scheduler", "retention": "essential"},
-        },
+        # Fixed schema, every component present whatever happened, so a reader never
+        # has to distinguish "absent because it was not asked for" from "absent because
+        # it failed" by looking for empty directories.
+        "components": _run_component_states(run_dir, stages_requested or {}),
         "assets": (asset_lock or {}).get("assets", {}),
         "runtime_providers": (asset_lock or {}).get("runtime_providers", {}),
         "submission": submission or {},
@@ -13924,6 +14179,7 @@ def build_run_dry_plan(args) -> dict:
         workspace_root = find_workspace_root(case_path, args.solver, args.monitor, os.getcwd())
         if workspace_root:
             enforce_workspace_version(workspace_root)
+            enforce_reproducibility_policy(workspace_root)
         solver_path = os.path.abspath(args.solver)
         monitor_path = os.path.abspath(args.monitor)
         loaded_case_cfg = read_yaml_file(case_path)
@@ -15291,6 +15547,7 @@ def materialize_run_assets(run_dir: str, case_cfg: dict, case_path: str,
         "runtime_providers": runtime_providers,
     }
     write_yaml_file(os.path.join(run_dir, "inputs", "assets.lock.yml"), lock)
+    write_software_lock(run_dir)
     return lock
 
 
@@ -15409,6 +15666,7 @@ def run_workflow(args):
         workspace_root = find_workspace_root(case_input_path, args.solver, args.monitor, os.getcwd())
         if workspace_root:
             enforce_workspace_version(workspace_root)
+            enforce_reproducibility_policy(workspace_root)
         walltime_guard_policy = resolve_walltime_guard_policy(cluster_cfg) if cluster_mode else None
         configs = {
             'case': read_yaml_file(args.case), 'case_path': case_input_path,
@@ -16025,6 +16283,7 @@ def sweep_workflow(args):
     workspace_root = find_workspace_root(study_path, cluster_path, os.getcwd())
     if workspace_root:
         enforce_workspace_version(workspace_root)
+        enforce_reproducibility_policy(workspace_root)
 
     study_cfg = read_yaml_file(study_path)
     cluster_cfg = read_yaml_file(cluster_path)

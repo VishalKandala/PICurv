@@ -374,3 +374,60 @@ def test_a_refused_run_leaves_no_empty_run_directory(tmp_path):
     core.ensure_run_layout(str(existing))
     assert core.discard_unused_run_directory(str(existing), created=False) is False
     assert existing.is_dir()
+
+
+def test_software_lock_pins_the_executables_a_run_used(tmp_path, monkeypatch):
+    """!
+    @brief The run records the bytes it executed, not only the source it was staged from.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @return None.
+    """
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    for name in ("simulator", "postprocessor"):
+        path = fake_bin / name
+        path.write_text(f'#!/bin/sh\necho "{name} 0.2.0+gabcdef123456"\n', encoding="utf-8")
+        path.chmod(0o755)
+    monkeypatch.setattr(core, "INVOKED_SCRIPT_DIR", str(fake_bin))
+
+    run_dir = tmp_path / "runs" / "locked"
+    core.ensure_run_layout(str(run_dir))
+    core.write_software_lock(str(run_dir))
+
+    lock = json.loads((run_dir / "inputs" / "software.lock.json").read_text(encoding="utf-8"))
+    assert lock["picurv_version"] == core.PICURV_RELEASE_VERSION
+    for name in ("simulator", "postprocessor"):
+        entry = lock["executables"][name]
+        assert entry["sha256"], f"{name} was not hashed"
+        assert entry["build_id"] == "0.2.0+gabcdef123456"
+    assert lock["python_conductor_sha256"]
+    assert lock["generators"], "no generator was hashed"
+
+
+def test_reproducibility_policy_refuses_a_development_build(tmp_path, monkeypatch):
+    """!
+    @brief An opt-in workspace policy refuses staging from a modified or untagged tree.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @return None.
+    """
+    workspace = _write_workspace(tmp_path / "ws")
+    config = workspace / core.WORKSPACE_CONFIG_FILENAME
+    payload = yaml.safe_load(config.read_text(encoding="utf-8"))
+    payload["reproducibility"] = {"require_clean_release": True}
+    core.write_yaml_file(str(config), payload)
+
+    monkeypatch.setitem(core.PICURV_BUILD, "dirty", True)
+    monkeypatch.setitem(core.PICURV_BUILD, "dev_distance", 12)
+    monkeypatch.setitem(core.PICURV_BUILD, "build_id", "0.2.0.dev12+gabc.dirty")
+    with pytest.raises(ValueError, match="require_clean_release"):
+        core.enforce_reproducibility_policy(str(workspace))
+
+    # A clean release satisfies it, and no policy at all is never enforced.
+    monkeypatch.setitem(core.PICURV_BUILD, "dirty", False)
+    monkeypatch.setitem(core.PICURV_BUILD, "dev_distance", 0)
+    assert core.enforce_reproducibility_policy(str(workspace))["require_clean_release"] is True
+    payload.pop("reproducibility")
+    core.write_yaml_file(str(config), payload)
+    assert core.enforce_reproducibility_policy(str(workspace)) == {}
