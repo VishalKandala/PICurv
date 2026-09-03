@@ -113,10 +113,6 @@
       "reason": "Velocity component keys a constant or parabolic inlet accepts. They are the parameters an inlet handler owns, enumerated in that handler's entry - not a choice between behaviours.",
       "owner": "boundary.handler"
     },
-    "picurv_cli.storage::{cluster.yml,manifest.json,study.yml,study_manifest.json}": {
-      "classification": "not_public",
-      "reason": "Filenames the storage inventory recognises as run metadata. Fixed artefact names, not a selectable set."
-    },
     "picurv_cli.storage::{config,scheduler}": {
       "classification": "not_public",
       "reason": "Directory names the storage inventory always treats as configuration rather than payload. A fixed classification of run-owned directories, not a user choice."
@@ -124,6 +120,10 @@
     "picurv_cli.storage::{file,symlink}": {
       "classification": "not_public",
       "reason": "Filesystem entry kinds distinguished while walking a run tree. An OS-level distinction, not a configurable option."
+    },
+    "picurv_cli.storage::{assets.lock.yml,cluster.yml,manifest.json,software.lock.json,study.yml,study_manifest.json}": {
+      "classification": "not_public",
+      "reason": "Filenames the storage inventory recognises as run metadata rather than payload, including the asset and software locks that record what a run consumed. Fixed artefact names, not a selectable set."
     }
   }
 }

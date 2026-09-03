@@ -52,6 +52,20 @@ KNOWN_CHECKPOINT_VERSION = 1
 #: by every offload policy, so an unregistered file is reported rather than removed.
 UNCLASSIFIED_COMPONENT = "unclassified"
 
+#: Workspace identity file. Storage reads it to name a workspace archive; it never
+#: rewrites workspace configuration.
+WORKSPACE_CONFIG_FILENAME = ".picurv-workspace.yml"
+
+#: Directories a workspace archive never descends into. Runs and studies are their own
+#: artifacts with their own archives; duplicating them inside a workspace archive would
+#: store the same bytes twice and blur which object owns what.
+WORKSPACE_EXCLUDED_ROOTS = ("runs", "studies")
+
+#: Components no offload policy may prune, whatever it retains.
+ALWAYS_RETAINED_COMPONENTS = frozenset(
+    {UNCLASSIFIED_COMPONENT, "workspace-config", "workspace-inputs"}
+)
+
 STORAGE_RESTORE_COMPONENTS = (
     "inputs", "raw-output", "analysis", "visualization", "logs", "assets"
 )
@@ -386,6 +400,105 @@ def is_artifact_cold(root_path: str) -> bool:
     return bool(state and state.get("local_pruned"))
 
 
+def workspace_asset_references(workspace_root: str) -> dict:
+    """!
+    @brief Count what still refers to each published workspace asset.
+
+    @details A local copy may be removed once nothing local needs it and a verified
+             remote copy exists. Runs that are themselves cold still *reference* the
+             asset - that is what keeps the remote copy alive - but they do not keep
+             the local one.
+    @param[in] workspace_root Initialized workspace root.
+    @return Mapping of asset id to its reference counts and local object path.
+    """
+    references = {}
+    objects_root = os.path.join(workspace_root, "assets", "objects")
+    if os.path.isdir(objects_root):
+        for kind in sorted(os.listdir(objects_root)):
+            kind_root = os.path.join(objects_root, kind)
+            if not os.path.isdir(kind_root):
+                continue
+            for asset_id in sorted(os.listdir(kind_root)):
+                object_root = os.path.join(kind_root, asset_id)
+                if os.path.isdir(object_root):
+                    references[asset_id] = {
+                        "asset_id": asset_id, "kind": kind, "object": object_root,
+                        "active_local_runs": 0, "cold_runs": 0,
+                    }
+    for artifacts in ("runs", "studies"):
+        root = os.path.join(workspace_root, artifacts)
+        if not os.path.isdir(root):
+            continue
+        for lock_path in Path(root).glob("**/inputs/assets.lock.yml"):
+            try:
+                with open(lock_path, "r", encoding="utf-8") as stream:
+                    lock = yaml.safe_load(stream) or {}
+            except (OSError, ValueError):
+                continue
+            run_root = lock_path.parent.parent
+            cold = is_artifact_cold(str(run_root))
+            for reference in (lock.get("assets") or {}).values():
+                entry = references.get(reference.get("asset_id"))
+                if entry is None:
+                    continue
+                entry["cold_runs" if cold else "active_local_runs"] += 1
+    return references
+
+
+def prune_unused_workspace_assets(workspace_root: str, profile: dict,
+                                  dry_run: bool = False) -> list:
+    """!
+    @brief Remove local asset objects that nothing local needs and storage has verified.
+    @param[in] workspace_root Initialized workspace root.
+    @param[in] profile Resolved storage profile.
+    @param[in] dry_run Report the decision without removing anything.
+    @return Removal decisions, one per published asset.
+    """
+    protected = set()
+    for manifest in list_remote_manifests(profile):
+        if manifest.get("artifact_type") != "workspace":
+            continue
+        for asset_id in manifest.get("workspace_assets") or []:
+            protected.add(asset_id)
+    decisions = []
+    for entry in workspace_asset_references(workspace_root).values():
+        verified = entry["asset_id"] in protected
+        removable = verified and entry["active_local_runs"] == 0
+        decision = {**entry, "remote_protection": "verified" if verified else "none",
+                    "local_removal": "safe" if removable else "blocked"}
+        if removable and not dry_run:
+            shutil.rmtree(entry["object"], ignore_errors=True)
+            decision["removed"] = True
+        decisions.append(decision)
+    return decisions
+
+
+def restore_cold_study_members(study_path: str, case_ids, profile_name: str = None,
+                               storage_config: str = None) -> list:
+    """!
+    @brief Restore named cold study members in place from their local markers.
+    @param[in] study_path Study directory owning the members.
+    @param[in] case_ids Member ids to restore.
+    @param[in] profile_name Optional storage profile name.
+    @param[in] storage_config Optional explicit storage configuration path.
+    @return Restored member ids.
+    @throws StorageError when a member carries no usable archive reference.
+    """
+    profile = load_storage_profile(profile_name, storage_config)
+    restored = []
+    for case_id in case_ids:
+        member = os.path.join(study_path, "cases", case_id)
+        state = read_storage_state(member) or {}
+        archive_id = state.get("archive_id")
+        if not archive_id:
+            raise StorageError(
+                f"{case_id} is cold but its marker names no archive; restore it by id."
+            )
+        restore_archive(profile, archive_id, destination=member, force=True)
+        restored.append(case_id)
+    return restored
+
+
 def cold_study_members(study_path: str) -> list:
     """!
     @brief Return numbered study members whose local payload was pruned.
@@ -471,6 +584,38 @@ def storage_state_summary(root_path: str) -> dict:
     }
 
 
+def _completed_study_members(study_root: str) -> list:
+    """!
+    @brief Select the study members that are finished and idle.
+
+    @details "Finished" is deliberately conservative: a member qualifies only when it
+             holds at least one committed checkpoint, is writing none, and has no
+             active lock or scheduler job. Anything ambiguous is skipped rather than
+             archived mid-flight.
+    @param[in] study_root Study directory to scan.
+    @return Sorted member ids.
+    """
+    cases_dir = os.path.join(study_root, "cases")
+    selected = []
+    for name in sorted(os.listdir(cases_dir)):
+        member = os.path.join(cases_dir, name)
+        if not os.path.isdir(member) or not re.fullmatch(r"case_\d+", name):
+            continue
+        target = {
+            "artifact_type": "study-case", "root_path": member, "original_path": member,
+            "run_id": name, "study_id": os.path.basename(study_root), "case_id": name,
+            "study_path": study_root,
+        }
+        try:
+            inventory = inspect_artifact(target)
+            _assert_archive_safe(inventory)
+        except StorageError:
+            continue
+        if inventory["checkpoint_steps"]:
+            selected.append(name)
+    return selected
+
+
 def _validate_case_id(case_id: str) -> str:
     """!
     @brief Validate a canonical numbered study-member identifier.
@@ -482,16 +627,47 @@ def _validate_case_id(case_id: str) -> str:
     return str(case_id)
 
 
-def resolve_local_storage_targets(run_dir: str = None, study_dir: str = None, case_ids=None) -> list:
+def resolve_local_storage_targets(run_dir: str = None, study_dir: str = None, case_ids=None,
+                                  workspace: str = None, include_inputs: bool = False,
+                                  completed: bool = False) -> list:
     """!
-    @brief Resolve explicit run/study selectors into concrete artifact descriptions.
+    @brief Resolve explicit run/study/workspace selectors into artifact descriptions.
     @param[in] run_dir Value supplied through the `run_dir` argument.
     @param[in] study_dir Value supplied through the `study_dir` argument.
     @param[in] case_ids Value supplied through the `case_ids` argument.
+    @param[in] workspace Workspace root to protect as its own artifact.
+    @param[in] include_inputs Whether workspace protection covers user-supplied inputs.
+    @param[in] completed Select every finished study member instead of naming them.
     @return Result produced by this operation.
     """
-    if bool(run_dir) == bool(study_dir):
-        raise StorageError("Select exactly one of --run-dir or --study-dir.")
+    selectors = [bool(run_dir), bool(study_dir), bool(workspace)]
+    if sum(selectors) != 1:
+        raise StorageError("Select exactly one of --run-dir, --study-dir, or --workspace.")
+    if workspace:
+        if case_ids:
+            raise StorageError("--case-id is valid only with --study-dir.")
+        root = os.path.abspath(workspace)
+        if not os.path.isfile(os.path.join(root, WORKSPACE_CONFIG_FILENAME)):
+            raise StorageError(
+                f"Directory is not an initialized PICurv workspace (missing "
+                f"{WORKSPACE_CONFIG_FILENAME}): {root}"
+            )
+        identity = {}
+        try:
+            with open(os.path.join(root, WORKSPACE_CONFIG_FILENAME), "r", encoding="utf-8") as stream:
+                identity = (yaml.safe_load(stream) or {}).get("workspace") or {}
+        except (OSError, ValueError):
+            identity = {}
+        return [{
+            "artifact_type": "workspace",
+            "root_path": root,
+            "original_path": root,
+            "run_id": None,
+            "study_id": None,
+            "case_id": None,
+            "workspace_id": identity.get("id") or os.path.basename(root),
+            "include_inputs": bool(include_inputs),
+        }]
     if run_dir:
         if case_ids:
             raise StorageError("--case-id is valid only with --study-dir.")
@@ -514,6 +690,16 @@ def resolve_local_storage_targets(run_dir: str = None, study_dir: str = None, ca
         raise StorageError(f"Study directory not found: {study_root}")
     if not os.path.isdir(os.path.join(study_root, "cases")):
         raise StorageError(f"Directory does not look like a PICurv study (missing cases/): {study_root}")
+    if completed:
+        if case_ids:
+            raise StorageError("--completed selects members itself; do not also pass --case-id.")
+        case_ids = _completed_study_members(study_root)
+        if not case_ids:
+            raise StorageError(
+                f"No completed member found in {study_root}. A member is complete when it "
+                "holds a committed checkpoint and no run is active on it."
+            )
+        print("[INFO] Selected completed member(s): " + ", ".join(case_ids))
     if case_ids:
         targets = []
         for raw_case_id in case_ids:
@@ -632,13 +818,15 @@ def _discover_dependencies(root: str) -> list:
     return dependencies
 
 
-def _walk_archive_entries(root: str) -> list:
+def _walk_archive_entries(root: str, excluded_roots=()) -> list:
     """!
     @brief Enumerate archive entries without following symlinks.
     @param[in] root Value supplied through the `root` argument.
+    @param[in] excluded_roots Top-level directory names to skip entirely.
     @return Result produced by this operation.
     """
     root_abs = os.path.abspath(root)
+    excluded = set(excluded_roots or ())
     entries = []
 
     def visit(directory: str):
@@ -654,6 +842,8 @@ def _walk_archive_entries(root: str) -> list:
             if child.name in {STORAGE_STATE_FILENAME, STORAGE_LOCK_FILENAME}:
                 continue
             rel = os.path.relpath(child.path, root_abs).replace(os.sep, "/")
+            if rel in excluded:
+                continue
             try:
                 stat_result = child.stat(follow_symlinks=False)
             except OSError as exc:
@@ -697,6 +887,22 @@ def _checkpoint_component(relative_path: str):
     return None
 
 
+def _classify_workspace_component(relative_path: str) -> str:
+    """!
+    @brief Classify one workspace-owned path for packaging and retention.
+    @param[in] relative_path Workspace-relative path.
+    @return Component name.
+    """
+    first = relative_path.split("/")[0]
+    if first == "config" or relative_path.startswith("."):
+        return "workspace-config"
+    if first == "inputs":
+        return "workspace-inputs"
+    if first == "assets":
+        return "assets"
+    return UNCLASSIFIED_COMPONENT
+
+
 def _classify_component(relative_path: str) -> str:
     """!
     @brief Classify one artifact path for packaging and local retention.
@@ -713,8 +919,12 @@ def _classify_component(relative_path: str) -> str:
     if len(parts) >= 3 and parts[0] == "cases" and re.fullmatch(r"case_\d+", parts[1]):
         component_parts = parts[2:]
         first = component_parts[0]
+    # The locks record which assets and which executables a run consumed. They are the
+    # run's provenance, not its payload: pruning them would leave a cold run unable to
+    # say what it was built from, and reference-aware asset pruning unable to see it.
     if first in {"config", "scheduler"} or base in {
-        "manifest.json", "study_manifest.json", "study.yml", "cluster.yml"
+        "manifest.json", "study_manifest.json", "study.yml", "cluster.yml",
+        "assets.lock.yml", "software.lock.json",
     }:
         return "metadata"
     if first == "inputs":
@@ -864,9 +1074,23 @@ def inspect_artifact(target: dict, query_scheduler: bool = True) -> dict:
     @return Result produced by this operation.
     """
     root = target["root_path"]
-    entries = _walk_archive_entries(root)
+    workspace = target["artifact_type"] == "workspace"
+    entries = _walk_archive_entries(
+        root, WORKSPACE_EXCLUDED_ROOTS if workspace else ()
+    )
     for entry in entries:
-        entry["component"] = _classify_component(entry["path"])
+        entry["component"] = (
+            _classify_workspace_component(entry["path"]) if workspace
+            else _classify_component(entry["path"])
+        )
+    if workspace and not target.get("include_inputs"):
+        # User-supplied data is theirs. It is archived only on request, because a
+        # workspace protect is about the configuration and catalog, not about taking
+        # custody of possibly enormous imported fields.
+        entries = [
+            entry for entry in entries
+            if entry["component"] != "workspace-inputs" or entry["type"] == "directory"
+        ]
     lock_paths = []
     for name in ("post.lock.json", "solver.lock.json"):
         for candidate in Path(root).glob(f"**/scheduler/{name}"):
@@ -1288,6 +1512,28 @@ def _capture_parameter_summary(root: str) -> dict:
     return {key: value for key, value in summary.items() if value is not None}
 
 
+def _capture_workspace_assets(target: dict) -> list:
+    """!
+    @brief List the asset ids a workspace archive carries.
+    @param[in] target Local artifact target.
+    @return Sorted asset ids, empty for non-workspace artifacts.
+    """
+    if target["artifact_type"] != "workspace":
+        return []
+    objects_root = os.path.join(target["root_path"], "assets", "objects")
+    if not os.path.isdir(objects_root):
+        return []
+    found = []
+    for kind in sorted(os.listdir(objects_root)):
+        kind_root = os.path.join(objects_root, kind)
+        if os.path.isdir(kind_root):
+            found.extend(
+                name for name in sorted(os.listdir(kind_root))
+                if os.path.isdir(os.path.join(kind_root, name))
+            )
+    return sorted(found)
+
+
 def _capture_run_assets(root: str) -> list:
     """!
     @brief Record reusable asset references carried by run-local input snapshots.
@@ -1430,7 +1676,10 @@ def _entry_retained_by_policy(entry: dict, policy: dict, latest_step) -> bool:
     @return True when the entry is retained locally.
     """
     component = entry["component"]
-    if component == UNCLASSIFIED_COMPONENT:
+    # Never pruned, whatever the policy: a file storage cannot classify, and a
+    # workspace's editable configuration and user-supplied inputs. Protecting a
+    # workspace is a backup, not a handover of the user's own files.
+    if component in ALWAYS_RETAINED_COMPONENTS:
         return True
     if component in set(policy["retained_components"]):
         return True
@@ -1660,6 +1909,7 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
                 "run_id": target.get("run_id"),
                 "study_id": target.get("study_id"),
                 "case_id": target.get("case_id"),
+                "workspace_id": target.get("workspace_id"),
                 "label": label or os.path.basename(target["root_path"]),
                 "notes": notes,
                 "tags": _parse_tags(tags),
@@ -1685,6 +1935,7 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
                 "dependencies": inventory["dependencies"],
                 "study_context": _capture_study_context(target),
                 "run_assets": _capture_run_assets(target["root_path"]),
+                "workspace_assets": _capture_workspace_assets(target),
                 "capabilities": {
                     "restorable": True,
                     "continuable": bool(inventory["checkpoint_steps"]),
@@ -2253,6 +2504,54 @@ def restore_archive(profile: dict, archive_id: str, destination: str = None,
     return manifest
 
 
+def _expand_checkpoint_selection(explicit, ranges) -> list:
+    """!
+    @brief Combine repeated `--checkpoint` values with `START:END[:STRIDE]` ranges.
+    @param[in] explicit Individually named steps, or None.
+    @param[in] ranges Range expressions, or None.
+    @return Sorted unique step list, or None when nothing was selected.
+    """
+    selected = set(explicit or ())
+    for expression in ranges or ():
+        parts = str(expression).split(":")
+        if len(parts) not in (2, 3):
+            raise StorageError(
+                f"--checkpoints expects START:END or START:END:STRIDE, got {expression!r}."
+            )
+        try:
+            numbers = [int(part) for part in parts]
+        except ValueError:
+            raise StorageError(
+                f"--checkpoints expects integer steps, got {expression!r}."
+            ) from None
+        start, end = numbers[0], numbers[1]
+        stride = numbers[2] if len(numbers) == 3 else 1
+        if stride <= 0:
+            raise StorageError(f"--checkpoints stride must be positive, got {expression!r}.")
+        if end < start:
+            raise StorageError(f"--checkpoints end precedes start in {expression!r}.")
+        selected.update(range(start, end + 1, stride))
+    return sorted(selected) or None
+
+
+def resolve_workspace_archive_id(profile: dict, workspace_id: str) -> str:
+    """!
+    @brief Find the newest complete workspace archive carrying one workspace identity.
+    @param[in] profile Resolved storage profile.
+    @param[in] workspace_id Workspace identity recorded at archive time.
+    @return Archive id.
+    @throws StorageError when no such archive exists.
+    """
+    matches = [
+        manifest for manifest in list_remote_manifests(profile)
+        if manifest.get("artifact_type") == "workspace"
+        and manifest.get("workspace_id") == workspace_id
+    ]
+    if not matches:
+        raise StorageError(f"No workspace archive found for identity {workspace_id!r}.")
+    return max(matches, key=lambda item: str(item.get("created_at", "")))["archive_id"]
+
+
 def _resolve_archive_id_from_args(args) -> str:
     """!
     @brief Resolve an explicit archive ID or a local artifact marker.
@@ -2262,6 +2561,14 @@ def _resolve_archive_id_from_args(args) -> str:
     archive_id = getattr(args, "archive_id", None)
     if archive_id:
         return archive_id
+    workspace_id = getattr(args, "workspace_id", None)
+    if workspace_id:
+        return resolve_workspace_archive_id(
+            load_storage_profile(
+                getattr(args, "profile", None), getattr(args, "storage_config", None)
+            ),
+            workspace_id,
+        )
     targets = resolve_local_storage_targets(
         getattr(args, "run_dir", None), getattr(args, "study_dir", None), getattr(args, "case_ids", None)
     )
@@ -2281,7 +2588,10 @@ def _render_status(inventory: dict) -> None:
     target = inventory["target"]
     storage = inventory["storage"]
     activity = "BUSY" if inventory["active_locks"] or inventory["slurm"]["active"] else storage["state"]
-    identity = target.get("case_id") or target.get("run_id") or target.get("study_id")
+    identity = (
+        target.get("case_id") or target.get("run_id") or target.get("study_id")
+        or target.get("workspace_id") or os.path.basename(target["root_path"])
+    )
     print(
         f"{identity:<36} {target['artifact_type']:<12} {activity:<10} "
         f"{_human_bytes(inventory['total_bytes']):>12}  {storage.get('label') or ''}"
@@ -2339,7 +2649,12 @@ def storage_status_workflow(args) -> None:
         ]
         targets = resolve_local_storage_targets(None, study_root, case_ids) if case_ids else resolve_local_storage_targets(None, study_root)
     else:
-        targets = resolve_local_storage_targets(args.run_dir, args.study_dir, args.case_ids)
+        targets = resolve_local_storage_targets(
+        args.run_dir, args.study_dir, args.case_ids,
+        workspace=getattr(args, "workspace", None),
+        include_inputs=getattr(args, "include_inputs", False),
+        completed=getattr(args, "completed", False),
+    )
     inventories = [inspect_artifact(target) for target in targets]
     if args.output_format == "json":
         serializable = []
@@ -2360,7 +2675,12 @@ def storage_plan_workflow(args) -> None:
     @param[in] args Value supplied through the `args` argument.
     """
     profile = load_storage_profile(args.profile, args.storage_config)
-    targets = resolve_local_storage_targets(args.run_dir, args.study_dir, args.case_ids)
+    targets = resolve_local_storage_targets(
+        args.run_dir, args.study_dir, args.case_ids,
+        workspace=getattr(args, "workspace", None),
+        include_inputs=getattr(args, "include_inputs", False),
+        completed=getattr(args, "completed", False),
+    )
     for index, target in enumerate(targets):
         if index:
             print()
@@ -2381,7 +2701,12 @@ def storage_archive_workflow(args, prune_local: bool) -> None:
     @param[in] prune_local Value supplied through the `prune_local` argument.
     """
     profile = load_storage_profile(args.profile, args.storage_config)
-    targets = resolve_local_storage_targets(args.run_dir, args.study_dir, args.case_ids)
+    targets = resolve_local_storage_targets(
+        args.run_dir, args.study_dir, args.case_ids,
+        workspace=getattr(args, "workspace", None),
+        include_inputs=getattr(args, "include_inputs", False),
+        completed=getattr(args, "completed", False),
+    )
     for target in targets:
         if args.dry_run:
             _render_plan(build_storage_plan(
@@ -2417,11 +2742,48 @@ def storage_restore_workflow(args) -> None:
         profile,
         archive_id,
         destination=args.destination,
-        checkpoints=args.checkpoints,
+        checkpoints=_expand_checkpoint_selection(
+            args.checkpoints, getattr(args, "checkpoint_ranges", None)
+        ),
         force=args.force,
         workers=getattr(args, "workers", None),
         components=getattr(args, "components", None),
     )
+
+
+def storage_prune_workflow(args) -> None:
+    """!
+    @brief Remove local asset objects nothing local needs and storage has verified.
+    @param[in] args Value supplied through the `args` argument.
+    """
+    profile = load_storage_profile(args.profile, args.storage_config)
+    workspace_root = os.path.abspath(args.workspace) if args.workspace else _find_upwards(
+        os.getcwd(), WORKSPACE_CONFIG_FILENAME
+    )
+    if workspace_root and os.path.isfile(workspace_root):
+        workspace_root = os.path.dirname(workspace_root)
+    if not workspace_root:
+        raise StorageError(
+            "No initialized workspace found. Pass --workspace, or run inside one."
+        )
+    decisions = prune_unused_workspace_assets(workspace_root, profile, dry_run=args.dry_run)
+    if not decisions:
+        print("[INFO] The workspace asset store holds no published objects.")
+        return
+    for decision in decisions:
+        print(
+            f"{decision['asset_id'][:16]}  {decision['kind']}\n"
+            f"  referenced by remote runs       {decision['cold_runs']}\n"
+            f"  referenced by active local runs {decision['active_local_runs']}\n"
+            f"  remote protection               {decision['remote_protection']}\n"
+            f"  local removal                   {decision['local_removal']}"
+        )
+    removed = [item for item in decisions if item.get("removed")]
+    if args.dry_run:
+        safe = [item for item in decisions if item["local_removal"] == "safe"]
+        print(f"[INFO] Dry-run only. {len(safe)} object(s) would be removed.")
+    else:
+        print(f"[SUCCESS] Removed {len(removed)} local asset object(s).")
 
 
 def storage_verify_workflow(args) -> None:
@@ -2444,12 +2806,21 @@ def storage_list_workflow(args) -> None:
     """
     profile = load_storage_profile(args.profile, args.storage_config)
     manifests = list_remote_manifests(profile)
+    workspace_label = getattr(args, "workspace_label", None)
+    if workspace_label:
+        manifests = [
+            item for item in manifests
+            if str(item.get("workspace_id") or "") == workspace_label
+        ]
     query = str(args.search or "").lower()
     if query:
         manifests = [
             item for item in manifests
             if query in " ".join(
-                str(item.get(key, "")) for key in ("archive_id", "label", "run_id", "study_id", "case_id", "tags")
+                str(item.get(key, "")) for key in (
+                    "archive_id", "label", "notes", "run_id", "study_id", "case_id",
+                    "workspace_id", "tags",
+                )
             ).lower()
         ]
     if args.output_format == "json":
@@ -2457,7 +2828,10 @@ def storage_list_workflow(args) -> None:
         return
     print(f"{'ARCHIVE ID':<34} {'TYPE':<12} {'IDENTITY':<32} LABEL")
     for item in manifests:
-        identity = item.get("case_id") or item.get("run_id") or item.get("study_id") or "-"
+        identity = (
+            item.get("case_id") or item.get("run_id") or item.get("study_id")
+            or item.get("workspace_id") or "-"
+        )
         print(f"{item['archive_id']:<34} {item.get('artifact_type', '-'):<12} {identity:<32} {item.get('label', '')}")
 
 
@@ -2490,6 +2864,8 @@ def storage_workflow(args) -> None:
             storage_archive_workflow(args, prune_local=True)
         elif action == "restore":
             storage_restore_workflow(args)
+        elif action == "prune":
+            storage_prune_workflow(args)
         elif action == "verify":
             storage_verify_workflow(args)
         elif action == "list":
@@ -2550,18 +2926,29 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
         action_parser.add_argument("--profile", help="Configured storage profile name.")
         action_parser.add_argument("--storage-config", help="Explicit storage YAML path.")
 
-    def add_local_target(action_parser, require=True):
+    def add_local_target(action_parser, require=True, allow_workspace=True):
         """!
-        @brief Attach the standard run-or-study target selectors to one action parser.
+        @brief Attach the standard run/study/workspace target selectors to one parser.
         @param[in] action_parser Value supplied through the `action_parser` argument.
         @param[in] require Value supplied through the `require` argument.
+        @param[in] allow_workspace Whether a whole workspace is a valid target here.
         """
         group = action_parser.add_mutually_exclusive_group(required=require)
         group.add_argument("--run-dir", help="Standalone run directory.")
         group.add_argument("--study-dir", help="Sweep study directory.")
+        if allow_workspace:
+            group.add_argument(
+                "--workspace",
+                help="Workspace root: its configuration, catalog, and assets, not its "
+                     "runs and studies, which are their own artifacts.",
+            )
         action_parser.add_argument(
             "--case-id", dest="case_ids", action="append",
             help="One numbered study member, such as case_0003; repeat to select several.",
+        )
+        action_parser.add_argument(
+            "--completed", action="store_true",
+            help="With --study-dir, select every finished member and skip the rest.",
         )
 
     status = actions.add_parser("status", help="Show local, protected, cold, and busy artifact state.")
@@ -2586,6 +2973,10 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
         action_parser = actions.add_parser(name, help=help_text)
         add_local_target(action_parser)
         add_profile_options(action_parser)
+        action_parser.add_argument(
+            "--include-inputs", action="store_true",
+            help="With --workspace, also archive user-supplied files under inputs/.",
+        )
         action_parser.add_argument("--label", help="Human-readable searchable label.")
         action_parser.add_argument(
             "--notes", help="Free-text note recorded with the archive and shown by `show`."
@@ -2603,12 +2994,22 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
     restore = actions.add_parser("restore", help="Restore a complete archive or selected checkpoints.")
     restore_source = restore.add_mutually_exclusive_group(required=True)
     restore_source.add_argument("--archive-id", help="Globally unique remote archive ID.")
+    restore_source.add_argument(
+        "--workspace-id", help="Restore a workspace archive by its recorded workspace identity."
+    )
     restore_source.add_argument("--run-dir", help="Cold run containing a local storage marker.")
     restore_source.add_argument("--study-dir", help="Cold study containing a local storage marker.")
     restore.add_argument("--case-id", dest="case_ids", action="append")
     add_profile_options(restore)
     restore.add_argument("--to", dest="destination", help="Optional alternate restore destination.")
-    restore.add_argument("--checkpoint", dest="checkpoints", action="append", type=int)
+    restore.add_argument(
+        "--checkpoint", dest="checkpoints", action="append", type=int,
+        help="One committed step; repeat to select several.",
+    )
+    restore.add_argument(
+        "--checkpoints", dest="checkpoint_ranges", action="append",
+        help="An inclusive step range as START:END or START:END:STRIDE; repeatable.",
+    )
     restore.add_argument(
         "--component", dest="components", action="append",
         choices=STORAGE_RESTORE_COMPONENTS,
@@ -2616,6 +3017,21 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
     )
     restore.add_argument("--force", action="store_true", help="Allow merge into a non-matching existing destination.")
     restore.add_argument("--workers", type=int, help="Parallel download/extraction workers.")
+
+    prune = actions.add_parser(
+        "prune", help="Remove verified local asset objects that nothing local still needs."
+    )
+    prune.add_argument("--workspace", help="Workspace root; defaults to discovery from the cwd.")
+    prune.add_argument(
+        "--assets", action="store_true", required=True,
+        help="Select the workspace asset store. Required: prune removes nothing else.",
+    )
+    prune.add_argument(
+        "--unused-locally", action="store_true", required=True,
+        help="Confirm that only objects with no active local run are removed.",
+    )
+    prune.add_argument("--dry-run", action="store_true", help="Report the decision only.")
+    add_profile_options(prune)
 
     verify = actions.add_parser("verify", help="Verify a remote archive completion marker and chunk checksums.")
     verify_source = verify.add_mutually_exclusive_group(required=True)
@@ -2628,6 +3044,9 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
     list_parser = actions.add_parser("list", help="List/search remote archives without local directories.")
     add_profile_options(list_parser)
     list_parser.add_argument("--search", help="Case-insensitive search across IDs, labels, identities, and tags.")
+    list_parser.add_argument(
+        "--workspace-label", help="Show only archives belonging to this workspace identity."
+    )
     list_parser.add_argument("--format", dest="output_format", choices=list(CLI_OUTPUT_FORMATS), default="text")
 
     show = actions.add_parser("show", help="Print the complete manifest for one archive.")

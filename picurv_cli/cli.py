@@ -163,6 +163,9 @@ def _add_sweep_parser(subparsers):
                          help="Continue a partially-completed study. Requires --study-dir.")
     p_sweep.add_argument("--reaggregate", action="store_true",
                          help="Re-run metrics aggregation on a completed study. Requires --study-dir.")
+    p_sweep.add_argument("--auto-fetch", action="store_true",
+                         help="Restore cold-storage study members automatically instead of\n"
+                              "refusing. Requires a configured storage profile.")
     return p_sweep
 
 

@@ -923,6 +923,18 @@
                 "required": false
               },
               {
+                "choices": [],
+                "default": null,
+                "dest": "workspace_label",
+                "flags": [
+                  "--workspace-label"
+                ],
+                "help": "Show only archives belonging to this workspace identity.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
                 "choices": [
                   "json",
                   "text"
@@ -986,6 +998,18 @@
               {
                 "choices": [],
                 "default": null,
+                "dest": "workspace",
+                "flags": [
+                  "--workspace"
+                ],
+                "help": "Workspace root: its configuration, catalog, and assets, not its runs and studies, which are their own artifacts.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
                 "dest": "case_ids",
                 "flags": [
                   "--case-id"
@@ -993,6 +1017,18 @@
                 "help": "One numbered study member, such as case_0003; repeat to select several.",
                 "is_flag": false,
                 "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": "False",
+                "dest": "completed",
+                "flags": [
+                  "--completed"
+                ],
+                "help": "With --study-dir, select every finished member and skip the rest.",
+                "is_flag": true,
+                "nargs": "0",
                 "required": false
               },
               {
@@ -1021,12 +1057,36 @@
               },
               {
                 "choices": [],
+                "default": "False",
+                "dest": "include_inputs",
+                "flags": [
+                  "--include-inputs"
+                ],
+                "help": "With --workspace, also archive user-supplied files under inputs/.",
+                "is_flag": true,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
                 "default": null,
                 "dest": "label",
                 "flags": [
                   "--label"
                 ],
                 "help": "Human-readable searchable label.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "notes",
+                "flags": [
+                  "--notes"
+                ],
+                "help": "Free-text note recorded with the archive and shown by `show`.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1174,6 +1234,18 @@
               {
                 "choices": [],
                 "default": null,
+                "dest": "workspace",
+                "flags": [
+                  "--workspace"
+                ],
+                "help": "Workspace root: its configuration, catalog, and assets, not its runs and studies, which are their own artifacts.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
                 "dest": "case_ids",
                 "flags": [
                   "--case-id"
@@ -1181,6 +1253,18 @@
                 "help": "One numbered study member, such as case_0003; repeat to select several.",
                 "is_flag": false,
                 "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": "False",
+                "dest": "completed",
+                "flags": [
+                  "--completed"
+                ],
+                "help": "With --study-dir, select every finished member and skip the rest.",
+                "is_flag": true,
+                "nargs": "0",
                 "required": false
               },
               {
@@ -1326,6 +1410,18 @@
               {
                 "choices": [],
                 "default": null,
+                "dest": "workspace",
+                "flags": [
+                  "--workspace"
+                ],
+                "help": "Workspace root: its configuration, catalog, and assets, not its runs and studies, which are their own artifacts.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
                 "dest": "case_ids",
                 "flags": [
                   "--case-id"
@@ -1333,6 +1429,18 @@
                 "help": "One numbered study member, such as case_0003; repeat to select several.",
                 "is_flag": false,
                 "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": "False",
+                "dest": "completed",
+                "flags": [
+                  "--completed"
+                ],
+                "help": "With --study-dir, select every finished member and skip the rest.",
+                "is_flag": true,
+                "nargs": "0",
                 "required": false
               },
               {
@@ -1361,12 +1469,36 @@
               },
               {
                 "choices": [],
+                "default": "False",
+                "dest": "include_inputs",
+                "flags": [
+                  "--include-inputs"
+                ],
+                "help": "With --workspace, also archive user-supplied files under inputs/.",
+                "is_flag": true,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
                 "default": null,
                 "dest": "label",
                 "flags": [
                   "--label"
                 ],
                 "help": "Human-readable searchable label.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "notes",
+                "flags": [
+                  "--notes"
+                ],
+                "help": "Free-text note recorded with the archive and shown by `show`.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1471,6 +1603,100 @@
           "name": "protect",
           "subcommands": {}
         },
+        "prune": {
+          "groups": {
+            "optional arguments": [
+              {
+                "choices": [],
+                "default": null,
+                "dest": "help",
+                "flags": [
+                  "-h",
+                  "--help"
+                ],
+                "help": "show this help message and exit",
+                "is_flag": false,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "workspace",
+                "flags": [
+                  "--workspace"
+                ],
+                "help": "Workspace root; defaults to discovery from the cwd.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": "False",
+                "dest": "assets",
+                "flags": [
+                  "--assets"
+                ],
+                "help": "Select the workspace asset store. Required: prune removes nothing else.",
+                "is_flag": true,
+                "nargs": "0",
+                "required": true
+              },
+              {
+                "choices": [],
+                "default": "False",
+                "dest": "unused_locally",
+                "flags": [
+                  "--unused-locally"
+                ],
+                "help": "Confirm that only objects with no active local run are removed.",
+                "is_flag": true,
+                "nargs": "0",
+                "required": true
+              },
+              {
+                "choices": [],
+                "default": "False",
+                "dest": "dry_run",
+                "flags": [
+                  "--dry-run"
+                ],
+                "help": "Report the decision only.",
+                "is_flag": true,
+                "nargs": "0",
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "profile",
+                "flags": [
+                  "--profile"
+                ],
+                "help": "Configured storage profile name.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "storage_config",
+                "flags": [
+                  "--storage-config"
+                ],
+                "help": "Explicit storage YAML path.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              }
+            ]
+          },
+          "help": "",
+          "name": "prune",
+          "subcommands": {}
+        },
         "restore": {
           "groups": {
             "optional arguments": [
@@ -1495,6 +1721,18 @@
                   "--archive-id"
                 ],
                 "help": "Globally unique remote archive ID.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "workspace_id",
+                "flags": [
+                  "--workspace-id"
+                ],
+                "help": "Restore a workspace archive by its recorded workspace identity.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1578,7 +1816,19 @@
                 "flags": [
                   "--checkpoint"
                 ],
-                "help": "",
+                "help": "One committed step; repeat to select several.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "checkpoint_ranges",
+                "flags": [
+                  "--checkpoints"
+                ],
+                "help": "An inclusive step range as START:END or START:END:STRIDE; repeatable.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1885,6 +2135,18 @@
               {
                 "choices": [],
                 "default": null,
+                "dest": "workspace",
+                "flags": [
+                  "--workspace"
+                ],
+                "help": "Workspace root: its configuration, catalog, and assets, not its runs and studies, which are their own artifacts.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
                 "dest": "case_ids",
                 "flags": [
                   "--case-id"
@@ -1892,6 +2154,18 @@
                 "help": "One numbered study member, such as case_0003; repeat to select several.",
                 "is_flag": false,
                 "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": "False",
+                "dest": "completed",
+                "flags": [
+                  "--completed"
+                ],
+                "help": "With --study-dir, select every finished member and skip the rest.",
+                "is_flag": true,
+                "nargs": "0",
                 "required": false
               },
               {
@@ -2410,6 +2684,18 @@
               "--reaggregate"
             ],
             "help": "Re-run metrics aggregation on a completed study. Requires --study-dir.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "auto_fetch",
+            "flags": [
+              "--auto-fetch"
+            ],
+            "help": "Restore cold-storage study members automatically instead of\nrefusing. Requires a configured storage profile.",
             "is_flag": true,
             "nargs": "0",
             "required": false

@@ -43,6 +43,7 @@ try:
     from .storage import (
         StorageError,
         cold_study_members,
+        restore_cold_study_members,
         is_artifact_cold,
         require_storage_payload_local,
         runtime_stage_lock,
@@ -58,6 +59,7 @@ except ImportError:
     _storage_spec.loader.exec_module(_storage_module)
     StorageError = _storage_module.StorageError
     cold_study_members = _storage_module.cold_study_members
+    restore_cold_study_members = _storage_module.restore_cold_study_members
     is_artifact_cold = _storage_module.is_artifact_cold
     require_storage_payload_local = _storage_module.require_storage_payload_local
     runtime_stage_lock = _storage_module.runtime_stage_lock
@@ -13707,6 +13709,24 @@ def normalize_metric_spec(metric):
         return {"name": metric, "source": "log_regex", "regex": metric}
     return dict(metric)
 
+def _read_previous_metric_rows(results_dir: str) -> dict:
+    """!
+    @brief Read the metrics table an earlier aggregation wrote, keyed by case id.
+    @param[in] results_dir Study analysis directory holding metrics_table.csv.
+    @return Mapping of case id to its previously recorded row, empty when absent.
+    """
+    path = os.path.join(results_dir, "metrics_table.csv")
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8", newline="") as stream:
+            return {
+                row["case_id"]: row for row in csv.DictReader(stream) if row.get("case_id")
+            }
+    except (OSError, ValueError):
+        return {}
+
+
 def aggregate_study_metrics(study_cfg: dict, cases: list, results_dir: str) -> str:
     """!
     @brief Collect metric values from generated case directories into one CSV.
@@ -13720,12 +13740,34 @@ def aggregate_study_metrics(study_cfg: dict, cases: list, results_dir: str) -> s
         metrics = ["msd_final"]
     normalized_specs = [normalize_metric_spec(m) for m in metrics]
 
+    # A member whose payload was archived cannot be re-measured. Its previously
+    # aggregated values are the correct answer for it, so they are carried forward
+    # rather than overwritten with blanks or the whole table refused.
+    preserved = _read_previous_metric_rows(results_dir)
     rows = []
     for case in cases:
         row = {"case_id": case["case_id"]}
         flat_parameters = flatten_study_parameters(case.get("parameters", {}))
         for p_key, p_val in flat_parameters.items():
             row[p_key] = p_val
+        if is_artifact_cold(case["run_dir"]):
+            retained = preserved.get(case["case_id"])
+            if retained:
+                for spec in normalized_specs:
+                    name = spec.get("name", "metric")
+                    row[name] = retained.get(name)
+                row["_source"] = "retained"
+                rows.append(row)
+                continue
+            print(
+                f"[WARN] {case['case_id']} is in cold storage and no previous metrics "
+                "row was found; its values are reported as unavailable.",
+                file=sys.stderr,
+            )
+            for spec in normalized_specs:
+                row[spec.get("name", "metric")] = None
+            rows.append(row)
+            continue
         for spec in normalized_specs:
             name = spec.get("name", "metric")
             source = str(spec.get("source", "")).lower()
@@ -16816,6 +16858,17 @@ def sweep_continue_workflow(args):
     parsed_entries = parse_case_index_tsv(case_index_file)
 
     cold_cases = cold_study_members(study_dir)
+    if cold_cases and getattr(args, "auto_fetch", False):
+        print(
+            "[INFO] --auto-fetch: restoring cold-storage member(s) before continuing: "
+            + ", ".join(cold_cases)
+        )
+        try:
+            restore_cold_study_members(study_dir, cold_cases)
+        except StorageError as exc:
+            print(f"[FATAL] Automatic restore failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+        cold_cases = cold_study_members(study_dir)
     if cold_cases:
         print(
             "[FATAL] Study continuation requires payload from cold-storage member(s): "
@@ -16829,6 +16882,10 @@ def sweep_continue_workflow(args):
                 f"{state.get('archive_id') or '<archive-id>'}",
                 file=sys.stderr,
             )
+        print(
+            "        Or pass --auto-fetch to restore them automatically.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     base_cfgs = study_cfg["base_configs"]
@@ -17036,13 +17093,22 @@ def sweep_reaggregate_workflow(args):
 
     parsed_entries = parse_case_index_tsv(case_index_file)
     cold_cases = cold_study_members(study_dir)
+    if cold_cases and getattr(args, "auto_fetch", False):
+        print(
+            "[INFO] --auto-fetch: restoring cold-storage member(s) before aggregating: "
+            + ", ".join(cold_cases)
+        )
+        try:
+            restore_cold_study_members(study_dir, cold_cases)
+        except StorageError as exc:
+            print(f"[FATAL] Automatic restore failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+        cold_cases = cold_study_members(study_dir)
     if cold_cases:
         print(
-            "[FATAL] Metrics reaggregation would read archived member data and could replace values with blanks. "
-            "Restore these member(s) first: " + ", ".join(cold_cases),
-            file=sys.stderr,
+            "[INFO] Cold-storage member(s) cannot be re-measured; their previously "
+            "aggregated values are carried forward: " + ", ".join(cold_cases)
         )
-        sys.exit(1)
     combinations = expand_study_parameter_combinations(study_cfg)
     if len(combinations) != len(parsed_entries):
         print(

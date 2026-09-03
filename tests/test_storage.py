@@ -4,6 +4,7 @@
 """
 
 import hashlib
+import csv
 import json
 import os
 import shutil
@@ -500,9 +501,14 @@ def test_post_and_submit_refuse_cold_run_before_missing_data_is_misdiagnosed(tmp
     assert "storage restore --archive-id" in capsys.readouterr().err
 
 
-def test_sweep_continue_and_reaggregate_refuse_cold_members(tmp_path, monkeypatch, capsys):
+def test_sweep_maintenance_handles_a_cold_member_without_losing_it(tmp_path, monkeypatch, capsys):
     """!
     @brief Sweep maintenance never reclassifies a deliberately offloaded member as empty.
+
+    @details Continuation refuses, because it would have to rerun the member from
+             scratch. Reaggregation does not: it cannot re-measure archived output, but
+             the values it measured last time are still the right answer for that
+             member, so they are carried forward instead of blanked.
     @param[in] tmp_path Value supplied through the `tmp_path` argument.
     @param[in] monkeypatch Value supplied through the `monkeypatch` argument.
     @param[in] capsys Value supplied through the `capsys` argument.
@@ -523,10 +529,20 @@ def test_sweep_continue_and_reaggregate_refuse_cold_members(tmp_path, monkeypatc
     assert continue_exit.value.code == 1
     assert "cold-storage member" in capsys.readouterr().err
 
-    with pytest.raises(SystemExit) as aggregate_exit:
-        core.sweep_reaggregate_workflow(SimpleNamespace(study_dir=str(study)))
-    assert aggregate_exit.value.code == 1
-    assert "could replace values with blanks" in capsys.readouterr().err
+    # A previous aggregation recorded a value for this member.
+    results = study / "output" / "analysis"
+    results.mkdir(parents=True, exist_ok=True)
+    (results / "metrics_table.csv").write_text(
+        f"case_id,msd_final\n{case.name},1.25\n", encoding="utf-8"
+    )
+
+    core.sweep_reaggregate_workflow(SimpleNamespace(study_dir=str(study), auto_fetch=False))
+    assert "carried forward" in capsys.readouterr().out
+    rows = list(csv.DictReader(
+        (results / "metrics_table.csv").read_text(encoding="utf-8").splitlines()
+    ))
+    retained = {row["case_id"]: row for row in rows}[case.name]
+    assert retained["msd_final"] == "1.25", rows
 
 
 def test_runtime_solver_lock_is_visible_and_cleaned(tmp_path):
@@ -767,3 +783,157 @@ def test_unclassified_files_are_archived_but_never_pruned(tmp_path, local_rclone
         assert nested.is_file(), f"{policy} deleted an unclassified file"
     # They are archived too, so a later restore brings them back.
     assert stray.read_text(encoding="utf-8") == "my own notes about this run\n"
+
+
+def _write_workspace_artifact(root: Path) -> Path:
+    """!
+    @brief Create a workspace with configuration, an imported input, and one asset.
+    @param[in] root Workspace directory to create.
+    @return Created workspace path.
+    """
+    (root / "config").mkdir(parents=True)
+    (root / "config" / "case.yml").write_text("title: ws\n", encoding="utf-8")
+    (root / "inputs" / "grids").mkdir(parents=True)
+    (root / "inputs" / "grids" / "imported.picgrid").write_bytes(b"imported-mesh")
+    asset = root / "assets" / "objects" / "grids" / ("a" * 64)
+    (asset / "payload").mkdir(parents=True)
+    (asset / "asset.json").write_text('{"asset_id": "' + "a" * 64 + '"}\n', encoding="utf-8")
+    (asset / "payload" / "grid.run").write_bytes(b"grid")
+    (root / "assets" / "sets").mkdir(parents=True)
+    (root / "runs").mkdir()
+    (root / "studies").mkdir()
+    (root / storage.WORKSPACE_CONFIG_FILENAME).write_text(
+        "schema_version: 1\nworkspace:\n  id: pilot64\n", encoding="utf-8"
+    )
+    return root
+
+
+def test_workspace_protection_covers_configuration_but_not_runs(tmp_path, local_rclone):
+    """!
+    @brief A workspace is its own artifact, and it does not swallow its runs.
+
+    @details Runs and studies carry their own archives; duplicating them inside a
+             workspace archive would store the same bytes twice and blur which object
+             owns what. User-supplied inputs are excluded unless asked for, because
+             protecting a workspace is a backup, not custody of the user's data.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    workspace = _write_workspace_artifact(tmp_path / "pilot64")
+    _write_run(workspace / "runs" / "inner")
+
+    target = storage.resolve_local_storage_targets(workspace=str(workspace))[0]
+    assert target["artifact_type"] == "workspace"
+    assert target["workspace_id"] == "pilot64"
+
+    inventory = storage.inspect_artifact(target, query_scheduler=False)
+    paths = {entry["path"] for entry in inventory["entries"]}
+    assert not any(path.startswith("runs/") for path in paths), sorted(paths)
+    assert "config/case.yml" in paths
+    assert "assets/objects/grids/" + "a" * 64 + "/payload/grid.run" in paths
+    assert "inputs/grids/imported.picgrid" not in paths
+
+    with_inputs = storage.resolve_local_storage_targets(
+        workspace=str(workspace), include_inputs=True
+    )[0]
+    inventory = storage.inspect_artifact(with_inputs, query_scheduler=False)
+    assert "inputs/grids/imported.picgrid" in {e["path"] for e in inventory["entries"]}
+
+    manifest = storage.archive_artifact(target, _profile(tmp_path), label="pilot workspace")
+    assert manifest["workspace_id"] == "pilot64"
+    assert manifest["workspace_assets"] == ["a" * 64]
+
+
+def test_a_deleted_workspace_is_recoverable_by_its_identity(tmp_path, local_rclone):
+    """!
+    @brief Recovery does not depend on remembering an archive id or a directory name.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    workspace = _write_workspace_artifact(tmp_path / "pilot64")
+    target = storage.resolve_local_storage_targets(workspace=str(workspace))[0]
+    manifest = storage.archive_artifact(target, _profile(tmp_path), label="pilot workspace")
+    shutil.rmtree(workspace)
+
+    resolved = storage.resolve_workspace_archive_id(_profile(tmp_path), "pilot64")
+    assert resolved == manifest["archive_id"]
+    with pytest.raises(storage.StorageError, match="No workspace archive"):
+        storage.resolve_workspace_archive_id(_profile(tmp_path), "no-such-workspace")
+
+    recovered = tmp_path / "recovered"
+    storage.restore_archive(_profile(tmp_path), resolved, destination=str(recovered))
+    assert (recovered / "config" / "case.yml").read_text(encoding="utf-8") == "title: ws\n"
+    assert (recovered / storage.WORKSPACE_CONFIG_FILENAME).is_file()
+
+
+def test_asset_pruning_is_reference_aware(tmp_path, local_rclone):
+    """!
+    @brief A shared asset survives locally while any active local run still needs it.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    workspace = _write_workspace_artifact(tmp_path / "pilot64")
+    asset_id = "a" * 64
+    for name in ("hot", "cold"):
+        run = _write_run(workspace / "runs" / name)
+        (run / "inputs").mkdir(exist_ok=True)
+        (run / "inputs" / "assets.lock.yml").write_text(
+            f"assets:\n  grid:\n    asset_id: {asset_id}\n", encoding="utf-8"
+        )
+    profile = _profile(tmp_path)
+    storage.archive_artifact(
+        storage.resolve_local_storage_targets(workspace=str(workspace))[0], profile
+    )
+
+    # Both runs local: the asset is needed and must not be removed.
+    decisions = storage.prune_unused_workspace_assets(str(workspace), profile, dry_run=True)
+    assert decisions[0]["active_local_runs"] == 2
+    assert decisions[0]["local_removal"] == "blocked"
+
+    # Offload both, and the local copy becomes removable while the remote keeps it.
+    for name in ("hot", "cold"):
+        storage.archive_artifact(
+            storage.resolve_local_storage_targets(str(workspace / "runs" / name), None)[0],
+            profile, prune_local=True,
+        )
+    decisions = storage.prune_unused_workspace_assets(str(workspace), profile, dry_run=True)
+    assert decisions[0]["active_local_runs"] == 0
+    assert decisions[0]["cold_runs"] == 2
+    assert decisions[0]["remote_protection"] == "verified"
+    assert decisions[0]["local_removal"] == "safe"
+    assert (workspace / "assets" / "objects" / "grids" / asset_id).is_dir()
+
+    storage.prune_unused_workspace_assets(str(workspace), profile)
+    assert not (workspace / "assets" / "objects" / "grids" / asset_id).exists()
+
+
+def test_checkpoint_range_selection_expands_to_steps():
+    """!
+    @brief `--checkpoints START:END[:STRIDE]` selects the steps it names.
+    @return None.
+    """
+    assert storage._expand_checkpoint_selection(None, ["10:14"]) == [10, 11, 12, 13, 14]
+    assert storage._expand_checkpoint_selection(None, ["100:500:100"]) == [100, 200, 300, 400, 500]
+    assert storage._expand_checkpoint_selection([7], ["10:12"]) == [7, 10, 11, 12]
+    assert storage._expand_checkpoint_selection(None, None) is None
+    for bad in ("10", "10:9", "10:20:0", "a:b"):
+        with pytest.raises(storage.StorageError):
+            storage._expand_checkpoint_selection(None, [bad])
+
+
+def test_a_marker_naming_no_archive_reports_broken(tmp_path):
+    """!
+    @brief A marker claiming a remote copy nobody can locate is not reported as safe.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @return None.
+    """
+    run = _write_run(tmp_path / "runs" / "broken")
+    (run / storage.STORAGE_STATE_FILENAME).write_text(
+        json.dumps({"storage_schema_version": 1, "local_pruned": True}) + "\n", encoding="utf-8"
+    )
+    assert storage.storage_state_summary(str(run))["state"] == "BROKEN"
+    (run / storage.STORAGE_STATE_FILENAME).write_text("{ not json", encoding="utf-8")
+    assert storage.storage_state_summary(str(run))["state"] == "BROKEN"

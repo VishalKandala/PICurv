@@ -24,6 +24,24 @@ picurv storage status --study-dir studies/grid_study_20260824-150000 \
   --case-id case_0007
 ```
 
+Three kinds of thing can be archived, and they are separate artifacts on purpose:
+
+- a **run** or **study member**, which owns checkpoints and derived output;
+- a **study**, which owns its members' shared scheduling and aggregate results;
+- a **workspace**, which owns editable configuration, the input catalog, and the
+  published asset store — but not its runs and studies, which carry their own
+  archives. Duplicating them inside a workspace archive would store the same bytes
+  twice and blur which object owns what.
+
+```bash
+picurv storage protect --workspace .                    # config, catalog, assets
+picurv storage protect --workspace . --include-inputs    # and user-supplied files
+```
+
+User-supplied files under `<workspace>/inputs/` are excluded unless asked for, and no
+offload policy prunes them or the editable configuration: protecting a workspace is a
+backup, not custody of the user's own data.
+
 There are two archival actions:
 
 - `protect` uploads and verifies an immutable archive but keeps every local file;
@@ -324,6 +342,44 @@ under `<run.config.history>`; post recipes live under `<run.post_recipes>/<recip
 Storage classifies these as metadata, run-local materialized assets as inputs, and
 canonical output subtrees by semantic component. Study creation uses the same fixed
 member layout and stores aggregate analysis below `<run.analysis>`.
+
+@subsection p61_prune_assets 4.5 Reclaiming a Shared Asset
+
+Offloading a run does not remove the workspace assets it used, because another run may
+still need them. Once nothing local does, and a workspace archive has been verified,
+the local copies can go:
+
+```bash
+picurv storage prune --workspace . --assets --unused-locally --dry-run
+```
+
+Both selectors are required: `prune` removes nothing else, and it says what it decided
+before it decides it.
+
+```text
+8df21abc0e4f1a92  grids
+  referenced by remote runs       2
+  referenced by active local runs 0
+  remote protection               verified
+  local removal                   safe
+```
+
+A run that is itself cold still *references* its assets — that is what keeps the remote
+copy alive — but it no longer keeps the local one. An asset with any active local
+reference, or without a verified remote copy, is reported as blocked and left alone.
+
+@subsection p61_recover_workspace 4.6 Recovering From Complete Local Loss
+
+Nothing needs to be remembered but the workspace name:
+
+```bash
+picurv storage setup --remote <remote>
+picurv storage list --workspace-label pilot64
+picurv storage restore --workspace-id pilot64 --to pilot64
+```
+
+That returns the editable configuration, the input catalog, and the asset store. Runs
+and studies are restored individually from the same catalog, by id or by label.
 
 @section p61_code_sec 7. Code and Configuration Reproducibility
 
