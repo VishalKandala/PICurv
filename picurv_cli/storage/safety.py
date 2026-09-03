@@ -25,6 +25,7 @@ import yaml
 from .models import (
     STORAGE_LOCK_FILENAME,
     StorageError,
+    _human_bytes,
     _read_json,
     _utc_now,
     is_artifact_cold,
@@ -85,6 +86,31 @@ def require_storage_payload_local(
         f"{operation} requires payload archived from {os.path.abspath(root_path)}. Restore it first with:\n"
         f"  picurv storage restore --archive-id {archive_id}{suffix}"
     )
+
+
+def _require_free_space(directory: str, needed_bytes: int, purpose: str) -> None:
+    """!
+    @brief Refuse to begin staging work the destination filesystem cannot hold.
+
+    @details Packaging and restore both stage uncompressed bytes on disk before the
+             verified result replaces or uploads them. Discovering the filesystem was
+             too small only after chunks were partially written wastes the transfer
+             and can leave a staging directory to clean up by hand; checking first
+             turns that into an immediate, actionable refusal.
+    @param[in] directory Directory whose filesystem free space is checked; must exist.
+    @param[in] needed_bytes Estimated peak bytes the operation holds on disk at once.
+    @param[in] purpose Short present-tense phrase describing the operation, for the message.
+    @throws StorageError when free space is smaller than the estimate.
+    """
+    try:
+        free_bytes = shutil.disk_usage(directory).free
+    except OSError:
+        return
+    if free_bytes < needed_bytes:
+        raise StorageError(
+            f"Not enough free space at {directory} to {purpose}: need approximately "
+            f"{_human_bytes(needed_bytes)}, {_human_bytes(free_bytes)} free."
+        )
 
 
 def _lock_owner_active(metadata_path: str) -> bool:

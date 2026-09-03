@@ -60,7 +60,9 @@ The local state shown by `status` and `summarize` is:
 - `PROTECTED`: a verified archive exists and all local files remain;
 - `COLD`: heavy local payload was pruned;
 - `PARTIAL`: selected checkpoints were restored, but the complete archive is not local;
-- `BUSY`: a known local stage or Slurm job is active.
+- `BUSY`: a known local stage or Slurm job is active;
+- `BROKEN`: the local storage marker exists but is unreadable, or names no archive; this
+  means the artifact claims a remote copy nobody can locate, not that data was lost.
 
 @section p61_setup_sec 2. One-Time Setup
 
@@ -120,10 +122,11 @@ picurv storage offload \
   --label "pilot 64, stable baseline" \
   --tag campaign=pilot-64 \
   --tag mesh=64 \
-  --tag status=accepted
+  --tag status=accepted \
+  --notes "Reference case for the pilot-64 series; see lab notebook page 12."
 ```
 
-PICurv prints the archive ID. Save it in job notes if convenient, but the remote catalog also remains searchable. The original directory name does not need to be changed.
+PICurv prints the archive ID. Save it in job notes if convenient, but the remote catalog also remains searchable. The original directory name does not need to be changed. `--label` and `--tag` are the searchable catalog fields; `--notes` is free text carried alongside the manifest and shown by `storage show`, for anything a label or tag is too terse to hold.
 
 @subsection p61_keep_run 3.2 A Run Is Still Needed Locally
 
@@ -145,7 +148,9 @@ Inspect all numbered members:
 picurv storage status --study-dir studies/grid_study_20260824-150000
 ```
 
-Offload selected members. Repeat `--case-id` to process several explicit cases:
+Offload selected members. Repeat `--case-id` to process several explicit cases, or pass
+`--completed` to select every finished member (one holding a committed checkpoint, with
+no run active on it) without naming them:
 
 ```bash
 picurv storage offload \
@@ -154,9 +159,17 @@ picurv storage offload \
   --case-id case_0007 \
   --label "completed grid members" \
   --tag campaign=grid-study
+
+picurv storage offload \
+  --study-dir studies/grid_study_20260824-150000 \
+  --completed \
+  --label "completed grid members"
 ```
 
-Each member receives its own archive ID. Other members remain untouched and can continue running or processing. PICurv refuses study continuation or reaggregation while required members are cold, so intentionally archived data cannot be mistaken for missing or incomplete output.
+`--completed` is valid with `status`, `plan`, `protect`, and `offload`; it selects
+members itself; combine it with `--case-id` and PICurv refuses the ambiguity.
+
+Each member receives its own archive ID. Other members remain untouched and can continue running or processing. PICurv refuses study continuation while required members are cold; `sweep --continue --auto-fetch` restores them first instead of failing. `sweep --reaggregate` carries a cold member's previously aggregated values forward rather than refusing outright; `--auto-fetch` restores cold members first so they are re-measured like any other. Either way, intentionally archived data cannot be mistaken for missing or incomplete output.
 
 When the entire study is finished, archive it as one artifact by omitting `--case-id`:
 
@@ -273,9 +286,12 @@ picurv storage restore --archive-id <id> --component analysis --component visual
 picurv storage restore --archive-id <id> --component inputs
 ```
 
-Valid components are `inputs`, `raw-output`, `analysis`, `visualization`, `logs`, and
-`assets`; checkpoint steps use `--checkpoint`. Metadata is always restored with a
-partial selection so identity and config evidence remain available.
+Valid components are `inputs`, `raw-output`, `analysis`, `visualization`, `logs`,
+`assets`, `unclassified`, `workspace-config`, and `workspace-inputs`; checkpoint steps
+use `--checkpoint`. The last three exist for a workspace archive's own components and a
+run archive's unrecognized files; metadata (a run/study-case archive's own identity, or
+`workspace-config` for a workspace archive) is always restored with a partial selection
+so identity and config evidence remain available regardless of what else was selected.
 
 Archived run manifests also catalog the exact reusable assets in
 `inputs/assets.lock.yml`. If the workspace's shared `assets/objects/` directory was
@@ -284,64 +300,6 @@ hash, retrieves only the archived inputs component, verifies checksums, reconstr
 the immutable objects, and then binds the current case's asset set. If no matching
 remote object exists, normal run behavior builds it; combine `--fetch-missing` with
 `--require-precomputed` to refuse rebuilding.
-
-@section p61_safety_sec 5. Verification and Failure Safety
-
-PICurv uses this order for both `protect` and `offload`:
-
-1. inventory the selected artifact without following symlinks;
-2. reject known unsafe activity;
-3. package bounded component chunks in a temporary staging directory, deleting each
-   local chunk after its verified upload so staging does not grow to archive size;
-4. upload each chunk with `rclone` and compare its remote SHA-256 with the local SHA-256;
-5. upload a versioned manifest;
-6. publish a `COMPLETE` marker bound to that manifest;
-7. write the local storage marker;
-8. for `offload` only, prune the verified heavy payload.
-
-If packaging, transfer, or verification fails, local payload is not pruned. Incomplete remote objects have no valid completion marker and are ignored by `storage list`, and the payload that did land is reused by the next attempt rather than re-sent.
-
-Archival/offload is refused when PICurv sees:
-
-- an incomplete checkpoint directory;
-- an active solver or post-processing lock;
-- an active recorded Slurm job;
-- recorded Slurm job IDs whose state cannot be checked because `squeue` is unavailable or failed; or
-- another storage operation on the same artifact.
-
-Use `storage plan` immediately before a real operation. Do not archive while an external process that PICurv cannot observe is modifying files.
-
-Symlinks are stored as links and are never followed to pull unrelated data into an
-archive. Explicit external input references are reported by `plan` and recorded in the
-manifest, but are not copied automatically. Protect or restore those dependencies
-separately.
-
-Verify an archive again at any time:
-
-```bash
-picurv storage verify --archive-id 0123456789abcdef0123456789abcdef
-```
-
-@section p61_cli_integration_sec 6. Interaction With Existing Commands
-
-The storage layer is additive and remains in the Python conductor. It does not change checkpoint bytes, numerical methods, or the C solver/postprocessor interfaces.
-
-- `restart --from` behavior is represented by `picurv run --solve --restart-from ...`. A cold source is refused unless its requested start checkpoint has been restored.
-- `run --solve --continue --run-dir ...` follows the same checkpoint rule.
-- `run --post-process` accepts a partial restore only when the complete requested checkpoint window is local.
-- `submit` refuses a cold run and refuses a study with cold members. Existing staged scripts and scheduler metadata are retained during offload.
-- `sweep --continue` refuses cold members instead of interpreting pruned checkpoints as incomplete cases.
-- `sweep --reaggregate` refuses cold members instead of replacing unavailable metrics with blank values.
-- `summarize` remains usable from retained logs and displays the storage state, archive ID, and label. A requested summary that depends on pruned files can still report that those particular data are unavailable.
-- `validate` checks YAML contracts and the optional workspace release requirement; it
-  does not need bulk checkpoint payload.
-- `cancel` continues to use retained scheduler metadata. Active Slurm jobs also prevent archival/offload in the first place.
-
-Run creation snapshots initial YAML under `<run.config>`; continuations append revisions
-under `<run.config.history>`; post recipes live under `<run.post_recipes>/<recipe-id>/`.
-Storage classifies these as metadata, run-local materialized assets as inputs, and
-canonical output subtrees by semantic component. Study creation uses the same fixed
-member layout and stores aggregate analysis below `<run.analysis>`.
 
 @subsection p61_prune_assets 4.5 Reclaiming a Shared Asset
 
@@ -381,6 +339,71 @@ picurv storage restore --workspace-id pilot64 --to pilot64
 That returns the editable configuration, the input catalog, and the asset store. Runs
 and studies are restored individually from the same catalog, by id or by label.
 
+@section p61_safety_sec 5. Verification and Failure Safety
+
+PICurv uses this order for both `protect` and `offload`:
+
+1. inventory the selected artifact without following symlinks;
+2. reject known unsafe activity;
+3. package bounded component chunks in a temporary staging directory, deleting each
+   local chunk after its verified upload so staging does not grow to archive size;
+4. upload each chunk with `rclone` and compare its remote SHA-256 with the local SHA-256;
+5. upload a versioned manifest;
+6. publish a `COMPLETE` marker bound to that manifest;
+7. write the local storage marker;
+8. for `offload` only, prune the verified heavy payload.
+
+If packaging, transfer, or verification fails, local payload is not pruned. Incomplete remote objects have no valid completion marker and are ignored by `storage list`, and the payload that did land is reused by the next attempt rather than re-sent.
+
+Archival/offload is refused when PICurv sees:
+
+- an incomplete checkpoint directory;
+- an active solver or post-processing lock;
+- an active recorded Slurm job;
+- recorded Slurm job IDs whose state cannot be checked because `squeue` is unavailable or failed;
+- another storage operation on the same artifact; or
+- not enough free space where PICurv is about to stage bytes on disk.
+
+Restore and offload both check available free space at the staging or destination
+directory before writing anything, using an estimate for what that operation holds on
+disk at once. This catches a filesystem that is already too small before a transfer
+starts, not partway through it. It cannot catch a filesystem that fills from something
+else running concurrently.
+
+Use `storage plan` immediately before a real operation. Do not archive while an external process that PICurv cannot observe is modifying files.
+
+Symlinks are stored as links and are never followed to pull unrelated data into an
+archive. Explicit external input references are reported by `plan` and recorded in the
+manifest, but are not copied automatically. Protect or restore those dependencies
+separately.
+
+Verify an archive again at any time:
+
+```bash
+picurv storage verify --archive-id 0123456789abcdef0123456789abcdef
+```
+
+@section p61_cli_integration_sec 6. Interaction With Existing Commands
+
+The storage layer is additive and remains in the Python conductor. It does not change checkpoint bytes, numerical methods, or the C solver/postprocessor interfaces.
+
+- `restart --from` behavior is represented by `picurv run --solve --restart-from ...`. A cold source is refused unless its requested start checkpoint has been restored.
+- `run --solve --continue --run-dir ...` follows the same checkpoint rule.
+- `run --post-process` accepts a partial restore only when the complete requested checkpoint window is local.
+- `submit` refuses a cold run and refuses a study with cold members. Existing staged scripts and scheduler metadata are retained during offload.
+- `sweep --continue` refuses cold members instead of interpreting pruned checkpoints as incomplete cases; `--auto-fetch` restores them first instead of failing (see @ref p61_mixed_study).
+- `sweep --reaggregate` carries a cold member's previously aggregated values forward instead of refusing; `--auto-fetch` restores cold members first so they are re-measured like any other (see @ref p61_mixed_study).
+- `summarize` remains usable from retained logs and displays the storage state, archive ID, and label. A requested summary that depends on pruned files can still report that those particular data are unavailable.
+- `validate` checks YAML contracts and the optional workspace release requirement; it
+  does not need bulk checkpoint payload.
+- `cancel` continues to use retained scheduler metadata. Active Slurm jobs also prevent archival/offload in the first place.
+
+Run creation snapshots initial YAML under `<run.config>`; continuations append revisions
+under `<run.config.history>`; post recipes live under `<run.post_recipes>/<recipe-id>/`.
+Storage classifies these as metadata, run-local materialized assets as inputs, and
+canonical output subtrees by semantic component. Study creation uses the same fixed
+member layout and stores aggregate analysis below `<run.analysis>`.
+
 @section p61_code_sec 7. Code and Configuration Reproducibility
 
 Every remote manifest records:
@@ -405,6 +428,27 @@ external libraries.
 
 The storage schema is versioned. Unsupported future or older schema versions are rejected explicitly rather than guessed.
 
+Every run also writes `inputs/software.lock.json` at solve time: the release version,
+Git commit, dirty-worktree status, and a SHA-256 of the simulator and postprocessor
+executables the run is about to execute with, alongside the generators and Python
+conductor. The manifest's build identity says which source was checked out; the lock
+says which bytes actually ran, so a job whose binaries were rebuilt out from under it
+after queuing is detectable afterwards rather than merely suspected.
+
+A workspace can opt into stricter enforcement with a `reproducibility` block in
+`.picurv-workspace.yml`:
+
+```yaml
+reproducibility:
+  require_clean_release: true
+  pin_executables: true
+```
+
+`require_clean_release` refuses to stage from a dirty tree or a commit past the active
+release tag. `pin_executables` refuses to stage when the simulator or postprocessor was
+built from another revision. Both are opt-in and checked before a run is created, not
+after; a workspace running exploratory work leaves this block absent or empty.
+
 @section p61_remote_sec 8. Remote Layout and Catalog
 
 Each archive is an immutable object below the configured remote:
@@ -423,8 +467,10 @@ run archived twice under different labels, costs one copy. And an interrupted tr
 resumes — rerunning the same command re-packages the chunks but uploads only the ones
 that are not already there, reporting each skip.
 
-Archives written before this layout keep their payload beside their manifest and remain
-restorable from the same catalog; the manifest records which form it uses.
+This is schema 2. Archives written under an earlier schema are not readable by this
+version: `show`, `verify`, and `restore` refuse a manifest whose schema version does not
+match rather than guess at a layout PICurv no longer writes, and `list` silently omits
+such archives from its results rather than surface a per-archive error in a listing.
 
 The globally unique archive ID is the durable machine identity. `--label` and `--tag KEY=VALUE` are the human control surface. `storage list --search` searches archive IDs, labels, run/study/case identities, and tags case-insensitively. For scripts and audits, use JSON output:
 
@@ -446,6 +492,7 @@ picurv storage list     search completed remote archives
 picurv storage show     print one complete remote manifest
 picurv storage verify   checksum every chunk in one remote archive
 picurv storage restore  restore a full archive or selected checkpoints
+picurv storage prune    remove verified local asset objects nothing local still needs
 ```
 
 Use `picurv storage --help` and `picurv storage <action> --help` for the complete option set.

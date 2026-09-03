@@ -72,6 +72,22 @@ def _completed_study_members(study_root: str) -> list:
     return selected
 
 
+def _select_completed_case_ids(study_root: str) -> list:
+    """!
+    @brief Resolve `--completed` into member ids, raising if none qualify.
+    @param[in] study_root Study directory to scan.
+    @return Sorted member ids; never empty.
+    """
+    case_ids = _completed_study_members(study_root)
+    if not case_ids:
+        raise StorageError(
+            f"No completed member found in {study_root}. A member is complete when it "
+            "holds a committed checkpoint and no run is active on it."
+        )
+    print("[INFO] Selected completed member(s): " + ", ".join(case_ids))
+    return case_ids
+
+
 def _validate_case_id(case_id: str) -> str:
     """!
     @brief Validate a canonical numbered study-member identifier.
@@ -99,6 +115,8 @@ def resolve_local_storage_targets(run_dir: str = None, study_dir: str = None, ca
     selectors = [bool(run_dir), bool(study_dir), bool(workspace)]
     if sum(selectors) != 1:
         raise StorageError("Select exactly one of --run-dir, --study-dir, or --workspace.")
+    if include_inputs and not workspace:
+        raise StorageError("--include-inputs is valid only with --workspace.")
     if workspace:
         if case_ids:
             raise StorageError("--case-id is valid only with --study-dir.")
@@ -149,13 +167,7 @@ def resolve_local_storage_targets(run_dir: str = None, study_dir: str = None, ca
     if completed:
         if case_ids:
             raise StorageError("--completed selects members itself; do not also pass --case-id.")
-        case_ids = _completed_study_members(study_root)
-        if not case_ids:
-            raise StorageError(
-                f"No completed member found in {study_root}. A member is complete when it "
-                "holds a committed checkpoint and no run is active on it."
-            )
-        print("[INFO] Selected completed member(s): " + ", ".join(case_ids))
+        case_ids = _select_completed_case_ids(study_root)
     if case_ids:
         targets = []
         for raw_case_id in case_ids:

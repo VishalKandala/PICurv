@@ -75,9 +75,11 @@ def _chunk_remote_path(profile: dict, archive_id: str, chunk: dict) -> str:
     """!
     @brief Resolve where one manifest chunk's payload lives on the remote.
 
-    @details Schema 1 archives keep their payload beside the manifest; schema 2 and
-             later resolve it out of the shared content-addressed store, so both remain
-             restorable from the same catalog.
+    @details Every chunk this schema writes is blob-addressed, resolved out of the
+             shared content-addressed store. `_load_remote_manifest` already refuses
+             any manifest whose schema version does not match the current one, so a
+             non-blob chunk cannot reach this function from a manifest this build
+             actually loads.
     @param[in] profile Active storage profile.
     @param[in] archive_id Owning archive id.
     @param[in] chunk Manifest chunk entry.

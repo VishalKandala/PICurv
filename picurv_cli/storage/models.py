@@ -94,15 +94,27 @@ WORKSPACE_CONFIG_FILENAME = ".picurv-workspace.yml"
 WORKSPACE_EXCLUDED_ROOTS = ("runs", "studies")
 
 
-#: Components no offload policy may prune, whatever it retains.
+#: Components no offload policy may prune, whatever it retains. "assets" is here
+#: because no named policy lists it as retained - an ordinary offload would otherwise
+#: delete the entire local asset store unconditionally, bypassing the reference-aware
+#: check that `storage prune --assets --unused-locally` performs before removing an
+#: object. Reclaiming assets is that command's job, deliberately, never an offload's.
 ALWAYS_RETAINED_COMPONENTS = frozenset(
-    {UNCLASSIFIED_COMPONENT, "workspace-config", "workspace-inputs"}
+    {UNCLASSIFIED_COMPONENT, "workspace-config", "workspace-inputs", "assets"}
 )
 
 
 STORAGE_RESTORE_COMPONENTS = (
-    "inputs", "raw-output", "analysis", "visualization", "logs", "assets"
+    "inputs", "raw-output", "analysis", "visualization", "logs", "assets",
+    UNCLASSIFIED_COMPONENT, "workspace-config", "workspace-inputs",
 )
+
+
+#: Chunks a partial restore (`--checkpoint`/`--component`) always includes, whatever was
+#: selected: a run/study-case archive's own identity ("metadata"), or a workspace
+#: archive's own identity ("workspace-config"). Mirrors ALWAYS_RETAINED_COMPONENTS on
+#: the offload side - identity and config evidence stay available either way.
+ALWAYS_RESTORED_COMPONENTS = frozenset({"metadata", "workspace-config"})
 
 
 _PARALLEL_GZIP_VALUES = {"fast", "balanced"}

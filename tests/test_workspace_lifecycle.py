@@ -137,6 +137,35 @@ def test_workspace_version_pin_is_optional_but_enforced_when_present(tmp_path):
         core.enforce_workspace_version(str(workspace))
 
 
+def test_workspace_config_rejects_unsupported_keys(tmp_path):
+    """!
+    @brief An unrecognized top-level or nested key in `.picurv-workspace.yml` fails loudly.
+    @details A silently ignored typo (`reproducibility.require_clena_release` for
+             `require_clean_release`, say) would look configured but enforce nothing,
+             the same failure mode the case/solver/monitor/post/cluster/study schemas
+             already guard against.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return None.
+    """
+    workspace = _write_workspace(tmp_path / "workspace")
+    marker_path = workspace / core.WORKSPACE_CONFIG_FILENAME
+    marker = yaml.safe_load(marker_path.read_text(encoding="utf-8"))
+    marker["reproducibility"] = {"require_clean_release": True}
+    core.write_yaml_file(str(marker_path), marker)
+    assert core.load_workspace_config(str(workspace))["reproducibility"]["require_clean_release"] is True
+
+    marker["typo_top_level_field"] = True
+    core.write_yaml_file(str(marker_path), marker)
+    with pytest.raises(ValueError, match="typo_top_level_field"):
+        core.load_workspace_config(str(workspace))
+
+    del marker["typo_top_level_field"]
+    marker["reproducibility"] = {"require_clena_release": True}
+    core.write_yaml_file(str(marker_path), marker)
+    with pytest.raises(ValueError, match="require_clena_release"):
+        core.load_workspace_config(str(workspace))
+
+
 def test_input_import_modes_are_explicit_and_catalogued(tmp_path):
     """!
     @brief Copy and external-reference input modes create distinct durable catalog records.

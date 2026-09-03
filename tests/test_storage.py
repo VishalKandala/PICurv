@@ -552,6 +552,48 @@ def test_sweep_maintenance_handles_a_cold_member_without_losing_it(tmp_path, mon
     assert retained["msd_final"] == "1.25", rows
 
 
+def test_sweep_auto_fetch_restores_a_cold_member_before_continuing(tmp_path, monkeypatch, local_rclone, capsys):
+    """!
+    @brief `--auto-fetch` restores a cold member first instead of refusing continuation.
+    @details Without `--auto-fetch`, `sweep --continue` refuses a study with a cold
+             member (covered by `test_sweep_maintenance_handles_a_cold_member_without_losing_it`).
+             With it, the member is restored in place before the cold check is
+             re-evaluated, so continuation proceeds like any other case.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] monkeypatch Value supplied through the `monkeypatch` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @param[in] capsys Captures workflow stdout.
+    @return None.
+    """
+    monkeypatch.chdir(tmp_path)
+    storage.storage_setup_workflow(SimpleNamespace(
+        storage_config=str(tmp_path / storage.STORAGE_CONFIG_FILENAME),
+        profile="archive", remote="fake:picurv-data", compression="none",
+        chunk_size_gib=1.0, staging_directory=None, dry_run=False,
+    ))
+    core.sweep_workflow(SimpleNamespace(
+        study=str(FIXTURES / "study.yml"),
+        cluster=str(FIXTURES / "cluster.yml"),
+        no_submit=True,
+    ))
+    study = next((tmp_path / "studies").iterdir())
+    case = next((study / "cases").iterdir())
+
+    profile = storage.load_storage_profile(None, None)
+    target = storage.resolve_local_storage_targets(str(case), None)[0]
+    storage.archive_artifact(target, profile, label="cold member", prune_local=True)
+    assert storage.cold_study_members(str(study)) == [case.name]
+
+    capsys.readouterr()
+    core.sweep_continue_workflow(SimpleNamespace(
+        study_dir=str(study), cluster=None, no_submit=True, auto_fetch=True,
+    ))
+    captured = capsys.readouterr()
+    assert "--auto-fetch: restoring cold-storage member(s) before continuing" in captured.out
+    assert "cold-storage member" not in captured.err
+    assert storage.cold_study_members(str(study)) == []
+
+
 def test_runtime_solver_lock_is_visible_and_cleaned(tmp_path):
     """!
     @brief Python-owned solver markers protect local execution without a C runtime change.
@@ -633,13 +675,81 @@ def test_offload_policy_profiles_have_distinct_semantic_retention():
     """
     profile = {"offload_policy": "metadata-only", "keep_latest_checkpoint": False}
     metadata = storage._resolve_offload_policy(profile)
-    restart = storage._resolve_offload_policy(profile, "restart-ready", False)
+    restart = storage._resolve_offload_policy(profile, "restart-ready", None)
     analysis = storage._resolve_offload_policy(profile, "analysis-ready", True)
     assert metadata["retained_components"] == ["logs", "metadata"]
     assert restart["retained_components"] == ["inputs", "logs", "metadata"]
+    # Nothing explicit was requested, so restart-ready's own promise to keep the
+    # newest checkpoint applies.
     assert restart["keep_latest_checkpoint"] is True
     assert analysis["retained_components"] == ["analysis", "logs", "metadata", "visualization"]
     assert analysis["keep_latest_checkpoint"] is True
+
+
+def test_selective_restore_can_reach_unclassified_and_workspace_components(tmp_path, local_rclone):
+    """!
+    @brief `--component` can select `unclassified`, `workspace-config`, and
+           `workspace-inputs`, not only the six run-archive component names; a
+           workspace archive's own config chunk is always included, mirroring how a
+           run archive's `metadata` chunk already is.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    run = _write_run(tmp_path / "runs" / "stray")
+    (run / "NOTES.md").write_text("my own notes\n", encoding="utf-8")
+    profile = _profile(tmp_path)
+    manifest = storage.archive_artifact(storage.resolve_local_storage_targets(str(run), None)[0], profile)
+    assert {c["component"] for c in manifest["chunks"]} >= {"metadata", "unclassified"}
+
+    destination = tmp_path / "restored-unclassified"
+    storage.restore_archive(profile, manifest["archive_id"], destination=str(destination), components=["unclassified"])
+    assert (destination / "NOTES.md").read_text(encoding="utf-8") == "my own notes\n"
+    # metadata is always included alongside a selected component.
+    assert (destination / "config" / "case.yml").is_file()
+
+    workspace = _write_workspace_artifact(tmp_path / "pilot64")
+    workspace_manifest = storage.archive_artifact(
+        storage.resolve_local_storage_targets(workspace=str(workspace))[0], profile
+    )
+    assert {c["component"] for c in workspace_manifest["chunks"]} >= {"workspace-config", "assets"}
+
+    workspace_destination = tmp_path / "restored-workspace"
+    storage.restore_archive(
+        profile, workspace_manifest["archive_id"], destination=str(workspace_destination),
+        components=["assets"],
+    )
+    # workspace-config is always included, the same way metadata is for run archives.
+    assert (workspace_destination / storage.WORKSPACE_CONFIG_FILENAME).is_file()
+    assert (workspace_destination / "assets" / "objects" / "grids" / ("a" * 64) / "asset.json").is_file()
+
+
+def test_include_inputs_is_refused_without_workspace(tmp_path):
+    """!
+    @brief `--include-inputs` only means anything with `--workspace`; using it with
+           `--run-dir`/`--study-dir` is refused rather than silently ignored.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @return None.
+    """
+    run = _write_run(tmp_path / "runs" / "solo")
+    with pytest.raises(storage.StorageError, match="--include-inputs is valid only with --workspace"):
+        storage.resolve_local_storage_targets(str(run), None, include_inputs=True)
+
+
+def test_explicit_drop_all_checkpoints_overrides_the_restart_ready_default():
+    """!
+    @brief `--drop-all-checkpoints` is not silently overruled by `restart-ready`.
+    @details `restart-ready` keeps the newest checkpoint by default, but that default
+             must yield to an explicit request, the same way an explicit
+             `--keep-latest-checkpoint` already overrides `metadata-only`'s default of
+             dropping it.
+    @return None.
+    """
+    profile = {"offload_policy": "restart-ready"}
+    dropped = storage._resolve_offload_policy(profile, "restart-ready", False)
+    assert dropped["keep_latest_checkpoint"] is False
+    kept = storage._resolve_offload_policy(profile, "metadata-only", True)
+    assert kept["keep_latest_checkpoint"] is True
 
 
 @pytest.mark.skipif(
@@ -875,6 +985,33 @@ def test_a_deleted_workspace_is_recoverable_by_its_identity(tmp_path, local_rclo
     assert (recovered / storage.WORKSPACE_CONFIG_FILENAME).is_file()
 
 
+def test_workspace_offload_never_deletes_the_local_asset_store(tmp_path, local_rclone):
+    """!
+    @brief `storage offload --workspace .` must not unconditionally delete local assets.
+    @details Reclaiming a shared asset is `storage prune --assets --unused-locally`'s job,
+             deliberately, because that command checks whether any active local run still
+             references the object first. A workspace offload that deleted assets outright
+             would destroy an asset a currently-running case still needs, bypassing that
+             reference-aware check entirely.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    workspace = _write_workspace_artifact(tmp_path / "pilot64")
+    asset_id = "a" * 64
+    run = _write_run(workspace / "runs" / "hot")
+    (run / "inputs").mkdir(exist_ok=True)
+    (run / "inputs" / "assets.lock.yml").write_text(
+        f"assets:\n  grid:\n    asset_id: {asset_id}\n", encoding="utf-8"
+    )
+
+    asset_dir = workspace / "assets" / "objects" / "grids" / asset_id
+    assert asset_dir.is_dir()
+    target = storage.resolve_local_storage_targets(workspace=str(workspace))[0]
+    storage.archive_artifact(target, _profile(tmp_path), prune_local=True)
+    assert asset_dir.is_dir(), "workspace offload deleted an asset a local run still references"
+
+
 def test_asset_pruning_is_reference_aware(tmp_path, local_rclone):
     """!
     @brief A shared asset survives locally while any active local run still needs it.
@@ -915,6 +1052,129 @@ def test_asset_pruning_is_reference_aware(tmp_path, local_rclone):
 
     storage.prune_unused_workspace_assets(str(workspace), profile)
     assert not (workspace / "assets" / "objects" / "grids" / asset_id).exists()
+
+
+def test_status_completed_filters_study_members_like_other_actions(tmp_path, local_rclone, capsys):
+    """!
+    @brief `storage status --study-dir --completed` must select only finished members.
+    @details `storage status` has its own per-member breakdown branch, built before
+             `--completed` existed, that lists every `case_*` directory unconditionally.
+             It must route through the same completed-member selection that `plan`,
+             `protect`, and `offload` already use, not silently ignore the flag.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @param[in] capsys Captures the workflow's stdout.
+    @return None.
+    """
+    study = _write_study(tmp_path / "grid")
+    shutil.rmtree(study / "cases" / "case_0001" / "output" / "checkpoints")
+
+    capsys.readouterr()
+    storage.storage_status_workflow(SimpleNamespace(
+        run_dir=None, study_dir=str(study), case_ids=[],
+        workspace=None, include_inputs=False, completed=True,
+        output_format="json",
+    ))
+    out = capsys.readouterr().out
+    _info_line, payload = out.split("\n", 1)
+    captured = json.loads(payload)
+    assert {item["target"]["run_id"] for item in captured} == {"case_0000"}
+
+
+def test_require_free_space_refuses_before_writing_anything(tmp_path):
+    """!
+    @brief The shared disk-space guard refuses when free space is below the estimate.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @return None.
+    """
+    storage._require_free_space(str(tmp_path), 1, "do something small")  # does not raise
+    with pytest.raises(storage.StorageError, match="Not enough free space"):
+        storage._require_free_space(str(tmp_path), 10**18, "do something huge")
+
+
+def test_archive_refuses_to_stage_without_enough_free_space(tmp_path, monkeypatch, local_rclone):
+    """!
+    @brief `storage offload`/`protect` refuse to begin packaging a run the staging
+           filesystem cannot hold, instead of discovering that mid-transfer.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] monkeypatch Value supplied through the `monkeypatch` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    run = _write_run(tmp_path / "runs" / "big")
+    target = storage.resolve_local_storage_targets(str(run), None)[0]
+    monkeypatch.setattr(
+        storage.operations.shutil, "disk_usage",
+        lambda directory: SimpleNamespace(total=0, used=0, free=1),
+    )
+    with pytest.raises(storage.StorageError, match="Not enough free space"):
+        storage.archive_artifact(target, _profile(tmp_path))
+
+
+def test_manifest_carries_notes_and_a_captured_parameter_summary(tmp_path, local_rclone):
+    """!
+    @brief `--notes` and the auto-captured case parameter summary land in the manifest
+           and are what `storage show` prints, so a run is identifiable months later
+           without restoring anything.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    run = _write_run(tmp_path / "runs" / "annotated")
+    profile = _profile(tmp_path)
+    manifest = storage.archive_artifact(
+        storage.resolve_local_storage_targets(str(run), None)[0], profile,
+        label="pilot 64", notes="Reference case for the pilot-64 series.",
+    )
+    assert manifest["notes"] == "Reference case for the pilot-64 series."
+    assert manifest["parameters"]["start_step"] == 0
+    assert manifest["parameters"]["total_steps"] == 10
+
+    shown = storage.verify_remote_archive(profile, manifest["archive_id"])
+    assert shown["notes"] == "Reference case for the pilot-64 series."
+    assert shown["parameters"]["total_steps"] == 10
+
+
+def test_storage_prune_cli_dispatch_removes_only_safe_objects(tmp_path, local_rclone, capsys):
+    """!
+    @brief `picurv storage prune --assets --unused-locally` reaches the real CLI parser
+           and dispatch path, not only the underlying `prune_unused_workspace_assets`
+           function it wraps.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @param[in] capsys Captures workflow stdout.
+    @return None.
+    """
+    storage_config = tmp_path / storage.STORAGE_CONFIG_FILENAME
+    storage.storage_setup_workflow(SimpleNamespace(
+        storage_config=str(storage_config), profile="archive", remote="fake:picurv-data",
+        compression="none", chunk_size_gib=1.0, staging_directory=None, dry_run=False,
+    ))
+    profile = storage.load_storage_profile("archive", str(storage_config))
+
+    workspace = _write_workspace_artifact(tmp_path / "pilot64")
+    asset_id = "a" * 64
+    run = _write_run(workspace / "runs" / "cold")
+    (run / "inputs").mkdir(exist_ok=True)
+    (run / "inputs" / "assets.lock.yml").write_text(
+        f"assets:\n  grid:\n    asset_id: {asset_id}\n", encoding="utf-8"
+    )
+    storage.archive_artifact(storage.resolve_local_storage_targets(workspace=str(workspace))[0], profile)
+    storage.archive_artifact(
+        storage.resolve_local_storage_targets(str(run), None)[0], profile, prune_local=True
+    )
+
+    asset_dir = workspace / "assets" / "objects" / "grids" / asset_id
+    assert asset_dir.is_dir()
+
+    parser = build_main_parser()
+    args = parser.parse_args([
+        "storage", "prune", "--workspace", str(workspace), "--assets", "--unused-locally",
+        "--profile", "archive", "--storage-config", str(storage_config),
+    ])
+    dispatch_command(args)
+    assert not asset_dir.exists()
+    assert "Removed 1 local asset object" in capsys.readouterr().out
 
 
 def test_checkpoint_range_selection_expands_to_steps():

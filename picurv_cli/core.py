@@ -459,6 +459,10 @@ def load_workspace_config(workspace_root: str) -> dict:
             f"{path}: unsupported workspace schema_version "
             f"{payload.get('schema_version')!r}; expected {WORKSPACE_SCHEMA_VERSION}."
         )
+    errors: list = []
+    _validate_yaml_schema_keys(payload, _WORKSPACE_SCHEMA, path, errors)
+    if errors:
+        raise ValueError("\n".join(errors))
     return payload
 
 
@@ -7028,6 +7032,15 @@ _STUDY_SCHEMA = {
     },
     ("plotting",): {"enabled", "output_format"},
     ("execution",): {"max_concurrent_array_tasks"},
+}
+
+
+_WORKSPACE_SCHEMA = {
+    (): {"schema_version", "workspace", "software", "paths", "reproducibility"},
+    ("workspace",): {"id", "template", "created_at"},
+    ("software",): {"picurv"},
+    ("paths",): {"config", "inputs", "assets", "runs", "studies"},
+    ("reproducibility",): {"require_clean_release", "pin_executables"},
 }
 
 

@@ -209,7 +209,11 @@ def _resolve_offload_policy(profile: dict, requested: str = None,
     if name not in STORAGE_OFFLOAD_POLICIES:
         raise StorageError("Offload policy must be one of: " + ", ".join(STORAGE_OFFLOAD_POLICIES))
     if keep_latest_checkpoint is None:
-        keep_latest_checkpoint = bool(profile.get("keep_latest_checkpoint", False))
+        # Nothing explicit was requested: fall back to the profile default, or to
+        # `restart-ready`'s own promise to keep the newest checkpoint. An explicit
+        # --keep-latest-checkpoint/--drop-all-checkpoints always overrides both,
+        # rather than being silently overruled by the policy it was paired with.
+        keep_latest_checkpoint = bool(profile.get("keep_latest_checkpoint", False)) or name == "restart-ready"
     retained = {
         "metadata-only": {"metadata", "logs"},
         "restart-ready": {"metadata", "logs", "inputs"},
@@ -218,7 +222,7 @@ def _resolve_offload_policy(profile: dict, requested: str = None,
     return {
         "name": name,
         "retained_components": sorted(retained),
-        "keep_latest_checkpoint": bool(keep_latest_checkpoint or name == "restart-ready"),
+        "keep_latest_checkpoint": bool(keep_latest_checkpoint),
     }
 
 

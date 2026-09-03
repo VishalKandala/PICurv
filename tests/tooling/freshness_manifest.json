@@ -21,7 +21,7 @@
         "36_Cluster_Run_Guide",
         "37_Sweep_Studies_Guide"
       ],
-      "attested_digest": "sha256:bc4f07d507899f2e6868d5e289db556a539f3860798cd6e7aae874ac67ae0268",
+      "attested_digest": "sha256:c1c6f4f34c009926dff4848c416236a0680561fd3de377e125554ed0088e8bcd",
       "note": "Normalized argparse structure, so a comment or docstring change in cli.py does not fire this fingerprint."
     },
     {
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:d748510a486a8af0f1daa6c8e71454f3ce931ef98f41856c034a76152f4e517c",
+      "attested_digest": "sha256:ce9cf3592e06111cd83e40f410f468c91ddc4ef98bade7cf796914daf01d5b3f",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },

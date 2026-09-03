@@ -53,6 +53,7 @@ from .safety import (
     _assert_archive_safe,
     _collect_job_ids,
     _lock_owner_active,
+    _require_free_space,
     _slurm_activity,
 )
 from .inventory import (
@@ -68,6 +69,7 @@ from .inventory import (
     _inventory_fingerprint,
     _path_is_within,
     _resolve_configured_path,
+    _select_completed_case_ids,
     _validate_case_id,
     _walk_archive_entries,
 )

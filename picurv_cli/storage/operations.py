@@ -23,6 +23,7 @@ import uuid
 from pathlib import Path
 import yaml
 from .models import (
+    ALWAYS_RESTORED_COMPONENTS,
     CLI_OUTPUT_FORMATS,
     DEFAULT_CHUNK_SIZE_GIB,
     DEFAULT_PROFILE_NAME,
@@ -61,10 +62,12 @@ from .transport import (
 )
 from .safety import (
     _assert_archive_safe,
+    _require_free_space,
     storage_operation_lock,
 )
 from .inventory import (
     _inventory_fingerprint,
+    _select_completed_case_ids,
     inspect_artifact,
     resolve_local_storage_targets,
 )
@@ -269,6 +272,17 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
         if staging_parent:
             staging_parent = os.path.abspath(os.path.expanduser(str(staging_parent)))
             os.makedirs(staging_parent, exist_ok=True)
+        # As many chunks as `plan["workers"]` can be staged (packaged, not yet
+        # uploaded) at once; each is deleted right after its verified upload, so
+        # staging never needs archive-sized space, only room for the largest
+        # concurrent handful of uncompressed chunks.
+        concurrent_chunks = sorted(
+            (spec["uncompressed_bytes"] for spec in specs), reverse=True
+        )[:plan["workers"]]
+        _require_free_space(
+            staging_parent or tempfile.gettempdir(), sum(concurrent_chunks),
+            f"stage {target['root_path']}",
+        )
         print(f"[INFO] Creating archive {archive_id} for {target['root_path']}")
         with tempfile.TemporaryDirectory(prefix="picurv-storage-", dir=staging_parent) as staging:
             def package_and_upload(index_spec):
@@ -520,6 +534,12 @@ def _download_archive_components(profile: dict, manifest: dict, components: set,
     if worker_count <= 0:
         raise StorageError("Restore workers must be positive.")
     os.makedirs(destination, exist_ok=True)
+    # Each chunk is extracted in full before `_merge_tree` copies it into `destination`,
+    # so both copies exist on disk at once.
+    extracted_bytes = sum(chunk.get("uncompressed_bytes", 0) for chunk in chunks)
+    _require_free_space(
+        destination, 2 * extracted_bytes, f"restore archive {manifest.get('archive_id')} components"
+    )
     with tempfile.TemporaryDirectory(prefix="picurv-component-restore-") as staging:
         def download_and_extract(index_chunk):
             """!
@@ -531,8 +551,6 @@ def _download_archive_components(profile: dict, manifest: dict, components: set,
             chunk_root = os.path.join(staging, f"extract-{index:05d}")
             os.makedirs(chunk_root)
             local_chunk = os.path.join(staging, chunk["name"])
-            # Schema 1 archives keep their payload beside the manifest; schema 2 and
-            # later resolve it out of the shared content-addressed store.
             _transport._run_rclone([
                 "copyto",
                 _chunk_remote_path(profile, manifest["archive_id"], chunk),
@@ -678,7 +696,7 @@ def restore_archive(profile: dict, archive_id: str, destination: str = None,
     for chunk in manifest.get("chunks", []):
         component = str(chunk.get("component", ""))
         if selected_steps or selected_components:
-            if component == "metadata":
+            if component in ALWAYS_RESTORED_COMPONENTS:
                 chunks.append(chunk)
             elif component.startswith("checkpoint:") and int(component.split(":", 1)[1]) in selected_steps:
                 chunks.append(chunk)
@@ -700,6 +718,10 @@ def restore_archive(profile: dict, archive_id: str, destination: str = None,
             )
     parent = os.path.dirname(destination_abs)
     os.makedirs(parent, exist_ok=True)
+    # Every selected chunk is extracted in full before `_merge_tree` copies it into
+    # `materialized`, so both copies exist on disk at once ahead of the final move.
+    extracted_bytes = sum(chunk.get("uncompressed_bytes", 0) for chunk in chunks)
+    _require_free_space(parent, 2 * extracted_bytes, f"restore archive {archive_id}")
     temporary = tempfile.mkdtemp(prefix=f".picurv-restore-{archive_id[:8]}-", dir=parent)
     materialized = os.path.join(temporary, "materialized")
     os.makedirs(materialized)
@@ -906,9 +928,12 @@ def storage_status_workflow(args) -> None:
     """
     if args.study_dir and not args.case_ids:
         study_root = os.path.abspath(args.study_dir)
-        case_ids = [
-            path.name for path in sorted((Path(study_root) / "cases").glob("case_*")) if path.is_dir()
-        ]
+        if getattr(args, "completed", False):
+            case_ids = _select_completed_case_ids(study_root)
+        else:
+            case_ids = [
+                path.name for path in sorted((Path(study_root) / "cases").glob("case_*")) if path.is_dir()
+            ]
         targets = resolve_local_storage_targets(None, study_root, case_ids) if case_ids else resolve_local_storage_targets(None, study_root)
     else:
         targets = resolve_local_storage_targets(

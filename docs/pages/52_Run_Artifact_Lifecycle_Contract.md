@@ -169,7 +169,9 @@ use their analysis homes; renderable VTK output uses `<run.visualization>`.
 The initial YAML snapshot is immutable evidence. An in-place continuation stores the
 new YAML and generated controls under `<run.config.history>/<revision>/` and updates
 `<run.config.active>`; it does not erase the original. `manifest.json` records the
-workspace identity, active build, canonical paths, stages, and locked assets.
+workspace identity, active build, canonical paths, stages, locked assets, per-executable
+build identity (`binaries`), and each stage's lifecycle state (`components`: e.g.
+not_requested, planned, complete, offloaded).
 
 @section p52_launchers_sec 4. Local, Login-Node, and Batch Launch Resolution
 

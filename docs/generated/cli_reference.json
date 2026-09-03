@@ -1840,7 +1840,10 @@
                   "inputs",
                   "logs",
                   "raw-output",
-                  "visualization"
+                  "unclassified",
+                  "visualization",
+                  "workspace-config",
+                  "workspace-inputs"
                 ],
                 "default": null,
                 "dest": "components",
