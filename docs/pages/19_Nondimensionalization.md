@@ -54,6 +54,38 @@ Particle and Eulerian data follow the same scale family so interpolation/project
   - `global_operations.dimensionalize: true`
   - pipeline keyword `DimensionalizeAllLoadedFields`
 
+@subsection p19_derived_sub 4.1 Derived Products Carry Their Own Exponents
+
+`global_operations.dimensionalize` reaches three producers, because a run's derived
+output is not made in one place:
+
+| Producer | What it scales |
+|---|---|
+| Field pipeline (`DimensionalizeAllLoadedFields`) | Loaded fields and grid coordinates, each by its own reference scale |
+| Field-statistics accumulator | Derived statistics, by the source field's scale raised to the kind's exponent |
+| Spectra generator | Every reported spectral quantity, by its own combination of `U_ref` and `L_ref` |
+
+A single blanket factor cannot serve them, because a derived quantity's dimensions are
+not its source field's:
+
+- mean, RMS: source scale to the first power
+- Reynolds stress, turbulent kinetic energy: to the second
+- co-moment flux: the product of the two fields' scales, which need not be equal
+- wavenumber: `1 / L_ref`; energy: `U_ref^2`; spectral second moment: `U_ref^2 / L_ref^2`;
+  integral and Taylor scales: `L_ref`
+- Parseval residual and shell counts are ratios and counts, and are never scaled
+
+Checkpoints are never dimensionalized: they are restart state, and restart must reproduce
+the solver's own units exactly. Only derived output is scaled, so a `.dat` under
+`<run.checkpoints>` and a `.vts` under `<run.visualization>` are deliberately in different
+unit systems.
+
+The grid is the one quantity converted on the way *in* rather than out: a `.picgrid` is
+supplied dimensional and is divided by `L_ref` when the conductor publishes it as an
+asset, so the solver reads geometry already in solver units. Coordinates written by
+post-processing are multiplied back. `grid.mode: programmatic_c` is the exception - its
+`xMins`/`xMaxs` bounds are authored directly in solver units and nothing divides them.
+
 @section p19_notes_sec 5. Practical Notes
 
 - Choose physically meaningful `L_ref` and `U_ref`; they directly affect `Re` and `dt*`.

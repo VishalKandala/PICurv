@@ -3151,7 +3151,43 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "ParsePostProcessingSettings"
+#define __FUNCT__ "PicurvFieldReferenceScale"
+/**
+ * @brief Implementation of \ref PicurvFieldReferenceScale().
+ * @details The argument and return contract is documented in `include/io.h`.
+ * @see PicurvFieldReferenceScale()
+ */
+PetscErrorCode PicurvFieldReferenceScale(SimCtx *simCtx, const char *field_name,
+                                        PetscReal *scale, char *description,
+                                        size_t description_length)
+{
+    PetscFunctionBeginUser;
+    PetscCheck(simCtx && field_name && scale, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Context, field name, and output scale are required.");
+    *scale = 1.0;
+    if (description && description_length) PetscCall(PetscStrncpy(description, "Unknown", description_length));
+
+    /* One table. Every consumer that needs a physical scale reads it from here, so a
+       new field is described in one place rather than once per output path. */
+    if (!strcasecmp(field_name, "Ucat") || !strcasecmp(field_name, "ParticleVelocity")) {
+        *scale = simCtx->scaling.U_ref;
+        if (description) PetscCall(PetscStrncpy(description, "Velocity (L/T)", description_length));
+    } else if (!strcasecmp(field_name, "Ucont")) {
+        *scale = simCtx->scaling.U_ref * simCtx->scaling.L_ref * simCtx->scaling.L_ref;
+        if (description) PetscCall(PetscStrncpy(description, "Contravariant Volume Flux (L^3/T)", description_length));
+    } else if (!strcasecmp(field_name, "P")) {
+        *scale = simCtx->scaling.P_ref;
+        if (description) PetscCall(PetscStrncpy(description, "Pressure (M L^-1 T^-2)", description_length));
+    } else if (!strcasecmp(field_name, "Coordinates") || !strcasecmp(field_name, "ParticlePosition")) {
+        *scale = simCtx->scaling.L_ref;
+        if (description) PetscCall(PetscStrncpy(description, "Length (L)", description_length));
+    } else {
+        PetscFunctionReturn(PETSC_ERR_ARG_WRONG);
+    }
+    PetscFunctionReturn(0);
+}
+
+
 /**
  * @brief Internal helper implementation: `ParsePostProcessingSettings()`.
  * @details Local to this translation unit.
@@ -3195,6 +3231,7 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     strcpy(pps->field_statistics_outputs, "mean,reynolds_stress,rms,tke,flux");
     strcpy(pps->field_statistics_formats, "vtk");
     strcpy(pps->field_statistics_output_prefix, "Field");
+    pps->dimensionalize = PETSC_FALSE;
     pps->field_statistics_source_step = -1;
     pps->reference[0] = pps->reference[1] = pps->reference[2] = 1;
     strncpy(pps->source_dir, simCtx->output_dir, sizeof(pps->source_dir) - 1);
@@ -3231,6 +3268,9 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
                     pps->field_statistics_outputs[MAX_FIELD_LIST_LENGTH - 1] = '\0';
                 } else if (strcasecmp(key, "field_statistics_source_step") == 0) {
                     pps->field_statistics_source_step = atoi(value);
+                } else if (strcasecmp(key, "dimensionalize") == 0) {
+                    pps->dimensionalize = (PetscBool)(strcasecmp(value, "true") == 0
+                                                      || strcmp(value, "1") == 0);
                 } else if (strcasecmp(key, "field_statistics_output_prefix") == 0) {
                     strncpy(pps->field_statistics_output_prefix, value,
                             sizeof(pps->field_statistics_output_prefix) - 1);
@@ -3319,7 +3359,8 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     PetscFunctionReturn(0);
 }
 
-
+#undef __FUNCT__
+#define __FUNCT__ "ParsePostProcessingSettings"
 #undef __FUNCT__
 #define __FUNCT__ "ParseScalingInformation"
 /**

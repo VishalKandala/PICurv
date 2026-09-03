@@ -368,3 +368,65 @@ def test_follow_commands_replace_exec_in_the_batch_script(tmp_path):
     CORE.render_slurm_script(str(script), "job", cluster, ["main", "arg"], str(tmp_path),
                              str(tmp_path / "out.log"))
     assert "exec main arg" in script.read_text(encoding="utf-8")
+
+
+def test_spectrum_dimensions_cover_every_reported_quantity():
+    """! @brief Every non-ratio spectrum output declares its units. @return None. """
+    import importlib.machinery
+    import importlib.util
+
+    loader = importlib.machinery.SourceFileLoader(
+        "spectra_gen_units", str(ROOT / "generators" / "spectra.gen")
+    )
+    spec = importlib.util.spec_from_loader("spectra_gen_units", loader)
+    spectra = importlib.util.module_from_spec(spec)
+    loader.exec_module(spectra)
+
+    # A quantity that is neither declared nor deliberately dimensionless would be
+    # reported in solver units beside physical ones, which is the failure this guards.
+    dimensionless = {"symbol", "shell_spectrum", "shell_count", "parseval_residual"}
+    reported = {
+        "symbol", "shell_spectrum", "shell_count", "fundamental_wavenumber",
+        "spectrum_peak_k", "zero_mode_energy", "spectrum_total_energy",
+        "resolved_kinetic_energy", "parseval_residual", "max_resolved_wavenumber",
+        "spectral_moment_k2", "spectral_moment_inverse_k", "dissipation_over_viscosity",
+        "integral_length_scale", "taylor_microscale",
+    }
+    undeclared = reported - dimensionless - set(spectra.SPECTRUM_DIMENSIONS)
+    assert undeclared == set(), undeclared
+
+
+def test_spectrum_dimensionalization_applies_each_quantitys_own_scale():
+    """! @brief A wavenumber, an energy, and a length do not share one factor. @return None. """
+    import importlib.machinery
+    import importlib.util
+
+    loader = importlib.machinery.SourceFileLoader(
+        "spectra_gen_scale", str(ROOT / "generators" / "spectra.gen")
+    )
+    spec = importlib.util.spec_from_loader("spectra_gen_scale", loader)
+    spectra = importlib.util.module_from_spec(spec)
+    loader.exec_module(spectra)
+
+    velocity, length = 3.0, 2.0
+    result = spectra.dimensionalize_spectrum({
+        "fundamental_wavenumber": 2.0,
+        "spectrum_total_energy": 3.0,
+        "spectral_moment_inverse_k": 7.0,
+        "integral_length_scale": 0.5,
+        "parseval_residual": 1.0e-14,
+        "shell_spectrum": [{"k": 2.0, "energy": 1.0}],
+    }, velocity, length)
+
+    assert result["fundamental_wavenumber"] == pytest.approx(2.0 / length)
+    assert result["spectrum_total_energy"] == pytest.approx(3.0 * velocity ** 2)
+    assert result["spectral_moment_inverse_k"] == pytest.approx(7.0 * velocity ** 2 * length)
+    assert result["integral_length_scale"] == pytest.approx(0.5 * length)
+    assert result["parseval_residual"] == pytest.approx(1.0e-14), "a ratio must not be scaled"
+    assert result["shell_spectrum"][0]["k"] == pytest.approx(2.0 / length)
+    assert result["shell_spectrum"][0]["energy"] == pytest.approx(1.0 * velocity ** 2)
+    assert result["units"] == "physical"
+
+    # Unit scales are a no-op, and must not stamp a misleading units tag either way.
+    plain = spectra.dimensionalize_spectrum({"spectrum_total_energy": 3.0}, 1.0, 1.0)
+    assert plain["spectrum_total_energy"] == 3.0

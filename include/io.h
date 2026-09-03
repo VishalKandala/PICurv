@@ -537,6 +537,24 @@ PetscErrorCode DeterminePeriodicity(SimCtx *simCtx);
 void TrimWhitespace(char *str);
 
 /**
+ * @brief Physical scale one field is multiplied by to leave non-dimensional form.
+ *
+ * The single reference table. Field dimensionalization, derived field statistics, and
+ * anything else needing a physical scale read it from here, so a field's units are
+ * stated once rather than once per output path.
+ *
+ * @param[in]  simCtx             Context carrying the resolved reference scales.
+ * @param[in]  field_name         Case-insensitive catalogued field name.
+ * @param[out] scale              Multiplicative factor; 1.0 when the field is unknown.
+ * @param[out] description        Optional human-readable units, may be NULL.
+ * @param[in]  description_length Capacity of `description`.
+ * @return 0 on success; `PETSC_ERR_ARG_WRONG` when the field has no declared scale.
+ */
+PetscErrorCode PicurvFieldReferenceScale(SimCtx *simCtx, const char *field_name,
+                                        PetscReal *scale, char *description,
+                                        size_t description_length);
+
+/**
  * @brief Initializes post-processing settings from a config file and command-line overrides.
  *
  * This function establishes the configuration for a post-processing run by:

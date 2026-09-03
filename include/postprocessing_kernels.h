@@ -158,10 +158,13 @@ PetscErrorCode ComputeDisplacement(UserCtx *user, const char *disp_field);
  * output. The staging vectors are reused between calls, so a caller must consume the
  * result before requesting the next one.
  *
- * Derived statistics are left non-dimensional even when `global_operations.dimensionalize`
- * is set. A Reynolds stress scales as velocity squared and a co-moment as a product of
- * two different scales, none of which the existing per-field scaling table expresses;
- * silently applying a velocity scale would be wrong rather than merely incomplete.
+ * With `global_operations.dimensionalize` set, the result carries physical units: the
+ * source field's reference scale raised to the power the derived kind carries: a mean
+ * and an RMS are linear in it, a Reynolds stress and a turbulent kinetic energy
+ * quadratic. A co-moment flux relates two possibly different fields, so its factor is
+ * the product of their scales rather than one squared. That is what the per-field
+ * scaling table alone cannot express, and why one blanket velocity factor would have
+ * been wrong for three of the five kinds.
  *
  * @param[in]  user         Block context holding the accumulators and staging fields.
  * @param[in]  window_index Window whose state is derived.

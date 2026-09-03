@@ -3076,6 +3076,23 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
     )
     os.makedirs(output_dir, exist_ok=True)
 
+    # Spectra are computed from the staged non-dimensional field on the staged
+    # non-dimensional grid, so physical units are the generator's to apply. The run's
+    # own configuration snapshot is the authority for the scales it used.
+    scale_arguments = []
+    if bool((post_cfg.get("global_operations") or {}).get("dimensionalize", False)):
+        active_case = load_active_run_configuration(run_dir).get("case")
+        case_path = os.path.join(run_dir, active_case) if active_case else None
+        if case_path and os.path.isfile(case_path):
+            scaling = resolve_fluid_scaling(read_yaml_file(case_path))
+            scale_arguments = [
+                "--velocity-ref", repr(float(scaling["velocity_ref"])),
+                "--length-ref", repr(float(scaling["length_ref"])),
+            ]
+        elif not quiet:
+            print("[WARNING] Spectra: dimensionalize was requested but this run carries no "
+                  "readable case snapshot; results stay non-dimensional.", file=sys.stderr)
+
     requested = sorted(set(int(step) for step in steps))
     # The requested window is what the recipe asks for, not what exists. The field
     # post-processor is bounded by the available source frontier and this must be too:
@@ -3112,6 +3129,7 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
                    "--field-file", field_path, "--source-grid", staged_grid,
                    "--block", str(task_cfg["block"]), "--symbol", task_cfg["symbol"]]
             cmd.extend(_spectra_mean_arguments(task_cfg, bundle, mean_bundle))
+            cmd.extend(scale_arguments)
             result = subprocess.run(cmd, text=True, capture_output=True)
             if result.returncode != 0:
                 details = (result.stderr or result.stdout or "").strip()
@@ -3380,8 +3398,13 @@ def build_post_recipe_config(post_cfg: dict, monitor_cfg=None) -> dict:
     c_config['timeStep'] = get_post_run_control_value(post_cfg, 'step_interval', 1)
 
     eulerian_pipeline_parts = []
-    if post_cfg.get('global_operations', {}).get('dimensionalize', False):
+    dimensionalize = bool(post_cfg.get('global_operations', {}).get('dimensionalize', False))
+    if dimensionalize:
         eulerian_pipeline_parts.append('DimensionalizeAllLoadedFields')
+        # The field pipeline is one of three producers. Derived statistics scale in the
+        # accumulator and spectra scale in their generator, so the request has to reach
+        # them as a setting rather than as a pipeline stage.
+        c_config['dimensionalize'] = 'true'
 
     for task in post_cfg.get('eulerian_pipeline', []):
         task_name = task.get('task')

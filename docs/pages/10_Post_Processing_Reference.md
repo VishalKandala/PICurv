@@ -107,6 +107,9 @@ Eulerian tasks (`eulerian_pipeline`):
 
 Global operation:
 - `global_operations.dimensionalize: true` prepends `DimensionalizeAllLoadedFields`
+  and reports every derived product in physical units. It reaches three producers:
+  the field pipeline scales loaded fields, the accumulator scales derived statistics,
+  and the spectra generator scales its own outputs.
 
 Lagrangian tasks (`lagrangian_pipeline`):
 - `specific_ke` -> `ComputeSpecificKE:<in>><out>`
@@ -266,10 +269,11 @@ that one bundle instead, collapsing the history to a single answer.
 
 Each window writes its own files, so a window name may not be listed twice.
 
-**Derived statistics are not dimensionalized**, even under
-`global_operations.dimensionalize`. A Reynolds stress scales as velocity squared
-and a co-moment as the product of two different scales, and the per-field scaling
-table expresses neither. See @ref p58_derived_sec.
+**Derived statistics follow `global_operations.dimensionalize`.** Each carries the
+source field's reference scale raised to its own power: a mean and an RMS are linear
+in it, a Reynolds stress, a turbulent kinetic energy and a co-moment flux quadratic.
+A field with no declared reference scale stays non-dimensional and says so in the log.
+See @ref p58_derived_sec.
 
 @section p10_cap_fso_sec 6.1 Field Statistics Output Entries
 

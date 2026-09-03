@@ -412,11 +412,16 @@ A window with no sample yet at a given step is skipped with a note rather than
 treated as an error, because a recipe covering a whole run legitimately reaches
 bundles from before that window began.
 
-**Derived statistics are not dimensionalized**, even when
-`global_operations.dimensionalize` is set. A Reynolds stress scales as velocity
-squared and a co-moment as the product of two different scales; the per-field
-scaling table expresses neither, so applying a velocity scale would be wrong
-rather than merely incomplete.
+**Derived statistics are dimensionalized when `global_operations.dimensionalize`
+is set.** The scale is the source field's own reference value raised to the power the
+derived kind carries: `1` for a mean and an RMS, `2` for a Reynolds stress and a
+turbulent kinetic energy. A co-moment flux is the exception - it relates two possibly
+different fields, so its factor is the product of their two scales rather than either
+one squared. The exponent is what the per-field scaling table
+alone cannot express, and one blanket velocity factor would be wrong for three of the
+five kinds. The factor is applied to the staging field both the VTK output and the
+convergence-history CSV read, so those two cannot disagree about units. A field with no
+declared reference scale is left non-dimensional and warns.
 
 @section p58_monitoring_sec 9. Runtime Monitoring and Logging
 

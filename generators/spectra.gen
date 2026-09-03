@@ -266,6 +266,67 @@ def spectral_symbols(cells_kji, lengths_xyz):
     return (kx, ky, kz), discrete, (dx, dy, dz)
 
 
+#: Physical dimensions of every quantity `shell_spectrum` reports, as the exponents of
+#: the reference velocity and the reference length. The solver works non-dimensionally,
+#: so a caller that wants physical units multiplies each value by U_ref**u * L_ref**l.
+#: A quantity absent from this table is dimensionless and is reported unchanged.
+SPECTRUM_DIMENSIONS = {
+    "fundamental_wavenumber": (0, -1),
+    "spectrum_peak_k": (0, -1),
+    "max_resolved_wavenumber": (0, -1),
+    "zero_mode_energy": (2, 0),
+    "spectrum_total_energy": (2, 0),
+    "resolved_kinetic_energy": (2, 0),
+    "spectral_moment_k2": (2, -2),
+    "spectral_moment_inverse_k": (2, 1),
+    "dissipation_over_viscosity": (2, -2),
+    "integral_length_scale": (0, 1),
+    "taylor_microscale": (0, 1),
+}
+
+#: Dimensions of the two per-shell columns, which are scaled row by row.
+SPECTRUM_ROW_DIMENSIONS = {"k": (0, -1), "energy": (2, 0)}
+
+
+def dimensionalize_spectrum(result, velocity_ref, length_ref):
+    """!
+    @brief Convert a non-dimensional spectrum result into physical units in place.
+
+    @details Every reported quantity carries its own combination of the velocity and
+             length scales - a wavenumber is inverse length, an energy is velocity
+             squared, a spectral second moment is both - so one blanket factor cannot
+             serve them. `parseval_residual` and `shell_count` are ratios and counts and
+             are deliberately left alone.
+    @param[in,out] result Mapping returned by `shell_spectrum`.
+    @param[in] velocity_ref Reference velocity.
+    @param[in] length_ref Reference length.
+    @return The same mapping, scaled.
+    """
+    if velocity_ref == 1.0 and length_ref == 1.0:
+        return result
+
+    def factor(dimensions):
+        """!
+        @brief Multiplier for one (velocity, length) exponent pair.
+        @param[in] dimensions Exponent pair.
+        @return Scalar multiplier.
+        """
+        velocity_power, length_power = dimensions
+        return (velocity_ref ** velocity_power) * (length_ref ** length_power)
+
+    for name, dimensions in SPECTRUM_DIMENSIONS.items():
+        if name in result:
+            result[name] = float(result[name]) * factor(dimensions)
+    for row in result.get("shell_spectrum", []):
+        for column, dimensions in SPECTRUM_ROW_DIMENSIONS.items():
+            if column in row:
+                row[column] = float(row[column]) * factor(dimensions)
+    result["units"] = "physical"
+    result["velocity_ref"] = velocity_ref
+    result["length_ref"] = length_ref
+    return result
+
+
 def shell_spectrum(field, lengths_xyz, symbol="continuum"):
     """!
     @brief Compute the shell-averaged energy spectrum of one velocity snapshot.
@@ -342,7 +403,8 @@ def shell_spectrum(field, lengths_xyz, symbol="continuum"):
 
 def generate_shell_spectrum(field_file: str, source_grid: str, block: int,
                             symbol: str, subtract_mean: str,
-                            mean_file: str = None, count_file: str = None) -> dict:
+                            mean_file: str = None, count_file: str = None,
+                            velocity_ref: float = 1.0, length_ref: float = 1.0) -> dict:
     """!
     @brief Produce the shell-averaged spectrum of one Ucat snapshot.
 
@@ -405,6 +467,9 @@ def generate_shell_spectrum(field_file: str, source_grid: str, block: int,
         field = field - mean_field
 
     summary = shell_spectrum(field, lengths, symbol)
+    # The staged grid is already non-dimensional, so the spectrum is too. Physical units
+    # are applied here, where each quantity's dimensions are declared.
+    dimensionalize_spectrum(summary, velocity_ref, length_ref)
     summary.update({
         "generator": "shell_spectrum",
         "field": "Ucat",
@@ -447,6 +512,10 @@ def build_parser() -> argparse.ArgumentParser:
     shell.add_argument("--count-file", help="Per-point sample count guarding --mean-file.")
     shell.add_argument("--spectrum-csv", help="Optional path for the `k,energy` spectrum CSV.")
     shell.add_argument("--summary-json", help="Optional path for generator summary JSON.")
+    shell.add_argument("--length-ref", type=float, default=1.0,
+                       help="Reference length. With --velocity-ref, reports dimensional results.")
+    shell.add_argument("--velocity-ref", type=float, default=1.0,
+                       help="Reference velocity. With --length-ref, reports dimensional results.")
     return parser
 
 
@@ -468,6 +537,8 @@ def main(argv=None) -> int:
                 args.subtract_mean,
                 args.mean_file,
                 args.count_file,
+                args.velocity_ref,
+                args.length_ref,
             )
         else:
             parser.error(f"unsupported command {args.command}")

@@ -507,6 +507,47 @@ static PetscErrorCode TestDerivedQuantities(void)
                                        "a never-sampled point derives to zero, not a division"));
     }
 
+    /* Dimensionalization raises the field's own scale to the kind's own power: a mean
+     * is linear in it and a covariance is quadratic. One blanket velocity factor would
+     * be right for two of the five kinds and wrong for the other three, which is why
+     * derived statistics were left non-dimensional before this existed. */
+    {
+        PicurvDerivedField field;
+        PetscReal nondimensional_mean = 0.0, nondimensional_tke = 0.0;
+        PetscReal dimensional_mean = 0.0, dimensional_tke = 0.0;
+        const PetscReal velocity = 3.0;
+
+        PetscCall(PicurvWindowStorageDestroy(&storage));
+        PetscCall(PicurvWindowStorageCreate(user, &d, &storage));
+        PetscCall(SetUniform(user, 1.0, 2.0, 3.0, 4.0));
+        PetscCall(PicurvWindowAccumulate(user, &d, &storage, 1.0));
+        PetscCall(SetUniform(user, 3.0, 4.0, 5.0, 6.0));
+        PetscCall(PicurvWindowAccumulate(user, &d, &storage, 1.0));
+
+        /* The minimal fixture carries no post-processing settings; the harness teardown
+         * already frees them, so allocating here is symmetric. */
+        if (!user->simCtx->pps) PetscCall(PetscCalloc1(1, &user->simCtx->pps));
+        user->simCtx->pps->dimensionalize = PETSC_FALSE;
+        PetscCall(PicurvWindowDerive(user, &d, &storage, "mean", 0, scalar_target, vector_target, &field));
+        PetscCall(ReadComponentAt(user, vector_target, 3, 0, 2, 2, 2, &nondimensional_mean));
+        PetscCall(PicurvWindowDerive(user, &d, &storage, "tke", 0, scalar_target, vector_target, &field));
+        PetscCall(ReadScalarAt(user, scalar_target, 2, 2, 2, &nondimensional_tke));
+
+        user->simCtx->scaling.U_ref = velocity;
+        user->simCtx->pps->dimensionalize = PETSC_TRUE;
+        PetscCall(PicurvWindowDerive(user, &d, &storage, "mean", 0, scalar_target, vector_target, &field));
+        PetscCall(ReadComponentAt(user, vector_target, 3, 0, 2, 2, 2, &dimensional_mean));
+        PetscCall(PicurvWindowDerive(user, &d, &storage, "tke", 0, scalar_target, vector_target, &field));
+        PetscCall(ReadScalarAt(user, scalar_target, 2, 2, 2, &dimensional_tke));
+
+        PetscCall(PicurvAssertRealNear(velocity * nondimensional_mean, dimensional_mean, 1.0e-11,
+                                       "a mean carries the field's scale once"));
+        PetscCall(PicurvAssertRealNear(velocity * velocity * nondimensional_tke, dimensional_tke,
+                                       1.0e-11, "a turbulent kinetic energy carries it squared"));
+        user->simCtx->pps->dimensionalize = PETSC_FALSE;
+        user->simCtx->scaling.U_ref = 1.0;
+    }
+
     /* An unknown output kind is refused rather than silently ignored. */
     {
         PetscErrorCode bad = 0;

@@ -392,6 +392,25 @@ static const char *const kDerivedKindName[DERIVED_KIND_COUNT] = {
 };
 
 /**
+ * @brief Power of the source field's reference scale each derived kind carries.
+ *
+ * A first moment and a standard deviation have the field's own units; a covariance,
+ * its trace, and a co-moment flux are quadratic in it. This is what the per-field
+ * scaling table alone cannot express, and why derived statistics were previously left
+ * non-dimensional rather than scaled by a velocity that would have been wrong for
+ * three of the five kinds.
+ */
+static const PetscInt kDerivedKindScaleExponent[DERIVED_KIND_COUNT] = {
+    1,  /* mean             - first moment, the field's own units */
+    2,  /* reynolds_stress  - covariance of one field with itself */
+    1,  /* rms              - standard deviation */
+    2,  /* tke              - half the trace of that covariance */
+    0   /* flux             - a co-moment of two possibly different fields, so its
+                                factor is their product and cannot be an exponent of
+                                one scale; DERIVED_FLUX resolves it directly. */
+};
+
+/**
  * @brief Internal helper: reports which output kinds a recipe requested.
  * @details Local to this translation unit.
  */
@@ -568,6 +587,9 @@ PetscErrorCode PicurvWindowDerive(UserCtx *user, const PicurvWindowDefinition *d
     DM source_dm = NULL;
     Vec source_vec = NULL;
     PetscInt offset = 0, slot = 0, member = 0;
+    /* Resolved where the branch knows which fields it read; 1.0 leaves the result in
+     * solver units, which is also what an undeclared scale falls back to. */
+    PetscReal dimensional_factor = 1.0;
     /* The source's component count is not the output's: a scalar RMS reads a
      * six-component tensor, so each needs its own DM. */
     PetscInt source_components = 0;
@@ -620,6 +642,21 @@ PetscErrorCode PicurvWindowDerive(UserCtx *user, const PicurvWindowDefinition *d
             PetscCall(PicurvCovarianceComponentCount(first->dof, second->dof, &field->components));
             source_components = field->components;
             source_vec = storage->cm[slot];
+            if (user->simCtx->pps && user->simCtx->pps->dimensionalize) {
+                PetscReal first_scale = 1.0, second_scale = 1.0;
+
+                if (!PicurvFieldReferenceScale(user->simCtx, first->canonical_name,
+                                               &first_scale, NULL, 0)
+                    && !PicurvFieldReferenceScale(user->simCtx, second->canonical_name,
+                                                  &second_scale, NULL, 0)) {
+                    dimensional_factor = first_scale * second_scale;
+                } else {
+                    LOG_ALLOW(GLOBAL, LOG_WARNING,
+                              "A co-moment of '%s' and '%s' has no declared reference "
+                              "scale pair; it stays non-dimensional.\n",
+                              first->canonical_name, second->canonical_name);
+                }
+            }
             PetscCall(PetscSNPrintf(field->name, sizeof(field->name), "%s_%s_%s_flux",
                                     definition->name, first->canonical_name, second->canonical_name));
         }
@@ -730,6 +767,28 @@ PetscErrorCode PicurvWindowDerive(UserCtx *user, const PicurvWindowDefinition *d
         PetscCall(DMDAVecRestoreArrayRead(user->da, storage->count, &count_arr));
         PetscCall(DMDAVecRestoreArrayRead(user->da, storage->weight_sq, &weight_sq_arr));
         PetscCall(DMDAVecRestoreArrayRead(user->da, storage->weight, &weight_arr));
+
+        /* Applied once, here, so the VTK field and the convergence-history CSV - which
+         * both read this staging vector - cannot end up in different unit systems. */
+        if (user->simCtx->pps && user->simCtx->pps->dimensionalize) {
+            if (kind != DERIVED_FLUX && descriptor) {
+                PetscReal base = 1.0;
+
+                if (!PicurvFieldReferenceScale(user->simCtx, descriptor->canonical_name,
+                                               &base, NULL, 0)) {
+                    dimensional_factor = PetscPowRealInt(base, kDerivedKindScaleExponent[kind]);
+                } else {
+                    LOG_ALLOW(GLOBAL, LOG_WARNING,
+                              "Field '%s' has no declared reference scale; its derived "
+                              "statistics stay non-dimensional.\n", descriptor->canonical_name);
+                }
+            }
+            if (PetscAbsReal(dimensional_factor - 1.0) > PETSC_MACHINE_EPSILON) {
+                PetscCall(VecScale(destination, dimensional_factor));
+                LOG_ALLOW(GLOBAL, LOG_DEBUG, "Scaled derived '%s' by %.4e.\n",
+                          kDerivedKindName[kind], (double)dimensional_factor);
+            }
+        }
     }
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

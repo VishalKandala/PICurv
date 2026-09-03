@@ -784,6 +784,8 @@ typedef struct PostProcessParams {
     char field_statistics_formats[MAX_FIELD_LIST_LENGTH];
     /** Analysis prefix for CSV summaries; VTK continues to use output_prefix. */
     char field_statistics_output_prefix[PETSC_MAX_PATH_LEN];
+    /** Whether derived output leaves non-dimensional form, from global_operations.dimensionalize. */
+    PetscBool dimensionalize;
     /** Committed step supplying the state; negative means the step being processed. */
     PetscInt field_statistics_source_step;
 
