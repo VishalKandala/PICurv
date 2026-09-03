@@ -1398,7 +1398,10 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
         print(f"Error: Grid generation failed for type '{args.grid_type}'.", file=sys.stderr)
         sys.exit(1)
 
-    if args.show_stats or hasattr(args, 'stats_file'):
+    # `hasattr` is true whenever the option exists, so a cfg carrying an empty
+    # `stats_file =` reached export_stats_to_file('') and reported a write failure on
+    # every otherwise successful generation. Only an actual destination is a request.
+    if args.show_stats or getattr(args, 'stats_file', None):
         if X is None:
             print(
                 "Warning: stats output requires a structured grid array in memory; skipping stats export.",
@@ -1408,7 +1411,7 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             stats_data = analyze_grid_quality(X, Y, Z)
             if args.show_stats:
                 print_stats_to_console(stats_data)
-            if hasattr(args, 'stats_file'):
+            if getattr(args, 'stats_file', None):
                 export_stats_to_file(args.stats_file, stats_data)
 
     if hasattr(args, 'output') and not handled_output:
