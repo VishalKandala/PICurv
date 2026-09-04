@@ -144,6 +144,11 @@ is a test-local routine.
     the disc map fills the circle with no hole, and swept grids are right-handed
   - parallel transport keeps an out-of-plane path untwisted, and an arc about its
     own tangent is refused
+  - reference scales, and wall units reproducing the shipped channel config's
+    hand-computed y+, dx+ and dz+
+  - solver units report the grid after the launcher divides it by `length_ref`
+  - the multigrid ladder, a periodic seam joining unequal cells, and rotating a
+    periodic grid are each refused at generation
 - `test_capability_tooling.py`
   - capability parity, value metadata, and coverage-entry shape
   - contract registry and artifact-topology snapshot validation

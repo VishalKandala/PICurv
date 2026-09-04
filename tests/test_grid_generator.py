@@ -384,3 +384,97 @@ def test_malformed_sweeps_are_refused_with_their_reason(kwargs, message):
     @param[in] kwargs Generator arguments under test. @param[in] message Expected text. """
     with pytest.raises(ValueError, match=message):
         swept(**kwargs)
+
+
+# --- reference scales, wall units, and validators ----------------------------
+
+def test_reference_scales_need_a_coherent_combination():
+    """! @brief Each way of expressing a wall unit needs its whole pair. """
+    assert GRID.resolve_reference_quantities(None, None, None, None, None) is None
+    with pytest.raises(ValueError, match="re_tau is a ratio against the reference length"):
+        GRID.resolve_reference_quantities(None, None, None, 180.0, None)
+    with pytest.raises(ValueError, match="u_tau needs nu"):
+        GRID.resolve_reference_quantities(1.0, None, None, None, 0.05)
+
+
+def test_the_two_friction_forms_agree():
+    """! @brief Re_tau/length_ref and u_tau/nu are the same ratio. """
+    from_re_tau = GRID.resolve_reference_quantities(2.0, 1e-3, None, 180.0, None)
+    from_u_tau = GRID.resolve_reference_quantities(2.0, 1e-3, None, None, 0.09)
+    assert from_re_tau['inverse_viscous_length'] == pytest.approx(90.0)
+    assert from_u_tau['inverse_viscous_length'] == pytest.approx(90.0)
+
+
+def test_wall_units_reproduce_the_channel_configs_hand_arithmetic():
+    """! @brief The generator computes what the shipped config states in prose.
+
+    @details config/grids/plane_channel_retau180.cfg asserts y+_1 = 0.5, dx+ = 8.8 and
+             dz+ = 17.5 in a comment nothing checks. Same domain and counts here.
+    """
+    reference = GRID.resolve_reference_quantities(1.0, 3.5714286e-04, 1.0, 180.0, None)
+    X, Y, Z, factors = GRID.box_grid(
+        ncells_i=128, ncells_j=128, ncells_k=128,
+        bounds_x=[0.0, 2*np.pi], bounds_y=[0.0, 2.0], bounds_z=[0.0, 4*np.pi],
+        wall_j_lo=None, wall_j_hi=None, wall_j_lo_span=None, wall_j_hi_span=None,
+        amp_A=0.0, amp_B=0.0, amp_C=0.0, origin=[0.0, 0.0, 0.0],
+        stretch_i=0.0, stretch_j=2.0, stretch_k=0.0,
+        first_cell_j_start=1.388889e-03, first_cell_j_end=1.388889e-03,
+    )
+    wall = GRID.analyze_grid_quality(X, Y, Z, factors, reference)['wall_units']
+    assert wall['j']['first_start'] == pytest.approx(0.5, rel=1e-3)
+    assert wall['i']['max'] == pytest.approx(8.8, rel=1e-2)
+    assert wall['k']['max'] == pytest.approx(17.5, rel=1e-2)
+    assert wall['j']['extent'] == pytest.approx(360.0, rel=1e-6), "2 delta in wall units"
+
+
+def test_solver_units_report_the_grid_after_the_launcher_divides_it():
+    """! @brief The generator writes metres; the solver receives them over length_ref. """
+    reference = GRID.resolve_reference_quantities(0.05, None, None, None, None)
+    X, Y, Z, factors = shaped_box(bounds_x=(0.0, 1.0))
+    stats = GRID.analyze_grid_quality(X, Y, Z, factors, reference)
+    assert stats['bounds_x'][1] == pytest.approx(1.0), "written dimensional"
+    assert stats['solver_bounds']['x'][1] == pytest.approx(20.0), "received scaled"
+
+
+@pytest.mark.parametrize("counts, levels, ok", [
+    ({'i': 129, 'j': 129, 'k': 129}, 5, True),
+    ({'i': 129, 'j': 65, 'k': 33}, 5, True),   # 33 -> 17 -> 9 -> 5 -> 3 is a legal ladder
+    ({'i': 129, 'j': 64, 'k': 129}, 5, False),  # an even count breaks at the first level
+    ({'i': 101, 'j': 101, 'k': 101}, 5, False),
+    ({'i': 33, 'j': 33, 'k': 33}, 3, True),
+])
+def test_multigrid_ladder_is_checked_at_generation(counts, levels, ok):
+    """! @brief An illegal count is loud here instead of a runtime coarsening notice.
+    @param[in] counts Node counts. @param[in] levels Requested levels.
+    @param[in] ok Whether the combination is legal. """
+    if ok:
+        GRID.check_multigrid_levels(counts, levels)
+    else:
+        with pytest.raises(ValueError, match="multigrid levels need node counts"):
+            GRID.check_multigrid_levels(counts, levels)
+
+
+def test_a_periodic_axis_refuses_one_sided_stretching():
+    """! @brief The seam would join cells of different width. """
+    axes = {'i': np.array([0.0, 0.01, 0.05, 0.2, 0.6, 1.0])}
+    with pytest.raises(ValueError, match="first and last cells differ"):
+        GRID.check_periodic_axes(['i'], axes, None)
+
+
+def test_a_periodic_axis_accepts_symmetric_stretching():
+    """! @brief Matching end cells make a seam the runtime can join. """
+    axes = {'i': np.array([0.0, 0.1, 0.35, 0.65, 0.9, 1.0])}
+    GRID.check_periodic_axes(['i'], axes, None)
+
+
+def test_rotating_a_periodic_grid_is_refused():
+    """! @brief The runtime's periodic reconstruction assumes an axis-aligned seam.
+
+    @details Metric.c offsets only the matching Cartesian component across the seam and
+             copies the other two. Whether an arbitrarily oriented periodic grid is
+             handled is unverified, so this refuses rather than producing one quietly.
+    """
+    axes = {'k': np.linspace(0.0, 1.0, 9)}
+    with pytest.raises(ValueError, match="cannot be combined with 'rotate'"):
+        GRID.check_periodic_axes(['k'], axes, ["rotate:axis=z,deg=30"])
+    GRID.check_periodic_axes(['k'], axes, ["translate:dx=1"])

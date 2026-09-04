@@ -5855,12 +5855,18 @@ def write_profile_info(config_dir: str, summaries: list) -> str:
             fout.write(f"output_file = {summary.get('path')}\n\n")
     return info_path
 
-def run_grid_generator(case_path: str, run_dir: str, grid_cfg: dict) -> str:
+def run_grid_generator(case_path: str, run_dir: str, grid_cfg: dict,
+                       case_cfg: dict = None) -> str:
     """!
     @brief Runs generators/grid.gen to produce a PICGRID file for this run.
     @param[in] case_path Path to case.yml (used for relative path resolution).
     @param[in] run_dir Run directory path.
     @param[in] grid_cfg The grid config section from case.yml.
+    @param[in] case_cfg Parsed case configuration, when available. Its reference scales
+                        are handed to the generator so the quality report can carry
+                        solver and wall units. Reporting only: the generator never scales
+                        coordinates, which validate_and_nondimensionalize_picgrid does
+                        once for every grid regardless of origin.
     @return Absolute path to generated dimensional PICGRID file.
     @throws ValueError on invalid config or generator failure.
     """
@@ -5914,6 +5920,19 @@ def run_grid_generator(case_path: str, run_dir: str, grid_cfg: dict) -> str:
     )
     os.makedirs(os.path.dirname(stats_file), exist_ok=True)
     cmd.extend(["--stats-file", stats_file])
+
+    # The case already knows these; the generator would otherwise report a grid in metres
+    # with no way to say what it becomes downstream. Resolution is best-effort: a case
+    # that omits them still gets its grid, just without the derived-unit sections.
+    if case_cfg:
+        try:
+            scaling = resolve_fluid_scaling(case_cfg)
+        except (KeyError, ValueError, TypeError):
+            scaling = None
+        if scaling:
+            cmd.extend(["--length-ref", repr(scaling["length_ref"]),
+                        "--velocity-ref", repr(scaling["velocity_ref"]),
+                        "--nu", repr(scaling["physical_kinematic_viscosity"])])
 
     print(f"[INFO] Grid generator command: {' '.join(cmd)}")
     result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
@@ -13023,7 +13042,8 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         else:
             try:
                 # grid.gen already converts ncells_* inputs into node-count PICGRID dims.
-                generated_grid = run_grid_generator(configs['case_path'], run_dir, grid_cfg)
+                generated_grid = run_grid_generator(
+                    configs['case_path'], run_dir, grid_cfg, case_cfg=case_cfg)
                 summary = validate_and_nondimensionalize_picgrid(
                     generated_grid, nondim_grid_path, L_ref, expected_nblk=expected_nblk
                 )
@@ -15455,7 +15475,7 @@ def _build_selected_asset_payloads(build_root: str, case_cfg: dict, case_path: s
     if "grid" in selected_kinds:
         before = fingerprint("grid")
         if grid_cfg.get("mode") == "grid_gen":
-            generated = run_grid_generator(case_path, build_root, grid_cfg)
+            generated = run_grid_generator(case_path, build_root, grid_cfg, case_cfg=case_cfg)
             validate_and_nondimensionalize_picgrid(
                 generated, staged_grid, length_ref, expected_nblk=expected_nblk
             )

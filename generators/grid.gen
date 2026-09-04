@@ -253,6 +253,75 @@ def compute_geometric_ratio(num_cells: int, total_length: float, first_cell: flo
 # analyse and export it. Only the map differs between geometries, so the other three
 # stages live here once instead of being copied into each generator.
 
+def check_multigrid_levels(dimensions: Dict[str, int], levels: int) -> None:
+    """!
+    @brief Refuse node counts the multigrid hierarchy cannot coarsen.
+    @details Each level halves as IM -> (IM+1)/2, so L levels need IM = 2^(L-1)*k + 1. An
+             illegal count still runs: the solver logs that it cannot coarsen further and
+             proceeds on a slightly misaligned coarse grid, which is a quiet loss of
+             convergence rate rather than a failure. Catching it here makes it loud, and
+             at the moment it can still be fixed for free.
+    @param[in] dimensions Node counts keyed by logical axis.
+    @param[in] levels Requested multigrid levels.
+    @throws ValueError when an axis cannot be coarsened that many times.
+    """
+    if levels < 1:
+        raise ValueError("mg_levels must be at least 1")
+    stride = 1 << (levels - 1)
+    bad = {axis: count for axis, count in dimensions.items() if (count - 1) % stride}
+    if bad:
+        detail = "; ".join(
+            f"{axis}={count} nodes" for axis, count in sorted(bad.items())
+        )
+        usable = ", ".join(str(stride*k + 1) for k in range(1, 9))
+        raise ValueError(
+            f"{levels} multigrid levels need node counts of the form 2^{levels - 1}*k + 1 "
+            f"on every axis, but {detail}. Usable counts here: {usable}."
+        )
+
+
+def check_periodic_axes(periodic: List[str], axis_values: Dict[str, np.ndarray],
+                        transforms: Optional[List[str]]) -> None:
+    """!
+    @brief Refuse grids whose periodic axes the runtime cannot treat correctly.
+    @details Two independent constraints. A periodic seam must join cells of matching
+             width, so one-sided stretching on such an axis puts a discontinuity exactly
+             where the wrap happens. And the runtime's periodic reconstruction offsets
+             only the matching Cartesian component and copies the other two, so it assumes
+             the seam displacement is axis-aligned; rotating such a grid produces a wrong
+             metric at the seam. Whether an arbitrarily oriented periodic grid could be
+             handled is unverified, so this refuses rather than guesses.
+    @param[in] periodic Logical axes declared periodic.
+    @param[in] axis_values Axis node positions keyed by logical axis.
+    @param[in] transforms Transform tokens that will be applied, if any.
+    @throws ValueError when a declared periodic axis cannot be honoured.
+    """
+    for axis in periodic:
+        if axis not in ('i', 'j', 'k'):
+            raise ValueError(f"periodic axis must be one of i, j, k; got '{axis}'")
+        values = axis_values.get(axis)
+        if values is None or values.size < 3:
+            continue
+        widths = np.diff(values)
+        if not np.isclose(widths[0], widths[-1], rtol=1e-9, atol=1e-12):
+            raise ValueError(
+                f"axis '{axis}' is declared periodic but its first and last cells differ "
+                f"({widths[0]:.6g} vs {widths[-1]:.6g}). The seam would join cells of "
+                f"different width. Use symmetric stretching on a periodic axis, or none."
+            )
+    if periodic and transforms:
+        for token in transforms:
+            kind, _ = parse_transform_token(token)
+            if kind == 'rotate':
+                raise ValueError(
+                    "a periodic axis cannot be combined with 'rotate': the runtime's "
+                    "periodic reconstruction offsets only the matching Cartesian "
+                    "component and copies the other two, so it assumes an axis-aligned "
+                    "seam. Rotating a periodic grid is not verified to be handled "
+                    "correctly, so it is refused rather than silently produced."
+                )
+
+
 def _announce_axis(axis: str, stretch: float, first_start, first_end, note: str = "") -> None:
     """!
     @brief Report which stretching mode an axis resolved to.
@@ -858,7 +927,9 @@ def sweep_grid(
     first_cell_i_start: float = None, first_cell_i_end: float = None,
     first_cell_j_start: float = None, first_cell_j_end: float = None,
     first_cell_k_start: float = None, first_cell_k_end: float = None,
-    transforms: Optional[List[str]] = None
+    transforms: Optional[List[str]] = None,
+    mg_levels: Optional[int] = None,
+    periodic: Optional[List[str]] = None
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, float]]:
     """!
     @brief Generates a duct by sweeping a cross-section along a piecewise centreline.
@@ -887,6 +958,8 @@ def sweep_grid(
     @param[in] first_cell_k_start First-cell size at the path start.
     @param[in] first_cell_k_end First-cell size at the path end.
     @param[in] transforms Optional placement/similarity transform tokens.
+    @param[in] mg_levels Multigrid levels the node counts must support.
+    @param[in] periodic Logical axes that will be periodic.
     @return Nodal x, y and z coordinates, and the realized stretch factors.
     @throws ValueError on an unknown cross-section or a malformed path.
     """
@@ -909,6 +982,9 @@ def sweep_grid(
               'first_start': first_cell_k_start, 'first_end': first_cell_k_end},
     })
     u_vals, v_vals, zeta_vals = axes['i'], axes['j'], axes['k']
+    if mg_levels:
+        check_multigrid_levels({'i': IM, 'j': JM, 'k': KM}, mg_levels)
+    check_periodic_axes(periodic or [], axes, transforms)
 
     # One pass to learn the path length, a second to sample it where zeta asks.
     _, _, _, total_length = build_centerline(path, np.array([0.0]), 'path')
@@ -949,7 +1025,9 @@ def box_grid(
     first_cell_i_start: float = None, first_cell_i_end: float = None,
     first_cell_j_start: float = None, first_cell_j_end: float = None,
     first_cell_k_start: float = None, first_cell_k_end: float = None,
-    transforms: Optional[List[str]] = None
+    transforms: Optional[List[str]] = None,
+    mg_levels: Optional[int] = None,
+    periodic: Optional[List[str]] = None
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, float]]:
     """!
     @brief Generates a Cartesian block whose bounding walls may be shaped.
@@ -991,6 +1069,8 @@ def box_grid(
     @param[in] first_cell_k_start First-cell size at the spanwise start.
     @param[in] first_cell_k_end First-cell size at the spanwise end.
     @param[in] transforms Optional placement/similarity transform tokens.
+    @param[in] mg_levels Multigrid levels the node counts must support.
+    @param[in] periodic Logical axes that will be periodic.
     @return Nodal x, y and z coordinates, and the realized stretch factors.
     @throws ValueError when a wall specification does not span its axis.
     """
@@ -1009,6 +1089,9 @@ def box_grid(
               'first_start': first_cell_k_start, 'first_end': first_cell_k_end},
     })
     xi, eta, zeta = axes['i'], axes['j'], axes['k']
+    if mg_levels:
+        check_multigrid_levels({'i': IM, 'j': JM, 'k': KM}, mg_levels)
+    check_periodic_axes(periodic or [], axes, transforms)
 
     XI, ETA, ZETA = np.meshgrid(xi, eta, zeta, indexing='ij')
     A, B, C = amp_A, amp_B, amp_C
@@ -1306,9 +1389,75 @@ def generate_curvilinear_grid(
 
     return place_and_transform(X_local, Y_local, Z_local, origin, transforms) + (stretch_factors,)
 
+def resolve_reference_quantities(length_ref: Optional[float], nu: Optional[float],
+                                 velocity_ref: Optional[float], re_tau: Optional[float],
+                                 u_tau: Optional[float]) -> Optional[Dict[str, float]]:
+    """!
+    @brief Resolve the reference scales the quality report needs to add units.
+    @details These describe the grid, they never move it. Non-dimensionalization stays
+             where it already is, in the launcher, which divides coordinates by
+             `length_ref` once for every grid regardless of origin; scaling here as well
+             would divide twice.
+
+             `Re_tau` cannot be derived from a case: it is a flow outcome, not an input,
+             so it is a target the caller supplies and everything computed from it is
+             nominal. `length_ref`, `nu` and `velocity_ref` do come from the case.
+    @param[in] length_ref Reference length used to non-dimensionalize the grid.
+    @param[in] nu Kinematic viscosity.
+    @param[in] velocity_ref Reference velocity.
+    @param[in] re_tau Target friction Reynolds number.
+    @param[in] u_tau Friction velocity, as an alternative to `re_tau`.
+    @return Resolved reference scales, or None when nothing was supplied.
+    @throws ValueError when a supplied combination cannot be interpreted.
+    """
+    if all(value is None for value in (length_ref, nu, velocity_ref, re_tau, u_tau)):
+        return None
+    reference: Dict[str, float] = {}
+    if length_ref is not None:
+        if length_ref <= 0.0:
+            raise ValueError("length_ref must be positive")
+        reference['length_ref'] = length_ref
+    if nu is not None and nu <= 0.0:
+        raise ValueError("nu must be positive")
+
+    # y+ = y * u_tau / nu. Either form supplies that one ratio.
+    if u_tau is not None:
+        if nu is None:
+            raise ValueError("u_tau needs nu to express a wall unit; supply both")
+        reference['inverse_viscous_length'] = u_tau/nu
+        reference['u_tau'] = u_tau
+    elif re_tau is not None:
+        if length_ref is None:
+            raise ValueError(
+                "re_tau is a ratio against the reference length, so it needs length_ref; "
+                "supply it, or give u_tau and nu instead"
+            )
+        reference['inverse_viscous_length'] = re_tau/length_ref
+        reference['re_tau'] = re_tau
+    if nu is not None:
+        reference['nu'] = nu
+    if velocity_ref is not None and nu is not None and length_ref is not None:
+        reference['reynolds'] = velocity_ref*length_ref/nu
+    return reference
+
+
+def _axis_spacings(X: np.ndarray, Y: np.ndarray, Z: np.ndarray, axis: int) -> np.ndarray:
+    """!
+    @brief Node-to-node distances along one logical axis.
+    @param[in] X Nodal x coordinates.
+    @param[in] Y Nodal y coordinates.
+    @param[in] Z Nodal z coordinates.
+    @param[in] axis Logical axis index.
+    @return Cell widths along that axis.
+    """
+    return np.sqrt(np.diff(X, axis=axis)**2 + np.diff(Y, axis=axis)**2
+                   + np.diff(Z, axis=axis)**2)
+
+
 # --- Grid Analysis and Export Functions ---
 def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray,
-                         stretch_factors: Optional[Dict[str, float]] = None) -> dict:
+                         stretch_factors: Optional[Dict[str, float]] = None,
+                         reference: Optional[Dict[str, float]] = None) -> dict:
     """!
     @brief Performs a comprehensive quality analysis on the grid and returns a dictionary of metrics.
     @param[in] X Argument passed to `analyze_grid_quality()`.
@@ -1317,6 +1466,9 @@ def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray,
     @param[in] stretch_factors Realized per-axis stretch factors from the geometry that
                                built this grid, reported verbatim. Absent factors read as
                                zero, which is what an unstretched axis realizes anyway.
+    @param[in] reference Optional reference scales from resolve_reference_quantities().
+                         With `length_ref` the report also carries solver units, and with
+                         a friction scale it carries nominal wall units.
     @return Value returned by `analyze_grid_quality()`.
     """
     stats = {}
@@ -1419,6 +1571,32 @@ def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray,
     L_char = np.mean((np.mean(edge_i), np.mean(edge_j), np.mean(edge_k)))
     stats['max_warpage'] = np.max([dist0, dist1])
     stats['max_warpage_norm'] = stats['max_warpage'] / L_char
+
+    # Units the grid is read in downstream. The launcher divides coordinates by
+    # length_ref once, so the grid the solver receives is not the one written here; and
+    # wall units are what a target Re_tau implies, not a measured friction velocity.
+    stats['reference'] = dict(reference) if reference else {}
+    if reference:
+        spacings = {axis: _axis_spacings(X, Y, Z, index)
+                    for index, axis in enumerate(('i', 'j', 'k'))}
+        length_ref = reference.get('length_ref')
+        if length_ref:
+            stats['solver_bounds'] = {
+                'x': (stats['bounds_x'][0]/length_ref, stats['bounds_x'][1]/length_ref),
+                'y': (stats['bounds_y'][0]/length_ref, stats['bounds_y'][1]/length_ref),
+                'z': (stats['bounds_z'][0]/length_ref, stats['bounds_z'][1]/length_ref),
+            }
+        inverse = reference.get('inverse_viscous_length')
+        if inverse:
+            stats['wall_units'] = {
+                axis: {
+                    'first_start': float(np.mean(np.take(width, 0, axis=index)))*inverse,
+                    'first_end': float(np.mean(np.take(width, -1, axis=index)))*inverse,
+                    'max': float(np.max(width))*inverse,
+                    'extent': float(np.max(np.sum(width, axis=index)))*inverse,
+                }
+                for index, (axis, width) in enumerate(spacings.items())
+            }
 
     # --- Non-Orthogonality ---
     dC_i=C[1:,:,:]-C[:-1,:,:]; S_i=0.5*np.cross(P[1:-1,1:,1:]-P[1:-1,:-1,:-1], P[1:-1,:-1,1:]-P[1:-1,1:,:-1], axis=-1)
@@ -1566,6 +1744,34 @@ def export_stats_to_file(filename: str, stats: dict) -> None:
             f.write(f"Avg_Aspect_Ratio = {stats.get('avg_aspect_ratio', 0.0):.4f}\n")
             f.write(f"Std_Aspect_Ratio = {stats.get('std_aspect_ratio', 0.0):.4f}\n")
             f.write(f"Max_Face_Warpage_Normalized = {stats.get('max_warpage_norm', 0.0):.4f}\n")
+
+            reference = stats.get('reference') or {}
+            if reference:
+                f.write("\n[Reference Scales]\n")
+                for key in ('length_ref', 'velocity_ref', 'nu', 'reynolds', 're_tau', 'u_tau'):
+                    if key in reference:
+                        f.write(f"{key} = {reference[key]:.6e}\n")
+
+            solver = stats.get('solver_bounds')
+            if solver:
+                f.write("\n[Solver Units]\n")
+                f.write("# The launcher divides coordinates by length_ref; this is the grid\n")
+                f.write("# the solver actually receives.\n")
+                for axis in ('x', 'y', 'z'):
+                    low, high = solver[axis]
+                    f.write(f"{axis.upper()}_Range_Solver = {low:.6e}, {high:.6e}\n")
+
+            wall = stats.get('wall_units')
+            if wall:
+                f.write("\n[Wall Units - nominal]\n")
+                f.write("# Computed from the supplied friction scale, which is a target,\n")
+                f.write("# not a measurement: the real u_tau comes from the solved flow.\n")
+                for axis in ('i', 'j', 'k'):
+                    entry = wall[axis]
+                    f.write(f"First_Cell_{axis}_Start_Plus = {entry['first_start']:.4f}\n")
+                    f.write(f"First_Cell_{axis}_End_Plus = {entry['first_end']:.4f}\n")
+                    f.write(f"Max_Spacing_{axis}_Plus = {entry['max']:.4f}\n")
+                    f.write(f"Extent_{axis}_Plus = {entry['extent']:.4f}\n")
 
         print(f"Grid quality statistics successfully exported to: '{filename}'")
     except IOError as e:
@@ -1874,6 +2080,9 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             'first_cell_j_start': None, 'first_cell_j_end': None,
             'first_cell_k_start': None, 'first_cell_k_end': None,
             'transforms': None,
+            'length_ref': None, 'nu': None, 'velocity_ref': None,
+            're_tau': None, 'u_tau': None,
+            'mg_levels': None, 'periodic': None,
         },
         'pipe': {
             'ncells_phi': 24, 'ncells_r': 12, 'ncells_path': 100, 'diameter': 1.0,
@@ -1885,6 +2094,9 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             'first_cell_j_start': None, 'first_cell_j_end': None,
             'first_cell_k_start': None, 'first_cell_k_end': None,
             'transforms': None,
+            'length_ref': None, 'nu': None, 'velocity_ref': None,
+            're_tau': None, 'u_tau': None,
+            'mg_levels': None, 'periodic': None,
         },
         'warp': {
             'ncells_i': 20, 'ncells_j': 20, 'ncells_k': 20, 'bounds_x': [0.0, 1.0],
@@ -1896,6 +2108,9 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             'first_cell_j_start': None, 'first_cell_j_end': None,
             'first_cell_k_start': None, 'first_cell_k_end': None,
             'transforms': None,
+            'length_ref': None, 'nu': None, 'velocity_ref': None,
+            're_tau': None, 'u_tau': None,
+            'mg_levels': None, 'periodic': None,
         },
         'box': {
             'ncells_i': 20, 'ncells_j': 20, 'ncells_k': 20, 'bounds_x': [0.0, 1.0],
@@ -1909,6 +2124,9 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             'first_cell_j_start': None, 'first_cell_j_end': None,
             'first_cell_k_start': None, 'first_cell_k_end': None,
             'transforms': None,
+            'length_ref': None, 'nu': None, 'velocity_ref': None,
+            're_tau': None, 'u_tau': None,
+            'mg_levels': None, 'periodic': None,
         },
         'sweep': {
             'ncells_i': 16, 'ncells_j': 16, 'ncells_k': 100,
@@ -1920,6 +2138,9 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             'first_cell_j_start': None, 'first_cell_j_end': None,
             'first_cell_k_start': None, 'first_cell_k_end': None,
             'transforms': None,
+            'length_ref': None, 'nu': None, 'velocity_ref': None,
+            're_tau': None, 'u_tau': None,
+            'mg_levels': None, 'periodic': None,
         },
         'legacy1d': {
             'show_stats': False,
@@ -1943,6 +2164,23 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
     add_arg(parent, '--output', type=str, help="Output filename for PICGRID format.")
     add_arg(parent, '--origin', type=float, nargs=3, metavar=('X','Y','Z'), help="Set the [x,y,z] minimum corner of the grid's bounding box.")
     add_arg(parent, '--stats-file', type=str, help="Output filename for grid quality statistics report.")
+    add_arg(parent, '--mg-levels', type=int,
+            help="Multigrid levels the grid must support. Each level coarsens as\n"
+                 "IM -> (IM+1)/2, so L levels need node counts of 2^(L-1)*k + 1.")
+    add_arg(parent, '--periodic', type=str, nargs='+', metavar='AXIS',
+            choices=['i', 'j', 'k'],
+            help="Logical axes that will be periodic. Their seams must join cells of\n"
+                 "equal width, and they may not be combined with a rotation.")
+    add_arg(parent, '--length-ref', type=float,
+            help="Reference length the launcher will divide coordinates by. Reporting\n"
+                 "only: grid.gen never scales coordinates itself.")
+    add_arg(parent, '--nu', type=float, help="Kinematic viscosity, for wall units.")
+    add_arg(parent, '--velocity-ref', type=float, help="Reference velocity, for Re.")
+    add_arg(parent, '--re-tau', type=float,
+            help="Target friction Reynolds number. A design target, not a measurement:\n"
+                 "wall units derived from it are reported as nominal.")
+    add_arg(parent, '--u-tau', type=float,
+            help="Friction velocity, as an alternative to --re-tau. Needs --nu.")
     add_arg(parent, '--transforms', type=str, nargs='+', metavar='OP',
             help="Placement/similarity transforms applied after the geometry map, in\n"
                  "order. Each is 'kind:key=value,key=value' with kind one of "
@@ -2126,6 +2364,7 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
         parser.error("A grid type must be specified on the command line or as the first section in a config file.")
     params = default_map[grid_type].copy()
     active_subparser = subparsers.choices[grid_type]
+    unknown: List[str] = []
     for key, value in config_params.items():
         matched = False
         for action in active_subparser._actions:
@@ -2153,14 +2392,34 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
                  parser.error(f"Invalid value for '{key}' from config file: '{value}'")
             break
         if not matched:
-            print(f"Warning: config setting '{key}' is not a '{grid_type}' option and was ignored.",
-                  file=sys.stderr)
+            # A key that reaches nothing leaves the built-in default quietly in force, so
+            # the file says one thing and the grid is another. As the option surface grows
+            # that is the likeliest way to be misled, and it is cheap to refuse instead.
+            options = sorted({
+                action.dest for action in active_subparser._actions
+                if action.dest not in ('help', 'grid_type')
+            })
+            unknown.append(
+                f"config setting '{key}' is not a '{grid_type}' option, so its value "
+                f"'{value}' would be ignored and the built-in default kept. "
+                f"Valid '{grid_type}' settings: {', '.join(options)}."
+            )
+    if unknown:
+        parser.error("\n  ".join([""] + unknown))
     cli_only_args = {k: v for k, v in vars(cli_args).items() if v is not None}
     params.update(cli_only_args)
     params['grid_type'] = grid_type
     args = argparse.Namespace(**params)
     
     # --- MODIFIED: Pass new stretch arguments and first cell arguments to generator functions ---
+    try:
+        reference = resolve_reference_quantities(
+            getattr(args, 'length_ref', None), getattr(args, 'nu', None),
+            getattr(args, 'velocity_ref', None), getattr(args, 're_tau', None),
+            getattr(args, 'u_tau', None))
+    except ValueError as exc:
+        parser.error(str(exc))
+
     X, Y, Z = None, None, None
     stretch_factors = None
     handled_output = False
@@ -2201,7 +2460,8 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
                 first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
                 first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
                 first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
-                transforms=getattr(args, 'transforms', None)
+                transforms=getattr(args, 'transforms', None),
+            mg_levels=args.mg_levels, periodic=args.periodic
             )
         elif args.grid_type == 'box':
             X, Y, Z, stretch_factors = box_grid(
@@ -2214,7 +2474,8 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
                 first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
                 first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
                 first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
-                transforms=getattr(args, 'transforms', None)
+                transforms=getattr(args, 'transforms', None),
+            mg_levels=args.mg_levels, periodic=args.periodic
             )
         elif args.grid_type == 'warp':
             X, Y, Z, stretch_factors = generate_curvilinear_grid(
@@ -2273,7 +2534,7 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
                 file=sys.stderr,
             )
         else:
-            stats_data = analyze_grid_quality(X, Y, Z, stretch_factors)
+            stats_data = analyze_grid_quality(X, Y, Z, stretch_factors, reference)
             if args.show_stats:
                 print_stats_to_console(stats_data)
             if getattr(args, 'stats_file', None):
