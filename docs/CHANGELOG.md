@@ -8,6 +8,71 @@
 
 - No changes yet.
 
+## 0.3.0 — 2026-09-04
+
+- Workspace, run, and study artifact lifecycle. `picurv init` now writes a fixed,
+  content-addressed workspace: `config/`, user-owned `inputs/`, a PICurv-managed
+  `assets/objects/{grids,initial_conditions,inlet_profiles}/` store, and `runs/`/
+  `studies/`. `picurv precompute` builds Python- or file-backed providers (`grid_gen`,
+  `ic_gen`, `spectral_random_velocity`, file-backed grids/profiles) into immutable,
+  hashed asset objects and refuses atomically, with no dummy output, when a provider is
+  simulator-runtime-only (`programmatic_c`). Runs materialize shared assets into
+  `inputs/` by reflink or hardlink, never a copy, and record exactly what they consumed
+  in `inputs/assets.lock.yml`. A run's own `manifest.json` is now the authority on its
+  identity, topology, software provenance, and asset/runtime-provider lock - not its
+  directory name.
+- Branched runs record their lineage. `--restart-from` now writes a `lineage` record
+  into the branch's `manifest.json`: the parent's own run id (read from the parent's
+  manifest, so a renamed parent is still named correctly), the checkpoint step branched
+  from, and the field-statistics disposition. A fresh run records
+  `{"relationship": "root"}` rather than omitting the key. Branching a run with
+  `field_statistics.enabled: true` now requires `--statistics-state reset|carry`
+  explicitly - neither answer was safe to default, since resetting silently shortens the
+  reported average and carrying silently averages two trajectories together.
+- A run root is closed. Staging, resuming, and post-processing a run now refuse a
+  top-level directory outside the five the layout owns (`config`, `inputs`, `output`,
+  `logs`, `scheduler`); an unexpected *file* is reported, not refused. Previously an
+  unrouted peer directory was silently archived forever and pruned by no storage policy.
+- `picurv storage`, split into a package (`picurv_cli/storage/`) with a content-addressed
+  remote blob store (schema 2: identical content uploads once and an interrupted upload
+  resumes), reference-counted local asset pruning (`storage prune --assets
+  --unused-locally`), and three named offload policies (`metadata-only`, `restart-ready`,
+  `analysis-ready`). `offload`/`plan`/`protect` now take repeatable `--retain`/`--drop`
+  to adjust any named policy one component at a time
+  (`checkpoints`/`logs`/`analysis`/`visualization`/`inputs`/`raw-output`), instead of
+  being limited to whichever bundle a preset happens to ship.
+  - Storage now resolves an artifact's identity and component layout from its own
+    manifest (falling back to the fixed topology only when no manifest exists), rather
+    than from its directory name or a `case_\d+` regex - a renamed or restored run still
+    reports its real identity, and a checkpoint bundle is classified by the step its own
+    `checkpoint.meta` records, not by the directory name it happens to sit in.
+  - Every storage command now names which `.picurv-storage.yml` it resolved, and warns
+    when the answer came from a directory above the workspace (discovery deliberately
+    searches upward, so one configuration can serve a whole directory of campaigns -
+    but `offload` prunes local payload once the remote it names has verified the
+    upload, so which file answered has to be visible). `storage setup` run inside a
+    workspace with no configuration of its own now creates one there instead of
+    silently rewriting the shared file above it; naming that file with
+    `--storage-config` still edits it deliberately.
+- `picurv version status` validates that the conductor, `simulator`, `postprocessor`,
+  and any workspace `software.picurv` requirement agree, and exits non-zero on
+  disagreement (`picurv version` alone stays informational and always exits 0). The
+  built documentation site now stamps its release identity (`PICurv 0.3.0`, or the full
+  dev/dirty build id for a non-release build) alongside the commit it was built from,
+  rather than the commit alone.
+- Removed `sync-binaries`; `picurv init --pin-binaries` is the one remaining way to pin
+  case-local executables. PICurv remains a single shared installation that
+  `versions activate` rewrites in place - not versioned side-by-side prefixes - so a
+  version-pin failure and `versions activate` now both say so explicitly: activating
+  changes every other workspace using the installation and any job that did not pin its
+  own binaries.
+- CLI reference generation no longer bakes in argparse's default option-group title,
+  which Python renamed from "optional arguments" to "options" in 3.10 (bpo-9694); the
+  generated reference is now byte-identical regardless of which Python regenerates it.
+  `CLI and Docs Quality` now builds the Doxygen site before running the test suite,
+  since one regression test exercises the published-site audit as a subprocess and
+  requires the build to already exist.
+
 ## 0.2.0 — 2026-09-02
 
 - Wall-model observability, and a defect that made the wall model unusable.
