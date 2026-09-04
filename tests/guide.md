@@ -140,6 +140,10 @@ is a test-local routine.
     obstacle finite width
   - a sub-cell corner is refused, a coarse one is reported, and a sharper corner
     costs orthogonality
+  - `sweep` cross-sections and centrelines: a straight rectangular sweep is a box,
+    the disc map fills the circle with no hole, and swept grids are right-handed
+  - parallel transport keeps an out-of-plane path untwisted, and an arc about its
+    own tangent is refused
 - `test_capability_tooling.py`
   - capability parity, value metadata, and coverage-entry shape
   - contract registry and artifact-topology snapshot validation

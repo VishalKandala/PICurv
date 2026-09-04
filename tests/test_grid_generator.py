@@ -292,3 +292,95 @@ def test_unknown_wall_segment_names_the_allowed_kinds():
     """! @brief A misspelled segment kind says what was expected. """
     with pytest.raises(ValueError, match="unknown wall segment 'cliff'"):
         shaped_box(wall_lo=["cliff:len=20,dy=-1"])
+
+
+# --- sweep: cross-section along a centreline ---------------------------------
+
+def swept(path=("straight:len=10",), cross_section="rectangle", sides=(1.0, 1.0),
+          scale=None, ncells_i=16, ncells_j=16, ncells_k=40, **kwargs):
+    """! @brief Build a swept duct. @param[in] path Centreline segments.
+    @param[in] cross_section Section shape. @param[in] sides Section widths.
+    @param[in] scale Optional scale field. @param[in] ncells_i First section cells.
+    @param[in] ncells_j Second section cells. @param[in] ncells_k Path cells.
+    @param[in] kwargs Extra generator arguments. @return Coordinates and factors. """
+    return GRID.sweep_grid(
+        ncells_i=ncells_i, ncells_j=ncells_j, ncells_k=ncells_k,
+        cross_section=cross_section, side_lengths=list(sides), path=list(path),
+        cross_section_scale=scale, origin=[0.0, 0.0, 0.0],
+        stretch_i=0.0, stretch_j=0.0, stretch_k=0.0, **kwargs)
+
+
+def test_a_straight_rectangular_sweep_is_a_box():
+    """! @brief The simplest sweep degenerates to the obvious answer. """
+    X, Y, Z, _ = swept(sides=(2.0, 3.0))
+    assert bounds(X, Y, Z) == [(0.0, 10.0), (0.0, 2.0), (0.0, 3.0)]
+
+
+def test_swept_grids_are_right_handed():
+    """! @brief The section axes precede the path axis, which fixes orientation.
+
+    @details The retired O-grid emitted uniformly inverted cells that the solver had to
+             repair at runtime. Pinned so the replacement cannot regress into that.
+    """
+    for path in (["straight:len=10"],
+                 ["straight:len=3", "arc:radius=2,deg=180", "straight:len=3"]):
+        X, Y, Z, factors = swept(path=path, ncells_k=60)
+        assert GRID.analyze_grid_quality(X, Y, Z, factors)['right_handed'], path
+
+
+def test_disc_cross_section_fills_the_circle_without_a_hole():
+    """! @brief The square-to-disc map covers the whole disc and reaches its edge. """
+    X, Y, Z, _ = swept(cross_section="circle", sides=(2.0, 2.0), ncells_i=32, ncells_j=32)
+    section_y, section_z = Y[:, :, 0] - 1.0, Z[:, :, 0] - 1.0
+    radius = np.hypot(section_y, section_z)
+    assert radius.max() == pytest.approx(1.0, rel=1e-9), "the boundary lands on the circle"
+    assert radius.min() == pytest.approx(0.0, abs=1e-12), "the centre is covered, no hole"
+    assert np.all(radius <= 1.0 + 1e-12), "nothing escapes the disc"
+
+
+def test_parallel_transport_keeps_an_out_of_plane_path_untwisted():
+    """! @brief A frame carried by a fixed up-vector twists once a path leaves its plane.
+
+    @details Turning first about z and then about x takes the duct out of one plane. Under
+             parallel transport the section does not rotate about its own tangent, so the
+             cells stay near-orthogonal; a twisting frame would shear them badly.
+    """
+    X, Y, Z, factors = swept(
+        path=["straight:len=2", "arc:radius=3,deg=90,axis=z",
+              "arc:radius=3,deg=90,axis=x", "straight:len=2"],
+        ncells_i=24, ncells_j=24, ncells_k=150)
+    stats = GRID.analyze_grid_quality(X, Y, Z, factors)
+    assert stats['max_non_ortho'] < 5.0, stats['max_non_ortho']
+    assert stats['right_handed']
+    assert min(b[1] - b[0] for b in bounds(X, Y, Z)) > 1.0, "the path really left one plane"
+
+
+def test_cross_section_scale_narrows_the_duct_along_the_path():
+    """! @brief A scale field turns one sweep into a nozzle. """
+    X, Y, Z, _ = swept(sides=(2.0, 2.0), ncells_k=80,
+                       scale=["flat:len=3,y=1", "step:len=4,dy=-0.5", "flat:len=3"])
+    inlet = Y[:, :, 0].max() - Y[:, :, 0].min()
+    outlet = Y[:, :, -1].max() - Y[:, :, -1].min()
+    assert inlet == pytest.approx(2.0)
+    assert outlet == pytest.approx(1.0), "a 0.5 scale halves the section"
+
+
+def test_an_arc_about_the_tangent_is_refused():
+    """! @brief An arc turning about its own tangent has no defined plane. """
+    with pytest.raises(ValueError, match="parallel to the current tangent"):
+        swept(path=["straight:len=2", "arc:radius=3,deg=90,axis=x"])
+
+
+@pytest.mark.parametrize("kwargs, message", [
+    ({"path": []}, "needs at least one path segment"),
+    ({"path": ["straight:len=0"]}, "len must be positive"),
+    ({"path": ["arc:radius=0,deg=90"]}, "radius must be positive"),
+    ({"path": ["helix:len=1"]}, "unknown path segment 'helix'"),
+    ({"cross_section": "hexagon"}, "cross_section must be one of"),
+    ({"scale": ["flat:len=10,y=0"]}, "cannot reach zero or negative width"),
+])
+def test_malformed_sweeps_are_refused_with_their_reason(kwargs, message):
+    """! @brief Every sweep rejection says what was wrong.
+    @param[in] kwargs Generator arguments under test. @param[in] message Expected text. """
+    with pytest.raises(ValueError, match=message):
+        swept(**kwargs)

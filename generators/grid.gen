@@ -705,6 +705,240 @@ def evaluate_wall_profile(segments: List[str], coordinate: np.ndarray,
 
 # --- Core Grid Generation Functions ---
 
+#: Cross-sections a swept duct may carry. `circle` uses the square-to-disc map rather
+#: than an O-grid: an O-grid needs a circumferential seam whose coincident-node treatment
+#: the solver only reaches through the `cgrid` branch, which no case.yml can select.
+GRID_CROSS_SECTIONS = ("rectangle", "circle")
+
+#: Centreline segment kinds. A path is these end to end, each continuing from the
+#: position and frame the previous one reached.
+GRID_PATH_SEGMENT_KINDS = ("straight", "arc")
+
+#: World axes an `arc` may turn about. The arc bends in the plane perpendicular to it.
+_ARC_AXES = {"x": np.array([1.0, 0.0, 0.0]),
+             "y": np.array([0.0, 1.0, 0.0]),
+             "z": np.array([0.0, 0.0, 1.0])}
+
+
+def _axis_rotation(axis: np.ndarray, angle: float) -> np.ndarray:
+    """!
+    @brief Rodrigues rotation matrix about a unit axis.
+    @param[in] axis Unit rotation axis.
+    @param[in] angle Rotation angle in radians.
+    @return The 3x3 rotation matrix.
+    """
+    K = np.array([[0.0, -axis[2], axis[1]],
+                  [axis[2], 0.0, -axis[0]],
+                  [-axis[1], axis[0], 0.0]])
+    return np.eye(3) + np.sin(angle)*K + (1.0 - np.cos(angle))*(K @ K)
+
+
+def build_centerline(segments: List[str], arc_lengths: np.ndarray,
+                     label: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    """!
+    @brief Sample a piecewise centreline and a rotation-minimizing frame along it.
+    @details The frame is carried by parallel transport: each arc rotates the whole frame
+             about its own turning axis, which is perpendicular to the tangent, so no
+             twist accumulates about the tangent itself. A frame built instead from a
+             fixed "up" vector twists as soon as a path turns out of one plane, which is
+             why a multi-segment path needs this rather than an orientation flag.
+    @param[in] segments Path segment tokens in order.
+    @param[in] arc_lengths Arc-length stations to sample, ascending, within the path.
+    @param[in] label Configuration key being built, for diagnostics.
+    @return Centre positions, cross-section axis vectors, their partners, and total length.
+    @throws ValueError on an unknown segment or an invalid parameter.
+    """
+    what = "path segment"
+    parsed = []
+    total = 0.0
+    for token in segments:
+        kind, params = parse_spec_token(token, GRID_PATH_SEGMENT_KINDS, what)
+        if kind == 'straight':
+            length = _spec_float(params, 'len', None, kind, what)
+            if length <= 0.0:
+                raise ValueError(f"{label}: path segment 'straight' len must be positive")
+        else:
+            radius = _spec_float(params, 'radius', None, kind, what)
+            degrees = _spec_float(params, 'deg', None, kind, what)
+            if radius <= 0.0:
+                raise ValueError(f"{label}: path segment 'arc' radius must be positive")
+            length = abs(radius*np.deg2rad(degrees))
+            if length <= 0.0:
+                raise ValueError(f"{label}: path segment 'arc' deg must be non-zero")
+        parsed.append((kind, params, length))
+        total += length
+    if not parsed:
+        raise ValueError(f"{label}: a swept grid needs at least one path segment")
+
+    position = np.zeros(3)
+    frame = np.eye(3)          # columns: tangent, first cross axis, second cross axis
+    tangent, normal, binormal = frame[:, 0].copy(), frame[:, 1].copy(), frame[:, 2].copy()
+
+    centres = np.zeros((arc_lengths.size, 3))
+    axis_u = np.zeros((arc_lengths.size, 3))
+    axis_v = np.zeros((arc_lengths.size, 3))
+
+    edge = 0.0
+    for index, (kind, params, length) in enumerate(parsed):
+        upper = edge + length
+        last = index == len(parsed) - 1
+        selected = (arc_lengths >= edge) & (arc_lengths <= upper if last
+                                            else arc_lengths < upper)
+        local = arc_lengths[selected] - edge
+        if kind == 'straight':
+            centres[selected] = position + np.outer(local, tangent)
+            axis_u[selected] = normal
+            axis_v[selected] = binormal
+            end_position = position + length*tangent
+            end_tangent, end_normal, end_binormal = tangent, normal, binormal
+        else:
+            radius = _spec_float(params, 'radius', None, kind, what)
+            degrees = _spec_float(params, 'deg', None, kind, what)
+            axis_name = params.get('axis', 'z')
+            if axis_name not in _ARC_AXES:
+                raise ValueError(
+                    f"{label}: path segment 'arc' axis must be one of "
+                    f"{', '.join(sorted(_ARC_AXES))}, got '{axis_name}'"
+                )
+            axis = _ARC_AXES[axis_name]
+            if abs(float(np.dot(axis, tangent))) > 1.0 - 1e-9:
+                raise ValueError(
+                    f"{label}: path segment '{parsed[index][0]}' turns about '{axis_name}', "
+                    f"which is parallel to the current tangent; an arc has no defined "
+                    f"plane there. Turn about a different axis."
+                )
+            sign = 1.0 if degrees >= 0 else -1.0
+            # Centre of curvature: perpendicular to the tangent, in the turning plane.
+            inward = np.cross(axis, tangent)
+            inward = inward/np.linalg.norm(inward)
+            centre = position + sign*radius*inward
+            for offset, s_local in zip(np.flatnonzero(selected), local):
+                rotation = _axis_rotation(axis, sign*s_local/radius)
+                centres[offset] = centre + rotation @ (position - centre)
+                axis_u[offset] = rotation @ normal
+                axis_v[offset] = rotation @ binormal
+            rotation = _axis_rotation(axis, sign*length/radius)
+            end_position = centre + rotation @ (position - centre)
+            end_tangent = rotation @ tangent
+            end_normal = rotation @ normal
+            end_binormal = rotation @ binormal
+        position, tangent = end_position, end_tangent
+        normal, binormal = end_normal, end_binormal
+        edge = upper
+    return centres, axis_u, axis_v, total
+
+
+def cross_section_offsets(cross_section: str, u: np.ndarray, v: np.ndarray,
+                          side_i: float, side_j: float) -> Tuple[np.ndarray, np.ndarray]:
+    """!
+    @brief Map the logical cross-section square onto the requested shape.
+    @details `rectangle` is the square itself. `circle` uses the square-to-disc map
+             x = u*sqrt(1 - v^2/2), y = v*sqrt(1 - u^2/2), whose edges land exactly on the
+             circle and whose corners land on its 45-degree points. It covers the whole
+             disc in one block with no hole and no axis singularity, at the cost of cell
+             size varying with angle -- worst in the four diagonal regions.
+    @param[in] cross_section Shape name.
+    @param[in] u First logical cross-section coordinate.
+    @param[in] v Second logical cross-section coordinate.
+    @param[in] side_i Full width along the first cross-section direction.
+    @param[in] side_j Full width along the second cross-section direction.
+    @return Physical offsets along the two cross-section axes.
+    """
+    if cross_section == 'rectangle':
+        return side_i*u, side_j*v
+    return (0.5*side_i*u*np.sqrt(1.0 - 0.5*v*v),
+            0.5*side_j*v*np.sqrt(1.0 - 0.5*u*u))
+
+
+def sweep_grid(
+    ncells_i: int, ncells_j: int, ncells_k: int,
+    cross_section: str, side_lengths: List[float], path: List[str],
+    cross_section_scale: Optional[List[str]], origin: List[float],
+    stretch_i: float, stretch_j: float, stretch_k: float,
+    first_cell_i_start: float = None, first_cell_i_end: float = None,
+    first_cell_j_start: float = None, first_cell_j_end: float = None,
+    first_cell_k_start: float = None, first_cell_k_end: float = None,
+    transforms: Optional[List[str]] = None
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, float]]:
+    """!
+    @brief Generates a duct by sweeping a cross-section along a piecewise centreline.
+    @details Cross-section and path are independent: any shape travels any path. The frame
+             is parallel-transported, so a path may leave one plane without the section
+             twisting, and an optional scale field along the arc length turns the same
+             sweep into a nozzle, a diffuser, or a sudden expansion.
+
+             Logical axes follow the cross-section's two directions and then the path, in
+             that order, which makes the result right-handed.
+    @param[in] ncells_i Cells along the first cross-section direction.
+    @param[in] ncells_j Cells along the second cross-section direction.
+    @param[in] ncells_k Cells along the path.
+    @param[in] cross_section Cross-section shape name.
+    @param[in] side_lengths Full width along each cross-section direction.
+    @param[in] path Centreline segment tokens in order.
+    @param[in] cross_section_scale Optional scale field along the path, as segments.
+    @param[in] origin Target position of the bounding-box minimum corner.
+    @param[in] stretch_i Hyperbolic stretch factor for the first cross-section axis.
+    @param[in] stretch_j Hyperbolic stretch factor for the second cross-section axis.
+    @param[in] stretch_k Hyperbolic stretch factor along the path.
+    @param[in] first_cell_i_start First-cell size at the first axis start.
+    @param[in] first_cell_i_end First-cell size at the first axis end.
+    @param[in] first_cell_j_start First-cell size at the second axis start.
+    @param[in] first_cell_j_end First-cell size at the second axis end.
+    @param[in] first_cell_k_start First-cell size at the path start.
+    @param[in] first_cell_k_end First-cell size at the path end.
+    @param[in] transforms Optional placement/similarity transform tokens.
+    @return Nodal x, y and z coordinates, and the realized stretch factors.
+    @throws ValueError on an unknown cross-section or a malformed path.
+    """
+    if cross_section not in GRID_CROSS_SECTIONS:
+        raise ValueError(
+            f"cross_section must be one of {', '.join(GRID_CROSS_SECTIONS)}, "
+            f"got '{cross_section}'"
+        )
+    print(f"Generating Swept Grid (Cross-section: {cross_section}) ---")
+    IM, JM, KM = ncells_i + 1, ncells_j + 1, ncells_k + 1
+    # The disc map is defined on [-1, 1]^2; a rectangle is described by its half-widths.
+    span = 1.0 if cross_section == 'circle' else 0.5
+
+    axes, stretch_factors = build_stretched_axes({
+        'i': {'num_points': IM, 'bounds': (-span, span), 'stretch': stretch_i,
+              'first_start': first_cell_i_start, 'first_end': first_cell_i_end},
+        'j': {'num_points': JM, 'bounds': (-span, span), 'stretch': stretch_j,
+              'first_start': first_cell_j_start, 'first_end': first_cell_j_end},
+        'k': {'num_points': KM, 'bounds': (0, 1), 'stretch': stretch_k,
+              'first_start': first_cell_k_start, 'first_end': first_cell_k_end},
+    })
+    u_vals, v_vals, zeta_vals = axes['i'], axes['j'], axes['k']
+
+    # One pass to learn the path length, a second to sample it where zeta asks.
+    _, _, _, total_length = build_centerline(path, np.array([0.0]), 'path')
+    stations = zeta_vals*total_length
+    centres, axis_u, axis_v, _ = build_centerline(path, stations, 'path')
+
+    scale = np.ones_like(stations)
+    if cross_section_scale:
+        scale = evaluate_wall_profile(cross_section_scale, stations, 0.0, total_length,
+                                      1.0, 'cross_section_scale')
+        if np.any(scale <= 0.0):
+            raise ValueError(
+                "cross_section_scale: the cross-section cannot reach zero or negative "
+                "width; a duct that closes has no interior to mesh"
+            )
+
+    side_i, side_j = side_lengths
+    U, V = np.meshgrid(u_vals, v_vals, indexing='ij')
+    offset_u, offset_v = cross_section_offsets(cross_section, U, V, side_i, side_j)
+
+    X, Y, Z = (np.zeros((IM, JM, KM)) for _ in range(3))
+    for k in range(KM):
+        du, dv = scale[k]*offset_u, scale[k]*offset_v
+        X[:, :, k] = centres[k, 0] + du*axis_u[k, 0] + dv*axis_v[k, 0]
+        Y[:, :, k] = centres[k, 1] + du*axis_u[k, 1] + dv*axis_v[k, 1]
+        Z[:, :, k] = centres[k, 2] + du*axis_u[k, 2] + dv*axis_v[k, 2]
+
+    return place_and_transform(X, Y, Z, origin, transforms) + (stretch_factors,)
+
+
 def box_grid(
     ncells_i: int, ncells_j: int, ncells_k: int,
     bounds_x: List[float], bounds_y: List[float], bounds_z: List[float],
@@ -1676,6 +1910,17 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             'first_cell_k_start': None, 'first_cell_k_end': None,
             'transforms': None,
         },
+        'sweep': {
+            'ncells_i': 16, 'ncells_j': 16, 'ncells_k': 100,
+            'cross_section': 'rectangle', 'side_lengths': [1.0, 1.0],
+            'path': ['straight:len=10'], 'cross_section_scale': None,
+            'origin': [0.0, 0.0, 0.0], 'show_stats': True, 'write_vtk': True,
+            'stretch_i': 0.0, 'stretch_j': 0.0, 'stretch_k': 0.0,
+            'first_cell_i_start': None, 'first_cell_i_end': None,
+            'first_cell_j_start': None, 'first_cell_j_end': None,
+            'first_cell_k_start': None, 'first_cell_k_end': None,
+            'transforms': None,
+        },
         'legacy1d': {
             'show_stats': False,
             'write_vtk': False,
@@ -1783,6 +2028,28 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
     add_arg(p_box, '--amp-A', type=float, help="Interior sinusoidal warp amplitude.")
     add_arg(p_box, '--amp-B', type=float, help="First boundary warp amplitude.")
     add_arg(p_box, '--amp-C', type=float, help="Second boundary warp amplitude.")
+
+    p_sweep = subparsers.add_parser(
+        'sweep',
+        help='A cross-section swept along a piecewise centreline.',
+        parents=[parent],
+    )
+    add_arg(p_sweep, '--ncells-i', type=int, help="Cells across the 1st section direction.")
+    add_arg(p_sweep, '--ncells-j', type=int, help="Cells across the 2nd section direction.")
+    add_arg(p_sweep, '--ncells-k', type=int, help="Cells along the path.")
+    add_arg(p_sweep, '--cross-section', choices=list(GRID_CROSS_SECTIONS),
+            help="Cross-section shape swept along the path.")
+    add_arg(p_sweep, '--side-lengths', type=float, nargs=2, metavar=('I', 'J'),
+            help="Full width across each section direction; for `circle`, the two "
+                 "diameters.")
+    add_arg(p_sweep, '--path', type=str, nargs='+', metavar='SEG',
+            help="Centreline segments in order, each 'kind:key=value,...' with kind one\n"
+                 f"of {', '.join(GRID_PATH_SEGMENT_KINDS)}. 'straight' takes len; 'arc'\n"
+                 "takes radius, deg and an optional axis (default z). Example, a U-bend:\n"
+                 "--path straight:len=5 arc:radius=4,deg=180 straight:len=5")
+    add_arg(p_sweep, '--cross-section-scale', type=str, nargs='+', metavar='SEG',
+            help="Scale field along the path, same segment grammar, datum 1.0. Turns the\n"
+                 "sweep into a nozzle, diffuser or sudden expansion.")
 
     p_legacy = subparsers.add_parser(
         'legacy1d',
@@ -1897,83 +2164,100 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
     X, Y, Z = None, None, None
     stretch_factors = None
     handled_output = False
-    if args.grid_type == 'cpipe':
-        X, Y, Z, stretch_factors = cartesian_pipe_grid(
-            ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
-            side_lengths=args.side_lengths, Rc_factor=args.rc_factor,
-            straight_factor=args.straight_factor, bend_angle_deg=args.bend_angle,
-            orientation=args.orientation, origin=args.origin,
-            stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
-            first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
-            first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
-            first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
-            transforms=getattr(args, 'transforms', None)
-        )
-    elif args.grid_type == 'pipe':
-        X, Y, Z, stretch_factors = bent_pipe_grid(
-            ncells_phi=args.ncells_phi, ncells_r=args.ncells_r, ncells_path=args.ncells_path,
-            D=args.diameter, Rc_factor=args.rc_factor, straight_factor=args.straight_factor,
-            bend_angle_deg=args.bend_angle, pinhole_factor=args.pinhole_factor,
-            orientation=args.orientation, origin=args.origin,
-            stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
-            first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
-            first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
-            first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
-            transforms=getattr(args, 'transforms', None)
-        )
-    elif args.grid_type == 'box':
-        X, Y, Z, stretch_factors = box_grid(
-            ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
-            bounds_x=args.bounds_x, bounds_y=args.bounds_y, bounds_z=args.bounds_z,
-            wall_j_lo=args.wall_j_lo, wall_j_hi=args.wall_j_hi,
-            wall_j_lo_span=args.wall_j_lo_span, wall_j_hi_span=args.wall_j_hi_span,
-            amp_A=args.amp_A, amp_B=args.amp_B, amp_C=args.amp_C, origin=args.origin,
-            stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
-            first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
-            first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
-            first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
-            transforms=getattr(args, 'transforms', None)
-        )
-    elif args.grid_type == 'warp':
-        X, Y, Z, stretch_factors = generate_curvilinear_grid(
-            ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
-            x_min=args.bounds_x[0], x_max=args.bounds_x[1],
-            y_min=args.bounds_y[0], y_max=args.bounds_y[1],
-            z_min=args.bounds_z[0], z_max=args.bounds_z[1],
-            A=args.amp_A, B=args.amp_B, C=args.amp_C, origin=args.origin,
-            stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
-            first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
-            first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
-            first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
-            transforms=getattr(args, 'transforms', None)
-        )
-    elif args.grid_type == 'legacy1d':
-        input_file = getattr(args, 'input', None)
-        if not input_file:
-            parser.error("'legacy1d' requires --input <legacy-grid-file>.")
-        if not os.path.isfile(input_file):
-            parser.error(f"Legacy grid input file not found: {input_file}")
+    # A malformed geometry specification is a user error, not an internal fault, so it
+    # gets the same one-line report as a bad command-line argument.
+    try:
+        if args.grid_type == 'cpipe':
+            X, Y, Z, stretch_factors = cartesian_pipe_grid(
+                ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
+                side_lengths=args.side_lengths, Rc_factor=args.rc_factor,
+                straight_factor=args.straight_factor, bend_angle_deg=args.bend_angle,
+                orientation=args.orientation, origin=args.origin,
+                stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
+                first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
+                first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
+                first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
+                transforms=getattr(args, 'transforms', None)
+            )
+        elif args.grid_type == 'pipe':
+            X, Y, Z, stretch_factors = bent_pipe_grid(
+                ncells_phi=args.ncells_phi, ncells_r=args.ncells_r, ncells_path=args.ncells_path,
+                D=args.diameter, Rc_factor=args.rc_factor, straight_factor=args.straight_factor,
+                bend_angle_deg=args.bend_angle, pinhole_factor=args.pinhole_factor,
+                orientation=args.orientation, origin=args.origin,
+                stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
+                first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
+                first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
+                first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
+                transforms=getattr(args, 'transforms', None)
+            )
+        elif args.grid_type == 'sweep':
+            X, Y, Z, stretch_factors = sweep_grid(
+                ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
+                cross_section=args.cross_section, side_lengths=args.side_lengths,
+                path=args.path, cross_section_scale=args.cross_section_scale,
+                origin=args.origin,
+                stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
+                first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
+                first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
+                first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
+                transforms=getattr(args, 'transforms', None)
+            )
+        elif args.grid_type == 'box':
+            X, Y, Z, stretch_factors = box_grid(
+                ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
+                bounds_x=args.bounds_x, bounds_y=args.bounds_y, bounds_z=args.bounds_z,
+                wall_j_lo=args.wall_j_lo, wall_j_hi=args.wall_j_hi,
+                wall_j_lo_span=args.wall_j_lo_span, wall_j_hi_span=args.wall_j_hi_span,
+                amp_A=args.amp_A, amp_B=args.amp_B, amp_C=args.amp_C, origin=args.origin,
+                stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
+                first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
+                first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
+                first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
+                transforms=getattr(args, 'transforms', None)
+            )
+        elif args.grid_type == 'warp':
+            X, Y, Z, stretch_factors = generate_curvilinear_grid(
+                ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
+                x_min=args.bounds_x[0], x_max=args.bounds_x[1],
+                y_min=args.bounds_y[0], y_max=args.bounds_y[1],
+                z_min=args.bounds_z[0], z_max=args.bounds_z[1],
+                A=args.amp_A, B=args.amp_B, C=args.amp_C, origin=args.origin,
+                stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
+                first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
+                first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
+                first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
+                transforms=getattr(args, 'transforms', None)
+            )
+        elif args.grid_type == 'legacy1d':
+            input_file = getattr(args, 'input', None)
+            if not input_file:
+                parser.error("'legacy1d' requires --input <legacy-grid-file>.")
+            if not os.path.isfile(input_file):
+                parser.error(f"Legacy grid input file not found: {input_file}")
 
-        output_file = getattr(args, 'output', None)
-        if not output_file:
-            base, _ = os.path.splitext(input_file)
-            output_file = base + ".picgrid"
-            args.output = output_file
+            output_file = getattr(args, 'output', None)
+            if not output_file:
+                base, _ = os.path.splitext(input_file)
+                output_file = base + ".picgrid"
+                args.output = output_file
 
-        axis_columns = tuple(int(v) for v in args.axis_columns)
-        summary = convert_legacy_1d_to_picgrid(
-            input_file=input_file,
-            output_file=output_file,
-            axis_columns=axis_columns,
-            strict_trailing=bool(args.strict_trailing),
-        )
-        handled_output = True
-        print(
-            "Legacy conversion complete: "
-            f"nblk={summary['nblk']}, total_nodes={summary['total_nodes']}, output='{output_file}'"
-        )
-        if summary.get("first_block_arrays") is not None:
-            X, Y, Z = summary["first_block_arrays"]
+            axis_columns = tuple(int(v) for v in args.axis_columns)
+            summary = convert_legacy_1d_to_picgrid(
+                input_file=input_file,
+                output_file=output_file,
+                axis_columns=axis_columns,
+                strict_trailing=bool(args.strict_trailing),
+            )
+            handled_output = True
+            print(
+                "Legacy conversion complete: "
+                f"nblk={summary['nblk']}, total_nodes={summary['total_nodes']}, output='{output_file}'"
+            )
+            if summary.get("first_block_arrays") is not None:
+                X, Y, Z = summary["first_block_arrays"]
+    except ValueError as exc:
+        parser.error(str(exc))
 
     if X is None and args.grid_type != 'legacy1d':
         print(f"Error: Grid generation failed for type '{args.grid_type}'.", file=sys.stderr)
