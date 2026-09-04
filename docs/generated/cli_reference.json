@@ -2041,7 +2041,7 @@
               },
               {
                 "choices": [],
-                "default": "8",
+                "default": "<local CPU count, capped 1-8>",
                 "dest": "workers",
                 "flags": [
                   "--workers"

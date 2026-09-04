@@ -15,6 +15,17 @@ HTML_PATH = GENERATED_DIR / "cli_reference.html"
 JSON_PATH = GENERATED_DIR / "cli_reference.json"
 
 
+#: Defaults an action bakes into the parser at build time by reading the local machine
+#: (CPU count, and anything with the same shape added later), keyed by the dest name
+#: that carries them. A number computed this way is only ever right for the machine that
+#: happened to build the parser: the committed reference would otherwise assert a
+#: worker count that is correct nowhere but the machine that last regenerated it, and
+#: `--check` would disagree with every other machine forever, including CI's runner and
+#: a real user's. Rendered symbolically instead, so the file states the *rule* the CLI
+#: actually applies rather than one instance of applying it.
+_MACHINE_DEPENDENT_DEFAULTS = {"workers": "<local CPU count, capped 1-8>"}
+
+
 def build_parser():
     """!
     @brief Build the real parser, including registrars delegated from other modules.
@@ -47,12 +58,18 @@ def describe_action(action) -> dict:
     @param[in] action Parser action.
     @return Mapping describing the action.
     """
+    if action.dest in _MACHINE_DEPENDENT_DEFAULTS and action.default not in (None, argparse.SUPPRESS):
+        default = _MACHINE_DEPENDENT_DEFAULTS[action.dest]
+    elif action.default in (None, argparse.SUPPRESS):
+        default = None
+    else:
+        default = str(action.default)
     return {
         "flags": list(action.option_strings),
         "dest": action.dest,
         "required": bool(getattr(action, "required", False)),
         "choices": sorted(str(choice) for choice in action.choices) if action.choices else [],
-        "default": None if action.default in (None, argparse.SUPPRESS) else str(action.default),
+        "default": default,
         "nargs": None if action.nargs is None else str(action.nargs),
         "help": (action.help or "").strip(),
         "is_flag": isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction)),
