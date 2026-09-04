@@ -303,6 +303,22 @@
         "53_Search_Robustness_Metrics_Reference"
       ],
       "attested_digest": "unattested"
+    },
+    {
+      "id": "grid.generator",
+      "title": "Structured grid generator geometries, stages and reports",
+      "tier": "soft",
+      "watched_paths": [
+        "generators/grid.gen"
+      ],
+      "owning_pages": [
+        "48_Grid_Generator_Guide"
+      ],
+      "dependent_pages": [
+        "07_Case_Reference"
+      ],
+      "attested_digest": "unattested",
+      "note": "Page 48 enumerates the geometries, their options and the quality report. Nothing watched this file before, so the page describing it could never be flagged stale no matter how far the generator moved."
     }
   ]
 }

@@ -866,6 +866,7 @@ def classify_path(path: str) -> str:
         (candidate.parts and candidate.parts[0] == "src" and candidate.suffix in {".c", ".h"})
         or (candidate.parts and candidate.parts[0] == "include" and candidate.suffix in {".h", ".hpp"})
         or (candidate.parts and candidate.parts[0] == "picurv_cli" and candidate.suffix == ".py")
+        or (candidate.parts and candidate.parts[0] == "generators")
     ):
         return "production"
     routed_roots = {"docs", "config", "tests", ".github", ".agents", ".claude", "examples"}
