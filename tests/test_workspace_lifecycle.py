@@ -38,7 +38,7 @@ def _write_file_grid_case(workspace: Path):
     @return Parsed case mapping and canonical case path.
     """
     grid = workspace / "inputs" / "grids" / "grid.picgrid"
-    shutil.copy2(REPO_ROOT / "examples" / "bent_channel" / "bent_channel_coarse.picgrid", grid)
+    shutil.copy2(REPO_ROOT / "examples" / "search_robustness" / "bent_channel_coarse.picgrid", grid)
     case = yaml.safe_load((FIXTURES / "case.yml").read_text(encoding="utf-8"))
     case["title"] = "asset-case"
     case["grid"] = {"mode": "file", "source_file": "inputs/grids/grid.picgrid"}

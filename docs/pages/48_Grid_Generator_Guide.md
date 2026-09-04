@@ -269,7 +269,7 @@ nonmatching surface pairs are rejected at runtime.
 
 **Diagnostics.** The `.info` report carries `Right_Handed` alongside `Jacobian_Sign_Consistent`, which a uniformly inverted mesh would satisfy. On an out-of-plane path the parallel-transported frame reports 0.6 degrees maximum non-orthogonality, where a frame built from a fixed up-vector would shear the section badly.
 
-**Evidence.** Implemented only. A generator config ships, but no shipped case selects this type. It reproduces the mesh the retired `cpipe` type produced from the same parameters to 1.8e-15 over a domain of size 13, which is arithmetic reordering rather than a difference in geometry.
+**Evidence.** Production exercised - `examples/bent_channel` generates its square duct and quarter turn with this type. It reproduces the 2.9 MB `.picgrid` that example used to ship to 5e-8, which is the precision that file was written at, and the mesh the retired `cpipe` type produced from the same parameters to 1.8e-15 over a domain of size 13 - arithmetic reordering rather than a difference in geometry.
 
 **Limitations.** One block only. `circle` uses the square-to-disc map rather than an O-grid, because an O-grid needs a circumferential seam whose coincident-node treatment lives behind a runtime branch no case file can select; the disc covers the whole section with no hole and no axis singularity, but cell size varies with angle and is worst in the four diagonal regions - a 32x32 section reports 79.7 degrees maximum and 12.1 average non-orthogonality against 0.004 for a rectangle. That is adequate for a cylindrical domain and is not a wall-resolved pipe mesh, which needs a butterfly topology and therefore multiple blocks. Experimental until a case exercises it.
 

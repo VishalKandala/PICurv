@@ -827,7 +827,7 @@
           "canonical": true,
           "evidence": {
             "production": [
-              "example:examples/bent_channel"
+              "example:examples/search_robustness"
             ]
           }
         },
@@ -880,7 +880,11 @@
         "sweep": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "production": [
+              "example:examples/bent_channel"
+            ]
+          }
         }
       }
     },

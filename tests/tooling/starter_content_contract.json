@@ -319,6 +319,7 @@
     "config/build/config.local.mk",
     "config/build/config.petsc.mk",
     "config/build/guide.md",
+    "config/grids/bent_channel_coarse.cfg",
     "config/grids/coarse_square_tube_curved.cfg",
     "config/grids/guide.md",
     "config/grids/isotropic_box_64.cfg",

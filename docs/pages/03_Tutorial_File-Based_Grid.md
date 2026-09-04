@@ -1,33 +1,40 @@
-@page 03_Tutorial_File-Based_Grid Tutorial: Using a File-Based Grid (Bent Channel)
+@page 03_Tutorial_File-Based_Grid Tutorial: Using a File-Based Grid (Search Robustness)
 
 @anchor _Tutorial_File-Based_Grid
 
-This tutorial demonstrates `grid.mode: file` using the `bent_channel` template.
+This tutorial demonstrates `grid.mode: file` using the `search_robustness` template, which
+carries the only `.picgrid` the examples still ship.
+
+Use `file` mode when the geometry already exists as a grid file and should stay fixed and
+explicit - a mesh from another tool, or one whose exact node positions are the thing under
+test. When the geometry is something the bundled generator can express, `grid_gen` says it
+in a few lines instead of a few megabytes; `bent_channel` moved that way once `sweep`
+could express a square duct through a quarter turn. See **@subpage 48_Grid_Generator_Guide**.
 
 @tableofcontents
 
 @section p03_init_sec 1. Initialize a Study
 
 ```bash
-./bin/picurv init bent_channel --dest my_bent_channel_run
+./bin/picurv init search_robustness --dest my_file_grid_run
 ```
 
-Expected files:
+Among the files it places:
 
 ```text
-my_bent_channel_run/
-|- bent_channel.yml
+my_file_grid_run/
+|- search_robustness_curvilinear.yml
 |- Imp-MG-Standard.yml
-|- Standard_Output.yml
-|- standard_analysis.yml
-|- bent_channel_coarse.picgrid
-|- bent_channel_coarse.vts
-`- bent_channel_coarse.info
+|- Search_Robustness_Output.yml
+|- search_robustness_analysis.yml
+`- bent_channel_coarse.picgrid
 ```
+
+The grid is a unit square duct through a 90-degree bend, 21 x 21 x 145 nodes.
 
 @section p03_config_sec 2. File-Grid Configuration
 
-In `bent_channel.yml`:
+In `search_robustness_curvilinear.yml`:
 
 ```yaml
 grid:
@@ -48,10 +55,10 @@ that the periodic axis has at least four physical nodes.
 
 ```bash
 ./bin/picurv run \
-    --case my_bent_channel_run/config/case.yml \
-    --solver my_bent_channel_run/config/solver.yml \
-    --monitor my_bent_channel_run/config/monitor.yml \
-    --post my_bent_channel_run/config/post.yml \
+    --case my_file_grid_run/config/case.yml \
+    --solver my_file_grid_run/config/solver.yml \
+    --monitor my_file_grid_run/config/monitor.yml \
+    --post my_file_grid_run/config/post.yml \
     -n 4 --solve --post-process
 ```
 

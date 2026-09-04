@@ -149,7 +149,7 @@ def test_stretched_grid_is_rejected_before_the_field_is_read(tmp_path):
 
 def test_curvilinear_bent_channel_grid_is_rejected():
     """! @brief The bent duct has no homogeneous direction and must be refused. """
-    grid = ROOT / "examples" / "bent_channel" / "bent_channel_coarse.picgrid"
+    grid = ROOT / "examples" / "search_robustness" / "bent_channel_coarse.picgrid"
     with pytest.raises(ValueError, match="shell_spectrum requires"):
         SPECTRA.generate_shell_spectrum("/nonexistent-field.dat", str(grid), 0, "continuum", "none")
 

@@ -198,7 +198,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Diagnostics.** The startup banner reports the resolved grid source. A missing or unreadable file is a fatal `picurv validate` error naming the path, not a runtime failure.
 
-**Evidence.** Production exercised - `examples/bent_channel` runs from a staged `.picgrid`.
+**Evidence.** Production exercised - `examples/search_robustness` runs from a staged `.picgrid`. It carries the only grid file the examples still ship: `bent_channel` moved to `grid_gen` once the generator could express its geometry, which removed a duplicate of the same 2.9 MB file.
 
 **Limitations.** `picurv` does not inspect the mesh beyond existence and header validity, so a geometrically wrong but well-formed file is accepted here and only shows up in metric or Jacobian diagnostics.
 

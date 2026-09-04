@@ -2,12 +2,12 @@
 
 This example demonstrates the file-based curvilinear-grid workflow (`grid.mode: file`) and is the baseline template for users who need to run on externally generated/curated grids.
 
-Compared with programmatic-grid examples, this case is useful for understanding grid ingestion, metadata consistency, and curved-geometry boundary behavior in a realistic setup.
+Compared with programmatic-grid examples, this case is useful for understanding generated curvilinear geometry, metadata consistency, and curved-geometry boundary behavior in a realistic setup.
 
 ## Included Files
 
 - `bent_channel.yml`, `Imp-MG-Standard.yml`, `Standard_Output.yml`, `standard_analysis.yml`
-- `bent_channel_coarse.picgrid` and companion metadata files
+- the grid recipe `config/grids/bent_channel_coarse.cfg`, built at run time
 - `slurm_cluster.yml`, `execution.example.yml`, and `timestep_sensitivity_study.yml`
 
 ## Quick Start
@@ -28,7 +28,7 @@ Compared with programmatic-grid examples, this case is useful for understanding 
 
 Analytical file-grid variant: this case can also be paired with the shared repo profile `config/solvers/Analytical-UniformFlow.yml` when you want a constant analytical carrier flow on the bundled curved grid.
 
-This case expects `grid.source_file: bent_channel_coarse.picgrid`, which is bundled with the template.
+This case generates its grid: `grid.mode: grid_gen` with `config/grids/bent_channel_coarse.cfg`. It used to bundle a 2.9 MB `.picgrid`, which the `sweep` geometry now reproduces from three path segments. For the file-ingestion path instead, see `examples/search_robustness`.
 
 If you run this example on a cluster and need site-specific MPI launcher tokens, edit the `.picurv-execution.yml` that `init` created in the case directory. Existing cases or repo-root site configs can still start from `execution.example.yml`. That same file can drive both login-node runs and generated batch jobs. Keep `slurm_cluster.yml` reserved for scheduler policy and batch-only overrides. Generated Slurm solver jobs now enable the runtime walltime guard by default; override it in `slurm_cluster.yml -> execution.walltime_guard` only when needed.
 

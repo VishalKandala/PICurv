@@ -28,9 +28,14 @@ properties:
 
 # --- Grid Definition ---
 grid:
-  mode: file
+  mode: grid_gen
 
-  source_file: bent_channel_coarse.picgrid
+  # The geometry is a square duct through a quarter turn, which the generator
+  # expresses in three path segments. It used to ship as a 2.9 MB `.picgrid`
+  # beside this file; the config reproduces it and is a thousandth the size.
+  generator:
+    config_file: ../../config/grids/bent_channel_coarse.cfg
+    grid_type: sweep
 
 # --- Model Selection ---
 models:

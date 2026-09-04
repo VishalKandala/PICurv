@@ -18,9 +18,12 @@ Default setup:
 - `slurm_cluster.yml`: sample Slurm scheduler profile
 - `execution.example.yml`: optional shared site launcher example
 - `timestep_sensitivity_study.yml`: sample timestep sensitivity sweep
-- `bent_channel_coarse.picgrid`: solver input grid
-- `bent_channel_coarse.vts`: grid visualization helper
-- `bent_channel_coarse.info`: grid metrics summary
+
+The grid is not a bundled file. `bent_channel.yml` selects `grid.mode: grid_gen` and points
+at `config/grids/bent_channel_coarse.cfg`, which describes the geometry as a square
+cross-section swept through a quarter turn. `picurv` builds the mesh, its `.vts` preview and
+its `.info` quality report into the run's own asset store on every run, so they are current
+rather than committed.
 
 ## 3. Typical Workflow
 
