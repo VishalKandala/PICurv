@@ -71,8 +71,10 @@ def _add_run_parser(subparsers):
     solver_group.add_argument(
         "--statistics-state",
         choices=RESTART_STATISTICS_MODES,
-        default="reset",
-        help="For a branched restart, reset field-statistics state (default) or carry compatible checkpoint state.",
+        default=None,
+        help="For a branched restart with field statistics enabled, this is required:\n"
+             "'reset' discards the parent's accumulated windows, 'carry' resumes compatible\n"
+             "saved window state. Ignored when field statistics are disabled.",
     )
     solver_group.add_argument(
         "--require-precomputed",
@@ -262,7 +264,25 @@ def _add_version_parsers(subparsers):
     @param[in] subparsers Top-level argparse subparser collection.
     @return Version, versions, and source command parsers.
     """
-    p_version = subparsers.add_parser("version", help="Report the active PICurv release and build identity.")
+    p_version = subparsers.add_parser(
+        "version",
+        help="Report the active PICurv release and build identity.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Report the build identity shared by the Python conductor and the native\n"
+            "executables, plus any workspace version requirement.\n\n"
+            "With the 'status' action this also validates that they agree, and exits 1\n"
+            "when they do not, so a job script can refuse an incoherent build.\n\n"
+            "Examples:\n"
+            "  picurv version\n"
+            "  picurv version status\n"
+            "  picurv version status --format json"
+        ),
+    )
+    p_version.add_argument(
+        "version_action", nargs="?", choices=["status"], default=None,
+        help="'status' validates conductor/executable/workspace coherence and exits 1 on disagreement.",
+    )
     p_version.add_argument("--format", dest="output_format", choices=list(CLI_OUTPUT_FORMATS), default="text")
 
     p_versions = subparsers.add_parser("versions", help="List, install, or activate PICurv source versions.")
@@ -542,31 +562,6 @@ def _add_build_parser(subparsers):
     return p_build
 
 
-def _add_sync_binaries_parser(subparsers):
-    """!
-    @brief Perform add sync binaries parser.
-    @param[in] subparsers Argument passed to `_add_sync_binaries_parser()`.
-    @return Value returned by `_add_sync_binaries_parser()`.
-    """
-    p_sync_binaries = subparsers.add_parser(
-        "sync-binaries",
-        help="Pin specific binary versions into a case directory (optional).",
-        formatter_class=argparse.RawTextHelpFormatter,
-        description=(
-            "Copy simulator/postprocessor from the source repo bin/ into a case directory.\n"
-            "This is optional — binaries are normally resolved via PATH. Use this only\n"
-            "when you need to pin a specific build into a case for reproducibility.\n\n"
-            "Examples:\n"
-            "  picurv sync-binaries --case-dir my_case\n"
-            "  picurv sync-binaries --source-root /path/to/PICurv"
-        ),
-        epilog="Next: run `./picurv build ...` first if the source repo bin/ is out of date.",
-    )
-    p_sync_binaries.add_argument("--case-dir", help="Optional case directory to refresh. Defaults to the current case.")
-    p_sync_binaries.add_argument("--source-root", help="Optional override for the PICurv source repository root.")
-    return p_sync_binaries
-
-
 def _add_sync_config_parser(subparsers):
     """!
     @brief Perform add sync config parser.
@@ -625,7 +620,7 @@ def _add_pull_source_parser(subparsers):
             "  ./picurv pull-source --no-rebase\n"
             "  ./picurv pull-source --remote origin --branch main"
         ),
-        epilog="Next: run `./picurv build` and `./picurv sync-binaries` if source changes require rebuilt executables.",
+        epilog="Next: run `./picurv build` if source changes require rebuilt executables.",
     )
     p_pull.add_argument("--case-dir", help="Optional case directory used to resolve .picurv-origin.json.")
     p_pull.add_argument("--source-root", help="Optional override for the PICurv source repository root.")
@@ -658,7 +653,7 @@ def _add_status_source_parser(subparsers):
             "  ./picurv status-source --format json\n"
             "  ./bin/picurv status-source --case-dir my_case"
         ),
-        epilog="Next: use `pull-source`, `build`, `sync-binaries`, or `sync-config` based on the reported drift.",
+        epilog="Next: use `pull-source`, `build`, or `sync-config` based on the reported drift.",
     )
     p_status.add_argument("--case-dir", help="Optional case directory used to resolve .picurv-origin.json.")
     p_status.add_argument("--source-root", help="Optional override for the PICurv source repository root.")
@@ -718,7 +713,6 @@ def build_main_parser():
     _add_cancel_parser(subparsers)
     _add_init_parser(subparsers)
     _add_build_parser(subparsers)
-    _add_sync_binaries_parser(subparsers)
     _add_sync_config_parser(subparsers)
     _add_pull_source_parser(subparsers)
     _add_status_source_parser(subparsers)
@@ -816,9 +810,6 @@ def dispatch_command(args):
         return
     if args.command == "build":
         build_project(args)
-        return
-    if args.command == "sync-binaries":
-        sync_case_binaries_command(args)
         return
     if args.command == "sync-config":
         sync_case_config_command(args)

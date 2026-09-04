@@ -34,6 +34,9 @@ from .models import (
     REMOTE_OBJECTS_DIRECTORY,
     STORAGE_COMPRESSION_POLICIES,
     STORAGE_CONFIG_FILENAME,
+    STORAGE_RETENTION_COMPONENTS,
+    storage_config_origin,
+    storage_workspace_root,
     STORAGE_OFFLOAD_POLICIES,
     STORAGE_RESTORE_COMPONENTS,
     STORAGE_SCHEMA_VERSION,
@@ -114,7 +117,9 @@ def restore_cold_study_members(study_path: str, case_ids, profile_name: str = No
     @return Restored member ids.
     @throws StorageError when a member carries no usable archive reference.
     """
-    profile = load_storage_profile(profile_name, storage_config)
+    # This runs inside a staging workflow rather than a storage command, so the
+    # configuration answering it has had no chance to be named yet.
+    profile = report_storage_configuration(load_storage_profile(profile_name, storage_config))
     restored = []
     for case_id in case_ids:
         member = os.path.join(study_path, "cases", case_id)
@@ -131,7 +136,7 @@ def restore_cold_study_members(study_path: str, case_ids, profile_name: str = No
 
 def build_storage_plan(target: dict, profile: dict, compression: str = None,
                        policy: str = None, keep_latest_checkpoint=None,
-                       workers: int = None) -> dict:
+                       workers: int = None, retain=None, drop=None) -> dict:
     """!
     @brief Build the read-only plan consumed by protect and offload.
     @param[in] target Value supplied through the `target` argument.
@@ -140,12 +145,14 @@ def build_storage_plan(target: dict, profile: dict, compression: str = None,
     @param[in] policy Optional semantic retention policy override.
     @param[in] keep_latest_checkpoint Optional newest-checkpoint retention override.
     @param[in] workers Optional compression worker count override.
+    @param[in] retain Components to retain locally regardless of the policy preset.
+    @param[in] drop Components to prune locally regardless of the policy preset.
     @return Result produced by this operation.
     """
     inventory = inspect_artifact(target)
     selected_compression = _select_compression(compression, inventory["total_bytes"], profile)
     specs = _build_chunk_specs(inventory, profile["chunk_size_bytes"])
-    retention = _resolve_offload_policy(profile, policy, keep_latest_checkpoint)
+    retention = _resolve_offload_policy(profile, policy, keep_latest_checkpoint, retain, drop)
     latest_step = max(inventory["checkpoint_steps"], default=None)
     retained_bytes = sum(
         entry["size"] for entry in inventory["entries"]
@@ -197,9 +204,18 @@ def _render_plan(plan: dict) -> None:
     )
     policy = plan["offload_policy"]
     print(f"[INFO] Offload policy: {policy['name']}")
+    # The preset name alone no longer says what is kept once --retain/--drop adjust it,
+    # so the resolved component set is reported rather than left to be inferred.
+    print(f"[INFO] Kept components: {', '.join(policy['retained_components'])}")
+    if policy.get("explicit_retain"):
+        print(f"[INFO] Retained by flag: {', '.join(policy['explicit_retain'])}")
+    if policy.get("explicit_drop"):
+        print(f"[INFO] Dropped by flag: {', '.join(policy['explicit_drop'])}")
     print(f"[INFO] Retained local: {_human_bytes(plan['retained_local_bytes'])}")
     print(f"[INFO] Pruned local  : {_human_bytes(plan['pruned_local_bytes'])}")
-    if policy["keep_latest_checkpoint"]:
+    if "checkpoints" in policy["retained_components"]:
+        print(f"[INFO] Kept checkpoint: every committed step ({len(inventory['checkpoint_steps'])})")
+    elif policy["keep_latest_checkpoint"]:
         latest = max(inventory["checkpoint_steps"], default=None)
         print(f"[INFO] Kept checkpoint: {latest if latest is not None else 'none available'}")
     if inventory["external_paths"]:
@@ -229,7 +245,7 @@ def _render_plan(plan: dict) -> None:
 def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
                      compression: str = None, prune_local: bool = False,
                      policy: str = None, keep_latest_checkpoint=None,
-                     workers: int = None, notes: str = None) -> dict:
+                     workers: int = None, notes: str = None, retain=None, drop=None) -> dict:
     """!
     @brief Package, upload, verify, register, and optionally prune one artifact.
     @param[in] target Value supplied through the `target` argument.
@@ -242,12 +258,15 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
     @param[in] keep_latest_checkpoint Optional newest-checkpoint retention override.
     @param[in] workers Optional compression worker count override.
     @param[in] notes Optional free-text note recorded with the archive.
+    @param[in] retain Components to retain locally regardless of the policy preset.
+    @param[in] drop Components to prune locally regardless of the policy preset.
     @return Result produced by this operation.
     """
     with storage_operation_lock(target["root_path"], "offload" if prune_local else "protect"):
         plan = build_storage_plan(
             target, profile, compression, policy=policy,
             keep_latest_checkpoint=keep_latest_checkpoint, workers=workers,
+            retain=retain, drop=drop,
         )
         inventory = plan["inventory"]
         _assert_archive_safe(inventory)
@@ -882,12 +901,69 @@ def _render_status(inventory: dict) -> None:
     )
 
 
+def report_storage_configuration(profile: dict) -> dict:
+    """!
+    @brief State which configuration answered, and warn when it came from outside.
+
+    @details Every command below acts on the remote this file names, and `offload`
+             prunes local payload once that remote has verified the upload. Discovery
+             searches upward past the workspace boundary, so the file that answered is
+             not always the one the user thinks they are standing in; naming it here is
+             what keeps an inherited configuration a choice rather than an accident.
+    @param[in] profile Resolved storage profile, carrying its `config_path`.
+    @return The profile, unchanged, so callers can wrap the load.
+    """
+    config_path = profile.get("config_path")
+    origin = storage_config_origin(config_path)
+    print(f"[INFO] Storage config : {config_path}")
+    print(f"[INFO] Storage profile: {profile['name']} -> {profile['remote']}")
+    if origin == "shared":
+        print(
+            f"[WARNING] That configuration is outside this workspace; it is shared with "
+            f"everything below {os.path.dirname(os.path.abspath(config_path))}. Pass "
+            "--storage-config to choose another, or run 'picurv storage setup' here to "
+            "give this workspace its own.",
+            file=sys.stderr,
+        )
+    return profile
+
+
+def load_reported_storage_profile(args) -> dict:
+    """!
+    @brief Load the storage profile a command will act on, and report its origin.
+    @param[in] args Parsed storage command arguments.
+    @return Resolved storage profile.
+    """
+    return report_storage_configuration(
+        load_storage_profile(getattr(args, "profile", None),
+                             getattr(args, "storage_config", None))
+    )
+
+
 def storage_setup_workflow(args) -> None:
     """!
     @brief Create or update a non-secret workspace storage profile.
     @param[in] args Value supplied through the `args` argument.
     """
-    config_path = resolve_storage_config_path(getattr(args, "storage_config", None), require=False)
+    explicit_config = getattr(args, "storage_config", None)
+    config_path = resolve_storage_config_path(explicit_config, require=False)
+    workspace_root = storage_workspace_root()
+    # Discovery walks past the workspace boundary, which is right for reading a shared
+    # configuration and wrong for writing one: `setup` inside a fresh workspace would
+    # otherwise rewrite the remote of the campaign directory above it, silently
+    # re-pointing every other workspace under it. Configure the workspace being stood
+    # in; editing a shared file stays available, but has to be asked for.
+    if not explicit_config and workspace_root and storage_config_origin(config_path, workspace_root) == "shared":
+        inherited = config_path
+        config_path = os.path.join(workspace_root, STORAGE_CONFIG_FILENAME)
+        print(
+            f"[INFO] A shared configuration exists at {inherited}, but it belongs to a "
+            "directory above this workspace."
+        )
+        print(
+            f"       Writing this workspace's own configuration instead. To edit the "
+            f"shared one, pass --storage-config {inherited}."
+        )
     payload = {}
     if os.path.isfile(config_path):
         with open(config_path, "r", encoding="utf-8") as stream:
@@ -961,7 +1037,7 @@ def storage_plan_workflow(args) -> None:
     @brief Render a read-only packaging and safety plan.
     @param[in] args Value supplied through the `args` argument.
     """
-    profile = load_storage_profile(args.profile, args.storage_config)
+    profile = load_reported_storage_profile(args)
     targets = resolve_local_storage_targets(
         args.run_dir, args.study_dir, args.case_ids,
         workspace=getattr(args, "workspace", None),
@@ -976,6 +1052,7 @@ def storage_plan_workflow(args) -> None:
             policy=getattr(args, "policy", None),
             keep_latest_checkpoint=getattr(args, "keep_latest_checkpoint", None),
             workers=getattr(args, "workers", None),
+            retain=getattr(args, "retain", None), drop=getattr(args, "drop", None),
         )
         _render_plan(plan)
         _assert_archive_safe(plan["inventory"])
@@ -987,7 +1064,7 @@ def storage_archive_workflow(args, prune_local: bool) -> None:
     @param[in] args Value supplied through the `args` argument.
     @param[in] prune_local Value supplied through the `prune_local` argument.
     """
-    profile = load_storage_profile(args.profile, args.storage_config)
+    profile = load_reported_storage_profile(args)
     targets = resolve_local_storage_targets(
         args.run_dir, args.study_dir, args.case_ids,
         workspace=getattr(args, "workspace", None),
@@ -1001,6 +1078,7 @@ def storage_archive_workflow(args, prune_local: bool) -> None:
                 policy=getattr(args, "policy", None),
                 keep_latest_checkpoint=getattr(args, "keep_latest_checkpoint", None),
                 workers=getattr(args, "workers", None),
+                retain=getattr(args, "retain", None), drop=getattr(args, "drop", None),
             ))
             print("[INFO] Dry-run only. No files were packaged, uploaded, or pruned.")
             continue
@@ -1015,6 +1093,8 @@ def storage_archive_workflow(args, prune_local: bool) -> None:
             keep_latest_checkpoint=getattr(args, "keep_latest_checkpoint", None),
             workers=getattr(args, "workers", None),
             notes=getattr(args, "notes", None),
+            retain=getattr(args, "retain", None),
+            drop=getattr(args, "drop", None),
         )
 
 
@@ -1023,7 +1103,7 @@ def storage_restore_workflow(args) -> None:
     @brief Restore a remote archive by globally unique ID or local marker.
     @param[in] args Value supplied through the `args` argument.
     """
-    profile = load_storage_profile(args.profile, args.storage_config)
+    profile = load_reported_storage_profile(args)
     archive_id = _resolve_archive_id_from_args(args)
     restore_archive(
         profile,
@@ -1043,7 +1123,7 @@ def storage_prune_workflow(args) -> None:
     @brief Remove local asset objects nothing local needs and storage has verified.
     @param[in] args Value supplied through the `args` argument.
     """
-    profile = load_storage_profile(args.profile, args.storage_config)
+    profile = load_reported_storage_profile(args)
     workspace_root = os.path.abspath(args.workspace) if args.workspace else _find_upwards(
         os.getcwd(), WORKSPACE_CONFIG_FILENAME
     )
@@ -1078,7 +1158,7 @@ def storage_verify_workflow(args) -> None:
     @brief Verify all remote chunks for one archive.
     @param[in] args Value supplied through the `args` argument.
     """
-    profile = load_storage_profile(args.profile, args.storage_config)
+    profile = load_reported_storage_profile(args)
     archive_id = _resolve_archive_id_from_args(args)
     manifest = verify_remote_archive(profile, archive_id)
     print(
@@ -1091,7 +1171,7 @@ def storage_list_workflow(args) -> None:
     @brief Search the remote manifest catalog without local artifact state.
     @param[in] args Value supplied through the `args` argument.
     """
-    profile = load_storage_profile(args.profile, args.storage_config)
+    profile = load_reported_storage_profile(args)
     manifests = list_remote_manifests(profile)
     workspace_label = getattr(args, "workspace_label", None)
     if workspace_label:
@@ -1127,7 +1207,7 @@ def storage_show_workflow(args) -> None:
     @brief Show one complete remote archive manifest.
     @param[in] args Value supplied through the `args` argument.
     """
-    profile = load_storage_profile(args.profile, args.storage_config)
+    profile = load_reported_storage_profile(args)
     manifest = _load_remote_manifest(profile, args.archive_id)
     print(json.dumps(manifest, indent=2, sort_keys=True))
 
@@ -1238,6 +1318,22 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
             help="With --study-dir, select every finished member and skip the rest.",
         )
 
+    def add_retention_options(parser):
+        """!
+        @brief Add the per-component local-retention overrides to one action parser.
+        @param[in] parser Action parser being configured.
+        @return None.
+        """
+        parser.add_argument(
+            "--retain", action="append", metavar="COMPONENT",
+            help="Keep this component local regardless of --policy; repeatable and\n"
+                 "comma-separated. One of: " + ", ".join(STORAGE_RETENTION_COMPONENTS) + ".",
+        )
+        parser.add_argument(
+            "--drop", action="append", metavar="COMPONENT",
+            help="Prune this component locally regardless of --policy; same names as --retain.",
+        )
+
     status = actions.add_parser("status", help="Show local, protected, cold, and busy artifact state.")
     add_local_target(status)
     status.add_argument("--format", dest="output_format", choices=list(CLI_OUTPUT_FORMATS), default="text")
@@ -1247,6 +1343,7 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
     add_profile_options(plan)
     plan.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES))
     plan.add_argument("--policy", choices=list(STORAGE_OFFLOAD_POLICIES))
+    add_retention_options(plan)
     plan.add_argument("--workers", type=int)
     plan_checkpoint = plan.add_mutually_exclusive_group()
     plan_checkpoint.add_argument("--keep-latest-checkpoint", dest="keep_latest_checkpoint", action="store_true")
@@ -1271,6 +1368,7 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
         action_parser.add_argument("--tag", dest="tags", action="append", help="Repeatable KEY=VALUE catalog tag.")
         action_parser.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES))
         action_parser.add_argument("--policy", choices=list(STORAGE_OFFLOAD_POLICIES))
+        add_retention_options(action_parser)
         action_parser.add_argument("--workers", type=int)
         checkpoint_group = action_parser.add_mutually_exclusive_group()
         checkpoint_group.add_argument("--keep-latest-checkpoint", dest="keep_latest_checkpoint", action="store_true")

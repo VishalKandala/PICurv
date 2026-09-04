@@ -1250,12 +1250,20 @@
         "reset": {
           "status": "supported",
           "canonical": true,
-          "evidence": {"unit": ["file:tests/test_workspace_lifecycle.py"]}
+          "evidence": {
+            "unit": [
+              "file:tests/test_workspace_lifecycle.py"
+            ]
+          }
         },
         "carry": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {"unit": ["file:tests/test_workspace_lifecycle.py"]}
+          "evidence": {
+            "unit": [
+              "file:tests/test_workspace_lifecycle.py"
+            ]
+          }
         }
       }
     },
@@ -1276,22 +1284,38 @@
         "copy": {
           "status": "supported",
           "canonical": true,
-          "evidence": {"unit": ["file:tests/test_workspace_lifecycle.py"]}
+          "evidence": {
+            "unit": [
+              "file:tests/test_workspace_lifecycle.py"
+            ]
+          }
         },
         "reflink": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {"unit": ["file:tests/test_workspace_lifecycle.py"]}
+          "evidence": {
+            "unit": [
+              "file:tests/test_workspace_lifecycle.py"
+            ]
+          }
         },
         "hardlink": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {"unit": ["file:tests/test_workspace_lifecycle.py"]}
+          "evidence": {
+            "unit": [
+              "file:tests/test_workspace_lifecycle.py"
+            ]
+          }
         },
         "reference": {
           "status": "supported",
           "canonical": true,
-          "evidence": {"unit": ["file:tests/test_workspace_lifecycle.py"]}
+          "evidence": {
+            "unit": [
+              "file:tests/test_workspace_lifecycle.py"
+            ]
+          }
         }
       }
     },
@@ -1312,17 +1336,99 @@
         "metadata-only": {
           "status": "supported",
           "canonical": true,
-          "evidence": {"unit": ["file:tests/test_storage.py"]}
+          "evidence": {
+            "unit": [
+              "file:tests/test_storage.py"
+            ]
+          }
         },
         "restart-ready": {
           "status": "supported",
           "canonical": true,
-          "evidence": {"unit": ["file:tests/test_storage.py"]}
+          "evidence": {
+            "unit": [
+              "file:tests/test_storage.py"
+            ]
+          }
         },
         "analysis-ready": {
           "status": "supported",
           "canonical": true,
-          "evidence": {"unit": ["file:tests/test_storage.py"]}
+          "evidence": {
+            "unit": [
+              "file:tests/test_storage.py"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "storage.retention_component",
+      "title": "Storage Retention Components",
+      "selector": "picurv storage offload/plan --retain / --drop",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.storage",
+        "symbol": "STORAGE_RETENTION_COMPONENTS"
+      },
+      "parity_sources": [],
+      "family_page": "61_Storage_Management_Guide",
+      "entry_anchor_prefix": "p61_cap_retain_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "checkpoints": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "file:tests/test_storage.py"
+            ]
+          }
+        },
+        "logs": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "file:tests/test_storage.py"
+            ]
+          }
+        },
+        "analysis": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "file:tests/test_storage.py"
+            ]
+          }
+        },
+        "visualization": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "file:tests/test_storage.py"
+            ]
+          }
+        },
+        "inputs": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "file:tests/test_storage.py"
+            ]
+          }
+        },
+        "raw-output": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "file:tests/test_storage.py"
+            ]
+          }
         }
       }
     }

@@ -45,6 +45,9 @@ try:
         cold_study_members,
         restore_cold_study_members,
         is_artifact_cold,
+        read_artifact_identity,
+        STORAGE_LOCK_FILENAME,
+        STORAGE_STATE_FILENAME,
         require_storage_payload_local,
         runtime_stage_lock,
         storage_state_summary,
@@ -61,6 +64,9 @@ except ImportError:
     cold_study_members = _storage_module.cold_study_members
     restore_cold_study_members = _storage_module.restore_cold_study_members
     is_artifact_cold = _storage_module.is_artifact_cold
+    read_artifact_identity = _storage_module.read_artifact_identity
+    STORAGE_LOCK_FILENAME = _storage_module.STORAGE_LOCK_FILENAME
+    STORAGE_STATE_FILENAME = _storage_module.STORAGE_STATE_FILENAME
     require_storage_payload_local = _storage_module.require_storage_payload_local
     runtime_stage_lock = _storage_module.runtime_stage_lock
     storage_state_summary = _storage_module.storage_state_summary
@@ -280,7 +286,7 @@ PICURV_VERSION = PICURV_BUILD["version"]
 CASE_ORIGIN_METADATA_FILENAME = ".picurv-origin.json"
 WORKSPACE_CONFIG_FILENAME = ".picurv-workspace.yml"
 WORKSPACE_SCHEMA_VERSION = 1
-RUN_MANIFEST_SCHEMA_VERSION = 2
+RUN_MANIFEST_SCHEMA_VERSION = 3
 ASSET_MANIFEST_SCHEMA_VERSION = 1
 ASSET_LOCK_SCHEMA_VERSION = 1
 RUNTIME_EXECUTION_CONFIG_FILENAME = ".picurv-execution.yml"
@@ -494,7 +500,12 @@ def enforce_workspace_version(workspace_root: str) -> dict:
             f"Workspace requires PICurv {requirement!r}, but the active release is "
             f"{PICURV_RELEASE_VERSION} (build {PICURV_BUILD['build_id']}).\n"
             f"Activate a matching installation with 'picurv versions activate <version>' "
-            "and retry."
+            "and retry.\n"
+            f"Note: {PACKAGE_PROJECT_ROOT} is a single shared installation. Activating "
+            "re-points every workspace and every unpinned job that resolves executables "
+            "from it, so two workspaces pinned to different releases cannot both be "
+            "satisfied at once. Pin a case's executables with 'picurv init --pin-binaries' "
+            "when it must survive an activation."
         )
     return dict(PICURV_BUILD)
 
@@ -639,6 +650,84 @@ def ensure_run_layout(run_dir: str) -> None:
     """
     for relative in RUN_DIRECTORY_LAYOUT:
         os.makedirs(os.path.join(run_dir, *relative.split("/")), exist_ok=True)
+
+
+#: Top-level directory names a run owns. Anything else beside them is a peer PICurv
+#: does not route, cannot classify for storage, and will not prune.
+RUN_DIRECTORY_ROOTS = frozenset(
+    relative.split("/")[0] for relative in RUN_DIRECTORY_LAYOUT
+)
+
+#: Files a run legitimately carries at its own root. Storage's own markers are added
+#: at validation time, so this stays the list of what the conductor writes.
+RUN_ROOT_ALLOWED_FILES = frozenset({"manifest.json"})
+
+
+def validate_run_directory_structure(run_dir: str) -> tuple:
+    """!
+    @brief Refuse a run whose root has grown a directory the layout does not define.
+
+    @details The run topology is a contract: `manifest.json` publishes it, the solver's
+             reserved-directory guard defends it, and storage classifies against it. A
+             directory beside `output/` breaks all three at once - it is routed by
+             nothing, classified as `unclassified`, and therefore archived forever and
+             pruned never. Catching it when the run is staged or resumed is the only
+             point where the answer is still "move it", rather than "it is already in
+             every archive of this run".
+
+             Unexpected *files* are reported and allowed. A stray note at a run root
+             costs nothing and refusing to resume a long campaign over one would be a
+             worse failure than the one being prevented.
+    @param[in] run_dir Run root to check.
+    @return Tuple of (errors, warnings) as human-readable message lists.
+    """
+    root = os.path.abspath(run_dir)
+    if not os.path.isdir(root):
+        return [], []
+    allowed_files = set(RUN_ROOT_ALLOWED_FILES) | {
+        STORAGE_STATE_FILENAME, STORAGE_LOCK_FILENAME,
+    }
+    errors, warnings = [], []
+    for name in sorted(os.listdir(root)):
+        path = os.path.join(root, name)
+        if os.path.isdir(path) and not os.path.islink(path):
+            if name not in RUN_DIRECTORY_ROOTS:
+                errors.append(
+                    f"{run_dir}: '{name}/' is not part of the run layout. Scientific "
+                    f"output belongs under {CANONICAL_RUN_PATHS['checkpoints']}, "
+                    f"{CANONICAL_RUN_PATHS['analysis']}, or "
+                    f"{CANONICAL_RUN_PATHS['visualization']}; move or remove '{name}/' "
+                    f"before running. Run-owned roots are: "
+                    + ", ".join(sorted(RUN_DIRECTORY_ROOTS)) + "."
+                )
+        elif name not in allowed_files:
+            warnings.append(
+                f"{run_dir}: unexpected file '{name}' at the run root. It is archived "
+                "as unclassified and never pruned."
+            )
+    return errors, warnings
+
+
+def enforce_run_directory_structure(run_dir: str) -> None:
+    """!
+    @brief Apply `validate_run_directory_structure()` as a refusal at run time.
+    @param[in] run_dir Run root to check.
+    @return None. Exits non-zero when the run root carries a directory outside the layout.
+    """
+    errors, warnings = validate_run_directory_structure(run_dir)
+    for message in warnings:
+        print(f"[WARN] {message}", file=sys.stderr)
+    if not errors:
+        return
+    for message in errors:
+        emit_structured_error(
+            ERROR_CODE_CFG_INCONSISTENT_COMBO,
+            key="run_layout",
+            file_path=os.path.abspath(run_dir),
+            message=message,
+            hint="Move the directory under output/ or out of the run, then retry.",
+        )
+    sys.exit(1)
 
 
 def case_run_label(case_cfg: dict, case_path: str) -> str:
@@ -997,11 +1086,47 @@ def _run_component_states(run_dir: str, stages_requested: dict) -> dict:
     return components
 
 
+def build_run_lineage(parent_run_dir: str, checkpoint_step: int, *, workspace_root=None,
+                      statistics_state=None, requested_source=None) -> dict:
+    """!
+    @brief Record which run and which checkpoint a branched run was started from.
+
+    @details Without this a branch is indistinguishable from a fresh run: the copied
+             bundle under `inputs/restart/` carries the parent's geometry and software
+             identity but never says which run produced it, so the trajectory a result
+             belongs to cannot be reconstructed after the fact.
+
+             The parent's own manifest is asked for its identity rather than its
+             directory name, so a parent that was renamed or restored under another
+             name is still named correctly here.
+    @param[in] parent_run_dir Absolute path to the run being branched from.
+    @param[in] checkpoint_step Checkpoint step the branch starts from.
+    @param[in] workspace_root Optional workspace root, to record a portable path.
+    @param[in] statistics_state Resolved field-statistics decision for the branch.
+    @param[in] requested_source What the user asked for, e.g. "latest" or a path.
+    @return JSON-serializable lineage record.
+    """
+    parent_identity = read_artifact_identity(parent_run_dir)
+    return {
+        "relationship": "branch",
+        "parent_run_id": parent_identity["run_id"],
+        "parent_study_id": parent_identity["study_id"] if parent_identity["case_id"] else None,
+        "parent_case_id": parent_identity["case_id"],
+        "parent_identity_source": parent_identity["identity_source"],
+        "parent_path": _relative_to_workspace(parent_run_dir, workspace_root),
+        "checkpoint_step": int(checkpoint_step),
+        "statistics_state": statistics_state,
+        "requested_source": requested_source,
+        "recorded_at": datetime.now().astimezone().isoformat(),
+    }
+
+
 def build_run_manifest(run_dir: str, run_id: str, *, workspace_root=None,
                        launch_mode: str = "local", num_procs: int = 1,
                        post_num_procs: int = 1, stages_requested=None,
                        stages_completed=None, inputs=None, asset_lock=None,
-                       submission=None) -> dict:
+                       submission=None, lineage=None, artifact_type: str = "run",
+                       study_id=None, case_id=None) -> dict:
     """!
     @brief Build the authoritative run identity, topology, and lifecycle manifest.
     @param[in] run_dir Owning run directory.
@@ -1015,14 +1140,20 @@ def build_run_manifest(run_dir: str, run_id: str, *, workspace_root=None,
     @param[in] inputs Active configuration identities.
     @param[in] asset_lock Resolved run asset lock.
     @param[in] submission Scheduler submission metadata.
+    @param[in] lineage Where this run's initial state came from; see `build_run_lineage()`.
+    @param[in] artifact_type "run" for a standalone run, "study-case" for a study member.
+    @param[in] study_id Owning study identity, for a study member.
+    @param[in] case_id Member identity within its study.
     @return JSON-serializable run manifest.
     """
     existing = _read_json_if_exists(os.path.join(run_dir, "manifest.json")) or {}
     created_at = existing.get("created_at") or datetime.now().astimezone().isoformat()
     payload = {
         "schema_version": RUN_MANIFEST_SCHEMA_VERSION,
-        "artifact_type": "run",
+        "artifact_type": artifact_type,
         "run_id": run_id,
+        "study_id": study_id,
+        "case_id": case_id,
         "created_at": created_at,
         "updated_at": datetime.now().astimezone().isoformat(),
         "workspace": (
@@ -1048,6 +1179,11 @@ def build_run_manifest(run_dir: str, run_id: str, *, workspace_root=None,
         "components": _run_component_states(run_dir, stages_requested or {}),
         "assets": (asset_lock or {}).get("assets", {}),
         "runtime_providers": (asset_lock or {}).get("runtime_providers", {}),
+        # Always present, so a reader distinguishes "this run began from nothing" from
+        # "this manifest predates lineage" by the value rather than by the key's absence.
+        # A re-staged continuation keeps the lineage recorded when the run was created:
+        # what a run branched from does not change because it was resumed.
+        "lineage": lineage or existing.get("lineage") or {"relationship": "root"},
         "submission": submission or {},
     }
     return payload
@@ -1378,6 +1514,52 @@ def runtime_build_identities() -> dict:
             )
         identities[name] = identity
     return identities
+
+
+def build_identity_problems(identities: dict, workspace_requirement=None) -> list:
+    """!
+    @brief Report every reason the active build identity is not internally coherent.
+
+    @details The conductor, the simulator, and the postprocessor are three artifacts
+             that must agree before a run's provenance means anything. This states the
+             disagreements rather than printing them, so `version status` can exit on
+             them while ordinary staging only warns.
+    @param[in] identities Mapping returned by `runtime_build_identities()`.
+    @param[in] workspace_requirement Optional `software.picurv` constraint to check.
+    @return Human-readable problem descriptions; empty when the build is coherent.
+    """
+    problems = []
+    for name, identity in sorted(identities.items()):
+        if not identity.get("available"):
+            problems.append(
+                f"{name}: no build identity available ({identity.get('reason', 'unknown')}); "
+                "rebuild with 'make all'."
+            )
+        elif not identity.get("matches_source"):
+            problems.append(
+                f"{name}: built from {identity['build_id']}, but the active source is "
+                f"{PICURV_BUILD['build_id']}; rebuild with 'make all'."
+            )
+    if workspace_requirement not in (None, ""):
+        try:
+            from packaging.specifiers import SpecifierSet
+            from packaging.version import Version
+            requirement_text = str(workspace_requirement).strip()
+            if not any(token in requirement_text for token in "<>=!~"):
+                requirement_text = "==" + requirement_text
+            satisfied = Version(PICURV_RELEASE_VERSION) in SpecifierSet(requirement_text)
+        except Exception:
+            problems.append(
+                f"workspace: software.picurv={workspace_requirement!r} is not a valid "
+                "version or version range."
+            )
+        else:
+            if not satisfied:
+                problems.append(
+                    f"workspace: requires PICurv {workspace_requirement!r}, but the active "
+                    f"release is {PICURV_RELEASE_VERSION}."
+                )
+    return problems
 
 
 def warn_on_stale_runtime_binaries(identities: dict) -> list:
@@ -4562,8 +4744,10 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
     @param[in] run_dir Path to the current run directory.
     @param[in] materialize Whether to copy restart bundles into the run. The dry-run
                planner passes False: it still validates and resolves, but writes nothing.
-    @return Tuple of (restart_source_dir, continue_mode) where restart_source_dir is the
-            resolved path (or None) and continue_mode is a boolean.
+    @return Tuple of (restart_source_dir, continue_mode, lineage) where restart_source_dir
+            is the resolved path (or None), continue_mode is a boolean, and lineage is the
+            branch provenance record from `build_run_lineage()`, or None when this run did
+            not branch from another.
     """
     try:
         start_step = int(case_cfg.get("run_control", {}).get("start_step", 0) or 0)
@@ -4597,25 +4781,31 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
         )
 
     if restart_from:
+        requested_restart_source = str(restart_from)
         if str(restart_from).strip().lower() == "latest":
             restart_from = resolve_latest_restart_run(
                 case_cfg, getattr(args, "case", "case.yml"), start_step
             )
-        # Statistics continuation is tied to --continue. A branch may follow a
-        # different physical trajectory than the samples already collected, so the
-        # specification requires an explicit opt-in that does not exist yet; without
-        # it the windows would silently restart from zero and report a sample count
-        # that describes a shorter average than the user expects.
-        statistics_state = str(getattr(args, "statistics_state", "reset") or "reset").lower()
+        # A branch may follow a different physical trajectory than the samples already
+        # collected, so the retention of the parent's windows is the user's decision and
+        # not a default's. Silently resetting reports a sample count that describes a
+        # shorter average than the user expects; silently carrying averages two
+        # different flows together. Neither is safe to guess, so the flag is required
+        # whenever there are windows to decide about.
+        requested_statistics_state = getattr(args, "statistics_state", None)
         statistics_enabled = normalize_field_statistics_config(monitor_cfg or {})["enabled"]
+        if requested_statistics_state is None:
+            if statistics_enabled:
+                raise ValueError(
+                    "A branched restart of a run with field_statistics.enabled: true must "
+                    "state what happens to the parent's accumulated windows. Pass "
+                    "--statistics-state reset to discard them and start the averages over, "
+                    "or --statistics-state carry to resume compatible saved window state."
+                )
+            requested_statistics_state = "reset"
+        statistics_state = str(requested_statistics_state).lower()
         if statistics_state == "carry" and not statistics_enabled:
             raise ValueError("--statistics-state carry requires field_statistics.enabled: true.")
-        if statistics_enabled and statistics_state == "reset":
-            print(
-                "[INFO] Branched restart will reset field-statistics windows; use "
-                "--statistics-state carry to resume compatible saved window state.",
-                file=sys.stderr,
-            )
 
         # === MODE 1: New run, restart from another run ===
         source_run = os.path.abspath(restart_from)
@@ -4629,6 +4819,12 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
         source_output = resolve_run_output_dir(source_run, source_monitor)
         if not os.path.isdir(source_output):
             raise ValueError(f"Source output directory does not exist: {source_output}")
+        lineage = build_run_lineage(
+            source_run, start_step,
+            workspace_root=find_workspace_root(run_dir),
+            statistics_state=statistics_state,
+            requested_source=requested_restart_source,
+        )
 
         if not requires_source:
             # R7: analytical + init — warn that --restart-from is unused
@@ -4637,7 +4833,7 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
                 "(analytical + init does not need restart data).",
                 file=sys.stderr,
             )
-            return None, False
+            return None, False, None
 
         if eulerian_source == "load":
             # A load-mode run may consume a complete saved sequence. Materialize it
@@ -4652,7 +4848,7 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
                 validate_particle_checkpoint(
                     restart_root if materialize else source_output, start_step, monitor_cfg
                 )
-            return restart_root, False
+            return restart_root, False, lineage
         else:
             # Materialize one immutable bundle into the new run's restart input.
             target_restart = resolve_run_restart_dir(run_dir, monitor_cfg)
@@ -4664,7 +4860,7 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
                 validate_particle_checkpoint(
                     restart_root if materialize else source_output, start_step, monitor_cfg
                 )
-            return restart_root, False
+            return restart_root, False, lineage
 
     elif continue_run:
         # === MODE 2: Continue in-place ===
@@ -4701,10 +4897,10 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
                 validate_particle_checkpoint(
                     restart_root if materialize else source_output, start_step, monitor_cfg
                 )
-            return restart_root, True
+            return restart_root, True, None
         elif not requires_source:
             # C6: analytical + init — only log-append behavior, no data needed
-            return None, True
+            return None, True, None
         else:
             # In-place continuation also uses the fixed restart-input home. Reflink or
             # hardlink materialization normally makes this metadata-cheap.
@@ -4717,7 +4913,7 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
                 restart_root if materialize else source_output, start_step,
                 require_particles=particle_needs,
             )
-            return restart_root, True
+            return restart_root, True, None
 
     elif requires_source:
         raise ValueError(
@@ -4726,7 +4922,7 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
             "  --continue --run-dir <run_dir>  (resume in same directory)"
         )
 
-    return None, False
+    return None, False, None
 
 def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
     """!
@@ -4841,7 +5037,7 @@ def prepare_case_for_continuation(run_dir: str, case_id: str, last_step: int,
     write_yaml_file(os.path.join(config_dir, "case.yml"), case_cfg)
 
     mock_args = argparse.Namespace(restart_from=None, continue_run=True, run_dir=run_dir)
-    restart_source_dir, continue_mode = resolve_restart_source(
+    restart_source_dir, continue_mode, _lineage = resolve_restart_source(
         mock_args, case_cfg, solver_cfg, monitor_cfg, run_dir
     )
 
@@ -14314,10 +14510,11 @@ def build_run_dry_plan(args) -> dict:
             run_dir = os.path.join(runs_root, run_id)
 
         try:
-            resolved_restart_source_dir, is_continue = resolve_restart_source(
+            resolved_restart_source_dir, is_continue, planned_lineage = resolve_restart_source(
                 args, loaded_case_cfg, solver_cfg, loaded_monitor_cfg, run_dir,
                 materialize=False,
             )
+            plan["lineage"] = planned_lineage or {"relationship": "root"}
         except ValueError as e:
             emit_structured_error(
                 ERROR_CODE_CFG_INCONSISTENT_COMBO,
@@ -14346,6 +14543,11 @@ def build_run_dry_plan(args) -> dict:
         # run-root and ancestor verdicts are decidable here.
         _authorized, _ = resolve_unsafe_paths_override(_plan_dirs, "monitor.yml")
         plan.setdefault("blocking", [])
+        # A run resumed into a directory that grew an unrouted peer would be refused,
+        # so the plan has to say so rather than promising a launch that will not happen.
+        structure_errors, structure_warnings = validate_run_directory_structure(run_dir)
+        plan["blocking"].extend(structure_errors)
+        plan["warnings"].extend(structure_warnings)
         for _key, _verdict, _message in classify_physical_containment(
                 run_dir, effective_run_directories(_plan_dirs)):
             if _authorized and _verdict in WAIVABLE_PHYSICAL_VERDICTS:
@@ -14753,6 +14955,11 @@ def render_run_dry_plan(plan: dict, output_format: str = "text"):
         print(f"  Run ID preview : {plan.get('run_id_preview')}")
     if plan.get("run_dir_preview"):
         print(f"  Run dir preview: {plan.get('run_dir_preview')}")
+    lineage = plan.get("lineage") or {}
+    if lineage.get("relationship") == "branch":
+        print(f"  Branched from  : {lineage.get('parent_run_id')} "
+              f"@ step {lineage.get('checkpoint_step')} "
+              f"(statistics: {lineage.get('statistics_state')})")
     print(f"  Solver MPI procs: {plan.get('solver_num_procs_effective')}")
     print(f"  Post MPI procs  : {plan.get('post_num_procs_effective')}")
     if plan.get("warnings"):
@@ -15890,6 +16097,9 @@ def run_workflow(args):
     run_dir = None
     run_id = None
     output_dir_abs = None
+    # A post-only invocation never resolves a restart source, so this stays None and
+    # `build_run_manifest()` preserves whatever lineage the run was created with.
+    run_lineage = None
     statistics_output_paths = []
     workflow_start = time.time()
     stages_completed = []
@@ -15964,7 +16174,7 @@ def run_workflow(args):
             'solver': read_yaml_file(args.solver), 'solver_path': os.path.abspath(args.solver),
             'monitor': read_yaml_file(args.monitor), 'monitor_path': os.path.abspath(args.monitor),
             'walltime_guard_policy': walltime_guard_policy,
-            'statistics_state': getattr(args, "statistics_state", "reset"),
+            'statistics_state': getattr(args, "statistics_state", None) or "reset",
         }
 
         print("\n[INFO] Validating configuration files...")
@@ -16001,9 +16211,12 @@ def run_workflow(args):
         if not continue_mode and os.path.exists(run_dir):
             raise ValueError(f"Generated run directory already exists: {run_dir}")
         ensure_run_layout(run_dir)
+        # Checked after the skeleton exists so a resumed run is judged on what is
+        # actually there, and before any stage writes into it.
+        enforce_run_directory_structure(run_dir)
 
         try:
-            resolved_restart_source_dir, is_continue = resolve_restart_source(
+            resolved_restart_source_dir, is_continue, run_lineage = resolve_restart_source(
                 args, configs["case"], configs["solver"], configs["monitor"], run_dir
             )
         except ValueError as e:
@@ -16156,7 +16369,8 @@ def run_workflow(args):
                 print(f"[FATAL] Specified run directory not found: {run_dir}", file=sys.stderr)
                 sys.exit(1)
             print(f"[INFO] Operating on existing run directory: {os.path.relpath(run_dir)}")
-            run_id = os.path.basename(run_dir)
+            enforce_run_directory_structure(run_dir)
+            run_id = read_artifact_identity(run_dir)["run_id"]
         elif not args.solve:
             print("[FATAL] --post-process requires --run-dir when not used with --solve.", file=sys.stderr)
             sys.exit(1)
@@ -16488,6 +16702,7 @@ def run_workflow(args):
             inputs=manifest_inputs,
             asset_lock=asset_lock,
             submission=submission_meta,
+            lineage=run_lineage,
         )
         write_json_file(os.path.join(run_dir, "manifest.json"), manifest)
 
@@ -16712,6 +16927,7 @@ def sweep_workflow(args):
             os.path.join(run_dir, "manifest.json"),
             build_run_manifest(
                 run_dir, case_id, workspace_root=workspace_root, launch_mode="slurm",
+                artifact_type="study-case", study_id=study_id, case_id=case_id,
                 num_procs=cluster_tasks, post_num_procs=cluster_tasks,
                 stages_requested={"solve": True, "post_process": True},
                 inputs={
@@ -21305,7 +21521,13 @@ def inputs_workflow(args):
 
 def version_workflow(args):
     """!
-    @brief Report the one build identity shared by conductor and native executables.
+    @brief Report, and for the `status` action validate, the shared build identity.
+
+    @details Bare `picurv version` reports and always succeeds; it is an informational
+             surface that scripts and documentation already depend on. `picurv version
+             status` additionally exits non-zero when the conductor, the executables,
+             and the workspace requirement do not agree, so a job script can refuse to
+             launch a run whose provenance would be incoherent.
     @param[in] args Parsed version command arguments.
     @return None.
     """
@@ -21318,8 +21540,14 @@ def version_workflow(args):
         software = load_workspace_config(workspace_root).get("software") or {}
         payload["workspace_requirement"] = software.get("picurv") if isinstance(software, dict) else None
     payload["binaries"] = runtime_build_identities()
+    validating = getattr(args, "version_action", None) == "status"
+    problems = build_identity_problems(payload["binaries"], payload["workspace_requirement"])
+    payload["coherent"] = not problems
+    payload["problems"] = problems
     if getattr(args, "output_format", "text") == "json":
         print(json.dumps(payload, indent=2, sort_keys=True))
+        if validating and problems:
+            sys.exit(1)
         return
     print(f"PICurv release : {payload['release_version']}")
     print(f"Build identity : {payload['build_id']}")
@@ -21335,7 +21563,16 @@ def version_workflow(args):
             continue
         agreement = "matches source" if identity["matches_source"] else "STALE - rebuild"
         print(f"  {name:<14}: {identity['build_id']} ({agreement})")
-    warn_on_stale_runtime_binaries(payload["binaries"])
+    if not validating:
+        warn_on_stale_runtime_binaries(payload["binaries"])
+        return
+    if not problems:
+        print("\nBuild identity is coherent.")
+        return
+    print("\nBuild identity is NOT coherent:", file=sys.stderr)
+    for problem in problems:
+        print(f"  - {problem}", file=sys.stderr)
+    sys.exit(1)
 
 
 def _require_clean_source_checkout(action: str) -> None:
@@ -21432,6 +21669,20 @@ def versions_workflow(args):
     if action not in _VERSION_BUILD_ACTIONS:
         raise ValueError(f"Unsupported versions action: {action}")
     _require_clean_source_checkout(f"versions {action}")
+    # There is one installation, and this rewrites it in place. Anything resolving
+    # executables from it - other workspaces, and any running job that did not pin its
+    # binaries - is changed by this too, so say what is about to move before it moves.
+    print(
+        f"[WARNING] {PACKAGE_PROJECT_ROOT} is a single shared installation. Building "
+        f"{version!r} here re-points every workspace that resolves executables from it, "
+        "including any job already running against them.",
+        file=sys.stderr,
+    )
+    print(
+        "          Case-local executables pinned with 'picurv init --pin-binaries' are "
+        "unaffected.",
+        file=sys.stderr,
+    )
     _git_source_command(["fetch", "--tags", "origin"])
     _git_source_command(["checkout", "--detach", str(version)])
     result = subprocess.run(["make", "all"], cwd=PACKAGE_PROJECT_ROOT, check=False)
@@ -21445,7 +21696,7 @@ def init_case(args):
     @brief Implements the 'init' command.
     @details Creates a new case study directory by copying a template.
              Runtime binaries are resolved from the project bin/ directory
-             via PATH; use 'sync-binaries' to pin specific versions locally.
+             via PATH; pass --pin-binaries to pin specific versions locally.
     @param[in] args The command-line arguments parsed by argparse.
     """
     context = resolve_case_origin_context(source_root_override=getattr(args, "source_root", None))
@@ -21539,37 +21790,6 @@ def init_case(args):
         print("          Runtime binaries (simulator, postprocessor) are resolved from the active PICurv installation.")
         print("          Pin software.picurv in .picurv-workspace.yml only when this workspace needs a release constraint.")
     print("          Ensure 'picurv' is on your PATH (source etc/picurv.sh) to run from any directory.")
-
-
-def sync_case_binaries_command(args):
-    """!
-    @brief Refresh case-local executables from the source repository bin directory.
-    @param[in] args Command-line style argument list supplied to the function.
-    """
-    try:
-        context = resolve_case_origin_context(
-            case_dir_hint=getattr(args, "case_dir", None),
-            source_root_override=getattr(args, "source_root", None),
-        )
-        source_project_root = require_project_root(context["source_project_root"], "sync-binaries")
-        case_dir = require_existing_case_dir(context["case_dir"], "sync-binaries", source_project_root)
-        copied = sync_case_binaries(case_dir, source_project_root)
-        metadata_path, metadata = write_case_origin_metadata(
-            case_dir,
-            source_project_root,
-            template_name=context.get("template_name"),
-            existing=context.get("metadata"),
-        )
-    except ValueError as exc:
-        print(f"[FATAL] {exc}", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"[SUCCESS] Refreshed {len(copied)} binaries in: {case_dir}")
-    for dest_path in copied:
-        print(f"  - {os.path.basename(dest_path)}")
-    print(f"[INFO] Case origin metadata refreshed: {os.path.relpath(metadata_path)}")
-    if metadata.get("last_known_source_git_commit"):
-        print(f"[INFO] Source commit recorded: {metadata['last_known_source_git_commit']}")
 
 
 def sync_case_config_command(args):

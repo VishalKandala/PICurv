@@ -447,19 +447,13 @@ picurv init flat_channel --dest my_case --pin-binaries
 Use `--pin-binaries` when you plan to submit Slurm jobs and may rebuild the repo before
 the job executes. Case-local copies take precedence over `bin/` originals at runtime.
 
-Equivalent manual step after init:
-
-```bash
-picurv sync-binaries --case-dir my_case
-```
-
 @subsection p11_rebuild_ssec 5.3 Rebuild Safety
 
 - `picurv` (the Python conductor) can be updated at any time — it only launches jobs,
   it does not run during solver execution.
 - `simulator` and `postprocessor` in `bin/` are overwritten by `make all`. If a queued
   Slurm job references them by absolute path, the running binary may change.
-- Use `--pin-binaries` or `sync-binaries` before submission to protect running jobs.
+- Use `--pin-binaries` at init time before submission to protect running jobs.
 
 @section p11_sweep_sec 6. Sweep Studies
 

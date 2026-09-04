@@ -162,13 +162,17 @@ the saved window state. Entries at @ref p52_cap_restart_stats_sec.
 `picurv storage` moves finished runs, studies, and study members through an `rclone`
 remote. `protect` uploads and verifies while keeping every local file; `offload` does
 the same and then prunes the verified payload according to an offload policy that
-chooses what stays local. Compression policy entries are at @ref p61_cap_comp_sec and
-offload policy entries at @ref p61_cap_policy_sec. Cold data is marked, so continuation,
+chooses what stays local, with `--retain`/`--drop` adjusting that preset one component
+at a time. Compression policy entries are at @ref p61_cap_comp_sec, offload policy
+entries at @ref p61_cap_policy_sec, and retention component entries at
+@ref p61_cap_retain_sec. Cold data is marked, so continuation,
 post-processing, submission, and study reaggregation refuse it with the restore command
 rather than mistaking pruned output for output that was never produced.
 
 `picurv version`, `picurv versions`, and `picurv source` report and select the release
 and build identity that runs, checkpoints, and archives are stamped with.
+`picurv version status` additionally validates that the conductor, both executables, and
+any workspace version requirement agree, and exits non-zero when they do not.
 
 @section p12_inspection_sec 8. Run Inspection and Plotting
 

@@ -890,5 +890,38 @@
     },
     "selector": "picurv storage offload --policy / storage profile -> offload_policy",
     "title": "Storage Offload Policies"
+  },
+  {
+    "family_page": "61_Storage_Management_Guide",
+    "id": "storage.retention_component",
+    "parity": [],
+    "public_values": {
+      "analysis": {
+        "maps_to": "analysis",
+        "status": "supported"
+      },
+      "checkpoints": {
+        "maps_to": "checkpoints",
+        "status": "supported"
+      },
+      "inputs": {
+        "maps_to": "inputs",
+        "status": "supported"
+      },
+      "logs": {
+        "maps_to": "logs",
+        "status": "supported"
+      },
+      "raw-output": {
+        "maps_to": "raw-output",
+        "status": "supported"
+      },
+      "visualization": {
+        "maps_to": "visualization",
+        "status": "supported"
+      }
+    },
+    "selector": "picurv storage offload/plan --retain / --drop",
+    "title": "Storage Retention Components"
   }
 ]

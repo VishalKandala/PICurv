@@ -83,7 +83,7 @@ is a test-local routine.
   - case-local binary preference behavior for copied or path-resolved `picurv`
 - `test_case_maintenance.py`
   - `init` origin metadata behavior
-  - real CLI wrapper coverage for `build`, `sync-binaries`, `sync-config`, `status-source`, and `pull-source`
+  - real CLI wrapper coverage for `build`, `sync-config`, `status-source`, and `pull-source`
   - source-root resolution for build/sync/pull commands
   - template sync behavior (`overwrite`, `prune`)
   - source/case drift reporting (`status-source`)

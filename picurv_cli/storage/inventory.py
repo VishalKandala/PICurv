@@ -30,6 +30,9 @@ from .models import (
     StorageError,
     UNCLASSIFIED_COMPONENT,
     WORKSPACE_CONFIG_FILENAME,
+    read_artifact_identity,
+    RUN_MANIFEST_FILENAME,
+    STUDY_MANIFEST_FILENAME,
     WORKSPACE_EXCLUDED_ROOTS,
     storage_state_summary,
 )
@@ -52,15 +55,25 @@ def _completed_study_members(study_root: str) -> list:
     @return Sorted member ids.
     """
     cases_dir = os.path.join(study_root, "cases")
+    study_identity = read_artifact_identity(study_root)
     selected = []
     for name in sorted(os.listdir(cases_dir)):
         member = os.path.join(cases_dir, name)
-        if not os.path.isdir(member) or not re.fullmatch(r"case_\d+", name):
+        if not os.path.isdir(member):
+            continue
+        # A member is a member because it carries a run manifest, not because its
+        # directory is named `case_NNNN`. The name pattern is the fallback for a
+        # member staged before manifests recorded study membership.
+        member_identity = read_artifact_identity(member)
+        if member_identity["identity_source"] != "manifest" and not re.fullmatch(r"case_\d+", name):
             continue
         target = {
             "artifact_type": "study-case", "root_path": member, "original_path": member,
-            "run_id": name, "study_id": os.path.basename(study_root), "case_id": name,
+            "run_id": member_identity["run_id"] or name,
+            "study_id": study_identity["study_id"],
+            "case_id": member_identity["case_id"] or name,
             "study_path": study_root,
+            "identity_source": member_identity["identity_source"],
         }
         try:
             inventory = inspect_artifact(target)
@@ -91,6 +104,11 @@ def _select_completed_case_ids(study_root: str) -> list:
 def _validate_case_id(case_id: str) -> str:
     """!
     @brief Validate a canonical numbered study-member identifier.
+
+    @details This checks a value the user typed before it becomes a path segment, so it
+             stays a pattern match on purpose: it is what stops `--case-id ../..` from
+             resolving outside the study. What a member *is* is still decided by its
+             manifest, not by this.
     @param[in] case_id Value supplied through the `case_id` argument.
     @return Result produced by this operation.
     """
@@ -148,22 +166,41 @@ def resolve_local_storage_targets(run_dir: str = None, study_dir: str = None, ca
         root = os.path.abspath(run_dir)
         if not os.path.isdir(root):
             raise StorageError(f"Run directory not found: {root}")
-        if not os.path.isdir(os.path.join(root, "config")):
-            raise StorageError(f"Directory does not look like a PICurv run (missing config/): {root}")
+        # The run's own manifest says what it is and what it is called. A directory
+        # with no manifest is still accepted - runs staged by an older release have
+        # none - but it must at least carry the config snapshot every run writes, and
+        # the fallback identity is recorded rather than passed off as the real one.
+        identity = read_artifact_identity(root)
+        if identity["identity_source"] != "manifest" and not os.path.isdir(
+                os.path.join(root, "config")):
+            raise StorageError(
+                f"Directory does not look like a PICurv run (no {RUN_MANIFEST_FILENAME} "
+                f"and no config/): {root}"
+            )
+        if identity["artifact_type"] == "study":
+            raise StorageError(f"That is a study, not a run; use --study-dir: {root}")
         return [{
             "artifact_type": "run",
             "root_path": root,
             "original_path": root,
-            "run_id": os.path.basename(root),
-            "study_id": None,
-            "case_id": None,
+            "run_id": identity["run_id"],
+            "study_id": identity["study_id"] if identity["case_id"] else None,
+            "case_id": identity["case_id"],
+            "identity_source": identity["identity_source"],
         }]
 
     study_root = os.path.abspath(study_dir)
     if not os.path.isdir(study_root):
         raise StorageError(f"Study directory not found: {study_root}")
+    study_identity = read_artifact_identity(study_root)
+    if study_identity["identity_source"] != "manifest" and not os.path.isdir(
+            os.path.join(study_root, "cases")):
+        raise StorageError(
+            f"Directory does not look like a PICurv study (no {STUDY_MANIFEST_FILENAME} "
+            f"and no cases/): {study_root}"
+        )
     if not os.path.isdir(os.path.join(study_root, "cases")):
-        raise StorageError(f"Directory does not look like a PICurv study (missing cases/): {study_root}")
+        raise StorageError(f"Study has no cases/ directory: {study_root}")
     if completed:
         if case_ids:
             raise StorageError("--completed selects members itself; do not also pass --case-id.")
@@ -175,14 +212,16 @@ def resolve_local_storage_targets(run_dir: str = None, study_dir: str = None, ca
             case_root = os.path.join(study_root, "cases", case_id)
             if not os.path.isdir(case_root):
                 raise StorageError(f"Study member not found: {case_root}")
+            member_identity = read_artifact_identity(case_root)
             targets.append({
                 "artifact_type": "study-case",
                 "root_path": case_root,
                 "original_path": case_root,
-                "run_id": case_id,
-                "study_id": os.path.basename(study_root),
-                "case_id": case_id,
+                "run_id": member_identity["run_id"] or case_id,
+                "study_id": study_identity["study_id"],
+                "case_id": member_identity["case_id"] or case_id,
                 "study_path": study_root,
+                "identity_source": member_identity["identity_source"],
             })
         return targets
     return [{
@@ -190,8 +229,9 @@ def resolve_local_storage_targets(run_dir: str = None, study_dir: str = None, ca
         "root_path": study_root,
         "original_path": study_root,
         "run_id": None,
-        "study_id": os.path.basename(study_root),
+        "study_id": study_identity["study_id"],
         "case_id": None,
+        "identity_source": study_identity["identity_source"],
     }]
 
 
@@ -341,23 +381,115 @@ def _walk_archive_entries(root: str, excluded_roots=()) -> list:
     return entries
 
 
-def _checkpoint_component(relative_path: str):
+#: Component paths assumed when an artifact carries no manifest of its own: a run
+#: staged by an older release, or a directory restored without its identity. These are
+#: the fixed workspace topology the conductor writes, kept here so a manifest-less
+#: artifact still classifies rather than becoming wholly "unclassified" and unprunable.
+FALLBACK_COMPONENT_PATHS = {
+    "config": "config",
+    "scheduler": "scheduler",
+    "inputs": "inputs",
+    "output": "output",
+    "checkpoints": "output/checkpoints",
+    "analysis": "output/analysis",
+    "visualization": "output/visualization",
+    "logs": "logs",
+}
+
+
+def _artifact_component_layout(root: str, artifact_type: str) -> dict:
     """!
-    @brief Return a checkpoint component token for a path inside a committed step bundle.
-    @param[in] relative_path Value supplied through the `relative_path` argument.
-    @return Result produced by this operation.
+    @brief Read from the artifact's own manifests where each component lives.
+
+    @details Storage classifies what it packages by asking the run what its directories
+             are, not by assuming the topology from path prefixes. A run records its
+             component map in `manifest.json` under `paths`, and a study's members each
+             record their own, so a renamed, restored, or re-rooted artifact classifies
+             the same way it did where it was written.
+
+             Members are found by the manifest each one carries, not by matching a
+             `case_NNNN` name. When a manifest is missing the fixed workspace topology
+             is used and reported through `identity_source`, so a caller can tell an
+             answer from a fallback.
+    @param[in] root Absolute artifact root.
+    @param[in] artifact_type "run", "study", "study-case", or "workspace".
+    @return Mapping with `members` (member-prefix to component-path map) and
+            `identity_source`.
     """
-    parts = relative_path.split("/")
-    for index, part in enumerate(parts):
-        match = CHECKPOINT_DIRECTORY_PATTERN.fullmatch(part)
-        if match and index > 0 and parts[index - 1] == "checkpoints":
-            return f"checkpoint:{int(match.group(1))}"
+    root_abs = os.path.abspath(root)
+
+    def component_paths(member_root: str) -> tuple:
+        """!
+        @brief Return one artifact's declared component map and where it came from.
+        @param[in] member_root Absolute run or study-member root.
+        @return Tuple of (component path mapping, identity source).
+        """
+        identity = read_artifact_identity(member_root)
+        declared = identity.get("paths") or {}
+        # A study manifest's `paths` names its scripts and tables, not the run-relative
+        # component tree, so it is not a component map and must not be read as one.
+        usable = {
+            key: str(value).strip("/")
+            for key, value in declared.items()
+            if isinstance(value, str) and value and not os.path.isabs(value)
+        }
+        if identity["identity_source"] == "manifest" and usable:
+            return usable, "manifest"
+        return dict(FALLBACK_COMPONENT_PATHS), "fixed-topology"
+
+    members = {}
+    sources = set()
+    if artifact_type == "study":
+        cases_root = os.path.join(root_abs, "cases")
+        if os.path.isdir(cases_root):
+            for name in sorted(os.listdir(cases_root)):
+                member_root = os.path.join(cases_root, name)
+                if not os.path.isdir(member_root):
+                    continue
+                paths, source = component_paths(member_root)
+                members[f"cases/{name}"] = paths
+                sources.add(source)
+    paths, source = component_paths(root_abs)
+    members[""] = paths
+    sources.add(source)
+    return {
+        "root": root_abs,
+        "members": members,
+        "identity_source": "manifest" if sources == {"manifest"} else "mixed"
+        if "manifest" in sources else "fixed-topology",
+    }
+
+
+def _checkpoint_step_from_bundle(bundle_root: str):
+    """!
+    @brief Read a committed checkpoint's own recorded step number.
+
+    @details The bundle writes `-checkpoint_step` into `checkpoint.meta`, which is what
+             the step *is*; the directory name is a rendering of it. Reading the record
+             keeps the classification on the same footing as the rest of this module,
+             and stays correct for a bundle restored under a different name.
+    @param[in] bundle_root Absolute path to one checkpoint bundle directory.
+    @return The recorded step as an int, or None when it cannot be read.
+    """
+    try:
+        with open(os.path.join(bundle_root, "checkpoint.meta"), "r", encoding="utf-8") as stream:
+            for line in stream:
+                tokens = line.split("#", 1)[0].split()
+                if len(tokens) == 2 and tokens[0] == "-checkpoint_step":
+                    return int(tokens[1])
+    except (OSError, ValueError):
+        return None
     return None
 
 
 def _classify_workspace_component(relative_path: str) -> str:
     """!
     @brief Classify one workspace-owned path for packaging and retention.
+
+    @details A workspace has no manifest of components the way a run does: its shape is
+             the fixed layout `picurv init` writes, and `.picurv-workspace.yml` records
+             identity rather than topology. So this stays a layout decision, and the
+             three named roots are the ones the workspace contract defines.
     @param[in] relative_path Workspace-relative path.
     @return Component name.
     """
@@ -371,45 +503,86 @@ def _classify_workspace_component(relative_path: str) -> str:
     return UNCLASSIFIED_COMPONENT
 
 
-def _classify_component(relative_path: str) -> str:
+def _classify_component(relative_path: str, layout: dict = None) -> str:
     """!
     @brief Classify one artifact path for packaging and local retention.
-    @param[in] relative_path Value supplied through the `relative_path` argument.
-    @return Result produced by this operation.
+    @param[in] relative_path Artifact-relative path of the entry.
+    @param[in] layout Component layout from `_artifact_component_layout()`. When absent
+               the fixed workspace topology is assumed.
+    @return Component name, or a `checkpoint:<step>` token.
     """
-    checkpoint = _checkpoint_component(relative_path)
-    if checkpoint:
-        return checkpoint
-    parts = relative_path.split("/")
-    component_parts = parts
-    first = component_parts[0]
+    layout = layout or {"root": "", "members": {"": dict(FALLBACK_COMPONENT_PATHS)}}
+    members = layout["members"]
+    # Longest member prefix wins, so a study member's own map beats the study's.
+    prefix = ""
+    for candidate in members:
+        if not candidate:
+            continue
+        if relative_path == candidate or relative_path.startswith(candidate + "/"):
+            if len(candidate) > len(prefix):
+                prefix = candidate
+    paths = members.get(prefix) or dict(FALLBACK_COMPONENT_PATHS)
+    local = relative_path[len(prefix):].lstrip("/") if prefix else relative_path
     base = os.path.basename(relative_path)
-    if len(parts) >= 3 and parts[0] == "cases" and re.fullmatch(r"case_\d+", parts[1]):
-        component_parts = parts[2:]
-        first = component_parts[0]
+
+    def under(component_key: str) -> bool:
+        """!
+        @brief Whether the entry lies at or below one declared component path.
+        @param[in] component_key Component name in the artifact's own path map.
+        @return True when the entry belongs to that component.
+        """
+        declared = paths.get(component_key)
+        if not declared:
+            return False
+        return local == declared or local.startswith(declared + "/")
+
     # The locks record which assets and which executables a run consumed. They are the
     # run's provenance, not its payload: pruning them would leave a cold run unable to
     # say what it was built from, and reference-aware asset pruning unable to see it.
-    if first in {"config", "scheduler"} or base in {
+    if base in {
         "manifest.json", "study_manifest.json", "study.yml", "cluster.yml",
         "assets.lock.yml", "software.lock.json",
     }:
         return "metadata"
-    if first == "inputs":
-        return "inputs"
-    if first == "assets":
-        return "assets"
-    if first == "output":
-        nested = component_parts[1] if len(component_parts) > 1 else ""
-        if nested == "analysis":
-            return "analysis"
-        if nested == "visualization":
-            return "visualization"
+    if under("config") or under("scheduler"):
+        return "metadata"
+    if under("checkpoints"):
+        declared = paths["checkpoints"]
+        remainder = local[len(declared):].lstrip("/")
+        bundle = remainder.split("/", 1)[0]
+        if bundle:
+            step = _checkpoint_step_from_bundle(
+                os.path.join(layout["root"], *(prefix.split("/") if prefix else []),
+                             *declared.split("/"), bundle)
+            )
+            if step is None:
+                # The bundle's own record is the authority, but a checkpoint whose
+                # metadata cannot be read must not thereby stop being a checkpoint:
+                # that would move it into a component an ordinary policy prunes. Fall
+                # back to the name it was written under.
+                name_match = CHECKPOINT_DIRECTORY_PATTERN.fullmatch(bundle)
+                if name_match:
+                    step = int(name_match.group(1))
+            if step is not None:
+                return f"checkpoint:{step}"
+            # Neither the record nor the name identifies a step. Leave it unclassified,
+            # which is archived and never pruned, rather than guessing.
+            return UNCLASSIFIED_COMPONENT
         return "raw-output"
-    if first == "results":
+    if under("analysis"):
         return "analysis"
-    if first == "logs":
+    if under("visualization"):
+        return "visualization"
+    if under("output"):
+        return "raw-output"
+    if under("inputs"):
+        return "inputs"
+    if under("logs"):
         return "logs"
+    if local.split("/")[0] == "assets":
+        return "assets"
+    if local.split("/")[0] == "results":
+        return "analysis"
     # Nothing recognized this path. It is archived like everything else, but it is
     # never pruned: storage must not delete a file whose purpose it cannot state.
     return UNCLASSIFIED_COMPONENT
@@ -423,8 +596,8 @@ def _checkpoint_steps(entries: list) -> list:
     """
     candidates = {}
     for entry in entries:
-        component = _checkpoint_component(entry["path"])
-        if component:
+        component = entry.get("component") or ""
+        if component.startswith("checkpoint:"):
             step = int(component.split(":", 1)[1])
             candidates.setdefault(step, set()).add(os.path.basename(entry["path"]))
     return sorted(step for step, names in candidates.items() if {"checkpoint.meta", "COMMITTED"} <= names)
@@ -454,10 +627,11 @@ def inspect_artifact(target: dict, query_scheduler: bool = True) -> dict:
     entries = _walk_archive_entries(
         root, WORKSPACE_EXCLUDED_ROOTS if workspace else ()
     )
+    layout = None if workspace else _artifact_component_layout(root, target["artifact_type"])
     for entry in entries:
         entry["component"] = (
             _classify_workspace_component(entry["path"]) if workspace
-            else _classify_component(entry["path"])
+            else _classify_component(entry["path"], layout)
         )
     if workspace and not target.get("include_inputs"):
         # User-supplied data is theirs. It is archived only on request, because a
@@ -476,6 +650,7 @@ def inspect_artifact(target: dict, query_scheduler: bool = True) -> dict:
     state = storage_state_summary(root)
     return {
         "target": dict(target),
+        "component_layout_source": layout["identity_source"] if layout else "workspace-contract",
         "entries": entries,
         "file_count": sum(entry["type"] in {"file", "symlink"} for entry in entries),
         "total_bytes": sum(entry["size"] for entry in entries),

@@ -113,10 +113,6 @@
       "reason": "Velocity component keys a constant or parabolic inlet accepts. They are the parameters an inlet handler owns, enumerated in that handler's entry - not a choice between behaviours.",
       "owner": "boundary.handler"
     },
-    "picurv_cli.storage::{config,scheduler}": {
-      "classification": "not_public",
-      "reason": "Directory names the storage inventory always treats as configuration rather than payload. A fixed classification of run-owned directories, not a user choice."
-    },
     "picurv_cli.storage::{file,symlink}": {
       "classification": "not_public",
       "reason": "Filesystem entry kinds distinguished while walking a run tree. An OS-level distinction, not a configurable option."

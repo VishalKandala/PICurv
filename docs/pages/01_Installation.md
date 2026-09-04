@@ -315,6 +315,13 @@ postprocessor --version
 All three must report the same release. `picurv version --format json` also reports
 the Git commit, dirty-tree state, active workspace, and optional workspace requirement.
 
+`picurv version status` checks that agreement for you and exits non-zero if it does not
+hold, which is the form to use in a job script or a CI step:
+
+```bash
+picurv version status || echo "rebuild before running"
+```
+
 @htmlonly
 <ol class="pic-verification-ladder">
   <li><span>01</span><code>make doctor</code><p>Builds and runs a minimal PETSc-backed binary.</p></li>

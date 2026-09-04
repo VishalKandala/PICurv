@@ -21,7 +21,7 @@
         "36_Cluster_Run_Guide",
         "37_Sweep_Studies_Guide"
       ],
-      "attested_digest": "sha256:c1c6f4f34c009926dff4848c416236a0680561fd3de377e125554ed0088e8bcd",
+      "attested_digest": "sha256:ace57d9317cc1a92d2e11a1eb376b75107b9e4cda5278e0e66f1c77bb0bab9a8",
       "note": "Normalized argparse structure, so a comment or docstring change in cli.py does not fire this fingerprint."
     },
     {
@@ -43,7 +43,7 @@
         "10_Post_Processing_Reference",
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:bfed5a6859a384a29f785a761cb3a3c4a24f5239c51964e3fd4e946c08fc801e"
+      "attested_digest": "sha256:adedb1fe6fdcbfdc56dc3a39f91e875cbd80e1a13f2e8d380edf77dcfd71188b"
     },
     {
       "id": "capability.evidence_matrix",
@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:02a7652ee38da872a10a1a358a06d54eb89c4d85e4ff877a11af77f5802b97d5"
+      "attested_digest": "sha256:6892b9ce8da29bf0770f41ef07c91e679218f401bbbf8d0c3fd3087d164fcd9c"
     },
     {
       "id": "artifact.topology",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:ce9cf3592e06111cd83e40f410f468c91ddc4ef98bade7cf796914daf01d5b3f",
+      "attested_digest": "sha256:9b4f6401ec39a7098b3e2fdd8761411807789cf0a5d9d290d22cde98211ab608",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },

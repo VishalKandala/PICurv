@@ -2,7 +2,7 @@
      Source of truth: the assembled argparse parser (picurv_cli.cli.build_main_parser),
      including registrars delegated from other modules such as storage.py.
      Regenerate with: make docs-cli-reference -->
-<p>18 top-level commands.</p>
+<p>17 top-level commands.</p>
 <h3 id="cli_build"><code>picurv build</code></h3>
 <p>Calls the project's Makefile directly through `make`.</p>
 <p><b>positional arguments</b></p>
@@ -108,7 +108,9 @@ and skips already-complete work inside the current live source frontier.</td></t
 <tr><td class="markdownTableBodyNone"><code>--monitor</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to the monitoring, diagnostics, and I/O profile (e.g., monitor.yml).</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--restart-from</code>, <code>--from</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to an existing run directory to restart from.
 Use 'latest' to select the newest compatible local workspace run.</td></tr>
-<tr><td class="markdownTableBodyNone"><code>--statistics-state</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>carry</code>, <code>reset</code></td><td class="markdownTableBodyNone"><code>reset</code></td><td class="markdownTableBodyNone">For a branched restart, reset field-statistics state (default) or carry compatible checkpoint state.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--statistics-state</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>carry</code>, <code>reset</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">For a branched restart with field statistics enabled, this is required:
+'reset' discards the parent's accumulated windows, 'carry' resumes compatible
+saved window state. Ignored when field statistics are disabled.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--require-precomputed</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Refuse to build missing or stale deterministic assets while staging the run.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--fetch-missing</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Try the configured storage profile before rebuilding a missing workspace asset.</td></tr>
 </table>
@@ -175,6 +177,9 @@ Use --only spectra to re-measure spectra without rebuilding field output.</td></
 <tr><td class="markdownTableBodyNone"><code>--tag</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Repeatable KEY=VALUE catalog tag.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--compression</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>auto</code>, <code>balanced</code>, <code>fast</code>, <code>maximum</code>, <code>none</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 <tr><td class="markdownTableBodyNone"><code>--policy</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>analysis-ready</code>, <code>metadata-only</code>, <code>restart-ready</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--retain</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Keep this component local regardless of --policy; repeatable and
+comma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw-output.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--drop</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Prune this component locally regardless of --policy; same names as --retain.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--workers</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 <tr><td class="markdownTableBodyNone"><code>--keep-latest-checkpoint</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 <tr><td class="markdownTableBodyNone"><code>--drop-all-checkpoints</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
@@ -193,6 +198,9 @@ Use --only spectra to re-measure spectra without rebuilding field output.</td></
 <tr><td class="markdownTableBodyNone"><code>--storage-config</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Explicit storage YAML path.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--compression</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>auto</code>, <code>balanced</code>, <code>fast</code>, <code>maximum</code>, <code>none</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 <tr><td class="markdownTableBodyNone"><code>--policy</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>analysis-ready</code>, <code>metadata-only</code>, <code>restart-ready</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--retain</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Keep this component local regardless of --policy; repeatable and
+comma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw-output.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--drop</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Prune this component locally regardless of --policy; same names as --retain.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--workers</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 <tr><td class="markdownTableBodyNone"><code>--keep-latest-checkpoint</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 <tr><td class="markdownTableBodyNone"><code>--drop-all-checkpoints</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
@@ -214,6 +222,9 @@ Use --only spectra to re-measure spectra without rebuilding field output.</td></
 <tr><td class="markdownTableBodyNone"><code>--tag</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Repeatable KEY=VALUE catalog tag.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--compression</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>auto</code>, <code>balanced</code>, <code>fast</code>, <code>maximum</code>, <code>none</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 <tr><td class="markdownTableBodyNone"><code>--policy</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>analysis-ready</code>, <code>metadata-only</code>, <code>restart-ready</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>--retain</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Keep this component local regardless of --policy; repeatable and
+comma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw-output.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--drop</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Prune this component locally regardless of --policy; same names as --retain.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--workers</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 <tr><td class="markdownTableBodyNone"><code>--keep-latest-checkpoint</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 <tr><td class="markdownTableBodyNone"><code>--drop-all-checkpoints</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
@@ -344,14 +355,6 @@ task-name substring when the recipe measured more than one spectrum
 <tr><td class="markdownTableBodyNone"><code>--auto-fetch</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Restore cold-storage study members automatically instead of
 refusing. Requires a configured storage profile.</td></tr>
 </table>
-<h3 id="cli_sync_binaries"><code>picurv sync-binaries</code></h3>
-<p>Copy simulator/postprocessor from the source repo bin/ into a case directory.</p>
-<p><b>optional arguments</b></p>
-<table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
-<tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
-<tr><td class="markdownTableBodyNone"><code>--case-dir</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Optional case directory to refresh. Defaults to the current case.</td></tr>
-<tr><td class="markdownTableBodyNone"><code>--source-root</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Optional override for the PICurv source repository root.</td></tr>
-</table>
 <h3 id="cli_sync_config"><code>picurv sync-config</code></h3>
 <p>Copy updated example template files into an existing case directory.</p>
 <p><b>optional arguments</b></p>
@@ -380,6 +383,11 @@ refusing. Requires a configured storage profile.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--strict</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Enable additional strict checks for selected roles.</td></tr>
 </table>
 <h3 id="cli_version"><code>picurv version</code></h3>
+<p>Report the build identity shared by the Python conductor and the native</p>
+<p><b>positional arguments</b></p>
+<table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
+<tr><td class="markdownTableBodyNone"><code>version_action</code> (positional)</td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>status</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">'status' validates conductor/executable/workspace coherence and exits 1 on disagreement.</td></tr>
+</table>
 <p><b>optional arguments</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>

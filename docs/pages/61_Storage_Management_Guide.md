@@ -96,6 +96,27 @@ profiles:
 
 PICurv finds `.picurv-storage.yml` by searching upward from the current directory. Use `--storage-config /path/to/storage.yml` to select another file. Multiple profiles can share one file; select one with `--profile`. A fast local scratch filesystem can be selected during setup with `--staging-directory`.
 
+The upward search does not stop at the workspace boundary, so one configuration can
+serve a whole directory of campaigns. Because `offload` uploads to the remote that file
+names and then prunes local payload, every command that reads it says which file
+answered, and warns when the answer came from above the workspace:
+
+```text
+[WARNING] That configuration is outside this workspace; it is shared with everything
+          below /data/campaigns. Pass --storage-config to choose another, or run
+          'picurv storage setup' here to give this workspace its own.
+[INFO] Storage config : /data/campaigns/.picurv-storage.yml
+[INFO] Storage profile: archive -> labstore:picurv-data
+```
+
+Sharing is supported; sharing you did not notice is what the warning is for.
+
+`setup` resolves differently, because it writes. Run inside a workspace with no
+configuration of its own, it creates one there rather than editing the shared file
+above it — editing that file would re-point every other workspace under the same parent.
+To change the shared configuration deliberately, name it: `picurv storage setup
+--storage-config /data/campaigns/.picurv-storage.yml --remote ...`.
+
 Use a dry run to see what setup would write without touching the file or remote:
 
 ```bash
@@ -693,3 +714,220 @@ mappings and semantic component classification.
 
 **Limitations.** It cannot infer whether a particular future analysis needs raw fields;
 restore those inputs explicitly when required.
+
+@section p61_cap_retain_sec 9.3 Retention Component Entries
+
+@htmlinclude generated/capability_inventory_storage_retention_component.html
+
+A named `--policy` is a preset, not a ceiling. `--retain` and `--drop` adjust one
+component at a time on top of whichever preset is in force, so a campaign whose
+retention needs do not match any single preset does not have to pick the closest one
+and accept the rest. Both flags are repeatable and accept comma-separated names. The
+preset still decides every component neither flag mentions.
+
+Four components are never selectable, because no correct offload prunes them:
+`metadata` (a cold artifact that cannot say what it is cannot be restored), `assets`
+(reclaimed only by the reference-aware `storage prune --assets --unused-locally`),
+`workspace-config` and `workspace-inputs` (a workspace protect is a backup, not a
+handover of the user's own files), and anything storage could not classify.
+
+```bash
+# Keep the figures this preset keeps, and the checkpoints it would not.
+picurv storage offload --run-dir runs/my_run --policy analysis-ready --retain checkpoints
+
+# Free the largest thing first and leave the rest of the preset alone.
+picurv storage offload --run-dir runs/my_run --policy restart-ready --drop inputs
+```
+
+`storage plan` prints the resolved component set, plus which components each flag
+moved, so the effect is visible before anything is uploaded or pruned.
+
+@subsection p61_cap_retain_checkpoints_sub checkpoints
+
+@anchor p61_cap_retain_checkpoints
+
+**Identity.** `picurv storage offload --retain checkpoints` / `--drop checkpoints`.
+
+**What it does.** Selects every committed checkpoint bundle at once, whatever its step.
+Retaining it keeps the entire saved trajectory local after upload.
+
+**When to choose it.** Retain it when the run's states are still being branched from at
+several points — a restart study, or a campaign whose branch step is not yet decided.
+Drop it when the trajectory is safely uploaded and scratch pressure is the binding
+constraint. For the common case of keeping exactly one restart point, use
+`--keep-latest-checkpoint` instead; it is narrower and cheaper.
+
+**Parameters it owns.** None of its own. It is mutually exclusive with
+`--drop-all-checkpoints`, which asks for the opposite, and it supersedes
+`--keep-latest-checkpoint` by keeping every step rather than one.
+
+**Interactions.** With it retained, `--restart-from` can branch from any step without a
+selective restore. A committed bundle is identified by the `-checkpoint_step` its own
+`checkpoint.meta` records, so a bundle copied under a new directory name is still
+classified by the step it actually holds.
+
+**Diagnostics.** `storage plan` reports `Kept checkpoint: every committed step (N)`
+instead of naming one step, and lists `checkpoints` under both `Kept components` and
+`Retained by flag`. After offload the storage marker records each surviving
+`checkpoint:<step>` in `retained_components`.
+
+**Evidence.** Unit verified — `tests/test_storage.py` asserts that every step is
+retained under it, that `--keep-latest-checkpoint` retains only the newest, and that
+the conflict with `--drop-all-checkpoints` is refused.
+
+**Limitations.** It is the most expensive selection available; on a long run the
+checkpoint set is usually the bulk of local size, so retaining it recovers almost no
+scratch.
+
+@subsection p61_cap_retain_logs_sub logs
+
+@anchor p61_cap_retain_logs
+
+**Identity.** `picurv storage offload --retain logs` / `--drop logs`.
+
+**What it does.** Selects `<run.logs>`: solver and post-processor console output,
+convergence histories, and scheduler stdout/stderr.
+
+**When to choose it.** Every named preset already retains it, so `--retain logs` matters
+only when another flag or a future preset would not. Drop it when a run's logs are
+themselves the large artifact — a long run at high verbosity — and the uploaded copy is
+enough.
+
+**Parameters it owns.** None.
+
+**Interactions.** `picurv summarize` reads this directory. Dropping it makes
+`summarize --plot` unavailable locally until the component is restored, and the command
+says so rather than reporting an empty history.
+
+**Diagnostics.** `storage plan` lists `logs` in `Kept components`, and names it under
+`Dropped by flag` when it was removed from a preset that would have kept it.
+
+**Evidence.** Unit verified — `tests/test_storage.py` asserts the component is
+selectable in both directions against a preset that retains it by default.
+
+**Limitations.** Dropping logs removes the cheapest evidence a run leaves behind; the
+space recovered is rarely worth it outside pathological verbosity settings.
+
+@subsection p61_cap_retain_analysis_sub analysis
+
+@anchor p61_cap_retain_analysis
+
+**Identity.** `picurv storage offload --retain analysis` / `--drop analysis`.
+
+**What it does.** Selects `<run.analysis>` — metrics, field statistics, spectra, and
+plots.
+
+**When to choose it.** Retain it on top of `metadata-only` or `restart-ready` when the
+solver work is finished but figures and derived numbers are still being read. Drop it
+from `analysis-ready` when the derived data has already been collected into a paper or
+a study-level table and only the raw states still matter.
+
+**Parameters it owns.** None.
+
+**Interactions.** Re-deriving a dropped analysis requires the sources it was computed
+from, so dropping `analysis` while also dropping `checkpoints` and `raw-output` means a
+restore is the only way back to those numbers.
+
+**Diagnostics.** `storage plan` separates retained from pruned bytes, and lists
+`analysis` under `Retained by flag` or `Dropped by flag` according to which flag moved
+it. `storage status` reports `PARTIAL` for a run whose analysis was pruned.
+
+**Evidence.** Unit verified — `tests/test_storage.py` asserts the component is added to
+a preset that omits it and removed from one that includes it.
+
+**Limitations.** It is a single switch over the whole analysis tree; individual metrics,
+spectra, or plot sets are not separately selectable.
+
+@subsection p61_cap_retain_visualization_sub visualization
+
+@anchor p61_cap_retain_visualization
+
+**Identity.** `picurv storage offload --retain visualization` / `--drop visualization`.
+
+**What it does.** Selects `<run.visualization>`: the VTK output the post-processor
+writes for viewing.
+
+**When to choose it.** Retain it while a run is being inspected interactively in
+ParaView or VisIt. Drop it as soon as that is finished — visualization output is
+usually the second-largest component after checkpoints, and it is fully re-derivable
+from the states it was written from.
+
+**Parameters it owns.** None.
+
+**Interactions.** Re-deriving it means re-running `picurv run --post-process`, which
+needs the source checkpoints locally. Dropping visualization and checkpoints together
+makes that a restore rather than a recompute.
+
+**Diagnostics.** `storage plan` lists `visualization` in the resolved `Kept components`
+line, and the per-component chunk table reports its packaged size, so its share of the
+archive is visible before the upload starts.
+
+**Evidence.** Unit verified — `tests/test_storage.py` asserts the component is
+selectable in both directions.
+
+**Limitations.** One switch covers every post recipe's output; a single recipe's
+directory cannot be selected on its own.
+
+@subsection p61_cap_retain_inputs_sub inputs
+
+@anchor p61_cap_retain_inputs
+
+**Identity.** `picurv storage offload --retain inputs` / `--drop inputs`.
+
+**What it does.** Selects the run's own `<run.inputs>` — the staged grid, initial
+condition, inlet profiles, and materialized restart bundle. It does **not** select the
+workspace's `inputs/`, which no policy may prune.
+
+**When to choose it.** Retain it when the run will be continued and its staged grid is
+expensive to rebuild. Drop it when the assets are still published in the workspace
+asset store, where the run's `assets.lock.yml` can find them again by identity.
+
+**Parameters it owns.** None.
+
+**Interactions.** Run inputs are normally reflinks or hardlinks into `assets/`, so
+dropping them recovers space only once the shared object is also gone. The
+`assets.lock.yml` that names those objects is `metadata` and is never pruned, so a cold
+run can still state what it consumed.
+
+**Diagnostics.** `storage plan` lists `inputs` in `Kept components`; `storage status`
+reports the run `COLD` or `PARTIAL` once it was pruned, and `--restart-from` or
+`--continue` names the exact missing component instead of reporting a broken run.
+
+**Evidence.** Unit verified — `tests/test_storage.py` asserts the component is
+selectable in both directions, and that the always-retained workspace components are
+unaffected by it.
+
+**Limitations.** Dropping it does not free the underlying asset object, which
+`storage prune --assets --unused-locally` owns and removes only when no active local
+run still references it.
+
+@subsection p61_cap_retain_raw_output_sub raw-output
+
+@anchor p61_cap_retain_raw_output
+
+**Identity.** `picurv storage offload --retain raw-output` / `--drop raw-output`.
+
+**What it does.** Selects anything under `<run.output>` that is neither a committed
+checkpoint, nor analysis, nor visualization.
+
+**When to choose it.** Retain it when a run writes bulk solver output that a local
+workflow still consumes directly. Drop it in the ordinary case: no preset retains it,
+because it is the component most likely to be both large and re-derivable.
+
+**Parameters it owns.** None.
+
+**Interactions.** An incomplete checkpoint — a bundle still being written — is refused
+before packaging rather than classified here, so this never becomes a way to archive a
+run mid-write.
+
+**Diagnostics.** `storage plan` shows a `raw-output` chunk with its file count and
+uncompressed size, which is how an unexpected writer under `<run.output>` is noticed:
+the chunk is larger than the run should produce.
+
+**Evidence.** Unit verified — `tests/test_storage.py` asserts the component is
+selectable in both directions, and that a bundle whose step cannot be identified
+becomes `unclassified` rather than falling into this component.
+
+**Limitations.** It is defined by what it is not, so an unexpected writer under
+`<run.output>` lands here and becomes prunable. Output that must survive belongs under
+the analysis or visualization tree, which the run layout defines for that purpose.

@@ -334,3 +334,16 @@ Selector: `picurv storage offload --policy / storage profile -> offload_policy`
 | `analysis-ready` | `analysis-ready` |
 | `metadata-only` | `metadata-only` |
 | `restart-ready` | `restart-ready` |
+
+### Storage Retention Components
+
+Selector: `picurv storage offload/plan --retain / --drop`
+
+| Value | Maps to |
+|---|---|
+| `analysis` | `analysis` |
+| `checkpoints` | `checkpoints` |
+| `inputs` | `inputs` |
+| `logs` | `logs` |
+| `raw-output` | `raw-output` |
+| `visualization` | `visualization` |

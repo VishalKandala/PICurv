@@ -172,6 +172,10 @@
       "classification": "cli_inventory_sufficient",
       "reason": "`--format text|json` on every command that prints a structured report. The generated CLI reference lists the flag and its choices wherever it appears, and the choice is an output encoding rather than a behaviour: there is no when-to-use answer beyond 'json when a machine reads it'."
     },
+    "picurv_cli.storage::STORAGE_ARTIFACT_TYPES": {
+      "classification": "not_public",
+      "reason": "The artifact kinds a local directory declares itself to be in its own manifest: run, study, or study-case. PICurv owns the vocabulary, but the conductor writes the value and storage reads it back to resolve identity; it is reachable through no flag, no config key, and no CLI choice, so a user never selects one."
+    },
     "picurv_cli.storage::STORAGE_COMPRESSION_EXTENSIONS": {
       "classification": "not_public",
       "reason": "The archive suffix each resolved policy produces. Derived from the policy, never selected: the user chooses a compression policy and the extension follows."

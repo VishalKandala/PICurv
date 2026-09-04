@@ -593,12 +593,17 @@
     var banner = document.createElement("div");
     banner.id = "picurv-docs-revision-banner";
     banner.className = "picurv-docs-revision-banner";
-    // Provenance only: this banner reports what the build knows -- which commit the
-    // HTML was generated from.  It deliberately makes no claim about whether the
-    // prose was semantically reviewed; that is tracked separately per page.
+    // Provenance only: this banner reports what the build knows -- which release and
+    // which commit the HTML was generated from.  It deliberately makes no claim about
+    // whether the prose was semantically reviewed; that is tracked separately per page.
+    // The label leads with the plain release ("PICurv 0.2.0") only for a build that
+    // actually is that release -- a clean checkout of its tag.  Anything else states
+    // the full build id, so a development or dirty build is never shown as if it were
+    // the release it is only heading toward.
+    var releaseLabel = revision.released ? revision.release_version : revision.build_id;
     banner.appendChild(document.createTextNode(
-      revision.clean ? "Built from commit " :
-        "Built with uncommitted changes after commit "
+      (releaseLabel ? "PICurv " + releaseLabel + " — built" : "Built") +
+        (revision.clean ? " from commit " : " with uncommitted changes after commit ")
     ));
     var link = document.createElement("a");
     link.href = revision.commit_url;

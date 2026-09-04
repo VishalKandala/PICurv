@@ -92,8 +92,6 @@ Binary pinning (`--pin-binaries`):
 - use this when submitting Slurm jobs and you may rebuild the repo before the job runs,
 - `picurv` itself is never copied — it is always used from PATH and is safe to update mid-run since it only launches the C binaries.
 
-Equivalent manual step (after init): `picurv sync-binaries --case-dir <case>`.
-
 Examples:
 
 ```bash
@@ -149,6 +147,13 @@ the conductor's says which source staged a run, the binaries' says which build p
 its checkpoints, and an edited C tree that was never rebuilt makes them disagree. The
 run manifest records both, and `run` warns at staging when a binary is stale.
 
+`picurv version status` reports the same thing and then *validates* it, exiting 1 when
+the conductor, either executable, or the workspace's `software.picurv` requirement
+disagree, and naming each disagreement. Bare `picurv version` always exits 0: it is an
+informational surface, and a job script that must refuse an incoherent build should ask
+for the validating form explicitly. Both accept `--format json`, which adds `coherent`
+and `problems` to the payload.
+
 `make` delivers the identity through a generated `include/picurv_build_identity.h`
 rather than command-line defines, so ordinary header-dependency tracking rebuilds the
 two translation units that stamp it whenever the commit or dirty state changes. A
@@ -160,16 +165,34 @@ binary reporting release `0.0.0` was built outside `make` and carries no identit
 version, and rebuilds. With no argument, `activate` reads the workspace's exact
 `software.picurv` value and refuses ranges.
 
-`sync-binaries`, `pull-source`, and `status-source` remain legacy maintenance surfaces.
-New workspaces normally use the active installation and the version commands instead
-of copying executables into every case.
+@note **One installation, activated in place.** PICurv installs as a single source
+checkout that `versions activate` rewrites by `git checkout --detach <tag>` followed by
+`make all`. It does not install side-by-side versioned prefixes such as
+`/software/picurv/0.2.0/`, and `picurv` is not a version multiplexer.
 
-`sync-binaries` copies `simulator` and `postprocessor` from the source repo `bin/`
-into a case directory for version-pinning (optional — normally binaries are resolved via PATH):
+That is a deliberate trade, and it has three consequences worth knowing before you rely
+on a version pin:
 
-```bash
-./my_case/picurv sync-binaries
-```
+- **Two workspaces pinned to different releases cannot both be satisfied.** Activating
+  for one makes the other's `software.picurv` requirement fail. There is one active
+  release per installation, not one per workspace.
+- **Activating changes running jobs.** Executables resolve from the installation's
+  `bin/`, so a rebuild replaces `simulator` and `postprocessor` underneath a job that
+  is already using them. `picurv init --pin-binaries` copies them into the case and is
+  the supported way to make a run immune to this; use it for anything submitted to a
+  scheduler.
+- **Development and version-switching share one tree.** `activate` refuses a dirty
+  checkout, so uncommitted work must be committed or stashed first.
+
+Both `versions activate` and a failed workspace version check name the installation
+they would change, so the effect is stated rather than discovered. If you need
+concurrent releases — several people on one filesystem, or reproducing a published
+result while developing against a newer tree — install PICurv more than once and select
+between them with your shell or your site's module system.
+
+`pull-source` and `status-source` remain legacy maintenance surfaces. New workspaces
+normally use the active installation and the version commands instead of copying
+executables into every case.
 
 `sync-config` refreshes files from `examples/<template_name>/` into the case directory.
 By default it preserves user-modified files and only copies missing files:
@@ -674,10 +697,6 @@ above is hand-written and complements it; this section is the exhaustive referen
 - passthrough:
   - trailing `MAKE_ARGS...` are passed directly to `make`
 
-`sync-binaries`:
-- `--case-dir <case_dir>`
-- `--source-root <repo>`
-
 `sync-config`:
 - `--case-dir <case_dir>`
 - `--source-root <repo>`
@@ -808,7 +827,7 @@ For prebuilt reusable profiles, also see the local guides under:
 `picurv` resolves `simulator` and `postprocessor` at launch time using this precedence:
 
 1. **Invocation directory** — if the binary exists as a sibling of the invoked `picurv` script
-   (e.g. case-local copies from `--pin-binaries` or `sync-binaries`), it is used first.
+   (e.g. case-local copies from `--pin-binaries`), it is used first.
 2. **Project `bin/` directory** — the default location after `make all`.
 
 `bin/picurv` is a launcher for `picurv_cli/picurv`. This means:

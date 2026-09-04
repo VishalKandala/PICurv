@@ -23,6 +23,7 @@ import uuid
 from pathlib import Path
 import yaml
 from .models import (
+    STORAGE_RETENTION_COMPONENTS,
     ALWAYS_RETAINED_COMPONENTS,
     AUTO_MAXIMUM_COMPRESSION_BYTES,
     AUTO_NO_COMPRESSION_BYTES,
@@ -196,32 +197,85 @@ def _write_tar_chunk(root: str, spec: dict, destination: str, compression: str,
     return "python-tarfile"
 
 
+def _normalize_retention_selection(values, flag: str) -> set:
+    """!
+    @brief Validate one --retain/--drop selection into a component name set.
+    @param[in] values Repeated component names from the command line, or None.
+    @param[in] flag User-facing flag name, for error messages.
+    @return Set of selectable component names.
+    """
+    selected = set()
+    for raw in values or []:
+        for token in str(raw).split(","):
+            name = token.strip()
+            if not name:
+                continue
+            if name not in STORAGE_RETENTION_COMPONENTS:
+                raise StorageError(
+                    f"{flag} {name!r} is not a selectable component. Choose from: "
+                    + ", ".join(STORAGE_RETENTION_COMPONENTS)
+                )
+            selected.add(name)
+    return selected
+
+
 def _resolve_offload_policy(profile: dict, requested: str = None,
-                            keep_latest_checkpoint=None) -> dict:
+                            keep_latest_checkpoint=None, retain=None, drop=None) -> dict:
     """!
     @brief Resolve semantic local-retention behavior for an offload.
+
+    @details A named policy is a preset, not a ceiling. `--retain`/`--drop` adjust the
+             preset one component at a time, so a campaign that needs, say, the
+             analysis of `analysis-ready` but also its checkpoints does not have to
+             choose the policy that happens to bundle both. The preset is still what
+             decides everything not named explicitly.
     @param[in] profile Active storage profile.
     @param[in] requested Optional command-level policy override.
     @param[in] keep_latest_checkpoint Optional checkpoint-retention override.
+    @param[in] retain Component names to retain locally regardless of the preset.
+    @param[in] drop Component names to prune locally regardless of the preset.
     @return Normalized retention policy mapping.
     """
     name = requested or profile.get("offload_policy", "metadata-only")
     if name not in STORAGE_OFFLOAD_POLICIES:
         raise StorageError("Offload policy must be one of: " + ", ".join(STORAGE_OFFLOAD_POLICIES))
+    retain_set = _normalize_retention_selection(retain, "--retain")
+    drop_set = _normalize_retention_selection(drop, "--drop")
+    conflicting = retain_set & drop_set
+    if conflicting:
+        raise StorageError(
+            "A component cannot be both retained and dropped: " + ", ".join(sorted(conflicting))
+        )
+    # The conflict is between two things the user actually asked for, so it is decided
+    # on the requested value: the derived default is False far more often than
+    # --drop-all-checkpoints was typed, and refusing on that would reject the ordinary
+    # `--retain checkpoints` with no second flag at all.
+    if "checkpoints" in retain_set and keep_latest_checkpoint is False:
+        raise StorageError(
+            "--retain checkpoints keeps every committed step, which contradicts "
+            "--drop-all-checkpoints. Pass one or the other."
+        )
     if keep_latest_checkpoint is None:
         # Nothing explicit was requested: fall back to the profile default, or to
         # `restart-ready`'s own promise to keep the newest checkpoint. An explicit
         # --keep-latest-checkpoint/--drop-all-checkpoints always overrides both,
         # rather than being silently overruled by the policy it was paired with.
         keep_latest_checkpoint = bool(profile.get("keep_latest_checkpoint", False)) or name == "restart-ready"
-    retained = {
+    retained = set({
         "metadata-only": {"metadata", "logs"},
         "restart-ready": {"metadata", "logs", "inputs"},
         "analysis-ready": {"metadata", "logs", "analysis", "visualization"},
-    }[name]
+    }[name])
+    retained |= retain_set
+    retained -= drop_set
+    # Identity is never optional: a cold artifact that cannot say what it is, what it
+    # ran, and what it consumed cannot be restored or reasoned about.
+    retained.add("metadata")
     return {
         "name": name,
         "retained_components": sorted(retained),
+        "explicit_retain": sorted(retain_set),
+        "explicit_drop": sorted(drop_set),
         "keep_latest_checkpoint": bool(keep_latest_checkpoint),
     }
 
@@ -240,13 +294,18 @@ def _entry_retained_by_policy(entry: dict, policy: dict, latest_step) -> bool:
     # workspace is a backup, not a handover of the user's own files.
     if component in ALWAYS_RETAINED_COMPONENTS:
         return True
-    if component in set(policy["retained_components"]):
-        return True
-    return bool(
-        policy["keep_latest_checkpoint"]
-        and latest_step is not None
-        and component == f"checkpoint:{latest_step}"
-    )
+    retained = set(policy["retained_components"])
+    if component.startswith("checkpoint:"):
+        # "checkpoints" retains every committed step; --keep-latest-checkpoint is the
+        # narrower selection of just the newest one.
+        if "checkpoints" in retained:
+            return True
+        return bool(
+            policy["keep_latest_checkpoint"]
+            and latest_step is not None
+            and component == f"checkpoint:{latest_step}"
+        )
+    return component in retained
 
 
 def _compression_size_range(source_bytes: int, compression: str) -> tuple:

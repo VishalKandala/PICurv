@@ -231,7 +231,7 @@ Current Python files and primary responsibilities:
   - grid-gen header/node-count checks
 - `tests/test_case_maintenance.py`
   - case-origin metadata behavior
-  - real CLI wrapper coverage for `build`, `sync-binaries`, `sync-config`, `status-source`, and `pull-source`
+  - real CLI wrapper coverage for `build`, `sync-config`, `status-source`, and `pull-source`
   - sync/pull/build source-root resolution behavior
   - template sync behavior (`overwrite`, `prune`)
   - status drift report behavior

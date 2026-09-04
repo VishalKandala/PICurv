@@ -48,6 +48,22 @@ REMOTE_BLOBS_DIRECTORY = "blobs"
 REMOTE_MANIFEST_FILENAME = "manifest.json"
 
 
+#: Artifact kinds a local PICurv directory can declare itself to be in its manifest.
+#: Not a user choice: it is written by the conductor and read back, never selected.
+STORAGE_ARTIFACT_TYPES = ("run", "study", "study-case")
+
+
+#: A run's own identity manifest, written by the conductor at the end of staging. It,
+#: not the directory name, is what says a directory is a run and what that run is
+#: called: a run directory can be renamed, copied, or restored under another name, and
+#: only the manifest survives that intact.
+RUN_MANIFEST_FILENAME = "manifest.json"
+
+
+#: A study's identity manifest. Same contract as RUN_MANIFEST_FILENAME, one level up.
+STUDY_MANIFEST_FILENAME = "study_manifest.json"
+
+
 REMOTE_COMPLETE_FILENAME = "COMPLETE"
 
 
@@ -193,6 +209,55 @@ def _read_json(path: str):
     return payload if isinstance(payload, dict) else None
 
 
+def read_artifact_manifest(root_path: str):
+    """!
+    @brief Read a local artifact's own identity manifest, run or study.
+    @param[in] root_path Run, study, or study-member directory.
+    @return The parsed manifest mapping, or None when the directory has none.
+    """
+    root = os.path.abspath(root_path)
+    for filename in (RUN_MANIFEST_FILENAME, STUDY_MANIFEST_FILENAME):
+        payload = _read_json(os.path.join(root, filename))
+        if payload:
+            return payload
+    return None
+
+
+def read_artifact_identity(root_path: str) -> dict:
+    """!
+    @brief Resolve what a local artifact directory is, and what it calls itself.
+
+    @details The manifest is authoritative. The directory basename is a last resort,
+             reported as such through `identity_source`, so a caller can tell a real
+             identity from a guess instead of both looking the same.
+    @param[in] root_path Run, study, or study-member directory.
+    @return Mapping with `artifact_type`, `run_id`, `study_id`, `case_id`, and
+            `identity_source` ("manifest" or "directory-name").
+    """
+    root = os.path.abspath(root_path)
+    manifest = read_artifact_manifest(root)
+    if manifest:
+        artifact_type = manifest.get("artifact_type")
+        if artifact_type in STORAGE_ARTIFACT_TYPES:
+            return {
+                "artifact_type": artifact_type,
+                "run_id": manifest.get("run_id"),
+                "study_id": manifest.get("study_id"),
+                "case_id": manifest.get("case_id"),
+                "paths": manifest.get("paths") or {},
+                "identity_source": "manifest",
+            }
+    return {
+        "artifact_type": None,
+        "run_id": os.path.basename(root),
+        "study_id": os.path.basename(root),
+        "case_id": None,
+        "paths": {},
+        "identity_source": "directory-name",
+    }
+
+
+
 def _find_upwards(start: str, filename: str):
     """!
     @brief Find the nearest named file at or above a filesystem anchor.
@@ -211,6 +276,40 @@ def _find_upwards(start: str, filename: str):
         if parent == current:
             return None
         current = parent
+
+
+def storage_workspace_root(start: str = None) -> str:
+    """!
+    @brief Locate the initialized workspace a storage command is standing in.
+    @param[in] start Directory to search from; defaults to the current directory.
+    @return Absolute workspace root, or None when the command is not inside one.
+    """
+    marker = _find_upwards(start or os.getcwd(), WORKSPACE_CONFIG_FILENAME)
+    return os.path.dirname(marker) if marker else None
+
+
+def storage_config_origin(config_path: str, workspace_root: str = None) -> str:
+    """!
+    @brief Classify where an active storage configuration came from.
+
+    @details Discovery walks upward without stopping at the workspace boundary, which
+             is deliberate: one configuration is meant to be shareable across a
+             directory of campaigns. What makes that dangerous is silence, not sharing.
+             An offload uploads to the remote this file names and then prunes local
+             payload, so which file answered has to be visible at the point of use.
+    @param[in] config_path Resolved storage configuration path.
+    @param[in] workspace_root Owning workspace, or None to discover it from the cwd.
+    @return "workspace" when the file belongs to the workspace in scope, "shared" when
+            it was inherited from above it, and "unowned" when there is no workspace.
+    """
+    if not config_path:
+        return "unowned"
+    root = workspace_root if workspace_root is not None else storage_workspace_root()
+    if not root:
+        return "unowned"
+    resolved = os.path.abspath(config_path)
+    root = os.path.abspath(root)
+    return "workspace" if os.path.dirname(resolved) == root else "shared"
 
 
 def resolve_storage_config_path(explicit_path: str = None, require: bool = True) -> str:
@@ -360,6 +459,17 @@ STORAGE_COMPRESSION_POLICIES = ("auto", "none", "fast", "balanced", "maximum")
 
 
 STORAGE_OFFLOAD_POLICIES = ("metadata-only", "restart-ready", "analysis-ready")
+
+
+#: Components whose local retention an offload may be told to decide individually.
+#: `metadata` is absent because every named policy retains it and a cold artifact that
+#: cannot say what it was is not recoverable; `assets`, `unclassified`, and the two
+#: workspace components are absent because ALWAYS_RETAINED_COMPONENTS protects them.
+#: "checkpoints" stands for every committed step at once, which is what a user means
+#: by it; a single step is still selected with --keep-latest-checkpoint.
+STORAGE_RETENTION_COMPONENTS = (
+    "checkpoints", "logs", "analysis", "visualization", "inputs", "raw-output",
+)
 
 
 #: Archive suffix each resolved compression policy produces. `auto` never appears

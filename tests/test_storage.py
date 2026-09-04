@@ -89,7 +89,11 @@ def _write_run(root: Path, with_checkpoint: bool = True) -> Path:
         bundle = root / "output" / "checkpoints" / "step_000000000010"
         (bundle / "eulerian" / "block_0000").mkdir(parents=True)
         (bundle / "eulerian" / "block_0000" / "Ucat.dat").write_bytes(b"checkpoint-data")
-        (bundle / "checkpoint.meta").write_text("test metadata\n", encoding="utf-8")
+        (bundle / "checkpoint.meta").write_text(
+            "-checkpoint_format picurv-binary\n-checkpoint_version 1\n"
+            "-checkpoint_step 10\n-checkpoint_time 0.1\n",
+            encoding="utf-8",
+        )
         (bundle / "COMMITTED").write_text("0" * 64 + "\n", encoding="ascii")
     return root
 
@@ -638,6 +642,14 @@ def test_offload_policy_reports_and_retains_latest_checkpoint(tmp_path, local_rc
     run = _write_run(tmp_path / "runs" / "retained")
     latest = run / "output" / "checkpoints" / "step_000000000020"
     shutil.copytree(run / "output" / "checkpoints" / "step_000000000010", latest)
+    # The bundle's own record is what says which step it is, so a copied bundle has to
+    # be re-stamped. Leaving the copy claiming step 10 is exactly the corruption the
+    # manifest-driven classifier is meant to catch.
+    (latest / "checkpoint.meta").write_text(
+        "-checkpoint_format picurv-binary\n-checkpoint_version 1\n"
+        "-checkpoint_step 20\n-checkpoint_time 0.2\n",
+        encoding="utf-8",
+    )
     (run / "inputs" / "grid").mkdir(parents=True)
     (run / "inputs" / "grid" / "grid.run").write_bytes(b"grid-input")
     (run / "output" / "analysis" / "metrics").mkdir(parents=True)
@@ -652,6 +664,8 @@ def test_offload_policy_reports_and_retains_latest_checkpoint(tmp_path, local_rc
     assert plan["offload_policy"] == {
         "name": "metadata-only",
         "retained_components": ["logs", "metadata"],
+        "explicit_retain": [],
+        "explicit_drop": [],
         "keep_latest_checkpoint": True,
     }
     assert plan["retained_local_bytes"] > 0
@@ -1286,3 +1300,242 @@ def test_an_interrupted_upload_resumes_without_re_uploading(tmp_path, local_rclo
     manifest = storage.archive_artifact(target, profile)
     assert "already stored; skipping upload" in capsys.readouterr().out
     assert {chunk["sha256"] for chunk in manifest["chunks"]} >= landed
+
+
+def test_retention_components_are_selected_independently_of_the_policy_preset(tmp_path):
+    """!
+    @brief Each named component's local retention can be decided against any preset.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return None.
+    """
+    profile = {}
+    baseline = storage._resolve_offload_policy(profile, "analysis-ready")
+    assert baseline["retained_components"] == ["analysis", "logs", "metadata", "visualization"]
+
+    # Every component named by the family is selectable in both directions.
+    for component in storage.STORAGE_RETENTION_COMPONENTS:
+        retained = storage._resolve_offload_policy(profile, "metadata-only", retain=[component])
+        assert component in retained["retained_components"]
+        assert retained["explicit_retain"] == [component]
+        dropped = storage._resolve_offload_policy(profile, "analysis-ready", drop=[component])
+        assert component not in dropped["retained_components"]
+
+    # Identity survives an attempt to drop everything: a cold artifact that cannot say
+    # what it is would not be restorable.
+    stripped = storage._resolve_offload_policy(
+        profile, "analysis-ready", drop=list(storage.STORAGE_RETENTION_COMPONENTS)
+    )
+    assert stripped["retained_components"] == ["metadata"]
+
+    # Comma-separated and repeated spellings agree.
+    assert (
+        storage._resolve_offload_policy(profile, "metadata-only", retain=["analysis,inputs"])
+        ["retained_components"]
+        == storage._resolve_offload_policy(profile, "metadata-only", retain=["analysis", "inputs"])
+        ["retained_components"]
+    )
+
+
+def test_retention_selection_refuses_contradictions_and_unknown_components(tmp_path):
+    """!
+    @brief --retain/--drop reject an unknown name, a contradiction, and a checkpoint conflict.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return None.
+    """
+    with pytest.raises(storage.StorageError, match="not a selectable component"):
+        storage._resolve_offload_policy({}, retain=["everything"])
+    with pytest.raises(storage.StorageError, match="both retained and dropped"):
+        storage._resolve_offload_policy({}, retain=["logs"], drop=["logs"])
+    with pytest.raises(storage.StorageError, match="contradicts"):
+        storage._resolve_offload_policy({}, retain=["checkpoints"], keep_latest_checkpoint=False)
+
+
+def test_retain_checkpoints_keeps_every_committed_step(tmp_path):
+    """!
+    @brief `--retain checkpoints` keeps all steps, where --keep-latest-checkpoint keeps one.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return None.
+    """
+    policy = storage._resolve_offload_policy({}, "analysis-ready", retain=["checkpoints"])
+    for step in (0, 10, 20):
+        assert storage._entry_retained_by_policy({"component": f"checkpoint:{step}"}, policy, 20)
+
+    latest_only = storage._resolve_offload_policy({}, "metadata-only", keep_latest_checkpoint=True)
+    assert not storage._entry_retained_by_policy({"component": "checkpoint:10"}, latest_only, 20)
+    assert storage._entry_retained_by_policy({"component": "checkpoint:20"}, latest_only, 20)
+
+
+def test_artifact_identity_and_component_layout_come_from_the_manifest(tmp_path):
+    """!
+    @brief A renamed run keeps its recorded identity, and its manifest routes classification.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return None.
+    """
+    run = _write_run(tmp_path / "runs" / "channel_20260824-120000")
+    (run / "manifest.json").write_text(
+        json.dumps({
+            "artifact_type": "run",
+            "run_id": "channel_20260824-120000",
+            "paths": dict(core.CANONICAL_RUN_PATHS),
+        }) + "\n",
+        encoding="utf-8",
+    )
+    renamed = run.parent / "someone_renamed_this"
+    run.rename(renamed)
+
+    target = storage.resolve_local_storage_targets(str(renamed), None)[0]
+    assert target["run_id"] == "channel_20260824-120000"
+    assert target["identity_source"] == "manifest"
+
+    inventory = storage.inspect_artifact(target, query_scheduler=False)
+    assert inventory["component_layout_source"] == "manifest"
+    assert inventory["checkpoint_steps"] == [10]
+
+
+def test_checkpoint_step_is_read_from_the_bundle_record_not_its_directory_name(tmp_path):
+    """!
+    @brief A bundle's recorded step wins over a directory name that disagrees with it.
+    @details Copying a bundle without re-stamping its metadata is the realistic way the
+             two disagree; trusting the name there would misreport which state is newest.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return None.
+    """
+    run = _write_run(tmp_path / "runs" / "channel_20260824-120000")
+    misnamed = run / "output" / "checkpoints" / "step_000000009999"
+    shutil.copytree(run / "output" / "checkpoints" / "step_000000000010", misnamed)
+
+    target = storage.resolve_local_storage_targets(str(run), None)[0]
+    inventory = storage.inspect_artifact(target, query_scheduler=False)
+    assert inventory["checkpoint_steps"] == [10]
+
+    # A bundle whose record cannot be read falls back to its name rather than losing
+    # its component, because an unrecognized checkpoint would become prunable payload.
+    (misnamed / "checkpoint.meta").write_text("unreadable\n", encoding="utf-8")
+    inventory = storage.inspect_artifact(target, query_scheduler=False)
+    assert inventory["checkpoint_steps"] == [10, 9999]
+
+
+def _initialized_workspace(root: Path) -> Path:
+    """!
+    @brief Create a workspace whose identity file storage discovery can find.
+    @param[in] root Workspace directory to create.
+    @return Created workspace path.
+    """
+    root.mkdir(parents=True)
+    (root / storage.WORKSPACE_CONFIG_FILENAME).write_text(
+        "schema_version: 1\nworkspace:\n  id: test\n", encoding="utf-8"
+    )
+    return root
+
+
+def _write_storage_config(root: Path, remote: str) -> Path:
+    """!
+    @brief Write a minimal storage configuration naming one remote.
+    @param[in] root Directory to write it in.
+    @param[in] remote Remote the single profile points at.
+    @return Written configuration path.
+    """
+    path = root / storage.STORAGE_CONFIG_FILENAME
+    path.write_text(
+        yaml.safe_dump({"default_profile": "archive",
+                        "profiles": {"archive": {"remote": remote}}}, sort_keys=False),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_a_configuration_inherited_from_above_the_workspace_is_named(tmp_path, monkeypatch, capsys):
+    """!
+    @brief Reading an inherited storage configuration reports it and warns.
+
+    @details Discovery deliberately searches past the workspace boundary so one
+             configuration can serve many campaigns. Offload uploads to whatever remote
+             it names and then prunes local payload, so the file that answered has to be
+             visible at the point of use.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @param[in] capsys Pytest capture fixture.
+    @return None.
+    """
+    campaigns = tmp_path / "campaigns"
+    campaigns.mkdir()
+    shared = _write_storage_config(campaigns, "labstore:shared")
+    workspace = _initialized_workspace(campaigns / "ws")
+    monkeypatch.chdir(workspace)
+
+    profile = storage.load_reported_storage_profile(SimpleNamespace(profile=None, storage_config=None))
+    assert profile["config_path"] == str(shared)
+    captured = capsys.readouterr()
+    assert str(shared) in captured.out
+    assert "outside this workspace" in captured.err
+
+    # A workspace holding its own configuration is reported without the warning.
+    own = _write_storage_config(workspace, "labstore:mine")
+    profile = storage.load_reported_storage_profile(SimpleNamespace(profile=None, storage_config=None))
+    assert profile["config_path"] == str(own)
+    captured = capsys.readouterr()
+    assert str(own) in captured.out
+    assert "outside this workspace" not in captured.err
+
+
+def test_setup_configures_the_workspace_rather_than_the_shared_file_above_it(
+    tmp_path, monkeypatch, capsys, local_rclone
+):
+    """!
+    @brief `storage setup` never silently re-points a configuration it did not create.
+
+    @details Writing resolves differently from reading: editing the shared file would
+             change the remote for every workspace under the same parent, which is a
+             destructive action nobody asked for.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @param[in] capsys Pytest capture fixture.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    campaigns = tmp_path / "campaigns"
+    campaigns.mkdir()
+    shared = _write_storage_config(campaigns, "labstore:shared")
+    workspace = _initialized_workspace(campaigns / "ws")
+    monkeypatch.chdir(workspace)
+
+    storage.storage_setup_workflow(SimpleNamespace(
+        storage_config=None, profile=None, remote="fake:picurv-data", compression="auto",
+        chunk_size_gib=1.0, workers=1, offload_policy="metadata-only",
+        keep_latest_checkpoint=False, staging_directory=None, dry_run=False,
+    ))
+
+    # The shared file is untouched, and the workspace now has its own.
+    assert yaml.safe_load(shared.read_text(encoding="utf-8")) == {
+        "default_profile": "archive", "profiles": {"archive": {"remote": "labstore:shared"}}
+    }
+    own = workspace / storage.STORAGE_CONFIG_FILENAME
+    assert own.is_file()
+    assert yaml.safe_load(own.read_text(encoding="utf-8"))["profiles"]["archive"]["remote"] == "fake:picurv-data"
+    assert "belongs to a directory above this workspace" in capsys.readouterr().out
+
+
+def test_setup_still_edits_a_shared_configuration_when_it_is_named(
+    tmp_path, monkeypatch, local_rclone
+):
+    """!
+    @brief Sharing stays supported; it just has to be asked for explicitly.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    campaigns = tmp_path / "campaigns"
+    campaigns.mkdir()
+    shared = _write_storage_config(campaigns, "labstore:shared")
+    workspace = _initialized_workspace(campaigns / "ws")
+    monkeypatch.chdir(workspace)
+
+    storage.storage_setup_workflow(SimpleNamespace(
+        storage_config=str(shared), profile=None, remote="fake:picurv-data",
+        compression="auto", chunk_size_gib=1.0, workers=1, offload_policy="metadata-only",
+        keep_latest_checkpoint=False, staging_directory=None, dry_run=False,
+    ))
+
+    assert yaml.safe_load(shared.read_text(encoding="utf-8"))["profiles"]["archive"]["remote"] == "fake:picurv-data"
+    assert not (workspace / storage.STORAGE_CONFIG_FILENAME).exists()

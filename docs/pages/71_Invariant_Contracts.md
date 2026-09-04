@@ -153,8 +153,9 @@ the changelog is exempt, because rewriting history would falsify it.
 
 `isolated_run_tree` is the enforced mutable-output layout. Each initialized run owns
 its complete `config`, `inputs`, `output`, `logs`, and `scheduler` tree. YAML cannot
-redirect those homes to peer `diagnostics` or `results` directories. Isolation between
-runs comes from the run id namespace and fixed run-local paths.
+redirect those homes to peer `diagnostics` or `results` directories, and a run root that
+has acquired one by any other route is refused before the next stage writes into it.
+Isolation between runs comes from the run id namespace and fixed run-local paths.
 
 | Model | Meaning |
 |---|---|
@@ -191,6 +192,15 @@ launched directly on a hand-written control file. `ClassifyLogDirectory`
 (`src/setup.c`) re-derives the decision from the options actually in force, resolves
 the path physically — including a directory that does not exist yet, through its
 longest existing prefix — and returns a typed verdict.
+
+Those six keep a configured path from escaping the run. A seventh keeps the run from
+acquiring a home nothing configured: staging, resuming, and post-processing each refuse
+a run root carrying a top-level directory outside the five the layout defines. That
+failure is the mirror image of an escaping path — the directory is inside the run, but
+routed by nothing, classified `unclassified` by storage, and therefore archived in every
+copy and pruned by no policy. An unexpected *file* at the run root is reported instead of
+refused, because a stray note cannot be confused for output and refusing to resume a
+campaign over one would cost more than it protects.
 
 @warning **Residual risk.** The restart input is not containment-checked as a
 destination: it is a read path materialized from a source that was itself validated.

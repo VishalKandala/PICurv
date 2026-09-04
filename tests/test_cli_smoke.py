@@ -5994,7 +5994,7 @@ def test_restart_from_copies_checkpoint_and_sets_restart_dir(tmp_path):
     new_run_dir = tmp_path / "new_run"
     new_run_dir.mkdir()
 
-    resolved, is_continue = picurv.resolve_restart_source(
+    resolved, is_continue, _lineage = picurv.resolve_restart_source(
         args, case_cfg, solver_cfg, monitor_cfg, str(new_run_dir)
     )
 
@@ -6123,7 +6123,7 @@ def test_restart_from_load_mode_materializes_the_consumed_sequence(tmp_path):
     new_run_dir = tmp_path / "new_run"
     new_run_dir.mkdir()
 
-    resolved, is_continue = picurv.resolve_restart_source(
+    resolved, is_continue, _lineage = picurv.resolve_restart_source(
         args, case_cfg, solver_cfg, monitor_cfg, str(new_run_dir)
     )
 
@@ -6196,7 +6196,7 @@ def test_continue_mode_auto_populates_restart(tmp_path):
 
     args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=str(run_dir))
 
-    resolved, is_continue = picurv.resolve_restart_source(
+    resolved, is_continue, _lineage = picurv.resolve_restart_source(
         args, case_cfg, solver_cfg, monitor_cfg, str(run_dir)
     )
 
@@ -6234,7 +6234,7 @@ def test_continue_mode_ignores_uncommitted_restart_staging(tmp_path):
 
     args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=str(run_dir))
 
-    resolved, is_continue = picurv.resolve_restart_source(
+    resolved, is_continue, _lineage = picurv.resolve_restart_source(
         args, case_cfg, solver_cfg, monitor_cfg, str(run_dir)
     )
 
@@ -8946,3 +8946,114 @@ def test_generator_destination_keys_are_rejected(tmp_path):
     assert "grid.generator.output_file" in result.stderr
     assert "grid.generator.vts_file" in result.stderr
     assert "PICurv chooses where generated artifacts go" in result.stderr
+
+
+def _branch_restart_fixture(tmp_path, picurv):
+    """!
+    @brief Build a source run with a committed step-5 bundle and a branch's configs.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] picurv Loaded conductor module.
+    @return Tuple of (case_cfg, solver_cfg, monitor_cfg, source_run_dir, new_run_dir).
+    """
+    valid = FIXTURES / "valid"
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+
+    source_run_dir = tmp_path / "old_run"
+    (source_run_dir / "config").mkdir(parents=True)
+    source_output = source_run_dir / "output"
+    source_output.mkdir(parents=True)
+    write_eulerian_checkpoint(source_output, 5, include_particles=True)
+    picurv.write_yaml_file(
+        str(source_run_dir / "config" / "monitor.yml"),
+        {"io": {"directories": {"output": "output", "restart": "restart"}}},
+    )
+    (source_run_dir / "manifest.json").write_text(
+        json.dumps({"artifact_type": "run", "run_id": "old_run_20260101-000000"}) + "\n",
+        encoding="utf-8",
+    )
+    case_cfg["run_control"]["start_step"] = 5
+    new_run_dir = tmp_path / "new_run"
+    new_run_dir.mkdir()
+    return case_cfg, solver_cfg, monitor_cfg, source_run_dir, new_run_dir
+
+
+def test_branching_records_the_parent_run_in_the_resolved_lineage(tmp_path):
+    """!
+    @brief --restart-from returns lineage naming the parent's recorded id and step.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    case_cfg, solver_cfg, monitor_cfg, source, new_run = _branch_restart_fixture(tmp_path, picurv)
+    args = SimpleNamespace(restart_from=str(source), continue_run=False, run_dir=None)
+
+    _resolved, is_continue, lineage = picurv.resolve_restart_source(
+        args, case_cfg, solver_cfg, monitor_cfg, str(new_run)
+    )
+
+    assert not is_continue
+    assert lineage["relationship"] == "branch"
+    assert lineage["parent_run_id"] == "old_run_20260101-000000"
+    assert lineage["checkpoint_step"] == 5
+    assert lineage["requested_source"] == str(source)
+
+
+def test_in_place_continuation_reports_no_branch_lineage(tmp_path):
+    """!
+    @brief --continue resumes one run, so it never records a parent it branched from.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    case_cfg, solver_cfg, monitor_cfg, source, _new_run = _branch_restart_fixture(tmp_path, picurv)
+    picurv.write_yaml_file(str(source / "config" / "monitor.yml"), monitor_cfg)
+    picurv.write_yaml_file(str(source / "config" / "case.yml"), case_cfg)
+    args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=str(source))
+
+    _resolved, is_continue, lineage = picurv.resolve_restart_source(
+        args, case_cfg, solver_cfg, monitor_cfg, str(source)
+    )
+
+    assert is_continue
+    assert lineage is None
+
+
+def test_branching_requires_a_statistics_decision_when_windows_are_enabled(tmp_path):
+    """!
+    @brief With field statistics on, a branch must say what happens to the parent's windows.
+
+    @details Neither answer is safe to guess: resetting silently reports a shorter
+             average than the user expects, and carrying averages two trajectories
+             together. With statistics off there is nothing to decide, so no flag is
+             required.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    case_cfg, solver_cfg, monitor_cfg, source, new_run = _branch_restart_fixture(tmp_path, picurv)
+    monitor_cfg["field_statistics"] = {
+        "enabled": True,
+        "windows": [{
+            "name": "production", "start_time": 0.0, "weighting": "sample",
+            "step_cadence": 1, "fields": [{"field": "Ucat", "moments": ["first"]}],
+        }],
+    }
+    unstated = SimpleNamespace(restart_from=str(source), continue_run=False, run_dir=None)
+
+    with pytest.raises(ValueError, match="must state what happens to the parent's accumulated"):
+        picurv.resolve_restart_source(unstated, case_cfg, solver_cfg, monitor_cfg, str(new_run))
+
+    stated = SimpleNamespace(
+        restart_from=str(source), continue_run=False, run_dir=None, statistics_state="carry"
+    )
+    _resolved, _is_continue, lineage = picurv.resolve_restart_source(
+        stated, case_cfg, solver_cfg, monitor_cfg, str(new_run)
+    )
+    assert lineage["statistics_state"] == "carry"
+
+    # Statistics disabled: there are no windows to decide about, so the flag stays optional.
+    monitor_cfg["field_statistics"] = {"enabled": False}
+    shutil.rmtree(new_run / "restart", ignore_errors=True)
+    _resolved, _is_continue, lineage = picurv.resolve_restart_source(
+        unstated, case_cfg, solver_cfg, monitor_cfg, str(new_run)
+    )
+    assert lineage["statistics_state"] == "reset"

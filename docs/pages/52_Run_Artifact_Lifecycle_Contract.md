@@ -57,6 +57,45 @@ When an umbrella example contains repeated filenames, initialization preserves t
 extra configurations below `config/variants/<original-path>` instead of overwriting
 them.
 
+@subsection p52_scope_identity_sub 1.1 Identity Comes From The Manifest
+
+A run publishes what it is in its own `<run.manifest>`: `artifact_type`, `run_id`,
+`study_id` and `case_id` for a study member, the `paths` map naming every component
+directory, and the `lineage` record described in §5.5. A study publishes the same way
+in `study_manifest.json`.
+
+Everything downstream reads those records rather than re-deriving them. `picurv
+storage` takes a run's identity and its component boundaries from the manifest, so a
+run directory that was renamed, copied, or restored under a different name still
+reports the identity it was created with, and still classifies its own output
+correctly. A committed checkpoint's step likewise comes from the `-checkpoint_step`
+its `checkpoint.meta` records, not from the `step_############` directory it sits in,
+so a bundle copied without being re-stamped is not mistaken for the step its new name
+claims.
+
+A directory carrying no manifest — one staged by an older release — still works: the
+fixed topology above is assumed, and the fallback is reported as `identity_source:
+directory-name` rather than presented as a recorded answer.
+
+@subsection p52_scope_layout_sub 1.2 The Run Root Is Closed
+
+A run owns exactly five directories directly below `<run.root>`: `<run.config>`,
+`<run.inputs>`, `<run.solver_output>`, `<run.runtime_logs>`, and `<run.scheduler>`.
+Staging a run, resuming one, and post-processing one all refuse a run root that has
+grown a sixth.
+
+The refusal is not tidiness. A directory beside `<run.solver_output>` is routed by
+nothing, so the solver never writes there deliberately; it is classified `unclassified`
+by storage, so it is archived in every copy of the run and pruned by no policy; and it
+is absent from the `paths` map in `<run.manifest>`, so no reader can say what it holds.
+Catching it when the run is staged is the last point at which the answer is still
+"move it".
+
+Scientific output belongs under `<run.checkpoints>`, `<run.analysis>`, or
+`<run.visualization>`. An unexpected *file* at the run root is reported and allowed:
+a stray note costs nothing, and refusing to resume a long campaign over one would be a
+worse failure than the one being prevented.
+
 @section p52_newrun_sec 2. Editable Configurations And Imported Files
 
 Run commands from the workspace and refer to canonical configuration paths:
@@ -287,6 +326,41 @@ same grid geometry/layout. A newly enabled optional subsystem such as particles
 uses its normal initialization path unless its restart mode explicitly requests
 saved state; subsequent checkpoints then include that subsystem.
 
+@subsection p52_restart_lineage 5.5 A Branch Records What It Branched From
+
+A run created with `--restart-from` writes a `lineage` record into its
+`<run.manifest>`:
+
+```json
+"lineage": {
+  "relationship": "branch",
+  "parent_run_id": "channel_20260101-120000",
+  "parent_study_id": null,
+  "parent_case_id": null,
+  "parent_identity_source": "manifest",
+  "parent_path": "runs/channel_20260101-120000",
+  "checkpoint_step": 4000,
+  "statistics_state": "carry",
+  "requested_source": "latest",
+  "recorded_at": "2026-01-02T09:15:00-06:00"
+}
+```
+
+Without it a branch is indistinguishable from a fresh run. The bundle copied into the
+run's restart input carries the parent's geometry digest and software identity, but names
+no run, so the trajectory a result belongs to could not be reconstructed afterwards.
+
+The parent is named from its own manifest, so a parent that was later renamed is still
+identified correctly; `parent_identity_source` says whether that lookup succeeded or
+fell back to the directory name. `requested_source` records what was asked for, which
+is how a `--restart-from latest` is distinguished from the explicit path it resolved
+to.
+
+A fresh run records `{"relationship": "root"}` rather than omitting the key, so a
+reader never has to distinguish "started from nothing" from "written before lineage
+existed". An in-place `--continue` keeps whatever lineage the run was created with:
+what a run branched from does not change because it was resumed.
+
 @section p52_post_sec 6. Postprocess An Existing Run
 
 When solver outputs already exist, reuse the run directory directly:
@@ -470,8 +544,14 @@ drifted one.
 the checkpoint still seeds physical fields.
 
 **When to choose it.** Use `reset` for a changed case, a new measurement window, or
-whenever the new run should stand alone statistically. It is the default and is safer
-than `carry` when solver or monitoring definitions changed.
+whenever the new run should stand alone statistically. It is safer than `carry` when
+solver or monitoring definitions changed.
+
+Neither value is a default. Branching a run with `field_statistics.enabled: true` and
+no `--statistics-state` is refused, because guessing is wrong in both directions:
+resetting silently reports a shorter average than the user expects, and carrying
+averages two trajectories together. With field statistics disabled there is nothing to
+decide and the flag stays optional.
 
 **Parameters it owns.** None.
 

@@ -179,7 +179,8 @@ picurv init flat_channel --dest my_case --pin-binaries
 This copies `simulator` and `postprocessor` into the case directory so they are isolated from
 repo rebuilds. `picurv` itself is never copied — it is always used from PATH and is safe to
 update at any time since it only launches the C binaries, not run during solver execution.
-Equivalent manual step after init: `picurv sync-binaries --case-dir my_case`.
+Binaries are pinned only at init time; re-run `picurv init --pin-binaries` for a fresh case,
+or rebuild in the source repo and re-init to pick up a newer build.
 
 `init` also writes `.picurv-origin.json`, which records the source repo path so maintenance
 commands can rebuild, pull, and resync from the original code directory.
@@ -251,7 +252,6 @@ picurv build                             # rebuild in the source repo (defaults 
 picurv build clean-project               # clean in the source repo
 make audit-build                         # rebuild with repo-level logging under `logs/`
 picurv pull-source --case-dir my_case    # git pull --rebase in the source repo
-picurv sync-binaries --case-dir my_case  # pin specific binary versions into the case (optional)
 picurv sync-config --case-dir my_case    # copy updated template files, preserve modified files
 picurv sync-config --case-dir my_case --overwrite
 picurv sync-config --case-dir my_case --prune  # remove stale template-managed files
@@ -428,7 +428,7 @@ PICurv uses an intent-based local testing model so the command name tells you wh
 
 The Python-side CLI suites explicitly cover help/parser and behavior paths for
 `submit`, `cancel`, `summarize` configuration/health/plotting, and `sweep`, plus real CLI wrapper execution for
-`build`, `sync-binaries`, `sync-config`, `status-source`, and `pull-source`.
+`build`, `sync-config`, `status-source`, and `pull-source`.
 
 Canonical targets:
 

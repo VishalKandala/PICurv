@@ -58,7 +58,8 @@ from .safety import (
 )
 from .inventory import (
     _artifact_runtime_roots,
-    _checkpoint_component,
+    _checkpoint_step_from_bundle,
+    _artifact_component_layout,
     _checkpoint_steps,
     _classify_component,
     _classify_workspace_component,

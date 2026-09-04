@@ -641,12 +641,12 @@
               "carry",
               "reset"
             ],
-            "default": "reset",
+            "default": null,
             "dest": "statistics_state",
             "flags": [
               "--statistics-state"
             ],
-            "help": "For a branched restart, reset field-statistics state (default) or carry compatible checkpoint state.",
+            "help": "For a branched restart with field statistics enabled, this is required:\n'reset' discards the parent's accumulated windows, 'carry' resumes compatible\nsaved window state. Ignored when field statistics are disabled.",
             "is_flag": false,
             "nargs": null,
             "required": false
@@ -1140,6 +1140,30 @@
               {
                 "choices": [],
                 "default": null,
+                "dest": "retain",
+                "flags": [
+                  "--retain"
+                ],
+                "help": "Keep this component local regardless of --policy; repeatable and\ncomma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw-output.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "drop",
+                "flags": [
+                  "--drop"
+                ],
+                "help": "Prune this component locally regardless of --policy; same names as --retain.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
                 "dest": "workers",
                 "flags": [
                   "--workers"
@@ -1321,6 +1345,30 @@
                   "--policy"
                 ],
                 "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "retain",
+                "flags": [
+                  "--retain"
+                ],
+                "help": "Keep this component local regardless of --policy; repeatable and\ncomma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw-output.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "drop",
+                "flags": [
+                  "--drop"
+                ],
+                "help": "Prune this component locally regardless of --policy; same names as --retain.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1545,6 +1593,30 @@
                   "--policy"
                 ],
                 "help": "",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "retain",
+                "flags": [
+                  "--retain"
+                ],
+                "help": "Keep this component local regardless of --policy; repeatable and\ncomma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw-output.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "drop",
+                "flags": [
+                  "--drop"
+                ],
+                "help": "Prune this component locally regardless of --policy; same names as --retain.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -2709,52 +2781,6 @@
       "name": "sweep",
       "subcommands": {}
     },
-    "sync-binaries": {
-      "groups": {
-        "optional arguments": [
-          {
-            "choices": [],
-            "default": null,
-            "dest": "help",
-            "flags": [
-              "-h",
-              "--help"
-            ],
-            "help": "show this help message and exit",
-            "is_flag": false,
-            "nargs": "0",
-            "required": false
-          },
-          {
-            "choices": [],
-            "default": null,
-            "dest": "case_dir",
-            "flags": [
-              "--case-dir"
-            ],
-            "help": "Optional case directory to refresh. Defaults to the current case.",
-            "is_flag": false,
-            "nargs": null,
-            "required": false
-          },
-          {
-            "choices": [],
-            "default": null,
-            "dest": "source_root",
-            "flags": [
-              "--source-root"
-            ],
-            "help": "Optional override for the PICurv source repository root.",
-            "is_flag": false,
-            "nargs": null,
-            "required": false
-          }
-        ]
-      },
-      "help": "Copy simulator/postprocessor from the source repo bin/ into a case directory.",
-      "name": "sync-binaries",
-      "subcommands": {}
-    },
     "sync-config": {
       "groups": {
         "optional arguments": [
@@ -3010,9 +3036,23 @@
             "nargs": null,
             "required": false
           }
+        ],
+        "positional arguments": [
+          {
+            "choices": [
+              "status"
+            ],
+            "default": null,
+            "dest": "version_action",
+            "flags": [],
+            "help": "'status' validates conductor/executable/workspace coherence and exits 1 on disagreement.",
+            "is_flag": false,
+            "nargs": "?",
+            "required": false
+          }
         ]
       },
-      "help": "",
+      "help": "Report the build identity shared by the Python conductor and the native",
       "name": "version",
       "subcommands": {}
     },

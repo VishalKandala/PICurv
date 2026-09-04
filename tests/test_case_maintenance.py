@@ -307,9 +307,11 @@ def test_build_project_defaults_to_all_when_make_args_have_no_goal(tmp_path):
     assert captured["log_filename"] == "build.log"
 
 
-def test_sync_case_binaries_command_refreshes_case_and_bootstraps_metadata(tmp_path):
+def test_sync_case_binaries_overwrites_stale_case_local_executables(tmp_path):
     """!
-    @brief Test that sync case binaries command refreshes case and bootstraps metadata.
+    @brief Test that binary pinning replaces stale case-local executables and copies no launcher.
+    @details This is the helper behind `init --pin-binaries`, which is now the only
+             surface that pins binaries into a case.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     picurv = load_picurv_module()
@@ -318,12 +320,9 @@ def test_sync_case_binaries_command_refreshes_case_and_bootstraps_metadata(tmp_p
     case_dir.mkdir()
     (case_dir / "simulator").write_text("stale\n", encoding="utf-8")
 
-    picurv.sync_case_binaries_command(
-        SimpleNamespace(case_dir=str(case_dir), source_root=str(source_root))
-    )
+    copied = picurv.sync_case_binaries(str(case_dir), str(source_root))
 
-    metadata = json.loads((case_dir / picurv.CASE_ORIGIN_METADATA_FILENAME).read_text(encoding="utf-8"))
-    assert metadata["source_repo_root"] == str(source_root.resolve())
+    assert sorted(os.path.basename(path) for path in copied) == ["postprocessor", "simulator"]
     assert (case_dir / "simulator").read_text(encoding="utf-8") == "simulator-v1\n"
     assert (case_dir / "postprocessor").read_text(encoding="utf-8") == "postprocessor-v1\n"
     assert not (case_dir / "picurv").exists()
@@ -475,9 +474,7 @@ def test_compute_case_source_status_reports_binary_and_template_drift(tmp_path):
             prune=False,
         )
     )
-    picurv.sync_case_binaries_command(
-        SimpleNamespace(case_dir=str(case_dir), source_root=str(source_root))
-    )
+    picurv.sync_case_binaries(str(case_dir), str(source_root))
 
     (case_dir / "simulator").write_text("simulator-local\n", encoding="utf-8")
     (case_dir / "case.yml").write_text("case: customized\n", encoding="utf-8")
@@ -654,28 +651,6 @@ def test_build_cli_uses_case_metadata_and_writes_build_log(tmp_path):
     assert "cleaning project" in build_log.read_text(encoding="utf-8")
 
 
-def test_sync_binaries_cli_refreshes_case_from_metadata(tmp_path):
-    """!
-    @brief Test that the real sync-binaries CLI refreshes a case using metadata-derived source context.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    picurv = load_picurv_module()
-    source_root = make_fake_source_repo(tmp_path / "source")
-    case_dir = tmp_path / "case"
-    case_dir.mkdir()
-    picurv.write_case_origin_metadata(str(case_dir), str(source_root), template_name="demo")
-    (case_dir / "simulator").write_text("stale\n", encoding="utf-8")
-
-    result = run_picurv(["sync-binaries", "--case-dir", str(case_dir)], cwd=tmp_path)
-
-    assert result.returncode == 0, result.stdout + "\n" + result.stderr
-    metadata = json.loads((case_dir / picurv.CASE_ORIGIN_METADATA_FILENAME).read_text(encoding="utf-8"))
-    assert metadata["source_repo_root"] == str(source_root.resolve())
-    assert (case_dir / "simulator").read_text(encoding="utf-8") == "simulator-v1\n"
-    assert (case_dir / "postprocessor").read_text(encoding="utf-8") == "postprocessor-v1\n"
-    assert not (case_dir / "picurv").exists()
-
-
 def test_sync_config_cli_bootstraps_template_files_and_runtime_config(tmp_path):
     """!
     @brief Test that the real sync-config CLI copies template-managed files and seeds runtime config.
@@ -734,7 +709,7 @@ def test_status_source_cli_reports_json_for_real_case(tmp_path):
             prune=False,
         )
     )
-    picurv.sync_case_binaries_command(SimpleNamespace(case_dir=str(case_dir), source_root=str(source_root)))
+    picurv.sync_case_binaries(str(case_dir), str(source_root))
 
     (case_dir / "simulator").write_text("simulator-local\n", encoding="utf-8")
     (case_dir / "case.yml").write_text("case: customized\n", encoding="utf-8")

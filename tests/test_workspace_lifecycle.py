@@ -500,3 +500,170 @@ def test_published_assets_carry_inspection_material(tmp_path):
         str(workspace), case, str(case_path), requested=["grid"]
     )
     assert again["assets"]["grid"]["asset_id"] == reference["asset_id"]
+
+
+def test_build_identity_problems_reports_stale_and_workspace_mismatch(tmp_path, monkeypatch):
+    """!
+    @brief Coherence problems are stated, covering executables and the workspace pin.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    monkeypatch.setitem(core.PICURV_BUILD, "git_commit", "abcdef1234567890abcdef")
+    monkeypatch.setitem(core.PICURV_BUILD, "dirty", False)
+    monkeypatch.setitem(core.PICURV_BUILD, "build_id", "0.2.0+gabcdef123456")
+    _fake_binary(tmp_path / "simulator", "simulator 0.2.0+gabcdef123456")
+    _fake_binary(tmp_path / "postprocessor", "postprocessor 0.2.0+g999999999999")
+    monkeypatch.setattr(core, "INVOKED_SCRIPT_DIR", str(tmp_path))
+    identities = core.runtime_build_identities()
+
+    problems = core.build_identity_problems(identities)
+    assert len(problems) == 1
+    assert problems[0].startswith("postprocessor: built from")
+
+    unsatisfiable = f">{core.PICURV_RELEASE_VERSION}"
+    problems = core.build_identity_problems(identities, unsatisfiable)
+    assert any(problem.startswith("workspace: requires") for problem in problems)
+    assert any(problem.startswith("workspace: ") and "not a valid" in problem
+               for problem in core.build_identity_problems(identities, "not-a-version"))
+
+
+def test_version_status_exits_non_zero_when_the_build_is_incoherent(tmp_path):
+    """!
+    @brief `version status` validates and fails; bare `version` reports and succeeds.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    picurv = str(REPO_ROOT / "picurv_cli" / "picurv")
+    reported = subprocess.run(
+        [sys.executable, picurv, "version"], cwd=tmp_path,
+        text=True, capture_output=True, check=False,
+    )
+    assert reported.returncode == 0
+    assert "PICurv release" in reported.stdout
+
+    validated = subprocess.run(
+        [sys.executable, picurv, "version", "status", "--format", "json"], cwd=tmp_path,
+        text=True, capture_output=True, check=False,
+    )
+    payload = json.loads(validated.stdout)
+    assert payload["coherent"] is (validated.returncode == 0)
+    assert payload["coherent"] == (not payload["problems"])
+
+
+def test_a_branched_run_records_the_parent_it_started_from(tmp_path):
+    """!
+    @brief The manifest names the parent run, its checkpoint, and the statistics decision.
+
+    @details The parent's identity is read from its own manifest, so a parent that was
+             renamed is still named correctly rather than reported by directory.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    workspace = _write_workspace(tmp_path / "ws")
+    parent = workspace / "runs" / "parent_20260101-000000"
+    core.ensure_run_layout(str(parent))
+    (parent / "manifest.json").write_text(
+        json.dumps({"artifact_type": "run", "run_id": "parent_20260101-000000"}) + "\n",
+        encoding="utf-8",
+    )
+    renamed = parent.parent / "moved_aside"
+    parent.rename(renamed)
+
+    lineage = core.build_run_lineage(
+        str(renamed), 250, workspace_root=str(workspace),
+        statistics_state="carry", requested_source="latest",
+    )
+    assert lineage["relationship"] == "branch"
+    assert lineage["parent_run_id"] == "parent_20260101-000000"
+    assert lineage["parent_identity_source"] == "manifest"
+    assert lineage["checkpoint_step"] == 250
+    assert lineage["statistics_state"] == "carry"
+    assert lineage["requested_source"] == "latest"
+
+    child = workspace / "runs" / "child_20260102-000000"
+    core.ensure_run_layout(str(child))
+    manifest = core.build_run_manifest(
+        str(child), "child_20260102-000000", workspace_root=str(workspace), lineage=lineage
+    )
+    assert manifest["lineage"] == lineage
+
+    # A fresh run says so, rather than leaving the reader to infer it from a missing key.
+    assert core.build_run_manifest(str(child), "child_20260102-000000")["lineage"] == {
+        "relationship": "root"
+    }
+
+
+def test_a_rebuilt_manifest_keeps_the_lineage_the_run_was_created_with(tmp_path):
+    """!
+    @brief Resuming a branched run does not erase what it branched from.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    workspace = _write_workspace(tmp_path / "ws")
+    run = workspace / "runs" / "child_20260102-000000"
+    core.ensure_run_layout(str(run))
+    lineage = {"relationship": "branch", "parent_run_id": "parent_20260101-000000",
+               "checkpoint_step": 250}
+    (run / "manifest.json").write_text(
+        json.dumps(core.build_run_manifest(
+            str(run), "child_20260102-000000", workspace_root=str(workspace), lineage=lineage
+        )) + "\n",
+        encoding="utf-8",
+    )
+
+    rebuilt = core.build_run_manifest(
+        str(run), "child_20260102-000000", workspace_root=str(workspace)
+    )
+    assert rebuilt["lineage"] == lineage
+
+
+def test_a_run_root_refuses_a_directory_outside_the_layout(tmp_path):
+    """!
+    @brief An unrouted peer directory is an error; an unexpected file is only reported.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    workspace = _write_workspace(tmp_path / "ws")
+    run = workspace / "runs" / "run_20260101-000000"
+    core.ensure_run_layout(str(run))
+    assert core.validate_run_directory_structure(str(run)) == ([], [])
+
+    (run / "diagnostics").mkdir()
+    errors, warnings = core.validate_run_directory_structure(str(run))
+    assert len(errors) == 1
+    assert "'diagnostics/' is not part of the run layout" in errors[0]
+    assert warnings == []
+
+    (run / "diagnostics").rmdir()
+    (run / "notes.txt").write_text("kept\n", encoding="utf-8")
+    errors, warnings = core.validate_run_directory_structure(str(run))
+    assert errors == []
+    assert len(warnings) == 1 and "notes.txt" in warnings[0]
+
+    # The files a run legitimately carries at its root are not reported as strays.
+    (run / "notes.txt").unlink()
+    (run / "manifest.json").write_text("{}\n", encoding="utf-8")
+    (run / core.STORAGE_STATE_FILENAME).write_text("{}\n", encoding="utf-8")
+    assert core.validate_run_directory_structure(str(run)) == ([], [])
+
+
+def test_a_version_pin_failure_names_the_installation_it_would_change(tmp_path, monkeypatch):
+    """!
+    @brief The refusal states that one shared installation serves every workspace.
+
+    @details PICurv installs once and `versions activate` rewrites that checkout in
+             place, so satisfying one workspace's pin re-points every other. A message
+             that only said "activate a matching installation" would read as though
+             several could coexist.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    workspace = _write_workspace(tmp_path / "ws")
+    config_path = workspace / core.WORKSPACE_CONFIG_FILENAME
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    payload["software"] = {"picurv": f">{core.PICURV_RELEASE_VERSION}"}
+    config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ValueError) as failure:
+        core.enforce_workspace_version(str(workspace))
+
+    message = str(failure.value)
+    assert "single shared installation" in message
+    assert core.PACKAGE_PROJECT_ROOT in message
+    assert "--pin-binaries" in message
