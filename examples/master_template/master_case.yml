@@ -138,9 +138,8 @@ grid:
   #     - "96"
   #     - "--ncells-j"
   #     - "96"
-  #   output_file: "config/grid.generated.picgrid"  # Optional; relative to run dir.
-  #   stats_file: "config/grid.generated.info"      # Optional.
-  #   vts_file: "config/grid.generated.vts"         # Optional.
+  # Destinations are not configurable: PICurv writes the grid, its .vts preview,
+  # and its .info quality report into the run's own asset store.
 
   # --- Option D: Legacy Grid Conversion ---
   # Converts an older column-text grid file to the .picgrid format before solver launch.
