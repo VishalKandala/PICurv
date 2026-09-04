@@ -33,6 +33,10 @@ if [ "$main_oid" != "$head_oid" ]; then
   exit 1
 fi
 
+# A push is one of two things: an ordinary commit (VERSION unchanged - main moves
+# freely between releases), or a declared release (VERSION changed - a deliberate act
+# that also gets a `vX.Y.Z` tag, separately, once this push lands). Each has its own,
+# different changelog obligation; neither requires the other's.
 release_version="$(git show "${main_oid}:VERSION" 2>/dev/null || true)"
 release_version="${release_version//$'\n'/}"
 if ! [[ "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
@@ -45,26 +49,43 @@ if [ "$main_remote_oid" != "$zero_oid" ]; then
   remote_release_version="$(git show "${main_remote_oid}:VERSION" 2>/dev/null || true)"
   remote_release_version="${remote_release_version//$'\n'/}"
 fi
-if [ "$release_version" = "$remote_release_version" ]; then
-  echo "Refusing to push main: VERSION was not updated (${release_version})." >&2
-  echo "Every main update is a release; increment VERSION and add its changelog entry." >&2
-  exit 1
-fi
 
-if [ "$main_remote_oid" != "$zero_oid" ] && \
-   ! git diff --quiet "$main_remote_oid" "$main_oid" -- docs/CHANGELOG.md; then
-  :
-elif [ "$main_remote_oid" = "$zero_oid" ] && git cat-file -e "${main_oid}:docs/CHANGELOG.md" 2>/dev/null; then
-  :
+if [ "$release_version" != "$remote_release_version" ]; then
+  # Release cut: docs/CHANGELOG.md must carry this exact version's own dated section,
+  # and every pending fragment must have been folded into it - a leftover fragment
+  # here means its line silently never made it into the release it describes.
+  if ! git show "${main_oid}:docs/CHANGELOG.md" | \
+       awk -v version="$release_version" \
+         '$1 == "##" && ($2 == version || $2 == "v" version) { found = 1 } END { exit !found }'; then
+    echo "Refusing to push main: docs/CHANGELOG.md has no '## ${release_version}' entry." >&2
+    echo "VERSION changed, so this push declares a release; give it its own dated section." >&2
+    exit 1
+  fi
+  leftover_fragments="$(git ls-tree -r --name-only "${main_oid}" -- docs/changelog.d \
+    | grep -v '/README\.md$' || true)"
+  if [ -n "$leftover_fragments" ]; then
+    echo "Refusing to push main: docs/changelog.d/ still has fragments this release didn't fold in:" >&2
+    echo "$leftover_fragments" | sed 's/^/  /' >&2
+    echo "Fold each into the ${release_version} section of docs/CHANGELOG.md, then delete it." >&2
+    exit 1
+  fi
 else
-  echo "Refusing to push main: docs/CHANGELOG.md was not updated for ${release_version}." >&2
-  exit 1
-fi
-if ! git show "${main_oid}:docs/CHANGELOG.md" | \
-     awk -v version="$release_version" \
-       '$1 == "##" && ($2 == version || $2 == "v" version) { found = 1 } END { exit !found }'; then
-  echo "Refusing to push main: docs/CHANGELOG.md has no '## ${release_version}' entry." >&2
-  exit 1
+  # Ordinary push: at least one new fragment. There is no exemption for a "trivial"
+  # commit judged so by the pusher - if it is genuinely not user-visible, the fragment
+  # says that in one line; the alternative is a silent, undocumented judgment call
+  # repeated at every push.
+  if [ "$main_remote_oid" = "$zero_oid" ]; then
+    added_fragments="$(git ls-tree -r --name-only "$main_oid" -- docs/changelog.d \
+      | grep -v '/README\.md$' || true)"
+  else
+    added_fragments="$(git diff --diff-filter=A --name-only "$main_remote_oid" "$main_oid" \
+      -- docs/changelog.d | grep -v '/README\.md$' || true)"
+  fi
+  if [ -z "$added_fragments" ]; then
+    echo "Refusing to push main: no new fragment under docs/changelog.d/." >&2
+    echo "Add one describing this push's change, per docs/changelog.d/README.md." >&2
+    exit 1
+  fi
 fi
 
 if ! [[ "$max_full_age_days" =~ ^[0-9]+$ ]]; then
