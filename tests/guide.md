@@ -135,6 +135,11 @@ is a test-local routine.
   - every transform kind is reachable, and every malformed token names its reason
   - handedness is reported separately from Jacobian sign consistency, which a
     uniformly inverted grid satisfies
+  - `box` piecewise wall-height fields: segment continuity, a step moving only its
+    own wall, a hill closing on itself, and the spanwise envelope giving an
+    obstacle finite width
+  - a sub-cell corner is refused, a coarse one is reported, and a sharper corner
+    costs orthogonality
 - `test_capability_tooling.py`
   - capability parity, value metadata, and coverage-entry shape
   - contract registry and artifact-topology snapshot validation

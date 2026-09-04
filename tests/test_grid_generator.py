@@ -162,3 +162,133 @@ def test_config_style_transform_tokens_parse_identically_to_cli_tokens():
     kind, params = GRID.parse_transform_token("rotate:axis=z,deg=90,about=centroid")
     assert kind == "rotate"
     assert params == {"axis": "z", "deg": "90", "about": "centroid"}
+
+
+# --- box: piecewise wall-height fields ---------------------------------------
+
+def shaped_box(wall_lo=None, wall_hi=None, span_lo=None, ncells_i=40, ncells_j=8,
+               ncells_k=4, bounds_x=(0.0, 20.0)):
+    """! @brief Build a shaped box. @param[in] wall_lo Lower-wall segments.
+    @param[in] wall_hi Upper-wall segments. @param[in] span_lo Lower spanwise envelope.
+    @param[in] ncells_i Streamwise cells. @param[in] ncells_j Wall-normal cells.
+    @param[in] ncells_k Spanwise cells. @param[in] bounds_x Streamwise extent.
+    @return Coordinates and realized stretch factors. """
+    return GRID.box_grid(
+        ncells_i=ncells_i, ncells_j=ncells_j, ncells_k=ncells_k,
+        bounds_x=list(bounds_x), bounds_y=[0.0, 2.0], bounds_z=[0.0, 4.0],
+        wall_j_lo=wall_lo, wall_j_hi=wall_hi,
+        wall_j_lo_span=span_lo, wall_j_hi_span=None,
+        amp_A=0.0, amp_B=0.0, amp_C=0.0, origin=[0.0, 0.0, 0.0],
+        stretch_i=0.0, stretch_j=0.0, stretch_k=0.0,
+    )
+
+
+def test_flat_box_is_an_exact_cartesian_block():
+    """! @brief With no wall lists and no warp the block is plain Cartesian. """
+    X, Y, Z, _ = shaped_box()
+    assert bounds(X, Y, Z) == [(0.0, 20.0), (0.0, 2.0), (0.0, 4.0)]
+    assert np.allclose(np.unique(np.round(np.diff(X[:, 0, 0]), 12)), [0.5])
+
+
+def test_a_step_moves_only_the_wall_it_names():
+    """! @brief A lower-wall step leaves the opposite wall where it was. """
+    X, Y, Z, _ = shaped_box(
+        wall_lo=["flat:len=4,y=1", "step:len=2,dy=-1", "flat:len=14"])
+    inlet = X[:, 0, 0] < 4.0
+    outlet = X[:, 0, 0] > 6.0
+    assert np.allclose(Y[inlet, 0, 0], 1.0), "inlet floor sits at the step height"
+    assert np.allclose(Y[outlet, 0, 0], 0.0), "floor drops to the datum after the step"
+    assert np.allclose(Y[:, -1, 0], 2.0), "the roof is untouched"
+
+
+def test_wall_segments_are_continuous_across_the_join():
+    """! @brief Each segment starts where the previous one ended. """
+    _, Y, _, _ = shaped_box(
+        wall_lo=["flat:len=5,y=0.5", "ramp:len=5,dy=0.5", "flat:len=10"],
+        ncells_i=200)
+    floor = Y[:, 0, 0]
+    assert np.max(np.abs(np.diff(floor))) < 0.02, "no jump at a segment boundary"
+    assert floor[-1] - floor[0] == pytest.approx(0.5), "the ramp raises the wall by dy"
+
+
+def test_origin_anchors_the_realized_box_not_the_declared_bounds():
+    """! @brief Shaping a wall shrinks the block, and `origin` places what is left.
+
+    @details A raised floor makes the domain shorter than `bounds_y` describes, and
+             placement has always put the bounding-box corner on `origin`. Pinned because
+             the two together move a shaped box relative to where its bounds alone suggest.
+    """
+    _, Y, _, _ = shaped_box(
+        wall_lo=["flat:len=5,y=0.5", "ramp:len=5,dy=0.5", "flat:len=10"],
+        ncells_i=200)
+    assert Y.min() == pytest.approx(0.0), "the realized corner lands on origin"
+    assert Y.max() == pytest.approx(1.5), "roof at 2.0 less the 0.5 the floor was raised"
+
+
+def test_a_hill_segment_returns_to_its_start_height():
+    """! @brief A hill tiles periodically, so it must close on itself. """
+    _, Y, _, _ = shaped_box(wall_lo=["hill:len=20,height=0.5"], ncells_i=200)
+    floor = Y[:, 0, 0]
+    assert floor[0] == pytest.approx(0.0, abs=1e-12)
+    assert floor[-1] == pytest.approx(0.0, abs=1e-12)
+    assert floor.max() == pytest.approx(0.5, rel=1e-6)
+
+
+def test_spanwise_envelope_gives_an_obstacle_finite_width():
+    """! @brief The envelope scales a wall's departure from its datum, not its datum. """
+    _, Y, Z, _ = GRID.box_grid(
+        ncells_i=40, ncells_j=8, ncells_k=40,
+        bounds_x=[0.0, 20.0], bounds_y=[0.0, 2.0], bounds_z=[0.0, 4.0],
+        wall_j_lo=["flat:len=8,y=0", "step:len=2,dy=0.5", "flat:len=4",
+                   "step:len=2,dy=-0.5", "flat:len=4"],
+        wall_j_hi=None,
+        wall_j_lo_span=["flat:len=1,y=0", "step:len=0.5,dy=1", "flat:len=1",
+                        "step:len=0.5,dy=-1", "flat:len=1"],
+        wall_j_hi_span=None,
+        amp_A=0.0, amp_B=0.0, amp_C=0.0, origin=[0.0, 0.0, 0.0],
+        stretch_i=0.0, stretch_j=0.0, stretch_k=0.0,
+    )
+    on_block = np.argmin(np.abs(Z[0, 0, :] - 2.0))
+    off_block = 0
+    assert Y[:, 0, on_block].max() == pytest.approx(0.5, rel=1e-6)
+    assert Y[:, 0, off_block].max() == pytest.approx(0.0, abs=1e-12), \
+        "outside the footprint the wall stays on its datum"
+
+
+def test_wall_segments_must_span_their_axis():
+    """! @brief A wall that stops short leaves its remainder undefined. """
+    with pytest.raises(ValueError, match="segment lengths sum to"):
+        shaped_box(wall_lo=["flat:len=4,y=1", "step:len=2,dy=-1"])
+
+
+def test_a_sub_cell_corner_is_refused_rather_than_silently_flattened():
+    """! @brief Below one cell a shorter step yields the identical grid. """
+    with pytest.raises(ValueError, match="cannot turn in less than one cell"):
+        shaped_box(
+            wall_lo=["flat:len=4,y=1", "step:len=0.05,dy=-1", "flat:len=15.95"],
+            ncells_i=40)
+
+
+def test_a_coarse_corner_is_reported_but_allowed(capsys):
+    """! @brief Between one and four cells the corner is a quality call, not an error.
+    @param[in] capsys Captured output fixture. """
+    shaped_box(wall_lo=["flat:len=4,y=1", "step:len=1,dy=-1", "flat:len=15"],
+               ncells_i=40)
+    assert "spans only 2.0 cells" in capsys.readouterr().err
+
+
+def test_a_sharper_corner_costs_orthogonality():
+    """! @brief The quality report is what makes the corner tradeoff visible. """
+    angles = []
+    for length in (1.0, 4.0):
+        X, Y, Z, factors = shaped_box(
+            wall_lo=[f"flat:len=4,y=1", f"step:len={length},dy=-1",
+                     f"flat:len={16 - length}"], ncells_i=200, ncells_j=32)
+        angles.append(GRID.analyze_grid_quality(X, Y, Z, factors)['max_non_ortho'])
+    assert angles[0] > angles[1], "a shorter step is a less orthogonal corner"
+
+
+def test_unknown_wall_segment_names_the_allowed_kinds():
+    """! @brief A misspelled segment kind says what was expected. """
+    with pytest.raises(ValueError, match="unknown wall segment 'cliff'"):
+        shaped_box(wall_lo=["cliff:len=20,dy=-1"])

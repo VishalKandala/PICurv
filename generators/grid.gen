@@ -345,31 +345,66 @@ _PERMUTE_ORDERS = ("xyz", "xzy", "yxz", "yzx", "zxy", "zyx")
 _MIRROR_PLANES = {"yz": 0, "zx": 1, "xy": 2}
 
 
-def parse_transform_token(token: str) -> Tuple[str, Dict[str, str]]:
+def parse_spec_token(token: str, allowed: Tuple[str, ...], what: str) -> Tuple[str, Dict[str, str]]:
     """!
-    @brief Parse one `kind:key=value,key=value` transform token.
-    @details The same grammar serves the command line and the config file, so a transform
-             list reads identically in both and needs no second parser.
-    @param[in] token Single whitespace-delimited transform token.
-    @return The operation name and its raw string parameters.
+    @brief Parse one `kind:key=value,key=value` specification token.
+    @details One grammar serves every ordered list the generator accepts -- transforms,
+             wall segments, path segments -- on the command line and in the config file
+             alike, so none of them needs a parser of its own.
+    @param[in] token Single whitespace-delimited token.
+    @param[in] allowed Kinds this list accepts.
+    @param[in] what Noun used in diagnostics, e.g. "transform" or "wall segment".
+    @return The kind and its raw string parameters.
     @throws ValueError when the kind is unknown or a parameter is malformed.
     """
     kind, _, raw = token.partition(":")
     kind = kind.strip()
-    if kind not in GRID_TRANSFORM_KINDS:
+    if kind not in allowed:
         raise ValueError(
-            f"unknown transform '{kind}' in '{token}'; expected one of "
-            f"{', '.join(GRID_TRANSFORM_KINDS)}"
+            f"unknown {what} '{kind}' in '{token}'; expected one of {', '.join(allowed)}"
         )
     params: Dict[str, str] = {}
     for field in (f for f in raw.split(",") if f.strip()):
         key, sep, value = field.partition("=")
         if not sep:
             raise ValueError(
-                f"transform '{kind}' parameter '{field}' is not 'key=value' in '{token}'"
+                f"{what} '{kind}' parameter '{field}' is not 'key=value' in '{token}'"
             )
         params[key.strip()] = value.strip()
     return kind, params
+
+
+def parse_transform_token(token: str) -> Tuple[str, Dict[str, str]]:
+    """!
+    @brief Parse one transform token.
+    @param[in] token Single whitespace-delimited transform token.
+    @return The operation name and its raw string parameters.
+    @throws ValueError when the kind is unknown or a parameter is malformed.
+    """
+    return parse_spec_token(token, GRID_TRANSFORM_KINDS, "transform")
+
+
+def _spec_float(params: Dict[str, str], key: str, default: Optional[float],
+                kind: str, what: str) -> float:
+    """!
+    @brief Read one numeric parameter from a specification token.
+    @param[in] params Raw string parameters.
+    @param[in] key Parameter name.
+    @param[in] default Value when the parameter is absent; None makes it required.
+    @param[in] kind Operation name, for diagnostics.
+    @param[in] what Noun used in diagnostics.
+    @return The parsed value.
+    @throws ValueError when a required parameter is missing or is not a number.
+    """
+    raw = params.get(key)
+    if raw is None:
+        if default is None:
+            raise ValueError(f"{what} '{kind}' requires '{key}'")
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        raise ValueError(f"{what} '{kind}' parameter '{key}' must be a number, got '{raw}'")
 
 
 def _transform_vector(params: Dict[str, str], keys: Tuple[str, str, str],
@@ -498,7 +533,289 @@ def place_and_transform(X: np.ndarray, Y: np.ndarray, Z: np.ndarray,
     return X, Y, Z
 
 
+#: Segment kinds a piecewise wall-height field accepts. A wall is a function of the
+#: streamwise coordinate built from these end to end, each one continuing from the height
+#: the previous reached, so a step is not a special geometry but one entry in a list.
+GRID_WALL_SEGMENT_KINDS = ("flat", "step", "ramp", "arc", "sine", "gaussian", "hill")
+
+#: Shapes a `step` or `arc` segment may take across its own length. Each is exactly 0 at
+#: the segment start and exactly 1 at its end, so segments stay continuous.
+_SEGMENT_SHAPES = {
+    "smoothstep": lambda t: t*t*(3.0 - 2.0*t),
+    "cosine": lambda t: 0.5*(1.0 - np.cos(np.pi*t)),
+    "linear": lambda t: t,
+}
+
+
+def _segment_profile(kind: str, params: Dict[str, str], t: np.ndarray,
+                     length: float, height: float) -> np.ndarray:
+    """!
+    @brief Evaluate one wall segment over its own normalized span.
+    @details Every shape starts at `height`, which is where the previous segment ended, so
+             a wall built from these is continuous by construction. Only the segment's own
+             length controls how abruptly it turns: a shorter `step` is a sharper corner.
+    @param[in] kind Segment kind.
+    @param[in] params Raw string parameters.
+    @param[in] t Normalized position within the segment, in [0, 1].
+    @param[in] length Physical length of the segment.
+    @param[in] height Wall height at the segment start.
+    @return Wall height across the segment.
+    @throws ValueError when a required parameter is missing or invalid.
+    """
+    what = "wall segment"
+    if kind == 'flat':
+        return np.full_like(t, height)
+    if kind in ('step', 'arc'):
+        rise = _spec_float(params, 'dy', None, kind, what)
+        shape_name = params.get('shape', 'cosine' if kind == 'arc' else 'smoothstep')
+        shape = _SEGMENT_SHAPES.get(shape_name)
+        if shape is None:
+            raise ValueError(
+                f"{what} '{kind}' shape must be one of {', '.join(sorted(_SEGMENT_SHAPES))}, "
+                f"got '{shape_name}'"
+            )
+        return height + rise*shape(t)
+    if kind == 'ramp':
+        return height + _spec_float(params, 'dy', None, kind, what)*t
+    if kind == 'sine':
+        amplitude = _spec_float(params, 'amp', None, kind, what)
+        cycles = _spec_float(params, 'cycles', 1.0, kind, what)
+        return height + amplitude*np.sin(2.0*np.pi*cycles*t)
+    if kind == 'gaussian':
+        amplitude = _spec_float(params, 'amp', None, kind, what)
+        width = _spec_float(params, 'width', 0.25*length, kind, what)
+        if width <= 0.0:
+            raise ValueError(f"{what} 'gaussian' width must be positive")
+        centre = _spec_float(params, 'center', 0.5*length, kind, what)
+        return height + amplitude*np.exp(-(((t*length - centre)/width)**2))
+    # hill: a symmetric cos^2 rise and fall. Value and slope both vanish at each end, so a
+    # hill segment tiles periodically without a kink -- which is the point of using one.
+    amplitude = _spec_float(params, 'height', None, kind, what)
+    return height + amplitude*np.cos(np.pi*(t - 0.5))**2
+
+
+#: Cells a shaping wall segment should span before its corner is worth trusting. Below
+#: this the mesh is representing the turn with too few cells to be smooth; below one cell
+#: it cannot represent it at all, and asking for a shorter one changes nothing.
+WALL_SEGMENT_MIN_CELLS = 4.0
+
+
+def check_wall_resolution(segments: List[str], axis: np.ndarray, label: str) -> None:
+    """!
+    @brief Refuse or flag wall segments the grid is too coarse to represent.
+    @details A segment that turns the wall needs cells across it to do so. Below one cell
+             the request is unrepresentable and silently becomes a single-cell jump: two
+             different requested lengths then produce the identical grid, which is
+             precisely the case where a caller believes they refined something and did
+             not. Above that it is a quality question, not a correctness one, so it is
+             reported and left to the caller.
+    @param[in] segments Segment tokens in order.
+    @param[in] axis Node positions along the axis the segments run over.
+    @param[in] label Configuration key being checked, for diagnostics.
+    @throws ValueError when a shaping segment spans less than one cell.
+    """
+    edge = float(axis[0])
+    for token in segments:
+        kind, params = parse_spec_token(token, GRID_WALL_SEGMENT_KINDS, "wall segment")
+        length = _spec_float(params, 'len', None, kind, "wall segment")
+        upper = edge + length
+        shaping = kind != 'flat' and any(
+            abs(_spec_float(params, key, 0.0, kind, "wall segment")) > 0.0
+            for key in ('dy', 'amp', 'height')
+        )
+        if shaping:
+            # Measure the span in cells the axis actually provides here, not in nodes: a
+            # sub-cell segment still contains one node interval, so counting nodes would
+            # report every too-short segment as exactly one cell and never fire.
+            widths = np.diff(axis)
+            nearby = widths[max(0, int(np.searchsorted(axis, edge)) - 1):
+                            max(1, int(np.searchsorted(axis, upper)))]
+            cell = float(np.min(nearby)) if nearby.size else float(np.min(widths))
+            spanned = length/cell if cell > 0.0 else float('inf')
+            if spanned < 1.0:
+                raise ValueError(
+                    f"{label}: segment '{token}' spans {spanned:.2f} of a cell "
+                    f"(cell width {cell:.4g}). A wall cannot turn in less than one cell: "
+                    f"any shorter length produces the identical single-cell jump, so the "
+                    f"refinement asked for here would not exist. Lengthen the segment or "
+                    f"refine the axis."
+                )
+            if spanned < WALL_SEGMENT_MIN_CELLS:
+                print(
+                    f"WARNING: {label} segment '{token}' spans only {spanned:.1f} cells. "
+                    f"The corner is representable but coarse; check "
+                    f"Max_Non_Orthogonality_deg in the quality report before trusting it.",
+                    file=sys.stderr,
+                )
+        edge = upper
+
+
+def evaluate_wall_profile(segments: List[str], coordinate: np.ndarray,
+                          start: float, extent: float, datum: float,
+                          label: str) -> np.ndarray:
+    """!
+    @brief Evaluate a piecewise wall-height field along a coordinate.
+    @details The segment lengths must together span the axis, because a wall that stops
+             short of the domain has no defined height over the remainder and silently
+             rescaling it would move geometry the caller did not ask to move.
+    @param[in] segments Segment tokens in streamwise order.
+    @param[in] coordinate Physical coordinate to evaluate the wall at.
+    @param[in] start Coordinate value where the first segment begins.
+    @param[in] extent Total axis length the segments must cover.
+    @param[in] datum Wall height before the first segment.
+    @param[in] label Configuration key being evaluated, for diagnostics.
+    @return Wall height at each coordinate value.
+    @throws ValueError on an unknown segment, a bad parameter, or a length mismatch.
+    """
+    parsed = []
+    total = 0.0
+    for token in segments:
+        kind, params = parse_spec_token(token, GRID_WALL_SEGMENT_KINDS, "wall segment")
+        length = _spec_float(params, 'len', None, kind, "wall segment")
+        if length <= 0.0:
+            raise ValueError(f"{label}: wall segment '{kind}' len must be positive")
+        parsed.append((kind, params, length))
+        total += length
+    if not parsed:
+        return np.full_like(coordinate, datum)
+    if not np.isclose(total, extent, rtol=1e-9, atol=1e-12):
+        raise ValueError(
+            f"{label}: segment lengths sum to {total:.12g} but the axis spans "
+            f"{extent:.12g}; give the segments the axis they actually cover rather than "
+            f"leaving the remainder undefined"
+        )
+
+    height = datum
+    if parsed and 'y' in parsed[0][1]:
+        height = _spec_float(parsed[0][1], 'y', None, parsed[0][0], "wall segment")
+
+    wall = np.full_like(coordinate, height)
+    edge = start
+    for kind, params, length in parsed:
+        upper = edge + length
+        # The last segment owns its closing edge so no node falls outside every segment.
+        inside = (coordinate >= edge) & (coordinate <= upper)
+        t = np.clip((coordinate - edge)/length, 0.0, 1.0)
+        wall = np.where(inside, _segment_profile(kind, params, t, length, height), wall)
+        height = float(_segment_profile(kind, params, np.array([1.0]), length, height)[0])
+        wall = np.where(coordinate > upper, height, wall)
+        edge = upper
+    return wall
+
+
 # --- Core Grid Generation Functions ---
+
+def box_grid(
+    ncells_i: int, ncells_j: int, ncells_k: int,
+    bounds_x: List[float], bounds_y: List[float], bounds_z: List[float],
+    wall_j_lo: Optional[List[str]], wall_j_hi: Optional[List[str]],
+    wall_j_lo_span: Optional[List[str]], wall_j_hi_span: Optional[List[str]],
+    amp_A: float, amp_B: float, amp_C: float, origin: List[float],
+    stretch_i: float, stretch_j: float, stretch_k: float,
+    first_cell_i_start: float = None, first_cell_i_end: float = None,
+    first_cell_j_start: float = None, first_cell_j_end: float = None,
+    first_cell_k_start: float = None, first_cell_k_end: float = None,
+    transforms: Optional[List[str]] = None
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, float]]:
+    """!
+    @brief Generates a Cartesian block whose bounding walls may be shaped.
+    @details The wall-normal coordinate blends between a lower and an upper wall, each a
+             piecewise height field along the streamwise axis:
+
+                 y = y_lo(x, z) + eta * (y_hi(x, z) - y_lo(x, z))
+
+             so wall clustering stays a fraction of the *local* height. A separate
+             spanwise list modulates each wall's departure from its datum, which is what
+             makes a wall-attached obstacle of finite width expressible. With both walls
+             flat this reduces to a plain Cartesian box, and with the warp amplitudes set
+             it reduces to the sinusoidal warped block.
+
+             The wall is a single-valued function of position by construction, so it
+             cannot express an overhang, a detached body, or anything the flow passes
+             underneath. Those need an immersed boundary or multiple blocks.
+    @param[in] ncells_i Cells along the streamwise axis.
+    @param[in] ncells_j Cells along the wall-normal axis.
+    @param[in] ncells_k Cells along the spanwise axis.
+    @param[in] bounds_x Streamwise extent as [min, max].
+    @param[in] bounds_y Wall-normal extent as [min, max]; also the two wall datums.
+    @param[in] bounds_z Spanwise extent as [min, max].
+    @param[in] wall_j_lo Lower-wall segment tokens, streamwise order.
+    @param[in] wall_j_hi Upper-wall segment tokens, streamwise order.
+    @param[in] wall_j_lo_span Spanwise envelope for the lower wall's departure from datum.
+    @param[in] wall_j_hi_span Spanwise envelope for the upper wall's departure from datum.
+    @param[in] amp_A Amplitude of the interior sinusoidal warp.
+    @param[in] amp_B Amplitude of the first boundary warp term.
+    @param[in] amp_C Amplitude of the second boundary warp term.
+    @param[in] origin Target position of the bounding-box minimum corner.
+    @param[in] stretch_i Hyperbolic stretch factor for the streamwise axis.
+    @param[in] stretch_j Hyperbolic stretch factor for the wall-normal axis.
+    @param[in] stretch_k Hyperbolic stretch factor for the spanwise axis.
+    @param[in] first_cell_i_start First-cell size at the streamwise start.
+    @param[in] first_cell_i_end First-cell size at the streamwise end.
+    @param[in] first_cell_j_start First-cell size at the lower wall.
+    @param[in] first_cell_j_end First-cell size at the upper wall.
+    @param[in] first_cell_k_start First-cell size at the spanwise start.
+    @param[in] first_cell_k_end First-cell size at the spanwise end.
+    @param[in] transforms Optional placement/similarity transform tokens.
+    @return Nodal x, y and z coordinates, and the realized stretch factors.
+    @throws ValueError when a wall specification does not span its axis.
+    """
+    print("Generating Shaped Box Grid ---")
+    IM, JM, KM = ncells_i + 1, ncells_j + 1, ncells_k + 1
+    x_min, x_max = bounds_x
+    y_min, y_max = bounds_y
+    z_min, z_max = bounds_z
+
+    axes, stretch_factors = build_stretched_axes({
+        'i': {'num_points': IM, 'bounds': (0, 1), 'stretch': stretch_i,
+              'first_start': first_cell_i_start, 'first_end': first_cell_i_end},
+        'j': {'num_points': JM, 'bounds': (0, 1), 'stretch': stretch_j,
+              'first_start': first_cell_j_start, 'first_end': first_cell_j_end},
+        'k': {'num_points': KM, 'bounds': (0, 1), 'stretch': stretch_k,
+              'first_start': first_cell_k_start, 'first_end': first_cell_k_end},
+    })
+    xi, eta, zeta = axes['i'], axes['j'], axes['k']
+
+    XI, ETA, ZETA = np.meshgrid(xi, eta, zeta, indexing='ij')
+    A, B, C = amp_A, amp_B, amp_C
+    X_norm = (XI+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*ETA)+C*np.sin(2*np.pi*ZETA))
+    Y_norm = (ETA+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*XI)+C*np.sin(2*np.pi*ZETA))
+    Z_norm = (ZETA+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*XI)+C*np.sin(2*np.pi*ETA))
+
+    X = x_min + (x_max - x_min)*X_norm
+    Z = z_min + (z_max - z_min)*Z_norm
+
+    # Walls are read at the unwarped station, so the sinusoidal warp displaces the mesh
+    # without also sliding the geometry the wall lists describe.
+    x_station = x_min + (x_max - x_min)*XI
+    z_station = z_min + (z_max - z_min)*ZETA
+
+    def wall(segments, span, datum, label):
+        """!
+        @brief Build one wall surface from its streamwise and spanwise lists.
+        @param[in] segments Streamwise segment tokens.
+        @param[in] span Spanwise envelope tokens.
+        @param[in] datum Wall height where no segment displaces it.
+        @param[in] label Configuration key, for diagnostics.
+        @return Wall height over the whole block.
+        """
+        if not segments:
+            return np.full_like(x_station, datum)
+        check_wall_resolution(segments, x_min + (x_max - x_min)*xi, label)
+        surface = evaluate_wall_profile(segments, x_station, x_min, x_max - x_min,
+                                        datum, label)
+        if span:
+            envelope = evaluate_wall_profile(span, z_station, z_min, z_max - z_min,
+                                             1.0, f"{label}_span")
+            surface = datum + (surface - datum)*envelope
+        return surface
+
+    y_lo = wall(wall_j_lo, wall_j_lo_span, y_min, 'wall_j_lo')
+    y_hi = wall(wall_j_hi, wall_j_hi_span, y_max, 'wall_j_hi')
+    Y = y_lo + Y_norm*(y_hi - y_lo)
+
+    return place_and_transform(X, Y, Z, origin, transforms) + (stretch_factors,)
+
 
 def cartesian_pipe_grid(
     ncells_i: int, ncells_j: int, ncells_k: int,
@@ -1346,6 +1663,19 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             'first_cell_k_start': None, 'first_cell_k_end': None,
             'transforms': None,
         },
+        'box': {
+            'ncells_i': 20, 'ncells_j': 20, 'ncells_k': 20, 'bounds_x': [0.0, 1.0],
+            'bounds_y': [0.0, 1.0], 'bounds_z': [0.0, 1.0],
+            'wall_j_lo': None, 'wall_j_hi': None,
+            'wall_j_lo_span': None, 'wall_j_hi_span': None,
+            'amp_A': 0.0, 'amp_B': 0.0, 'amp_C': 0.0,
+            'origin': [0.0, 0.0, 0.0], 'show_stats': True, 'write_vtk': True,
+            'stretch_i': 0.0, 'stretch_j': 0.0, 'stretch_k': 0.0,
+            'first_cell_i_start': None, 'first_cell_i_end': None,
+            'first_cell_j_start': None, 'first_cell_j_end': None,
+            'first_cell_k_start': None, 'first_cell_k_end': None,
+            'transforms': None,
+        },
         'legacy1d': {
             'show_stats': False,
             'write_vtk': False,
@@ -1425,6 +1755,34 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
     add_arg(p_warp, '--amp-A',type=float)
     add_arg(p_warp, '--amp-B',type=float)
     add_arg(p_warp, '--amp-C',type=float)
+
+    p_box = subparsers.add_parser(
+        'box',
+        help='A Cartesian block whose bounding walls may be shaped.',
+        parents=[parent],
+    )
+    add_arg(p_box, '--ncells-i', type=int, help="Cells along the streamwise axis.")
+    add_arg(p_box, '--ncells-j', type=int, help="Cells along the wall-normal axis.")
+    add_arg(p_box, '--ncells-k', type=int, help="Cells along the spanwise axis.")
+    add_arg(p_box, '--bounds-x', type=float, nargs=2, metavar=('MIN', 'MAX'))
+    add_arg(p_box, '--bounds-y', type=float, nargs=2, metavar=('MIN', 'MAX'))
+    add_arg(p_box, '--bounds-z', type=float, nargs=2, metavar=('MIN', 'MAX'))
+    add_arg(p_box, '--wall-j-lo', type=str, nargs='+', metavar='SEG',
+            help="Lower-wall height field, streamwise order. Each segment is\n"
+                 "'kind:key=value,...' with kind one of "
+                 f"{', '.join(GRID_WALL_SEGMENT_KINDS)}, and every segment needs 'len'.\n"
+                 "Lengths must sum to the x extent. Example: a backward-facing step is\n"
+                 "--wall-j-lo flat:len=4,y=1 step:len=0.2,dy=-1 flat:len=15.8")
+    add_arg(p_box, '--wall-j-hi', type=str, nargs='+', metavar='SEG',
+            help="Upper-wall height field, same grammar as --wall-j-lo.")
+    add_arg(p_box, '--wall-j-lo-span', type=str, nargs='+', metavar='SEG',
+            help="Spanwise envelope scaling the lower wall's departure from its datum,\n"
+                 "so a wall-attached obstacle can have finite width.")
+    add_arg(p_box, '--wall-j-hi-span', type=str, nargs='+', metavar='SEG',
+            help="Spanwise envelope for the upper wall.")
+    add_arg(p_box, '--amp-A', type=float, help="Interior sinusoidal warp amplitude.")
+    add_arg(p_box, '--amp-B', type=float, help="First boundary warp amplitude.")
+    add_arg(p_box, '--amp-C', type=float, help="Second boundary warp amplitude.")
 
     p_legacy = subparsers.add_parser(
         'legacy1d',
@@ -1557,6 +1915,19 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             D=args.diameter, Rc_factor=args.rc_factor, straight_factor=args.straight_factor,
             bend_angle_deg=args.bend_angle, pinhole_factor=args.pinhole_factor,
             orientation=args.orientation, origin=args.origin,
+            stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
+            first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
+            first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
+            first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
+            transforms=getattr(args, 'transforms', None)
+        )
+    elif args.grid_type == 'box':
+        X, Y, Z, stretch_factors = box_grid(
+            ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
+            bounds_x=args.bounds_x, bounds_y=args.bounds_y, bounds_z=args.bounds_z,
+            wall_j_lo=args.wall_j_lo, wall_j_hi=args.wall_j_hi,
+            wall_j_lo_span=args.wall_j_lo_span, wall_j_hi_span=args.wall_j_hi_span,
+            amp_A=args.amp_A, amp_B=args.amp_B, amp_C=args.amp_C, origin=args.origin,
             stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
             first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
             first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
