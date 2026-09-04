@@ -53,9 +53,6 @@ GridCoords = Tuple[np.ndarray, np.ndarray, np.ndarray]
 # Canonical PICGRID coordinates use round-trip-safe binary64 text precision.
 PICGRID_FLOAT_FORMAT = ".17e"
 
-# Global variable to store computed stretch factors for reporting
-_computed_stretch_factors = {'i': 0.0, 'j': 0.0, 'k': 0.0}
-
 # --- NEW: Helper function for hyperbolic stretching ---
 def create_stretched_linspace(
     num_points: int, stretch_factor: float,
@@ -80,7 +77,9 @@ def create_stretched_linspace(
     num_cells = num_points - 1
 
     if num_cells == 0:
-        return np.array([min_val])
+        # Every other path returns (positions, factor); returning a bare array here made a
+        # single-node axis raise on the caller's unpack instead of degenerating cleanly.
+        return np.array([min_val]), 0.0
 
     # Determine stretching mode
     use_geometric = first_cell_start is not None or first_cell_end is not None
@@ -247,6 +246,258 @@ def compute_geometric_ratio(num_cells: int, total_length: float, first_cell: flo
 
     return r
 
+# --- Shared Grid-Construction Stages ---
+#
+# Every geometry is the same four-stage pipeline: build three logical-axis
+# distributions, map the logical cube into physical space, place the result, then
+# analyse and export it. Only the map differs between geometries, so the other three
+# stages live here once instead of being copied into each generator.
+
+def _announce_axis(axis: str, stretch: float, first_start, first_end, note: str = "") -> None:
+    """!
+    @brief Report which stretching mode an axis resolved to.
+    @param[in] axis Logical axis name ('i', 'j' or 'k').
+    @param[in] stretch Requested hyperbolic stretch factor; 0 disables it.
+    @param[in] first_start Requested first-cell size at the axis start, or None.
+    @param[in] first_end Requested first-cell size at the axis end, or None.
+    @param[in] note Optional physical descriptor, e.g. "radial".
+    """
+    where = f"{axis}-direction" + (f" ({note})" if note else "")
+    if (first_start or first_end) and stretch > 0:
+        print(f"Applying hyperbolic stretching in {where}: auto-computing stretch factor "
+              f"to achieve first cell = {first_start or first_end} "
+              f"(initial guess: {stretch:.2f}).")
+    elif first_start or first_end:
+        print(f"Applying geometric stretching in {where} "
+              f"(first cell: start={first_start}, end={first_end}).")
+    elif stretch > 0:
+        print(f"Applying hyperbolic stretching in {where} (factor={stretch:.2f}).")
+
+
+def build_stretched_axes(specs: Dict[str, Optional[dict]]) -> Tuple[Dict[str, np.ndarray],
+                                                                   Dict[str, float]]:
+    """!
+    @brief Build the logical-axis distributions shared by every geometry.
+    @details Announces the stretching mode, solves for the distribution, and reports the
+             stretch factor actually realized. An axis mapped to None is left to the
+             geometry, which is how a geometry owning its own parametrization (a
+             circumferential wrap, say) opts out without opting out of the rest.
+    @param[in] specs Per-axis mapping of 'i'/'j'/'k' to a dict carrying `num_points`,
+                     `bounds`, `stretch`, `first_start`, `first_end`, and optional `note`.
+    @return Axis values keyed by axis, and the realized stretch factors keyed by axis.
+    """
+    values: Dict[str, np.ndarray] = {}
+    factors: Dict[str, float] = {'i': 0.0, 'j': 0.0, 'k': 0.0}
+    for axis in ('i', 'j', 'k'):
+        spec = specs.get(axis)
+        if spec is None:
+            continue
+        stretch = spec['stretch']
+        first_start, first_end = spec['first_start'], spec['first_end']
+        _announce_axis(axis, stretch, first_start, first_end, spec.get('note', ''))
+        low, high = spec['bounds']
+        axis_values, factor = create_stretched_linspace(
+            spec['num_points'], stretch, low, high, first_start, first_end
+        )
+        values[axis], factors[axis] = axis_values, factor
+        if (first_start or first_end) and stretch > 0:
+            print(f"  → Computed stretch factor for {axis}-direction: {factor:.4f}")
+    return values, factors
+
+
+def _reference_point(X: np.ndarray, Y: np.ndarray, Z: np.ndarray, mode: str) -> np.ndarray:
+    """!
+    @brief Resolve the point a placement or similarity transform is measured from.
+    @param[in] X Nodal x coordinates.
+    @param[in] Y Nodal y coordinates.
+    @param[in] Z Nodal z coordinates.
+    @param[in] mode One of `bbox_min`, `bbox_max`, `bbox_center`, `centroid`, `origin`.
+    @return The reference point as a length-3 array.
+    @throws ValueError when the mode is not a known reference.
+    """
+    if mode == 'origin':
+        return np.zeros(3)
+    if mode == 'bbox_min':
+        return np.array([np.min(X), np.min(Y), np.min(Z)])
+    if mode == 'bbox_max':
+        return np.array([np.max(X), np.max(Y), np.max(Z)])
+    if mode == 'bbox_center':
+        return 0.5 * np.array([np.min(X) + np.max(X), np.min(Y) + np.max(Y),
+                               np.min(Z) + np.max(Z)])
+    if mode == 'centroid':
+        return np.array([np.mean(X), np.mean(Y), np.mean(Z)])
+    raise ValueError(
+        f"unknown reference point '{mode}'; expected one of "
+        "bbox_min, bbox_max, bbox_center, centroid, origin"
+    )
+
+
+#: Placement and similarity operations available to every geometry, in the order a
+#: transform list may name them. Mirroring and an odd axis permutation invert handedness,
+#: which `analyze_grid_quality` reports as `right_handed` -- `jacobian_consistent` cannot,
+#: because a uniformly inverted grid is self-consistent.
+GRID_TRANSFORM_KINDS = ("anchor", "translate", "scale", "rotate", "mirror", "permute")
+
+#: Physical-axis orders `permute` accepts. Each names where x, y and z end up.
+_PERMUTE_ORDERS = ("xyz", "xzy", "yxz", "yzx", "zxy", "zyx")
+
+#: Planes `mirror` reflects across, and the coordinate each one negates.
+_MIRROR_PLANES = {"yz": 0, "zx": 1, "xy": 2}
+
+
+def parse_transform_token(token: str) -> Tuple[str, Dict[str, str]]:
+    """!
+    @brief Parse one `kind:key=value,key=value` transform token.
+    @details The same grammar serves the command line and the config file, so a transform
+             list reads identically in both and needs no second parser.
+    @param[in] token Single whitespace-delimited transform token.
+    @return The operation name and its raw string parameters.
+    @throws ValueError when the kind is unknown or a parameter is malformed.
+    """
+    kind, _, raw = token.partition(":")
+    kind = kind.strip()
+    if kind not in GRID_TRANSFORM_KINDS:
+        raise ValueError(
+            f"unknown transform '{kind}' in '{token}'; expected one of "
+            f"{', '.join(GRID_TRANSFORM_KINDS)}"
+        )
+    params: Dict[str, str] = {}
+    for field in (f for f in raw.split(",") if f.strip()):
+        key, sep, value = field.partition("=")
+        if not sep:
+            raise ValueError(
+                f"transform '{kind}' parameter '{field}' is not 'key=value' in '{token}'"
+            )
+        params[key.strip()] = value.strip()
+    return kind, params
+
+
+def _transform_vector(params: Dict[str, str], keys: Tuple[str, str, str],
+                      default: float, kind: str) -> np.ndarray:
+    """!
+    @brief Read a three-component transform parameter.
+    @param[in] params Raw string parameters for one transform.
+    @param[in] keys Parameter names carrying the x, y and z components.
+    @param[in] default Value used for a component the caller omitted.
+    @param[in] kind Operation name, for diagnostics.
+    @return The three components as an array.
+    @throws ValueError when a named component is not a number.
+    """
+    out = []
+    for key in keys:
+        raw = params.get(key)
+        if raw is None:
+            out.append(default)
+            continue
+        try:
+            out.append(float(raw))
+        except ValueError:
+            raise ValueError(f"transform '{kind}' parameter '{key}' must be a number, got '{raw}'")
+    return np.array(out)
+
+
+def apply_transforms(X: np.ndarray, Y: np.ndarray, Z: np.ndarray,
+                     transforms: List[str]) -> GridCoords:
+    """!
+    @brief Apply an ordered placement and similarity transform list to a built grid.
+    @details Transforms act on physical coordinates after the geometry map, so they are
+             geometry-independent: the same list places a swept duct and a shaped box.
+             Order is significant and is the order given.
+    @param[in] X Nodal x coordinates.
+    @param[in] Y Nodal y coordinates.
+    @param[in] Z Nodal z coordinates.
+    @param[in] transforms Transform tokens in application order.
+    @return The transformed coordinates.
+    @throws ValueError on an unknown operation or an invalid parameter.
+    """
+    for token in transforms:
+        kind, params = parse_transform_token(token)
+        if kind == 'anchor':
+            mode = params.get('mode', 'bbox_min')
+            target = _transform_vector(params, ('x', 'y', 'z'), 0.0, kind)
+            reference = _reference_point(X, Y, Z, mode)
+            shift = target - reference
+            X, Y, Z = X + shift[0], Y + shift[1], Z + shift[2]
+        elif kind == 'translate':
+            shift = _transform_vector(params, ('dx', 'dy', 'dz'), 0.0, kind)
+            X, Y, Z = X + shift[0], Y + shift[1], Z + shift[2]
+        elif kind == 'scale':
+            factors = _transform_vector(params, ('sx', 'sy', 'sz'), 1.0, kind)
+            if np.any(factors == 0.0):
+                raise ValueError("transform 'scale' factors must be non-zero")
+            about = _reference_point(X, Y, Z, params.get('about', 'bbox_min'))
+            X = about[0] + (X - about[0])*factors[0]
+            Y = about[1] + (Y - about[1])*factors[1]
+            Z = about[2] + (Z - about[2])*factors[2]
+        elif kind == 'rotate':
+            axis = params.get('axis', 'z')
+            if axis not in ('x', 'y', 'z'):
+                raise ValueError(f"transform 'rotate' axis must be x, y or z, got '{axis}'")
+            try:
+                angle = np.deg2rad(float(params['deg']))
+            except KeyError:
+                raise ValueError("transform 'rotate' requires 'deg'")
+            except ValueError:
+                raise ValueError(f"transform 'rotate' deg must be a number, got '{params['deg']}'")
+            about = _reference_point(X, Y, Z, params.get('about', 'bbox_center'))
+            cos_a, sin_a = np.cos(angle), np.sin(angle)
+            dx, dy, dz = X - about[0], Y - about[1], Z - about[2]
+            if axis == 'x':
+                dy, dz = cos_a*dy - sin_a*dz, sin_a*dy + cos_a*dz
+            elif axis == 'y':
+                dz, dx = cos_a*dz - sin_a*dx, sin_a*dz + cos_a*dx
+            else:
+                dx, dy = cos_a*dx - sin_a*dy, sin_a*dx + cos_a*dy
+            X, Y, Z = about[0] + dx, about[1] + dy, about[2] + dz
+        elif kind == 'mirror':
+            plane = params.get('plane', 'xy')
+            if plane not in _MIRROR_PLANES:
+                raise ValueError(
+                    f"transform 'mirror' plane must be one of {', '.join(sorted(_MIRROR_PLANES))}, "
+                    f"got '{plane}'"
+                )
+            about = _reference_point(X, Y, Z, params.get('about', 'bbox_center'))
+            index = _MIRROR_PLANES[plane]
+            coords = [X, Y, Z]
+            coords[index] = 2.0*about[index] - coords[index]
+            X, Y, Z = coords
+        elif kind == 'permute':
+            order = params.get('order', 'xyz')
+            if order not in _PERMUTE_ORDERS:
+                raise ValueError(
+                    f"transform 'permute' order must be one of {', '.join(_PERMUTE_ORDERS)}, "
+                    f"got '{order}'"
+                )
+            source = {'x': X, 'y': Y, 'z': Z}
+            X, Y, Z = (source[name] for name in order)
+    return X, Y, Z
+
+
+def place_and_transform(X: np.ndarray, Y: np.ndarray, Z: np.ndarray,
+                        origin: List[float],
+                        transforms: Optional[List[str]] = None) -> GridCoords:
+    """!
+    @brief Place a freshly mapped grid, then apply any user transform list.
+    @details Placement puts the bounding-box corner on `origin`, which is what every
+             geometry did inline before transforms existed. Transforms then compose on
+             top of that, so a transform list refines the placement rather than
+             replacing it and `origin` keeps its meaning.
+    @param[in] X Nodal x coordinates.
+    @param[in] Y Nodal y coordinates.
+    @param[in] Z Nodal z coordinates.
+    @param[in] origin Target position of the bounding-box minimum corner.
+    @param[in] transforms Optional transform tokens applied after placement.
+    @return The placed and transformed coordinates.
+    """
+    reference = _reference_point(X, Y, Z, 'bbox_min')
+    X = X + (origin[0] - reference[0])
+    Y = Y + (origin[1] - reference[1])
+    Z = Z + (origin[2] - reference[2])
+    if transforms:
+        X, Y, Z = apply_transforms(X, Y, Z, transforms)
+    return X, Y, Z
+
+
 # --- Core Grid Generation Functions ---
 
 def cartesian_pipe_grid(
@@ -257,8 +508,9 @@ def cartesian_pipe_grid(
     stretch_i: float, stretch_j: float, stretch_k: float,  # --- MODIFIED ---
     first_cell_i_start: float = None, first_cell_i_end: float = None,
     first_cell_j_start: float = None, first_cell_j_end: float = None,
-    first_cell_k_start: float = None, first_cell_k_end: float = None
-) -> GridCoords: 
+    first_cell_k_start: float = None, first_cell_k_end: float = None,
+    transforms: Optional[List[str]] = None
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, float]]: 
     """!
     @brief Generates a bent pipe grid by warping a Cartesian block.
     @param[in] ncells_i Argument passed to `cartesian_pipe_grid()`.
@@ -279,7 +531,9 @@ def cartesian_pipe_grid(
     @param[in] first_cell_j_end Argument passed to `cartesian_pipe_grid()`.
     @param[in] first_cell_k_start Argument passed to `cartesian_pipe_grid()`.
     @param[in] first_cell_k_end Argument passed to `cartesian_pipe_grid()`.
-    @return Value returned by `cartesian_pipe_grid()`.
+    @param[in] transforms Optional placement/similarity transform tokens applied
+                          after the geometry map.
+    @return Nodal x, y and z coordinates, and the realized stretch factors.
     """
     print(f"Generating Cartesian Pipe Grid (Orientation: {orientation.upper()}) ---")
     side_i, side_j = side_lengths
@@ -293,43 +547,15 @@ def cartesian_pipe_grid(
 
     IM, JM, KM = ncells_i + 1, ncells_j + 1, ncells_k + 1
 
-    # --- MODIFIED: Use the stretching function for transverse coordinates ---
-    if (first_cell_i_start or first_cell_i_end) and stretch_i > 0:
-        print(f"Applying hyperbolic stretching in i-direction: auto-computing stretch factor to achieve first cell = {first_cell_i_start or first_cell_i_end} (initial guess: {stretch_i:.2f}).")
-    elif first_cell_i_start or first_cell_i_end:
-        print(f"Applying geometric stretching in i-direction (first cell: start={first_cell_i_start}, end={first_cell_i_end}).")
-    elif stretch_i > 0:
-        print(f"Applying hyperbolic stretching in i-direction (factor={stretch_i:.2f}).")
-
-    if (first_cell_j_start or first_cell_j_end) and stretch_j > 0:
-        print(f"Applying hyperbolic stretching in j-direction: auto-computing stretch factor to achieve first cell = {first_cell_j_start or first_cell_j_end} (initial guess: {stretch_j:.2f}).")
-    elif first_cell_j_start or first_cell_j_end:
-        print(f"Applying geometric stretching in j-direction (first cell: start={first_cell_j_start}, end={first_cell_j_end}).")
-    elif stretch_j > 0:
-        print(f"Applying hyperbolic stretching in j-direction (factor={stretch_j:.2f}).")
-
-    if (first_cell_k_start or first_cell_k_end) and stretch_k > 0:
-        print(f"Applying hyperbolic stretching in k-direction: auto-computing stretch factor to achieve first cell = {first_cell_k_start or first_cell_k_end} (initial guess: {stretch_k:.2f}).")
-    elif first_cell_k_start or first_cell_k_end:
-        print(f"Applying geometric stretching in k-direction (first cell: start={first_cell_k_start}, end={first_cell_k_end}).")
-    elif stretch_k > 0:
-        print(f"Applying hyperbolic stretching in k-direction (factor={stretch_k:.2f}).")
-
-    xi_vals, computed_stretch_i = create_stretched_linspace(IM, stretch_i, -0.5, 0.5, first_cell_i_start, first_cell_i_end)
-    eta_vals, computed_stretch_j = create_stretched_linspace(JM, stretch_j, -0.5, 0.5, first_cell_j_start, first_cell_j_end)
-    zeta_vals, computed_stretch_k = create_stretched_linspace(KM, stretch_k, 0, 1, first_cell_k_start, first_cell_k_end)
-
-    # Store computed stretch factors globally for reporting
-    global _computed_stretch_factors
-    _computed_stretch_factors = {'i': computed_stretch_i, 'j': computed_stretch_j, 'k': computed_stretch_k}
-
-    # Print computed stretch factors when first cell constraints are used
-    if (first_cell_i_start or first_cell_i_end) and stretch_i > 0:
-        print(f"  → Computed stretch factor for i-direction: {computed_stretch_i:.4f}")
-    if (first_cell_j_start or first_cell_j_end) and stretch_j > 0:
-        print(f"  → Computed stretch factor for j-direction: {computed_stretch_j:.4f}")
-    if (first_cell_k_start or first_cell_k_end) and stretch_k > 0:
-        print(f"  → Computed stretch factor for k-direction: {computed_stretch_k:.4f}")
+    axes, stretch_factors = build_stretched_axes({
+        'i': {'num_points': IM, 'bounds': (-0.5, 0.5), 'stretch': stretch_i,
+              'first_start': first_cell_i_start, 'first_end': first_cell_i_end},
+        'j': {'num_points': JM, 'bounds': (-0.5, 0.5), 'stretch': stretch_j,
+              'first_start': first_cell_j_start, 'first_end': first_cell_j_end},
+        'k': {'num_points': KM, 'bounds': (0, 1), 'stretch': stretch_k,
+              'first_start': first_cell_k_start, 'first_end': first_cell_k_end},
+    })
+    xi_vals, eta_vals, zeta_vals = axes['i'], axes['j'], axes['k']
 
     XI, ETA = np.meshgrid(xi_vals, eta_vals, indexing='ij')
     d_xi = side_i * XI
@@ -367,11 +593,7 @@ def cartesian_pipe_grid(
         Y[:,:,k] = yc + d_xi*v_xi[1] + d_eta*v_eta[1]
         Z[:,:,k] = zc + d_xi*v_xi[2] + d_eta*v_eta[2]
     
-    shift_x = origin[0] - np.min(X)
-    shift_y = origin[1] - np.min(Y)
-    shift_z = origin[2] - np.min(Z)
-    
-    return X + shift_x, Y + shift_y, Z + shift_z
+    return place_and_transform(X, Y, Z, origin, transforms) + (stretch_factors,)
 
 def bent_pipe_grid(
     ncells_phi: int, ncells_r: int, ncells_path: int,
@@ -381,8 +603,9 @@ def bent_pipe_grid(
     stretch_i: float, stretch_j: float, stretch_k: float,  # --- MODIFIED ---
     first_cell_i_start: float = None, first_cell_i_end: float = None,
     first_cell_j_start: float = None, first_cell_j_end: float = None,
-    first_cell_k_start: float = None, first_cell_k_end: float = None
-) -> GridCoords:
+    first_cell_k_start: float = None, first_cell_k_end: float = None,
+    transforms: Optional[List[str]] = None
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, float]]:
     """!
     @brief Generates a structured O-grid for a bent pipe.
     @param[in] ncells_phi Argument passed to `bent_pipe_grid()`.
@@ -404,7 +627,9 @@ def bent_pipe_grid(
     @param[in] first_cell_j_end Argument passed to `bent_pipe_grid()`.
     @param[in] first_cell_k_start Argument passed to `bent_pipe_grid()`.
     @param[in] first_cell_k_end Argument passed to `bent_pipe_grid()`.
-    @return Value returned by `bent_pipe_grid()`.
+    @param[in] transforms Optional placement/similarity transform tokens applied
+                          after the geometry map.
+    @return Nodal x, y and z coordinates, and the realized stretch factors.
     """
     print(f"Generating O-Grid Pipe (Orientation: {orientation.upper()}) ---")
     Rp = 0.5 * D; bend_angle_rad = np.deg2rad(bend_angle_deg); Rc = Rc_factor * D
@@ -412,40 +637,24 @@ def bent_pipe_grid(
     total_len = L_in + L_bend + L_out
     IM, JM, KM = ncells_phi + 1, ncells_r + 1, ncells_path + 1
 
-    # --- MODIFIED: Apply stretching to the radial direction (j) ---
     if first_cell_i_start or first_cell_i_end:
         print("Note: first-cell-i (circumferential) is ignored for O-grid pipes.")
     elif stretch_i > 0:
         print("Note: stretch-i (circumferential) is ignored for O-grid pipes.")
 
-    if (first_cell_j_start or first_cell_j_end) and stretch_j > 0:
-        print(f"Applying hyperbolic stretching in j-direction (radial): auto-computing stretch factor to achieve first cell = {first_cell_j_start or first_cell_j_end} (initial guess: {stretch_j:.2f}).")
-    elif first_cell_j_start or first_cell_j_end:
-        print(f"Applying geometric stretching in j-direction (radial, first cell: start={first_cell_j_start}, end={first_cell_j_end}).")
-    elif stretch_j > 0:
-        print(f"Applying hyperbolic stretching in j-direction (radial, factor={stretch_j:.2f}).")
-
-    if (first_cell_k_start or first_cell_k_end) and stretch_k > 0:
-        print(f"Applying hyperbolic stretching in k-direction: auto-computing stretch factor to achieve first cell = {first_cell_k_start or first_cell_k_end} (initial guess: {stretch_k:.2f}).")
-    elif first_cell_k_start or first_cell_k_end:
-        print(f"Applying geometric stretching in k-direction (first cell: start={first_cell_k_start}, end={first_cell_k_end}).")
-    elif stretch_k > 0:
-        print(f"Applying hyperbolic stretching in k-direction (factor={stretch_k:.2f}).")
-
+    # The circumferential axis is the geometry's own wrap, not a stretchable axis, so
+    # it opts out of the shared axis stage while the radial and path axes opt in.
+    axes, stretch_factors = build_stretched_axes({
+        'i': None,
+        'j': {'num_points': JM, 'bounds': (0, 1), 'stretch': stretch_j,
+              'first_start': first_cell_j_start, 'first_end': first_cell_j_end,
+              'note': 'radial'},
+        'k': {'num_points': KM, 'bounds': (0, 1), 'stretch': stretch_k,
+              'first_start': first_cell_k_start, 'first_end': first_cell_k_end},
+    })
     phi_vals = np.linspace(0, 2 * np.pi, IM)
-    r_vals_norm, computed_stretch_j = create_stretched_linspace(JM, stretch_j, 0, 1, first_cell_j_start, first_cell_j_end) # Radial direction
-    zeta_vals, computed_stretch_k = create_stretched_linspace(KM, stretch_k, 0, 1, first_cell_k_start, first_cell_k_end)
+    r_vals_norm, zeta_vals = axes['j'], axes['k']
 
-    # Store computed stretch factors globally for reporting
-    global _computed_stretch_factors
-    _computed_stretch_factors = {'i': 0.0, 'j': computed_stretch_j, 'k': computed_stretch_k}
-
-    # Print computed stretch factors when first cell constraints are used
-    if (first_cell_j_start or first_cell_j_end) and stretch_j > 0:
-        print(f"  → Computed stretch factor for j-direction: {computed_stretch_j:.4f}")
-    if (first_cell_k_start or first_cell_k_end) and stretch_k > 0:
-        print(f"  → Computed stretch factor for k-direction: {computed_stretch_k:.4f}")
-    
     if 0 < pinhole_factor < 1: print(f"Applying pinhole with radius factor: {pinhole_factor}")
     pinhole_radius = pinhole_factor * Rp
     physical_r = pinhole_radius + r_vals_norm * (Rp - pinhole_radius)
@@ -481,11 +690,7 @@ def bent_pipe_grid(
         Y[:,:,k] = yc + disp_xi*v_xi[1] + disp_eta*v_eta[1]
         Z[:,:,k] = zc + disp_xi*v_xi[2] + disp_eta*v_eta[2]
         
-    shift_x = origin[0] - np.min(X)
-    shift_y = origin[1] - np.min(Y)
-    shift_z = origin[2] - np.min(Z)
-    
-    return X + shift_x, Y + shift_y, Z + shift_z
+    return place_and_transform(X, Y, Z, origin, transforms) + (stretch_factors,)
 
 def generate_curvilinear_grid(
     ncells_i: int, ncells_j: int, ncells_k: int,
@@ -494,8 +699,9 @@ def generate_curvilinear_grid(
     stretch_i: float, stretch_j: float, stretch_k: float,  # --- MODIFIED ---
     first_cell_i_start: float = None, first_cell_i_end: float = None,
     first_cell_j_start: float = None, first_cell_j_end: float = None,
-    first_cell_k_start: float = None, first_cell_k_end: float = None
-) -> GridCoords:
+    first_cell_k_start: float = None, first_cell_k_end: float = None,
+    transforms: Optional[List[str]] = None
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, float]]:
     """!
     @brief Generates a 3D all-hexahedral grid by warping a Cartesian block.
     @param[in] ncells_i Argument passed to `generate_curvilinear_grid()`.
@@ -520,49 +726,23 @@ def generate_curvilinear_grid(
     @param[in] first_cell_j_end Argument passed to `generate_curvilinear_grid()`.
     @param[in] first_cell_k_start Argument passed to `generate_curvilinear_grid()`.
     @param[in] first_cell_k_end Argument passed to `generate_curvilinear_grid()`.
-    @return Value returned by `generate_curvilinear_grid()`.
+    @param[in] transforms Optional placement/similarity transform tokens applied
+                          after the geometry map.
+    @return Nodal x, y and z coordinates, and the realized stretch factors.
     """
     print("Generating Warped Box Grid ---")
     IM, JM, KM = ncells_i + 1, ncells_j + 1, ncells_k + 1
 
-    # --- MODIFIED: Use the stretching function for all coordinates ---
-    if (first_cell_i_start or first_cell_i_end) and stretch_i > 0:
-        print(f"Applying hyperbolic stretching in i-direction: auto-computing stretch factor to achieve first cell = {first_cell_i_start or first_cell_i_end} (initial guess: {stretch_i:.2f}).")
-    elif first_cell_i_start or first_cell_i_end:
-        print(f"Applying geometric stretching in i-direction (first cell: start={first_cell_i_start}, end={first_cell_i_end}).")
-    elif stretch_i > 0:
-        print(f"Applying hyperbolic stretching in i-direction (factor={stretch_i:.2f}).")
+    axes, stretch_factors = build_stretched_axes({
+        'i': {'num_points': IM, 'bounds': (0, 1), 'stretch': stretch_i,
+              'first_start': first_cell_i_start, 'first_end': first_cell_i_end},
+        'j': {'num_points': JM, 'bounds': (0, 1), 'stretch': stretch_j,
+              'first_start': first_cell_j_start, 'first_end': first_cell_j_end},
+        'k': {'num_points': KM, 'bounds': (0, 1), 'stretch': stretch_k,
+              'first_start': first_cell_k_start, 'first_end': first_cell_k_end},
+    })
+    xi, eta, zeta = axes['i'], axes['j'], axes['k']
 
-    if (first_cell_j_start or first_cell_j_end) and stretch_j > 0:
-        print(f"Applying hyperbolic stretching in j-direction: auto-computing stretch factor to achieve first cell = {first_cell_j_start or first_cell_j_end} (initial guess: {stretch_j:.2f}).")
-    elif first_cell_j_start or first_cell_j_end:
-        print(f"Applying geometric stretching in j-direction (first cell: start={first_cell_j_start}, end={first_cell_j_end}).")
-    elif stretch_j > 0:
-        print(f"Applying hyperbolic stretching in j-direction (factor={stretch_j:.2f}).")
-
-    if (first_cell_k_start or first_cell_k_end) and stretch_k > 0:
-        print(f"Applying hyperbolic stretching in k-direction: auto-computing stretch factor to achieve first cell = {first_cell_k_start or first_cell_k_end} (initial guess: {stretch_k:.2f}).")
-    elif first_cell_k_start or first_cell_k_end:
-        print(f"Applying geometric stretching in k-direction (first cell: start={first_cell_k_start}, end={first_cell_k_end}).")
-    elif stretch_k > 0:
-        print(f"Applying hyperbolic stretching in k-direction (factor={stretch_k:.2f}).")
-
-    xi, computed_stretch_i = create_stretched_linspace(IM, stretch_i, 0, 1, first_cell_i_start, first_cell_i_end)
-    eta, computed_stretch_j = create_stretched_linspace(JM, stretch_j, 0, 1, first_cell_j_start, first_cell_j_end)
-    zeta, computed_stretch_k = create_stretched_linspace(KM, stretch_k, 0, 1, first_cell_k_start, first_cell_k_end)
-
-    # Store computed stretch factors globally for reporting
-    global _computed_stretch_factors
-    _computed_stretch_factors = {'i': computed_stretch_i, 'j': computed_stretch_j, 'k': computed_stretch_k}
-
-    # Print computed stretch factors when first cell constraints are used
-    if (first_cell_i_start or first_cell_i_end) and stretch_i > 0:
-        print(f"  → Computed stretch factor for i-direction: {computed_stretch_i:.4f}")
-    if (first_cell_j_start or first_cell_j_end) and stretch_j > 0:
-        print(f"  → Computed stretch factor for j-direction: {computed_stretch_j:.4f}")
-    if (first_cell_k_start or first_cell_k_end) and stretch_k > 0:
-        print(f"  → Computed stretch factor for k-direction: {computed_stretch_k:.4f}")
-    
     XI, ETA, ZETA = np.meshgrid(xi, eta, zeta, indexing='ij')
     X_norm = (XI+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*ETA)+C*np.sin(2*np.pi*ZETA))
     Y_norm = (ETA+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*XI)+C*np.sin(2*np.pi*ZETA))
@@ -572,19 +752,20 @@ def generate_curvilinear_grid(
     Y_local = y_min + (y_max-y_min)*Y_norm
     Z_local = z_min + (z_max-z_min)*Z_norm
     
-    shift_x = origin[0] - np.min(X_local)
-    shift_y = origin[1] - np.min(Y_local)
-    shift_z = origin[2] - np.min(Z_local)
 
-    return X_local + shift_x, Y_local + shift_y, Z_local + shift_z
+    return place_and_transform(X_local, Y_local, Z_local, origin, transforms) + (stretch_factors,)
 
-# --- Grid Analysis and Export Functions (UNCHANGED) ---
-def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> dict:
+# --- Grid Analysis and Export Functions ---
+def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray,
+                         stretch_factors: Optional[Dict[str, float]] = None) -> dict:
     """!
     @brief Performs a comprehensive quality analysis on the grid and returns a dictionary of metrics.
     @param[in] X Argument passed to `analyze_grid_quality()`.
     @param[in] Y Argument passed to `analyze_grid_quality()`.
     @param[in] Z Argument passed to `analyze_grid_quality()`.
+    @param[in] stretch_factors Realized per-axis stretch factors from the geometry that
+                               built this grid, reported verbatim. Absent factors read as
+                               zero, which is what an unstretched axis realizes anyway.
     @return Value returned by `analyze_grid_quality()`.
     """
     stats = {}
@@ -624,9 +805,10 @@ def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> dict:
 
     # --- Computed Stretch Factors ---
     # Store the computed tanh stretch factors (if auto-computed)
-    stats['computed_stretch_i'] = _computed_stretch_factors['i']
-    stats['computed_stretch_j'] = _computed_stretch_factors['j']
-    stats['computed_stretch_k'] = _computed_stretch_factors['k']
+    factors = stretch_factors or {'i': 0.0, 'j': 0.0, 'k': 0.0}
+    stats['computed_stretch_i'] = factors['i']
+    stats['computed_stretch_j'] = factors['j']
+    stats['computed_stretch_k'] = factors['k']
 
     # --- Volume / Jacobian Checks ---
     ax=np.diff(X,axis=0)[:,:-1,:-1]; ay=np.diff(Y,axis=0)[:,:-1,:-1]; az=np.diff(Z,axis=0)[:,:-1,:-1]
@@ -636,6 +818,10 @@ def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> dict:
     
     volume_signs = np.sign(signed_volumes)
     stats['jacobian_consistent'] = np.all(volume_signs == volume_signs.flatten()[0])
+    # Consistency only says every cell agrees; it says nothing about which way. A
+    # uniformly inverted grid is self-consistent, and mirroring or permuting axes is
+    # exactly how one gets made, so handedness is reported separately.
+    stats['right_handed'] = bool(np.all(signed_volumes > 0))
     volumes = np.abs(signed_volumes)
     non_zero_volumes = volumes[volumes > eps]
     
@@ -737,6 +923,13 @@ def print_stats_to_console(stats: dict) -> None:
     else:
         print(f"Jacobian Sign Consistency: FAIL")
         print("** CRITICAL ERROR: Grid contains inverted cells. Solver will abort. **")
+    if stats.get('right_handed', True):
+        print("Handedness: RIGHT-HANDED")
+    else:
+        print("Handedness: LEFT-HANDED")
+        print("   Not fatal: the solver detects a uniformly negative Jacobian and flips the")
+        print("   metric vectors (CheckAndFixGridOrientation). Reported because a mirror or")
+        print("   an odd axis permutation is usually how one gets made unintentionally.")
     print(f"Min/Max Cell Volume: [{stats.get('min_volume', 0.0):.6e}, {stats.get('max_volume', 0.0):.6e}]")
     
     exp_ratio = stats.get('max_expansion_ratio', 0.0)
@@ -806,6 +999,7 @@ def export_stats_to_file(filename: str, stats: dict) -> None:
 
             f.write("[Primary CFD Quality Checks]\n")
             f.write(f"Jacobian_Sign_Consistent = {stats.get('jacobian_consistent', False)}\n")
+            f.write(f"Right_Handed = {stats.get('right_handed', True)}\n")
             f.write(f"Min_Volume = {stats.get('min_volume', 0.0):.6e}\n")
             f.write(f"Max_Volume = {stats.get('max_volume', 0.0):.6e}\n")
             f.write(f"Max_Volume_Expansion_Ratio_Global = {stats.get('max_expansion_ratio', 0.0):.4f}\n")
@@ -1128,6 +1322,7 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             'first_cell_i_start': None, 'first_cell_i_end': None,
             'first_cell_j_start': None, 'first_cell_j_end': None,
             'first_cell_k_start': None, 'first_cell_k_end': None,
+            'transforms': None,
         },
         'pipe': {
             'ncells_phi': 24, 'ncells_r': 12, 'ncells_path': 100, 'diameter': 1.0,
@@ -1138,6 +1333,7 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             'first_cell_i_start': None, 'first_cell_i_end': None,
             'first_cell_j_start': None, 'first_cell_j_end': None,
             'first_cell_k_start': None, 'first_cell_k_end': None,
+            'transforms': None,
         },
         'warp': {
             'ncells_i': 20, 'ncells_j': 20, 'ncells_k': 20, 'bounds_x': [0.0, 1.0],
@@ -1148,6 +1344,7 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             'first_cell_i_start': None, 'first_cell_i_end': None,
             'first_cell_j_start': None, 'first_cell_j_end': None,
             'first_cell_k_start': None, 'first_cell_k_end': None,
+            'transforms': None,
         },
         'legacy1d': {
             'show_stats': False,
@@ -1171,6 +1368,11 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
     add_arg(parent, '--output', type=str, help="Output filename for PICGRID format.")
     add_arg(parent, '--origin', type=float, nargs=3, metavar=('X','Y','Z'), help="Set the [x,y,z] minimum corner of the grid's bounding box.")
     add_arg(parent, '--stats-file', type=str, help="Output filename for grid quality statistics report.")
+    add_arg(parent, '--transforms', type=str, nargs='+', metavar='OP',
+            help="Placement/similarity transforms applied after the geometry map, in\n"
+                 "order. Each is 'kind:key=value,key=value' with kind one of "
+                 f"{', '.join(GRID_TRANSFORM_KINDS)}. Example: "
+                 "--transforms translate:dx=5 rotate:axis=z,deg=90")
 
     # --- NEW: Added stretch factor arguments to the parent parser ---
     add_arg(parent, '--stretch-i', type=float, help="Hyperbolic stretching factor in i-dir. 0=uniform, >1=clustered. (Default: 0.0)")
@@ -1312,7 +1514,11 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             try:
                 if isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction)):
                     params[action.dest] = value.lower() in ['true', 'yes', '1']
-                elif action.nargs in [2, 3]:
+                elif action.nargs in [2, 3, '+', '*']:
+                    # Whitespace-separated in the file exactly as on the command line, so a
+                    # variable-length list such as a transform chain reads the same in both.
+                    # configparser keeps indented continuation lines, which is what lets a
+                    # long list stay readable.
                     params[action.dest] = [action.type(v) for v in value.split()]
                 elif action.type:
                     params[action.dest] = action.type(value)
@@ -1331,9 +1537,10 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
     
     # --- MODIFIED: Pass new stretch arguments and first cell arguments to generator functions ---
     X, Y, Z = None, None, None
+    stretch_factors = None
     handled_output = False
     if args.grid_type == 'cpipe':
-        X, Y, Z = cartesian_pipe_grid(
+        X, Y, Z, stretch_factors = cartesian_pipe_grid(
             ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
             side_lengths=args.side_lengths, Rc_factor=args.rc_factor,
             straight_factor=args.straight_factor, bend_angle_deg=args.bend_angle,
@@ -1341,10 +1548,11 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
             first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
             first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
-            first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end
+            first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
+            transforms=getattr(args, 'transforms', None)
         )
     elif args.grid_type == 'pipe':
-        X, Y, Z = bent_pipe_grid(
+        X, Y, Z, stretch_factors = bent_pipe_grid(
             ncells_phi=args.ncells_phi, ncells_r=args.ncells_r, ncells_path=args.ncells_path,
             D=args.diameter, Rc_factor=args.rc_factor, straight_factor=args.straight_factor,
             bend_angle_deg=args.bend_angle, pinhole_factor=args.pinhole_factor,
@@ -1352,10 +1560,11 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
             first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
             first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
-            first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end
+            first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
+            transforms=getattr(args, 'transforms', None)
         )
     elif args.grid_type == 'warp':
-        X, Y, Z = generate_curvilinear_grid(
+        X, Y, Z, stretch_factors = generate_curvilinear_grid(
             ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
             x_min=args.bounds_x[0], x_max=args.bounds_x[1],
             y_min=args.bounds_y[0], y_max=args.bounds_y[1],
@@ -1364,7 +1573,8 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
             stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
             first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
             first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
-            first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end
+            first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
+            transforms=getattr(args, 'transforms', None)
         )
     elif args.grid_type == 'legacy1d':
         input_file = getattr(args, 'input', None)
@@ -1408,7 +1618,7 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
                 file=sys.stderr,
             )
         else:
-            stats_data = analyze_grid_quality(X, Y, Z)
+            stats_data = analyze_grid_quality(X, Y, Z, stretch_factors)
             if args.show_stats:
                 print_stats_to_console(stats_data)
             if getattr(args, 'stats_file', None):

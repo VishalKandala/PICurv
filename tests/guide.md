@@ -129,6 +129,12 @@ is a test-local routine.
     reading its adjacent interior cell
 - `test_picgrid.py`
   - PICGRID writers share round-trip-safe precision
+- `test_grid_generator.py`
+  - shared generator stages: axis construction, `origin` placement, and the ordered
+    placement/similarity transform list
+  - every transform kind is reachable, and every malformed token names its reason
+  - handedness is reported separately from Jacobian sign consistency, which a
+    uniformly inverted grid satisfies
 - `test_capability_tooling.py`
   - capability parity, value metadata, and coverage-entry shape
   - contract registry and artifact-topology snapshot validation
