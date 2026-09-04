@@ -51,3 +51,10 @@
     overriding every field of a curved-tube template through `cli_args`. Together with
     deleting a duplicate and a derived `.vts` that should never have been tracked,
     `examples/` drops from 9.1 MB to 3.5 MB.
+  - `grid.mode: grid_gen` is refused for any analytical carrier flow other than `TGV3D`
+    (a pre-existing, unrelated constraint), which the bent-channel conversion above ran
+    into: pairing `bent_channel` with `config/solvers/Analytical-UniformFlow.yml`, as
+    `examples/bent_channel/guide.md` has long documented, needs `grid.mode: file` on that
+    specific combination. `tests/smoke/run_smoke.sh`'s `bent_analytical_uniform` workflow
+    and the guide now show the override, pointing at the one bent-duct `.picgrid`
+    `examples/search_robustness` still ships.

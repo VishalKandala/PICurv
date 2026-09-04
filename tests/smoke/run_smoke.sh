@@ -1213,6 +1213,17 @@ PY
 }
 prepare_bent_case_analytical_uniform_tiny() {
   local case_dir="$1"
+  # bent_channel.yml's own grid.mode is grid_gen, which validate_case refuses to combine
+  # with a non-TGV3D analytical carrier (UNIFORM_FLOW here) - only 'file' or
+  # 'programmatic_c' are allowed there. This variant exists specifically to exercise the
+  # analytical branch on the bent (curvilinear) domain, so it overrides to 'file' and
+  # points at the one bent-channel grid the examples still ship, rather than dropping to
+  # a programmatic Cartesian box that would no longer exercise curvilinear metrics. The
+  # workspace layer refuses an absolute source_file outside the case (it wants an
+  # explicit import), so the grid is copied in and referenced relatively instead.
+  # source_file resolves relative to the case root, not to config/case.yml itself.
+  cp "${repo_root}/examples/search_robustness/bent_channel_coarse.picgrid" \
+     "${case_dir}/bent_channel_coarse.picgrid"
   python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
 import sys
 import yaml
@@ -1225,6 +1236,8 @@ with open(monitor_path, "r", encoding="utf-8") as f:
     monitor_cfg = yaml.safe_load(f)
 with open(post_path, "r", encoding="utf-8") as f:
     post_cfg = yaml.safe_load(f)
+
+case_cfg["grid"] = {"mode": "file", "source_file": "bent_channel_coarse.picgrid"}
 
 case_cfg.setdefault("run_control", {})
 case_cfg["run_control"]["start_step"] = 0
