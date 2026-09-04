@@ -868,8 +868,8 @@
       "entry_anchor_prefix": "p48_cap_geom_",
       "coverage_enforced": true,
       "value_metadata": {
-        "warp": {
-          "status": "supported",
+        "box": {
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "production": [
@@ -877,12 +877,156 @@
             ]
           }
         },
-        "cpipe": {
+        "sweep": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "grid.cross_section",
+      "title": "Swept Cross-Sections",
+      "selector": "grid.gen sweep --cross-section, or the `cross_section` config key",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "GRID_CROSS_SECTION_KINDS"
+      },
+      "parity_sources": [],
+      "family_page": "48_Grid_Generator_Guide",
+      "entry_anchor_prefix": "p48_cap_xsec_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "rectangle": {
           "status": "experimental",
           "canonical": true,
           "evidence": {}
         },
-        "pipe": {
+        "circle": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "grid.wall_segment",
+      "title": "Wall Height Field Segments",
+      "selector": "grid.gen box --wall-j-lo / --wall-j-hi, or the `wall_j_*` config keys",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "GRID_WALL_SEGMENT_KINDS"
+      },
+      "parity_sources": [],
+      "family_page": "48_Grid_Generator_Guide",
+      "entry_anchor_prefix": "p48_cap_wall_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "flat": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "step": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "ramp": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "arc": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "sine": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "gaussian": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "hill": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "grid.path_segment",
+      "title": "Centreline Path Segments",
+      "selector": "grid.gen sweep --path, or the `path` config key",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "GRID_PATH_SEGMENT_KINDS"
+      },
+      "parity_sources": [],
+      "family_page": "48_Grid_Generator_Guide",
+      "entry_anchor_prefix": "p48_cap_path_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "straight": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "arc": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        }
+      }
+    },
+    {
+      "id": "grid.transform",
+      "title": "Grid Placement and Similarity Transforms",
+      "selector": "grid.gen --transforms, or the `transforms` config key",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "GRID_TRANSFORM_KINDS"
+      },
+      "parity_sources": [],
+      "family_page": "48_Grid_Generator_Guide",
+      "entry_anchor_prefix": "p48_cap_xform_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "anchor": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "translate": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "scale": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "rotate": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "mirror": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "permute": {
           "status": "experimental",
           "canonical": true,
           "evidence": {}

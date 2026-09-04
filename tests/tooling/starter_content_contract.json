@@ -321,6 +321,7 @@
     "config/build/guide.md",
     "config/grids/coarse_square_tube_curved.cfg",
     "config/grids/guide.md",
+    "config/grids/isotropic_box_64.cfg",
     "config/grids/plane_channel_laminar.cfg",
     "config/grids/plane_channel_les_retau180.cfg",
     "config/grids/plane_channel_regression.cfg",

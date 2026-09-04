@@ -2909,7 +2909,22 @@ POST_FIELD_STATISTICS_FORMATS = ("vtk", "csv")
 GRID_MODES = ("file", "programmatic_c", "grid_gen")
 
 #: Geometries the bundled grid generator can produce.
-GRID_GENERATOR_TYPES = ("cpipe", "pipe", "warp")
+GRID_GENERATOR_TYPES = ("box", "sweep")
+
+#: Cross-sections a swept duct may carry. `circle` is the square-to-disc map, not an
+#: O-grid: an O-grid needs a circumferential seam whose coincident-node treatment lives
+#: behind Metric.c's `cgrid` branch, which no case.yml can select.
+GRID_CROSS_SECTION_KINDS = ("rectangle", "circle")
+
+#: Segment kinds a piecewise wall-height field accepts. A wall is built from these end to
+#: end, so a step is one entry in a list rather than a geometry of its own.
+GRID_WALL_SEGMENT_KINDS = ("flat", "step", "ramp", "arc", "sine", "gaussian", "hill")
+
+#: Centreline segment kinds a swept path accepts.
+GRID_PATH_SEGMENT_KINDS = ("straight", "arc")
+
+#: Placement and similarity operations applied after a geometry map.
+GRID_TRANSFORM_KINDS = ("anchor", "translate", "scale", "rotate", "mirror", "permute")
 
 #: Whether a run seeds particles afresh or restores them from a checkpoint.
 PARTICLE_RESTART_MODES = ("init", "load")
@@ -5855,6 +5870,65 @@ def write_profile_info(config_dir: str, summaries: list) -> str:
             fout.write(f"output_file = {summary.get('path')}\n\n")
     return info_path
 
+#: Generator flags whose values are drawn from a closed choice set. Checking them where
+#: the case is validated turns a mid-run subprocess failure into a startup error.
+GRID_GENERATOR_CHOICE_FLAGS = {
+    "--cross-section": GRID_CROSS_SECTION_KINDS,
+}
+
+#: Generator flags taking an ordered `kind:key=value` list whose kinds are closed.
+GRID_GENERATOR_SPEC_FLAGS = {
+    "--wall-j-lo": GRID_WALL_SEGMENT_KINDS,
+    "--wall-j-hi": GRID_WALL_SEGMENT_KINDS,
+    "--wall-j-lo-span": GRID_WALL_SEGMENT_KINDS,
+    "--wall-j-hi-span": GRID_WALL_SEGMENT_KINDS,
+    "--cross-section-scale": GRID_WALL_SEGMENT_KINDS,
+    "--path": GRID_PATH_SEGMENT_KINDS,
+    "--transforms": GRID_TRANSFORM_KINDS,
+}
+
+
+def validate_grid_generator_cli_args(cli_args, case_path: str) -> list:
+    """!
+    @brief Check closed-choice values inside the generator's opaque token list.
+    @details `cli_args` is passed through to grid.gen untouched, so a misspelled geometry
+             selector there is only discovered when the subprocess exits nonzero partway
+             into a run. The generator remains the authority; this reports the same set
+             earlier, and stays silent on anything it does not recognize.
+    @param[in] cli_args Raw token list from grid.generator.cli_args.
+    @param[in] case_path Case file path for diagnostics.
+    @return List of error strings.
+    """
+    if not isinstance(cli_args, list):
+        return []
+    tokens = [str(token) for token in cli_args]
+    errors = []
+    for index, token in enumerate(tokens):
+        values = []
+        for follower in tokens[index + 1:]:
+            if follower.startswith("--"):
+                break
+            values.append(follower)
+        if token in GRID_GENERATOR_CHOICE_FLAGS:
+            allowed = GRID_GENERATOR_CHOICE_FLAGS[token]
+            for value in values[:1]:
+                if value not in allowed:
+                    errors.append(
+                        f"  {case_path}: grid.generator.cli_args {token} must be one of "
+                        f"{list(allowed)} (got '{value}')."
+                    )
+        elif token in GRID_GENERATOR_SPEC_FLAGS:
+            allowed = GRID_GENERATOR_SPEC_FLAGS[token]
+            for value in values:
+                kind = value.split(":", 1)[0]
+                if kind not in allowed:
+                    errors.append(
+                        f"  {case_path}: grid.generator.cli_args {token} entry '{value}' "
+                        f"names '{kind}', which is not one of {list(allowed)}."
+                    )
+    return errors
+
+
 def run_grid_generator(case_path: str, run_dir: str, grid_cfg: dict,
                        case_cfg: dict = None) -> str:
     """!
@@ -7888,6 +7962,11 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             if grid_type is not None and str(grid_type) not in GRID_GENERATOR_TYPES:
                 errors.append(f"  {case_path}: grid.generator.grid_type must be one of "
                               f"{list(GRID_GENERATOR_TYPES)} (got '{grid_type}').")
+
+            # cli_args is an opaque token list handed straight to the generator, so a bad
+            # geometry selector inside it would otherwise surface as a nonzero subprocess
+            # exit in the middle of a run rather than as a validation error before one.
+            errors.extend(validate_grid_generator_cli_args(gen_cfg.get('cli_args'), case_path))
 
             cli_args = gen_cfg.get('cli_args', [])
             if cli_args is not None and not isinstance(cli_args, list):

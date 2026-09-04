@@ -7,7 +7,7 @@
 What confidence this project claims for each capability in the families covered so far.
 
 The table is generated from the capability registry and now covers every public
-capability family the census recognises - 33 families, 101 canonical values.
+capability family the census recognises - 37 families, 117 canonical values.
 
 @warning **Coverage is not credibility.** A complete table means every capability has
 been *asked* what evidence stands behind it, not that the answers are strong. Many
@@ -47,7 +47,7 @@ beyond the canonical value they resolve to.
 
 @section p66_gaps_sec 3. Reading the Gaps
 
-Three gaps in the current table are worth naming, because they are the ones most
+Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
 - **`Explicit RK4` has no facets.** `src/guide.md` records "direct positive-path
@@ -57,6 +57,16 @@ likely to matter:
   verification examples in **@subpage 65_Example_Catalog** are *designed* to compare
   against exact solutions, but a numerical acceptance threshold has not been run and
   gated as part of this work. Design intent is not evidence, so no tick was recorded.
+
+- **The grid generator's composed geometries carry almost no evidence.** `box` is
+  production-exercised: every `examples/periodic_test` case generates its mesh with it,
+  and all of them reproduce byte-identically the meshes the retired `warp` geometry
+  produced. Everything else the generator now offers - `sweep`, both cross-sections, all
+  seven wall-segment kinds, both path-segment kinds and all six transforms - declares no
+  facet at all. They carry unit coverage in `tests/test_grid_generator.py`, and that is
+  the whole claim: no solve has been run on a shaped-wall or swept mesh, so metric
+  quality at a resolved corner is reported by the generator but not validated against a
+  solution.
 
 - **Both LES models are `experimental`.** Both are implemented and carry unit
   coverage in `tests/c/test_les.c`, including an analytic check of the Germano model

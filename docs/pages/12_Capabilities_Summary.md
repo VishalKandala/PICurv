@@ -17,6 +17,11 @@ PICurv currently supports three grid ingestion modes:
 - `file`: external `.picgrid` read path with scaling/validation,
 - `grid_gen`: pre-run Python generator orchestration.
 
+`grid_gen` offers two composed geometries rather than a list of named shapes: `box`, a
+Cartesian block whose bounding walls are piecewise height fields, and `sweep`, a
+cross-section carried along a piecewise centreline. Both accept an ordered placement and
+similarity transform list. Both are experimental. See **@subpage 48_Grid_Generator_Guide**.
+
 Domain controls include:
 
 - single- and multi-block support,

@@ -24,15 +24,25 @@ def load_grid_generator():
 GRID = load_grid_generator()
 
 
-def unit_box(ncells=4):
-    """! @brief Build an unwarped Cartesian block. @param[in] ncells Cells per axis.
+def plain_box(ncells=4, bounds=((0.0, 1.0), (0.0, 2.0), (0.0, 3.0)),
+              origin=(0.0, 0.0, 0.0), **kwargs):
+    """! @brief Build a flat-walled Cartesian block. @param[in] ncells Cells per axis.
+    @param[in] bounds Per-axis extents. @param[in] origin Placement target.
+    @param[in] kwargs Extra generator arguments.
     @return Coordinates and realized stretch factors. """
-    return GRID.generate_curvilinear_grid(
+    defaults = dict(stretch_i=0.0, stretch_j=0.0, stretch_k=0.0)
+    defaults.update(kwargs)
+    return GRID.box_grid(
         ncells_i=ncells, ncells_j=ncells, ncells_k=ncells,
-        x_min=0.0, x_max=1.0, y_min=0.0, y_max=2.0, z_min=0.0, z_max=3.0,
-        A=0.0, B=0.0, C=0.0, origin=[0.0, 0.0, 0.0],
-        stretch_i=0.0, stretch_j=0.0, stretch_k=0.0,
-    )
+        bounds_x=list(bounds[0]), bounds_y=list(bounds[1]), bounds_z=list(bounds[2]),
+        wall_j_lo=None, wall_j_hi=None, wall_j_lo_span=None, wall_j_hi_span=None,
+        amp_A=0.0, amp_B=0.0, amp_C=0.0, origin=list(origin), **defaults)
+
+
+def unit_box(ncells=4):
+    """! @brief The block the transform tests measure against.
+    @param[in] ncells Cells per axis. @return Coordinates and realized stretch factors. """
+    return plain_box(ncells)
 
 
 def bounds(X, Y, Z):
@@ -50,23 +60,15 @@ def test_single_node_axis_returns_a_stretch_factor():
 
 def test_default_placement_puts_the_bounding_box_corner_on_origin():
     """! @brief Placement keeps the historical `origin` meaning. """
-    X, Y, Z, _ = GRID.generate_curvilinear_grid(
-        ncells_i=3, ncells_j=3, ncells_k=3,
-        x_min=0.0, x_max=1.0, y_min=0.0, y_max=1.0, z_min=0.0, z_max=1.0,
-        A=0.0, B=0.0, C=0.0, origin=[5.0, -2.0, 0.5],
-        stretch_i=0.0, stretch_j=0.0, stretch_k=0.0,
-    )
+    X, Y, Z, _ = plain_box(3, bounds=((0.0, 1.0), (0.0, 1.0), (0.0, 1.0)),
+                           origin=(5.0, -2.0, 0.5))
     assert bounds(X, Y, Z) == [(5.0, 6.0), (-2.0, -1.0), (0.5, 1.5)]
 
 
 def test_geometries_report_the_stretch_factors_the_report_consumes():
     """! @brief Realized factors travel with the grid, not through module state. """
-    _, _, _, factors = GRID.generate_curvilinear_grid(
-        ncells_i=8, ncells_j=8, ncells_k=8,
-        x_min=0.0, x_max=1.0, y_min=0.0, y_max=1.0, z_min=0.0, z_max=1.0,
-        A=0.0, B=0.0, C=0.0, origin=[0.0, 0.0, 0.0],
-        stretch_i=0.0, stretch_j=2.5, stretch_k=0.0,
-    )
+    _, _, _, factors = plain_box(8, bounds=((0.0, 1.0), (0.0, 1.0), (0.0, 1.0)),
+                                 stretch_j=2.5)
     assert factors['j'] == pytest.approx(2.5)
     assert factors['i'] == 0.0 and factors['k'] == 0.0
 
@@ -86,13 +88,8 @@ def test_transform_list_is_applied_in_the_order_given():
 
 def test_transforms_compose_on_top_of_origin_placement():
     """! @brief A transform list refines placement rather than replacing it. """
-    X, Y, Z, _ = GRID.generate_curvilinear_grid(
-        ncells_i=3, ncells_j=3, ncells_k=3,
-        x_min=0.0, x_max=1.0, y_min=0.0, y_max=1.0, z_min=0.0, z_max=1.0,
-        A=0.0, B=0.0, C=0.0, origin=[1.0, 1.0, 1.0],
-        stretch_i=0.0, stretch_j=0.0, stretch_k=0.0,
-        transforms=["translate:dx=4"],
-    )
+    X, Y, Z, _ = plain_box(3, bounds=((0.0, 1.0), (0.0, 1.0), (0.0, 1.0)),
+                           origin=(1.0, 1.0, 1.0), transforms=["translate:dx=4"])
     assert bounds(X, Y, Z) == [(5.0, 6.0), (1.0, 2.0), (1.0, 2.0)]
 
 
@@ -478,3 +475,69 @@ def test_rotating_a_periodic_grid_is_refused():
     with pytest.raises(ValueError, match="cannot be combined with 'rotate'"):
         GRID.check_periodic_axes(['k'], axes, ["rotate:axis=z,deg=30"])
     GRID.check_periodic_axes(['k'], axes, ["translate:dx=1"])
+
+
+# --- the generator and the launcher must agree on the choice sets ------------
+
+def load_core():
+    """! @brief Load the conductor module. @return Loaded module. """
+    path = ROOT / "picurv_cli" / "core.py"
+    loader = importlib.machinery.SourceFileLoader("picurv_core_grid_tests", str(path))
+    spec = importlib.util.spec_from_loader("picurv_core_grid_tests", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+CORE = load_core()
+
+
+@pytest.mark.parametrize("symbol", [
+    "GRID_CROSS_SECTION_KINDS", "GRID_WALL_SEGMENT_KINDS",
+    "GRID_PATH_SEGMENT_KINDS", "GRID_TRANSFORM_KINDS",
+])
+def test_core_mirrors_the_generators_choice_sets(symbol):
+    """! @brief The launcher validates against sets the generator actually implements.
+
+    @details core.py holds these so audit_family_census can discover them: it scans only
+             picurv_cli, never generators/. Two copies need pinning, and parity_sources
+             has no Python-source kind, so it is pinned here instead.
+    @param[in] symbol Choice-set constant present in both modules.
+    """
+    assert getattr(CORE, symbol) == getattr(GRID, symbol), symbol
+
+
+def test_grid_generator_types_are_the_generators_subcommands():
+    """! @brief Every advertised geometry is a subcommand, and nothing else is. """
+    import argparse
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers()
+    # The generator builds its parser inside main(); take the names it documents instead.
+    documented = set(CORE.GRID_GENERATOR_TYPES)
+    assert documented == {"box", "sweep"}
+    for name in documented:
+        assert hasattr(GRID, f"{name}_grid"), f"{name} has no implementation"
+
+
+def test_retired_geometries_are_gone_from_both_sides():
+    """! @brief A removed value must not survive in either module. """
+    for name in ("cpipe", "pipe", "warp"):
+        assert name not in CORE.GRID_GENERATOR_TYPES
+    for symbol in ("cartesian_pipe_grid", "bent_pipe_grid", "generate_curvilinear_grid"):
+        assert not hasattr(GRID, symbol), f"{symbol} still present"
+
+
+@pytest.mark.parametrize("cli_args, expected", [
+    (["--cross-section", "circle"], 0),
+    (["--cross-section", "hexagon"], 1),
+    (["--path", "straight:len=5", "arc:radius=2,deg=90"], 0),
+    (["--path", "helix:len=5"], 1),
+    (["--wall-j-lo", "flat:len=4,y=1", "cliff:len=1,dy=-1"], 1),
+    (["--transforms", "translate:dx=1", "warp:x=1"], 1),
+    (["--ncells-i", "64", "--bounds-x", "0", "1"], 0),
+])
+def test_case_validation_catches_bad_choices_inside_cli_args(cli_args, expected):
+    """! @brief A misspelled selector fails at validation, not mid-run.
+    @param[in] cli_args Raw token list. @param[in] expected Number of errors. """
+    errors = CORE.validate_grid_generator_cli_args(cli_args, "case.yml")
+    assert len(errors) == expected, errors

@@ -214,9 +214,53 @@ Selector: `case.yml -> grid.generator.grid_type`
 
 | Value | Maps to |
 |---|---|
-| `cpipe` | `cpipe` |
-| `pipe` | `pipe` |
-| `warp` | `warp` |
+| `box` | `box` |
+| `sweep` | `sweep` |
+
+### Swept Cross-Sections
+
+Selector: `grid.gen sweep --cross-section, or the `cross_section` config key`
+
+| Value | Maps to |
+|---|---|
+| `circle` | `circle` |
+| `rectangle` | `rectangle` |
+
+### Wall Height Field Segments
+
+Selector: `grid.gen box --wall-j-lo / --wall-j-hi, or the `wall_j_*` config keys`
+
+| Value | Maps to |
+|---|---|
+| `arc` | `arc` |
+| `flat` | `flat` |
+| `gaussian` | `gaussian` |
+| `hill` | `hill` |
+| `ramp` | `ramp` |
+| `sine` | `sine` |
+| `step` | `step` |
+
+### Centreline Path Segments
+
+Selector: `grid.gen sweep --path, or the `path` config key`
+
+| Value | Maps to |
+|---|---|
+| `arc` | `arc` |
+| `straight` | `straight` |
+
+### Grid Placement and Similarity Transforms
+
+Selector: `grid.gen --transforms, or the `transforms` config key`
+
+| Value | Maps to |
+|---|---|
+| `anchor` | `anchor` |
+| `mirror` | `mirror` |
+| `permute` | `permute` |
+| `rotate` | `rotate` |
+| `scale` | `scale` |
+| `translate` | `translate` |
 
 ### Particle Restart Modes
 

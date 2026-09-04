@@ -777,7 +777,7 @@ def evaluate_wall_profile(segments: List[str], coordinate: np.ndarray,
 #: Cross-sections a swept duct may carry. `circle` uses the square-to-disc map rather
 #: than an O-grid: an O-grid needs a circumferential seam whose coincident-node treatment
 #: the solver only reaches through the `cgrid` branch, which no case.yml can select.
-GRID_CROSS_SECTIONS = ("rectangle", "circle")
+GRID_CROSS_SECTION_KINDS = ("rectangle", "circle")
 
 #: Centreline segment kinds. A path is these end to end, each continuing from the
 #: position and frame the previous one reached.
@@ -963,9 +963,9 @@ def sweep_grid(
     @return Nodal x, y and z coordinates, and the realized stretch factors.
     @throws ValueError on an unknown cross-section or a malformed path.
     """
-    if cross_section not in GRID_CROSS_SECTIONS:
+    if cross_section not in GRID_CROSS_SECTION_KINDS:
         raise ValueError(
-            f"cross_section must be one of {', '.join(GRID_CROSS_SECTIONS)}, "
+            f"cross_section must be one of {', '.join(GRID_CROSS_SECTION_KINDS)}, "
             f"got '{cross_section}'"
         )
     print(f"Generating Swept Grid (Cross-section: {cross_section}) ---")
@@ -1133,261 +1133,6 @@ def box_grid(
 
     return place_and_transform(X, Y, Z, origin, transforms) + (stretch_factors,)
 
-
-def cartesian_pipe_grid(
-    ncells_i: int, ncells_j: int, ncells_k: int,
-    side_lengths: List[float], Rc_factor: float,
-    straight_factor: float, bend_angle_deg: float,
-    orientation: str, origin: List[float],
-    stretch_i: float, stretch_j: float, stretch_k: float,  # --- MODIFIED ---
-    first_cell_i_start: float = None, first_cell_i_end: float = None,
-    first_cell_j_start: float = None, first_cell_j_end: float = None,
-    first_cell_k_start: float = None, first_cell_k_end: float = None,
-    transforms: Optional[List[str]] = None
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, float]]: 
-    """!
-    @brief Generates a bent pipe grid by warping a Cartesian block.
-    @param[in] ncells_i Argument passed to `cartesian_pipe_grid()`.
-    @param[in] ncells_j Argument passed to `cartesian_pipe_grid()`.
-    @param[in] ncells_k Argument passed to `cartesian_pipe_grid()`.
-    @param[in] side_lengths Argument passed to `cartesian_pipe_grid()`.
-    @param[in] Rc_factor Argument passed to `cartesian_pipe_grid()`.
-    @param[in] straight_factor Argument passed to `cartesian_pipe_grid()`.
-    @param[in] bend_angle_deg Argument passed to `cartesian_pipe_grid()`.
-    @param[in] orientation Argument passed to `cartesian_pipe_grid()`.
-    @param[in] origin Argument passed to `cartesian_pipe_grid()`.
-    @param[in] stretch_i Argument passed to `cartesian_pipe_grid()`.
-    @param[in] stretch_j Argument passed to `cartesian_pipe_grid()`.
-    @param[in] stretch_k Argument passed to `cartesian_pipe_grid()`.
-    @param[in] first_cell_i_start Argument passed to `cartesian_pipe_grid()`.
-    @param[in] first_cell_i_end Argument passed to `cartesian_pipe_grid()`.
-    @param[in] first_cell_j_start Argument passed to `cartesian_pipe_grid()`.
-    @param[in] first_cell_j_end Argument passed to `cartesian_pipe_grid()`.
-    @param[in] first_cell_k_start Argument passed to `cartesian_pipe_grid()`.
-    @param[in] first_cell_k_end Argument passed to `cartesian_pipe_grid()`.
-    @param[in] transforms Optional placement/similarity transform tokens applied
-                          after the geometry map.
-    @return Nodal x, y and z coordinates, and the realized stretch factors.
-    """
-    print(f"Generating Cartesian Pipe Grid (Orientation: {orientation.upper()}) ---")
-    side_i, side_j = side_lengths
-    bend_angle_rad = np.deg2rad(bend_angle_deg)
-    ref_dim = side_i
-    Rc = Rc_factor * ref_dim
-    L_in = straight_factor * ref_dim
-    L_bend = Rc * bend_angle_rad
-    L_out = straight_factor * ref_dim
-    total_len = L_in + L_bend + L_out
-
-    IM, JM, KM = ncells_i + 1, ncells_j + 1, ncells_k + 1
-
-    axes, stretch_factors = build_stretched_axes({
-        'i': {'num_points': IM, 'bounds': (-0.5, 0.5), 'stretch': stretch_i,
-              'first_start': first_cell_i_start, 'first_end': first_cell_i_end},
-        'j': {'num_points': JM, 'bounds': (-0.5, 0.5), 'stretch': stretch_j,
-              'first_start': first_cell_j_start, 'first_end': first_cell_j_end},
-        'k': {'num_points': KM, 'bounds': (0, 1), 'stretch': stretch_k,
-              'first_start': first_cell_k_start, 'first_end': first_cell_k_end},
-    })
-    xi_vals, eta_vals, zeta_vals = axes['i'], axes['j'], axes['k']
-
-    XI, ETA = np.meshgrid(xi_vals, eta_vals, indexing='ij')
-    d_xi = side_i * XI
-    d_eta = side_j * ETA
-
-    X, Y, Z = (np.zeros((IM, JM, KM)) for _ in range(3))
-
-    for k, zeta in enumerate(zeta_vals):
-        s = zeta * total_len
-        if s <= L_in:
-            xc = -L_in + s; yc, zc = 0.0, 0.0
-            tangent = np.array([1.0, 0.0, 0.0])
-        elif s <= L_in + L_bend:
-            s_bend = s - L_in; theta = s_bend / Rc
-            cos_t, sin_t = np.cos(theta), np.sin(theta)
-            xc = Rc * sin_t
-            if orientation == 'xy': yc = Rc - Rc*cos_t; zc = 0.0; tangent = np.array([cos_t, sin_t, 0.0])
-            else: yc = 0.0; zc = Rc - Rc*cos_t; tangent = np.array([cos_t, 0.0, sin_t])
-        else:
-            s_out = s - L_in - L_bend
-            cos_a, sin_a = np.cos(bend_angle_rad), np.sin(bend_angle_rad)
-            xc_bend_end = Rc * sin_a
-            if orientation == 'xy':
-                yc_bend_end = Rc - Rc*cos_a; zc_bend_end = 0.0
-                tangent = np.array([cos_a, sin_a, 0.0])
-            else:
-                yc_bend_end = 0.0; zc_bend_end = Rc - Rc*cos_a
-                tangent = np.array([cos_a, 0.0, sin_a])
-            xc = xc_bend_end + s_out * tangent[0]
-            yc = yc_bend_end + s_out * tangent[1]
-            zc = zc_bend_end + s_out * tangent[2]
-        if orientation == 'xy': v_up = np.array([0.0,0.0,1.0]); v_eta=v_up; v_xi=np.cross(v_eta, tangent)
-        else: v_up = np.array([0.0,1.0,0.0]); v_eta=v_up; v_xi=np.cross(v_eta, tangent)
-        X[:,:,k] = xc + d_xi*v_xi[0] + d_eta*v_eta[0]
-        Y[:,:,k] = yc + d_xi*v_xi[1] + d_eta*v_eta[1]
-        Z[:,:,k] = zc + d_xi*v_xi[2] + d_eta*v_eta[2]
-    
-    return place_and_transform(X, Y, Z, origin, transforms) + (stretch_factors,)
-
-def bent_pipe_grid(
-    ncells_phi: int, ncells_r: int, ncells_path: int,
-    D: float, Rc_factor: float, straight_factor: float,
-    bend_angle_deg: float, pinhole_factor: float,
-    orientation: str, origin: List[float],
-    stretch_i: float, stretch_j: float, stretch_k: float,  # --- MODIFIED ---
-    first_cell_i_start: float = None, first_cell_i_end: float = None,
-    first_cell_j_start: float = None, first_cell_j_end: float = None,
-    first_cell_k_start: float = None, first_cell_k_end: float = None,
-    transforms: Optional[List[str]] = None
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, float]]:
-    """!
-    @brief Generates a structured O-grid for a bent pipe.
-    @param[in] ncells_phi Argument passed to `bent_pipe_grid()`.
-    @param[in] ncells_r Argument passed to `bent_pipe_grid()`.
-    @param[in] ncells_path Argument passed to `bent_pipe_grid()`.
-    @param[in] D Argument passed to `bent_pipe_grid()`.
-    @param[in] Rc_factor Argument passed to `bent_pipe_grid()`.
-    @param[in] straight_factor Argument passed to `bent_pipe_grid()`.
-    @param[in] bend_angle_deg Argument passed to `bent_pipe_grid()`.
-    @param[in] pinhole_factor Argument passed to `bent_pipe_grid()`.
-    @param[in] orientation Argument passed to `bent_pipe_grid()`.
-    @param[in] origin Argument passed to `bent_pipe_grid()`.
-    @param[in] stretch_i Argument passed to `bent_pipe_grid()`.
-    @param[in] stretch_j Argument passed to `bent_pipe_grid()`.
-    @param[in] stretch_k Argument passed to `bent_pipe_grid()`.
-    @param[in] first_cell_i_start Argument passed to `bent_pipe_grid()`.
-    @param[in] first_cell_i_end Argument passed to `bent_pipe_grid()`.
-    @param[in] first_cell_j_start Argument passed to `bent_pipe_grid()`.
-    @param[in] first_cell_j_end Argument passed to `bent_pipe_grid()`.
-    @param[in] first_cell_k_start Argument passed to `bent_pipe_grid()`.
-    @param[in] first_cell_k_end Argument passed to `bent_pipe_grid()`.
-    @param[in] transforms Optional placement/similarity transform tokens applied
-                          after the geometry map.
-    @return Nodal x, y and z coordinates, and the realized stretch factors.
-    """
-    print(f"Generating O-Grid Pipe (Orientation: {orientation.upper()}) ---")
-    Rp = 0.5 * D; bend_angle_rad = np.deg2rad(bend_angle_deg); Rc = Rc_factor * D
-    L_in = straight_factor*D; L_bend = Rc*bend_angle_rad; L_out = straight_factor*D
-    total_len = L_in + L_bend + L_out
-    IM, JM, KM = ncells_phi + 1, ncells_r + 1, ncells_path + 1
-
-    if first_cell_i_start or first_cell_i_end:
-        print("Note: first-cell-i (circumferential) is ignored for O-grid pipes.")
-    elif stretch_i > 0:
-        print("Note: stretch-i (circumferential) is ignored for O-grid pipes.")
-
-    # The circumferential axis is the geometry's own wrap, not a stretchable axis, so
-    # it opts out of the shared axis stage while the radial and path axes opt in.
-    axes, stretch_factors = build_stretched_axes({
-        'i': None,
-        'j': {'num_points': JM, 'bounds': (0, 1), 'stretch': stretch_j,
-              'first_start': first_cell_j_start, 'first_end': first_cell_j_end,
-              'note': 'radial'},
-        'k': {'num_points': KM, 'bounds': (0, 1), 'stretch': stretch_k,
-              'first_start': first_cell_k_start, 'first_end': first_cell_k_end},
-    })
-    phi_vals = np.linspace(0, 2 * np.pi, IM)
-    r_vals_norm, zeta_vals = axes['j'], axes['k']
-
-    if 0 < pinhole_factor < 1: print(f"Applying pinhole with radius factor: {pinhole_factor}")
-    pinhole_radius = pinhole_factor * Rp
-    physical_r = pinhole_radius + r_vals_norm * (Rp - pinhole_radius)
-    PHI, R = np.meshgrid(phi_vals, physical_r, indexing='ij')
-    disp_xi, disp_eta = R * np.cos(PHI), R * np.sin(PHI)
-    X, Y, Z = (np.zeros((IM, JM, KM)) for _ in range(3))
-
-    for k, zeta in enumerate(zeta_vals):
-        s = zeta * total_len
-        if s <= L_in:
-            xc = -L_in + s; yc, zc = 0.0, 0.0
-            tangent = np.array([1.0, 0.0, 0.0])
-        elif s <= L_in + L_bend:
-            s_bend = s - L_in; theta = s_bend / Rc
-            cos_t, sin_t = np.cos(theta), np.sin(theta)
-            xc = Rc * sin_t
-            if orientation == 'xy': yc=Rc-Rc*cos_t; zc=0.0; tangent=np.array([cos_t, sin_t, 0.0])
-            else: yc=0.0; zc=Rc-Rc*cos_t; tangent=np.array([cos_t, 0.0, sin_t])
-        else:
-            s_out = s - L_in - L_bend
-            cos_a, sin_a = np.cos(bend_angle_rad), np.sin(bend_angle_rad)
-            xc_bend_end = Rc * sin_a
-            if orientation == 'xy':
-                yc_bend_end=Rc-Rc*cos_a; zc_bend_end=0.0; tangent=np.array([cos_a, sin_a, 0.0])
-            else:
-                yc_bend_end=0.0; zc_bend_end=Rc-Rc*cos_a; tangent=np.array([cos_a, 0.0, sin_a])
-            xc = xc_bend_end + s_out*tangent[0]
-            yc = yc_bend_end + s_out*tangent[1]
-            zc = zc_bend_end + s_out*tangent[2]
-        if orientation == 'xy': v_up=np.array([0.0,0.0,1.0]); v_xi=np.cross(v_up,tangent); v_eta=v_up
-        else: v_up = np.array([0.0,1.0,0.0]); v_xi=v_up; v_eta=np.cross(tangent,v_xi)
-        X[:,:,k] = xc + disp_xi*v_xi[0] + disp_eta*v_eta[0]
-        Y[:,:,k] = yc + disp_xi*v_xi[1] + disp_eta*v_eta[1]
-        Z[:,:,k] = zc + disp_xi*v_xi[2] + disp_eta*v_eta[2]
-        
-    return place_and_transform(X, Y, Z, origin, transforms) + (stretch_factors,)
-
-def generate_curvilinear_grid(
-    ncells_i: int, ncells_j: int, ncells_k: int,
-    x_min: float, x_max: float, y_min: float, y_max: float, z_min: float, z_max: float,
-    A: float, B: float, C: float, origin: List[float],
-    stretch_i: float, stretch_j: float, stretch_k: float,  # --- MODIFIED ---
-    first_cell_i_start: float = None, first_cell_i_end: float = None,
-    first_cell_j_start: float = None, first_cell_j_end: float = None,
-    first_cell_k_start: float = None, first_cell_k_end: float = None,
-    transforms: Optional[List[str]] = None
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, float]]:
-    """!
-    @brief Generates a 3D all-hexahedral grid by warping a Cartesian block.
-    @param[in] ncells_i Argument passed to `generate_curvilinear_grid()`.
-    @param[in] ncells_j Argument passed to `generate_curvilinear_grid()`.
-    @param[in] ncells_k Argument passed to `generate_curvilinear_grid()`.
-    @param[in] x_min Argument passed to `generate_curvilinear_grid()`.
-    @param[in] x_max Argument passed to `generate_curvilinear_grid()`.
-    @param[in] y_min Argument passed to `generate_curvilinear_grid()`.
-    @param[in] y_max Argument passed to `generate_curvilinear_grid()`.
-    @param[in] z_min Argument passed to `generate_curvilinear_grid()`.
-    @param[in] z_max Argument passed to `generate_curvilinear_grid()`.
-    @param[in] A Argument passed to `generate_curvilinear_grid()`.
-    @param[in] B Argument passed to `generate_curvilinear_grid()`.
-    @param[in] C Argument passed to `generate_curvilinear_grid()`.
-    @param[in] origin Argument passed to `generate_curvilinear_grid()`.
-    @param[in] stretch_i Argument passed to `generate_curvilinear_grid()`.
-    @param[in] stretch_j Argument passed to `generate_curvilinear_grid()`.
-    @param[in] stretch_k Argument passed to `generate_curvilinear_grid()`.
-    @param[in] first_cell_i_start Argument passed to `generate_curvilinear_grid()`.
-    @param[in] first_cell_i_end Argument passed to `generate_curvilinear_grid()`.
-    @param[in] first_cell_j_start Argument passed to `generate_curvilinear_grid()`.
-    @param[in] first_cell_j_end Argument passed to `generate_curvilinear_grid()`.
-    @param[in] first_cell_k_start Argument passed to `generate_curvilinear_grid()`.
-    @param[in] first_cell_k_end Argument passed to `generate_curvilinear_grid()`.
-    @param[in] transforms Optional placement/similarity transform tokens applied
-                          after the geometry map.
-    @return Nodal x, y and z coordinates, and the realized stretch factors.
-    """
-    print("Generating Warped Box Grid ---")
-    IM, JM, KM = ncells_i + 1, ncells_j + 1, ncells_k + 1
-
-    axes, stretch_factors = build_stretched_axes({
-        'i': {'num_points': IM, 'bounds': (0, 1), 'stretch': stretch_i,
-              'first_start': first_cell_i_start, 'first_end': first_cell_i_end},
-        'j': {'num_points': JM, 'bounds': (0, 1), 'stretch': stretch_j,
-              'first_start': first_cell_j_start, 'first_end': first_cell_j_end},
-        'k': {'num_points': KM, 'bounds': (0, 1), 'stretch': stretch_k,
-              'first_start': first_cell_k_start, 'first_end': first_cell_k_end},
-    })
-    xi, eta, zeta = axes['i'], axes['j'], axes['k']
-
-    XI, ETA, ZETA = np.meshgrid(xi, eta, zeta, indexing='ij')
-    X_norm = (XI+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*ETA)+C*np.sin(2*np.pi*ZETA))
-    Y_norm = (ETA+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*XI)+C*np.sin(2*np.pi*ZETA))
-    Z_norm = (ZETA+A*np.sin(np.pi*XI)*np.sin(np.pi*ETA)*np.sin(np.pi*ZETA)+B*np.sin(2*np.pi*XI)+C*np.sin(2*np.pi*ETA))
-    
-    X_local = x_min + (x_max-x_min)*X_norm
-    Y_local = y_min + (y_max-y_min)*Y_norm
-    Z_local = z_min + (z_max-z_min)*Z_norm
-    
-
-    return place_and_transform(X_local, Y_local, Z_local, origin, transforms) + (stretch_factors,)
 
 def resolve_reference_quantities(length_ref: Optional[float], nu: Optional[float],
                                  velocity_ref: Optional[float], re_tau: Optional[float],
@@ -2042,76 +1787,55 @@ Order of Precedence:
 2. Configuration file settings
 3. Built-in script defaults (lowest priority)
 """
-    # --- MODIFIED: Added stretching and first cell examples to epilog ---
     prog_epilog = """
 Usage Examples:
 -----------------
 # Run using settings from a shared configuration profile
-python3 generators/grid.gen --config config/grids/coarse_square_tube_curved.cfg
+python3 generators/grid.gen --config config/grids/plane_channel_retau180.cfg box
 
-# Run using a config file, but override the command and a parameter
-python3 generators/grid.gen --config config/grids/coarse_square_tube_curved.cfg pipe --ncells-path 200
+# Use a config file, overriding one parameter from the command line
+python3 generators/grid.gen --config config/grids/coarse_square_tube_curved.cfg sweep --ncells-k 200
 
-# Run without a config file, using command-line args and built-in defaults
-python3 generators/grid.gen cpipe --orientation xz --vts cpipe_xz.vts
+# Plain Cartesian channel with two-sided wall clustering
+python3 generators/grid.gen box --bounds-y 0 2 --stretch-j 2.0 \
+        --first-cell-j-start 1.4e-3 --first-cell-j-end 1.4e-3
 
-# Generate a cpipe grid with hyperbolic clustering near the walls
-python3 generators/grid.gen cpipe --ncells-i 32 --ncells-j 32 --stretch-i 2.5 --stretch-j 2.5
+# Backward-facing step: the wall is a list of segments, and the step is one of them
+python3 generators/grid.gen box --ncells-i 200 --bounds-x 0 20 --bounds-y 0 2 \
+        --wall-j-lo flat:len=4,y=1 step:len=1,dy=-1 flat:len=15
 
-# Generate a cpipe grid with specific first cell dimensions
-python3 generators/grid.gen cpipe --ncells-i 32 --ncells-j 32 --first-cell-i-start 0.01 --first-cell-j-start 0.01
+# Rib-roughened channel: the same list, repeated
+python3 generators/grid.gen box --ncells-i 240 --bounds-x 0 12 --bounds-y 0 2 \
+        --wall-j-lo flat:len=1 step:len=0.5,dy=0.3 flat:len=0.5 step:len=0.5,dy=-0.3 \
+                    flat:len=1 step:len=0.5,dy=0.3 flat:len=0.5 step:len=0.5,dy=-0.3 \
+                    flat:len=7.5
+
+# Round duct through a U-bend
+python3 generators/grid.gen sweep --cross-section circle --side-lengths 1 1 \
+        --path straight:len=5 arc:radius=4,deg=180 straight:len=5
+
+# Nozzle: the same sweep with a scale field along the path
+python3 generators/grid.gen sweep --cross-section circle --side-lengths 2 2 \
+        --path straight:len=10 \
+        --cross-section-scale flat:len=3,y=1 step:len=4,dy=-0.5 flat:len=3
+
+# Place the result somewhere other than the bounding-box corner
+python3 generators/grid.gen box --transforms anchor:mode=bbox_center,x=0,y=0,z=0
+
+# Report wall units for a target friction Reynolds number
+python3 generators/grid.gen box --config config/grids/plane_channel_retau180.cfg \
+        --re-tau 180 --length-ref 1.0 --nu 3.5714286e-04
 
 # Convert legacy 1D-axis grid payload to canonical PICGRID
 python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid --no-write-vtk
 """
-    
+
     parser = argparse.ArgumentParser(description=prog_description, formatter_class=argparse.RawDescriptionHelpFormatter, epilog=prog_epilog)
     parser.add_argument("-c", "--config", help="Path to configuration file.", metavar="FILE")
     subparsers = parser.add_subparsers(dest='grid_type', title='Available Commands', metavar='COMMAND', help='Run "COMMAND -h" for more information.')
     
     # --- MODIFIED: Added stretch factors and first cell parameters to defaults ---
     default_map = {
-        'cpipe': {
-            'ncells_i': 16, 'ncells_j': 16, 'ncells_k': 100, 'side_lengths': [1.0, 1.0],
-            'rc_factor': 4.0, 'straight_factor': 5.0, 'bend_angle': 90.0, 'orientation': 'xy',
-            'origin': [0.0, 0.0, 0.0], 'show_stats': True, 'write_vtk': True,
-            'stretch_i': 0.0, 'stretch_j': 0.0, 'stretch_k': 0.0,
-            'first_cell_i_start': None, 'first_cell_i_end': None,
-            'first_cell_j_start': None, 'first_cell_j_end': None,
-            'first_cell_k_start': None, 'first_cell_k_end': None,
-            'transforms': None,
-            'length_ref': None, 'nu': None, 'velocity_ref': None,
-            're_tau': None, 'u_tau': None,
-            'mg_levels': None, 'periodic': None,
-        },
-        'pipe': {
-            'ncells_phi': 24, 'ncells_r': 12, 'ncells_path': 100, 'diameter': 1.0,
-            'rc_factor': 2.0, 'straight_factor': 5.0, 'bend_angle': 90.0,
-            'pinhole_factor': 0.05, 'orientation': 'xy', 'origin': [0.0, 0.0, 0.0],
-            'show_stats': True, 'write_vtk': True,
-            'stretch_i': 0.0, 'stretch_j': 0.0, 'stretch_k': 0.0,
-            'first_cell_i_start': None, 'first_cell_i_end': None,
-            'first_cell_j_start': None, 'first_cell_j_end': None,
-            'first_cell_k_start': None, 'first_cell_k_end': None,
-            'transforms': None,
-            'length_ref': None, 'nu': None, 'velocity_ref': None,
-            're_tau': None, 'u_tau': None,
-            'mg_levels': None, 'periodic': None,
-        },
-        'warp': {
-            'ncells_i': 20, 'ncells_j': 20, 'ncells_k': 20, 'bounds_x': [0.0, 1.0],
-            'bounds_y': [0.0, 1.0], 'bounds_z': [0.0, 1.0], 'amp_A': 0.1,
-            'amp_B': 0.05, 'amp_C': 0.05, 'origin': [0.0, 0.0, 0.0],
-            'show_stats': True, 'write_vtk': True,
-            'stretch_i': 0.0, 'stretch_j': 0.0, 'stretch_k': 0.0,
-            'first_cell_i_start': None, 'first_cell_i_end': None,
-            'first_cell_j_start': None, 'first_cell_j_end': None,
-            'first_cell_k_start': None, 'first_cell_k_end': None,
-            'transforms': None,
-            'length_ref': None, 'nu': None, 'velocity_ref': None,
-            're_tau': None, 'u_tau': None,
-            'mg_levels': None, 'periodic': None,
-        },
         'box': {
             'ncells_i': 20, 'ncells_j': 20, 'ncells_k': 20, 'bounds_x': [0.0, 1.0],
             'bounds_y': [0.0, 1.0], 'bounds_z': [0.0, 1.0],
@@ -2207,38 +1931,6 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
     vtk_group.add_argument('--write-vtk', action='store_true', dest='write_vtk', default=argparse.SUPPRESS, help="Write the default VTK output file.")
     vtk_group.add_argument('--no-write-vtk', action='store_false', dest='write_vtk', default=argparse.SUPPRESS, help="Disable writing the VTK output file.")
 
-    p_cpipe = subparsers.add_parser('cpipe', help='Bent pipe with a rectangular cross-section.', parents=[parent])
-    add_arg(p_cpipe, '--ncells-i', type=int, help="Cells in 1st cross-section dir.")
-    add_arg(p_cpipe, '--ncells-j', type=int, help="Cells in 2nd cross-section dir.")
-    add_arg(p_cpipe, '--ncells-k', type=int, help="Cells along the pipe path (streamwise).")
-    add_arg(p_cpipe, '--side-lengths', type=float, nargs=2, metavar=('I', 'J'))
-    add_arg(p_cpipe, '--rc-factor', type=float)
-    add_arg(p_cpipe, '--straight-factor', type=float)
-    add_arg(p_cpipe, '--bend-angle', type=float, help="Bend angle in degrees.")
-    add_arg(p_cpipe, '--orientation', choices=['xy', 'xz'])
-
-    p_pipe = subparsers.add_parser('pipe', help='Bent pipe with a circular cross-section (O-grid).', parents=[parent])
-    add_arg(p_pipe, '--ncells-phi', type=int, help="Cells circumferentially (i-dir).")
-    add_arg(p_pipe, '--ncells-r', type=int, help="Cells radially (j-dir).")
-    add_arg(p_pipe, '--ncells-path', type=int, help="Cells along the pipe path (k-dir).")
-    add_arg(p_pipe, '--diameter', type=float)
-    add_arg(p_pipe, '--rc-factor', type=float)
-    add_arg(p_pipe, '--straight-factor', type=float)
-    add_arg(p_pipe, '--bend-angle', type=float, help="Bend angle in degrees.")
-    add_arg(p_pipe, '--pinhole-factor', type=float)
-    add_arg(p_pipe, '--orientation', choices=['xy', 'xz'])
-    
-    p_warp = subparsers.add_parser('warp', help='A generic warped Cartesian block.', parents=[parent])
-    add_arg(p_warp, '--ncells-i',type=int)
-    add_arg(p_warp, '--ncells-j',type=int)
-    add_arg(p_warp, '--ncells-k',type=int)
-    add_arg(p_warp, '--bounds-x',type=float,nargs=2,metavar=('MIN','MAX'))
-    add_arg(p_warp, '--bounds-y',type=float,nargs=2,metavar=('MIN','MAX'))
-    add_arg(p_warp, '--bounds-z',type=float,nargs=2,metavar=('MIN','MAX'))
-    add_arg(p_warp, '--amp-A',type=float)
-    add_arg(p_warp, '--amp-B',type=float)
-    add_arg(p_warp, '--amp-C',type=float)
-
     p_box = subparsers.add_parser(
         'box',
         help='A Cartesian block whose bounding walls may be shaped.',
@@ -2275,7 +1967,7 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
     add_arg(p_sweep, '--ncells-i', type=int, help="Cells across the 1st section direction.")
     add_arg(p_sweep, '--ncells-j', type=int, help="Cells across the 2nd section direction.")
     add_arg(p_sweep, '--ncells-k', type=int, help="Cells along the path.")
-    add_arg(p_sweep, '--cross-section', choices=list(GRID_CROSS_SECTIONS),
+    add_arg(p_sweep, '--cross-section', choices=list(GRID_CROSS_SECTION_KINDS),
             help="Cross-section shape swept along the path.")
     add_arg(p_sweep, '--side-lengths', type=float, nargs=2, metavar=('I', 'J'),
             help="Full width across each section direction; for `circle`, the two "
@@ -2426,31 +2118,7 @@ python3 generators/grid.gen legacy1d --input legacy.grid --output legacy.picgrid
     # A malformed geometry specification is a user error, not an internal fault, so it
     # gets the same one-line report as a bad command-line argument.
     try:
-        if args.grid_type == 'cpipe':
-            X, Y, Z, stretch_factors = cartesian_pipe_grid(
-                ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
-                side_lengths=args.side_lengths, Rc_factor=args.rc_factor,
-                straight_factor=args.straight_factor, bend_angle_deg=args.bend_angle,
-                orientation=args.orientation, origin=args.origin,
-                stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
-                first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
-                first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
-                first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
-                transforms=getattr(args, 'transforms', None)
-            )
-        elif args.grid_type == 'pipe':
-            X, Y, Z, stretch_factors = bent_pipe_grid(
-                ncells_phi=args.ncells_phi, ncells_r=args.ncells_r, ncells_path=args.ncells_path,
-                D=args.diameter, Rc_factor=args.rc_factor, straight_factor=args.straight_factor,
-                bend_angle_deg=args.bend_angle, pinhole_factor=args.pinhole_factor,
-                orientation=args.orientation, origin=args.origin,
-                stretch_i=args.stretch_i, stretch_j=args.stretch_j, stretch_k=args.stretch_k,
-                first_cell_i_start=args.first_cell_i_start, first_cell_i_end=args.first_cell_i_end,
-                first_cell_j_start=args.first_cell_j_start, first_cell_j_end=args.first_cell_j_end,
-                first_cell_k_start=args.first_cell_k_start, first_cell_k_end=args.first_cell_k_end,
-                transforms=getattr(args, 'transforms', None)
-            )
-        elif args.grid_type == 'sweep':
+        if args.grid_type == 'sweep':
             X, Y, Z, stretch_factors = sweep_grid(
                 ncells_i=args.ncells_i, ncells_j=args.ncells_j, ncells_k=args.ncells_k,
                 cross_section=args.cross_section, side_lengths=args.side_lengths,

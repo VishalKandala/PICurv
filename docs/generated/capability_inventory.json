@@ -635,21 +635,121 @@
     "id": "grid.generator_type",
     "parity": [],
     "public_values": {
-      "cpipe": {
-        "maps_to": "cpipe",
+      "box": {
+        "maps_to": "box",
         "status": "experimental"
       },
-      "pipe": {
-        "maps_to": "pipe",
+      "sweep": {
+        "maps_to": "sweep",
         "status": "experimental"
-      },
-      "warp": {
-        "maps_to": "warp",
-        "status": "supported"
       }
     },
     "selector": "case.yml -> grid.generator.grid_type",
     "title": "Grid Generator Geometries"
+  },
+  {
+    "family_page": "48_Grid_Generator_Guide",
+    "id": "grid.cross_section",
+    "parity": [],
+    "public_values": {
+      "circle": {
+        "maps_to": "circle",
+        "status": "experimental"
+      },
+      "rectangle": {
+        "maps_to": "rectangle",
+        "status": "experimental"
+      }
+    },
+    "selector": "grid.gen sweep --cross-section, or the `cross_section` config key",
+    "title": "Swept Cross-Sections"
+  },
+  {
+    "family_page": "48_Grid_Generator_Guide",
+    "id": "grid.wall_segment",
+    "parity": [],
+    "public_values": {
+      "arc": {
+        "maps_to": "arc",
+        "status": "experimental"
+      },
+      "flat": {
+        "maps_to": "flat",
+        "status": "experimental"
+      },
+      "gaussian": {
+        "maps_to": "gaussian",
+        "status": "experimental"
+      },
+      "hill": {
+        "maps_to": "hill",
+        "status": "experimental"
+      },
+      "ramp": {
+        "maps_to": "ramp",
+        "status": "experimental"
+      },
+      "sine": {
+        "maps_to": "sine",
+        "status": "experimental"
+      },
+      "step": {
+        "maps_to": "step",
+        "status": "experimental"
+      }
+    },
+    "selector": "grid.gen box --wall-j-lo / --wall-j-hi, or the `wall_j_*` config keys",
+    "title": "Wall Height Field Segments"
+  },
+  {
+    "family_page": "48_Grid_Generator_Guide",
+    "id": "grid.path_segment",
+    "parity": [],
+    "public_values": {
+      "arc": {
+        "maps_to": "arc",
+        "status": "experimental"
+      },
+      "straight": {
+        "maps_to": "straight",
+        "status": "experimental"
+      }
+    },
+    "selector": "grid.gen sweep --path, or the `path` config key",
+    "title": "Centreline Path Segments"
+  },
+  {
+    "family_page": "48_Grid_Generator_Guide",
+    "id": "grid.transform",
+    "parity": [],
+    "public_values": {
+      "anchor": {
+        "maps_to": "anchor",
+        "status": "experimental"
+      },
+      "mirror": {
+        "maps_to": "mirror",
+        "status": "experimental"
+      },
+      "permute": {
+        "maps_to": "permute",
+        "status": "experimental"
+      },
+      "rotate": {
+        "maps_to": "rotate",
+        "status": "experimental"
+      },
+      "scale": {
+        "maps_to": "scale",
+        "status": "experimental"
+      },
+      "translate": {
+        "maps_to": "translate",
+        "status": "experimental"
+      }
+    },
+    "selector": "grid.gen --transforms, or the `transforms` config key",
+    "title": "Grid Placement and Similarity Transforms"
   },
   {
     "family_page": "45_Particle_Initialization_and_Restart",

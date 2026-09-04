@@ -131,8 +131,10 @@ grid:
   # --- Option B: Grid via Python Grid Generator (generators/grid.gen) ---
   # Use this for complex curvilinear meshes generated before solver launch.
   # generator:
-  #   config_file: "config/grids/coarse_square_tube_curved.cfg"    # Required today. Relative to case.yml or absolute.
-  #   grid_type: "cpipe"               # Optional override: cpipe | pipe | warp
+  #   config_file: "config/grids/plane_channel_retau180.cfg"       # Required today. Relative to case.yml or absolute.
+  #   grid_type: "box"                 # Optional override: box | sweep
+  #   # `box` is a Cartesian block whose walls may be shaped; `sweep` carries a
+  #   # cross-section along a centreline. See 48_Grid_Generator_Guide.
   #   cli_args:                        # Optional raw CLI token list
   #     - "--ncells-i"
   #     - "96"

@@ -2872,12 +2872,12 @@ def test_dry_run_grid_gen_lists_planned_grid_artifacts(tmp_path):
     """
     valid = FIXTURES / "valid"
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
-    (tmp_path / "grid.cfg").write_text("grid_type = warp\n", encoding="utf-8")
+    (tmp_path / "grid.cfg").write_text("[box]\nncells_i = 2\n", encoding="utf-8")
     case_cfg["grid"] = {
         "mode": "grid_gen",
         "generator": {
             "config_file": "grid.cfg",
-            "grid_type": "warp",
+            "grid_type": "box",
         },
     }
     case_path = tmp_path / "case_grid_gen.yml"
@@ -2965,8 +2965,8 @@ def test_grid_gen_hyphenated_generator_keys_warn_without_aliasing(tmp_path):
         "mode": "grid_gen",
         "generator": {
             "config_file": str(REPO_ROOT / "config" / "grids" / "coarse_square_tube_curved.cfg"),
-            "grid-type": "cpipe",
-            "grid_type": "cpipe",
+            "grid-type": "sweep",
+            "grid_type": "sweep",
             "cli_args": ["--ncells-i", "2", "--ncells-j", "2", "--ncells-k", "4", "--no-show-stats", "--no-write-vtk"],
         },
     }
@@ -3092,7 +3092,7 @@ def test_local_no_submit_solve_stages_grid_gen_without_executing(tmp_path):
         "mode": "grid_gen",
         "generator": {
             "config_file": str(REPO_ROOT / "config" / "grids" / "coarse_square_tube_curved.cfg"),
-            "grid_type": "cpipe",
+            "grid_type": "sweep",
             "cli_args": ["--ncells-i", "2", "--ncells-j", "2", "--ncells-k", "4", "--no-show-stats", "--no-write-vtk"],
         },
     }
@@ -3239,7 +3239,7 @@ def test_local_no_submit_stages_grid_gen_before_generated_profile(tmp_path):
         "mode": "grid_gen",
         "generator": {
             "config_file": str(REPO_ROOT / "config" / "grids" / "coarse_square_tube_curved.cfg"),
-            "grid_type": "warp",
+            "grid_type": "box",
             "cli_args": ["--ncells-i", "3", "--ncells-j", "4", "--ncells-k", "5", "--no-show-stats", "--no-write-vtk"],
         },
     }
@@ -4930,7 +4930,7 @@ def test_grid_gen_exports_node_counts_from_cell_inputs(tmp_path):
         [
             sys.executable,
             str(REPO_ROOT / "generators" / "grid.gen"),
-            "warp",
+            "box",
             "--ncells-i",
             "2",
             "--ncells-j",
@@ -5090,7 +5090,7 @@ def test_generate_solver_control_file_applies_top_level_da_processors_for_grid_g
         "da_processors_z": 2,
         "generator": {
             "config_file": str(REPO_ROOT / "config" / "grids" / "coarse_square_tube_curved.cfg"),
-            "grid_type": "cpipe",
+            "grid_type": "sweep",
         },
     }
     case_path = tmp_path / "case_grid_gen.yml"
@@ -5141,7 +5141,7 @@ def test_generate_solver_control_file_reuses_grid_gen_grid_on_continue(tmp_path,
         "mode": "grid_gen",
         "generator": {
             "config_file": str(tmp_path / "missing_grid.cfg"),
-            "grid_type": "warp",
+            "grid_type": "box",
         },
     }
     case_path = tmp_path / "case_grid_gen_continue.yml"
@@ -8923,12 +8923,12 @@ def test_generator_destination_keys_are_rejected(tmp_path):
     """
     valid = FIXTURES / "valid"
     case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
-    (tmp_path / "grid.cfg").write_text("grid_type = warp\n", encoding="utf-8")
+    (tmp_path / "grid.cfg").write_text("[box]\nncells_i = 2\n", encoding="utf-8")
     case_cfg["grid"] = {
         "mode": "grid_gen",
         "generator": {
             "config_file": "grid.cfg",
-            "grid_type": "warp",
+            "grid_type": "box",
             "output_file": "config/grid.generated.picgrid",
             "vts_file": "somewhere/else.vts",
         },

@@ -43,7 +43,7 @@
         "10_Post_Processing_Reference",
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:adedb1fe6fdcbfdc56dc3a39f91e875cbd80e1a13f2e8d380edf77dcfd71188b"
+      "attested_digest": "sha256:6e971f00b63e2fda078ab80b951a004729ae1e8d47883b7c65f5d3b06d0ae32c"
     },
     {
       "id": "capability.evidence_matrix",
@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:6892b9ce8da29bf0770f41ef07c91e679218f401bbbf8d0c3fd3087d164fcd9c"
+      "attested_digest": "sha256:af27f403ec201d73214a8db12b2368910c36f9ad54d154413fc507f4049dd6a7"
     },
     {
       "id": "artifact.topology",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:4c83245de32a5388a4533351c22d8e318edac98106b72507cdf0ac95a5a9311d",
+      "attested_digest": "sha256:7b2de78e217971e595d281f9ecfa33c65f97a3741d00f0be374dffb197a7eb74",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },

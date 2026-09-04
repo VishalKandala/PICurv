@@ -168,7 +168,7 @@ grid:
   mode: grid_gen
   generator:
     config_file: config/grids/coarse_square_tube_curved.cfg
-    grid_type: cpipe
+    grid_type: sweep
     cli_args: ["--ncells-i", "96", "--ncells-j", "96"]
 ```
 

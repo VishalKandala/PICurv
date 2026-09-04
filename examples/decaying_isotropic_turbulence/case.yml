@@ -32,32 +32,8 @@ grid:
   # needs an inspectable file-backed grid asset, not a grid created later in C.
   mode: grid_gen
   generator:
-    config_file: ../../config/grids/coarse_square_tube_curved.cfg
-    grid_type: warp
-    cli_args:
-      - --ncells-i
-      - '64'
-      - --ncells-j
-      - '64'
-      - --ncells-k
-      - '64'
-      - --bounds-x
-      - '0.0'
-      - '6.283185307179586'
-      - --bounds-y
-      - '0.0'
-      - '6.283185307179586'
-      - --bounds-z
-      - '0.0'
-      - '6.283185307179586'
-      - --amp-A
-      - '0.0'
-      - --amp-B
-      - '0.0'
-      - --amp-C
-      - '0.0'
-      - --no-show-stats
-      - --no-write-vtk
+    config_file: ../../config/grids/isotropic_box_64.cfg
+    grid_type: box
 
 models:
   domain: {blocks: 1}
