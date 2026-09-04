@@ -21,7 +21,7 @@
         "36_Cluster_Run_Guide",
         "37_Sweep_Studies_Guide"
       ],
-      "attested_digest": "sha256:ace57d9317cc1a92d2e11a1eb376b75107b9e4cda5278e0e66f1c77bb0bab9a8",
+      "attested_digest": "sha256:ac666363a240a2cb3a62211d3c30910fb62797e3350a5885f4a59fd4b890dc19",
       "note": "Normalized argparse structure, so a comment or docstring change in cli.py does not fire this fingerprint."
     },
     {

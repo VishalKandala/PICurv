@@ -9,7 +9,7 @@
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>make_args</code> (positional)</td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Arguments to pass directly to the make command (e.g., 'clean-project').</td></tr>
 </table>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--source-root</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Optional override for the PICurv source repository root.</td></tr>
@@ -17,7 +17,7 @@
 </table>
 <h3 id="cli_cancel"><code>picurv cancel</code></h3>
 <p>Look up scheduler/submission.json inside an existing run directory and cancel</p>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--run-dir</code></td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to the run directory whose Slurm job(s) should be canceled.</td></tr>
@@ -31,7 +31,7 @@
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>template_name</code> (positional)</td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Name of the case template directory to copy (e.g., 'flat_channel').</td></tr>
 </table>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--dest</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Optional name for the new directory. Defaults to the template name.
@@ -43,7 +43,7 @@ Use this to freeze specific binary versions for reproducibility
 or to protect running jobs from concurrent rebuilds.</td></tr>
 </table>
 <h3 id="cli_inputs"><code>picurv inputs</code></h3>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 </table>
@@ -53,7 +53,7 @@ or to protect running jobs from concurrent rebuilds.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>kind</code> (positional)</td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone"><code>grid</code>, <code>initial-condition</code>, <code>inlet-profile</code>, <code>reference-field</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 <tr><td class="markdownTableBodyNone"><code>source</code> (positional)</td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Existing source file.</td></tr>
 </table>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--name</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Destination name; defaults to the source basename.</td></tr>
@@ -62,7 +62,7 @@ or to protect running jobs from concurrent rebuilds.</td></tr>
 </table>
 <h3 id="cli_precompute"><code>picurv precompute</code></h3>
 <p>Generate configured deterministic artifacts, such as grid_gen grids,</p>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--case</code></td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to case.yml containing grid/profile/IC generator settings.</td></tr>
@@ -70,7 +70,7 @@ or to protect running jobs from concurrent rebuilds.</td></tr>
 </table>
 <h3 id="cli_pull_source"><code>picurv pull-source</code></h3>
 <p>Update the source repository without leaving an initialized case directory.</p>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--case-dir</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Optional case directory used to resolve .picurv-origin.json.</td></tr>
@@ -82,7 +82,7 @@ or to protect running jobs from concurrent rebuilds.</td></tr>
 </table>
 <h3 id="cli_run"><code>picurv run</code></h3>
 <p>Execute solver and/or post-processing stages.</p>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>-n</code>, <code>--num-procs</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>1</code></td><td class="markdownTableBodyNone">Number of MPI processes for solver and post-processing stages.</td></tr>
@@ -124,19 +124,19 @@ and/or 'spectra'. Defaults to every stage.
 Use --only spectra to re-measure spectra without rebuilding field output.</td></tr>
 </table>
 <h3 id="cli_source"><code>picurv source</code></h3>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 </table>
 <h4 id="cli_source_update"><code>picurv source update</code></h4>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--remote</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>origin</code></td><td class="markdownTableBodyNone"></td></tr>
 </table>
 <h3 id="cli_status_source"><code>picurv status-source</code></h3>
 <p>Inspect whether the source repo, copied binaries, and template-managed files have drifted</p>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--case-dir</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Optional case directory used to resolve .picurv-origin.json.</td></tr>
@@ -146,12 +146,12 @@ Use --only spectra to re-measure spectra without rebuilding field output.</td></
 </table>
 <h3 id="cli_storage"><code>picurv storage</code></h3>
 <p>Manage PICurv run and study data through a configured rclone remote.</p>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 </table>
 <h4 id="cli_storage_list"><code>picurv storage list</code></h4>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--profile</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Configured storage profile name.</td></tr>
@@ -161,7 +161,7 @@ Use --only spectra to re-measure spectra without rebuilding field output.</td></
 <tr><td class="markdownTableBodyNone"><code>--format</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>json</code>, <code>text</code></td><td class="markdownTableBodyNone"><code>text</code></td><td class="markdownTableBodyNone"></td></tr>
 </table>
 <h4 id="cli_storage_offload"><code>picurv storage offload</code></h4>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--run-dir</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Standalone run directory.</td></tr>
@@ -186,7 +186,7 @@ comma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw
 <tr><td class="markdownTableBodyNone"><code>--dry-run</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone"></td></tr>
 </table>
 <h4 id="cli_storage_plan"><code>picurv storage plan</code></h4>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--run-dir</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Standalone run directory.</td></tr>
@@ -206,7 +206,7 @@ comma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw
 <tr><td class="markdownTableBodyNone"><code>--drop-all-checkpoints</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 </table>
 <h4 id="cli_storage_protect"><code>picurv storage protect</code></h4>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--run-dir</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Standalone run directory.</td></tr>
@@ -231,7 +231,7 @@ comma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw
 <tr><td class="markdownTableBodyNone"><code>--dry-run</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone"></td></tr>
 </table>
 <h4 id="cli_storage_prune"><code>picurv storage prune</code></h4>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--workspace</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Workspace root; defaults to discovery from the cwd.</td></tr>
@@ -242,7 +242,7 @@ comma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw
 <tr><td class="markdownTableBodyNone"><code>--storage-config</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Explicit storage YAML path.</td></tr>
 </table>
 <h4 id="cli_storage_restore"><code>picurv storage restore</code></h4>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--archive-id</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Globally unique remote archive ID.</td></tr>
@@ -260,7 +260,7 @@ comma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw
 <tr><td class="markdownTableBodyNone"><code>--workers</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Parallel download/extraction workers.</td></tr>
 </table>
 <h4 id="cli_storage_setup"><code>picurv storage setup</code></h4>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--remote</code></td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Rclone remote and base path, such as labstore:picurv-data.</td></tr>
@@ -275,7 +275,7 @@ comma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw
 <tr><td class="markdownTableBodyNone"><code>--dry-run</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone"></td></tr>
 </table>
 <h4 id="cli_storage_show"><code>picurv storage show</code></h4>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--archive-id</code></td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
@@ -283,7 +283,7 @@ comma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw
 <tr><td class="markdownTableBodyNone"><code>--storage-config</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Explicit storage YAML path.</td></tr>
 </table>
 <h4 id="cli_storage_status"><code>picurv storage status</code></h4>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--run-dir</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Standalone run directory.</td></tr>
@@ -294,7 +294,7 @@ comma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw
 <tr><td class="markdownTableBodyNone"><code>--format</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>json</code>, <code>text</code></td><td class="markdownTableBodyNone"><code>text</code></td><td class="markdownTableBodyNone"></td></tr>
 </table>
 <h4 id="cli_storage_verify"><code>picurv storage verify</code></h4>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--archive-id</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
@@ -306,7 +306,7 @@ comma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw
 </table>
 <h3 id="cli_submit"><code>picurv submit</code></h3>
 <p>Consume an existing artifact set created by picurv --no-submit and</p>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--run-dir</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to a staged run directory created by `picurv run ... --no-submit`.</td></tr>
@@ -317,7 +317,7 @@ comma-separated. One of: checkpoints, logs, analysis, visualization, inputs, raw
 </table>
 <h3 id="cli_summarize"><code>picurv summarize</code></h3>
 <p>Build read-only configuration overviews, run-health summaries, and scalar time-history plots.</p>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--run-dir</code></td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to the run directory to inspect.</td></tr>
@@ -343,7 +343,7 @@ task-name substring when the recipe measured more than one spectrum
 </table>
 <h3 id="cli_sweep"><code>picurv sweep</code></h3>
 <p>Launch studies from study.yml + cluster.yml, whether the study uses</p>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--study</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to study.yml defining either a `parameters` cross-product expansion or explicit parameter_sets, plus metrics.</td></tr>
@@ -357,7 +357,7 @@ refusing. Requires a configured storage profile.</td></tr>
 </table>
 <h3 id="cli_sync_config"><code>picurv sync-config</code></h3>
 <p>Copy updated example template files into an existing case directory.</p>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--case-dir</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Optional case directory to refresh. Defaults to the current case.</td></tr>
@@ -368,7 +368,7 @@ refusing. Requires a configured storage profile.</td></tr>
 </table>
 <h3 id="cli_validate"><code>picurv validate</code></h3>
 <p>Validate one or more config roles. No solver/post execution and no run/study artifact writes.</p>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--case</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to case.yml</td></tr>
@@ -388,13 +388,13 @@ refusing. Requires a configured storage profile.</td></tr>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>version_action</code> (positional)</td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>status</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">'status' validates conductor/executable/workspace coherence and exits 1 on disagreement.</td></tr>
 </table>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--format</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>json</code>, <code>text</code></td><td class="markdownTableBodyNone"><code>text</code></td><td class="markdownTableBodyNone"></td></tr>
 </table>
 <h3 id="cli_versions"><code>picurv versions</code></h3>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 </table>
@@ -403,7 +403,7 @@ refusing. Requires a configured storage profile.</td></tr>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>version</code> (positional)</td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Version/tag; defaults to the workspace requirement.</td></tr>
 </table>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--workspace</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Workspace root; defaults to discovery from the current directory.</td></tr>
@@ -413,12 +413,12 @@ refusing. Requires a configured storage profile.</td></tr>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>version</code> (positional)</td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
 </table>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 </table>
 <h4 id="cli_versions_list"><code>picurv versions list</code></h4>
-<p><b>optional arguments</b></p>
+<p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
 </table>

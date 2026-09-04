@@ -59,6 +59,27 @@ def describe_action(action) -> dict:
     }
 
 
+#: argparse's own title for the group of options nobody explicitly grouped. Python
+#: renamed it from "optional arguments" to "options" in 3.10 (bpo-9694); a group's
+#: title is otherwise a literal string this repo wrote, so only this one default
+#: needs normalizing. Left un-normalized, the generated reference would flip between
+#: spellings depending on which Python happened to run the generator, making `--check`
+#: fail on any interpreter that disagrees with whichever one last regenerated the file.
+_DEFAULT_GROUP_TITLE_SPELLINGS = frozenset({"optional arguments", "options"})
+_CANONICAL_DEFAULT_GROUP_TITLE = "options"
+
+
+def _normalize_group_title(title) -> str:
+    """!
+    @brief Resolve one argparse group title to a Python-version-independent form.
+    @param[in] title Raw `group.title` from argparse, or None for the positional group.
+    @return Canonical title.
+    """
+    if title in _DEFAULT_GROUP_TITLE_SPELLINGS:
+        return _CANONICAL_DEFAULT_GROUP_TITLE
+    return title or "arguments"
+
+
 def subcommands(parser) -> dict:
     """!
     @brief The subparser map of a parser, if it has one.
@@ -87,7 +108,7 @@ def describe_parser(name: str, parser) -> dict:
             and action.dest != argparse.SUPPRESS
         ]
         if actions:
-            groups.setdefault(group.title or "arguments", []).extend(actions)
+            groups.setdefault(_normalize_group_title(group.title), []).extend(actions)
     children = {
         child: describe_parser(child, child_parser)
         for child, child_parser in sorted(subcommands(parser).items())

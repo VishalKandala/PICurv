@@ -2,7 +2,7 @@
   "commands": {
     "build": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -60,7 +60,7 @@
     },
     "cancel": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -134,7 +134,7 @@
     },
     "init": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -204,7 +204,7 @@
     },
     "inputs": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -225,7 +225,7 @@
       "subcommands": {
         "import": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,
@@ -317,7 +317,7 @@
     },
     "precompute": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -363,7 +363,7 @@
     },
     "pull-source": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -457,7 +457,7 @@
     },
     "run": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -721,7 +721,7 @@
     },
     "source": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -742,7 +742,7 @@
       "subcommands": {
         "update": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,
@@ -778,7 +778,7 @@
     },
     "status-source": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -851,7 +851,7 @@
     },
     "storage": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -872,7 +872,7 @@
       "subcommands": {
         "list": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,
@@ -957,7 +957,7 @@
         },
         "offload": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,
@@ -1217,7 +1217,7 @@
         },
         "plan": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,
@@ -1417,7 +1417,7 @@
         },
         "protect": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,
@@ -1677,7 +1677,7 @@
         },
         "prune": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,
@@ -1771,7 +1771,7 @@
         },
         "restore": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,
@@ -1959,7 +1959,7 @@
         },
         "setup": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,
@@ -2111,7 +2111,7 @@
         },
         "show": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,
@@ -2169,7 +2169,7 @@
         },
         "status": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,
@@ -2266,7 +2266,7 @@
         },
         "verify": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,
@@ -2362,7 +2362,7 @@
     },
     "submit": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -2448,7 +2448,7 @@
     },
     "summarize": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -2677,7 +2677,7 @@
     },
     "sweep": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -2783,7 +2783,7 @@
     },
     "sync-config": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -2865,7 +2865,7 @@
     },
     "validate": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -3007,7 +3007,7 @@
     },
     "version": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -3058,7 +3058,7 @@
     },
     "versions": {
       "groups": {
-        "optional arguments": [
+        "options": [
           {
             "choices": [],
             "default": null,
@@ -3079,7 +3079,7 @@
       "subcommands": {
         "activate": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,
@@ -3125,7 +3125,7 @@
         },
         "install": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,
@@ -3159,7 +3159,7 @@
         },
         "list": {
           "groups": {
-            "optional arguments": [
+            "options": [
               {
                 "choices": [],
                 "default": null,

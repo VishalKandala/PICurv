@@ -22,6 +22,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest pyyaml numpy
 
+      - name: Install Doxygen toolchain
+        run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
+
+      # Built before the test suite runs: tests/test_repo_file_enumeration.py exercises
+      # audit_docs_site.py as a subprocess, and that audit requires docs_build/html to
+      # already exist. Building it here, ahead of everything that depends on it, is
+      # cheaper than teaching every dependent check to build it lazily on demand.
+      - name: Build documentation (publication artifact)
+        run: make --no-print-directory build-docs
+
+      - name: Fail on Doxygen warnings
+        run: |
+          if [ -s logs/doxygen.warnings ]; then
+            echo "Doxygen emitted warnings:"
+            cat logs/doxygen.warnings
+            exit 1
+          fi
+
       - name: Run function documentation audit
         run: python tests/tooling/audit_function_docs.py
 
@@ -51,20 +69,6 @@ jobs:
 
       - name: Reject unmanaged run-path literals
         run: python tests/tooling/audit_path_literals.py
-
-      - name: Install Doxygen toolchain
-        run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
-
-      - name: Build documentation (publication artifact)
-        run: make --no-print-directory build-docs
-
-      - name: Fail on Doxygen warnings
-        run: |
-          if [ -s logs/doxygen.warnings ]; then
-            echo "Doxygen emitted warnings:"
-            cat logs/doxygen.warnings
-            exit 1
-          fi
 
       - name: Verify published-site URLs and navigation
         run: python tests/tooling/audit_docs_site.py
