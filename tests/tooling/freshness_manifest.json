@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:8da4a1390b4b8f0b00af95cd893898cd0a681a027319cd2aeb326e49596506ea"
+      "attested_digest": "sha256:fd4c82426aa330032d5daafdb38fac7696070c1047d8bec2ee07af5a134954b2"
     },
     {
       "id": "artifact.topology",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:7b2de78e217971e595d281f9ecfa33c65f97a3741d00f0be374dffb197a7eb74",
+      "attested_digest": "sha256:c71730c423f29e51298e1a69a706681c8bf22af0fac342d12b78900851717cb0",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
@@ -317,7 +317,7 @@
       "dependent_pages": [
         "07_Case_Reference"
       ],
-      "attested_digest": "sha256:66c52f8e7ca7474d591032f614ad7512aef0789ea875c463ec4785ebac95b381",
+      "attested_digest": "sha256:bd559d67c9c76d8a70e30c728ac0d252136a1a30e1e3a48a093fbb306bd450f8",
       "note": "Page 48 enumerates the geometries, their options and the quality report. Nothing watched this file before, so the page describing it could never be flagged stale no matter how far the generator moved."
     }
   ]

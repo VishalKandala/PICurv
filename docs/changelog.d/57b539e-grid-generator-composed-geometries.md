@@ -11,8 +11,10 @@
     every shipped `[warp]` config section regenerates byte-identical under `[box]` with
     nothing but the section renamed, which is the proof its migration was faithful.
   - `sweep` carries a cross-section (`rectangle` or the square-to-disc `circle` map,
-    chosen over an O-grid because that needs a circumferential seam the runtime can only
-    reach through an unselectable `cgrid` branch) along a piecewise centreline of
+    chosen over an O-grid: `Metric.c` has a `cgrid` branch for a circumferential seam,
+    but it is wired only to `programmatic_c`'s `cgrids` flag, and even there the grid
+    generator never builds anything but a Cartesian box, so no path produces real O-grid
+    coordinates to seam) along a piecewise centreline of
     `straight` and `arc` segments, using a parallel-transported frame so a path leaving
     one plane does not twist the section about its own tangent. It reproduces the retired
     `cpipe` geometry to 1.8e-15 over a domain of size 13 (arithmetic reordering, not a

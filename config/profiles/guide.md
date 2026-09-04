@@ -46,7 +46,7 @@ boundary_conditions:
       source:
         type: field_slice
         field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
-        grid_file: ../old_run/config/grid.run
+        grid_file: ../old_run/inputs/grid/grid.run
         source_case: ../old_run/config/case.yml
         slice:
           face: "+Zeta"
@@ -84,8 +84,8 @@ python3 generators/profile.gen square_duct_poiseuille \
 python3 generators/profile.gen field-slice \
   --output inlet_from_old_run.picslice \
   --field-file old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat \
-  --source-grid old_run/config/grid.run \
-  --target-grid new_run/config/grid.run \
+  --source-grid old_run/inputs/grid/grid.run \
+  --target-grid new_run/inputs/grid/grid.run \
   --slice-face=+Zeta \
   --target-face=-Zeta \
   --orientation opposite \

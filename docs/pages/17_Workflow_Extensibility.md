@@ -18,12 +18,19 @@ This contract is already explicit in pages 14/15/16 and the ingress audit toolin
 
 Supported today:
 - External grid ingestion (`grid.mode: file`) with validation and non-dimensionalization in `picurv`
-- Pre-run generation (`grid.mode: grid_gen`) via `generators/grid.gen`
+- Pre-run generation (`grid.mode: grid_gen`) via `generators/grid.gen`, composed from `box` (a
+  Cartesian block with piecewise-shaped walls) and `sweep` (a cross-section swept along a
+  centreline); see **@subpage 48_Grid_Generator_Guide**
+- Structural pre-run refusals in `grid.gen` itself: a multigrid-illegal node count, a
+  periodic axis with an asymmetric seam or a rotation applied to it, and a wall or path
+  segment too short to represent
 
 Extension-friendly next steps:
-- Add additional generator wrappers under `grid.generator` (new `grid_type` aliases)
-- Add stronger pre-run grid quality checks in Python before solver launch
-- Add optional strict checks that block run if metrics exceed thresholds
+- Add additional `grid_type` geometries beyond `box`/`sweep`
+- Add optional strict checks that block a run when the *computed* quality metrics
+  (`Max_Non_Orthogonality_deg`, `Max_Aspect_Ratio`, ...) exceed a configured threshold,
+  rather than only reporting them in `.info` - the structural refusals above catch what
+  cannot work; nothing yet catches what merely works badly
 
 @section p17_orchestration_sec 3. Multi-Run Orchestration (Sweeps/Studies)
 

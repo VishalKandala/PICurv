@@ -905,7 +905,11 @@
         "rectangle": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "production": [
+              "example:examples/bent_channel"
+            ]
+          }
         },
         "circle": {
           "status": "experimental",
@@ -982,12 +986,20 @@
         "straight": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "production": [
+              "example:examples/bent_channel"
+            ]
+          }
         },
         "arc": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "production": [
+              "example:examples/bent_channel"
+            ]
+          }
         }
       }
     },

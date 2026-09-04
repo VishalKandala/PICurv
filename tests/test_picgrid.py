@@ -44,14 +44,6 @@ def test_picgrid_writers_share_round_trip_safe_precision(tmp_path):
     coordinate = np.array([[[0.12345678901234567]]])
     grid.export_grid_to_picgrid(str(direct), coordinate, coordinate, coordinate)
 
-    legacy = tmp_path / "legacy.grid"
-    legacy.write_text(
-        "1\n1 1 1\n0.12345678901234567\n0.23456789012345678\n0.34567890123456789\n",
-        encoding="utf-8",
-    )
-    converted = tmp_path / "converted.grid"
-    grid.convert_legacy_1d_to_picgrid(str(legacy), str(converted))
-
-    for path in (generated, normalized, direct, converted):
+    for path in (generated, normalized, direct):
         coordinate = path.read_text(encoding="utf-8").splitlines()[3].split()[0]
         assert len(coordinate.split("e")[0].replace(".", "").replace("-", "")) >= 18

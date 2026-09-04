@@ -256,32 +256,6 @@ def load_picurv_module():
     return module
 
 
-def write_legacy_1d_grid(path: Path) -> Path:
-    """!
-    @brief Write a minimal legacy 1D-axis grid payload for conversion tests.
-    @param[in] path Filesystem path argument passed to `write_legacy_1d_grid()`.
-    @return Value returned by `write_legacy_1d_grid()`.
-    """
-    path.write_text(
-        "\n".join(
-            [
-                "1",
-                "3 2 2",
-                "0.0 0 0",
-                "0.5 0 0",
-                "1.0 0 0",
-                "0 0.0 0",
-                "0 1.0 0",
-                "0 0 0.0",
-                "0 0 2.0",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    return path
-
-
 def write_canonical_picgrid(path: Path, dims=(3, 3, 3)) -> Path:
     """!
     @brief Write a minimal canonical PICGRID payload for file-grid tests.
@@ -587,6 +561,10 @@ def test_generate_solver_control_file_stages_ic_gen_after_grid(tmp_path):
 def test_generate_solver_control_file_stages_ic_gen_with_programmatic_grid(tmp_path):
     """!
     @brief Verify ic_gen is staged after a grid.run is materialized for programmatic_c mode.
+    @details The fake generator requires a real `--grid` file
+             (write_fake_ic_generator(require_grid_run=True)) and asserts it exists before
+             running, so this only passes if generate_solver_control_file's own bridge
+             (generate_picgrid_from_programmatic_settings) actually landed on disk first.
     @param[in] tmp_path Pytest temporary-directory fixture.
     """
     valid = FIXTURES / "valid"
@@ -627,21 +605,32 @@ def test_generate_solver_control_file_stages_ic_gen_with_programmatic_grid(tmp_p
     }
     monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo", monitor_cfg, source_files)
 
-    with pytest.raises(SystemExit):
-        picurv.generate_solver_control_file(
-            str(run_dir),
-            "demo",
-            {
-                "case": case_cfg,
-                "case_path": str(case_path),
-                "solver": solver_cfg,
-                "solver_path": str(valid / "solver.yml"),
-                "monitor": monitor_cfg,
-                "monitor_path": str(valid / "monitor.yml"),
-            },
-            1,
-            monitor_files,
-        )
+    control_file = picurv.generate_solver_control_file(
+        str(run_dir),
+        "demo",
+        {
+            "case": case_cfg,
+            "case_path": str(case_path),
+            "solver": solver_cfg,
+            "solver_path": str(valid / "solver.yml"),
+            "monitor": monitor_cfg,
+            "monitor_path": str(valid / "monitor.yml"),
+        },
+        1,
+        monitor_files,
+    )
+
+    bridge_grid = run_dir / "inputs" / "grid" / "grid.run"
+    assert bridge_grid.is_file()
+    assert bridge_grid.read_text(encoding="utf-8").splitlines()[:2] == ["PICGRID", "1"]
+    staged_ic = run_dir / "inputs" / "initial_condition" / "ufield00000_0.dat"
+    assert staged_ic.is_file()
+
+    content = Path(control_file).read_text(encoding="utf-8")
+    assert "-ic_field" in content
+    # The solver still builds its own grid; the bridge is a side artifact for ic.gen only.
+    assert "-grid_file" not in content
+    assert "-grid" in content
 
 
 @pytest.mark.parametrize(
@@ -781,7 +770,13 @@ def test_precompute_materializes_repository_ic_gen_on_staged_file_grid(tmp_path)
 
 def test_precompute_materializes_ic_gen_with_programmatic_grid(tmp_path):
     """!
-    @brief Verify precompute materializes grid.run then stages ic_gen for programmatic_c mode.
+    @brief Verify the standalone precompute command still refuses this combination.
+    @details The standalone `picurv precompute` command cannot execute the C runtime, so a
+             programmatic_c grid dependency is refused there even though `initial-condition`
+             is itself precomputable; see @ref
+             test_materialize_run_assets_stages_ic_gen_with_programmatic_grid for the path
+             that legitimately runs this combination (`picurv run`, whose own solver builds
+             the same grid moments later).
     @param[in] tmp_path Pytest temporary-directory fixture.
     """
     valid = FIXTURES / "valid"
@@ -811,6 +806,78 @@ def test_precompute_materializes_ic_gen_with_programmatic_grid(tmp_path):
 
     with pytest.raises(ValueError, match="cannot execute simulator-runtime providers"):
         picurv.precompute_workflow(SimpleNamespace(case=str(case_path), only="all"))
+
+
+def test_materialize_run_assets_stages_ic_gen_with_programmatic_grid(tmp_path):
+    """!
+    @brief Verify picurv run's own asset staging bridges a programmatic_c grid for ic_gen.
+    @details Unlike standalone precompute, a run legitimately depends on a programmatic_c
+             grid: its own solver builds that grid moments later. materialize_run_assets
+             passes precomputable_only=True so the runtime-C grid dependency does not trip
+             the atomic refusal, and generate_picgrid_from_programmatic_settings bridges a
+             transient grid.run for ic_gen to read while staging "initial-condition" - using
+             the same formula as ComputeStretchedCoord in src/grid.c, so it matches what the
+             solver independently builds. That bridge lives only in precompute_case_assets'
+             own temporary build root and is never published or exposed into run_dir, since
+             a programmatic_c grid is never a persisted asset in its own right;
+             generate_solver_control_file writes run_dir's own copy separately, later in the
+             same run, for the same reason.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    workspace = make_workspace(tmp_path)
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    config = workspace / "config" / "initial_conditions" / "ic.cfg"
+    config.write_text("[expression]\nu = x\nv = y\nw = z\n", encoding="utf-8")
+    case_cfg["grid"] = {
+        "mode": "programmatic_c",
+        "programmatic_settings": {
+            "im": 2, "jm": 2, "km": 2,
+            "xMins": 0.0, "xMaxs": 1.0,
+            "yMins": 0.0, "yMaxs": 1.0,
+            "zMins": 0.0, "zMaxs": 1.0,
+            "rxs": 1.0, "rys": 1.0, "rzs": 1.0,
+            "cgrids": 0,
+        },
+    }
+    case_cfg["properties"]["initial_conditions"] = {
+        "mode": "generated",
+        "generator": "ic_gen",
+        "params": {"field": "Ucat", "config_file": "config/initial_conditions/ic.cfg"},
+    }
+    case_path = workspace / "config" / "case.yml"
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+    run_dir = workspace / "runs" / "demo_run"
+    run_dir.mkdir(parents=True)
+
+    picurv.materialize_run_assets(str(run_dir), case_cfg, str(case_path))
+
+    # Exposed into the run itself, not just the workspace's published object - this is
+    # what ReadFieldData actually reads at solve time.
+    # im=jm=km=2 cells -> 3x3x3 nodes, staged with one dummy layer per axis like every
+    # other field-storage vector (matching test_precompute_materializes_repository_ic_gen
+    # _on_staged_file_grid's identical 3x3x3-node case).
+    exposed_ic = run_dir / "inputs" / "initial_condition" / "ufield00000_0.dat"
+    assert exposed_ic.is_file()
+    assert len(read_petsc_vec_binary(exposed_ic)) == 4 * 4 * 4 * 3
+
+    staged_ic = (
+        published_asset_payload(workspace, "initial-condition")
+        / "inputs" / "initial_condition" / "ufield00000_0.dat"
+    )
+    assert staged_ic.is_file()
+    assert len(read_petsc_vec_binary(staged_ic)) == 4 * 4 * 4 * 3
+
+    # The transient bridge grid used to build the IC lived only in
+    # precompute_case_assets' own temporary build root, which is removed once that call
+    # returns; a programmatic_c grid is never exposed into run_dir or published.
+    assert not (run_dir / "inputs" / "grid").exists()
+
+    grid_kind_dir = workspace / "assets" / "objects" / picurv.ASSET_KIND_DIRECTORIES["grid"]
+    assert not grid_kind_dir.is_dir() or not any(grid_kind_dir.iterdir()), (
+        "a programmatic_c grid must never be published as its own asset object"
+    )
 
 
 def write_canonical_picslice(path: Path, dims=(3, 3), start=1.0) -> Path:
@@ -4957,47 +5024,6 @@ def test_grid_gen_exports_node_counts_from_cell_inputs(tmp_path):
     assert lines[2] == "3 3 3"
 
 
-def test_grid_gen_legacy1d_conversion_writes_canonical_picgrid(tmp_path):
-    """!
-    @brief Test that grid.gen legacy1d converts headerless 1D-axis payload to canonical PICGRID.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    legacy_input = write_legacy_1d_grid(tmp_path / "legacy.grid")
-    output_path = tmp_path / "converted.picgrid"
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(REPO_ROOT / "generators" / "grid.gen"),
-            "legacy1d",
-            "--input",
-            str(legacy_input),
-            "--output",
-            str(output_path),
-            "--no-show-stats",
-            "--no-write-vtk",
-        ],
-        cwd=str(REPO_ROOT),
-        text=True,
-        capture_output=True,
-        timeout=60,
-        check=False,
-            env={**os.environ, "PICURV_DIR": str(REPO_ROOT)},
-    )
-
-    assert result.returncode == 0, result.stderr
-    lines = output_path.read_text(encoding="utf-8").splitlines()
-    assert lines[0] == "PICGRID"
-    assert lines[1] == "1"
-    assert lines[2] == "3 2 2"
-    assert len(lines[3:]) == 12
-    assert lines[3].split() == ["0.00000000000000000e+00"] * 3
-    assert lines[-1].split() == [
-        "1.00000000000000000e+00",
-        "1.00000000000000000e+00",
-        "2.00000000000000000e+00",
-    ]
-
-
 def test_generate_solver_control_file_applies_top_level_da_processors_for_file_grid(tmp_path):
     """!
     @brief Test that file-grid mode accepts top-level DMDA processor layout hints.
@@ -5479,66 +5505,6 @@ def test_empty_enabled_functions_omits_whitelist_and_uses_c_default(tmp_path):
     assert "-profile_config_file" in content
 
 
-def test_generate_solver_control_file_converts_legacy_grid_when_enabled(tmp_path):
-    """!
-    @brief Test that file-grid mode can convert legacy payloads via grid.gen before staging grid.run.
-    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
-    """
-    valid = FIXTURES / "valid"
-    picurv = load_picurv_module()
-    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
-    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
-    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
-
-    legacy_input = write_legacy_1d_grid(tmp_path / "legacy_input.grid")
-    case_cfg["grid"] = {
-        "mode": "file",
-        "source_file": str(legacy_input),
-        "legacy_conversion": {
-            "enabled": True,
-            "format": "legacy1d",
-        },
-    }
-    case_path = tmp_path / "case_legacy_file.yml"
-    picurv.write_yaml_file(str(case_path), case_cfg)
-
-    run_dir = tmp_path / "run_legacy_file"
-    (run_dir / "config").mkdir(parents=True)
-    source_files = {
-        "Case": str(case_path),
-        "Solver": str(valid / "solver.yml"),
-        "Monitor": str(valid / "monitor.yml"),
-    }
-    monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo_run", monitor_cfg, source_files)
-    control_file = picurv.generate_solver_control_file(
-        str(run_dir),
-        "demo_run",
-        {
-            "case": case_cfg,
-            "case_path": str(case_path),
-            "solver": solver_cfg,
-            "solver_path": str(valid / "solver.yml"),
-            "monitor": monitor_cfg,
-            "monitor_path": str(valid / "monitor.yml"),
-        },
-        1,
-        monitor_files,
-    )
-
-    grid_run_path = run_dir / "inputs" / "grid" / "grid.run"
-    converted_path = run_dir / "inputs" / "grid" / "grid.converted.picgrid"
-    assert grid_run_path.is_file()
-    assert converted_path.is_file()
-    lines = grid_run_path.read_text(encoding="utf-8").splitlines()
-    assert lines[0] == "PICGRID"
-    assert lines[1] == "1"
-    assert lines[2] == "3 2 2"
-    assert len(lines[3:]) == 12
-
-    content = Path(control_file).read_text(encoding="utf-8")
-    assert f"-grid_file {grid_run_path}" in content
-
-
 def test_particle_console_output_frequency_defaults_to_data_output_frequency(tmp_path):
     """!
     @brief Test that particle console output frequency defaults to data output frequency.
@@ -5611,9 +5577,9 @@ def test_validate_rejects_negative_particle_console_output_frequency(tmp_path):
     assert "particle_console_output_frequency" in result.stderr
 
 
-def test_validate_rejects_unknown_legacy_grid_conversion_format(tmp_path):
+def test_validate_rejects_grid_legacy_conversion_as_unsupported_key(tmp_path):
     """!
-    @brief Test that validate rejects unsupported grid.legacy_conversion.format values.
+    @brief Test that validate rejects grid.legacy_conversion entirely; the feature is removed.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
@@ -5622,12 +5588,9 @@ def test_validate_rejects_unknown_legacy_grid_conversion_format(tmp_path):
     case_cfg["grid"] = {
         "mode": "file",
         "source_file": str(valid / "case.yml"),
-        "legacy_conversion": {
-            "enabled": True,
-            "format": "unknown_legacy_mode",
-        },
+        "legacy_conversion": {"enabled": True},
     }
-    case_path = tmp_path / "case_invalid_legacy_format.yml"
+    case_path = tmp_path / "case_legacy_conversion.yml"
     picurv.write_yaml_file(str(case_path), case_cfg)
 
     result = run_picurv(
@@ -5643,7 +5606,8 @@ def test_validate_rejects_unknown_legacy_grid_conversion_format(tmp_path):
     )
 
     assert result.returncode == 1
-    assert "grid.legacy_conversion.format" in result.stderr
+    assert "unsupported key at grid: 'legacy_conversion'" in result.stderr
+
 
 
 def test_validate_rejects_conflicting_top_level_and_legacy_da_processors(tmp_path):

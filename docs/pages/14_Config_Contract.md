@@ -53,7 +53,8 @@ For each run, `picurv` generates:
 - Legacy `grid.programmatic_settings.da_processors_*` is still accepted for compatibility.
 - `da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block MPI decomposition is not currently supported.
 - For `grid_gen`, `grid.generator.config_file` is required today. `grid.gen` consumes cell counts and writes node counts into `.picgrid`.
-- For `file`, optional `grid.legacy_conversion` can call `grid.gen legacy1d` to convert headerless 1D-axis legacy payloads before standard validation/non-dimensionalization.
+- `grid.generator.output_file`, `stats_file`, and `vts_file` are rejected: `picurv` chooses the destination for the generated grid, its `.vts` preview, and its `.info` quality report, and writes all three unconditionally into the run's own asset store.
+- `grid.generator.cli_args` is a raw token list passed through to `grid.gen`, but closed-choice values inside it (a `--cross-section` value, or the segment kinds inside `--wall-j-lo`/`--path`/`--transforms`/etc.) are checked at validation time against the same sets `grid.gen` itself enforces, so a misspelled selector fails before the run rather than partway into it. See @ref p48_grammar_ssec.
 - `boundary_conditions` supports single-block list or multi-block list-of-lists.
 - `INLET` + `prescribed_flow` supports `source.type: file`, `source.type: generated`,
   and `source.type: field_slice`. Generated square-duct Poiseuille profiles and

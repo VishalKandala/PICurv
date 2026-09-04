@@ -58,17 +58,19 @@ likely to matter:
   against exact solutions, but a numerical acceptance threshold has not been run and
   gated as part of this work. Design intent is not evidence, so no tick was recorded.
 
-- **The grid generator's composed geometries are exercised, but only as geometry.** Both
-  are production-exercised: every `examples/periodic_test` case generates its mesh with
-  `box`, and `examples/bent_channel` generates its square duct and quarter turn with
-  `sweep`. Each reproduces what it replaced - the `box` cases byte-identically against the
-  retired `warp` meshes, `sweep` to 5e-8 against the `.picgrid` `bent_channel` used to
-  ship, which is that file's own write precision. What none of that establishes is the
-  *shaped* path: no solve has been run on a stepped wall or a scaled sweep, and the
-  parameters underneath them - all seven wall-segment kinds, both path-segment kinds, both
-  cross-sections and all six transforms - declare no facet beyond unit coverage in
-  `tests/test_grid_generator.py`. Metric quality at a resolved corner is reported by the
-  generator and has not been validated against a solution.
+- **The grid generator's composed geometries are exercised, but only along their plainest
+  path.** Both geometries are production-exercised: every `examples/periodic_test` case
+  generates its mesh with `box`, and `examples/bent_channel` generates its square duct and
+  quarter turn with `sweep`. Each reproduces what it replaced - the `box` cases
+  byte-identically against the retired `warp` meshes, `sweep` to 5e-8 against the `.picgrid`
+  `bent_channel` used to ship, which is that file's own write precision. `bent_channel` also
+  carries the only evidence any of the composed parameters have: an unshaped `rectangle`
+  section and two default-axis `straight`/`arc` path segments. Everything else - all seven
+  wall-segment kinds, the `circle` cross-section, chaining `arc` about different axes or with
+  a negative `deg`, a `cross_section_scale` field, and all six transforms - declares no facet
+  beyond unit coverage in `tests/test_grid_generator.py`. No solve has been run on a stepped
+  wall or a scaled sweep, and metric quality at a resolved corner is reported by the
+  generator but has not been validated against a solution.
 
 - **Both LES models are `experimental`.** Both are implemented and carry unit
   coverage in `tests/c/test_les.c`, including an analytic check of the Germano model

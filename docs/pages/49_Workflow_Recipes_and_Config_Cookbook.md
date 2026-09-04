@@ -318,18 +318,16 @@ Generate once, inspect, then reuse as a file grid:
   --monitor monitor.yml
 ```
 
-The staged run contains the generated dimensional grid at:
-
-```text
-runs/<run_id>/config/grid.generated.picgrid
-```
+The staged run contains the generated dimensional grid at
+`<run.inputs>/grid/grid.generated.picgrid` - physically
+`<workspace>/runs/<run_id>/inputs/grid/grid.generated.picgrid`.
 
 After checking that file, a later case can reuse it without running `grid.gen`:
 
 ```yaml
 grid:
   mode: file
-  source_file: ../runs/<run_id>/config/grid.generated.picgrid
+  source_file: ../runs/<run_id>/inputs/grid/grid.generated.picgrid
 ```
 
 PICurv will validate and non-dimensionalize that source file into the new run's
@@ -387,7 +385,7 @@ boundary_conditions:
       source:
         type: field_slice
         field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
-        grid_file: ../old_run/config/grid.run
+        grid_file: ../old_run/inputs/grid/grid.run
         source_case: ../old_run/config/case.yml
         slice:
           face: "+Zeta"

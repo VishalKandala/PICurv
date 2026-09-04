@@ -2912,8 +2912,9 @@ GRID_MODES = ("file", "programmatic_c", "grid_gen")
 GRID_GENERATOR_TYPES = ("box", "sweep")
 
 #: Cross-sections a swept duct may carry. `circle` is the square-to-disc map, not an
-#: O-grid: an O-grid needs a circumferential seam whose coincident-node treatment lives
-#: behind Metric.c's `cgrid` branch, which no case.yml can select.
+#: O-grid: `Metric.c`'s `cgrid` branch for a circumferential seam is reachable only via
+#: `programmatic_c`'s `cgrids` flag, and even there `src/grid.c` never builds anything
+#: but a Cartesian box, so no path produces real O-grid coordinates to seam.
 GRID_CROSS_SECTION_KINDS = ("rectangle", "circle")
 
 #: Segment kinds a piecewise wall-height field accepts. A wall is built from these end to
@@ -4958,11 +4959,6 @@ def absolutize_case_external_paths(case_cfg: dict, case_anchor_path: str):
         source_file = grid_cfg.get("source_file")
         if isinstance(source_file, str):
             grid_cfg["source_file"] = resolve_path(case_anchor_path, source_file)
-        legacy_cfg = grid_cfg.get("legacy_conversion", {})
-        if isinstance(legacy_cfg, dict):
-            script_path = legacy_cfg.get("script")
-            if isinstance(script_path, str):
-                legacy_cfg["script"] = resolve_path(case_anchor_path, script_path)
     elif mode == "grid_gen":
         gen = grid_cfg.get("generator", {})
         if isinstance(gen, dict):
@@ -5785,8 +5781,6 @@ def resolve_target_grid_for_field_slice(case_cfg: dict, case_path: str, run_dir:
         if not isinstance(source_grid, str) or not source_grid.strip():
             raise ValueError("grid.source_file is required for field_slice target-grid normals.")
         source_grid = _resolve_case_relative_path(source_grid, case_dir)
-        if isinstance(grid_cfg.get("legacy_conversion"), dict) and run_dir:
-            source_grid = convert_legacy_grid_with_gridgen(case_path, run_dir, grid_cfg, source_grid)
         return source_grid
     if grid_mode == "grid_gen":
         candidate = os.path.abspath(os.path.join(run_dir, "inputs", "grid", "grid.generated.picgrid"))
@@ -6028,115 +6022,6 @@ def run_grid_generator(case_path: str, run_dir: str, grid_cfg: dict,
     return output_file
 
 
-def convert_legacy_grid_with_gridgen(case_path: str, run_dir: str, grid_cfg: dict, source_grid: str) -> str:
-    """!
-    @brief Optionally convert a legacy file-grid payload to canonical PICGRID using grid.gen.
-    @details Activated only when `grid.legacy_conversion.enabled` is true in case.yml.
-             The converted output remains dimensional; standard nondimensionalization still
-             occurs via validate_and_nondimensionalize_picgrid().
-    @param[in] case_path Path to case.yml (for relative path resolution).
-    @param[in] run_dir Current run directory.
-    @param[in] grid_cfg Grid section from case.yml.
-    @param[in] source_grid Absolute or relative path to the original grid file.
-    @return Grid path that should be fed into validate_and_nondimensionalize_picgrid().
-    @throws ValueError on invalid converter settings or failed conversion.
-    """
-    legacy_cfg = grid_cfg.get("legacy_conversion")
-    if not isinstance(legacy_cfg, dict):
-        return source_grid
-
-    enabled = legacy_cfg.get("enabled", True)
-    if enabled is False:
-        return source_grid
-    if not isinstance(enabled, bool):
-        raise ValueError("grid.legacy_conversion.enabled must be a boolean.")
-
-    raw_format = str(legacy_cfg.get("format", "legacy1d")).strip().lower()
-    format_aliases = {
-        "legacy1d": "legacy1d",
-        "legacy_1d": "legacy1d",
-        "les_flat_1d": "legacy1d",
-        "les-flat-1d": "legacy1d",
-    }
-    command = format_aliases.get(raw_format)
-    if command is None:
-        raise ValueError(
-            "grid.legacy_conversion.format must be one of "
-            "['legacy1d', 'legacy_1d', 'les_flat_1d', 'les-flat-1d']."
-        )
-
-    case_dir = os.path.dirname(os.path.abspath(case_path))
-    gridgen_script = legacy_cfg.get("script", os.path.join(GENERATORS_PATH, "grid.gen"))
-    if not isinstance(gridgen_script, str) or not gridgen_script.strip():
-        raise ValueError("grid.legacy_conversion.script must be a non-empty string when provided.")
-    if legacy_cfg.get("script"):
-        gridgen_script = _resolve_case_relative_path(gridgen_script, case_dir)
-    else:
-        gridgen_script = os.path.abspath(gridgen_script)
-    if not os.path.isfile(gridgen_script):
-        raise ValueError(f"grid.legacy_conversion.script not found: {gridgen_script}")
-
-    output_file = os.path.abspath(os.path.join(run_dir, "inputs", "grid", "grid.converted.picgrid"))
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-
-    axis_columns = legacy_cfg.get("axis_columns", [0, 1, 2])
-    if not isinstance(axis_columns, list) or len(axis_columns) != 3:
-        raise ValueError("grid.legacy_conversion.axis_columns must be a 3-item list of non-negative integers.")
-    try:
-        axis_columns = [int(v) for v in axis_columns]
-    except (TypeError, ValueError) as exc:
-        raise ValueError("grid.legacy_conversion.axis_columns must contain integers.") from exc
-    if any(v < 0 for v in axis_columns):
-        raise ValueError("grid.legacy_conversion.axis_columns values must be >= 0.")
-
-    strict_trailing = legacy_cfg.get("strict_trailing", True)
-    if not isinstance(strict_trailing, bool):
-        raise ValueError("grid.legacy_conversion.strict_trailing must be a boolean.")
-
-    cli_args = legacy_cfg.get("cli_args", [])
-    if cli_args is None:
-        cli_args = []
-    if not isinstance(cli_args, list):
-        raise ValueError("grid.legacy_conversion.cli_args must be a list of CLI tokens.")
-
-    cmd = [
-        sys.executable,
-        gridgen_script,
-        command,
-        "--input",
-        source_grid,
-        "--output",
-        output_file,
-        "--axis-columns",
-        str(axis_columns[0]),
-        str(axis_columns[1]),
-        str(axis_columns[2]),
-        "--no-write-vtk",
-    ]
-    if strict_trailing:
-        cmd.append("--strict-trailing")
-    else:
-        cmd.append("--allow-trailing")
-    cmd.extend(str(token) for token in cli_args)
-
-    print(f"[INFO] Legacy grid conversion command: {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
-    if result.returncode != 0:
-        stderr = (result.stderr or "").strip()
-        stdout = (result.stdout or "").strip()
-        details = stderr if stderr else stdout
-        raise ValueError(
-            f"legacy grid conversion failed with exit code {result.returncode}. Details:\n{details}"
-        )
-    if result.stdout:
-        print(result.stdout.strip())
-    if result.stderr:
-        print(result.stderr.strip())
-    if not os.path.isfile(output_file):
-        raise ValueError(f"legacy grid conversion did not produce expected output file: {output_file}")
-
-    return output_file
-
 BC_FACE_MAP = {
     "-xi": "-Xi",
     "+xi": "+Xi",
@@ -6327,8 +6212,6 @@ def resolve_grid_block_dimensions_for_profiles(case_cfg: dict, case_path: str, r
         if not isinstance(source_grid, str) or not source_grid.strip():
             raise ValueError("grid.source_file is required for file-grid prescribed_flow profile validation.")
         source_grid = _resolve_case_relative_path(source_grid, case_dir)
-        if isinstance(grid_cfg.get("legacy_conversion"), dict) and run_dir:
-            source_grid = convert_legacy_grid_with_gridgen(case_path, run_dir, grid_cfg, source_grid)
         return read_picgrid_header_dimensions(source_grid, expected_nblk=num_blocks)
 
     if grid_mode == "grid_gen":
@@ -7058,7 +6941,7 @@ _CASE_SCHEMA = {
     },
     ("properties", "initial_conditions", "params"): None,
     ("grid",): {
-        "mode", "source_file", "programmatic_settings", "generator", "legacy_conversion",
+        "mode", "source_file", "programmatic_settings", "generator",
         "da_processors_x", "da_processors_y", "da_processors_z",
     },
     ("grid", "programmatic_settings"): {
@@ -7070,9 +6953,6 @@ _CASE_SCHEMA = {
         "script", "config_file", "grid_type", "cli_args", "output_file", "stats_file", "vts_file",
         # Retained so existing warning behavior for typo-prone hyphen keys is not bypassed.
         "config-file", "grid-type", "output-file", "stats-file", "vts-file",
-    },
-    ("grid", "legacy_conversion"): {
-        "enabled", "format", "script", "output_file", "axis_columns", "strict_trailing", "cli_args",
     },
     ("models",): {"domain", "physics"},
     ("models", "domain"): {"blocks"},
@@ -7875,61 +7755,6 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             else:
                 if not os.path.isfile(source_abs):
                     errors.append(f"  {case_path}: grid.source_file does not exist: {source_abs}")
-
-        legacy_cfg = grid_cfg.get("legacy_conversion")
-        if legacy_cfg is not None:
-            if not isinstance(legacy_cfg, dict):
-                errors.append(f"  {case_path}: grid.legacy_conversion must be a mapping when provided.")
-            else:
-                enabled = legacy_cfg.get("enabled", True)
-                if not isinstance(enabled, bool):
-                    errors.append(f"  {case_path}: grid.legacy_conversion.enabled must be a boolean.")
-
-                fmt = legacy_cfg.get("format")
-                if fmt is not None:
-                    normalized_fmt = str(fmt).strip().lower()
-                    allowed_formats = {"legacy1d", "legacy_1d", "les_flat_1d", "les-flat-1d"}
-                    if normalized_fmt not in allowed_formats:
-                        errors.append(
-                            f"  {case_path}: grid.legacy_conversion.format must be one of "
-                            f"{sorted(allowed_formats)} (got '{fmt}')."
-                        )
-
-                script_path = legacy_cfg.get("script")
-                if script_path is not None:
-                    if not isinstance(script_path, str) or not script_path.strip():
-                        errors.append(f"  {case_path}: grid.legacy_conversion.script must be a non-empty string.")
-                    else:
-                        try:
-                            script_abs = resolve_workspace_path(case_path, script_path)
-                        except ValueError as exc:
-                            errors.append(f"  {case_path}: {exc}")
-                        else:
-                            if not os.path.isfile(script_abs):
-                                errors.append(f"  {case_path}: grid.legacy_conversion.script does not exist: {script_abs}")
-
-                output_file = legacy_cfg.get("output_file")
-                if output_file is not None and (not isinstance(output_file, str) or not output_file.strip()):
-                    errors.append(f"  {case_path}: grid.legacy_conversion.output_file must be a non-empty string when provided.")
-
-                axis_columns = legacy_cfg.get("axis_columns")
-                if axis_columns is not None:
-                    if not isinstance(axis_columns, list) or len(axis_columns) != 3:
-                        errors.append(f"  {case_path}: grid.legacy_conversion.axis_columns must be a 3-item integer list.")
-                    else:
-                        for idx, value in enumerate(axis_columns):
-                            if not isinstance(value, int) or value < 0:
-                                errors.append(
-                                    f"  {case_path}: grid.legacy_conversion.axis_columns[{idx}] must be a non-negative integer (got {value})."
-                                )
-
-                strict_trailing = legacy_cfg.get("strict_trailing")
-                if strict_trailing is not None and not isinstance(strict_trailing, bool):
-                    errors.append(f"  {case_path}: grid.legacy_conversion.strict_trailing must be a boolean when provided.")
-
-                cli_args = legacy_cfg.get("cli_args")
-                if cli_args is not None and not isinstance(cli_args, list):
-                    errors.append(f"  {case_path}: grid.legacy_conversion.cli_args must be a list of CLI tokens.")
     elif grid_mode == 'programmatic_c':
         grid_settings = grid_cfg.get('programmatic_settings')
         if not grid_settings:
@@ -13093,13 +12918,6 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         else:
             source_grid = _resolve_case_relative_path(grid_cfg['source_file'], case_file_dir)
             grid_for_validation = source_grid
-            legacy_cfg = grid_cfg.get("legacy_conversion")
-            if isinstance(legacy_cfg, dict):
-                if legacy_cfg.get("enabled", True):
-                    print("[INFO] Grid file legacy conversion enabled; converting with grid.gen...")
-                grid_for_validation = convert_legacy_grid_with_gridgen(
-                    configs['case_path'], run_dir, grid_cfg, source_grid,
-                )
             try:
                 summary = validate_and_nondimensionalize_picgrid(
                     grid_for_validation, nondim_grid_path, L_ref, expected_nblk=expected_nblk
@@ -13142,13 +12960,26 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
             grid_settings.pop(p_key, None)
         for key, value in grid_settings.items(): control_lines.append(f"-{key} {format_flag_value(value)}")
         if resolved_ic and is_generated_ic_provider(resolved_ic) and ic_is_authoritative:
-            print(
-                "[FATAL] The selected Python initial-condition provider requires a file-backed "
-                "grid, but grid.mode=programmatic_c is generated only inside the simulator. "
-                "Select grid.mode=file or grid_gen so the dependency can be inspected and reused.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+            # The simulator builds this grid itself and never reads a file for it; this
+            # bridge exists only so the Python IC generator (a separate process) can see
+            # the same node coordinates. generate_picgrid_from_programmatic_settings uses
+            # the identical formula as ComputeStretchedCoord in src/grid.c, so the two are
+            # guaranteed to agree. Nothing above is changed: -grid_file is never emitted,
+            # so the solver still builds its own grid exactly as before.
+            nondim_grid_path = os.path.join(run_dir, "inputs", "grid", "grid.run")
+            if not os.path.isfile(nondim_grid_path):
+                try:
+                    generate_picgrid_from_programmatic_settings(
+                        grid_cfg.get('programmatic_settings', {}), nondim_grid_path, L_ref
+                    )
+                    print(
+                        "[SUCCESS] Materialized a bridge grid for the Python initial-condition "
+                        f"provider: {os.path.relpath(nondim_grid_path)}"
+                    )
+                except Exception as e:
+                    print(f"[FATAL] Failed to materialize bridge grid for initial-condition generator: {e}",
+                          file=sys.stderr)
+                    sys.exit(1)
     else:
         raise ValueError(f"Unknown or missing grid mode '{grid_mode}' in case.yml.")
 
@@ -14939,9 +14770,6 @@ def add_planned_grid_artifacts(plan: dict, case_cfg: dict, run_dir: str) -> None
 
     if mode == "file":
         plan["artifacts"].append(os.path.join(grid_dir, "grid.run"))
-        legacy_cfg = grid_cfg.get("legacy_conversion")
-        if isinstance(legacy_cfg, dict) and legacy_cfg.get("enabled", True):
-            plan["artifacts"].append(os.path.join(grid_dir, "grid.converted.picgrid"))
     elif mode == "grid_gen":
         generator = grid_cfg.get("generator", {})
         if not isinstance(generator, dict):
@@ -15325,8 +15153,6 @@ def build_case_asset_graph(case_cfg: dict, case_path: str) -> dict:
         grid_cfg["generator"].pop("output_file", None)
         grid_cfg["generator"].pop("vts_file", None)
         grid_cfg["generator"].pop("stats_file", None)
-    if isinstance(grid_cfg.get("legacy_conversion"), dict):
-        grid_cfg["legacy_conversion"].pop("output_file", None)
     grid_provider = {
         "kind": "grid",
         "provider": grid_mode or "missing",
@@ -15562,8 +15388,6 @@ def _build_selected_asset_payloads(build_root: str, case_cfg: dict, case_path: s
             source = _resolve_case_relative_path(
                 grid_cfg.get("source_file"), os.path.dirname(os.path.abspath(case_path))
             )
-            if isinstance(grid_cfg.get("legacy_conversion"), dict):
-                source = convert_legacy_grid_with_gridgen(case_path, build_root, grid_cfg, source)
             validate_and_nondimensionalize_picgrid(
                 source, staged_grid, length_ref, expected_nblk=expected_nblk
             )
@@ -15588,6 +15412,19 @@ def _build_selected_asset_payloads(build_root: str, case_cfg: dict, case_path: s
                 "kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]
             },
         )
+        if (grid_cfg.get("mode") == "programmatic_c" and is_generated_ic_provider(resolved_ic)
+                and not os.path.isfile(staged_grid)):
+            # "grid" is excluded from this closure when the caller passed
+            # precomputable_only=True (materialize_run_assets, staging before a solve): a
+            # runtime-C grid is never itself precomputed. But the Python IC generator run
+            # below is a separate process from the solver and needs real coordinates on
+            # disk regardless. This bridge uses the identical formula as
+            # ComputeStretchedCoord in src/grid.c, so it is guaranteed to match what the
+            # solver builds moments later; it is not published as its own asset, since a
+            # programmatic_c grid is never a persisted asset in its own right.
+            generate_picgrid_from_programmatic_settings(
+                grid_cfg.get("programmatic_settings", {}), staged_grid, length_ref
+            )
         stage_initial_condition_file(build_root, case_path, resolved_ic)
         record_changes("initial-condition", before)
     return payloads
@@ -15904,27 +15741,35 @@ def _write_workspace_asset_set(workspace_root: str, case_path: str, graph: dict,
 
 
 def precompute_case_assets(workspace_root: str, case_cfg: dict, case_path: str,
-                           requested=None) -> dict:
+                           requested=None, precomputable_only: bool = False) -> dict:
     """!
     @brief Build and publish a selected deterministic asset dependency closure.
     @param[in] workspace_root Owning workspace.
     @param[in] case_cfg Parsed case configuration.
     @param[in] case_path Source case path.
     @param[in] requested Requested asset kinds, or all configured providers.
+    @param[in] precomputable_only Drop runtime-C dependencies from the closure instead of
+                                  refusing. For internal run-staging only: a run legitimately
+                                  depends on a runtime-C grid that its own solver builds
+                                  moments later, so its presence in the dependency closure is
+                                  expected there, not an error. The standalone `picurv
+                                  precompute` command leaves this False, since nothing will
+                                  ever build a runtime-C provider in that context.
     @return Provider graph, selected providers, references, and asset-set path.
     """
     enforce_workspace_version(workspace_root)
     graph = build_case_asset_graph(case_cfg, case_path)
-    selected = _asset_selection(graph, requested)
-    runtime = [item for item in selected if item["execution"] == "runtime-c"]
-    if runtime:
-        details = ", ".join(f"{item['kind']}={item['provider']}" for item in runtime)
-        raise ValueError(
-            "Precompute is atomic and cannot execute simulator-runtime providers. "
-            f"Selected dependency graph requires C generation: {details}. "
-            "Use --only to select an independent precomputable subset, or run the case; "
-            "the simulator will report each runtime provider before generation."
-        )
+    selected = _asset_selection(graph, requested, precomputable_only=precomputable_only)
+    if not precomputable_only:
+        runtime = [item for item in selected if item["execution"] == "runtime-c"]
+        if runtime:
+            details = ", ".join(f"{item['kind']}={item['provider']}" for item in runtime)
+            raise ValueError(
+                "Precompute is atomic and cannot execute simulator-runtime providers. "
+                f"Selected dependency graph requires C generation: {details}. "
+                "Use --only to select an independent precomputable subset, or run the case; "
+                "the simulator will report each runtime provider before generation."
+            )
     if not selected:
         raise ValueError("The selected case has no precomputable providers.")
     staging_parent = os.path.join(workspace_root, "assets")
@@ -16097,6 +15942,7 @@ def materialize_run_assets(run_dir: str, case_cfg: dict, case_path: str,
         precompute_case_assets(
             workspace_root, case_cfg, case_path,
             requested=[item["kind"] for item in missing],
+            precomputable_only=True,
         )
         plan = plan_run_assets(case_cfg, case_path)
         still_missing = [item for item in plan["actions"] if item["action"] == "build"]

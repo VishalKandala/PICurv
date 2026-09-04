@@ -143,18 +143,6 @@ grid:
   # Destinations are not configurable: PICurv writes the grid, its .vts preview,
   # and its .info quality report into the run's own asset store.
 
-  # --- Option D: Legacy Grid Conversion ---
-  # Converts an older column-text grid file to the .picgrid format before solver launch.
-  # Requires generators/grid.gen (or a custom script) to be present.
-  # legacy_conversion:
-  #   enabled: true                    # [true/false] Must be true to activate this path.
-  #   format: "column_text"            # Currently supported: "column_text"
-  #   script: null                     # Optional override path to conversion script.
-  #   output_file: "config/grid.converted.picgrid"  # Required. Destination path.
-  #   axis_columns: [0, 1, 2]          # Optional. 3-item list of zero-based column indices for x,y,z.
-  #   strict_trailing: false           # [true/false] Optional. Reject files with trailing data.
-  #   cli_args: []                     # Optional raw CLI token list passed to the converter.
-
   # --- Option C: Programmatic Grid Generation in C ---
   # Use this to have the C solver generate a structured Cartesian grid.
   # `im/jm/km` are cell counts in YAML; picurv converts them to node counts
@@ -180,9 +168,12 @@ grid:
     rys: 1.05
     rzs: 1.0
 
-    # --- Grid Type Flag ---
-    # 0 = regular Cartesian/curvilinear (default). 1 = O-type (cylindrical) grid.
-    # Used by the C metric routines to apply the correct Jacobian formula.
+    # --- Periodic Seam Formula Flag ---
+    # This block is always built as a stretched Cartesian box; nothing here can produce
+    # cylindrical/O-grid coordinates. `cgrids` only selects which formula the C metric
+    # routines use to reconstruct ghost cells at a periodic seam: 0 (default) assumes a
+    # translationally periodic box, 1 assumes a coincident-node wrap-around (annulus).
+    # Setting 1 on this Cartesian geometry corrupts the periodic metric. Leave at 0.
     # -> -cgrids
     cgrids: 0
 
@@ -417,7 +408,7 @@ boundary_conditions:
     #     type: field_slice
     #     script: tools/custom_profile.py  # Optional; defaults to generators/profile.gen
     #     field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
-    #     grid_file: ../old_run/config/grid.run
+    #     grid_file: ../old_run/inputs/grid/grid.run
     #     source_case: ../old_run/config/case.yml
     #     output_file: config/inlet_profile_block0_negEta.sliced.picslice
     #     slice:
@@ -467,7 +458,7 @@ boundary_conditions:
 #       # source:
 #       #   type: field_slice
 #       #   field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
-#       #   grid_file: ../old_run/config/grid.run
+#       #   grid_file: ../old_run/inputs/grid/grid.run
 #       #   source_case: ../old_run/config/case.yml
 #       #   output_file: config/inlet_profile.sliced.picslice
 #       #   slice:

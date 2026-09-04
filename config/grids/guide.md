@@ -14,7 +14,8 @@ generated deterministically from parameters rather than from a manually curated 
 | `plane_channel_retau395.cfg` | `box` | channel DNS, `Re_tau = 395` | 129 x 257 x 257 |
 | `square_duct_reb4410.cfg` | `box` | square duct DNS, `Re_b = 4410` | 129 x 129 x 257 |
 | `isotropic_box_64.cfg` | `box` | decaying isotropic turbulence | 64^3 |
-| `coarse_square_tube_curved.cfg` | `sweep` | bent square duct | 64 x 64 x 280 |
+| `coarse_square_tube_curved.cfg` | `sweep` | bent square duct, 90 deg | 64 x 64 x 280 |
+| `bent_channel_coarse.cfg` | `sweep` | `examples/bent_channel` | 20 x 20 x 144 |
 
 A `box` with no wall lists is an exactly Cartesian block, which is what every channel and
 duct profile above is. Shaping a wall is what turns the same geometry into a step, a hill

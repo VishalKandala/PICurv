@@ -120,7 +120,13 @@ but the shared top-level `grid.da_processors_*` form is preferred.
 - `im/jm/km`
 - `xMins/xMaxs`, `yMins/yMaxs`, `zMins/zMaxs`
 - `rxs/rys/rzs`
-- `cgrids` — per-block integer grid type: `0` = Cartesian (default), `1` = O-type curvilinear → `-cgrids`
+- `cgrids` — per-block integer, forwarded to `-cgrids`, default `0`. It does not change the
+  geometry `programmatic_c` builds: `src/grid.c` always produces a stretched Cartesian block
+  regardless of its value. The only consumer is `Metric.c`'s periodic ghost reconstruction,
+  where `cgrids: 1` swaps a translational seam correction for a coincident-node one
+  appropriate to a true wrap-around (O-grid/annulus) topology. Setting it to `1` on the
+  Cartesian geometry this mode actually builds corrupts the metric at a periodic seam rather
+  than enabling curvilinear geometry; leave it at `0`.
 
 Dimension contract:
 - `im/jm/km` in YAML are cell counts.
@@ -142,24 +148,8 @@ grid:
 ```
 
 `picurv` validates existence and prepares normalized grid data for C-side ingestion.
-
-Optional legacy conversion path (headerless 1D-axis payloads):
-
-```yaml
-grid:
-  mode: file
-  source_file: legacy_flat.grid
-  legacy_conversion:
-    enabled: true
-    format: legacy1d            # aliases: legacy_1d, les_flat_1d, les-flat-1d; or column_text
-    output_file: null           # optional: override generated .picgrid output path
-    script: null                # optional: override conversion script path (default generators/grid.gen)
-    axis_columns: [0, 1, 2]    # preferred source columns for X/Y/Z axis rows
-    strict_trailing: true
-    cli_args: []                # additional raw tokens forwarded to the conversion script
-```
-
-When enabled, `picurv` first calls `generators/grid.gen legacy1d` to create a canonical PICGRID file in the run config, then runs the normal validation/non-dimensionalization staging path.
+`grid.legacy_conversion` was removed; a `.picgrid` staged this way must already be in
+canonical format.
 
 @subsection p07_grid_gen_ssec 3.3 mode: grid_gen
 
@@ -210,9 +200,9 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **What it does.** Builds a structured block directly in the C runtime from cell counts, extents, and stretching ratios. No mesh file exists or is read.
 
-**When to choose it.** For Cartesian boxes and simple O-type blocks - channels, ducts, isotropic boxes - and for anything where the geometry is a handful of numbers you want in the case file rather than in a binary alongside it. It is also the only mode `TGV3D` accepts.
+**When to choose it.** For Cartesian boxes - channels, ducts, isotropic boxes - and for anything where the geometry is a handful of numbers you want in the case file rather than in a binary alongside it. It is also the only mode `TGV3D` accepts.
 
-**Parameters it owns.** `grid.programmatic_settings.im/jm/km` (cell counts, converted to node counts before `-im/-jm/-km`), `xMins/xMaxs`, `yMins/yMaxs`, `zMins/zMaxs`, `rxs/rys/rzs`, and `cgrids` (`0` Cartesian, `1` O-type curvilinear) -> `-cgrids`.
+**Parameters it owns.** `grid.programmatic_settings.im/jm/km` (cell counts, converted to node counts before `-im/-jm/-km`), `xMins/xMaxs`, `yMins/yMaxs`, `zMins/zMaxs`, `rxs/rys/rzs`, and `cgrids` -> `-cgrids` - see @ref p07_grid_prog_ssec for why this is not a real geometry choice.
 
 **Interactions.** Mutually exclusive with `file` and `grid_gen`. Required by the `TGV3D` analytical source. Per-block lists are supported for the geometry arrays, but `grid.da_processors_*` stay scalar: per-block processor decomposition is not implemented.
 
@@ -220,7 +210,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Evidence.** Production exercised - `examples/flat_channel`; integration verified - `make unit-grid`.
 
-**Limitations.** Restricted to what the built-in generator can express: rectangular blocks and the O-type variant. Anything bent, branched, or externally meshed needs `file` or `grid_gen`.
+**Limitations.** Restricted to a rectangular Cartesian block - `cgrids` does not add curvilinear geometry (@ref p07_grid_prog_ssec). Anything bent, branched, or externally meshed needs `file` or `grid_gen`.
 
 @subsection p07_cap_gridmode_grid_gen_sub grid_gen
 
@@ -1002,7 +992,7 @@ Field-sliced profile example:
     source:
       type: field_slice
       field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
-      grid_file: ../old_run/config/grid.run
+      grid_file: ../old_run/inputs/grid/grid.run
       source_case: ../old_run/config/case.yml
       slice:
         face: "+Zeta"

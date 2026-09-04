@@ -251,7 +251,7 @@ def test_validate_rejects_misplaced_grid_da_processors_under_generator(tmp_path)
         "mode": "grid_gen",
         "generator": {
             "config_file": str(REPO_ROOT / "config" / "grids" / "coarse_square_tube_curved.cfg"),
-            "grid_type": "cpipe",
+            "grid_type": "sweep",
             "da_processors_x": 2,
         },
     }

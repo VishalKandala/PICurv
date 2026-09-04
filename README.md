@@ -389,7 +389,6 @@ For exact current options, always use script-local help:
 ./bin/picurv sweep --help
 ./bin/picurv summarize --help
 python3 generators/grid.gen --help
-python3 generators/grid.gen legacy1d --help
 python3 generators/profile.gen --help
 python3 generators/plot.gen --help
 ```
@@ -401,7 +400,6 @@ Helper script help:
 - `python3 tests/tooling/python_coverage_gate.py --help`
 - `python3 tests/tooling/c_coverage_gate.py --help`
 - `python3 tests/tooling/generate_doxygen_fallback_indexes.py --help`
-- `python3 generators/convert_grid_from_legacy_to_picgrid.py --help`
 - `bash bootstrap_install.sh --help`
 
 Detailed long-form option docs:

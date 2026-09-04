@@ -43,6 +43,13 @@ Retarget `y+` for a different `Re_tau` by editing those two numbers alone.
 `stretch_j` is only the initial guess for the tanh fit; the generator solves for
 the factor that actually realizes the requested first cell and reports it.
 
+You do not have to trust that arithmetic by eye. Give the generator the case's
+reference scales plus a target `--re-tau` and its `.info` report states the `y+`
+the spacing actually realizes - `First_Cell_j_Start_Plus` alongside the solver-
+and wall-unit sections. `picurv run`/`precompute` already pass `length_ref` and
+`nu` from the case automatically; `re_tau` is a design target, so it stays a
+generator argument. See **@subpage 48_Grid_Generator_Guide**, section 5.2.
+
 Cell counts must stay **odd at every multigrid level**, because each level
 coarsens as `IM -> (IM+1)/2`. The shipped counts sit on the ladder
 `5 -> 9 -> 17 -> 33 -> 65 -> 129 -> 257`.

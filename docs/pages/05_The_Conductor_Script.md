@@ -746,10 +746,12 @@ Use `--strict` in CI/pre-submit checks when validating reusable profile librarie
 - `num_procs_effective` (currently mirrors solver count)
 
 For file-backed grid modes, `artifacts` includes the planned staged grid path
-(`<run.config>/grid.run`). For `grid.mode: grid_gen`, it also includes the generated
-PICGRID path (`<run.config>/grid.generated.picgrid` by default) plus any configured
-`stats_file` or `vts_file`. Dry-run still does not run `generators/grid.gen` or
-write these files.
+(`<run.inputs>/grid/grid.run`). For `grid.mode: grid_gen`, it also includes the generated
+PICGRID path (`<run.inputs>/grid/grid.generated.picgrid`), its quality report
+(`<run.analysis.metrics>/grid.info`), and its `.vts` preview
+(`<run.visualization>/precompute/grid.vts`) - all three unconditionally, since `picurv`
+chooses the destination rather than accepting `stats_file`/`vts_file` config keys. Dry-run
+still does not run `generators/grid.gen` or write these files.
 For generated prescribed-flow profiles, `artifacts` includes the dimensional
 generated `.picslice`, the solver-scale staged `.picslice`, and `profile.info`.
 
