@@ -8,6 +8,17 @@
 
 - No changes yet.
 
+## 0.3.1 — 2026-09-04
+
+- Fixed the CLI reference generator baking in two machine-dependent values instead of
+  a fixed contract: argparse's default option-group title, which Python renamed from
+  "optional arguments" to "options" in 3.10 (bpo-9694), and `storage setup --workers`'s
+  default, which is computed from the local CPU count at parser-build time. Either one
+  made `generate_cli_reference.py --check` disagree with whatever machine last
+  regenerated the committed file - undetectably so when testing under a different
+  Python on the same machine, since CPU count doesn't depend on the interpreter. Both
+  are now rendered in a form that doesn't vary by machine.
+
 ## 0.3.0 — 2026-09-04
 
 - Workspace, run, and study artifact lifecycle. `picurv init` now writes a fixed,
