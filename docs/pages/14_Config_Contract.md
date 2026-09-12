@@ -126,7 +126,9 @@ For each run, `picurv` generates:
   - `pseudo_cfl.reduction_factor` -> `-pseudo_cfl_reduction_factor` (default 0.75, must be
     in (0,1)): factor applied to the pseudo-CFL after a rejected trial.
 - `momentum_solver.newton_krylov.nonlinear_solver.*` -> prefixed `-mom_nk_snes_*`
-  options, including `line_search.type` -> `-mom_nk_snes_linesearch_type`.
+  options, including `line_search.type` -> `-mom_nk_snes_linesearch_type` and
+  the complete `eisenstat_walker.*` block -> PETSc's `-mom_nk_snes_ksp_ew*`
+  option set.
 - `momentum_solver.newton_krylov.jacobian.*` and `.preconditioner.*` ->
   application-owned `-mom_nk_jacobian_*` and `-mom_nk_preconditioner_*`
   mathematical selectors.
@@ -179,7 +181,8 @@ Verification-pathway rule:
 - checkpoint-internal directory and payload names are fixed; monitor YAML does
   not expose Eulerian or particle checkpoint subdirectory overrides
 - `profiling.timestep_output` -> `profile.run` when `mode: selected`, plus profiling control flags
-- `diagnostics.petsc` -> PETSc startup arguments on solver/postprocessor commands
+- `diagnostics.petsc` -> PETSc startup arguments on solver/postprocessor commands,
+  including run-local `-info` output and optional PETSc class filtering
 - `diagnostics.runtime_memory_log` -> `-runtime_memory_log_enabled/-runtime_memory_log_file`
 - `solution_monitoring.convergence.*` maps directly into the generated master
   control as the existing `-solution_convergence_*` options and retains the

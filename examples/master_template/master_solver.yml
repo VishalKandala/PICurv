@@ -147,6 +147,15 @@ momentum_solver:
   #     max_iterations: 12           # -> -mom_nk_snes_max_it
   #     line_search:
   #       type: "bt"                 # -> -mom_nk_snes_linesearch_type
+  #     eisenstat_walker:
+  #       enabled: true              # false keeps the KSP tolerance fixed
+  #       version: 3
+  #       initial_relative_tolerance: 0.3
+  #       maximum_relative_tolerance: 0.9
+  #       gamma: 1.0
+  #       exponent: 1.618033988749895
+  #       safeguard_exponent: 1.618033988749895
+  #       safeguard_threshold: 0.1
   #   linear_solver:
   #     method: "gmres"              # -> -mom_nk_ksp_type
   #     absolute_tolerance: 1.0e-10  # -> -mom_nk_ksp_atol

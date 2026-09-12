@@ -47,7 +47,9 @@ typedef struct {
 
 typedef struct {
     UserCtx *user;
+    SNES snes;
     FILE *history_file;
+    FILE *linear_history_file;
     PetscBool have_initial_norm;
     PetscReal initial_norm;
     /* These objects are owned by the solve context.  They are deliberately
@@ -60,6 +62,8 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user);
 static PetscErrorCode MomentumNewtonKrylov_FormResidual(SNES snes, Vec X, Vec F, void *ctx);
 static PetscErrorCode MomentumNewtonKrylov_Monitor(SNES snes, PetscInt iteration,
                                                     PetscReal norm, void *ctx);
+static PetscErrorCode MomentumNewtonKrylov_LinearMonitor(KSP ksp, PetscInt iteration,
+                                                         PetscReal norm, void *ctx);
 static void MomentumNewtonKrylov_OpenHistory(MomentumNewtonKrylovContext *ctx);
 static void MomentumNewtonKrylov_WriteSummary(const MomentumNewtonKrylovContext *ctx,
                                                SNESConvergedReason reason,
@@ -107,6 +111,33 @@ static PetscErrorCode MomentumNewtonKrylov_Monitor(SNES snes, PetscInt iteration
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+/**
+ * @brief Writes the effective KSP tolerance and PETSc-reported norm for each inner iteration.
+ * @details The tolerance is queried after SNES has applied any inexact-Newton forcing
+ * update, so the log distinguishes changing Eisenstat--Walker requests from changing
+ * linear convergence behavior.
+ */
+static PetscErrorCode MomentumNewtonKrylov_LinearMonitor(KSP ksp, PetscInt iteration,
+                                                         PetscReal norm, void *vctx)
+{
+    MomentumNewtonKrylovContext *ctx = (MomentumNewtonKrylovContext *)vctx;
+    PetscInt newton_iteration = -1;
+    PetscReal relative_tolerance = 0.0;
+
+    PetscFunctionBeginUser;
+    if (!ctx->linear_history_file) PetscFunctionReturn(PETSC_SUCCESS);
+    PetscCall(SNESGetIterationNumber(ctx->snes, &newton_iteration));
+    PetscCall(KSPGetTolerances(ksp, &relative_tolerance, NULL, NULL, NULL));
+    (void)fprintf(ctx->linear_history_file,
+                  "step: %d | block: %d | newton: %d | krylov: %d | "
+                  "requested_rtol: %.16e | reported_residual_norm: %.16e\n",
+                  (int)ctx->user->simCtx->step, (int)ctx->user->_this,
+                  (int)newton_iteration, (int)iteration,
+                  (double)relative_tolerance, (double)norm);
+    (void)fflush(ctx->linear_history_file);
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 /** @brief Opens the optional rank-zero Newton iteration-history file. */
 static void MomentumNewtonKrylov_OpenHistory(MomentumNewtonKrylovContext *ctx)
 {
@@ -129,6 +160,22 @@ static void MomentumNewtonKrylov_OpenHistory(MomentumNewtonKrylovContext *ctx)
                       "# step | block | Newton iteration | nonlinear residual norm\n");
     } else if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
         (void)fprintf(ctx->history_file, "# Continuation from step %d\n", (int)simCtx->StartStep);
+    }
+    if (PetscSNPrintf(path, sizeof(path),
+                     "%s/Momentum_Solver_Newton_Krylov_Linear_History_Block_%d.log",
+                     simCtx->log_dir, (int)ctx->user->_this)) return;
+    ctx->linear_history_file = fopen(path, mode);
+    if (!ctx->linear_history_file) {
+        LOG(GLOBAL, LOG_WARNING, "Could not open Newton Krylov linear-history log '%s'.\n", path);
+        return;
+    }
+    if (mode[0] == 'w') {
+        (void)fprintf(ctx->linear_history_file,
+                      "# step | block | Newton iteration | Krylov iteration | "
+                      "requested relative tolerance | PETSc-reported residual norm\n");
+    } else if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
+        (void)fprintf(ctx->linear_history_file, "# Continuation from step %d\n",
+                      (int)simCtx->StartStep);
     }
 }
 
@@ -399,7 +446,7 @@ static PetscReal FrozenMomentumJacobian_FaceEddyViscosity(
     return 0.5 * (nu_t[k][j][i] + neighbour);
 }
 
-/** @brief Returns the audited frozen-momentum point block in modern residual sign. */
+/** @brief Returns the frozen-momentum point block for the current residual convention. */
 static void FrozenMomentumJacobian_PointBlock(const UserCtx *user,
     const Cmpnts ***ucont, const Cmpnts ***csi, const Cmpnts ***eta,
     const Cmpnts ***zet, const PetscReal ***aj, const PetscReal ***nu_t,
@@ -506,10 +553,12 @@ static void FrozenMomentumJacobian_PointBlock(const UserCtx *user,
     nuj = AJjp * AJjp * (g11jp + g22jp + g33jp) * nu_eff_j;
     nuk = AJkp * AJkp * (g11kp + g22kp + g33kp) * nu_eff_k;
 
-    /* The modern residual is the negative of the legacy residual. */
-    block[0] = dtc + nui + Su; block[1] = 0.5 * AJip * U1ip; block[2] = 0.5 * AJip * U2ip;
-    block[3] = 0.5 * AJjp * U0jp; block[4] = dtc + nuj + Sv; block[5] = 0.5 * AJjp * U2jp;
-    block[6] = 0.5 * AJkp * U0kp; block[7] = 0.5 * AJkp * U1kp; block[8] = dtc + nuk + Sw;
+    /* MomentumNewtonKrylov_FormResidual forms F = -R, fixing this block's sign. */
+    /* `block` is row-major: each row is one residual component and each column
+       is one same-cell Ucont component. */
+    block[0] = dtc + nui + Su; block[1] = 0.5 * AJjp * U0jp; block[2] = 0.5 * AJkp * U0kp;
+    block[3] = 0.5 * AJip * U1ip; block[4] = dtc + nuj + Sv; block[5] = 0.5 * AJkp * U1kp;
+    block[6] = 0.5 * AJip * U2ip; block[7] = 0.5 * AJjp * U2jp; block[8] = dtc + nuk + Sw;
 }
 
 #undef __FUNCT__
@@ -1167,6 +1216,7 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
     ierr = VecCopy(user->Ucont, solution); if (ierr) goto cleanup;
 
     ctx.user = user;
+    ctx.snes = snes;
     ierr = MomentumNewtonKrylov_ReadLinearizationConfig(
         &ctx.jacobian, &preconditioner_description); if (ierr) goto cleanup;
     ierr = SNESSetOptionsPrefix(snes, "mom_nk_"); if (ierr) goto cleanup;
@@ -1185,6 +1235,7 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
     ierr = MomentumPreconditionerEngine_ConfigurePetscPC(&ctx.preconditioning_engine, pc); if (ierr) goto cleanup;
     ierr = SNESSetFromOptions(snes); if (ierr) goto cleanup;
     ierr = SNESMonitorSet(snes, MomentumNewtonKrylov_Monitor, &ctx, NULL); if (ierr) goto cleanup;
+    ierr = KSPMonitorSet(ksp, MomentumNewtonKrylov_LinearMonitor, &ctx, NULL); if (ierr) goto cleanup;
     ierr = MomentumPreconditionerEngine_ValidatePetscPC(&ctx.preconditioning_engine, pc); if (ierr) goto cleanup;
 
     LOG_ALLOW(GLOBAL, LOG_INFO,
@@ -1247,6 +1298,10 @@ cleanup:
     if (ctx.history_file) {
         (void)fclose(ctx.history_file);
         ctx.history_file = NULL;
+    }
+    if (ctx.linear_history_file) {
+        (void)fclose(ctx.linear_history_file);
+        ctx.linear_history_file = NULL;
     }
     if (solve_started) {
         MomentumNewtonKrylov_WriteSummary(&ctx, reason, nonlinear_its, function_evals,

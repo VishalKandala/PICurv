@@ -70,6 +70,12 @@ diagnostics:
     #   malloc_debug: true  -> executable arg: -malloc_debug
     #   log_view: true      -> executable args: -log_view :runs/<run_id>/logs/PETSc_LogView_Solver.log
     #   objects_dump: all   -> executable args: -objects_dump all
+    # PETSc info must be present during PetscInitialize(), so it is configured
+    # here rather than in petsc_passthrough_options. Restricting classes keeps
+    # high-volume output useful; an empty list records every PETSc class.
+    info:
+      enabled: false
+      classes: [snes, ksp]
     malloc_debug: false
     malloc_test: false
     malloc_dump: false

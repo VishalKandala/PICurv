@@ -1706,6 +1706,48 @@ def test_momentum_solver_newton_krylov_uses_canonical_runtime_value():
     assert picurv.normalize_momentum_solver_type("Newton Krylov") == "newton_krylov"
 
 
+def test_newton_krylov_eisenstat_walker_controls_are_structured():
+    """! @brief Every PETSc Eisenstat--Walker control maps through solver YAML. """
+    picurv = load_picurv_module()
+    cfg = {
+        "nonlinear_solver": {
+            "eisenstat_walker": {
+                "enabled": True,
+                "version": 3,
+                "initial_relative_tolerance": 0.3,
+                "maximum_relative_tolerance": 0.9,
+                "gamma": 0.8,
+                "exponent": 1.5,
+                "safeguard_exponent": 1.7,
+                "safeguard_threshold": 0.1,
+            }
+        }
+    }
+
+    normalized = picurv.validate_newton_krylov_config(cfg)
+    ew = normalized["nonlinear_solver"]["eisenstat_walker"]
+    assert ew["version"] == 3
+    assert ew["safeguard_threshold"] == 0.1
+
+
+@pytest.mark.parametrize("version", [0, 5, True])
+def test_newton_krylov_rejects_invalid_eisenstat_walker_version(version):
+    """!
+    @brief EW versions outside PETSc's supported range are rejected.
+    @param[in] version Parametrized invalid PETSc EW version.
+    """
+    picurv = load_picurv_module()
+    with pytest.raises(ValueError, match="version must be one of"):
+        picurv.validate_newton_krylov_config({
+            "nonlinear_solver": {
+                "eisenstat_walker": {
+                    "enabled": True,
+                    "version": version,
+                },
+            }
+        })
+
+
 def test_normalize_analytical_type_accepts_uniform_flow():
     """!
     @brief Test that normalize_analytical_type accepts the UNIFORM_FLOW selector.
@@ -5700,6 +5742,7 @@ def test_diagnostics_config_emits_runtime_memory_flags_and_petsc_args(tmp_path):
     monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
     monitor_cfg["diagnostics"] = {
         "petsc": {
+            "info": {"enabled": True, "classes": ["snes", "ksp"]},
             "malloc_debug": True,
             "malloc_test": True,
             "log_view": True,
@@ -5742,6 +5785,8 @@ def test_diagnostics_config_emits_runtime_memory_flags_and_petsc_args(tmp_path):
 
     args = picurv.build_petsc_diagnostics_args(monitor_cfg, str(run_dir), "Solver")
     assert "-malloc_debug" in args
+    assert "-info" in args
+    assert f"{run_dir / 'logs' / 'PETSc_Info_Solver.log'}:snes,ksp" in args
     assert "-malloc_test" in args
     assert "-log_view" in args
     assert "-log_view_memory" in args

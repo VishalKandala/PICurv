@@ -307,20 +307,6 @@ mappings and validation rules (nonnegative tolerances and positive iteration/res
 configuration reference in @ref 08_Solver_Reference "Solver Reference", section 4.
 The complete annotated template is `examples/master_template/master_solver.yml`.
 
-The planned operator-intent correspondence with legacy selectors is:
-
-| Modern configuration | Legacy operator coverage |
-|---|---|
-| `finite_difference / matrix_free + none` | top-level `-imp 4` |
-| `finite_difference / matrix_free + frozen point block` | `-imp 5 -imp_type 2` |
-| `finite_difference / colored_sparse` | future `-imp 5 -imp_type 1` |
-| `frozen momentum / diagonal` | future `-imp 5 -imp_type 3` |
-| `frozen momentum / full_sparse` | future `-imp 5 -imp_type 4` |
-
-This table maps numerical operator intent only. It does not reproduce legacy
-defects, lifecycle, mutable-residual behavior, or historically unknown PETSc
-runtime options.
-
 Three configuration layers interact, in increasing precedence:
 
 1. **User-facing YAML** (`momentum_solver.newton_krylov.*`) — the supported surface.
@@ -338,13 +324,20 @@ The tolerances above are a reasonable starting point. Interpretation:
 - `linear_solver.relative_tolerance` controls how tightly each inner GMRES solve
   is converged; a loose `1e-6` inexact-Newton setting is typical and cheap.
 
+Use `nonlinear_solver.eisenstat_walker.enabled` to select fixed KSP tolerances or PETSc inexact-Newton forcing. The block exposes PETSc versions 1--4 and every EW parameter:
+initial and maximum relative tolerance, gamma, exponent, safeguard exponent, and
+safeguard threshold. PETSc may change the effective KSP tolerance at every Newton
+iteration. See [SNESKSPSetUseEW](https://petsc.org/main/manualpages/SNES/SNESKSPSetUseEW/)
+and the [SNES manual](https://petsc.org/main/manual/snes/). Other PETSc SNES/KSP
+options remain accessible through prefixed `petsc_passthrough_options`.
+
 @section p55_monitors_sec 7. Monitors and Log Output
 
 Newton--Krylov monitors are enabled under `solver_monitoring.momentum` (see
 @ref 09_Monitor_Reference):
 
-- `newton_krylov_history` -> `-mom_nk_pic_monitor`: PICurv's own per-iteration
-  nonlinear-norm history;
+- `newton_krylov_history` -> `-mom_nk_pic_monitor`: PICurv's own nonlinear and
+  inner-linear iteration histories;
 - `snes_monitor` -> `-mom_nk_snes_monitor`, `snes_converged_reason` ->
   `-mom_nk_snes_converged_reason`;
 - `ksp_monitor` -> `-mom_nk_ksp_monitor`, `ksp_converged_reason` ->
@@ -355,6 +348,9 @@ Independently of PETSc monitors, the solver writes structured rank-zero logs int
 
 - `Momentum_Solver_Newton_Krylov_History_Block_<b>.log`: one row per Newton
   iteration (`step | block | newton | nonlinear_norm`);
+- `Momentum_Solver_Newton_Krylov_Linear_History_Block_<b>.log`: one row per KSP
+  iteration (`step | block | newton | krylov | requested_rtol |
+  reported_residual_norm`), including the effective tolerance after any EW update;
 - `Momentum_Solver_Newton_Krylov_Summary_Block_<b>.log`: one row per physical step
   (the mathematical Jacobian and preconditioner selections, `SNES reason`,
   Newton iterations, residual evaluations, Krylov iterations, initial/final
@@ -403,8 +399,9 @@ zeroing and assembly, constraint and periodic rows, PETSc backend selection,
 alias/ownership tracking, and cleanup.
 
 The optional frozen-momentum/point-block matrix is a separate AIJ matrix. For physical rows
-it reproduces the audited same-cell 3x3 block from the reachable legacy mode-2 approximation,
-with its sign reversed to match the modern residual convention; for
+it assembles a same-cell 3x3 frozen-coefficient approximation in the current
+`F=-R` residual convention. Matrix rows are residual components and columns are the
+same-cell contravariant velocity components being differentiated; for
 constraint rows it inserts the exact modern derivative (+1 identity for fixed
 rows, or +1/-1 for periodic duplicates). Its viscous diagonal carries the same
 effective viscosity the residual diffuses with, `nu + nu_t`, using the residual's own
@@ -419,21 +416,8 @@ judgement call: the eddy term was restored because it changes the viscous diagon
 eddy-to-molecular ratio, while the Clark term is higher order and non-diagonal, so
 representing it would change what kind of matrix this is.
 
-The legacy face inverse Jacobians are arithmetic averages of neighboring cell
-inverse Jacobians, and its transverse metric terms average four squared metric-vector
-norms. The modern directional fields `IAj/JAj/KAj` directly invert separately
-constructed face determinants, while `ICsi/IEta/IZet`, `JCsi/JEta/JZet`, and
-`KCsi/KEta/KZet` come from directional face-center constructions. They are not
-algebraically equivalent to the legacy expressions on a general curvilinear grid:
-in particular, an average of squared norms is not the squared norm of an average.
-The explicit legacy formulas are therefore retained here. Directional fields remain
-potential inputs to a future, separately specified modern preconditioner model.
-
-The point-block coefficients have an independent test-only legacy transcription
-covering nonuniform metrics and velocities, every block entry, both BDF coefficients,
-constraint rows, and one- and multi-rank assembly. No performance claim is made.
 `PCPBJACOBI` is only the current internal backend mapping; it is not a
-user-facing numerical model and is not a historically proven legacy setting.
+user-facing numerical model.
 
 Future additions are localized as follows: add a Jacobian type/mode
 beside `MomentumNewtonJacobian_Create/Update`; add a coefficient provider through
@@ -472,9 +456,9 @@ are exposed before their implementations exist.
 
 **Identity.** `momentum_solver.newton_krylov.preconditioner.model: frozen_momentum_jacobian` with `preconditioner.structure.type: point_block` -> `-mom_nk_preconditioner_model frozen_momentum_jacobian` and `-mom_nk_preconditioner_structure point_block`.
 
-**What it does.** Assembles a separate AIJ matrix holding the same-cell 3x3 momentum block, and uses it as the preconditioning operator for the matrix-free Jacobian. Interior rows reproduce the audited legacy same-cell approximation with its sign reversed to match the modern residual convention; constraint rows carry the exact modern derivative.
+**What it does.** Assembles a separate AIJ matrix holding a same-cell 3x3 frozen-coefficient momentum block in the current residual convention, and uses it as the preconditioning operator for the matrix-free Jacobian. Constraint rows carry the exact current derivative.
 
-**When to choose it.** When Krylov iteration counts under `none` are the measured bottleneck. It buys roughly a 6% wall-clock improvement on the case it was characterised against, while iteration counts on that case rose from 26 to 137 as the problem stiffened - so the honest expectation is a modest gain, not a transformation. Measure before and after; do not enable it on the assumption that preconditioning always helps.
+**When to choose it.** When Krylov iteration counts under `none` are the measured bottleneck. Its benefit depends on the grid, state, timestep, and omitted operator terms, so compare Krylov counts and solve time on the intended case.
 
 **Parameters it owns.** `preconditioner.structure.type`, which must be `point_block`. It is not an independent choice: the model determines it, and any other value is a validation error.
 
@@ -482,7 +466,7 @@ are exposed before their implementations exist.
 
 **Diagnostics.** Krylov iteration counts before and after are the only meaningful diagnostic. `PCPBJACOBI` appears in PETSc output as the internal backend mapping; it is not a user-facing numerical model and should not be read as one.
 
-**Evidence.** Integration verified - `make unit-newton-krylov`. The point-block coefficients additionally carry an independent test-only legacy transcription covering nonuniform metrics and velocities, every block entry, both BDF coefficients, constraint rows, and one- and multi-rank assembly.
+**Evidence.** Integration verified - `make unit-newton-krylov` covers model/backend/ownership wiring, exact constraint rows, matrix structure and reuse, and serial/MPI application.
 
 **Limitations.** Experimental, and **no performance claim is made**. It costs an extra assembled matrix in memory and an assembly per update, and the omitted terms mean it is a same-cell approximation rather than an approximate Jacobian in any global sense.
 

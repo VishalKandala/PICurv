@@ -521,6 +521,15 @@ momentum_solver:
       max_iterations: 12
       line_search:
         type: bt
+      eisenstat_walker:
+        enabled: true
+        version: 3
+        initial_relative_tolerance: 0.3
+        maximum_relative_tolerance: 0.9
+        gamma: 1.0
+        exponent: 1.618033988749895
+        safeguard_exponent: 1.618033988749895
+        safeguard_threshold: 0.1
     linear_solver:
       method: gmres
       absolute_tolerance: 1.0e-10
@@ -538,6 +547,15 @@ to `-mom_nk_snes_type/-mom_nk_snes_atol/-mom_nk_snes_rtol/-mom_nk_snes_stol/-mom
 `-mom_nk_jacobian_type/-mom_nk_jacobian_fd_mode`; the preconditioner
 fields map to `-mom_nk_preconditioner_model/-mom_nk_preconditioner_structure`.
 
+`eisenstat_walker.enabled: false` leaves the configured KSP relative tolerance fixed.
+`enabled: true` enables PETSc's inexact-Newton forcing term. Its seven fields map
+to `-mom_nk_snes_ksp_ew_version`, `-mom_nk_snes_ksp_ew_rtol0`,
+`-mom_nk_snes_ksp_ew_rtolmax`, `-mom_nk_snes_ksp_ew_gamma`,
+`-mom_nk_snes_ksp_ew_alpha`, `-mom_nk_snes_ksp_ew_alpha2`, and
+`-mom_nk_snes_ksp_ew_threshold`. PETSc supports EW versions 1 through 4; version 3 is
+therefore selectable directly. When EW is active, `linear_solver.relative_tolerance`
+is the initial KSP tolerance and PETSc may replace it before each Newton linear solve.
+
 Newton tolerances are nonnegative, iteration/restart counts are positive integers,
 and GMRES restart is valid only for `gmres`, `fgmres`, or `lgmres`. Supported
 combinations are finite difference/matrix free with either no
@@ -549,6 +567,12 @@ The Jacobian block is a strict discriminated configuration: an explicit
 `type: finite_difference` requires `finite_difference.mode: matrix_free`.
 `colored_sparse`, `frozen_momentum_approximation`, and irrelevant sibling
 configuration are rejected because their implementations are not present.
+Advanced SNES, line-search, KSP, GMRES, and PC options that do not have structured
+PICurv fields remain available through `petsc_passthrough_options` with the
+`-mom_nk_` prefix. See PETSc's [SNES manual](https://petsc.org/main/manual/snes/),
+[SNES option list](https://petsc.org/main/manualpages/SNES/SNESSetFromOptions/), and
+[KSP option list](https://petsc.org/main/manualpages/KSP/KSPSetFromOptions/). PETSc
+startup-only options such as `-info` belong under `monitor.diagnostics.petsc`.
 
 @section p08_poisson_sec 7. poisson_solver
 

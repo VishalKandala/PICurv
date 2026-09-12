@@ -748,6 +748,16 @@ def _complete_newton_krylov_config():
                     "step_tolerance": 1.0e-12,
                     "max_iterations": 12,
                     "line_search": {"type": "bt"},
+                    "eisenstat_walker": {
+                        "enabled": True,
+                        "version": 3,
+                        "initial_relative_tolerance": 0.3,
+                        "maximum_relative_tolerance": 0.9,
+                        "gamma": 0.8,
+                        "exponent": 1.5,
+                        "safeguard_exponent": 1.7,
+                        "safeguard_threshold": 0.1,
+                    },
                 },
                 "linear_solver": {
                     "method": "gmres",
@@ -785,6 +795,14 @@ def test_parse_solver_config_maps_complete_structured_newton_krylov_controls(cap
         "-mom_nk_snes_stol": 1.0e-12,
         "-mom_nk_snes_max_it": 12,
         "-mom_nk_snes_linesearch_type": "bt",
+        "-mom_nk_snes_ksp_ew": True,
+        "-mom_nk_snes_ksp_ew_version": 3,
+        "-mom_nk_snes_ksp_ew_rtol0": 0.3,
+        "-mom_nk_snes_ksp_ew_rtolmax": 0.9,
+        "-mom_nk_snes_ksp_ew_gamma": 0.8,
+        "-mom_nk_snes_ksp_ew_alpha": 1.5,
+        "-mom_nk_snes_ksp_ew_alpha2": 1.7,
+        "-mom_nk_snes_ksp_ew_threshold": 0.1,
         "-mom_nk_ksp_type": "gmres",
         "-mom_nk_ksp_atol": 1.0e-10,
         "-mom_nk_ksp_rtol": 1.0e-6,
@@ -804,12 +822,32 @@ def test_parse_solver_config_maps_complete_structured_newton_krylov_controls(cap
         "-mom_nk_snes_stol 1e-12",
         "-mom_nk_snes_max_it 12",
         "-mom_nk_snes_linesearch_type bt",
+        "-mom_nk_snes_ksp_ew",
+        "-mom_nk_snes_ksp_ew_version 3",
+        "-mom_nk_snes_ksp_ew_rtol0 0.3",
+        "-mom_nk_snes_ksp_ew_rtolmax 0.9",
+        "-mom_nk_snes_ksp_ew_gamma 0.8",
+        "-mom_nk_snes_ksp_ew_alpha 1.5",
+        "-mom_nk_snes_ksp_ew_alpha2 1.7",
+        "-mom_nk_snes_ksp_ew_threshold 0.1",
         "-mom_nk_ksp_type gmres",
         "-mom_nk_ksp_atol 1e-10",
         "-mom_nk_ksp_rtol 1e-06",
         "-mom_nk_ksp_max_it 400",
         "-mom_nk_ksp_gmres_restart 80",
     ]
+
+
+def test_solver_schema_accepts_complete_eisenstat_walker_block():
+    """! @brief The file-level schema accepts every structured EW key. """
+    picurv = load_picurv_module()
+    errors = []
+
+    picurv._validate_yaml_schema_keys(
+        _complete_newton_krylov_config(), picurv._SOLVER_SCHEMA, "solver.yml", errors
+    )
+
+    assert errors == []
 
 
 @pytest.mark.parametrize(

@@ -43,7 +43,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | fixed run topology | canonical `-output_dir`, `-restart_dir`, `-log_dir`, `-analysis_dir` | `picurv_cli/core.py`, then `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c`, `src/logging.c` |
 | `monitor.logging.*` | `whitelist.run`, `LOG_LEVEL` env | `src/setup.c` + `src/logging.c` | logging macros/system |
 | `monitor.profiling.*` | `profile.run` (selected-mode only) + explicit profiling flags in `*.control` | `src/setup.c` + profiling init | profiler summaries |
-| `monitor.diagnostics.petsc.*` | solver/postprocessor executable arguments (`-malloc_*`, `-log_view`, `-objects_dump`, etc.) | PETSc initialization | PETSc memory/log/object diagnostics |
+| `monitor.diagnostics.petsc.*` | solver/postprocessor executable arguments (`-info`, `-malloc_*`, `-log_view`, `-objects_dump`, etc.) | PETSc initialization | PETSc info/memory/log/object diagnostics |
 | `monitor.diagnostics.runtime_memory_log.*` | `-runtime_memory_log_enabled`, `-runtime_memory_log_file` | `src/setup.c` | `src/logging.c`, `src/runloop.c`, `src/postprocessor.c`, `src/simulator.c` |
 | `monitor.field_statistics.*` | `-field_statistics_enabled`, `-field_statistics_window_count`, `-field_statistics_window_<i>_*` | `src/statistics_config.c` (`ParseFieldStatisticsConfig`) | `src/statistics_window.c`, `src/statistics_accumulator.c`, `src/runloop.c`, `src/io.c` checkpoint state |
 | `monitor.solution_monitoring.convergence.*` | `-solution_convergence_enabled/-solution_convergence_mode/-solution_convergence_period_steps/-solution_convergence_window_steps` in `*.control` | `src/setup.c` | existing `src/logging.c` and `src/runloop.c` convergence path; every completed timestep |

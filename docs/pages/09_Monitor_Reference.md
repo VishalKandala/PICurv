@@ -302,6 +302,9 @@ PICurv runtime memory log:
 ```yaml
 diagnostics:
   petsc:
+    info:
+      enabled: false
+      classes: [snes, ksp]
     malloc_debug: false
     malloc_test: false
     malloc_dump: false
@@ -323,6 +326,12 @@ Rules:
 - PETSc initialization-time diagnostics such as `malloc_debug` and `malloc_test`
   are passed on the executable command line, not only through the generated
   `.control` file.
+- `info.enabled: true` writes PETSc initialization and runtime detail to
+  `<run.runtime_logs>/PETSc_Info_Solver.log.<rank>` (or the matching
+  postprocessor files); PETSc appends the emitting MPI rank.
+  `info.classes` optionally restricts output to PETSc class names such as `snes`
+  and `ksp`; use an empty list for all classes. This maps to PETSc `-info` during
+  initialization. See [PetscInfo](https://petsc.org/main/manualpages/Sys/PetscInfo/).
 - For example, this YAML:
 
 ```yaml

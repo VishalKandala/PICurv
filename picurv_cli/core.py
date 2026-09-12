@@ -7025,9 +7025,13 @@ _SOLVER_SCHEMA = {
     ("momentum_solver", "newton_krylov", "preconditioner", "structure"): {"type"},
     ("momentum_solver", "newton_krylov", "nonlinear_solver"): {
         "method", "absolute_tolerance", "relative_tolerance", "step_tolerance",
-        "max_iterations", "line_search",
+        "max_iterations", "line_search", "eisenstat_walker",
     },
     ("momentum_solver", "newton_krylov", "nonlinear_solver", "line_search"): {"type"},
+    ("momentum_solver", "newton_krylov", "nonlinear_solver", "eisenstat_walker"): {
+        "enabled", "version", "initial_relative_tolerance", "maximum_relative_tolerance",
+        "gamma", "exponent", "safeguard_exponent", "safeguard_threshold",
+    },
     ("momentum_solver", "newton_krylov", "linear_solver"): {
         "method", "absolute_tolerance", "relative_tolerance", "max_iterations",
         "gmres", "preconditioner",
@@ -7083,10 +7087,11 @@ _MONITOR_SCHEMA = {
     ("profiling", "final_summary"): {"enabled"},
     ("diagnostics",): {"petsc", "runtime_memory_log"},
     ("diagnostics", "petsc"): {
-        "malloc_debug", "malloc_test", "malloc_dump", "malloc_view", "malloc_view_threshold",
+        "info", "malloc_debug", "malloc_test", "malloc_dump", "malloc_view", "malloc_view_threshold",
         "memory_view", "log_view", "log_view_memory", "log_all", "log_trace",
         "objects_dump", "options_left",
     },
+    ("diagnostics", "petsc", "info"): {"enabled", "classes"},
     ("diagnostics", "runtime_memory_log"): {"enabled", "file"},
     ("io",): {
         "data_output_frequency", "particle_console_output_frequency", "particle_log_interval",
@@ -9710,6 +9715,7 @@ def resolve_profiling_config(monitor_cfg: dict) -> dict:
 
 
 DIAGNOSTICS_PETSC_KEYS = {
+    "info",
     "malloc_debug",
     "malloc_test",
     "malloc_dump",
@@ -9723,6 +9729,35 @@ DIAGNOSTICS_PETSC_KEYS = {
     "objects_dump",
     "options_left",
 }
+
+
+def _diagnostic_info(value) -> dict:
+    """!
+    @brief Validate PETSc info logging configuration.
+    @param[in] value Boolean or structured PETSc info configuration.
+    @return Normalized enabled/class-filter mapping.
+    """
+    if isinstance(value, bool):
+        return {"enabled": value, "classes": []}
+    if value is None:
+        return {"enabled": False, "classes": []}
+    if not isinstance(value, dict):
+        raise ValueError("monitor.diagnostics.petsc.info must be boolean, null, or a mapping.")
+    unknown = sorted(set(value) - {"enabled", "classes"})
+    if unknown:
+        raise ValueError(f"monitor.diagnostics.petsc.info has unsupported key(s): {unknown}.")
+    enabled = value.get("enabled", True)
+    classes = value.get("classes", [])
+    if not isinstance(enabled, bool):
+        raise ValueError("monitor.diagnostics.petsc.info.enabled must be boolean.")
+    if not isinstance(classes, list) or not all(
+        isinstance(item, str) and item.strip() and "," not in item and ":" not in item
+        for item in classes
+    ):
+        raise ValueError(
+            "monitor.diagnostics.petsc.info.classes must be a list of non-empty PETSc class names."
+        )
+    return {"enabled": enabled, "classes": [item.strip() for item in classes]}
 
 
 def _diagnostic_bool_or_path(value, key: str):
@@ -9812,6 +9847,7 @@ def resolve_diagnostics_config(monitor_cfg: dict, run_dir: "str | None" = None, 
         raise ValueError(f"monitor.diagnostics.petsc has unsupported key(s): {unknown}.")
 
     petsc = {
+        "info": _diagnostic_info(petsc_raw.get("info", False)),
         "malloc_debug": _diagnostic_bool(petsc_raw.get("malloc_debug", False), "malloc_debug"),
         "malloc_test": _diagnostic_bool(petsc_raw.get("malloc_test", False), "malloc_test"),
         "malloc_dump": _diagnostic_bool(petsc_raw.get("malloc_dump", False), "malloc_dump"),
@@ -9847,11 +9883,18 @@ def resolve_diagnostics_config(monitor_cfg: dict, run_dir: "str | None" = None, 
     artifacts = []
     if run_dir:
         suffix = "PostProcessor" if stage_label == "PostProcessor" else "Solver"
+        resolved_petsc["info"] = False
         defaults = {
             "malloc_view": f"PETSc_MallocView_{suffix}.log",
             "log_view": f"PETSc_LogView_{suffix}.log",
             "log_trace": f"PETSc_LogTrace_{suffix}.log",
         }
+        if petsc["info"]["enabled"]:
+            info_path = _diagnostic_default_file(run_dir, f"PETSc_Info_{suffix}.log")
+            classes = petsc["info"]["classes"]
+            resolved_petsc["info"] = info_path + (f":{','.join(classes)}" if classes else "")
+            # PetscInfoSetFile appends the emitting MPI rank (for example `.0`).
+            artifacts.append(f"{info_path}.*")
         for key, default_name in defaults.items():
             resolved_value = _diagnostic_resolve_path_or_default(petsc[key], run_dir, default_name)
             if key == "log_view" and resolved_value and isinstance(resolved_value, str) and not resolved_value.startswith(":"):
@@ -9886,6 +9929,8 @@ def build_petsc_diagnostics_args(monitor_cfg: dict, run_dir: str, stage_label: s
     diagnostics = resolve_diagnostics_config(monitor_cfg, run_dir, stage_label)
     petsc = diagnostics["petsc"]
     args = []
+    if petsc["info"]:
+        args.extend(["-info", str(petsc["info"])])
     if petsc["malloc_debug"]:
         args.append("-malloc_debug")
     if petsc["malloc_test"]:
@@ -10893,7 +10938,7 @@ def validate_newton_krylov_config(cfg: dict) -> dict:
     nonlinear_path = f"{root}.nonlinear_solver"
     unknown = sorted(set(nonlinear) - {
         "method", "absolute_tolerance", "relative_tolerance", "step_tolerance",
-        "max_iterations", "line_search",
+        "max_iterations", "line_search", "eisenstat_walker",
     })
     if unknown:
         raise ValueError(f"{nonlinear_path} has unsupported key(s): {unknown}.")
@@ -10917,6 +10962,51 @@ def validate_newton_krylov_config(cfg: dict) -> dict:
             nonlinear_out["line_search"]["type"] = _method(
                 line_search["type"], f"{nonlinear_path}.line_search.type"
             )
+    if "eisenstat_walker" in nonlinear:
+        ew_path = f"{nonlinear_path}.eisenstat_walker"
+        ew = _mapping(nonlinear, "eisenstat_walker", ew_path)
+        ew_keys = {
+            "enabled", "version", "initial_relative_tolerance",
+            "maximum_relative_tolerance", "gamma", "exponent",
+            "safeguard_exponent", "safeguard_threshold",
+        }
+        unknown = sorted(set(ew) - ew_keys)
+        if unknown:
+            raise ValueError(f"{ew_path} has unsupported key(s): {unknown}.")
+        enabled = ew.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise ValueError(f"{ew_path}.enabled must be boolean.")
+        if not enabled and set(ew) - {"enabled"}:
+            raise ValueError(f"{ew_path} parameters require enabled: true.")
+        ew_out = {"enabled": enabled}
+        if "version" in ew:
+            version = ew["version"]
+            if isinstance(version, bool) or not isinstance(version, int) or version not in {1, 2, 3, 4}:
+                raise ValueError(f"{ew_path}.version must be one of 1, 2, 3, or 4.")
+            ew_out["version"] = version
+        bounds = {
+            "initial_relative_tolerance": (0.0, 1.0, False, True),
+            "maximum_relative_tolerance": (0.0, 1.0, False, True),
+            "gamma": (0.0, 1.0, False, False),
+            "exponent": (1.0, 2.0, True, False),
+            "safeguard_threshold": (0.0, 1.0, True, True),
+        }
+        for key, (lower, upper, lower_open, upper_open) in bounds.items():
+            if key not in ew:
+                continue
+            value = _tolerance(ew[key], f"{ew_path}.{key}")
+            numeric = float(value)
+            valid_lower = numeric > lower if lower_open else numeric >= lower
+            valid_upper = numeric < upper if upper_open else numeric <= upper
+            if not (valid_lower and valid_upper):
+                brackets = ("(" if lower_open else "[") + f"{lower}, {upper}" + (")" if upper_open else "]")
+                raise ValueError(f"{ew_path}.{key} must be in {brackets}.")
+            ew_out[key] = value
+        if "safeguard_exponent" in ew:
+            ew_out["safeguard_exponent"] = _tolerance(
+                ew["safeguard_exponent"], f"{ew_path}.safeguard_exponent"
+            )
+        nonlinear_out["eisenstat_walker"] = ew_out
     normalized["nonlinear_solver"] = nonlinear_out
 
     linear = _mapping(cfg, "linear_solver", f"{root}.linear_solver")
@@ -12524,6 +12614,22 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         line_search = nonlinear.get("line_search", {})
         if "type" in line_search:
             flags["-mom_nk_snes_linesearch_type"] = line_search["type"]
+        ew = nonlinear.get("eisenstat_walker")
+        if ew:
+            flags["-mom_nk_snes_ksp_ew"] = ew["enabled"]
+            if ew["enabled"]:
+                ew_map = {
+                    "version": "-mom_nk_snes_ksp_ew_version",
+                    "initial_relative_tolerance": "-mom_nk_snes_ksp_ew_rtol0",
+                    "maximum_relative_tolerance": "-mom_nk_snes_ksp_ew_rtolmax",
+                    "gamma": "-mom_nk_snes_ksp_ew_gamma",
+                    "exponent": "-mom_nk_snes_ksp_ew_alpha",
+                    "safeguard_exponent": "-mom_nk_snes_ksp_ew_alpha2",
+                    "safeguard_threshold": "-mom_nk_snes_ksp_ew_threshold",
+                }
+                for key, flag in ew_map.items():
+                    if key in ew:
+                        flags[flag] = ew[key]
 
         linear = cfg["linear_solver"]
         linear_map = {
