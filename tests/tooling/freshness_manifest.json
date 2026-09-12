@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:0a7ad28d0d91bb0a820eaef9f28cfadc4769e1f936458912e29ee06e5100735c",
+      "attested_digest": "sha256:d688178a920c86bb7d4b33c91415d99b4e9b990a2f4989324895dbc63b742f6c",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
@@ -165,7 +165,7 @@
         "08_Solver_Reference",
         "31_Momentum_Solvers"
       ],
-      "attested_digest": "sha256:d0c0ffb33b15e3f49dd765995bd4d837609669a8bdda2d2a2b227e1bda2b1cf5"
+      "attested_digest": "sha256:f51a03d97d7caebb45103d5e48910aead2d381fb2f555e0279125feda54656ff"
     },
     {
       "id": "momentum.picard",

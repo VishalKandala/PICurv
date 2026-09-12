@@ -421,9 +421,27 @@ static PetscReal FrozenMomentumJacobian_MetricNormSquared(Cmpnts metric)
 /**
  * @brief Returns the face-averaged eddy viscosity the residual uses on one face.
  *
- * Mirrors the residual's own treatment: the cell-centred field is averaged onto the
- * face, and zeroed on a wall face where the residual zeroes it. The preconditioner has
- * to reproduce the operator it preconditions, so this must track `Viscous()`.
+ * The preconditioner has to reproduce the operator it preconditions, so the interior
+ * face average here tracks `Viscous()`.
+ *
+ * The WALL branch below does not, and is retained only because it cannot currently
+ * change an assembled entry. It is unreachable by construction, not by configuration:
+ * `FrozenMomentumJacobian_PointBlock()` puts the eddy viscosity only on the three
+ * diagonal entries, and the row-at-a-time insertion in
+ * `FrozenMomentumJacobian_AssemblePointBlocks()` means row c carries only axis == c.
+ * The two coordinates that trigger the branch are exactly those
+ * `ClassifyMomentumRow()` reports as non-MOM_ROW_PHYSICAL, and only physical rows
+ * assemble a block; the WALL-on-a-periodic-axis loophole is closed by the pairing
+ * check in `BoundarySystem_Validate()`. Both rules state the same boundary
+ * fact: the wall-normal flux at a no-slip wall is not an unknown.
+ *
+ * `Viscous()` substitutes the wall-model eddy viscosity `lnu_wall` on a wall face and
+ * falls back to zero only when `simCtx->wallfunction` is unset, so this branch is
+ * already wrong for a wall-modelled run -- it simply has no way to express that yet.
+ * Widening the stencil makes it reachable and therefore wrong in effect: an interior
+ * row would need the eddy viscosity on the wall face for its off-diagonal. Fix this
+ * to read `lNu_Wall` before adding any preconditioner with stencil_width >= 1, or any
+ * row classification that makes wall-normal DOFs solvable. Tracked as issue #8.
  */
 static PetscReal FrozenMomentumJacobian_FaceEddyViscosity(
     const UserCtx *user, const PetscReal ***nu_t, PetscInt axis,

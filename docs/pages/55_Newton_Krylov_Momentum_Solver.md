@@ -405,10 +405,24 @@ same-cell contravariant velocity components being differentiated; for
 constraint rows it inserts the exact modern derivative (+1 identity for fixed
 rows, or +1/-1 for periodic duplicates). Its viscous diagonal carries the same
 effective viscosity the residual diffuses with, `nu + nu_t`, using the residual's own
-face average of the eddy viscosity and its wall zeroing; omitting the eddy term left
+face average of the eddy viscosity; omitting the eddy term left
 the matrix modelling a viscous diagonal smaller than the operator's by the
 eddy-to-molecular ratio, which on a developed large-eddy simulation is order one or
-more. It still intentionally omits pressure, the eddy-viscosity *derivatives* with
+more.
+
+`FrozenMomentumJacobian_FaceEddyViscosity()` also returns zero on a face lying on a
+`WALL`. That branch currently changes no assembled entry, and it does not match the
+residual. It changes nothing because the eddy viscosity reaches the matrix only
+through the three diagonal entries, so a row carries only the viscosity of its own
+axis, and the two coordinates that trigger the branch are exactly the ones
+`ClassifyMomentumRow()` classifies as boundary-pinned - those rows take an identity
+stamp and never assemble a block at all. Both rules restate one boundary fact: the
+wall-normal flux at a no-slip wall is not an unknown. It does not match the residual
+because `Viscous()` substitutes the wall-model eddy viscosity `lnu_wall` there and
+falls back to zero only when no wall model is active. Widening the stencil breaks the
+first of those and exposes the second, because an interior row would then need the
+eddy viscosity on the wall face to build its off-diagonal. Issue #8 tracks fixing it
+before any preconditioner with a wider stencil. It still intentionally omits pressure, the eddy-viscosity *derivatives* with
 respect to velocity, nonorthogonal viscous cross-couplings, the gradient (Clark)
 stress, boundary-map and IBM derivatives, and body-force derivatives. The eddy viscosity
 and the Clark stress are omitted for different reasons, and only one of them was a
@@ -462,7 +476,7 @@ are exposed before their implementations exist.
 
 **Parameters it owns.** `preconditioner.structure.type`, which must be `point_block`. It is not an independent choice: the model determines it, and any other value is a validation error.
 
-**Interactions.** Requires `structure.type: point_block` and is rejected without it. Its viscous diagonal carries the residual's own effective viscosity `nu + nu_t`, so a turbulence model is represented at the level the diagonal can represent it. The matrix still deliberately omits pressure, the eddy-viscosity derivatives with respect to velocity, nonorthogonal viscous cross-couplings, the gradient (Clark) stress, boundary-map and IBM derivatives, and body-force derivatives - so its quality degrades as those terms matter more.
+**Interactions.** Requires `structure.type: point_block` and is rejected without it. Its viscous diagonal carries the residual's own effective viscosity `nu + nu_t`, so a turbulence model is represented at the level the diagonal can represent it. A wall model is not: the wall-face eddy viscosity is the one place this matrix does not follow the residual, which is harmless only while the stencil stays at zero (issue #8). The matrix still deliberately omits pressure, the eddy-viscosity derivatives with respect to velocity, nonorthogonal viscous cross-couplings, the gradient (Clark) stress, boundary-map and IBM derivatives, and body-force derivatives - so its quality degrades as those terms matter more.
 
 **Diagnostics.** Krylov iteration counts before and after are the only meaningful diagnostic. `PCPBJACOBI` appears in PETSc output as the internal backend mapping; it is not a user-facing numerical model and should not be read as one.
 
