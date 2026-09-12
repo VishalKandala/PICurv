@@ -227,7 +227,13 @@ io:
 # ==============================================================================
 solver_monitoring:
   momentum:
-    # PICurv structured nonlinear history (does not enable PETSc stdout monitors).
+    # PICurv structured solver history (does not enable PETSc stdout monitors).
+    # Writes two rank-zero logs: one row per Newton iteration, and one row per
+    # Krylov iteration carrying the requested relative tolerance beside PETSc's
+    # reported residual norm - which is what separates an Eisenstat-Walker
+    # tolerance change from the linear solve genuinely degrading. The per-Krylov
+    # file is flushed every iteration, so enable it to diagnose a solve rather
+    # than for the length of a production run.
     # The Newton summary log is unconditional, like the Jameson/Poisson logs.
     newton_krylov_history: false  # -> -mom_nk_pic_monitor
     snes_monitor: false           # -> -mom_nk_snes_monitor

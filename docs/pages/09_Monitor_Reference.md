@@ -404,6 +404,14 @@ Rules:
 - The structured `momentum.*` and `poisson.*` keys are booleans. `true` emits
   a bare switch and `false` emits nothing; no Boolean monitor is serialized as
   a numeric viewer argument.
+- `momentum.newton_krylov_history` writes PICurv's own rank-zero history files
+  rather than enabling a PETSc stdout monitor: one row per Newton iteration and
+  one row per Krylov iteration. The per-Krylov row carries the requested
+  relative tolerance beside PETSc's reported residual norm, which is what
+  distinguishes an Eisenstat-Walker tolerance change from the linear solve
+  degrading. It is flushed every iteration.
+  [Newton-Krylov guide](55_Newton_Krylov_Momentum_Solver.md) names the files and
+  their columns. The Newton summary log is written whether or not this is set.
 - `petsc_passthrough_options` remains available for raw PETSc flags not yet
   exposed as structured YAML. In passthrough, `true` emits a switch-only flag,
   `false` omits the flag, and non-boolean values emit `flag value`.
