@@ -144,11 +144,6 @@ typedef struct Cpt2D {
   PetscReal	x, y;
 } Cpt2D;
 
-/** @brief Represents a single point in a time-varying flow waveform. */
-typedef struct FlowWave {
-    PetscReal t, f;
-} FlowWave;
-
 /** @brief Boundary condition data used by the BC pipeline and ghost cell machinery. */
 typedef struct BCS {
   Vec Ubcs;   ///< Physical Cartesian velocity at boundary faces. Full 3D array but only boundary-face entries are meaningful; interior is unused. Consumed by UpdateDummyCells for ghost cell extrapolation.
@@ -339,8 +334,6 @@ typedef enum {
     BC_HANDLER_INLET_CONSTANT_VELOCITY = 4,
     BC_HANDLER_INLET_PARABOLIC = 5,
     BC_HANDLER_INLET_PROFILE_FROM_FILE = 6,
-    BC_HANDLER_INLET_INTERP_FROM_FILE = 7,
-    BC_HANDLER_INLET_PULSATILE_FLUX = 8,
     BC_HANDLER_FARFIELD_NONREFLECTING = 9,
     BC_HANDLER_OUTLET_CONSERVATION = 10, 
     BC_HANDLER_OUTLET_PRESSURE = 11,

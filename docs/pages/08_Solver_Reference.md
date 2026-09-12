@@ -438,7 +438,7 @@ and logs the same velocity, pressure, speed and energy changes as `steady_determ
 together with the phase index. A cycle that repeats drives the logged change to zero.
 
 **When to choose it.** Flows with a known deterministic period in steps - vortex shedding
-at low Reynolds number, or a pulsatile driving condition.
+at low Reynolds number, or another periodically forced flow.
 
 **Parameters it owns.** `periodic_deterministic.period_steps`, required and positive: the
 period as a whole number of steps.

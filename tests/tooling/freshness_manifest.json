@@ -353,7 +353,7 @@
       "dependent_pages": [
         "p54_geometric_periodic"
       ],
-      "attested_digest": "unattested"
+      "attested_digest": "sha256:37be80403c9b64457d1511ab7f097b6f9832e42123b35a1788ad2eaad68137d0"
     },
     {
       "id": "pressure.poisson",
@@ -423,7 +423,7 @@
         "13_Code_Architecture",
         "53_Search_Robustness_Metrics_Reference"
       ],
-      "attested_digest": "unattested"
+      "attested_digest": "sha256:84b3e56fc0990d0dccf201aa72f7e2d99fcd8d95a30df5b599c3eb08bab200d3"
     },
     {
       "id": "grid.generator",

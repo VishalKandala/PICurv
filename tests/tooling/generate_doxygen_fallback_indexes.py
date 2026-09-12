@@ -205,7 +205,7 @@ def categorize_struct(name: str) -> str:
     @param[in] name Argument passed to `categorize_struct()`.
     @return Value returned by `categorize_struct()`.
     """
-    if name.startswith("BC") or "Boundary" in name or name == "FlowWave":
+    if name.startswith("BC") or "Boundary" in name:
         return "Boundary Condition System"
     if name.startswith("IBM") or name in {"FSInfo", "SurfElmtInfo", "Cstart"}:
         return "Immersed Boundary and FSI"

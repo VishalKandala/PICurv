@@ -299,7 +299,7 @@ static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx)
 static PetscErrorCode Initialize_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx);
 static PetscErrorCode PreStep_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx, 
                                                      PetscReal *in, PetscReal *out);
-static PetscErrorCode Apply_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx);
+static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ctx);
 static PetscErrorCode PostStep_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx,
                                                       PetscReal *in, PetscReal *out);
 static PetscErrorCode Destroy_InletConstantVelocity(BoundaryCondition *self);
@@ -308,7 +308,7 @@ static PetscErrorCode Destroy_InletConstantVelocity(BoundaryCondition *self);
  * @brief Private data structure for the Constant Velocity Inlet handler.
  */
 typedef struct{
-    PetscReal normal_velocity; // The desired Cartesian velocity (vx, vy, vz)
+    PetscReal normal_velocity; // Face-normal speed selected from vx, vy, or vz.
 }InletConstantData;
 
 #undef __FUNCT__
@@ -333,7 +333,7 @@ PetscErrorCode Create_InletConstantVelocity(BoundaryCondition *bc)
     bc->priority   = BC_PRIORITY_INLET;
     bc->Initialize = Initialize_InletConstantVelocity;
     bc->PreStep    = PreStep_InletConstantVelocity;
-    bc->Apply      = Apply_InletConstantVelocity;
+    bc->Apply      = Apply_InletVelocity;
     bc->PostStep   = PostStep_InletConstantVelocity;
     bc->UpdateUbcs = NULL;
     bc->Destroy    = Destroy_InletConstantVelocity;
@@ -386,7 +386,7 @@ static PetscErrorCode Initialize_InletConstantVelocity(BoundaryCondition *self, 
               face_id, data->normal_velocity);
 
     // Set initial boundary state
-    ierr = Apply_InletConstantVelocity(self, ctx); CHKERRQ(ierr);
+    ierr = Apply_InletVelocity(self, ctx); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }
@@ -410,141 +410,6 @@ static PetscErrorCode PreStep_InletConstantVelocity(BoundaryCondition *self, BCC
     (void)local_outflow_contribution;
     
     PetscFunctionBeginUser;
-    PetscFunctionReturn(0);
-}
-
-#undef __FUNCT__
-#define __FUNCT__ "Apply_InletConstantVelocity"
-/**
- * @brief Impose the configured constant velocity on inlet boundary cells.
- */
-static PetscErrorCode Apply_InletConstantVelocity(BoundaryCondition *self, BCContext *ctx)
-{
-    PetscErrorCode ierr;
-    UserCtx*       user = ctx->user;
-    BCFace         face_id = ctx->face_id;
-    InletConstantData *data = (InletConstantData*)self->data;
-    PetscBool      can_service;
-    
-    PetscFunctionBeginUser;
-    
-    DMDALocalInfo *info = &user->info;
-    Cmpnts ***ubcs, ***ucont, ***csi, ***eta, ***zet;
-    PetscReal ***nvert;
-    PetscInt IM_nodes_global, JM_nodes_global,KM_nodes_global;
-
-    IM_nodes_global = user->IM;
-    JM_nodes_global = user->JM;
-    KM_nodes_global = user->KM;
-    
-    ierr = CanRankServiceFace(info,IM_nodes_global,JM_nodes_global,KM_nodes_global,face_id,&can_service); CHKERRQ(ierr);
-    
-    if (!can_service) PetscFunctionReturn(0);
-
-    // Get arrays
-
-    ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
-
-    // Get SCALAR velocity (not vector!)
-    PetscReal uin_this_point = data->normal_velocity;
-    
-    PetscInt xs = info->xs, xe = info->xs + info->xm;
-    PetscInt ys = info->ys, ye = info->ys + info->ym;
-    PetscInt zs = info->zs, ze = info->zs + info->zm;
-    PetscInt mx = info->mx, my = info->my, mz = info->mz;
-    
-    PetscInt lxs = xs, lxe = xe, lys = ys, lye = ye, lzs = zs, lze = ze;
-    if (xs == 0) lxs = xs + 1;
-    if (xe == mx) lxe = xe - 1;
-    if (ys == 0) lys = ys + 1;
-    if (ye == my) lye = ye - 1;
-    if (zs == 0) lzs = zs + 1;
-    if (ze == mz) lze = ze - 1;
-
-    switch (face_id) {
-        case BC_FACE_NEG_X:
-        case BC_FACE_POS_X: {
-            PetscReal sign = (face_id == BC_FACE_NEG_X) ? 1.0 : -1.0;
-            PetscInt i = (face_id == BC_FACE_NEG_X) ? xs : mx - 2;
-            
-            for (PetscInt k = lzs; k < lze; k++) {
-                for (PetscInt j = lys; j < lye; j++) {
-                    if ((sign > 0 && nvert[k][j][i+1] > 0.1) || 
-                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
-                    
-                    PetscReal CellArea = sqrt(csi[k][j][i].x * csi[k][j][i].x + 
-                                             csi[k][j][i].y * csi[k][j][i].y + 
-                                             csi[k][j][i].z * csi[k][j][i].z);
-                    
-                    ucont[k][j][i].x = sign * uin_this_point * CellArea;
-                    
-                    ubcs[k][j][i + (sign < 0)].x = sign * uin_this_point * csi[k][j][i].x / CellArea;
-                    ubcs[k][j][i + (sign < 0)].y = sign * uin_this_point * csi[k][j][i].y / CellArea;
-                    ubcs[k][j][i + (sign < 0)].z = sign * uin_this_point * csi[k][j][i].z / CellArea;
-                }
-            }
-        } break;
-            
-        case BC_FACE_NEG_Y:
-        case BC_FACE_POS_Y: {
-            PetscReal sign = (face_id == BC_FACE_NEG_Y) ? 1.0 : -1.0;
-            PetscInt j = (face_id == BC_FACE_NEG_Y) ? ys : my - 2;
-            
-            for (PetscInt k = lzs; k < lze; k++) {
-                for (PetscInt i = lxs; i < lxe; i++) {
-                    if ((sign > 0 && nvert[k][j+1][i] > 0.1) || 
-                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
-                    
-                    PetscReal CellArea = sqrt(eta[k][j][i].x * eta[k][j][i].x + 
-                                             eta[k][j][i].y * eta[k][j][i].y + 
-                                             eta[k][j][i].z * eta[k][j][i].z);
-                    
-                    ucont[k][j][i].y = sign * uin_this_point * CellArea;
-                    
-                    ubcs[k][j + (sign < 0)][i].x = sign * uin_this_point * eta[k][j][i].x / CellArea;
-                    ubcs[k][j + (sign < 0)][i].y = sign * uin_this_point * eta[k][j][i].y / CellArea;
-                    ubcs[k][j + (sign < 0)][i].z = sign * uin_this_point * eta[k][j][i].z / CellArea;
-                }
-            }
-        } break;
-            
-        case BC_FACE_NEG_Z:
-        case BC_FACE_POS_Z: {
-            PetscReal sign = (face_id == BC_FACE_NEG_Z) ? 1.0 : -1.0;
-            PetscInt k = (face_id == BC_FACE_NEG_Z) ? zs : mz - 2;
-            
-            for (PetscInt j = lys; j < lye; j++) {
-                for (PetscInt i = lxs; i < lxe; i++) {
-                    if ((sign > 0 && nvert[k+1][j][i] > 0.1) || 
-                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
-                    
-                    PetscReal CellArea = sqrt(zet[k][j][i].x * zet[k][j][i].x + 
-                                             zet[k][j][i].y * zet[k][j][i].y + 
-                                             zet[k][j][i].z * zet[k][j][i].z);
-                    
-                    ucont[k][j][i].z = sign * uin_this_point * CellArea;
-                    
-                    ubcs[k + (sign < 0)][j][i].x = sign * uin_this_point * zet[k][j][i].x / CellArea;
-                    ubcs[k + (sign < 0)][j][i].y = sign * uin_this_point * zet[k][j][i].y / CellArea;
-                    ubcs[k + (sign < 0)][j][i].z = sign * uin_this_point * zet[k][j][i].z / CellArea;
-                }
-            }
-        } break;
-    }
-
-    // Restore arrays
-    ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
-
     PetscFunctionReturn(0);
 }
 
@@ -685,7 +550,6 @@ static PetscErrorCode Destroy_InletConstantVelocity(BoundaryCondition *self)
 static PetscErrorCode Initialize_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx);
 static PetscErrorCode PreStep_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx,
                                                      PetscReal *in, PetscReal *out);
-static PetscErrorCode Apply_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx);
 static PetscErrorCode PostStep_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx,
                                                       PetscReal *in, PetscReal *out);
 static PetscErrorCode Destroy_InletParabolicProfile(BoundaryCondition *self);
@@ -726,7 +590,7 @@ PetscErrorCode Create_InletParabolicProfile(BoundaryCondition *bc)
     bc->priority   = BC_PRIORITY_INLET;
     bc->Initialize = Initialize_InletParabolicProfile;
     bc->PreStep    = PreStep_InletParabolicProfile;
-    bc->Apply      = Apply_InletParabolicProfile;
+    bc->Apply      = Apply_InletVelocity;
     bc->PostStep   = PostStep_InletParabolicProfile;
     bc->UpdateUbcs = NULL;
     bc->Destroy    = Destroy_InletParabolicProfile;
@@ -803,7 +667,7 @@ static PetscErrorCode Initialize_InletParabolicProfile(BoundaryCondition *self, 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "    Cross-stream 2: center=%.1f, half=%.1f\n", data->cs2_center, data->cs2_half);
 
     // Set initial boundary state
-    ierr = Apply_InletParabolicProfile(self, ctx); CHKERRQ(ierr);
+    ierr = Apply_InletVelocity(self, ctx); CHKERRQ(ierr);
 
     PetscFunctionReturn(0);
 }
@@ -827,162 +691,6 @@ static PetscErrorCode PreStep_InletParabolicProfile(BoundaryCondition *self, BCC
     PetscFunctionReturn(0);
 }
 
-
-#undef __FUNCT__
-#define __FUNCT__ "Apply_InletParabolicProfile"
-/**
- * @brief Impose the evaluated parabolic velocity profile on inlet cells.
- */
-static PetscErrorCode Apply_InletParabolicProfile(BoundaryCondition *self, BCContext *ctx)
-{
-    PetscErrorCode ierr;
-    UserCtx*       user = ctx->user;
-    BCFace         face_id = ctx->face_id;
-    InletParabolicData *data = (InletParabolicData*)self->data;
-    PetscBool      can_service;
-
-    PetscFunctionBeginUser;
-
-    DMDALocalInfo *info = &user->info;
-    Cmpnts ***ubcs, ***ucont, ***csi, ***eta, ***zet;
-    PetscReal ***nvert;
-    PetscInt IM_nodes_global, JM_nodes_global, KM_nodes_global;
-
-    IM_nodes_global = user->IM;
-    JM_nodes_global = user->JM;
-    KM_nodes_global = user->KM;
-
-    ierr = CanRankServiceFace(info, IM_nodes_global, JM_nodes_global, KM_nodes_global,
-                              face_id, &can_service); CHKERRQ(ierr);
-
-    if (!can_service) PetscFunctionReturn(0);
-
-    // Get arrays
-    ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
-
-    PetscInt xs = info->xs, xe = info->xs + info->xm;
-    PetscInt ys = info->ys, ye = info->ys + info->ym;
-    PetscInt zs = info->zs, ze = info->zs + info->zm;
-    PetscInt mx = info->mx, my = info->my, mz = info->mz;
-
-    PetscInt lxs = xs, lxe = xe, lys = ys, lye = ye, lzs = zs, lze = ze;
-    if (xs == 0) lxs = xs + 1;
-    if (xe == mx) lxe = xe - 1;
-    if (ys == 0) lys = ys + 1;
-    if (ye == my) lye = ye - 1;
-    if (zs == 0) lzs = zs + 1;
-    if (ze == mz) lze = ze - 1;
-
-    switch (face_id) {
-        case BC_FACE_NEG_X:
-        case BC_FACE_POS_X: {
-            // X-faces: normal = i, cross-stream = (j, k)
-            PetscReal sign = (face_id == BC_FACE_NEG_X) ? 1.0 : -1.0;
-            PetscInt i = (face_id == BC_FACE_NEG_X) ? xs : mx - 2;
-
-            for (PetscInt k = lzs; k < lze; k++) {
-                for (PetscInt j = lys; j < lye; j++) {
-                    if ((sign > 0 && nvert[k][j][i+1] > 0.1) ||
-                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
-
-                    // Evaluate parabolic profile: cs1 = j, cs2 = k
-                    PetscReal cs1_norm = ((PetscReal)j - data->cs1_center) / data->cs1_half;
-                    PetscReal cs2_norm = ((PetscReal)k - data->cs2_center) / data->cs2_half;
-                    PetscReal profile = PetscMax(0.0, 1.0 - cs1_norm * cs1_norm)
-                                      * PetscMax(0.0, 1.0 - cs2_norm * cs2_norm);
-                    PetscReal uin_local = data->v_max * profile;
-
-                    PetscReal CellArea = sqrt(csi[k][j][i].x * csi[k][j][i].x +
-                                             csi[k][j][i].y * csi[k][j][i].y +
-                                             csi[k][j][i].z * csi[k][j][i].z);
-
-                    ucont[k][j][i].x = sign * uin_local * CellArea;
-
-                    ubcs[k][j][i + (sign < 0)].x = sign * uin_local * csi[k][j][i].x / CellArea;
-                    ubcs[k][j][i + (sign < 0)].y = sign * uin_local * csi[k][j][i].y / CellArea;
-                    ubcs[k][j][i + (sign < 0)].z = sign * uin_local * csi[k][j][i].z / CellArea;
-                }
-            }
-        } break;
-
-        case BC_FACE_NEG_Y:
-        case BC_FACE_POS_Y: {
-            // Y-faces: normal = j, cross-stream = (i, k)
-            PetscReal sign = (face_id == BC_FACE_NEG_Y) ? 1.0 : -1.0;
-            PetscInt j = (face_id == BC_FACE_NEG_Y) ? ys : my - 2;
-
-            for (PetscInt k = lzs; k < lze; k++) {
-                for (PetscInt i = lxs; i < lxe; i++) {
-                    if ((sign > 0 && nvert[k][j+1][i] > 0.1) ||
-                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
-
-                    // Evaluate parabolic profile: cs1 = i, cs2 = k
-                    PetscReal cs1_norm = ((PetscReal)i - data->cs1_center) / data->cs1_half;
-                    PetscReal cs2_norm = ((PetscReal)k - data->cs2_center) / data->cs2_half;
-                    PetscReal profile = PetscMax(0.0, 1.0 - cs1_norm * cs1_norm)
-                                      * PetscMax(0.0, 1.0 - cs2_norm * cs2_norm);
-                    PetscReal uin_local = data->v_max * profile;
-
-                    PetscReal CellArea = sqrt(eta[k][j][i].x * eta[k][j][i].x +
-                                             eta[k][j][i].y * eta[k][j][i].y +
-                                             eta[k][j][i].z * eta[k][j][i].z);
-
-                    ucont[k][j][i].y = sign * uin_local * CellArea;
-
-                    ubcs[k][j + (sign < 0)][i].x = sign * uin_local * eta[k][j][i].x / CellArea;
-                    ubcs[k][j + (sign < 0)][i].y = sign * uin_local * eta[k][j][i].y / CellArea;
-                    ubcs[k][j + (sign < 0)][i].z = sign * uin_local * eta[k][j][i].z / CellArea;
-                }
-            }
-        } break;
-
-        case BC_FACE_NEG_Z:
-        case BC_FACE_POS_Z: {
-            // Z-faces: normal = k, cross-stream = (i, j)
-            PetscReal sign = (face_id == BC_FACE_NEG_Z) ? 1.0 : -1.0;
-            PetscInt k = (face_id == BC_FACE_NEG_Z) ? zs : mz - 2;
-
-            for (PetscInt j = lys; j < lye; j++) {
-                for (PetscInt i = lxs; i < lxe; i++) {
-                    if ((sign > 0 && nvert[k+1][j][i] > 0.1) ||
-                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
-
-                    // Evaluate parabolic profile: cs1 = i, cs2 = j
-                    PetscReal cs1_norm = ((PetscReal)i - data->cs1_center) / data->cs1_half;
-                    PetscReal cs2_norm = ((PetscReal)j - data->cs2_center) / data->cs2_half;
-                    PetscReal profile = PetscMax(0.0, 1.0 - cs1_norm * cs1_norm)
-                                      * PetscMax(0.0, 1.0 - cs2_norm * cs2_norm);
-                    PetscReal uin_local = data->v_max * profile;
-
-                    PetscReal CellArea = sqrt(zet[k][j][i].x * zet[k][j][i].x +
-                                             zet[k][j][i].y * zet[k][j][i].y +
-                                             zet[k][j][i].z * zet[k][j][i].z);
-
-                    ucont[k][j][i].z = sign * uin_local * CellArea;
-
-                    ubcs[k + (sign < 0)][j][i].x = sign * uin_local * zet[k][j][i].x / CellArea;
-                    ubcs[k + (sign < 0)][j][i].y = sign * uin_local * zet[k][j][i].y / CellArea;
-                    ubcs[k + (sign < 0)][j][i].z = sign * uin_local * zet[k][j][i].z / CellArea;
-                }
-            }
-        } break;
-    }
-
-    // Restore arrays
-    ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
-
-    PetscFunctionReturn(0);
-}
 
 
 #undef __FUNCT__
@@ -1107,7 +815,6 @@ static PetscErrorCode Destroy_InletParabolicProfile(BoundaryCondition *self)
 static PetscErrorCode Initialize_InletProfileFromFile(BoundaryCondition *self, BCContext *ctx);
 static PetscErrorCode PreStep_InletProfileFromFile(BoundaryCondition *self, BCContext *ctx,
                                                     PetscReal *in, PetscReal *out);
-static PetscErrorCode Apply_InletProfileFromFile(BoundaryCondition *self, BCContext *ctx);
 static PetscErrorCode PostStep_InletProfileFromFile(BoundaryCondition *self, BCContext *ctx,
                                                      PetscReal *in, PetscReal *out);
 static PetscErrorCode Destroy_InletProfileFromFile(BoundaryCondition *self);
@@ -1290,6 +997,186 @@ static inline PetscReal ProfileSpeedAt(const InletProfileFileData *data, PetscIn
     return data->profile[a * data->n2 + b];
 }
 
+/**
+ * @brief Evaluates one existing inlet mode as a Cartesian boundary velocity.
+ *
+ * @details Constant, parabolic, and PICSLICE modes currently supply a scalar normal
+ *          speed. This evaluator performs their mode-specific sampling and lifts that
+ *          speed onto the signed unit face normal. A future vector-valued mode can
+ *          return Cartesian components here without changing the application loop.
+ *
+ * @param self Inlet handler whose type selects the provider data interpretation.
+ * @param face_id Physical inlet face.
+ * @param i Logical I index of the staggered face slot.
+ * @param j Logical J index of the staggered face slot.
+ * @param k Logical K index of the staggered face slot.
+ * @param metric Face-area vector in the increasing computational direction.
+ * @param sign Positive on a negative-side inlet and negative on a positive-side inlet.
+ * @return Cartesian velocity prescribed at the physical boundary location.
+ */
+static inline Cmpnts EvaluateInletCartesianVelocity(const BoundaryCondition *self,
+                                                     BCFace face_id,
+                                                     PetscInt i, PetscInt j, PetscInt k,
+                                                     Cmpnts metric, PetscReal sign)
+{
+    PetscReal normal_speed = 0.0;
+    Cmpnts velocity = {0.0, 0.0, 0.0};
+
+    switch (self->type) {
+        case BC_HANDLER_INLET_CONSTANT_VELOCITY:
+            normal_speed = ((const InletConstantData*)self->data)->normal_velocity;
+            break;
+        case BC_HANDLER_INLET_PARABOLIC: {
+            const InletParabolicData *data = (const InletParabolicData*)self->data;
+            PetscReal cs1 = 0.0, cs2 = 0.0;
+            if (face_id == BC_FACE_NEG_X || face_id == BC_FACE_POS_X) {
+                cs1 = (PetscReal)j;
+                cs2 = (PetscReal)k;
+            } else if (face_id == BC_FACE_NEG_Y || face_id == BC_FACE_POS_Y) {
+                cs1 = (PetscReal)i;
+                cs2 = (PetscReal)k;
+            } else {
+                cs1 = (PetscReal)i;
+                cs2 = (PetscReal)j;
+            }
+            const PetscReal cs1_norm = (cs1 - data->cs1_center) / data->cs1_half;
+            const PetscReal cs2_norm = (cs2 - data->cs2_center) / data->cs2_half;
+            const PetscReal profile = PetscMax(0.0, 1.0 - cs1_norm * cs1_norm)
+                                    * PetscMax(0.0, 1.0 - cs2_norm * cs2_norm);
+            normal_speed = data->v_max * profile;
+        } break;
+        case BC_HANDLER_INLET_PROFILE_FROM_FILE: {
+            const InletProfileFileData *data = (const InletProfileFileData*)self->data;
+            if (face_id == BC_FACE_NEG_X || face_id == BC_FACE_POS_X)
+                normal_speed = ProfileSpeedAt(data, k - 1, j - 1);
+            else if (face_id == BC_FACE_NEG_Y || face_id == BC_FACE_POS_Y)
+                normal_speed = ProfileSpeedAt(data, k - 1, i - 1);
+            else
+                normal_speed = ProfileSpeedAt(data, j - 1, i - 1);
+        } break;
+        default:
+            break;
+    }
+
+    const PetscReal area = sqrt(metric.x * metric.x + metric.y * metric.y + metric.z * metric.z);
+    /* Initialize applies the inlet before the grid metrics exist; a face without area has
+       no normal to align with, so it receives no velocity until the first boundary pass. */
+    if (area <= 0.0) return velocity;
+    velocity.x = sign * normal_speed * metric.x / area;
+    velocity.y = sign * normal_speed * metric.y / area;
+    velocity.z = sign * normal_speed * metric.z / area;
+    return velocity;
+}
+
+/**
+ * @brief Applies a Cartesian inlet velocity through the common face-layout path.
+ *
+ * @details The provider evaluation is mode-specific, while ownership clipping,
+ *          immersed-cell exclusion, metric projection, `Ubcs` placement, and the
+ *          normal staggered `Ucont` write are shared by every inlet profile mode.
+ */
+static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ctx)
+{
+    PetscErrorCode ierr;
+    UserCtx *user = ctx->user;
+    BCFace face_id = ctx->face_id;
+    PetscBool can_service;
+    DMDALocalInfo *info = &user->info;
+    Cmpnts ***ubcs, ***ucont, ***csi, ***eta, ***zet;
+    PetscReal ***nvert;
+
+    PetscFunctionBeginUser;
+    PetscCheck(self->type == BC_HANDLER_INLET_CONSTANT_VELOCITY ||
+               self->type == BC_HANDLER_INLET_PARABOLIC ||
+               self->type == BC_HANDLER_INLET_PROFILE_FROM_FILE,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+               "Common inlet application cannot service handler type %d.", self->type);
+
+    ierr = CanRankServiceFace(info, user->IM, user->JM, user->KM, face_id, &can_service); CHKERRQ(ierr);
+    if (!can_service) PetscFunctionReturn(0);
+
+    ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
+    ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
+
+    const PetscInt xs = info->xs, xe = info->xs + info->xm;
+    const PetscInt ys = info->ys, ye = info->ys + info->ym;
+    const PetscInt zs = info->zs, ze = info->zs + info->zm;
+    const PetscInt mx = info->mx, my = info->my, mz = info->mz;
+    PetscInt lxs = xs, lxe = xe, lys = ys, lye = ye, lzs = zs, lze = ze;
+    if (xs == 0) lxs++;
+    if (xe == mx) lxe--;
+    if (ys == 0) lys++;
+    if (ye == my) lye--;
+    if (zs == 0) lzs++;
+    if (ze == mz) lze--;
+
+    switch (face_id) {
+        case BC_FACE_NEG_X:
+        case BC_FACE_POS_X: {
+            const PetscReal sign = (face_id == BC_FACE_NEG_X) ? 1.0 : -1.0;
+            const PetscInt i = (face_id == BC_FACE_NEG_X) ? xs : mx - 2;
+            const PetscInt ib = i + (sign < 0);
+            for (PetscInt k = lzs; k < lze; k++) {
+                for (PetscInt j = lys; j < lye; j++) {
+                    if ((sign > 0 && nvert[k][j][i + 1] > 0.1) ||
+                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
+                    const Cmpnts metric = csi[k][j][i];
+                    const Cmpnts velocity = EvaluateInletCartesianVelocity(self, face_id, i, j, k,
+                                                                           metric, sign);
+                    ubcs[k][j][ib] = velocity;
+                    ucont[k][j][i].x = velocity.x * metric.x + velocity.y * metric.y + velocity.z * metric.z;
+                }
+            }
+        } break;
+        case BC_FACE_NEG_Y:
+        case BC_FACE_POS_Y: {
+            const PetscReal sign = (face_id == BC_FACE_NEG_Y) ? 1.0 : -1.0;
+            const PetscInt j = (face_id == BC_FACE_NEG_Y) ? ys : my - 2;
+            const PetscInt jb = j + (sign < 0);
+            for (PetscInt k = lzs; k < lze; k++) {
+                for (PetscInt i = lxs; i < lxe; i++) {
+                    if ((sign > 0 && nvert[k][j + 1][i] > 0.1) ||
+                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
+                    const Cmpnts metric = eta[k][j][i];
+                    const Cmpnts velocity = EvaluateInletCartesianVelocity(self, face_id, i, j, k,
+                                                                           metric, sign);
+                    ubcs[k][jb][i] = velocity;
+                    ucont[k][j][i].y = velocity.x * metric.x + velocity.y * metric.y + velocity.z * metric.z;
+                }
+            }
+        } break;
+        case BC_FACE_NEG_Z:
+        case BC_FACE_POS_Z: {
+            const PetscReal sign = (face_id == BC_FACE_NEG_Z) ? 1.0 : -1.0;
+            const PetscInt k = (face_id == BC_FACE_NEG_Z) ? zs : mz - 2;
+            const PetscInt kb = k + (sign < 0);
+            for (PetscInt j = lys; j < lye; j++) {
+                for (PetscInt i = lxs; i < lxe; i++) {
+                    if ((sign > 0 && nvert[k + 1][j][i] > 0.1) ||
+                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
+                    const Cmpnts metric = zet[k][j][i];
+                    const Cmpnts velocity = EvaluateInletCartesianVelocity(self, face_id, i, j, k,
+                                                                           metric, sign);
+                    ubcs[kb][j][i] = velocity;
+                    ucont[k][j][i].z = velocity.x * metric.x + velocity.y * metric.y + velocity.z * metric.z;
+                }
+            }
+        } break;
+    }
+
+    ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
+    PetscFunctionReturn(0);
+}
+
 #undef __FUNCT__
 #define __FUNCT__ "Create_InletProfileFromFile"
 /**
@@ -1318,7 +1205,7 @@ PetscErrorCode Create_InletProfileFromFile(BoundaryCondition *bc)
     bc->priority   = BC_PRIORITY_INLET;
     bc->Initialize = Initialize_InletProfileFromFile;
     bc->PreStep    = PreStep_InletProfileFromFile;
-    bc->Apply      = Apply_InletProfileFromFile;
+    bc->Apply      = Apply_InletVelocity;
     bc->PostStep   = PostStep_InletProfileFromFile;
     bc->UpdateUbcs = NULL;
     bc->Destroy    = Destroy_InletProfileFromFile;
@@ -1332,8 +1219,7 @@ PetscErrorCode Create_InletProfileFromFile(BoundaryCondition *bc)
  * @brief Initializes a file-prescribed inlet profile handler for one boundary face.
  *
  * @details Reads the `source_file` BC parameter, validates the target face dimensions,
- *          loads the PICSLICE scalar speed profile, records summary statistics for logging,
- *          and applies the profile once to initialize boundary state.
+ *          loads the PICSLICE scalar speed profile, and records summary statistics for logging.
  *
  * @param self BoundaryCondition object configured by Create_InletProfileFromFile().
  * @param ctx Runtime boundary context containing the UserCtx and face id.
@@ -1366,7 +1252,7 @@ static PetscErrorCode Initialize_InletProfileFromFile(BoundaryCondition *self, B
               face_id, data->source_file, data->n1, data->n2,
               (double)data->min_speed, (double)data->max_speed);
 
-    ierr = Apply_InletProfileFromFile(self, ctx); CHKERRQ(ierr);
+    ierr = Apply_InletVelocity(self, ctx); CHKERRQ(ierr);
     PetscFunctionReturn(0);
 }
 
@@ -1396,125 +1282,6 @@ static PetscErrorCode PreStep_InletProfileFromFile(BoundaryCondition *self, BCCo
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "Apply_InletProfileFromFile"
-/**
- * @brief Applies the loaded PICSLICE scalar profile to Ucont and Ubcs on an inlet face.
- *
- * @details Each stored scalar is treated as a positive normal speed magnitude. The routine
- *          uses the same negative/positive face sign convention, immersed-boundary skip
- *          checks, metric vectors, and CellArea conversion used by the constant and
- *          parabolic inlet handlers.
- *
- * @param self BoundaryCondition object with InletProfileFileData storage.
- * @param ctx Runtime boundary context containing arrays and face id.
- * @return PetscErrorCode 0 on success, or a PETSc error from DMDA array access.
- */
-static PetscErrorCode Apply_InletProfileFromFile(BoundaryCondition *self, BCContext *ctx)
-{
-    PetscErrorCode ierr;
-    UserCtx *user = ctx->user;
-    BCFace face_id = ctx->face_id;
-    InletProfileFileData *data = (InletProfileFileData*)self->data;
-    PetscBool can_service;
-
-    PetscFunctionBeginUser;
-    DMDALocalInfo *info = &user->info;
-    Cmpnts ***ubcs, ***ucont, ***csi, ***eta, ***zet;
-    PetscReal ***nvert;
-
-    ierr = CanRankServiceFace(info, user->IM, user->JM, user->KM, face_id, &can_service); CHKERRQ(ierr);
-    if (!can_service) PetscFunctionReturn(0);
-
-    ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
-
-    PetscInt xs = info->xs, xe = info->xs + info->xm;
-    PetscInt ys = info->ys, ye = info->ys + info->ym;
-    PetscInt zs = info->zs, ze = info->zs + info->zm;
-    PetscInt mx = info->mx, my = info->my, mz = info->mz;
-
-    PetscInt lxs = xs, lxe = xe, lys = ys, lye = ye, lzs = zs, lze = ze;
-    if (xs == 0) lxs = xs + 1;
-    if (xe == mx) lxe = xe - 1;
-    if (ys == 0) lys = ys + 1;
-    if (ye == my) lye = ye - 1;
-    if (zs == 0) lzs = zs + 1;
-    if (ze == mz) lze = ze - 1;
-
-    switch (face_id) {
-        case BC_FACE_NEG_X:
-        case BC_FACE_POS_X: {
-            PetscReal sign = (face_id == BC_FACE_NEG_X) ? 1.0 : -1.0;
-            PetscInt i = (face_id == BC_FACE_NEG_X) ? xs : mx - 2;
-            for (PetscInt k = lzs; k < lze; k++) {
-                for (PetscInt j = lys; j < lye; j++) {
-                    if ((sign > 0 && nvert[k][j][i+1] > 0.1) ||
-                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
-                    PetscReal uin_local = ProfileSpeedAt(data, k - 1, j - 1);
-                    PetscReal CellArea = sqrt(csi[k][j][i].x * csi[k][j][i].x +
-                                             csi[k][j][i].y * csi[k][j][i].y +
-                                             csi[k][j][i].z * csi[k][j][i].z);
-                    ucont[k][j][i].x = sign * uin_local * CellArea;
-                    ubcs[k][j][i + (sign < 0)].x = sign * uin_local * csi[k][j][i].x / CellArea;
-                    ubcs[k][j][i + (sign < 0)].y = sign * uin_local * csi[k][j][i].y / CellArea;
-                    ubcs[k][j][i + (sign < 0)].z = sign * uin_local * csi[k][j][i].z / CellArea;
-                }
-            }
-        } break;
-        case BC_FACE_NEG_Y:
-        case BC_FACE_POS_Y: {
-            PetscReal sign = (face_id == BC_FACE_NEG_Y) ? 1.0 : -1.0;
-            PetscInt j = (face_id == BC_FACE_NEG_Y) ? ys : my - 2;
-            for (PetscInt k = lzs; k < lze; k++) {
-                for (PetscInt i = lxs; i < lxe; i++) {
-                    if ((sign > 0 && nvert[k][j+1][i] > 0.1) ||
-                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
-                    PetscReal uin_local = ProfileSpeedAt(data, k - 1, i - 1);
-                    PetscReal CellArea = sqrt(eta[k][j][i].x * eta[k][j][i].x +
-                                             eta[k][j][i].y * eta[k][j][i].y +
-                                             eta[k][j][i].z * eta[k][j][i].z);
-                    ucont[k][j][i].y = sign * uin_local * CellArea;
-                    ubcs[k][j + (sign < 0)][i].x = sign * uin_local * eta[k][j][i].x / CellArea;
-                    ubcs[k][j + (sign < 0)][i].y = sign * uin_local * eta[k][j][i].y / CellArea;
-                    ubcs[k][j + (sign < 0)][i].z = sign * uin_local * eta[k][j][i].z / CellArea;
-                }
-            }
-        } break;
-        case BC_FACE_NEG_Z:
-        case BC_FACE_POS_Z: {
-            PetscReal sign = (face_id == BC_FACE_NEG_Z) ? 1.0 : -1.0;
-            PetscInt k = (face_id == BC_FACE_NEG_Z) ? zs : mz - 2;
-            for (PetscInt j = lys; j < lye; j++) {
-                for (PetscInt i = lxs; i < lxe; i++) {
-                    if ((sign > 0 && nvert[k+1][j][i] > 0.1) ||
-                        (sign < 0 && nvert[k][j][i] > 0.1)) continue;
-                    PetscReal uin_local = ProfileSpeedAt(data, j - 1, i - 1);
-                    PetscReal CellArea = sqrt(zet[k][j][i].x * zet[k][j][i].x +
-                                             zet[k][j][i].y * zet[k][j][i].y +
-                                             zet[k][j][i].z * zet[k][j][i].z);
-                    ucont[k][j][i].z = sign * uin_local * CellArea;
-                    ubcs[k + (sign < 0)][j][i].x = sign * uin_local * zet[k][j][i].x / CellArea;
-                    ubcs[k + (sign < 0)][j][i].y = sign * uin_local * zet[k][j][i].y / CellArea;
-                    ubcs[k + (sign < 0)][j][i].z = sign * uin_local * zet[k][j][i].z / CellArea;
-                }
-            }
-        } break;
-    }
-
-    ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
-
-    PetscFunctionReturn(0);
-}
 
 #undef __FUNCT__
 #define __FUNCT__ "PostStep_InletProfileFromFile"
@@ -1522,7 +1289,7 @@ static PetscErrorCode Apply_InletProfileFromFile(BoundaryCondition *self, BCCont
  * @brief Accumulates the applied inlet flux for a file-prescribed profile.
  *
  * @details Sums the face-normal Ucont component over the same interior face slots
- *          populated by Apply_InletProfileFromFile().
+ *          populated by the common inlet application hook.
  *
  * @param self BoundaryCondition object for this inlet handler.
  * @param ctx Runtime boundary context containing the UserCtx and face id.

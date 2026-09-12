@@ -201,16 +201,18 @@ validator, so a moving wall cannot currently be configured from YAML.
 **Identity.** `handler: constant_velocity` on an `INLET` face ->
 `BC_HANDLER_INLET_CONSTANT_VELOCITY` -> @ref Create_InletConstantVelocity.
 
-**What it does.** Imposes a uniform, time-constant Cartesian velocity across the
-whole inlet face.
+**What it does.** Imposes a uniform, time-constant normal speed across the whole
+inlet face. The C handler selects the component normal to the logical face (`vx`,
+`vy`, or `vz`) and aligns it with the local metric normal.
 
 **When to choose it.** The simplest inlet, and the right one for a uniform
 free-stream or a plug-flow entry. Choose `parabolic` instead when you want a
 developed profile without supplying data, or `prescribed_flow` when you have real
 profile data.
 
-**Parameters it owns.** `vx`, `vy`, `vz` - all three required, in m/s. Scalar
-components only; the legacy `vector`/`velocity` spellings are rejected.
+**Parameters it owns.** `vx`, `vy`, `vz` - all three required by the shared input
+schema, in m/s. Only the component normal to the selected face is currently
+applied; the legacy `vector`/`velocity` spellings are rejected.
 
 **Interactions.** Inlet has the highest boundary priority, so it wins over wall
 and outlet at shared edges. The outlet must be able to pass the mass this inlet
@@ -225,8 +227,7 @@ is separate from the banner.
 inlet delivers bulk velocity 1.00000 and the duct develops to Poiseuille flow at order
 1.87.
 
-**Limitations.** Uniform in space and constant in time. Time-varying inlets
-(`BC_HANDLER_INLET_PULSATILE_FLUX`) exist in the C enum but are not exposed.
+**Limitations.** Uniform in space and constant in time.
 
 @subsection p44_cap_parabolic_sub parabolic
 
@@ -312,14 +313,14 @@ exercises all three source types and the face-dimension validation. It is offere
 `examples/master_template`; no shipped runnable example currently selects it, so
 there is no production-exercised facet. Analytically verified - `duct-poiseuille-picard-2026-09-18`: a generated square-duct profile on a grid_gen grid delivered the requested flux to 1e-9 and was held downstream; `programmatic-inlet-flux-2026-09-18` measured the flux excess on `programmatic_c` grids that the 2026-09-21 fix below removed, and `programmatic-inlet-flux-fixed-2026-09-21` measured the fixed inlet delivering the requested flux to 1e-9 on uniform and stretched `programmatic_c` grids of 8 and 16 cells across. Unit verified - `tests/test_workspace_lifecycle.py` checks that a generated profile on a stretched `programmatic_c` grid is normalized on its face areas and re-identifies when the grid settings change.
 
-**Limitations.** The profile is steady: it is imposed once and held, with no time
-variation. A generated profile is sampled at the target grid's face centres and
-normalized by face area on every grid mode. On `programmatic_c`, which the simulator
-builds itself, the target is the single-block bridge grid written with the solver's own
-node formula, so a multi-block `programmatic_c` case with a generated profile is refused
-at validation. Before 2026-09-21 a `programmatic_c` profile was sampled at uniform
-logical points and normalized to its continuous mean, and the inlet delivered roughly
-`2/n` too much flux for `n` cells across - 12% at 16 cells.
+**Limitations.** The profile is steady: the same values are reapplied on every boundary
+pass, with no time variation. A generated profile is sampled at the target grid's face
+centres and normalized by face area on every grid mode. On `programmatic_c`, which the
+simulator builds itself, the target is the single-block bridge grid written with the
+solver's own node formula, so a multi-block `programmatic_c` case with a generated profile
+is refused at validation. Before 2026-09-21 a `programmatic_c` profile was sampled at
+uniform logical points and normalized to its continuous mean, and the inlet delivered
+roughly `2/n` too much flux for `n` cells across - 12% at 16 cells.
 
 @subsection p44_cap_conservation_sub conservation
 
@@ -652,6 +653,12 @@ C ingestion path:
 3. `ValidateBCHandlerForBCType` enforces type-handler compatibility.
 4. @ref BoundaryCondition_Create maps handler enums to concrete implementations.
 
+The constant, parabolic, and prescribed-flow inlet handlers share one application
+path. Each mode evaluates a Cartesian boundary velocity; the common path stores it
+in `Ubcs` and sets the face-normal `Ucont` component from its dot product with the
+local face-area metric. The current scalar modes obtain that Cartesian vector by
+aligning their speed with the signed unit metric normal.
+
 `boundary_faces` is the canonical in-memory representation. Do not restore or
 maintain duplicate persistent legacy BC arrays in `UserCtx`. If a future
 low-level integration genuinely needs a translated view, add a narrow
@@ -672,8 +679,7 @@ Current factory-wired handlers include:
 
 Important contributor note:
 
-- C enums include additional BC categories and handlers (for example symmetry-family entries, and
-  `BC_HANDLER_INLET_INTERP_FROM_FILE`, which is declared but implemented nowhere),
+- C enums include additional BC categories and handlers (for example symmetry-family entries),
 - but the current end-to-end user contract intentionally exposes the validated subset listed above.
 - `source.type: field_slice` is Python-side preprocessing only: it creates the
   same staged `source_file` contract used by file-backed and generated profiles.
