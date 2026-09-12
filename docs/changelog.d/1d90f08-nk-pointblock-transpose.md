@@ -1,5 +1,5 @@
-- The frozen-momentum point-block preconditioner was transposed, and had been since it
-  was written.
+- The frozen-momentum point-block preconditioner was transposed and had been since it was
+  written; the Newton-Krylov inner solve is now observable enough to have caught it.
   - `FrozenMomentumJacobian_PointBlock` wrote its six off-diagonal entries the wrong way
     round. The assembler hands PETSc one row at a time and slices `&block[3*component]`,
     so `block` is row-major by construction - `block[3r+c]` is `dF_r/dU_c` - regardless
@@ -34,12 +34,11 @@
     to distinct values and asserts `dF_i/dU_j` and `dF_j/dU_i` separately, so a transpose
     cannot pass. The previous oracle encoded the same transposition as the implementation
     and agreed with it, which is why the suite was green throughout.
-- Newton-Krylov inner-solve observability, since the failure above is invisible in the
-  per-step summary.
   - New `<run.runtime_logs>/Momentum_Solver_Newton_Krylov_Linear_History_Block_<n>.log`,
     one row per Krylov iteration, recording the requested relative tolerance beside
     PETSc's reported residual norm. That separates an Eisenstat-Walker tolerance change
-    from genuine degradation of the linear solve, which the summary line cannot.
+    from genuine degradation of the linear solve, which the summary line cannot. It rides
+    on the existing `solver_monitoring.momentum.newton_krylov_history` switch.
   - Eisenstat-Walker gains a structured `eisenstat_walker` configuration block under
     `momentum_solver.newton_krylov.nonlinear_solver`, mapping its seven fields onto
     PETSc's `-mom_nk_snes_ksp_ew*` options, instead of being reachable only as prefixed
@@ -47,12 +46,12 @@
   - New `monitor.diagnostics.petsc.info`, with optional PETSc class filtering. It has to
     be set during `PetscInitialize`, so it cannot go through `petsc_passthrough_options`
     the way the other PETSc controls do.
-- Page 55 said the point block used "the residual's own face average of the eddy
-  viscosity and its wall zeroing". The face average is the residual's; the wall zeroing
-  is not. `Viscous()` substitutes the wall-model eddy viscosity `lnu_wall` on a wall face
-  and falls back to zero only when no wall model is configured. The page and the function
-  now say what actually happens, including why the branch currently changes no assembled
-  entry - the rows it can affect are exactly the ones `ClassifyMomentumRow()` reports as
-  boundary-pinned, which never assemble a block - and why widening the stencil would make
-  it reachable and wrong. Tracked as issue #8, to be fixed before any preconditioner with
-  a wider stencil.
+  - Page 55 said the point block used "the residual's own face average of the eddy
+    viscosity and its wall zeroing". The face average is the residual's; the wall zeroing
+    is not. `Viscous()` substitutes the wall-model eddy viscosity `lnu_wall` on a wall
+    face and falls back to zero only when no wall model is configured. The page and the
+    function now say what actually happens, including why the branch currently changes no
+    assembled entry - the rows it can affect are exactly the ones `ClassifyMomentumRow()`
+    reports as boundary-pinned, which never assemble a block - and why widening the
+    stencil would make it reachable and wrong. Tracked as issue #8, to be fixed before
+    any preconditioner with a wider stencil.
