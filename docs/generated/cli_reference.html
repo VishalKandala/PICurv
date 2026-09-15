@@ -89,6 +89,12 @@ or to protect running jobs from concurrent rebuilds.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--cluster</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to cluster.yml for Slurm execution mode.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--scheduler</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Explicit scheduler selector (currently 'slurm').</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--no-submit</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Stage run artifacts without starting local execution or Slurm submission.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--pin-executables</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Copy simulator and postprocessor into the run's config/bin/ at staging, so a later
+rebuild of the installation cannot change what the job runs. On a pinned run,
+re-pins it to the current build.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--no-pin-executables</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Launch the installation's executables even when the workspace sets
+reproducibility.pin_executables. Slurm jobs still check at start that they
+report the build identity read at staging.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--dry-run</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Resolve and print planned commands/artifacts, including diagnostic flags and log paths, without writing files.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--format</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>json</code>, <code>text</code></td><td class="markdownTableBodyNone"><code>text</code></td><td class="markdownTableBodyNone">Output format for --dry-run (default: text).</td></tr>
 </table>
@@ -349,6 +355,12 @@ task-name substring when the recipe measured more than one spectrum
 <tr><td class="markdownTableBodyNone"><code>--study</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to study.yml defining either a `parameters` cross-product expansion or explicit parameter_sets, plus metrics.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--cluster</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to cluster.yml defining Slurm resources.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--no-submit</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Generate all study artifacts without submitting jobs.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--pin-executables</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Copy simulator and postprocessor into the run's config/bin/ at staging, so a later
+rebuild of the installation cannot change what the job runs. On a pinned run,
+re-pins it to the current build.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--no-pin-executables</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Launch the installation's executables even when the workspace sets
+reproducibility.pin_executables. Slurm jobs still check at start that they
+report the build identity read at staging.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--study-dir</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to an existing study directory (for --continue/--reaggregate).</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--continue</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Continue a partially-completed study. Requires --study-dir.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--reaggregate</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Re-run metrics aggregation on a completed study. Requires --study-dir.</td></tr>
@@ -402,6 +414,7 @@ refusing. Requires a configured storage profile.</td></tr>
 <p><b>positional arguments</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>version</code> (positional)</td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Version/tag; defaults to the workspace requirement.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>make_args</code> (positional)</td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Make variables and options passed to the build, as with 'picurv build' (for example SYSTEM=cluster). Place them after every picurv option.</td></tr>
 </table>
 <p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
@@ -411,7 +424,8 @@ refusing. Requires a configured storage profile.</td></tr>
 <h4 id="cli_versions_install"><code>picurv versions install</code></h4>
 <p><b>positional arguments</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
-<tr><td class="markdownTableBodyNone"><code>version</code> (positional)</td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"></td></tr>
+<tr><td class="markdownTableBodyNone"><code>version</code> (positional)</td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Tag, bare release (resolved to v&lt;release&gt;), or commit.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>make_args</code> (positional)</td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Make variables and options passed to the build, as with 'picurv build' (for example SYSTEM=cluster). Place them after every picurv option.</td></tr>
 </table>
 <p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>

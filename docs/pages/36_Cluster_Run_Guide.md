@@ -38,6 +38,12 @@ Generate only (no submission):
 ./bin/picurv run ... --cluster <cluster.yml> --no-submit
 ```
 
+The generated script compares the executable's `--version` with the identity read at
+staging, after module setup and before the launcher, so a job whose executable was rebuilt
+while it was queued stops instead of running the new build. Add `--pin-executables` to copy
+`simulator` and `postprocessor` into `<run.config.bin>` when you intend to keep rebuilding
+while the job waits. See @ref p05_binaries_sec.
+
 Submit existing staged artifacts later:
 
 ```bash

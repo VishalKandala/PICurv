@@ -93,6 +93,10 @@
       "classification": "not_public",
       "reason": "The opposite of a user choice: these are the directory names a run owns, and naming one as a log or output directory is refused at every enforcement point. It is a denylist, not a menu."
     },
+    "picurv_cli.core::RUN_EXECUTABLE_NAMES": {
+      "classification": "not_public",
+      "reason": "The native executables a run launches and therefore pins. Pinning copies both; the user chooses whether to pin, not which executables, so this is not a menu."
+    },
     "picurv_cli.core::RUNTIME_EXECUTION_CONFIG_FILENAMES": {
       "classification": "not_public",
       "reason": "Filenames the CLI probes when discovering local execution defaults. The user chooses the file's contents, not which of the two names to search; both are always tried in a fixed order."

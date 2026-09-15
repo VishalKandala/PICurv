@@ -24,6 +24,29 @@ WORKSPACE_INPUT_KINDS = ("grid", "initial-condition", "inlet-profile", "referenc
 WORKSPACE_INPUT_MODES = ("copy", "reflink", "hardlink", "reference")
 
 
+def _add_executable_pinning_arguments(parser):
+    """!
+    @brief Attach the paired executable-pinning switches to a staging parser.
+    @details Unset means the workspace's `reproducibility.pin_executables` decides; without
+             it the run launches the installation's executables.
+    @param[in] parser Parser or argument group receiving the switches.
+    @return None.
+    """
+    pinning = parser.add_mutually_exclusive_group()
+    pinning.add_argument(
+        "--pin-executables", dest="pin_executables", action="store_const", const=True, default=None,
+        help="Copy simulator and postprocessor into the run's config/bin/ at staging, so a later\n"
+             "rebuild of the installation cannot change what the job runs. On a pinned run,\n"
+             "re-pins it to the current build.",
+    )
+    pinning.add_argument(
+        "--no-pin-executables", dest="pin_executables", action="store_const", const=False,
+        help="Launch the installation's executables even when the workspace sets\n"
+             "reproducibility.pin_executables. Slurm jobs still check at start that they\n"
+             "report the build identity read at staging.",
+    )
+
+
 def _add_run_parser(subparsers):
     """!
     @brief Attach `run` parser with staged execution and dry-run support.
@@ -116,6 +139,7 @@ def _add_run_parser(subparsers):
     p_run.add_argument("--cluster", help="Path to cluster.yml for Slurm execution mode.")
     p_run.add_argument("--scheduler", help="Explicit scheduler selector (currently 'slurm').")
     p_run.add_argument("--no-submit", action="store_true", help="Stage run artifacts without starting local execution or Slurm submission.")
+    _add_executable_pinning_arguments(p_run)
     p_run.add_argument(
         "--dry-run",
         action="store_true",
@@ -160,6 +184,7 @@ def _add_sweep_parser(subparsers):
     p_sweep.add_argument("--study", help="Path to study.yml defining either a `parameters` cross-product expansion or explicit parameter_sets, plus metrics.")
     p_sweep.add_argument("--cluster", help="Path to cluster.yml defining Slurm resources.")
     p_sweep.add_argument("--no-submit", action="store_true", help="Generate all study artifacts without submitting jobs.")
+    _add_executable_pinning_arguments(p_sweep)
     p_sweep.add_argument("--study-dir", help="Path to an existing study directory (for --continue/--reaggregate).")
     p_sweep.add_argument("--continue", action="store_true", dest="continue_study",
                          help="Continue a partially-completed study. Requires --study-dir.")
@@ -289,10 +314,16 @@ def _add_version_parsers(subparsers):
     actions = p_versions.add_subparsers(dest="versions_action", required=True)
     actions.add_parser("list", help="List local Git tags and the active build.")
     p_install = actions.add_parser("install", help="Fetch a named version and build it in the source checkout.")
-    p_install.add_argument("version")
+    p_install.add_argument("version", help="Tag, bare release (resolved to v<release>), or commit.")
     p_activate = actions.add_parser("activate", help="Checkout and build the version required by this workspace.")
     p_activate.add_argument("version", nargs="?", help="Version/tag; defaults to the workspace requirement.")
     p_activate.add_argument("--workspace", help="Workspace root; defaults to discovery from the current directory.")
+    for parser in (p_install, p_activate):
+        parser.add_argument(
+            "make_args", nargs=argparse.REMAINDER,
+            help="Make variables and options passed to the build, as with 'picurv build' "
+                 "(for example SYSTEM=cluster). Place them after every picurv option.",
+        )
 
     p_source = subparsers.add_parser("source", help="Manage the source checkout used by PICurv.")
     source_actions = p_source.add_subparsers(dest="source_action", required=True)

@@ -38,6 +38,11 @@ Delayed submit from existing staged study artifacts:
 
 There is no dedicated `--dry-run` flag on `sweep`; use `--no-submit` for non-submitting artifact generation.
 
+With `--pin-executables`, each member's run directory receives its own `simulator` and
+`postprocessor`, and the array scripts launch the member's copy through `$RUN_DIR`. Without
+it every member launches the installation's `bin/`, checked against the identity read at
+staging. See @ref p05_binaries_sec.
+
 @section p37_contract_sec 3. Study Contract Essentials
 
 A study definition usually specifies:

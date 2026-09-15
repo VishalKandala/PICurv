@@ -779,3 +779,59 @@ def test_pull_source_cli_updates_all_local_tracking_branches_and_restores_origin
     log_text = pull_log.read_text(encoding="utf-8")
     assert "Refreshing branch 'feature'" in log_text
     assert f"Refreshing branch '{default_branch}'" in log_text
+
+
+def test_pull_source_refuses_a_detached_checkout(tmp_path, capsys):
+    """!
+    @brief A branch pull on a version-pinned checkout stops instead of reporting success.
+
+    @details `versions install` leaves the checkout detached. The multi-branch pull then
+             updated the branches and restored the detached commit, so the code that
+             runs never changed while the command printed success.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] capsys Pytest capture fixture.
+    """
+    picurv = load_picurv_module()
+    source_root = make_fake_source_repo(tmp_path / "source")
+    for command in (
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "test@example.invalid"],
+        ["git", "config", "user.name", "test"],
+        ["git", "add", "-A"],
+        ["git", "commit", "-q", "-m", "initial"],
+        ["git", "checkout", "-q", "--detach", "HEAD"],
+    ):
+        subprocess.run(command, cwd=source_root, check=True, capture_output=True)
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    picurv.write_case_origin_metadata(str(case_dir), str(source_root), template_name="demo")
+
+    def fail_pull(*args, **kwargs):
+        """!
+        @brief Fail if a pull is attempted on the detached checkout.
+        @param[in] args Positional arguments.
+        @param[in] kwargs Keyword arguments.
+        """
+        raise AssertionError("no pull may run on a detached checkout")
+
+    original_pull_all = picurv.pull_all_source_branches
+    original_execute = picurv.execute_command
+    picurv.pull_all_source_branches = fail_pull
+    picurv.execute_command = fail_pull
+    try:
+        for current_branch_only in (False, True):
+            try:
+                picurv.pull_source_repo(
+                    SimpleNamespace(
+                        case_dir=str(case_dir), source_root=None, remote=None, branch=None,
+                        current_branch_only=current_branch_only, no_rebase=False,
+                    )
+                )
+            except SystemExit as exc:
+                assert exc.code == 1
+            else:
+                raise AssertionError("pull-source accepted a detached checkout")
+            assert "pinned to commit" in capsys.readouterr().err
+    finally:
+        picurv.pull_all_source_branches = original_pull_all
+        picurv.execute_command = original_execute

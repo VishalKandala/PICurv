@@ -114,8 +114,8 @@ automated check earns the most.
 @section p71_topology_sec 4. Artifact Topology
 
 The one invariant given a full contract so far is where a run puts its files.
-`tests/tooling/artifact_topology.json` names 26
-logical identities — `run.root`, `run.config`, `run.config.history`, `run.config.active`, `run.post_recipes`, `run.post_recipe.files`, `run.control`, `run.config.inputs`, `run.inputs`, `run.input.roles`, `run.asset_lock`, `run.input.files`, `run.runtime_logs`, `run.runtime_logs.files`, `run.scheduler`, `run.scheduler.files`, `run.solver_output`, `run.checkpoints`, `run.analysis`, `run.analysis.metrics`, `run.analysis.statistics`, `run.analysis.spectra`, `run.analysis.plots`, `run.visualization`, `run.visualization.recipe`, `run.manifest` — covering the run root, configuration revisions,
+`tests/tooling/artifact_topology.json` names 27
+logical identities — `run.root`, `run.config`, `run.config.history`, `run.config.active`, `run.config.bin`, `run.post_recipes`, `run.post_recipe.files`, `run.control`, `run.config.inputs`, `run.inputs`, `run.input.roles`, `run.asset_lock`, `run.input.files`, `run.runtime_logs`, `run.runtime_logs.files`, `run.scheduler`, `run.scheduler.files`, `run.solver_output`, `run.checkpoints`, `run.analysis`, `run.analysis.metrics`, `run.analysis.statistics`, `run.analysis.spectra`, `run.analysis.plots`, `run.visualization`, `run.visualization.recipe`, `run.manifest` — covering the run root, configuration revisions, pinned executables,
 materialized input roles, runtime logs, scheduler state, solver output, checkpoints,
 analysis families, recipe-specific visualization, and the manifest. Each identity
 records its resolution rule, owner, writers and readers, mutability, retention,

@@ -504,8 +504,8 @@ def enforce_workspace_version(workspace_root: str) -> dict:
             f"Note: {PACKAGE_PROJECT_ROOT} is a single shared installation. Activating "
             "re-points every workspace and every unpinned job that resolves executables "
             "from it, so two workspaces pinned to different releases cannot both be "
-            "satisfied at once. Pin a case's executables with 'picurv init --pin-binaries' "
-            "when it must survive an activation."
+            "satisfied at once. A run staged with --pin-executables keeps its own copy and "
+            "survives an activation."
         )
     return dict(PICURV_BUILD)
 
@@ -806,7 +806,7 @@ def _file_sha256(path: str):
     return digest.hexdigest()
 
 
-def build_software_lock() -> dict:
+def build_software_lock(run_dir: "str | None" = None) -> dict:
     """!
     @brief Capture the exact software identity a run is about to execute with.
 
@@ -814,6 +814,7 @@ def build_software_lock() -> dict:
              which bytes ran. Hashing the executables and the generators pins that, so
              a queued job rebuilt out from under it is detectable afterwards rather
              than merely suspected.
+    @param[in] run_dir Run whose pinned executables are hashed; the installation's when None.
     @return Software lock mapping.
     """
     lock = {
@@ -827,8 +828,8 @@ def build_software_lock() -> dict:
         "generators": {},
         "environment": _toolchain_identity(),
     }
-    for name in ("simulator", "postprocessor"):
-        path = resolve_runtime_executable(name)
+    for name in RUN_EXECUTABLE_NAMES:
+        path = run_executable_path(run_dir, name)
         identity = read_binary_build_identity(path)
         lock["executables"][name] = {
             "path": path,
@@ -897,7 +898,7 @@ def write_software_lock(run_dir: str) -> str:
     """
     path = os.path.join(run_dir, CANONICAL_RUN_PATHS["inputs"], "software.lock.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    write_json_file(path, build_software_lock())
+    write_json_file(path, build_software_lock(run_dir))
     return path
 
 
@@ -941,6 +942,7 @@ def snapshot_run_configuration(run_dir: str, source_paths: dict,
     """
     config_root = os.path.join(run_dir, "config")
     os.makedirs(config_root, exist_ok=True)
+    previous = _read_json_if_exists(os.path.join(config_root, "active.json")) or {}
     revision = None
     destination_root = config_root
     if continuation:
@@ -963,6 +965,10 @@ def snapshot_run_configuration(run_dir: str, source_paths: dict,
         "updated_at": datetime.now().astimezone().isoformat(),
         "files": snapshots,
     }
+    if continuation and isinstance(previous.get("executables"), dict):
+        # A continuation changes what is configured, not which build runs it. The pin
+        # moves only when the caller re-pins, which records a new executables entry.
+        active["executables"] = previous["executables"]
     write_json_file(os.path.join(config_root, "active.json"), active)
     return active
 
@@ -986,6 +992,182 @@ def load_active_run_configuration(run_dir: str) -> dict:
         for role in ("case", "solver", "monitor", "cluster")
         if os.path.isfile(os.path.join(config_root, f"{role}.yml"))
     }
+
+
+#: Native executables a run launches, and therefore the ones a run pins.
+RUN_EXECUTABLE_NAMES = ("simulator", "postprocessor")
+
+
+def load_run_executables(run_dir: str) -> dict:
+    """!
+    @brief Return the executables a run is pinned to, as recorded by its active configuration.
+    @param[in] run_dir Run directory.
+    @return Mapping of executable name to its recorded entry, with `path` made absolute;
+            empty when the run launches the installation's executables.
+    """
+    active = _read_json_if_exists(os.path.join(os.path.abspath(run_dir), "config", "active.json"))
+    recorded = active.get("executables") if isinstance(active, dict) else None
+    if not isinstance(recorded, dict):
+        return {}
+    pinned = {}
+    for name, entry in recorded.items():
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str):
+            pinned[name] = dict(entry, path=os.path.join(os.path.abspath(run_dir), *entry["path"].split("/")))
+    return pinned
+
+
+def run_executable_path(run_dir: "str | None", name: str) -> str:
+    """!
+    @brief Resolve the executable a run launches: its pinned copy, else the installation's.
+    @param[in] run_dir Run directory, or None when no run exists yet.
+    @param[in] name `simulator` or `postprocessor`.
+    @return Absolute executable path.
+    @throws ValueError when the run records a pinned copy that is no longer on disk.
+    """
+    pinned = load_run_executables(run_dir).get(name) if run_dir else None
+    if not pinned:
+        return resolve_runtime_executable(name)
+    if not os.path.isfile(pinned["path"]):
+        raise ValueError(
+            f"{run_dir} is pinned to {pinned['path']}, which no longer exists. Restore it "
+            "from the run's archive, or re-pin with --pin-executables to run the current build."
+        )
+    return pinned["path"]
+
+
+def pin_run_executables(run_dir: str, revision: str) -> dict:
+    """!
+    @brief Copy the installation's executables into a run's configuration revision.
+
+    @details The installation's `bin/` is rebuilt in place, so a job that resolves its
+             executable there when it starts runs whatever was built last, not what was
+             staged. The copy lives under `config/`, which storage retains as essential
+             and the solver refuses to write into, and `active.json` records it so every
+             later stage of the run - continuation, post-processing - launches the same
+             build. Each copy is written beside its destination and renamed into place.
+    @param[in] run_dir Run directory.
+    @param[in] revision Active configuration revision (`initial` or a continuation id).
+    @return Recorded executables mapping, keyed by executable name; an executable that
+            has not been built is left unpinned with a warning, as staging treats it today.
+    """
+    run_root = os.path.abspath(run_dir)
+    config_root = os.path.join(run_root, "config")
+    target = (os.path.join(config_root, "bin") if revision == "initial"
+              else os.path.join(config_root, "history", revision, "bin"))
+    recorded = {}
+    for name in RUN_EXECUTABLE_NAMES:
+        source = resolve_runtime_executable(name)
+        if not os.path.isfile(source):
+            print(f"[WARN] {name} is not built at {source}, so it is not pinned; a stage that "
+                  "launches it will use whatever is there when it starts.", file=sys.stderr)
+            continue
+        os.makedirs(target, exist_ok=True)
+        destination = os.path.join(target, name)
+        partial = destination + ".partial"
+        shutil.copy2(source, partial)
+        os.replace(partial, destination)
+        identity = read_binary_build_identity(destination)
+        recorded[name] = {
+            "path": os.path.relpath(destination, run_root).replace(os.sep, "/"),
+            "pinned_from": source,
+            "sha256": _file_sha256(destination),
+            "build_id": identity.get("build_id"),
+            "version_line": identity.get("version_line"),
+            "identity_reason": None if identity.get("available") else identity.get("reason"),
+        }
+    if not recorded:
+        return {}
+    active_path = os.path.join(config_root, "active.json")
+    active = _read_json_if_exists(active_path) or {"schema_version": 1, "revision": revision, "files": {}}
+    active["executables"] = recorded
+    active["updated_at"] = datetime.now().astimezone().isoformat()
+    write_json_file(active_path, active)
+    return recorded
+
+
+def plan_run_executable_paths(run_dir: str, args, workspace_root: "str | None") -> dict:
+    """!
+    @brief Predict, without writing, which executables staging would give a run.
+    @details Mirrors `apply_run_executable_pinning()` for `run --dry-run`: an existing
+             pin is kept unless re-pinned, a new pin lands in the configuration revision
+             staging would create, and otherwise the installation's executables run.
+    @param[in] run_dir Run directory the plan targets.
+    @param[in] args Parsed command arguments.
+    @param[in] workspace_root Owning workspace, or None.
+    @return Mapping with `pinning` (`kept`, `new`, or `none`) and per-executable `paths`.
+    """
+    existing = load_run_executables(run_dir) if os.path.isdir(run_dir) else {}
+    if existing and getattr(args, "pin_executables", None) is not True:
+        return {"pinning": "kept", "paths": {name: entry["path"] for name, entry in existing.items()}}
+    if resolve_executable_pinning(args, workspace_root):
+        revision_root = (os.path.join(run_dir, "config") if not existing
+                         and not getattr(args, "continue_run", False)
+                         else os.path.join(run_dir, "config", "history", "<new-revision>"))
+        return {"pinning": "new",
+                "paths": {name: os.path.join(revision_root, "bin", name) for name in RUN_EXECUTABLE_NAMES}}
+    return {"pinning": "none",
+            "paths": {name: resolve_runtime_executable(name) for name in RUN_EXECUTABLE_NAMES}}
+
+
+def resolve_executable_pinning(args, workspace_root: "str | None") -> bool:
+    """!
+    @brief Decide whether staging pins the installation's executables into the run.
+    @details Pinning is opt-in: an explicit `--pin-executables`/`--no-pin-executables`
+             wins, then the workspace's `reproducibility.pin_executables`. Unpinned jobs
+             are still protected by the job-start identity check, which stops a job whose
+             executable was rebuilt after staging instead of running the new build.
+    @param[in] args Parsed command arguments.
+    @param[in] workspace_root Owning workspace, or None.
+    @return True to pin, False not to.
+    """
+    explicit = getattr(args, "pin_executables", None)
+    if explicit is not None:
+        return bool(explicit)
+    if workspace_root:
+        policy = load_workspace_config(workspace_root).get("reproducibility") or {}
+        if isinstance(policy, dict):
+            return bool(policy.get("pin_executables"))
+    return False
+
+
+def apply_run_executable_pinning(run_dir: str, revision: str, args,
+                                 workspace_root: "str | None") -> dict:
+    """!
+    @brief Pin, keep, or refuse the run's executables before anything records them.
+    @details A run already pinned keeps its build unless the caller explicitly re-pins,
+             so a continuation or post-processing pass cannot silently switch builds.
+             Refusing `--no-pin-executables` on a pinned run keeps the run's records
+             describing one build rather than a pin nobody launched.
+    @param[in] run_dir Run directory.
+    @param[in] revision Active configuration revision.
+    @param[in] args Parsed command arguments.
+    @param[in] workspace_root Owning workspace, or None.
+    @return The run's pinned executables; empty when it launches the installation's.
+    @throws ValueError when `--no-pin-executables` is given for a pinned run.
+    """
+    explicit = getattr(args, "pin_executables", None)
+    existing = load_run_executables(run_dir)
+    if existing and explicit is not True:
+        if explicit is False:
+            build = existing.get("simulator", {}).get("build_id") or "a pinned build"
+            raise ValueError(
+                f"{run_dir} is pinned to {build}. --no-pin-executables would launch the "
+                "installation's build instead while the run still records the pin; re-pin "
+                "with --pin-executables to move this run to the current build."
+            )
+        build = existing.get("simulator", {}).get("build_id") or "unknown build"
+        print(f"[INFO] Launching the run's pinned executables ({build}).")
+        return existing
+    if not resolve_executable_pinning(args, workspace_root):
+        return {}
+    recorded = pin_run_executables(run_dir, revision)
+    if not recorded:
+        return {}
+    first = next(iter(recorded.values()))
+    build = first.get("build_id") or "build identity unavailable"
+    print(f"[INFO] Pinned {', '.join(sorted(recorded))} into "
+          f"{os.path.dirname(first['path'])}/ ({build}).")
+    return load_run_executables(run_dir)
 
 
 def archive_active_generated_configuration(run_dir: str, paths: list) -> dict:
@@ -1164,7 +1346,7 @@ def build_run_manifest(run_dir: str, run_id: str, *, workspace_root=None,
         # The conductor's identity says which source staged the run; the binaries'
         # says which build produced its checkpoints. They can differ - an edited C
         # tree that was never rebuilt - so provenance records both.
-        "binaries": runtime_build_identities(),
+        "binaries": runtime_build_identities(run_dir=run_dir),
         "launch_mode": launch_mode,
         "num_procs": num_procs,
         "solver_num_procs": num_procs,
@@ -1477,6 +1659,15 @@ def read_binary_build_identity(executable_path: str) -> dict:
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return {"available": False, "reason": str(exc), "path": executable_path}
+    if result.returncode != 0:
+        # A binary that cannot start - typically its shared libraries are not loadable
+        # in this shell - is not the same failure as one that predates the identity
+        # flag, and recording it as such hides a broken staging environment.
+        detail = (result.stderr or result.stdout or "").strip().splitlines()
+        return {"available": False,
+                "reason": f"--version exited {result.returncode}"
+                          + (f": {detail[0]}" if detail else ""),
+                "path": executable_path}
     match = _BINARY_VERSION_PATTERN.match((result.stdout or "").strip())
     if not match:
         # A binary from before the identity flag existed, or a wrapper that prints
@@ -1486,6 +1677,7 @@ def read_binary_build_identity(executable_path: str) -> dict:
     return {
         "available": True,
         "path": executable_path,
+        "version_line": (result.stdout or "").strip(),
         "release_version": match.group("release"),
         "git_commit": match.group("commit"),
         "dirty": bool(match.group("dirty")),
@@ -1496,27 +1688,33 @@ def read_binary_build_identity(executable_path: str) -> dict:
     }
 
 
-def runtime_build_identities() -> dict:
+def runtime_build_identities(source_identity: "dict | None" = None,
+                             run_dir: "str | None" = None) -> dict:
     """!
     @brief Read the build identity of every native executable a run would launch.
+    @param[in] source_identity Source identity to compare against; defaults to the
+                               identity this process computed at startup.
+    @param[in] run_dir Run whose pinned executables are read; the installation's when None.
     @return Mapping of executable name to its identity, each carrying `matches_source`.
     """
+    source_identity = source_identity or PICURV_BUILD
     identities = {}
-    source_commit = str(PICURV_BUILD.get("git_commit") or "")
-    for name in ("simulator", "postprocessor"):
-        identity = read_binary_build_identity(resolve_runtime_executable(name))
+    source_commit = str(source_identity.get("git_commit") or "")
+    for name in RUN_EXECUTABLE_NAMES:
+        identity = read_binary_build_identity(run_executable_path(run_dir, name))
         if identity.get("available"):
             # The stamped commit is abbreviated, so compare on the prefix it carries.
             identity["matches_source"] = bool(
                 source_commit
                 and source_commit.startswith(identity["git_commit"])
-                and identity["dirty"] == bool(PICURV_BUILD.get("dirty"))
+                and identity["dirty"] == bool(source_identity.get("dirty"))
             )
         identities[name] = identity
     return identities
 
 
-def build_identity_problems(identities: dict, workspace_requirement=None) -> list:
+def build_identity_problems(identities: dict, workspace_requirement=None,
+                            source_identity: "dict | None" = None) -> list:
     """!
     @brief Report every reason the active build identity is not internally coherent.
 
@@ -1526,8 +1724,11 @@ def build_identity_problems(identities: dict, workspace_requirement=None) -> lis
              them while ordinary staging only warns.
     @param[in] identities Mapping returned by `runtime_build_identities()`.
     @param[in] workspace_requirement Optional `software.picurv` constraint to check.
+    @param[in] source_identity Source identity the executables must match; defaults to
+                               the identity this process computed at startup.
     @return Human-readable problem descriptions; empty when the build is coherent.
     """
+    source_identity = source_identity or PICURV_BUILD
     problems = []
     for name, identity in sorted(identities.items()):
         if not identity.get("available"):
@@ -1538,7 +1739,7 @@ def build_identity_problems(identities: dict, workspace_requirement=None) -> lis
         elif not identity.get("matches_source"):
             problems.append(
                 f"{name}: built from {identity['build_id']}, but the active source is "
-                f"{PICURV_BUILD['build_id']}; rebuild with 'make all'."
+                f"{source_identity['build_id']}; rebuild with 'make all'."
             )
     if workspace_requirement not in (None, ""):
         try:
@@ -1565,6 +1766,8 @@ def build_identity_problems(identities: dict, workspace_requirement=None) -> lis
 def warn_on_stale_runtime_binaries(identities: dict) -> list:
     """!
     @brief Report native executables whose build identity is not the active source.
+    @details An executable whose identity cannot be read is reported too: the manifest
+             would otherwise record "unavailable" for a run with no word at staging.
     @param[in] identities Mapping returned by `runtime_build_identities()`.
     @return Names of executables that disagree with the active source identity.
     """
@@ -1575,6 +1778,15 @@ def warn_on_stale_runtime_binaries(identities: dict) -> list:
             f"[WARN] {name} was built from {identities[name]['build_id']}, but the active "
             f"source is {PICURV_BUILD['build_id']}. Checkpoints will record the binary's "
             "identity, not the source's. Run 'make all' to rebuild.",
+            file=sys.stderr,
+        )
+    for name, identity in sorted(identities.items()):
+        if identity.get("available"):
+            continue
+        print(
+            f"[WARN] The build identity of {name} could not be read "
+            f"({identity.get('reason', 'unknown')}); this run's manifest will not record "
+            f"which build it used. Path: {identity.get('path')}",
             file=sys.stderr,
         )
     return stale
@@ -2196,6 +2408,10 @@ def write_case_origin_metadata(case_dir: str, source_project_root: str, template
     return metadata_path, payload
 
 
+#: A `make` variable assignment such as `SYSTEM=cluster` or `CFLAGS+=-g`.
+_MAKE_ASSIGNMENT_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*[:+?]?=.*$")
+
+
 def make_args_include_explicit_goal(make_args: "list[str]") -> bool:
     """!
     @brief Return True when make args contain an explicit target rather than only options/assignments.
@@ -2211,7 +2427,6 @@ def make_args_include_explicit_goal(make_args: "list[str]") -> bool:
         "--load-average", "--max-load", "--old-file", "--assume-old",
         "--what-if", "--new-file", "--assume-new",
     }
-    assignment_pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*[:+?]?=.*$")
 
     skip_next = False
     for token in make_args:
@@ -2223,7 +2438,7 @@ def make_args_include_explicit_goal(make_args: "list[str]") -> bool:
             continue
         if token.startswith("-"):
             continue
-        if assignment_pattern.match(token):
+        if _MAKE_ASSIGNMENT_PATTERN.match(token):
             continue
         return True
     return False
@@ -9195,6 +9410,50 @@ def build_spectra_follow_command(run_dir: str, post_path: str, post_cfg: dict) -
     ]
 
 
+def executable_identity_check_lines(executable: str, expected_version_line: "str | None",
+                                    pinned: bool = False) -> list:
+    """!
+    @brief Shell lines that compare an executable's reported identity with the staged one.
+
+    @details A job resolves its executable when it starts, which can be long after it
+             was staged. The installation's `bin/` may have been rebuilt in between, and
+             a job that silently runs the new build produces checkpoints that disagree
+             with the run's manifest. The lines run after module setup, because
+             `--version` still needs the executable's shared libraries, and before the
+             launcher, so a mismatch stops the job before any rank starts. When staging
+             could not read an identity there is nothing to compare, so the reported one
+             is only logged.
+    @param[in] executable Executable path, emitted verbatim when it is a shell variable.
+    @param[in] expected_version_line Exact `--version` output captured at staging, or None.
+    @param[in] pinned Whether the executable is the run's own pinned copy.
+    @return Script lines.
+    """
+    token = executable if executable.startswith("$") else shlex.quote(executable)
+    lines = [
+        f'PICURV_EXECUTABLE_IDENTITY=$({token} --version 2>&1) || {{ '
+        f'echo "[FATAL] {executable} --version failed: ${{PICURV_EXECUTABLE_IDENTITY}}" >&2; exit 1; }}',
+        'echo "[$(date)] Executable identity: ${PICURV_EXECUTABLE_IDENTITY}"',
+    ]
+    if not expected_version_line:
+        lines.append('echo "[$(date)] No identity was readable at staging, so none is compared."')
+        return lines
+    remedy = (
+        "The run's pinned copy was replaced after staging; restore it or re-pin the run."
+        if pinned else
+        "It was rebuilt after staging; restage the job, or stage with --pin-executables so "
+        "the run keeps its own copy."
+    )
+    lines.extend([
+        f"PICURV_STAGED_IDENTITY={shlex.quote(expected_version_line)}",
+        'if [ "${PICURV_EXECUTABLE_IDENTITY}" != "${PICURV_STAGED_IDENTITY}" ]; then',
+        f'  echo "[FATAL] {executable} reports ${{PICURV_EXECUTABLE_IDENTITY}}, but this job was '
+        f'staged against ${{PICURV_STAGED_IDENTITY}}. {remedy}" >&2',
+        "  exit 1",
+        "fi",
+    ])
+    return lines
+
+
 def render_slurm_script(
     script_path: str,
     job_name: str,
@@ -9206,7 +9465,8 @@ def render_slurm_script(
     env_vars: dict = None,
     shell_env_vars: dict = None,
     array_spec: str = None,
-    follow_commands: list = None
+    follow_commands: list = None,
+    identity_check: "tuple | None" = None,
 ):
     """!
     @brief Render a Slurm batch script for a single command.
@@ -9224,6 +9484,8 @@ def render_slurm_script(
                                list. They run in the batch shell rather than under the
                                MPI launcher, so a serial step does not become one copy
                                per task. Supplying any of them drops the `exec`.
+    @param[in] identity_check `(executable, expected --version line, pinned)` checked
+                              before launch; see `executable_identity_check_lines()`.
     """
     resources = cluster_cfg.get("resources", {})
     notifications = cluster_cfg.get("notifications", {}) or {}
@@ -9292,6 +9554,9 @@ def render_slurm_script(
     if env_vars:
         for key, value in env_vars.items():
             lines.append(f"export {key}={shlex.quote(str(value))}")
+
+    if identity_check:
+        lines.extend(executable_identity_check_lines(*identity_check))
 
     cmd = " ".join(shlex.quote(str(tok)) for tok in command)
     if follow_commands:
@@ -13493,6 +13758,34 @@ def _restore_git_head(run_dir: str, original_head: dict, log_file):
     _stream_command_to_console_and_log(["git", "checkout", "--detach", original_head["commit"]], run_dir, log_file)
 
 
+def _refuse_detached_source_checkout(source_project_root: str, action: str) -> None:
+    """!
+    @brief Refuse a branch pull when the source checkout is pinned to a detached commit.
+
+    @details `versions install` and `versions activate` leave the checkout detached on
+             the version they built. A branch pull there either fails inside Git or, in
+             the multi-branch path, updates the branches and then restores the detached
+             commit, so the active code never changes while the command reports success.
+             A directory that is not a Git checkout is left for the Git command to report.
+    @param[in] source_project_root PICurv source checkout to inspect.
+    @param[in] action User-facing command name.
+    @throws ValueError when HEAD is detached.
+    """
+    branch = _run_captured_command(["git", "symbolic-ref", "--quiet", "--short", "HEAD"], source_project_root)
+    if branch.returncode == 0:
+        return
+    commit = _run_captured_command(["git", "rev-parse", "--short=12", "--verify", "HEAD"], source_project_root)
+    if commit.returncode != 0:
+        return
+    raise ValueError(
+        f"{action}: the source checkout at {source_project_root} is pinned to commit "
+        f"{commit.stdout.strip()}, not a branch, so a branch pull would not change the code "
+        "that runs.\n"
+        "        Install a newer version with 'picurv versions install <tag-or-commit>', "
+        "or check out a branch (for example 'git checkout main') to follow it."
+    )
+
+
 def pull_all_source_branches(run_dir: str, log_filename: str, rebase: bool = True):
     """!
     @brief Refresh every local tracking branch in the source repository, then restore the starting branch.
@@ -13672,7 +13965,8 @@ def render_slurm_array_stage_script(
     solver_exe: str,
     post_exe: str,
     stdout_path: str,
-    stderr_path: str
+    stderr_path: str,
+    expected_version_line: "str | None" = None,
 ):
     """!
     @brief Render array script that maps SLURM_ARRAY_TASK_ID to per-case run artifacts.
@@ -13686,6 +13980,8 @@ def render_slurm_array_stage_script(
     @param[in] post_exe Argument passed to `render_slurm_array_stage_script()`.
     @param[in] stdout_path Argument passed to `render_slurm_array_stage_script()`.
     @param[in] stderr_path Argument passed to `render_slurm_array_stage_script()`.
+    @param[in] expected_version_line `--version` output the stage's executable reported
+                                     at staging; checked before launch in every task.
     @return Value returned by `render_slurm_array_stage_script()`.
     """
     effective_cluster_cfg = cluster_cfg
@@ -13754,6 +14050,11 @@ def render_slurm_array_stage_script(
 
     for setup_line in module_setup:
         lines.append(str(setup_line))
+
+    stage_exe = solver_exe if stage == "solve" else post_exe
+    lines.extend(executable_identity_check_lines(
+        stage_exe, expected_version_line, pinned=stage_exe.startswith("$RUN_DIR/")
+    ))
 
     if stage == "solve":
         cmd = build_cluster_launch_command(
@@ -14636,7 +14937,10 @@ def build_run_dry_plan(args) -> dict:
             plan["artifacts"].append(os.path.join(config_dir, "cluster.yml"))
             plan["artifacts"].append(os.path.join(scheduler_dir, "submission.json"))
 
-        solver_exe = resolve_runtime_executable("simulator")
+        executable_plan = plan_run_executable_paths(run_dir, args, workspace_root)
+        solver_exe = executable_plan["paths"]["simulator"]
+        if executable_plan["pinning"] == "new":
+            plan["artifacts"].extend(executable_plan["paths"].values())
         solver_args = build_petsc_diagnostics_args(loaded_monitor_cfg, run_dir, "Solver") + ["-control_file", solver_control_path]
         if cluster_mode:
             solver_script = os.path.join(scheduler_dir, "solver.sbatch")
@@ -14671,6 +14975,7 @@ def build_run_dry_plan(args) -> dict:
                 "launch_command": solver_cmd,
                 "launch_command_string": _command_to_string(solver_cmd),
             }
+        plan["stages"]["solve"]["executable_pinning"] = executable_plan["pinning"]
         if resolved_restart_source_dir:
             plan["stages"]["solve"]["restart_source_directory"] = resolved_restart_source_dir
         if is_continue:
@@ -14744,7 +15049,10 @@ def build_run_dry_plan(args) -> dict:
             sys.exit(1)
         output_dir_abs = os.path.abspath(os.path.join(run_dir, output_dir_rel))
         statistics_output_paths = get_post_statistics_output_artifacts(post_cfg, run_dir, loaded_monitor_cfg)
-        post_exe = resolve_runtime_executable("postprocessor")
+        if args.solve:
+            post_exe = executable_plan["paths"]["postprocessor"]
+        else:
+            post_exe = run_executable_path(run_dir, "postprocessor")
         post_diagnostics = resolve_diagnostics_config(loaded_monitor_cfg, run_dir, "PostProcessor")
         plan["artifacts"].extend(post_diagnostics["artifacts"])
         post_args = build_petsc_diagnostics_args(loaded_monitor_cfg, run_dir, "PostProcessor") + [
@@ -16300,6 +16608,15 @@ def run_workflow(args):
             },
             continuation=continue_mode,
         )
+        # Pinned before the asset lock and manifest are written, so both record the
+        # executables this run will launch rather than the installation's.
+        had_pinned_executables = bool(load_run_executables(run_dir))
+        try:
+            apply_run_executable_pinning(run_dir, active_config["revision"], args, workspace_root)
+        except ValueError as exc:
+            discard_unused_run_directory(run_dir, created=not continue_mode)
+            print(f"[FATAL] {exc}", file=sys.stderr)
+            sys.exit(1)
         asset_lock = materialize_run_assets(
             run_dir,
             configs["case"],
@@ -16343,10 +16660,12 @@ def run_workflow(args):
         )
         control_file = load_active_run_configuration(run_dir).get("control", control_file)
 
-        solver_exe = resolve_runtime_executable("simulator")
+        solver_exe = run_executable_path(run_dir, "simulator")
         # Staging is the last point before the binary's identity becomes the one written
         # into this run's checkpoints, so a stale build is worth saying out loud here.
-        warn_on_stale_runtime_binaries(runtime_build_identities())
+        # A run kept on its earlier pin is meant to differ from the source, so it is not.
+        if not had_pinned_executables or getattr(args, "pin_executables", None) is True:
+            warn_on_stale_runtime_binaries(runtime_build_identities(run_dir=run_dir))
         solver_args = build_petsc_diagnostics_args(configs["monitor"], run_dir, "Solver") + ["-control_file", control_file]
         if cluster_mode:
             scheduler_dir = os.path.join(run_dir, "scheduler")
@@ -16370,6 +16689,8 @@ def run_workflow(args):
                 solver_err,
                 env_vars={"LOG_LEVEL": configs['monitor'].get('logging', {}).get('verbosity', 'INFO').upper()},
                 shell_env_vars=build_walltime_guard_exports(cluster_cfg),
+                identity_check=(solver_exe, read_binary_build_identity(solver_exe).get("version_line"),
+                                "simulator" in load_run_executables(run_dir)),
             )
             submission_meta["stages"]["solve"] = {
                 "script": solver_script,
@@ -16414,6 +16735,12 @@ def run_workflow(args):
 
     # --- Stage 2: Post-Processing (if requested) ---
     if args.post_process:
+        if not args.solve and getattr(args, "pin_executables", None) is not None:
+            fail_cli_usage(
+                "--pin-executables and --no-pin-executables apply when the solve stage is staged.",
+                hint="Post-processing launches the postprocessor the run is pinned to, or the "
+                     "installation's when the run is not pinned.",
+            )
         if args.run_dir:
             run_dir = os.path.abspath(args.run_dir)
             if not os.path.isdir(run_dir):
@@ -16611,7 +16938,11 @@ def run_workflow(args):
                 source_files_post = {'Case': case_path, 'Post-Profile': args.post}
                 post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_effective_cfg, source_files_post, monitor_cfg)
 
-                post_exe = resolve_runtime_executable("postprocessor")
+                try:
+                    post_exe = run_executable_path(run_dir, "postprocessor")
+                except ValueError as exc:
+                    print(f"[FATAL] {exc}", file=sys.stderr)
+                    sys.exit(1)
                 post_args = build_petsc_diagnostics_args(monitor_cfg, run_dir, "PostProcessor") + [
                     "-control_file",
                     solver_control_path,
@@ -16656,6 +16987,8 @@ def run_workflow(args):
                         post_err,
                         env_vars={"LOG_LEVEL": monitor_cfg.get('logging', {}).get('verbosity', 'INFO').upper()},
                         follow_commands=spectra_follow,
+                        identity_check=(post_exe, read_binary_build_identity(post_exe).get("version_line"),
+                                        "postprocessor" in load_run_executables(run_dir)),
                     )
                     submission_meta["stages"]["post-process"] = {
                         "script": post_script,
@@ -16830,6 +17163,40 @@ def parse_case_index_tsv(tsv_path: str) -> list:
     return entries
 
 
+def resolve_sweep_stage_executables(run_dirs: list) -> dict:
+    """!
+    @brief Choose the executables an array stage launches for every member of a study.
+
+    @details Array tasks share one script, which reads each member's `RUN_DIR` from the
+             case index, so pinned members launch their own copy through the same
+             `$RUN_DIR`-relative path. Members must agree: a study half pinned, or pinned
+             at different paths, has no single command that launches each member's build.
+    @param[in] run_dirs Member run directories the stage covers.
+    @return Mapping of executable name to `(path token, staged --version line or None)`.
+    @throws ValueError when members disagree about pinning.
+    """
+    pins = [load_run_executables(run_dir) for run_dir in run_dirs]
+    chosen = {}
+    for name in RUN_EXECUTABLE_NAMES:
+        entries = [pin.get(name) for pin in pins]
+        if not any(entries):
+            path = resolve_runtime_executable(name)
+            chosen[name] = (path, read_binary_build_identity(path).get("version_line"))
+            continue
+        relatives = {
+            os.path.relpath(entry["path"], run_dir).replace(os.sep, "/") if entry else None
+            for entry, run_dir in zip(entries, run_dirs)
+        }
+        lines = {entry.get("version_line") if entry else None for entry in entries}
+        if None in relatives or len(relatives) != 1:
+            raise ValueError(
+                f"Study members disagree about the {name} they are pinned to; one array "
+                "script cannot launch each member's build. Restage the study."
+            )
+        chosen[name] = (f"$RUN_DIR/{relatives.pop()}", lines.pop() if len(lines) == 1 else None)
+    return chosen
+
+
 def sweep_workflow(args):
     """!
     @brief Study/sweep orchestration using Slurm job arrays.
@@ -16927,6 +17294,12 @@ def sweep_workflow(args):
                 "monitor": "config/monitor.yml",
             },
         })
+        if resolve_executable_pinning(args, workspace_root):
+            try:
+                pin_run_executables(run_dir, "initial")
+            except ValueError as exc:
+                print(f"[FATAL] {exc}", file=sys.stderr)
+                sys.exit(1)
 
         validate_simulation_configs(case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path)
         validate_post_config(post_cfg, post_path, monitor_cfg, case_cfg)
@@ -17016,8 +17389,9 @@ def sweep_workflow(args):
     if max_conc:
         array_spec = f"{array_spec}%{max_conc}"
 
-    solver_exe = resolve_runtime_executable("simulator")
-    post_exe = resolve_runtime_executable("postprocessor")
+    stage_executables = resolve_sweep_stage_executables([entry["run_dir"] for entry in case_entries])
+    solver_exe, solver_version_line = stage_executables["simulator"]
+    post_exe, post_version_line = stage_executables["postprocessor"]
     solver_array_script = os.path.join(scheduler_dir, "solver_array.sbatch")
     post_array_script = os.path.join(scheduler_dir, "post_array.sbatch")
     render_slurm_array_stage_script(
@@ -17030,7 +17404,8 @@ def sweep_workflow(args):
         solver_exe,
         post_exe,
         os.path.join(scheduler_dir, "solver_%A_%a.out"),
-        os.path.join(scheduler_dir, "solver_%A_%a.err")
+        os.path.join(scheduler_dir, "solver_%A_%a.err"),
+        expected_version_line=solver_version_line,
     )
     render_slurm_array_stage_script(
         post_array_script,
@@ -17042,7 +17417,8 @@ def sweep_workflow(args):
         solver_exe,
         post_exe,
         os.path.join(scheduler_dir, "post_%A_%a.out"),
-        os.path.join(scheduler_dir, "post_%A_%a.err")
+        os.path.join(scheduler_dir, "post_%A_%a.err"),
+        expected_version_line=post_version_line,
     )
     print(f"[SUCCESS] Generated Slurm array scripts in {os.path.relpath(scheduler_dir)}")
 
@@ -17283,8 +17659,15 @@ def sweep_continue_workflow(args):
     if max_conc:
         post_array_spec = f"{post_array_spec}%{max_conc}"
 
-    solver_exe = resolve_runtime_executable("simulator")
-    post_exe = resolve_runtime_executable("postprocessor")
+    try:
+        stage_executables = resolve_sweep_stage_executables(
+            [entry["run_dir"] for entry in all_case_entries]
+        )
+    except ValueError as exc:
+        print(f"[FATAL] {exc}", file=sys.stderr)
+        sys.exit(1)
+    solver_exe, solver_version_line = stage_executables["simulator"]
+    post_exe, post_version_line = stage_executables["postprocessor"]
 
     solver_continue_script = os.path.join(scheduler_dir, "solver_continue_array.sbatch")
     post_continue_script = os.path.join(scheduler_dir, "post_continue_array.sbatch")
@@ -17298,6 +17681,7 @@ def sweep_continue_workflow(args):
         solver_exe, post_exe,
         os.path.join(scheduler_dir, "solver_cont_%A_%a.out"),
         os.path.join(scheduler_dir, "solver_cont_%A_%a.err"),
+        expected_version_line=solver_version_line,
     )
     render_slurm_array_stage_script(
         post_continue_script,
@@ -17309,6 +17693,7 @@ def sweep_continue_workflow(args):
         solver_exe, post_exe,
         os.path.join(scheduler_dir, "post_cont_%A_%a.out"),
         os.path.join(scheduler_dir, "post_cont_%A_%a.err"),
+        expected_version_line=post_version_line,
     )
 
     picurv_path = os.path.abspath(os.path.join(INVOKED_SCRIPT_DIR, "picurv"))
@@ -21712,11 +22097,24 @@ def versions_workflow(args):
             print("No version tags are present in this checkout.")
         return
     version = getattr(args, "version", None)
+    make_args = list(getattr(args, "make_args", None) or [])
+    if version and _MAKE_ASSIGNMENT_PATTERN.match(str(version)):
+        # `versions activate SYSTEM=cluster` binds the assignment to the optional
+        # version positional. No tag or commit contains '=', so it is a make argument.
+        make_args.insert(0, str(version))
+        version = None
+    if make_args_include_explicit_goal(make_args):
+        raise ValueError(
+            f"versions {action} builds the default target; pass only make variables and "
+            f"options (for example SYSTEM=cluster), not a target: {' '.join(make_args)}"
+        )
     if action == "activate" and not version:
         workspace_root = os.path.abspath(args.workspace) if args.workspace else find_workspace_root(os.getcwd())
         if not workspace_root:
             raise ValueError("No workspace found and no version was named.")
         version = _workspace_requested_version(workspace_root)
+    if not version:
+        raise ValueError(f"versions {action}: name the tag or commit to install.")
     if action not in _VERSION_BUILD_ACTIONS:
         raise ValueError(f"Unsupported versions action: {action}")
     _require_clean_source_checkout(f"versions {action}")
@@ -21730,16 +22128,52 @@ def versions_workflow(args):
         file=sys.stderr,
     )
     print(
-        "          Case-local executables pinned with 'picurv init --pin-binaries' are "
-        "unaffected.",
+        "          Runs staged with --pin-executables keep their own copies and are unaffected; "
+        "unpinned queued jobs stop at their job-start identity check.",
         file=sys.stderr,
     )
     _git_source_command(["fetch", "--tags", "origin"])
-    _git_source_command(["checkout", "--detach", str(version)])
-    result = subprocess.run(["make", "all"], cwd=PACKAGE_PROJECT_ROOT, check=False)
-    if result.returncode != 0:
-        raise ValueError(f"Build failed after activating {version!r}.")
-    print(f"[SUCCESS] Activated and built PICurv {version}.")
+    ref = _resolve_version_ref(str(version))
+    _git_source_command(["checkout", "--detach", ref])
+    run_project_make(PACKAGE_PROJECT_ROOT, make_args)
+    # PICURV_BUILD was computed when this process started, before the checkout moved,
+    # so the source identity the new binaries must match is read again here.
+    source_identity = _source_build_identity(_read_release_version())
+    problems = build_identity_problems(
+        runtime_build_identities(source_identity), source_identity=source_identity
+    )
+    if problems:
+        raise ValueError(
+            f"Built {ref!r}, but the executables do not carry its identity "
+            f"({source_identity['build_id']}):\n  - " + "\n  - ".join(problems)
+        )
+    print(f"[SUCCESS] Activated and built PICurv {ref} ({source_identity['build_id']}).")
+
+
+def _resolve_version_ref(version: str) -> str:
+    """!
+    @brief Resolve a user-named version to a Git ref that exists in the source checkout.
+    @details Release tags are spelled `v<release>`, while `VERSION` and workspace
+             `software.picurv` pins carry the bare release. The name is tried as given
+             first, so a commit, branch, or already-prefixed tag is never rewritten.
+    @param[in] version Tag, bare release, or commit named by the user or workspace pin.
+    @return Ref accepted by `git checkout --detach`.
+    @throws ValueError when neither spelling resolves to a commit.
+    """
+    candidates = [version]
+    if not version.startswith("v"):
+        candidates.append(f"v{version}")
+    for candidate in candidates:
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"{candidate}^{{commit}}"],
+            cwd=PACKAGE_PROJECT_ROOT, text=True, capture_output=True, check=False,
+        )
+        if result.returncode == 0:
+            return candidate
+    raise ValueError(
+        f"No tag or commit named {' or '.join(repr(c) for c in candidates)} exists in "
+        f"{PACKAGE_PROJECT_ROOT}; 'picurv versions list' shows the available tags."
+    )
 
 
 def init_case(args):
@@ -21910,6 +22344,12 @@ def pull_source_repo(args):
         print(f"[FATAL] {exc}", file=sys.stderr)
         sys.exit(1)
 
+    try:
+        _refuse_detached_source_checkout(source_project_root, "pull-source")
+    except ValueError as exc:
+        print(f"[FATAL] {exc}", file=sys.stderr)
+        sys.exit(1)
+
     rebase = not getattr(args, "no_rebase", False)
     remote = getattr(args, "remote", None)
     branch = getattr(args, "branch", None)
@@ -21956,6 +22396,18 @@ def build_project(args):
         print(f"[FATAL] {exc}", file=sys.stderr)
         sys.exit(1)
 
+    run_project_make(source_project_root, list(args.make_args or []))
+
+
+def run_project_make(source_project_root: str, make_args: "list[str]") -> None:
+    """!
+    @brief Run the project Makefile with caller-supplied arguments, defaulting to `all`.
+    @details Shared by `picurv build` and `picurv versions install/activate`, so a site
+             setting such as `SYSTEM=cluster` reaches `make` the same way from both.
+    @param[in] source_project_root PICurv source checkout containing the Makefile.
+    @param[in] make_args Arguments passed through to `make`.
+    @return None. Exits non-zero when the Makefile is missing or `make` fails.
+    """
     makefile_path = os.path.join(source_project_root, "Makefile")
 
     if not os.path.isfile(makefile_path):
@@ -21963,7 +22415,6 @@ def build_project(args):
         print("        Please ensure the project root contains a valid Makefile.", file=sys.stderr)
         sys.exit(1)
 
-    make_args = list(args.make_args or [])
     if make_args_include_explicit_goal(make_args):
         command = ["make"] + make_args
     else:
@@ -21973,7 +22424,7 @@ def build_project(args):
     # For the build process, we don't have a monitor.yml, so we pass an empty
     # dict to execute_command. The command should be run in the project root.
     execute_command(command, source_project_root, "build.log", {})
-   
+
 
 
 

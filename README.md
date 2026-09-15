@@ -172,15 +172,12 @@ picurv init decaying_isotropic_turbulence --dest dit_case
 
 `init` creates the case directory with config files. Runtime binaries (`simulator`, `postprocessor`)
 are resolved from the project `bin/` directory via PATH — no copies are placed in the case.
-To pin specific binary versions (e.g. before submitting a Slurm job while continuing development):
-```bash
-picurv init flat_channel --dest my_case --pin-binaries
-```
-This copies `simulator` and `postprocessor` into the case directory so they are isolated from
-repo rebuilds. `picurv` itself is never copied — it is always used from PATH and is safe to
-update at any time since it only launches the C binaries, not run during solver execution.
-Binaries are pinned only at init time; re-run `picurv init --pin-binaries` for a fresh case,
-or rebuild in the source repo and re-init to pick up a newer build.
+To keep developing and rebuilding while a job waits in the queue, stage it with
+`--pin-executables`: `simulator` and `postprocessor` are copied into that run's configuration
+directory and every stage of the run launches those copies. An unpinned job checks at start
+that its executables still report the build identity read at staging. `picurv` itself is
+never copied — it is always used from PATH and is safe to update at any time since it only
+launches the C binaries, not run during solver execution.
 
 `init` also writes `.picurv-origin.json`, which records the source repo path so maintenance
 commands can rebuild, pull, and resync from the original code directory.

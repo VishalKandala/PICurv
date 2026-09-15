@@ -95,6 +95,27 @@
       "destructive_scope": "none"
     },
     {
+      "id": "run.config.bin",
+      "path_rule": "<run.config>/bin",
+      "configurable": false,
+      "owner": "picurv staging",
+      "writers": [
+        "picurv"
+      ],
+      "readers": [
+        "picurv",
+        "scheduler jobs",
+        "humans"
+      ],
+      "mutability": "written once when a run is staged with pinned executables; a re-pin writes <run.config.history>/<revision>/bin instead",
+      "retention": "essential",
+      "restart_role": "the simulator and postprocessor every stage of the run launches",
+      "isolation_model": "isolated_run_tree",
+      "containment": "fixed relative to run.config",
+      "destructive_operations": [],
+      "destructive_scope": "none"
+    },
+    {
       "id": "run.post_recipes",
       "path_rule": "<run.config>/post-recipes",
       "configurable": false,

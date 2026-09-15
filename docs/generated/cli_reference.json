@@ -522,6 +522,30 @@
           },
           {
             "choices": [],
+            "default": null,
+            "dest": "pin_executables",
+            "flags": [
+              "--pin-executables"
+            ],
+            "help": "Copy simulator and postprocessor into the run's config/bin/ at staging, so a later\nrebuild of the installation cannot change what the job runs. On a pinned run,\nre-pins it to the current build.",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "pin_executables",
+            "flags": [
+              "--no-pin-executables"
+            ],
+            "help": "Launch the installation's executables even when the workspace sets\nreproducibility.pin_executables. Slurm jobs still check at start that they\nreport the build identity read at staging.",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
             "default": "False",
             "dest": "dry_run",
             "flags": [
@@ -2730,6 +2754,30 @@
           {
             "choices": [],
             "default": null,
+            "dest": "pin_executables",
+            "flags": [
+              "--pin-executables"
+            ],
+            "help": "Copy simulator and postprocessor into the run's config/bin/ at staging, so a later\nrebuild of the installation cannot change what the job runs. On a pinned run,\nre-pins it to the current build.",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "pin_executables",
+            "flags": [
+              "--no-pin-executables"
+            ],
+            "help": "Launch the installation's executables even when the workspace sets\nreproducibility.pin_executables. Slurm jobs still check at start that they\nreport the build identity read at staging.",
+            "is_flag": false,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
             "dest": "study_dir",
             "flags": [
               "--study-dir"
@@ -3116,6 +3164,16 @@
                 "is_flag": false,
                 "nargs": "?",
                 "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "make_args",
+                "flags": [],
+                "help": "Make variables and options passed to the build, as with 'picurv build' (for example SYSTEM=cluster). Place them after every picurv option.",
+                "is_flag": false,
+                "nargs": "...",
+                "required": true
               }
             ]
           },
@@ -3146,9 +3204,19 @@
                 "default": null,
                 "dest": "version",
                 "flags": [],
-                "help": "",
+                "help": "Tag, bare release (resolved to v<release>), or commit.",
                 "is_flag": false,
                 "nargs": null,
+                "required": true
+              },
+              {
+                "choices": [],
+                "default": null,
+                "dest": "make_args",
+                "flags": [],
+                "help": "Make variables and options passed to the build, as with 'picurv build' (for example SYSTEM=cluster). Place them after every picurv option.",
+                "is_flag": false,
+                "nargs": "...",
                 "required": true
               }
             ]

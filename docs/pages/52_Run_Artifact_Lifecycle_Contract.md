@@ -190,6 +190,7 @@ runs/<title>_<timestamp>/
   manifest.json
   config/
     active.json  case.yml  solver.yml  monitor.yml  cluster.yml
+    bin/{simulator,postprocessor}        (when staged with pinned executables)
     history/<revision>/
     post-recipes/<recipe-id>/{post.yml,post.run,state.json}
   inputs/{grid,initial_condition,inlet_profiles,restart}/
@@ -207,10 +208,12 @@ use their analysis homes; renderable VTK output uses `<run.visualization>`.
 
 The initial YAML snapshot is immutable evidence. An in-place continuation stores the
 new YAML and generated controls under `<run.config.history>/<revision>/` and updates
-`<run.config.active>`; it does not erase the original. `manifest.json` records the
+`<run.config.active>`; it does not erase the original. A continuation keeps the pinned
+executables recorded in `<run.config.active>`; an explicit re-pin writes new copies under
+that revision instead of replacing `<run.config.bin>`. `manifest.json` records the
 workspace identity, active build, canonical paths, stages, locked assets, per-executable
-build identity (`binaries`), and each stage's lifecycle state (`components`: e.g.
-not_requested, planned, complete, offloaded).
+build identity of the executables the run launches (`binaries`), and each stage's
+lifecycle state (`components`: e.g. not_requested, planned, complete, offloaded).
 
 @section p52_launchers_sec 4. Local, Login-Node, and Batch Launch Resolution
 

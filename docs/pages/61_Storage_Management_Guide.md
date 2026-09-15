@@ -453,8 +453,10 @@ Every run also writes `inputs/software.lock.json` at solve time: the release ver
 Git commit, dirty-worktree status, and a SHA-256 of the simulator and postprocessor
 executables the run is about to execute with, alongside the generators and Python
 conductor. The manifest's build identity says which source was checked out; the lock
-says which bytes actually ran, so a job whose binaries were rebuilt out from under it
-after queuing is detectable afterwards rather than merely suspected.
+says which bytes the run launches. For a run staged with pinned executables those bytes
+are the copies in `<run.config.bin>`, which a rebuild of the installation does not touch;
+for an unpinned Slurm job, the job-start identity check stops a rebuilt executable before
+it runs.
 
 A workspace can opt into stricter enforcement with a `reproducibility` block in
 `.picurv-workspace.yml`:
@@ -466,9 +468,13 @@ reproducibility:
 ```
 
 `require_clean_release` refuses to stage from a dirty tree or a commit past the active
-release tag. `pin_executables` refuses to stage when the simulator or postprocessor was
-built from another revision. Both are opt-in and checked before a run is created, not
-after; a workspace running exploratory work leaves this block absent or empty.
+release tag. `pin_executables: true` refuses to stage when the simulator or postprocessor
+was built from another revision, and then pins them into every run staged in the
+workspace. Both checks are opt-in and run before a run is created, not after; a workspace
+running exploratory work leaves this block absent or empty.
+
+The `--pin-executables` and `--no-pin-executables` switches on `run` and `sweep` override
+the workspace setting for one staging.
 
 @section p61_remote_sec 8. Remote Layout and Catalog
 

@@ -6,6 +6,7 @@
     "run.config",
     "run.config.history",
     "run.config.active",
+    "run.config.bin",
     "run.post_recipes",
     "run.post_recipe.files",
     "run.control",

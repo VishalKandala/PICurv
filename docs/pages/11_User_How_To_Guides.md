@@ -438,14 +438,20 @@ picurv init flat_channel --dest my_case
 This copies template files and writes metadata. Runtime binaries (`simulator`, `postprocessor`)
 are resolved from the project `bin/` directory via PATH — no copies are placed in the case.
 
-@subsection p11_init_pin_ssec 5.2 Pin Binaries for Reproducibility
+@subsection p11_init_pin_ssec 5.2 Pin Executables for Reproducibility
 
 ```bash
-picurv init flat_channel --dest my_case --pin-binaries
+picurv run --solve --cluster cluster.yml --pin-executables --case case.yml --solver solver.yml --monitor monitor.yml
 ```
 
-Use `--pin-binaries` when you plan to submit Slurm jobs and may rebuild the repo before
-the job executes. Case-local copies take precedence over `bin/` originals at runtime.
+`--pin-executables` copies `simulator` and `postprocessor` into the run's
+`<run.config.bin>` and launches those copies at every stage of the run, so rebuilding the
+repository after staging does not change what the job runs. Set
+`reproducibility.pin_executables: true` in the workspace to pin every run staged there.
+See @ref p05_binaries_sec for continuation and sweep behavior.
+
+`picurv init --pin-binaries` predates this. Its case-local copies are used only when the
+`picurv` in that case directory is invoked, which `init` does not set up.
 
 @subsection p11_rebuild_ssec 5.3 Rebuild Safety
 
@@ -453,7 +459,9 @@ the job executes. Case-local copies take precedence over `bin/` originals at run
   it does not run during solver execution.
 - `simulator` and `postprocessor` in `bin/` are overwritten by `make all`. If a queued
   Slurm job references them by absolute path, the running binary may change.
-- Use `--pin-binaries` at init time before submission to protect running jobs.
+- Pinned runs are unaffected by a rebuild. An unpinned Slurm job that has not started
+  stops at its job-start identity check instead of running the new build; restage it, or
+  stage with `--pin-executables` if you expect to rebuild while it is queued.
 
 @section p11_sweep_sec 6. Sweep Studies
 

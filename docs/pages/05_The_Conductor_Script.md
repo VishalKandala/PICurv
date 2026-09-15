@@ -85,18 +85,20 @@ Behavior:
 - seeds that file from a repo-root `.picurv-execution.yml` when the source clone already has one, otherwise from inert defaults,
 - does **not** copy binaries by default; runtime executables are resolved from the project `bin/` directory via PATH.
 
-Binary pinning (`--pin-binaries`):
+Binary pinning (`--pin-binaries`, superseded by run-time pinning):
 
 - when `--pin-binaries` is passed, `simulator` and `postprocessor` are copied into the case directory,
-- case-local copies take precedence over `bin/` originals at runtime (`resolve_runtime_executable` checks the invocation directory first),
-- use this when submitting Slurm jobs and you may rebuild the repo before the job runs,
+- `resolve_runtime_executable` uses a copy only when it is a sibling of the `picurv` script that was
+  invoked. `init` places no launcher in the case, so the `picurv` on PATH ignores these copies and
+  launches the installation's `bin/`,
+- to keep a queued job on the build it was staged with, rely on run-time pinning instead
+  (@ref p05_binaries_sec). The flag remains until the next release,
 - `picurv` itself is never copied — it is always used from PATH and is safe to update mid-run since it only launches the C binaries.
 
 Examples:
 
 ```bash
 picurv init flat_channel --dest my_first_case
-picurv init bent_channel --dest my_bent_case --pin-binaries
 ```
 
 @section p05_build_sec 3. build: Build Project Executables
@@ -162,12 +164,26 @@ binary reporting release `0.0.0` was built outside `make` and carries no identit
 `picurv source update` fetches branches and tags without changing the active checkout.
 `picurv versions list` reports tags; `versions install <version>` or
 `versions activate [version]` requires a clean source checkout, selects the exact Git
-version, and rebuilds. With no argument, `activate` reads the workspace's exact
+version, and rebuilds. A bare release such as `0.1.0` resolves to its `v0.1.0` tag when
+no ref carries the bare name. With no argument, `activate` reads the workspace's exact
 `software.picurv` value and refuses ranges.
+
+Make variables and options after the version reach `make` exactly as they do for
+`picurv build`, so a cluster install names its build configuration:
+
+```bash
+picurv versions install 0.1.0 SYSTEM=cluster
+picurv versions activate SYSTEM=cluster        # version from the workspace pin
+```
+
+A make target is refused, because the install verifies the default build. Success is
+reported only after `simulator` and `postprocessor` report the identity of the commit
+just checked out; the conductor re-reads that identity rather than using the one it
+computed at startup, which still names the previous commit.
 
 @note **One installation, activated in place.** PICurv installs as a single source
 checkout that `versions activate` rewrites by `git checkout --detach <tag>` followed by
-`make all`. It does not install side-by-side versioned prefixes such as
+the default `make` build. It does not install side-by-side versioned prefixes such as
 `/software/picurv/0.2.0/`, and `picurv` is not a version multiplexer.
 
 That is a deliberate trade, and it has three consequences worth knowing before you rely
@@ -176,11 +192,10 @@ on a version pin:
 - **Two workspaces pinned to different releases cannot both be satisfied.** Activating
   for one makes the other's `software.picurv` requirement fail. There is one active
   release per installation, not one per workspace.
-- **Activating changes running jobs.** Executables resolve from the installation's
-  `bin/`, so a rebuild replaces `simulator` and `postprocessor` underneath a job that
-  is already using them. `picurv init --pin-binaries` copies them into the case and is
-  the supported way to make a run immune to this; use it for anything submitted to a
-  scheduler.
+- **Activating changes unpinned jobs.** A job that launches the installation's `bin/`
+  runs whatever was built last when it starts. Every generated job script refuses to
+  launch an executable whose identity differs from the one read at staging, and a run
+  staged with `--pin-executables` keeps its own copies (@ref p05_binaries_sec).
 - **Development and version-switching share one tree.** `activate` refuses a dirty
   checkout, so uncommitted work must be committed or stashed first.
 
@@ -209,7 +224,9 @@ that no longer exist in the source template. User-created case files are not pru
 `.picurv-execution.yml` only when the case does not already have one.
 
 `pull-source` refreshes every local branch with a configured upstream, then restores the
-branch you started on, so you can update code without leaving the case directory:
+branch you started on, so you can update code without leaving the case directory. It
+refuses a checkout detached by `versions install` or `versions activate`: restoring that
+commit after the pull would leave the code that runs unchanged while the branches moved.
 
 ```bash
 ./my_case/picurv pull-source
@@ -688,7 +705,7 @@ above is hand-written and complements it; this section is the exhaustive referen
 - optional:
   - `--dest <dir>`
   - `--source-root <repo>`
-  - `--pin-binaries` (copy `simulator`/`postprocessor` into the case for version-pinning)
+  - `--pin-binaries` (legacy; copies `simulator`/`postprocessor` into the case, used only when that directory's own `picurv` is invoked)
 
 `build`:
 - optional:
@@ -826,11 +843,40 @@ For prebuilt reusable profiles, also see the local guides under:
 
 @section p05_binaries_sec 12. Binary Resolution and Rebuild Safety
 
-`picurv` resolves `simulator` and `postprocessor` at launch time using this precedence:
+`picurv` resolves `simulator` and `postprocessor` for a run using this precedence:
 
-1. **Invocation directory** — if the binary exists as a sibling of the invoked `picurv` script
-   (e.g. case-local copies from `--pin-binaries`), it is used first.
-2. **Project `bin/` directory** — the default location after `make all`.
+1. **The run's pinned copies** — when the run's `<run.config>/active.json` records
+   `executables`, every stage of that run launches those copies.
+2. **Invocation directory** — if the binary exists as a sibling of the invoked `picurv` script
+   (e.g. case-local copies from `--pin-binaries`), it is used next.
+3. **Project `bin/` directory** — the default location after `make all`.
+
+**Run-time pinning (opt-in).** Staging a solve with `--pin-executables` copies both
+executables into `<run.config.bin>` and records each copy's path, SHA-256, and build
+identity in `active.json`. The run manifest and software lock then describe those copies,
+not the installation. Without the switch a run launches the installation's `bin/`.
+
+| Setting | Pins |
+|---|---|
+| neither switch, no workspace setting | no |
+| `--pin-executables` on `run` or `sweep` | yes |
+| `reproducibility.pin_executables: true` in the workspace | yes, for every staging in it |
+| `--no-pin-executables` | no, even when the workspace sets it |
+
+- A continuation keeps the run's pin. `--pin-executables` on a pinned run re-pins it to the
+  current build under that continuation's revision in `<run.config.history>`;
+  `--no-pin-executables` on a pinned run is refused, so the run's records never name a
+  build it did not launch.
+- Post-processing launches the postprocessor the run is pinned to. The switches apply
+  only when a solve is staged.
+- Each member of a sweep is pinned in its own run directory, and the array scripts launch
+  `$RUN_DIR`'s copy. A study whose members disagree about pinning is refused.
+- An executable that is not built is left unpinned with a warning.
+
+**Job-start identity check.** Every generated Slurm script, pinned or not, runs the
+executable's `--version` after module setup and before the launcher, and exits before any
+rank starts when the reported identity differs from the one read at staging. When staging
+could not read an identity, the job logs the one it finds and launches.
 
 `bin/picurv` is a launcher for `picurv_cli/picurv`. This means:
 
@@ -844,19 +890,16 @@ For prebuilt reusable profiles, also see the local guides under:
 - Updating `picurv` (the Python script) mid-run is always safe — it is only used to launch jobs,
   not during solver execution.
 - Rebuilding `simulator`/`postprocessor` (`make all`) overwrites the binaries in `bin/`.
-  If a Slurm job references `bin/simulator` by absolute path and has not yet started, the running
-  binary may be replaced before execution begins.
-- For a queued production job, use a tagged release checkout or an explicitly pinned
-  legacy binary copy. The run manifest records the build identity that staged it;
+  A pinned run is unaffected. An unpinned Slurm job that has not started fails its
+  job-start identity check instead of running the new build, and has to be restaged.
+- The run manifest records the build identity of the executables the run launches;
   `picurv version` checks the currently active identity.
 
 **Recommended workflow for concurrent development and production:**
 
 ```bash
-picurv init flat_channel --dest production_case --pin-binaries
-picurv run --solve --cluster cluster.yml ...   # uses case-local binaries
-# safe to rebuild in the repo now — production_case has its own copies
-make all
+picurv run --solve --cluster cluster.yml --pin-executables ...   # copies bin/ into the run
+make all                                                         # safe: the run keeps its copies
 ```
 
 @section p05_cap_input_mode_sec 12.1 Workspace Input Import Mode Entries

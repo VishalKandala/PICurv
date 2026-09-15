@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -666,4 +667,372 @@ def test_a_version_pin_failure_names_the_installation_it_would_change(tmp_path, 
     message = str(failure.value)
     assert "single shared installation" in message
     assert core.PACKAGE_PROJECT_ROOT in message
-    assert "--pin-binaries" in message
+    assert "--pin-executables" in message
+
+
+def _git_repo_with_tag(root: Path, tag: str) -> Path:
+    """!
+    @brief Create a one-commit Git repository carrying one tag.
+    @param[in] root Repository directory to create.
+    @param[in] tag Tag name to attach to the commit.
+    @return Repository root.
+    """
+    root.mkdir(parents=True)
+    for command in (
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "test@example.invalid"],
+        ["git", "config", "user.name", "test"],
+        ["git", "commit", "-q", "--allow-empty", "-m", "initial"],
+        ["git", "tag", tag],
+    ):
+        subprocess.run(command, cwd=root, check=True, capture_output=True)
+    return root
+
+
+def test_a_bare_release_resolves_to_its_v_prefixed_tag(tmp_path, monkeypatch):
+    """!
+    @brief `VERSION` and workspace pins say `0.1.0`; the release tag is `v0.1.0`.
+
+    @details `versions activate` with no argument reads the bare release from the
+             workspace pin. Checking that out verbatim fails, because no ref carries
+             the unprefixed name.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    repo = _git_repo_with_tag(tmp_path / "source", "v1.2.3")
+    monkeypatch.setattr(core, "PACKAGE_PROJECT_ROOT", str(repo))
+
+    assert core._resolve_version_ref("1.2.3") == "v1.2.3"
+    assert core._resolve_version_ref("v1.2.3") == "v1.2.3"
+    with pytest.raises(ValueError, match="'9.9.9' or 'v9.9.9'"):
+        core._resolve_version_ref("9.9.9")
+
+
+def _stub_version_install(monkeypatch, identities_by_call):
+    """!
+    @brief Replace the Git, build, and identity owners that `versions install` drives.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @param[in] identities_by_call Executable identities returned after the build.
+    @return Mapping recording the make arguments and checked-out ref.
+    """
+    recorded = {}
+    monkeypatch.setattr(core, "_require_clean_source_checkout", lambda action: None)
+    monkeypatch.setattr(core, "_git_source_command",
+                        lambda arguments: recorded.setdefault("git", []).append(arguments))
+    monkeypatch.setattr(core, "_resolve_version_ref", lambda version: f"v{version}")
+    monkeypatch.setattr(core, "run_project_make",
+                        lambda root, make_args: recorded.__setitem__("make_args", make_args))
+    fresh = {"git_commit": "fedcba9876543210", "dirty": False, "build_id": "1.2.3+gfedcba987654"}
+    monkeypatch.setattr(core, "_source_build_identity", lambda release: dict(fresh))
+    monkeypatch.setattr(core, "runtime_build_identities", lambda source_identity=None: identities_by_call)
+    return recorded
+
+
+def test_versions_install_passes_site_build_settings_to_make(tmp_path, monkeypatch):
+    """!
+    @brief A cluster install reaches `make` with its SYSTEM, as `picurv build` does.
+
+    @details The install used to run a bare `make all`, so a cluster build silently used
+             the local configuration unless SYSTEM happened to be exported in the shell.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    matching = {name: {"available": True, "matches_source": True, "build_id": "1.2.3+gfedcba987654"}
+                for name in ("simulator", "postprocessor")}
+    recorded = _stub_version_install(monkeypatch, matching)
+    args = build_main_parser().parse_args(["versions", "install", "1.2.3", "SYSTEM=cluster", "-j4"])
+
+    core.versions_workflow(args)
+
+    assert recorded["make_args"] == ["SYSTEM=cluster", "-j4"]
+    assert ["checkout", "--detach", "v1.2.3"] in recorded["git"]
+
+
+def test_versions_activate_reads_a_leading_assignment_as_a_make_argument(tmp_path, monkeypatch):
+    """!
+    @brief `versions activate SYSTEM=cluster` keeps the workspace version and the build setting.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    matching = {name: {"available": True, "matches_source": True, "build_id": "1.2.3+gfedcba987654"}
+                for name in ("simulator", "postprocessor")}
+    recorded = _stub_version_install(monkeypatch, matching)
+    monkeypatch.setattr(core, "_workspace_requested_version", lambda root: "1.2.3")
+    args = build_main_parser().parse_args(
+        ["versions", "activate", "--workspace", str(tmp_path), "SYSTEM=cluster"]
+    )
+
+    core.versions_workflow(args)
+
+    assert recorded["make_args"] == ["SYSTEM=cluster"]
+    assert ["checkout", "--detach", "v1.2.3"] in recorded["git"]
+
+
+def test_versions_install_refuses_a_make_target(tmp_path, monkeypatch):
+    """!
+    @brief A make target would replace the build the install is supposed to verify.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    _stub_version_install(monkeypatch, {})
+    args = build_main_parser().parse_args(["versions", "install", "1.2.3", "clean-project"])
+    with pytest.raises(ValueError, match="not a target"):
+        core.versions_workflow(args)
+
+
+def test_versions_install_fails_when_the_build_does_not_carry_the_new_identity(tmp_path, monkeypatch):
+    """!
+    @brief Success is reported only after the executables are checked against the new source.
+
+    @details The conductor's own PICURV_BUILD still describes the commit it started on,
+             so the check must use the identity read after the checkout moved.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    stale = {
+        "simulator": {"available": True, "matches_source": False, "build_id": "1.2.2+g0123456789ab"},
+        "postprocessor": {"available": True, "matches_source": True, "build_id": "1.2.3+gfedcba987654"},
+    }
+    _stub_version_install(monkeypatch, stale)
+    args = build_main_parser().parse_args(["versions", "install", "1.2.3"])
+    with pytest.raises(ValueError, match=r"simulator: built from 1\.2\.2\+g0123456789ab.*1\.2\.3\+gfedcba987654"):
+        core.versions_workflow(args)
+
+
+def test_a_binary_that_cannot_start_is_not_reported_as_predating_identity(tmp_path):
+    """!
+    @brief A failing `--version` records the exit status and first error line.
+
+    @details A run manifest recorded "no build identity reported" for a binary that does
+             report one; a binary that cannot load its libraries in the staging shell was
+             indistinguishable from one built before the identity flag existed.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    broken = tmp_path / "simulator"
+    broken.write_text('#!/bin/sh\necho "error while loading shared libraries: libpetsc.so" >&2\nexit 127\n',
+                      encoding="utf-8")
+    broken.chmod(0o755)
+
+    identity = core.read_binary_build_identity(str(broken))
+
+    assert identity["available"] is False
+    assert identity["reason"].startswith("--version exited 127")
+    assert "libpetsc.so" in identity["reason"]
+
+
+def test_staging_warns_when_a_build_identity_cannot_be_read(tmp_path, capsys):
+    """!
+    @brief An unreadable identity is said at staging, not only recorded in the manifest.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] capsys Pytest capture fixture.
+    """
+    identities = {
+        "simulator": {"available": False, "reason": "--version exited 127", "path": "/x/simulator"},
+    }
+    assert core.warn_on_stale_runtime_binaries(identities) == []
+    err = capsys.readouterr().err
+    assert "build identity of simulator could not be read" in err
+    assert "--version exited 127" in err
+
+
+def _installation_with_executables(tmp_path: Path, monkeypatch, commit: str = "0123456789ab") -> Path:
+    """!
+    @brief Point executable resolution at stub simulator and postprocessor binaries.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @param[in] commit Commit the stubs report.
+    @return Directory holding the stubs.
+    """
+    bin_dir = tmp_path / "installation_bin"
+    bin_dir.mkdir(exist_ok=True)
+    for name in core.RUN_EXECUTABLE_NAMES:
+        _fake_binary(bin_dir / name, f"{name} 0.1.0+g{commit}")
+    monkeypatch.setattr(core, "INVOKED_SCRIPT_DIR", str(bin_dir))
+    return bin_dir
+
+
+def _run_with_initial_config(root: Path) -> Path:
+    """!
+    @brief Create a run directory holding an initial configuration record.
+    @param[in] root Run directory to create.
+    @return Run directory.
+    """
+    (root / "config").mkdir(parents=True)
+    core.write_json_file(str(root / "config" / "active.json"),
+                         {"schema_version": 1, "revision": "initial", "files": {}})
+    return root
+
+
+def test_pinned_executables_survive_a_rebuild_of_the_installation(tmp_path, monkeypatch):
+    """!
+    @brief A run launches the copy made at staging, not what `bin/` holds later.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    bin_dir = _installation_with_executables(tmp_path, monkeypatch)
+    run = _run_with_initial_config(tmp_path / "run")
+
+    recorded = core.pin_run_executables(str(run), "initial")
+    _fake_binary(bin_dir / "simulator", "simulator 0.1.0+gffffffffffff")
+
+    assert recorded["simulator"]["path"] == "config/bin/simulator"
+    assert recorded["simulator"]["version_line"] == "simulator 0.1.0+g0123456789ab"
+    pinned = core.run_executable_path(str(run), "simulator")
+    assert pinned == str(run / "config" / "bin" / "simulator")
+    assert core.read_binary_build_identity(pinned)["build_id"] == "0.1.0+g0123456789ab"
+    assert core.runtime_build_identities(run_dir=str(run))["simulator"]["build_id"] == "0.1.0+g0123456789ab"
+    assert core.build_software_lock(str(run))["executables"]["simulator"]["path"] == pinned
+
+
+def test_a_continuation_keeps_the_pin_unless_it_re_pins(tmp_path, monkeypatch):
+    """!
+    @brief A continuation revision carries the pin forward; an explicit re-pin records a new one.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    bin_dir = _installation_with_executables(tmp_path, monkeypatch)
+    run = tmp_path / "run"
+    (run / "config").mkdir(parents=True)
+    source = tmp_path / "case.yml"
+    source.write_text("title: x\n", encoding="utf-8")
+    core.snapshot_run_configuration(str(run), {"case": str(source)})
+    core.pin_run_executables(str(run), "initial")
+    _fake_binary(bin_dir / "simulator", "simulator 0.1.0+gffffffffffff")
+
+    continued = core.snapshot_run_configuration(str(run), {"case": str(source)}, continuation=True)
+    kept = core.apply_run_executable_pinning(
+        str(run), continued["revision"], SimpleNamespace(pin_executables=None), None
+    )
+    assert kept["simulator"]["path"] == str(run / "config" / "bin" / "simulator")
+
+    with pytest.raises(ValueError, match="--no-pin-executables would launch"):
+        core.apply_run_executable_pinning(
+            str(run), continued["revision"], SimpleNamespace(pin_executables=False), None
+        )
+
+    moved = core.apply_run_executable_pinning(
+        str(run), continued["revision"], SimpleNamespace(pin_executables=True), None
+    )
+    assert moved["simulator"]["path"] == str(
+        run / "config" / "history" / continued["revision"] / "bin" / "simulator"
+    )
+    assert moved["simulator"]["build_id"] == "0.1.0+gffffffffffff"
+    assert core.read_binary_build_identity(str(run / "config" / "bin" / "simulator"))["build_id"] \
+        == "0.1.0+g0123456789ab"
+
+
+def test_pinning_is_opt_in_through_the_flag_or_the_workspace(tmp_path, monkeypatch):
+    """!
+    @brief Nothing is pinned unless a switch or the workspace asks, and a switch wins.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    unset = SimpleNamespace(pin_executables=None)
+    assert core.resolve_executable_pinning(unset, None) is False
+    assert core.resolve_executable_pinning(SimpleNamespace(pin_executables=True), None) is True
+
+    workspace = _write_workspace(tmp_path / "ws")
+    assert core.resolve_executable_pinning(unset, str(workspace)) is False
+    config_path = workspace / core.WORKSPACE_CONFIG_FILENAME
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    payload["reproducibility"] = {"pin_executables": True}
+    config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    assert core.resolve_executable_pinning(unset, str(workspace)) is True
+    assert core.resolve_executable_pinning(SimpleNamespace(pin_executables=False), str(workspace)) is False
+
+
+def test_an_unbuilt_executable_is_left_unpinned_with_a_warning(tmp_path, monkeypatch, capsys):
+    """!
+    @brief Staging without a built postprocessor still pins the simulator and says so.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @param[in] capsys Pytest capture fixture.
+    """
+    bin_dir = _installation_with_executables(tmp_path, monkeypatch)
+    (bin_dir / "postprocessor").unlink()
+    monkeypatch.setattr(core, "DEFAULT_BIN_DIR", str(bin_dir))
+    run = _run_with_initial_config(tmp_path / "run")
+
+    recorded = core.pin_run_executables(str(run), "initial")
+
+    assert sorted(recorded) == ["simulator"]
+    assert "postprocessor is not built" in capsys.readouterr().err
+    assert core.run_executable_path(str(run), "postprocessor") == str(bin_dir / "postprocessor")
+
+
+def _run_identity_check(tmp_path: Path, executable: Path, expected) -> subprocess.CompletedProcess:
+    """!
+    @brief Execute the generated job-start identity check in a real shell.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] executable Executable the check probes.
+    @param[in] expected Version line captured at staging, or None.
+    @return Completed shell process.
+    """
+    script = tmp_path / "check.sh"
+    lines = ["#!/bin/bash", "set -euo pipefail",
+             *core.executable_identity_check_lines(str(executable), expected), "echo LAUNCHED"]
+    script.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return subprocess.run(["bash", str(script)], capture_output=True, text=True)
+
+
+def test_a_job_refuses_to_launch_an_executable_rebuilt_after_staging(tmp_path):
+    """!
+    @brief The job-start check passes the staged build and stops a different one before launch.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    exe = _fake_binary(tmp_path / "simulator", "simulator 0.1.0+g0123456789ab")
+
+    same = _run_identity_check(tmp_path, exe, "simulator 0.1.0+g0123456789ab")
+    assert same.returncode == 0 and "LAUNCHED" in same.stdout
+
+    _fake_binary(exe, "simulator 0.1.0+gffffffffffff")
+    rebuilt = _run_identity_check(tmp_path, exe, "simulator 0.1.0+g0123456789ab")
+    assert rebuilt.returncode == 1
+    assert "LAUNCHED" not in rebuilt.stdout
+    assert "rebuilt after staging" in rebuilt.stderr
+
+    exe.write_text("#!/bin/sh\necho 'cannot load libpetsc.so' >&2\nexit 127\n", encoding="utf-8")
+    broken = _run_identity_check(tmp_path, exe, "simulator 0.1.0+g0123456789ab")
+    assert broken.returncode == 1 and "--version failed" in broken.stderr
+
+    _fake_binary(exe, "simulator 0.1.0+gffffffffffff")
+    unknown = _run_identity_check(tmp_path, exe, None)
+    assert unknown.returncode == 0 and "LAUNCHED" in unknown.stdout
+
+
+def test_slurm_script_checks_identity_after_modules_and_before_launch(tmp_path):
+    """!
+    @brief The check needs the modules' shared libraries and must precede the launcher.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    script = tmp_path / "solver.sbatch"
+    cluster_cfg = {
+        "resources": {"nodes": 1, "ntasks_per_node": 2, "mem": "1G", "time": "00:10:00", "account": "a"},
+        "execution": {"module_setup": ["module restore petsc-prod"]},
+    }
+    core.render_slurm_script(
+        str(script), "job", cluster_cfg, ["mpirun", "-np", "2", "/x/config/bin/simulator"],
+        str(tmp_path), str(tmp_path / "o.out"),
+        identity_check=("/x/config/bin/simulator", "simulator 0.1.0+g0123456789ab"),
+    )
+    text = script.read_text(encoding="utf-8")
+    assert text.index("module restore petsc-prod") < text.index("--version") < text.index("exec mpirun")
+
+
+def test_study_members_launch_their_own_pins_through_one_array_script(tmp_path, monkeypatch):
+    """!
+    @brief Pinned members share a run-relative path; a half-pinned study is refused.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    _installation_with_executables(tmp_path, monkeypatch)
+    members = [_run_with_initial_config(tmp_path / f"case_{i}") for i in range(2)]
+    for member in members:
+        core.pin_run_executables(str(member), "initial")
+
+    chosen = core.resolve_sweep_stage_executables([str(m) for m in members])
+    assert chosen["simulator"] == ("$RUN_DIR/config/bin/simulator", "simulator 0.1.0+g0123456789ab")
+
+    unpinned = _run_with_initial_config(tmp_path / "case_2")
+    with pytest.raises(ValueError, match="disagree"):
+        core.resolve_sweep_stage_executables([str(m) for m in members] + [str(unpinned)])

@@ -21,7 +21,7 @@
         "36_Cluster_Run_Guide",
         "37_Sweep_Studies_Guide"
       ],
-      "attested_digest": "sha256:397a4103f6ffecb6af03fe8708bc60c9d1bd77d59a23597a499800d47c4decb1",
+      "attested_digest": "sha256:1fc94b890b0ed3ecebdadf2db71ef347802cf9b630ec24d961ce5fe82ca20ea3",
       "note": "Normalized argparse structure, so a comment or docstring change in cli.py does not fire this fingerprint."
     },
     {
@@ -73,7 +73,7 @@
         "61_Storage_Management_Guide",
         "37_Sweep_Studies_Guide"
       ],
-      "attested_digest": "sha256:c4fd896dfd914edef723f7279152fbcbf51da35cd3485822de7f27cfe3374c6f"
+      "attested_digest": "sha256:80a9726f75889ce4bb8b25cc1eddd7a82493f694be0bfb640c06c575a3016c4d"
     },
     {
       "id": "docs.subsystem_records",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:d688178a920c86bb7d4b33c91415d99b4e9b990a2f4989324895dbc63b742f6c",
+      "attested_digest": "sha256:1497eb45d16a3230b14f5c255c8247e33dfed4395cd11f187a09193582ef8542",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
