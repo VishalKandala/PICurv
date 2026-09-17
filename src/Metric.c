@@ -209,9 +209,24 @@ PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double 
 
 	double det = a11*(a33*a22-a32*a23) - a21*(a33*a12-a32*a13) + a31*(a23*a12-a22*a13);
 
-    if (fabs(det) < 1.0e-12) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_MAT_LU_ZRPVT, "Matrix is singular, determinant is near zero.");
-    }
+	/* Degeneracy has to be judged against the rows' own magnitude, not against a fixed
+	   number. The rows here are face-area vectors, so the determinant carries their
+	   product - for an orthogonal cell it is exactly the square of the cell volume, and
+	   it shrinks as the mesh is refined while the cell stays perfectly well formed. An
+	   absolute floor therefore rejects fine grids: a wall-resolved cell of 5e-9 volume
+	   has a determinant near 3e-17. The ratio below is 1 for an orthogonal cell and
+	   approaches 0 only as the rows become coplanar, which is the actual failure. */
+	const double row_scale = sqrt(a11*a11 + a12*a12 + a13*a13) *
+	                         sqrt(a21*a21 + a22*a22 + a23*a23) *
+	                         sqrt(a31*a31 + a32*a32 + a33*a33);
+
+	if (row_scale <= 0.0 || fabs(det) <= 1.0e-10 * row_scale) {
+		SETERRQ(PETSC_COMM_SELF, PETSC_ERR_MAT_LU_ZRPVT,
+		        "Matrix is singular: |det| = %g is degenerate against the rows' own scale "
+		        "%g (ratio %g); the rows are coplanar or one of them vanishes.",
+		        (double)fabs(det), (double)row_scale,
+		        (double)(row_scale > 0.0 ? fabs(det)/row_scale : 0.0));
+	}
 
 	contravariantTensor[0][0] = (a33*a22-a32*a23)/det;
     contravariantTensor[0][1] = -(a33*a12-a32*a13)/det;
@@ -244,7 +259,7 @@ PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, do
 	g[1][0]=eta.x, g[1][1]=eta.y, g[1][2]=eta.z;
 	g[2][0]=zet.x, g[2][1]=zet.y, g[2][2]=zet.z;
 	
-	InvertCovariantMetricTensor(g, G);
+	PetscCall(InvertCovariantMetricTensor(g, G));
 	double xcsi=G[0][0], ycsi=G[1][0], zcsi=G[2][0];
 	double xeta=G[0][1], yeta=G[1][1], zeta=G[2][1];
 	double xzet=G[0][2], yzet=G[1][2], zzet=G[2][2];
@@ -288,7 +303,7 @@ PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, C
         double Ai, Aj, Ak;
         double vol = 1./ajc;
 
-        CalculateFaceNormalAndArea(csi, eta, zet, ni, nj, nk, &Ai, &Aj, &Ak);
+        PetscCall(CalculateFaceNormalAndArea(csi, eta, zet, ni, nj, nk, &Ai, &Aj, &Ak));
         Li = vol / Ai;
         Lj = vol / Aj;
         Lk = vol / Ak;

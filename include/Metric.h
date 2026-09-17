@@ -107,16 +107,21 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3],
 PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, double ni[3], double nj[3], double nk[3], double *Ai, double *Aj, double *Ak);
 
 /**
- * @brief Inverts the 3x3 covariant metric tensor to obtain the contravariant metric tensor.
+ * @brief Inverts the 3x3 matrix of face-area vectors to obtain the covariant directions.
  *
- * In curvilinear coordinates, the input matrix `g` contains the dot products of the
- * covariant basis vectors (e.g., g_ij = e_i . e_j). Its inverse, `G`, is the
- * contravariant metric tensor, which is essential for transforming vectors and tensors
- * between coordinate systems.
+ * The caller fills the rows with `csi`, `eta` and `zet` - the face-area vectors, which
+ * are the contravariant basis scaled by the cell Jacobian. The inverse's columns are the
+ * covariant (tangent) directions `dx/dxi`, `dx/deta`, `dx/dzeta` divided by that
+ * Jacobian, which is what `CalculateFaceNormalAndArea()` normalizes.
  *
- * @param covariantTensor   Input: A 3x3 matrix representing the covariant metric tensor.
- * @param[out] contravariantTensor Inverse metric tensor written in place.
- * @return PetscErrorCode 0 on success.
+ * Degeneracy is judged relative to the rows' own magnitude, because the determinant of
+ * area vectors scales as the square of the cell volume: an absolute floor would reject a
+ * well-formed cell purely for being small.
+ *
+ * @param covariantTensor   Input: rows are the three face-area vectors.
+ * @param[out] contravariantTensor Inverse written in place.
+ * @return PetscErrorCode 0 on success; `PETSC_ERR_MAT_LU_ZRPVT` when the rows are
+ *         coplanar or one of them vanishes.
  */
 PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double contravariantTensor[3][3]);
 
