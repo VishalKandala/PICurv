@@ -541,3 +541,48 @@ def test_case_validation_catches_bad_choices_inside_cli_args(cli_args, expected)
     @param[in] cli_args Raw token list. @param[in] expected Number of errors. """
     errors = CORE.validate_grid_generator_cli_args(cli_args, "case.yml")
     assert len(errors) == expected, errors
+
+
+def test_the_report_states_which_length_the_friction_scale_was_built_on():
+    """! @brief The wall-unit basis is reported, because a mismatched one halves every y+.
+
+    @details `re_tau` is a ratio against `length_ref`. A campaign that supplies a
+             half-width Re_tau together with a full-width `length_ref` gets plus numbers
+             that are all a factor of two optimistic, and nothing in the plus numbers
+             themselves reveals it. The wall-unit length and its basis are stated so the
+             mismatch is visible in the report.
+    """
+    reference = GRID.resolve_reference_quantities(1.0, 2.5e-5, 1.0, 1057.0, None)
+    X, Y, Z, factors = shaped_box(bounds_x=(0.0, 1.0))
+    stats = GRID.analyze_grid_quality(X, Y, Z, factors, reference)
+
+    assert stats['wall_unit_length'] == pytest.approx(1.0/1057.0)
+    assert 're_tau/length_ref' in stats['wall_unit_basis']
+
+    direct = GRID.analyze_grid_quality(
+        X, Y, Z, factors, GRID.resolve_reference_quantities(1.0, 2.5e-5, 1.0, None, 0.0529))
+    assert direct['wall_unit_length'] == pytest.approx(2.5e-5/0.0529)
+    assert 'u_tau/nu' in direct['wall_unit_basis']
+
+
+def test_the_report_states_the_cell_reynolds_number_per_direction():
+    """! @brief Wall units measure the viscous scale; they say nothing about convection.
+
+    @details A grid can be wall-resolved and still carry cell Reynolds numbers in the
+             hundreds along its coarse direction, which is what a non-dissipative
+             convection scheme cannot absorb. The report had no such number.
+    """
+    reference = GRID.resolve_reference_quantities(1.0, 2.5e-5, 1.0, None, 0.0529)
+    X, Y, Z, factors = shaped_box(bounds_x=(0.0, 1.0))
+    stats = GRID.analyze_grid_quality(X, Y, Z, factors, reference)
+
+    spacing_i = float(np.max(GRID._axis_spacings(X, Y, Z, 0)))
+    assert stats['cell_reynolds']['i']['max'] == pytest.approx(spacing_i*1.0/2.5e-5)
+    assert stats['cell_reynolds']['i']['mean'] <= stats['cell_reynolds']['i']['max']
+
+
+def test_a_grid_with_no_velocity_scale_reports_no_cell_reynolds_number():
+    """! @brief Without velocity_ref and nu there is no convective scale to report. """
+    reference = GRID.resolve_reference_quantities(1.0, None, None, None, None)
+    X, Y, Z, factors = shaped_box(bounds_x=(0.0, 1.0))
+    assert 'cell_reynolds' not in GRID.analyze_grid_quality(X, Y, Z, factors, reference)

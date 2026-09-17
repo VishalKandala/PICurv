@@ -173,6 +173,23 @@ is reported is what the supplied target implies, not a measurement. When `picurv
 the generator, `length_ref`, `nu` and `velocity_ref` are taken from the case
 automatically; `re_tau` is a design target and belongs in the generator config.
 
+@warning **`Re_tau` is a ratio against `length_ref`, and a mismatch scales every plus
+number.** `--re-tau` is read as `u_tau * length_ref / nu`. A friction Reynolds number
+quoted on a half-width or a radius, supplied together with a `length_ref` that is the
+full width or the diameter, makes every reported `y+` and `ds+` a factor of two
+optimistic, and nothing in the plus numbers themselves reveals it. The report therefore
+states `Wall_Unit_Length` and `Wall_Unit_Basis`: check that length against the one your
+`Re_tau` was built on. `--u-tau` with `--nu` avoids the question entirely, since it fixes
+the wall unit directly.
+
+The report also states a **[Convective Resolution]** block: the cell Reynolds number
+`velocity_ref * spacing / nu` per direction, given a velocity scale and `nu`. Wall units
+measure the viscous scale and say nothing about convection, so a grid can be
+wall-resolved and still carry cell Reynolds numbers in the hundreds along its coarse
+direction. Central convection adds no dissipation of its own, so such a direction depends
+entirely on the subgrid model, or on a scheme that upwinds, to stay free of grid-scale
+oscillation.
+
 This is also the way to stop computing `y+` by hand. `first_cell_*` is a fraction of the
 axis length, so a wall-normal axis of length `Ly` needs
 `first_cell_j = (y_plus_target / Re_tau) / Ly`. Supply the reference scales and the report

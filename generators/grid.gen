@@ -1182,6 +1182,10 @@ def resolve_reference_quantities(length_ref: Optional[float], nu: Optional[float
         reference['re_tau'] = re_tau
     if nu is not None:
         reference['nu'] = nu
+    if velocity_ref is not None:
+        # Kept, not just consumed: the report lists velocity_ref among the reference
+        # scales, and the convective resolution is measured against it.
+        reference['velocity_ref'] = velocity_ref
     if velocity_ref is not None and nu is not None and length_ref is not None:
         reference['reynolds'] = velocity_ref*length_ref/nu
     return reference
@@ -1342,6 +1346,28 @@ def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray,
                     'extent': float(np.max(np.sum(width, axis=index)))*inverse,
                 }
                 for index, (axis, width) in enumerate(spacings.items())
+            }
+            # Which length the friction scale was built on is the one thing a reader
+            # cannot recover from the plus numbers themselves, and getting it wrong
+            # scales every one of them. State it with the value it produced.
+            stats['wall_unit_length'] = 1.0/inverse
+            stats['wall_unit_basis'] = (
+                'u_tau/nu, supplied directly' if reference.get('u_tau') is not None
+                else 're_tau/length_ref: re_tau must be built on length_ref, not on a '
+                     'half-width or diameter unless that is length_ref'
+            )
+        velocity_ref = reference.get('velocity_ref')
+        nu = reference.get('nu')
+        if velocity_ref and nu:
+            # Cell Reynolds number per direction. A non-dissipative convection scheme
+            # needs this near O(1) to stay free of grid-scale oscillation; the wall-unit
+            # block says nothing about it, because it measures the viscous scale only.
+            stats['cell_reynolds'] = {
+                axis: {
+                    'max': float(np.max(width))*velocity_ref/nu,
+                    'mean': float(np.mean(width))*velocity_ref/nu,
+                }
+                for axis, width in spacings.items()
             }
 
     # --- Non-Orthogonality ---
@@ -1512,12 +1538,26 @@ def export_stats_to_file(filename: str, stats: dict) -> None:
                 f.write("\n[Wall Units - nominal]\n")
                 f.write("# Computed from the supplied friction scale, which is a target,\n")
                 f.write("# not a measurement: the real u_tau comes from the solved flow.\n")
+                f.write(f"Wall_Unit_Length = {stats['wall_unit_length']:.6e}\n")
+                f.write(f"Wall_Unit_Basis = {stats['wall_unit_basis']}\n")
                 for axis in ('i', 'j', 'k'):
                     entry = wall[axis]
                     f.write(f"First_Cell_{axis}_Start_Plus = {entry['first_start']:.4f}\n")
                     f.write(f"First_Cell_{axis}_End_Plus = {entry['first_end']:.4f}\n")
                     f.write(f"Max_Spacing_{axis}_Plus = {entry['max']:.4f}\n")
                     f.write(f"Extent_{axis}_Plus = {entry['extent']:.4f}\n")
+
+            cell_re = stats.get('cell_reynolds')
+            if cell_re:
+                f.write("\n[Convective Resolution]\n")
+                f.write("# Cell Reynolds number velocity_ref*spacing/nu per direction.\n")
+                f.write("# Central convection carries no dissipation of its own, so a\n")
+                f.write("# direction far above O(1) here relies on the subgrid model or\n")
+                f.write("# the scheme's upwinding to stay free of grid-scale oscillation.\n")
+                for axis in ('i', 'j', 'k'):
+                    entry = cell_re[axis]
+                    f.write(f"Max_Cell_Reynolds_{axis} = {entry['max']:.4f}\n")
+                    f.write(f"Avg_Cell_Reynolds_{axis} = {entry['mean']:.4f}\n")
 
         print(f"Grid quality statistics successfully exported to: '{filename}'")
     except IOError as e:
