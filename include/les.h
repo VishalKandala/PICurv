@@ -113,8 +113,9 @@ PetscErrorCode StrainRateFromGradients(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
  * @brief Computes one cell's grid filter width under the selected width model.
  *
  * ::LES_FILTER_WIDTH_CUBE_ROOT_VOLUME uses the cell volume alone and so ignores
- * anisotropy; the other models take the Cartesian cell extents from
- * @ref ComputeCellCharacteristicLengthScale and therefore grow with cell stretching.
+ * anisotropy; the other models take the cell's extents along its own grid directions
+ * from @ref ComputeCellDirectionalExtents, so they follow the cell's shape and are
+ * unchanged by its orientation.
  *
  * @param[in]  model Width model to apply.
  * @param[in]  aj    Inverse cell volume (the Jacobian determinant) at the cell.

@@ -311,7 +311,10 @@ PetscErrorCode ComputeCellFilterWidth(LESFilterWidthModel model, PetscReal aj,
         PetscFunctionReturn(0);
     }
 
-    PetscCall(ComputeCellCharacteristicLengthScale(aj, csi, eta, zet, &dx, &dy, &dz));
+    // The cell's own extents, not the Cartesian components of its diagonal: a filter
+    // width that changed when the same cell was rotated would hand a bend nine times the
+    // eddy viscosity of an identical cell in a straight section.
+    PetscCall(ComputeCellDirectionalExtents(aj, csi, eta, zet, &dx, &dy, &dz));
 
     switch (model) {
     case LES_FILTER_WIDTH_MAX_EDGE:

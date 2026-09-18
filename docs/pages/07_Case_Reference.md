@@ -463,11 +463,12 @@ is dominated by the short directions.
 
 **Identity.** `les.filter_width: geometric_mean` -> `-les_filter_width 1`.
 
-**What it does.** Sets `Delta` to the geometric mean of the Cartesian cell extents
-resolved from the cell metrics rather than from the volume alone.
+**What it does.** Sets `Delta` to the geometric mean of the cell's extents along its own
+grid directions, each the cell volume over the area of the face pair it crosses.
 
-**When to choose it.** Curvilinear grids where the cell volume and the metric-derived
-extents disagree, so the width should follow the actual cell shape.
+**When to choose it.** Skewed cells, where those extents and the volume disagree. On an
+orthogonal cell the product of the extents is the volume, so this equals
+`cube_root_volume` exactly and adds nothing.
 
 **Parameters it owns.** None.
 
@@ -475,7 +476,9 @@ extents disagree, so the width should follow the actual cell shape.
 
 **Diagnostics.** As above.
 
-**Evidence.** Implemented, covered by the same unit case.
+**Evidence.** Implemented, covered by the same unit case and by
+`filter-width-is-independent-of-cell-orientation`, which requires the same width for a
+stretched cell before and after rotating it.
 
 **Limitations.** Still a geometric mean, so it shares the cube-root model's optimism on
 strongly stretched cells.
@@ -486,10 +489,12 @@ strongly stretched cells.
 
 **Identity.** `les.filter_width: max_edge` -> `-les_filter_width 2`.
 
-**What it does.** Sets `Delta` to the longest Cartesian cell extent.
+**What it does.** Sets `Delta` to the cell's longest extent along its own grid
+directions.
 
-**When to choose it.** Strongly stretched grids, such as a wall-normal channel mesh,
-where the largest unresolved scale is set by the long direction.
+**When to choose it.** When the model should act on the largest unresolved scale the cell
+can hold: a wall-modelled LES whose near-wall cells are deliberately coarse, a hybrid
+RANS-LES treatment, or a deliberately over-dissipative start-up.
 
 **Parameters it owns.** None.
 
@@ -500,7 +505,10 @@ where the largest unresolved scale is set by the long direction.
 **Evidence.** Implemented, covered by the same unit case.
 
 **Limitations.** The most dissipative of the three; on a near-isotropic grid it
-overestimates the width and adds subgrid dissipation the flow does not need.
+overestimates the width and adds subgrid dissipation the flow does not need. Unsuited to
+a wall-resolved LES: a wall-adjacent cell inherits the streamwise spacing as its width,
+so its eddy viscosity rises by the square of the cell aspect ratio, which can be several
+hundred, exactly where the resolved wall layer has to survive.
 
 @section p07_les_avg_sec 5.2 Coefficient Averaging Entries
 

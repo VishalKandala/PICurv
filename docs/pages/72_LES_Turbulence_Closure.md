@@ -217,8 +217,13 @@ value on a curvilinear grid.
 
 The **grid filter width** `Delta` is derived per cell by @ref p07_les_width_sec. The
 default cube root of the cell volume is exact for a cube and progressively optimistic as
-a cell is stretched, because a geometric mean is dominated by the short directions. On a
-wall-normal channel mesh `max_edge` is the more defensible choice.
+a cell is stretched, because a geometric mean is dominated by the short directions.
+`max_edge` errs the other way: on a wall-resolved mesh a wall-adjacent cell takes the
+streamwise spacing as its width, which inflates its eddy viscosity by the square of the
+aspect ratio. It suits wall-modelled or hybrid treatments, whose near-wall cells are meant
+to be coarse, rather than a mesh built to resolve the wall layer. Both non-default widths
+are measured along the cell's own grid directions, so an identical cell gets the same
+width in a straight section and in a bend.
 
 The **test-to-grid ratio** `Delta^/Delta` sets `alpha` and defaults to 2.0, giving
 `alpha = 4`. The value is exposed because the effective width of the discrete

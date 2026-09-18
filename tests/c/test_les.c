@@ -119,6 +119,61 @@ static PetscErrorCode TestFilterWidthModelsSeparateOnStretchedCell(void)
     PetscFunctionReturn(0);
 }
 
+/** @brief Face-area vectors and inverse volume of the parallelepiped spanned by a, b, c. */
+static void ParallelepipedMetrics(Cmpnts a, Cmpnts b, Cmpnts c,
+                                  Cmpnts *csi, Cmpnts *eta, Cmpnts *zet, PetscReal *aj)
+{
+    /* The same orientation convention as ComputeFaceMetrics(): each face-area vector
+       is the cross product of the two edges spanning that face. */
+    csi->x = b.y*c.z - b.z*c.y; csi->y = b.z*c.x - b.x*c.z; csi->z = b.x*c.y - b.y*c.x;
+    eta->x = c.y*a.z - c.z*a.y; eta->y = c.z*a.x - c.x*a.z; eta->z = c.x*a.y - c.y*a.x;
+    zet->x = a.y*b.z - a.z*b.y; zet->y = a.z*b.x - a.x*b.z; zet->z = a.x*b.y - a.y*b.x;
+    *aj = 1.0 / (a.x*csi->x + a.y*csi->y + a.z*csi->z);
+}
+
+/**
+ * @brief Tests that a filter width is a property of the cell, not of its orientation.
+ *
+ * @details The widths used to come from the Cartesian components of the cell diagonal.
+ *          On the Humphrey bend an identical wall cell got a geometric-mean width three
+ *          times larger, and so nine times the eddy viscosity, merely because the bend
+ *          had turned it through 45 degrees relative to the x and y axes.
+ */
+static PetscErrorCode TestFilterWidthIsIndependentOfCellOrientation(void)
+{
+    /* A thin, long cell - 0.25 x 1 x 8 - first axis-aligned, then turned about z by
+       45 degrees and tilted about x by 30 degrees. */
+    const PetscReal c45 = PetscCosReal(PETSC_PI / 4.0), s45 = PetscSinReal(PETSC_PI / 4.0);
+    const PetscReal c30 = PetscCosReal(PETSC_PI / 6.0), s30 = PetscSinReal(PETSC_PI / 6.0);
+    const Cmpnts    aligned[3] = {{0.25, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 8.0}};
+    const LESFilterWidthModel models[3] = {
+        LES_FILTER_WIDTH_CUBE_ROOT_VOLUME, LES_FILTER_WIDTH_GEOMETRIC_MEAN, LES_FILTER_WIDTH_MAX_EDGE};
+    Cmpnts          rotated[3];
+    Cmpnts          csi, eta, zet;
+    PetscReal       aj, reference[3], turned[3];
+
+    PetscFunctionBeginUser;
+    for (PetscInt e = 0; e < 3; ++e) {
+        /* Rz(45) then Rx(30). */
+        const Cmpnts v = aligned[e];
+        const Cmpnts z = {c45*v.x - s45*v.y, s45*v.x + c45*v.y, v.z};
+        rotated[e] = (Cmpnts){z.x, c30*z.y - s30*z.z, s30*z.y + c30*z.z};
+    }
+
+    ParallelepipedMetrics(aligned[0], aligned[1], aligned[2], &csi, &eta, &zet, &aj);
+    for (PetscInt m = 0; m < 3; ++m) PetscCall(ComputeCellFilterWidth(models[m], aj, csi, eta, zet, &reference[m]));
+    ParallelepipedMetrics(rotated[0], rotated[1], rotated[2], &csi, &eta, &zet, &aj);
+    for (PetscInt m = 0; m < 3; ++m) PetscCall(ComputeCellFilterWidth(models[m], aj, csi, eta, zet, &turned[m]));
+
+    PetscCall(PicurvAssertRealNear(reference[0], turned[0], 1.0e-12, "cube-root width is orientation independent"));
+    PetscCall(PicurvAssertRealNear(reference[1], turned[1], 1.0e-12, "geometric-mean width is orientation independent"));
+    PetscCall(PicurvAssertRealNear(reference[2], turned[2], 1.0e-12, "max-edge width is orientation independent"));
+    PetscCall(PicurvAssertRealNear(8.0, turned[2], 1.0e-12, "max-edge width is the cell's longest extent"));
+    PetscCall(PicurvAssertRealNear(PetscCbrtReal(2.0), turned[1], 1.0e-12,
+                                   "geometric-mean width of a 0.25 x 1 x 8 cell is the cube root of its volume"));
+    PetscFunctionReturn(0);
+}
+
 /** @brief Tests that the Leonard stress vanishes on a uniform velocity field. */
 static PetscErrorCode TestLeonardStressVanishesOnUniformFlow(void)
 {
@@ -884,6 +939,7 @@ int main(int argc, char **argv)
         {"sym-tensor-algebra", TestSymTensorAlgebra},
         {"strain-rate-from-gradients", TestStrainRateFromGradients},
         {"filter-width-models-separate-on-stretched-cell", TestFilterWidthModelsSeparateOnStretchedCell},
+        {"filter-width-is-independent-of-cell-orientation", TestFilterWidthIsIndependentOfCellOrientation},
         {"leonard-stress-vanishes-on-uniform-flow", TestLeonardStressVanishesOnUniformFlow},
         {"germano-model-tensor-on-constant-strain", TestGermanoModelTensorOnConstantStrain},
         {"germano-model-tensor-uses-filtered-product", TestGermanoModelTensorUsesFilteredProduct},

@@ -317,6 +317,38 @@ PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, C
 		PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "ComputeCellDirectionalExtents"
+/**
+ * @brief Implementation of \ref ComputeCellDirectionalExtents().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/Metric.h`.
+ * @see ComputeCellDirectionalExtents()
+ */
+PetscErrorCode ComputeCellDirectionalExtents(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet,
+                                             double *l_xi, double *l_eta, double *l_zeta)
+{
+    const double area_xi   = sqrt(csi.x*csi.x + csi.y*csi.y + csi.z*csi.z);
+    const double area_eta  = sqrt(eta.x*eta.x + eta.y*eta.y + eta.z*eta.z);
+    const double area_zeta = sqrt(zet.x*zet.x + zet.y*zet.y + zet.z*zet.z);
+
+    PetscFunctionBeginUser;
+    PetscCheck(ajc > 0.0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
+               "Cell Jacobian must be positive to define cell extents; received %g.", (double)ajc);
+    PetscCheck(area_xi > 0.0 && area_eta > 0.0 && area_zeta > 0.0, PETSC_COMM_SELF,
+               PETSC_ERR_ARG_OUTOFRANGE,
+               "A cell face has zero area (%g, %g, %g), so the cell has no extent across it.",
+               area_xi, area_eta, area_zeta);
+
+    /* Volume over the area of a face pair is the distance between those faces: the
+       cell's extent in that grid direction. It uses nothing but the cell's own metrics,
+       so it is the same wherever and however the cell sits in space. */
+    *l_xi   = (1.0/ajc)/area_xi;
+    *l_eta  = (1.0/ajc)/area_eta;
+    *l_zeta = (1.0/ajc)/area_zeta;
+    PetscFunctionReturn(0);
+}
+
 
 #undef __FUNCT__
 #define __FUNCT__ "CheckAndFixGridOrientation"

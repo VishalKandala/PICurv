@@ -130,7 +130,9 @@ PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double 
  *
  * For a non-uniform, non-orthogonal cell, there is no single "dx". This function
  * computes an effective length scale in each Cartesian direction based on the cell
- * volume and the areas of its faces.
+ * volume and the areas of its faces: the three outputs are the Cartesian components of
+ * the cell diagonal, so they change when an otherwise identical cell is rotated. Use
+ * @ref ComputeCellDirectionalExtents for a measure of the cell itself.
  *
  * @param ajc Cell Jacobian/volume metric at the cell center.
  * @param csi Covariant xi metric vector.
@@ -142,6 +144,29 @@ PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double 
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz);
+
+/**
+ * @brief Computes a cell's extent along each of its own grid directions.
+ *
+ * Each extent is the cell volume divided by the area of the face pair it crosses, which
+ * is the distance between those two faces. Unlike
+ * @ref ComputeCellCharacteristicLengthScale, whose outputs are the Cartesian components
+ * of the cell diagonal and so change when the same cell is rotated, these depend on the
+ * cell alone: a filter width built from them is the same for a cell in a straight
+ * section and for an identical cell turned by a bend.
+ *
+ * @param ajc Inverse cell volume at the cell center.
+ * @param csi Face-area vector of the xi faces.
+ * @param eta Face-area vector of the eta faces.
+ * @param zet Face-area vector of the zeta faces.
+ * @param[out] l_xi   Extent across the xi faces.
+ * @param[out] l_eta  Extent across the eta faces.
+ * @param[out] l_zeta Extent across the zeta faces.
+ * @return PetscErrorCode 0 on success; `PETSC_ERR_ARG_OUTOFRANGE` for a non-positive
+ *         Jacobian or a face of zero area.
+ */
+PetscErrorCode ComputeCellDirectionalExtents(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet,
+                                             double *l_xi, double *l_eta, double *l_zeta);
 
 /**
  * @brief Builds translated periodic images for cell centers and grid spacing.
