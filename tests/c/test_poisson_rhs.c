@@ -215,6 +215,125 @@ static PetscErrorCode TestViscousUniformField(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Rescales the minimal fixture's unit metrics to cubic cells of edge h.
+ */
+static PetscErrorCode ScaleMinimalMetricsToSpacing(UserCtx *user, PetscReal h)
+{
+    Vec area_vectors[12] = {user->Csi, user->Eta, user->Zet, user->ICsi, user->IEta, user->IZet,
+                            user->JCsi, user->JEta, user->JZet, user->KCsi, user->KEta, user->KZet};
+    Vec local_area[12]   = {user->lCsi, user->lEta, user->lZet, user->lICsi, user->lIEta, user->lIZet,
+                            user->lJCsi, user->lJEta, user->lJZet, user->lKCsi, user->lKEta, user->lKZet};
+    Vec jacobians[4]     = {user->Aj, user->IAj, user->JAj, user->KAj};
+    Vec local_jac[4]     = {user->lAj, user->lIAj, user->lJAj, user->lKAj};
+
+    PetscFunctionBeginUser;
+    for (PetscInt v = 0; v < 12; ++v) {
+        PetscCall(VecScale(area_vectors[v], h * h));   /* a face of a cube of edge h */
+        PetscCall(DMGlobalToLocalBegin(user->fda, area_vectors[v], INSERT_VALUES, local_area[v]));
+        PetscCall(DMGlobalToLocalEnd(user->fda, area_vectors[v], INSERT_VALUES, local_area[v]));
+    }
+    for (PetscInt v = 0; v < 4; ++v) {
+        PetscCall(VecSet(jacobians[v], 1.0 / (h * h * h)));
+        PetscCall(DMGlobalToLocalBegin(user->da, jacobians[v], INSERT_VALUES, local_jac[v]));
+        PetscCall(DMGlobalToLocalEnd(user->da, jacobians[v], INSERT_VALUES, local_jac[v]));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Returns the Clark contribution over the molecular viscous one, per unit x, at one cell.
+ *
+ * @details The field is u_x = x^2 on cubic cells of edge h, so du/dx = 2x and the exact
+ *          gradient-model stress tau_11 = (h^2/12)(du/dx)^2 varies along x. Both the
+ *          model's and viscosity's contributions leave Viscous() through the same flux
+ *          differences, so their ratio does not depend on how Viscous() normalizes its
+ *          output.
+ */
+static PetscErrorCode ClarkToMolecularRatioPerX(PetscReal h, PetscInt probe, PetscReal *ratio_per_x)
+{
+    SimCtx   *simCtx = NULL;
+    UserCtx  *user = NULL;
+    Vec       molecular = NULL, with_clark = NULL;
+    Cmpnts ***ucat = NULL, ***visc0 = NULL, ***visc1 = NULL;
+    const PetscInt n = 10, mid = n / 2;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, n, n, n));
+    PetscCall(ScaleMinimalMetricsToSpacing(user, h));
+    simCtx->ren = 1.0;
+    simCtx->les = NO_LES_MODEL;
+    simCtx->rans = 0;
+
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k)
+    for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j)
+    for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
+        const PetscReal x = (i - 0.5) * h;   /* cell centre */
+        ucat[k][j][i].x = x * x; ucat[k][j][i].y = 0.0; ucat[k][j][i].z = 0.0;
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
+    PetscCall(VecSet(user->lUcont, 0.0));
+
+    PetscCall(VecDuplicate(user->lUcont, &molecular));
+    PetscCall(VecDuplicate(user->lUcont, &with_clark));
+    simCtx->les_gradient_model = 0;
+    PetscCall(Viscous(user, user->lUcont, user->lUcat, molecular));
+    simCtx->les_gradient_model = 1;
+    PetscCall(Viscous(user, user->lUcont, user->lUcat, with_clark));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, molecular, &visc0));
+    PetscCall(DMDAVecGetArrayRead(user->fda, with_clark, &visc1));
+    {
+        const PetscReal v_molecular = visc0[mid][mid][probe].x;
+        const PetscReal v_clark     = visc1[mid][mid][probe].x - v_molecular;
+        PetscCheck(PetscAbsReal(v_molecular) > 0.0, PETSC_COMM_SELF, PETSC_ERR_PLIB,
+                   "The molecular viscous term vanished at the probe; the fixture is wrong.");
+        *ratio_per_x = (v_clark / v_molecular) / ((probe - 0.5) * h);
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, with_clark, &visc1));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, molecular, &visc0));
+    PetscCall(VecDestroy(&with_clark));
+    PetscCall(VecDestroy(&molecular));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that the Clark gradient model scales as the square of the filter width.
+ *
+ * @details The gradient-model stress is tau_ij = (Delta_k^2/12) du_i/dx_k du_j/dx_k, so
+ *          for a fixed physical field its force grows as Delta^2 relative to the
+ *          molecular viscous force. Halving the spacing must therefore divide the
+ *          Clark-to-molecular ratio at a given x by four. Fixtures with unit cells hide
+ *          any error in the power of Delta, which is why the spacing is varied here.
+ */
+static PetscErrorCode TestClarkGradientModelScalesWithFilterWidthSquared(void)
+{
+    PetscReal coarse = 0.0, fine = 0.0;
+
+    PetscFunctionBeginUser;
+    /* Probe cells chosen so the two spacings give comparable x without being on a
+       boundary: cell 5 at h = 0.2 and cell 5 at h = 0.1. The ratio is per unit x. */
+    PetscCall(ClarkToMolecularRatioPerX(0.2, 5, &coarse));
+    PetscCall(ClarkToMolecularRatioPerX(0.1, 5, &fine));
+    PetscCall(PicurvAssertBool((PetscBool)(coarse < 0.0 && fine < 0.0),
+                               "the gradient model removes momentum where du/dx grows along x"));
+    PetscCall(PicurvAssertRealNear(4.0, coarse / fine, 1.0e-8,
+                                   "halving the filter width divides the gradient-model force by four"));
+    /* Exact value: the molecular flux carries both halves of the symmetric stress,
+       2 nu du/dx per unit area, so its difference across a cell is 4 nu h^3 for
+       u = x^2; the model's is -(2/3) h^5 x. Their ratio per unit x is -h^2/(6 nu),
+       which pins the 1/12 coefficient as well as the power of Delta. */
+    PetscCall(PicurvAssertRealNear(-0.2 * 0.2 / 6.0, coarse, 1.0e-10,
+                                   "gradient-model force matches (Delta^2/12) du/dx du/dx at h = 0.2"));
+    PetscCall(PicurvAssertRealNear(-0.1 * 0.1 / 6.0, fine, 1.0e-10,
+                                   "gradient-model force matches (Delta^2/12) du/dx du/dx at h = 0.1"));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests that the full RHS remains zero without forcing on a quiescent field.
  */
 
@@ -458,6 +577,7 @@ int main(int argc, char **argv)
         {"compute-eulerian-diffusivity-molecular-only", TestComputeEulerianDiffusivityMolecularOnly},
         {"convection-zero-field", TestConvectionZeroField},
         {"viscous-uniform-field", TestViscousUniformField},
+        {"clark-gradient-model-scales-with-filter-width-squared", TestClarkGradientModelScalesWithFilterWidthSquared},
         {"compute-rhs-zero-field-no-forcing", TestComputeRHSZeroFieldNoForcing},
         {"compute-eulerian-diffusivity-gradient-constant-field", TestComputeEulerianDiffusivityGradientConstantField},
         {"compute-eulerian-diffusivity-verification-linear-x", TestComputeEulerianDiffusivityVerificationLinearX},

@@ -686,21 +686,26 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 
 
 	if(clark) {
-	  double dc, de, dz;
-	  ComputeCellCharacteristicLengthScale (ajc, csi[k][j][i], eta[k][j][i], zet[k][j][i], &dc, &de, &dz);
-	  double dc2=dc*dc, de2=de*de, dz2=dz*dz;
+	  /* dudc, dude, dudz are differences between neighbouring cells along each grid
+	     direction, so each already equals that direction's spacing times the physical
+	     derivative. Their outer products are therefore Delta_k^2 du_i/dx_k du_j/dx_k
+	     as they stand. Multiplying by a squared cell extent as well - which this term
+	     did, carried over from the legacy - made the stress scale as Delta^4 and left
+	     it smaller than intended by Delta^2, 1e-4 to 1e-6 on a production mesh; the
+	     extents were also Cartesian, so they did not belong to the directions they
+	     were paired with once the grid turned. */
 	  
 	  /* The gradient-model tensor is the sum over the three computational
-	     directions of the velocity gradient's outer product with itself, each
-	     scaled by that direction's squared cell extent. It is symmetric by
-	     construction, so it is carried as one. */
+	     directions of the per-cell velocity difference's outer product with itself;
+	     the cell's own extent in each direction is already inside that difference.
+	     It is symmetric by construction, so it is carried as one. */
 	  const Cmpnts grad_csi = { dudc, dvdc, dwdc };
 	  const Cmpnts grad_eta = { dude, dvde, dwde };
 	  const Cmpnts grad_zet = { dudz, dvdz, dwdz };
 	  const SymTensor gradient_tensor =
-	      SymTensorCombine(dc2, SymTensorSelfOuter(grad_csi), 1.0,
-	                       SymTensorCombine(de2, SymTensorSelfOuter(grad_eta),
-	                                        dz2, SymTensorSelfOuter(grad_zet)));
+	      SymTensorCombine(1.0, SymTensorSelfOuter(grad_csi), 1.0,
+	                       SymTensorCombine(1.0, SymTensorSelfOuter(grad_eta),
+	                                        1.0, SymTensorSelfOuter(grad_zet)));
 	  
 	  {
 	    const Cmpnts face_normal = { csi0, csi1, csi2 };
@@ -846,21 +851,26 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 	fp2[k][j][i].z += (g11 * dwdc + g21 * dwde + g31 * dwdz+ r13 * eta0 + r23 * eta1 + r33 * eta2 ) * ajc * (nu);
 		
 	if(clark) {
-	  double dc, de, dz;
-	  ComputeCellCharacteristicLengthScale(ajc, csi[k][j][i], eta[k][j][i], zet[k][j][i], &dc, &de, &dz);
-	  double dc2=dc*dc, de2=de*de, dz2=dz*dz;
+	  /* dudc, dude, dudz are differences between neighbouring cells along each grid
+	     direction, so each already equals that direction's spacing times the physical
+	     derivative. Their outer products are therefore Delta_k^2 du_i/dx_k du_j/dx_k
+	     as they stand. Multiplying by a squared cell extent as well - which this term
+	     did, carried over from the legacy - made the stress scale as Delta^4 and left
+	     it smaller than intended by Delta^2, 1e-4 to 1e-6 on a production mesh; the
+	     extents were also Cartesian, so they did not belong to the directions they
+	     were paired with once the grid turned. */
 			
 	  /* The gradient-model tensor is the sum over the three computational
-	     directions of the velocity gradient's outer product with itself, each
-	     scaled by that direction's squared cell extent. It is symmetric by
-	     construction, so it is carried as one. */
+	     directions of the per-cell velocity difference's outer product with itself;
+	     the cell's own extent in each direction is already inside that difference.
+	     It is symmetric by construction, so it is carried as one. */
 	  const Cmpnts grad_csi = { dudc, dvdc, dwdc };
 	  const Cmpnts grad_eta = { dude, dvde, dwde };
 	  const Cmpnts grad_zet = { dudz, dvdz, dwdz };
 	  const SymTensor gradient_tensor =
-	      SymTensorCombine(dc2, SymTensorSelfOuter(grad_csi), 1.0,
-	                       SymTensorCombine(de2, SymTensorSelfOuter(grad_eta),
-	                                        dz2, SymTensorSelfOuter(grad_zet)));
+	      SymTensorCombine(1.0, SymTensorSelfOuter(grad_csi), 1.0,
+	                       SymTensorCombine(1.0, SymTensorSelfOuter(grad_eta),
+	                                        1.0, SymTensorSelfOuter(grad_zet)));
 			
 	  {
 	    const Cmpnts face_normal = { eta0, eta1, eta2 };
@@ -997,21 +1007,26 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 	fp3[k][j][i].z += (g11 * dwdc + g21 * dwde + g31 * dwdz + r13 * zet0 + r23 * zet1 + r33 * zet2) * ajc * (nu);//
 
 	if(clark) {
-	  double dc, de, dz;
-	  ComputeCellCharacteristicLengthScale(ajc, csi[k][j][i], eta[k][j][i], zet[k][j][i], &dc, &de, &dz);
-	  double dc2=dc*dc, de2=de*de, dz2=dz*dz;
+	  /* dudc, dude, dudz are differences between neighbouring cells along each grid
+	     direction, so each already equals that direction's spacing times the physical
+	     derivative. Their outer products are therefore Delta_k^2 du_i/dx_k du_j/dx_k
+	     as they stand. Multiplying by a squared cell extent as well - which this term
+	     did, carried over from the legacy - made the stress scale as Delta^4 and left
+	     it smaller than intended by Delta^2, 1e-4 to 1e-6 on a production mesh; the
+	     extents were also Cartesian, so they did not belong to the directions they
+	     were paired with once the grid turned. */
 			
 	  /* The gradient-model tensor is the sum over the three computational
-	     directions of the velocity gradient's outer product with itself, each
-	     scaled by that direction's squared cell extent. It is symmetric by
-	     construction, so it is carried as one. */
+	     directions of the per-cell velocity difference's outer product with itself;
+	     the cell's own extent in each direction is already inside that difference.
+	     It is symmetric by construction, so it is carried as one. */
 	  const Cmpnts grad_csi = { dudc, dvdc, dwdc };
 	  const Cmpnts grad_eta = { dude, dvde, dwde };
 	  const Cmpnts grad_zet = { dudz, dvdz, dwdz };
 	  const SymTensor gradient_tensor =
-	      SymTensorCombine(dc2, SymTensorSelfOuter(grad_csi), 1.0,
-	                       SymTensorCombine(de2, SymTensorSelfOuter(grad_eta),
-	                                        dz2, SymTensorSelfOuter(grad_zet)));
+	      SymTensorCombine(1.0, SymTensorSelfOuter(grad_csi), 1.0,
+	                       SymTensorCombine(1.0, SymTensorSelfOuter(grad_eta),
+	                                        1.0, SymTensorSelfOuter(grad_zet)));
 			
 	  {
 	    const Cmpnts face_normal = { zet0, zet1, zet2 };

@@ -239,6 +239,15 @@ is the leading term of a Taylor expansion of the Leonard stress, and it is
 structurally different from an eddy viscosity: it is not purely dissipative and it does
 not require a coefficient to be measured.
 
+The stress is `tau_ij = sum_k (Delta_k^2 / 12) du_i/dx_k du_j/dx_k`, with `Delta_k` the
+cell's spacing along grid direction `k`. The implementation forms it from the velocity
+differences between neighbouring cells along each grid direction, which already carry
+that spacing, so it needs no separate width and uses none: `filter_width` does not
+affect this term. `tests/c/test_poisson_rhs.c` case
+`clark-gradient-model-scales-with-filter-width-squared` pins both the power of `Delta`
+and the 1/12 coefficient, on cells whose spacing is not 1, where an error in that power
+would otherwise cancel.
+
 Combined with a Smagorinsky closure this is the classical **mixed model** — the gradient
 term supplies the correct stress structure while the eddy viscosity supplies the
 dissipation the gradient term lacks. The two are configured independently because they

@@ -317,7 +317,7 @@
       "dependent_pages": [
         "07_Case_Reference"
       ],
-      "attested_digest": "sha256:bd559d67c9c76d8a70e30c728ac0d252136a1a30e1e3a48a093fbb306bd450f8",
+      "attested_digest": "sha256:09810749dcd604b9638b9ff1cebf654e63ea1e61a9a5da64c4e8da0bc1668eff",
       "note": "Page 48 enumerates the geometries, their options and the quality report. Nothing watched this file before, so the page describing it could never be flagged stale no matter how far the generator moved."
     }
   ]
