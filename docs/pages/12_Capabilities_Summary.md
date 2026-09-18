@@ -50,15 +50,17 @@ Particle positions are not currently wrapped across periodic boundaries.
 
 @subsection p12_turbulence_ssec 2.1 Turbulence Models
 
-Two LES closures are selectable. `constant_smagorinsky` applies a prescribed
+Four LES closures are selectable. `constant_smagorinsky` applies a prescribed
 coefficient and allocates no coefficient field. `dynamic_smagorinsky` measures the
 coefficient each update through the Germano identity and Lilly's least-squares
 contraction, with selectable grid filter width, test-filter kernel and width ratio,
-coefficient averaging set, and limiting policy. Entries and full detail at
+coefficient averaging set, and limiting policy. `vreman` and `wale` need no coefficient
+field, test filter or averaging and vanish in pure shear; `vreman` resolves each grid
+direction by the cell's own spacing. Entries and full detail at
 @ref p07_les_sec; the formulation is derived in @ref 72_LES_Turbulence_Closure.
 
-@note Both models are **experimental**: they are implemented and unit-tested, but
-neither has been validated against a reference flow. The check that would settle the
+@note All four models are **experimental**: they are implemented and unit-tested, but
+none has been validated against a reference flow. The check that would settle the
 dynamic model is decaying isotropic turbulence with homogeneous averaging, where
 `Cs(t)` should settle near 0.16-0.17. Until such a run is recorded, treat coefficient
 magnitudes as uncharacterized.

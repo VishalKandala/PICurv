@@ -55,6 +55,8 @@ Selector: `case.yml -> models.physics.turbulence.les.model`
 | `none` | `0` |
 | `off` | `0` |
 | `smagorinsky` | `1` |
+| `vreman` | `3` |
+| `wale` | `4` |
 
 ### Eulerian Field Source
 

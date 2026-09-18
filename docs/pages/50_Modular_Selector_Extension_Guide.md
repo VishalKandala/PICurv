@@ -338,7 +338,7 @@ boundary-condition handlers in section 3.
 - Schema home:
   - `case.yml -> models.physics.turbulence.les`
 - Canonical values:
-  - model: `constant_smagorinsky`, `dynamic_smagorinsky`
+  - model: `constant_smagorinsky`, `dynamic_smagorinsky`, `vreman`, `wale`
   - `filter_width`: `cube_root_volume`, `geometric_mean`, `max_edge`, `scotti`
   - `test_filter.kernel`: `volume_weighted_box`, `simpson_ik`
   - `averaging.mode`: `local`, `homogeneous`, `global`

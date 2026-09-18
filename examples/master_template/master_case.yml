@@ -212,10 +212,9 @@ models:
       #   les: true        -> -les 1 (constant Smagorinsky)
       #   les: 1           -> constant Smagorinsky
       #   les: 2           -> dynamic Smagorinsky
-      # WARNING: both LES models are known-defective and unsafe for scientific use.
-      #   dynamic_smagorinsky - M_ij carries no dynamic content.
-      #   constant_smagorinsky - coefficient stays zero on a fresh run.
-      # Records: tests/tooling/capability_scope_records.json
+      # All four models are experimental: implemented and unit-tested, not yet
+      # validated against a reference flow. See docs/pages/07_Case_Reference.md.
+      # Each model's own parameters are refused under the others.
       les:
         # [Boolean] -> -les 0 when false
         enabled: false
@@ -225,12 +224,24 @@ models:
         #                           allocated, checkpointed, or synchronized.
         #   dynamic_smagorinsky  -> the Germano-Lilly procedure measures the
         #                           coefficient from the resolved field each update.
+        #   vreman               -> resolved per grid direction from the cell's own
+        #                           edges; vanishes in pure shear; takes no filter_width.
+        #   wale                 -> vanishes in pure shear and falls correctly toward a
+        #                           wall; one scalar width, so pair with scotti.
         # [String] -> -les
         # model: "constant_smagorinsky"
 
         # The fixed Smagorinsky constant. constant_smagorinsky only.
         # [Number] -> -les_constant_cs
         constant_cs: 0.03
+
+        # Model constant c. vreman only. Vreman (2004): 2.5 Cs^2 = 0.07 for Cs = 0.17.
+        # [Number] -> -les_vreman_coefficient
+        # vreman_coefficient: 0.07
+
+        # Model constant C_w. wale only. Nicoud & Ducros (1999) calibrate 0.55-0.60.
+        # [Number] -> -les_wale_coefficient
+        # wale_coefficient: 0.5
 
         # Recompute the dynamic coefficient every N steps. dynamic_smagorinsky only;
         # the constant model has nothing to recompute.

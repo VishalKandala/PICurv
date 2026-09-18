@@ -554,7 +554,9 @@ typedef struct Cstart {
 typedef enum {
     NO_LES_MODEL = 0,
     CONSTANT_SMAGORINSKY = 1,
-    DYNAMIC_SMAGORINSKY = 2
+    DYNAMIC_SMAGORINSKY = 2,
+    VREMAN = 3,
+    WALE = 4
 } LESModelType;
 
 /** @brief Selects the wall model applied on WALL faces.
@@ -634,6 +636,8 @@ typedef enum {
 typedef struct LESConfig {
     PetscInt            dynamic_frequency;       ///< Recompute the dynamic coefficient every N steps.
     PetscReal           constant_cs;             ///< Fixed Cs for CONSTANT_SMAGORINSKY; unused by the dynamic model.
+    PetscReal           vreman_coefficient;      ///< Model constant c for VREMAN (Vreman 2004: 2.5 Cs^2).
+    PetscReal           wale_coefficient;        ///< Model constant C_w for WALE (Nicoud & Ducros 1999).
     LESFilterWidthModel filter_width_model;      ///< How the grid filter width Delta is derived per cell.
     LESTestFilterKernel test_filter_kernel;      ///< Discrete test-filter stencil.
     PetscReal           test_filter_width_ratio; ///< Test-to-grid width ratio; alpha is its square.

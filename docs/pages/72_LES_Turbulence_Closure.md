@@ -182,9 +182,10 @@ whole homogeneous set is backscattering on balance.
 
 @section p72_walls_sec 5.1 Walls
 
-The closure has no wall treatment of its own. The coefficient is whatever the dynamic
-procedure measures or the constant model prescribes, right down to the first cell, and
-nothing damps it toward the wall.
+The Smagorinsky closures have no wall treatment of their own. The coefficient is whatever
+the dynamic procedure measures or the constant model prescribes, right down to the first
+cell, and nothing damps it toward the wall. `wale` falls toward a wall by construction;
+see @ref p72_coefficient_free_ssec.
 
 A wall function is configured separately at
 @ref p07_cap_wall_log_law "turbulence.wall_function", and it does reach this closure.
@@ -209,6 +210,47 @@ the stress.
 the coefficient can fall toward the wall on its own where the resolved field supports it.
 That is not a substitute for a wall treatment on a grid too coarse to resolve the
 sublayer.
+
+@subsection p72_coefficient_free_ssec 5.2 Coefficient-Free Models: WALE and Vreman
+
+Both models build the eddy viscosity from invariants of the resolved velocity gradient
+`g_ij = du_i/dx_j`, chosen so that it vanishes where there is nothing to model. Neither
+needs a test filter, an averaging set, clipping, or a coefficient field, which is what
+makes them usable on geometry with no homogeneous direction, where the dynamic procedure
+falls back to a noisy pointwise coefficient.
+
+**WALE** (Nicoud & Ducros 1999) uses the traceless symmetric part of the squared gradient,
+`S^d_ij = (g_ik g_kj + g_jk g_ki)/2 - delta_ij g_kk^2 / 3`:
+
+```text
+nu_t = (C_w Delta)^2 (S^d_ij S^d_ij)^(3/2) / [ (S_ij S_ij)^(5/2) + (S^d_ij S^d_ij)^(5/4) ]
+```
+
+`S^d` is zero in pure shear, so a laminar shear layer gets no eddy viscosity, and near a
+wall it scales so that `nu_t` falls as the cube of wall distance, the behaviour a
+Smagorinsky model needs a damping function to imitate. It uses one scalar width `Delta`.
+
+**Vreman** (2004) uses `alpha_ij = du_j/dx_i` and a tensor that weights each direction by
+its own spacing:
+
+```text
+beta_ij = sum_m Delta_m^2 alpha_mi alpha_mj,    nu_t = c sqrt( B_beta / (alpha_ij alpha_ij) ),
+B_beta  = beta_11 beta_22 - beta_12^2 + beta_11 beta_33 - beta_13^2 + beta_22 beta_33 - beta_23^2
+```
+
+`Delta_m alpha_mi` is the change in `u_i` across the cell in direction `m`. On a
+curvilinear grid PICurv measures that change along the cell's own edge,
+`edge_m . grad(u_i)`, with the edges from @ref ComputeCellEdgeVectors, so the model keeps
+Vreman's per-direction resolution on a stretched, turned cell and is unchanged by the
+grid's orientation. `B_beta` vanishes for any locally two-component gradient, including
+pure shear. This per-direction weighting is the property that matters on cells much
+longer in one direction than the others: every scalar `filter_width`, corrected or not,
+must describe such a cell with a single length.
+
+Both are purely dissipative and, because they respond to resolved gradients, small in a
+laminar or transitional stretch. That is correct physics, but it means neither supplies
+the damping a non-dissipative convection scheme may need before resolved turbulence
+develops.
 
 @section p72_widths_sec 6. Filter Widths
 
@@ -349,6 +391,12 @@ this tree are uncharacterized.
   method. *Physics of Fluids A* 4(3), 633-635.
 - Meneveau, C., Lund, T. S., Cabot, W. H. (1996). A Lagrangian dynamic subgrid-scale
   model of turbulence. *JFM* 319, 353-385.
+- Scotti, A., Meneveau, C., Lilly, D. K. (1993). Generalized Smagorinsky model for
+  anisotropic grids. *Physics of Fluids A* 5(9), 2306-2308.
+- Nicoud, F., Ducros, F. (1999). Subgrid-scale stress modelling based on the square of
+  the velocity gradient tensor. *Flow, Turbulence and Combustion* 62(3), 183-200.
+- Vreman, A. W. (2004). An eddy-viscosity subgrid-scale model for turbulent shear flow:
+  Algebraic theory and applications. *Physics of Fluids* 16(10), 3670-3681.
 
 @section p72_related_sec 12. Related Pages
 

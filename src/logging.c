@@ -744,6 +744,8 @@ const char* LESModelToString(LESModelType LESFlag)
         case NO_LES_MODEL: return "No LES";
         case CONSTANT_SMAGORINSKY: return "Constant Smagorinsky";
         case DYNAMIC_SMAGORINSKY: return "Dynamic Smagorinsky";
+        case VREMAN: return "Vreman";
+        case WALE: return "WALE";
         default: return "Unknown LES Flag";
     }
 }

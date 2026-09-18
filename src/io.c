@@ -3052,9 +3052,19 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
 
                     /* Reported with the user-facing spellings, so a line here can be
                        matched against the case file that produced it. */
-                    ierr = PetscPrintf(PETSC_COMM_WORLD," LES Filter Width            : %s\n",
-                                       LESFilterWidthModelToString(les->filter_width_model)); CHKERRQ(ierr);
-                    if (simCtx->les == CONSTANT_SMAGORINSKY) {
+                    if (simCtx->les == VREMAN) {
+                        ierr = PetscPrintf(PETSC_COMM_WORLD," LES Filter Width            : per direction (cell edges; filter_width unused)\n"); CHKERRQ(ierr);
+                    } else {
+                        ierr = PetscPrintf(PETSC_COMM_WORLD," LES Filter Width            : %s\n",
+                                           LESFilterWidthModelToString(les->filter_width_model)); CHKERRQ(ierr);
+                    }
+                    if (simCtx->les == VREMAN) {
+                        ierr = PetscPrintf(PETSC_COMM_WORLD," LES Vreman Coefficient      : %.4f (no coefficient field)\n",
+                                           (double)les->vreman_coefficient); CHKERRQ(ierr);
+                    } else if (simCtx->les == WALE) {
+                        ierr = PetscPrintf(PETSC_COMM_WORLD," LES WALE Coefficient        : %.4f (no coefficient field)\n",
+                                           (double)les->wale_coefficient); CHKERRQ(ierr);
+                    } else if (simCtx->les == CONSTANT_SMAGORINSKY) {
                         ierr = PetscPrintf(PETSC_COMM_WORLD," LES Smagorinsky Constant    : %.4f (no coefficient field)\n",
                                            (double)les->constant_cs); CHKERRQ(ierr);
                     } else {

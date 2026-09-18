@@ -169,6 +169,25 @@ PetscErrorCode ComputeCellDirectionalExtents(PetscReal ajc, Cmpnts csi, Cmpnts e
                                              double *l_xi, double *l_eta, double *l_zeta);
 
 /**
+ * @brief Computes a cell's edge vectors along its three grid directions.
+ *
+ * Each is the covariant basis vector `dx/dxi_k` over one index step: the physical
+ * displacement from one cell to the next along that grid line, with both its direction
+ * and its length. Projecting a velocity gradient onto it gives the change in velocity
+ * across the cell in that direction, which is what a direction-resolved subgrid model
+ * needs and what does not depend on how the grid is oriented.
+ *
+ * @param ajc Inverse cell volume at the cell center.
+ * @param csi Face-area vector of the xi faces.
+ * @param eta Face-area vector of the eta faces.
+ * @param zet Face-area vector of the zeta faces.
+ * @param[out] edges Edge vectors along xi, eta and zeta, in that order.
+ * @return PetscErrorCode 0 on success; `PETSC_ERR_ARG_OUTOFRANGE` for a non-positive Jacobian.
+ */
+PetscErrorCode ComputeCellEdgeVectors(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet,
+                                      Cmpnts edges[3]);
+
+/**
  * @brief Builds translated periodic images for cell centers and grid spacing.
  *
  * PETSc wraps field indices but does not translate coordinates. This routine

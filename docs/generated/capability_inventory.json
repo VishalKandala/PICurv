@@ -296,6 +296,14 @@
         "maps_to": 1,
         "spelling_of": "constant_smagorinsky",
         "status": "experimental"
+      },
+      "vreman": {
+        "maps_to": 3,
+        "status": "experimental"
+      },
+      "wale": {
+        "maps_to": 4,
+        "status": "experimental"
       }
     },
     "selector": "case.yml -> models.physics.turbulence.les.model",

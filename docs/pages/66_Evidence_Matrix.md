@@ -72,10 +72,11 @@ likely to matter:
   wall or a scaled sweep, and metric quality at a resolved corner is reported by the
   generator but has not been validated against a solution.
 
-- **Both LES models are `experimental`.** Both are implemented and carry unit
+- **All four LES models are `experimental`.** All are implemented and carry unit
   coverage in `tests/c/test_les.c`, including an analytic check of the Germano model
-  tensor and a decomposition-independence check of the coefficient averaging. Neither
-  has a validated coefficient magnitude: no reference-flow comparison has been run and
+  tensor, a decomposition-independence check of the coefficient averaging, and checks of
+  the Vreman and WALE kernels against independent evaluations. None has a validated
+  coefficient magnitude: no reference-flow comparison has been run and
   gated. The check that would close the gap is decaying isotropic turbulence with
   homogeneous averaging, where `Cs(t)` should settle near 0.16-0.17. The dynamic model
   declares `examples/decaying_isotropic_turbulence` as production evidence, which records

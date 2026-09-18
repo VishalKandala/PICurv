@@ -1659,6 +1659,52 @@ def test_les_scotti_filter_width_is_accepted_and_emitted_for_both_models():
         assert "-les_filter_width 3" in control_lines, model
 
 
+def test_les_vreman_and_wale_are_accepted_and_emit_their_coefficients():
+    """!
+    @brief Both coefficient-free models reach the runtime with their own constants.
+    """
+    picurv = load_picurv_module()
+    assert picurv.normalize_les_model("vreman") == 3
+    assert picurv.normalize_les_model("wale") == 4
+    for model, key, flag in (("vreman", "vreman_coefficient", "-les_vreman_coefficient 0.05"),
+                             ("wale", "wale_coefficient", "-les_wale_coefficient 0.4")):
+        les = {"enabled": True, "model": model, key: float(flag.split()[-1])}
+        errors, _ = _les_validation(les)
+        assert not errors, (model, errors)
+        control_lines = []
+        picurv.append_les_parameter_flags(les, control_lines)
+        assert flag in control_lines, (model, control_lines)
+
+
+def test_each_les_model_refuses_the_parameters_of_the_others():
+    """!
+    @brief A parameter that the selected model would ignore fails at validation instead.
+
+    @details The case reference already said constant_cs is refused under the dynamic
+             model, but nothing enforced it, and a key belonging to another model was
+             otherwise accepted and silently dropped at runtime.
+    """
+    cases = [
+        ({"model": "dynamic_smagorinsky", "constant_cs": 0.1}, "constant_cs", "dynamic_smagorinsky"),
+        ({"model": "constant_smagorinsky", "averaging": {"mode": "local"}}, "averaging", "constant_smagorinsky"),
+        ({"model": "vreman", "wale_coefficient": 0.5}, "wale_coefficient", "vreman"),
+        ({"model": "wale", "test_filter": {"width_ratio": 2.0}}, "test_filter", "wale"),
+    ]
+    for les, key, model in cases:
+        errors, _ = _les_validation(dict(les, enabled=True))
+        assert any(f"les.{key}" in error and f"model '{model}'" in error for error in errors), (les, errors)
+
+
+def test_vreman_refuses_a_scalar_filter_width():
+    """!
+    @brief Vreman weights each direction by the cell's own edge, so a scalar width has no meaning.
+    """
+    errors, _ = _les_validation({"enabled": True, "model": "vreman", "filter_width": "scotti"})
+    assert any("filter_width cannot be used with model 'vreman'" in error for error in errors), errors
+    errors, _ = _les_validation({"enabled": True, "model": "wale", "filter_width": "scotti"})
+    assert not errors, errors
+
+
 def _wall_pairing_errors(les=None, rans=None, wall=None, viscosity=0.001):
     """!
     @brief Runs the wall-model pairing validation over one turbulence block.

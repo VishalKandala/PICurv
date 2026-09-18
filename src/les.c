@@ -510,6 +510,81 @@ PetscReal EddyViscosityFromCoefficient(PetscReal coefficient, PetscReal delta,
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "WALEEddyViscosity"
+/**
+ * @brief Implementation of \ref WALEEddyViscosity().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/les.h`.
+ * @see WALEEddyViscosity()
+ */
+PetscReal WALEEddyViscosity(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
+                            PetscReal delta, PetscReal coefficient)
+{
+    const PetscReal g[3][3] = {{dudx.x, dudx.y, dudx.z},
+                               {dvdx.x, dvdx.y, dvdx.z},
+                               {dwdx.x, dwdx.y, dwdx.z}};
+    PetscReal g2[3][3], sd[3][3], trace = 0.0, ss = 0.0, sdsd = 0.0, denominator;
+
+    for (PetscInt a = 0; a < 3; ++a)
+        for (PetscInt b = 0; b < 3; ++b) {
+            g2[a][b] = 0.0;
+            for (PetscInt c = 0; c < 3; ++c) g2[a][b] += g[a][c] * g[c][b];
+        }
+    for (PetscInt a = 0; a < 3; ++a) trace += g2[a][a];
+    for (PetscInt a = 0; a < 3; ++a)
+        for (PetscInt b = 0; b < 3; ++b) {
+            const PetscReal s = 0.5 * (g[a][b] + g[b][a]);
+            // Traceless symmetric part of the squared gradient: it vanishes in pure shear,
+            // which is what lets the model switch itself off in a laminar shear layer.
+            sd[a][b] = 0.5 * (g2[a][b] + g2[b][a]) - (a == b ? trace / 3.0 : 0.0);
+            ss   += s * s;
+            sdsd += sd[a][b] * sd[a][b];
+        }
+
+    denominator = PetscPowReal(ss, 2.5) + PetscPowReal(sdsd, 1.25);
+    if (denominator <= LES_EPSILON * LES_EPSILON) return 0.0;
+    return coefficient * coefficient * delta * delta * PetscPowReal(sdsd, 1.5) / denominator;
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "VremanEddyViscosity"
+/**
+ * @brief Implementation of \ref VremanEddyViscosity().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/les.h`.
+ * @see VremanEddyViscosity()
+ */
+PetscReal VremanEddyViscosity(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
+                              const Cmpnts edges[3], PetscReal coefficient)
+{
+    const Cmpnts gradient[3] = {dudx, dvdx, dwdx};
+    PetscReal beta[3][3] = {{0.0}}, alpha_sq = 0.0, b_beta;
+
+    // Vreman's beta_ij = sum_m Delta_m^2 alpha_mi alpha_mj on a Cartesian grid, where
+    // Delta_m alpha_mi is the change in u_i across the cell in direction m. On a
+    // curvilinear grid that change is edge_m . grad(u_i), so the same sum over the
+    // cell's own directions reproduces the Cartesian form on an aligned grid and does
+    // not depend on the grid's orientation elsewhere.
+    for (PetscInt m = 0; m < 3; ++m) {
+        PetscReal change[3];
+        for (PetscInt a = 0; a < 3; ++a)
+            change[a] = edges[m].x * gradient[a].x + edges[m].y * gradient[a].y + edges[m].z * gradient[a].z;
+        for (PetscInt a = 0; a < 3; ++a)
+            for (PetscInt b = 0; b < 3; ++b) beta[a][b] += change[a] * change[b];
+    }
+    for (PetscInt a = 0; a < 3; ++a)
+        alpha_sq += gradient[a].x * gradient[a].x + gradient[a].y * gradient[a].y + gradient[a].z * gradient[a].z;
+
+    b_beta = beta[0][0] * beta[1][1] - beta[0][1] * beta[0][1]
+           + beta[0][0] * beta[2][2] - beta[0][2] * beta[0][2]
+           + beta[1][1] * beta[2][2] - beta[1][2] * beta[1][2];
+
+    // B_beta is non-negative in exact arithmetic; rounding can leave it a hair below.
+    if (alpha_sq <= LES_EPSILON * LES_EPSILON || b_beta <= 0.0) return 0.0;
+    return coefficient * PetscSqrtReal(b_beta / alpha_sq);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "SubgridKineticEnergy"
 /**
  * @brief Implementation of \ref SubgridKineticEnergy().
@@ -907,10 +982,23 @@ PetscErrorCode ComputeEddyViscosityLES(UserCtx *user)
         }
 
         PetscCall(ComputeVectorFieldDerivatives(user, i, j, k, (Cmpnts ***)ucat, &dudx, &dvdx, &dwdx));
-        PetscCall(StrainRateFromGradients(dudx, dvdx, dwdx, NULL, &strain_magnitude));
+
+        if (simCtx->les == VREMAN) {
+            // Resolved per direction from the cell's own edges; no scalar width enters.
+            Cmpnts edges[3];
+            PetscCall(ComputeCellEdgeVectors(aj[k][j][i], csi[k][j][i], eta[k][j][i], zet[k][j][i], edges));
+            nu_t[k][j][i] = VremanEddyViscosity(dudx, dvdx, dwdx, edges, config->vreman_coefficient);
+            continue;
+        }
+
         PetscCall(ComputeCellFilterWidth(config->filter_width_model, aj[k][j][i],
                                          csi[k][j][i], eta[k][j][i], zet[k][j][i], &delta));
+        if (simCtx->les == WALE) {
+            nu_t[k][j][i] = WALEEddyViscosity(dudx, dvdx, dwdx, delta, config->wale_coefficient);
+            continue;
+        }
 
+        PetscCall(StrainRateFromGradients(dudx, dvdx, dwdx, NULL, &strain_magnitude));
         model_coefficient = coefficient_is_field ? coefficient[k][j][i] : prescribed_coefficient;
 
         nu_t[k][j][i] = EddyViscosityFromCoefficient(model_coefficient, delta, strain_magnitude,
@@ -954,6 +1042,10 @@ PetscErrorCode LogLESDiagnostics(UserCtx *user)
     MPI_Comm         comm;
 
     const PetscBool dynamic = (PetscBool)(simCtx->les == DYNAMIC_SMAGORINSKY);
+    // Vreman and WALE carry no Smagorinsky coefficient, so the coefficient columns are
+    // written as nan rather than as a number that would read like a measured Cs.
+    const PetscBool has_coefficient =
+        (PetscBool)(simCtx->les == DYNAMIC_SMAGORINSKY || simCtx->les == CONSTANT_SMAGORINSKY);
 
     // Index 0..4: fluid volume, coefficient first and second moments, nu_t volume sum,
     // subgrid-energy volume sum. Index 5..6: the pre-clip fractions. Reduced together
@@ -1003,14 +1095,15 @@ PetscErrorCode LogLESDiagnostics(UserCtx *user)
                                          csi[k][j][i], eta[k][j][i], zet[k][j][i], &delta));
 
         local_sum[0] += weight;
-        local_sum[1] += weight * value;
-        local_sum[2] += weight * value * value;
         local_sum[3] += weight * nu_t[k][j][i];
         local_sum[4] += weight * SubgridKineticEnergy(config->yoshizawa_ci, delta, strain_magnitude);
-
-        local_max[0] = PetscMax(local_max[0], value);
         local_max[1] = PetscMax(local_max[1], nu_t[k][j][i]);
-        local_min_coefficient = PetscMin(local_min_coefficient, value);
+        if (has_coefficient) {
+            local_sum[1] += weight * value;
+            local_sum[2] += weight * value * value;
+            local_max[0] = PetscMax(local_max[0], value);
+            local_min_coefficient = PetscMin(local_min_coefficient, value);
+        }
     }
 
     if (dynamic) PetscCall(DMDAVecRestoreArrayRead(da, user->lCs, &coefficient));
@@ -1058,9 +1151,12 @@ PetscErrorCode LogLESDiagnostics(UserCtx *user)
         fprintf(file,
                 "%d,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e\n",
                 (int)simCtx->step, (double)simCtx->ti,
-                (double)cs_effective, (double)cs_mean,
-                (double)mean, (double)PetscSqrtReal(variance),
-                (double)global_min_coefficient, (double)global_max[0],
+                has_coefficient ? (double)cs_effective : (double)NAN,
+                has_coefficient ? (double)cs_mean : (double)NAN,
+                has_coefficient ? (double)mean : (double)NAN,
+                has_coefficient ? (double)PetscSqrtReal(variance) : (double)NAN,
+                has_coefficient ? (double)global_min_coefficient : (double)NAN,
+                has_coefficient ? (double)global_max[0] : (double)NAN,
                 (double)(global_sum[3] / volume), (double)global_max[1],
                 (double)(global_sum[3] / volume / molecular),
                 (double)(global_sum[4] / volume),

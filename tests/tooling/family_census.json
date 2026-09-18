@@ -93,6 +93,10 @@
       "classification": "not_public",
       "reason": "The opposite of a user choice: these are the directory names a run owns, and naming one as a log or output directory is refused at every enforcement point. It is a denylist, not a menu."
     },
+    "picurv_cli.core::LES_MODEL_NAMES": {
+      "classification": "not_public",
+      "reason": "Canonical spellings of the turbulence.les_model values, used only to name the selected model in validation messages. The public surface is normalize_les_model, which the turbulence.les_model family already covers."
+    },
     "picurv_cli.core::RUN_EXECUTABLE_NAMES": {
       "classification": "not_public",
       "reason": "The native executables a run launches and therefore pins. Pinning copies both; the user chooses whether to pin, not which executables, so this is not a menu."

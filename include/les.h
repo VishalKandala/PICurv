@@ -229,6 +229,46 @@ PetscReal EddyViscosityFromCoefficient(PetscReal coefficient, PetscReal delta,
                                        PetscReal min_viscosity_ratio);
 
 /**
+ * @brief WALE eddy viscosity (Nicoud & Ducros 1999) from the resolved velocity gradient.
+ *
+ * `nu_t = (C_w Delta)^2 (S^d_ij S^d_ij)^(3/2) / [(S_ij S_ij)^(5/2) + (S^d_ij S^d_ij)^(5/4)]`,
+ * where `S^d` is the traceless symmetric part of the squared gradient. It vanishes in pure
+ * shear, so a laminar shear layer gets none, and it falls as the cube of wall distance
+ * approaching a wall without a damping function. It needs no coefficient field, no test
+ * filter, and no averaging, so it is valid on geometry with no homogeneous direction.
+ *
+ * @param[in] dudx Gradient of the x velocity component.
+ * @param[in] dvdx Gradient of the y velocity component.
+ * @param[in] dwdx Gradient of the z velocity component.
+ * @param[in] delta Grid filter width at the cell.
+ * @param[in] coefficient Model constant `C_w`.
+ * @return The eddy viscosity, zero where the gradient carries no model invariant.
+ */
+PetscReal WALEEddyViscosity(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
+                            PetscReal delta, PetscReal coefficient);
+
+/**
+ * @brief Vreman eddy viscosity (Vreman 2004), weighting each grid direction by its own spacing.
+ *
+ * `nu_t = c sqrt(B_beta / (alpha_ij alpha_ij))`, with `alpha_ij = du_j/dx_i` and
+ * `beta_ij = sum_m d_i^(m) d_j^(m)`, where `d^(m)` is the change in velocity across the
+ * cell along grid direction `m` - `edges[m] . grad(u)`. On an aligned Cartesian grid that
+ * is Vreman's `Delta_m^2 alpha_mi alpha_mj`; on a curvilinear grid it is the same quantity
+ * measured along the cell's own edges, so the model is resolved per direction rather than
+ * through one scalar width, and unchanged by the grid's orientation. It vanishes in pure
+ * shear and needs no coefficient field, test filter, or averaging.
+ *
+ * @param[in] dudx Gradient of the x velocity component.
+ * @param[in] dvdx Gradient of the y velocity component.
+ * @param[in] dwdx Gradient of the z velocity component.
+ * @param[in] edges Cell edge vectors along xi, eta, zeta, from @ref ComputeCellEdgeVectors.
+ * @param[in] coefficient Model constant `c`.
+ * @return The eddy viscosity, zero where `B_beta` vanishes.
+ */
+PetscReal VremanEddyViscosity(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
+                              const Cmpnts edges[3], PetscReal coefficient);
+
+/**
  * @brief Returns the modelled subgrid kinetic energy at a cell.
  *
  * Uses the Yoshizawa relation `k_sgs = 2 C_I Delta^2 |S|^2`. Reported as a

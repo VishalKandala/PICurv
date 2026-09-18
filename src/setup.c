@@ -185,6 +185,11 @@ PetscErrorCode LESConfigSetDefaults(LESConfig *config)
 
     config->dynamic_frequency       = 1;
     config->constant_cs             = 0.03;
+    // Vreman (2004) recommends c = 2.5 Cs^2, 0.07 for Cs = 0.17; Nicoud & Ducros (1999)
+    // calibrate C_w near 0.5-0.6 against the same isotropic decay. Both are calibrations
+    // from isotropic turbulence, not universal values.
+    config->vreman_coefficient      = 0.07;
+    config->wale_coefficient        = 0.5;
     config->filter_width_model      = LES_FILTER_WIDTH_CUBE_ROOT_VOLUME;
     config->test_filter_kernel      = LES_TEST_FILTER_VOLUME_WEIGHTED_BOX;
     config->test_filter_width_ratio = 2.0;
@@ -235,6 +240,8 @@ static PetscErrorCode ParseLESConfiguration(SimCtx *simCtx)
     PetscFunctionBeginUser;
 
     PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_constant_cs", &config->constant_cs, NULL));
+    PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_vreman_coefficient", &config->vreman_coefficient, NULL));
+    PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_wale_coefficient", &config->wale_coefficient, NULL));
     PetscCall(PetscOptionsGetInt(NULL, NULL, "-les_dynamic_frequency", &config->dynamic_frequency, NULL));
 
     selector = (PetscInt)config->filter_width_model;
@@ -308,6 +315,12 @@ static PetscErrorCode ParseLESConfiguration(SimCtx *simCtx)
                config->dynamic_frequency);
     PetscCheck(config->constant_cs >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
                "-les_constant_cs must be nonnegative; received %g.", (double)config->constant_cs);
+    PetscCheck(config->vreman_coefficient >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_vreman_coefficient must be nonnegative; received %g.",
+               (double)config->vreman_coefficient);
+    PetscCheck(config->wale_coefficient >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-les_wale_coefficient must be nonnegative; received %g.",
+               (double)config->wale_coefficient);
     PetscCheck(config->max_cs >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
                "-les_clip_max_cs must be nonnegative; received %g.", (double)config->max_cs);
     PetscCheck(config->min_viscosity_ratio >= 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
@@ -1071,8 +1084,14 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
      //  --- Group 8
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 8: Turbulence Modeling (LES/RANS) \n");
-    PetscInt temp_les_model;
+    // Seeded from the default already in simCtx: PetscOptionsGetInt leaves the target
+    // untouched when -les is absent, and an uninitialized value would become the model.
+    PetscInt temp_les_model = (PetscInt)simCtx->les;
     ierr = PetscOptionsGetInt(NULL, NULL, "-les", &temp_les_model, NULL); CHKERRQ(ierr);
+    PetscCheck(temp_les_model >= NO_LES_MODEL && temp_les_model <= WALE, PETSC_COMM_WORLD,
+               PETSC_ERR_ARG_OUTOFRANGE,
+               "-les must be 0 (none), 1 (constant_smagorinsky), 2 (dynamic_smagorinsky), "
+               "3 (vreman), or 4 (wale); received %" PetscInt_FMT ".", temp_les_model);
     simCtx->les = (LESModelType)temp_les_model;
     ierr = PetscOptionsGetInt(NULL, NULL, "-rans", &simCtx->rans, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-wallfunction", &simCtx->wallfunction, NULL); CHKERRQ(ierr);

@@ -349,6 +349,35 @@ PetscErrorCode ComputeCellDirectionalExtents(PetscReal ajc, Cmpnts csi, Cmpnts e
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "ComputeCellEdgeVectors"
+/**
+ * @brief Implementation of \ref ComputeCellEdgeVectors().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/Metric.h`.
+ * @see ComputeCellEdgeVectors()
+ */
+PetscErrorCode ComputeCellEdgeVectors(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet,
+                                      Cmpnts edges[3])
+{
+    PetscFunctionBeginUser;
+    PetscCheck(ajc > 0.0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
+               "Cell Jacobian must be positive to define cell edges; received %g.", (double)ajc);
+    /* The face-area vectors are J grad(xi), J grad(eta), J grad(zeta), with J the cell
+       volume. The covariant basis dx/dxi equals J grad(eta) x grad(zeta), so it is
+       (eta x zet) / J - the cell's edge along xi, direction and length together. */
+    edges[0].x = ajc * (eta.y*zet.z - eta.z*zet.y);
+    edges[0].y = ajc * (eta.z*zet.x - eta.x*zet.z);
+    edges[0].z = ajc * (eta.x*zet.y - eta.y*zet.x);
+    edges[1].x = ajc * (zet.y*csi.z - zet.z*csi.y);
+    edges[1].y = ajc * (zet.z*csi.x - zet.x*csi.z);
+    edges[1].z = ajc * (zet.x*csi.y - zet.y*csi.x);
+    edges[2].x = ajc * (csi.y*eta.z - csi.z*eta.y);
+    edges[2].y = ajc * (csi.z*eta.x - csi.x*eta.z);
+    edges[2].z = ajc * (csi.x*eta.y - csi.y*eta.x);
+    PetscFunctionReturn(0);
+}
+
 
 #undef __FUNCT__
 #define __FUNCT__ "CheckAndFixGridOrientation"

@@ -82,6 +82,8 @@
     "-les_min_viscosity_ratio",
     "-les_test_filter_kernel",
     "-les_test_filter_width_ratio",
+    "-les_vreman_coefficient",
+    "-les_wale_coefficient",
     "-les_yoshizawa_ci",
     "-log_dir",
     "-logfreq",

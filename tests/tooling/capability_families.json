@@ -322,6 +322,26 @@
             ]
           }
         },
+        "vreman": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-les",
+              "file:tests/c/test_les.c"
+            ]
+          }
+        },
+        "wale": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-les",
+              "file:tests/c/test_les.c"
+            ]
+          }
+        },
         "dynamic": {
           "canonical": false,
           "spelling_of": "dynamic_smagorinsky"

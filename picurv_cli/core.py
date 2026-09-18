@@ -6750,6 +6750,8 @@ def validate_les_configuration(case_cfg: dict, les_cfg: dict, case_path: str,
         errors.append(f"  {case_path}: models.physics.turbulence.les.enabled must be true or false.")
 
     _numeric(les_cfg, 'constant_cs', "models.physics.turbulence.les.constant_cs", minimum=0.0)
+    _numeric(les_cfg, 'vreman_coefficient', "models.physics.turbulence.les.vreman_coefficient", minimum=0.0)
+    _numeric(les_cfg, 'wale_coefficient', "models.physics.turbulence.les.wale_coefficient", minimum=0.0)
 
     if 'dynamic_frequency' in les_cfg:
         try:
@@ -6875,15 +6877,28 @@ def validate_les_configuration(case_cfg: dict, les_cfg: dict, case_path: str,
         model_code = normalize_les_model(les_cfg['model']) if 'model' in les_cfg else None
     except ValueError:
         model_code = None
-    if model_code == 1 and les_cfg.get('enabled', True):
-        # filter_width is deliberately absent: both models build nu_t from Delta, and
-        # ComputeEddyViscosityLES() applies the configured width to either of them.
-        for key in ('test_filter', 'averaging', 'clipping'):
-            if key in les_cfg:
-                errors.append(
-                    f"  {case_path}: models.physics.turbulence.les.{key} configures the dynamic "
-                    "procedure and cannot be used with model 'constant_smagorinsky'."
-                )
+    if model_code in LES_MODEL_OWNED_KEYS and les_cfg.get('enabled', True):
+        # Each model's own parameters are refused under any other, so a key that would be
+        # silently ignored at runtime fails at validation instead. filter_width is shared
+        # by every model that takes a scalar width; Vreman resolves each direction from
+        # the cell's own edges and takes none.
+        model_name = LES_MODEL_NAMES[model_code]
+        for owner, keys in LES_MODEL_OWNED_KEYS.items():
+            if owner == model_code:
+                continue
+            for key in keys:
+                if key in les_cfg:
+                    errors.append(
+                        f"  {case_path}: models.physics.turbulence.les.{key} configures "
+                        f"{LES_MODEL_KEY_OWNER_DESCRIPTIONS[owner]} and cannot be used with "
+                        f"model '{model_name}'."
+                    )
+        if model_code == 3 and 'filter_width' in les_cfg:
+            errors.append(
+                f"  {case_path}: models.physics.turbulence.les.filter_width cannot be used with "
+                "model 'vreman', which weights each grid direction by the cell's own edge "
+                "rather than by one scalar width."
+            )
 
 
 def validate_and_prepare_boundary_conditions(case_cfg: dict):
@@ -7179,7 +7194,8 @@ _CASE_SCHEMA = {
     ("models", "physics", "particles", "point_source"): {"x", "y", "z"},
     ("models", "physics", "turbulence"): {"les", "rans", "wall_function"},
     ("models", "physics", "turbulence", "les"): {
-        "enabled", "model", "constant_cs", "dynamic_frequency", "filter_width",
+        "enabled", "model", "constant_cs", "vreman_coefficient", "wale_coefficient",
+        "dynamic_frequency", "filter_width",
         "test_filter", "averaging", "clipping", "gradient_model", "diagnostics",
     },
     ("models", "physics", "turbulence", "les", "test_filter"): {"kernel", "width_ratio"},
@@ -12057,6 +12073,26 @@ def normalize_interpolation_method(value: str) -> int:
         )
     return mapped
 
+#: Canonical spelling of each LES model code, for diagnostics.
+LES_MODEL_NAMES = {1: "constant_smagorinsky", 2: "dynamic_smagorinsky", 3: "vreman", 4: "wale"}
+
+#: Parameters that configure exactly one LES model and are refused under the others.
+LES_MODEL_OWNED_KEYS = {
+    1: ("constant_cs",),
+    2: ("dynamic_frequency", "test_filter", "averaging", "clipping"),
+    3: ("vreman_coefficient",),
+    4: ("wale_coefficient",),
+}
+
+#: How a model's own parameters are described when they are refused elsewhere.
+LES_MODEL_KEY_OWNER_DESCRIPTIONS = {
+    1: "the constant Smagorinsky coefficient",
+    2: "the dynamic procedure",
+    3: "the Vreman model",
+    4: "the WALE model",
+}
+
+
 def normalize_les_model(value) -> int:
     """!
     @brief Maps LES model selectors to C enum/int codes (-les).
@@ -12067,9 +12103,9 @@ def normalize_les_model(value) -> int:
     if isinstance(value, bool):
         return 1 if value else 0
     if isinstance(value, int):
-        if value in (0, 1, 2):
+        if value in (0, 1, 2, 3, 4):
             return value
-        raise ValueError("models.physics.turbulence.les must be 0, 1, 2, false/true, or a supported model block.")
+        raise ValueError("models.physics.turbulence.les must be 0-4, false/true, or a supported model block.")
     if value is None:
         raise ValueError("LES model cannot be None")
 
@@ -12084,11 +12120,13 @@ def normalize_les_model(value) -> int:
         "smagorinsky": 1,
         "dynamic": 2,
         "dynamic_smagorinsky": 2,
+        "vreman": 3,
+        "wale": 4,
     }.get(key)
     if mapped is None:
         raise ValueError(
             f"Unknown LES model '{value}'. Use one of: 'none', "
-            "'constant_smagorinsky', 'dynamic_smagorinsky'."
+            "'constant_smagorinsky', 'dynamic_smagorinsky', 'vreman', 'wale'."
         )
     return mapped
 
@@ -12326,6 +12364,10 @@ def append_les_parameter_flags(les_cfg: dict, control_lines: list):
     """
     if 'constant_cs' in les_cfg:
         control_lines.append(f"-les_constant_cs {format_flag_value(les_cfg['constant_cs'])}")
+    if 'vreman_coefficient' in les_cfg:
+        control_lines.append(f"-les_vreman_coefficient {format_flag_value(les_cfg['vreman_coefficient'])}")
+    if 'wale_coefficient' in les_cfg:
+        control_lines.append(f"-les_wale_coefficient {format_flag_value(les_cfg['wale_coefficient'])}")
     if 'dynamic_frequency' in les_cfg:
         control_lines.append(f"-les_dynamic_frequency {format_flag_value(les_cfg['dynamic_frequency'])}")
     if 'filter_width' in les_cfg:

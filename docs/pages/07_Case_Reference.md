@@ -258,8 +258,10 @@ Common mappings:
 - periodic axes are derived from paired `PERIODIC` boundary conditions before
   DMDA creation; `models.domain` does not accept periodic flags
 - `physics.dimensionality: "2D"` -> `-TwoD 1`
-- `physics.turbulence.les.enabled/model` -> `-les` (`0` none, `1` constant Smagorinsky, `2` dynamic Smagorinsky)
+- `physics.turbulence.les.enabled/model` -> `-les` (`0` none, `1` constant Smagorinsky, `2` dynamic Smagorinsky, `3` Vreman, `4` WALE)
 - `physics.turbulence.les.constant_cs` -> `-les_constant_cs`
+- `physics.turbulence.les.vreman_coefficient` -> `-les_vreman_coefficient`
+- `physics.turbulence.les.wale_coefficient` -> `-les_wale_coefficient`
 - `physics.turbulence.les.dynamic_frequency` -> `-les_dynamic_frequency`
 - `physics.turbulence.les.filter_width` -> `-les_filter_width`
 - `physics.turbulence.les.test_filter.kernel/width_ratio` -> `-les_test_filter_kernel`, `-les_test_filter_width_ratio`
@@ -349,9 +351,9 @@ turbulence conventionally uses Lilly's 0.16-0.17, but only where the grid cutoff
 in an inertial range; at low `Re_lambda` a smaller value near 0.1 is more appropriate.
 The default is not a universal choice - set it deliberately for your flow.
 
-**Interactions.** Mutually exclusive with RANS. The test-filter, averaging, and
-clipping controls belong to the dynamic procedure and are rejected here rather than
-silently ignored.
+**Interactions.** Mutually exclusive with RANS. `dynamic_frequency` and the test-filter,
+averaging, and clipping controls belong to the dynamic procedure, and the other models'
+coefficients to those models; all are rejected here rather than silently ignored.
 
 **Storage.** This model allocates no coefficient field. The coefficient is a number
 from the configuration, so `nu_t` is built from it directly; nothing is synchronized,
@@ -390,8 +392,8 @@ in the domain.
 **Parameters it owns.** `dynamic_frequency` -> `-les_dynamic_frequency`, plus the
 `filter_width`, `test_filter`, `averaging`, and `clipping` blocks documented below.
 
-**Interactions.** Mutually exclusive with RANS. `constant_cs` belongs to the constant
-model and is rejected here.
+**Interactions.** Mutually exclusive with RANS. `constant_cs`, `vreman_coefficient`, and
+`wale_coefficient` belong to the other models and are rejected here.
 
 **Storage.** The coefficient field is stored in `CS` and checkpointed. It holds `C`, the
 factor multiplying `Delta^2 |S|`, which is `Cs^2` in the classical notation - not `Cs`.
@@ -427,6 +429,101 @@ held at zero for the first two steps of a run started from rest. With
 `averaging.mode: local` the coefficient is noisy and the least-squares closure is
 formally inconsistent, since it assumes the coefficient is constant over the averaging
 set; prefer `homogeneous` wherever the flow has a homogeneous direction.
+
+@subsection p07_cap_les_vreman_sub vreman
+
+@anchor p07_cap_les_vreman
+
+**Identity.** `model: vreman` -> `-les 3` -> `VREMAN` -> @ref VremanEddyViscosity.
+
+**What it does.** Vreman (2004): `nu_t = c sqrt(B_beta / (alpha_ij alpha_ij))`, with
+`alpha_ij = du_j/dx_i` and `beta_ij` the sum over the cell's three grid directions of the
+outer product of the velocity change across the cell in that direction,
+`edge_m . grad(u)`. On an aligned Cartesian grid this is Vreman's
+`beta_ij = sum_m Delta_m^2 alpha_mi alpha_mj`; on a curvilinear grid the same change is
+measured along the cell's own edges, so the model is resolved per direction and does not
+depend on the grid's orientation. It vanishes in pure shear and in any locally
+two-component flow, so a laminar shear layer gets no eddy viscosity.
+
+**When to choose it.** Wall-bounded or complex geometry with stretched cells and no
+homogeneous direction: it needs no test filter, no averaging and no coefficient field,
+and it does not collapse a cell that is fine in two directions and coarse in the third
+onto one scalar width the way every `filter_width` choice must. Prefer it over
+`dynamic_smagorinsky` with `averaging.mode: local`, whose coefficient is noisy and
+clipped on such geometry, and over `constant_smagorinsky`, which does not vanish in
+laminar shear.
+
+**Parameters it owns.** `vreman_coefficient` -> `-les_vreman_coefficient`, the constant
+`c`, default 0.07: Vreman's `c = 2.5 Cs^2` for `Cs = 0.17`, calibrated on decaying
+isotropic turbulence.
+
+**Interactions.** Mutually exclusive with RANS. `filter_width` is refused, since the
+model takes each direction's spacing from the cell's edges rather than from one width;
+the parameters of the other models are refused as well. Central convection is used, as
+for every LES model. The Clark gradient term is independent and may be combined.
+
+**Storage.** No coefficient field; `nu_t` is recomputed from the resolved gradient every
+step and nothing is checkpointed on the model's behalf.
+
+**Diagnostics.** The startup banner reports `Vreman`, its coefficient, and
+`per direction (cell edges; filter_width unused)`. With `diagnostics.enabled`,
+`les_coefficient.csv` records the eddy-viscosity levels and subgrid energy; its
+coefficient columns are written as `nan`, because the model carries no Smagorinsky
+coefficient.
+
+**Evidence.** Implemented, with unit coverage run by `make unit-les`:
+`tests/c/test_les.c` case `wale-and-vreman-kernels` checks the kernel against an
+independent evaluation of the published formula, requires zero in pure shear and the
+same value when the flow and the cell rotate together, and recovers a turned cell's
+edges from its metrics. A three-step flat-channel run completes with the model selected.
+Not validated against a reference flow.
+
+**Limitations.** The constant is an isotropic-turbulence calibration. The model is
+purely dissipative: it provides no backscatter. It responds to resolved velocity
+gradients, so in a laminar or transitional stretch it is small by design and does not
+by itself damp grid-scale oscillation that a non-dissipative convection scheme leaves
+behind.
+
+@subsection p07_cap_les_wale_sub wale
+
+@anchor p07_cap_les_wale
+
+**Identity.** `model: wale` -> `-les 4` -> `WALE` -> @ref WALEEddyViscosity.
+
+**What it does.** Nicoud & Ducros (1999):
+`nu_t = (C_w Delta)^2 (S^d_ij S^d_ij)^(3/2) / [(S_ij S_ij)^(5/2) + (S^d_ij S^d_ij)^(5/4)]`,
+where `S^d` is the traceless symmetric part of the squared velocity gradient. It
+vanishes in pure shear and falls as the cube of wall distance approaching a wall, the
+physically correct near-wall behaviour, without a damping function.
+
+**When to choose it.** Wall-resolved LES where the near-wall eddy viscosity should vanish
+correctly without a damping function or a dynamic procedure. Against `vreman` it uses one
+scalar width, so pair it with `filter_width: scotti` on stretched cells; against
+`dynamic_smagorinsky` it needs no test filter or averaging and is well behaved on
+geometry with no homogeneous direction.
+
+**Parameters it owns.** `wale_coefficient` -> `-les_wale_coefficient`, the constant
+`C_w`, default 0.5, within Nicoud & Ducros's isotropic calibration of 0.55-0.60.
+
+**Interactions.** Mutually exclusive with RANS. Takes `filter_width` like the Smagorinsky
+models; the parameters of the other models are refused. Central convection is used, as
+for every LES model. The Clark gradient term is independent and may be combined.
+
+**Storage.** No coefficient field; `nu_t` is recomputed every step.
+
+**Diagnostics.** The startup banner reports `WALE`, its coefficient and the filter width.
+With `diagnostics.enabled`, `les_coefficient.csv` records the eddy-viscosity levels, with
+its Smagorinsky coefficient columns written as `nan`.
+
+**Evidence.** Implemented, with unit coverage run by `make unit-les`:
+`tests/c/test_les.c` case `wale-and-vreman-kernels` checks the kernel against an
+independent evaluation of the published formula, requires zero in pure shear, and
+requires the same value when the flow rotates. A three-step flat-channel run completes
+with the model selected. Not validated against a reference flow.
+
+**Limitations.** Unlike `vreman`, it does not vanish in solid-body rotation. The constant
+is an isotropic calibration, it is purely dissipative, and it is small in laminar flow by
+design, so it does not by itself damp grid-scale oscillation there.
 
 @section p07_les_width_sec 5.1 Grid Filter Width Entries
 

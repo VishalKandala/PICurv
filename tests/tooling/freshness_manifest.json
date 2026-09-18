@@ -43,7 +43,7 @@
         "10_Post_Processing_Reference",
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:5f29e604f3068c8f3011f712c4da36350f28ab1a140c05ddfa081749857b0be4"
+      "attested_digest": "sha256:07e3e4667aef09ff508c0c6fee5763a4f4cf355804343304b4dc7c898f96d079"
     },
     {
       "id": "capability.evidence_matrix",
@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:15ad2b72c93ee93f7f3b41ad69869ab7c3818a6c312396e07c44b18af5d5b4ae"
+      "attested_digest": "sha256:e80646fa7ac691a0ebc73f9ee46d12ea8c0012ffdb810ccf9a3b51622e7fa999"
     },
     {
       "id": "artifact.topology",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:6d5f96b94d69f58f63725c034df3c6ef9f85da7293bdb9802fc245a030cc6d24",
+      "attested_digest": "sha256:fc6880cc65bdc16090c5895eaa52a1f5c03bd448aa3b05430ba84451cb77736e",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
@@ -148,7 +148,7 @@
       "dependent_pages": [
         "21_Methods_Overview"
       ],
-      "attested_digest": "sha256:e85496f9a717e099e4c4aa549f0ed1143bb95d320fe9e3812df8ba5f14bdbe0a",
+      "attested_digest": "sha256:a9708df2dbb921014c603b53eccf37028c2f449f234334262f286e26f1e9596f",
       "note": "Both models are documented as defective. If this file changes, the defect disclosure is the first thing to re-check."
     },
     {

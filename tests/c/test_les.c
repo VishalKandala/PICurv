@@ -213,6 +213,81 @@ static PetscErrorCode TestScottiFilterWidthMatchesClosedForm(void)
     PetscFunctionReturn(0);
 }
 
+/** @brief Rotates a vector by Rz(40 deg) then Rx(25 deg). */
+static Cmpnts RotateForInvarianceTest(Cmpnts v)
+{
+    const PetscReal cz = PetscCosReal(40.0 * PETSC_PI / 180.0), sz = PetscSinReal(40.0 * PETSC_PI / 180.0);
+    const PetscReal cx = PetscCosReal(25.0 * PETSC_PI / 180.0), sx = PetscSinReal(25.0 * PETSC_PI / 180.0);
+    const Cmpnts z = {cz * v.x - sz * v.y, sz * v.x + cz * v.y, v.z};
+    return (Cmpnts){z.x, cx * z.y - sx * z.z, sx * z.y + cx * z.z};
+}
+
+/** @brief Rotates a velocity gradient g_ij = du_i/dx_j as R g R^T, rows passed as dudx, dvdx, dwdx. */
+static void RotateGradientForInvarianceTest(const Cmpnts rows[3], Cmpnts out[3])
+{
+    Cmpnts column_rotated[3], cols[3];
+    /* g R^T: rotate each row as a covector, i.e. rotate every row vector. */
+    for (PetscInt a = 0; a < 3; ++a) column_rotated[a] = RotateForInvarianceTest(rows[a]);
+    /* R (g R^T): rotate the columns, which are the components across rows. */
+    for (PetscInt b = 0; b < 3; ++b) {
+        const Cmpnts column = {b == 0 ? column_rotated[0].x : (b == 1 ? column_rotated[0].y : column_rotated[0].z),
+                               b == 0 ? column_rotated[1].x : (b == 1 ? column_rotated[1].y : column_rotated[1].z),
+                               b == 0 ? column_rotated[2].x : (b == 1 ? column_rotated[2].y : column_rotated[2].z)};
+        cols[b] = RotateForInvarianceTest(column);
+    }
+    for (PetscInt a = 0; a < 3; ++a)
+        out[a] = (Cmpnts){a == 0 ? cols[0].x : (a == 1 ? cols[0].y : cols[0].z),
+                          a == 0 ? cols[1].x : (a == 1 ? cols[1].y : cols[1].z),
+                          a == 0 ? cols[2].x : (a == 1 ? cols[2].y : cols[2].z)};
+}
+
+/**
+ * @brief Tests the WALE and Vreman kernels against independent evaluations.
+ *
+ * @details Reference values come from a separate numpy evaluation of the published
+ *          formulas for the gradient below. Both models must vanish in pure shear, which
+ *          is the property that lets them stay silent in a laminar shear layer, and both
+ *          must be unchanged when the velocity gradient and the cell rotate together.
+ */
+static PetscErrorCode TestWALEAndVremanKernels(void)
+{
+    const Cmpnts g[3] = {{0.3, 1.2, -0.4}, {0.7, -0.5, 0.9}, {-0.2, 0.6, 0.2}};
+    const Cmpnts shear[3] = {{0.0, 2.5, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
+    const Cmpnts aligned_edges[3] = {{0.1, 0.0, 0.0}, {0.0, 0.2, 0.0}, {0.0, 0.0, 0.8}};
+    Cmpnts rotated_edges[3], rotated_g[3], csi, eta, zet, recovered[3];
+    PetscReal aj;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvAssertRealNear(0.0002799988905128629, WALEEddyViscosity(g[0], g[1], g[2], 0.1, 0.5),
+                                   1.0e-15, "WALE matches the independent evaluation"));
+    PetscCall(PicurvAssertRealNear(0.007234428329928329,
+                                   VremanEddyViscosity(g[0], g[1], g[2], aligned_edges, 0.07),
+                                   1.0e-15, "Vreman on aligned edges matches the Cartesian formula"));
+    PetscCall(PicurvAssertRealNear(0.0, WALEEddyViscosity(shear[0], shear[1], shear[2], 0.1, 0.5),
+                                   1.0e-15, "WALE vanishes in pure shear"));
+    PetscCall(PicurvAssertRealNear(0.0, VremanEddyViscosity(shear[0], shear[1], shear[2], aligned_edges, 0.07),
+                                   1.0e-15, "Vreman vanishes in pure shear"));
+
+    for (PetscInt m = 0; m < 3; ++m) rotated_edges[m] = RotateForInvarianceTest(aligned_edges[m]);
+    RotateGradientForInvarianceTest(g, rotated_g);
+    PetscCall(PicurvAssertRealNear(VremanEddyViscosity(g[0], g[1], g[2], aligned_edges, 0.07),
+                                   VremanEddyViscosity(rotated_g[0], rotated_g[1], rotated_g[2], rotated_edges, 0.07),
+                                   1.0e-14, "Vreman is unchanged when the flow and the cell rotate together"));
+    PetscCall(PicurvAssertRealNear(WALEEddyViscosity(g[0], g[1], g[2], 0.1, 0.5),
+                                   WALEEddyViscosity(rotated_g[0], rotated_g[1], rotated_g[2], 0.1, 0.5),
+                                   1.0e-15, "WALE is unchanged when the flow rotates"));
+
+    /* The edge vectors recovered from a turned cell's metrics are its actual edges. */
+    ParallelepipedMetrics(rotated_edges[0], rotated_edges[1], rotated_edges[2], &csi, &eta, &zet, &aj);
+    PetscCall(ComputeCellEdgeVectors(aj, csi, eta, zet, recovered));
+    for (PetscInt m = 0; m < 3; ++m) {
+        PetscCall(PicurvAssertRealNear(rotated_edges[m].x, recovered[m].x, 1.0e-14, "edge x recovered from metrics"));
+        PetscCall(PicurvAssertRealNear(rotated_edges[m].y, recovered[m].y, 1.0e-14, "edge y recovered from metrics"));
+        PetscCall(PicurvAssertRealNear(rotated_edges[m].z, recovered[m].z, 1.0e-14, "edge z recovered from metrics"));
+    }
+    PetscFunctionReturn(0);
+}
+
 /** @brief Tests that the Leonard stress vanishes on a uniform velocity field. */
 static PetscErrorCode TestLeonardStressVanishesOnUniformFlow(void)
 {
@@ -980,6 +1055,7 @@ int main(int argc, char **argv)
         {"filter-width-models-separate-on-stretched-cell", TestFilterWidthModelsSeparateOnStretchedCell},
         {"filter-width-is-independent-of-cell-orientation", TestFilterWidthIsIndependentOfCellOrientation},
         {"scotti-filter-width-matches-closed-form", TestScottiFilterWidthMatchesClosedForm},
+        {"wale-and-vreman-kernels", TestWALEAndVremanKernels},
         {"leonard-stress-vanishes-on-uniform-flow", TestLeonardStressVanishesOnUniformFlow},
         {"germano-model-tensor-on-constant-strain", TestGermanoModelTensorOnConstantStrain},
         {"germano-model-tensor-uses-filtered-product", TestGermanoModelTensorUsesFilteredProduct},
