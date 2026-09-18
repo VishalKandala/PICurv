@@ -41,6 +41,19 @@ Mappings:
 - `momentum_solver` -> `-mom_solver_type` (`picurv` accepts `Explicit RK4`, `Dual Time Picard Jameson RK`, or `Newton Krylov`)
 - `central_diff` -> `-central`
 
+`central_diff` selects the convective flux in `Convection()` (`src/rhs.c`). `false` uses
+the upwind-biased QUICK scheme, whose interpolation switches on the sign of the face flux;
+`true` uses the central average of the two neighbouring cells. **Any LES model selects the
+central flux regardless of this key**, because the branch is taken on `les || central`.
+
+Central convection adds no dissipation of its own. Its transport term cannot see a
+two-cell oscillation at all - the discrete derivative of such a pattern is zero - so only
+viscosity, molecular or subgrid, removes one. On a grid whose cell Reynolds number is large
+along some direction that removal can be slower than the run; the grid generator's
+`[Grid-Scale Damping]` report states the time per direction. QUICK damps such a pattern but
+makes the residual non-differentiable where a face flux changes sign, which a Newton
+solver's finite-difference Jacobian does not model.
+
 Older boolean toggles are not supported; use `strategy.momentum_solver`.
 Only implemented momentum solver values are accepted by `picurv` and the C runtime.
 The deprecated `Dual Time Picard RK4` display name, `dual_time_picard_rk4`

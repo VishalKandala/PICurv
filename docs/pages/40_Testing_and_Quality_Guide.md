@@ -506,7 +506,7 @@ Runtime file coverage map (unit targets + runtime sequences):
 - `src/Boundaries.c`: `unit-boundaries`, `unit-periodic`, `S1`, `S1b`, `S2`, `S3`, `S5`, `S6`, `S7`, `S8`
 - `src/Filter.c`: `unit-solver`
 - `src/field_catalog.c`, `src/particle_field_catalog.c`: `unit-setup`, `unit-periodic`, `unit-runtime`, `unit-solver`, `unit-logging`, `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`, `S8`
-- `src/Metric.c`: `unit-metric`, `unit-grid`, `S1`, `S1b`, `S2`, `S5`, `S6`
+- `src/Metric.c`: `unit-metric`, `unit-les`, `unit-grid`, `S1`, `S1b`, `S2`, `S5`, `S6`
 - `src/ParticleMotion.c`: `unit-runtime`, `S2`, `S3`, `S4`, `S5`
 - `src/ParticlePhysics.c`: `unit-runtime`, `S2`, `S3`, `S4`, `S5`
 - `src/ParticleSwarm.c`: `unit-runtime`, `S2`, `S3`, `S4`, `S5`
@@ -514,7 +514,7 @@ Runtime file coverage map (unit targets + runtime sequences):
 - `src/initialcondition.c`: `unit-runtime`, `S1`, `S1b`, `S2`, `S4`, `S5`, `S6`
 - `src/interpolation.c`: `unit-geometry`, `unit-runtime`, `unit-particles`, `S2`, `S2b`, `S3`, `S4`, `S5`
 - `src/io.c`: `unit-io`, `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`
-- `src/les.c`: `unit-solver`, `unit-runtime`
+- `src/les.c`: `unit-les`, `unit-solver`, `unit-runtime`
 - `src/logging.c`: `unit-logging`, `S1`, `S1b`, `S2`, `S3`, `S4`, `S5`, `S6`, `S8`
 - `src/momentumsolvers.c`: `S1`, `S1b`, `S2`, `S5`, `S6`
 - `src/particle_statistics.c`: `unit-post`, `S4`

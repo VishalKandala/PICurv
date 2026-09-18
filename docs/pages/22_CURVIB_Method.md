@@ -34,6 +34,21 @@ Useful geometric helper for BC and flux logic:
 
 - @ref CalculateFaceCenterAndArea
 
+Per-cell geometry for the subgrid models, computed from a cell's face-area vectors and
+inverse volume alone, so that it is the same for an identical cell wherever and however
+it sits in space:
+
+- @ref ComputeCellDirectionalExtents: the cell's extent across each face pair (volume
+  over that pair's area), from which the `geometric_mean`, `max_edge` and `scotti` filter
+  widths are built;
+- @ref ComputeCellEdgeVectors: the covariant edge vector along each grid direction,
+  direction and length together, which the Vreman model projects the velocity gradient
+  onto.
+
+@ref ComputeCellCharacteristicLengthScale returns the Cartesian components of the cell
+diagonal instead. Those change when the same cell is rotated, which is why no subgrid
+path uses it; it has no production caller.
+
 @section p22_ibm_sec 3. Immersed-Boundary Role In Current Code
 
 The current branch keeps immersed-boundary hooks in solver paths, while several IBM-specific calls are conditional or currently inactive in default runs.

@@ -167,7 +167,9 @@
       "authoritative_sources": [
         "src/field_catalog.c",
         "src/particle_field_catalog.c",
-        "include/variables.h"
+        "include/variables.h",
+        "include/field_catalog.h",
+        "include/particle_field_catalog.h"
       ],
       "extractor": null,
       "checker": [
@@ -304,7 +306,10 @@
         "src/io.c",
         "src/logging.c",
         "src/postprocessor.c",
-        "src/simulator.c"
+        "src/simulator.c",
+        "include/io.h",
+        "src/checksum.c",
+        "include/checksum.h"
       ],
       "extractor": null,
       "checker": null,

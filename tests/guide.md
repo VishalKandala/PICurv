@@ -203,11 +203,11 @@ is a test-local routine.
 - `test_statistics_target.c`: spatial target plan across cell, node, face, and periodic layouts
 - `test_statistics_config.c`: field-statistics control resolution from the generated control file
 - `test_grid.c`: local/global bounding-box helpers
-- `test_metric.c`: metric inversion, contravariant velocity, face geometry helpers
+- `test_metric.c`: metric inversion, contravariant velocity, face geometry helpers, and the degeneracy check on a wall-resolved-sized cell
 - `test_boundaries.c`: boundary factory, direct handler-behavior checks, and wall-model dispatch across the log law, Werner-Wengle, and Cabot
-- `test_les.c`: LES closure kernels - symmetric-tensor algebra, strain rate, filter width, the Germano model tensor and Leonard stress, coefficient clipping and the viscosity floor, and homogeneous-direction resolution
+- `test_les.c`: LES closure kernels - symmetric-tensor algebra, strain rate, filter widths (including the Scotti closed form and independence from cell orientation), the Germano model tensor and Leonard stress, coefficient clipping and the viscosity floor, homogeneous-direction resolution, the WALE and Vreman kernels against independent evaluations, and cell edge vectors recovered from metrics
 - `test_periodic_dev.c`: gating geometric-periodic boundary and synchronization harness
-- `test_poisson_rhs.c`: pressure update, RHS, projection, body-force and diffusivity helpers
+- `test_poisson_rhs.c`: pressure update, RHS, projection, body-force and diffusivity helpers, and the Clark gradient term's scaling and coefficient on non-unit cells
 - `test_runtime_kernels.c`: setup/runloop/particle/interpolation/scatter/wall/walltime-guard/LES helper contracts
 - `test_mpi_kernels.c`: multi-rank particle distribution, bbox collectives, and restart migration behavior
 - `test_momentum_newton_krylov.c`: matrix-free Newton-Krylov momentum callbacks and helper contracts

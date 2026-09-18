@@ -113,7 +113,7 @@
         "71_Invariant_Contracts"
       ],
       "dependent_pages": [],
-      "attested_digest": "sha256:e2ea46fdbb02c693d336b96244904d849bbf43093ac091d9f2b80b3f4ebf9881"
+      "attested_digest": "sha256:2ee19728796f660db0507acafcfd370939ffe4a8329cfb0ce71a2a35e1f824f6"
     },
     {
       "id": "run.containment_guard",
@@ -140,16 +140,56 @@
       "title": "LES subgrid model implementation",
       "tier": "soft",
       "watched_paths": [
-        "src/les.c"
+        "src/les.c",
+        "include/les.h",
+        "src/Filter.c",
+        "include/Filter.h"
+      ],
+      "owning_pages": [
+        "07_Case_Reference",
+        "72_LES_Turbulence_Closure"
+      ],
+      "dependent_pages": [
+        "21_Methods_Overview"
+      ],
+      "attested_digest": "sha256:f14f067b551802250feb09d2bd4ec15d161f2cde9b73516da14cb1b4d0f9742d",
+      "note": "Four models, all experimental: the Germano-Lilly and constant-model defects recorded earlier were fixed on 2026-09-01, and Vreman and WALE were added. If this file or its header changes, re-check the model entries on 07 and the formulation on 72 first."
+    },
+    {
+      "id": "turbulence.wall_function",
+      "title": "Wall-function models and their application on wall faces",
+      "tier": "soft",
+      "watched_paths": [
+        "src/wallfunction.c",
+        "include/wallfunction.h"
       ],
       "owning_pages": [
         "07_Case_Reference"
       ],
       "dependent_pages": [
-        "21_Methods_Overview"
+        "72_LES_Turbulence_Closure"
       ],
-      "attested_digest": "sha256:a9708df2dbb921014c603b53eccf37028c2f449f234334262f286e26f1e9596f",
-      "note": "Both models are documented as defective. If this file changes, the defect disclosure is the first thing to re-check."
+      "attested_digest": "unattested"
+    },
+    {
+      "id": "grid.metrics",
+      "title": "Curvilinear grid construction, metrics and per-cell geometry",
+      "tier": "soft",
+      "watched_paths": [
+        "src/Metric.c",
+        "include/Metric.h",
+        "src/grid.c",
+        "include/grid.h"
+      ],
+      "owning_pages": [
+        "22_CURVIB_Method"
+      ],
+      "dependent_pages": [
+        "13_Code_Architecture",
+        "72_LES_Turbulence_Closure"
+      ],
+      "attested_digest": "sha256:8515371db9c4bb6c7cad03a675763667d552e9dc6ffa90821e46e57a77e85158",
+      "note": "Face metrics, the Jacobian inverse, and the per-cell extent and edge helpers the LES filter widths and the Vreman model are built from. Those helpers must stay independent of the grid's orientation; a Cartesian projection here once gave a rotated cell nine times the eddy viscosity of an identical straight one."
     },
     {
       "id": "momentum.newton_krylov",
@@ -174,7 +214,10 @@
       "watched_paths": [
         "src/momentumsolvers.c",
         "src/solvers.c",
-        "src/runloop.c"
+        "src/runloop.c",
+        "include/momentumsolvers.h",
+        "include/solvers.h",
+        "include/runloop.h"
       ],
       "owning_pages": [
         "24_Dual_Time_Picard_Jameson_RK"
@@ -186,12 +229,37 @@
       "attested_digest": "unattested"
     },
     {
+      "id": "momentum.rhs",
+      "title": "Shared momentum right-hand side: convection, viscous and subgrid terms",
+      "tier": "soft",
+      "watched_paths": [
+        "src/rhs.c",
+        "include/rhs.h",
+        "src/BodyForces.c",
+        "include/BodyForces.h"
+      ],
+      "owning_pages": [
+        "31_Momentum_Solvers"
+      ],
+      "dependent_pages": [
+        "08_Solver_Reference",
+        "23_Fractional_Step_Method",
+        "55_Newton_Krylov_Momentum_Solver",
+        "72_LES_Turbulence_Closure",
+        "p54_geometric_periodic"
+      ],
+      "attested_digest": "unattested",
+      "note": "Every momentum solver evaluates this residual, Newton-Krylov once per finite-difference probe, so it must stay a deterministic, smooth function of the trial state. The convective-scheme selection and the Clark gradient term live here; the Clark term once carried an extra Delta^2 that unit-spacing fixtures could not reveal."
+    },
+    {
       "id": "particles.search",
       "title": "Walking search and interpolation",
       "tier": "soft",
       "watched_paths": [
         "src/walkingsearch.c",
-        "src/interpolation.c"
+        "src/interpolation.c",
+        "include/walkingsearch.h",
+        "include/interpolation.h"
       ],
       "owning_pages": [
         "26_Walking_Search_Method"
@@ -209,7 +277,10 @@
       "watched_paths": [
         "src/ParticleMotion.c",
         "src/ParticlePhysics.c",
-        "src/ParticleSwarm.c"
+        "src/ParticleSwarm.c",
+        "include/ParticleMotion.h",
+        "include/ParticlePhysics.h",
+        "include/ParticleSwarm.h"
       ],
       "owning_pages": [
         "34_Particle_Model_Overview"
@@ -228,7 +299,12 @@
         "src/statistics_config.c",
         "src/statistics_moments.c",
         "src/statistics_target.c",
-        "src/statistics_window.c"
+        "src/statistics_window.c",
+        "include/statistics_accumulator.h",
+        "include/statistics_config.h",
+        "include/statistics_moments.h",
+        "include/statistics_target.h",
+        "include/statistics_window.h"
       ],
       "owning_pages": [
         "58_Field_Statistics"
@@ -240,12 +316,33 @@
       "attested_digest": "unattested"
     },
     {
+      "id": "post.processing",
+      "title": "Post-processing kernels, particle statistics and VTK output",
+      "tier": "soft",
+      "watched_paths": [
+        "src/postprocessing_kernels.c",
+        "include/postprocessing_kernels.h",
+        "src/particle_statistics.c",
+        "include/particle_statistics.h",
+        "src/vtk_io.c",
+        "include/vtk_io.h",
+        "include/postprocessor.h"
+      ],
+      "owning_pages": [
+        "10_Post_Processing_Reference"
+      ],
+      "dependent_pages": [],
+      "attested_digest": "unattested"
+    },
+    {
       "id": "boundary.system",
       "title": "Boundary condition handlers and dispatch",
       "tier": "soft",
       "watched_paths": [
         "src/BC_Handlers.c",
-        "src/Boundaries.c"
+        "src/Boundaries.c",
+        "include/BC_Handlers.h",
+        "include/Boundaries.h"
       ],
       "owning_pages": [
         "44_Boundary_Conditions_Guide"
@@ -260,7 +357,8 @@
       "title": "Pressure Poisson solve",
       "tier": "soft",
       "watched_paths": [
-        "src/poisson.c"
+        "src/poisson.c",
+        "include/poisson.h"
       ],
       "owning_pages": [
         "25_Pressure_Poisson_GMRES_Multigrid"
@@ -276,13 +374,31 @@
       "tier": "soft",
       "watched_paths": [
         "src/initialcondition.c",
-        "src/AnalyticalSolutions.c"
+        "src/AnalyticalSolutions.c",
+        "include/initialcondition.h",
+        "include/AnalyticalSolutions.h"
       ],
       "owning_pages": [
         "33_Initial_Conditions"
       ],
       "dependent_pages": [
         "32_Analytical_Solutions"
+      ],
+      "attested_digest": "unattested"
+    },
+    {
+      "id": "verification.sources",
+      "title": "Verification-only source and coefficient overrides",
+      "tier": "soft",
+      "watched_paths": [
+        "src/verification_sources.c",
+        "include/verification_sources.h"
+      ],
+      "owning_pages": [
+        "08_Solver_Reference"
+      ],
+      "dependent_pages": [
+        "50_Modular_Selector_Extension_Guide"
       ],
       "attested_digest": "unattested"
     },
