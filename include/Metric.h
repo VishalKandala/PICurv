@@ -102,6 +102,10 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3],
  * @param[out] Ai Area of the xi-normal face.
  * @param[out] Aj Area of the eta-normal face.
  * @param[out] Ak Area of the zeta-normal face.
+ * @deprecated Unreachable from any executable: its only caller is
+ *             @ref ComputeCellCharacteristicLengthScale, which has none. Kept for now with
+ *             its unit tests; do not add new callers - use @ref ComputeCellDirectionalExtents or
+ *             @ref ComputeCellEdgeVectors, which do not depend on the cell's orientation.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, double ni[3], double nj[3], double nk[3], double *Ai, double *Aj, double *Ak);
@@ -120,6 +124,11 @@ PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, do
  *
  * @param covariantTensor   Input: rows are the three face-area vectors.
  * @param[out] contravariantTensor Inverse written in place.
+ * @deprecated Unreachable from any executable: its only caller is
+ *             @ref CalculateFaceNormalAndArea, which is reached only from the deprecated
+ *             @ref ComputeCellCharacteristicLengthScale. Kept for now with its unit tests;
+ *             do not add new callers - use @ref ComputeCellDirectionalExtents or
+ *             @ref ComputeCellEdgeVectors, which do not depend on the cell's orientation.
  * @return PetscErrorCode 0 on success; `PETSC_ERR_MAT_LU_ZRPVT` when the rows are
  *         coplanar or one of them vanishes.
  */
@@ -141,6 +150,11 @@ PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double 
  * @param[out] dx Effective physical length associated with xi variation.
  * @param[out] dy Effective physical length associated with eta variation.
  * @param[out] dz Effective physical length associated with zeta variation.
+ * @deprecated No production caller. Its outputs are Cartesian projections of the cell
+ *             diagonal, so they change when an identical cell is rotated; the LES filter
+ *             widths and the Clark term stopped using it for that reason. Kept for now
+ *             with its unit tests; do not add new callers - use @ref ComputeCellDirectionalExtents or
+ *             @ref ComputeCellEdgeVectors, which do not depend on the cell's orientation.
  * @return PetscErrorCode 0 on success.
  */
 PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz);
