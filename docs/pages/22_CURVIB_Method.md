@@ -38,10 +38,10 @@ Per-cell geometry for the subgrid models, computed from a cell's face-area vecto
 inverse volume alone, so that it is the same for an identical cell wherever and however
 it sits in space:
 
-- @ref ComputeCellDirectionalExtents: the cell's extent across each face pair (volume
+- @ref ComputeCellDirectionalExtents returns the cell's extent across each face pair (volume
   over that pair's area), from which the `geometric_mean`, `max_edge` and `scotti` filter
   widths are built;
-- @ref ComputeCellEdgeVectors: the covariant edge vector along each grid direction,
+- @ref ComputeCellEdgeVectors returns the covariant edge vector along each grid direction,
   direction and length together, which the Vreman model projects the velocity gradient
   onto.
 
