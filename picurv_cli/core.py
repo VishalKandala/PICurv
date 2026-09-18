@@ -6876,7 +6876,9 @@ def validate_les_configuration(case_cfg: dict, les_cfg: dict, case_path: str,
     except ValueError:
         model_code = None
     if model_code == 1 and les_cfg.get('enabled', True):
-        for key in ('filter_width', 'test_filter', 'averaging', 'clipping'):
+        # filter_width is deliberately absent: both models build nu_t from Delta, and
+        # ComputeEddyViscosityLES() applies the configured width to either of them.
+        for key in ('test_filter', 'averaging', 'clipping'):
             if key in les_cfg:
                 errors.append(
                     f"  {case_path}: models.physics.turbulence.les.{key} configures the dynamic "

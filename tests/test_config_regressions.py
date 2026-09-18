@@ -1624,6 +1624,25 @@ def test_les_dynamic_only_keys_are_rejected_for_the_constant_model():
     assert any("cannot be used with model 'constant_smagorinsky'" in error for error in errors)
 
 
+def test_les_filter_width_is_accepted_for_the_constant_model_and_emitted():
+    """!
+    @brief The constant model builds nu_t from Delta too, so its filter width must reach it.
+
+    @details The validator used to refuse filter_width for the constant model as though it
+             were a dynamic-procedure control, while ComputeEddyViscosityLES() applies the
+             configured width to both models. The only way to select one was a PETSc
+             passthrough of -les_filter_width.
+    """
+    les = {"enabled": True, "model": "constant_smagorinsky", "constant_cs": 0.1,
+           "filter_width": "max_edge"}
+    errors, _ = _les_validation(les)
+    assert not [error for error in errors if "filter_width" in error], errors
+
+    control_lines = []
+    load_picurv_module().append_les_parameter_flags(les, control_lines)
+    assert "-les_filter_width 2" in control_lines
+
+
 def _wall_pairing_errors(les=None, rans=None, wall=None, viscosity=0.001):
     """!
     @brief Runs the wall-model pairing validation over one turbulence block.
