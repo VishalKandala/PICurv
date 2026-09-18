@@ -321,6 +321,20 @@ PetscErrorCode ComputeCellFilterWidth(LESFilterWidthModel model, PetscReal aj,
         // The largest unresolved scale the cell can carry; conservative on stretched grids.
         *delta = PetscMax(dx, PetscMax(dy, dz));
         break;
+    case LES_FILTER_WIDTH_SCOTTI: {
+        // Scotti, Meneveau & Lilly (1993): the cube root of the extents, multiplied by
+        // f(a1, a2), where a1 and a2 are the two shorter extents over the longest. f is 1
+        // for a cube and grows with the cell's distortion. It assumes the cut-off lies in
+        // the inertial range in every direction, which a very long cell violates.
+        const double longest = PetscMax(dx, PetscMax(dy, dz));
+        const double shortest = PetscMin(dx, PetscMin(dy, dz));
+        const double middle = dx + dy + dz - longest - shortest;
+        const double ln_a1 = log(shortest / longest), ln_a2 = log(middle / longest);
+        const double shape = cosh(sqrt((4.0 / 27.0) *
+                                       (ln_a1 * ln_a1 - ln_a1 * ln_a2 + ln_a2 * ln_a2)));
+        *delta = PetscPowReal(PetscMax(dx * dy * dz, LES_EPSILON), 1.0 / 3.0) * shape;
+        break;
+    }
     case LES_FILTER_WIDTH_GEOMETRIC_MEAN:
     default:
         *delta = PetscPowReal(PetscMax(dx * dy * dz, LES_EPSILON), 1.0 / 3.0);

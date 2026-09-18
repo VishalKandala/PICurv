@@ -12126,15 +12126,15 @@ def normalize_les_filter_width(value) -> int:
     @brief Maps LES grid-filter-width model names to the C -les_filter_width flag.
     @param[in] value Filter-width model name or integer code.
     @return 0 for cube-root volume, 1 for the geometric mean of the cell extents,
-            2 for the longest cell extent.
+            2 for the longest cell extent, 3 for the Scotti aspect-ratio correction.
     @throws ValueError if the input cannot be mapped.
     """
     if isinstance(value, bool):
         raise ValueError("models.physics.turbulence.les.filter_width must name a model, not a boolean.")
     if isinstance(value, int):
-        if value in (0, 1, 2):
+        if value in (0, 1, 2, 3):
             return value
-        raise ValueError("models.physics.turbulence.les.filter_width must be 0, 1, 2, or a supported model name.")
+        raise ValueError("models.physics.turbulence.les.filter_width must be 0, 1, 2, 3, or a supported model name.")
     if value is None:
         raise ValueError("LES filter_width cannot be None")
 
@@ -12143,11 +12143,12 @@ def normalize_les_filter_width(value) -> int:
         "cube_root_volume": 0,
         "geometric_mean": 1,
         "max_edge": 2,
+        "scotti": 3,
     }.get(key)
     if mapped is None:
         raise ValueError(
             f"Unknown LES filter width model '{value}'. Use one of: "
-            "'cube_root_volume', 'geometric_mean', 'max_edge'."
+            "'cube_root_volume', 'geometric_mean', 'max_edge', 'scotti'."
         )
     return mapped
 

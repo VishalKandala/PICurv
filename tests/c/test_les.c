@@ -174,6 +174,45 @@ static PetscErrorCode TestFilterWidthIsIndependentOfCellOrientation(void)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Tests the Scotti aspect-ratio correction against its closed form.
+ *
+ * @details Scotti, Meneveau & Lilly (1993) multiply the cube root of the extents by
+ *          f(a1, a2) = cosh(sqrt((4/27)(ln^2 a1 - ln a1 ln a2 + ln^2 a2))), with a1, a2
+ *          the two shorter extents over the longest. f is exactly 1 for a cube, so the
+ *          width must equal the cube root there, and it must be unchanged by rotating
+ *          the cell.
+ */
+static PetscErrorCode TestScottiFilterWidthMatchesClosedForm(void)
+{
+    const Cmpnts cube[3]  = {{1.5, 0.0, 0.0}, {0.0, 1.5, 0.0}, {0.0, 0.0, 1.5}};
+    const Cmpnts brick[3] = {{1.0, 0.0, 0.0}, {0.0, 2.0, 0.0}, {0.0, 0.0, 8.0}};
+    const PetscReal c45 = PetscCosReal(PETSC_PI / 4.0), s45 = PetscSinReal(PETSC_PI / 4.0);
+    Cmpnts    turned[3], csi, eta, zet;
+    PetscReal aj, delta, delta_turned, cube_root;
+
+    PetscFunctionBeginUser;
+    ParallelepipedMetrics(cube[0], cube[1], cube[2], &csi, &eta, &zet, &aj);
+    PetscCall(ComputeCellFilterWidth(LES_FILTER_WIDTH_SCOTTI, aj, csi, eta, zet, &delta));
+    PetscCall(ComputeCellFilterWidth(LES_FILTER_WIDTH_CUBE_ROOT_VOLUME, aj, csi, eta, zet, &cube_root));
+    PetscCall(PicurvAssertRealNear(cube_root, delta, 1.0e-12, "the Scotti correction is 1 for a cube"));
+
+    /* 1 x 2 x 8: a1 = 1/8, a2 = 1/4, f = 1.2596408907321084. */
+    ParallelepipedMetrics(brick[0], brick[1], brick[2], &csi, &eta, &zet, &aj);
+    PetscCall(ComputeCellFilterWidth(LES_FILTER_WIDTH_SCOTTI, aj, csi, eta, zet, &delta));
+    PetscCall(PicurvAssertRealNear(3.1740961470834224, delta, 1.0e-12,
+                                   "Scotti width of a 1 x 2 x 8 cell matches the closed form"));
+
+    for (PetscInt e = 0; e < 3; ++e) {
+        const Cmpnts v = brick[e];
+        turned[e] = (Cmpnts){c45 * v.x - s45 * v.z, v.y, s45 * v.x + c45 * v.z};
+    }
+    ParallelepipedMetrics(turned[0], turned[1], turned[2], &csi, &eta, &zet, &aj);
+    PetscCall(ComputeCellFilterWidth(LES_FILTER_WIDTH_SCOTTI, aj, csi, eta, zet, &delta_turned));
+    PetscCall(PicurvAssertRealNear(delta, delta_turned, 1.0e-12, "the Scotti width is orientation independent"));
+    PetscFunctionReturn(0);
+}
+
 /** @brief Tests that the Leonard stress vanishes on a uniform velocity field. */
 static PetscErrorCode TestLeonardStressVanishesOnUniformFlow(void)
 {
@@ -940,6 +979,7 @@ int main(int argc, char **argv)
         {"strain-rate-from-gradients", TestStrainRateFromGradients},
         {"filter-width-models-separate-on-stretched-cell", TestFilterWidthModelsSeparateOnStretchedCell},
         {"filter-width-is-independent-of-cell-orientation", TestFilterWidthIsIndependentOfCellOrientation},
+        {"scotti-filter-width-matches-closed-form", TestScottiFilterWidthMatchesClosedForm},
         {"leonard-stress-vanishes-on-uniform-flow", TestLeonardStressVanishesOnUniformFlow},
         {"germano-model-tensor-on-constant-strain", TestGermanoModelTensorOnConstantStrain},
         {"germano-model-tensor-uses-filtered-product", TestGermanoModelTensorUsesFilteredProduct},

@@ -530,7 +530,9 @@ boundary conditions do not declare periodic.
 
 **Match the filter width to the cell aspect ratio.** `filter_width` defaults to
 `cube_root_volume`, which is exact for a cube and progressively optimistic as a cell is
-stretched. On a wall-normal channel mesh, `max_edge` is the defensible choice.
+stretched. On a wall-resolved mesh with moderately stretched cells, `scotti` corrects that
+optimism without inflating the width at the wall; `max_edge` suits wall-modelled or hybrid
+runs, where near-wall cells are meant to be coarse.
 
 **Turn the diagnostics on before trusting anything.**
 

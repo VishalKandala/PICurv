@@ -764,6 +764,7 @@ const char* LESFilterWidthModelToString(LESFilterWidthModel model)
         case LES_FILTER_WIDTH_CUBE_ROOT_VOLUME: return "cube_root_volume";
         case LES_FILTER_WIDTH_GEOMETRIC_MEAN:   return "geometric_mean";
         case LES_FILTER_WIDTH_MAX_EDGE:         return "max_edge";
+        case LES_FILTER_WIDTH_SCOTTI:           return "scotti";
         default: return "unknown";
     }
 }

@@ -610,6 +610,16 @@
           "status": "experimental",
           "canonical": true,
           "evidence": {}
+        },
+        "scotti": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-les",
+              "file:tests/c/test_les.c"
+            ]
+          }
         }
       }
     },

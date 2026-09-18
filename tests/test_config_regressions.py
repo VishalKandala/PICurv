@@ -1643,6 +1643,22 @@ def test_les_filter_width_is_accepted_for_the_constant_model_and_emitted():
     assert "-les_filter_width 2" in control_lines
 
 
+def test_les_scotti_filter_width_is_accepted_and_emitted_for_both_models():
+    """!
+    @brief The Scotti aspect-ratio correction reaches the runtime under either model.
+    """
+    picurv = load_picurv_module()
+    assert picurv.normalize_les_filter_width("scotti") == 3
+    assert picurv.normalize_les_filter_width(3) == 3
+    for model in ("constant_smagorinsky", "dynamic_smagorinsky"):
+        les = {"enabled": True, "model": model, "filter_width": "scotti"}
+        errors, _ = _les_validation(les)
+        assert not [error for error in errors if "filter_width" in error], (model, errors)
+        control_lines = []
+        picurv.append_les_parameter_flags(les, control_lines)
+        assert "-les_filter_width 3" in control_lines, model
+
+
 def _wall_pairing_errors(les=None, rans=None, wall=None, viscosity=0.001):
     """!
     @brief Runs the wall-model pairing validation over one turbulence block.

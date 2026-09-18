@@ -138,6 +138,7 @@ Selector: `case.yml -> models.physics.turbulence.les.filter_width`
 | `cube_root_volume` | `0` |
 | `geometric_mean` | `1` |
 | `max_edge` | `2` |
+| `scotti` | `3` |
 
 ### LES Coefficient Averaging Modes
 

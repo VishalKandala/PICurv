@@ -576,13 +576,15 @@ typedef enum {
 /** @brief Selects how a cell's grid filter width is derived from its metrics.
  *
  * `CUBE_ROOT_VOLUME` is exact for a cube and progressively underestimates the
- * width as a cell is stretched; the other two recover the anisotropy from the
- * Cartesian cell extents. See @ref ComputeCellFilterWidth.
+ * width as a cell is stretched. The others use the cell's extents along its own grid
+ * directions: `SCOTTI` corrects the cube root for the cell's aspect ratios, and
+ * `MAX_EDGE` takes the longest extent. See @ref ComputeCellFilterWidth.
  */
 typedef enum {
     LES_FILTER_WIDTH_CUBE_ROOT_VOLUME = 0,
     LES_FILTER_WIDTH_GEOMETRIC_MEAN   = 1,
-    LES_FILTER_WIDTH_MAX_EDGE         = 2
+    LES_FILTER_WIDTH_MAX_EDGE         = 2,
+    LES_FILTER_WIDTH_SCOTTI           = 3
 } LESFilterWidthModel;
 
 /** @brief Selects the discrete test-filter kernel used by the dynamic procedure.

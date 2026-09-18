@@ -510,6 +510,51 @@ a wall-resolved LES: a wall-adjacent cell inherits the streamwise spacing as its
 so its eddy viscosity rises by the square of the cell aspect ratio, which can be several
 hundred, exactly where the resolved wall layer has to survive.
 
+@subsection p07_cap_width_scotti_sub scotti
+
+@anchor p07_cap_width_scotti
+
+**Identity.** `les.filter_width: scotti` -> `-les_filter_width 3` ->
+`LES_FILTER_WIDTH_SCOTTI` -> @ref ComputeCellFilterWidth.
+
+**What it does.** Scotti, Meneveau & Lilly (1993): the cube root of the cell's extents
+along its own grid directions, multiplied by
+`f(a1, a2) = cosh(sqrt((4/27)(ln^2 a1 - ln a1 ln a2 + ln^2 a2)))`, where `a1` and `a2`
+are the two shorter extents divided by the longest. `f` is exactly 1 for a cube and grows
+with the cell's distortion.
+
+**When to choose it.** A wall-resolved mesh with moderately stretched cells, where
+`cube_root_volume` under-reports the unresolved scale and `max_edge` would inflate the
+width of every wall-adjacent cell to the streamwise spacing. It sits between the two:
+on the Humphrey bend mesh it raises the width by `f = 1.06` at the duct centre, `1.34` at
+the cells 5-20 wall layers out where grid-scale oscillation appeared, and `2.1-2.2` in
+the wall-adjacent cells - an eddy viscosity 1.1, 1.8 and 4.4-4.8 times the cube-root
+value. `geometric_mean` and `cube_root_volume` apply no correction at all.
+
+**Parameters it owns.** None.
+
+**Interactions.** Applies to both Smagorinsky models. It changes the eddy viscosity
+only; the Clark gradient term takes its widths from the cell differences themselves and
+is unaffected by `filter_width`.
+
+**Diagnostics.** No dedicated output. Its effect appears in the eddy-viscosity field and,
+with LES diagnostics enabled, in the `nu_t` levels of the coefficient log; the startup
+banner names the resolved width model as `scotti`.
+
+**Evidence.** Implemented, with unit coverage run by `make unit-les`: `tests/c/test_les.c` case
+`scotti-filter-width-matches-closed-form` requires `f = 1` for a cube, the closed-form
+width for a 1 x 2 x 8 cell, and the same width after rotating it; the
+`filter-width-is-independent-of-cell-orientation` case covers the shared extents. Not
+validated against a reference flow.
+
+**Limitations.** The derivation assumes the cut-off lies in the inertial range in every
+direction. Along the long side of a strongly stretched cell it reaches the
+energy-containing scales instead, so the correction loses its basis as aspect ratios
+grow. It is still a single width for a cell that is fine in some directions and coarse
+in another; a model that weights each direction by its own spacing, such as Vreman's,
+addresses that directly. A modest correction may also be too small to control
+grid-scale oscillation where the resolved flow supplies little strain.
+
 @section p07_les_avg_sec 5.2 Coefficient Averaging Entries
 
 `averaging.mode` selects the set the two Germano contractions are averaged over before

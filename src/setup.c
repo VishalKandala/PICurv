@@ -239,9 +239,9 @@ static PetscErrorCode ParseLESConfiguration(SimCtx *simCtx)
 
     selector = (PetscInt)config->filter_width_model;
     PetscCall(PetscOptionsGetInt(NULL, NULL, "-les_filter_width", &selector, NULL));
-    PetscCheck(selector >= LES_FILTER_WIDTH_CUBE_ROOT_VOLUME && selector <= LES_FILTER_WIDTH_MAX_EDGE,
+    PetscCheck(selector >= LES_FILTER_WIDTH_CUBE_ROOT_VOLUME && selector <= LES_FILTER_WIDTH_SCOTTI,
                PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
-               "-les_filter_width must be 0 (cube_root_volume), 1 (geometric_mean), or 2 (max_edge); received %" PetscInt_FMT ".",
+               "-les_filter_width must be 0 (cube_root_volume), 1 (geometric_mean), 2 (max_edge), or 3 (scotti); received %" PetscInt_FMT ".",
                selector);
     config->filter_width_model = (LESFilterWidthModel)selector;
 

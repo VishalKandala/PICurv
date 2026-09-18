@@ -240,8 +240,12 @@ models:
         # How each cell's grid filter width Delta is derived.
         #   cube_root_volume -> (cell volume)^(1/3); exact for a cube and increasingly
         #                       optimistic as the cell is stretched.
-        #   geometric_mean   -> geometric mean of the Cartesian cell extents.
-        #   max_edge         -> the longest extent; conservative on stretched grids.
+        #   geometric_mean   -> geometric mean of the cell's extents along its own grid
+        #                       directions; equals cube_root_volume on orthogonal cells.
+        #   max_edge         -> the longest extent; for wall-modelled or hybrid runs, not
+        #                       a wall-resolved mesh, where it swamps the wall layer.
+        #   scotti           -> cube root corrected for the cell's aspect ratios; the
+        #                       choice for moderately stretched wall-resolved cells.
         # [String] -> -les_filter_width
         filter_width: "cube_root_volume"
 

@@ -480,6 +480,10 @@
       "max_edge": {
         "maps_to": 2,
         "status": "experimental"
+      },
+      "scotti": {
+        "maps_to": 3,
+        "status": "experimental"
       }
     },
     "selector": "case.yml -> models.physics.turbulence.les.filter_width",
