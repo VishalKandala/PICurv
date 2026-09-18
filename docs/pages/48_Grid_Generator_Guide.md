@@ -190,6 +190,21 @@ direction. Central convection adds no dissipation of its own, so such a directio
 entirely on the subgrid model, or on a scheme that upwinds, to stay free of grid-scale
 oscillation.
 
+The **[Grid-Scale Damping]** block states how long viscosity takes to clear a two-cell
+oscillation along each direction, `Delta_max^2 / (4 nu (1 + nut_ratio))`, in the grid's
+time units and, given `length_ref` and `velocity_ref`, in convective units
+`length_ref / velocity_ref`. Central transport's modified wavenumber
+`sin(k Delta) / Delta` vanishes for that pattern, so it is neither moved nor damped by the
+transport term and viscosity is its only removal. A damping time comparable to or longer
+than the planned run means grid-scale noise along that direction is never cleared.
+
+`--nut-ratio` supplies the eddy-to-molecular viscosity ratio the design expects at the
+grid scale, and the report then also states the effective cell Reynolds number. Like
+`Re_tau` it is an assumption, not a measurement. Leave it out to see the molecular-only
+numbers, which are what any laminar or transitional stretch of a run actually has: a
+dynamic subgrid model correctly produces almost no eddy viscosity until resolved
+turbulence exists.
+
 This is also the way to stop computing `y+` by hand. `first_cell_*` is a fraction of the
 axis length, so a wall-normal axis of length `Ly` needs
 `first_cell_j = (y_plus_target / Re_tau) / Ly`. Supply the reference scales and the report

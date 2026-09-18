@@ -1137,7 +1137,8 @@ def box_grid(
 
 def resolve_reference_quantities(length_ref: Optional[float], nu: Optional[float],
                                  velocity_ref: Optional[float], re_tau: Optional[float],
-                                 u_tau: Optional[float]) -> Optional[Dict[str, float]]:
+                                 u_tau: Optional[float],
+                                 nut_ratio: Optional[float] = None) -> Optional[Dict[str, float]]:
     """!
     @brief Resolve the reference scales the quality report needs to add units.
     @details These describe the grid, they never move it. Non-dimensionalization stays
@@ -1153,11 +1154,16 @@ def resolve_reference_quantities(length_ref: Optional[float], nu: Optional[float
     @param[in] velocity_ref Reference velocity.
     @param[in] re_tau Target friction Reynolds number.
     @param[in] u_tau Friction velocity, as an alternative to `re_tau`.
+    @param[in] nut_ratio Eddy-to-molecular viscosity ratio the design expects at the grid
+               scale. A design assumption like `re_tau`; absent means molecular only,
+               which is what any laminar or transitional stretch of a run will have.
     @return Resolved reference scales, or None when nothing was supplied.
     @throws ValueError when a supplied combination cannot be interpreted.
     """
     if all(value is None for value in (length_ref, nu, velocity_ref, re_tau, u_tau)):
         return None
+    if nut_ratio is not None and nut_ratio < 0.0:
+        raise ValueError("nut_ratio is an eddy-to-molecular viscosity ratio and cannot be negative")
     reference: Dict[str, float] = {}
     if length_ref is not None:
         if length_ref <= 0.0:
@@ -1182,6 +1188,8 @@ def resolve_reference_quantities(length_ref: Optional[float], nu: Optional[float
         reference['re_tau'] = re_tau
     if nu is not None:
         reference['nu'] = nu
+    if nut_ratio is not None:
+        reference['nut_ratio'] = nut_ratio
     if velocity_ref is not None:
         # Kept, not just consumed: the report lists velocity_ref among the reference
         # scales, and the convective resolution is measured against it.
@@ -1369,6 +1377,24 @@ def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray,
                 }
                 for axis, width in spacings.items()
             }
+        if nu:
+            # The slowest viscous decay of a two-cell oscillation along each direction.
+            # Central transport cannot move or damp that pattern at all (its modified
+            # wavenumber sin(k Delta)/Delta vanishes at k Delta = pi), so viscosity alone
+            # clears it, at rate 4 nu_eff / Delta^2. A time comparable to or longer than
+            # the run means grid-scale noise along that direction is never removed.
+            nut_ratio = reference.get('nut_ratio') or 0.0
+            nu_eff = nu*(1.0 + nut_ratio)
+            stats['grid_scale_damping'] = {
+                'nut_ratio': nut_ratio,
+                'axes': {axis: float(np.max(width))**2/(4.0*nu_eff)
+                         for axis, width in spacings.items()},
+            }
+            if length_ref and velocity_ref:
+                stats['grid_scale_damping']['convective_time'] = length_ref/velocity_ref
+            if 'cell_reynolds' in stats:
+                for entry in stats['cell_reynolds'].values():
+                    entry['max_effective'] = entry['max']/(1.0 + nut_ratio)
 
     # --- Non-Orthogonality ---
     dC_i=C[1:,:,:]-C[:-1,:,:]; S_i=0.5*np.cross(P[1:-1,1:,1:]-P[1:-1,:-1,:-1], P[1:-1,:-1,1:]-P[1:-1,1:,:-1], axis=-1)
@@ -1558,6 +1584,24 @@ def export_stats_to_file(filename: str, stats: dict) -> None:
                     entry = cell_re[axis]
                     f.write(f"Max_Cell_Reynolds_{axis} = {entry['max']:.4f}\n")
                     f.write(f"Avg_Cell_Reynolds_{axis} = {entry['mean']:.4f}\n")
+                    if 'max_effective' in entry:
+                        f.write(f"Max_Effective_Cell_Reynolds_{axis} = {entry['max_effective']:.4f}\n")
+
+            damping = stats.get('grid_scale_damping')
+            if damping:
+                f.write("\n[Grid-Scale Damping]\n")
+                f.write("# Slowest decay time of a two-cell oscillation along each direction,\n")
+                f.write("# Delta_max^2 / (4 nu (1 + nut_ratio)). Central transport cannot damp\n")
+                f.write("# that pattern, so this is the only removal it gets. Compare it with the\n")
+                f.write("# planned run duration: a longer time means the noise is never cleared.\n")
+                f.write(f"Assumed_Nut_Ratio = {damping['nut_ratio']:.4f}"
+                        f"{'  # molecular only: laminar or transitional stretches' if not damping['nut_ratio'] else ''}\n")
+                for axis in ('i', 'j', 'k'):
+                    f.write(f"Damping_Time_{axis} = {damping['axes'][axis]:.6e}\n")
+                if 'convective_time' in damping:
+                    for axis in ('i', 'j', 'k'):
+                        f.write(f"Damping_Time_{axis}_Convective_Units = "
+                                f"{damping['axes'][axis]/damping['convective_time']:.4f}\n")
 
         print(f"Grid quality statistics successfully exported to: '{filename}'")
     except IOError as e:
@@ -1677,7 +1721,7 @@ python3 generators/grid.gen box --config config/grids/plane_channel_retau180.cfg
             'first_cell_k_start': None, 'first_cell_k_end': None,
             'transforms': None,
             'length_ref': None, 'nu': None, 'velocity_ref': None,
-            're_tau': None, 'u_tau': None,
+            're_tau': None, 'u_tau': None, 'nut_ratio': None,
             'mg_levels': None, 'periodic': None,
         },
         'sweep': {
@@ -1691,7 +1735,7 @@ python3 generators/grid.gen box --config config/grids/plane_channel_retau180.cfg
             'first_cell_k_start': None, 'first_cell_k_end': None,
             'transforms': None,
             'length_ref': None, 'nu': None, 'velocity_ref': None,
-            're_tau': None, 'u_tau': None,
+            're_tau': None, 'u_tau': None, 'nut_ratio': None,
             'mg_levels': None, 'periodic': None,
         },
     }
@@ -1727,6 +1771,10 @@ python3 generators/grid.gen box --config config/grids/plane_channel_retau180.cfg
                  "wall units derived from it are reported as nominal.")
     add_arg(parent, '--u-tau', type=float,
             help="Friction velocity, as an alternative to --re-tau. Needs --nu.")
+    add_arg(parent, '--nut-ratio', type=float,
+            help="Eddy-to-molecular viscosity ratio expected at the grid scale. A design\n"
+                 "assumption for the report's effective cell Reynolds number and\n"
+                 "grid-scale damping time; absent means molecular only.")
     add_arg(parent, '--transforms', type=str, nargs='+', metavar='OP',
             help="Placement/similarity transforms applied after the geometry map, in\n"
                  "order. Each is 'kind:key=value,key=value' with kind one of "
@@ -1874,7 +1922,7 @@ python3 generators/grid.gen box --config config/grids/plane_channel_retau180.cfg
         reference = resolve_reference_quantities(
             getattr(args, 'length_ref', None), getattr(args, 'nu', None),
             getattr(args, 'velocity_ref', None), getattr(args, 're_tau', None),
-            getattr(args, 'u_tau', None))
+            getattr(args, 'u_tau', None), getattr(args, 'nut_ratio', None))
     except ValueError as exc:
         parser.error(str(exc))
 

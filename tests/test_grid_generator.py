@@ -586,3 +586,43 @@ def test_a_grid_with_no_velocity_scale_reports_no_cell_reynolds_number():
     reference = GRID.resolve_reference_quantities(1.0, None, None, None, None)
     X, Y, Z, factors = shaped_box(bounds_x=(0.0, 1.0))
     assert 'cell_reynolds' not in GRID.analyze_grid_quality(X, Y, Z, factors, reference)
+
+
+def test_grid_scale_damping_time_is_the_viscous_decay_of_a_two_cell_oscillation():
+    """! @brief Delta^2/(4 nu_eff) per direction, the only removal central transport gives it.
+
+    @details Central transport's modified wavenumber sin(k Delta)/Delta vanishes for the
+             two-cell pattern, so viscosity alone clears it, at rate 4 nu_eff/Delta^2. On
+             the Humphrey grid that time was about six convective units streamwise, longer
+             than the three-unit run that failed, and nothing reported it.
+    """
+    reference = GRID.resolve_reference_quantities(1.0, 2.5e-5, 1.0, None, None)
+    X, Y, Z, factors = shaped_box(bounds_x=(0.0, 1.0))
+    stats = GRID.analyze_grid_quality(X, Y, Z, factors, reference)
+
+    spacing_i = float(np.max(GRID._axis_spacings(X, Y, Z, 0)))
+    damping = stats['grid_scale_damping']
+    assert damping['nut_ratio'] == 0.0, "absent means molecular only"
+    assert damping['axes']['i'] == pytest.approx(spacing_i**2/(4.0*2.5e-5))
+    assert damping['convective_time'] == pytest.approx(1.0)
+
+
+def test_an_expected_eddy_viscosity_scales_the_effective_numbers_it_claims_to():
+    """! @brief nut_ratio divides the cell Reynolds number and the damping time by 1 + ratio. """
+    X, Y, Z, factors = shaped_box(bounds_x=(0.0, 1.0))
+    molecular = GRID.analyze_grid_quality(
+        X, Y, Z, factors, GRID.resolve_reference_quantities(1.0, 2.5e-5, 1.0, None, None))
+    modelled = GRID.analyze_grid_quality(
+        X, Y, Z, factors, GRID.resolve_reference_quantities(1.0, 2.5e-5, 1.0, None, None, 4.0))
+
+    for axis in ('i', 'j', 'k'):
+        assert modelled['cell_reynolds'][axis]['max_effective'] == pytest.approx(
+            molecular['cell_reynolds'][axis]['max']/5.0)
+        assert modelled['grid_scale_damping']['axes'][axis] == pytest.approx(
+            molecular['grid_scale_damping']['axes'][axis]/5.0)
+
+
+def test_a_negative_eddy_viscosity_ratio_is_refused():
+    """! @brief A ratio below zero has no physical reading for a design estimate. """
+    with pytest.raises(ValueError, match="nut_ratio"):
+        GRID.resolve_reference_quantities(1.0, 2.5e-5, 1.0, None, None, -1.0)
