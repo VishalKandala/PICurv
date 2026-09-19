@@ -53,7 +53,8 @@ Key mappings:
 - `scaling.velocity_ref` -> `-scaling_U_ref`
 - `fluid.density` and `fluid.viscosity` are used by `picurv` to compute Reynolds number -> `-ren`
 - `generator: zero|constant|poiseuille|streamwise_constant` -> the corresponding built-in `-finit` mode
-- `mode: file` and `generator: ic_gen` -> `-finit 4`, `-ic_field`, and staged `-ic_dir`
+- `mode: file` and Python IC providers (`ic_gen`, `spectral_random_velocity`,
+  `channel_spectral_velocity`, `duct_spectral_velocity`) -> `-finit 4`, `-ic_field`, and staged `-ic_dir`
 - `params.u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z`
 - `params.velocity_physical` and `params.peak_velocity_physical` -> `-ic_velocity_physical`
 - `flow_direction` -> `-flow_direction <int>` (`+Xi=0,-Xi=1,+Eta=2,-Eta=3,+Zeta=4,-Zeta=5`)
@@ -66,6 +67,8 @@ Practical contract notes:
 - `initial_conditions.mode` is `generated` or `file`.
 - generated built-ins are `zero`, `constant`, `streamwise_constant`, and `poiseuille`.
 - `generator: ic_gen` defaults to `generators/ic.gen`; optional `params.script` selects a compatible override.
+- channel/duct spectral providers require no-slip wall pairs, periodic remaining axes,
+  and explicit initial plane/line spectra; see @ref p33_wall_spectral_sec.
 - file-backed ICs accept one PETSc binary `Ucat` or `Ucont` vector and currently require a single-block case.
 - `flow_direction` is required for curvilinear Constant and Poiseuille when no INLET face exists.
 - `eulerian_field_source` and restart selection supersede `initial_conditions`.

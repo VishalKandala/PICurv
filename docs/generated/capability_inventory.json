@@ -819,6 +819,14 @@
     "id": "post.spectra_task",
     "parity": [],
     "public_values": {
+      "line_spectrum": {
+        "maps_to": "line_spectrum",
+        "status": "experimental"
+      },
+      "plane_spectrum": {
+        "maps_to": "plane_spectrum",
+        "status": "experimental"
+      },
       "shell_spectrum": {
         "maps_to": "shell_spectrum",
         "status": "experimental"
@@ -1035,5 +1043,30 @@
     },
     "selector": "picurv storage offload/plan --retain / --drop",
     "title": "Storage Retention Components"
+  },
+  {
+    "family_page": "33_Initial_Conditions",
+    "id": "initial.file_generator",
+    "parity": [],
+    "public_values": {
+      "channel_spectral_velocity": {
+        "maps_to": "channel_spectral_velocity",
+        "status": "experimental"
+      },
+      "duct_spectral_velocity": {
+        "maps_to": "duct_spectral_velocity",
+        "status": "experimental"
+      },
+      "ic_gen": {
+        "maps_to": "ic_gen",
+        "status": "experimental"
+      },
+      "spectral_random_velocity": {
+        "maps_to": "spectral_random_velocity",
+        "status": "experimental"
+      }
+    },
+    "selector": "case.yml -> properties.initial_conditions.generator (Python providers)",
+    "title": "File-backed Initial Condition Generators"
   }
 ]

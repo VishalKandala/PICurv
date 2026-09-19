@@ -115,14 +115,16 @@ is a test-local routine.
     honoured skip directories, and the non-Git fallback
   - each scanner runs against the current dirty tree
 - `test_post_spectra_config.py`
-  - spectra recipe normalization, task identity, and stage selection
+  - spectra recipe normalization, plane/line selection identity, and stage selection
   - periodic-box preconditions, and refusal of wall-bounded or multi-block domains
   - recipe signature, predicted artifacts, and staged follow commands
 - `test_spectra_shell_spectrum.py`
   - determinism, prescribed-envelope recovery, and Parseval closure for both symbols
-  - DMDA interior extraction, and refusal of stretched or curvilinear grids
+  - DMDA interior extraction; shell rejection of stretching, plane/line allowance of transverse stretching
+  - actual sample Fourier modes, Parseval closure, and real staging/checkpoint generator dispatch
 - `test_spectral_random_velocity.py`
   - solenoidal projection, component-energy balance, and directional isotropy
+  - channel/duct discrete-curl seeds on stretched wall axes, flux and boundary consistency
   - PETSc axis mapping, Nyquist reality, and subordination to a restarted state
 - `test_profile_field_slice.py`
   - cell-centered DMDA slice length, dummy layers never sampled, and each face

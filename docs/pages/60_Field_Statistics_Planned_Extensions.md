@@ -73,7 +73,7 @@ was wanted. Homogeneous-direction averaging is the case this serves.
 | @ref p60_reducer_sec | @ref p60_reduction_sec | one reducer behind flow observables |
 | @ref p60_dimensional_sec | nothing | dimensional derived statistics |
 | @ref p60_stats_boundary_sec | nothing | meaningful statistics at walls, inlets, and outlets |
-| @ref p60_spectra_partial_sec | nothing | spectra for channels, ducts, and boundary layers |
+| @ref p60_spectra_partial_sec | selected Cartesian planes/lines | ensembles, masks, and expanded plotting |
 | @ref p60_spectra_temporal_sec | bounded probe history | frequency spectra where nothing is homogeneous |
 | @ref p60_spectra_online_sec | @ref p60_spectra_temporal_sec for the transpose | spatial spectra without a snapshot series |
 
@@ -340,26 +340,12 @@ is the same class of case that needs @ref p60_spectra_partial_sec.
 
 @section p60_spectra_partial_sec 13. Offline Line And Plane Spectra
 
-**What exists today.** `post.yml -> spectra` implements one task, `shell_spectrum`,
-which requires all three directions to be periodic and homogeneous. See
-@ref p10_spectra_sec.
-
-**What is missing.** Everything between "homogeneous in three directions" and
-"homogeneous in none": a channel homogeneous in two directions and bounded in the
-third, a straight duct homogeneous in one, a spatially developing boundary layer
-homogeneous in the spanwise direction alone. This is the most common wall-bounded
-turbulence configuration there is, and it is presently unserved — a channel has a
-perfectly good spatial spectrum that the pipeline cannot produce.
-
-Note this is *not* what @ref p60_spectra_temporal_sec covers. That section is for
-geometries with no homogeneous direction at all, where only a frequency spectrum is
-defined. A channel has homogeneous directions, and what is wanted there is a
-wavenumber spectrum resolving scales, not a frequency spectrum at a probe.
-
-**Why it is first among the three spectral extensions.** It needs no new online state,
-no retained history, no FFT in the solver, and no MPI transpose. It reuses the offline
-stage exactly as it stands: read a committed checkpoint, transform, bin, write. Of the
-three, it is the only one that is purely additive to machinery already running.
+Selected physical plane and line spectra are now experimental implementations in
+`generators/spectra.gen`; see @ref p10_cap_spec_plane_spectrum and
+@ref p10_cap_spec_line_spectrum for their current contracts. The remaining proposals
+below concern broader reductions, mask handling, plotting, and scale. They are not
+implemented options. Current tasks require Cartesian unmasked samples and explicit
+axes/physical-cell indices; they do not infer a reduction from topology.
 
 @subsection p60_spectra_partial_shape_sub The reduction is the choice, not the topology
 

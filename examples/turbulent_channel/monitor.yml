@@ -1,7 +1,12 @@
-logging: {verbosity: INFO, enabled_functions: []}
+# Statistics window is a configurable placeholder, disabled until stationarity is established.
+logging:
+  verbosity: INFO
+  enabled_functions: []
 profiling:
-  timestep_output: {mode: "off"}
-  final_summary: {enabled: true}
+  timestep_output:
+    mode: 'off'
+  final_summary:
+    enabled: true
 diagnostics:
   petsc:
     malloc_debug: false
@@ -16,26 +21,27 @@ diagnostics:
     log_trace: false
     objects_dump: false
     options_left: null
-  runtime_memory_log: {enabled: true, file: Runtime_Memory.log}
+  runtime_memory_log:
+    enabled: true
+    file: Runtime_Memory.log
 io:
   data_output_frequency: 100
   particle_console_output_frequency: 0
   particle_log_interval: 1
   statistics_console_output_frequency: 100
-
-# One window, opened after the flow has had time to leave its initial state. The
-# first and second moments of Ucat are what the literature comparison needs: the
-# mean profile gives u+ against y+, and the second moments give the Reynolds
-# stresses. Averaging in time here is separate from the spatial averaging the LES
-# coefficient uses; the two answer different questions.
 field_statistics:
-  enabled: true
+  enabled: false
   windows:
-    - name: developed
-      start_time: 10.0
-      end_time: 20.0
-      weighting: physical_time
-      step_cadence: 5
-      fields:
-        - {field: Ucat, moments: [first, second]}
-        - {field: P, moments: [first]}
+  - name: developed
+    start_time: 50.0
+    end_time: 100.0
+    weighting: physical_time
+    step_cadence: 5
+    fields:
+    - field: Ucat
+      moments:
+      - first
+      - second
+    - field: P
+      moments:
+      - first

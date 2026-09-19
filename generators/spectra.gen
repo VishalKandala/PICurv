@@ -225,10 +225,11 @@ def extract_interior_cells_scalar(values, node_dims):
     return values.reshape((km + 1, jm + 1, im + 1))[1:km, 1:jm, 1:im]
 
 
-def validate_spectral_grid(nodes):
+def validate_spectral_grid(nodes, transform_axes=(0, 1, 2)):
     """!
     @brief Validate the uniform Cartesian grid an FFT-based spectrum requires.
     @param[in] nodes PICGRID node-coordinate array shaped `(KM, JM, IM, 3)`.
+    @param[in] transform_axes Cartesian axes that require uniform spacing.
     @return Cell counts in storage order and physical lengths in Cartesian order.
     """
     numpy = require_numpy()
@@ -237,9 +238,9 @@ def validate_spectral_grid(nodes):
     if min(cells) < 4:
         raise ValueError(f"shell_spectrum requires at least four cells per axis; found {cells}.")
     axes = (nodes[0, 0, :, 0], nodes[0, :, 0, 1], nodes[:, 0, 0, 2])
-    for physical_axis, values in zip("xyz", axes):
+    for axis, (physical_axis, values) in enumerate(zip("xyz", axes)):
         delta = numpy.diff(values)
-        if not numpy.all(delta > 0) or not numpy.allclose(delta, delta[0], rtol=1e-10, atol=1e-12):
+        if not numpy.all(numpy.isfinite(delta)) or not numpy.all(delta > 0) or (axis in transform_axes and not numpy.allclose(delta, delta[0], rtol=1e-10, atol=1e-12)):
             raise ValueError(f"shell_spectrum requires uniform positive {physical_axis} spacing.")
     if not (numpy.allclose(nodes[..., 0], axes[0][None, None, :]) and
             numpy.allclose(nodes[..., 1], axes[1][None, :, None]) and
@@ -401,12 +402,73 @@ def shell_spectrum(field, lengths_xyz, symbol="continuum"):
     }
 
 
-def generate_shell_spectrum(field_file: str, source_grid: str, block: int,
+def sampled_spectrum(field, nodes, transform_axes, fixed_indices, subtract_sample_mean=False,
+                     velocity_ref=1.0, length_ref=1.0):
+    """!
+    @brief FFT one actual cell-center plane/line, with signed modal energies (not densities).
+    @param[in] field Physical cell Ucat array in k/j/i/component order.
+    @param[in] nodes PICGRID node coordinates.
+    @param[in] transform_axes One or two Cartesian axis numbers.
+    @param[in] fixed_indices Zero-based physical cell indices on other axes.
+    @param[in] subtract_sample_mean Remove the selected sample mean before transforming.
+    @param[in] velocity_ref Velocity scaling for dimensional output.
+    @param[in] length_ref Length scaling for coordinates and wavenumbers.
+    @return Modal rows, physical sample coordinates and Parseval diagnostics.
+
+    Axes and fixed indices use i/j/k; indices are zero-based physical cells, excluding
+        DMDA dummies. Both signed partners are retained, so summing rows gives 1/2 <u.u>.
+        No averaging over neighboring planes or parallel lines occurs.
+    """
+    numpy = require_numpy()
+    axes = tuple(sorted(transform_axes))
+    if len(axes) not in (1, 2) or len(set(axes)) != len(axes) or any(a not in (0,1,2) for a in axes):
+        raise ValueError("sampled spectra require one or two distinct transform axes.")
+    if set(fixed_indices) != set(range(3))-set(axes):
+        raise ValueError("fixed_indices must select every non-transformed axis exactly once.")
+    cells, lengths = validate_spectral_grid(nodes, axes)
+    selection = [slice(None)]*3
+    coordinates = (nodes[0,0,:,0], nodes[0,:,0,1], nodes[:,0,0,2])
+    for a, index in fixed_indices.items():
+        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < cells[2-a]:
+            raise ValueError("fixed index is outside the physical cell range.")
+        selection[2-a] = index
+    sample = field[tuple(selection)].copy()*velocity_ref
+    sample_mean = sample.mean(axis=tuple(range(len(axes))))
+    if subtract_sample_mean:
+        sample -= sample_mean
+    fft_axes = tuple(range(len(axes)))
+    coeff = numpy.fft.fftn(sample, axes=fft_axes)/numpy.prod(sample.shape[:-1])
+    energy = 0.5*numpy.abs(coeff)**2
+    # Remaining array dimensions retain k/j/i storage order.
+    ordered = tuple(reversed(axes))
+    wave = [2*numpy.pi*numpy.fft.fftfreq(cells[2-a], d=lengths[a]*length_ref/cells[2-a]) for a in ordered]
+    columns = (["k"] if len(axes)==1 else ["k_"+"ijk"[a] for a in ordered]) + ["energy_u", "energy_v", "energy_w", "energy"]
+    positions = {"position_"+"ijk"[a]: float(0.5*(coordinates[a][i]+coordinates[a][i+1])*length_ref) for a,i in fixed_indices.items()}
+    columns += list(positions)
+    rows = []
+    for index in numpy.ndindex(energy.shape[:-1]):
+        values = [float(wave[d][index[d]]) for d in range(len(axes))]
+        components = energy[index].tolist()
+        rows.append(dict(zip(columns, values + components + [sum(components)] + list(positions.values()))))
+    physical_energy = float(0.5*numpy.mean(numpy.sum(sample**2, axis=-1)))
+    spectral_energy = float(numpy.sum(energy))
+    return {"sampled_spectrum": rows, "spectrum_columns": columns,
+            "resolved_kinetic_energy": physical_energy,
+            "parseval_residual": abs(spectral_energy-physical_energy)/max(physical_energy, 1e-300),
+            "transform_axes": ["ijk"[a] for a in axes],
+            "fixed_indices": {"ijk"[a]: i for a,i in fixed_indices.items()},
+            "sample_coordinates": {"ijk"[a]: float(0.5*(coordinates[a][i]+coordinates[a][i+1])*length_ref) for a,i in fixed_indices.items()},
+            "sample_component_means": sample_mean.tolist(),
+            "normalization": "signed_modal_energy_sum_equals_sample_kinetic_energy"}
+
+
+def generate_spectrum(field_file: str, source_grid: str, block: int,
                             symbol: str, subtract_mean: str,
                             mean_file: str = None, count_file: str = None,
-                            velocity_ref: float = 1.0, length_ref: float = 1.0) -> dict:
+                            velocity_ref: float = 1.0, length_ref: float = 1.0,
+                            task="shell_spectrum", transform_axes=None, fixed_indices=None) -> dict:
     """!
-    @brief Produce the shell-averaged spectrum of one Ucat snapshot.
+    @brief Read one Ucat snapshot and compute its selected shell, plane or line spectrum.
 
     The `field` fluctuation mode subtracts a supplied mean field rather than resolving
     one itself. Which mean that is — a statistics window, some other run — is the
@@ -420,13 +482,20 @@ def generate_shell_spectrum(field_file: str, source_grid: str, block: int,
     @param[in] subtract_mean Fluctuation definition: `none`, `domain`, or `field`.
     @param[in] mean_file     Mean field to subtract; required when mode is `field`.
     @param[in] count_file    Optional per-point sample count guarding the mean.
+    @param[in] velocity_ref Physical velocity reference scale.
+    @param[in] length_ref Physical length reference scale.
+    @param[in] task Shell, plane or line spectrum selector.
+    @param[in] transform_axes Cartesian transform axes for plane/line tasks.
+    @param[in] fixed_indices Physical-cell selections on non-transformed axes.
     @return Summary dictionary including the spectrum rows. `component_means`
             describes the snapshot as stored; every other moment, including
             `component_rms` and the spectrum itself, describes the field actually
             transformed, which is the fluctuation when a mean was removed.
     """
     numpy = require_numpy()
-    if subtract_mean not in ("none", "domain", "field"):
+    if task == "shell_spectrum" and subtract_mean == "sample":
+        raise ValueError("sample mean subtraction requires a plane or line spectrum.")
+    if subtract_mean not in ("none", "domain", "field", "sample"):
         raise ValueError(
             f"subtract_mean must be 'none', 'domain', or 'field'; got '{subtract_mean}'."
         )
@@ -437,7 +506,7 @@ def generate_shell_spectrum(field_file: str, source_grid: str, block: int,
         raise ValueError(f"block {block} is outside the PICGRID block range 0..{len(blocks) - 1}.")
     nodes = blocks[block]["coords"]
     node_dims = blocks[block]["dims"]
-    cells, lengths = validate_spectral_grid(nodes)
+    cells, lengths = validate_spectral_grid(nodes, (0,1,2) if task == "shell_spectrum" else transform_axes)
 
     field = extract_interior_cells(read_petsc_vec_binary(field_file), node_dims)
     if field.shape[:3] != cells:
@@ -466,6 +535,14 @@ def generate_shell_spectrum(field_file: str, source_grid: str, block: int,
                 )
         field = field - mean_field
 
+    if task != "shell_spectrum":
+        if symbol != "continuum":
+            raise ValueError("plane/line spectra use continuum wavenumbers; discrete shell binning does not apply.")
+        summary = sampled_spectrum(field, nodes, transform_axes, fixed_indices,
+                                   subtract_mean == "sample", velocity_ref, length_ref)
+        summary.update({"generator": task, "field": "Ucat", "field_file": os.path.abspath(field_file),
+                        "grid": os.path.abspath(source_grid), "block": block, "subtract_mean": subtract_mean})
+        return summary
     summary = shell_spectrum(field, lengths, symbol)
     # The staged grid is already non-dimensional, so the spectrum is too. Physical units
     # are applied here, where each quantity's dimensions are declared.
@@ -497,16 +574,13 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawTextHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    shell = subparsers.add_parser(
-        "shell-spectrum",
-        help="Shell-averaged 3D energy spectrum of one snapshot on a periodic uniform box.",
-    )
+    shell = argparse.ArgumentParser(add_help=False)
     shell.add_argument("--field-file", required=True, help="PETSc binary Ucat field file.")
     shell.add_argument("--source-grid", required=True, help="Canonical PICGRID path.")
     shell.add_argument("--block", type=int, default=0, help="Block index within the PICGRID.")
     shell.add_argument("--symbol", choices=("continuum", "discrete"), default="continuum",
                        help="Binning abscissa; 'discrete' bins by the centered-difference symbol.")
-    shell.add_argument("--subtract-mean", choices=("none", "domain", "field"), default="none",
+    shell.add_argument("--subtract-mean", choices=("none", "domain", "field", "sample"), default="none",
                        help="Fluctuation definition; 'field' subtracts --mean-file.")
     shell.add_argument("--mean-file", help="Mean field to subtract when --subtract-mean is 'field'.")
     shell.add_argument("--count-file", help="Per-point sample count guarding --mean-file.")
@@ -516,6 +590,11 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Reference length. With --velocity-ref, reports dimensional results.")
     shell.add_argument("--velocity-ref", type=float, default=1.0,
                        help="Reference velocity. With --length-ref, reports dimensional results.")
+    subparsers.add_parser("shell-spectrum", parents=[shell], help="3D shell-averaged spectrum.")
+    for command, count in (("plane-spectrum", 2), ("line-spectrum", 1)):
+        child = subparsers.add_parser(command, parents=[shell])
+        child.add_argument("--axes", nargs=count, choices=("i", "j", "k"), required=True)
+        child.add_argument("--fixed-indices", required=True, help='JSON mapping of remaining axes to zero-based physical-cell indices.')
     return parser
 
 
@@ -528,8 +607,8 @@ def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        if args.command == "shell-spectrum":
-            summary = generate_shell_spectrum(
+        if args.command in ("shell-spectrum", "plane-spectrum", "line-spectrum"):
+            summary = generate_spectrum(
                 args.field_file,
                 args.source_grid,
                 args.block,
@@ -539,6 +618,9 @@ def main(argv=None) -> int:
                 args.count_file,
                 args.velocity_ref,
                 args.length_ref,
+                task=args.command.replace("-", "_"),
+                transform_axes=tuple("ijk".index(a) for a in args.axes) if hasattr(args, "axes") else None,
+                fixed_indices={"ijk".index(a): i for a,i in json.loads(args.fixed_indices).items()} if hasattr(args, "fixed_indices") else None,
             )
         else:
             parser.error(f"unsupported command {args.command}")
@@ -551,9 +633,9 @@ def main(argv=None) -> int:
         if args.spectrum_csv:
             os.makedirs(os.path.dirname(os.path.abspath(args.spectrum_csv)), exist_ok=True)
             with open(args.spectrum_csv, "w", newline="", encoding="utf-8") as fout:
-                writer = csv.DictWriter(fout, fieldnames=("k", "energy"))
+                writer = csv.DictWriter(fout, fieldnames=summary.get("spectrum_columns", ("k", "energy")))
                 writer.writeheader()
-                writer.writerows(summary["shell_spectrum"])
+                writer.writerows(summary.get("sampled_spectrum", summary.get("shell_spectrum")))
         print(json.dumps(summary, sort_keys=True))
         return 0
     except Exception as exc:

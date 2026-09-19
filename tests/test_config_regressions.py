@@ -62,7 +62,7 @@ def test_maintained_examples_use_canonical_initial_condition_contract():
         if initial_conditions["mode"] == "generated":
             assert initial_conditions.get("generator") in {
                 "zero", "constant", "streamwise_constant", "poiseuille", "ic_gen",
-                "spectral_random_velocity"
+                "spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"
             }, path
     assert checked
 

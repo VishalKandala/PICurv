@@ -430,3 +430,25 @@ def test_spectrum_dimensionalization_applies_each_quantitys_own_scale():
     # Unit scales are a no-op, and must not stamp a misleading units tag either way.
     plain = spectra.dimensionalize_spectrum({"spectrum_total_energy": 3.0}, 1.0, 1.0)
     assert plain["spectrum_total_energy"] == 3.0
+
+
+@pytest.mark.parametrize('task,axes,fixed', [('plane_spectrum',['i','k'],{'j':3}),('line_spectrum',['k'],{'i':2,'j':3})])
+def test_sample_selection_identity_and_periodicity(task, axes, fixed):
+    """!
+    @brief Sample selection identity and periodicity.
+    @param[in] task Test fixture or parametrized selection.
+    @param[in] axes Test fixture or parametrized selection.
+    @param[in] fixed Test fixture or parametrized selection.
+    """
+    raw={'spectra':{'tasks':[{'task':task,'axes':axes,'fixed_indices':fixed,'subtract_mean':'sample'}]}}
+    normalized=CORE.normalize_post_spectra_config(raw)
+    assert not CORE.validate_post_spectra_preconditions(normalized,periodic_case(),'post.yml')
+    changed=__import__('copy').deepcopy(raw)
+    changed['spectra']['tasks'][0]['fixed_indices'][next(iter(fixed))]+=1
+    other=CORE.normalize_post_spectra_config(changed)
+    assert CORE.compute_post_spectra_signature(normalized)!=CORE.compute_post_spectra_signature(other)
+    assert CORE.post_spectra_task_basename(normalized['tasks'][0],'Spectrum')!=CORE.post_spectra_task_basename(other['tasks'][0],'Spectrum')
+    invalid=__import__('copy').deepcopy(raw)
+    invalid['spectra']['tasks'][0]['axes']=['j']*len(axes)
+    with pytest.raises(ValueError):
+        CORE.normalize_post_spectra_config(invalid)

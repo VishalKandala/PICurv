@@ -1199,6 +1199,16 @@
           "status": "experimental",
           "canonical": true,
           "evidence": {}
+        },
+        "plane_spectrum": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "line_spectrum": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
         }
       }
     },
@@ -1619,6 +1629,42 @@
               "file:tests/test_storage.py"
             ]
           }
+        }
+      }
+    },
+    {
+      "id": "initial.file_generator",
+      "title": "File-backed Initial Condition Generators",
+      "selector": "case.yml -> properties.initial_conditions.generator (Python providers)",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "_PYTHON_INITIAL_CONDITION_PROVIDERS"
+      },
+      "parity_sources": [],
+      "family_page": "33_Initial_Conditions",
+      "entry_anchor_prefix": "p33_cap_gen_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "ic_gen": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "spectral_random_velocity": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "channel_spectral_velocity": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
+        },
+        "duct_spectral_velocity": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {}
         }
       }
     }

@@ -97,3 +97,15 @@ and is never removed accidentally. The generator requires a fresh, single-block,
 uniform Cartesian grid with geometric-periodic faces and `Ucat` output.
 Preparation writes `diagnostics/initial_condition_summary.json` and
 `diagnostics/initial_condition_spectrum.csv`.
+
+## Channel and duct seeds
+
+`channel_spectral_velocity` and `duct_spectral_velocity` extend the spectral route
+with one or two no-slip wall axes. Their periodic axes must be uniform; wall axes
+may stretch. Both generate Ucat through the existing writer and stage through the
+existing file IC route. See `docs/pages/33_Initial_Conditions.md` for units, the
+discrete-curl construction, and the required `initial_spectra` selections.
+The channel configuration is `examples/turbulent_channel/case.yml`; a four-wall
+recipe is `examples/periodic_test/driven_duct/case_spectral.yml`, with its companion
+`grid_spectral.cfg` and `post_spectral.yml`. The duct mean is a flux-normalized
+startup profile, not an exact laminar rectangular-duct solution.

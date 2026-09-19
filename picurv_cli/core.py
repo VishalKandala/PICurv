@@ -409,7 +409,7 @@ _WORKSPACE_ARTIFACT_ROOT_VALUES = {"runs", "studies"}
 _ASSET_SOURCE_REFERENCE_KEYS = {
     "source_file", "path", "config_file", "field_file", "grid_file", "source_case", "script"
 }
-_PYTHON_INITIAL_CONDITION_PROVIDERS = {"ic_gen", "spectral_random_velocity"}
+_PYTHON_INITIAL_CONDITION_PROVIDERS = {"ic_gen", "spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"}
 _FILE_BACKED_GRID_VALUES = {"file", "grid_gen"}
 _WORKSPACE_MANAGED_PATHS = {"assets", "inputs", "runs", "studies"}
 _VENDORABLE_CONFIG_REFERENCE_KEYS = {"config_file", "script"}
@@ -3086,8 +3086,10 @@ def get_post_statistics_output_artifacts(post_cfg: dict, run_dir: str, monitor_c
 #: before any field is read. A task whose preconditions the case cannot meet is
 #: refused at validation rather than producing a curve with no meaning: a spectrum
 #: needs the transform direction to be uniformly spaced, periodic, and statistically
-#: homogeneous, and a curvilinear or wall-bounded geometry supplies none of those.
+#: homogeneous. Wall-bounded Cartesian cases may transform only their periodic axes.
 POST_SPECTRA_TASKS = {
+    "plane_spectrum": {"requires_single_block": True, "fields": ("Ucat",)},
+    "line_spectrum": {"requires_single_block": True, "fields": ("Ucat",)},
     "shell_spectrum": {
         "requires_uniform_cartesian": True,
         "requires_periodic_geometric": True,
@@ -3101,7 +3103,7 @@ POST_SPECTRA_SYMBOLS = ("continuum", "discrete")
 
 #: Fluctuation definitions a spectra task may request. `window:<name>` is accepted
 #: as a prefixed form and resolved against the accumulated windows.
-POST_SPECTRA_MEAN_MODES = ("none", "domain")
+POST_SPECTRA_MEAN_MODES = ("none", "domain", "sample")
 
 
 #: Derived outputs a post recipe may request from an accumulated window.
@@ -3302,8 +3304,23 @@ def normalize_post_spectra_config(post_cfg: dict) -> dict:
         if reference is not None and (not isinstance(reference, str) or not reference.strip()):
             raise ValueError(f"spectra task '{name}': 'reference' must be a non-empty string.")
 
+        selection = {}
+        if name != "shell_spectrum":
+            axes = entry.get("axes")
+            fixed = entry.get("fixed_indices")
+            count = 2 if name == "plane_spectrum" else 1
+            if (not isinstance(axes, list) or len(axes) != count or any(a not in ("i", "j", "k") for a in axes)
+                    or len(set(axes)) != count or not isinstance(fixed, dict)
+                    or set(fixed) != set("ijk")-set(axes)
+                    or any(isinstance(i, bool) or not isinstance(i, int) or i < 0 for i in fixed.values())):
+                raise ValueError(f"{name} requires {count} distinct axes and zero-based fixed_indices on all remaining axes.")
+            if symbol != "continuum":
+                raise ValueError("plane/line spectra require symbol: continuum.")
+            selection = {"axes": sorted(axes), "fixed_indices": dict(sorted(fixed.items()))}
+        elif subtract_mean == "sample" or "axes" in entry or "fixed_indices" in entry:
+            raise ValueError("shell_spectrum does not accept sample subtraction or plane/line selections.")
         # Each task writes its own file, so a repeat would overwrite its own output.
-        identity = (name, field, block, symbol)
+        identity = (name, field, block, symbol, json.dumps(selection, sort_keys=True))
         if identity in seen:
             raise ValueError(
                 f"spectra recipe lists task '{name}' for field {field} on block {block} "
@@ -3312,6 +3329,7 @@ def normalize_post_spectra_config(post_cfg: dict) -> dict:
         seen.append(identity)
         cleaned.append({
             "task": name,
+            **selection,
             "field": field,
             "block": block,
             "symbol": symbol,
@@ -3373,6 +3391,13 @@ def validate_post_spectra_preconditions(spectra_cfg: dict, case_cfg: dict, post_
             )
             continue
 
+        if task_cfg["task"] != "shell_spectrum":
+            if (case_cfg.get("models", {}).get("physics", {}).get("fsi", {}) or {}).get("immersed", False):
+                errors.append(f"  {post_path}: {label} does not support immersed masks.")
+            names = {"i": "Xi", "j": "Eta", "k": "Zeta"}
+            needed = {sign+names[a] for a in task_cfg["axes"] for sign in ("-", "+")}
+            if not needed <= periodic_faces.get(block, set()):
+                errors.append(f"  {post_path}: {label} requires PERIODIC boundaries on its transform axes.")
         if spec.get("requires_periodic_geometric"):
             missing = sorted(all_faces - periodic_faces.get(block, set()))
             if missing:
@@ -3542,9 +3567,11 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
             field_path = _resolve_spectra_payload(
                 bundle, "eulerian", task_cfg["field"], task_cfg["block"]
             )
-            cmd = [sys.executable, script, "shell-spectrum",
+            cmd = [sys.executable, script, task_cfg["task"].replace("_", "-"),
                    "--field-file", field_path, "--source-grid", staged_grid,
                    "--block", str(task_cfg["block"]), "--symbol", task_cfg["symbol"]]
+            if task_cfg["task"] != "shell_spectrum":
+                cmd.extend(["--axes", *task_cfg["axes"], "--fixed-indices", json.dumps(task_cfg["fixed_indices"])])
             cmd.extend(_spectra_mean_arguments(task_cfg, bundle, mean_bundle))
             cmd.extend(scale_arguments)
             result = subprocess.run(cmd, text=True, capture_output=True)
@@ -3555,18 +3582,19 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
                     f"{result.returncode}. Details:\n{details}"
                 )
             summary = json.loads(result.stdout)
-            for row in summary["shell_spectrum"]:
-                spectrum_rows.append({"step": step, "time": time,
-                                      "k": row["k"], "energy": row["energy"]})
+            for row in summary.get("sampled_spectrum", summary.get("shell_spectrum")):
+                spectrum_rows.append({"step": step, "time": time, **row})
+            scalar_columns = (POST_SPECTRA_SCALAR_COLUMNS if task_cfg["task"] == "shell_spectrum"
+                              else ("resolved_kinetic_energy", "parseval_residual"))
             scalar_rows.append({"step": step, "time": time,
-                                **{name: summary[name] for name in POST_SPECTRA_SCALAR_COLUMNS}})
+                                **{name: summary[name] for name in scalar_columns}})
 
         with open(spectrum_path, "w", newline="", encoding="utf-8") as stream:
-            writer = csv.DictWriter(stream, fieldnames=("step", "time", "k", "energy"))
+            writer = csv.DictWriter(stream, fieldnames=("step", "time", *summary.get("spectrum_columns", ("k", "energy"))))
             writer.writeheader()
             writer.writerows(spectrum_rows)
         with open(scalar_path, "w", newline="", encoding="utf-8") as stream:
-            writer = csv.DictWriter(stream, fieldnames=("step", "time") + POST_SPECTRA_SCALAR_COLUMNS)
+            writer = csv.DictWriter(stream, fieldnames=("step", "time") + scalar_columns)
             writer.writeheader()
             writer.writerows(scalar_rows)
         artifacts.extend([spectrum_path, scalar_path])
@@ -3644,6 +3672,8 @@ def post_spectra_task_basename(task_cfg: dict, output_prefix: str) -> str:
     """
     parts = [output_prefix, task_cfg["task"], task_cfg["field"],
              f"block{task_cfg['block']:04d}", task_cfg["symbol"]]
+    if task_cfg["task"] != "shell_spectrum":
+        parts.extend(["".join(task_cfg["axes"]), *[f"{a}{i}" for a,i in task_cfg["fixed_indices"].items()]])
     return "_".join(parts)
 
 
@@ -7389,7 +7419,7 @@ _POST_SCHEMA = {
     ("spectra",): {"output_prefix", "tasks"},
     ("spectra", "tasks", "[]"): {
         "task", "field", "block", "symbol", "subtract_mean", "mean_source_step",
-        "reference",
+        "reference", "axes", "fixed_indices",
     },
     ("run_control",): {
         "start_step", "end_step", "step_interval", "startTime", "endTime", "timeStep",
@@ -8084,6 +8114,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             errors.append(f"  {case_path}: {e}")
     if (ic_is_authoritative and resolved_ic and
             GENERATED_IC_PROVIDERS.get(resolved_ic.get("kind"), {}).get("requires_fresh_3d")):
+        if resolved_ic["kind"] in ("channel_spectral_velocity", "duct_spectral_velocity"):
+            if (case_cfg.get("models", {}).get("physics", {}).get("fsi", {}) or {}).get("immersed", False):
+                errors.append(f"  {case_path}: wall spectral ICs do not support immersed geometry.")
         dimensionality = str((((case_cfg.get("models", {}) or {}).get("physics", {}) or {})
                              .get("dimensionality", "3D"))).strip().upper()
         if dimensionality != "3D":
@@ -11414,6 +11447,8 @@ def normalize_initial_condition_field(value: str) -> "tuple[str, int]":
     raise ValueError("initial_conditions.field must be 'Ucat' or 'Ucont'.")
 
 GENERATED_IC_PROVIDERS = {
+    "channel_spectral_velocity": {"requires_grid": True, "requires_fresh_3d": True},
+    "duct_spectral_velocity": {"requires_grid": True, "requires_fresh_3d": True},
     "ic_gen": {
         "requires_grid": True,
         "diagnostic_artifacts": (),
@@ -11527,6 +11562,40 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
             "cli_args": cli_args,
         }
 
+    if generator in ("channel_spectral_velocity", "duct_spectral_velocity"):
+        from importlib.machinery import SourceFileLoader
+        loader = SourceFileLoader("picurv_wall_ic", os.path.join(GENERATORS_PATH, "ic.gen"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+        normalized = module.validate_wall_spectral_params(params, generator)
+        if not prepared_blocks or len(prepared_blocks) != 1:
+            raise ValueError("wall spectral IC requires exactly one block with resolved boundaries.")
+        face_axes = {"Xi": "i", "Eta": "j", "Zeta": "k"}
+        faces = prepared_blocks[0]
+        if len(faces) != 6:
+            raise ValueError("wall spectral IC requires all six boundary faces.")
+        for bc in faces:
+            axis = face_axes[bc["face"][1:]]
+            if axis in normalized["wall_axes"]:
+                valid = bc["type"] == "WALL" and bc["handler"] == "noslip"
+            else:
+                valid = bc["type"] == "PERIODIC" and bc["handler"] in ("geometric", "constant_flux", "initial_flux")
+                if axis != normalized["streamwise_axis"]:
+                    valid = valid and bc["handler"] == "geometric"
+            if not valid:
+                raise ValueError("wall spectral IC requires no-slip wall pairs and periodic remaining axes, driven only streamwise.")
+        spectra = normalize_post_spectra_config({"spectra": {"tasks": normalized.get("initial_spectra", [])}})
+        for task in spectra["tasks"]:
+            if task["task"] == "shell_spectrum" or set(task["axes"]) & set(normalized["wall_axes"]):
+                raise ValueError("initial spectra must transform only periodic axes of the wall spectral IC.")
+            if task["block"] != 0 or task["subtract_mean"].startswith("window:") or task["reference"]:
+                raise ValueError("initial spectra require block 0, no window mean, and no reference.")
+        normalized["initial_spectra"] = spectra["tasks"]
+        return {"finit": 4, "cli_params": {}, "kind": generator, "label": generator,
+                "field_name": "ufield", "field_code": 0, "params": normalized,
+                "provider_context": dict(provider_context or {})}
+
     if generator == "spectral_random_velocity":
         if prepared_blocks and len(prepared_blocks) != 1:
             raise ValueError("spectral_random_velocity requires exactly one grid block.")
@@ -11626,7 +11695,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
     if generator not in generator_modes:
         raise ValueError(
             "initial_conditions.generator must be one of: zero, constant, "
-            "streamwise_constant, poiseuille, ic_gen, spectral_random_velocity."
+            "streamwise_constant, poiseuille, ic_gen, spectral_random_velocity, channel_spectral_velocity, duct_spectral_velocity."
         )
     finit_code, legacy_mode = generator_modes[generator]
     legacy_ic = dict(params)
@@ -11661,8 +11730,26 @@ def validate_petsc_vec_binary(path: str) -> dict:
         )
     return {"path": os.path.abspath(path), "scalar_count": scalar_count}
 
+def initial_condition_diagnostic_paths(run_dir, resolved_ic):
+    """!
+    @brief Resolve spectral IC artifacts through the canonical run layout, also for dry runs.
+    @param[in] run_dir Run or asset-build root.
+    @param[in] resolved_ic Normalized file-backed IC provider.
+    @return Canonical diagnostic artifact paths, including each sample CSV and JSON.
+    """
+    if resolved_ic["kind"] not in ("spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"):
+        return []
+    paths = [os.path.join(run_dir, CANONICAL_RUN_PATHS["metrics"], "initial_condition_summary.json")]
+    if resolved_ic["kind"] == "spectral_random_velocity":
+        return paths + [os.path.join(run_dir, INITIAL_CONDITION_SPECTRUM_RELPATH)]
+    for task in resolved_ic["params"]["initial_spectra"]:
+        base = post_spectra_task_basename(task, "initial_condition")
+        paths.extend([os.path.join(run_dir, CANONICAL_RUN_PATHS["spectra"], base+suffix) for suffix in (".csv", ".json")])
+    return paths
+
+
 def run_initial_spectrum_generator(field_path: str, staged_grid: str,
-                                   spectrum_path: str, case_dir: str) -> str:
+                                   spectrum_path: str, case_dir: str, task_cfg=None) -> str:
     """!
     @brief Measure the shell-averaged spectrum of a staged initial condition.
 
@@ -11674,15 +11761,20 @@ def run_initial_spectrum_generator(field_path: str, staged_grid: str,
     @param[in] staged_grid   Staged canonical PICGRID path.
     @param[in] spectrum_path Destination `k,energy` CSV path.
     @param[in] case_dir      Working directory for the subprocess.
+    @param[in] task_cfg Optional normalized plane/line task; None retains DIT shell measurement.
     @return Absolute path to the written spectrum CSV.
     @throws ValueError when the generator is missing or fails.
     """
     script = os.path.join(GENERATORS_PATH, "spectra.gen")
     if not os.path.isfile(script):
         raise ValueError(f"spectra.gen script not found: {script}")
-    cmd = [sys.executable, script, "shell-spectrum",
+    command = task_cfg["task"].replace("_", "-") if task_cfg else "shell-spectrum"
+    cmd = [sys.executable, script, command,
            "--field-file", field_path, "--source-grid", staged_grid,
            "--spectrum-csv", spectrum_path]
+    if task_cfg:
+        cmd.extend(["--axes", *task_cfg["axes"], "--fixed-indices", json.dumps(task_cfg["fixed_indices"]),
+                    "--subtract-mean", task_cfg["subtract_mean"], "--summary-json", os.path.splitext(spectrum_path)[0]+".json"])
     result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
     if result.returncode != 0:
         details = (result.stderr or result.stdout or "").strip()
@@ -11701,18 +11793,18 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
     @return Generated PETSc vector path.
     """
     case_dir = os.path.dirname(os.path.abspath(case_path))
-    if resolved_ic["kind"] == "spectral_random_velocity":
+    if resolved_ic["kind"] in ("spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"):
         script = os.path.join(GENERATORS_PATH, "ic.gen")
         output_path = os.path.join(run_dir, "inputs", "initial_condition", "initial_condition.generated.dat")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         staged_grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
         if not os.path.isfile(staged_grid):
-            raise ValueError("spectral_random_velocity requires a staged PICGRID at inputs/grid/grid.run.")
+            raise ValueError(f"{resolved_ic['kind']} requires a staged PICGRID at inputs/grid/grid.run.")
         summary_path = os.path.join(run_dir, "output", "analysis", "metrics", "initial_condition_summary.json")
         spectrum_path = os.path.join(run_dir, INITIAL_CONDITION_SPECTRUM_RELPATH)
         os.makedirs(os.path.dirname(summary_path), exist_ok=True)
         os.makedirs(os.path.dirname(spectrum_path), exist_ok=True)
-        cmd = [sys.executable, script, "--generator", "spectral_random_velocity",
+        cmd = [sys.executable, script, "--generator", resolved_ic["kind"],
                "--grid", staged_grid, "--output", output_path,
                "--params-json", json.dumps(resolved_ic["params"], sort_keys=True),
                "--context-json", json.dumps(resolved_ic.get("provider_context", {}), sort_keys=True),
@@ -11720,9 +11812,14 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
         result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
         if result.returncode != 0:
             details = (result.stderr or result.stdout or "").strip()
-            raise ValueError(f"spectral_random_velocity failed with exit code {result.returncode}. Details:\n{details}")
+            raise ValueError(f"{resolved_ic['kind']} failed with exit code {result.returncode}. Details:\n{details}")
         validate_petsc_vec_binary(output_path)
-        run_initial_spectrum_generator(output_path, staged_grid, spectrum_path, case_dir)
+        if resolved_ic["kind"] == "spectral_random_velocity":
+            run_initial_spectrum_generator(output_path, staged_grid, spectrum_path, case_dir)
+        else:
+            paths = initial_condition_diagnostic_paths(run_dir, resolved_ic)
+            for task, path in zip(resolved_ic["params"]["initial_spectra"], paths[1::2]):
+                run_initial_spectrum_generator(output_path, staged_grid, path, case_dir, task)
         return output_path
     script = _resolve_generator_script(resolved_ic.get("script"), case_path, "ic.gen")
     config_file = resolved_ic["config_file"]
@@ -11766,11 +11863,8 @@ def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict
             "directory": os.path.abspath(stage_dir),
             "reused": True,
         }
-        if resolved_ic["kind"] == "spectral_random_velocity":
-            summary["diagnostics"] = [
-                os.path.join(run_dir, "output", "analysis", "metrics", "initial_condition_summary.json"),
-                os.path.join(run_dir, INITIAL_CONDITION_SPECTRUM_RELPATH),
-            ]
+        if resolved_ic["kind"] in ("spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"):
+            summary["diagnostics"] = initial_condition_diagnostic_paths(run_dir, resolved_ic)
         return summary
     if is_generated_ic_provider(resolved_ic):
         source_path = run_initial_condition_generator(case_path, run_dir, resolved_ic)
@@ -11785,11 +11879,8 @@ def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict
         shutil.copy2(source_path, staged_path)
     summary = {"source": os.path.abspath(source_path), "staged": os.path.abspath(staged_path),
                "directory": os.path.abspath(stage_dir)}
-    if resolved_ic["kind"] == "spectral_random_velocity":
-        summary["diagnostics"] = [
-            os.path.join(run_dir, "output", "analysis", "metrics", "initial_condition_summary.json"),
-            os.path.join(run_dir, INITIAL_CONDITION_SPECTRUM_RELPATH),
-        ]
+    if resolved_ic["kind"] in ("spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"):
+        summary["diagnostics"] = initial_condition_diagnostic_paths(run_dir, resolved_ic)
     return summary
 
 def normalize_flow_direction_token(value: str) -> int:
@@ -15306,11 +15397,7 @@ def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_c
         if (case_cfg.get("grid", {}) or {}).get("mode") == "programmatic_c":
             plan["artifacts"].append(os.path.join(run_dir, "inputs", "grid", "grid.run"))
         plan["artifacts"].append(os.path.join(initial_dir, "initial_condition.generated.dat"))
-        if resolved["kind"] == "spectral_random_velocity":
-            plan["artifacts"].extend([
-                os.path.join(run_dir, "output", "analysis", "metrics", "initial_condition_summary.json"),
-                os.path.join(run_dir, INITIAL_CONDITION_SPECTRUM_RELPATH),
-            ])
+        plan["artifacts"].extend(initial_condition_diagnostic_paths(run_dir, resolved))
 
 
 def render_run_dry_plan(plan: dict, output_format: str = "text"):
@@ -16040,6 +16127,10 @@ def _build_asset_inspection(kind: str, build_root: str, provider: dict,
                 if base == published_name or base.endswith(suffix):
                     published[published_name] = candidate
                     break
+        for candidate in payload_files:
+            base = os.path.basename(candidate)
+            if base.startswith(("initial_condition_plane_spectrum_", "initial_condition_line_spectrum_")) and base.endswith((".csv", ".json")):
+                published[base] = candidate
         validation["fields"] = sorted(
             os.path.basename(path) for path in payload_files if path.endswith(".dat")
         )
@@ -20494,6 +20585,8 @@ def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
             f"Spectrum selector {task!r} matched {len(matches)} files. Available: {available}."
         )
     spectrum_path = os.path.join(spectra_dir, matches[0])
+    if "plane_spectrum" in matches[0]:
+        raise ValueError("Plane spectra have two wavenumber axes; use the spectrum CSV for a 2D plot.")
 
     by_step = {}
     times = {}

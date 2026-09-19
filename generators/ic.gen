@@ -418,10 +418,11 @@ def validate_spectral_random_velocity_params(raw):
             "normalization": normalized_normalization, "remove_mean": remove_mean}
 
 
-def validate_spectral_grid(nodes):
+def validate_spectral_grid(nodes, periodic_axes=(0, 1, 2)):
     """!
     @brief Validate the uniform Cartesian grid required by FFT generation.
     @param[in] nodes PICGRID node-coordinate array.
+    @param[in] periodic_axes Cartesian axes that must be uniformly spaced.
     @return Cell counts in storage order and physical lengths in Cartesian order.
     """
     km, jm, im, _ = nodes.shape
@@ -429,9 +430,9 @@ def validate_spectral_grid(nodes):
     if min(cells) < 4:
         raise ValueError(f"spectral_random_velocity requires at least four cells per axis; found {cells}.")
     axes = (nodes[0, 0, :, 0], nodes[0, :, 0, 1], nodes[:, 0, 0, 2])
-    for physical_axis, values in zip("xyz", axes):
+    for axis, (physical_axis, values) in enumerate(zip("xyz", axes)):
         delta = np.diff(values)
-        if not np.all(delta > 0) or not np.allclose(delta, delta[0], rtol=1e-10, atol=1e-12):
+        if not np.all(np.isfinite(delta)) or not np.all(delta > 0) or (axis in periodic_axes and not np.allclose(delta, delta[0], rtol=1e-10, atol=1e-12)):
             raise ValueError(f"spectral_random_velocity requires uniform positive {physical_axis} spacing.")
     if not (np.allclose(nodes[..., 0], axes[0][None, None, :]) and
             np.allclose(nodes[..., 1], axes[1][None, :, None]) and
@@ -618,13 +619,162 @@ def generate_spectral_random_velocity(nodes, raw_params, context=None):
     return full, summary
 
 
+def validate_wall_spectral_params(raw, generator):
+    """!
+    @brief Validate a channel/duct seed; axes use Cartesian i/j/k order, velocities solver units.
+    @param[in] raw Raw channel or duct parameter mapping.
+    @param[in] generator Channel or duct provider identifier.
+    @return Normalized wall-seed parameters.
+    """
+    allowed = {"field", "seed", "streamwise_axis", "wall_axes", "bulk_velocity",
+               "perturbation_rms", "wall_modes", "spectrum", "initial_spectra"}
+    if not isinstance(raw, dict) or set(raw) - allowed:
+        raise ValueError("wall spectral IC has unsupported parameters.")
+    if raw.get("field", "Ucat") != "Ucat":
+        raise ValueError("wall spectral IC requires field: Ucat.")
+    walls = raw.get("wall_axes", ["j"] if generator == "channel_spectral_velocity" else ["i", "j"])
+    count = 1 if generator == "channel_spectral_velocity" else 2
+    stream = raw.get("streamwise_axis", "k")
+    if (not isinstance(walls, list) or len(walls) != count or any(a not in ("i", "j", "k") for a in walls)
+            or len(set(walls)) != count
+            or stream not in ("i", "j", "k") or stream in walls):
+        raise ValueError("wall_axes must name the channel's one or duct's two axes; streamwise_axis must be periodic.")
+    # Reuse DIT's spectral/seed validation; the envelope shapes the vector potential,
+    # not a promised isotropic velocity spectrum after the curl and wall envelope.
+    common = validate_spectral_random_velocity_params({
+        "seed": raw.get("seed", 12345), "spectrum": raw.get("spectrum", {"type": "white"})})
+    if common["seed"] < 0:
+        raise ValueError("seed must be non-negative.")
+    modes = raw.get("wall_modes", 3)
+    if isinstance(modes, bool) or not isinstance(modes, int) or modes < 1:
+        raise ValueError("wall_modes must be a positive integer.")
+    return {"field": "Ucat", "seed": common["seed"], "spectrum": common["spectrum"],
+            "wall_axes": walls, "streamwise_axis": stream, "wall_modes": modes,
+            "bulk_velocity": _finite_number(raw.get("bulk_velocity", 1.0), "bulk_velocity", positive=True),
+            "perturbation_rms": _finite_number(raw.get("perturbation_rms", 0.1), "perturbation_rms", positive=True),
+            **({"initial_spectra": raw["initial_spectra"]} if "initial_spectra" in raw else {})}
+
+
+def cartesian_flux_derivative(values, widths, axis, periodic):
+    """!
+    @brief Cell divergence of arithmetic face averages, with zero wall-face flux.
+    @param[in] values Cell-centered Cartesian scalar samples.
+    @param[in] widths Physical cell widths on the derivative axis.
+    @param[in] axis Cartesian axis number, x=0 through z=2.
+    @param[in] periodic Whether boundary faces wrap rather than carry zero flux.
+    @return Cell-centered finite-volume derivative in storage order.
+
+    This offline operator mirrors Cart2Contra followed by finite-volume divergence
+    on a separable Cartesian grid. Tensor-product operators commute, so their curl
+    is in this divergence's nullspace even on stretched wall axes.
+    """
+    storage_axis = 2 - axis
+    moved = np.moveaxis(values, storage_axis, 0)
+    faces = 0.5 * (moved[:-1] + moved[1:])
+    boundary = 0.5 * (moved[-1:] + moved[:1]) if periodic else np.zeros_like(moved[:1])
+    flux = np.concatenate((boundary, faces, boundary), axis=0)
+    derivative = np.diff(flux, axis=0) / widths.reshape((-1,) + (1,)*(moved.ndim-1))
+    return np.moveaxis(derivative, 0, storage_axis)
+
+
+def generate_wall_spectral_velocity(nodes, raw_params, generator):
+    """!
+    @brief Generate a seeded discrete-curl perturbation and flux-normalized startup mean.
+    @param[in] nodes PICGRID node coordinates in k/j/i/component order.
+    @param[in] raw_params Raw wall-seed parameters.
+    @param[in] generator Channel or duct provider identifier.
+    @return Full Ucat array with dummies and diagnostic summary.
+
+    Single-block Cartesian Ucat, stored k/j/i/component with one dummy layer.
+    No MPI state is generated: runtime owns scatter, wall repair and reconstruction.
+    Periodic axes are uniform; wall axes may stretch. The curl reads one neighbor.
+    """
+    params = validate_wall_spectral_params(raw_params, generator)
+    walls = ["ijk".index(a) for a in params["wall_axes"]]
+    periodic = [a for a in range(3) if a not in walls]
+    cells, lengths = validate_spectral_grid(nodes, periodic)
+    axes = (nodes[0, 0, :, 0], nodes[0, :, 0, 1], nodes[:, 0, 0, 2])
+    widths = [np.diff(a) for a in axes]
+    centers = [0.5*(a[:-1]+a[1:]) for a in axes]
+    shape = list(cells)
+    for a in walls:
+        if params["wall_modes"] + 4 > cells[2-a] // 2:
+            raise ValueError("wall_modes plus the wall envelope are unresolved on this grid.")
+        shape[2-a] = params["wall_modes"]
+    potential = np.random.default_rng(params["seed"]).standard_normal((*shape, 3))
+    fft_axes = tuple(2-a for a in periodic)
+    coeff = np.fft.fftn(potential, axes=fft_axes)
+    kmag2 = np.zeros(shape)
+    active = np.ones(shape, dtype=bool)
+    for a in periodic:
+        n = cells[2-a]
+        k = 2*np.pi*np.fft.fftfreq(n, d=widths[a][0])
+        sh = [1, 1, 1]; sh[2-a] = n
+        kmag2 += k.reshape(sh)**2
+        active &= (np.abs(np.fft.fftfreq(n)*n) < n/3).reshape(sh)
+    kmag = np.sqrt(kmag2)
+    cutoff = params["spectrum"].get("k_cut")
+    limit = min(2*np.pi/(3*widths[a][0]) for a in periodic)
+    if cutoff is not None and cutoff > limit*(1+1e-12):
+        raise ValueError("spectrum.k_cut exceeds the periodic two-thirds-resolution limit.")
+    coeff *= (spectral_envelope(kmag, params["spectrum"], min(2*np.pi/lengths[a] for a in periodic))
+              * active * (kmag > 0))[..., None]
+    potential = np.fft.ifftn(coeff, axes=fft_axes).real
+    mean = np.ones(cells)
+    for a in walls:
+        t = (centers[a]-axes[a][0])/lengths[a]
+        basis = np.sin(np.pi*t[:, None]*np.arange(1, params["wall_modes"]+1)) * np.sin(np.pi*t[:, None])**4
+        potential = np.moveaxis(np.tensordot(basis, potential, axes=(1, 2-a)), 0, 2-a)
+        sh = [1, 1, 1]; sh[2-a] = len(t)
+        mean *= (4*t*(1-t)).reshape(sh)
+    def derivative(v, a):
+        """!
+        @brief Apply the wall-seed divergence operator to one component.
+        @param[in] v Scalar component of the potential or velocity.
+        @param[in] a Cartesian derivative axis.
+        @return Derivative using the grid widths and boundary topology.
+        """
+        return cartesian_flux_derivative(v, widths[a], a, a in periodic)
+    velocity = np.stack([derivative(potential[..., (a+2)%3], (a+1)%3)
+                         - derivative(potential[..., (a+1)%3], (a+2)%3) for a in range(3)], axis=-1)
+    volume = widths[2][:, None, None]*widths[1][None, :, None]*widths[0][None, None, :]
+    rms = np.sqrt(np.sum(volume*np.sum(velocity**2, axis=-1))/(3*np.sum(volume)))
+    if not np.isfinite(rms) or rms <= 0:
+        raise ValueError("selected spectrum contains no active perturbation modes.")
+    velocity *= params["perturbation_rms"]/rms
+    divergence = sum(derivative(velocity[..., a], a) for a in range(3))
+    perturbation_means = np.sum(velocity*volume[..., None], axis=(0,1,2))/np.sum(volume)
+    component_rms = [float(np.sqrt(np.sum(volume*velocity[..., a]**2)/np.sum(volume))) for a in range(3)]
+    mean *= params["bulk_velocity"]*np.sum(volume)/np.sum(mean*volume)
+    stream = "ijk".index(params["streamwise_axis"])
+    velocity[..., stream] += mean
+    # Periodic dummies wrap. Wall dummies reflect oddly about the no-slip face.
+    full = velocity
+    for a in range(3):
+        sa = 2-a
+        if a in periodic:
+            full = np.concatenate((np.take(full, [-1], axis=sa), full, np.take(full, [0], axis=sa)), axis=sa)
+        else:
+            full = np.concatenate((-np.take(full, [0], axis=sa), full, -np.take(full, [-1], axis=sa)), axis=sa)
+    return full, {"generator": generator, "field": "Ucat", "params": params,
+        "vector_shape": list(full.shape), "scalar_count": int(full.size),
+        "perturbation_component_rms": component_rms,
+        "perturbation_rms": float(np.sqrt(np.mean(np.square(component_rms)))),
+        "perturbation_component_means": perturbation_means.tolist(),
+        "picurv_discrete_divergence_max": float(np.max(np.abs(divergence))),
+        "bulk_velocity": float(np.sum(volume*velocity[..., stream])/np.sum(volume)),
+        "mean_profile": "flux_normalized_product_parabola_startup",
+        "spectrum_applies_to": "vector_potential_periodic_modes",
+        "measurement_state": "generated_Ucat_before_runtime_reconstruction"}
+
+
 def build_parser():
     """!
     @brief Build the command-line parser.
     @return Configured parser.
     """
     parser = argparse.ArgumentParser(description="Generate a PICurv initial-condition PETSc vector.")
-    parser.add_argument("--generator", choices=("expression", "spectral_random_velocity"),
+    parser.add_argument("--generator", choices=("expression", "spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"),
                         default="expression", help="Maintained IC generator implementation.")
     parser.add_argument("-c", "--config", help="Expression-generator INI configuration.")
     parser.add_argument("--params-json", help="JSON parameters for a built-in generator.")
@@ -652,6 +802,8 @@ def main(argv=None) -> int:
             field, summary = generate_spectral_random_velocity(
                 nodes, json.loads(args.params_json), json.loads(args.context_json or "{}")
             )
+        elif args.generator in ("channel_spectral_velocity", "duct_spectral_velocity"):
+            field, summary = generate_wall_spectral_velocity(nodes, json.loads(args.params_json or "{}"), args.generator)
         else:
             if not args.config or not args.field:
                 raise ValueError("expression generation requires --config and --field.")

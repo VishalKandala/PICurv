@@ -1,0 +1,20 @@
+source_data:
+  directory: <solver_output_dir>
+run_control:
+  start_step: 0
+  end_step: 1000
+  step_interval: 100
+spectra:
+  tasks:
+  - task: line_spectrum
+    axes:
+    - k
+    fixed_indices:
+      i: 63
+      j: 63
+    subtract_mean: sample
+io:
+  output_directory: visualization/duct
+  output_filename_prefix: duct
+  eulerian_fields: []
+  output_particles: false

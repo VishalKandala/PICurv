@@ -323,3 +323,134 @@ Common pitfalls:
 - **@subpage 34_Particle_Model_Overview**
 - **@subpage 39_Common_Fatal_Errors**
 - **@subpage 50_Modular_Selector_Extension_Guide**
+
+@section p33_wall_spectral_sec Wall-bounded spectral seeds
+
+@htmlinclude generated/capability_inventory_initial_file_generator.html
+
+`channel_spectral_velocity` uses one wall axis; `duct_spectral_velocity` uses two.
+The remaining axes are periodic, with driving allowed only on `streamwise_axis`.
+Both use `Ucat` on one Cartesian block. Uniform spacing is required along periodic
+axes; wall-normal axes may stretch. `grid_gen` provides an inspectable staged grid.
+
+```yaml
+mode: generated
+generator: channel_spectral_velocity
+params:
+  field: Ucat
+  seed: 12345
+  wall_axes: [j]
+  streamwise_axis: k
+  bulk_velocity: 1.0
+  perturbation_rms: 0.1
+  wall_modes: 3
+  spectrum: {type: k4_exponential, k0: 4.0, k_cut: 8.0}
+  initial_spectra:
+    - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 32}, subtract_mean: sample}
+```
+
+Parameters use solver nondimensional units. `perturbation_rms` is
+`sqrt(volume_mean(u'^2+v'^2+w'^2)/3)`, not the RMS of each component independently.
+The spectral envelope shapes a seeded vector potential along periodic directions;
+wall basis functions are `sin(n*pi*t)*sin(pi*t)^4`, evaluated at physical cell
+centers. A curl using the separable face-average divergence operators produces a
+perturbation in the discrete divergence nullspace, including zero wall-face flux.
+Periodic modes at or above one third of the cell count are removed. Wall mode count
+plus four (the highest sine index added by the envelope) must fit below the wall-axis count limit; stretched
+meshes still need a physical resolution check. The envelope is not a prescribed final
+isotropic velocity spectrum: the curl, wall functions, and stretching change it.
+
+The mean is a parabola on each wall axis, multiplied for a duct and normalized with
+cell-volume weights to the requested bulk velocity. The duct product is a startup
+profile, not the exact laminar rectangular-duct solution. Perturbation net flux is
+zero. Match the driven boundary's target flux to bulk velocity times cross-section.
+Wall dummy values are odd reflections, periodic dummies wrap. Runtime retains
+ownership of boundary enforcement and Cartesian/contravariant reconstruction.
+
+`initial_spectra` is a required nonempty list using the plane/line task syntax from
+@ref p10_spectra_sec. Initial measurements cannot use a statistics-window mean.
+Staging measures the generated Ucat, before runtime reconstruction. Compare against
+step-zero checkpoint spectra to distinguish initialization reconstruction from
+subsequent physical evolution. The summary and spectra use the canonical metrics and
+spectra directories, including through precomputed asset publication and reuse.
+There is no per-timestep injection, and transition/sustained turbulence is not guaranteed.
+
+@subsection p33_cap_gen_ic_gen_sub ic_gen
+
+@anchor p33_cap_gen_ic_gen
+
+**Identity.** `properties.initial_conditions.generator: ic_gen` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the existing file IC runtime path.
+
+**What it does.** Expression-based Ucat or Ucont generation on the staged grid.
+
+**When to choose it.** Choose explicit analytic expressions; use a spectral provider for randomized velocity seeds.
+
+**Parameters it owns.** Requires config_file; field selects Ucat/Ucont.
+
+**Interactions.** The existing PICGRID coordinates, expression evaluator and PETSc writer own this route.
+
+**Diagnostics.** Malformed expressions and missing inputs fail before solver launch.
+
+**Evidence.** Implemented only; generator and CLI regression tests exercise the file route. No developed turbulence validation is claimed.
+
+**Limitations.** Experimental. No divergence or turbulence property is implied by arbitrary expressions.
+
+@subsection p33_cap_gen_spectral_random_velocity_sub spectral_random_velocity
+
+@anchor p33_cap_gen_spectral_random_velocity
+
+**Identity.** `properties.initial_conditions.generator: spectral_random_velocity` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the existing file IC runtime path.
+
+**What it does.** The existing seeded triply periodic random spectral velocity.
+
+**When to choose it.** Choose this for DIT; channel and duct providers supply wall-compatible seeds.
+
+**Parameters it owns.** seed, random, spectrum, projection, normalization and remove_mean retain their existing contracts.
+
+**Interactions.** Requires six geometric-periodic faces and a uniform Cartesian grid; restart remains authoritative.
+
+**Diagnostics.** The IC summary reports selected-operator divergence and realized energy; shell spectra measure the generated field.
+
+**Evidence.** Implemented only; generator and CLI regression tests exercise the file route. No developed turbulence validation is claimed.
+
+**Limitations.** Experimental. A continuum solenoidal field need not be discretely solenoidal; runtime reconstruction changes energy.
+
+@subsection p33_cap_gen_channel_spectral_velocity_sub channel_spectral_velocity
+
+@anchor p33_cap_gen_channel_spectral_velocity
+
+**Identity.** `properties.initial_conditions.generator: channel_spectral_velocity` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the existing file IC runtime path.
+
+**What it does.** A flux-normalized channel mean plus a discrete-curl spectral perturbation.
+
+**When to choose it.** Choose for two no-slip walls; use duct_spectral_velocity for four walls.
+
+**Parameters it owns.** The wall-bounded parameter block above applies with one wall_axes entry; initial_spectra is required.
+
+**Interactions.** Single-block 3D Cartesian grid, two periodic axes, one no-slip pair, Ucat file staging.
+
+**Diagnostics.** Summary reports bulk velocity, perturbation RMS and discrete divergence; selected plane/line spectra measure the seed.
+
+**Evidence.** Implemented only; generator and CLI regression tests exercise the file route. No developed turbulence validation is claimed.
+
+**Limitations.** Experimental. Experimental startup construction; amplitude and resolution do not establish sustained turbulence.
+
+@subsection p33_cap_gen_duct_spectral_velocity_sub duct_spectral_velocity
+
+@anchor p33_cap_gen_duct_spectral_velocity
+
+**Identity.** `properties.initial_conditions.generator: duct_spectral_velocity` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the existing file IC runtime path.
+
+**What it does.** A flux-normalized product-parabola mean plus a discrete-curl spectral perturbation.
+
+**When to choose it.** Choose for rectangular/square ducts with four walls; channel_spectral_velocity has only one wall axis.
+
+**Parameters it owns.** The wall-bounded parameter block above applies with two wall_axes entries; initial_spectra selects streamwise lines.
+
+**Interactions.** Single-block 3D Cartesian grid, one periodic axis, two no-slip pairs, Ucat file staging.
+
+**Diagnostics.** Summary reports bulk velocity and discrete divergence; actual selected line spectra report sample energy and Parseval residual.
+
+**Evidence.** Implemented only; generator and CLI regression tests exercise the file route. No developed turbulence validation is claimed.
+
+**Limitations.** Experimental. Experimental; product-parabola startup mean is not the exact laminar duct solution. Circular pipes and immersed boundaries are outside this provider.

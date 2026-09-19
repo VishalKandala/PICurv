@@ -463,14 +463,15 @@ periodic, and statistically homogeneous. Each task declares what it needs, and
 | Task | Status | Requires |
 | --- | --- | --- |
 | `shell_spectrum` | implemented | every face `PERIODIC`, a single block, and a uniform axis-aligned Cartesian grid |
-| `plane_spectrum` | planned | two periodic axes; see @ref p60_spectra_partial_sec |
-| `line_spectrum` | planned | one periodic axis; see @ref p60_spectra_partial_sec |
+| `plane_spectrum` | experimental | two selected periodic uniform axes; remaining axis may stretch |
+| `line_spectrum` | experimental | one selected periodic uniform axis; remaining axes may stretch |
 | `temporal_spectrum` | planned | no homogeneous direction needed; see @ref p60_spectra_temporal_sec |
 
-Only `shell_spectrum` exists today, so a case homogeneous in one or two directions —
-a channel, a straight duct, a boundary layer — has a spatial spectrum the pipeline
-cannot yet produce. The task table is built to hold the others; the reservation is
-recorded rather than implied.
+Plane and line tasks sample actual cell-center planes and lines in a single-block,
+axis-aligned Cartesian grid. They do not average parallel samples. Use `axes: [i, k]`
+and `fixed_indices: {j: 32}` for a plane, or `axes: [k]` and
+`fixed_indices: {i: 32, j: 32}` for a line. Indices are zero-based physical cells,
+excluding dummy layers. Out-of-range selections fail when the staged grid is read.
 
 Boundary conditions and block count are checked from `case.yml`; grid uniformity is
 checked by the generator against the staged PICGRID, which is the only place the node
@@ -486,17 +487,17 @@ homogeneous box. Non-periodic faces: ['+Eta', '+Xi', ...].
 This is why a 90-degree bend cannot produce a spatial spectrum at all: it develops
 streamwise and is bounded on all four sides, so it has no homogeneous direction and
 needs @ref p60_spectra_temporal_sec. A *straight* duct or channel is a different case —
-it does have homogeneous directions, and awaits @ref p60_spectra_partial_sec rather
-than the temporal path.
+it does have periodic directions that the plane and line tasks can transform.
 
 @subsection p10_spectra_keys_sub Keys
 
-- `symbol` selects the binning abscissa. `continuum` bins by \f$|k|\f$;
+- `symbol` selects the shell binning abscissa. Plane/line tasks require `continuum`. `continuum` bins by \f$|k|\f$;
   `discrete` bins by the centered-difference symbol \f$\sin(k\,\Delta x)/\Delta x\f$,
   which is what the solver's own operator resolves. Comparing a measured rolloff
   against the continuum abscissa alone will attribute the scheme's damping to physics.
 - `subtract_mean` chooses the fluctuation. `none` transforms the field as stored;
-  `domain` removes the volume mean of that snapshot; `window:<name>` subtracts the
+  `sample` removes the selected plane/line mean (plane/line tasks only);
+  `domain` removes the arithmetic mean of all physical cells of that snapshot; `window:<name>` subtracts the
   accumulated mean of a field-statistics window, which is the better estimate wherever
   the flow is not homogeneous. A window mean is only defined where the window actually
   sampled, so a window that has not accumulated over the domain is refused rather than
@@ -510,12 +511,14 @@ than the temporal path.
 - `block` selects the block; `field` is `Ucat`. `Ucont` is component-staggered and has
   no single cell-centered spectrum, per @ref p60_products_sec.
 
-Two tasks differing in task, field, block, or symbol write different files and may
-coexist; two identical tasks are refused, since the second would overwrite the first.
+Two tasks differing in task, field, block, symbol, or plane/line selection write
+different files and may coexist; two identical tasks are refused, since the second
+would overwrite the first.
 
 @subsection p10_spectra_outputs_sub Outputs
 
-Each task writes two CSVs under `<monitor output>/spectra/`:
+Each task writes a spectrum CSV and a history CSV under the canonical run spectra
+directory. For shell spectra:
 
 | File | Columns | Purpose |
 | --- | --- | --- |
@@ -525,12 +528,17 @@ Each task writes two CSVs under `<monitor output>/spectra/`:
 The spectrum file is long format so a family of curves stays one file, which is also
 what makes comparison across a sweep a glob rather than a special case.
 
-Recorded per step: `resolved_kinetic_energy`, `spectrum_total_energy`,
+Shell history records per step: `resolved_kinetic_energy`, `spectrum_total_energy`,
 `parseval_residual`, `spectrum_peak_k`, `zero_mode_energy`, `integral_length_scale`,
 `taylor_microscale`, and `dissipation_over_viscosity`.
 
-`parseval_residual` is a self-check rather than an input: summed shell energy must
-equal the resolved kinetic energy of the transformed field, and a residual above
+Plane/line filenames also identify the transformed axes and fixed cell indices.
+Their mode columns and sample diagnostics are described in
+@ref p10_cap_spec_plane_spectrum and @ref p10_cap_spec_line_spectrum below;
+the shell isotropic length-scale diagnostics do not apply to these samples.
+
+`parseval_residual` is a self-check rather than an input: summed spectral energy must
+equal the resolved kinetic energy of the transformed field or sample, and a residual above
 round-off means the measurement is wrong.
 
 Dissipation is reported **divided by the kinematic viscosity** —
@@ -608,6 +616,46 @@ spectrum comes from ensembling over seeds at matched times, not from pooling tim
 **Evidence.** Implemented only. No shipped case gates a numerical acceptance on a measured spectrum, so nothing establishes the binning against a reference result.
 
 **Limitations.** Experimental. Shell averaging assumes isotropy that a wall-bounded or bent geometry does not have, and `subtract_mean: window:<name>` depends on an accumulated window existing at the named step. No convergence or windowing guidance is established.
+
+@subsection p10_cap_spec_plane_spectrum_sub plane_spectrum
+
+@anchor p10_cap_spec_plane_spectrum
+
+**Identity.** `spectra.tasks[].task: plane_spectrum` dispatches `spectra.gen plane-spectrum`; no C task is added.
+
+**What it does.** A two-dimensional FFT of one actual cell-center plane, retaining both signed wavenumbers and separate Cartesian component energies.
+
+**When to choose it.** Use it for scale content at a channel wall-normal station. Choose `line_spectrum` for one physical line, or `shell_spectrum` for a triply periodic box reduced to radial shells.
+
+**Parameters it owns.** Required `axes` contains two distinct i/j/k axes; required `fixed_indices` selects the other axis. `subtract_mean: sample` removes this plane's mean. `symbol` must be `continuum`.
+
+**Interactions.** Transform axes must be periodic and uniformly spaced; the transverse coordinate may stretch. Reads raw Ucat checkpoints, with existing window-mean subtraction available. Initial-condition staging can invoke the same computation without a checkpoint.
+
+**Diagnostics.** CSV rows contain two signed `k_<axis>` columns in storage order, `energy_u/v/w`, total `energy`, and `position_<fixed-axis>`. Energies are per-mode contributions, not spectral densities: summing all rows equals half the sample mean squared speed. The history CSV reports sample kinetic energy and relative Parseval residual. Coordinates/wavenumbers/energies scale with length/velocity references when dimensionalization is requested. Task filenames include axes and fixed indices.
+
+**Evidence.** Implemented only; tests in `tests/test_spectra_shell_spectrum.py` check known modes and Parseval closure. No developed turbulent-channel acceptance is established.
+
+**Limitations.** Experimental, serial whole-field input, one block, Cartesian geometry, no masked/immersed lines. No 2D heatmap is added to `--plot-spectrum`; use the CSV for 2D plotting. A seed spectrum is not a developed-turbulence benchmark.
+
+@subsection p10_cap_spec_line_spectrum_sub line_spectrum
+
+@anchor p10_cap_spec_line_spectrum
+
+**Identity.** `spectra.tasks[].task: line_spectrum` dispatches `spectra.gen line-spectrum`; no C task is added.
+
+**What it does.** A one-dimensional FFT of one selected physical line, retaining signed `k` and Cartesian component energies.
+
+**When to choose it.** Use it for a streamwise line through a duct, or a single line in a channel. It is not a directional spectrum averaged over a plane; select `plane_spectrum` when the second wavenumber matters.
+
+**Parameters it owns.** Required `axes` contains one i/j/k axis; required `fixed_indices` selects both transverse axes. `subtract_mean: sample` removes the line mean; `symbol` must be `continuum`.
+
+**Interactions.** Only the transformed direction must be uniform and periodic. Other directions may stretch. Checkpoint discovery, window means, and dimensionalization use the same path as plane/shell tasks.
+
+**Diagnostics.** Rows contain signed `k`, `energy_u/v/w`, total `energy`, and both fixed-position columns. Sum all signed modes for sample kinetic energy; do not double the already retained negative partners. The history reports kinetic energy and Parseval residual. Filenames distinguish both transverse indices.
+
+**Evidence.** Implemented only; known-mode tests sample a physical line with a different amplitude at each transverse station. No developed duct-flow validation is claimed.
+
+**Limitations.** Experimental, single-block Cartesian grids without immersed masks. This does not produce line ensembles or temporal spectra. Existing curve plotting displays positive modes only; the CSV retains both signs.
 
 @section p10_io_sec 9. io
 

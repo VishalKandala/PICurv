@@ -419,10 +419,11 @@ field is read**.
 For anything else, which spectrum applies depends on how many directions are
 statistically homogeneous:
 
-- **one or two** — a channel, a straight duct, a boundary layer. A spatial spectrum is
-  well defined along the homogeneous directions, but the `line_spectrum` and
-  `plane_spectrum` tasks are planned rather than implemented; see
-  @ref p60_spectra_partial_sec.
+- **one or two** — a periodic channel or straight duct. Experimental `line_spectrum`
+  and `plane_spectrum` tasks transform one selected physical line or plane on a
+  single-block Cartesian grid. Set `axes` to the uniform periodic directions and
+  `fixed_indices` to the remaining physical cell indices; see @ref p10_spectra_sec.
+  Parallel-sample averaging remains planned in @ref p60_spectra_partial_sec.
 - **none** — a bend, a wake, an immersed geometry. No spatial spectrum exists; what is
   wanted is a frequency spectrum at a probe, also planned; see
   @ref p60_spectra_temporal_sec.

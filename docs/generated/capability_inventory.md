@@ -298,6 +298,8 @@ Selector: `post.yml -> spectra.tasks[].task`
 
 | Value | Maps to |
 |---|---|
+| `line_spectrum` | `line_spectrum` |
+| `plane_spectrum` | `plane_spectrum` |
 | `shell_spectrum` | `shell_spectrum` |
 
 ### Field Statistics Derived Outputs
@@ -394,3 +396,14 @@ Selector: `picurv storage offload/plan --retain / --drop`
 | `logs` | `logs` |
 | `raw-output` | `raw-output` |
 | `visualization` | `visualization` |
+
+### File-backed Initial Condition Generators
+
+Selector: `case.yml -> properties.initial_conditions.generator (Python providers)`
+
+| Value | Maps to |
+|---|---|
+| `channel_spectral_velocity` | `channel_spectral_velocity` |
+| `duct_spectral_velocity` | `duct_spectral_velocity` |
+| `ic_gen` | `ic_gen` |
+| `spectral_random_velocity` | `spectral_random_velocity` |

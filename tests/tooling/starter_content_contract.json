@@ -214,6 +214,12 @@
       "solver": "examples/turbulent_channel/solver.yml",
       "monitor": "examples/turbulent_channel/monitor.yml",
       "post": "examples/turbulent_channel/post.yml"
+    },
+    {
+      "case": "examples/periodic_test/driven_duct/case_spectral.yml",
+      "solver": "examples/periodic_test/driven_duct/solver_newton_krylov.yml",
+      "monitor": "examples/turbulent_channel/monitor.yml",
+      "post": "examples/periodic_test/driven_duct/post_spectral.yml"
     }
   ],
   "study_bundles": [

@@ -1,4 +1,4 @@
-# Wall-resolved channel startup, nominal Re_tau ~ 180; see README.md.
+# Seeded square-duct startup; bulk Reynolds number based on side length is 4410.
 run_control:
   start_step: 0
   total_steps: 1000
@@ -9,14 +9,14 @@ properties:
     velocity_ref: 1.0
   fluid:
     density: 1.0
-    viscosity: 0.00035714285714285714
+    viscosity: 0.00045351474
   initial_conditions:
     mode: generated
-    generator: channel_spectral_velocity
+    generator: duct_spectral_velocity
     params:
-      field: Ucat
       seed: 12345
       wall_axes:
+      - i
       - j
       streamwise_axis: k
       bulk_velocity: 1.0
@@ -27,57 +27,34 @@ properties:
         k0: 4.0
         k_cut: 8.0
       initial_spectra:
-      - task: plane_spectrum
+      - task: line_spectrum
         axes:
-        - i
         - k
         fixed_indices:
-          j: 8
-        subtract_mean: sample
-      - task: plane_spectrum
-        axes:
-        - i
-        - k
-        fixed_indices:
-          j: 32
-        subtract_mean: sample
-      - task: plane_spectrum
-        axes:
-        - i
-        - k
-        fixed_indices:
+          i: 63
           j: 63
         subtract_mean: sample
 grid:
   mode: grid_gen
   generator:
-    config_file: grid.cfg
+    config_file: grid_spectral.cfg
     grid_type: box
 models:
   domain:
     blocks: 1
   physics:
-    dimensionality: 3D
-    fsi:
-      immersed: false
-      moving_fsi: false
     particles:
       count: 0
-      restart_mode: init
     turbulence:
       les:
         enabled: false
-      rans:
-        enabled: false
-      wall_function:
-        enabled: false
 boundary_conditions:
 - face: -Xi
-  type: PERIODIC
-  handler: geometric
+  type: WALL
+  handler: noslip
 - face: +Xi
-  type: PERIODIC
-  handler: geometric
+  type: WALL
+  handler: noslip
 - face: -Eta
   type: WALL
   handler: noslip
@@ -88,9 +65,9 @@ boundary_conditions:
   type: PERIODIC
   handler: constant_flux
   params:
-    target_flux: 12.566370614359172
+    target_flux: 4.0
 - face: +Zeta
   type: PERIODIC
   handler: constant_flux
   params:
-    target_flux: 12.566370614359172
+    target_flux: 4.0

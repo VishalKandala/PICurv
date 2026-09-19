@@ -15,8 +15,12 @@ configuration.
 - `profile.gen`: dimensional PICSLICE generation and field slicing.
 - `ic.gen`: expression-driven and configurable spectral-random PETSc
   initial-condition vector generation. Select the latter with
-  `generator: spectral_random_velocity`.
+  `generator: spectral_random_velocity`. Channel and duct providers use discrete-curl
+  wall-compatible perturbations in the same script.
 - `plot.gen`: normalized scalar-history, iterative-convergence, and spectrum
   report rendering.
 
 Repository defaults resolve these canonical paths directly.
+
+- `spectra.gen`: shell spectra for periodic boxes, or actual selected plane/line
+  FFTs on Cartesian grids; the conductor owns checkpoint discovery and output paths.

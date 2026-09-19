@@ -400,3 +400,62 @@ def test_conductor_and_generator_defaults_and_finite_validation_agree():
             CORE.resolve_initial_condition_config(
                 {"mode": "generated", "generator": "spectral_random_velocity", "params": bad},
                 periodic, U_ref=1.0)
+
+
+@pytest.mark.parametrize('generator,walls', [('channel_spectral_velocity', [a]) for a in 'ijk'] + [('duct_spectral_velocity', list(a)) for a in ('ij','jk','ik')])
+def test_wall_seed_discrete_flux_and_stretched_grid(generator, walls):
+    """!
+    @brief Wall seed discrete flux and stretched grid.
+    @param[in] generator Test fixture or parametrized selection.
+    @param[in] walls Test fixture or parametrized selection.
+    """
+    nodes = cartesian_nodes((16, 18, 20), (2., 2., 6.))
+    for axis in walls:
+        a = 'ijk'.index(axis)
+        n = nodes.shape[2-a]
+        coordinates = 1 + np.tanh(1.5*np.linspace(-1,1,n))/np.tanh(1.5)
+        shape = [1,1,1]; shape[2-a] = n
+        nodes[..., a] = coordinates.reshape(shape)
+    options = {'wall_axes': walls, 'streamwise_axis': next(a for a in 'kij' if a not in walls),
+               'bulk_velocity': 1.2, 'perturbation_rms': 0.15, 'seed': 17}
+    full, summary = IC.generate_wall_spectral_velocity(nodes, options, generator)
+    again, _ = IC.generate_wall_spectral_velocity(nodes, options, generator)
+    assert np.array_equal(full, again)
+    assert summary['bulk_velocity'] == pytest.approx(1.2)
+    assert summary['perturbation_rms'] == pytest.approx(0.15)
+    assert summary['picurv_discrete_divergence_max'] < 1e-12
+    assert np.max(np.abs(summary['perturbation_component_means'])) < 1e-14
+    # Independent runtime-style face average, zero wall flux, face difference / volume.
+    interior = full[1:-1,1:-1,1:-1]
+    flux_div = np.zeros(interior.shape[:-1])
+    coords = (nodes[0,0,:,0], nodes[0,:,0,1], nodes[:,0,0,2])
+    for a in range(3):
+        sa = 2-a
+        velocity = np.moveaxis(interior[...,a], sa, 0)
+        faces = np.zeros((velocity.shape[0]+1, *velocity.shape[1:]))
+        faces[1:-1] = (velocity[:-1]+velocity[1:])/2
+        if 'ijk'[a] not in walls:
+            faces[0] = faces[-1] = (velocity[0]+velocity[-1])/2
+        flux_div += np.moveaxis(np.diff(faces, axis=0)/np.diff(coords[a])[:,None,None],0,sa)
+        if 'ijk'[a] in walls:
+            assert np.allclose(np.take(full,0,axis=sa), -np.take(full,1,axis=sa))
+            assert np.allclose(np.take(full,-1,axis=sa), -np.take(full,-2,axis=sa))
+    assert np.max(np.abs(flux_div)) < 1e-12
+
+
+def test_wall_provider_routes_and_rejects_incompatible_boundaries():
+    """!
+    @brief Wall provider routes and rejects incompatible boundaries.
+    """
+    bcs = [{'face': sign+face, 'type': 'WALL' if face=='Eta' else 'PERIODIC',
+            'handler': 'noslip' if face=='Eta' else ('constant_flux' if face=='Zeta' else 'geometric')}
+           for face in ('Xi','Eta','Zeta') for sign in ('-','+')]
+    cfg = {'mode':'generated', 'generator':'channel_spectral_velocity', 'params': {
+        'initial_spectra':[{'task':'plane_spectrum','axes':['i','k'],'fixed_indices':{'j':3},'subtract_mean':'sample'}]}}
+    resolved = CORE.resolve_initial_condition_config(cfg, [bcs], U_ref=1.0)
+    assert resolved['field_code'] == 0
+    paths = CORE.initial_condition_diagnostic_paths('/tmp/run',resolved)
+    assert len(paths)==3 and '/output/analysis/spectra/' in paths[1]
+    bcs[2]['handler'] = 'slip'
+    with pytest.raises(ValueError, match='no-slip'):
+        CORE.resolve_initial_condition_config(cfg,[bcs], U_ref=1.0)

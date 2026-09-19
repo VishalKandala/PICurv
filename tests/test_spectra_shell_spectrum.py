@@ -66,10 +66,10 @@ def fixture_staged_case(tmp_path):
 
 def test_measurement_is_deterministic_for_a_fixed_seed(staged_case):
     """! @brief Repeated measurement of one field must be bit-identical. @param[in] staged_case Staged case. """
-    first = SPECTRA.generate_shell_spectrum(
+    first = SPECTRA.generate_spectrum(
         staged_case["field"], staged_case["grid"], 0, "continuum", "none"
     )
-    second = SPECTRA.generate_shell_spectrum(
+    second = SPECTRA.generate_spectrum(
         staged_case["field"], staged_case["grid"], 0, "continuum", "none"
     )
     assert first["shell_spectrum"] == second["shell_spectrum"]
@@ -77,7 +77,7 @@ def test_measurement_is_deterministic_for_a_fixed_seed(staged_case):
 
 def test_recovers_the_prescribed_envelope(staged_case):
     """! @brief The measured spectrum must peak at k0 and vanish above k_cut. @param[in] staged_case Staged case. """
-    result = SPECTRA.generate_shell_spectrum(
+    result = SPECTRA.generate_spectrum(
         staged_case["field"], staged_case["grid"], 0, "continuum", "none"
     )
     # params() requests k0 = 2.0 with a hard cutoff at k_cut = 3.0.
@@ -100,7 +100,7 @@ def test_interior_extraction_matches_dmda_convention(staged_case):
 @pytest.mark.parametrize("symbol", ["continuum", "discrete"])
 def test_parseval_closes_for_both_symbols(staged_case, symbol):
     """! @brief Summed shell energy must equal the resolved kinetic energy. @param[in] staged_case Staged case. @param[in] symbol Binning abscissa. """
-    result = SPECTRA.generate_shell_spectrum(
+    result = SPECTRA.generate_spectrum(
         staged_case["field"], staged_case["grid"], 0, symbol, "none"
     )
     assert result["parseval_residual"] < 1e-12
@@ -111,10 +111,10 @@ def test_parseval_closes_for_both_symbols(staged_case, symbol):
 
 def test_discrete_symbol_bins_below_the_continuum_ceiling(staged_case):
     """! @brief The centered-difference symbol saturates, so its support is shorter. @param[in] staged_case Staged case. """
-    continuum = SPECTRA.generate_shell_spectrum(
+    continuum = SPECTRA.generate_spectrum(
         staged_case["field"], staged_case["grid"], 0, "continuum", "none"
     )
-    discrete = SPECTRA.generate_shell_spectrum(
+    discrete = SPECTRA.generate_spectrum(
         staged_case["field"], staged_case["grid"], 0, "discrete", "none"
     )
     assert discrete["max_resolved_wavenumber"] < continuum["max_resolved_wavenumber"]
@@ -131,8 +131,8 @@ def test_subtract_mean_domain_removes_the_zero_mode(tmp_path):
     field_path = str(tmp_path / "ufield00000_0.dat")
     IC.write_petsc_vec_binary(field_path, full)
 
-    kept = SPECTRA.generate_shell_spectrum(field_path, grid_path, 0, "continuum", "none")
-    removed = SPECTRA.generate_shell_spectrum(field_path, grid_path, 0, "continuum", "domain")
+    kept = SPECTRA.generate_spectrum(field_path, grid_path, 0, "continuum", "none")
+    removed = SPECTRA.generate_spectrum(field_path, grid_path, 0, "continuum", "domain")
     assert kept["zero_mode_energy"] > 1e-6
     assert removed["zero_mode_energy"] < 1e-24
     assert removed["parseval_residual"] < 1e-12
@@ -144,27 +144,27 @@ def test_stretched_grid_is_rejected_before_the_field_is_read(tmp_path):
     nodes[..., 0] = np.sinh(1.4*nodes[..., 0]/BOX[0])/np.sinh(1.4)*BOX[0]
     grid_path = write_picgrid(tmp_path / "stretched.run", nodes)
     with pytest.raises(ValueError, match="uniform positive x spacing"):
-        SPECTRA.generate_shell_spectrum("/nonexistent-field.dat", grid_path, 0, "continuum", "none")
+        SPECTRA.generate_spectrum("/nonexistent-field.dat", grid_path, 0, "continuum", "none")
 
 
 def test_curvilinear_bent_channel_grid_is_rejected():
     """! @brief The bent duct has no homogeneous direction and must be refused. """
     grid = ROOT / "examples" / "search_robustness" / "bent_channel_coarse.picgrid"
     with pytest.raises(ValueError, match="shell_spectrum requires"):
-        SPECTRA.generate_shell_spectrum("/nonexistent-field.dat", str(grid), 0, "continuum", "none")
+        SPECTRA.generate_spectrum("/nonexistent-field.dat", str(grid), 0, "continuum", "none")
 
 
 def test_vector_length_mismatch_is_reported_with_expected_layout(staged_case, tmp_path):
     """! @brief A field sized for the wrong grid must name the expected scalar count. @param[in] staged_case Staged case. @param[in] tmp_path Temp dir. """
     other = write_picgrid(tmp_path / "other.run", cartesian_nodes(cells=(6, 6, 6)))
     with pytest.raises(ValueError, match="field vector length mismatch"):
-        SPECTRA.generate_shell_spectrum(staged_case["field"], other, 0, "continuum", "none")
+        SPECTRA.generate_spectrum(staged_case["field"], other, 0, "continuum", "none")
 
 
 def test_block_index_outside_range_is_rejected(staged_case):
     """! @brief An out-of-range block index must be refused. @param[in] staged_case Staged case. """
     with pytest.raises(ValueError, match="outside the PICGRID block range"):
-        SPECTRA.generate_shell_spectrum(staged_case["field"], staged_case["grid"], 2, "continuum", "none")
+        SPECTRA.generate_spectrum(staged_case["field"], staged_case["grid"], 2, "continuum", "none")
 
 
 def test_cli_writes_a_spectrum_csv_matching_the_ic_schema(staged_case, tmp_path):
@@ -177,7 +177,7 @@ def test_cli_writes_a_spectrum_csv_matching_the_ic_schema(staged_case, tmp_path)
         "--spectrum-csv", str(csv_path),
     ])
     assert code == 0
-    expected = SPECTRA.generate_shell_spectrum(
+    expected = SPECTRA.generate_spectrum(
         staged_case["field"], staged_case["grid"], 0, "continuum", "none"
     )
     lines = csv_path.read_text(encoding="utf-8").splitlines()
@@ -205,7 +205,7 @@ def test_field_mean_subtraction_removes_the_supplied_field(staged_case, tmp_path
     """! @brief Subtracting a field must leave exactly the residual. @param[in] staged_case Staged case. @param[in] tmp_path Temp dir. """
     mean_path = str(tmp_path / "mean.dat")
     IC.write_petsc_vec_binary(mean_path, staged_case["full"])
-    result = SPECTRA.generate_shell_spectrum(
+    result = SPECTRA.generate_spectrum(
         staged_case["field"], staged_case["grid"], 0, "continuum", "field", mean_path
     )
     # Subtracting a snapshot from itself leaves no energy at any wavenumber.
@@ -216,7 +216,7 @@ def test_field_mean_subtraction_removes_the_supplied_field(staged_case, tmp_path
 def test_field_mode_without_a_mean_is_refused(staged_case):
     """! @brief The field mode must name what it is missing. @param[in] staged_case Staged case. """
     with pytest.raises(ValueError, match="requires a mean field"):
-        SPECTRA.generate_shell_spectrum(
+        SPECTRA.generate_spectrum(
             staged_case["field"], staged_case["grid"], 0, "continuum", "field"
         )
 
@@ -229,7 +229,7 @@ def test_unsampled_window_mean_is_refused(staged_case, tmp_path):
     count_path = str(tmp_path / "count.dat")
     IC.write_petsc_vec_binary(count_path, np.zeros((km + 1, jm + 1, im + 1)))
     with pytest.raises(ValueError, match="carry no sample"):
-        SPECTRA.generate_shell_spectrum(
+        SPECTRA.generate_spectrum(
             staged_case["field"], staged_case["grid"], 0, "continuum", "field",
             mean_path, count_path,
         )
@@ -237,10 +237,10 @@ def test_unsampled_window_mean_is_refused(staged_case, tmp_path):
 
 def test_integral_length_scale_is_finite_under_the_discrete_symbol(staged_case):
     """! @brief The 1/k moment must not divide by the vanishing Nyquist symbol. @param[in] staged_case Staged case. """
-    continuum = SPECTRA.generate_shell_spectrum(
+    continuum = SPECTRA.generate_spectrum(
         staged_case["field"], staged_case["grid"], 0, "continuum", "none"
     )
-    discrete = SPECTRA.generate_shell_spectrum(
+    discrete = SPECTRA.generate_spectrum(
         staged_case["field"], staged_case["grid"], 0, "discrete", "none"
     )
     # sin(k*dx)/dx vanishes on the Nyquist planes, so a 1/k moment taken on the
@@ -257,9 +257,85 @@ def test_integral_length_scale_is_finite_under_the_discrete_symbol(staged_case):
 
 def test_spectral_integrals_are_reported_without_viscosity(staged_case):
     """! @brief Length scales and the dissipation factor must be present and positive. @param[in] staged_case Staged case. """
-    result = SPECTRA.generate_shell_spectrum(
+    result = SPECTRA.generate_spectrum(
         staged_case["field"], staged_case["grid"], 0, "continuum", "none"
     )
     assert result["integral_length_scale"] > 0.0
     assert result["taylor_microscale"] > 0.0
     assert result["dissipation_over_viscosity"] == pytest.approx(2.0*result["spectral_moment_k2"])
+
+
+@pytest.mark.parametrize('axes,fixed', [((0,2), {1:2}), ((2,), {0:1,1:2})])
+def test_actual_plane_and_line_modes_and_parseval(axes, fixed):
+    # Use local loading convention from this test module.
+    """!
+    @brief Actual plane and line modes and parseval.
+    @param[in] axes Test fixture or parametrized selection.
+    @param[in] fixed Test fixture or parametrized selection.
+    """
+    import runpy
+    module = runpy.run_path(str(ROOT / 'generators' / 'spectra.gen'))
+    ni,nj,nk = 12,8,16
+    x = np.linspace(0,2*np.pi,ni+1)
+    y = np.linspace(0,1,nj+1)**2
+    z = np.linspace(0,2*np.pi,nk+1)
+    zz,yy,xx = np.meshgrid(z,y,x,indexing='ij')
+    nodes = np.stack((xx,yy,zz),axis=-1)
+    zz,yy,xx = np.meshgrid((z[:-1]+z[1:])/2,(y[:-1]+y[1:])/2,(x[:-1]+x[1:])/2,indexing='ij')
+    field = np.zeros((nk,nj,ni,3))
+    field[...,0] = 2 + (1+yy)*np.sin(3*zz)
+    result = module['sampled_spectrum'](field,nodes,axes,fixed,True)
+    amplitude = 1+(y[2]+y[3])/2
+    assert result['resolved_kinetic_energy'] == pytest.approx(amplitude**2/4)
+    assert result['parseval_residual'] < 1e-14
+    active = [r for r in result['sampled_spectrum'] if r['energy'] > 1e-10]
+    assert len(active)==2
+    assert {round(r['k'] if len(axes)==1 else r['k_k']) for r in active} == {-3,3}
+    assert sum(r['energy'] for r in result['sampled_spectrum']) == pytest.approx(amplitude**2/4)
+    with pytest.raises(ValueError, match='uniform'):
+        module['sampled_spectrum'](field,nodes,(1,),{0:1,2:2})
+
+
+@pytest.mark.parametrize('task,axes,fixed', [('plane_spectrum',['i','k'],{'j':3}), ('line_spectrum',['k'],{'i':2,'j':3})])
+def test_sampled_spectra_real_staging_and_checkpoint_dispatch(tmp_path, monkeypatch, task, axes, fixed):
+    """!
+    @brief Sampled spectra real staging and checkpoint dispatch.
+    @param[in] tmp_path Test fixture or parametrized selection.
+    @param[in] monkeypatch Test fixture or parametrized selection.
+    @param[in] task Test fixture or parametrized selection.
+    @param[in] axes Test fixture or parametrized selection.
+    @param[in] fixed Test fixture or parametrized selection.
+    """
+    import json
+    core = load(ROOT / 'picurv_cli' / 'core.py', 'picurv_sampled_stage_tests')
+    nodes = cartesian_nodes()
+    grid = tmp_path / 'inputs/grid/grid.run'
+    grid.parent.mkdir(parents=True)
+    write_picgrid(grid, nodes)
+    params_wall = {'seed':14,'wall_axes':['j'],'bulk_velocity':1.,'perturbation_rms':0.12,
+                  'initial_spectra':[{'task':task,'axes':axes,'fixed_indices':fixed,'subtract_mean':'sample'}]}
+    faces = [{'face':sign+face,'type':'WALL' if face=='Eta' else 'PERIODIC',
+              'handler':'noslip' if face=='Eta' else 'geometric'}
+             for face in ('Xi','Eta','Zeta') for sign in ('-','+')]
+    resolved = core.resolve_initial_condition_config({'mode':'generated','generator':'channel_spectral_velocity',
+                                                     'params':params_wall},[faces],U_ref=1.)
+    case_path = tmp_path/'case.yml'
+    case_path.write_text('{}')
+    staged = core.stage_initial_condition_file(str(tmp_path), str(case_path), resolved)
+    assert all(Path(path).is_file() for path in staged['diagnostics'])
+    measured = json.loads(Path(staged['diagnostics'][2]).read_text())
+    assert measured['generator']==task and measured['parseval_residual']<1e-13
+    assert measured['fixed_indices']==fixed
+    # The post stage discovers a committed snapshot through its existing owner;
+    # the generator subprocess and result writer run without mocks.
+    monkeypatch.setattr(core,'_scan_committed_checkpoint_steps',lambda *a:{0})
+    monkeypatch.setattr(core,'validate_committed_checkpoint',lambda *a:{
+        'bundle':str(tmp_path),'metadata':{'checkpoint_time':'0'},'payloads':[
+            {'kind':'eulerian','field':'Ucat','block':'0','path':'inputs/initial_condition/ufield00000_0.dat'}]})
+    report=core.run_post_spectra_stage(str(tmp_path),{'spectra':{'tasks':params_wall['initial_spectra']}}, {},str(tmp_path),[0],quiet=True)
+    import csv
+    initial=list(csv.DictReader(open(staged['diagnostics'][1])))
+    post=list(csv.DictReader(open(report['artifacts'][0])))
+    assert len(post)==len(initial)
+    assert [{k:v for k,v in row.items() if k not in ('step','time')} for row in post]==initial
+    assert set(core.GENERATED_IC_PROVIDERS)==core._PYTHON_INITIAL_CONDITION_PROVIDERS

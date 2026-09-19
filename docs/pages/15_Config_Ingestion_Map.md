@@ -73,7 +73,7 @@ These keys are consumed by `picurv` orchestration only:
 | `study.execution.max_concurrent_array_tasks` | Slurm array `%N` throttle | `picurv_cli/core.py` | Slurm scheduler |
 | `study.metrics` | `metrics_table.csv` extraction contract | `picurv_cli/core.py` metric extractors | study aggregation/reporting |
 | `study.plotting` | `results/plots/*` output controls | `picurv_cli/core.py` plotting pipeline | study reporting |
-| `post.spectra.tasks[*]` | `spectra.gen shell-spectrum` arguments | `picurv_cli/core.py` (`normalize_post_spectra_config`) | `run_post_spectra_stage`, `generators/spectra.gen` |
+| `post.spectra.tasks[*]` | `spectra.gen shell-spectrum/plane-spectrum/line-spectrum` arguments | `picurv_cli/core.py` (`normalize_post_spectra_config`) | `run_post_spectra_stage`, `generators/spectra.gen` |
 | `post.spectra.output_prefix` | spectra CSV basenames under `<run.analysis>/spectra/<recipe_id>/` | `picurv_cli/core.py` (`post_spectra_task_basename`) | `run_post_spectra_stage` |
 
 @section p15_exceptions_sec 4. Important Exceptions
@@ -90,7 +90,8 @@ These keys are consumed by `picurv` orchestration only:
 Some launcher behaviors depend on other config selections before values ever reach C:
 
 - `case.properties.initial_conditions.mode: generated` resolves `generator` and `params` into
-  built-in C flags or a staged `ic_gen` PETSc vector.
+  built-in C flags or a staged Python-generated PETSc vector. Channel/duct providers
+  validate wall topology and measure selected initial spectra through `spectra.gen`.
 - `case.properties.initial_conditions.mode: file` validates and stages one `Ucat` or `Ucont`
   PETSc vector in the existing @ref ReadFieldData naming layout.
 - file-backed ICs are rejected for multi-block cases in the first implementation.

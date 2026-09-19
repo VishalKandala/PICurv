@@ -120,6 +120,22 @@
     "picurv_cli.storage::{assets.lock.yml,cluster.yml,manifest.json,software.lock.json,study.yml,study_manifest.json}": {
       "classification": "not_public",
       "reason": "Filenames the storage inventory recognises as run metadata rather than payload, including the asset and software locks that record what a run consumed. Fixed artefact names, not a selectable set."
+    },
+    "picurv_cli.core::{channel_spectral_velocity,duct_spectral_velocity,spectral_random_velocity}": {
+      "classification": "structural",
+      "reason": "Subset of initial.file_generator providers that produce spectral diagnostics through shared staging; not another public selector."
+    },
+    "picurv_cli.core::{channel_spectral_velocity,duct_spectral_velocity}": {
+      "classification": "structural",
+      "reason": "Subset of initial.file_generator providers requiring wall topology validation. The public provider choices are registered in initial.file_generator."
+    },
+    "picurv_cli.core::{constant_flux,geometric,initial_flux}": {
+      "classification": "structural",
+      "reason": "Existing boundary.handler values compatible with periodic wall-seed axes. This is a compatibility gate, not a second boundary selector."
+    },
+    "picurv_cli.core::{i,j,k}": {
+      "classification": "parameter_of_entry",
+      "reason": "Logical axis identifiers for plane_spectrum/line_spectrum selections, documented by those post.spectra_task entries."
     }
   }
 }
