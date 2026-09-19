@@ -146,12 +146,11 @@ last accepted state - that message counts **total attempts**, accepted plus reje
 
 **Evidence.** Unit verified - `make unit-solver`. Integration verified -
 `make smoke`. Production exercised in `examples/flat_channel` and
-`examples/bent_channel`.
+`examples/bent_channel`. Analytically verified - `duct-poiseuille-picard-2026-09-18`: steady laminar square-duct Poiseuille flow at second order in space.
 
 **Limitations and full treatment.** Control law, cadence, and tuning guidance are at
-**@subpage 24_Dual_Time_Picard_Jameson_RK**. Note the periodic wall-bounded convergence
-caveat recorded at @ref p54_driven_limits_sub, which currently requires
-re-characterization.
+**@subpage 24_Dual_Time_Picard_Jameson_RK**. The periodic wall-bounded stall once recorded
+at @ref p54_driven_limits_sub was re-characterized on 2026-09-18 and does not reproduce.
 
 @subsection p08_cap_newton_krylov_sub Newton Krylov
 
@@ -175,9 +174,8 @@ configuration - explicit `type: finite_difference` requires
 `nonlinear_solver` (including `line_search`), and `linear_solver`.
 
 **Interactions.** Supported combinations are finite-difference/matrix-free with either
-no preconditioner or a frozen momentum Jacobian / point-block preconditioner.
-`colored_sparse` and `frozen_momentum_approximation` are rejected because their
-implementations are not present. Raw `petsc_passthrough_options` are applied last, but
+no preconditioner or a frozen momentum Jacobian / point-block preconditioner. Any
+other Jacobian type or finite-difference mode is rejected. Raw `petsc_passthrough_options` are applied last, but
 an incompatible raw `-mom_nk_pc_type` override is rejected by the runtime.
 
 **Diagnostics.** SNES and KSP convergence reasons are reported per step. A
@@ -189,7 +187,8 @@ configuration error.
 `make unit-momentum-newton-boundary-fixedpoint` on a production-sized straight duct.
 
 **Limitations and full treatment.** **@subpage 55_Newton_Krylov_Momentum_Solver**
-carries the scope limits, preconditioner findings, and tuning guidance.
+carries the scope limits, preconditioner findings, and tuning guidance. Experimental until the solver has been run at the problem sizes a production
+claim implies.
 
 @subsection p08_cap_dual_time_picard_rk4_sub Dual Time Picard RK4 (deprecated)
 
@@ -265,7 +264,8 @@ momentum selection have no effect.
 
 **Diagnostics.** Startup reports the resolved source directory and the step loaded.
 
-**Evidence.** Implemented only.
+**Evidence.** Regression verified - `make smoke` restarts the flat-channel particle case
+with `eulerian_field_source: load` in its restart-variant sequence.
 
 **Limitations.** No time evolution of the Eulerian state; the field is what was stored.
 
@@ -316,7 +316,7 @@ settle step establishes.
 `interpolation_test` example.
 
 **Evidence.** Production exercised - `examples/interpolation_test` runs this path; see
-@ref p65_verify_sec for what that case establishes.
+@ref p65_verify_sec for what that case establishes. Analytically verified - `tgv-interpolation-2026-09-18`: 0.67% relative error against the TGV3D field on the shipped 32^3 grid.
 
 **Limitations.** Accuracy degrades on strongly distorted cells, as any trilinear scheme
 does.
@@ -340,7 +340,8 @@ smooths the field the particle sees.
 
 **Diagnostics.** As above.
 
-**Evidence.** Implemented only.
+**Evidence.** Regression verified - `make smoke` runs a flat-channel particle case with
+`CornerAveraged` and asserts the runtime banner reports it.
 
 **Limitations.** The additional averaging is diffusive, and it is retained for
 compatibility rather than accuracy.
@@ -578,8 +579,7 @@ no-preconditioner model. Raw `petsc_passthrough_options` are applied last, but a
 incompatible raw `-mom_nk_pc_type` override is rejected by the runtime.
 The Jacobian block is a strict discriminated configuration: an explicit
 `type: finite_difference` requires `finite_difference.mode: matrix_free`.
-`colored_sparse`, `frozen_momentum_approximation`, and irrelevant sibling
-configuration are rejected because their implementations are not present.
+Any other mode or Jacobian type, and irrelevant sibling configuration, is rejected.
 Advanced SNES, line-search, KSP, GMRES, and PC options that do not have structured
 PICurv fields remain available through `petsc_passthrough_options` with the
 `-mom_nk_` prefix. See PETSc's [SNES manual](https://petsc.org/main/manual/snes/),
@@ -635,8 +635,11 @@ poisson_solver:
 ```
 
 Mappings:
-- `method` -> `-ps_ksp_type`
-- `absolute_tolerance` -> `-ps_ksp_atol` and legacy `-poisson_tol`
+- `method` -> `-ps_ksp_type`; one of `fgmres` (default), `gmres`, `lgmres`, `bcgs`, `cg`.
+  `gmres`, `lgmres` and `bcgs` also emit `-ps_ksp_pc_side right`, and `cg` emits
+  `-ps_ksp_norm_type unpreconditioned`, so every method stops on the true residual (see
+  @ref p25_config_sec)
+- `absolute_tolerance` -> `-ps_ksp_atol`
 - `relative_tolerance` -> `-ps_ksp_rtol`
 - `max_iterations` -> `-ps_ksp_max_it`
 - `gmres.restart` -> `-ps_ksp_gmres_restart`; valid only for `gmres`, `fgmres`, or `lgmres`
@@ -756,7 +759,7 @@ Mappings:
 Rules:
 - this path is verification-only and should be used only when no ordinary end-to-end workflow can expose the behavior under test
 - it is only valid with `operation_mode.eulerian_field_source: "analytical"`
-- `verification.sources.scalar` prescribes particle `Psi` from analytical truth and enables the runtime diagnostic `<run.runtime_logs>/scatter_metrics.csv`
+- `verification.sources.scalar` prescribes particle `Psi` from analytical truth and enables the runtime diagnostic `<run.analysis.metrics>/scatter_metrics.csv`
 - scalar profiles currently supported are `CONSTANT`, `LINEAR_X`, and `SIN_PRODUCT`
 - new verification source overrides must be implemented in `include/verification_sources.h` and `src/verification_sources.c`
 

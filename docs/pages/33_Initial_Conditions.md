@@ -125,6 +125,9 @@ The repository generator requires a staged PICGRID. `grid.mode: file` and
 
 @htmlinclude generated/capability_inventory_initial_field_mode.html
 
+Every entry below is experimental: no initialization mode has yet been checked against the
+field it claims to produce.
+
 @subsection p33_cap_zero_sub Zero
 
 @anchor p33_cap_zero
@@ -168,7 +171,9 @@ resolve that discontinuity, which can be abrupt.
 
 **Diagnostics.** As above.
 
-**Evidence.** Implemented only.
+**Evidence.** Regression verified - `make smoke-periodic` asserts the streamwise-constant
+initial-condition banner. Production exercised - `examples/flat_channel` starts from a
+constant field.
 
 **Limitations.** Not divergence-free in general on a curvilinear grid, so the first
 pressure solve does real work.
@@ -179,23 +184,34 @@ pressure solve does real work.
 
 **Identity.** Field mode `Poiseuille` -> `-finit 2` -> `IC_MODE_POISEUILLE`.
 
-**What it does.** Initializes with an analytic parabolic profile.
+**What it does.** Sets the streamwise face flux to `peak * f1 * f2` times the face area,
+where each cross-stream factor is `1 - s^2` and `s` runs from -1 to 1 across the axis in
+logical (index) space: cell `c` of an axis with `n` nodes sits at `s = (c - 1/2 - (n-1)/2) /
+((n-1)/2)`, so the profile vanishes on the walls. A periodic cross-stream axis has no walls,
+and its factor is 1.
 
 **When to choose it.** A wall-bounded channel or duct where you want a developed-looking
 start rather than a transient from rest.
 
 **Parameters it owns.** The profile scaling in the initial-condition block.
 
-**Interactions.** Assumes a wall-bounded geometry; in a domain without the expected walls
-the profile will not vanish where you expect.
+**Interactions.** The coordinate is logical, so the profile is a parabola in physical space
+only on a grid uniform across the section. On a channel periodic in the spanwise axis it is
+the exact laminar profile; on a rectangular duct the product of two parabolas is a start,
+not the duct solution.
 
 **Diagnostics.** As above; inspect the step-0 field before committing to a long run.
 
-**Evidence.** Implemented only.
+**Evidence.** Unit verified -
+`set-initial-interior-field-poiseuille-profile` and
+`set-initial-interior-field-poiseuille-uniform-along-periodic-axis` in `make unit-runtime`
+check the wall-vanishing product profile and the periodic-axis rule;
+`initial-conditions-2026-09-18` found the staged interior face fluxes equal to this formula
+to 3.5e-18 in a solver run.
 
-**Limitations.** An analytic approximation, not a solution of the case being run. The C
-enum also carries `IC_MODE_CONSTANT_STREAMWISE` and `IC_MODE_FILE`, which this selector
-does not expose.
+**Limitations.** Logical-space only: on a stretched or curved cross-section the profile is
+not a physical parabola. Before 2026-09-18 the parabola vanished at the first cell centres
+rather than on the walls, and it was applied across periodic axes too.
 
 @htmlinclude generated/capability_inventory_initial_target_field.html
 
@@ -308,7 +324,6 @@ Common pitfalls:
 - supplying a bulk/mean velocity to Poiseuille mode when the current implementation expects `Vmax`,
 - forgetting that initialization sets the interior only; boundary handlers then overwrite face values,
 - providing a PETSc vector whose size does not match the target DM,
-- attempting a file-backed IC for a multi-block case in the first implementation,
 - omitting `flow_direction` when the domain is fully periodic (no INLET face),
 - comparing `u_physical` directly to `Ucont` without accounting for metric-face scaling.
 

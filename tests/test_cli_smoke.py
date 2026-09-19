@@ -3734,7 +3734,7 @@ def test_dry_run_post_process_requires_all_requested_output_families_for_resume(
             "output_directory": "visualization/mixed",
             "output_filename_prefix": "field_data",
             "particle_filename_prefix": "particle_data",
-            "eulerian_fields": ["Qcrit"],
+            "eulerian_fields": ["Ucat_nodal"],
             "output_particles": True,
             "particle_fields": ["position"],
         },
@@ -9066,3 +9066,62 @@ def test_branching_requires_a_statistics_decision_when_windows_are_enabled(tmp_p
         unstated, case_cfg, solver_cfg, monitor_cfg, str(new_run)
     )
     assert lineage["statistics_state"] == "reset"
+
+
+def test_post_msd_requires_point_source_seeding(tmp_path, capsys):
+    """!
+    @brief MSD is measured from the configured point source, so other seeding is refused.
+
+    With `Volume` or `Surface` seeding the point source is unset - the coordinate origin -
+    and the statistic would report distance from the origin. A case without particles
+    writes nothing and is accepted.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] capsys Pytest capture fixture.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    post_cfg = _post_with_window(0, 100, 100)
+    post_cfg["statistics_pipeline"] = {"tasks": [{"task": "msd"}]}
+    monitor_cfg = _monitor_with_output_cadence(100)
+
+    def case(count, init_mode):
+        """!
+        @brief A minimal case carrying only the particle block.
+        @param[in] count Particle count.
+        @param[in] init_mode Particle seeding mode.
+        @return Case mapping.
+        """
+        return {"models": {"physics": {"particles": {"count": count, "init_mode": init_mode}}}}
+
+    with pytest.raises(SystemExit):
+        picurv.validate_post_config(post_cfg, str(tmp_path / "post.yml"), monitor_cfg,
+                                    case(1000, "Volume"))
+    assert "requires init_mode: PointSource" in capsys.readouterr().err
+
+    picurv.validate_post_config(post_cfg, str(tmp_path / "post.yml"), monitor_cfg,
+                                case(1000, "PointSource"))
+    picurv.validate_post_config(post_cfg, str(tmp_path / "post.yml"), monitor_cfg,
+                                case(0, "Surface"))
+
+
+def test_post_refuses_cell_centred_qcrit_output(tmp_path, capsys):
+    """!
+    @brief Qcrit is cell-centred, so it must reach a .vts through nodal_average.
+
+    Written directly as point data it sat half a cell from the node the file assigned it.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] capsys Pytest capture fixture.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    post_cfg = _post_with_window(0, 100, 100)
+    post_cfg["eulerian_pipeline"] = [{"task": "q_criterion"}]
+    post_cfg["io"]["eulerian_fields"] = ["Qcrit"]
+    with pytest.raises(SystemExit):
+        picurv.validate_post_config(post_cfg, str(tmp_path / "post.yml"), _monitor_with_output_cadence(100))
+    assert "Qcrit_nodal" in capsys.readouterr().err
+
+    post_cfg["eulerian_pipeline"].append(
+        {"task": "nodal_average", "input_field": "Qcrit", "output_field": "Qcrit_nodal"})
+    post_cfg["io"]["eulerian_fields"] = ["Qcrit_nodal"]
+    picurv.validate_post_config(post_cfg, str(tmp_path / "post.yml"), _monitor_with_output_cadence(100))

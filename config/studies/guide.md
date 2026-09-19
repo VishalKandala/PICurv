@@ -19,9 +19,9 @@ but not with each other. This is the "multi-field group sweep" pattern.
 
 Use explicit metric specs whenever the study signal comes from a non-default
 CSV or log artifact. For example, interpolation studies can aggregate values
-from `<run.runtime_logs>/interpolation_error.csv` instead of using `msd_final`. Search and
+from `<run.analysis.metrics>/interpolation_error.csv` instead of using `msd_final`. Search and
 migration characterization studies can likewise aggregate columns from
-`<run.runtime_logs>/search_metrics.csv`, such as `search_failure_fraction`,
+`<run.analysis.metrics>/search_metrics.csv`, such as `search_failure_fraction`,
 `search_work_index`, `re_search_fraction`, or normalized run-level signals
 derived from `lost_cumulative`.
 

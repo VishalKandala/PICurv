@@ -612,7 +612,9 @@ static PetscErrorCode SetUniformScalarField(UserCtx *user, Vec field, PetscReal 
 static PetscErrorCode SetSinusoidalVZField(UserCtx *user, Vec field, PetscReal v_amp, PetscReal w_const)
 {
     Cmpnts   ***arr = NULL;
-    PetscInt   km = user->KM;
+    /* Production layout: physical cells occupy 1..mz-2; 0 and mz-1 are ghost layers,
+       which on a periodic axis hold copies of the opposite physical cell. */
+    const PetscInt ncells = user->info.mz - 2;
 
     PetscFunctionBeginUser;
     PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
@@ -620,7 +622,8 @@ static PetscErrorCode SetSinusoidalVZField(UserCtx *user, Vec field, PetscReal v
 
     PetscCall(DMDAVecGetArray(user->fda, field, &arr));
     for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
-        PetscReal z_phase = (2.0 * PETSC_PI * (PetscReal)k) / (PetscReal)km;
+        const PetscInt  cell = (k == 0) ? ncells : (k == user->info.mz - 1) ? 1 : k;
+        PetscReal z_phase = (2.0 * PETSC_PI * (PetscReal)(cell - 1)) / (PetscReal)ncells;
         for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
             for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
                 arr[k][j][i].x = 0.0;
@@ -964,13 +967,21 @@ static PetscErrorCode TestInterpolationErrorLogging(void)
     Vec position_vec = NULL;
     Vec analytical_vec = NULL;
     const PetscScalar *analytical_arr = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char metrics_path[PETSC_MAX_PATH_LEN];
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
     PetscCall(PicurvCreateSwarmPair(user, 2, "ske"));
     PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "TGV3D", sizeof(simCtx->AnalyticalSolutionType)));
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(PetscStrncpy(simCtx->analysis_dir, tmpdir, sizeof(simCtx->analysis_dir)));
     simCtx->ren = 1.0;
-    simCtx->ti = 0.0;
+    /* ti is physical time, not a step count. The CSV once wrote ti * dt, which read
+       2.5e-03 here instead of 0.25. */
+    simCtx->step = 25;
+    simCtx->dt = 0.01;
+    simCtx->ti = 0.25;
 
     PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void *)&pos_arr));
     pos_arr[0][0] = 0.5 * PETSC_PI; pos_arr[0][1] = 0.0;          pos_arr[0][2] = 0.0;
@@ -995,6 +1006,12 @@ static PetscErrorCode TestInterpolationErrorLogging(void)
     PetscCall(VecDestroy(&analytical_vec));
     PetscCall(DMSwarmDestroyGlobalVectorFromField(user->swarm, "position", &position_vec));
     PetscCall(LOG_INTERPOLATION_ERROR(user));
+
+    PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/interpolation_error.csv", simCtx->analysis_dir));
+    PetscCall(PicurvAssertFileExists(metrics_path, "LOG_INTERPOLATION_ERROR should write interpolation_error.csv"));
+    PetscCall(AssertFileContains(metrics_path, "25,2.500000e-01,",
+                                 "interpolation_error.csv should record physical time, not time multiplied by dt"));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -1783,15 +1800,68 @@ static PetscErrorCode TestSolutionConvergenceStatisticalLogging(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Regression test: convergence observables ignore the ghost layers of a walled box.
+ *
+ * Interior cells carry speed 1 and every ghost layer carries speed 100, as a
+ * boundary-condition image may. The volume-averaged mean speed must be exactly 1: the
+ * loops once ran over the ghost layers too, which put wall images into every mean.
+ */
+static PetscErrorCode TestSolutionConvergenceMeansExcludeGhostLayers(void)
+{
+    SimCtx   *simCtx = NULL;
+    UserCtx  *user = NULL;
+    char      tmpdir[PETSC_MAX_PATH_LEN];
+    char      log_path[PETSC_MAX_PATH_LEN];
+    char      header[4096];
+    char      row[4096];
+    PetscReal mean_speed = NAN;
+    Cmpnts ***arr = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(PetscStrncpy(simCtx->log_dir, tmpdir, sizeof(simCtx->log_dir)));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &arr));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
+            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
+                const PetscBool ghost = (PetscBool)(i == 0 || j == 0 || k == 0 || i == user->info.mx - 1 ||
+                                                    j == user->info.my - 1 || k == user->info.mz - 1);
+                arr[k][j][i].x = 0.0;
+                arr[k][j][i].y = 0.0;
+                arr[k][j][i].z = ghost ? 100.0 : 1.0;
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &arr));
+
+    simCtx->solutionConvergenceMode = SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC;
+    PetscCall(InitializeSolutionConvergenceState(simCtx));
+    simCtx->step = 1;
+    simCtx->ti = 0.1;
+    PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
+
+    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.log", simCtx->log_dir));
+    PetscCall(ReadLogHeaderAndRow(log_path, 1, header, sizeof(header), row, sizeof(row)));
+    PetscCall(LogGetColumnReal(header, row, "mean_speed", &mean_speed));
+    PetscCall(PicurvAssertRealNear(1.0, mean_speed, 1.0e-12,
+                                   "mean speed must average physical cells only, not wall ghost images"));
+
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Regression test: volume-averaged mean KE of a sinusoidal field in a fully periodic domain.
  *
  * For u=0, v=0.1*sin(2πz), w=1 on a uniform [0,1]³ grid the exact continuous mean KE is 0.5025.
- * With identity metrics (Aj=1) the discrete mean over the N unique cells also equals 0.5025
- * for any even N, because Σ_{k=0}^{N-1} sin²(2πk/N) = N/2.
+ * With identity metrics (Aj=1) the discrete mean over the N physical cells also equals 0.5025
+ * for any N >= 3, because Σ_{k=0}^{N-1} sin²(2πk/N) = N/2.
  *
- * Before the fix the statistics loops iterated over N+1 nodes (including the duplicated periodic
- * endpoint at k=N), inflating the denominator and yielding mean_ke ≈ 0.5·(1 + 0.01·N/(2(N+1)³))
- * instead of 0.5025. This test verifies the endpoint is excluded.
+ * The physical cells are 1..mz-2. The ghost layers at 0 and mz-1 hold periodic copies of the
+ * opposite cells, so counting either one weights a cell twice. The loops once counted the
+ * upper ghost, and later still counted the lower one; this test requires both excluded.
  */
 static PetscErrorCode TestPeriodicSinusoidalMeanKE(void)
 {
@@ -1867,6 +1937,7 @@ int main(int argc, char **argv)
         {"solution-convergence-periodic-logging", TestSolutionConvergencePeriodicLogging},
         {"solution-convergence-statistical-logging", TestSolutionConvergenceStatisticalLogging},
         {"periodic-sinusoidal-mean-ke", TestPeriodicSinusoidalMeanKE},
+        {"solution-convergence-means-exclude-ghost-layers", TestSolutionConvergenceMeansExcludeGhostLayers},
     };
 
     (void)setenv("LOG_LEVEL", "INFO", 1);

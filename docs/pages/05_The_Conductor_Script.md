@@ -210,13 +210,18 @@ normally use the active installation and the version commands instead of copying
 executables into every case.
 
 `sync-config` refreshes files from `examples/<template_name>/` into the case directory.
-By default it preserves user-modified files and only copies missing files:
+It compares against the template as `init` lays it out - canonical `config/` names,
+variants under `config/variants/`, rewritten paths - so each case file is matched with
+the template file it was made from. By default it preserves user-modified files and only
+copies missing files:
 
 ```bash
-./my_case/picurv sync-config
-./my_case/picurv sync-config --overwrite
-./my_case/picurv sync-config --prune
+picurv sync-config --case-dir my_case
+picurv sync-config --case-dir my_case --overwrite
+picurv sync-config --case-dir my_case --prune
 ```
+
+Run from inside the workspace, `--case-dir` can be omitted.
 
 `--prune` is conservative: it removes only files previously recorded as template-managed
 that no longer exist in the source template. User-created case files are not pruned.
@@ -229,18 +234,19 @@ refuses a checkout detached by `versions install` or `versions activate`: restor
 commit after the pull would leave the code that runs unchanged while the branches moved.
 
 ```bash
-./my_case/picurv pull-source
-./my_case/picurv pull-source --current-branch-only
-./my_case/picurv pull-source --no-rebase
-./my_case/picurv pull-source --remote origin --branch main
+picurv pull-source --case-dir my_case
+picurv pull-source --case-dir my_case --current-branch-only
+picurv pull-source --case-dir my_case --no-rebase
+picurv pull-source --case-dir my_case --remote origin --branch main
 ```
 
 `status-source` inspects source commit drift, copied binary drift, and template-file drift
-before you decide what to sync:
+before you decide what to sync. Template files are compared the same way `sync-config`
+compares them, so a file reported modified is one `sync-config` would skip:
 
 ```bash
-./my_case/picurv status-source
-./my_case/picurv status-source --format json
+picurv status-source --case-dir my_case
+picurv status-source --case-dir my_case --format json
 ```
 
 For older cases that do not yet have `.picurv-origin.json`, pass `--source-root /path/to/PICurv`.
@@ -338,7 +344,7 @@ Post-only continuation examples:
 
 - If the solver has only written source data through step `420`, PICurv launches only the fully available prefix in the requested stride. A later `--continue` run picks up the newer steps after the solver produces them.
 - If the same recipe already post-processed the requested window, PICurv skips the launch and reports that the run is already caught up.
-- If you change the recipe itself, for example by adding `Qcrit` or changing the statistics output prefix, PICurv treats that as a new recipe lineage and starts again from the configured `start_step`.
+- If you change the recipe itself, for example by adding `Qcrit_nodal` or changing the statistics output prefix, PICurv treats that as a new recipe lineage and starts again from the configured `start_step`.
 - PICurv allows only one post writer per run directory. If a second post job targets the same run, it is refused immediately instead of racing on `<run.visualization>/` or the statistics output beneath it.
 
 Graceful shutdown note:
@@ -429,7 +435,7 @@ Typical sources:
 - `<run.runtime_logs>/solution_convergence.log` (mode-specific speed/KE drift and L2 norms)
 - `<run.runtime_logs>/Profiling_Timestep_Summary.csv` when enabled
 - `<run.runtime_logs>/Runtime_Memory.log` when `monitor.diagnostics.runtime_memory_log.enabled` is true
-- `<run.runtime_logs>/les_coefficient.csv` when `case.yml -> models.physics.turbulence.les.diagnostics.enabled` is true; the `les.*` series carry the effective coefficient, its spread, eddy-viscosity levels, the modelled subgrid energy, and the pre-clipping backscattering and limited fractions
+- `<run.analysis.metrics>/les_coefficient.csv` when `case.yml -> models.physics.turbulence.les.diagnostics.enabled` is true; the `les.*` series carry the effective coefficient, its spread, eddy-viscosity levels, the modelled subgrid energy, and the pre-clipping backscattering and limited fractions
 - `<run.runtime_logs>/PETSc_*_Solver.log` / `<run.runtime_logs>/PETSc_*_PostProcessor.log` when file-backed PETSc diagnostics are enabled
 - `<run.scheduler>/*_solver.log` or `<run.scheduler>/solver_*.out` for sampled particle snapshot previews
 
@@ -906,6 +912,9 @@ make all                                                         # safe: the run
 
 @htmlinclude generated/capability_inventory_workspace_input_import_mode.html
 
+Every mode below is experimental: the workspace asset store has not been exercised at the
+scale where link availability, object accumulation, and pruning start to matter.
+
 @subsection p05_cap_input_mode_copy_sub copy
 
 @anchor p05_cap_input_mode_copy
@@ -953,8 +962,8 @@ the filesystem reports that reflinks are unsupported.
 **Diagnostics.** The import fails with the native copy error if reflink creation is
 unavailable and writes no catalog record.
 
-**Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` verifies the mode is
-part of the public parser and catalog contract.
+**Evidence.** Implemented only. No test imports a file in `reflink` mode; the import
+tests cover `copy` and `reference`.
 
 **Limitations.** Experimental across cluster filesystems; support depends on the local
 `cp` and filesystem.
@@ -979,8 +988,8 @@ changed provider input and prevent stale object reuse, but cannot undo the mutat
 **Diagnostics.** Cross-filesystem or permission failures are reported before the
 catalog changes.
 
-**Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` verifies the mode is
-part of the public parser and catalog contract.
+**Evidence.** Implemented only. No test imports a file in `hardlink` mode; the import
+tests cover `copy` and `reference`.
 
 **Limitations.** Experimental because shared-inode ownership is easy to misuse and it
 cannot cross filesystems.
@@ -1047,7 +1056,6 @@ Full semantics, retention model, and rclone configuration are documented in
 
 - Config contract: **@subpage 14_Config_Contract**
 - User workflows: **@subpage 11_User_How_To_Guides**
-- Extensibility: **@subpage 17_Workflow_Extensibility**
 - First-run path: **@subpage 02_Tutorial_Programmatic_Grid**
 - Grid generator details: **@subpage 48_Grid_Generator_Guide**
 - Modular examples and recipes: **@subpage 49_Workflow_Recipes_and_Config_Cookbook**

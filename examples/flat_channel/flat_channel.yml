@@ -49,8 +49,6 @@ grid:
 
 # --- Model Selection ---
 models:
-  domain:
-    blocks: 1
   physics:
     particles:
       count: 0 # No particles for this case

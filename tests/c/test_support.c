@@ -220,6 +220,7 @@ static PetscErrorCode WriteTextFileForTests(const char *path, const char *conten
 
 static PetscErrorCode PrepareTinyRuntimeConfig(const char *bcs_contents,
                                                PetscBool enable_particles,
+                                               const char *extra_options,
                                                char *tmpdir,
                                                size_t tmpdir_len,
                                                char *control_path,
@@ -318,6 +319,8 @@ static PetscErrorCode PrepareTinyRuntimeConfig(const char *bcs_contents,
         "-allow_unsafe_log_dir true\n"
         "-log_dir %s\n"
         "-analysis_dir %s\n"
+        "%s"
+        /* Appended last: a later occurrence of an option overrides the defaults above. */
         "%s",
         bcs_path,
         post_path,
@@ -325,7 +328,8 @@ static PetscErrorCode PrepareTinyRuntimeConfig(const char *bcs_contents,
         output_dir,
         log_dir,
         analysis_dir,
-        particle_block));
+        particle_block,
+        extra_options ? extra_options : ""));
     PetscCall(WriteTextFileForTests(control_path, control_buffer));
     PetscFunctionReturn(0);
 }
@@ -483,6 +487,8 @@ PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
     PetscCall(CreateZeroedGlobalVector(user->da, &user->Psi));
     PetscCall(CreateZeroedLocalVector(user->da, &user->lPsi));
     PetscCall(CreateZeroedGlobalVector(user->da, &user->Qcrit));
+    PetscCall(CreateZeroedLocalVector(user->da, &user->lQcrit));
+    PetscCall(CreateZeroedGlobalVector(user->da, &user->Qcrit_nodal));
     PetscCall(CreateZeroedGlobalVector(user->da, &user->P_nodal));
     PetscCall(CreateZeroedGlobalVector(user->da, &user->Psi_nodal));
     PetscCall(CreateZeroedGlobalVector(user->da, &user->Aj));
@@ -783,6 +789,23 @@ PetscErrorCode PicurvBuildTinyRuntimeContext(const char *bcs_contents,
                                              char *tmpdir,
                                              size_t tmpdir_len)
 {
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(bcs_contents, enable_particles, NULL,
+                                                       simCtx_out, user_out, tmpdir, tmpdir_len));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Builds the tiny runtime context with extra control-file options appended.
+ */
+PetscErrorCode PicurvBuildTinyRuntimeContextWithOptions(const char *bcs_contents,
+                                                        PetscBool enable_particles,
+                                                        const char *extra_options,
+                                                        SimCtx **simCtx_out,
+                                                        UserCtx **user_out,
+                                                        char *tmpdir,
+                                                        size_t tmpdir_len)
+{
     char control_path[PETSC_MAX_PATH_LEN];
     SimCtx *simCtx = NULL;
 
@@ -790,7 +813,8 @@ PetscErrorCode PicurvBuildTinyRuntimeContext(const char *bcs_contents,
     PetscCheck(simCtx_out != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx output cannot be NULL.");
 
     PetscCall(PetscOptionsClear(NULL));
-    PetscCall(PrepareTinyRuntimeConfig(bcs_contents, enable_particles, tmpdir, tmpdir_len, control_path, sizeof(control_path)));
+    PetscCall(PrepareTinyRuntimeConfig(bcs_contents, enable_particles, extra_options, tmpdir, tmpdir_len,
+                                       control_path, sizeof(control_path)));
     PetscCall(PetscOptionsSetValue(NULL, "-control_file", control_path));
     PetscCall(CreateSimulationContext(0, NULL, &simCtx));
     simCtx->exec_mode = EXEC_MODE_SOLVER;
@@ -932,6 +956,8 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
         PetscCall(DestroyVecIfSet(&user->Psi));
         PetscCall(DestroyVecIfSet(&user->lPsi));
         PetscCall(DestroyVecIfSet(&user->Qcrit));
+        PetscCall(DestroyVecIfSet(&user->lQcrit));
+        PetscCall(DestroyVecIfSet(&user->Qcrit_nodal));
         PetscCall(DestroyVecIfSet(&user->P_nodal));
         PetscCall(DestroyVecIfSet(&user->Psi_nodal));
         PetscCall(DestroyVecIfSet(&user->Ucat));

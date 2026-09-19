@@ -66,7 +66,7 @@
         "required_params": [
           "target_flux"
         ],
-        "status": "supported",
+        "status": "experimental",
         "types": [
           "PERIODIC"
         ]
@@ -86,7 +86,7 @@
       "geometric": {
         "optional_params": [],
         "required_params": [],
-        "status": "supported",
+        "status": "experimental",
         "types": [
           "PERIODIC"
         ]
@@ -97,7 +97,7 @@
           "enforce_seam_flux"
         ],
         "required_params": [],
-        "status": "supported",
+        "status": "experimental",
         "types": [
           "PERIODIC"
         ]
@@ -155,7 +155,7 @@
         "maps_to": "PERIODIC",
         "reachability": "reachable",
         "reachable": true,
-        "status": "supported"
+        "status": "experimental"
       },
       "symmetry": {
         "maps_to": "SYMMETRY",
@@ -244,7 +244,7 @@
       },
       "Newton Krylov": {
         "maps_to": "newton_krylov",
-        "status": "supported"
+        "status": "experimental"
       }
     },
     "selector": "solver.yml -> strategy.momentum_solver",
@@ -430,12 +430,12 @@
       },
       "k_omega": {
         "maps_to": 1,
-        "status": "experimental"
+        "status": "known-defective"
       },
       "komega": {
         "maps_to": 1,
         "spelling_of": "k_omega",
-        "status": "experimental"
+        "status": "known-defective"
       },
       "none": {
         "maps_to": 0,
@@ -598,7 +598,7 @@
     "public_values": {
       "ucat": {
         "maps_to": "ucat",
-        "status": "supported"
+        "status": "experimental"
       },
       "ucont": {
         "maps_to": "ucont",
@@ -641,6 +641,23 @@
     },
     "selector": "case.yml -> grid.mode",
     "title": "Grid Ingestion Modes"
+  },
+  {
+    "family_page": "07_Case_Reference",
+    "id": "domain.dimensionality",
+    "parity": [],
+    "public_values": {
+      "2D": {
+        "maps_to": "2D",
+        "status": "experimental"
+      },
+      "3D": {
+        "maps_to": "3D",
+        "status": "supported"
+      }
+    },
+    "selector": "case.yml -> models.physics.dimensionality",
+    "title": "Flow Dimensionality"
   },
   {
     "family_page": "48_Grid_Generator_Guide",
@@ -834,23 +851,23 @@
     "public_values": {
       "flux": {
         "maps_to": "flux",
-        "status": "supported"
+        "status": "experimental"
       },
       "mean": {
         "maps_to": "mean",
-        "status": "supported"
+        "status": "experimental"
       },
       "reynolds_stress": {
         "maps_to": "reynolds_stress",
-        "status": "supported"
+        "status": "experimental"
       },
       "rms": {
         "maps_to": "rms",
-        "status": "supported"
+        "status": "experimental"
       },
       "tke": {
         "maps_to": "tke",
-        "status": "supported"
+        "status": "experimental"
       }
     },
     "selector": "post.yml -> field_statistics.outputs[]",
@@ -863,11 +880,11 @@
     "public_values": {
       "physical_time": {
         "maps_to": "physical_time",
-        "status": "supported"
+        "status": "experimental"
       },
       "sample": {
         "maps_to": "sample",
-        "status": "supported"
+        "status": "experimental"
       }
     },
     "selector": "monitor.yml -> field_statistics.windows[].weighting",
@@ -880,7 +897,7 @@
     "public_values": {
       "grid_independence": {
         "maps_to": "grid_independence",
-        "status": "supported"
+        "status": "experimental"
       },
       "sensitivity": {
         "maps_to": "sensitivity",
@@ -905,7 +922,7 @@
       },
       "none": {
         "maps_to": "none",
-        "status": "supported"
+        "status": "experimental"
       }
     },
     "selector": "solver.yml -> momentum_solver.newton_krylov.preconditioner.model",
@@ -918,11 +935,11 @@
     "public_values": {
       "auto": {
         "maps_to": "auto",
-        "status": "supported"
+        "status": "experimental"
       },
       "balanced": {
         "maps_to": "balanced",
-        "status": "supported"
+        "status": "experimental"
       },
       "fast": {
         "maps_to": "fast",
@@ -934,7 +951,7 @@
       },
       "none": {
         "maps_to": "none",
-        "status": "supported"
+        "status": "experimental"
       }
     },
     "selector": "picurv storage --compression / storage.yml -> compression",
@@ -951,7 +968,7 @@
       },
       "reset": {
         "maps_to": "reset",
-        "status": "supported"
+        "status": "experimental"
       }
     },
     "selector": "picurv run --statistics-state",
@@ -964,7 +981,7 @@
     "public_values": {
       "copy": {
         "maps_to": "copy",
-        "status": "supported"
+        "status": "experimental"
       },
       "hardlink": {
         "maps_to": "hardlink",
@@ -972,7 +989,7 @@
       },
       "reference": {
         "maps_to": "reference",
-        "status": "supported"
+        "status": "experimental"
       },
       "reflink": {
         "maps_to": "reflink",
@@ -989,15 +1006,15 @@
     "public_values": {
       "analysis-ready": {
         "maps_to": "analysis-ready",
-        "status": "supported"
+        "status": "experimental"
       },
       "metadata-only": {
         "maps_to": "metadata-only",
-        "status": "supported"
+        "status": "experimental"
       },
       "restart-ready": {
         "maps_to": "restart-ready",
-        "status": "supported"
+        "status": "experimental"
       }
     },
     "selector": "picurv storage offload --policy / storage profile -> offload_policy",
@@ -1010,27 +1027,27 @@
     "public_values": {
       "analysis": {
         "maps_to": "analysis",
-        "status": "supported"
+        "status": "experimental"
       },
       "checkpoints": {
         "maps_to": "checkpoints",
-        "status": "supported"
+        "status": "experimental"
       },
       "inputs": {
         "maps_to": "inputs",
-        "status": "supported"
+        "status": "experimental"
       },
       "logs": {
         "maps_to": "logs",
-        "status": "supported"
+        "status": "experimental"
       },
       "raw-output": {
         "maps_to": "raw-output",
-        "status": "supported"
+        "status": "experimental"
       },
       "visualization": {
         "maps_to": "visualization",
-        "status": "supported"
+        "status": "experimental"
       }
     },
     "selector": "picurv storage offload/plan --retain / --drop",

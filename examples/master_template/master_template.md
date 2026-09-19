@@ -54,6 +54,5 @@ For shared site MPI quirks across login-node and batch runs, `picurv init` now c
 - User contract: https://vishalkandala.me/docs/picurv/14_Config_Contract.html
 - Developer ingestion map: https://vishalkandala.me/docs/picurv/15_Config_Ingestion_Map.html
 - Extension playbook: https://vishalkandala.me/docs/picurv/16_Config_Extension_Playbook.html
-- Workflow extensibility notes: https://vishalkandala.me/docs/picurv/17_Workflow_Extensibility.html
 - Conductor CLI: https://vishalkandala.me/docs/picurv/05_The_Conductor_Script.html
 - Search robustness example: ../search_robustness/search_robustness.md

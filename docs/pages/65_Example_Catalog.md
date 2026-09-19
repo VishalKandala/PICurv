@@ -77,7 +77,7 @@ documentation work. That is why **@subpage 66_Evidence_Matrix** records no
 @note **The shipped LES configuration is experimental.**
 `decaying_isotropic_turbulence` selects `model: dynamic_smagorinsky` with
 `averaging.mode: homogeneous`, which on a triply periodic box gives one coefficient
-for the whole domain and writes `Cs(t)` to `<run.runtime_logs>/les_coefficient.csv`. The
+for the whole domain and writes `Cs(t)` to `<run.analysis.metrics>/les_coefficient.csv`. The
 formulation is unit-tested but the coefficient magnitude has not been validated: this
 case is the run that would settle it, and `Cs(t)` is expected to settle near
 0.16-0.17. Until that is recorded, treat the magnitude as uncharacterized.
@@ -102,12 +102,11 @@ laminar. Its literature anchors - the log law, Dean's correlation, and Lee & Mos
 at `Re_tau = 1000` - are what it is built to be compared against, not comparisons that
 have been run.
 
-@warning The `periodic_test` campaigns carry an open status: pseudo-time momentum
-convergence on periodic wall-bounded flow was observed to stall on 2026-08-24 and
-**requires re-characterization at current `HEAD`** after the convergence-criterion
-change. Read @ref p54_driven_limits_sub before planning a campaign around them. Use
-the periodic boundary handlers documented at @ref p44_cap_geometric "geometric" and
-the driven handlers; note the LES caveat above applies to their LES variants.
+The pseudo-time stall once recorded for these periodic wall-bounded cases was
+re-characterized on 2026-09-18 and does not reproduce; the laminar channel reproduces
+its exact parabola at second order (@ref p54_driven_limits_sub). Use the periodic
+boundary handlers documented at @ref p44_cap_geometric "geometric" and the driven
+handlers; note the LES caveat above applies to their LES variants.
 
 @section p65_authoring_sec 5. Using an Example as a Starting Point
 

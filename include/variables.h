@@ -893,23 +893,20 @@ typedef struct SimCtx {
     PetscBool restartHistoryAvailable;
 
     //================ Group 3: High-Level Physics & Model Selection Flags ================
-    PetscInt  immersed, movefsi, rotatefsi, sediment, rheology;
-    PetscInt  invicid, TwoD, thin, moveframe, rotateframe, blank;
-    PetscInt  dgf_x, dgf_y, dgf_z, dgf_ax, dgf_ay, dgf_az;
+    PetscInt  immersed, movefsi, rotatefsi;   ///< Refused at setup: immersed boundaries and moving bodies are not implemented.
+    PetscInt  invicid, TwoD, moveframe, rotateframe; ///< moveframe/rotateframe are refused at setup.
     char AnalyticalSolutionType[PETSC_MAX_PATH_LEN];
   
-    //================ Group 4: Specific Simulation Case Flags ================
-    PetscInt  cop, fish, fish_c, fishcyl, eel, pizza, turbine, Pipe, wing, hydro, MHV, LV;
-    PetscInt channelz;
+    //================ Group 4: Immersed-Body Flux Corrections ================
+    PetscInt  MHV, LV;                         ///< Refused at setup; read only by the dormant immersed Poisson branch.
 
     //================ Group 5: Solver & Numerics Parameters ================
     MomentumSolverType mom_solver_type;
     PetscInt  mom_max_pseudo_steps;
     PetscReal mom_atol, mom_rtol, mom_resid_atol, mom_resid_rtol, imp_stol;
-    PetscInt  mglevels,mg_MAX_IT, mg_idx, mg_preItr, mg_poItr;
+    PetscInt  mglevels, mg_preItr, mg_poItr;
     PetscInt  poisson;
-    PetscReal poisson_tol;
-    PetscInt  STRONG_COUPLING,central;
+    PetscInt  central;
 
     PetscReal ren, pseudo_cfl, cdisx, cdisy, cdisz;
     PetscReal pseudo_cfl_reduction_factor, pseudo_cfl_growth_factor; // st, vnn
@@ -948,7 +945,7 @@ typedef struct SimCtx {
     VerificationScalarConfig verificationScalar;
     
     //================ Group 6: Physical & Geometric Parameters ================
-    PetscInt  NumberOfBodies;
+    PetscInt  NumberOfBodies;                  ///< Always 1: read only by the dormant immersed-body flux routine.
     PetscReal Flux_in, angle,max_angle;
     PetscReal CMx_c, CMy_c, CMz_c;
     PetscReal psrc_x, psrc_y, psrc_z;  /**< Point source location for PARTICLE_INIT_POINT_SOURCE */
@@ -957,11 +954,9 @@ typedef struct SimCtx {
     PetscReal schmidt_number, Turbulent_schmidt_number;
 
     //================ Group 7: Grid, Domain, and Boundary Condition Settings ================
-    PetscInt  block_number, inletprofile, grid1d, Ogrid;
-    PetscInt  i_periodic, j_periodic, k_periodic, blkpbc, pseudo_periodic;
+    PetscInt  block_number, inletprofile;
+    PetscInt  i_periodic, j_periodic, k_periodic, pseudo_periodic;
     PetscBool generate_grid;        
-    PetscReal grid_rotation_angle; 
-    PetscReal Croty, Crotz; 
     char grid_file[PETSC_MAX_PATH_LEN];
     PetscInt da_procs_x, da_procs_y, da_procs_z;
     PetscInt num_bcs_files;
@@ -983,20 +978,19 @@ typedef struct SimCtx {
     PetscReal bulkVelocityCorrection;
     PetscReal boundaryVelocityCorrection;
     PetscReal  AreaInSum, AreaOutSum;
-    PetscReal  U_bc;
     PetscInt   ccc;
     PetscReal  ratio;
   
     //================ Group 8: Turbulence Modeling (LES/RANS) ================
     PetscInt  les;                  ///< Active LES closure; an ::LESModelType value.
-    PetscInt  rans;                 ///< Active RANS closure; the k-omega runtime path is incomplete.
+    PetscInt  rans;                 ///< Active RANS closure. Known-defective: the k-omega fields are never allocated, so enabling it aborts after step one.
     PetscInt  wallfunction;         ///< Enable wall functions on WALL faces.
     PetscInt  les_gradient_model;   ///< Add the Clark gradient (tensor-diffusivity) term to the viscous flux.
     LESConfig les_config;           ///< Parameters of the LES closure selected by `les`.
   
     //================ Group 9: Particle / DMSwarm Data & Settings ================
     PetscInt  np;
-    PetscBool readFields;
+    PetscInt  particleRandomSeed; ///< Base seed for every particle RNG stream (-particle_random_seed).
     DM        dm_swarm;
     BoundingBox *bboxlist;
     ParticleInitializationType ParticleInitialization;
@@ -1016,8 +1010,6 @@ typedef struct SimCtx {
     IBMNodes  *ibm;
     IBMVNodes *ibmv;
     FSInfo    *fsi;
-    PetscBool rstart_fsi;
-    PetscInt  duplicate;
 
     //================ Group 11: Top-Level Managers, Custom Configuration,Logging/Monitoring ====
     UserMG    usermg;
@@ -1181,7 +1173,8 @@ typedef struct UserCtx {
   DM  post_swarm;
   Vec P_nodal;
   Vec Ucat_nodal;
-  Vec Qcrit;
+  Vec Qcrit, lQcrit;   ///< Cell-centred Q-criterion and its ghosted copy for nodal averaging.
+  Vec Qcrit_nodal;     ///< Q-criterion averaged to grid nodes; the field a .vts can place correctly.
   Vec Psi_nodal;
   
 } UserCtx;

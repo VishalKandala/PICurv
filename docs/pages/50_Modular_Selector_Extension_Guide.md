@@ -247,7 +247,7 @@ Full contract: **@subpage 64_Documentation_Extension_Framework**.
   - thin delegation from `src/rhs.c` for diffusivity
   - analytical scalar truth in `src/AnalyticalSolutions.c`
   - gated particle-physics bypass in `src/ParticlePhysics.c`
-  - runtime metric writer in `src/logging.c` (`<run.runtime_logs>/scatter_metrics.csv`)
+  - runtime metric writer in `src/logging.c` (`<run.analysis.metrics>/scatter_metrics.csv`)
 - Design boundary:
   - verification sources exist only for otherwise-unreachable verification scenarios
   - analytical truth definitions belong in `AnalyticalSolutions`, not in model-evolution code such as `ParticlePhysics`

@@ -279,7 +279,7 @@ nonmatching surface pairs are rejected at runtime.
 
 **Evidence.** Production exercised - the `examples/periodic_test` driven-channel and driven-duct cases generate their meshes with this type, and all of them reproduce byte-identically the meshes the retired `warp` type produced.
 
-**Limitations.** The wall is a single-valued function of position by construction, so it cannot express an overhang, a detached body, or anything the flow passes underneath; those need an immersed boundary or multiple blocks, and neither is available in the runtime today. Walls may be shaped on one axis pair only: profiling two intersecting pairs at once needs three-dimensional transfinite interpolation, which is not implemented. No solve has yet been run on a stepped mesh, so metric quality at a resolved corner is reported but not validated. Experimental until a case exercises the shaped-wall path end to end.
+**Limitations.** The wall is a single-valued function of position by construction, so it cannot express an overhang, a detached body, or anything the flow passes underneath; those need an immersed boundary or coupled blocks, and the runtime has neither. Walls may be shaped on one axis pair only: profiling two intersecting pairs at once needs three-dimensional transfinite interpolation, which is not implemented. No solve has yet been run on a stepped mesh, so metric quality at a resolved corner is reported but not validated. Experimental until a case exercises the shaped-wall path end to end.
 
 @subsection p48_cap_geom_sweep_sub sweep
 
@@ -344,7 +344,7 @@ nonmatching surface pairs are rejected at runtime.
 
 **Evidence.** Implemented only. Unit tests check that the map fills the disc, reaches its edge and leaves no hole; no shipped case selects it.
 
-**Limitations.** Cell size varies with angle and is worst in the four diagonal regions: a 32x32 section reports 79.7 degrees maximum and 12.1 average non-orthogonality, against 0.004 for a rectangle. Composing a radial redistribution transform evens out wall-normal spacing but not azimuthal spacing. This is not a wall-resolved pipe mesh - that needs an O-grid annulus stitched to a core block, which is multi-block, and the runtime has no block-interface handler. The alternative single-block topology, an O-grid, is not offered: `Metric.c` has a `cgrid` branch for its circumferential seam, but nothing in the runtime today can both build real O-grid coordinates and reach that branch - it is wired only to `programmatic_c`, whose grid generator never builds anything but a Cartesian box.
+**Limitations.** Cell size varies with angle and is worst in the four diagonal regions: a 32x32 section reports 79.7 degrees maximum and 12.1 average non-orthogonality, against 0.004 for a rectangle. Composing a radial redistribution transform evens out wall-normal spacing but not azimuthal spacing. This is not a wall-resolved pipe mesh - that needs an O-grid annulus stitched to a core block, which is multi-block, and the runtime has no block-interface handler. The alternative single-block topology, an O-grid, is not offered: `Metric.c` has a `cgrid` branch for its circumferential seam, but nothing in the runtime can both build real O-grid coordinates and reach that branch - it is wired only to `programmatic_c`, whose grid generator never builds anything but a Cartesian box.
 
 @section p48_cap_wall_sec 7.3 Wall Height Field Segment Entries
 
@@ -667,6 +667,5 @@ Transforms apply after the geometry map, in the order given, and compose on top 
 
 - **@subpage 07_Case_Reference**
 - **@subpage 14_Config_Contract**
-- **@subpage 17_Workflow_Extensibility**
 - **@subpage 49_Workflow_Recipes_and_Config_Cookbook**
 - **@ref p54_geometric_periodic "Periodic Boundaries and Driven Flows"**

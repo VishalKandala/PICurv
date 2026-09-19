@@ -28,8 +28,7 @@ of the solver's state, not the state itself.
 **`Csi` / `Eta` / `Zet`** — face area vectors for the three computational directions
 \f$\xi, \eta, \zeta\f$.
 
-**`Nvert`** — per-cell classification marking blanked, immersed, or boundary-adjacent
-cells.
+**`Nvert`** — per-cell classification marking blanked or boundary-adjacent cells.
 
 **Shifted index architecture** — cell-centred data for geometric cell `i` is stored at
 array index `i+1`. This is deliberate: it makes boundary handling symmetric. See

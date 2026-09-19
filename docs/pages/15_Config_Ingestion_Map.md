@@ -24,7 +24,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `case.grid.da_processors_*` | `-da_processors_x/y/z` | `src/setup.c` | `src/grid.c` DMDA creation |
 | `case.models.domain.blocks` | `-nblk` | `src/setup.c` | `src/grid.c` |
 | paired `case.boundary_conditions` periodic faces | BC rows; periodic axes are derived in C | `src/Boundaries.c`, `src/io.c` (`DeterminePeriodicity`) | `src/grid.c` DMDA creation, periodic field synchronization |
-| `case.models.physics.particles.*` | `-numParticles`, `-pinit`, `-particle_restart_mode`, `-psrc_*` | `src/setup.c` | `src/ParticleSwarm.c`, `src/ParticleMotion.c`, statistics kernels |
+| `case.models.physics.particles.*` | `-numParticles`, `-pinit`, `-particle_restart_mode`, `-particle_random_seed`, `-psrc_*` | `src/setup.c` | `src/ParticleSwarm.c`, `src/ParticleMotion.c`, statistics kernels |
 | `case.models.physics.turbulence.*` | `-les`, `-les_constant_cs`, `-les_dynamic_frequency`, `-les_filter_width`, `-les_test_filter_kernel`, `-les_test_filter_width_ratio`, `-les_averaging_mode`, `-les_averaging_directions`, `-les_clip_mode`, `-les_clip_max_cs`, `-les_min_viscosity_ratio`, `-les_yoshizawa_ci`, `-les_gradient_model`, `-les_diagnostics`, `-les_diagnostics_cadence`, `-rans`, `-wallfunction`, `-wall_roughness` | `src/setup.c` | `src/solvers.c`, `src/les.c`, `src/Filter.c`, `src/rhs.c`, `src/Boundaries.c`, `src/wallfunction.c` |
 | `solver.interpolation.method` | `-interpolation_method` | `src/setup.c` | `src/interpolation.c` (dispatch in @ref InterpolateEulerFieldToSwarm) |
 | `case.boundary_conditions` | `bcs*.run` rows | BC parser path (`src/Boundaries.c` + helpers) | BC handler factory and boundary application |
@@ -34,7 +34,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `solver.strategy/tolerances/momentum_solver.*` | solver flags (`-mom_*`, pseudo-CFL, etc.) | `src/setup.c` | `src/momentumsolvers.c` |
 | `solver.momentum_solver.newton_krylov.*` | application selectors `-mom_nk_jacobian_*`, `-mom_nk_preconditioner_*`; prefixed `-mom_nk_snes_*`, `-mom_nk_ksp_*` | application parsing plus PETSc options db via `SNESSetFromOptions()` | `src/momentum_newton_krylov.c` |
 | `solver.scalar_transport.*` | `-schmidt_number`, `-turb_schmidt_number` | `src/setup.c` | `src/rhs.c`, `src/particle_statistics.c`, scalar/particle transport |
-| `solver.poisson_solver.*` / legacy `solver.pressure_solver.*` | `-poisson_tol`, `-ps_ksp_*`, `-ps_pc_type`, `-mg_*`, `-ps_mg_levels_*` | `src/setup.c` + PETSc options db | `src/poisson.c` |
+| `solver.poisson_solver.*` / legacy `solver.pressure_solver.*` | `-ps_ksp_*`, `-ps_pc_type`, `-mg_*`, `-ps_mg_levels_*` | `src/setup.c` + PETSc options db | `src/poisson.c` |
 | `solver.petsc_passthrough_options` | raw flags in control | PETSc options db | PETSc KSP/PC stack, mostly in `src/poisson.c` |
 | `monitor.io.data_output_frequency` | `-tio` | `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c` |
 | `monitor.io.particle_console_output_frequency` | `-particle_console_output_freq` | `src/setup.c` | `src/io.c`, `src/setup.c`, particle console logging |
@@ -93,7 +93,6 @@ Some launcher behaviors depend on other config selections before values ever rea
   built-in C flags or a staged `ic_gen` PETSc vector.
 - `case.properties.initial_conditions.mode: file` validates and stages one `Ucat` or `Ucont`
   PETSc vector in the existing @ref ReadFieldData naming layout.
-- file-backed ICs are rejected for multi-block cases in the first implementation.
 - `solver.operation_mode.eulerian_field_source` and `case.run_control.start_step` supersede IC
   materialization when load, analytical, or restart state has authority.
 - `solver.operation_mode.eulerian_field_source: analytical`
@@ -123,5 +122,4 @@ cleanup target immediately before recursive deletion. See @ref p71_isolation_sub
   - `python3 tests/tooling/audit_ingress.py`
   - or `make audit-ingress`
 
-For roadmap-oriented workflow extensions built on this contract, see **@subpage 17_Workflow_Extensibility**.
 For selector-specific contributor hook points, see **@subpage 50_Modular_Selector_Extension_Guide**.

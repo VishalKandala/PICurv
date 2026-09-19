@@ -358,7 +358,9 @@ static PetscErrorCode TestSetInitialInteriorFieldZeroClearsInterior(void)
 }
 
 /**
- * @brief Tests Poiseuille IC follows the discrete cross-stream profile and reaches zero at edges.
+ * @brief Tests Poiseuille IC is the product parabola that vanishes on the walls.
+ * @details Four cells per cross-stream axis: cell centres sit at logical 0.5..3.5 with the
+ *          walls at 0 and 4, so the normalized coordinate is -0.75, -0.25, 0.25, 0.75.
  */
 static PetscErrorCode TestSetInitialInteriorFieldPoiseuilleProfile(void)
 {
@@ -376,11 +378,46 @@ static PetscErrorCode TestSetInitialInteriorFieldPoiseuilleProfile(void)
 
     PetscCall(SetInitialInteriorField(user, FIELD_ID_UCONT));
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
-    PetscCall(PicurvAssertRealNear(3.0 * 64.0 / 81.0, ucont[2][2][2].z, 1.0e-12,
-                                   "Poiseuille IC follows the discrete center-adjacent profile value"));
-    PetscCall(PicurvAssertRealNear(0.0, ucont[2][1][1].z, 1.0e-12, "Poiseuille IC is zero at cross-stream edge"));
+    PetscCall(PicurvAssertRealNear(3.0 * 225.0 / 256.0, ucont[2][2][2].z, 1.0e-12,
+                                   "Poiseuille IC follows the parabola at a centre-adjacent cell"));
+    PetscCall(PicurvAssertRealNear(3.0 * 49.0 / 256.0, ucont[2][1][1].z, 1.0e-12,
+                                   "Poiseuille IC vanishes on the wall, not at the first cell centre"));
     PetscCall(PicurvAssertRealNear(0.0, ucont[2][2][2].x, 1.0e-12, "Poiseuille IC leaves Xi flux zero"));
     PetscCall(PicurvAssertRealNear(0.0, ucont[2][2][2].y, 1.0e-12, "Poiseuille IC leaves Eta flux zero"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests Poiseuille IC is uniform along a periodic cross-stream axis.
+ * @details A channel periodic in i has walls only in j, so its start is the exact
+ *          one-dimensional parabola in j.
+ */
+static PetscErrorCode TestSetInitialInteriorFieldPoiseuilleUniformAlongPeriodicAxis(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts ***ucont = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
+    simCtx->initialConditionMode = IC_MODE_POISEUILLE;
+    simCtx->icVelocityPhysical = 3.0;
+    simCtx->flowDirection = FLOW_DIR_POS_ZETA;
+    simCtx->i_periodic = 1;
+    user->GridOrientation = 1;
+    PetscCall(VecZeroEntries(user->Ucont));
+
+    PetscCall(SetInitialInteriorField(user, FIELD_ID_UCONT));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(3.0 * 15.0 / 16.0, ucont[2][2][1].z, 1.0e-12,
+                                   "periodic axis carries no parabola factor"));
+    PetscCall(PicurvAssertRealNear(ucont[2][2][1].z, ucont[2][2][3].z, 1.0e-12,
+                                   "profile is uniform along the periodic axis"));
+    PetscCall(PicurvAssertRealNear(3.0 * 7.0 / 16.0, ucont[2][1][2].z, 1.0e-12,
+                                   "wall-bounded axis keeps its parabola"));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
@@ -1604,6 +1641,7 @@ int main(int argc, char **argv)
         {"set-initial-interior-field-curvilinear-constant-via-flow-direction", TestSetInitialInteriorFieldCurvilinearConstantViaFlowDirection},
         {"set-initial-interior-field-zero-clears-interior", TestSetInitialInteriorFieldZeroClearsInterior},
         {"set-initial-interior-field-poiseuille-profile", TestSetInitialInteriorFieldPoiseuilleProfile},
+        {"set-initial-interior-field-poiseuille-uniform-along-periodic-axis", TestSetInitialInteriorFieldPoiseuilleUniformAlongPeriodicAxis},
         {"cart2contra-converts-cartesian-field", TestCart2ContraConvertsCartesianField},
         {"cart2contra-uses-finalized-periodic-ucat", TestCart2ContraUsesFinalizedPeriodicUcat},
         {"populate-initial-ucont-loads-staged-ucat", TestPopulateInitialUcontLoadsStagedUcat},

@@ -99,6 +99,34 @@ static PetscErrorCode TestComputeNodalAverageScalar(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests that the cell-centred Q-criterion can be averaged to nodes.
+ *
+ * Qcrit is computed at cell centres and a .vts carries point data only, so writing it
+ * directly placed every value half a cell from its node. It now goes through the same
+ * nodal average as P, which needs it catalogued for the ghost refresh.
+ */
+static PetscErrorCode TestComputeNodalAverageQcrit(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    const PetscScalar ***q_nodal_arr = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(VecSet(user->Qcrit, 3.0));
+    PetscCall(VecSet(user->Qcrit_nodal, -1.0));
+
+    PetscCall(ComputeNodalAverage(user, "Qcrit", "Qcrit_nodal"));
+
+    PetscCall(DMDAVecGetArrayRead(user->da, user->Qcrit_nodal, (void *)&q_nodal_arr));
+    PetscCall(PicurvAssertRealNear(3.0, PetscRealPart(q_nodal_arr[0][0][0]), 1.0e-12,
+                                   "ComputeNodalAverage should average Qcrit onto nodes"));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->Qcrit_nodal, (void *)&q_nodal_arr));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests normalization of one field relative to a reference field.
  */
 
@@ -197,6 +225,7 @@ int main(int argc, char **argv)
         {"compute-specific-ke", TestComputeSpecificKE},
         {"compute-displacement", TestComputeDisplacement},
         {"compute-nodal-average-scalar", TestComputeNodalAverageScalar},
+        {"compute-nodal-average-qcrit", TestComputeNodalAverageQcrit},
         {"normalize-relative-field", TestNormalizeRelativeField},
         {"dimensionalize-pressure-field", TestDimensionalizePressureField},
         {"compute-qcriterion-zero-flow", TestComputeQCriterionZeroFlow},

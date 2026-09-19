@@ -71,7 +71,7 @@ Watch for:
 - excessive migration pass counts,
 - repeated `LOST` particles,
 - non-convergence of settlement loop,
-- elevated traversal effort or repeated tie-break/boundary-clamp events in `<run.runtime_logs>/search_metrics.csv`,
+- elevated traversal effort or repeated tie-break/boundary-clamp events in `<run.analysis.metrics>/search_metrics.csv`,
 - increasing `search_failure_fraction`, `search_work_index`, or `re_search_fraction`,
 - increasing `lost` or `lost_cumulative` even when migration otherwise appears healthy.
 

@@ -522,6 +522,7 @@ case_cfg.setdefault("run_control", {})
 case_cfg["run_control"]["total_steps"] = 1
 monitor_cfg["diagnostics"] = {
     "petsc": {
+        "info": {"enabled": True, "classes": ["ksp"]},
         "malloc_debug": True,
         "malloc_dump": True,
         "malloc_view": True,
@@ -577,6 +578,9 @@ PY
   fi
   require_file "${created_run}/logs/PETSc_LogView_Solver.log" "PETSc log view log"
   require_file_contains "${malloc_view_log}" "Memory usage sorted by function" "PETSc malloc view summary"
+  # PETSc opens the -info file before the fresh-run log wipe; the solver must reopen it.
+  require_file "${created_run}/logs/PETSc_Info_Solver.log.0" "PETSc info log"
+  require_file_contains "${created_run}/logs/PETSc_Info_Solver.log.0" "<ksp" "PETSc info records from the solve"
   require_file_contains "${created_run}/logs/PETSc_LogView_Solver.log" "Event Stage" "PETSc log view event table"
   require_file_contains "${created_run}/logs/Runtime_Memory.log" "Process Current MB Max" "runtime memory log header"
   require_file_not_contains "${solver_log}" "Memory corruption" "PETSc malloc debug corruption report"

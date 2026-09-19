@@ -47,10 +47,9 @@ Establish *where* it fails before changing anything.
 5. **Try a different solver.** @ref p08_cap_newton_krylov gives true Newton
    convergence where pseudo-time stalls.
 
-@warning If this is a periodic wall-bounded case, read @ref p54_driven_limits_sub
-first. A stall was recorded there on 2026-08-24 and **requires re-characterization at
-current `HEAD`**; you may be reproducing a known open issue rather than a
-configuration mistake.
+A periodic wall-bounded case is not a known cause: the stall recorded for it on
+2026-08-24 was re-characterized on 2026-09-18 and does not reproduce
+(@ref p54_driven_limits_sub).
 
 @section p67_diverge_sec 3. The Solution Blows Up
 
@@ -127,7 +126,7 @@ checks are worth doing before anything else:
 
 The closure is quiet when it misbehaves: a wrong coefficient still produces a run that
 completes and plots that look plausible. Turn the diagnostics on
-(`les.diagnostics.enabled: true`) and read `<run.runtime_logs>/les_coefficient.csv`
+(`les.diagnostics.enabled: true`) and read `<run.analysis.metrics>/les_coefficient.csv`
 before anything else.
 
 **`cs_effective` is zero for the whole run.** Expected for the first two steps of a run

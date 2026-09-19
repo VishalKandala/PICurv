@@ -1195,7 +1195,7 @@ def test_newton_pipeline_preserves_jameson_and_poisson_generated_controls():
         key: flags[key]
         for key in (
             "-mom_solver_type", "-mom_max_pseudo_steps", "-pseudo_cfl",
-            "-ps_ksp_type", "-ps_ksp_atol", "-poisson_tol",
+            "-ps_ksp_type", "-ps_ksp_atol",
             "-ps_ksp_gmres_restart", "-ps_pc_type",
         )
     } == {
@@ -1204,7 +1204,6 @@ def test_newton_pipeline_preserves_jameson_and_poisson_generated_controls():
         "-pseudo_cfl": 0.4,
         "-ps_ksp_type": "fgmres",
         "-ps_ksp_atol": 1.0e-5,
-        "-poisson_tol": 1.0e-5,
         "-ps_ksp_gmres_restart": 20,
         "-ps_pc_type": "mg",
     }
@@ -1757,7 +1756,7 @@ def test_les_only_wall_models_are_rejected_under_rans():
             les={"enabled": False}, rans={"enabled": True},
             wall={"enabled": True, "model": model})
         assert any(fragment in e for e in errors), model
-        assert any("Use 'log_law' with RANS" in e for e in errors), model
+        assert any("Only 'log_law' is a RANS wall law" in e for e in errors), model
 
     assert _wall_pairing_errors(
         les={"enabled": False}, rans={"enabled": True},
@@ -1958,7 +1957,7 @@ def test_parse_solver_config_maps_structured_poisson_solver_flags():
 
     assert flags["-ps_ksp_type"] == "fgmres"
     assert flags["-ps_ksp_atol"] == 1.0e-5
-    assert flags["-poisson_tol"] == 1.0e-5
+    assert "-poisson_tol" not in flags
     assert flags["-ps_ksp_rtol"] == 1.0e-11
     assert flags["-ps_ksp_max_it"] == 50
     assert flags["-ps_ksp_gmres_restart"] == 20
@@ -2250,9 +2249,9 @@ def test_extract_metric_from_csv_supports_p95_and_row_ratios(tmp_path):
     """
     picurv = load_picurv_module()
     run_dir = tmp_path / "run"
-    logs_dir = run_dir / "logs"
-    logs_dir.mkdir(parents=True)
-    (logs_dir / "search_metrics.csv").write_text(
+    metrics_dir = run_dir / picurv.CANONICAL_RUN_PATHS["metrics"]
+    metrics_dir.mkdir(parents=True)
+    (metrics_dir / "search_metrics.csv").write_text(
         """step,search_work_index,migrated,search_population
 1,1.0,0,10
 2,2.0,5,10
@@ -2265,7 +2264,7 @@ def test_extract_metric_from_csv_supports_p95_and_row_ratios(tmp_path):
     p95 = picurv.extract_metric_from_csv(
         str(run_dir),
         {
-            "file_glob": "logs/search_metrics.csv",
+            "file_glob": "**/search_metrics.csv",
             "column": "search_work_index",
             "reduction": "p95",
         },
@@ -2273,7 +2272,7 @@ def test_extract_metric_from_csv_supports_p95_and_row_ratios(tmp_path):
     ratio_mean = picurv.extract_metric_from_csv(
         str(run_dir),
         {
-            "file_glob": "logs/search_metrics.csv",
+            "file_glob": "**/search_metrics.csv",
             "numerator_column": "migrated",
             "denominator_column": "search_population",
             "denominator_floor": 1.0,
@@ -2292,10 +2291,10 @@ def test_aggregate_study_metrics_supports_parameter_normalization(tmp_path):
     """
     picurv = load_picurv_module()
     run_dir = tmp_path / "run"
-    logs_dir = run_dir / "logs"
+    metrics_dir = run_dir / picurv.CANONICAL_RUN_PATHS["metrics"]
     results_dir = tmp_path / "results"
-    logs_dir.mkdir(parents=True)
-    (logs_dir / "search_metrics.csv").write_text(
+    metrics_dir.mkdir(parents=True)
+    (metrics_dir / "search_metrics.csv").write_text(
         """step,lost_cumulative,search_work_index,re_search_fraction,migrated,search_population
 1,0,1.0,0.0,0,20
 2,1,2.0,0.1,2,20
@@ -2310,7 +2309,7 @@ def test_aggregate_study_metrics_supports_parameter_normalization(tmp_path):
             {
                 "name": "run_loss_fraction",
                 "source": "statistics_csv",
-                "file_glob": "logs/search_metrics.csv",
+                "file_glob": "**/search_metrics.csv",
                 "column": "lost_cumulative",
                 "reduction": "last",
                 "normalize_by_parameter": "case.models.physics.particles.count",
@@ -2318,14 +2317,14 @@ def test_aggregate_study_metrics_supports_parameter_normalization(tmp_path):
             {
                 "name": "run_swi_p95",
                 "source": "statistics_csv",
-                "file_glob": "logs/search_metrics.csv",
+                "file_glob": "**/search_metrics.csv",
                 "column": "search_work_index",
                 "reduction": "p95",
             },
             {
                 "name": "mean_migration_fraction",
                 "source": "statistics_csv",
-                "file_glob": "logs/search_metrics.csv",
+                "file_glob": "**/search_metrics.csv",
                 "numerator_column": "migrated",
                 "denominator_column": "search_population",
                 "denominator_floor": 1.0,
@@ -2556,3 +2555,130 @@ def test_both_driven_periodic_handlers_are_registered():
     # The old spelling stays accepted so existing case files keep working.
     assert "apply_trim" in registry["initial_flux"]["optional_params"]
     assert registry["constant_flux"]["required_params"] == {"target_flux"}
+
+
+def _validate_flat_channel(tmp_path, mutate):
+    """!
+    @brief Validates the flat-channel example after one mutation of its case file.
+    @param tmp_path Pytest temporary directory that receives the mutated case.
+    @param mutate   Callable applied to the parsed case mapping before validation.
+    @return The completed `picurv validate` process.
+    """
+    example = REPO_ROOT / "examples" / "flat_channel"
+    case = yaml.safe_load((example / "flat_channel.yml").read_text(encoding="utf-8"))
+    mutate(case)
+    case_path = tmp_path / "case.yml"
+    case_path.write_text(yaml.safe_dump(case, sort_keys=False), encoding="utf-8")
+    return run_picurv(["validate", "--case", str(case_path),
+                       "--solver", str(example / "Imp-MG-Standard.yml"),
+                       "--monitor", str(example / "Standard_Output.yml")])
+
+
+def test_unimplemented_domain_and_body_switches_are_refused(tmp_path):
+    """!
+    @brief Test that switches whose feature is planned, not implemented, fail validation.
+
+    Each was accepted before and ran a different problem without saying so: blocks were
+    never coupled, no immersed body was ever loaded, and a moving body did nothing. A
+    dimensionality other than the two canonical spellings silently ran in 3D.
+    @param tmp_path Pytest temporary directory for the mutated case files.
+    @return None.
+    """
+    def physics(case):
+        """!
+        @brief The case's `models.physics` mapping, created if absent.
+        @param case Parsed case mapping.
+        @return The physics mapping.
+        """
+        return case["models"].setdefault("physics", {})
+
+    refusals = {
+        "models.domain.blocks must be 1":
+            lambda case: case["models"].setdefault("domain", {}).update(blocks=2),
+        "models.physics.fsi.immersed must be false":
+            lambda case: physics(case).setdefault("fsi", {}).update(immersed=True),
+        "models.physics.fsi.moving_fsi must be false":
+            lambda case: physics(case).setdefault("fsi", {}).update(moving_fsi=True),
+        "models.physics.dimensionality must be one of":
+            lambda case: physics(case).update(dimensionality="2d"),
+    }
+    for fragment, mutate in refusals.items():
+        result = _validate_flat_channel(tmp_path, mutate)
+        assert result.returncode != 0, fragment
+        assert fragment in result.stdout + result.stderr, (fragment, result.stderr)
+
+    accepted = _validate_flat_channel(tmp_path, lambda case: physics(case).update(dimensionality="2D"))
+    assert accepted.returncode == 0, accepted.stderr
+
+
+def test_particle_random_seed_reaches_the_runtime_and_is_validated(tmp_path):
+    """!
+    @brief The particle seed is a YAML control, emitted as a flag and checked before a run.
+
+    The Brownian generator was seeded from the wall clock, so no two runs of identical
+    inputs agreed. One base seed now drives every particle stream.
+    @param tmp_path Pytest temporary directory for the mutated case files.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    control_lines = []
+    picurv.parse_and_add_model_flags(
+        {"models": {"physics": {"particles": {"count": 10, "random_seed": 4242}}}}, control_lines)
+    assert "-particle_random_seed 4242" in control_lines
+
+    def particles(case):
+        """!
+        @brief The case's particle block, created if absent.
+        @param case Parsed case mapping.
+        @return The particle mapping.
+        """
+        return case["models"].setdefault("physics", {}).setdefault("particles", {})
+
+    for bad in (-1, True, 2.5, "7"):
+        result = _validate_flat_channel(tmp_path, lambda case, bad=bad: particles(case).update(random_seed=bad))
+        assert result.returncode != 0, bad
+        assert "random_seed must be an integer" in result.stdout + result.stderr, bad
+    accepted = _validate_flat_channel(tmp_path, lambda case: particles(case).update(random_seed=0))
+    assert accepted.returncode == 0, accepted.stderr
+
+
+def test_poisson_tolerance_key_is_refused_because_nothing_read_it():
+    """!
+    @brief `poisson_solver.tolerance` fed a runtime field no solve consulted; it is refused.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    with pytest.raises(ValueError, match="absolute_tolerance"):
+        picurv.parse_solver_config({"poisson_solver": {"tolerance": 1.0e-5}})
+
+
+@pytest.mark.parametrize("method, extra", [
+    ("fgmres", {}),
+    ("gmres", {"-ps_ksp_pc_side": "right"}),
+    ("lgmres", {"-ps_ksp_pc_side": "right"}),
+    ("bcgs", {"-ps_ksp_pc_side": "right"}),
+    ("cg", {"-ps_ksp_norm_type": "unpreconditioned"}),
+])
+def test_every_poisson_method_stops_on_the_true_residual(method, extra):
+    """!
+    @brief Left-preconditioned methods are switched so their convergence test reads the true residual.
+    @param[in] method Poisson KSP method under test.
+    @param[in] extra PETSc options the method must add.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    flags = picurv.parse_solver_config({"poisson_solver": {"method": method}})
+    assert flags["-ps_ksp_type"] == method
+    for key, value in extra.items():
+        assert flags[key] == value
+    assert "-ps_ksp_pc_side" not in flags or method in ("gmres", "lgmres", "bcgs")
+
+
+def test_an_unverified_poisson_method_is_refused_with_the_passthrough_named():
+    """!
+    @brief A KSP type outside the verified set must go through the explicit passthrough.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    with pytest.raises(ValueError, match="petsc_passthrough_options"):
+        picurv.parse_solver_config({"poisson_solver": {"method": "tfqmr"}})

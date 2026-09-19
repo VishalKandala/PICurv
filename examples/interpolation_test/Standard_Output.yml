@@ -17,7 +17,7 @@ io:
   particle_log_interval: 100
 
 logging:
-  # Interpolation error is always written to logs/interpolation_error.csv
+  # Interpolation error is always written to output/analysis/metrics/interpolation_error.csv
   # regardless of verbosity. Set to INFO to also see error on console.
   verbosity: "WARNING"
   enabled_functions: []

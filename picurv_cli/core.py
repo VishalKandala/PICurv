@@ -2559,6 +2559,40 @@ def list_template_relative_files(template_dir: str, excluded_rel_paths=None):
     return relative_paths
 
 
+def render_template_workspace(template_dir: str, template_name: str, destination: str) -> dict:
+    """!
+    @brief Render an example template into the canonical workspace layout at a new path.
+    @details This is the one transformation `init` applies to a template: copy it, drop the
+             execution example, then relocate and rewrite its files through
+             organize_initialized_workspace(). `sync-config` and `status-source` render the
+             current template the same way, so all three agree on where each file lives and
+             what it contains.
+    @param[in] template_dir Example template directory to render.
+    @param[in] template_name Example template identity.
+    @param[in] destination Path to render into; it must not exist.
+    @return The layout mapping returned by organize_initialized_workspace().
+    """
+    shutil.copytree(template_dir, destination)
+    copied_runtime_example = os.path.join(destination, RUNTIME_EXECUTION_EXAMPLE_FILENAME)
+    if os.path.isfile(copied_runtime_example):
+        os.remove(copied_runtime_example)
+    return organize_initialized_workspace(destination, template_name, source_template_root=template_dir)
+
+
+def list_rendered_template_files(rendered_root: str) -> list:
+    """!
+    @brief List the template-managed files of a rendered workspace, workspace-relative.
+    @details The workspace identity file is excluded: it records when and where the
+             workspace was created, which is the workspace's own state, not the template's.
+    @param[in] rendered_root Root produced by render_template_workspace().
+    @return Sorted workspace-relative paths.
+    """
+    return sorted(
+        rel for rel in list_template_relative_files(rendered_root)
+        if rel != WORKSPACE_CONFIG_FILENAME
+    )
+
+
 def list_source_binaries(source_project_root: str):
     """!
     @brief List binary artifacts currently available in the source repo bin directory.
@@ -2597,7 +2631,7 @@ def sync_case_binaries(case_dir: str, source_project_root: str):
 
 
 def sync_case_template_files(case_dir: str, template_dir: str, overwrite: bool = False,
-                             prune: bool = False, managed_rel_paths=None):
+                             prune: bool = False, managed_rel_paths=None, template_name: str = None):
     """!
     @brief Sync template files into a case directory, preserving modified files unless overwrite is requested.
     @param[in] case_dir Argument passed to `sync_case_template_files()`.
@@ -2605,12 +2639,17 @@ def sync_case_template_files(case_dir: str, template_dir: str, overwrite: bool =
     @param[in] overwrite Argument passed to `sync_case_template_files()`.
     @param[in] prune Argument passed to `sync_case_template_files()`.
     @param[in] managed_rel_paths Argument passed to `sync_case_template_files()`.
+    @param[in] template_name Template identity; defaults to the template directory name.
     @return Value returned by `sync_case_template_files()`.
+    @details Files are compared with a fresh rendering of the template in the workspace
+             layout `init` creates, so a case file is matched with the template file it
+             was made from, under its workspace name and rewritten contents.
     """
     case_dir_abs = os.path.abspath(case_dir)
     template_dir_abs = os.path.abspath(template_dir)
     if not os.path.isdir(template_dir_abs):
         raise ValueError(f"Template directory not found: {template_dir_abs}")
+    template_name = template_name or os.path.basename(template_dir_abs)
 
     summary = {
         "copied": [],
@@ -2620,20 +2659,12 @@ def sync_case_template_files(case_dir: str, template_dir: str, overwrite: bool =
         "pruned": [],
         "prune_requested_without_tracking": False,
     }
-    excluded_rel_paths = {RUNTIME_EXECUTION_EXAMPLE_FILENAME}
-    current_template_files = list_template_relative_files(
-        template_dir_abs,
-        excluded_rel_paths=excluded_rel_paths,
-    )
-    current_template_set = set(current_template_files)
-
-    for root, _, files in os.walk(template_dir_abs):
-        rel_root = os.path.relpath(root, template_dir_abs)
-        for filename in sorted(files):
-            src_path = os.path.join(root, filename)
-            rel_path = filename if rel_root == "." else os.path.join(rel_root, filename)
-            if rel_path in excluded_rel_paths:
-                continue
+    with tempfile.TemporaryDirectory(prefix="picurv-template-") as scratch:
+        rendered_root = os.path.join(scratch, os.path.basename(case_dir_abs) or "workspace")
+        render_template_workspace(template_dir_abs, template_name, rendered_root)
+        current_template_files = list_rendered_template_files(rendered_root)
+        for rel_path in current_template_files:
+            src_path = os.path.join(rendered_root, rel_path)
             dest_path = os.path.join(case_dir_abs, rel_path)
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
@@ -2651,6 +2682,7 @@ def sync_case_template_files(case_dir: str, template_dir: str, overwrite: bool =
                 summary["overwritten"].append(dest_path)
             else:
                 summary["skipped_modified"].append(dest_path)
+    current_template_set = set(current_template_files)
 
     managed_set = set(managed_rel_paths or [])
     if prune:
@@ -2727,21 +2759,21 @@ def compute_case_source_status(case_dir: str, source_project_root: str, template
     if template_name:
         try:
             template_dir = resolve_template_directory(source_root_abs, template_name)
-            template_files = list_template_relative_files(
-                template_dir,
-                excluded_rel_paths={RUNTIME_EXECUTION_EXAMPLE_FILENAME},
-            )
-            config_status["template_available"] = True
-            config_status["template_files"] = template_files
-            for rel_path in template_files:
-                src_path = os.path.join(template_dir, rel_path)
-                case_path = os.path.join(case_dir_abs, rel_path)
-                if not os.path.isfile(case_path):
-                    config_status["case_missing_files"].append(rel_path)
-                elif filecmp.cmp(src_path, case_path, shallow=False):
-                    config_status["case_current_files"].append(rel_path)
-                else:
-                    config_status["case_modified_files"].append(rel_path)
+            with tempfile.TemporaryDirectory(prefix="picurv-template-") as scratch:
+                rendered_root = os.path.join(scratch, os.path.basename(case_dir_abs) or "workspace")
+                render_template_workspace(template_dir, template_name, rendered_root)
+                template_files = list_rendered_template_files(rendered_root)
+                config_status["template_available"] = True
+                config_status["template_files"] = template_files
+                for rel_path in template_files:
+                    src_path = os.path.join(rendered_root, rel_path)
+                    case_path = os.path.join(case_dir_abs, rel_path)
+                    if not os.path.isfile(case_path):
+                        config_status["case_missing_files"].append(rel_path)
+                    elif filecmp.cmp(src_path, case_path, shallow=False):
+                        config_status["case_current_files"].append(rel_path)
+                    else:
+                        config_status["case_modified_files"].append(rel_path)
             managed_files = metadata.get("template_managed_files")
             if isinstance(managed_files, list):
                 config_status["template_removed_since_last_sync"] = sorted(set(managed_files) - set(template_files))
@@ -3123,6 +3155,10 @@ POST_FIELD_STATISTICS_FORMATS = ("vtk", "csv")
 #: How the grid reaches the solver.
 GRID_MODES = ("file", "programmatic_c", "grid_gen")
 
+#: Flow dimensionality. `2D` does not change the grid: it zeroes the i-direction row of
+#: the momentum right-hand side (`-TwoD 1`), so the i velocity component never evolves.
+DOMAIN_DIMENSIONALITY_MODES = ("3D", "2D")
+
 #: Geometries the bundled grid generator can produce.
 GRID_GENERATOR_TYPES = ("box", "sweep")
 
@@ -3184,9 +3220,23 @@ STUDY_PLOT_FORMATS = ("png", "pdf", "svg")
 #: How much per-timestep profiling output the monitor emits.
 PROFILING_TIMESTEP_MODES = ("off", "selected", "all")
 
-#: Krylov methods for which a `gmres.restart` parameter is meaningful. This does NOT
-#: restrict `poisson_solver.method`, which passes any PETSc KSP token through.
+#: Krylov methods for which a `gmres.restart` parameter is meaningful.
 GMRES_RESTART_METHODS = ("gmres", "fgmres", "lgmres")
+
+#: Outer Poisson Krylov methods, each verified against the multigrid preconditioner, with
+#: the extra PETSc options that make its convergence test read the true residual. PETSc
+#: runs gmres, lgmres and bcgs left-preconditioned by default; the preconditioned residual
+#: then reached 1e-13 while the true residual stalled at 1e-3, and the projection used the
+#: wrong pressure. Right preconditioning tests the true residual; CG keeps its left
+#: preconditioner and is told to monitor the unpreconditioned norm instead. Any other KSP
+#: type is reachable only through petsc_passthrough_options, unverified.
+POISSON_KSP_METHODS = {
+    "fgmres": {},
+    "gmres": {"-ps_ksp_pc_side": "right"},
+    "lgmres": {"-ps_ksp_pc_side": "right"},
+    "bcgs": {"-ps_ksp_pc_side": "right"},
+    "cg": {"-ps_ksp_norm_type": "unpreconditioned"},
+}
 
 #: Analytical solution types the Eulerian source can impose.
 ANALYTICAL_SOLUTION_TYPES = ("TGV3D", "ZERO_FLOW", "UNIFORM_FLOW")
@@ -6611,6 +6661,19 @@ def _les_periodic_axes(case_cfg: dict) -> set:
     }
 
 
+#: Printed whenever a case enables RANS. `k_omega` is known-defective: setup never
+#: allocates the k-omega fields and FlowSolver's transport update is commented out, so
+#: the first history update copies a null vector and the solver aborts at the end of
+#: step one. The selector stays reachable so the path can be repaired in place; this
+#: message is its disclosure.
+RANS_KNOWN_DEFECT_DISCLOSURE = (
+    "models.physics.turbulence.rans selects k_omega, which is known-defective: the "
+    "k-omega fields are never allocated and their transport equations are never solved, "
+    "so the solver aborts with a null-vector error at the end of the first timestep. "
+    "Disable RANS."
+)
+
+
 def validate_wall_model_pairing(case_cfg: dict, les_cfg, rans_cfg, wall_cfg,
                                 case_path: str, errors: list, warnings: list):
     """!
@@ -6667,14 +6730,16 @@ def validate_wall_model_pairing(case_cfg: dict, les_cfg, rans_cfg, wall_cfg,
             f"  {case_path}: models.physics.turbulence.wall_function.model 'cabot' cannot "
             "be used with RANS. Cabot solves the wall layer with its own mixing-length "
             "eddy viscosity, so under a RANS model the near-wall layer would carry two "
-            "turbulence closures with no matching between them. Use 'log_law' with RANS.")
+            "turbulence closures with no matching between them. Only 'log_law' is a RANS "
+            "wall law, and RANS itself is known-defective: k_omega has no transport update.")
     if rans_on and model == 2:
         errors.append(
             f"  {case_path}: models.physics.turbulence.wall_function.model 'werner' cannot "
             "be used with RANS. Werner-Wengle applies its power law to the instantaneous "
             "filtered velocity, which is a large-eddy quantity; a RANS field is already "
-            "averaged and wants a wall law derived for the mean profile. Use 'log_law' "
-            "with RANS.")
+            "averaged and wants a wall law derived for the mean profile. Only 'log_law' is "
+            "a RANS wall law, and RANS itself is known-defective: k_omega has no transport "
+            "update.")
 
     # A wall law describes a turbulent boundary layer. Below transition there is no
     # inertial region for it to stand on, and it would impose a profile the flow does not
@@ -7190,7 +7255,7 @@ _CASE_SCHEMA = {
     ("models", "domain"): {"blocks"},
     ("models", "physics"): {"dimensionality", "fsi", "particles", "turbulence"},
     ("models", "physics", "fsi"): {"immersed", "moving_fsi"},
-    ("models", "physics", "particles"): {"count", "init_mode", "restart_mode", "point_source"},
+    ("models", "physics", "particles"): {"count", "init_mode", "restart_mode", "point_source", "random_seed"},
     ("models", "physics", "particles", "point_source"): {"x", "y", "z"},
     ("models", "physics", "turbulence"): {"les", "rans", "wall_function"},
     ("models", "physics", "turbulence", "les"): {
@@ -8114,6 +8179,17 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             errors.append(f"  {case_path}: {e}")
             pinit_code = None
 
+        # One base seed drives every particle random stream - initial placement, inlet
+        # re-placement, and Brownian motion - so identical inputs on the same rank count
+        # reproduce. Omitted, the runtime uses 12345.
+        random_seed = particles_cfg.get('random_seed')
+        if random_seed is not None and (isinstance(random_seed, bool) or not isinstance(random_seed, int)
+                                        or not 0 <= random_seed <= 2147483647):
+            errors.append(
+                f"  {case_path}: models.physics.particles.random_seed must be an integer from 0 to "
+                f"2147483647 (got {random_seed!r})."
+            )
+
         restart_mode = particles_cfg.get('restart_mode')
         if restart_mode is not None and str(restart_mode).lower() not in PARTICLE_RESTART_MODES:
             errors.append(
@@ -8143,6 +8219,43 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                             f"  {case_path}: models.physics.particles.point_source.{coord} is required when init_mode is PointSource."
                         )
 
+    # --- case.yml: domain and physics switches ---
+    # Multi-block coupling, immersed boundaries and moving bodies are planned, not
+    # implemented. The switches stay in the schema so that setting one fails here with a
+    # reason, rather than as an unknown key or, worse, as a run that solves a different
+    # problem: the solver would accept all three and silently ignore what they promise.
+    models_cfg = case_cfg.get('models', {}) or {}
+    domain_cfg = models_cfg.get('domain', {}) or {}
+    physics_cfg = models_cfg.get('physics', {}) or {}
+    try:
+        block_count = int(domain_cfg.get('blocks', 1))
+    except (TypeError, ValueError):
+        block_count = None
+    if block_count != 1:
+        errors.append(
+            f"  {case_path}: models.domain.blocks must be 1 (got {domain_cfg.get('blocks')!r}). "
+            "Multi-block domains are planned, not implemented: no solver exchanges data across "
+            "the faces blocks share, so each block would be solved as an isolated domain."
+        )
+    fsi_cfg = physics_cfg.get('fsi', {}) or {}
+    if not isinstance(fsi_cfg, dict):
+        errors.append(f"  {case_path}: 'models.physics.fsi' must be a mapping.")
+    else:
+        for key, feature in (('immersed', 'An immersed boundary'),
+                             ('moving_fsi', 'Moving-body fluid-structure interaction')):
+            if fsi_cfg.get(key):
+                errors.append(
+                    f"  {case_path}: models.physics.fsi.{key} must be false. {feature} is planned, "
+                    "not implemented: no body geometry is loaded, and the interpolation that would "
+                    "impose one on the flow was never ported."
+                )
+    dimensionality = str(physics_cfg.get('dimensionality', '3D')).strip()
+    if dimensionality not in DOMAIN_DIMENSIONALITY_MODES:
+        errors.append(
+            f"  {case_path}: models.physics.dimensionality must be one of "
+            f"{list(DOMAIN_DIMENSIONALITY_MODES)} (got '{dimensionality}')."
+        )
+
     # --- case.yml: turbulence model validation ---
     turbulence_cfg = case_cfg.get('models', {}).get('physics', {}).get('turbulence', {})
     if turbulence_cfg is not None and not isinstance(turbulence_cfg, dict):
@@ -8171,13 +8284,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             except ValueError:
                 rans_enabled = False
             if rans_enabled:
-                warnings.append(
-                    f"{case_path}: models.physics.turbulence.rans is accepted, but the k-omega runtime update is currently incomplete."
-                )
+                warnings.append(f"{case_path}: {RANS_KNOWN_DEFECT_DISCLOSURE}")
         elif rans_cfg:
-            warnings.append(
-                f"{case_path}: models.physics.turbulence.rans is accepted, but the k-omega runtime update is currently incomplete."
-            )
+            warnings.append(f"{case_path}: {RANS_KNOWN_DEFECT_DISCLOSURE}")
 
         if isinstance(wall_cfg, dict):
             if 'enabled' in wall_cfg and not isinstance(wall_cfg['enabled'], bool):
@@ -8854,6 +8963,15 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
             list_val = io_cfg.get(list_key)
             if list_val is not None and not isinstance(list_val, list):
                 errors.append(f"  {post_path}: 'io.{list_key}' must be a list when provided.")
+        # Qcrit is computed at cell centres, and a .vts carries point data only: written
+        # directly it would sit half a cell away from the node the file assigns it.
+        eulerian_fields = io_cfg.get('eulerian_fields')
+        if isinstance(eulerian_fields, list) and 'Qcrit' in eulerian_fields:
+            errors.append(
+                f"  {post_path}: 'io.eulerian_fields' lists 'Qcrit', which is cell-centred and cannot be "
+                "written as point data. Add a nodal_average task (input_field: Qcrit, output_field: "
+                "Qcrit_nodal) after q_criterion and write 'Qcrit_nodal'."
+            )
 
     # --- Check eulerian_pipeline entries have 'task' key ---
     eulerian_pipeline = post_cfg.get('eulerian_pipeline', [])
@@ -8962,6 +9080,28 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
                 normalize_statistics_task(task_name)
             except ValueError as e:
                 errors.append(f"  {post_path}: {e}")
+
+    # MSD measures displacement from the configured point source, not from each
+    # particle's own start. Any other seeding leaves that point unset - the coordinate
+    # origin - and the statistic measures distance from the origin instead. With no
+    # particles the task writes nothing, so only a seeded case is refused.
+    if case_cfg is not None and "ComputeMSD" in get_post_statistics_task_tokens(post_cfg):
+        particles_cfg = (((case_cfg.get('models') or {}).get('physics') or {}).get('particles') or {})
+        try:
+            particle_count = int(particles_cfg.get('count', 0) or 0)
+        except (TypeError, ValueError):
+            particle_count = 0
+        init_mode = particles_cfg.get('init_mode', 'Surface')
+        try:
+            is_point_source = normalize_particle_init_mode(init_mode) == 2
+        except ValueError:
+            is_point_source = True  # the case file reports its own init_mode error
+        if particle_count > 0 and not is_point_source:
+            errors.append(
+                f"  {post_path}: statistics task 'msd' measures displacement from "
+                f"models.physics.particles.point_source, so it requires init_mode: PointSource "
+                f"(the case seeds with '{init_mode}')."
+            )
 
     legacy_stats_output_prefix = post_cfg.get('statistics_output_prefix')
     if legacy_stats_output_prefix is not None and not isinstance(legacy_stats_output_prefix, str):
@@ -12643,7 +12783,7 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
     FLAG_MAP = {
         'domain': {'blocks': '-nblk'},
         'physics.fsi': {'immersed': '-imm', 'moving_fsi': '-fsi'},
-        'physics.particles': {'count': '-numParticles'},
+        'physics.particles': {'count': '-numParticles', 'random_seed': '-particle_random_seed'},
     }
     for section_path, flags in FLAG_MAP.items():
         current_level = models
@@ -13000,6 +13140,12 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         method = str(value).strip().lower()
         if not method:
             raise ValueError("poisson_solver.method cannot be empty.")
+        if method not in POISSON_KSP_METHODS:
+            raise ValueError(
+                f"poisson_solver.method '{method}' is not one of {sorted(POISSON_KSP_METHODS)}, "
+                "the methods verified with the multigrid preconditioner. Another PETSc KSP type "
+                "can still be set through petsc_passthrough_options (-ps_ksp_type), unverified."
+            )
         return method
 
     def _normalize_poisson_preconditioner(value) -> str:
@@ -13067,15 +13213,19 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         if 'method' in ps:
             method = _normalize_poisson_method(ps['method'])
             flags['-ps_ksp_type'] = method
+            flags.update(POISSON_KSP_METHODS[method])
         if 'absolute_tolerance' in ps:
             flags['-ps_ksp_atol'] = ps['absolute_tolerance']
-            flags['-poisson_tol'] = ps['absolute_tolerance']
         if 'relative_tolerance' in ps:
             flags['-ps_ksp_rtol'] = ps['relative_tolerance']
         if 'max_iterations' in ps:
             flags['-ps_ksp_max_it'] = ps['max_iterations']
         if 'tolerance' in ps:
-            flags['-poisson_tol'] = ps['tolerance']
+            raise ValueError(
+                f"{source_key}.tolerance is not a solver control: the runtime read it and never "
+                "used it. Use absolute_tolerance (-> -ps_ksp_atol) and relative_tolerance "
+                "(-> -ps_ksp_rtol), which the Poisson KSP applies."
+            )
 
         gmres_cfg = ps.get('gmres', {})
         if gmres_cfg is not None:
@@ -22245,18 +22395,11 @@ def init_case(args):
         sys.exit(1)
 
     print(f"[INFO] Initializing new case '{os.path.basename(dest_path)}' from template '{args.template_name}'...")
-    
-    shutil.copytree(template_path, dest_path)
-    print(f"[SUCCESS] Copied template files to: {dest_path}")
-
-    copied_runtime_example = os.path.join(dest_path, RUNTIME_EXECUTION_EXAMPLE_FILENAME)
-    if os.path.isfile(copied_runtime_example):
-        os.remove(copied_runtime_example)
 
     try:
-        workspace_layout = organize_initialized_workspace(
-            dest_path, args.template_name, source_template_root=template_path
-        )
+        workspace_layout = render_template_workspace(template_path, args.template_name, dest_path)
+        template_managed_files = list_rendered_template_files(dest_path)
+        print(f"[SUCCESS] Copied template files to: {dest_path}")
         print(f"[INFO] Wrote workspace identity: {os.path.relpath(workspace_layout['workspace_config'])}")
         if workspace_layout["canonical_roles"]:
             print("[INFO] Canonical editable configurations:")
@@ -22281,10 +22424,7 @@ def init_case(args):
             dest_path,
             source_project_root,
             template_name=args.template_name,
-            template_managed_files=list_template_relative_files(
-                template_path,
-                excluded_rel_paths={RUNTIME_EXECUTION_EXAMPLE_FILENAME},
-            ),
+            template_managed_files=template_managed_files,
         )
         print(f"[INFO] Wrote case origin metadata: {os.path.relpath(metadata_path)}")
     except Exception as e:
@@ -22346,6 +22486,7 @@ def sync_case_config_command(args):
             overwrite=getattr(args, "overwrite", False),
             prune=getattr(args, "prune", False),
             managed_rel_paths=existing_managed,
+            template_name=template_name,
         )
         metadata_path, _ = write_case_origin_metadata(
             case_dir,

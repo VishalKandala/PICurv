@@ -46,17 +46,23 @@ models:
 grid:
   mode: programmatic_c
   programmatic_settings:
-    km: [3]
+    im: 3
 ```
 
 Why:
 
-- 2D mode still uses a thin third dimension for structured-grid machinery,
-- small `km` is typically enough for planar scenarios.
+- `2D` holds the **i** velocity component fixed (`-TwoD 1`), so the flow plane is j-k
+  and the thin direction must be i; thinning j or k instead freezes an in-plane
+  component,
+- the grid stays three-dimensional, so a small `im` keeps the structured-grid
+  machinery working without resolving a direction the flow does not use.
 
 Quick check:
 
-- confirm generated run uses expected Z resolution.
+- confirm the generated control file contains `-TwoD 1` and the expected i resolution,
+- start from an initial condition whose i component is zero, since `2D` never changes it.
+
+Status: `2D` is experimental; see @ref p07_cap_dim_2d_sub.
 
 @subsection p11_gridres_ssec 1.3 Increase Grid Resolution
 
@@ -357,16 +363,22 @@ eulerian_pipeline:
     input_field: Ucat
     output_field: Ucat_nodal
   - task: q_criterion
+  - task: nodal_average
+    input_field: Qcrit
+    output_field: Qcrit_nodal
 
 io:
   eulerian_fields:
     - Ucat_nodal
-    - Qcrit
+    - Qcrit_nodal
 ```
+
+`Qcrit` itself is cell-centred and cannot be written directly; the nodal average places it
+on the grid nodes the `.vts` file uses.
 
 Verification:
 
-- open VTK output and confirm `Qcrit` field is present.
+- open VTK output and confirm the `Qcrit_nodal` field is present.
 
 @subsection p11_stats_ssec 4.3 Enable Statistics Output (MSD)
 
@@ -420,12 +432,8 @@ For anything else, which spectrum applies depends on how many directions are
 statistically homogeneous:
 
 - **one or two** — a channel, a straight duct, a boundary layer. A spatial spectrum is
-  well defined along the homogeneous directions, but the `line_spectrum` and
-  `plane_spectrum` tasks are planned rather than implemented; see
-  @ref p60_spectra_partial_sec.
-- **none** — a bend, a wake, an immersed geometry. No spatial spectrum exists; what is
-  wanted is a frequency spectrum at a probe, also planned; see
-  @ref p60_spectra_temporal_sec.
+  well defined along the homogeneous directions, but no spectra task computes it.
+- **none** — a bend or a wake. No spatial spectrum exists.
 
 @section p11_init_sec 5. Case Initialization and Binary Management
 

@@ -243,6 +243,7 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
     if (strcasecmp(in_field_name, "P") == 0)             { in_vec_local = user->lP;         dm_in = user->da;   dof = 1; }
     else if (strcasecmp(in_field_name, "Ucat") == 0)    { in_vec_local = user->lUcat;      dm_in = user->fda;  dof = 3; }
     else if (strcasecmp(in_field_name, "Psi") == 0)     { in_vec_local = user->lPsi;       dm_in = user->da;   dof = 1; }
+    else if (strcasecmp(in_field_name, "Qcrit") == 0)   { in_vec_local = user->lQcrit;     dm_in = user->da;   dof = 1; }
     /* The staging pair carries derived statistics, which are config-counted and so
      * cannot be named by a compile-time member of their own. */
     else if (strcasecmp(in_field_name, "PostScalar") == 0) { in_vec_local = user->lPostScalar; dm_in = user->da;  dof = 1; }
@@ -253,6 +254,7 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
     if (strcasecmp(out_field_name, "P_nodal") == 0)      { out_vec_global = user->P_nodal;    dm_out = user->da; }
     else if (strcasecmp(out_field_name, "Ucat_nodal") == 0) { out_vec_global = user->Ucat_nodal; dm_out = user->fda; }
     else if (strcasecmp(out_field_name, "Psi_nodal") == 0)   { out_vec_global = user->Psi_nodal;  dm_out = user->da; }
+    else if (strcasecmp(out_field_name, "Qcrit_nodal") == 0) { out_vec_global = user->Qcrit_nodal; dm_out = user->da; }
     else if (strcasecmp(out_field_name, "PostScalarNodal") == 0) { out_vec_global = user->PostScalarNodal; dm_out = user->da; }
     else if (strcasecmp(out_field_name, "PostVectorNodal") == 0) { out_vec_global = user->PostVectorNodal; dm_out = user->fda; }
     // ... (add other fields as needed) ...

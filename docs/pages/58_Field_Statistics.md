@@ -10,8 +10,7 @@ snapshots.
 
 This page covers what the system computes, the semantics that change a result,
 how state survives a restart, and where to extend it. The YAML keys themselves
-are specified in @ref 09_Monitor_Reference and @ref 10_Post_Processing_Reference;
-@ref 60_Field_Statistics_Planned_Extensions records what is not built yet.
+are specified in @ref 09_Monitor_Reference and @ref 10_Post_Processing_Reference.
 
 @tableofcontents
 
@@ -152,6 +151,9 @@ failure mode, bought for a correction far below the noise floor.
 
 @htmlinclude generated/capability_inventory_statistics_weighting.html
 
+Both modes are experimental: the accumulated statistics they weight have not yet been
+compared against a reference profile.
+
 @subsection p58_cap_weight_sample_sub sample
 
 @anchor p58_cap_weight_sample
@@ -254,7 +256,7 @@ Component order is explicit everywhere and never implicit.
 
 Covariance requires both members to resolve to the same layout, which currently
 means cell-centered with cell-centered. `Ucont` is component-staggered, so pairs
-involving it are rejected; explicit face-flux products are a planned extension.
+involving it are rejected.
 Vector-vector cross products are rejected, because they would need a full
 nine-component tensor that nothing yet carries.
 
@@ -270,8 +272,8 @@ solver layout's boundary, dummy, and duplicate-periodic indices. On a periodic
 axis the duplicate plane is dropped, so a triply periodic box counts every cell
 exactly once.
 
-The mask is `fluid`, defined by `Nvert < 0.1`. Because `Nvert` changes when an
-immersed body moves, the mask is treated as moving: **every point keeps its own
+The mask is `fluid`, defined by `Nvert < 0.1`, and is not assumed constant over a
+window: **every point keeps its own
 valid count and valid weight**, and a `valid_fraction` diagnostic reports the
 point's valid weight against the window's total. A point that is never valid keeps
 zero weight and is reported, rather than producing a divide-by-zero downstream or
@@ -329,8 +331,8 @@ output/checkpoints/step_000000001000/
         Ucat_Psi_cm.dat         # dof 3, order (x*s, y*s, z*s)
 ```
 
-Payloads are **block scoped**, so a multiblock run keeps one accumulator tree per
-block under each window. Each product is **one payload carrying all its
+Payloads are **block scoped**: each window stores its accumulators under the block's
+own directory. Each product is **one payload carrying all its
 components** rather than one payload per component: a symmetric tensor is a single
 object, splitting it would cost six memory streams in the accumulation loop and
 six collective gathers per checkpoint instead of one, and the split does not
@@ -404,9 +406,8 @@ That mean is taken over **the fluid cells the window actually sampled**, not ove
 the stored vector. A derived field is zero outside the target domain and wherever
 the mask excluded a point, and those zeros are absences rather than measurements:
 averaging over them scales the result down by whatever fraction of the vector the
-window never covered. The valid-fraction column in the same row reveals whether an
-immersed body made the sampled set smaller than the targeted one; at one they are
-the same set.
+window never covered. The valid-fraction column in the same row reveals whether the
+mask made the sampled set smaller than the targeted one; at one they are the same set.
 
 A window with no sample yet at a given step is skipped with a note rather than
 treated as an error, because a recipe covering a whole run legitimately reaches
@@ -505,15 +506,12 @@ in post-processing. They share exactly one thing, the symmetric component-pair
 table that defines product order. The moment to split them is when a further
 product family arrives and that table needs a home of its own.
 
-**Several moment kernels have no production caller yet.** The reset functions are
+**Several moment kernels have no production caller.** The reset functions are
 their structs' constructors; the merge functions implement the weighted parallel
-combination that makes spatial reduction exact after the fact, which is why
-profiles, regions, and bins are post-processing operations rather than
-accumulator kinds (see @ref p60_principle_sec); the scalar variance accessor is correct but
-unused because every product is routed through the co-moment path so the diagonal
-and off-diagonal share one update; and the effective-sample-size accessor needs a
-window-level squared-weight sum surfaced before it can be reported. Each is covered
-by the moment suite, so a future consumer inherits a tested kernel.
+combination of two accumulators; the scalar variance accessor is correct but unused
+because every product is routed through the co-moment path so the diagonal and
+off-diagonal share one update; and the effective-sample-size accessor has no
+window-level squared-weight sum to read. Each is covered by the moment suite.
 
 **Accumulator vectors are created in the one vector factory** that every other
 vector a run owns is created in, and released through the same teardown. A
@@ -544,8 +542,7 @@ already gives `Ucat`, `P`, `Nu_t`, and `CS`.
 On a **non-periodic** face nothing is written, because nothing defines it. The correct
 value there depends on both the quantity and the boundary type, and one staging buffer
 carries stresses, pressure, and eddy viscosity in turn, so no single convention serves
-them; inventing one would be worse than leaving the value alone. The design for that
-case is recorded in @ref p60_stats_boundary_sec.
+them; inventing one would be worse than leaving the value alone.
 
 The practical rule follows: **the convergence-history CSV is the authoritative domain
 mean**, computed by `PicurvWindowSpatialMean` over the resolved spatial target with
@@ -559,10 +556,7 @@ averaging kernel maps fixed field names onto fixed members. Per-window accumulat
 are config-counted and have no compile-time offset, so neither accepts them
 directly. Derived results are therefore staged through two catalogued scratch
 fields, written, converted, and copied out before the next reuses the buffer — the
-same pattern the corner-staging buffers already establish. Lifting the constraint
-properly means a view bindable to an explicitly supplied vector pair, after which
-both nodal statistics output and accumulator field logging work unchanged. See
-@ref 60_Field_Statistics_Planned_Extensions.
+same pattern the corner-staging buffers already establish.
 
 @section p58_validation_sec 11. How It Is Validated
 
@@ -610,7 +604,6 @@ this table describes only what is actually covered.
 
 - @subpage 09_Monitor_Reference — the `field_statistics` and console-cadence keys
 - @subpage 10_Post_Processing_Reference — the derived-statistics recipe
-- @subpage 60_Field_Statistics_Planned_Extensions — spatial targets, further products, and histories
 - @subpage 56_Field_Identity_and_Layout_Catalog — typed field identity and layout
 - @subpage 28_IEM_and_Statistical_Averaging — particle mixing and particle statistics
 - @subpage 29_Maintenance_Backlog — measured restart fidelity floor and open validation items

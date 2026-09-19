@@ -269,3 +269,26 @@ Common stability tuning order:
 For many cases, robust Poisson settings and sane initialization matter as much as dual-time tolerances.
 
 For contributor extension steps, see **@subpage 50_Modular_Selector_Extension_Guide**.
+
+@section p24_limits_sec 8. Limitations
+
+**A physical step is only as accurate as its pseudo-time convergence.** When a step
+exhausts `max_pseudo_steps` without meeting its tolerance, the solver logs
+`reached N total attempts without convergence; continuing from last accepted finite
+state` and moves on. Nothing downstream corrects that step, so a run that logs this
+warning repeatedly is advancing on partially converged steps and its transient is not
+the physical one. On a laminar square duct at Re = 100 with `dt = 1.0`, every step hit
+the default cap of 50; the profile approached its steady state about ten times more
+slowly than the viscous time scale predicts, and the axial pressure gradient finished
+18% away from the analytic value. The same duct at Re = 10 with `dt = 0.05` converged
+every step and reproduced the analytic solution at second order in space. Reduce `dt`
+until the warning disappears rather than raising the cap and accepting the drift.
+
+**Only steady spatial accuracy has been verified.** The duct comparison above checks
+the converged steady solution; the temporal order of the BDF physical-time
+discretization has not been measured.
+
+**Streamwise-periodic wall-bounded channels have shown pseudo-time stalls** that the
+periodic boundary record documents; treat turbulent results from those configurations
+with the same suspicion.
+

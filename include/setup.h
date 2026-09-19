@@ -497,17 +497,20 @@ PetscErrorCode InitializeRandomGenerators(UserCtx *user, PetscRandom *randx, Pet
  * Each RNG is configured to produce uniformly distributed real numbers in the interval [0.0, 1.0).
  * These are typically used for selecting owned cells or generating intra-cell logical coordinates.
  *
+ * @param[in]    base_seed    Base particle seed (`SimCtx::particleRandomSeed`); each stream adds a fixed offset and the rank.
  * @param[out]   rand_logic_i Pointer to store the RNG for the i-logical dimension.
  * @param[out]   rand_logic_j Pointer to store the RNG for the j-logical dimension.
  * @param[out]   rand_logic_k Pointer to store the RNG for the k-logical dimension.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom *rand_logic_j, PetscRandom *rand_logic_k);
+PetscErrorCode InitializeLogicalSpaceRNGs(PetscInt base_seed, PetscRandom *rand_logic_i, PetscRandom *rand_logic_j, PetscRandom *rand_logic_k);
 
 /**
  * @brief Initializes a single master RNG for time-stepping physics (Brownian motion).
  *        Configures it for Uniform [0, 1) which is required for Box-Muller transformation.
+ *        Seeded from `particleRandomSeed`, the rank, and `StartStep`, so identical inputs on
+ *        the same rank count reproduce, and a restart draws a fresh sequence.
  *
  * @param[in,out] simCtx  Pointer to the Simulation Context.
  * @return PetscErrorCode

@@ -1,4 +1,43 @@
 {
-  "description": "Non-rendered capability scope records. These describe documentation work that is defined but deliberately not yet written, and the conditions under which a record must convert into published disclosure. Nothing here is published to the documentation site. The list is currently empty: the two LES records it held were retired when the corresponding defects were fixed and the capability entries in 07_Case_Reference were written.",
-  "records": []
+  "description": "Non-rendered capability scope records. These describe documentation work that is defined but deliberately not yet written, and the conditions under which a record must convert into published disclosure. Nothing here is published to the documentation site. The two LES records it once held were retired when those defects were fixed; the RANS record below is current.",
+  "records": [
+    {
+      "id": "turbulence.rans.k_omega",
+      "selector": "models.physics.turbulence.rans.model = k_omega  ->  -rans 1",
+      "status": "known-defective",
+      "publication_policy": "disclose-now",
+      "rationale": "The selector is reachable and the defect is total, so it is disclosed at every surface that offers it rather than deferred.",
+      "defect_summary": [
+        "Setup allocates Nu_t for RANS but never allocates the K_Omega or K_Omega_o fields; the allocation site is a comment.",
+        "FlowSolver's RANS block, including the call to the transport update, is commented out, and K_Omega_Set_Constant is defined nowhere.",
+        "UpdateSolverHistoryVectors copies K_Omega into K_Omega_o whenever RANS is on, so the first call copies a null vector and PETSc aborts with a null-argument error at the end of step one."
+      ],
+      "evidence": {
+        "code_anchors": [
+          "src/solvers.c (commented-out RANS block in FlowSolver)",
+          "src/setup.c (turbulence allocation: 'Add K_Omega etc. here as needed')",
+          "src/runloop.c (UpdateSolverHistoryVectors: VecCopy(user->K_Omega, user->K_Omega_o))"
+        ],
+        "reproduced_by": "A three-step, two-rank run of the flat_channel template with rans.enabled: true and model: k_omega on 2026-09-18 aborted in UpdateSolverHistoryVectors at src/runloop.c:339.",
+        "note": "Confirmed by reading the implementation and by the run above."
+      },
+      "disclosed_at": [
+        "docs/pages/07_Case_Reference.md (k_omega capability entry)",
+        "docs/pages/12_Capabilities_Summary.md (turbulence models)",
+        "examples/master_template/master_case.yml (rans block)",
+        "README.md (turbulence model selection)"
+      ],
+      "activation_condition": {
+        "trigger": "The k-omega fields are allocated and the transport update is implemented.",
+        "required_action": "Retire this record, return turbulence.rans and k_omega to experimental, and replace the disclosures with a limitations statement.",
+        "surfaces": [
+          "docs/pages/07_Case_Reference.md",
+          "docs/pages/12_Capabilities_Summary.md",
+          "examples/master_template/master_case.yml",
+          "README.md",
+          "picurv_cli/core.py RANS_KNOWN_DEFECT_DISCLOSURE"
+        ]
+      }
+    }
+  ]
 }

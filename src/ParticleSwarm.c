@@ -1064,7 +1064,7 @@ PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
         PetscRandom rand_logic_i, rand_logic_j, rand_logic_k;
 
         ierr = InitializeRandomGenerators(user, &randx, &randy, &randz); CHKERRQ(ierr);
-        ierr = InitializeLogicalSpaceRNGs(&rand_logic_i, &rand_logic_j, &rand_logic_k); CHKERRQ(ierr);
+        ierr = InitializeLogicalSpaceRNGs(user->simCtx->particleRandomSeed, &rand_logic_i, &rand_logic_j, &rand_logic_k); CHKERRQ(ierr);
         ierr = AssignInitialPropertiesToSwarm(user, particlesPerProcess, &randx, &randy, &randz, &rand_logic_i, &rand_logic_j, &rand_logic_k, simCtx->bboxlist); CHKERRQ(ierr);
         ierr = FinalizeSwarmSetup(&randx, &randy, &randz, &rand_logic_i, &rand_logic_j, &rand_logic_k); CHKERRQ(ierr);
 

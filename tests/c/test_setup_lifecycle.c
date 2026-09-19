@@ -175,6 +175,103 @@ static PetscErrorCode BuildContextOnly(SimCtx **simCtx_out, char *tmpdir, size_t
 }
 
 /**
+ * @brief Tests that setup refuses every flag whose feature is planned but not implemented.
+ *
+ * Multi-block coupling, immersed boundaries, moving bodies, moving frames and the
+ * immersed-body flux corrections were all accepted before, and each ran a different
+ * problem without saying so. The conductor refuses the YAML switches; this covers the
+ * same flags arriving through a PETSc passthrough. Each flag is appended to an otherwise
+ * valid control file, so a later duplicate overrides the fixture's own value.
+ */
+static PetscErrorCode TestSetupRejectsUnimplementedFeatureFlags(void)
+{
+    const char *refused[] = {"-nblk 2", "-imm 1", "-fsi 1", "-rfsi 1",
+                             "-mframe 1", "-rframe 1", "-mhv 1", "-lv 1"};
+
+    PetscFunctionBeginUser;
+    for (size_t n = 0; n < sizeof(refused) / sizeof(refused[0]); ++n) {
+        char tmpdir[PETSC_MAX_PATH_LEN];
+        char control_path[PETSC_MAX_PATH_LEN];
+        char message[128];
+        SimCtx *simCtx = NULL;
+        PetscErrorCode setup_ierr;
+        FILE *file = NULL;
+
+        PetscCall(PetscOptionsClear(NULL));
+        PetscCall(PrepareContextOnlyConfig(tmpdir, sizeof(tmpdir), control_path, sizeof(control_path)));
+        file = fopen(control_path, "a");
+        PetscCheck(file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Failed to reopen '%s'.", control_path);
+        fprintf(file, "%s\n", refused[n]);
+        fclose(file);
+        PetscCall(PetscOptionsSetValue(NULL, "-control_file", control_path));
+
+        PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+        setup_ierr = CreateSimulationContext(0, NULL, &simCtx);
+        PetscCall(PetscPopErrorHandler());
+        PetscCall(PetscSNPrintf(message, sizeof(message), "setup must refuse '%s'", refused[n]));
+        PetscCall(PicurvAssertIntEqual(PETSC_ERR_SUP, setup_ierr, message));
+
+        /* The refusal fires mid-parse, before any solver state exists; only the top-level
+           context has been allocated. */
+        PetscCall(PetscFree(simCtx));
+        PetscCall(PetscOptionsClear(NULL));
+        PetscCall(PicurvRemoveTempDir(tmpdir));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Builds a context from the fixture control file with extra lines appended, and
+ *        returns the first uniform draw of its Brownian generator.
+ */
+static PetscErrorCode FirstBrownianDraw(const char *extra_lines, PetscReal *draw)
+{
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char control_path[PETSC_MAX_PATH_LEN];
+    SimCtx *simCtx = NULL;
+    PetscScalar value;
+    FILE *file = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscOptionsClear(NULL));
+    PetscCall(PrepareContextOnlyConfig(tmpdir, sizeof(tmpdir), control_path, sizeof(control_path)));
+    file = fopen(control_path, "a");
+    PetscCheck(file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Failed to reopen '%s'.", control_path);
+    fputs(extra_lines, file);
+    fclose(file);
+    PetscCall(PetscOptionsSetValue(NULL, "-control_file", control_path));
+    PetscCall(CreateSimulationContext(0, NULL, &simCtx));
+    PetscCall(PetscRandomGetValue(simCtx->BrownianMotionRNG, &value));
+    *draw = PetscRealPart(value);
+    PetscCall(PetscOptionsClear(NULL));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(FreeLifecycleContext(&simCtx));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that the Brownian generator is seeded from configuration, not the clock.
+ *
+ * It was seeded from time(NULL), so no two runs of identical inputs agreed. The same seed
+ * must now reproduce; a different seed or a different start step must not, the latter so
+ * a restart does not replay the increments the first segment already drew.
+ */
+static PetscErrorCode TestBrownianRNGIsSeededFromConfiguration(void)
+{
+    PetscReal first = 0.0, again = 0.0, other_seed = 0.0, restarted = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(FirstBrownianDraw("-particle_random_seed 777\n", &first));
+    PetscCall(FirstBrownianDraw("-particle_random_seed 777\n", &again));
+    PetscCall(FirstBrownianDraw("-particle_random_seed 778\n", &other_seed));
+    PetscCall(FirstBrownianDraw("-particle_random_seed 777\n-start_step 10\n", &restarted));
+    PetscCall(PicurvAssertRealNear(first, again, 0.0, "the same seed must reproduce the Brownian stream"));
+    PetscCall(PicurvAssertBool((PetscBool)(first != other_seed), "a different seed must change the Brownian stream"));
+    PetscCall(PicurvAssertBool((PetscBool)(first != restarted), "a restart must not replay the first segment's stream"));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests that the shared richer runtime fixture mirrors normalized production setup contracts.
  */
 static PetscErrorCode TestSharedRuntimeFixtureContracts(void)
@@ -343,7 +440,7 @@ static PetscErrorCode TestSetupLifecycleRandomGeneratorsAndCleanup(void)
     user->bbox.max_coords.z = 3.0;
 
     PetscCall(InitializeRandomGenerators(user, &randx, &randy, &randz));
-    PetscCall(InitializeLogicalSpaceRNGs(&rand_i, &rand_j, &rand_k));
+    PetscCall(InitializeLogicalSpaceRNGs(simCtx->particleRandomSeed, &rand_i, &rand_j, &rand_k));
     PetscCall(InitializeBrownianRNG(simCtx));
     PetscCall(PicurvAssertBool((PetscBool)(simCtx->BrownianMotionRNG != NULL), "InitializeBrownianRNG should allocate the Brownian RNG"));
     PetscCall(PicurvAssertBool(RuntimeWalltimeGuardParsePositiveSeconds("12.5", &seconds), "RuntimeWalltimeGuardParsePositiveSeconds should parse positive numeric strings"));
@@ -613,6 +710,8 @@ int main(int argc, char **argv)
         {"setup-lifecycle-scatter-metrics-step-zero", TestSetupLifecycleScatterMetricsAtStepZero},
         {"setup-lifecycle-random-generators-and-cleanup", TestSetupLifecycleRandomGeneratorsAndCleanup},
         {"setup-lifecycle-cleanup-across-initialization-states", TestSetupLifecycleCleanupAcrossInitializationStates},
+        {"setup-rejects-unimplemented-feature-flags", TestSetupRejectsUnimplementedFeatureFlags},
+        {"brownian-rng-seeded-from-configuration", TestBrownianRNGIsSeededFromConfiguration},
         {"shared-runtime-fixture-contracts", TestSharedRuntimeFixtureContracts},
         {"field-catalog-metadata-and-views", TestFieldCatalogMetadataAndViews},
         {"particle-field-catalog-metadata", TestParticleFieldCatalogMetadata},

@@ -43,7 +43,7 @@ Toggle one thing at a time and compare against the literature:
   `u+ = (1/0.41) ln(y+) + 5.2`. This is the first thing to check and the one that
   fails most visibly if the wall stress is wrong.
 - **Dean's correlation.** `C_f = 0.073 Re_b^(-1/4)`, here `5.16e-3`, equivalently
-  `u_tau/U_b = 0.0508`. `u_tau_mean` in `<run.runtime_logs>/wall_model.csv` reports
+  `u_tau/U_b = 0.0508`. `u_tau_mean` in `<run.analysis.metrics>/wall_model.csv` reports
   the model's own value directly.
 - **Lee & Moser (2015)** channel DNS at `Re_tau = 1000` for mean and Reynolds
   stress profiles. The `developed` statistics window collects the first and second

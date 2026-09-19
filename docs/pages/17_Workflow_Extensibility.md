@@ -2,7 +2,10 @@
 
 @anchor _Workflow_Extensibility
 
-This page captures practical extension directions that are already compatible with the current architecture.
+This page collects proposed workflow extensions. The *next steps* lists and all of
+section 5 are proposals, not features; each sits beside a summary of what exists today
+so the gap is visible. The index of all planned work is
+@ref 57_Future_Architecture_Specifications.
 
 @tableofcontents
 
@@ -43,7 +46,8 @@ Implemented in current `picurv`:
 
 Extension-ready next steps:
 1. add more metric extractors (custom CSV schemas, multi-file reducers),
-2. add sweep resume/retry policies,
+2. add retry policies for failed sweep tasks (resuming a partly completed study
+   already exists as `sweep --continue`),
 3. add scheduler backends beyond Slurm without changing C contracts.
 
 @section p17_completion_sec 4. Runtime Completion Extensions

@@ -11,5 +11,186 @@
     "limitations": "what this measurement does not establish; required, and 'none' is not an acceptable value",
     "artifacts": "committed derived data supporting the result; may be empty when the numbers in 'result' are the whole record"
   },
-  "records": []
+  "records": [
+    {
+      "id": "duct-poiseuille-picard-2026-09-18",
+      "question": "Does the dual-time Picard momentum solver with the multigrid pressure projection reproduce laminar square-duct Poiseuille flow, and at what spatial order?",
+      "date": "2026-09-18",
+      "commit": "d6fff0f plus the uncommitted 2026-09-18 registry-reset working tree (validation refusals, legacy-flag removal, documentation); no momentum, pressure, particle, or metric numerics differ from d6fff0f",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; 2, 4 and 6 ranks for n = 8, 16 and 24",
+      "configuration": "Square duct, unit side, length 2, uniform grid_gen box of n x n x 2n cells for n = 8, 16, 24. Re = 10 (density 10, viscosity 1, U = L = 1). -Zeta INLET prescribed_flow with a generated square_duct_poiseuille source (bulk velocity 1, 101 terms), four noslip WALL faces, +Zeta OUTLET conservation. Constant plug initial field. dt = 0.05 for 120 steps (t = 6, about twelve slowest viscous time constants). Dual Time Picard Jameson RK with the flat_channel template controls (max 50 pseudo steps, residual relative tolerance 1e-3). Poisson fgmres + PCMG, 3 levels (2 for n = 8, see limitations).",
+      "result": {
+        "measured": "Streamwise velocity on the mid-length cell plane against the 201-term series at cell centres: relative L2 error 3.49e-2, 9.67e-3, 4.39e-3 (observed order 1.85 then 1.95); relative max error 4.00e-2, 1.09e-2, 4.93e-3. Axial pressure gradient over the middle half against -28.4536/Re: relative error 5.89e-2, 1.54e-2, 6.92e-3 (order 1.93 then 1.98). Inflow equals outflow to 1e-9; maximum divergence at most 5.5e-8; every physical step met its pseudo-time tolerance except one early transient step at n = 24; the steady field changed by less than 2e-10 per step at the end.",
+        "threshold": "Errors decrease monotonically under refinement with observed order at least 1.8 in velocity and pressure gradient.",
+        "verdict": "met"
+      },
+      "limitations": "Steady laminar flow only: temporal order was not measured, and in fully developed duct flow the convective term vanishes, so convection is exercised only by the transient. Uniform Cartesian grid, so the curvilinear metric terms are identity-like; single block; Re = 10. The same duct at Re = 100 with dt = 1.0 hit the 50-iteration pseudo-time cap on every step and finished with an 18% pressure-gradient error, so the result holds only when steps converge. With 3 multigrid levels on the 9-node n = 8 grid the Poisson solve produced NaN; 2 levels were used there.",
+      "artifacts": []
+    },
+    {
+      "id": "brownian-msd-2026-09-18",
+      "question": "Does the particle position update reproduce the Einstein relation MSD = 6 Gamma t for Brownian particles in a quiescent fluid?",
+      "date": "2026-09-18",
+      "commit": "d6fff0f plus the uncommitted 2026-09-18 registry-reset working tree (validation refusals, legacy-flag removal, documentation); no momentum, pressure, particle, or metric numerics differ from d6fff0f",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; 4 ranks",
+      "configuration": "examples/brownian_motion reduced to 10,000 PointSource particles and 500 steps of dt = 0.001 (t = 0.5); ZERO_FLOW analytical carrier; Gamma = 1/(Re Sc) = 1e-3; MSD statistics task every 10 steps.",
+      "result": {
+        "measured": "MSD_total slope 6.0099e-3 against 6.0e-3 (0.17%); per-axis slopes 2.015e-3, 1.998e-3, 1.996e-3 against 2.0e-3; no particle lost; centre of mass within its statistical spread; 61.3/99.2/100% of particles within 1/2/3 r_rms against 60.8/99.3/100% for a 3-D Gaussian.",
+        "threshold": "Slope within 2% of 6 Gamma, about three standard errors for 10,000 particles.",
+        "verdict": "met"
+      },
+      "limitations": "Constant diffusivity and zero flow: Euler-Maruyama is exact in distribution here, so no time-step order is tested, and no particle reached a wall. The shipped example uses 50,000 particles to t = 2; this run is smaller.",
+      "artifacts": []
+    },
+    {
+      "id": "uniform-drift-2026-09-18",
+      "question": "Does a particle cloud advected by the UNIFORM_FLOW analytical carrier drift at exactly the carrier velocity with no spurious spreading?",
+      "date": "2026-09-18",
+      "commit": "d6fff0f plus the uncommitted 2026-09-18 registry-reset working tree (validation refusals, legacy-flag removal, documentation); no momentum, pressure, particle, or metric numerics differ from d6fff0f",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; 4 ranks",
+      "configuration": "examples/drift_uniform_flow reduced to 10,000 PointSource particles and 300 steps of dt = 0.001; carrier (0.1, 0, 0); diffusion suppressed by the example.",
+      "result": {
+        "measured": "Centre-of-mass x slope 0.1 to 1e-16; y and z centre of mass exactly zero; MSD_total equals (0.1 t)^2, so the spread about the centre is zero; no particle lost.",
+        "threshold": "Slope 0.1 to round-off and zero spread.",
+        "verdict": "met"
+      },
+      "limitations": "A uniform field is interpolated exactly by any consistent scheme, so this checks advection bookkeeping and the position update, not interpolation accuracy.",
+      "artifacts": []
+    },
+    {
+      "id": "curvilinear-gcl-2026-09-18",
+      "question": "Do the face-area metrics of a curvilinear file grid close, so that a uniform flow carries zero net flux out of every cell?",
+      "date": "2026-09-18",
+      "commit": "d6fff0f plus the uncommitted 2026-09-18 registry-reset working tree (validation refusals, legacy-flag removal, documentation); no momentum, pressure, particle, or metric numerics differ from d6fff0f",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; 2 ranks",
+      "configuration": "examples/search_robustness curvilinear case: bent_channel_coarse.picgrid, 20 x 20 x 144 cells, grid.mode file; UNIFORM_FLOW analytical carrier, which sets Ucont from the face metrics; particles disabled; 3 steps. Divergence computed offline as the sum of the six face fluxes of each cell from the checkpointed Ucont.",
+      "result": {
+        "measured": "Largest per-cell sum of face fluxes 1.15e-17 against a largest face flux of 3.14e-3 (ratio 3.7e-15) over all 57,600 cells, at steps 0 and 3.",
+        "threshold": "Ratio below 1e-12.",
+        "verdict": "met"
+      },
+      "limitations": "Establishes metric closure only. It does not check cell volumes, the accuracy of the metrics against the exact geometry, or any solve on the curved grid.",
+      "artifacts": []
+    },
+    {
+      "id": "tgv-interpolation-2026-09-18",
+      "question": "How accurately does Trilinear interpolation deliver the TGV3D analytical velocity to particles on the shipped 32^3 grid?",
+      "date": "2026-09-18",
+      "commit": "d6fff0f plus the uncommitted 2026-09-18 registry-reset working tree (validation refusals, legacy-flag removal, documentation); no momentum, pressure, particle, or metric numerics differ from d6fff0f",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; 2 ranks",
+      "configuration": "examples/interpolation_test as shipped: TGV3D, Re = 100, 32^3 cells on [0, 2pi]^2 x [0, 0.2pi], 10,000 Volume-seeded particles, 200 steps of dt = 0.01, interpolation Trilinear.",
+      "result": {
+        "measured": "Relative L2 error (error_pct) 0.66-0.68% and largest component error 0.009-0.012 over the run, not growing.",
+        "threshold": "The example's criteria: error_pct below 5 and Linf below 0.15, non-growing.",
+        "verdict": "met"
+      },
+      "limitations": "One resolution, so the order of accuracy was not measured. Brownian diffusion stays active and removed 55% of the particles through the walls by t = 2; with diffusion suppressed only 3 of 10,000 were lost and the error was unchanged.",
+      "artifacts": []
+    },
+    {
+      "id": "q-criterion-tgv-2026-09-18",
+      "question": "Does the q_criterion post-processing task reproduce the analytic Q of the TGV3D field in its written output?",
+      "date": "2026-09-18",
+      "commit": "d6fff0f plus the uncommitted 2026-09-18 registry-reset working tree (validation refusals, legacy-flag removal, documentation); no momentum, pressure, particle, or metric numerics differ from d6fff0f",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; 2 ranks",
+      "configuration": "Step 0 of the interpolation_test run (TGV3D, 32^3, amplitude 1), post-processed with q_criterion alone and dimensionalize false; the Qcrit array read from the written .vts and compared with Q = -(1/2) cos^2 z (cos 2x + cos 2y).",
+      "result": {
+        "measured": "Compared at the cell centres the values belong to: RMS error 5.5e-3 against RMS Q 0.43 (1.3%). Compared at the node positions the file assigns them: RMS error 9.0e-2 (21%). nodal_average refuses Qcrit as an input.",
+        "threshold": "Written field within 5% RMS of the analytic Q at the positions it is written at.",
+        "verdict": "not-met"
+      },
+      "limitations": "The kernel itself is accurate at cell centres; the failure is the placement of cell values at node positions in the output. One resolution only. Superseded by q-criterion-nodal-tgv-2026-09-18, taken after Qcrit was made nodal-averageable and refused as direct point output.",
+      "artifacts": []
+    },
+    {
+      "id": "programmatic-inlet-flux-2026-09-18",
+      "question": "Does a generated square_duct_poiseuille inlet deliver the requested bulk velocity on a programmatic_c grid?",
+      "date": "2026-09-18",
+      "commit": "d6fff0f plus the uncommitted 2026-09-18 registry-reset working tree (validation refusals, legacy-flag removal, documentation); no momentum, pressure, particle, or metric numerics differ from d6fff0f",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; 4 ranks",
+      "configuration": "flat_channel geometry, programmatic_c 16 x 16 x 64 cells, -Zeta prescribed_flow generated square_duct_poiseuille with bulk velocity 1; delivered flux read from Continuity_Metrics.log and profile.info. The same profile on a grid_gen box of the same size was the control.",
+      "result": {
+        "measured": "Delivered bulk velocity 1.1197 on the programmatic_c grid (profile.info discrete_mean_speed 1.1197, normalization continuous_area, sampling uniform_logical); 1.0000000005 on the grid_gen control (geometric_area normalization). Offline, the fallback's excess is 23%, 12%, 6.1%, 3.1%, 1.6% for 8, 16, 32, 64, 128 cells across.",
+        "threshold": "Delivered bulk velocity within 0.1% of the requested value.",
+        "verdict": "not-met"
+      },
+      "limitations": "Only the generated square-duct source was measured; file-sourced and field-sliced profiles on programmatic grids were not.",
+      "artifacts": []
+    },
+    {
+      "id": "diffusivity-gradient-drift-2026-09-18",
+      "question": "Does a linear diffusivity profile Gamma = gamma0 + a x drive the cloud centre of mass at the rate a, as the drift term of the position update requires?",
+      "date": "2026-09-18",
+      "commit": "d6fff0f plus the uncommitted 2026-09-18 registry-reset working tree (validation refusals, legacy-flag removal, documentation); no momentum, pressure, particle, or metric numerics differ from d6fff0f",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; 6 ranks",
+      "configuration": "examples/drift_diffusivity_gradient with 40,000 PointSource particles at (0.5, 0.5, 0.5), 500 steps of dt = 0.004 (t = 2; the drift term is exact for any dt), ZERO_FLOW carrier, verification diffusivity LINEAR_X with gamma0 = 0.002 and a = 0.001. A 10,000-particle run to t = 0.5 preceded it.",
+      "result": {
+        "measured": "Centre-of-mass x at t = 2 was 1.10e-3 against the expected a t = 2.0e-3, with a one-sigma statistical spread of 5.0e-4: 1.8 sigma below the expectation and 2.2 sigma above zero. The spread about the centre gave a local diffusivity of 2.485e-3 against Gamma(x0) = 2.5e-3. The 10,000-particle run to t = 0.5 was likewise within 1.3 sigma of both hypotheses.",
+        "threshold": "Centre-of-mass drift distinguishable from zero and consistent with a t at three standard errors.",
+        "verdict": "inconclusive"
+      },
+      "limitations": "At this commit the Brownian generator was seeded from the wall clock, so runs could not be paired to cancel the noise (it is now seeded from models.physics.particles.random_seed, which makes paired runs possible for a rerun), and 40,000 particles leave the drift only four standard errors from zero. Settling it needs roughly 90,000 particles to t = 2 or longer - a cluster-sized run on this debug build. The spread measurement establishes the local diffusivity, not the drift term.",
+      "artifacts": []
+    },
+    {
+      "id": "q-criterion-nodal-tgv-2026-09-18",
+      "question": "After the fix, does the q_criterion output written through nodal_average reproduce the analytic Q of the TGV3D field at the positions the .vts assigns it?",
+      "date": "2026-09-18",
+      "commit": "d6fff0f plus the uncommitted 2026-09-18 working tree, including Qcrit in the field catalog, nodal_average accepting Qcrit, and the writer refusing cell-centred Qcrit",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; 2 ranks",
+      "configuration": "examples/interpolation_test grid (TGV3D, 32^3 cells on [0, 2pi]^2 x [0, 0.2pi]), no particles, step 0 post-processed with q_criterion then nodal_average Qcrit -> Qcrit_nodal, dimensionalize false; Qcrit_nodal read from the .vts and compared with Q = -(1/2) cos^2 z (cos 2x + cos 2y) at its node positions, two node layers excluded at each boundary.",
+      "result": {
+        "measured": "RMS error 1.37e-2 against RMS Q 0.43 (3.2%), largest error 3.2e-2, at the positions the file assigns the values. Writing Qcrit directly is now refused at validation and by the writer.",
+        "threshold": "Written field within 5% RMS of the analytic Q at the positions it is written at.",
+        "verdict": "met"
+      },
+      "limitations": "One resolution, so the order was not measured; the 3.2% combines the cell-centre differencing error with the smoothing of the average to nodes. A single-mode Taylor-Green field exercises no strong gradients, and boundary nodes were excluded.",
+      "artifacts": []
+    },
+    {
+      "id": "periodic-channel-laminar-picard-2026-09-18",
+      "question": "Does the dual-time Picard solver converge on a streamwise-periodic wall-bounded channel at current HEAD, and does the driven flux handler pair reproduce the exact laminar solution and the documented controller law?",
+      "date": "2026-09-18",
+      "commit": "d6fff0f plus the uncommitted 2026-09-18 working tree; no momentum, pressure, or boundary numerics differ from d6fff0f",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; 4 ranks for the re-characterization, 1 rank for the refinement study",
+      "configuration": "Re-characterization: the shipped examples/periodic_test/driven_channel/laminar case (Re = 100, 17 x 33 x 17 cells, initial_flux, dt = 0.05) for 10 steps. Refinement: the same channel (half-height 1, periodic Xi and Zeta, noslip Eta walls) at Re = 10 (nu = 0.1) with 9 x {9, 17, 33} x 9 cells, plug initial field, dt = 1 for 150 steps, both initial_flux and constant_flux (target 2.0), two multigrid levels. The streamwise velocity was compared with the parabola 1.5 U_b (1 - (y - 1)^2) built from the realized bulk velocity U_b.",
+      "result": {
+        "measured": "Every Re = 100 step met its pseudo-time tolerance in 9 to 29 iterations (cap 50); the 2026-08-24 stall did not reproduce. At Re = 10 the maximum profile error relative to U_b was 1.81e-2, 5.15e-3, 1.37e-3 (observed order 1.98, 2.00 at the true spacing ratios); the applied force 2.7 x correction / dt matched 3 nu U_b / h^2 to 2.4%, 0.69%, 0.18%; the realized bulk velocity 0.90217, 0.90062, 0.90017 converged to the controller law U_target / (1 + 3 nu dt / (2.7 h^2)) = 0.9. Cross-stream velocity at most 5e-12, uniform along both periodic axes to 5e-12, change over the last 50 steps at most 1.3e-9. The two handlers gave identical fields.",
+        "threshold": "Every step meets its pseudo-time tolerance at Re = 100; at Re = 10 profile error of observed order at least 1.8 under both handlers; realized bulk velocity consistent with the controller law to discretization error.",
+        "verdict": "met"
+      },
+      "limitations": "Laminar and steady: time accuracy of the driven source is not exercised, and the stall question for turbulent periodic channels at their production resolution is untested. The controller settles below its target by f dt / 2.7, which page 54 now states; at dt = 1 and nu = 0.1 that is 10%.",
+      "artifacts": []
+    },
+    {
+      "id": "tgv2d-picard-order-2026-09-18",
+      "question": "What are the temporal and spatial orders of the dual-time Picard solver with the multigrid projection on an unsteady flow with convection and pressure, the two-dimensional Taylor-Green vortex in a triply periodic box?",
+      "date": "2026-09-18",
+      "commit": "d6fff0f plus the uncommitted 2026-09-18 working tree; no momentum or pressure numerics differ from d6fff0f",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; 1 rank per run",
+      "configuration": "u = sin x cos y, v = -cos x sin y, w = 0 staged by ic_gen on [0, 2pi]^2 x [0, 2pi/8] (four cells in z), all six faces PERIODIC geometric, nu = 0.05, central differencing, residual relative tolerance 1e-9 with up to 300 pseudo-iterations, Poisson relative tolerance 1e-13, two multigrid levels with semi-coarsening in k. Temporal: 32 x 32 x 4 cells to t = 1 with dt = 0.2, 0.1, 0.05, 0.025, orders from successive differences. Spatial: 16, 32, 64 cells per side with dt = 0.0125 to t = 0.5, against the exact decay exp(-2 nu t) and pressure (1/4)(cos 2x + cos 2y) exp(-4 nu t).",
+      "result": {
+        "measured": "Temporal: successive velocity differences 9.69e-3, 2.66e-3, 6.85e-4 (order 1.87, 1.96); pressure 8.30e-3, 2.27e-3, 5.86e-4 (1.87, 1.95). Spatial: relative RMS velocity error 3.66e-2, 9.29e-3, 2.40e-3 (1.98, 1.96); gauge-free pressure 1.43e-1, 3.74e-2, 9.65e-3 (1.93, 1.95). Every step met its tolerance (largest final residual ratio 1.9e-10); w stayed below 9e-13 and the field varied along z by at most 1.3e-14.",
+        "threshold": "Observed order at least 1.8 in time and space for velocity and pressure.",
+        "verdict": "met"
+      },
+      "limitations": "Uniform Cartesian grid and a single-mode flow; the curvilinear metric terms are identity-like here, which pipe-poiseuille-curvilinear-2026-09-18 covers separately. Only central differencing was measured.",
+      "artifacts": []
+    },
+    {
+      "id": "solution-monitoring-tgv3d-2026-09-18",
+      "question": "Do the four solution-convergence modes log what they claim, checked against the closed-form TGV3D analytical field, and is that field itself exact?",
+      "date": "2026-09-18",
+      "commit": "d6fff0f plus the uncommitted 2026-09-18 working tree, including the fix below",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; 1 rank",
+      "configuration": "eulerian_field_source analytical, TGV3D, 17 x 17 x 9 cells, nu = 0.1, dt = 0.1, 20 steps, a checkpoint every step; one run each for steady_deterministic, transient, periodic_deterministic (period_steps 5) and statistical_steady (window_steps 4). Logged drifts were compared with the norm-free ratios |1 - exp(2 nu P dt)| and |1 - exp(4 nu P dt)|, logged means with means over the checkpointed physical cells, and window statistics with the logged per-step values.",
+      "result": {
+        "measured": "The prescribed velocity and pressure matched the closed form to 8.9e-16 and 7.5e-16 at every step. Velocity and pressure drifts matched their closed forms to 1.2e-11 and 9.5e-12 (4.1e-11 and 7.7e-13 periodic), window means and drifts to 5.6e-11. The first run found mean_speed 1.7% and mean_ke 14% high: every observable loop ran over both ghost layers, and on periodic axes still counted the lower one. After restricting the loops to physical cells, both matched to 1.1e-11 and 4.1e-11.",
+        "threshold": "Every logged quantity within 1e-9 of its closed form.",
+        "verdict": "met"
+      },
+      "limitations": "An analytical field, not a solve: the modes only log, and nothing in them stops or judges a run. A decaying field exercises the drift columns; a genuinely periodic or statistically steady flow was not run. Both unit tests of the fix use identity metrics.",
+      "artifacts": []
+    }
+  ]
 }

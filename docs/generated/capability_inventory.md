@@ -211,6 +211,15 @@ Selector: `case.yml -> grid.mode`
 | `grid_gen` | `grid_gen` |
 | `programmatic_c` | `programmatic_c` |
 
+### Flow Dimensionality
+
+Selector: `case.yml -> models.physics.dimensionality`
+
+| Value | Maps to |
+|---|---|
+| `2D` | `2D` |
+| `3D` | `3D` |
+
 ### Grid Generator Geometries
 
 Selector: `case.yml -> grid.generator.grid_type`

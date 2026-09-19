@@ -122,16 +122,27 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, FieldId field_id)
                             break;
                         case IC_MODE_POISEUILLE:
                             {
-                                PetscInt cs1, cs2, n1, n2;
-                                if (flow_axis == 0)      { cs1 = j; cs2 = k; n1 = jm_phys; n2 = km_phys; }
-                                else if (flow_axis == 1) { cs1 = i; cs2 = k; n1 = im_phys; n2 = km_phys; }
-                                else                     { cs1 = i; cs2 = j; n1 = im_phys; n2 = jm_phys; }
-                                const PetscReal w1 = (PetscReal)(n1 - 2);
-                                const PetscReal w2 = (PetscReal)(n2 - 2);
-                                const PetscReal n1_norm = (cs1 - (1.0 + w1 / 2.0)) / (w1 / 2.0);
-                                const PetscReal n2_norm = (cs2 - (1.0 + w2 / 2.0)) / (w2 / 2.0);
-                                normal_velocity_mag = simCtx->icVelocityPhysical *
-                                                      (1.0 - n1_norm * n1_norm) * (1.0 - n2_norm * n2_norm);
+                                PetscInt  cs1, cs2, n1, n2;
+                                PetscBool per1, per2;
+                                if (flow_axis == 0)      { cs1 = j; cs2 = k; n1 = jm_phys; n2 = km_phys;
+                                                           per1 = (PetscBool)(simCtx->j_periodic != 0); per2 = (PetscBool)(simCtx->k_periodic != 0); }
+                                else if (flow_axis == 1) { cs1 = i; cs2 = k; n1 = im_phys; n2 = km_phys;
+                                                           per1 = (PetscBool)(simCtx->i_periodic != 0); per2 = (PetscBool)(simCtx->k_periodic != 0); }
+                                else                     { cs1 = i; cs2 = j; n1 = im_phys; n2 = jm_phys;
+                                                           per1 = (PetscBool)(simCtx->i_periodic != 0); per2 = (PetscBool)(simCtx->j_periodic != 0); }
+                                /* An axis of n nodes has n-1 cells, and cell c is centred at logical
+                                   position c - 1/2, so the walls sit at 1/2 and n - 1/2 in that measure.
+                                   The parabola vanishes there, on the walls, not at the first cell
+                                   centres. A periodic cross-stream axis has no walls to vanish on, so
+                                   the profile is uniform along it: a streamwise-periodic, spanwise-
+                                   periodic channel then starts from its exact parabola. */
+                                const PetscReal half1 = 0.5 * (PetscReal)(n1 - 1);
+                                const PetscReal half2 = 0.5 * (PetscReal)(n2 - 1);
+                                const PetscReal n1_norm = ((PetscReal)cs1 - 0.5 - half1) / half1;
+                                const PetscReal n2_norm = ((PetscReal)cs2 - 0.5 - half2) / half2;
+                                const PetscReal f1 = per1 ? 1.0 : (1.0 - n1_norm * n1_norm);
+                                const PetscReal f2 = per2 ? 1.0 : (1.0 - n2_norm * n2_norm);
+                                normal_velocity_mag = simCtx->icVelocityPhysical * f1 * f2;
                                 if (normal_velocity_mag < 0.0) normal_velocity_mag = 0.0;
                             }
                             break;

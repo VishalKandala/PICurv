@@ -7,6 +7,7 @@
 
 #include "poisson.h"
 #include "rhs.h"
+#include "setup.h"
 #include "verification_sources.h"
 /**
  * @brief Allocates Poisson/RHS support vectors required by the tests.
@@ -564,6 +565,104 @@ static PetscErrorCode TestProjectionLinearPhiCorrectsVelocity(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Adds a smooth divergent perturbation to every interior face flux.
+ * @details Boundary faces are left alone, so the inflow still balances the outflow and
+ *          the Neumann pressure problem stays solvable.
+ */
+static PetscErrorCode PerturbInteriorFaceFluxes(UserCtx *user, PetscReal amplitude)
+{
+    DMDALocalInfo info = user->info;
+    Cmpnts ***ucont;
+
+    PetscFunctionBeginUser;
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucont, &ucont));
+    for (PetscInt k = PetscMax(info.zs, 1); k < PetscMin(info.zs + info.zm, info.mz - 1); k++) {
+        for (PetscInt j = PetscMax(info.ys, 1); j < PetscMin(info.ys + info.ym, info.my - 1); j++) {
+            for (PetscInt i = PetscMax(info.xs, 1); i < PetscMin(info.xs + info.xm, info.mx - 1); i++) {
+                if (i <= info.mx - 3) ucont[k][j][i].x += amplitude * PetscSinReal(1.3 * i + 0.7 * j + 0.4 * k);
+                if (j <= info.my - 3) ucont[k][j][i].y += amplitude * PetscCosReal(0.9 * i + 1.1 * j + 0.3 * k);
+                if (k <= info.mz - 3) ucont[k][j][i].z += amplitude * PetscSinReal(0.5 * i + 0.8 * j + 1.7 * k);
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucont, &ucont));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCONT));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that the production multigrid Poisson solve and projection remove a divergence.
+ * @details Runs PoissonSolver_MG through the real setup path with a three-level hierarchy,
+ *          then the same UpdatePressure/Projection pair the time loop uses, and requires
+ *          the projected field to be divergence-free to the solve tolerance.
+ */
+static PetscErrorCode TestPoissonSolverMGProjectsToDivergenceFree(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    PetscReal before;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(
+        NULL, PETSC_FALSE,
+        "-im 17\n-jm 17\n-km 17\n-mg_level 3\n"
+        "-ps_ksp_rtol 1.0e-12\n-ps_ksp_atol 1.0e-14\n-ps_ksp_max_it 200\n",
+        &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(PicurvAssertIntEqual(3, simCtx->usermg.mglevels, "fixture should build a three-level hierarchy"));
+
+    PetscCall(PerturbInteriorFaceFluxes(user, 0.2));
+    PetscCall(ComputeDivergence(user));
+    before = simCtx->MaxDiv;
+    PetscCall(PicurvAssertBool((PetscBool)(before > 1.0e-2), "perturbation should make the field divergent"));
+
+    PetscCall(PoissonSolver_MG(&simCtx->usermg));
+    PetscCall(UpdatePressure(user));
+    PetscCall(Projection(user));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCONT));
+    PetscCall(ComputeDivergence(user));
+    PetscCall(PicurvAssertBool((PetscBool)(simCtx->MaxDiv < 1.0e-9 * before),
+                               "multigrid solve plus projection should leave no divergence above the solve tolerance"));
+
+    PetscCall(PicurvDestroyRuntimeContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that an over-coarsened hierarchy stops the run at the Poisson solve.
+ * @details Three levels on a 9-node grid leave a coarse operator the preconditioner cannot
+ *          factor. The solve must return PETSC_ERR_NOT_CONVERGED rather than hand an
+ *          unsolved Phi to the projection.
+ */
+static PetscErrorCode TestPoissonSolverMGRefusesAnOvercoarsenedHierarchy(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    PetscErrorCode solve_error;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(
+        NULL, PETSC_FALSE,
+        "-im 9\n-jm 9\n-km 9\n-mg_level 3\n"
+        /* The shipped profiles solve the coarse level with a replicated direct factor. */
+        "-ps_ksp_type fgmres\n-ps_pc_type mg\n"
+        "-ps_mg_coarse_ksp_type preonly\n-ps_mg_coarse_pc_type redundant\n",
+        &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(PerturbInteriorFaceFluxes(user, 0.2));
+
+    PetscCall(PetscPushErrorHandler(PetscReturnErrorHandler, NULL));
+    solve_error = PoissonSolver_MG(&simCtx->usermg);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_NOT_CONVERGED, (PetscInt)solve_error,
+                                   "an unfactorable coarse level should stop the solve, not reach the projection"));
+
+    PetscCall(PicurvDestroyRuntimeContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Runs the unit-poisson-rhs PETSc test binary.
  */
 
@@ -585,6 +684,8 @@ int main(int argc, char **argv)
         {"poisson-lhs-new-assembles-operator", TestPoissonLHSNewAssemblesOperator},
         {"projection-zero-phi-leaves-velocity-unchanged", TestProjectionZeroPhiLeavesVelocityUnchanged},
         {"projection-linear-phi-corrects-velocity", TestProjectionLinearPhiCorrectsVelocity},
+        {"poisson-solver-mg-projects-to-divergence-free", TestPoissonSolverMGProjectsToDivergenceFree},
+        {"poisson-solver-mg-refuses-an-overcoarsened-hierarchy", TestPoissonSolverMGRefusesAnOvercoarsenedHierarchy},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv Poisson/RHS tests");

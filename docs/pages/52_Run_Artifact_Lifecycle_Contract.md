@@ -400,7 +400,7 @@ Operational patterns for post-only reuse:
 - Live solver example: if `post.yml` requests `0..1000` every `10`, but solver source files currently exist only through step `420`, PICurv launches only `0..420` on the first pass. A later `--continue` run resumes at `430` after those source files appear.
 - Interrupted batch example: if `Field_00070.vts` exists but the required MSD CSV still stops at `60`, step `70` is treated as incomplete and the next `--continue` run restarts from `70`.
 - Explicit rerun example: if you omit `--continue`, PICurv honors the requested window exactly, rewrites any overlapping VTK files for those steps, and rewrites repeated statistics rows so each step still appears once in the final CSV.
-- Changed recipe example: if you point the same `run_dir` at a different `post.yml` recipe, such as adding `Qcrit` or changing the statistics prefix, PICurv starts from that recipe's configured `start_step` instead of inheriting completion from the previous recipe.
+- Changed recipe example: if you point the same `run_dir` at a different `post.yml` recipe, such as adding `Qcrit_nodal` or changing the statistics prefix, PICurv starts from that recipe's configured `start_step` instead of inheriting completion from the previous recipe.
 - Concurrency rule: PICurv holds a post lock while the stage is active. A second writer
   targeting the same output lineage is refused so generated controls and result files
   cannot race.
@@ -536,6 +536,9 @@ drifted one.
 @section p52_cap_restart_stats_sec 8.6 Restart Statistics State Entries
 
 @htmlinclude generated/capability_inventory_run_restart_statistics_state.html
+
+Both modes are experimental: they control field-statistics continuation, whose derived
+results have not yet been compared against a reference profile.
 
 @subsection p52_cap_restart_stats_reset_sub reset
 

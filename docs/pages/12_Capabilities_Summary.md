@@ -24,7 +24,8 @@ similarity transform list. Both are experimental. See **@subpage 48_Grid_Generat
 
 Domain controls include:
 
-- single- and multi-block support,
+- `models.physics.dimensionality: 2D`, which holds the i velocity component fixed on
+  an unchanged 3-D grid,
 - per-direction geometric periodicity for Eulerian fields, derived from paired
   BCs and requiring matching surfaces under a constant translation,
 - optional DMDA partition hints (`da_processors_x/y/z`).
@@ -65,8 +66,9 @@ dynamic model is decaying isotropic turbulence with homogeneous averaging, where
 `Cs(t)` should settle near 0.16-0.17. Until such a run is recorded, treat coefficient
 magnitudes as uncharacterized.
 
-RANS (`k_omega`) is accepted by the configuration layer but its runtime update is
-incomplete. Wall functions are configured separately from both, and offer three
+RANS (`k_omega`) is known-defective: the configuration layer accepts it, but setup
+never allocates its fields and its transport update is commented out, so enabling it
+aborts the solver after the first step (@ref p07_cap_rans_k_omega_sub). Wall functions are configured separately from both, and offer three
 laws - `log_law`, `werner`, and `cabot`. The correction is applied inside the
 momentum solve and again before the LES strain rates are formed, so a
 wall-modelled large-eddy simulation is coupled in both directions, and the modelled
@@ -208,7 +210,6 @@ Reference pages:
 - **@subpage 14_Config_Contract**
 - **@subpage 15_Config_Ingestion_Map**
 - **@subpage 16_Config_Extension_Playbook**
-- **@subpage 17_Workflow_Extensibility**
 
 @section p12_next_steps_sec 10. Suggested Reading Order
 

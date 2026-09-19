@@ -28,18 +28,23 @@
       "coverage_enforced": true,
       "value_metadata": {
         "noslip": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
+          "subsystem": "boundary.conditions",
           "evidence": {
             "unit": [
               "make:unit-boundaries",
               "file:tests/c/test_boundaries.c"
+            ],
+            "analytical": [
+              "measurement:duct-poiseuille-picard-2026-09-18"
             ]
           }
         },
         "constant_velocity": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
+          "subsystem": "boundary.conditions",
           "evidence": {
             "unit": [
               "make:unit-boundaries"
@@ -50,8 +55,9 @@
           }
         },
         "parabolic": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
+          "subsystem": "boundary.conditions",
           "evidence": {
             "unit": [
               "make:unit-boundaries"
@@ -59,32 +65,41 @@
           }
         },
         "prescribed_flow": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
+          "subsystem": "boundary.conditions",
           "evidence": {
             "unit": [
               "make:unit-boundaries"
             ],
             "integration": [
               "file:tests/test_config_regressions.py"
+            ],
+            "analytical": [
+              "measurement:duct-poiseuille-picard-2026-09-18"
             ]
           }
         },
         "conservation": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
+          "subsystem": "boundary.conditions",
           "evidence": {
             "unit": [
               "make:unit-boundaries"
             ],
             "production": [
               "example:examples/flat_channel"
+            ],
+            "analytical": [
+              "measurement:duct-poiseuille-picard-2026-09-18"
             ]
           }
         },
         "geometric": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
+          "subsystem": "boundary.periodic",
           "evidence": {
             "unit": [
               "make:unit-periodic"
@@ -95,8 +110,9 @@
           }
         },
         "constant_flux": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
+          "subsystem": "boundary.periodic",
           "evidence": {
             "integration": [
               "make:smoke-driven-periodic",
@@ -105,8 +121,9 @@
           }
         },
         "initial_flux": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
+          "subsystem": "boundary.periodic",
           "evidence": {
             "integration": [
               "make:smoke-driven-periodic"
@@ -134,41 +151,54 @@
       },
       "value_metadata": {
         "wall": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
+          "subsystem": "boundary.conditions",
           "evidence": {
             "unit": [
               "make:unit-boundaries"
+            ],
+            "analytical": [
+              "measurement:duct-poiseuille-picard-2026-09-18"
             ]
           }
         },
         "inlet": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
+          "subsystem": "boundary.conditions",
           "evidence": {
             "unit": [
               "make:unit-boundaries"
             ],
             "production": [
               "example:examples/flat_channel"
+            ],
+            "analytical": [
+              "measurement:duct-poiseuille-picard-2026-09-18"
             ]
           }
         },
         "outlet": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
+          "subsystem": "boundary.conditions",
           "evidence": {
             "unit": [
               "make:unit-boundaries"
             ],
             "production": [
               "example:examples/flat_channel"
+            ],
+            "analytical": [
+              "measurement:duct-poiseuille-picard-2026-09-18"
             ]
           }
         },
         "periodic": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
+          "subsystem": "boundary.periodic",
           "evidence": {
             "unit": [
               "make:unit-periodic"
@@ -181,6 +211,7 @@
         "symmetry": {
           "status": "internal",
           "canonical": true,
+          "subsystem": "boundary.conditions",
           "evidence": {},
           "status_note": "Declared in BC_TYPE_MAP and present in the C enum, but no public handler supports it, so reachability marks it latent. 'latent' is a computed reachability state, not a lifecycle status."
         }
@@ -225,12 +256,14 @@
         "Explicit RK4": {
           "status": "experimental",
           "canonical": true,
+          "subsystem": "momentum.explicit_rk4",
           "evidence": {},
           "status_note": "No positive-path harness; src/guide.md records this as an open coverage gap."
         },
         "Dual Time Picard Jameson RK": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
+          "subsystem": "momentum.dual_time_picard",
           "evidence": {
             "unit": [
               "make:unit-solver"
@@ -241,12 +274,16 @@
             "production": [
               "example:examples/flat_channel",
               "example:examples/bent_channel"
+            ],
+            "analytical": [
+              "measurement:duct-poiseuille-picard-2026-09-18"
             ]
           }
         },
         "Newton Krylov": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
+          "subsystem": "momentum.newton_krylov",
           "evidence": {
             "unit": [
               "make:unit-newton-krylov"
@@ -286,7 +323,8 @@
               "example:examples/flat_channel",
               "example:examples/bent_channel"
             ]
-          }
+          },
+          "off_switch": true
         },
         "off": {
           "canonical": false,
@@ -363,7 +401,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "solve": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "production": [
@@ -374,10 +412,14 @@
         "load": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "integration": [
+              "make:smoke"
+            ]
+          }
         },
         "analytical": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "production": [
@@ -409,7 +451,14 @@
         "Constant": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "integration": [
+              "make:smoke-periodic"
+            ],
+            "production": [
+              "example:examples/flat_channel"
+            ]
+          }
         },
         "Poiseuille": {
           "status": "experimental",
@@ -438,7 +487,7 @@
           "evidence": {}
         },
         "Volume": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "production": [
@@ -447,7 +496,7 @@
           }
         },
         "PointSource": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "production": [
@@ -478,18 +527,25 @@
       "coverage_enforced": true,
       "value_metadata": {
         "Trilinear": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "production": [
               "example:examples/interpolation_test"
+            ],
+            "analytical": [
+              "measurement:tgv-interpolation-2026-09-18"
             ]
           }
         },
         "CornerAveraged": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "integration": [
+              "make:smoke"
+            ]
+          }
         }
       }
     },
@@ -551,7 +607,8 @@
               "example:examples/flat_channel",
               "example:examples/bent_channel"
             ]
-          }
+          },
+          "off_switch": true
         },
         "off": {
           "canonical": false,
@@ -562,7 +619,7 @@
           "spelling_of": "none"
         },
         "k_omega": {
-          "status": "experimental",
+          "status": "known-defective",
           "canonical": true,
           "evidence": {}
         },
@@ -720,7 +777,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "ZERO_FLOW": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "production": [
@@ -729,18 +786,26 @@
           }
         },
         "UNIFORM_FLOW": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "production": [
               "example:examples/drift_uniform_flow"
+            ],
+            "analytical": [
+              "measurement:curvilinear-gcl-2026-09-18",
+              "measurement:uniform-drift-2026-09-18"
             ]
           }
         },
         "TGV3D": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "production": [
+              "example:examples/interpolation_test"
+            ]
+          }
         }
       }
     },
@@ -798,7 +863,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "ucat": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "production": [
@@ -828,11 +893,14 @@
       "coverage_enforced": true,
       "value_metadata": {
         "msd": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
               "make:unit-statistics"
+            ],
+            "analytical": [
+              "measurement:brownian-msd-2026-09-18"
             ]
           }
         }
@@ -853,16 +921,19 @@
       "coverage_enforced": true,
       "value_metadata": {
         "file": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "production": [
               "example:examples/search_robustness"
+            ],
+            "analytical": [
+              "measurement:curvilinear-gcl-2026-09-18"
             ]
           }
         },
         "programmatic_c": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "production": [
@@ -874,11 +945,46 @@
           }
         },
         "grid_gen": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "production": [
               "example:examples/periodic_test"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "domain.dimensionality",
+      "title": "Flow Dimensionality",
+      "selector": "case.yml -> models.physics.dimensionality",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "DOMAIN_DIMENSIONALITY_MODES"
+      },
+      "parity_sources": [],
+      "family_page": "07_Case_Reference",
+      "entry_anchor_prefix": "p07_cap_dim_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "3D": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "example:examples/flat_channel"
+            ]
+          }
+        },
+        "2D": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-solver",
+              "file:tests/c/test_solver_kernels.c"
             ]
           }
         }
@@ -1094,7 +1200,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "init": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "integration": [
@@ -1103,7 +1209,7 @@
           }
         },
         "load": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "integration": [
@@ -1128,16 +1234,19 @@
       "coverage_enforced": true,
       "value_metadata": {
         "q_criterion": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
               "make:unit-post"
+            ],
+            "analytical": [
+              "measurement:q-criterion-nodal-tgv-2026-09-18"
             ]
           }
         },
         "normalize_field": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1146,7 +1255,7 @@
           }
         },
         "nodal_average": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1171,7 +1280,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "specific_ke": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1217,7 +1326,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "mean": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1226,7 +1335,7 @@
           }
         },
         "reynolds_stress": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1235,7 +1344,7 @@
           }
         },
         "rms": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1244,7 +1353,7 @@
           }
         },
         "tke": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1253,7 +1362,7 @@
           }
         },
         "flux": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1278,7 +1387,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "sample": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1287,7 +1396,7 @@
           }
         },
         "physical_time": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1312,7 +1421,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "grid_independence": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "production": [
@@ -1347,7 +1456,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "none": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "integration": [
@@ -1381,7 +1490,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "auto": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1390,7 +1499,7 @@
           }
         },
         "none": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1404,13 +1513,9 @@
           "evidence": {}
         },
         "balanced": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
-          "evidence": {
-            "unit": [
-              "file:tests/test_storage.py"
-            ]
-          }
+          "evidence": {}
         },
         "maximum": {
           "status": "experimental",
@@ -1438,7 +1543,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "reset": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1472,7 +1577,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "copy": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1483,23 +1588,15 @@
         "reflink": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {
-            "unit": [
-              "file:tests/test_workspace_lifecycle.py"
-            ]
-          }
+          "evidence": {}
         },
         "hardlink": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {
-            "unit": [
-              "file:tests/test_workspace_lifecycle.py"
-            ]
-          }
+          "evidence": {}
         },
         "reference": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1524,7 +1621,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "metadata-only": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1533,7 +1630,7 @@
           }
         },
         "restart-ready": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1542,7 +1639,7 @@
           }
         },
         "analysis-ready": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1567,7 +1664,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "checkpoints": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1576,7 +1673,7 @@
           }
         },
         "logs": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1585,7 +1682,7 @@
           }
         },
         "analysis": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1594,7 +1691,7 @@
           }
         },
         "visualization": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1603,7 +1700,7 @@
           }
         },
         "inputs": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1612,7 +1709,7 @@
           }
         },
         "raw-output": {
-          "status": "supported",
+          "status": "experimental",
           "canonical": true,
           "evidence": {
             "unit": [

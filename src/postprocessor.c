@@ -243,8 +243,14 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
                 field_vec = user->P_nodal; num_components = 1;
             } else if (!strcasecmp(field_name, "Ucat_nodal")) {
                 field_vec = user->Ucat_nodal; num_components = 3;
+            } else if (!strcasecmp(field_name, "Qcrit_nodal")) {
+                field_vec = user->Qcrit_nodal; num_components = 1;
             } else if (!strcasecmp(field_name, "Qcrit")) {
-                field_vec = user->Qcrit;    num_components = 1;
+                /* Qcrit is cell-centred; written as point data it would sit half a cell
+                   from the node the file assigns it. The conductor refuses this too. */
+                SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                        "Field 'Qcrit' is cell-centred and cannot be written as point data. "
+                        "Add a nodal_average task (input_field: Qcrit, output_field: Qcrit_nodal) and write 'Qcrit_nodal'.");
             } else if (!strcasecmp(field_name, "Psi_nodal")){
                 if(user->simCtx->np==0){
                     LOG_ALLOW(LOCAL, LOG_WARNING, "Field 'Psi_nodal' requested but no particles are present. Skipping.\n");

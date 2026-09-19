@@ -18,6 +18,7 @@ models:
       count: 50000
       init_mode: "Surface"            # Surface | Volume | PointSource | SurfaceEdges
       restart_mode: "init"            # init | load
+      random_seed: 12345              # optional; seeds placement and Brownian draws
       point_source:
         x: 0.5
         y: 0.5
@@ -29,6 +30,7 @@ Mapping to control flags:
 - `count` -> `-numParticles`
 - `init_mode` -> `-pinit`
 - `restart_mode` -> `-particle_restart_mode`
+- `random_seed` -> `-particle_random_seed` (optional; integer `0`..`2147483647`, default `12345`)
 - `point_source` -> `-psrc_x/-psrc_y/-psrc_z` (required when `init_mode` is `PointSource`)
 
 Note: The interpolation method (`Trilinear` / `CornerAveraged`) is configured in `solver.yml`, not `case.yml`. See **@subpage 08_Solver_Reference** and **@subpage 27_Trilinear_Interpolation_and_Projection**.

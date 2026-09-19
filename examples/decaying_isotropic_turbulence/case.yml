@@ -36,10 +36,8 @@ grid:
     grid_type: box
 
 models:
-  domain: {blocks: 1}
   physics:
     dimensionality: 3D
-    fsi: {immersed: false, moving_fsi: false}
     particles: {count: 0, restart_mode: init}
     turbulence:
       les:

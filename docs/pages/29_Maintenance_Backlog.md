@@ -144,16 +144,8 @@ no change implicates checkpoint placement within the step.
 Field statistics carry a validated acceptance suite covering moment accuracy,
 window scheduling and clipping, masks, layouts and periodicity, restart
 continuation, console monitoring, and equivalence across a changed MPI rank
-count. Two items in that suite were deliberately left uncovered, and are recorded
-here so they are not mistaken for oversights.
-
-**Multiblock equivalence has no coverage.** No multiblock runtime harness exists
-at any level — not for statistics and not for the solver generally. Statistics
-payloads are block scoped and follow the same natural ordering Eulerian payloads
-do, so there is no reason to expect a multiblock-specific defect, but that is an
-argument from construction rather than a test. Building the harness is the
-prerequisite, and it is not specific to statistics; whoever builds it should
-extend it to statistics payloads at the same time.
+count. One item in that suite was deliberately left uncovered, and is recorded
+here so it is not mistaken for an oversight.
 
 **Graceful-shutdown ordering is guaranteed by construction, not by a test.** The
 committed bundle at a given step carries that step's contribution, which the

@@ -167,8 +167,8 @@ The catalog groups fields by layout as follows:
 - node-centered: `Coordinates`, `CellScalarAtCorner`, and `CellVectorAtCorner`;
 - shifted cell-centered: `Ucat`, `P`, `Nu_t`, `CS`, `Utau`, `NuWall`, `Diffusivity`,
   `DiffusivityGradient`, `Nvert`, `Aj`, `Cent`, `GridSpace`, `Phi`, `Psi`,
-  `Nvert_o`, `ParticleCount`, `K_Omega`, `K_Omega_o`, `PostScalar`, and
-  `PostVector`;
+  `Nvert_o`, `ParticleCount`, `K_Omega`, `K_Omega_o`, `PostScalar`,
+  `PostVector`, and `Qcrit`;
 - component-staggered: `Ucont`, `Ucont_o`, and `Ucont_rm1`;
 - I-face family: `Csi`, `Centx`, `ICsi`, `IEta`, `IZet`, and `IAj`;
 - J-face family: `Eta`, `Centy`, `JCsi`, `JEta`, `JZet`, and `JAj`;
@@ -182,6 +182,9 @@ and `PostVector` stage a derived post-processing statistic, which is config-coun
 and therefore has no compile-time offset of its own; staging it under a catalog
 identity lets the existing ghost, nodal-average, and logging paths address it by name
 instead of each growing a second, view-based entry point.
+`Qcrit` is catalogued for the same reason: the post-processor computes it at cell
+centres, and only a catalog identity lets `nodal_average` refresh its ghosts by name and
+average it to nodes, since a `.vts` carries point data only.
 
 `K_Omega` entries preserve the compiled RANS call surface, but the catalog does
 not claim that the current setup path allocates their storage. The runtime view
@@ -272,5 +275,4 @@ behavioral regressions for the unchanged numerical paths.
 - **@ref p54_geometric_periodic "Periodic Boundaries and Driven Flows"**
 - **@subpage 13_Code_Architecture**
 - **@subpage 51_C_Test_Suite_Developer_Guide**
-- **@subpage 57_Future_Architecture_Specifications**
 - **@subpage 58_Field_Statistics**

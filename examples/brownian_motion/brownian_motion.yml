@@ -76,8 +76,6 @@ grid:
     cgrids: 0               # Cartesian (not curvilinear)
 
 models:
-  domain:
-    blocks: 1
 
   physics:
     turbulence:

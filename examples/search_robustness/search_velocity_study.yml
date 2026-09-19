@@ -12,23 +12,23 @@ parameters:
 metrics:
   - name: run_loss_fraction
     source: "statistics_csv"
-    file_glob: "logs/search_metrics.csv"
+    file_glob: "**/search_metrics.csv"
     column: "lost_cumulative"
     reduction: "last"
     normalize_by_parameter: "case.models.physics.particles.count"
   - name: run_swi_p95
     source: "statistics_csv"
-    file_glob: "logs/search_metrics.csv"
+    file_glob: "**/search_metrics.csv"
     column: "search_work_index"
     reduction: "p95"
   - name: run_research_p95
     source: "statistics_csv"
-    file_glob: "logs/search_metrics.csv"
+    file_glob: "**/search_metrics.csv"
     column: "re_search_fraction"
     reduction: "p95"
   - name: mean_migration_fraction
     source: "statistics_csv"
-    file_glob: "logs/search_metrics.csv"
+    file_glob: "**/search_metrics.csv"
     numerator_column: "migrated"
     denominator_column: "search_population"
     denominator_floor: 1.0

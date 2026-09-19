@@ -171,7 +171,6 @@ Not all option consumption is explicit `PetscOptionsGet*`; PETSc dynamic ingesti
 - Config contract: **@subpage 14_Config_Contract**
 - Ingestion map: **@subpage 15_Config_Ingestion_Map**
 - Extension workflow: **@subpage 16_Config_Extension_Playbook**
-- Workflow growth paths: **@subpage 17_Workflow_Extensibility**
 - Numerical-method overviews: **@subpage 21_Methods_Overview**
 - Repository map: **@subpage 30_Repository_Navigation**
 - Momentum solver index: **@subpage 31_Momentum_Solvers**
@@ -180,6 +179,5 @@ Not all option consumption is explicit `PetscOptionsGet*`; PETSc dynamic ingesti
 - Particle-model index: **@subpage 34_Particle_Model_Overview**
 - API docs quality status: **@subpage 35_API_Documentation_Status**
 - Field identity/layout catalog: **@subpage 56_Field_Identity_and_Layout_Catalog**
-- Future architecture index: **@subpage 57_Future_Architecture_Specifications**
 - Field statistics pipeline: **@subpage 58_Field_Statistics**
 - Low-priority fix queue: **@subpage 29_Maintenance_Backlog**

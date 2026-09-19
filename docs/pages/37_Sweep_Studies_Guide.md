@@ -73,9 +73,9 @@ Parameter keys can target nested case/solver/monitor/post values such as:
 - `case.run_control.dt_physical`
 
 Not every study should use the default `msd_final` metric shorthand. Cases that
-write other scalar diagnostics, such as `<run.runtime_logs>/interpolation_error.csv`, should
+write other scalar diagnostics, such as `<run.analysis.metrics>/interpolation_error.csv`, should
 define explicit CSV metrics instead. Search and migration characterization
-studies can aggregate `<run.runtime_logs>/search_metrics.csv` columns such as
+studies can aggregate `<run.analysis.metrics>/search_metrics.csv` columns such as
 `search_failure_fraction`, `search_work_index`, `re_search_fraction`, or
 normalized run-level signals derived from `lost_cumulative`.
 

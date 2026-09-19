@@ -51,8 +51,6 @@ grid:
     cgrids: 0
 
 models:
-  domain:
-    blocks: 1
 
   physics:
     turbulence:

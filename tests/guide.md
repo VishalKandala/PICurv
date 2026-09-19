@@ -300,7 +300,7 @@ Useful env knobs:
   - add direct positive-path tests for `MomentumSolver_Explicit_RungeKutta4`
   - add one small direct invariant harness for `MomentumSolver_DualTime_Picard_JamesonRK`
 - pressure/Poisson:
-  - add deeper `PoissonSolver_MG` and periodic/IBM stencil checks beyond the current `Projection`/`PoissonLHSNew` helper surface
+  - add deeper `PoissonSolver_MG` and periodic stencil checks beyond the current `Projection`/`PoissonLHSNew` helper surface
 - grid/metrics/setup:
   - broaden the richer runtime fixture to more geometry/topology variants; current setup coverage is production-faithful but still mostly tiny Cartesian cases
 - coverage follow-up:

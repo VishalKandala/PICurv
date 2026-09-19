@@ -486,7 +486,7 @@ Recommended pattern:
 - use `analytical_type: ZERO_FLOW` for pure deposition checks
 - choose a scalar profile under `verification.sources.scalar`
 - reuse the production scatter operator rather than adding a second deposition path
-- read the runtime metric from `<run.runtime_logs>/scatter_metrics.csv`
+- read the runtime metric from `<run.analysis.metrics>/scatter_metrics.csv`
 
 Separation rules:
 
@@ -501,7 +501,6 @@ This pathway is useful for more than one study. It enables:
 - moving-cloud scatter checks
 - conservation diagnostics on deposited scalar fields
 - grid-sensitivity studies using `scatter_metrics.csv`
-- future scalar-transport verification reuse
 
 A complete runnable example is provided in `examples/scatter_verification/`.
 
@@ -540,7 +539,7 @@ runs, where near-wall cells are meant to be coarse.
 diagnostics: {enabled: true, cadence: 1}
 ```
 
-Then read `<run.runtime_logs>/les_coefficient.csv`, or plot it directly:
+Then read `<run.analysis.metrics>/les_coefficient.csv`, or plot it directly:
 
 ```bash
 ./bin/picurv summarize --run-dir runs/<run_id> --list-plot-series

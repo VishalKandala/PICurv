@@ -208,6 +208,67 @@ def test_a_brand_new_record_cannot_start_removed(supported, pages, families, pub
     assert any("not a valid lifecycle transition" in p for p in problems)
 
 
+def _demoted(record):
+    """!
+    @brief Turn a supported record into a demoted one that still owes the supported bar.
+    @param[in,out] record A supported subsystem record, mutated in place.
+    @return The same record, now experimental with a pending promotion.
+    """
+    record["previous_status"] = "supported"
+    record["status"] = "experimental"
+    record["proposed_status"] = "supported"
+    record["promotion_rationale"] = "Promote once the gaps named in the demotion are closed."
+    return record
+
+
+def test_a_demotion_from_supported_is_allowed_with_a_reason(supported, pages, families,
+                                                             published):
+    """!
+    @brief A supported claim that outran its evidence may step back to experimental.
+    @param[in] supported Fixture.
+    @param[in] pages Fixture.
+    @param[in] families Fixture.
+    @param[in] published Fixture.
+    @return None.
+    """
+    record = _demoted(supported)
+    record["demotion_reason"] = "Only one flow was measured; the time accuracy was never checked."
+    problems = _violations(record, pages, families, published)
+    assert not any("lifecycle transition" in p or "demotion" in p for p in problems), problems
+
+
+def test_a_demotion_without_a_reason_is_refused(supported, pages, families, published):
+    """!
+    @brief Withdrawing a supported claim must say what the claim did not establish.
+    @param[in] supported Fixture.
+    @param[in] pages Fixture.
+    @param[in] families Fixture.
+    @param[in] published Fixture.
+    @return None.
+    """
+    record = _demoted(supported)
+    problems = _violations(record, pages, families, published)
+    assert any("needs a demotion_reason" in p for p in problems)
+    record["demotion_reason"] = "tbd"
+    problems = _violations(record, pages, families, published)
+    assert any("needs a demotion_reason" in p for p in problems)
+
+
+def test_a_demotion_reason_outside_a_demotion_is_refused(supported, pages, families,
+                                                          published):
+    """!
+    @brief A reason attached to a record that was not demoted is stale bookkeeping.
+    @param[in] supported Fixture.
+    @param[in] pages Fixture.
+    @param[in] families Fixture.
+    @param[in] published Fixture.
+    @return None.
+    """
+    supported["demotion_reason"] = "Only one flow was measured; the time accuracy was never checked."
+    problems = _violations(supported, pages, families, published)
+    assert any("demotion_reason applies only to a demotion" in p for p in problems)
+
+
 def test_defective_status_requires_a_peak(records, pages, families, published):
     """!
     @brief Off-ladder statuses must say how far up the ladder they got.
@@ -510,3 +571,99 @@ def test_no_promotion_is_recorded_as_already_taken(records):
     for record in records:
         if record.get("proposed_status"):
             assert record["status"] != record["proposed_status"], record["id"]
+
+
+def test_committed_values_sit_under_their_owners(records, families):
+    """!
+    @brief Every committed family is owned, and no committed value outranks its owner.
+    @param[in] records Fixture.
+    @param[in] families Fixture.
+    @return None.
+    """
+    assert lifecycle.validate_value_ownership(records, families) == []
+
+
+def test_an_unowned_family_is_rejected(records, families):
+    """!
+    @brief A family that no record lists has no lifecycle above its values.
+    @param[in] records Fixture.
+    @param[in] families Fixture.
+    @return None.
+    """
+    orphaned = copy.deepcopy(records)
+    for record in orphaned:
+        record["capability_families"] = [
+            f for f in record.get("capability_families", []) if f != "study.type"
+        ]
+    problems = lifecycle.validate_value_ownership(orphaned, families)
+    assert any(p.startswith("study.type: no subsystem lists this family") for p in problems)
+
+
+def test_a_shared_family_must_name_each_value_owner(records, families):
+    """!
+    @brief A value in a family several subsystems list cannot leave its owner implicit.
+    @param[in] records Fixture.
+    @param[in] families Fixture.
+    @return None.
+    """
+    edited = copy.deepcopy(families)
+    del edited["momentum.solver"]["value_metadata"]["Newton Krylov"]["subsystem"]
+    problems = lifecycle.validate_value_ownership(records, edited)
+    assert any("'Newton Krylov' belongs to a family listed by" in p for p in problems)
+
+
+def test_a_value_cannot_name_an_owner_that_does_not_list_its_family(records, families):
+    """!
+    @brief The named owner must actually list the family.
+    @param[in] records Fixture.
+    @param[in] families Fixture.
+    @return None.
+    """
+    edited = copy.deepcopy(families)
+    edited["boundary.handler"]["value_metadata"]["noslip"]["subsystem"] = "turbulence.les"
+    problems = lifecycle.validate_value_ownership(records, edited)
+    assert any("names subsystem 'turbulence.les', which does not list" in p for p in problems)
+
+
+def test_a_value_cannot_outrank_its_owner(records, families):
+    """!
+    @brief A supported value under an experimental subsystem is the drift this rule exists for.
+    @param[in] records Fixture.
+    @param[in] families Fixture.
+    @return None.
+    """
+    edited = copy.deepcopy(families)
+    edited["grid.generator_type"]["value_metadata"]["box"]["status"] = "supported"
+    problems = lifecycle.validate_value_ownership(records, edited)
+    assert any("'box' claims 'supported' but its subsystem 'grid.generator'" in p for p in problems)
+
+
+def test_only_the_off_switch_escapes_the_ceiling(records, families):
+    """!
+    @brief `none` for LES is supported under an experimental owner only because it is the off switch.
+    @param[in] records Fixture.
+    @param[in] families Fixture.
+    @return None.
+    """
+    edited = copy.deepcopy(families)
+    del edited["turbulence.les_model"]["value_metadata"]["none"]["off_switch"]
+    problems = lifecycle.validate_value_ownership(records, edited)
+    assert any("'none' claims 'supported' but its subsystem 'turbulence.les'" in p for p in problems)
+
+    edited["turbulence.les_model"]["value_metadata"]["none"]["off_switch"] = True
+    edited["turbulence.les_model"]["value_metadata"]["wale"]["off_switch"] = True
+    problems = lifecycle.validate_value_ownership(records, edited)
+    assert any("a family has at most one value that disables" in p for p in problems)
+
+
+def test_a_value_under_a_defective_owner_shares_its_status(records, families):
+    """!
+    @brief Under a known-defective subsystem, a value cannot read as merely experimental.
+    @param[in] records Fixture.
+    @param[in] families Fixture.
+    @return None.
+    """
+    edited = copy.deepcopy(families)
+    edited["turbulence.rans_model"]["value_metadata"]["k_omega"]["status"] = "experimental"
+    problems = lifecycle.validate_value_ownership(records, edited)
+    assert any("'k_omega' is 'experimental' under 'turbulence.rans'" in p for p in problems)

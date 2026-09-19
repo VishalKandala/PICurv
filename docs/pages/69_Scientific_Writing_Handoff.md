@@ -19,7 +19,7 @@ writing session rather than a scoping one.
 | Page | Lines | Owes |
 |---|---:|---|
 | **@subpage 19_Nondimensionalization** | ~89 | The scaling set, which quantities are scaled where, and the YAML/C boundary |
-| **@subpage 22_CURVIB_Method** | ~95 | Discrete curvilinear formulation; the immersed-boundary scope actually implemented |
+| **@subpage 22_CURVIB_Method** | ~95 | Discrete curvilinear formulation |
 | **@subpage 23_Fractional_Step_Method** | ~84 | Discrete form of each stage; accuracy and stability properties |
 | **@subpage 26_Walking_Search_Method** | ~104 | The algorithm, its failure modes, and its termination guarantees |
 | **@subpage 28_IEM_and_Statistical_Averaging** | ~114 | The mixing model and the averaging operators actually applied |
@@ -81,8 +81,8 @@ These are not documentation tasks but block or shape the documentation:
 
 - **Dynamic Smagorinsky.** Implementation correction pending; documentation scoped and
   deliberately deferred. Record: `tests/tooling/capability_scope_records.json`.
-- **Periodic wall-bounded convergence.** Requires re-characterization at current
-  `HEAD`; see @ref p54_driven_limits_sub.
+- **Periodic wall-bounded convergence.** Re-characterized 2026-09-18: the stall does not
+  reproduce; see @ref p54_driven_limits_sub.
 - **Explicit RK4 evidence gap.** No positive-path harness; recorded in `src/guide.md`
   and visible in the evidence matrix.
 - **Example cost measurement.** The catalog carries the column; values are unmeasured.

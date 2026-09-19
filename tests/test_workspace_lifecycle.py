@@ -1036,3 +1036,98 @@ def test_study_members_launch_their_own_pins_through_one_array_script(tmp_path, 
     unpinned = _run_with_initial_config(tmp_path / "case_2")
     with pytest.raises(ValueError, match="disagree"):
         core.resolve_sweep_stage_executables([str(m) for m in members] + [str(unpinned)])
+
+
+def _git(arguments, cwd):
+    """!
+    @brief Run a git command for a version-workflow fixture and fail loudly if it fails.
+    @param[in] arguments Git arguments excluding the executable.
+    @param[in] cwd Working directory.
+    @return Captured standard output.
+    """
+    result = subprocess.run(["git", *arguments], cwd=str(cwd), text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def _source_checkout_with_origin(tmp_path: Path):
+    """!
+    @brief Build a real origin repository, a clone of it, and a second clone that can push.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return Tuple of (checkout the conductor manages, publisher clone).
+    """
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+    for arguments in (["init", "-q"], ["config", "user.email", "tests@example.com"],
+                      ["config", "user.name", "PICurv Tests"], ["add", "."],
+                      ["commit", "-q", "-m", "first"], ["tag", "v1.0.0"]):
+        _git(arguments, seed)
+    origin = tmp_path / "origin.git"
+    _git(["clone", "-q", "--bare", str(seed), str(origin)], tmp_path)
+    checkout = tmp_path / "checkout"
+    publisher = tmp_path / "publisher"
+    for clone in (checkout, publisher):
+        _git(["clone", "-q", str(origin), str(clone)], tmp_path)
+        _git(["config", "user.email", "tests@example.com"], clone)
+        _git(["config", "user.name", "PICurv Tests"], clone)
+    return checkout, publisher
+
+
+def test_source_update_fetches_new_tags_without_moving_the_checkout(tmp_path, monkeypatch, capsys):
+    """!
+    @brief `source update` makes a new release visible and leaves the running code alone.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @param[in] capsys Pytest output-capture fixture.
+    @return None.
+    """
+    checkout, publisher = _source_checkout_with_origin(tmp_path)
+    head_before = _git(["rev-parse", "HEAD"], checkout).strip()
+    (publisher / "VERSION").write_text("1.1.0\n", encoding="utf-8")
+    _git(["commit", "-q", "-am", "second"], publisher)
+    _git(["tag", "v1.1.0"], publisher)
+    _git(["push", "-q", "origin", "HEAD", "--tags"], publisher)
+    monkeypatch.setattr(core, "PACKAGE_PROJECT_ROOT", str(checkout))
+
+    core.source_workflow(build_main_parser().parse_args(["source", "update"]))
+
+    assert "v1.1.0" in _git(["tag", "--list"], checkout).split()
+    assert _git(["rev-parse", "HEAD"], checkout).strip() == head_before
+    assert (checkout / "VERSION").read_text(encoding="utf-8") == "1.0.0\n"
+    assert "active checkout was not changed" in capsys.readouterr().out
+
+
+def test_source_update_reports_an_unreachable_remote(tmp_path, monkeypatch):
+    """!
+    @brief A fetch failure is an error, not a silent no-op.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @return None.
+    """
+    checkout, _ = _source_checkout_with_origin(tmp_path)
+    monkeypatch.setattr(core, "PACKAGE_PROJECT_ROOT", str(checkout))
+    args = build_main_parser().parse_args(["source", "update", "--remote", "nowhere"])
+    with pytest.raises(ValueError):
+        core.source_workflow(args)
+
+
+def test_versions_list_orders_tags_by_version_not_text(tmp_path, monkeypatch, capsys):
+    """!
+    @brief `versions list` names the active build and every tag, newest release first.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @param[in] capsys Pytest output-capture fixture.
+    @return None.
+    """
+    checkout, _ = _source_checkout_with_origin(tmp_path)
+    for tag in ("v1.2.0", "v1.10.0", "v1.9.0"):
+        _git(["tag", tag], checkout)
+    monkeypatch.setattr(core, "PACKAGE_PROJECT_ROOT", str(checkout))
+
+    core.versions_workflow(build_main_parser().parse_args(["versions", "list"]))
+
+    out = capsys.readouterr().out
+    assert out.startswith(f"Active: {core.PICURV_BUILD['build_id']}")
+    listed = [line.strip() for line in out.splitlines() if line.startswith("  ")]
+    assert listed == ["v1.10.0", "v1.9.0", "v1.2.0", "v1.0.0"]

@@ -48,8 +48,12 @@ INHERITS_LADDER = ("known-defective", "deprecated")
 VALID_STATUSES = tuple(LADDER) + tuple(TERMINAL_OBLIGATIONS)
 
 # Which status may follow which. Absent from a row means the transition is invalid:
-# a subsystem cannot re-enter the ladder below where it stood, and cannot reach
-# `removed` without first being deprecated or declared defective.
+# a subsystem cannot reach `removed` without first being deprecated or declared
+# defective, and cannot be revived once removed.
+#
+# `supported -> experimental` is allowed, but only with a `demotion_reason`
+# (see DEMOTIONS): a supported claim that turns out to rest on less verification than
+# it implied is withdrawn openly, not left standing because no defect was found.
 #
 # `planned -> removed` is the one deliberate exception, and it is not a removal in the
 # same sense: nothing was ever built, so a cancelled design owes a history record and
@@ -60,11 +64,15 @@ TRANSITIONS = {
     "planned": {"planned", "internal", "experimental", "supported", "removed"},
     "internal": {"internal", "experimental", "supported", "known-defective", "deprecated"},
     "experimental": {"experimental", "supported", "known-defective", "deprecated"},
-    "supported": {"supported", "known-defective", "deprecated"},
+    "supported": {"supported", "experimental", "known-defective", "deprecated"},
     "known-defective": {"known-defective", "experimental", "supported", "deprecated", "removed"},
     "deprecated": {"deprecated", "removed"},
     "removed": {"removed"},
 }
+
+# Transitions down the ladder that must say why. A demotion is not a defect: nothing
+# may be wrong with the code, only with the evidence the earlier claim rested on.
+DEMOTIONS = {("supported", "experimental")}
 
 VALID_VISIBILITY = ("internal", "public")
 
@@ -78,7 +86,8 @@ VALID_CONCERNS = (
 )
 
 RECORD_KEYS = {"id", "title", "status", "visibility", "previous_status", "peak_status",
-               "proposed_status", "promotion_rationale", "capability_families",
+               "proposed_status", "promotion_rationale", "demotion_reason",
+               "capability_families",
                "obligations", "concerns", "note"}
 # A reason short enough to fit here is an evasion, not a reason.
 MIN_REASON_CHARS = 30
@@ -241,6 +250,20 @@ def validate(records: list, pages: dict, families: dict, published: set) -> list
                 f"lifecycle transition (allowed: {sorted(TRANSITIONS[previous])})"
             )
 
+        reason = record.get("demotion_reason")
+        if (previous, status) in DEMOTIONS:
+            text = (reason or "").strip()
+            if text.lower().rstrip(".") in FILLER_REASONS or len(text) < MIN_REASON_CHARS:
+                problems.append(
+                    f"{identifier}: {previous} -> '{status}' is a demotion and needs a "
+                    f"demotion_reason saying what the earlier claim did not establish"
+                )
+        elif reason is not None:
+            problems.append(
+                f"{identifier}: demotion_reason applies only to a demotion "
+                f"({sorted(DEMOTIONS)}), not {previous or 'a new record'} -> '{status}'"
+            )
+
         proposed = record.get("proposed_status")
         if proposed is not None:
             if proposed not in LADDER:
@@ -326,6 +349,96 @@ def validate(records: list, pages: dict, families: dict, published: set) -> list
     return problems
 
 
+def validate_value_ownership(records: list, families: dict) -> list:
+    """!
+    @brief Check that every capability value has an owning subsystem it does not outrank.
+
+    @details A value's status and its subsystem's status used to be independent axes,
+             which let a value read `supported` under a subsystem still `experimental`:
+             the Newton-Krylov solver value, the periodic handlers, and every storage
+             policy all did. The subsystem status is now a ceiling. The rules need the
+             whole registry, so they are kept out of the per-record `validate()`:
+
+             - every registered family is listed by at least one subsystem record;
+             - a family listed by several subsystems names each canonical value's owner
+               in `value_metadata[*].subsystem`, and that owner must list the family;
+             - a value may not claim a ladder rung above its owner's, and under an owner
+               that is off the ladder it must share the owner's status or be removed;
+             - `off_switch: true` exempts the single value per family that disables
+               the owning subsystem, since selecting it claims nothing about it.
+
+             Accepted spellings and deprecated aliases inherit their target's owner and
+             are not checked separately.
+    @param[in] records Every subsystem record.
+    @param[in] families Capability family metadata, keyed by family id.
+    @return List of violation strings; empty means every value sits under its owner.
+    """
+    problems: list = []
+    status_of = {record.get("id"): record.get("status") for record in records}
+    listed_by: dict = {}
+    for record in records:
+        for family_id in record.get("capability_families", []):
+            listed_by.setdefault(family_id, []).append(record.get("id"))
+
+    for family_id, family in sorted(families.items()):
+        owners = listed_by.get(family_id, [])
+        if not owners:
+            problems.append(
+                f"{family_id}: no subsystem lists this family, so its values have no "
+                f"lifecycle above them; add it to the owning record's capability_families"
+            )
+            continue
+        off_switches = []
+        for name, meta in sorted(family.get("value_metadata", {}).items()):
+            meta = meta or {}
+            if meta.get("spelling_of") or meta.get("alias_of"):
+                continue
+            owner = meta.get("subsystem")
+            if owner is None:
+                if len(owners) > 1:
+                    problems.append(
+                        f"{family_id}: '{name}' belongs to a family listed by {sorted(owners)}; "
+                        f"name its owner in value_metadata.subsystem"
+                    )
+                    continue
+                owner = owners[0]
+            elif owner not in owners:
+                problems.append(
+                    f"{family_id}: '{name}' names subsystem '{owner}', which does not list "
+                    f"this family"
+                )
+                continue
+            if "off_switch" in meta:
+                if meta["off_switch"] is not True:
+                    problems.append(
+                        f"{family_id}: '{name}' declares off_switch {meta['off_switch']!r}; "
+                        f"it is either true or absent"
+                    )
+                off_switches.append(name)
+                continue
+            owner_status = status_of.get(owner)
+            value_status = meta.get("status")
+            if value_status in LADDER and owner_status in LADDER:
+                if LADDER.index(value_status) > LADDER.index(owner_status):
+                    problems.append(
+                        f"{family_id}: '{name}' claims '{value_status}' but its subsystem "
+                        f"'{owner}' is '{owner_status}'; a value cannot outrank the "
+                        f"subsystem it belongs to"
+                    )
+            elif owner_status not in LADDER and value_status not in (owner_status, "removed"):
+                problems.append(
+                    f"{family_id}: '{name}' is '{value_status}' under '{owner}', which is "
+                    f"'{owner_status}'; under an owner off the ladder a value shares its "
+                    f"status or is removed"
+                )
+        if len(off_switches) > 1:
+            problems.append(
+                f"{family_id}: {off_switches} are all marked off_switch; a family has at "
+                f"most one value that disables its subsystem"
+            )
+    return problems
+
+
 def main() -> int:
     """!
     @brief Report subsystem lifecycle violations.
@@ -339,6 +452,7 @@ def main() -> int:
         for family in json.loads(FAMILIES.read_text(encoding="utf-8"))["families"]
     }
     problems = validate(records, page_index(), families, published)
+    problems += validate_value_ownership(records, families)
     if problems:
         print("Subsystem lifecycle violations:", file=sys.stderr)
         for problem in problems:

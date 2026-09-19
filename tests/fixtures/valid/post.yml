@@ -9,6 +9,9 @@ global_operations:
 eulerian_pipeline:
   - task: q_criterion
   - task: nodal_average
+    input_field: Qcrit
+    output_field: Qcrit_nodal
+  - task: nodal_average
     input_field: Ucat
     output_field: Ucat_nodal
 
@@ -17,4 +20,4 @@ io:
   output_filename_prefix: "eulerian_data"
   eulerian_fields:
     - Ucat_nodal
-    - Qcrit
+    - Qcrit_nodal

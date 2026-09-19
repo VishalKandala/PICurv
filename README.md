@@ -10,12 +10,12 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Particle tracking with PETSc `DMSwarm`
 - Online Eulerian field statistics: named windows accumulating weighted centered moments during the solve, checkpointed with the flow state, and derived into Reynolds stresses, RMS, turbulent kinetic energy, and fluxes
 - Grid-particle interpolation and particle-grid projection
-- Runtime search/migration observability via `<run.runtime_logs>/search_metrics.csv` for particle-enabled runs
+- Runtime search/migration observability via `<run.analysis.metrics>/search_metrics.csv` for particle-enabled runs
 - Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`, `UNIFORM_FLOW`)
 - Generated, field-sliced, and file-backed inlet `PICSLICE` profiles for `prescribed_flow`
   boundary conditions, including square-duct Poiseuille generation via
   `generators/profile.gen`
-- Verification-only prescribed scalar truth injection for particle `Psi`, with runtime scatter diagnostics via `<run.runtime_logs>/scatter_metrics.csv`
+- Verification-only prescribed scalar truth injection for particle `Psi`, with runtime scatter diagnostics via `<run.analysis.metrics>/scatter_metrics.csv`
 - YAML-driven orchestration through the source-tree entrypoint (`picurv_cli/picurv`, launched by `bin/picurv` after build)
 - Slurm job generation/submission from YAML (`cluster.yml`)
 - Staged local/Slurm run workflows with `--no-submit`, delayed `submit`, and Slurm run-directory-based `cancel`
@@ -185,7 +185,8 @@ commands can rebuild, pull, and resync from the original code directory.
 You can reuse and recombine them instead of rewriting a monolithic config for every run.
 Turbulence model selection lives in `case.yml -> models.physics.turbulence`.
 Use the structured `les.enabled/model` block for constant or dynamic Smagorinsky,
-`rans.enabled/model` for the accepted k-omega selector, and sibling
+`rans.enabled/model` for the k-omega selector (known-defective: enabling it aborts the
+solver after the first step), and sibling
 `wall_function.enabled/model/roughness_height` settings for wall treatment. The dynamic
 model implements the Germano-Lilly procedure with selectable filter width, test filter,
 coefficient averaging, and limiting; its coefficient magnitude has not yet been
@@ -193,7 +194,7 @@ validated against a reference flow.
 The `search_robustness` example family adds a dedicated `search_metrics.csv` runtime artifact
 for particle walking-search and migration observability. The `scatter_verification` example family
 adds `solver.yml -> verification.sources.scalar`, prescribes particle `Psi` from analytical truth,
-and writes runtime deposition diagnostics to `<run.runtime_logs>/scatter_metrics.csv`.
+and writes runtime deposition diagnostics to `<run.analysis.metrics>/scatter_metrics.csv`.
 
 5. Validate configs (no run yet):
 ```bash
@@ -510,7 +511,7 @@ Current next-gap backlog:
   - add direct positive-path coverage for `MomentumSolver_Explicit_RungeKutta4`
   - add a small invariant-style direct harness for the positive `MomentumSolver_DualTime_Picard_JamesonRK` path so debugging does not rely only on smoke
 - pressure/Poisson:
-  - add more direct `PoissonSolver_MG` and periodic/IBM stencil behavior checks beyond the current `unit-poisson-rhs` helper coverage
+  - add more direct `PoissonSolver_MG` and periodic stencil behavior checks beyond the current `unit-poisson-rhs` helper coverage
 - grid/metrics/setup:
   - broaden the richer runtime fixture coverage to more geometry/topology variants; current contracts are strong, but still mostly tiny Cartesian cases
 

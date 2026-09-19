@@ -7,7 +7,7 @@
 What confidence this project claims for each capability in the families covered so far.
 
 The table is generated from the capability registry and now covers every public
-capability family the census recognises - 37 families, 117 canonical values.
+capability family the census recognises - 38 families, 122 canonical values.
 
 @warning **Coverage is not credibility.** A complete table means every capability has
 been *asked* what evidence stands behind it, not that the answers are strong. Many
@@ -53,10 +53,15 @@ likely to matter:
 - **`Explicit RK4` has no facets.** `src/guide.md` records "direct positive-path
   momentum solver harnesses, especially explicit RK" as an open coverage gap, and no
   shipped example selects it. Treat it as unverified.
-- **No capability claims `analytical` or `reference` facets.** The particle
-  verification examples in **@subpage 65_Example_Catalog** are *designed* to compare
-  against exact solutions, but a numerical acceptance threshold has not been run and
-  gated as part of this work. Design intent is not evidence, so no tick was recorded.
+- **Analytical facets rest on single recorded measurements, and none is `reference`.**
+  Twelve values cite `measurement:` records taken on 2026-09-18: laminar square-duct
+  Poiseuille flow at second order, the Einstein relation, uniform drift, metric closure
+  on a curvilinear file grid, TGV3D interpolation, and the nodally averaged Q-criterion
+  on TGV3D. Each record states what it does
+  not establish, and none is gated in CI. Two recorded measurements are `not-met` and are
+  cited by no capability: the Q-criterion output placement, since fixed and re-measured,
+  and the generated inlet flux on `programmatic_c` grids. No capability has been compared
+  against external reference data.
 
 - **The grid generator's composed geometries are exercised, but only along their plainest
   path.** Both geometries are production-exercised: every `examples/periodic_test` case

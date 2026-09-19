@@ -150,6 +150,18 @@ holds the flux to first order in `dt`: the force applied during a step is the
 one that would have corrected the flux measured at its beginning. Halving `dt`
 halves the lag.
 
+The controller is proportional, so it settles **below** the target. The applied force is
+`f = G * (U_target - U_b) / dt` with gain `G = 1.5 * 1.8 = 2.7` (the BDF2 coefficient times
+the internal `-driven_flow_scaling_factor`, default 1.8, which no YAML key sets). In steady
+state that force balances the wall drag, so the realized bulk velocity falls short of the
+target by `f * dt / 2.7`. For a laminar channel of half-height `h`, where
+`f = 3 nu U_b / h^2`, this gives `U_b = U_target / (1 + 3 nu dt / (2.7 h^2))`: 0.056% short
+for the shipped laminar case, and 10% short at `nu = 0.1, dt = 1`, where the measurement
+above confirmed the law to second order in the grid. Read the realized flux from the
+controller log rather than assuming the target; in turbulent runs at typical `dt` the
+shortfall is far below the statistical noise.
+
+
 @subsection p54_driven_trim_sub 5.3 The seam trim (`enforce_seam_flux`)
 
 The controller has two actuators, and this option controls the second one.
@@ -325,26 +337,14 @@ outside the postprocessor from the window payloads.
 
 **Momentum convergence on periodic wall-bounded flow.**
 
-@warning Status: previously observed; requires re-characterization at current
-`HEAD`. The observation below was measured on 2026-08-24. Commits landed on
-2026-08-25 moved momentum convergence onto a residual criterion, retired
-`absolute_tol`, and changed the pseudo-CFL controller's wall-relearning behavior -
-that is, they rewrote the exact criterion this was measured against. Do not treat
-it as current solver behavior, and do not cite it, until the cases below are rerun.
-
-As measured on 2026-08-24: under the Dual Time Picard Jameson RK solver these cases
-did not reach the pseudo-time convergence tolerance. The pseudo-CFL controller drove
-`dtau` to its floor and the residual ratio plateaued near 1, so every step reported
-"reached N total attempts without convergence" and continued from the last accepted
-state. The behavior was independent of the driven-flow machinery - an otherwise
-identical case with plain `geometric` handlers behaved the same, while the shipped
-wall-bounded inlet/outlet example converged cleanly - and independent of
-`central_diff` and of the pseudo-CFL floor. The Poisson side was healthy throughout
-(maximum divergence around 1e-14).
-
-If the behavior reproduces at current `HEAD`, it must be resolved before the
-turbulent campaigns above can be run. If it does not, replace this note with the
-new measured result rather than deleting it silently.
+Re-characterized at current `HEAD` on 2026-09-18 (measurement
+`periodic-channel-laminar-picard-2026-09-18`); the stall recorded on 2026-08-24 does not
+reproduce. That observation predated the 2026-08-25 move of momentum convergence onto a
+residual criterion and the change to the pseudo-CFL controller. The shipped laminar
+channel (`Re = 100`, 17 x 33 x 17 cells, 4 ranks, `dt = 0.05`, `initial_flux`) now
+converges every step in 9 to 29 pseudo-iterations against a cap of 50. At `Re = 10` the
+steady state reproduces the exact parabola at second order with both driven handlers:
+the maximum profile error falls 1.8e-2, 5.2e-3, 1.4e-3 on 9, 17 and 33 wall-normal cells.
 
 @section p54_diag_sec 6. Diagnostics and Tests
 

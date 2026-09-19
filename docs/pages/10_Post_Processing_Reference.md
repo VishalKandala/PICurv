@@ -37,6 +37,9 @@ eulerian_pipeline:
     input_field: Ucat
     output_field: Ucat_nodal
   - task: q_criterion
+  - task: nodal_average
+    input_field: Qcrit
+    output_field: Qcrit_nodal
 
 lagrangian_pipeline:
   - task: specific_ke
@@ -64,7 +67,7 @@ io:
   output_filename_prefix: "Field"
   particle_filename_prefix: "Particle"
   output_particles: true
-  eulerian_fields: [Ucat_nodal, Qcrit]
+  eulerian_fields: [Ucat_nodal, Qcrit_nodal]
   particle_fields: [velocity, SpecificKE]
 ```
 
@@ -134,9 +137,9 @@ Lagrangian tasks (`lagrangian_pipeline`):
 
 **Diagnostics.** The derived field appears in the written `.vts` and in the post-processor's field listing. Its absence there means the task never ran.
 
-**Evidence.** Unit verified - `make unit-post`.
+**Evidence.** Unit verified - `make unit-post`. Analytically verified - `q-criterion-nodal-tgv-2026-09-18`: `Qcrit_nodal` matched the analytic Q of the TGV3D field to 3.2% RMS at the node positions a `.vts` assigns it.
 
-**Limitations.** Q is a diagnostic, not a threshold: the isovalue that reveals structure is flow-dependent and this task chooses none for you.
+**Limitations.** Q is a diagnostic, not a threshold: the isovalue that reveals structure is flow-dependent and this task chooses none for you. `Qcrit` is computed at cell centres, and a `.vts` carries point data only, so it cannot be written directly - validation refuses it. Follow the task with `nodal_average` from `Qcrit` to `Qcrit_nodal` and write that; averaging to nodes smooths it slightly, as it does every nodal field.
 
 @subsection p10_cap_eul_normalize_field_sub normalize_field
 
@@ -164,7 +167,7 @@ Lagrangian tasks (`lagrangian_pipeline`):
 
 **Identity.** `eulerian_pipeline: [{task: nodal_average, input_field: X, output_field: Y}]` -> `CellToNodeAverage:X>Y`.
 
-**What it does.** Averages a cell-centred field onto grid nodes, writing the result as a separate named field.
+**What it does.** Averages a cell-centred field onto grid nodes, writing the result as a separate named field. Accepted inputs are `P`, `Ucat`, `Psi`, and `Qcrit`, written to `P_nodal`, `Ucat_nodal`, `Psi_nodal`, and `Qcrit_nodal`; a `.vts` carries point data only, so a cell-centred field reaches the file through this task.
 
 **When to choose it.** When a downstream consumer expects nodal data - some visualisation filters and line-extraction tools interpolate badly from cell data - or when comparing against a reference that is defined at nodes. Leave cell fields alone otherwise: averaging is a smoothing operation and loses information.
 
@@ -278,6 +281,9 @@ See @ref p58_derived_sec.
 @section p10_cap_fso_sec 6.1 Field Statistics Output Entries
 
 @htmlinclude generated/capability_inventory_post_field_statistics_output.html
+
+Every output below is experimental: the derived statistics are unit-tested for internal
+consistency but have not been compared against a reference profile.
 
 @note **`formats` is a parameter, not a choice between behaviours.** `vtk` writes the
 derived fields listed below into the window's bundle; `csv` appends one row per
@@ -396,10 +402,13 @@ classified as a parameter of these entries rather than as a family of its own.
 
 @anchor p10_cap_stat_msd
 
-**Identity.** Statistics pipeline task `msd` -> `ComputeMSD`.
+**Identity.** Statistics pipeline task `msd` -> pipeline keyword `ComputeMSD` -> @ref ComputeParticleMSD.
 
 **What it does.** Computes the mean squared displacement of the particle swarm over time
-and writes it as a CSV time series.
+and writes it as a CSV time series, together with the cloud's centre of mass. Displacement
+is measured from the configured point source (`point_source.x/y/z`), not from each
+particle's own start and not from the cloud's centre, so a drifting cloud's `MSD_total`
+includes its squared drift: the spread about the centre is `MSD_total - |com|^2`.
 
 **When to choose it.** Characterizing dispersion. MSD against time is the standard way to
 read a diffusion coefficient out of a particle simulation, which is what the Brownian and
@@ -415,10 +424,12 @@ by the Eulerian field source.
 diffusive behaviour, a quadratic one indicates ballistic transport.
 
 **Evidence.** Unit verified - `make unit-statistics` covers the MSD kernel including its
-empty-swarm behaviour.
+empty-swarm behaviour. Analytically verified - `brownian-msd-2026-09-18`: the MSD slope of a Brownian cloud matched the Einstein relation to 0.17%.
 
 **Limitations.** The only statistics task currently exposed. It is a whole-swarm measure
-with no spatial conditioning.
+with no spatial conditioning. It is meaningful only for `init_mode: PointSource`: with any
+other seeding the reference point would be the unset point source, the coordinate origin,
+so validation refuses `msd` for a seeded case that does not use `PointSource`.
 
 @section p10_spectra_sec 8. spectra
 
@@ -460,17 +471,13 @@ A spectrum is only defined where the transform direction is uniformly spaced,
 periodic, and statistically homogeneous. Each task declares what it needs, and
 `picurv validate` checks it against the case **before any field is read**:
 
-| Task | Status | Requires |
-| --- | --- | --- |
-| `shell_spectrum` | implemented | every face `PERIODIC`, a single block, and a uniform axis-aligned Cartesian grid |
-| `plane_spectrum` | planned | two periodic axes; see @ref p60_spectra_partial_sec |
-| `line_spectrum` | planned | one periodic axis; see @ref p60_spectra_partial_sec |
-| `temporal_spectrum` | planned | no homogeneous direction needed; see @ref p60_spectra_temporal_sec |
+| Task | Requires |
+| --- | --- |
+| `shell_spectrum` | every face `PERIODIC` and a uniform axis-aligned Cartesian grid |
 
-Only `shell_spectrum` exists today, so a case homogeneous in one or two directions —
-a channel, a straight duct, a boundary layer — has a spatial spectrum the pipeline
-cannot yet produce. The task table is built to hold the others; the reservation is
-recorded rather than implied.
+`shell_spectrum` is the only spectra task, so a case homogeneous in only one or two
+directions — a channel, a straight duct, a boundary layer — has no spectrum the
+pipeline can produce.
 
 Boundary conditions and block count are checked from `case.yml`; grid uniformity is
 checked by the generator against the staged PICGRID, which is the only place the node
@@ -483,11 +490,8 @@ because a shell-averaged spectrum is only defined for a triply periodic
 homogeneous box. Non-periodic faces: ['+Eta', '+Xi', ...].
 ```
 
-This is why a 90-degree bend cannot produce a spatial spectrum at all: it develops
-streamwise and is bounded on all four sides, so it has no homogeneous direction and
-needs @ref p60_spectra_temporal_sec. A *straight* duct or channel is a different case —
-it does have homogeneous directions, and awaits @ref p60_spectra_partial_sec rather
-than the temporal path.
+A 90-degree bend has no spatial spectrum at all: it develops streamwise and is
+bounded on all four sides, so it has no homogeneous direction.
 
 @subsection p10_spectra_keys_sub Keys
 
@@ -507,8 +511,8 @@ than the temporal path.
   moment the window activates, and built from few samples shortly after. Pin it to a
   step at or after the window closes to subtract the converged mean, which is almost
   always what is wanted. This mirrors `field_statistics.source_step`.
-- `block` selects the block; `field` is `Ucat`. `Ucont` is component-staggered and has
-  no single cell-centered spectrum, per @ref p60_products_sec.
+- `block` selects the block, which is always block 0; `field` is `Ucat`. `Ucont` is
+  component-staggered and has no single cell-centered spectrum, so it is refused.
 
 Two tasks differing in task, field, block, or symbol write different files and may
 coexist; two identical tasks are refused, since the second would overwrite the first.

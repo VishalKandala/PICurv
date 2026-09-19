@@ -53,7 +53,7 @@ operation_mode:
 #       # kz: 3.141592653589793    # SIN_PRODUCT -> -verification_scalar_kz
 #
 # Scalar verification is intended for runtime diagnostics such as
-# logs/scatter_metrics.csv. It bypasses only the particle Psi evolution path and
+# output/analysis/metrics/scatter_metrics.csv. It bypasses only the particle Psi evolution path and
 # reuses the production scatter operator.
 
 # --- Scalar Transport Properties ---
@@ -172,11 +172,12 @@ poisson_solver:
   # The outer linear solver uses PETSc KSP under the hood, but this block uses
   # PICurv-facing names for the common controls.
   # Note: 'pressure_solver' is an accepted deprecated alias for this block name.
-  method: "fgmres"             # -> -ps_ksp_type
-  absolute_tolerance: 1.0e-5   # -> -ps_ksp_atol and legacy -poisson_tol
+  method: "fgmres"             # -> -ps_ksp_type. Options: fgmres, gmres, lgmres, bcgs, cg
+                               #    (gmres/lgmres/bcgs run right-preconditioned, cg monitors the
+                               #    true residual, so each stops on the true residual)
+  absolute_tolerance: 1.0e-5   # -> -ps_ksp_atol
   relative_tolerance: 1.0e-11  # -> -ps_ksp_rtol
   max_iterations: 50           # -> -ps_ksp_max_it
-  # tolerance: 1.0e-5          # Legacy alias for absolute_tolerance -> -poisson_tol
   gmres:
     # Only valid for GMRES-family methods: gmres, fgmres, lgmres.
     restart: 20                # -> -ps_ksp_gmres_restart
