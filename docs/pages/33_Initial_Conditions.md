@@ -206,7 +206,7 @@ not the duct solution.
 `set-initial-interior-field-poiseuille-profile` and
 `set-initial-interior-field-poiseuille-uniform-along-periodic-axis` in `make unit-runtime`
 check the wall-vanishing product profile and the periodic-axis rule;
-`initial-conditions-2026-09-18` found the staged interior face fluxes equal to this formula
+`initial-conditions-2026-09-21` found the staged interior face fluxes equal to this formula
 to 3.5e-18 in a solver run.
 
 **Limitations.** Logical-space only: on a stretched or curved cross-section the profile is

@@ -4682,6 +4682,32 @@ def test_spectrum_plot_request_selects_representative_states_and_report_labels(t
     assert len(request["lines"]) == 7
 
 
+def test_spectrum_plot_request_finds_spectra_in_recipe_directories(tmp_path):
+    """!
+    @brief Spectra a post recipe wrote into its own subdirectory are plottable.
+
+    @details Post recipes write spectra under a per-recipe directory; the plot request
+             used to look only at the top of the spectra directory and reported none.
+             Identical task names from two recipes are told apart by their recipe path.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    picurv.ensure_run_layout(str(run_dir))
+    spectra_dir = run_dir / picurv.CANONICAL_RUN_PATHS["spectra"]
+    name = "Spectrum_shell_spectrum_Ucat_block0000_continuum.csv"
+    for recipe in ("dit-aaaa", "dit-bbbb"):
+        (spectra_dir / recipe).mkdir(parents=True)
+        (spectra_dir / recipe / name).write_text("step,time,k,energy\n0,0,2,0.0625\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="matched 2 files"):
+        picurv._build_spectrum_plot_request({"run_dir": str(run_dir)}, "Ucat", False, False, None)
+    request = picurv._build_spectrum_plot_request({"run_dir": str(run_dir)}, "bbbb", False, False, None)
+    assert request["series"] == name[: -len(".csv")]
+    assert request["lines"][0]["points"] == [[2.0, 0.0625]]
+
+
 def test_summarize_plot_rejects_incompatible_selector_and_json(tmp_path):
     """!
     @brief Test plot mode rejects incompatible summary selectors and JSON rendering.
@@ -9066,6 +9092,44 @@ def test_branching_requires_a_statistics_decision_when_windows_are_enabled(tmp_p
         unstated, case_cfg, solver_cfg, monitor_cfg, str(new_run)
     )
     assert lineage["statistics_state"] == "reset"
+
+
+def test_carrying_statistics_stages_the_restart_bundle_without_restored_fields(tmp_path):
+    """!
+    @brief Carried windows are read from the source checkpoint even when no field is.
+
+    @details An analytical Eulerian source restores no fields on a branch, so the
+             restart bundle used to be skipped; the solver then failed at start-up
+             reading the carried windows from an empty restart directory.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    case_cfg, solver_cfg, monitor_cfg, source, new_run = _branch_restart_fixture(tmp_path, picurv)
+    solver_cfg["operation_mode"] = {"eulerian_field_source": "analytical", "analytical_type": "TGV3D"}
+    monitor_cfg["field_statistics"] = {
+        "enabled": True,
+        "windows": [{
+            "name": "production", "start_time": 0.0, "weighting": "sample",
+            "step_cadence": 1, "fields": [{"field": "Ucat", "moments": ["first"]}],
+        }],
+    }
+    assert not picurv.needs_restart_source(case_cfg, solver_cfg)
+
+    reset = SimpleNamespace(restart_from=str(source), continue_run=False, run_dir=None,
+                            statistics_state="reset")
+    resolved, _is_continue, _lineage = picurv.resolve_restart_source(
+        reset, case_cfg, solver_cfg, monitor_cfg, str(new_run)
+    )
+    assert resolved is None
+
+    carry = SimpleNamespace(restart_from=str(source), continue_run=False, run_dir=None,
+                            statistics_state="carry")
+    resolved, _is_continue, lineage = picurv.resolve_restart_source(
+        carry, case_cfg, solver_cfg, monitor_cfg, str(new_run)
+    )
+    assert resolved is not None
+    assert lineage["statistics_state"] == "carry"
 
 
 def test_post_msd_requires_point_source_seeding(tmp_path, capsys):

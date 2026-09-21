@@ -47,15 +47,14 @@ After Poisson solve:
 
 From `solver.yml` via `picurv_cli/core.py`:
 
-- `poisson_solver.method` -> `-ps_ksp_type`; one of `fgmres` (default), `gmres`, `lgmres`,
-  `bcgs`, `cg`. PETSc runs `gmres`, `lgmres` and `bcgs` left-preconditioned by default,
-  and with the multigrid preconditioner that tests the wrong residual: in a duct the
-  preconditioned residual fell to 1e-13 while the true residual stalled at 1e-3, and the
-  projection used a pressure that left a divergence of 1e-4. The CLI therefore emits
-  `-ps_ksp_pc_side right` for those three, and `-ps_ksp_norm_type unpreconditioned` for
-  `cg`, which keeps its symmetric left preconditioner. With those settings all five
-  reproduce the same solution to 1e-14 (`poisson-options-duct-2026-09-18`). Any other
-  KSP type needs `petsc_passthrough_options` and is unverified.
+- `poisson_solver.method` -> `-ps_ksp_type`; `fgmres` (default) or `cg`. The multigrid
+  preconditioner is not a single fixed linear operator, which only a flexible Krylov method
+  tolerates. Under `gmres`, `lgmres` and `bcgs` - left- or right-preconditioned - the Krylov
+  residual fell to 1e-12 while the true residual stalled near 1e-3, and the projection left
+  a divergence of 2e-4 in a duct; validation refuses all three. `cg` emits
+  `-ps_ksp_norm_type unpreconditioned` so it stops on the true residual; `fgmres` and `cg`
+  reproduce each other to 1e-14 (`poisson-options-2026-09-21`). Any other KSP type
+  needs `petsc_passthrough_options` and is unverified.
 - `poisson_solver.absolute_tolerance` -> `-ps_ksp_atol`
 - `poisson_solver.relative_tolerance` -> `-ps_ksp_rtol`
 - `poisson_solver.max_iterations` -> `-ps_ksp_max_it`
@@ -67,6 +66,10 @@ From `solver.yml` via `picurv_cli/core.py`:
 - `poisson_solver.multigrid.semi_coarsening.{i,j,k}` -> `-mg_i_semi`, `-mg_j_semi`, `-mg_k_semi`
 - `poisson_solver.multigrid.level_solvers.level_N.method` -> `-ps_mg_levels_N_ksp_type`
 - `poisson_solver.multigrid.level_solvers.level_N.preconditioner` -> `-ps_mg_levels_N_pc_type`
+- `poisson_solver.multigrid.level_solvers.level_N.max_it`, `.rtol`, `.atol` ->
+  `-ps_mg_levels_N_ksp_max_it`, `_ksp_rtol`, `_ksp_atol` (the `level_0` forms use the
+  `-ps_mg_coarse_` prefix). Before 2026-09-18 these were emitted without the `ksp_` prefix,
+  which PETSc left unused, so they had no effect.
 - `poisson_solver.multigrid.cycle` and `.mode` are accepted structured keys; current supported values are `v` and `multiplicative`
 - `pressure_solver` remains a legacy alias for `poisson_solver`
 - `petsc_passthrough_options` -> advanced PETSc flags not exposed as structured YAML

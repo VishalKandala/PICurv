@@ -796,8 +796,51 @@ static PetscErrorCode TestInletParabolicProfileHandlerBehavior(void)
 
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
     PetscCall(PicurvAssertRealNear(4.0, ucont[0][3][3].z, 1.0e-12, "parabolic inlet should peak at the face centerline"));
-    PetscCall(PicurvAssertRealNear(0.0, ucont[0][1][1].z, 1.0e-12, "parabolic inlet should vanish at wall-adjacent locations"));
+    /* Five cells per axis: the wall-adjacent centre sits at s = -0.8, so each factor is 0.36. */
+    PetscCall(PicurvAssertRealNear(4.0 * 0.36 * 0.36, ucont[0][1][1].z, 1.0e-12,
+                                   "parabolic inlet should vanish on the wall, not at the wall-adjacent centre"));
     PetscCall(PicurvAssertBool((PetscBool)(ucont[0][3][3].z > ucont[0][2][2].z), "parabolic inlet centerline should exceed off-center velocity"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+
+    PetscCall(DestroyBoundaryHandler(&bc));
+    FreeBC_ParamList(user->boundary_faces[BC_FACE_NEG_Z].params);
+    user->boundary_faces[BC_FACE_NEG_Z].params = NULL;
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that the parabolic inlet is uniform along a periodic cross-stream axis.
+ * @details A channel periodic in i has walls only in j, so its inlet is the exact
+ *          one-dimensional parabola in j.
+ */
+static PetscErrorCode TestInletParabolicProfileUniformAlongPeriodicAxis(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    BoundaryCondition *bc = NULL;
+    BCContext ctx;
+    Cmpnts ***ucont = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMemzero(&ctx, sizeof(ctx)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    simCtx->i_periodic = 1;
+
+    user->boundary_faces[BC_FACE_NEG_Z].face_id = BC_FACE_NEG_Z;
+    user->boundary_faces[BC_FACE_NEG_Z].mathematical_type = INLET;
+    user->boundary_faces[BC_FACE_NEG_Z].handler_type = BC_HANDLER_INLET_PARABOLIC;
+    PetscCall(AppendBCParam(&user->boundary_faces[BC_FACE_NEG_Z].params, "v_max", "4.0"));
+    ctx.user = user;
+    ctx.face_id = BC_FACE_NEG_Z;
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_INLET_PARABOLIC, &bc));
+    PetscCall(bc->Initialize(bc, &ctx));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(PicurvAssertRealNear(4.0, ucont[0][3][1].z, 1.0e-12, "periodic axis carries no parabola factor"));
+    PetscCall(PicurvAssertRealNear(ucont[0][3][1].z, ucont[0][3][4].z, 1.0e-12, "profile is uniform along the periodic axis"));
+    PetscCall(PicurvAssertRealNear(4.0 * 0.36, ucont[0][1][3].z, 1.0e-12, "wall-bounded axis keeps its parabola"));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
 
     PetscCall(DestroyBoundaryHandler(&bc));
@@ -865,7 +908,8 @@ static PetscErrorCode TestInletParabolicProfileHandlerFaceMatrix(void)
         PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
         PetscCall(PicurvAssertRealNear(expected_center, GetFaceNormalComponent(ucont[center_k][center_j][center_i], face), 1.0e-12, "parabolic inlet should peak at the face centerline"));
         PetscCall(PicurvAssertRealNear(expected_center, GetFaceNormalComponent(ubcs[ubcs_center_k][ubcs_center_j][ubcs_center_i], face), 1.0e-12, "parabolic inlet should write the centerline boundary velocity"));
-        PetscCall(PicurvAssertRealNear(0.0, GetFaceNormalComponent(ucont[wall_k][wall_j][wall_i], face), 1.0e-12, "parabolic inlet should vanish at the wall"));
+        PetscCall(PicurvAssertRealNear(expected_center * 0.36 * 0.36, GetFaceNormalComponent(ucont[wall_k][wall_j][wall_i], face), 1.0e-12,
+                                       "parabolic inlet should take its wall-adjacent value, vanishing only on the wall"));
         PetscCall(PicurvAssertBool((PetscBool)(PetscAbsReal(GetFaceNormalComponent(ucont[center_k][center_j][center_i], face)) >
                                                PetscAbsReal(GetFaceNormalComponent(ucont[off_k][off_j][off_i], face))),
                                    "parabolic inlet centerline magnitude should exceed the off-center magnitude"));
@@ -1575,6 +1619,7 @@ int main(int argc, char **argv)
         {"inlet-constant-velocity-handler-face-matrix", TestInletConstantVelocityHandlerFaceMatrix},
         {"inlet-parabolic-profile-handler-behavior", TestInletParabolicProfileHandlerBehavior},
         {"inlet-parabolic-profile-handler-face-matrix", TestInletParabolicProfileHandlerFaceMatrix},
+        {"inlet-parabolic-profile-uniform-along-periodic-axis", TestInletParabolicProfileUniformAlongPeriodicAxis},
         {"inlet-profile-from-file-handler-behavior", TestInletProfileFromFileHandlerBehavior},
         {"outlet-conservation-handler-behavior", TestOutletConservationHandlerBehavior},
         {"outlet-conservation-handler-face-matrix", TestOutletConservationHandlerFaceMatrix},

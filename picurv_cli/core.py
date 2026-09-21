@@ -3176,7 +3176,7 @@ GRID_WALL_SEGMENT_KINDS = ("flat", "step", "ramp", "arc", "sine", "gaussian", "h
 GRID_PATH_SEGMENT_KINDS = ("straight", "arc")
 
 #: Placement and similarity operations applied after a geometry map.
-GRID_TRANSFORM_KINDS = ("anchor", "translate", "scale", "rotate", "mirror", "permute")
+GRID_TRANSFORM_KINDS = ("anchor", "translate", "scale", "rotate", "mirror", "permute", "reverse")
 
 #: Whether a run seeds particles afresh or restores them from a checkpoint.
 PARTICLE_RESTART_MODES = ("init", "load")
@@ -3223,19 +3223,23 @@ PROFILING_TIMESTEP_MODES = ("off", "selected", "all")
 #: Krylov methods for which a `gmres.restart` parameter is meaningful.
 GMRES_RESTART_METHODS = ("gmres", "fgmres", "lgmres")
 
-#: Outer Poisson Krylov methods, each verified against the multigrid preconditioner, with
-#: the extra PETSc options that make its convergence test read the true residual. PETSc
-#: runs gmres, lgmres and bcgs left-preconditioned by default; the preconditioned residual
-#: then reached 1e-13 while the true residual stalled at 1e-3, and the projection used the
-#: wrong pressure. Right preconditioning tests the true residual; CG keeps its left
-#: preconditioner and is told to monitor the unpreconditioned norm instead. Any other KSP
-#: type is reachable only through petsc_passthrough_options, unverified.
+#: Outer Poisson Krylov methods verified against the multigrid preconditioner, with the
+#: PETSc options that make each stop on the true residual. The preconditioner is not a
+#: single fixed linear operator, which only a flexible method tolerates: under gmres,
+#: lgmres and bcgs - left- or right-preconditioned - the Krylov residual fell to 1e-12
+#: while the true residual stalled near 1e-3 and the projection left a divergence of 2e-4.
+#: CG keeps its left preconditioner and is told to monitor the unpreconditioned norm. Any
+#: other KSP type is reachable only through petsc_passthrough_options, unverified.
 POISSON_KSP_METHODS = {
     "fgmres": {},
-    "gmres": {"-ps_ksp_pc_side": "right"},
-    "lgmres": {"-ps_ksp_pc_side": "right"},
-    "bcgs": {"-ps_ksp_pc_side": "right"},
     "cg": {"-ps_ksp_norm_type": "unpreconditioned"},
+}
+
+#: Methods refused with a specific reason rather than the generic unverified message.
+POISSON_KSP_REFUSED = {
+    "gmres": "is not flexible",
+    "lgmres": "is not flexible",
+    "bcgs": "is not flexible",
 }
 
 #: Analytical solution types the Eulerian source can impose.
@@ -5087,6 +5091,11 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
         statistics_state = str(requested_statistics_state).lower()
         if statistics_state == "carry" and not statistics_enabled:
             raise ValueError("--statistics-state carry requires field_statistics.enabled: true.")
+        # Carried windows are read from the source checkpoint even when nothing else is:
+        # an analytical Eulerian source restores no fields, but its statistics still
+        # live in that bundle, and an unstaged restart directory fails at start-up.
+        if statistics_state == "carry":
+            requires_source = True
 
         # === MODE 1: New run, restart from another run ===
         source_run = os.path.abspath(restart_from)
@@ -13140,6 +13149,13 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         method = str(value).strip().lower()
         if not method:
             raise ValueError("poisson_solver.method cannot be empty.")
+        if method in POISSON_KSP_REFUSED:
+            raise ValueError(
+                f"poisson_solver.method '{method}' {POISSON_KSP_REFUSED[method]}: PICurv's "
+                "multigrid preconditioner is not a single fixed linear operator, and with it "
+                f"'{method}' reports convergence while the true residual stalls, so the "
+                "projection uses the wrong pressure. Use 'fgmres' (default) or 'cg'."
+            )
         if method not in POISSON_KSP_METHODS:
             raise ValueError(
                 f"poisson_solver.method '{method}' is not one of {sorted(POISSON_KSP_METHODS)}, "
@@ -13280,7 +13296,12 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                         raise ValueError(f"{source_key}.multigrid.level_solvers.{level_name} must be a mapping.")
                     level_num = _poisson_level_number(level_name)
                     for key, value in settings.items():
-                        mapped_key = {'method': 'ksp_type', 'preconditioner': 'pc_type'}.get(key, key)
+                        # PETSc prefixes every per-level KSP control with ksp_; emitted
+                        # bare, max_it/rtol/atol were left unused and silently ignored.
+                        mapped_key = {
+                            'method': 'ksp_type', 'preconditioner': 'pc_type',
+                            'max_it': 'ksp_max_it', 'rtol': 'ksp_rtol', 'atol': 'ksp_atol',
+                        }.get(key, key)
                         # PETSc names the coarsest solver separately from positive levels.
                         if level_num == 0:
                             prefix = "-ps_mg_coarse_"
@@ -20624,14 +20645,18 @@ def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
     candidates = []
     if os.path.isdir(spectra_dir):
         # The staged initial-condition spectrum shares this directory but is the
-        # reference overlay, never a task a user can select.
+        # reference overlay, never a task a user can select. Post recipes write into
+        # their own subdirectory (resolve_recipe_spectra_output_dir), so one level is
+        # searched too; a candidate is named by its path under the spectra directory.
         reference_name = os.path.basename(INITIAL_CONDITION_SPECTRUM_RELPATH)
-        candidates = sorted(
-            name for name in os.listdir(spectra_dir)
-            if name.endswith(".csv")
-            and not name.endswith("_history.csv")
-            and name != reference_name
-        )
+        for root, _dirs, files in os.walk(spectra_dir):
+            if os.path.relpath(root, spectra_dir).count(os.sep) > 0:
+                continue
+            for name in files:
+                if (name.endswith(".csv") and not name.endswith("_history.csv")
+                        and name != reference_name):
+                    candidates.append(os.path.relpath(os.path.join(root, name), spectra_dir))
+        candidates.sort()
     if not candidates:
         raise ValueError(
             "No spectra were found for this run. Run "
@@ -20696,7 +20721,7 @@ def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
             "line_width": 2.4 if step == ordered_steps[-1] else 1.65,
         })
 
-    name = matches[0][: -len(".csv")]
+    name = os.path.basename(matches[0])[: -len(".csv")]
     fallback = os.path.join(
         context["run_dir"], CANONICAL_RUN_PATHS["plots"], f"{name}.png"
     )

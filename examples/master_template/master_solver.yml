@@ -172,9 +172,9 @@ poisson_solver:
   # The outer linear solver uses PETSc KSP under the hood, but this block uses
   # PICurv-facing names for the common controls.
   # Note: 'pressure_solver' is an accepted deprecated alias for this block name.
-  method: "fgmres"             # -> -ps_ksp_type. Options: fgmres, gmres, lgmres, bcgs, cg
-                               #    (gmres/lgmres/bcgs run right-preconditioned, cg monitors the
-                               #    true residual, so each stops on the true residual)
+  method: "fgmres"             # -> -ps_ksp_type. Options: fgmres (default), cg. gmres, lgmres
+                               #    and bcgs are refused: the multigrid preconditioner is not a
+                               #    fixed linear operator, which only a flexible method tolerates
   absolute_tolerance: 1.0e-5   # -> -ps_ksp_atol
   relative_tolerance: 1.0e-11  # -> -ps_ksp_rtol
   max_iterations: 50           # -> -ps_ksp_max_it

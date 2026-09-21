@@ -3391,8 +3391,10 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
             PetscCheck(reason != KSP_DIVERGED_NANORINF && reason != KSP_DIVERGED_PC_FAILED,
                        PETSC_COMM_WORLD, PETSC_ERR_NOT_CONVERGED,
                        "Pressure Poisson solve on block %" PetscInt_FMT " failed at step %" PetscInt_FMT
-                       " (KSP reason %s). A multigrid hierarchy coarsened too far is one known cause: "
-                       "reduce poisson_solver.multigrid.levels or refine the grid.",
+                       " (KSP reason %s). Known causes: a multigrid hierarchy coarsened too far "
+                       "(reduce poisson_solver.multigrid.levels or refine the grid), or a momentum "
+                       "field that has already diverged, such as an explicit time step beyond its "
+                       "stability limit.",
                        bi, simCtx->step, KSPConvergedReasons[reason]);
             if (reason < 0 && reason != KSP_DIVERGED_ITS) {
                 LOG(GLOBAL, LOG_WARNING, "Pressure Poisson solve on block %" PetscInt_FMT

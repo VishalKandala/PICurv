@@ -635,10 +635,10 @@ poisson_solver:
 ```
 
 Mappings:
-- `method` -> `-ps_ksp_type`; one of `fgmres` (default), `gmres`, `lgmres`, `bcgs`, `cg`.
-  `gmres`, `lgmres` and `bcgs` also emit `-ps_ksp_pc_side right`, and `cg` emits
-  `-ps_ksp_norm_type unpreconditioned`, so every method stops on the true residual (see
-  @ref p25_config_sec)
+- `method` -> `-ps_ksp_type`; `fgmres` (default) or `cg`, which also emits
+  `-ps_ksp_norm_type unpreconditioned` so it stops on the true residual. `gmres`, `lgmres`
+  and `bcgs` are refused: they are not flexible, and the multigrid preconditioner is not a
+  fixed linear operator (see @ref p25_config_sec)
 - `absolute_tolerance` -> `-ps_ksp_atol`
 - `relative_tolerance` -> `-ps_ksp_rtol`
 - `max_iterations` -> `-ps_ksp_max_it`
@@ -650,6 +650,7 @@ Mappings:
 - `multigrid.semi_coarsening.i/j/k` -> `-mg_i_semi/-mg_j_semi/-mg_k_semi`
 - `multigrid.level_solvers.level_N.method` -> `-ps_mg_levels_N_ksp_type` for `N > 0`
 - `multigrid.level_solvers.level_N.preconditioner` -> `-ps_mg_levels_N_pc_type` for `N > 0`
+- `multigrid.level_solvers.level_N.max_it/rtol/atol` -> `-ps_mg_levels_N_ksp_max_it/_ksp_rtol/_ksp_atol` for `N > 0`
 - `multigrid.level_solvers.level_0.*` -> `-ps_mg_coarse_*`; PETSc names the coarsest
   solver separately from the positive levels
 - `multigrid.cycle` and `multigrid.mode` are validated structured keys; current supported values are `v` and `multiplicative`.

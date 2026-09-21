@@ -258,10 +258,15 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS),NULL,NULL,(void**)&status_field); CHKERRQ(ierr);
 
     // --- 4. Determine Starting Global PID for this Rank ---
-    PetscInt particles_per_rank_ideal = simCtx->np / size; // Assumes user->size is PETSC_COMM_WORLD size
-    PetscInt remainder_particles = simCtx->np % size;
-    PetscInt base_pid_for_rank = rank * particles_per_rank_ideal + PetscMin(rank, remainder_particles);
-    // This calculation must match how particlesPerProcess was determined (e.g., in DistributeParticles).
+    // PIDs are consecutive across ranks in rank order, so each rank starts where the ranks
+    // before it end. Taking that from the actual local counts keeps it right however the
+    // particles were split (evenly, or by owned cells for volumetric seeding).
+    PetscInt base_pid_for_rank = 0;
+    {
+        PetscInt local_count = particlesPerProcess;
+        ierr = MPI_Exscan(&local_count, &base_pid_for_rank, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+        if (rank == 0) base_pid_for_rank = 0; /* MPI_Exscan leaves rank 0's result undefined */
+    }
 
     // --- 5. Loop Over Particles to Initialize ---
     for (PetscInt p = 0; p < particlesPerProcess; p++) {
@@ -625,6 +630,53 @@ PetscErrorCode FinalizeSwarmSetup(PetscRandom *randx, PetscRandom *randy, PetscR
  * @brief Internal helper implementation: `CreateParticleSwarm()`.
  * @details Local to this translation unit.
  */
+/**
+ * @brief Split particles across ranks in proportion to the cells each rank owns.
+ * @details Volumetric seeding places each rank's particles uniformly in its own cells, so an
+ *          even split gives a density that jumps wherever the decomposition gives ranks
+ *          unequal cell counts. Largest-remainder rounding keeps the total exact, and every
+ *          rank computes the same answer from the gathered counts.
+ * @param[in]  user          Finest-level context whose DMDA ownership defines the split.
+ * @param[in]  numParticles  Global particle count.
+ * @param[out] localCount    Particles this rank seeds.
+ * @return PetscErrorCode 0 on success.
+ */
+static PetscErrorCode DistributeParticlesByOwnedCells(UserCtx *user, PetscInt numParticles, PetscInt *localCount)
+{
+    PetscMPIInt rank, size;
+    PetscInt    start, ni, nj, nk, owned, total = 0, assigned = 0;
+    PetscInt   *cells = NULL, *count = NULL;
+    PetscReal  *frac = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
+    PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
+    PetscCall(GetOwnedCellRange(&user->info, 0, &start, &ni));
+    PetscCall(GetOwnedCellRange(&user->info, 1, &start, &nj));
+    PetscCall(GetOwnedCellRange(&user->info, 2, &start, &nk));
+    owned = ni * nj * nk;
+    PetscCall(PetscMalloc3(size, &cells, size, &count, size, &frac));
+    PetscCallMPI(MPI_Allgather(&owned, 1, MPIU_INT, cells, 1, MPIU_INT, PETSC_COMM_WORLD));
+    for (PetscMPIInt r = 0; r < size; ++r) total += cells[r];
+    PetscCheck(total > 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+               "Volumetric particle seeding found no owned cells on any rank.");
+    for (PetscMPIInt r = 0; r < size; ++r) {
+        const PetscReal share = (PetscReal)numParticles * (PetscReal)cells[r] / (PetscReal)total;
+        count[r] = (PetscInt)PetscFloorReal(share);
+        frac[r]  = share - (PetscReal)count[r];
+        assigned += count[r];
+    }
+    for (PetscInt extra = numParticles - assigned; extra > 0; --extra) {
+        PetscMPIInt best = 0;
+        for (PetscMPIInt r = 1; r < size; ++r) if (frac[r] > frac[best]) best = r;
+        count[best] += 1;
+        frac[best] = -1.0;
+    }
+    *localCount = count[rank];
+    PetscCall(PetscFree3(cells, count, frac));
+    PetscFunctionReturn(0);
+}
+
 PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscInt *particlesPerProcess, BoundingBox *bboxlist) {
     PetscErrorCode ierr;                      // PETSc error handling variable
     (void)bboxlist;
@@ -650,7 +702,11 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
         user->bbox.min_coords.y,user->bbox.max_coords.y,
         user->bbox.min_coords.z,user->bbox.max_coords.z);
     // Distribute particles among MPI processes
-    ierr = DistributeParticles(numParticles, rank, size, particlesPerProcess, &remainder); CHKERRQ(ierr);
+    if (user->simCtx->ParticleInitialization == PARTICLE_INIT_VOLUME) {
+        ierr = DistributeParticlesByOwnedCells(user, numParticles, particlesPerProcess); CHKERRQ(ierr);
+    } else {
+        ierr = DistributeParticles(numParticles, rank, size, particlesPerProcess, &remainder); CHKERRQ(ierr);
+    }
 
     // Initialize the DMSwarm - creates the swarm, sets the type and dimension
     ierr = InitializeSwarm(user); CHKERRQ(ierr);

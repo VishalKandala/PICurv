@@ -411,47 +411,24 @@ PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
         SETERRABORT(PETSC_COMM_WORLD, PETSC_ERR_USER,
             "Mixed Jacobian signs detected – grid is topologically inconsistent.");
 
-    /* Default: grid is right-handed unless proven otherwise */
+    /* A uniformly left-handed grid is refused. The former "repair" negated Csi, Eta,
+       Zet and Aj on this level only, left the face and cell-centre metrics as they
+       were, and then reset the orientation flag to +1; a mirrored duct solved that way
+       reached forty times its bulk velocity. Renumbering one logical axis is exact. */
     PetscInt orientation = +1;
-
-    /* ---------------- step 3: repair left-handed mesh -------------- */
-    if (aj_max < 0.0) {                  /* entire domain has Aj < 0   */
-        orientation = -1;
-
-        if (!rank)
-            LOG_ALLOW(LOCAL, LOG_INFO,
-                "[orientation] Detected left-handed grid – flipping metric vectors\n");
-
-        /* Flip sign of *all* metric vectors and Aj                     */
-        ierr = VecScale(user->Csi, -1.0); CHKERRQ(ierr);
-        ierr = VecScale(user->Eta, -1.0); CHKERRQ(ierr);
-        ierr = VecScale(user->Zet, -1.0); CHKERRQ(ierr);
-        ierr = VecScale(user->Aj , -1.0); CHKERRQ(ierr);
-
-        /* Local ghost regions now stale – refresh                      */
-        ierr = UpdateLocalGhosts(user, FIELD_ID_CSI); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, FIELD_ID_ETA); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, FIELD_ID_ZET); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, FIELD_ID_AJ);  CHKERRQ(ierr);
-
-        /* Sanity print: Aj must be > 0 now                             */
-        ierr = VecMin(user->Aj, NULL, &aj_min); CHKERRQ(ierr);
-        ierr = VecMax(user->Aj, NULL, &aj_max); CHKERRQ(ierr);
-
-        if (aj_min <= 0.0)
-            SETERRABORT(PETSC_COMM_WORLD, PETSC_ERR_USER,
-                "Failed to flip grid orientation – Aj still non-positive.");
-	else if (aj_min && aj_max > 0.0)
-	  orientation = +1;
+    if (aj_max < 0.0) {
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_USER,
+                "The grid is left-handed: every cell Jacobian is negative, as a mirrored or "
+                "oddly permuted grid is. The solver needs right-handed logical axes. Renumber "
+                "one logical axis (grid.gen: append reverse:axis=i|j|k to the transforms); "
+                "that axis's two faces trade names.");
     }
 
     /* ---------------- step 4: store result in UserCtx -------------- */
     user->GridOrientation = orientation;
 
     if (!rank)
-        LOG_ALLOW(LOCAL, LOG_INFO,
-            "[orientation] Grid confirmed %s-handed after flip (orientation=%+d)\n",
-            (orientation>0) ? "right" : "left", orientation);
+        LOG_ALLOW(LOCAL, LOG_INFO, "[orientation] Grid confirmed right-handed.\n");
 
     PROFILE_FUNCTION_END;        
 

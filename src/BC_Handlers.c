@@ -761,33 +761,42 @@ static PetscErrorCode Initialize_InletParabolicProfile(BoundaryCondition *self, 
 
     // --- Determine cross-stream dimensions based on face orientation ---
     PetscReal cs1_dim, cs2_dim;
+    PetscBool cs1_periodic, cs2_periodic;
+    SimCtx   *simCtx = user->simCtx;
     switch (face_id) {
         case BC_FACE_NEG_X:
         case BC_FACE_POS_X:
             cs1_dim = (PetscReal)user->JM;  // j-direction
             cs2_dim = (PetscReal)user->KM;  // k-direction
+            cs1_periodic = (PetscBool)(simCtx->j_periodic != 0);
+            cs2_periodic = (PetscBool)(simCtx->k_periodic != 0);
             break;
         case BC_FACE_NEG_Y:
         case BC_FACE_POS_Y:
             cs1_dim = (PetscReal)user->IM;  // i-direction
             cs2_dim = (PetscReal)user->KM;  // k-direction
+            cs1_periodic = (PetscBool)(simCtx->i_periodic != 0);
+            cs2_periodic = (PetscBool)(simCtx->k_periodic != 0);
             break;
         case BC_FACE_NEG_Z:
         case BC_FACE_POS_Z:
         default:
             cs1_dim = (PetscReal)user->IM;  // i-direction
             cs2_dim = (PetscReal)user->JM;  // j-direction
+            cs1_periodic = (PetscBool)(simCtx->i_periodic != 0);
+            cs2_periodic = (PetscBool)(simCtx->j_periodic != 0);
             break;
     }
 
-    // Interior width = dim - 2 (nodes 1 through dim-2 are interior)
-    PetscReal cs1_width = cs1_dim - 2.0;
-    PetscReal cs2_width = cs2_dim - 2.0;
-
-    data->cs1_center = 1.0 + cs1_width / 2.0;
-    data->cs2_center = 1.0 + cs2_width / 2.0;
-    data->cs1_half   = cs1_width / 2.0;
-    data->cs2_half   = cs2_width / 2.0;
+    /* An axis of n nodes carries n-1 cells at indices 1..n-1, cell c centred at c - 1/2
+       in node units, so the walls sit at 1/2 and n - 1/2: the profile is centred at n/2
+       with half-width (n-1)/2 and vanishes on the walls, not at the first cell centres.
+       A periodic cross-stream axis has no walls; an unbounded half-width makes its
+       factor 1, so a spanwise-periodic channel receives the one-dimensional parabola. */
+    data->cs1_center = 0.5 * cs1_dim;
+    data->cs2_center = 0.5 * cs2_dim;
+    data->cs1_half   = cs1_periodic ? PETSC_MAX_REAL : 0.5 * (cs1_dim - 1.0);
+    data->cs2_half   = cs2_periodic ? PETSC_MAX_REAL : 0.5 * (cs2_dim - 1.0);
 
     LOG_ALLOW(LOCAL, LOG_INFO, "  Inlet Face %d (Parabolic): v_max = %.4f\n", face_id, data->v_max);
     LOG_ALLOW(LOCAL, LOG_DEBUG, "    Cross-stream 1: center=%.1f, half=%.1f\n", data->cs1_center, data->cs1_half);

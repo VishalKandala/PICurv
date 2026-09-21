@@ -164,6 +164,26 @@ PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm,
                 
             } // End of RK stages for one block
 
+            /* Nothing limits dt on this path, so an unstable step only showed up later,
+               as a non-finite Poisson solve blamed on the multigrid depth. Name the
+               actual cause where it arises. */
+            {
+                /* Divergence usually overflows the Poisson right-hand side before the
+                   velocity itself stops being finite, so a jump no flow can make in one
+                   step is treated the same as a non-finite value. */
+                PetscReal ucont_max = 0.0, ucont_start = 0.0;
+                ierr = VecNorm(user[bi].Ucont, NORM_INFINITY, &ucont_max); CHKERRQ(ierr);
+                ierr = VecNorm(user[bi].Ucont_o, NORM_INFINITY, &ucont_start); CHKERRQ(ierr);
+                PetscCheck(!PetscIsInfOrNanReal(ucont_max) && ucont_max <= 1.0e10 * (1.0 + ucont_start),
+                           PETSC_COMM_WORLD, PETSC_ERR_FP,
+                           "Explicit RK4 diverged on block %" PetscInt_FMT
+                           " at step %" PetscInt_FMT " with dt = %g: the step exceeds the explicit "
+                           "stability limit. RK4 needs roughly dt < 2.8 / (4 nu (1/dx^2 + 1/dy^2 + 1/dz^2)) "
+                           "for viscosity and a convective CFL of order 1. Reduce dt, or use "
+                           "'Dual Time Picard Jameson RK', which has no such limit.",
+                           bi, simCtx->step, (double)dt);
+            }
+
             /*
             // Final IBM Interpolation for the block (if enabled)
             if (simCtx->immersed) {

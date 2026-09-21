@@ -405,13 +405,42 @@ def _reference_point(X: np.ndarray, Y: np.ndarray, Z: np.ndarray, mode: str) -> 
 #: transform list may name them. Mirroring and an odd axis permutation invert handedness,
 #: which `analyze_grid_quality` reports as `right_handed` -- `jacobian_consistent` cannot,
 #: because a uniformly inverted grid is self-consistent.
-GRID_TRANSFORM_KINDS = ("anchor", "translate", "scale", "rotate", "mirror", "permute")
+GRID_TRANSFORM_KINDS = ("anchor", "translate", "scale", "rotate", "mirror", "permute", "reverse")
 
 #: Physical-axis orders `permute` accepts. Each names where x, y and z end up.
 _PERMUTE_ORDERS = ("xyz", "xzy", "yxz", "yzx", "zxy", "zyx")
 
 #: Planes `mirror` reflects across, and the coordinate each one negates.
 _MIRROR_PLANES = {"yz": 0, "zx": 1, "xy": 2}
+
+
+#: Parameters each specification kind reads. A key outside its kind's set is refused: the
+#: parser used to accept any key and the consumer read only the ones it knew, so a typo
+#: such as `mirror:axis=y` or `scale:s=2` silently produced the default geometry.
+_SPEC_KEYS: Dict[str, Dict[str, Tuple[str, ...]]] = {
+    "transform": {
+        "anchor": ("mode", "x", "y", "z"),
+        "translate": ("dx", "dy", "dz"),
+        "scale": ("sx", "sy", "sz", "about"),
+        "rotate": ("axis", "deg", "about"),
+        "mirror": ("plane", "about"),
+        "permute": ("order",),
+        "reverse": ("axis",),
+    },
+    "wall segment": {
+        "flat": ("len", "y"),
+        "step": ("len", "dy", "shape", "y"),
+        "ramp": ("len", "dy", "y"),
+        "arc": ("len", "dy", "shape", "y"),
+        "sine": ("len", "amp", "cycles", "y"),
+        "gaussian": ("len", "amp", "width", "center", "y"),
+        "hill": ("len", "height", "y"),
+    },
+    "path segment": {
+        "straight": ("len",),
+        "arc": ("radius", "deg", "axis"),
+    },
+}
 
 
 def parse_spec_token(token: str, allowed: Tuple[str, ...], what: str) -> Tuple[str, Dict[str, str]]:
@@ -440,6 +469,14 @@ def parse_spec_token(token: str, allowed: Tuple[str, ...], what: str) -> Tuple[s
                 f"{what} '{kind}' parameter '{field}' is not 'key=value' in '{token}'"
             )
         params[key.strip()] = value.strip()
+    known = _SPEC_KEYS.get(what, {}).get(kind)
+    if known is not None:
+        unknown = sorted(set(params) - set(known))
+        if unknown:
+            raise ValueError(
+                f"{what} '{kind}' does not take {', '.join(repr(k) for k in unknown)} in "
+                f"'{token}'; its parameters are {', '.join(known)}"
+            )
     return kind, params
 
 
@@ -574,7 +611,30 @@ def apply_transforms(X: np.ndarray, Y: np.ndarray, Z: np.ndarray,
                 )
             source = {'x': X, 'y': Y, 'z': Z}
             X, Y, Z = (source[name] for name in order)
+        elif kind == 'reverse':
+            # Re-indexing, not geometry: the same nodes, numbered from the other end of
+            # one logical axis, so that axis's two faces trade names. It is how a
+            # mirrored or oddly permuted grid is made right-handed again.
+            axis = params.get('axis')
+            if axis not in ('i', 'j', 'k'):
+                raise ValueError(f"transform 'reverse' axis must be i, j or k, got '{axis}'")
+            dim = 'ijk'.index(axis)
+            X, Y, Z = (np.flip(A, axis=dim).copy() for A in (X, Y, Z))
     return X, Y, Z
+
+
+def signed_cell_volumes(X: np.ndarray, Y: np.ndarray, Z: np.ndarray) -> np.ndarray:
+    """!
+    @brief Signed volume of every cell's (i, j, k) edge triple.
+    @param[in] X Nodal x coordinates indexed [i, j, k].
+    @param[in] Y Nodal y coordinates.
+    @param[in] Z Nodal z coordinates.
+    @return Signed volumes, positive where the logical axes are right-handed.
+    """
+    ax=np.diff(X,axis=0)[:,:-1,:-1]; ay=np.diff(Y,axis=0)[:,:-1,:-1]; az=np.diff(Z,axis=0)[:,:-1,:-1]
+    bx=np.diff(X,axis=1)[:-1,:,:-1]; by=np.diff(Y,axis=1)[:-1,:,:-1]; bz=np.diff(Z,axis=1)[:-1,:,:-1]
+    cx=np.diff(X,axis=2)[:-1,:-1,:]; cy=np.diff(Y,axis=2)[:-1,:-1,:]; cz=np.diff(Z,axis=2)[:-1,:-1,:]
+    return ax*(by*cz-bz*cy) + ay*(bz*cx-bx*cz) + az*(bx*cy-by*cx)
 
 
 def place_and_transform(X: np.ndarray, Y: np.ndarray, Z: np.ndarray,
@@ -599,6 +659,15 @@ def place_and_transform(X: np.ndarray, Y: np.ndarray, Z: np.ndarray,
     Z = Z + (origin[2] - reference[2])
     if transforms:
         X, Y, Z = apply_transforms(X, Y, Z, transforms)
+        # The solver needs right-handed logical axes; a mirror or an odd permute leaves
+        # them left-handed, and the solver's old metric-flip "repair" gave wrong flows.
+        if np.all(signed_cell_volumes(X, Y, Z) < 0.0):
+            raise ValueError(
+                "the transform list leaves the grid left-handed (a mirror or an odd "
+                "permute inverts handedness), which the solver refuses. Append "
+                "'reverse:axis=i|j|k' naming the logical axis to renumber; that axis's "
+                "two faces trade names (for example -Zeta and +Zeta)."
+            )
     return X, Y, Z
 
 
@@ -1272,11 +1341,8 @@ def analyze_grid_quality(X: np.ndarray, Y: np.ndarray, Z: np.ndarray,
     stats['computed_stretch_k'] = factors['k']
 
     # --- Volume / Jacobian Checks ---
-    ax=np.diff(X,axis=0)[:,:-1,:-1]; ay=np.diff(Y,axis=0)[:,:-1,:-1]; az=np.diff(Z,axis=0)[:,:-1,:-1]
-    bx=np.diff(X,axis=1)[:-1,:,:-1]; by=np.diff(Y,axis=1)[:-1,:,:-1]; bz=np.diff(Z,axis=1)[:-1,:,:-1]
-    cx=np.diff(X,axis=2)[:-1,:-1,:]; cy=np.diff(Y,axis=2)[:-1,:-1,:]; cz=np.diff(Z,axis=2)[:-1,:-1,:]
-    signed_volumes = ax*(by*cz-bz*cy) + ay*(bz*cx-bx*cz) + az*(bx*cy-by*cx)
-    
+    signed_volumes = signed_cell_volumes(X, Y, Z)
+
     volume_signs = np.sign(signed_volumes)
     stats['jacobian_consistent'] = np.all(volume_signs == volume_signs.flatten()[0])
     # Consistency only says every cell agrees; it says nothing about which way. A

@@ -2654,14 +2654,11 @@ def test_poisson_tolerance_key_is_refused_because_nothing_read_it():
 
 @pytest.mark.parametrize("method, extra", [
     ("fgmres", {}),
-    ("gmres", {"-ps_ksp_pc_side": "right"}),
-    ("lgmres", {"-ps_ksp_pc_side": "right"}),
-    ("bcgs", {"-ps_ksp_pc_side": "right"}),
     ("cg", {"-ps_ksp_norm_type": "unpreconditioned"}),
 ])
 def test_every_poisson_method_stops_on_the_true_residual(method, extra):
     """!
-    @brief Left-preconditioned methods are switched so their convergence test reads the true residual.
+    @brief Each verified Poisson method is configured so its convergence test reads the true residual.
     @param[in] method Poisson KSP method under test.
     @param[in] extra PETSc options the method must add.
     @return None.
@@ -2671,7 +2668,18 @@ def test_every_poisson_method_stops_on_the_true_residual(method, extra):
     assert flags["-ps_ksp_type"] == method
     for key, value in extra.items():
         assert flags[key] == value
-    assert "-ps_ksp_pc_side" not in flags or method in ("gmres", "lgmres", "bcgs")
+
+
+@pytest.mark.parametrize("method", ["gmres", "lgmres", "bcgs"])
+def test_non_flexible_poisson_methods_are_refused(method):
+    """!
+    @brief Non-flexible methods report convergence while the true residual stalls under PICurv's multigrid.
+    @param[in] method Refused Poisson KSP method.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    with pytest.raises(ValueError, match="not flexible"):
+        picurv.parse_solver_config({"poisson_solver": {"method": method}})
 
 
 def test_an_unverified_poisson_method_is_refused_with_the_passthrough_named():
@@ -2682,3 +2690,21 @@ def test_an_unverified_poisson_method_is_refused_with_the_passthrough_named():
     picurv = load_picurv_module()
     with pytest.raises(ValueError, match="petsc_passthrough_options"):
         picurv.parse_solver_config({"poisson_solver": {"method": "tfqmr"}})
+
+
+def test_per_level_multigrid_tolerances_reach_petsc_under_their_real_names():
+    """!
+    @brief Per-level max_it/rtol/atol map to the ksp_-prefixed PETSc options.
+    @details Emitted without the prefix, PETSc reported them unused and ignored them.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    flags = picurv.parse_solver_config({"poisson_solver": {"multigrid": {"levels": 2, "level_solvers": {
+        "level_0": {"method": "gmres", "preconditioner": "bjacobi", "rtol": 1.0e-3},
+        "level_1": {"method": "richardson", "preconditioner": "bjacobi", "max_it": 4, "atol": 1.0e-9},
+    }}}})
+    assert flags["-ps_mg_coarse_ksp_rtol"] == "0.001" or float(flags["-ps_mg_coarse_ksp_rtol"]) == 1.0e-3
+    assert int(flags["-ps_mg_levels_1_ksp_max_it"]) == 4
+    assert float(flags["-ps_mg_levels_1_ksp_atol"]) == 1.0e-9
+    assert not any(key.endswith(("_max_it", "_rtol", "_atol")) and "_ksp_" not in key
+                   for key in flags if key.startswith("-ps_mg_"))

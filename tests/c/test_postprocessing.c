@@ -186,6 +186,91 @@ static PetscErrorCode TestDimensionalizePressureField(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests that the per-step dimensionalization leaves the persistent grid alone.
+ * @details The postprocessor runs DimensionalizeAllLoadedFields once per processed step.
+ *          Scaling the coordinates there multiplied them by L_ref once per step; they are
+ *          loaded once and must be scaled once, by the postprocessor loop.
+ */
+static PetscErrorCode TestDimensionalizeAllLoadedFieldsLeavesCoordinatesAlone(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Vec coordinates = NULL, before = NULL;
+    PetscReal difference = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    simCtx->scaling.L_ref = 2.0;
+    simCtx->scaling.U_ref = 3.0;
+    simCtx->scaling.P_ref = 5.0;
+    PetscCall(DMGetCoordinates(user->da, &coordinates));
+    PetscCall(VecDuplicate(coordinates, &before));
+    PetscCall(VecCopy(coordinates, before));
+    PetscCall(VecSet(user->Ucat, 1.0));
+
+    PetscCall(DimensionalizeAllLoadedFields(user));
+    PetscCall(DimensionalizeAllLoadedFields(user));
+
+    PetscCall(VecAXPY(before, -1.0, coordinates));
+    PetscCall(VecNorm(before, NORM_INFINITY, &difference));
+    PetscCall(PicurvAssertRealNear(0.0, difference, 1.0e-14,
+                                   "per-step dimensionalization must not rescale the grid coordinates"));
+    PetscCall(PicurvAssertVecConstant(user->Ucat, 9.0, 1.0e-12,
+                                      "each call scales the reloaded velocity by U_ref"));
+
+    PetscCall(VecDestroy(&before));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that a dimensionalized Q-criterion carries (U_ref/L_ref)^2, not U_ref^2.
+ * @details Ucat is already dimensional when Q is computed, but the metrics are not, so
+ *          the result must be divided by L_ref^2.
+ */
+static PetscErrorCode TestComputeQCriterionDimensionalizedScalesByLengthSquared(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts ***ucat = NULL;
+    Vec nondimensional = NULL;
+    PostProcessParams *pps = NULL;
+    PetscReal difference = 0.0, reference = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; k++)
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; j++)
+            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; i++)
+                ucat[k][j][i] = (Cmpnts){-(PetscReal)j, (PetscReal)i, 0.0}; /* solid-body rotation */
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
+
+    PetscCall(ComputeQCriterion(user));
+    PetscCall(VecDuplicate(user->Qcrit, &nondimensional));
+    PetscCall(VecCopy(user->Qcrit, nondimensional));
+    PetscCall(VecNorm(nondimensional, NORM_INFINITY, &reference));
+    PetscCall(PicurvAssertBool((PetscBool)(reference > 0.1), "a rotating field should have a positive Q"));
+
+    PetscCall(PetscNew(&pps));
+    pps->dimensionalize = PETSC_TRUE;
+    simCtx->pps = pps;
+    simCtx->scaling.L_ref = 2.0;
+    PetscCall(ComputeQCriterion(user));
+    PetscCall(VecAXPY(nondimensional, -4.0, user->Qcrit));
+    PetscCall(VecNorm(nondimensional, NORM_INFINITY, &difference));
+    PetscCall(PicurvAssertRealNear(0.0, difference, 1.0e-12 * reference,
+                                   "dimensionalized Q must be the nondimensional Q over L_ref^2"));
+
+    simCtx->pps = NULL;
+    PetscCall(PetscFree(pps));
+    PetscCall(VecDestroy(&nondimensional));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests Q-criterion computation for a quiescent velocity field.
  */
 
@@ -229,6 +314,8 @@ int main(int argc, char **argv)
         {"normalize-relative-field", TestNormalizeRelativeField},
         {"dimensionalize-pressure-field", TestDimensionalizePressureField},
         {"compute-qcriterion-zero-flow", TestComputeQCriterionZeroFlow},
+        {"dimensionalize-all-loaded-fields-leaves-coordinates-alone", TestDimensionalizeAllLoadedFieldsLeavesCoordinatesAlone},
+        {"compute-qcriterion-dimensionalized-scales-by-length-squared", TestComputeQCriterionDimensionalizedScalesByLengthSquared},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv post-processing tests");
