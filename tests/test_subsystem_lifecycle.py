@@ -633,9 +633,9 @@ def test_a_value_cannot_outrank_its_owner(records, families):
     @return None.
     """
     edited = copy.deepcopy(families)
-    edited["grid.generator_type"]["value_metadata"]["box"]["status"] = "supported"
+    edited["turbulence.les_filter_width"]["value_metadata"]["max_edge"]["status"] = "supported"
     problems = lifecycle.validate_value_ownership(records, edited)
-    assert any("'box' claims 'supported' but its subsystem 'grid.generator'" in p for p in problems)
+    assert any("'max_edge' claims 'supported' but its subsystem 'turbulence.les'" in p for p in problems)
 
 
 def test_only_the_off_switch_escapes_the_ceiling(records, families):

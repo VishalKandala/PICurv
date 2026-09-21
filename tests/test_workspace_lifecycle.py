@@ -1131,3 +1131,26 @@ def test_versions_list_orders_tags_by_version_not_text(tmp_path, monkeypatch, ca
     assert out.startswith(f"Active: {core.PICURV_BUILD['build_id']}")
     listed = [line.strip() for line in out.splitlines() if line.startswith("  ")]
     assert listed == ["v1.10.0", "v1.9.0", "v1.2.0", "v1.0.0"]
+
+
+def test_versions_activate_reads_a_leading_option_as_a_make_argument(tmp_path, monkeypatch):
+    """!
+    @brief `versions activate -- -j8` keeps the workspace version and passes -j8 to make.
+    @details argparse binds '-j8' to the optional version positional; git then received
+             it as a ref and printed its usage.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @return None.
+    """
+    matching = {name: {"available": True, "matches_source": True, "build_id": "1.2.3+gfedcba987654"}
+                for name in ("simulator", "postprocessor")}
+    recorded = _stub_version_install(monkeypatch, matching)
+    monkeypatch.setattr(core, "_workspace_requested_version", lambda root: "1.2.3")
+    args = build_main_parser().parse_args(
+        ["versions", "activate", "--workspace", str(tmp_path), "--", "-j8"]
+    )
+
+    core.versions_workflow(args)
+
+    assert recorded["make_args"] == ["-j8"]
+    assert ["checkout", "--detach", "v1.2.3"] in recorded["git"]

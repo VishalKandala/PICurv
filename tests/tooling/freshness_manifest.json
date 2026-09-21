@@ -43,7 +43,7 @@
         "10_Post_Processing_Reference",
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:04c0838d0ef4ba4e46a3a29c3698bd67e301317a431d1e11ce6261be6cdb6b92"
+      "attested_digest": "sha256:a9be2eb4033a77bbcfe6ac2c6babdd1aa455b496414b8d70a1cc7b4166074fb1"
     },
     {
       "id": "capability.evidence_matrix",
@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:39a1c0f756693ab5896eee7efe9f96c23ba2f7b78217e794998a218418df6006"
+      "attested_digest": "sha256:db85196d98b2a70acc1cc4e0ddd5ce0c4976cd2ecb5cecda1c800c0e57ce9ee7"
     },
     {
       "id": "artifact.topology",
@@ -87,7 +87,7 @@
       "dependent_pages": [
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:c0c0875ce9b4e5dc207a508b1df383e7a44e26905e803475514f7433bfbcc51a"
+      "attested_digest": "sha256:5576e06bf238f83b02a473b105bebe958de4a19eeaf7f4850f7097bf41f30bb5"
     },
     {
       "id": "docs.page_types",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:0e6dca251b601655d17eac912cec62ae21ec46a052312b1bb7661b241fb226be",
+      "attested_digest": "sha256:320a7cd7cb80e93f7c41d3e5be59940e98955d0772686c35efcbdd517640af3d",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
@@ -433,7 +433,7 @@
       "dependent_pages": [
         "07_Case_Reference"
       ],
-      "attested_digest": "sha256:09810749dcd604b9638b9ff1cebf654e63ea1e61a9a5da64c4e8da0bc1668eff",
+      "attested_digest": "sha256:65bfb6ef5d6a32684ba396afac86fa696cddb5d2458381973f1ba5607b03e9b5",
       "note": "Page 48 enumerates the geometries, their options and the quality report. Nothing watched this file before, so the page describing it could never be flagged stale no matter how far the generator moved."
     }
   ]

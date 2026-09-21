@@ -1829,6 +1829,8 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
             }
             ierr = PetscInfoSetFile(reopen_name, "w"); CHKERRQ(ierr);
         }
+        /* PetscInfoGetFile hands back its own copy of the name. */
+        ierr = PetscFree(info_name); CHKERRQ(ierr);
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Environment setup complete ---\n");

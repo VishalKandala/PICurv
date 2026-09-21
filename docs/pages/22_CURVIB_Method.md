@@ -28,7 +28,7 @@ Main setup touchpoints:
 - coordinate assignment: @ref AssignAllGridCoordinates
 - face metrics: @ref ComputeFaceMetrics
 - cell-centered Jacobian inverse: @ref ComputeCellCenteredJacobianInverse
-- orientation checks/fixups: @ref CheckAndFixGridOrientation
+- orientation check, which refuses a uniformly left-handed grid rather than repairing it: @ref CheckAndFixGridOrientation
 
 Useful geometric helper for BC and flux logic:
 

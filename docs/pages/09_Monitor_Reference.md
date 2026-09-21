@@ -45,9 +45,10 @@ at this boundary. `control` remains the single generated C-ingress artifact for
 these settings.
 
 Scientific field statistics are configured separately, under `field_statistics`;
-see @ref p09_field_statistics_sec. Solution monitoring answers whether the run has
-converged, field statistics answer what the converged flow is, and they share no
-state.
+see @ref p09_field_statistics_sec. Solution monitoring logs the measures from which
+convergence is judged - it never judges or stops a run itself - and field statistics
+answer what the converged flow is; they share no state. What each mode logs is at
+@ref p08_cap_conv_steady_deterministic and the entries after it.
 
 The removed `case.yml -> models.statistics.time_averaging` and `-averaging`
 surface is not compatible input and is not translated into a replacement
@@ -335,6 +336,10 @@ Rules:
   `info.classes` optionally restricts output to PETSc class names such as `snes`
   and `ksp`; use an empty list for all classes. This maps to PETSc `-info` during
   initialization. See [PetscInfo](https://petsc.org/main/manualpages/Sys/PetscInfo/).
+  PETSc opens the file before a fresh run clears its log directory, so the solver
+  reopens it once the directory exists again; on a fresh run the records written
+  during PETSc initialization itself are therefore not in the file. `make smoke`
+  asserts that the solve's `ksp` records are.
 - For example, this YAML:
 
 ```yaml

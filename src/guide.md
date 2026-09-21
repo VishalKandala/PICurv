@@ -112,8 +112,8 @@ The source tree is broadly touched by current tests, but function-level direct d
 Current next-gap priorities:
 
 - direct walking-search branch coverage for locate/migrate edge cases
-- direct positive-path momentum solver harnesses, especially explicit RK
-- deeper bespoke Poisson/multigrid coverage beyond helper-level invariants
+- unit-level single-step momentum harnesses: Explicit RK4 and Picard are gated end to end by `make smoke` (RK4's stable step and stability-limit stop) and measured for order, but no unit test drives one step on a fixture
+- periodic Poisson/multigrid stencil branches (`PoissonSolver_MG` itself is covered by `make unit-poisson-rhs`)
 - non-restart MPI migration and multi-pass particle handoff coverage
 - richer-runtime fixture variants beyond the tiny Cartesian baseline
 

@@ -4,9 +4,9 @@
     {
       "id": "momentum.dual_time_picard",
       "title": "Dual-Time Picard--Jameson Momentum Solver",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": "supported",
+      "previous_status": "experimental",
       "capability_families": [
         "momentum.solver"
       ],
@@ -104,10 +104,7 @@
           "anchor": "p66_matrix_sec"
         }
       },
-      "note": "Verified locally 2026-09-18 (measurement duct-poiseuille-picard-2026-09-18): laminar square-duct Poiseuille flow at second order on three grids. The same duct at dt = 1.0 exhausted the pseudo-time cap every step and finished 18% off in pressure gradient; page 24 section 8 now states that a step is only as accurate as its pseudo-time convergence.",
-      "proposed_status": "supported",
-      "promotion_rationale": "Promote when temporal order is measured, a curvilinear-grid case reproduces a known solution, and the periodic wall-bounded configuration is re-characterised at current HEAD.",
-      "demotion_reason": "The supported claim rested on one laminar square duct measured for spatial order only. Temporal order, a curvilinear grid, and the streamwise-periodic wall-bounded configuration - where pseudo-time convergence stalled when last measured - were never checked."
+      "note": "Promoted 2026-09-21. Measured: square-duct Poiseuille flow at second order in space (duct-poiseuille-picard-2026-09-18); the two-dimensional Taylor-Green vortex at second order in time and space (tgv2d-picard-order-2026-09-18); Hagen-Poiseuille flow on the swept circle (pipe-poiseuille-curvilinear-2026-09-18); and the driven periodic channel, where the 2026-08-24 stall did not reproduce (periodic-channel-laminar-picard-2026-09-18). The results hold for converged steps: the Re = 100 duct at dt = 1.0 hit the pseudo-time cap every step and finished 18% off in pressure gradient, which page 24 section 8 states. Only central differencing and laminar flows were measured."
     },
     {
       "id": "momentum.newton_krylov",
@@ -224,7 +221,7 @@
     {
       "id": "momentum.explicit_rk4",
       "title": "Explicit RK4 Momentum Advance",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
       "previous_status": "experimental",
       "capability_families": [
@@ -276,6 +273,29 @@
         "safe_use_boundaries": {
           "page": "31_Momentum_Solvers",
           "anchor": "p31_status_sec"
+        },
+        "evidence": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_cap_explicit_rk4"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_restart_cfd"
+        },
+        "operations": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_strategy_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_diverge_sec"
+        },
+        "examples": {
+          "not_applicable": "No shipped example selects Explicit RK4. The reproducible configuration is run_explicit_rk4_smoke in tests/smoke/run_smoke.sh: flat_channel with the Picard solver block removed, run once stable and once past the stability limit."
+        },
+        "complete_reference": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_cap_explicit_rk4"
         }
       },
       "concerns": {
@@ -288,9 +308,11 @@
           "anchor": "p08_entries_sec"
         },
         "scientific_verification": {
-          "not_applicable": "No validation campaign has been run against this path; that absence is what keeps the subsystem experimental rather than supported."
+          "page": "08_Solver_Reference",
+          "anchor": "p08_cap_explicit_rk4"
         }
-      }
+      },
+      "note": "Promoted 2026-09-21. On the two-dimensional Taylor-Green vortex, velocity converges at second order in time and space, while pressure is first order in time from the projection splitting; the driven channel converges at order 1.97 (explicit-rk4-order-2026-09-21). make smoke runs one stable step and one past the stability limit. Found and fixed: a step past the limit used to surface as a Poisson failure blamed on the multigrid depth; it now stops and names the limit. There is no step control."
     },
     {
       "id": "turbulence.les",
@@ -527,9 +549,9 @@
     {
       "id": "particles.transport",
       "title": "Lagrangian Particle Transport",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": "supported",
+      "previous_status": "experimental",
       "capability_families": [
         "particle.init_mode",
         "particle.interpolation",
@@ -631,15 +653,12 @@
           "anchor": "p66_matrix_sec"
         }
       },
-      "note": "Verified locally 2026-09-18: the Einstein relation to 0.17% (brownian-msd-2026-09-18), exact uniform drift (uniform-drift-2026-09-18), and 0.67% Trilinear interpolation error on TGV3D (tgv-interpolation-2026-09-18). Walls absorb diffusing particles; in the thin interpolation_test domain that removed 55% of the cloud by t = 2, which its README now states. The diffusivity-gradient drift was inconclusive at 40,000 particles (diffusivity-gradient-drift-2026-09-18); the Brownian generator was seeded from the wall clock until 2026-09-18 and is now seeded from models.physics.particles.random_seed plus the rank and restart step, so identical inputs on the same rank count repeat exactly (brownian-rng-seeded-from-configuration).",
-      "proposed_status": "supported",
-      "promotion_rationale": "Promote when the gradient drift is measured with paired seeds, every seeding mode's placement is checked against its definition, and CornerAveraged interpolation is measured.",
-      "demotion_reason": "The supported claim covered free diffusion, uniform drift and Trilinear interpolation. The diffusivity-gradient drift was inconclusive, Surface and SurfaceEdges seeding and CornerAveraged interpolation carried no verification, and Volume and PointSource placement were only production exercised."
+      "note": "Promoted 2026-09-21. Measured: the Einstein relation (brownian-msd-2026-09-18); uniform drift (uniform-drift-2026-09-18); the gradient drift with paired seeds (diffusivity-gradient-drift-paired-2026-09-18); every seeding mode and both restart modes (particle-seeding-restart-2026-09-21); and both interpolation methods' orders (interpolation-methods-tgv-2026-09-21). Found and fixed 2026-09-21: multi-rank Volume seeding put equal counts into unequal subdomains; ranks now split the count by owned cells. Particles are not wrapped across periodic faces, as page 34 states."
     },
     {
       "id": "post.field_statistics",
       "title": "Online Eulerian Field Statistics",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
       "previous_status": "experimental",
       "capability_families": [
@@ -749,8 +768,7 @@
           "anchor": "p58_target_sec"
         }
       },
-      "proposed_status": "supported",
-      "promotion_rationale": "Documented to the supported bar, including checkpoint/restart continuation and window identity. The unresolved question is whether the derived statistics have been validated against a reference profile rather than only unit-tested for internal consistency."
+      "note": "Promoted 2026-09-21. The accumulators, all five derived outputs, both weightings and both restart states matched the exact weighted moments of the analytic TGV3D field to round-off (field-statistics-tgv3d-2026-09-21). Found and fixed: carry failed at start-up with an analytical Eulerian source, because no restart bundle was staged. Not yet compared against a turbulent reference profile, and carrying a window across a change of rank count is unmeasured."
     },
     {
       "id": "post.field_statistics_extensions",
@@ -881,7 +899,7 @@
           "not_applicable": "Imports and asset publication read and write local paths under the invoking user's own permissions; reference-mode imports store a path, never a credential."
         }
       },
-      "note": "Content-addressed asset identity covers the normalized provider settings, the checksums of referenced files, and the PICurv build, so an unchanged input reuses its object and any change to an equation, grid configuration, imported field, inlet parameter, or generator selects a new one. Publication is all-or-nothing per invocation: providers build into an isolated temporary run layout and nothing is published unless every selected provider succeeds. Status is experimental rather than supported because the reuse and materialization paths carry unit coverage in tests/test_workspace_lifecycle.py and the migrated precompute coverage in tests/test_cli_smoke.py, but no campaign has exercised the store at the scale where reflink availability, object accumulation, and pruning policy start to matter, and nothing removes orphaned objects automatically: the explicit `picurv storage prune --assets --unused-locally` command (storage.management) is the only reclamation path, and it has not been exercised at campaign scale. The restart statistics-state selector that this record once listed belongs to post.field_statistics, whose continuation it controls."
+      "note": "Content-addressed asset identity covers the normalized provider settings, the checksums of referenced files, and the PICurv build, so an unchanged input reuses its object and any change to an equation, grid configuration, imported field, inlet parameter, or generator selects a new one. Publication is all-or-nothing per invocation: providers build into an isolated temporary run layout and nothing is published unless every selected provider succeeds. Status is experimental rather than supported because the reuse and materialization paths carry unit coverage in tests/test_workspace_lifecycle.py and the migrated precompute coverage in tests/test_cli_smoke.py, but no campaign has exercised the store at the scale where reflink availability, object accumulation, and pruning policy start to matter, and nothing removes orphaned objects automatically: the explicit `picurv storage prune --assets --unused-locally` command (storage.management) is the only reclamation path, and it has not been exercised at campaign scale. Exercised locally 2026-09-21 (asset-store-local-2026-09-21): all four import modes, content-addressed reuse, all-or-nothing publication, run materialization, and prune's blocked decision behaved as documented; a changed reference target is used without a warning. What keeps it experimental needs the cluster: reflink and hardlink on cluster filesystems, object accumulation at campaign scale, and remote-backed pruning, which prune requires. The restart statistics-state selector that this record once listed belongs to post.field_statistics, whose continuation it controls."
     },
     {
       "id": "storage.management",
@@ -1098,7 +1116,7 @@
     {
       "id": "boundary.periodic",
       "title": "Geometric Periodic Boundaries",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
       "previous_status": "experimental",
       "capability_families": [
@@ -1200,8 +1218,7 @@
           "anchor": "p54_diag_sec"
         }
       },
-      "proposed_status": "supported",
-      "promotion_rationale": "Documented to the supported bar. The unresolved question is the wall-bounded pseudo-time convergence behaviour, which page 54 records as previously observed and requiring re-characterisation at current HEAD. A supported claim should not sit above an open characterisation question."
+      "note": "Promoted 2026-09-21. geometric, constant_flux and initial_flux were measured on the triply periodic Taylor-Green vortex, the doubly periodic laminar channel and the curvilinear pipe, each at second order, and the wall-bounded pseudo-time stall did not reproduce at current code. The proportional flux controller settles below its target by f dt / 2.7, which pages 44 and 54 state. Turbulent periodic channels at production resolution have not been re-characterized."
     },
     {
       "id": "observability.logging",
@@ -1309,9 +1326,9 @@
     {
       "id": "domain.definition",
       "title": "Domain Definition: Grid Ingestion, Metrics, and Dimensionality",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
+      "previous_status": "experimental",
       "capability_families": [
         "grid.mode",
         "domain.dimensionality"
@@ -1411,9 +1428,7 @@
           "anchor": "p11_mpi_ssec"
         }
       },
-      "note": "Owns how the computational domain reaches the solver: the three grid ingestion modes, PICGRID validation and nondimensionalization, metric construction, DMDA partition hints, and the 2D row mask. Multi-block domains are a separate planned record (domain.multiblock) because nothing couples blocks; the grid generator's composed geometries are grid.generator, which feeds the grid_gen mode here. The 2D value is experimental: the row mask carries unit coverage in tests/c/test_solver_kernels.c but no end-to-end run shows that a 2D case reproduces a planar solution. Verified locally 2026-09-18: metric closure to 3.7e-15 on the curvilinear bent-channel file grid (curvilinear-gcl-2026-09-18); all three grid modes run in the smoke suite. The 2D value is not verified end to end.",
-      "proposed_status": "supported",
-      "promotion_rationale": "Promote when programmatic_c and grid_gen grids reproduce a known solution and a 2D case is shown to match its planar counterpart end to end."
+      "note": "Promoted 2026-09-21. Owns how the computational domain reaches the solver: the three grid ingestion modes, PICGRID validation and nondimensionalization, metric construction, DMDA partition hints, and the 2D row mask. Multi-block domains are domain.multiblock (planned), and composed geometries are grid.generator. Measured: metric closure on curvilinear file grids (curvilinear-gcl-2026-09-18, grid-generator-closure-2026-09-21); known solutions on programmatic_c and grid_gen grids; a file grid reproducing its grid_gen run exactly; and 2D matching its planar 3D counterpart to 2.8e-15 (eulerian-source-domain-modes-2026-09-21). Found and fixed 2026-09-21: a left-handed grid was 'repaired' by negating metric vectors, which gave a mirrored duct forty times its bulk velocity. The solver now refuses a left-handed grid."
     },
     {
       "id": "domain.multiblock",
@@ -1488,9 +1503,9 @@
     {
       "id": "grid.generator",
       "title": "Composed Grid Generator (grid.gen)",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
+      "previous_status": "experimental",
       "capability_families": [
         "grid.generator_type",
         "grid.cross_section",
@@ -1545,6 +1560,29 @@
         "safe_use_boundaries": {
           "page": "48_Grid_Generator_Guide",
           "anchor": "p48_quality_ssec"
+        },
+        "evidence": {
+          "page": "66_Evidence_Matrix",
+          "anchor": "p66_matrix_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_layout_sec"
+        },
+        "operations": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_case_sec"
+        },
+        "troubleshooting": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_quality_ssec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_flow_sec"
+        },
+        "complete_reference": {
+          "page": "48_Grid_Generator_Guide"
         }
       },
       "concerns": {
@@ -1565,14 +1603,14 @@
           "anchor": "p48_cap_geom_sec"
         }
       },
-      "note": "Both geometries are production-exercised along their plainest path (every periodic_test case uses box; bent_channel uses sweep with an unshaped rectangle and default-axis straight/arc segments). The seven wall-segment kinds, the circle cross-section, scaled sweeps, and all six transforms carry unit coverage in tests/test_grid_generator.py only; no solve has been run on any of them."
+      "note": "Promoted 2026-09-21. Every geometry, cross-section, wall segment, path segment and transform closes a uniform flow to round-off in the solver's metrics (grid-generator-closure-2026-09-21). Solves were run on the circle section (pipe-poiseuille-curvilinear-2026-09-18), on flat boxes, and on the mirrored hill. Found and fixed: unknown specification keys were silently ignored (now refused), and a transform list ending left-handed reached the solver (now refused, with reverse:axis=i|j|k to renumber). Closure establishes metric consistency, not accuracy over each shaped wall."
     },
     {
       "id": "flow.initial_conditions",
       "title": "Eulerian Initial Conditions",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
+      "previous_status": "experimental",
       "capability_families": [
         "initial.field_mode",
         "initial.target_field"
@@ -1624,6 +1662,30 @@
         "safe_use_boundaries": {
           "page": "33_Initial_Conditions",
           "anchor": "p33_restart_modes_sec"
+        },
+        "evidence": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_entries_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_restart_modes_sec"
+        },
+        "operations": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_precompute_sec"
+        },
+        "troubleshooting": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_checks_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_flow_sec"
+        },
+        "complete_reference": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_euler_sec"
         }
       },
       "concerns": {
@@ -1644,14 +1706,14 @@
           "anchor": "p19_fields_sec"
         }
       },
-      "note": "Owns the C-runtime field modes (Zero, Constant, Poiseuille), the target-field choice (Ucat or Ucont), and the file and generated providers staged by the conductor (ic.gen expression and spectral_random_velocity). Constant runs in the flat_channel example and in the smoke suite, and spectral_random_velocity in the decaying-isotropic-turbulence example, but no mode has been checked against the field it claims to produce - Poiseuille, which should be an exact steady solution, is the cheapest such check."
+      "note": "Promoted 2026-09-21. Owns the C-runtime field modes (Zero, Constant, Poiseuille), the target field (Ucat or Ucont), and the conductor's file, ic_gen and spectral_random_velocity providers. Every mode staged the field it defines (initial-conditions-2026-09-21). Found and fixed 2026-09-18: Poiseuille vanished at the first cell centres rather than on the walls, and was applied across periodic axes. The wall-bounded spectral providers added on main after 3a5821c are not covered by that measurement."
     },
     {
       "id": "flow.eulerian_source",
       "title": "Eulerian Field Source and Analytical Fields",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
+      "previous_status": "experimental",
       "capability_families": [
         "eulerian.field_source",
         "analytical.solution_type"
@@ -1743,17 +1805,17 @@
           "anchor": "p52_restart_particle"
         }
       },
-      "note": "Selects where the Eulerian field comes from each step: solved (every flow example), loaded from a prior run's output (the particle-tracking restart path, covered by the smoke suite), or prescribed analytically (the particle verification family). The solver that runs when the source is 'solve' is owned by the momentum and pressure records, not this one. Verified locally 2026-09-18: ZERO_FLOW, UNIFORM_FLOW and TGV3D carried the particle measurements recorded that day, UNIFORM_FLOW also on a curvilinear grid; load runs in the smoke restart variants.",
-      "proposed_status": "supported",
-      "promotion_rationale": "Promote when the load source is shown to reproduce the field it loaded and every analytical solution type is measured against its closed form."
+      "note": "Promoted 2026-09-21. solve, load and analytical are measured. load replays a stored run bitwise (eulerian-source-domain-modes-2026-09-21) and needs a checkpoint at every step it serves. TGV3D matches its formula to 9e-16 (solution-monitoring-tgv3d-2026-09-18), but it is a kinematic field, not a Navier-Stokes solution, as page 32 now states. UNIFORM_FLOW and ZERO_FLOW carried the particle measurements. The solver behind 'solve' is owned by the momentum and pressure records."
     },
     {
       "id": "pressure.poisson",
       "title": "Pressure-Poisson Projection and Multigrid",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
-      "capability_families": [],
+      "previous_status": "experimental",
+      "capability_families": [
+        "poisson.method"
+      ],
       "obligations": {
         "purpose": {
           "page": "25_Pressure_Poisson_GMRES_Multigrid",
@@ -1840,9 +1902,7 @@
           "anchor": "p25_testing_sec"
         }
       },
-      "note": "Runs in every solved case. Evidence is the RHS helper coverage in unit-poisson-rhs, the multigrid coarse-solve residual invariant asserted by smoke-driven-periodic at two rank counts, and every flow example; PoissonSolver_MG itself still lacks direct unit coverage, which page 25 records. The immersed pre-solve branch inside it is dormant and belongs to the planned immersed_boundary record. Verified locally 2026-09-18: the analytic duct pressure gradient at second order (duct-poiseuille-picard-2026-09-18) and the multigrid coarse-solve invariant at 4 and 10 ranks (smoke-driven-periodic). Found and fixed 2026-09-18: PoissonSolver_MG never read the KSP converged reason, so a NaN solve surfaced later as a momentum failure (3 levels on a 9-node grid did exactly that). A NaN or preconditioner failure now stops the run at the Poisson solve with a message naming the multigrid depth, and any other divergence except the iteration cap warns; page 25 states both. No regression test drives the fatal path.",
-      "proposed_status": "supported",
-      "promotion_rationale": "Promote when PoissonSolver_MG has direct coverage, the multigrid option variants are each exercised, and the fatal-failure path has a regression test."
+      "note": "Promoted 2026-09-21. PoissonSolver_MG has direct coverage in unit-poisson-rhs: projection to a divergence-free field on a three-level hierarchy, and a fatal stop on an over-coarsened one. Every user-selectable option reproduced the baseline solution (poisson-options-2026-09-21). That measurement found gmres, lgmres and bcgs losing the true residual under the multigrid preconditioner (now refused), per-level max_it, rtol and atol emitted without PETSc's ksp_ prefix (now mapped), and a tolerance key nothing read (removed). The immersed pre-solve branch is dormant and belongs to the planned immersed_boundary record."
     },
     {
       "id": "boundary.conditions",
@@ -1944,9 +2004,9 @@
           "anchor": "p44_nondim_sec"
         }
       },
-      "note": "Owns the boundary grammar, the wall, inlet and outlet types, their handlers, and the prescribed-flow inlet sources including profile.gen. The periodic type and the three periodic handlers are co-listed here but owned by boundary.periodic, which carries its own open question; each value names its owner in capability_families.json. Verified locally 2026-09-18: noslip, prescribed_flow and conservation reproduce duct Poiseuille flow at second order (duct-poiseuille-picard-2026-09-18). Found: a generated prescribed_flow profile on a programmatic_c grid delivers about 2/n too much flux, 12% at 16 cells (programmatic-inlet-flux-2026-09-18, not-met); disclosed in the prescribed_flow entry.",
+      "note": "Owns the boundary grammar, the wall, inlet and outlet types, their handlers, and the prescribed-flow inlet sources including profile.gen. The periodic type and the three periodic handlers are co-listed here but owned by boundary.periodic; each value names its owner in capability_families.json. Verified locally: noslip, prescribed_flow and conservation reproduce duct Poiseuille flow at second order (duct-poiseuille-picard-2026-09-18); constant_velocity and parabolic deliver their documented flux and develop into the duct solution (duct-inlet-handlers-2026-09-21, after the parabolic wall-vanishing fix). Open: a generated prescribed_flow profile on a programmatic_c grid delivers about 2/n too much flux, 12% at 16 cells (programmatic-inlet-flux-2026-09-18, not-met); disclosed in the prescribed_flow entry, fix deferred by the owner.",
       "proposed_status": "supported",
-      "promotion_rationale": "Promote when constant_velocity and parabolic are measured against their analytic profiles and the prescribed_flow flux error on programmatic grids is resolved."
+      "promotion_rationale": "Promote when the prescribed_flow flux error on programmatic grids is resolved: a generated square_duct_poiseuille inlet on a programmatic_c grid delivers about 2/n too much flux (programmatic-inlet-flux-2026-09-18). constant_velocity and parabolic are measured (duct-inlet-handlers-2026-09-21); the owner has deferred the prescribed_flow fix."
     },
     {
       "id": "particles.scalar_mixing",
@@ -2017,9 +2077,9 @@
     {
       "id": "verification.prescribed_sources",
       "title": "Prescribed Verification Sources",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
+      "previous_status": "experimental",
       "capability_families": [],
       "obligations": {
         "purpose": {
@@ -2068,26 +2128,49 @@
         "safe_use_boundaries": {
           "page": "08_Solver_Reference",
           "anchor": "p08_verification_sec"
+        },
+        "evidence": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_verification_sec"
+        },
+        "lifecycle_and_restart": {
+          "not_applicable": "The sources hold no state of their own: they are re-applied from configuration every step, overwriting the particle fields they prescribe before use, so a restart re-reads the same configuration and reproduces them."
+        },
+        "operations": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_verify_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_particles_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_verify_sec"
+        },
+        "complete_reference": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_verification_sec"
         }
       },
       "concerns": {
         "scientific_verification": {
-          "page": "66_Evidence_Matrix",
-          "anchor": "p66_gaps_sec"
+          "page": "08_Solver_Reference",
+          "anchor": "p08_verification_sec"
         },
         "user_selector": {
           "page": "08_Solver_Reference",
           "anchor": "p08_verification_sec"
         }
       },
-      "note": "Replaces a physical field with an analytic one so a particle kernel can be checked against an exact answer: a prescribed diffusivity for the drift examples, a prescribed scalar for scatter verification (src/verification_sources.c). Both are exercised by shipped examples, but no numerical acceptance threshold has been run and gated, so the examples are designed evidence rather than recorded evidence."
+      "note": "Promoted 2026-09-21. Replaces a physical field with an analytic one, so that a particle kernel can be checked against an exact answer (src/verification_sources.c). The LINEAR_X diffusivity drives the paired drift measurement (diffusivity-gradient-drift-paired-2026-09-18). The scalar source's CONSTANT profile gives exact scatter errors and SIN_PRODUCT first-order ones (scalar-scatter-verification-2026-09-21). The scalar LINEAR_X profile is unmeasured, and no threshold is gated in CI."
     },
     {
       "id": "post.pipeline",
       "title": "Post-Processing Pipeline",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
+      "previous_status": "experimental",
       "capability_families": [
         "post.eulerian_task",
         "post.lagrangian_task",
@@ -2177,16 +2260,14 @@
           "anchor": "p19_pipeline_sec"
         }
       },
-      "note": "Owns the postprocessor executable's Eulerian and Lagrangian kernels, dimensionalization, VTK output, and the particle statistics pipeline. Derived field statistics and spectra are post-processing stages with their own records (post.field_statistics, post.spectra) because each carries its own open validation question. Verified locally 2026-09-18: msd against the Einstein relation (brownian-msd-2026-09-18). Found and fixed 2026-09-18: q_criterion was accurate at cell centres but written at node positions and could not be nodal-averaged (q-criterion-tgv-2026-09-18, not-met); Qcrit is now a catalogued cell-centred field that nodal_average turns into Qcrit_nodal, which is the output name, and writing the cell-centred Qcrit is refused (q-criterion-nodal-tgv-2026-09-18, met). The msd reference point is the configured point source, so validation now refuses msd for a seeded case that does not use PointSource.",
-      "proposed_status": "supported",
-      "promotion_rationale": "Promote when normalize_field, specific_ke and nodal_average are measured on fields with known answers and dimensionalized output is checked against the reference scales."
+      "note": "Promoted 2026-09-21. Owns the postprocessor's Eulerian and Lagrangian kernels, dimensionalization, VTK output, and the particle statistics pipeline; field statistics and spectra have their own records. Every kernel matched its definition, and every dimensionalized output its reference scale applied exactly once (post-pipeline-dimensionalize-2026-09-21, q-criterion-nodal-tgv-2026-09-18, brownian-msd-2026-09-18). Found and fixed 2026-09-21: coordinates were scaled once per processed step, particle positions and velocities not at all, and Q by U_ref^2 instead of (U_ref/L_ref)^2. msd stays nondimensional by design, as page 10 states."
     },
     {
       "id": "post.spectra",
       "title": "Turbulent Energy Spectra",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
+      "previous_status": "experimental",
       "capability_families": [
         "post.spectra_task"
       ],
@@ -2237,6 +2318,30 @@
         "safe_use_boundaries": {
           "page": "10_Post_Processing_Reference",
           "anchor": "p10_spectra_crosscheck_sub"
+        },
+        "evidence": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_cap_spec_shell_spectrum"
+        },
+        "lifecycle_and_restart": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_sec"
+        },
+        "operations": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_spectra_ssec"
+        },
+        "troubleshooting": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_preconditions_sub"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_flow_sec"
+        },
+        "complete_reference": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_keys_sub"
         }
       },
       "concerns": {
@@ -2253,14 +2358,14 @@
           "anchor": "p10_cap_spec_sec"
         }
       },
-      "note": "spectra.gen shell-spectrum and its conductor stage, plus summarize --plot-spectrum. Unit-tested in tests/test_spectra_shell_spectrum.py and tests/test_post_spectra_config.py and run by the decaying-isotropic-turbulence example; the spectrum has not been checked against an analytic input spectrum end to end."
+      "note": "Promoted 2026-09-21. Covers spectra.gen shell_spectrum, its conductor stage, and summarize --plot-spectrum. Single modes on a periodic box landed in the right shells at their exact energies with zero Parseval residual, and the length scales matched their closed forms (post-spectra-analytic-2026-09-21). Found and fixed: --plot-spectrum searched only the top-level spectra directory and so missed every recipe's output."
     },
     {
       "id": "observability.monitoring",
       "title": "Run Monitoring, Diagnostics, and Inspection",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
+      "previous_status": "experimental",
       "capability_families": [
         "solver.convergence_mode"
       ],
@@ -2354,9 +2459,7 @@
           "anchor": "p05_summarize_sec"
         }
       },
-      "note": "Owns everything in monitor.yml except logging and field statistics - physical-solution convergence monitoring, solver monitors, profiling, PETSc and memory diagnostics - and the read-only inspection surface: picurv summarize and plot.gen. Logging is observability.logging; field statistics are post.field_statistics. The four convergence modes are experimental: each is unit-tested, none has been checked against a run whose convergence state is known. Verified locally 2026-09-18: summarize reproduced the raw continuity, momentum, Poisson and convergence logs of a duct run and rendered a time-history plot; the steady_deterministic monitor reported the duct runs' steady state. Found and fixed 2026-09-18: the interpolation_error.csv time column was physical time multiplied by dt again; it now writes physical time, asserted in unit-logging.",
-      "proposed_status": "supported",
-      "promotion_rationale": "Promote when each convergence mode is run against a case whose convergence state is known and the profiling, memory and solver-monitor outputs are checked against the runs they describe."
+      "note": "Promoted 2026-09-21. Owns everything in monitor.yml except logging and field statistics, plus picurv summarize and plot.gen. The four convergence modes log what they claim against the closed-form TGV3D field (solution-monitoring-tgv3d-2026-09-18). They only log, and never judge or stop a run, as page 08 now states. Found and fixed: observable means counted ghost cells (1.7% and 14% high); the profiling names on page 09 matched no instrumented function (they now draw a warning); the PETSc -info file was lost to the fresh-run log wipe (it is now reopened, and the reopen's filename copy leaked 112 bytes until 2026-09-21); and the interpolation_error.csv time column multiplied physical time by dt again."
     },
     {
       "id": "run.lifecycle",
@@ -2610,9 +2713,9 @@
     {
       "id": "workspace.case_templates",
       "title": "Case Templates and Initialization",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
+      "previous_status": "experimental",
       "capability_families": [],
       "obligations": {
         "purpose": {
@@ -2661,6 +2764,30 @@
         "safe_use_boundaries": {
           "page": "05_The_Conductor_Script",
           "anchor": "p05_sync_sec"
+        },
+        "evidence": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_sync_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_newrun_sec"
+        },
+        "operations": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_init_basic_ssec"
+        },
+        "troubleshooting": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_sync_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_authoring_sec"
+        },
+        "complete_reference": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_command_matrix_sec"
         }
       },
       "concerns": {
@@ -2673,14 +2800,14 @@
           "anchor": "p05_init_sec"
         }
       },
-      "note": "Owns picurv init, sync-config (including --overwrite and --prune, which rewrite or delete template-managed files), and status-source drift reporting. init is the first step of every tutorial and smoke run and works. Drafted as supported, then verified on 2026-09-18 and held at experimental: sync-config and status-source predate the workspace layout init now creates. On a fresh flat_channel workspace, status-source reported an edit to config/solver.yml as unmodified and nine template files as missing, because init renames template files into canonical config/ names and status-source compares by the original names; sync-config then copied the nine template files into the case root under their original names, duplicating the configuration outside config/ and never refreshing config/. Page 05 still documents both through a case-local ./my_case/picurv wrapper that init no longer creates."
+      "note": "Promoted 2026-09-21. Owns picurv init, sync-config (including --overwrite and --prune) and status-source. The 2026-09-18 findings are fixed: status-source compared files by their original template names, and sync-config duplicated templates into the case root. On a fresh workspace both now compare canonical config/ names, and page 05 no longer documents a case-local wrapper."
     },
     {
       "id": "release.version_management",
       "title": "Build, Source, and Version Management",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
+      "previous_status": "experimental",
       "capability_families": [],
       "obligations": {
         "purpose": {
@@ -2729,6 +2856,30 @@
         "safe_use_boundaries": {
           "page": "11_User_How_To_Guides",
           "anchor": "p11_rebuild_ssec"
+        },
+        "evidence": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_sync_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_binaries_sec"
+        },
+        "operations": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_init_pin_ssec"
+        },
+        "troubleshooting": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_rebuild_ssec"
+        },
+        "examples": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_init_pin_ssec"
+        },
+        "complete_reference": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_command_matrix_sec"
         }
       },
       "concerns": {
@@ -2741,7 +2892,7 @@
           "anchor": "p05_sync_sec"
         }
       },
-      "note": "Owns build, version, versions list/install/activate, source update, pull-source, per-run executable pinning, the job-start identity check, and workspace reproducibility.require_clean_release. Experimental because the version workflow is partly built - install and activate exist, later phases do not - and picurv source update has no test at all."
+      "note": "Promoted 2026-09-21. Owns build, version, versions list/install/activate, source update, pull-source, per-run executable pinning, the job-start identity check, and reproducibility.require_clean_release. Tested against real Git repositories with stubbed builds; rebuilding a real release is not part of the suite. Found and fixed 2026-09-21: 'versions activate -- -j8' bound -j8 to the version positional and handed it to Git."
     }
   ],
   "owner_decisions_note": "A record carrying `proposed_status` is documented to that higher bar but still claims the lower one. The lifecycle gate checks documentation obligations against the proposal, so nothing is under-written; what it cannot check is production suitability or scientific correctness, which is why the promotion waits for the repository owner rather than being taken by the tooling."

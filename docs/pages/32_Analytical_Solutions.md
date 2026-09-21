@@ -28,7 +28,9 @@ observed is attributable to the term under test, not to the flow.
 
 **Diagnostics.** The startup banner reports the analytical mode.
 
-**Evidence.** Production exercised - `examples/drift_diffusivity_gradient`.
+**Evidence.** Production exercised - `examples/drift_diffusivity_gradient`. Analytically
+verified - `brownian-msd-2026-09-18`: a Brownian cloud in this field reproduces the
+Einstein relation to 0.17%, so the carrier adds no motion of its own.
 
 **Limitations.** No flow, by construction.
 
@@ -62,8 +64,13 @@ elapsed time exactly.
 
 **Identity.** `operation_mode.analytical_type: TGV3D` -> `-analytical_type TGV3D`.
 
-**What it does.** Supplies the three-dimensional Taylor-Green vortex, a classical
-analytic solution with a known decay.
+**What it does.** Supplies the Taylor-Green field
+`u = V0 sin x cos y cos z e^{-2 nu t}`, `v = -V0 cos x sin y cos z e^{-2 nu t}`, `w = 0`,
+with pressure decaying as `e^{-4 nu t}`. It is a prescribed kinematic field, not a
+solution of the Navier-Stokes equations: the `cos z` factor makes it a three-dimensional
+mode whose viscous decay would be `e^{-3 nu t}`, and the three-dimensional Taylor-Green
+flow has no closed form. What it offers is a smooth, divergence-free, exactly known field
+at every time.
 
 **When to choose it.** Exercising a genuinely three-dimensional field with strong velocity
 gradients, where a uniform flow would test nothing.
@@ -76,10 +83,13 @@ is not supported on the file-grid path.
 **Diagnostics.** Startup banner reports the mode.
 
 **Evidence.** Production exercised - `examples/interpolation_test` uses the TGV3D field
-as the analytic reference for its particle interpolation-error checks.
+as the analytic reference for its particle interpolation-error checks. Analytically
+verified - `solution-monitoring-tgv3d-2026-09-18`: the staged velocity and pressure match
+the formula above to 9e-16 and 8e-16 at every step.
 
-**Limitations.** Not available for file-based grids, and no in-tree case establishes its
-correctness.
+**Limitations.** Not available for file-based grids. Use it as a known field for
+interpolation, post-processing, statistics and monitoring checks, never as a reference a
+flow solve should reproduce: a solver started from it will not follow it.
 
 @section p32_activation_sec 3. Activation Path
 

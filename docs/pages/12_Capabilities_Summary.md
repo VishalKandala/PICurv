@@ -20,7 +20,9 @@ PICurv currently supports three grid ingestion modes:
 `grid_gen` offers two composed geometries rather than a list of named shapes: `box`, a
 Cartesian block whose bounding walls are piecewise height fields, and `sweep`, a
 cross-section carried along a piecewise centreline. Both accept an ordered placement and
-similarity transform list. Both are experimental. See **@subpage 48_Grid_Generator_Guide**.
+similarity transform list. Both are supported: every feature closes a uniform flow in the
+solver's metrics, and a solve on a swept circle converges at second order. See
+**@subpage 48_Grid_Generator_Guide**.
 
 Domain controls include:
 
@@ -93,12 +95,13 @@ Momentum:
   `Newton Krylov` (see @ref p08_entries_sec for the comparison and status of each),
 - tunable tolerances and pseudo-CFL controls (Picard-Jameson only).
 
-@note `Explicit RK4` is `experimental`: it has no positive-path verification harness.
-`Dual Time Picard Jameson RK` is the production default.
+@note `Explicit RK4` and `Dual Time Picard Jameson RK` are `supported`, with measured
+orders at @ref p08_entries_sec; `Newton Krylov` is `experimental` until it has run at
+production size. `Dual Time Picard Jameson RK` is the production default.
 
 Pressure:
 
-- multigrid Poisson workflow,
+- multigrid Poisson workflow with an `fgmres` or `cg` outer method,
 - level/sweep/semi-coarsening controls,
 - PETSc passthrough flags for advanced tuning.
 

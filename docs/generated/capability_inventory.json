@@ -53,7 +53,7 @@
       "conservation": {
         "optional_params": [],
         "required_params": [],
-        "status": "supported",
+        "status": "experimental",
         "types": [
           "OUTLET"
         ]
@@ -66,7 +66,7 @@
         "required_params": [
           "target_flux"
         ],
-        "status": "experimental",
+        "status": "supported",
         "types": [
           "PERIODIC"
         ]
@@ -78,7 +78,7 @@
           "vy",
           "vz"
         ],
-        "status": "supported",
+        "status": "experimental",
         "types": [
           "INLET"
         ]
@@ -86,7 +86,7 @@
       "geometric": {
         "optional_params": [],
         "required_params": [],
-        "status": "experimental",
+        "status": "supported",
         "types": [
           "PERIODIC"
         ]
@@ -97,7 +97,7 @@
           "enforce_seam_flux"
         ],
         "required_params": [],
-        "status": "experimental",
+        "status": "supported",
         "types": [
           "PERIODIC"
         ]
@@ -105,7 +105,7 @@
       "noslip": {
         "optional_params": [],
         "required_params": [],
-        "status": "supported",
+        "status": "experimental",
         "types": [
           "WALL"
         ]
@@ -115,7 +115,7 @@
         "required_params": [
           "v_max"
         ],
-        "status": "supported",
+        "status": "experimental",
         "types": [
           "INLET"
         ]
@@ -125,7 +125,7 @@
         "required_params": [
           "source"
         ],
-        "status": "supported",
+        "status": "experimental",
         "types": [
           "INLET"
         ]
@@ -143,19 +143,19 @@
         "maps_to": "INLET",
         "reachability": "reachable",
         "reachable": true,
-        "status": "supported"
+        "status": "experimental"
       },
       "outlet": {
         "maps_to": "OUTLET",
         "reachability": "reachable",
         "reachable": true,
-        "status": "supported"
+        "status": "experimental"
       },
       "periodic": {
         "maps_to": "PERIODIC",
         "reachability": "reachable",
         "reachable": true,
-        "status": "experimental"
+        "status": "supported"
       },
       "symmetry": {
         "maps_to": "SYMMETRY",
@@ -167,7 +167,7 @@
         "maps_to": "WALL",
         "reachability": "reachable",
         "reachable": true,
-        "status": "supported"
+        "status": "experimental"
       }
     },
     "selector": "case.yml -> boundary_conditions[].type",
@@ -240,7 +240,7 @@
       },
       "Explicit RK4": {
         "maps_to": "EXPLICIT_RK",
-        "status": "experimental"
+        "status": "supported"
       },
       "Newton Krylov": {
         "maps_to": "newton_krylov",
@@ -249,6 +249,23 @@
     },
     "selector": "solver.yml -> strategy.momentum_solver",
     "title": "Momentum Solvers"
+  },
+  {
+    "family_page": "08_Solver_Reference",
+    "id": "poisson.method",
+    "parity": [],
+    "public_values": {
+      "cg": {
+        "maps_to": "cg",
+        "status": "supported"
+      },
+      "fgmres": {
+        "maps_to": "fgmres",
+        "status": "supported"
+      }
+    },
+    "selector": "solver.yml -> poisson_solver.method",
+    "title": "Pressure Poisson Krylov Methods"
   },
   {
     "family_page": "07_Case_Reference",
@@ -320,7 +337,7 @@
       },
       "load": {
         "maps_to": "load",
-        "status": "experimental"
+        "status": "supported"
       },
       "solve": {
         "maps_to": "solve",
@@ -337,15 +354,15 @@
     "public_values": {
       "Constant": {
         "maps_to": 1,
-        "status": "experimental"
+        "status": "supported"
       },
       "Poiseuille": {
         "maps_to": 2,
-        "status": "experimental"
+        "status": "supported"
       },
       "Zero": {
         "maps_to": 0,
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "case.yml -> initial_conditions field mode",
@@ -362,11 +379,11 @@
       },
       "Surface": {
         "maps_to": 0,
-        "status": "experimental"
+        "status": "supported"
       },
       "SurfaceEdges": {
         "maps_to": 3,
-        "status": "experimental"
+        "status": "supported"
       },
       "Volume": {
         "maps_to": 1,
@@ -383,7 +400,7 @@
     "public_values": {
       "CornerAveraged": {
         "maps_to": 1,
-        "status": "experimental"
+        "status": "supported"
       },
       "Trilinear": {
         "maps_to": 0,
@@ -400,19 +417,19 @@
     "public_values": {
       "periodic_deterministic": {
         "maps_to": "PERIODIC_DETERMINISTIC",
-        "status": "experimental"
+        "status": "supported"
       },
       "statistical_steady": {
         "maps_to": "STATISTICAL_STEADY",
-        "status": "experimental"
+        "status": "supported"
       },
       "steady_deterministic": {
         "maps_to": "STEADY_DETERMINISTIC",
-        "status": "experimental"
+        "status": "supported"
       },
       "transient": {
         "maps_to": "TRANSIENT",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "solver.yml -> solution_convergence.mode",
@@ -546,7 +563,7 @@
     "public_values": {
       "TGV3D": {
         "maps_to": "TGV3D",
-        "status": "experimental"
+        "status": "supported"
       },
       "UNIFORM_FLOW": {
         "maps_to": "UNIFORM_FLOW",
@@ -598,11 +615,11 @@
     "public_values": {
       "ucat": {
         "maps_to": "ucat",
-        "status": "experimental"
+        "status": "supported"
       },
       "ucont": {
         "maps_to": "ucont",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "case.yml -> properties.initial_conditions.field",
@@ -649,7 +666,7 @@
     "public_values": {
       "2D": {
         "maps_to": "2D",
-        "status": "experimental"
+        "status": "supported"
       },
       "3D": {
         "maps_to": "3D",
@@ -666,11 +683,11 @@
     "public_values": {
       "box": {
         "maps_to": "box",
-        "status": "experimental"
+        "status": "supported"
       },
       "sweep": {
         "maps_to": "sweep",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "case.yml -> grid.generator.grid_type",
@@ -683,11 +700,11 @@
     "public_values": {
       "circle": {
         "maps_to": "circle",
-        "status": "experimental"
+        "status": "supported"
       },
       "rectangle": {
         "maps_to": "rectangle",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "grid.gen sweep --cross-section, or the `cross_section` config key",
@@ -700,31 +717,31 @@
     "public_values": {
       "arc": {
         "maps_to": "arc",
-        "status": "experimental"
+        "status": "supported"
       },
       "flat": {
         "maps_to": "flat",
-        "status": "experimental"
+        "status": "supported"
       },
       "gaussian": {
         "maps_to": "gaussian",
-        "status": "experimental"
+        "status": "supported"
       },
       "hill": {
         "maps_to": "hill",
-        "status": "experimental"
+        "status": "supported"
       },
       "ramp": {
         "maps_to": "ramp",
-        "status": "experimental"
+        "status": "supported"
       },
       "sine": {
         "maps_to": "sine",
-        "status": "experimental"
+        "status": "supported"
       },
       "step": {
         "maps_to": "step",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "grid.gen box --wall-j-lo / --wall-j-hi, or the `wall_j_*` config keys",
@@ -737,11 +754,11 @@
     "public_values": {
       "arc": {
         "maps_to": "arc",
-        "status": "experimental"
+        "status": "supported"
       },
       "straight": {
         "maps_to": "straight",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "grid.gen sweep --path, or the `path` config key",
@@ -754,27 +771,31 @@
     "public_values": {
       "anchor": {
         "maps_to": "anchor",
-        "status": "experimental"
+        "status": "supported"
       },
       "mirror": {
         "maps_to": "mirror",
-        "status": "experimental"
+        "status": "supported"
       },
       "permute": {
         "maps_to": "permute",
-        "status": "experimental"
+        "status": "supported"
+      },
+      "reverse": {
+        "maps_to": "reverse",
+        "status": "supported"
       },
       "rotate": {
         "maps_to": "rotate",
-        "status": "experimental"
+        "status": "supported"
       },
       "scale": {
         "maps_to": "scale",
-        "status": "experimental"
+        "status": "supported"
       },
       "translate": {
         "maps_to": "translate",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "grid.gen --transforms, or the `transforms` config key",
@@ -838,7 +859,7 @@
     "public_values": {
       "shell_spectrum": {
         "maps_to": "shell_spectrum",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "post.yml -> spectra.tasks[].task",
@@ -851,23 +872,23 @@
     "public_values": {
       "flux": {
         "maps_to": "flux",
-        "status": "experimental"
+        "status": "supported"
       },
       "mean": {
         "maps_to": "mean",
-        "status": "experimental"
+        "status": "supported"
       },
       "reynolds_stress": {
         "maps_to": "reynolds_stress",
-        "status": "experimental"
+        "status": "supported"
       },
       "rms": {
         "maps_to": "rms",
-        "status": "experimental"
+        "status": "supported"
       },
       "tke": {
         "maps_to": "tke",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "post.yml -> field_statistics.outputs[]",
@@ -880,11 +901,11 @@
     "public_values": {
       "physical_time": {
         "maps_to": "physical_time",
-        "status": "experimental"
+        "status": "supported"
       },
       "sample": {
         "maps_to": "sample",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "monitor.yml -> field_statistics.windows[].weighting",
@@ -964,11 +985,11 @@
     "public_values": {
       "carry": {
         "maps_to": "carry",
-        "status": "experimental"
+        "status": "supported"
       },
       "reset": {
         "maps_to": "reset",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "picurv run --statistics-state",

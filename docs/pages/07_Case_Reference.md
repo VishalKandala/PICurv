@@ -188,9 +188,9 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Diagnostics.** The startup banner reports the resolved grid source. A missing or unreadable file is a fatal `picurv validate` error naming the path, not a runtime failure.
 
-**Evidence.** Production exercised - `examples/search_robustness` runs from a staged `.picgrid`. It carries the only grid file the examples still ship: `bent_channel` moved to `grid_gen` once the generator could express its geometry, which removed a duplicate of the same 2.9 MB file. Analytically verified - `curvilinear-gcl-2026-09-18`: the face-area metrics of a curvilinear file grid close to round-off in every cell.
+**Evidence.** Production exercised - `examples/search_robustness` runs from a staged `.picgrid`. It carries the only grid file the examples still ship: `bent_channel` moved to `grid_gen` once the generator could express its geometry, which removed a duplicate of the same 2.9 MB file. Analytically verified - `curvilinear-gcl-2026-09-18`: the face-area metrics of a curvilinear file grid close to round-off in every cell; `eulerian-source-domain-modes-2026-09-21`: a curvilinear pipe loaded as a file reproduced the grid, velocity and pressure of the same run from `grid_gen` exactly after ten steps; `grid-generator-closure-2026-09-21`: every generator feature, loaded as a file grid, closes a uniform flow to round-off.
 
-**Limitations.** `picurv` does not inspect the mesh beyond existence and header validity, so a geometrically wrong but well-formed file is accepted here and only shows up in metric or Jacobian diagnostics.
+**Limitations.** `picurv` does not inspect the mesh beyond existence and header validity, so a geometrically wrong but well-formed file is accepted here and only shows up in metric or Jacobian diagnostics. The solver itself refuses a uniformly left-handed file, whose logical axes would need renumbering (@ref p48_cap_xform_reverse).
 
 @subsection p07_cap_gridmode_programmatic_c_sub programmatic_c
 
@@ -208,7 +208,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Diagnostics.** The startup banner reports the resolved block extents and counts. A count/extent mismatch across per-block lists is a validation error naming the offending key.
 
-**Evidence.** Production exercised - `examples/flat_channel`; integration verified - `make unit-grid`.
+**Evidence.** Production exercised - `examples/flat_channel`; integration verified - `make unit-grid`. Analytically verified - `duct-inlet-handlers-2026-09-21`: a programmatic square duct develops to the Poiseuille series at second order; `poisson-options-2026-09-21` and `initial-conditions-2026-09-21` run on it.
 
 **Limitations.** Restricted to a rectangular Cartesian block - `cgrids` does not add curvilinear geometry (@ref p07_grid_prog_ssec). Anything bent, branched, or externally meshed needs `file` or `grid_gen`.
 
@@ -228,7 +228,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Diagnostics.** Generator stdout is captured into the run's scheduler log, and the staged `.picgrid` appears under `<run.config>/`. A generator failure aborts before the solver launches.
 
-**Evidence.** Production exercised - `examples/periodic_test` cases stage grids this way.
+**Evidence.** Production exercised - `examples/periodic_test` cases stage grids this way. Analytically verified - `duct-poiseuille-picard-2026-09-18` on a generated box and `pipe-poiseuille-curvilinear-2026-09-18` on a generated swept circle, each at second order.
 
 **Limitations.** Adds a build step to every launch, and the run's geometry depends on the generator's current behaviour rather than on a fixed artefact. `config_file` is mandatory today.
 
@@ -315,7 +315,8 @@ three-dimensional field, such as `spectral_random_velocity`.
 **Diagnostics.** None of its own: the generated control file carries no `-TwoD` line.
 
 **Evidence.** Production exercised - every shipped example, including
-`examples/flat_channel`, runs in 3D.
+`examples/flat_channel`, runs in 3D. Analytically verified - every solve measurement,
+for instance `tgv2d-picard-order-2026-09-18`, runs in 3D.
 
 **Limitations.** None of its own.
 
@@ -344,10 +345,15 @@ also accepts `-TwoD 2` (j) and `-TwoD 3` (k), reachable only through a PETSc pas
 line for it.
 
 **Evidence.** Unit verified - the active-row mask cases in
-`tests/c/test_solver_kernels.c`, run by `make unit-solver`.
+`tests/c/test_solver_kernels.c`, run by `make unit-solver`. Analytically verified -
+`eulerian-source-domain-modes-2026-09-21`: a Taylor-Green vortex in the j-k plane with a
+frozen i velocity ran 20 steps in 2D and in 3D; the i component moved by at most 3.1e-16
+and the j and k components matched the 3D run to 2.8e-15.
 
-**Limitations.** No end-to-end run has shown that a 2D case reproduces a planar reference
-solution, and nothing checks that the i component starts at zero.
+**Limitations.** Nothing checks that the i component starts at zero. The pressure
+projection still acts on every face, so the i component stays frozen only while the
+pressure field does not vary along i; a flow that develops an i pressure gradient breaks
+the planar assumption without warning.
 
 @section p07_les_sec 5. LES Subgrid Models
 

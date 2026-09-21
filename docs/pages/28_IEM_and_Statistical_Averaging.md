@@ -32,6 +32,14 @@ Code touchpoints:
 - per-field particle loop: @ref UpdateFieldForAllParticles
 - stage wrapper: @ref UpdateAllParticleFields
 
+@warning **The update runs, but nothing gives it a scalar to mix.** Every particle's
+`Psi` is initialized to the particle field catalog's default, 0.0, and no configuration
+seeds, injects or sources a scalar, so \f$\Psi^n = \langle\Psi\rangle = 0\f$ and the
+closed-form update returns zero every step. The one path that sets `Psi` - the
+verification scalar source (@ref p08_verification_sec) - prescribes it exactly and
+bypasses this update. The scatter of `Psi` to the grid is verified through that source;
+the IEM relaxation itself has not been exercised on a non-zero scalar.
+
 @section p28_dataflow_sec 2. Required Dataflow For IEM
 
 IEM update requires:

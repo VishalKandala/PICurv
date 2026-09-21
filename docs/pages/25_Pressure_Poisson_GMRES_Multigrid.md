@@ -327,7 +327,22 @@ Current direct tests are strongest for helper and invariant behavior:
 - `PoissonNullSpaceFunction`
 - RHS-related helpers used by `ComputeRHS`
 
-The main remaining gap is `PoissonSolver_MG`: it is exercised in runtime smoke, but still lacks equivalent direct bespoke coverage for debugging. Periodic stencil branches also remain thinner than the core Cartesian helper surface.
+`PoissonSolver_MG` has direct coverage in `make unit-poisson-rhs`:
+`poisson-solver-mg-projects-to-divergence-free` perturbs interior face fluxes on a
+17-cubed three-level hierarchy, solves and projects, and checks the result is
+divergence-free; `poisson-solver-mg-refuses-an-overcoarsened-hierarchy` checks that a
+hierarchy coarsened past what a 9-cubed grid supports stops with the fatal Poisson error
+rather than projecting on an unsolved `Phi`. Periodic stencil branches remain thinner than
+the core Cartesian helper surface.
+
+Every user-selectable option was run end to end by `poisson-options-2026-09-21`: one and
+two levels, full coarsening, one and three sweeps, Chebyshev and Jacobi smoothers, a
+Krylov coarse solve, a per-level iteration cap, and `cg` each reproduced the baseline
+velocity to 7e-15 and gauge-free pressure to 8e-14. The same measurement found `gmres`,
+`lgmres` and `bcgs` converging their Krylov residual to 1e-12 while the true residual
+stalled near 1e-3, with left or right preconditioning; those methods are now refused (see
+@ref p25_config_sec), and the per-level `max_it`, `rtol` and `atol` keys, which were
+emitted without PETSc's `ksp_` prefix and silently ignored, now reach the level solvers.
 
 End to end, `make smoke-driven-periodic` asserts at 4 and 10 ranks that the multigrid
 coarse solve keeps tracked and true residuals within 1e-4 of each other and the maximum

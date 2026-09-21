@@ -22318,9 +22318,11 @@ def versions_workflow(args):
         return
     version = getattr(args, "version", None)
     make_args = list(getattr(args, "make_args", None) or [])
-    if version and _MAKE_ASSIGNMENT_PATTERN.match(str(version)):
-        # `versions activate SYSTEM=cluster` binds the assignment to the optional
-        # version positional. No tag or commit contains '=', so it is a make argument.
+    if version and (_MAKE_ASSIGNMENT_PATTERN.match(str(version)) or str(version).startswith("-")):
+        # `versions activate SYSTEM=cluster` and `versions activate -- -j8` bind the
+        # make argument to the optional version positional. No tag or commit contains
+        # '=' or starts with '-', so either is a make argument; handing '-j8' to git as
+        # a ref printed git's usage instead.
         make_args.insert(0, str(version))
         version = None
     if make_args_include_explicit_goal(make_args):

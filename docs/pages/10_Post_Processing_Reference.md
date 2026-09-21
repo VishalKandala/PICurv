@@ -112,7 +112,12 @@ Global operation:
 - `global_operations.dimensionalize: true` prepends `DimensionalizeAllLoadedFields`
   and reports every derived product in physical units. It reaches three producers:
   the field pipeline scales loaded fields, the accumulator scales derived statistics,
-  and the spectra generator scales its own outputs.
+  and the spectra generator scales its own outputs. Each quantity is scaled once:
+  grid coordinates by `L_ref`, `Ucat` and `Ucont` by `U_ref`, `P` by `rho U_ref^2`,
+  particle positions by `L_ref` and velocities by `U_ref` before the Lagrangian tasks
+  run, and `Qcrit` by `(U_ref / L_ref)^2`. The `msd` statistic is the exception: it runs
+  before particle positions are scaled and stays non-dimensional, because it is
+  compared against the non-dimensional diffusivity `1 / (Re Sc)`.
 
 Lagrangian tasks (`lagrangian_pipeline`):
 - `specific_ke` -> `ComputeSpecificKE:<in>><out>`
@@ -157,7 +162,10 @@ Lagrangian tasks (`lagrangian_pipeline`):
 
 **Diagnostics.** The written field carries the same name; the difference is visible as a shifted range. A reference point outside the block is a validation error naming the index.
 
-**Evidence.** Unit verified - `make unit-post`.
+**Evidence.** Unit verified - `make unit-post`. Analytically verified -
+`post-pipeline-dimensionalize-2026-09-21`: `P` normalized at a cell and averaged to nodes
+equals the nodal mean of `P - P[4,4,4]` to 2.2e-16, and scales by `rho U_ref^2` exactly
+once when dimensionalized.
 
 **Limitations.** Only `P` is accepted today, and the reference point is a fixed index rather than a coordinate, so it does not follow a moving feature or survive a grid change.
 
@@ -177,7 +185,10 @@ Lagrangian tasks (`lagrangian_pipeline`):
 
 **Diagnostics.** Both fields appear in the written `.vts`. A missing output field means the input name did not match anything loaded.
 
-**Evidence.** Unit verified - `make unit-post`.
+**Evidence.** Unit verified - `make unit-post`. Analytically verified -
+`post-pipeline-dimensionalize-2026-09-21`: `Ucat_nodal` equals the eight-cell mean,
+ghost cells included, to 2.2e-16; `q-criterion-nodal-tgv-2026-09-18` measures the
+smoothing it adds to `Qcrit_nodal`.
 
 **Limitations.** Averaging is a low-pass filter: peak values move toward their neighbourhood mean, so nodal fields understate extrema and should not be used for max-value claims.
 
@@ -201,7 +212,9 @@ Lagrangian tasks (`lagrangian_pipeline`):
 
 **Diagnostics.** The derived scalar appears in the written particle output. An input name that matches no swarm field leaves the output absent rather than zero.
 
-**Evidence.** Unit verified - `make unit-post`.
+**Evidence.** Unit verified - `make unit-post`. Analytically verified -
+`post-pipeline-dimensionalize-2026-09-21`: half the squared particle velocity exactly,
+and `U_ref^2` times that when dimensionalized.
 
 **Limitations.** Specific energy per particle, not per unit mass of a distribution: it carries no particle mass or number weighting, so summing it across a swarm is not a physical total unless every particle represents the same mass.
 
@@ -282,8 +295,12 @@ See @ref p58_derived_sec.
 
 @htmlinclude generated/capability_inventory_post_field_statistics_output.html
 
-Every output below is experimental: the derived statistics are unit-tested for internal
-consistency but have not been compared against a reference profile.
+Every output below was checked against a known answer by
+`field-statistics-tgv3d-2026-09-21`: on the analytic TGV3D field, each written value
+equals the eight-cell average of the exact cell statistic to round-off. Written fields are
+node averages of cell statistics, so a nodal `rms` is the mean of the neighbouring cell
+RMS values, not the root of an averaged variance. None has yet been compared against a
+turbulent reference profile.
 
 @note **`formats` is a parameter, not a choice between behaviours.** `vtk` writes the
 derived fields listed below into the window's bundle; `csv` appends one row per
@@ -310,7 +327,7 @@ classified as a parameter of these entries rather than as a family of its own.
 
 **Diagnostics.** Written into the window's `vtk` bundle; the `csv` row reports the sample count and total weight behind it.
 
-**Evidence.** Unit verified - `make unit-statistics`.
+**Evidence.** Unit verified - `make unit-statistics`. Analytically verified - `field-statistics-tgv3d-2026-09-21`: the window mean of `Ucat` and `P` equals the exact weighted mean of the sampled states to 7e-16.
 
 **Limitations.** A mean over a window that has not converged is still a mean: the output carries no statement about whether the averaging interval was long enough. The `csv` convergence history is what answers that.
 
@@ -330,7 +347,7 @@ classified as a parameter of these entries rather than as a family of its own.
 
 **Diagnostics.** Six fields per window in the `vtk` bundle. One window carrying every output already writes fifteen fields against a per-file limit of twenty, which is why windows cannot share a file.
 
-**Evidence.** Unit verified - `make unit-statistics`.
+**Evidence.** Unit verified - `make unit-statistics`. Analytically verified - `field-statistics-tgv3d-2026-09-21`: all six `Ucat` components and the `P` variance equal their exact weighted values to 3e-18.
 
 **Limitations.** Off-diagonal components converge more slowly than the diagonal, so a window long enough for `rms` is not necessarily long enough for the shear stress.
 
@@ -350,7 +367,7 @@ classified as a parameter of these entries rather than as a family of its own.
 
 **Diagnostics.** Three fields per window. The `csv` row's valid-fraction range is the check on whether every point had enough samples.
 
-**Evidence.** Unit verified - `make unit-statistics`.
+**Evidence.** Unit verified - `make unit-statistics`. Analytically verified - `field-statistics-tgv3d-2026-09-21`: `Ucat` and `P` RMS values equal their exact values to 5e-17.
 
 **Limitations.** The clamp means an RMS of exactly zero can mean 'no fluctuation' or 'variance below the cancellation floor'; the sample count distinguishes them.
 
@@ -370,7 +387,7 @@ classified as a parameter of these entries rather than as a family of its own.
 
 **Diagnostics.** One field per window, plus the per-step mean in the `csv`.
 
-**Evidence.** Unit verified - `make unit-statistics`.
+**Evidence.** Unit verified - `make unit-statistics`. Analytically verified - `field-statistics-tgv3d-2026-09-21`: the written TKE equals its exact value to 2e-18, and the CSV `mean_tke` to 3.7e-12.
 
 **Limitations.** Being a trace, it is blind to anisotropy: two flows with very different stress structure can report the same k.
 
@@ -380,17 +397,17 @@ classified as a parameter of these entries rather than as a family of its own.
 
 **Identity.** `field_statistics.outputs: [flux]`.
 
-**What it does.** Writes the centred cross-moment between velocity and a scalar, u_i'psi' = C_ipsi / W - the turbulent flux of that scalar.
+**What it does.** Writes the centred cross-moment of each vector-scalar pair the window lists under `covariances`, u_i's' = C_is / W, one field per pair named `<window>_<vector>_<scalar>_flux`. With `Ucat` and `P` it is the velocity-pressure correlation u_i'p' that appears in the turbulent transport of kinetic energy; with `Ucat` and a transported scalar it is that scalar's turbulent flux.
 
-**When to choose it.** When a scalar is being transported and the question is how turbulence moves it: heat flux, species flux, any gradient-transport closure being assessed. It requires a scalar to exist, so it is inert in a pure momentum run.
+**When to choose it.** When the question is how turbulence carries a quantity: the pressure-transport term of a kinetic-energy budget, or a heat, species or other scalar flux against which a gradient-transport closure is assessed.
 
-**Parameters it owns.** None of its own; which scalar is tracked is a property of the window.
+**Parameters it owns.** None of its own; which pairs exist is a property of the window's `covariances` list.
 
-**Interactions.** Requires scalar transport to be active and the scalar included in the window's tracked fields. Otherwise the cross-moment has nothing to accumulate.
+**Interactions.** Requires at least one `covariances` entry on the window, both members cell-centred; a recipe asking for `flux` from a window without one is rejected before the run. A pair with a transported scalar produces a flux only when the particle scalar is non-zero, which today only the verification scalar source makes it (@ref p28_iem_sec).
 
 **Diagnostics.** Three fields per window, one per velocity component.
 
-**Evidence.** Unit verified - `make unit-statistics`.
+**Evidence.** Unit verified - `make unit-statistics`. Analytically verified - `field-statistics-tgv3d-2026-09-21`: the `Ucat`-`P` co-moment equals its exact value to 1.4e-18.
 
 **Limitations.** A cross-moment converges more slowly than either factor's own variance, so flux is the output most likely to be under-converged in a given window.
 
@@ -609,9 +626,9 @@ spectrum comes from ensembling over seeds at matched times, not from pooling tim
 
 **Diagnostics.** Writes one file per task per checkpoint under the configured `output_prefix`. A precondition failure is a validation error naming the violated requirement, not a silent empty spectrum.
 
-**Evidence.** Implemented only. No shipped case gates a numerical acceptance on a measured spectrum, so nothing establishes the binning against a reference result.
+**Evidence.** Unit verified - `make test-python` runs the spectra generator's tests. Analytically verified - `post-spectra-analytic-2026-09-21`: three single modes on a 32-cubed periodic box landed in shells 2, 3 and 4 at exactly their energies, every other shell below 1e-32, with zero Parseval residual, and the dissipation, integral length and Taylor microscale each equal their closed forms; `initial-conditions-2026-09-21` recovered a spectral initial condition's envelope to 4.7%, energy-weighted. The same measurement found `picurv summarize --plot-spectrum` unable to find what a post recipe wrote, because recipes write into a subdirectory; it now searches there.
 
-**Limitations.** Experimental. Shell averaging assumes isotropy that a wall-bounded or bent geometry does not have, and `subtract_mean: window:<name>` depends on an accumulated window existing at the named step. No convergence or windowing guidance is established.
+**Limitations.** Shell averaging assumes isotropy that a wall-bounded or bent geometry does not have, and `subtract_mean: window:<name>` depends on an accumulated window existing at the named step. Measured on single modes and one broadband seed; no convergence or windowing guidance for a turbulent spectrum is established here.
 
 @section p10_io_sec 9. io
 

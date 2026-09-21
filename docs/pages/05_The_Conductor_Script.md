@@ -136,7 +136,6 @@ Examples:
 ./picurv_cli/picurv build clean-project
 ./picurv_cli/picurv build SYSTEM=cluster
 ./picurv_cli/picurv build postprocessor
-./my_case/picurv build clean-project
 make audit-build
 ```
 
@@ -174,7 +173,11 @@ Make variables and options after the version reach `make` exactly as they do for
 ```bash
 picurv versions install 0.1.0 SYSTEM=cluster
 picurv versions activate SYSTEM=cluster        # version from the workspace pin
+picurv versions activate -- -j8                # version from the pin, options to make
 ```
+
+With no version, the first word after `activate` may be a make assignment or, after
+`--`, a make option; neither is a tag or commit, so it goes to `make` rather than to Git.
 
 A make target is refused, because the install verifies the default build. Success is
 reported only after `simulator` and `postprocessor` report the identity of the commit
@@ -199,6 +202,12 @@ on a version pin:
 - **Development and version-switching share one tree.** `activate` refuses a dirty
   checkout, so uncommitted work must be committed or stashed first.
 
+These commands are tested in `tests/test_workspace_lifecycle.py` against real Git
+repositories and stubbed builds: `source update` against a live origin and an
+unreachable remote, `versions list` ordering, `install` and `activate` argument
+routing, and the refusal of a build that does not carry the new identity. Rebuilding a
+real release is not part of the suite.
+
 Both `versions activate` and a failed workspace version check name the installation
 they would change, so the effect is stated rather than discovered. If you need
 concurrent releases — several people on one filesystem, or reproducing a published
@@ -210,8 +219,8 @@ normally use the active installation and the version commands instead of copying
 executables into every case.
 
 `sync-config` refreshes files from `examples/<template_name>/` into the case directory.
-It compares against the template as `init` lays it out - canonical `config/` names,
-variants under `config/variants/`, rewritten paths - so each case file is matched with
+It compares against the template as `init` lays it out - canonical `<workspace>/config/` names,
+variants under `<workspace>/config/variants/`, rewritten paths - so each case file is matched with
 the template file it was made from. By default it preserves user-modified files and only
 copies missing files:
 
@@ -251,6 +260,12 @@ picurv status-source --case-dir my_case --format json
 
 For older cases that do not yet have `.picurv-origin.json`, pass `--source-root /path/to/PICurv`.
 For `sync-config`, also pass `--template-name <example_name>` if the template cannot be inferred.
+
+`init`, `sync-config` and `status-source` are tested in `tests/test_case_maintenance.py`,
+and `make smoke` initializes, validates and dry-runs every shipped template. On a fresh
+`flat_channel` workspace with one edited `<workspace>/config/solver.yml`, `status-source` reported
+exactly that file modified and none missing, `sync-config` skipped it and left the case
+root unchanged, and `sync-config --overwrite` restored it in place.
 
 `status-source --format json` payload highlights:
 
@@ -912,8 +927,10 @@ make all                                                         # safe: the run
 
 @htmlinclude generated/capability_inventory_workspace_input_import_mode.html
 
-Every mode below is experimental: the workspace asset store has not been exercised at the
-scale where link availability, object accumulation, and pruning start to matter.
+Every mode below is experimental: the workspace asset store has been exercised locally
+(`asset-store-local-2026-09-21`) but not on the cluster filesystems where reflink and
+hardlink availability are decided, nor at the scale where object accumulation and
+remote-backed pruning start to matter.
 
 @subsection p05_cap_input_mode_copy_sub copy
 
@@ -937,7 +954,8 @@ an asset derived from it.
 or missing source fails before the catalog changes.
 
 **Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` checks the copied
-bytes and catalog entry.
+bytes and catalog entry. Integration verified - `asset-store-local-2026-09-21`: a copied
+field became an initial-condition object that a second precompute reused unchanged.
 
 **Limitations.** Uses additional disk space equal to the imported file.
 
@@ -962,8 +980,10 @@ the filesystem reports that reflinks are unsupported.
 **Diagnostics.** The import fails with the native copy error if reflink creation is
 unavailable and writes no catalog record.
 
-**Evidence.** Implemented only. No test imports a file in `reflink` mode; the import
-tests cover `copy` and `reference`.
+**Evidence.** Integration verified - `asset-store-local-2026-09-21`: on a filesystem
+without reflink support the import failed with `cp`'s "Operation not supported", left no
+temporary file, and wrote no catalog record. A successful reflink import has not been
+exercised; that needs a filesystem that supports it.
 
 **Limitations.** Experimental across cluster filesystems; support depends on the local
 `cp` and filesystem.
@@ -988,8 +1008,10 @@ changed provider input and prevent stale object reuse, but cannot undo the mutat
 **Diagnostics.** Cross-filesystem or permission failures are reported before the
 catalog changes.
 
-**Evidence.** Implemented only. No test imports a file in `hardlink` mode; the import
-tests cover `copy` and `reference`.
+**Evidence.** Integration verified - `asset-store-local-2026-09-21`: the imported path
+shares the source's inode, the catalog records the source checksum, and after one byte
+of the shared file changed the next precompute built a new object rather than reusing
+the old one.
 
 **Limitations.** Experimental because shared-inode ownership is easy to misuse and it
 cannot cross filesystems.
@@ -1008,14 +1030,19 @@ externally owned. Choose `copy` when the workspace or storage archive must be po
 
 **Parameters it owns.** Optional `--name` names the reference record.
 
-**Interactions.** Resolution checks the target loudly. Storage records the dependency
-but neither archives nor prunes the external file.
+**Interactions.** Resolution fails loudly when the target is missing. A target whose
+bytes changed since registration is used as it now is: its current checksum selects a
+new asset object, so nothing stale is reused, but no warning is printed and the
+registration checksum is not compared. Storage records the dependency but neither
+archives nor prunes the external file.
 
 **Diagnostics.** Registration prints an external-reference warning; missing targets
 fail when registered or consumed.
 
 **Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` checks reference
-content and catalog identity.
+content and catalog identity. Integration verified - `asset-store-local-2026-09-21`:
+a reference import fed a solver run, and changing one byte of its target built a new
+object.
 
 **Limitations.** Restoring the workspace cannot restore an external target; its owner
 must make the same path available or the reference must be replaced.

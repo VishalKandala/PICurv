@@ -625,11 +625,7 @@ PetscErrorCode FinalizeSwarmSetup(PetscRandom *randx, PetscRandom *randy, PetscR
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "CreateParticleSwarm"
-/**
- * @brief Internal helper implementation: `CreateParticleSwarm()`.
- * @details Local to this translation unit.
- */
+#define __FUNCT__ "DistributeParticlesByOwnedCells"
 /**
  * @brief Split particles across ranks in proportion to the cells each rank owns.
  * @details Volumetric seeding places each rank's particles uniformly in its own cells, so an
@@ -677,6 +673,12 @@ static PetscErrorCode DistributeParticlesByOwnedCells(UserCtx *user, PetscInt nu
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "CreateParticleSwarm"
+/**
+ * @brief Internal helper implementation: `CreateParticleSwarm()`.
+ * @details Local to this translation unit.
+ */
 PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscInt *particlesPerProcess, BoundingBox *bboxlist) {
     PetscErrorCode ierr;                      // PETSc error handling variable
     (void)bboxlist;

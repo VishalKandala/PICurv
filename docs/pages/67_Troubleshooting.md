@@ -57,8 +57,9 @@ A periodic wall-bounded case is not a known cause: the stall recorded for it on
    blaming the solver.
 2. Check inlet and outlet are consistent: an inlet with no outlet to conserve
    against will not behave.
-3. For `Explicit RK4`, divergence within a few steps is the explicit stability limit;
-   there is no recovery mechanism on that path. Reduce the timestep or change solver.
+3. For `Explicit RK4`, a run that stops with "the step exceeds the explicit stability
+   limit" has exceeded it; there is no recovery mechanism on that path. The message
+   gives the viscous bound to size `dt` against. Reduce the timestep or change solver.
 4. Check the boundary conditions actually applied — the startup banner lists the
    resolved handler per face. A face you thought was a wall may not be.
 

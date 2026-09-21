@@ -87,7 +87,9 @@ Current scalar model path:
 - orchestrator: @ref UpdateAllParticleFields
 
 This presently implements IEM-style relaxation for `Psi`, with the mixing constant fixed at
-`C_IEM = 2.0` inside @ref UpdateFieldForAllParticles; it is not configurable.
+`C_IEM = 2.0` inside @ref UpdateFieldForAllParticles; it is not configurable. It is also
+inert in practice: `Psi` starts at zero on every particle and no configuration seeds or
+sources a scalar, so the relaxation has nothing to act on (@ref p28_iem_sec).
 
 @section p34_statistics_sec 4. Statistics and Diagnostics
 
@@ -110,12 +112,13 @@ interpreting that artifact.
 - **A lost particle is removed, not reflected.** Steady loss through a boundary you did
   not intend usually means the carrier velocity or the diffusion step carries particles
   out; the per-step lost count reports it.
-- **Diffusion, advection and interpolation are verified; the gradient drift is not yet.**
-  A 10,000-particle cloud in zero flow reproduced the Einstein relation to 0.17% in the MSD
-  slope; a cloud in uniform flow drifted at exactly the carrier velocity; and Trilinear
-  interpolation of the TGV3D field held 0.67% relative error on 32^3. The drift a
-  diffusivity gradient adds was inconclusive at 40,000 particles and needs a larger run.
-  The examples are listed in @ref p65_verify_sec.
+- **Diffusion, advection, the gradient drift and interpolation are verified.** A
+  10,000-particle cloud in zero flow reproduced the Einstein relation to 0.17% in the MSD
+  slope; a cloud in uniform flow drifted at exactly the carrier velocity; paired runs with
+  the same seed resolved the drift a linear diffusivity gradient adds to 1.1% of `a t`
+  (`diffusivity-gradient-drift-paired-2026-09-18`); and Trilinear interpolation of the
+  TGV3D field converged at order 1.97. Only one gradient, and zero or uniform carriers,
+  were measured. The examples are listed in @ref p65_verify_sec.
 - **Brownian trajectories repeat only for the same rank count.** Placement and Brownian
   draws are seeded from `models.physics.particles.random_seed` (default `12345`) plus the
   MPI rank, so identical inputs on the same number of ranks give identical trajectories,

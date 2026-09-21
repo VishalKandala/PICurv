@@ -151,8 +151,9 @@ failure mode, bought for a correction far below the noise floor.
 
 @htmlinclude generated/capability_inventory_statistics_weighting.html
 
-Both modes are experimental: the accumulated statistics they weight have not yet been
-compared against a reference profile.
+Both modes accumulate the exact weighted moments of a known field
+(`field-statistics-tgv3d-2026-09-21`); neither has yet been compared against a turbulent
+reference profile.
 
 @subsection p58_cap_weight_sample_sub sample
 
@@ -170,7 +171,9 @@ compared against a reference profile.
 
 **Diagnostics.** The `csv` output reports sample count and total weight separately; under this mode they are equal, which is the quickest check that the intended mode is active.
 
-**Evidence.** Unit verified - `make unit-statistics-window`.
+**Evidence.** Unit verified - `make unit-statistics-window`. Analytically verified -
+`field-statistics-tgv3d-2026-09-21`: a sample-weighted window at cadence 2 accumulated five TGV3D states whose means and
+Reynolds stresses equal the exact equal-weight sums to 8e-16.
 
 **Limitations.** On a variable timestep it is a biased estimator of a time average: short steps count as much as long ones, so periods of small dt are over-represented.
 
@@ -190,7 +193,10 @@ compared against a reference profile.
 
 **Diagnostics.** The `csv` reports total weight as represented time rather than a count, so weight and sample count diverge - which is how you confirm this mode is active.
 
-**Evidence.** Unit verified - `make unit-statistics-window`.
+**Evidence.** Unit verified - `make unit-statistics-window`. Analytically verified -
+`field-statistics-tgv3d-2026-09-21`: a physical-time window over ten TGV3D states - total weight 1.0 - equals the exact
+time-weighted means, stresses, pressure variance and velocity-pressure covariance to
+8e-16, and its derived outputs match to round-off.
 
 **Limitations.** The represented interval depends on which states were accepted, so changing the output cadence changes the weights. A window is comparable across runs only if its cadence is too.
 

@@ -333,9 +333,9 @@
       "date": "2026-09-21",
       "commit": "3a5821c (capability-review WIP) plus the uncommitted working tree of 2026-09-21, including staging the restart bundle for --statistics-state carry",
       "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; 1 rank",
-      "configuration": "TGV3D analytical field, 17 x 17 x 9 cells, nu = 0.1, dt = 0.1, 20 steps. Window wtime: [0.5, 1.5], physical_time weighting, step_cadence 1, Ucat and P first and second moments, Ucat-P covariance. Window wsamp: same bounds, sample weighting, step_cadence 2, Ucat. A 10-step run was restarted to step 20 with --statistics-state carry and with reset. Accumulator payloads at step 20 were compared with the exact discrete sums of the closed-form field at the accepted sample times.",
+      "configuration": "TGV3D analytical field, 17 x 17 x 9 cells, nu = 0.1, dt = 0.1, 20 steps. Window wtime: [0.5, 1.5], physical_time weighting, step_cadence 1, Ucat and P first and second moments, Ucat-P covariance. Window wsamp: same bounds, sample weighting, step_cadence 2, Ucat. A 10-step run was restarted to step 20 with --statistics-state carry and with reset. Accumulator payloads at step 20 were compared with the exact discrete sums of the closed-form field at the accepted sample times. The same run's post-processed .vts outputs (mean, reynolds_stress, rms, tke, flux, from both windows) were compared at interior nodes with the eight-cell average of the exact cell-centre statistic.",
       "result": {
-        "measured": "wtime: ten samples, weight 1.0, means, Reynolds stresses, pressure variance and velocity-pressure covariance exact to 8.3e-16 at every cell; wsamp: five samples at t = 0.7..1.5, exact to 7.8e-16. The post-processed convergence CSV gave mean_tke 4.7755918804e-04 against the exact value to 3.7e-12. carry reproduced the continuous windows to 1.1e-16. reset anchored each window at the first state the restarted run completed (t = 1.1) and accumulated t = 1.2..1.5 exactly. carry previously failed at start-up when the Eulerian source was analytical: the conductor staged no restart bundle because no fields were needed, although the windows are read from it.",
+        "measured": "wtime: ten samples, weight 1.0, means, Reynolds stresses, pressure variance and velocity-pressure covariance exact to 8.3e-16 at every cell; wsamp: five samples at t = 0.7..1.5, exact to 7.8e-16. The post-processed convergence CSV gave mean_tke 4.7755918804e-04 against the exact value to 3.7e-12. carry reproduced the continuous windows to 1.1e-16. reset anchored each window at the first state the restarted run completed (t = 1.1) and accumulated t = 1.2..1.5 exactly. carry previously failed at start-up when the Eulerian source was analytical: the conductor staged no restart bundle because no fields were needed, although the windows are read from it. Every written derived output - both windows' means, the six Reynolds-stress components, the P variance, the RMS values, the TKE and the Ucat-P flux - equalled the eight-cell average of its exact cell value to at most 7.2e-16 (means) and 4.9e-17 (second moments) at every interior node: the .vts carries node averages of cell statistics, so a nodal RMS is the mean of cell RMS values.",
         "threshold": "Accumulated moments equal the exact discrete weighted sums to round-off; carry reproduces a continuous run.",
         "verdict": "met"
       },
@@ -400,6 +400,21 @@
         "verdict": "met"
       },
       "limitations": "Zero flow and uniform grids; the thresholds are recorded, not yet gated in CI.",
+      "artifacts": []
+    },
+    {
+      "id": "asset-store-local-2026-09-21",
+      "question": "Do the workspace input import modes, content-addressed asset reuse, all-or-nothing publication and run materialization behave as documented on a local filesystem?",
+      "date": "2026-09-21",
+      "commit": "15bbad3 (capability-review temporary commit) plus the uncommitted working tree of 2026-09-21",
+      "environment": "Local WSL2 workstation, ext4 working tree, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build with MPICH; rclone 1.63.1 with a local-path remote; 1 rank",
+      "configuration": "A fresh flat_channel workspace. A 43,208-byte PETSc Ucat field imported as initial-condition in each of copy, reflink, hardlink and reference mode, then used as a file initial condition in `picurv precompute --only initial-condition` twice per import. One byte of the shared source then changed and the hardlink and reference imports were precomputed again. All-or-nothing: one invocation with a grid_gen box grid (valid) and an ic_gen expression calling an undocumented function. A two-step solve with the grid_gen grid and a valid ic_gen field. `picurv storage prune --assets --unused-locally --dry-run` against a local-path rclone remote with no workspace archive.",
+      "result": {
+        "measured": "copy, hardlink and reference registered with the source checksum; hardlink shared the source inode. reflink failed with cp's 'Operation not supported', leaving no temporary file and no catalog record. A second precompute reused the same object. The same bytes under three import names built three objects, because the provider settings include the input path. After the source changed, the hardlink and reference imports each built a new object; the reference was used without a warning, since its registration checksum is recorded but not compared. The grid-plus-broken-IC invocation exited 1 on the ic.gen error, published nothing, and removed its temporary build directory. The solve completed and its manifest pinned the grid and initial-condition objects it used. Prune reported every object blocked - none had a verified remote copy - and removed nothing.",
+        "threshold": "Each documented behaviour observed as stated; no stale object reused; no partial publication.",
+        "verdict": "met"
+      },
+      "limitations": "Local ext4 only: a successful reflink import, cluster filesystems where reflink and hardlink availability differ, and object accumulation at campaign scale were not exercised. Prune was exercised only to its blocked decision, because removal requires a verified remote workspace archive, which is storage.management's remote-scale question.",
       "artifacts": []
     }
   ]
