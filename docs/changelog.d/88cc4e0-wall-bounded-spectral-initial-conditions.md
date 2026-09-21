@@ -1,3 +1,4 @@
+
 - Added experimental `channel_spectral_velocity` and `duct_spectral_velocity`
   initial-condition generators for Cartesian channels with two no-slip walls and
   rectangular ducts with four no-slip walls. Seeded spectral perturbations use a
