@@ -308,15 +308,16 @@ actually imposed is recoverable after the fact.
 `tests/c/test_boundaries.c`. Integration verified - `tests/test_config_regressions.py`
 exercises all three source types and the face-dimension validation. It is offered by
 `examples/master_template`; no shipped runnable example currently selects it, so
-there is no production-exercised facet. Analytically verified - `duct-poiseuille-picard-2026-09-18`: a generated square-duct profile on a grid_gen grid delivered the requested flux to 1e-9 and was held downstream.
+there is no production-exercised facet. Analytically verified - `duct-poiseuille-picard-2026-09-18`: a generated square-duct profile on a grid_gen grid delivered the requested flux to 1e-9 and was held downstream; `programmatic-inlet-flux-2026-09-18` measured the flux excess on `programmatic_c` grids that the 2026-09-21 fix below removed, and `programmatic-inlet-flux-fixed-2026-09-21` measured the fixed inlet delivering the requested flux to 1e-9 on uniform and stretched `programmatic_c` grids of 8 and 16 cells across. Unit verified - `tests/test_workspace_lifecycle.py` checks that a generated profile on a stretched `programmatic_c` grid is normalized on its face areas and re-identifies when the grid settings change.
 
 **Limitations.** The profile is steady: it is imposed once and held, with no time
-variation. On a `programmatic_c` grid a `source.type: generated` profile is sampled at
-uniform logical points and normalized to its continuous mean, because no target grid
-exists when it is generated; the flux the inlet then delivers exceeds the requested
-bulk velocity by roughly `2/n` for `n` cells across the face - 12% at 16 cells, 1.5% at
-128. `profile.info` reports it as `discrete_mean_speed`. File and `grid_gen` grids are
-sampled at face centres and normalized by face area, and deliver the requested flux.
+variation. A generated profile is sampled at the target grid's face centres and
+normalized by face area on every grid mode. On `programmatic_c`, which the simulator
+builds itself, the target is the single-block bridge grid written with the solver's own
+node formula, so a multi-block `programmatic_c` case with a generated profile is refused
+at validation. Before 2026-09-21 a `programmatic_c` profile was sampled at uniform
+logical points and normalized to its continuous mean, and the inlet delivered roughly
+`2/n` too much flux for `n` cells across - 12% at 16 cells.
 
 @subsection p44_cap_conservation_sub conservation
 
@@ -564,14 +565,17 @@ it reads the source `PICGRID` header. Generated dimensional profiles and
 solver-scale `.picslice` is referenced from `bcs.run`.
 
 For `square_duct_poiseuille`, `bulk_velocity` is the target inlet bulk speed.
-When a canonical target `PICGRID` is available, `picurv` evaluates the analytical
-profile at target inlet face centers and rescales it using geometric quad face
-areas so `sum(u * area) / sum(area)` matches `bulk_velocity`. `profile.info`
-records the normalization mode, sampling mode, area-weighted mean before and
-after normalization, total inlet area, face-area range, and discrete sample mean.
-If no target grid is available yet, generation falls back to continuous-area
-normalization on uniform logical sample points. The areas are geometric quad areas
-computed from the target grid coordinates, not the C metric face-area vectors.
+`picurv` evaluates the analytical profile at the target inlet face centers and
+rescales it using geometric quad face areas so `sum(u * area) / sum(area)` matches
+`bulk_velocity`. The target is the grid file for `file`, the generated grid for
+`grid_gen`, and for `programmatic_c` the bridge `PICGRID` built from
+`programmatic_settings` with the formula the solver uses, so its stretching is honoured.
+`profile.info` records the normalization mode, sampling mode, area-weighted mean before
+and after normalization, total inlet area, face-area range, and discrete sample mean.
+Only `profile.gen` run by hand without `--target-grid` falls back to continuous-area
+normalization on uniform logical sample points, and `profile.info` then says so. The
+areas are geometric quad areas computed from the target grid coordinates, not the C
+metric face-area vectors.
 
 Field-sliced profiles reuse an existing Cartesian velocity field as a new inlet:
 

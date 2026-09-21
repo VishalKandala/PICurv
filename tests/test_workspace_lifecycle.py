@@ -3,6 +3,7 @@
 @brief Workspace topology, reusable asset, version, input, and recipe lifecycle tests.
 """
 
+import copy
 import json
 import shutil
 import subprocess
@@ -346,6 +347,59 @@ def test_asset_identity_covers_case_values_the_build_reads(tmp_path):
         rescaled["properties"]["scaling"]["length_ref"]
     ) * 2.0
     assert actions(rescaled)["grid"] == "build"
+
+
+def test_generated_profile_on_a_programmatic_grid_is_normalized_on_its_faces(tmp_path):
+    """!
+    @brief A generated inlet on a programmatic_c grid delivers its bulk velocity exactly.
+    @details The simulator builds a programmatic_c grid itself, so the profile generator
+             used to see no grid: it sampled uniform logical points, normalized to the
+             continuous-area mean, and the inlet delivered about 2/n too much flux
+             (programmatic-inlet-flux-2026-09-18). It now samples the bridge grid, whose
+             settings therefore enter the profile's identity.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return None.
+    """
+    workspace = _write_workspace(tmp_path / "ws")
+    case = yaml.safe_load((FIXTURES / "case.yml").read_text(encoding="utf-8"))
+    case["title"] = "programmatic-profile"
+    case["grid"]["programmatic_settings"]["rys"] = 1.2
+    inlet = next(bc for bc in case["boundary_conditions"] if bc["face"] == "-Zeta")
+    inlet.update({
+        "type": "INLET",
+        "handler": "prescribed_flow",
+        "params": {"source": {
+            "type": "generated",
+            "generator": "square_duct_poiseuille",
+            "params": {"bulk_velocity": 1.0, "n_terms": 31},
+        }},
+    })
+    case_path = workspace / "config" / "case.yml"
+    core.write_yaml_file(str(case_path), case)
+
+    core.precompute_case_assets(str(workspace), case, str(case_path), requested=["inlet-profiles"])
+    infos = list((workspace / "assets" / "objects" / "inlet_profiles").glob(
+        "*/payload/inputs/inlet_profiles/profile.info"))
+    assert len(infos) == 1
+    info = infos[0].read_text(encoding="utf-8")
+    assert "normalization = geometric_area" in info
+    assert "sampling = grid_face_centers" in info
+    realized = next(float(line.split("=", 1)[1]) for line in info.splitlines()
+                    if line.startswith("area_weighted_mean_after_normalization"))
+    assert realized == pytest.approx(1.0, rel=1e-12)
+
+    def profile_identity(cfg):
+        """!
+        @brief Identity of the inlet-profile provider for one case mapping.
+        @param[in] cfg Case mapping.
+        @return The provider's spec hash.
+        """
+        graph = core.build_case_asset_graph(cfg, str(case_path))
+        return next(p["spec_sha256"] for p in graph["providers"] if p["kind"] == "inlet-profiles")
+
+    stretched = copy.deepcopy(case)
+    stretched["grid"]["programmatic_settings"]["rys"] = 1.5
+    assert profile_identity(stretched) != profile_identity(case)
 
 
 def test_asset_identity_follows_the_dependencies_it_declares(tmp_path):

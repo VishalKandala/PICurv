@@ -416,6 +416,21 @@
       },
       "limitations": "Local ext4 only: a successful reflink import, cluster filesystems where reflink and hardlink availability differ, and object accumulation at campaign scale were not exercised. Prune was exercised only to its blocked decision, because removal requires a verified remote workspace archive, which is storage.management's remote-scale question.",
       "artifacts": []
+    },
+    {
+      "id": "programmatic-inlet-flux-fixed-2026-09-21",
+      "question": "After the fix, does a generated square_duct_poiseuille inlet deliver the requested bulk velocity on programmatic_c grids, uniform and stretched?",
+      "date": "2026-09-21",
+      "commit": "1800217 (capability-review) plus the uncommitted fix routing programmatic_c generated profiles through the bridge PICGRID",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build with MPICH; local mpiexec; 1 rank",
+      "configuration": "flat_channel geometry on programmatic_c: 8 x 8 x 32 and 16 x 16 x 64 cells uniform, and 16 x 16 x 64 with rxs 1.15 and rys 0.9; -Zeta prescribed_flow generated square_duct_poiseuille with bulk velocity 1 and 101 terms; constant initial field; 1 to 3 steps of dt 0.001. Delivered flux read from Continuity_Metrics.log (unit face area) and the normalization from profile.info.",
+      "result": {
+        "measured": "Every case reported normalization geometric_area and sampling grid_face_centers. Delivered flux 0.99999999925 on 8 cells and 1.0000000005 on 16 cells across, against 1.23 and 1.1197 before the fix (programmatic-inlet-flux-2026-09-18); 1.0000000000 on the stretched grid, whose face areas ranged from 3.48e-3 to 4.38e-3.",
+        "threshold": "Delivered flux equal to the requested bulk velocity to the precision of the grid_gen control (1e-9).",
+        "verdict": "met"
+      },
+      "limitations": "Square duct faces only; the downstream development on programmatic_c was not re-measured here because the profile it imposes is the same exact duct solution the grid_gen duct measurement developed. Single-block only: the bridge supports one block, and multi-block domains are refused anyway.",
+      "artifacts": []
     }
   ]
 }

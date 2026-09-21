@@ -1,10 +1,11 @@
-- A local verification campaign measured sixteen subsystems against known answers and
-  promoted them to supported: the Picard and Explicit RK4 momentum solvers, the Poisson
-  solver, periodic boundaries, domain definition, the Eulerian source, initial
-  conditions, particle transport, the grid generator, monitoring, the post-processing
-  pipeline, field statistics, spectra, the verification sources, case templates, and
-  version management. Twenty-six measurement records carry the evidence. The campaign
-  found and fixed the defects below; several change results.
+- A local verification campaign measured seventeen subsystems against known answers
+  and promoted them to supported: boundary conditions, the Picard and Explicit RK4
+  momentum solvers, the Poisson solver, periodic boundaries, domain definition, the
+  Eulerian source, initial conditions, particle transport, the grid generator,
+  monitoring, the post-processing pipeline, field statistics, spectra, the verification
+  sources, case templates, and version management. Twenty-eight measurement records
+  carry the evidence. The campaign found and fixed the defects below; several change
+  results.
   - Solution-monitoring means and norms counted both ghost layers, so `mean_speed` read
     1.7% and `mean_ke` 14% high on a periodic box. They now cover physical cells only.
   - Multi-rank `Volume` seeding gave each rank an equal count for an unequal subdomain,
@@ -22,6 +23,12 @@
     now refused. Per-level `max_it`, `rtol` and `atol` reach the level solvers; they were
     emitted without PETSc's `ksp_` prefix and ignored. `poisson_solver.tolerance`, which
     nothing read, is now refused.
+  - A generated `prescribed_flow` inlet on a `programmatic_c` grid delivered roughly
+    `2/n` too much flux for `n` cells across (23% at 8, 12% at 16), because no grid was
+    available to sample: it used uniform logical points and the continuous-area mean. It
+    is now sampled on the bridge grid built from `programmatic_settings` and delivers the
+    requested flux to 1e-9, stretched grids included, and a change to the grid settings
+    rebuilds the profile asset. The boundary conditions subsystem is promoted with it.
   - Explicit RK4 stops at the step that exceeds its stability limit, naming the limit,
     instead of failing later in the Poisson solve with a message about multigrid depth.
     `make smoke` now runs it on a stable step and on an unstable one.

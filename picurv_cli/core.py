@@ -6070,15 +6070,28 @@ def resolve_target_grid_for_field_slice(case_cfg: dict, case_path: str, run_dir:
 
 def resolve_target_grid_for_generated_profile(case_cfg: dict, case_path: str, run_dir: str) -> str:
     """!
-    @brief Resolve an optional target canonical PICGRID for generated profile sampling.
+    @brief Resolve the target canonical PICGRID for generated profile sampling.
+    @details The simulator builds a programmatic_c grid itself, so no grid file exists
+             here. The profile is sampled instead on the bridge PICGRID that a Python
+             initial condition already uses, written with the solver's own node formula.
+             Without a grid the generator could only sample uniform logical points and
+             normalize to the continuous-area mean, which delivered about 2/n too much
+             flux on n cells across (programmatic-inlet-flux-2026-09-18).
     @param[in] case_cfg Parsed current case config.
     @param[in] case_path Current case.yml path.
     @param[in] run_dir Current run/precompute directory.
-    @return Absolute target PICGRID path, or None when no canonical grid is available yet.
+    @return Absolute target PICGRID path.
     """
-    grid_mode = (case_cfg.get("grid", {}) or {}).get("mode")
-    if grid_mode == "programmatic_c":
-        return None
+    grid_cfg = case_cfg.get("grid", {}) or {}
+    if grid_cfg.get("mode") == "programmatic_c":
+        bridge = os.path.abspath(os.path.join(run_dir, "inputs", "grid", "grid.run"))
+        if not os.path.isfile(bridge):
+            scaling = (case_cfg.get("properties", {}) or {}).get("scaling", {}) or {}
+            generate_picgrid_from_programmatic_settings(
+                grid_cfg.get("programmatic_settings", {}), bridge,
+                float(scaling.get("length_ref", 1.0)),
+            )
+        return bridge
     return resolve_target_grid_for_field_slice(case_cfg, case_path, run_dir)
 
 def write_profile_info(config_dir: str, summaries: list) -> str:
@@ -8170,9 +8183,15 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                     errors.append(f"  {case_path}: {resolved_ic['label']} requires uniform programmatic spacing (rxs/rys/rzs: 1.0).")
             except (TypeError, ValueError):
                 pass
-    if grid_mode == 'programmatic_c' and resolved_ic and is_generated_ic_provider(resolved_ic):
+    generated_profile = any(
+        bc.get("handler") == "prescribed_flow"
+        and ((bc.get("params") or {}).get("source") or {}).get("type") == "generated"
+        for block in (prepared_blocks or []) for bc in block
+    )
+    if grid_mode == 'programmatic_c' and (
+            generated_profile or (resolved_ic and is_generated_ic_provider(resolved_ic))):
         try:
-            validate_programmatic_generated_ic_grid_settings(grid_cfg.get('programmatic_settings'))
+            validate_programmatic_bridge_grid_settings(grid_cfg.get('programmatic_settings'))
         except ValueError as e:
             errors.append(f"  {case_path}: {e}")
 
@@ -10954,29 +10973,32 @@ def translate_programmatic_grid_settings(grid_settings: dict) -> dict:
     return translated
 
 
-PROGRAMMATIC_GENERATED_IC_GRID_KEYS = (
+PROGRAMMATIC_BRIDGE_GRID_KEYS = (
     "im", "jm", "km",
     "xMins", "xMaxs", "yMins", "yMaxs", "zMins", "zMaxs",
     "rxs", "rys", "rzs",
 )
 
 
-def validate_programmatic_generated_ic_grid_settings(raw_settings: dict) -> None:
+def validate_programmatic_bridge_grid_settings(raw_settings: dict) -> None:
     """!
-    @brief Validate scalar programmatic grid settings needed by file-generating IC providers.
+    @brief Validate the scalar programmatic grid settings the bridge PICGRID is built from.
+    @details A Python generator - an initial condition or a generated inlet profile - runs
+             as a separate process and reads the programmatic grid from that bridge, which
+             supports one block with scalar settings.
     @param[in] raw_settings programmatic_settings dict from case.yml.
     @throws ValueError when required scalar settings are missing or invalid.
     """
     if not isinstance(raw_settings, dict):
         raise ValueError(
-            "grid.programmatic_settings must be a mapping for a generated initial condition."
+            "grid.programmatic_settings must be a mapping when a Python generator reads the grid."
         )
 
-    missing = [key for key in PROGRAMMATIC_GENERATED_IC_GRID_KEYS if key not in raw_settings]
+    missing = [key for key in PROGRAMMATIC_BRIDGE_GRID_KEYS if key not in raw_settings]
     if missing:
         raise ValueError(
             "grid.programmatic_settings must include "
-            f"{missing} when grid.mode is 'programmatic_c' and the initial condition requires a grid file."
+            f"{missing} when grid.mode is 'programmatic_c' and a Python generator reads the grid."
         )
 
     for key in ("im", "jm", "km"):
@@ -10984,7 +11006,7 @@ def validate_programmatic_generated_ic_grid_settings(raw_settings: dict) -> None
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be a positive scalar integer cell count "
-                "for programmatic_c with a generated initial condition."
+                "when a Python generator reads the programmatic_c grid."
             )
 
     for key in ("xMins", "xMaxs", "yMins", "yMaxs", "zMins", "zMaxs", "rxs", "rys", "rzs"):
@@ -10992,24 +11014,24 @@ def validate_programmatic_generated_ic_grid_settings(raw_settings: dict) -> None
         if isinstance(value, (list, tuple, dict, bool)):
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be a scalar numeric value "
-                "for a generated initial condition."
+                "when a Python generator reads the programmatic_c grid."
             )
         try:
             numeric = float(value)
         except (TypeError, ValueError):
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be a scalar numeric value "
-                "for a generated initial condition."
+                "when a Python generator reads the programmatic_c grid."
             )
         if not math.isfinite(numeric):
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be finite "
-                "for a generated initial condition."
+                "when a Python generator reads the programmatic_c grid."
             )
         if key in {"rxs", "rys", "rzs"} and numeric <= 0.0:
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be positive "
-                "for a generated initial condition."
+                "when a Python generator reads the programmatic_c grid."
             )
 
 
@@ -11023,7 +11045,7 @@ def generate_picgrid_from_programmatic_settings(raw_settings: dict, dest_path: s
     @param[in] L_ref Reference length for nondimensionalization (must be non-zero).
     @return Summary dict: nblk, dims [(IM, JM, KM)], total_nodes.
     """
-    validate_programmatic_generated_ic_grid_settings(raw_settings)
+    validate_programmatic_bridge_grid_settings(raw_settings)
     if L_ref == 0.0:
         raise ValueError("length_ref must be non-zero for programmatic grid generation.")
     IM = int(raw_settings.get("im", 0)) + 1
@@ -15857,11 +15879,16 @@ def build_case_asset_graph(case_cfg: dict, case_path: str) -> dict:
             "viscosity": fluid.get("viscosity"),
             "boundary_conditions": case_cfg.get("boundary_conditions"),
         },
-        # Profile generation dimensionalizes against the same scaling contract.
+        # Profile generation dimensionalizes against the same scaling contract. On a
+        # programmatic_c grid, which is not an asset the profile can depend on, it samples
+        # the bridge built from programmatic_settings, so those settings are read too.
         "inlet-profiles": {
             "length_ref": scaling.get("length_ref"),
             "velocity_ref": scaling.get("velocity_ref"),
             "blocks": domain_blocks,
+            "programmatic_settings": (
+                grid_cfg.get("programmatic_settings") if grid_mode == "programmatic_c" else None
+            ),
         },
     }
 

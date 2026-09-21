@@ -53,7 +53,7 @@
       "conservation": {
         "optional_params": [],
         "required_params": [],
-        "status": "experimental",
+        "status": "supported",
         "types": [
           "OUTLET"
         ]
@@ -78,7 +78,7 @@
           "vy",
           "vz"
         ],
-        "status": "experimental",
+        "status": "supported",
         "types": [
           "INLET"
         ]
@@ -105,7 +105,7 @@
       "noslip": {
         "optional_params": [],
         "required_params": [],
-        "status": "experimental",
+        "status": "supported",
         "types": [
           "WALL"
         ]
@@ -115,7 +115,7 @@
         "required_params": [
           "v_max"
         ],
-        "status": "experimental",
+        "status": "supported",
         "types": [
           "INLET"
         ]
@@ -125,7 +125,7 @@
         "required_params": [
           "source"
         ],
-        "status": "experimental",
+        "status": "supported",
         "types": [
           "INLET"
         ]
@@ -143,13 +143,13 @@
         "maps_to": "INLET",
         "reachability": "reachable",
         "reachable": true,
-        "status": "experimental"
+        "status": "supported"
       },
       "outlet": {
         "maps_to": "OUTLET",
         "reachability": "reachable",
         "reachable": true,
-        "status": "experimental"
+        "status": "supported"
       },
       "periodic": {
         "maps_to": "PERIODIC",
@@ -167,7 +167,7 @@
         "maps_to": "WALL",
         "reachability": "reachable",
         "reachable": true,
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "case.yml -> boundary_conditions[].type",

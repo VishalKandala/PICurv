@@ -51,15 +51,15 @@ Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
 - **Analytical facets rest on single recorded measurements, and none is `reference`.**
-  81 values cite `measurement:` records - 22 distinct ones, taken on 2026-09-18 and
+  81 values cite `measurement:` records - 23 distinct ones, taken on 2026-09-18 and
   2026-09-21 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
   pipe Poiseuille flow, the Poisson options, every initial-condition mode, every
   particle seeding and restart mode, both interpolation methods, the post-processing
   kernels, field statistics, spectra, metric closure on every grid-generator feature,
   and the workspace input import modes. Each record states what it does not establish, and none is gated in CI. Five
   records are cited by no value: the two `not-met` ones (the Q-criterion output
-  placement, since fixed and re-measured, and the generated inlet flux on
-  `programmatic_c` grids, still open), the superseded `inconclusive` drift measurement,
+  placement and the generated inlet flux on `programmatic_c` grids, both since fixed
+  and re-measured), the superseded `inconclusive` drift measurement,
   and the paired drift and scalar-scatter measurements, which verify subsystems with no
   selector value to cite them. No capability has been compared against external
   reference data.

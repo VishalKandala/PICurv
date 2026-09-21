@@ -1907,9 +1907,9 @@
     {
       "id": "boundary.conditions",
       "title": "Boundary Conditions",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
+      "previous_status": "experimental",
       "capability_families": [
         "boundary.handler",
         "boundary.type"
@@ -2004,9 +2004,7 @@
           "anchor": "p44_nondim_sec"
         }
       },
-      "note": "Owns the boundary grammar, the wall, inlet and outlet types, their handlers, and the prescribed-flow inlet sources including profile.gen. The periodic type and the three periodic handlers are co-listed here but owned by boundary.periodic; each value names its owner in capability_families.json. Verified locally: noslip, prescribed_flow and conservation reproduce duct Poiseuille flow at second order (duct-poiseuille-picard-2026-09-18); constant_velocity and parabolic deliver their documented flux and develop into the duct solution (duct-inlet-handlers-2026-09-21, after the parabolic wall-vanishing fix). Open: a generated prescribed_flow profile on a programmatic_c grid delivers about 2/n too much flux, 12% at 16 cells (programmatic-inlet-flux-2026-09-18, not-met); disclosed in the prescribed_flow entry, fix deferred by the owner.",
-      "proposed_status": "supported",
-      "promotion_rationale": "Promote when the prescribed_flow flux error on programmatic grids is resolved: a generated square_duct_poiseuille inlet on a programmatic_c grid delivers about 2/n too much flux (programmatic-inlet-flux-2026-09-18). constant_velocity and parabolic are measured (duct-inlet-handlers-2026-09-21); the owner has deferred the prescribed_flow fix."
+      "note": "Promoted 2026-09-21. Owns the boundary grammar, the wall, inlet and outlet types, their handlers, and the prescribed-flow inlet sources including profile.gen. The periodic type and the three periodic handlers are co-listed here but owned by boundary.periodic; each value names its owner in capability_families.json. Measured: noslip, prescribed_flow and conservation reproduce duct Poiseuille flow at second order (duct-poiseuille-picard-2026-09-18); constant_velocity and parabolic deliver their documented flux and develop into the duct solution (duct-inlet-handlers-2026-09-21, after the parabolic wall-vanishing fix). Found and fixed 2026-09-21: a generated prescribed_flow profile on a programmatic_c grid was sampled at uniform logical points and normalized to its continuous mean, delivering about 2/n too much flux (programmatic-inlet-flux-2026-09-18, not-met); it is now sampled on the bridge PICGRID and delivers the requested flux to 1e-9 (programmatic-inlet-flux-fixed-2026-09-21). The symmetry type stays internal: no public handler supports it."
     },
     {
       "id": "particles.scalar_mixing",

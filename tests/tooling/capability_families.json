@@ -28,7 +28,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "noslip": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "boundary.conditions",
           "evidence": {
@@ -42,7 +42,7 @@
           }
         },
         "constant_velocity": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "boundary.conditions",
           "evidence": {
@@ -58,7 +58,7 @@
           }
         },
         "parabolic": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "boundary.conditions",
           "evidence": {
@@ -71,23 +71,25 @@
           }
         },
         "prescribed_flow": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "boundary.conditions",
           "evidence": {
             "unit": [
-              "make:unit-boundaries"
+              "make:unit-boundaries",
+              "file:tests/test_workspace_lifecycle.py"
             ],
             "integration": [
               "file:tests/test_config_regressions.py"
             ],
             "analytical": [
-              "measurement:duct-poiseuille-picard-2026-09-18"
+              "measurement:duct-poiseuille-picard-2026-09-18",
+              "measurement:programmatic-inlet-flux-fixed-2026-09-21"
             ]
           }
         },
         "conservation": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "boundary.conditions",
           "evidence": {
@@ -170,7 +172,7 @@
       },
       "value_metadata": {
         "wall": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "boundary.conditions",
           "evidence": {
@@ -183,7 +185,7 @@
           }
         },
         "inlet": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "boundary.conditions",
           "evidence": {
@@ -199,7 +201,7 @@
           }
         },
         "outlet": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "boundary.conditions",
           "evidence": {
