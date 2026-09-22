@@ -522,6 +522,7 @@ case_cfg.setdefault("run_control", {})
 case_cfg["run_control"]["total_steps"] = 1
 monitor_cfg["diagnostics"] = {
     "petsc": {
+        "info": {"enabled": True, "classes": ["ksp"]},
         "malloc_debug": True,
         "malloc_dump": True,
         "malloc_view": True,
@@ -577,6 +578,9 @@ PY
   fi
   require_file "${created_run}/logs/PETSc_LogView_Solver.log" "PETSc log view log"
   require_file_contains "${malloc_view_log}" "Memory usage sorted by function" "PETSc malloc view summary"
+  # PETSc opens the -info file before the fresh-run log wipe; the solver must reopen it.
+  require_file "${created_run}/logs/PETSc_Info_Solver.log.0" "PETSc info log"
+  require_file_contains "${created_run}/logs/PETSc_Info_Solver.log.0" "<ksp" "PETSc info records from the solve"
   require_file_contains "${created_run}/logs/PETSc_LogView_Solver.log" "Event Stage" "PETSc log view event table"
   require_file_contains "${created_run}/logs/Runtime_Memory.log" "Process Current MB Max" "runtime memory log header"
   require_file_not_contains "${solver_log}" "Memory corruption" "PETSc malloc debug corruption report"
@@ -1742,6 +1746,76 @@ PY
   done
 }
 
+# Explicit RK4 has no pseudo-time loop to reject a bad step, so both of its outcomes
+# are gated: a stable step must commit finite fields, and a step past the explicit
+# limit must stop naming that limit rather than run on with non-finite fields.
+run_explicit_rk4_smoke() {
+  local case_dir="${tmp_root}/explicit-rk4"
+  local unstable_log="${tmp_root}/explicit_rk4_unstable.log"
+
+  "${picurv_exe}" init flat_channel --dest "${case_dir}" >/dev/null
+  python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" 0.001 3 <<'PY'
+import sys
+import yaml
+
+case_path, solver_path, dt, steps = sys.argv[1:]
+with open(case_path, "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+case_cfg["run_control"].update({"start_step": 0, "total_steps": int(steps), "dt_physical": float(dt)})
+grid = case_cfg["grid"]["programmatic_settings"]
+grid["im"], grid["jm"], grid["km"] = 8, 8, 16
+case_cfg["models"]["physics"]["particles"] = {"count": 0}
+case_cfg["models"]["physics"]["turbulence"] = {"les": False}
+with open(case_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+
+with open(solver_path, "r", encoding="utf-8") as f:
+    solver_cfg = yaml.safe_load(f)
+solver_cfg["strategy"]["momentum_solver"] = "Explicit RK4"
+# Explicit RK4 owns no solver block; a Picard block would be refused, not ignored.
+solver_cfg.pop("momentum_solver", None)
+with open(solver_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(solver_cfg, f, sort_keys=False)
+PY
+  run_case_workflow \
+    "${case_dir}" \
+    "${case_dir}/config/case.yml" \
+    "${case_dir}/config/solver.yml" \
+    "${case_dir}/config/monitor.yml" \
+    "${case_dir}/config/post.yml" \
+    "explicit_rk4"
+  require_file_contains "${LAST_SOLVER_LOG}" "Momentum Equation Solver    : Explicit 4 stage Runge-Kutta" \
+    "Explicit RK4 runtime banner"
+  require_count_ge "${LAST_RUN_DIR}/output/checkpoints" "COMMITTED" 1 "Explicit RK4 committed checkpoints"
+  require_file_not_contains "${LAST_RUN_DIR}/logs/Continuity_Metrics.log" "nan" \
+    "Explicit RK4 finite divergence"
+
+  # dt = 2 is past both the viscous and the convective limit on this grid; the
+  # velocity overflows within two steps.
+  python3 - "${case_dir}/config/case.yml" <<'PY'
+import sys
+import yaml
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+case_cfg["run_control"].update({"total_steps": 5, "dt_physical": 2.0})
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+PY
+  if (
+    cd "${case_dir}"
+    "${picurv_exe}" run --solve -n "${nprocs}" \
+      --case "${case_dir}/config/case.yml" \
+      --solver "${case_dir}/config/solver.yml" \
+      --monitor "${case_dir}/config/monitor.yml" >"${unstable_log}" 2>&1
+  ); then
+    sed -n '1,120p' "${unstable_log}" >&2
+    die "Explicit RK4 past its stability limit completed instead of stopping."
+  fi
+  require_file_contains "${unstable_log}" "exceeds the explicit stability limit" \
+    "Explicit RK4 stability-limit failure message"
+}
+
 run_full_runtime_smoke() {
   local flat_les_case="${tmp_root}/flat-les"
   local bent_case="${tmp_root}/bent"
@@ -2466,6 +2540,8 @@ if [[ "${nprocs}" -gt 1 ]]; then
 else
   echo "==> PICurv smoke: Newton--Krylov flat-channel BDF1 startup"
   run_newton_krylov_flat_channel_startup_smoke
+  echo "==> PICurv smoke: Explicit RK4 stable step and stability-limit stop"
+  run_explicit_rk4_smoke
   echo "==> PICurv smoke: full end-to-end runtime sequences"
   run_full_runtime_smoke
 fi

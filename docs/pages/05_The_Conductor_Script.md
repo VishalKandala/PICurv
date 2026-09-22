@@ -136,7 +136,6 @@ Examples:
 ./picurv_cli/picurv build clean-project
 ./picurv_cli/picurv build SYSTEM=cluster
 ./picurv_cli/picurv build postprocessor
-./my_case/picurv build clean-project
 make audit-build
 ```
 
@@ -174,7 +173,11 @@ Make variables and options after the version reach `make` exactly as they do for
 ```bash
 picurv versions install 0.1.0 SYSTEM=cluster
 picurv versions activate SYSTEM=cluster        # version from the workspace pin
+picurv versions activate -- -j8                # version from the pin, options to make
 ```
+
+With no version, the first word after `activate` may be a make assignment or, after
+`--`, a make option; neither is a tag or commit, so it goes to `make` rather than to Git.
 
 A make target is refused, because the install verifies the default build. Success is
 reported only after `simulator` and `postprocessor` report the identity of the commit
@@ -199,6 +202,12 @@ on a version pin:
 - **Development and version-switching share one tree.** `activate` refuses a dirty
   checkout, so uncommitted work must be committed or stashed first.
 
+These commands are tested in `tests/test_workspace_lifecycle.py` against real Git
+repositories and stubbed builds: `source update` against a live origin and an
+unreachable remote, `versions list` ordering, `install` and `activate` argument
+routing, and the refusal of a build that does not carry the new identity. Rebuilding a
+real release is not part of the suite.
+
 Both `versions activate` and a failed workspace version check name the installation
 they would change, so the effect is stated rather than discovered. If you need
 concurrent releases — several people on one filesystem, or reproducing a published
@@ -210,13 +219,18 @@ normally use the active installation and the version commands instead of copying
 executables into every case.
 
 `sync-config` refreshes files from `examples/<template_name>/` into the case directory.
-By default it preserves user-modified files and only copies missing files:
+It compares against the template as `init` lays it out - canonical `<workspace>/config/` names,
+variants under `<workspace>/config/variants/`, rewritten paths - so each case file is matched with
+the template file it was made from. By default it preserves user-modified files and only
+copies missing files:
 
 ```bash
-./my_case/picurv sync-config
-./my_case/picurv sync-config --overwrite
-./my_case/picurv sync-config --prune
+picurv sync-config --case-dir my_case
+picurv sync-config --case-dir my_case --overwrite
+picurv sync-config --case-dir my_case --prune
 ```
+
+Run from inside the workspace, `--case-dir` can be omitted.
 
 `--prune` is conservative: it removes only files previously recorded as template-managed
 that no longer exist in the source template. User-created case files are not pruned.
@@ -229,22 +243,29 @@ refuses a checkout detached by `versions install` or `versions activate`: restor
 commit after the pull would leave the code that runs unchanged while the branches moved.
 
 ```bash
-./my_case/picurv pull-source
-./my_case/picurv pull-source --current-branch-only
-./my_case/picurv pull-source --no-rebase
-./my_case/picurv pull-source --remote origin --branch main
+picurv pull-source --case-dir my_case
+picurv pull-source --case-dir my_case --current-branch-only
+picurv pull-source --case-dir my_case --no-rebase
+picurv pull-source --case-dir my_case --remote origin --branch main
 ```
 
 `status-source` inspects source commit drift, copied binary drift, and template-file drift
-before you decide what to sync:
+before you decide what to sync. Template files are compared the same way `sync-config`
+compares them, so a file reported modified is one `sync-config` would skip:
 
 ```bash
-./my_case/picurv status-source
-./my_case/picurv status-source --format json
+picurv status-source --case-dir my_case
+picurv status-source --case-dir my_case --format json
 ```
 
 For older cases that do not yet have `.picurv-origin.json`, pass `--source-root /path/to/PICurv`.
 For `sync-config`, also pass `--template-name <example_name>` if the template cannot be inferred.
+
+`init`, `sync-config` and `status-source` are tested in `tests/test_case_maintenance.py`,
+and `make smoke` initializes, validates and dry-runs every shipped template. On a fresh
+`flat_channel` workspace with one edited `<workspace>/config/solver.yml`, `status-source` reported
+exactly that file modified and none missing, `sync-config` skipped it and left the case
+root unchanged, and `sync-config --overwrite` restored it in place.
 
 `status-source --format json` payload highlights:
 
@@ -338,7 +359,7 @@ Post-only continuation examples:
 
 - If the solver has only written source data through step `420`, PICurv launches only the fully available prefix in the requested stride. A later `--continue` run picks up the newer steps after the solver produces them.
 - If the same recipe already post-processed the requested window, PICurv skips the launch and reports that the run is already caught up.
-- If you change the recipe itself, for example by adding `Qcrit` or changing the statistics output prefix, PICurv treats that as a new recipe lineage and starts again from the configured `start_step`.
+- If you change the recipe itself, for example by adding `Qcrit_nodal` or changing the statistics output prefix, PICurv treats that as a new recipe lineage and starts again from the configured `start_step`.
 - PICurv allows only one post writer per run directory. If a second post job targets the same run, it is refused immediately instead of racing on `<run.visualization>/` or the statistics output beneath it.
 
 Graceful shutdown note:
@@ -429,7 +450,7 @@ Typical sources:
 - `<run.runtime_logs>/solution_convergence.log` (mode-specific speed/KE drift and L2 norms)
 - `<run.runtime_logs>/Profiling_Timestep_Summary.csv` when enabled
 - `<run.runtime_logs>/Runtime_Memory.log` when `monitor.diagnostics.runtime_memory_log.enabled` is true
-- `<run.runtime_logs>/les_coefficient.csv` when `case.yml -> models.physics.turbulence.les.diagnostics.enabled` is true; the `les.*` series carry the effective coefficient, its spread, eddy-viscosity levels, the modelled subgrid energy, and the pre-clipping backscattering and limited fractions
+- `<run.analysis.metrics>/les_coefficient.csv` when `case.yml -> models.physics.turbulence.les.diagnostics.enabled` is true; the `les.*` series carry the effective coefficient, its spread, eddy-viscosity levels, the modelled subgrid energy, and the pre-clipping backscattering and limited fractions
 - `<run.runtime_logs>/PETSc_*_Solver.log` / `<run.runtime_logs>/PETSc_*_PostProcessor.log` when file-backed PETSc diagnostics are enabled
 - `<run.scheduler>/*_solver.log` or `<run.scheduler>/solver_*.out` for sampled particle snapshot previews
 
@@ -906,6 +927,11 @@ make all                                                         # safe: the run
 
 @htmlinclude generated/capability_inventory_workspace_input_import_mode.html
 
+Every mode below is experimental: the workspace asset store has been exercised locally
+(`asset-store-local-2026-09-21`) but not on the cluster filesystems where reflink and
+hardlink availability are decided, nor at the scale where object accumulation and
+remote-backed pruning start to matter.
+
 @subsection p05_cap_input_mode_copy_sub copy
 
 @anchor p05_cap_input_mode_copy
@@ -928,7 +954,8 @@ an asset derived from it.
 or missing source fails before the catalog changes.
 
 **Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` checks the copied
-bytes and catalog entry.
+bytes and catalog entry. Integration verified - `asset-store-local-2026-09-21`: a copied
+field became an initial-condition object that a second precompute reused unchanged.
 
 **Limitations.** Uses additional disk space equal to the imported file.
 
@@ -953,8 +980,10 @@ the filesystem reports that reflinks are unsupported.
 **Diagnostics.** The import fails with the native copy error if reflink creation is
 unavailable and writes no catalog record.
 
-**Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` verifies the mode is
-part of the public parser and catalog contract.
+**Evidence.** Integration verified - `asset-store-local-2026-09-21`: on a filesystem
+without reflink support the import failed with `cp`'s "Operation not supported", left no
+temporary file, and wrote no catalog record. A successful reflink import has not been
+exercised; that needs a filesystem that supports it.
 
 **Limitations.** Experimental across cluster filesystems; support depends on the local
 `cp` and filesystem.
@@ -979,8 +1008,10 @@ changed provider input and prevent stale object reuse, but cannot undo the mutat
 **Diagnostics.** Cross-filesystem or permission failures are reported before the
 catalog changes.
 
-**Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` verifies the mode is
-part of the public parser and catalog contract.
+**Evidence.** Integration verified - `asset-store-local-2026-09-21`: the imported path
+shares the source's inode, the catalog records the source checksum, and after one byte
+of the shared file changed the next precompute built a new object rather than reusing
+the old one.
 
 **Limitations.** Experimental because shared-inode ownership is easy to misuse and it
 cannot cross filesystems.
@@ -999,14 +1030,19 @@ externally owned. Choose `copy` when the workspace or storage archive must be po
 
 **Parameters it owns.** Optional `--name` names the reference record.
 
-**Interactions.** Resolution checks the target loudly. Storage records the dependency
-but neither archives nor prunes the external file.
+**Interactions.** Resolution fails loudly when the target is missing. A target whose
+bytes changed since registration is used as it now is: its current checksum selects a
+new asset object, so nothing stale is reused, but no warning is printed and the
+registration checksum is not compared. Storage records the dependency but neither
+archives nor prunes the external file.
 
 **Diagnostics.** Registration prints an external-reference warning; missing targets
 fail when registered or consumed.
 
 **Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` checks reference
-content and catalog identity.
+content and catalog identity. Integration verified - `asset-store-local-2026-09-21`:
+a reference import fed a solver run, and changing one byte of its target built a new
+object.
 
 **Limitations.** Restoring the workspace cannot restore an external target; its owner
 must make the same path available or the reference must be replaced.
@@ -1047,7 +1083,6 @@ Full semantics, retention model, and rclone configuration are documented in
 
 - Config contract: **@subpage 14_Config_Contract**
 - User workflows: **@subpage 11_User_How_To_Guides**
-- Extensibility: **@subpage 17_Workflow_Extensibility**
 - First-run path: **@subpage 02_Tutorial_Programmatic_Grid**
 - Grid generator details: **@subpage 48_Grid_Generator_Guide**
 - Modular examples and recipes: **@subpage 49_Workflow_Recipes_and_Config_Cookbook**

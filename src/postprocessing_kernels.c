@@ -102,20 +102,16 @@ PetscErrorCode DimensionalizeAllLoadedFields(UserCtx *user)
     PROFILE_FUNCTION_BEGIN;
 
     LOG(GLOBAL, LOG_INFO, "--- Converting all loaded fields to dimensional units ---\n");
+    (void)simCtx;
 
-    // Scale the grid itself first
-    ierr = DimensionalizeField(user, "Coordinates"); CHKERRQ(ierr);
-
-    // Scale primary fluid fields
+    /* Only the fields reloaded every step are scaled here. The grid coordinates persist
+       across steps, so scaling them in this per-step pipeline multiplied them by L_ref
+       once per processed step; the postprocessor scales them once, before its loop.
+       Particle fields are loaded after this pipeline runs, so they are scaled where they
+       are read (see RunPostProcessor). */
     ierr = DimensionalizeField(user, "Ucat"); CHKERRQ(ierr);
     ierr = DimensionalizeField(user, "Ucont"); CHKERRQ(ierr);
     ierr = DimensionalizeField(user, "P"); CHKERRQ(ierr);
-
-    // If particles are present, scale their fields
-    if (simCtx->np > 0 && user->swarm) {
-        ierr = DimensionalizeField(user, "ParticlePosition"); CHKERRQ(ierr);
-        ierr = DimensionalizeField(user, "ParticleVelocity"); CHKERRQ(ierr);
-    }
 
     LOG(GLOBAL, LOG_INFO, "--- Field dimensionalization complete ---\n");
 
@@ -243,6 +239,7 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
     if (strcasecmp(in_field_name, "P") == 0)             { in_vec_local = user->lP;         dm_in = user->da;   dof = 1; }
     else if (strcasecmp(in_field_name, "Ucat") == 0)    { in_vec_local = user->lUcat;      dm_in = user->fda;  dof = 3; }
     else if (strcasecmp(in_field_name, "Psi") == 0)     { in_vec_local = user->lPsi;       dm_in = user->da;   dof = 1; }
+    else if (strcasecmp(in_field_name, "Qcrit") == 0)   { in_vec_local = user->lQcrit;     dm_in = user->da;   dof = 1; }
     /* The staging pair carries derived statistics, which are config-counted and so
      * cannot be named by a compile-time member of their own. */
     else if (strcasecmp(in_field_name, "PostScalar") == 0) { in_vec_local = user->lPostScalar; dm_in = user->da;  dof = 1; }
@@ -253,6 +250,7 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
     if (strcasecmp(out_field_name, "P_nodal") == 0)      { out_vec_global = user->P_nodal;    dm_out = user->da; }
     else if (strcasecmp(out_field_name, "Ucat_nodal") == 0) { out_vec_global = user->Ucat_nodal; dm_out = user->fda; }
     else if (strcasecmp(out_field_name, "Psi_nodal") == 0)   { out_vec_global = user->Psi_nodal;  dm_out = user->da; }
+    else if (strcasecmp(out_field_name, "Qcrit_nodal") == 0) { out_vec_global = user->Qcrit_nodal; dm_out = user->da; }
     else if (strcasecmp(out_field_name, "PostScalarNodal") == 0) { out_vec_global = user->PostScalarNodal; dm_out = user->da; }
     else if (strcasecmp(out_field_name, "PostVectorNodal") == 0) { out_vec_global = user->PostVectorNodal; dm_out = user->fda; }
     // ... (add other fields as needed) ...
@@ -589,6 +587,17 @@ PetscErrorCode ComputeQCriterion(UserCtx* user)
     ierr = DMDAVecRestoreArrayRead(user->da,  user->lAj,    (void*)&laj);     CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da,  user->lNvert, (void*)&lnvert);  CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->da,  user->Qcrit, (void*)&gq);       CHKERRQ(ierr);
+
+    /* With dimensionalize on, Ucat already carries U_ref but the metrics are still
+     * nondimensional, so the gradients above are U_ref/L_ref short of physical by one
+     * factor of L_ref each: Q came out U_ref^2 Q* instead of (U_ref/L_ref)^2 Q*. */
+    if (user->simCtx->pps && user->simCtx->pps->dimensionalize) {
+        PetscReal length_scale = 1.0;
+        if (!PicurvFieldReferenceScale(user->simCtx, "Coordinates", &length_scale, NULL, 0) &&
+            length_scale > 0.0) {
+            ierr = VecScale(user->Qcrit, 1.0 / (length_scale * length_scale)); CHKERRQ(ierr);
+        }
+    }
 
     /* The loop above skips the layout boundary, so extend it before anything reads
      * Qcrit with a stencil. Q is not a moment: it does not vanish at a wall, so only

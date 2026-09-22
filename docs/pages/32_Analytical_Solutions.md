@@ -28,7 +28,9 @@ observed is attributable to the term under test, not to the flow.
 
 **Diagnostics.** The startup banner reports the analytical mode.
 
-**Evidence.** Production exercised - `examples/drift_diffusivity_gradient`.
+**Evidence.** Production exercised - `examples/drift_diffusivity_gradient`. Analytically
+verified - `brownian-msd-2026-09-18`: a Brownian cloud in this field reproduces the
+Einstein relation to 0.17%, so the carrier adds no motion of its own.
 
 **Limitations.** No flow, by construction.
 
@@ -52,7 +54,7 @@ as programmatic ones.
 **Diagnostics.** Startup banner; particle displacement should match velocity times
 elapsed time exactly.
 
-**Evidence.** Production exercised - `examples/drift_uniform_flow`.
+**Evidence.** Production exercised - `examples/drift_uniform_flow`. Analytically verified - `curvilinear-gcl-2026-09-18`: on a curved file grid the face fluxes it sets close to round-off in every cell; `uniform-drift-2026-09-18`: a particle cloud drifts at exactly the carrier velocity.
 
 **Limitations.** Uniform only; no shear, so it exercises no velocity-gradient behaviour.
 
@@ -62,8 +64,13 @@ elapsed time exactly.
 
 **Identity.** `operation_mode.analytical_type: TGV3D` -> `-analytical_type TGV3D`.
 
-**What it does.** Supplies the three-dimensional Taylor-Green vortex, a classical
-analytic solution with a known decay.
+**What it does.** Supplies the Taylor-Green field
+`u = V0 sin x cos y cos z e^{-2 nu t}`, `v = -V0 cos x sin y cos z e^{-2 nu t}`, `w = 0`,
+with pressure decaying as `e^{-4 nu t}`. It is a prescribed kinematic field, not a
+solution of the Navier-Stokes equations: the `cos z` factor makes it a three-dimensional
+mode whose viscous decay would be `e^{-3 nu t}`, and the three-dimensional Taylor-Green
+flow has no closed form. What it offers is a smooth, divergence-free, exactly known field
+at every time.
 
 **When to choose it.** Exercising a genuinely three-dimensional field with strong velocity
 gradients, where a uniform flow would test nothing.
@@ -75,10 +82,14 @@ is not supported on the file-grid path.
 
 **Diagnostics.** Startup banner reports the mode.
 
-**Evidence.** Implemented only. No shipped example selects it.
+**Evidence.** Production exercised - `examples/interpolation_test` uses the TGV3D field
+as the analytic reference for its particle interpolation-error checks. Analytically
+verified - `solution-monitoring-tgv3d-2026-09-18`: the staged velocity and pressure match
+the formula above to 9e-16 and 8e-16 at every step.
 
-**Limitations.** Not available for file-based grids, and no in-tree case establishes its
-correctness.
+**Limitations.** Not available for file-based grids. Use it as a known field for
+interpolation, post-processing, statistics and monitoring checks, never as a reference a
+flow solve should reproduce: a solver started from it will not follow it.
 
 @section p32_activation_sec 3. Activation Path
 
@@ -125,8 +136,7 @@ u_y \sim -\cos(kx)\sin(ky)\cos(kz)e^{-2\nu k^2 t}.
 
 Geometry behavior for `TGV3D` in function @ref SetAnalyticalGridInfo follows:
 
-- single block: full domain assignment,
-- multi-block: requires perfect-square block count for XY decomposition.
+- the whole domain is assigned to the single block,
 - the analytical geometry logic assigns the domain itself; the launcher-side programmatic grid inputs primarily provide resolution (`im/jm/km`)
 
 @section p32_zero_sec 6. ZERO_FLOW Details
@@ -160,7 +170,7 @@ Grid behavior:
 Verification-only source overrides such as `solver.yml -> verification.sources.diffusivity` may be paired with `ZERO_FLOW` when the analytical velocity field itself should remain quiescent.
 Those overrides are not general production modeling features; they exist only for otherwise-unreachable end-to-end verification scenarios.
 
-The same analytical-solutions layer now also owns verification-only scalar truth evaluation for `solver.yml -> verification.sources.scalar`. That scalar path supports `CONSTANT`, `LINEAR_X`, and `SIN_PRODUCT`, writes prescribed truth onto particle `Psi`, and supplies analytical cell-center reference values for the runtime diagnostic `<run.runtime_logs>/scatter_metrics.csv`. Keeping scalar truth in `AnalyticalSolutions` makes the feature reusable for future static deposition checks, moving-cloud verification under `UNIFORM_FLOW`, and coupled flow-plus-scatter diagnostics under `TGV3D` without pushing analytical logic into `ParticlePhysics`.
+The same analytical-solutions layer now also owns verification-only scalar truth evaluation for `solver.yml -> verification.sources.scalar`. That scalar path supports `CONSTANT`, `LINEAR_X`, and `SIN_PRODUCT`, writes prescribed truth onto particle `Psi`, and supplies analytical cell-center reference values for the runtime diagnostic `<run.analysis.metrics>/scatter_metrics.csv`. Keeping scalar truth in `AnalyticalSolutions` makes the feature reusable for future static deposition checks, moving-cloud verification under `UNIFORM_FLOW`, and coupled flow-plus-scatter diagnostics under `TGV3D` without pushing analytical logic into `ParticlePhysics`.
 
 @section p32_particles_sec 8. Particle Consistency
 

@@ -58,7 +58,7 @@ Cell sizes: dx = dy ~ 0.196, dz ~ 0.020.
 ```
 
 Output files:
-- `<run.runtime_logs>/interpolation_error.csv` -- per-step error statistics
+- `<run.analysis.metrics>/interpolation_error.csv` -- per-step error statistics
 - `<run.visualization>/Particle_*.vtp` -- particle positions and velocities for ParaView
 
 ---
@@ -103,7 +103,7 @@ Example local command:
 
 After each run, compare:
 
-- `<run.runtime_logs>/interpolation_error.csv`
+- `<run.analysis.metrics>/interpolation_error.csv`
 - max `L2_u`, `L2_v`, `Linf_u`, `Linf_v`
 - optional wall-clock/runtime usage from solver logs or scheduler accounting
 
@@ -117,7 +117,7 @@ aggregate comparison table, use the provided:
 
 - `particle_count_study.yml`
 
-This study uses explicit CSV metrics from `<run.runtime_logs>/interpolation_error.csv` rather
+This study uses explicit CSV metrics from `<run.analysis.metrics>/interpolation_error.csv` rather
 than the default `msd_final` shorthand.
 
 Stage the study without submitting jobs:
@@ -147,7 +147,7 @@ What to inspect before submission:
 What to inspect after completion:
 
 - `studies/<study_id>/results/metrics_table.csv` (auto-collected by chained metrics job)
-- per-case `<run.runtime_logs>/interpolation_error.csv`
+- per-case `<run.analysis.metrics>/interpolation_error.csv`
 - scheduler stdout/stderr files for any failed array task
 
 If a case is killed by the walltime guard (common for large particle counts),
@@ -215,28 +215,38 @@ Operational note:
 import numpy as np
 import pandas as pd
 
-df = pd.read_csv("<run_dir>/logs/interpolation_error.csv")
-# Columns include: step, t, L2_u, L2_v, L2_w, Linf_u, Linf_v, Linf_w, ...
+df = pd.read_csv("<run_dir>/output/analysis/metrics/interpolation_error.csv")
+# Columns: step, time, L2_error, Linf_error, L2_analytical, error_pct
 ```
+
+`L2_error` and `L2_analytical` are Euclidean norms over every surviving particle's
+velocity vector, so they scale with the particle count; `error_pct` is their ratio and
+is the number to judge. `Linf_error` is the largest single-component error.
 
 ### Step 2: Check error norms
 
 ```python
-print(f"Max L2 error (u):    {df['L2_u'].max():.6e}")
-print(f"Max L2 error (v):    {df['L2_v'].max():.6e}")
-print(f"Max Linf error (u):  {df['Linf_u'].max():.6e}")
-print(f"Max Linf error (v):  {df['Linf_v'].max():.6e}")
-print(f"Max L2 error (w):    {df['L2_w'].max():.6e}")  # Should be ~0 (w=0 analytically)
+print(f"Max relative L2 error (%): {df['error_pct'].max():.4f}")
+print(f"Max Linf error:            {df['Linf_error'].max():.6e}")
 ```
+
+Particles leave through the walls by Brownian diffusion - the carrier is analytical but
+particle diffusivity `1/(Re*Sc)` is still active, and a wall removes a particle rather
+than reflecting it. In this domain, only `0.2*pi` thick in z, about half the cloud is
+gone by `t = 2`. The error ratio is unaffected; the sample simply shrinks. Set
+`scalar_transport.schmidt_number` very large in the solver profile to keep every
+particle.
 
 ### Step 3: Pass/Fail Criteria
 
 | Metric             | Pass Threshold      | Notes                                          |
 |--------------------|---------------------|-------------------------------------------------|
-| L2 error (u, v)    | < 0.05              | Trilinear on 32^3 for smooth TGV field          |
-| Linf error (u, v)  | < 0.15              | Worst-case near cell corners                    |
-| L2 error (w)       | ~ 0 (< 1e-10)       | w = 0 analytically; any nonzero is a bug        |
-| Error stability     | Non-growing         | Error should not diverge over the run           |
+| `error_pct`        | < 5                 | Trilinear on 32^3 for smooth TGV field          |
+| `Linf_error`       | < 0.15              | Worst-case near cell corners                    |
+| Error stability    | Non-growing         | Error should not diverge over the run           |
+
+A 32^3 run on 2026-09-18 measured `error_pct` 0.66-0.68 and `Linf_error` 0.009-0.012
+across 200 steps.
 
 ---
 
@@ -246,7 +256,7 @@ print(f"Max L2 error (w):    {df['L2_w'].max():.6e}")  # Should be ~0 (w=0 analy
 - Wrong interpolation method: verify `interpolation.method: "Trilinear"` in
   `Analytical-TGV.yml`. The legacy `CornerAveraged` method is first-order and
   will show larger error.
-- Grid too coarse: at 16^3, errors roughly double due to second-order convergence.
+- Grid too coarse: at 16^3, errors roughly quadruple due to second-order convergence.
 
 ### Linf error spikes
 - Particles near domain walls may see boundary artefacts. TGV3D velocity is

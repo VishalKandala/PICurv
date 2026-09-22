@@ -91,20 +91,27 @@ and Newton-Krylov controls are rejected for it rather than ignored.
 
 **Interactions.** Stability is governed by the physical timestep alone, so it is the
 solver most sensitive to grid refinement. The Poisson solve and boundary treatment
-are unchanged.
+are unchanged, and the driven periodic flux controller settles to the same law as
+under Picard (@ref p54_driven_limits_sub).
 
-**Diagnostics.** The startup banner names the solver and reports that no pseudo-time
-controller is active. Divergence shows as growing velocity magnitudes within a few
-steps rather than as a failed iteration count.
+**Diagnostics.** The startup banner names the solver as
+`Explicit 4 stage Runge-Kutta`. A step beyond the stability limit stops the run at the
+step it occurs, naming the explicit stability limit and the approximate viscous bound
+`dt < 2.8 / (4 nu (1/dx^2 + 1/dy^2 + 1/dz^2))`; it no longer surfaces later as a Poisson
+failure blamed on the multigrid depth.
 
-**Evidence.** Implemented only. `make unit-solver` covers input validation on this
-path but not a positive-path solve, and no shipped example selects it. `src/guide.md`
-records "direct positive-path momentum solver harnesses, especially explicit RK" as
-an open coverage gap; treat this as an evidence gap rather than a verified solver.
+**Evidence.** Integration verified - `make smoke` runs a stable flat-channel step and
+a step past the limit, and asserts the second stops with the stability message.
+Analytically verified - `explicit-rk4-order-2026-09-21`: on the two-dimensional
+Taylor-Green vortex, velocity converges at second order in time and space and pressure
+at second order in space; on the driven laminar channel the profile error falls at
+order 1.97 and the bulk velocity matches the controller law to 1e-4.
 
-**Limitations.** Explicit stability limit: there is no mechanism to recover from a
-timestep that is too large, so it is unsuitable for stiff or strongly convective
-cases.
+**Limitations.** No step control: the user must keep `dt` under the viscous and
+convective limits, and a run past them stops rather than recovers. The projection
+splitting limits the temporal order to two for velocity and one for pressure, below
+the four stages' own order. Unsuitable for stiff or strongly convective cases, where
+the stable `dt` is far below what the physics needs.
 
 @subsection p08_cap_dual_time_picard_jameson_rk_sub Dual Time Picard Jameson RK
 
@@ -146,12 +153,22 @@ last accepted state - that message counts **total attempts**, accepted plus reje
 
 **Evidence.** Unit verified - `make unit-solver`. Integration verified -
 `make smoke`. Production exercised in `examples/flat_channel` and
-`examples/bent_channel`.
+`examples/bent_channel`. Analytically verified - `duct-poiseuille-picard-2026-09-18`:
+steady laminar square-duct Poiseuille flow at second order in space;
+`tgv2d-picard-order-2026-09-18`: the two-dimensional Taylor-Green vortex at second order
+in time and space for velocity and pressure; `pipe-poiseuille-curvilinear-2026-09-18`:
+Hagen-Poiseuille flow on a strongly non-orthogonal swept circle at second order;
+`periodic-channel-laminar-picard-2026-09-18`: the driven periodic channel at second
+order, every step converged.
 
 **Limitations and full treatment.** Control law, cadence, and tuning guidance are at
-**@subpage 24_Dual_Time_Picard_Jameson_RK**. Note the periodic wall-bounded convergence
-caveat recorded at @ref p54_driven_limits_sub, which currently requires
-re-characterization.
+**@subpage 24_Dual_Time_Picard_Jameson_RK**. The results hold when every step meets its
+pseudo-time tolerance: the square duct at Re = 100 with `dt = 1` hit the iteration cap
+on every step and finished 18% off in pressure gradient, so read the per-step history
+before trusting a run. Only central differencing has been measured. The periodic
+wall-bounded stall once recorded at @ref p54_driven_limits_sub was re-characterized on
+2026-09-18 and does not reproduce; turbulent periodic channels at production resolution
+remain uncharacterized.
 
 @subsection p08_cap_newton_krylov_sub Newton Krylov
 
@@ -175,9 +192,8 @@ configuration - explicit `type: finite_difference` requires
 `nonlinear_solver` (including `line_search`), and `linear_solver`.
 
 **Interactions.** Supported combinations are finite-difference/matrix-free with either
-no preconditioner or a frozen momentum Jacobian / point-block preconditioner.
-`colored_sparse` and `frozen_momentum_approximation` are rejected because their
-implementations are not present. Raw `petsc_passthrough_options` are applied last, but
+no preconditioner or a frozen momentum Jacobian / point-block preconditioner. Any
+other Jacobian type or finite-difference mode is rejected. Raw `petsc_passthrough_options` are applied last, but
 an incompatible raw `-mom_nk_pc_type` override is rejected by the runtime.
 
 **Diagnostics.** SNES and KSP convergence reasons are reported per step. A
@@ -189,7 +205,8 @@ configuration error.
 `make unit-momentum-newton-boundary-fixedpoint` on a production-sized straight duct.
 
 **Limitations and full treatment.** **@subpage 55_Newton_Krylov_Momentum_Solver**
-carries the scope limits, preconditioner findings, and tuning guidance.
+carries the scope limits, preconditioner findings, and tuning guidance. Experimental until the solver has been run at the problem sizes a production
+claim implies.
 
 @subsection p08_cap_dual_time_picard_rk4_sub Dual Time Picard RK4 (deprecated)
 
@@ -238,8 +255,10 @@ this source only.
 
 **Diagnostics.** Per-step momentum and Poisson convergence logs under `<run.runtime_logs>/`.
 
-**Evidence.** Production exercised - `examples/flat_channel` runs this source; the
-solver paths it drives carry their own evidence at @ref p08_entries_sec.
+**Evidence.** Production exercised - `examples/flat_channel` runs this source.
+Analytically verified - `tgv2d-picard-order-2026-09-18` and
+`duct-poiseuille-picard-2026-09-18` measure the solves it drives; the solver paths carry
+their full evidence at @ref p08_entries_sec.
 
 **Limitations.** Cost scales with the flow solve; the other two sources are far cheaper
 when the flow field is not the object of study.
@@ -251,8 +270,9 @@ when the flow field is not the object of study.
 **Identity.** `operation_mode.eulerian_source: load` -> fields are read from previously
 written output rather than evolved.
 
-**What it does.** Loads Eulerian state from an existing run's checkpoints and holds it,
-so downstream stages see a fixed field.
+**What it does.** Replays Eulerian state from an existing run's checkpoints: at each
+step it reads the committed checkpoint of that same step, so downstream stages - particle
+transport above all - see the stored sequence rather than a recomputed one.
 
 **When to choose it.** Post-processing an existing solution, or transporting particles
 through a stored field without recomputing it.
@@ -261,13 +281,20 @@ through a stored field without recomputing it.
 field.
 
 **Interactions.** The stored field must match the configured grid. Solver tolerances and
-momentum selection have no effect.
+momentum selection have no effect. Because every step reads its own checkpoint, the
+source run needs a committed checkpoint at every step the replay serves: write it with
+`io.data_output_frequency: 1` over that span.
 
 **Diagnostics.** Startup reports the resolved source directory and the step loaded.
 
-**Evidence.** Implemented only.
+**Evidence.** Regression verified - `make smoke` restarts the flat-channel particle case
+with `eulerian_field_source: load` in its restart-variant sequence. Analytically
+verified - `eulerian-source-domain-modes-2026-09-21`: a five-step replay reproduced
+every stored step bitwise, step 0 to 2e-15.
 
-**Limitations.** No time evolution of the Eulerian state; the field is what was stored.
+**Limitations.** No time evolution of the Eulerian state; the field is what was stored,
+at the cadence it was stored. A source written at a coarser cadence cannot be replayed
+step by step.
 
 @subsection p08_cap_src_analytical_sub analytical
 
@@ -290,6 +317,9 @@ is why the particle verification examples use it.
 
 **Evidence.** Production exercised - `examples/drift_uniform_flow` runs this source; the
 verification examples that rely on it are catalogued in **@subpage 65_Example_Catalog**.
+Analytically verified - `solution-monitoring-tgv3d-2026-09-18`: the TGV3D velocity and
+pressure match the closed form to 9e-16 at every step; `uniform-drift-2026-09-18`: a cloud
+in `UNIFORM_FLOW` drifts at exactly the carrier velocity.
 
 **Limitations.** Only the shipped analytical forms are available; there is no
 user-supplied expression path.
@@ -305,7 +335,8 @@ user-supplied expression path.
 particle position.
 
 **When to choose it.** The default, and the right choice unless you are reproducing
-legacy behaviour. It is second-order on curvilinear grids.
+legacy behaviour. It interpolates in the cell's own logical coordinates, so the same
+scheme applies on curvilinear grids; its measured order, 1.97, is from a uniform grid.
 
 **Parameters it owns.** None.
 
@@ -316,7 +347,7 @@ settle step establishes.
 `interpolation_test` example.
 
 **Evidence.** Production exercised - `examples/interpolation_test` runs this path; see
-@ref p65_verify_sec for what that case establishes.
+@ref p65_verify_sec for what that case establishes. Analytically verified - `tgv-interpolation-2026-09-18`: 0.67% relative error against the TGV3D field on the shipped 32^3 grid; `interpolation-methods-tgv-2026-09-21`: 2.63% and 0.669% on 16^3 and 32^3, order 1.97.
 
 **Limitations.** Accuracy degrades on strongly distorted cells, as any trilinear scheme
 does.
@@ -340,35 +371,49 @@ smooths the field the particle sees.
 
 **Diagnostics.** As above.
 
-**Evidence.** Implemented only.
+**Evidence.** Regression verified - `make smoke` runs a flat-channel particle case with
+`CornerAveraged` and asserts the runtime banner reports it. Analytically verified -
+`interpolation-methods-tgv-2026-09-21`: relative L2 error 7.99% and 2.49% on 16^3 and
+32^3 against the TGV3D field, order 1.68, and maximum error order 0.96 - three to four
+times the Trilinear error at the same resolution.
 
 **Limitations.** The additional averaging is diffusive, and it is retained for
-compatibility rather than accuracy.
+compatibility rather than accuracy. It is below second order even on a uniform Cartesian
+grid: the corner average smooths the field before the trilinear step sees it, and the
+maximum error converges at first order.
 
 @subsection p08_cap_conv_steady_deterministic_sub steady_deterministic
 
 @anchor p08_cap_conv_steady_deterministic
 
-**Identity.** `solution_convergence.mode: steady_deterministic` ->
-`-solution_convergence_mode STEADY_DETERMINISTIC` ->
+**Identity.** `monitor.yml -> solution_monitoring.convergence.mode: steady_deterministic`
+-> `-solution_convergence_mode STEADY_DETERMINISTIC` ->
 `SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC`.
 
-**What it does.** Judges the run converged when the solution stops changing between
-physical steps.
+**What it does.** Logs, after every completed step, how much the solution changed since
+the previous step: absolute and relative L2 changes of velocity and of pressure (with its
+mean removed), and the domain-mean speed and kinetic energy with their drift. It judges
+nothing: no tolerance is read and the run is never stopped. Whether the flow has settled
+is read from `<run.runtime_logs>/solution_convergence.log`.
 
 **When to choose it.** Flows that genuinely reach a steady state - laminar channels and
-ducts below their critical Reynolds number.
+ducts below their critical Reynolds number - where a change per step falling toward zero
+is the convergence signal. It is the default.
 
-**Parameters it owns.** The convergence tolerances in the `solution_convergence` block.
+**Parameters it owns.** None; `enabled: false` turns the writer off.
 
-**Interactions.** Meaningless for a flow that never settles; a turbulent case will simply
-never satisfy it.
+**Interactions.** A turbulent case logs changes that never fall; that is the answer, not a
+malfunction. Physical cells only: ghost layers are excluded from every norm and mean.
 
-**Diagnostics.** `<run.runtime_logs>/solution_convergence.log` records the per-step measure.
+**Diagnostics.** The log's `ref` column is 0 on the first logged step, which has no
+previous state to compare with.
 
-**Evidence.** Implemented only.
+**Evidence.** Analytically verified - `solution-monitoring-tgv3d-2026-09-18`: on the
+closed-form TGV3D field every logged drift and mean matched its exact value to 4e-11 in
+all four modes; the same measurement found and fixed means that counted ghost cells.
 
-**Limitations.** Steady-state detection only.
+**Limitations.** Reports change per step, not error: a slowly evolving flow shows a small
+change per step long before it is steady, so read the trend over many steps.
 
 @subsection p08_cap_conv_periodic_deterministic_sub periodic_deterministic
 
@@ -378,20 +423,27 @@ never satisfy it.
 `-solution_convergence_mode PERIODIC_DETERMINISTIC` ->
 `SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC`.
 
-**What it does.** Judges convergence against a repeating cycle rather than a fixed state.
+**What it does.** Compares each step with the state one period earlier at the same phase,
+and logs the same velocity, pressure, speed and energy changes as `steady_deterministic`
+together with the phase index. A cycle that repeats drives the logged change to zero.
 
-**When to choose it.** Flows with a deterministic period - vortex shedding at low
-Reynolds number, or a pulsatile driving condition.
+**When to choose it.** Flows with a known deterministic period in steps - vortex shedding
+at low Reynolds number, or a pulsatile driving condition.
 
-**Parameters it owns.** The same tolerance block, interpreted per cycle.
+**Parameters it owns.** `periodic_deterministic.period_steps`, required and positive: the
+period as a whole number of steps.
 
-**Interactions.** Requires the period to be genuinely deterministic; noise defeats it.
+**Interactions.** Stores one velocity and pressure snapshot per phase, so memory grows
+with `period_steps`. The first period has no reference and logs `ref` 0.
 
-**Diagnostics.** As above.
+**Diagnostics.** The `ph` and `per` columns give the phase and period of each row.
 
-**Evidence.** Implemented only.
+**Evidence.** Analytically verified - `solution-monitoring-tgv3d-2026-09-18`: on the
+closed-form TGV3D field every logged drift and mean matched its exact value to 4e-11 in
+all four modes; the same measurement found and fixed means that counted ghost cells.
 
-**Limitations.** Does not detect quasi-periodic or drifting cycles.
+**Limitations.** The period must be an integer number of steps and known in advance; a
+period that is not, or that drifts, never compares like with like.
 
 @subsection p08_cap_conv_statistical_steady_sub statistical_steady
 
@@ -401,23 +453,28 @@ Reynolds number, or a pulsatile driving condition.
 `-solution_convergence_mode STATISTICAL_STEADY` ->
 `SOLUTION_CONVERGENCE_STATISTICAL_STEADY`.
 
-**What it does.** Judges convergence on running statistics rather than on the
-instantaneous field, which never settles in a turbulent flow.
+**What it does.** Records the domain-mean speed and kinetic energy each step, and logs the
+mean and RMS of each over the latest `window_steps` samples against the same over the
+`window_steps` before them. A statistically steady flow drives those window-to-window
+drifts toward zero while the instantaneous field keeps changing.
 
-**When to choose it.** Turbulence. This is the mode that makes sense for the driven
-periodic campaigns, where the instantaneous field is chaotic but its statistics settle.
+**When to choose it.** Turbulence, where the instantaneous field never settles but its
+bulk statistics do - the driven periodic campaigns, for instance.
 
-**Parameters it owns.** The tolerance block, applied to accumulated statistics.
+**Parameters it owns.** `statistical_steady.window_steps`, required and positive.
 
-**Interactions.** Pairs naturally with **@subpage 58_Field_Statistics**; the averaging
-window must be long enough for the statistics to be meaningful.
+**Interactions.** Independent of **@subpage 58_Field_Statistics**: this mode watches two
+domain-mean scalars, while field statistics accumulate full fields over their own windows.
 
-**Diagnostics.** As above, plus the statistics window reporting.
+**Diagnostics.** Rows before `2 x window_steps` samples exist log `ref` 0.
 
-**Evidence.** Implemented only.
+**Evidence.** Analytically verified - `solution-monitoring-tgv3d-2026-09-18`: on the
+closed-form TGV3D field every logged drift and mean matched its exact value to 4e-11 in
+all four modes; the same measurement found and fixed means that counted ghost cells.
 
-**Limitations.** Convergence of a statistic is not convergence of the flow; a window that
-is too short will appear converged.
+**Limitations.** Watches two domain means only, so a flow whose mean speed and energy have
+settled can still have an unconverged profile. A window short against the flow's
+slowest time scale reads as converged when it is not.
 
 @subsection p08_cap_conv_transient_sub transient
 
@@ -426,21 +483,24 @@ is too short will appear converged.
 **Identity.** `solution_convergence.mode: transient` ->
 `-solution_convergence_mode TRANSIENT`.
 
-**What it does.** Declares that the run is not expected to converge at all, so no
-convergence criterion is applied.
+**What it does.** Logs exactly what `steady_deterministic` logs; only the mode label
+differs, so the log states that no steady state is expected.
 
 **When to choose it.** Decaying turbulence, a startup transient, or any run whose point
 is the evolution rather than an end state.
 
-**Parameters it owns.** None; tolerances are not consulted.
+**Parameters it owns.** None.
 
-**Interactions.** The run ends on its step count rather than on a criterion.
+**Interactions.** Like every mode, it never stops the run; the run ends on its step count.
 
-**Diagnostics.** Convergence logging still records the measure, but nothing acts on it.
+**Diagnostics.** As `steady_deterministic`.
 
-**Evidence.** Implemented only.
+**Evidence.** Analytically verified - `solution-monitoring-tgv3d-2026-09-18`: on the
+closed-form TGV3D field every logged drift and mean matched its exact value to 4e-11 in
+all four modes; the same measurement found and fixed means that counted ghost cells.
 
-**Limitations.** Provides no automatic stopping signal.
+**Limitations.** Adds no measure of its own; choose it to label the run, not to change
+what is computed.
 
 @section p08_tol_sec 5. tolerances
 
@@ -578,8 +638,7 @@ no-preconditioner model. Raw `petsc_passthrough_options` are applied last, but a
 incompatible raw `-mom_nk_pc_type` override is rejected by the runtime.
 The Jacobian block is a strict discriminated configuration: an explicit
 `type: finite_difference` requires `finite_difference.mode: matrix_free`.
-`colored_sparse`, `frozen_momentum_approximation`, and irrelevant sibling
-configuration are rejected because their implementations are not present.
+Any other mode or Jacobian type, and irrelevant sibling configuration, is rejected.
 Advanced SNES, line-search, KSP, GMRES, and PC options that do not have structured
 PICurv fields remain available through `petsc_passthrough_options` with the
 `-mom_nk_` prefix. See PETSc's [SNES manual](https://petsc.org/main/manual/snes/),
@@ -596,11 +655,11 @@ today, which is why it is documented as a parameter rather than as a capability 
 `tests/tooling/family_census.json` records that classification, and the census fails if
 a second value is ever added without a family being registered for it.
 
-The Krylov method under `method`, and the per-level methods under
-`multigrid.level_solvers`, are PETSc `KSP` tokens passed through rather than a closed
-PICurv set - any token PETSc accepts is accepted here. PICurv recognises the Krylov
-subset only to warn when one is configured at `level_0`, which is the coarse solve
-rather than a smoother; see @ref p25_refs_sec.
+The outer Krylov method under `method` is a closed set, `fgmres` or `cg`, entered at
+@ref p08_cap_poisson_sec. The per-level methods under `multigrid.level_solvers` are PETSc
+`KSP` tokens passed through rather than a closed PICurv set - any token PETSc accepts is
+accepted there. PICurv recognises the Krylov subset only to warn when one is configured at
+`level_0`, which is the coarse solve rather than a smoother; see @ref p25_refs_sec.
 
 ```yaml
 poisson_solver:
@@ -635,11 +694,14 @@ poisson_solver:
 ```
 
 Mappings:
-- `method` -> `-ps_ksp_type`
-- `absolute_tolerance` -> `-ps_ksp_atol` and legacy `-poisson_tol`
+- `method` -> `-ps_ksp_type`; `fgmres` (default) or `cg`, which also emits
+  `-ps_ksp_norm_type unpreconditioned` so it stops on the true residual. `gmres`, `lgmres`
+  and `bcgs` are refused: they are not flexible, and the multigrid preconditioner is not a
+  fixed linear operator (see @ref p25_config_sec)
+- `absolute_tolerance` -> `-ps_ksp_atol`
 - `relative_tolerance` -> `-ps_ksp_rtol`
 - `max_iterations` -> `-ps_ksp_max_it`
-- `gmres.restart` -> `-ps_ksp_gmres_restart`; valid only for `gmres`, `fgmres`, or `lgmres`
+- `gmres.restart` -> `-ps_ksp_gmres_restart`; valid only with `method: fgmres`
 - `preconditioner.type` -> `-ps_pc_type`; currently only `multigrid` is supported
 - `multigrid.levels` -> `-mg_level`
 - `multigrid.pre_sweeps` -> `-mg_pre_it`
@@ -647,6 +709,7 @@ Mappings:
 - `multigrid.semi_coarsening.i/j/k` -> `-mg_i_semi/-mg_j_semi/-mg_k_semi`
 - `multigrid.level_solvers.level_N.method` -> `-ps_mg_levels_N_ksp_type` for `N > 0`
 - `multigrid.level_solvers.level_N.preconditioner` -> `-ps_mg_levels_N_pc_type` for `N > 0`
+- `multigrid.level_solvers.level_N.max_it/rtol/atol` -> `-ps_mg_levels_N_ksp_max_it/_ksp_rtol/_ksp_atol` for `N > 0`
 - `multigrid.level_solvers.level_0.*` -> `-ps_mg_coarse_*`; PETSc names the coarsest
   solver separately from the positive levels
 - `multigrid.cycle` and `multigrid.mode` are validated structured keys; current supported values are `v` and `multiplicative`.
@@ -672,6 +735,78 @@ Rules:
 - The current PETSc binding applies one MG smoother count; when `pre_sweeps` and `post_sweeps` differ, PICurv uses the larger value and logs a warning.
 - Advanced PETSc tuning remains available through `petsc_passthrough_options`; common examples include `-ps_mg_levels_N_pc_sor_omega` for SOR and `-ps_mg_levels_N_pc_factor_shift_amount` / `-ps_mg_levels_N_pc_factor_levels` for factor PCs.
 
+@subsection p08_cap_poisson_sec 7.1 Poisson Method Entries
+
+@htmlinclude generated/capability_inventory_poisson_method.html
+
+@subsubsection p08_cap_poisson_fgmres_sub fgmres
+
+@anchor p08_cap_poisson_fgmres
+
+**Identity.** `poisson_solver.method: fgmres` (the default) -> `-ps_ksp_type fgmres` ->
+the outer `KSP` of @ref PoissonSolver_MG.
+
+**What it does.** Flexible GMRES around the multigrid preconditioner. Flexibility lets the
+preconditioner change from one iteration to the next, which is what a multigrid cycle
+with iterative smoothers is, so the residual it tracks is the true residual.
+
+**When to choose it.** Always, unless measured cost says otherwise. It is the verified
+default and the only method that also accepts `gmres.restart`.
+
+**Parameters it owns.** `gmres.restart`, the Krylov restart length.
+
+**Interactions.** Uses the absolute, relative and iteration limits of the block like any
+method. Stopping at `max_iterations` is its normal mode and stays silent; a non-finite
+residual or a failed preconditioner stops the run.
+
+**Diagnostics.** `solver_monitoring.poisson.pic_true_residual` logs tracked and true
+residuals side by side in `Poisson_Solver_Convergence_History_Block_*.log`.
+
+**Evidence.** Unit verified - `make unit-poisson-rhs` solves and projects on a
+three-level hierarchy. Integration verified - `make smoke-driven-periodic` asserts the
+tracked and true residuals agree within 1e-4. Production exercised - every shipped flow
+case, `examples/flat_channel` among them. Analytically verified -
+`duct-poiseuille-picard-2026-09-18`: the analytic duct pressure gradient at second order;
+`poisson-options-2026-09-21`: every multigrid option reproduced this baseline.
+
+**Limitations.** Stores one vector per iteration up to the restart length, so memory
+grows with `gmres.restart`.
+
+@subsubsection p08_cap_poisson_cg_sub cg
+
+@anchor p08_cap_poisson_cg
+
+**Identity.** `poisson_solver.method: cg` -> `-ps_ksp_type cg` and
+`-ps_ksp_norm_type unpreconditioned`.
+
+**What it does.** Conjugate gradients around the multigrid preconditioner, monitoring the
+unpreconditioned residual so that it stops on the true residual rather than on the
+preconditioned one.
+
+**When to choose it.** When the memory of a Krylov basis matters: CG keeps a fixed handful
+of vectors whatever the iteration count. CG assumes a symmetric operator; the discrete
+pressure operator's symmetry on a non-orthogonal grid was not checked, only CG's measured
+convergence there.
+
+**Parameters it owns.** None; `gmres.restart` is refused with it.
+
+**Interactions.** As `fgmres`. CG is not flexible in theory; with this preconditioner it
+held the true residual at 1e-12 or below every step in the measurement below, where
+`gmres`, `lgmres` and `bcgs` did not.
+
+**Diagnostics.** As `fgmres`; watch the true-residual column, which is the norm it stops
+on.
+
+**Evidence.** Unit verified - `tests/test_config_regressions.py` checks that it emits the
+unpreconditioned norm type. Analytically verified - `poisson-options-2026-09-21`: on the
+duct it reproduced the `fgmres` velocity to 7e-15, and on the curved bent-channel grid it
+matched `fgmres` to 4.9e-15 in velocity and 4.9e-14 in pressure with the true residual at
+1e-12 or below every step.
+
+**Limitations.** Measured on one duct and one curved grid, both small; its cost relative
+to `fgmres` was not characterized. On a grid or multigrid configuration the measurement
+did not cover, confirm with `pic_true_residual` that the true residual still falls.
+
 @section p08_solution_conv_sec 8. Physical-solution convergence monitoring
 
 Convergence monitoring is observation policy rather than a numerical solver
@@ -696,7 +831,7 @@ interpolation:
 Mappings:
 - `method` -> `-interpolation_method` (`Trilinear` = `0`, `CornerAveraged` = `1`)
 
-The **Trilinear** method (default) performs direct trilinear interpolation from the 8 nearest cell centers, providing second-order accuracy on both uniform and curvilinear grids. The **CornerAveraged** method is the legacy two-stage path (center-to-corner average, then trilinear from corners), which is second-order only on uniform Cartesian grids.
+The **Trilinear** method (default) performs direct trilinear interpolation from the 8 nearest cell centers; on the TGV3D field it converges at order 1.97. The **CornerAveraged** method is the legacy two-stage path (center-to-corner average, then trilinear from corners); on the same field and a uniform Cartesian grid its L2 error converges at order 1.68 and its maximum error at first order, so it is not second order anywhere measured. See @ref p08_cap_interp_corneraveraged.
 
 See **@subpage 27_Trilinear_Interpolation_and_Projection** for algorithmic details.
 
@@ -706,15 +841,23 @@ See **@subpage 27_Trilinear_Interpolation_and_Projection** for algorithmic detai
 scalar_transport:
   schmidt_number: 1.0
   turbulent_schmidt_number: 0.7
+  iem_constant: 2.0
 ```
 
 Mappings:
 - `schmidt_number` -> `-schmidt_number`
 - `turbulent_schmidt_number` -> `-turb_schmidt_number`
+- `iem_constant` -> `-iem_constant`, the constant `C_IEM` in the IEM mixing rate
+  `Omega = C_IEM Gamma_eff / Delta^2` (@ref p28_iem_sec)
 
 Rules:
-- values must be positive numbers
-- omitted values use the C runtime defaults: `schmidt_number = 1.0` and `turbulent_schmidt_number = 0.7`
+- values must be positive numbers; both configuration validation and the runtime
+  require `iem_constant` to be finite
+- omitted values use the C runtime defaults: `schmidt_number = 1.0`,
+  `turbulent_schmidt_number = 0.7`, and `iem_constant = 2.0`
+- `iem_constant` changes nothing while every particle's `Psi` is zero, which it is
+  unless the verification scalar source prescribes it - and that source bypasses IEM;
+  see @ref p28_iem_sec
 - use this structured block for ordinary scalar/Brownian transport tuning; reserve `petsc_passthrough_options` for flags without a YAML schema
 
 @section p08_verification_sec 11. verification
@@ -756,9 +899,20 @@ Mappings:
 Rules:
 - this path is verification-only and should be used only when no ordinary end-to-end workflow can expose the behavior under test
 - it is only valid with `operation_mode.eulerian_field_source: "analytical"`
-- `verification.sources.scalar` prescribes particle `Psi` from analytical truth and enables the runtime diagnostic `<run.runtime_logs>/scatter_metrics.csv`
+- `verification.sources.scalar` prescribes particle `Psi` from analytical truth and enables the runtime diagnostic `<run.analysis.metrics>/scatter_metrics.csv`
 - scalar profiles currently supported are `CONSTANT`, `LINEAR_X`, and `SIN_PRODUCT`
 - new verification source overrides must be implemented in `include/verification_sources.h` and `src/verification_sources.c`
+
+Evidence:
+- the diffusivity source, `LINEAR_X`, drives the gradient drift that
+  `diffusivity-gradient-drift-paired-2026-09-18` resolved to 1.1% of `a t` with paired
+  seeds;
+- the scalar source's `CONSTANT` profile makes every scatter error term exactly zero, and
+  `SIN_PRODUCT` gives relative L2 errors of 5.2%, 2.6% and 1.3% on 8, 16 and 32 cells per
+  side, the first order a random cell average must show at fixed particles per cell
+  (`scalar-scatter-verification-2026-09-21`, `examples/scatter_verification`);
+- the scalar `LINEAR_X` profile has not been measured, and neither scatter threshold is
+  gated in CI.
 
 @section p08_petsc_sec 12. petsc_passthrough_options
 

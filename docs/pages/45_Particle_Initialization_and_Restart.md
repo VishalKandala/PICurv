@@ -18,6 +18,7 @@ models:
       count: 50000
       init_mode: "Surface"            # Surface | Volume | PointSource | SurfaceEdges
       restart_mode: "init"            # init | load
+      random_seed: 12345              # optional; seeds placement and Brownian draws
       point_source:
         x: 0.5
         y: 0.5
@@ -29,6 +30,7 @@ Mapping to control flags:
 - `count` -> `-numParticles`
 - `init_mode` -> `-pinit`
 - `restart_mode` -> `-particle_restart_mode`
+- `random_seed` -> `-particle_random_seed` (optional; integer `0`..`2147483647`, default `12345`)
 - `point_source` -> `-psrc_x/-psrc_y/-psrc_z` (required when `init_mode` is `PointSource`)
 
 Note: The interpolation method (`Trilinear` / `CornerAveraged`) is configured in `solver.yml`, not `case.yml`. See **@subpage 08_Solver_Reference** and **@subpage 27_Trilinear_Interpolation_and_Projection**.
@@ -75,7 +77,9 @@ was chosen.
 **Diagnostics.** "Inlet face for particle initialization identified as Face N" at
 startup, and the per-step particle count.
 
-**Evidence.** Implemented only.
+**Evidence.** Analytically verified - `particle-seeding-restart-2026-09-21`: 16,000 particles land on the inlet plane
+(within 2.5e-7 of it) and are uniform across it, Kolmogorov-Smirnov statistic 1.05 on one
+rank and 1.00 on two.
 
 **Limitations.** Concentrates particles at one boundary, so interior statistics take time
 to become meaningful.
@@ -94,11 +98,17 @@ mixing, or any case where waiting for particles to arrive from a boundary wastes
 **Parameters it owns.** The particle count.
 
 **Interactions.** Particle density follows the cell distribution, so a graded grid gives a
-non-uniform physical density.
+non-uniform physical density. Across ranks, each rank seeds a share proportional to the
+cells it owns, so the density does not depend on the decomposition.
 
 **Diagnostics.** Per-step particle count and the lost-particle counter.
 
 **Evidence.** Production exercised - `examples/scatter_verification` seeds this way.
+Analytically verified - `particle-seeding-restart-2026-09-21`: uniform on one rank over four seeds (KS at most 1.10,
+pairwise coordinate correlation at most 0.013), and on two and three ranks after the fix
+below (KS at most 0.99, normal per-cell chi-square, particle IDs unique). Before it,
+each rank seeded an equal count into unequal subdomains, 889 against 1143 particles per
+cell layer on two ranks.
 
 **Limitations.** No control over the spatial distribution beyond the grid itself.
 
@@ -122,7 +132,8 @@ immediate particle loss.
 **Diagnostics.** The lost-particle counter is the first signal of a misplaced source.
 
 **Evidence.** Production exercised - `examples/drift_uniform_flow` and
-`examples/brownian_motion` are built on this mode.
+`examples/brownian_motion` are built on this mode. Analytically verified - `particle-seeding-restart-2026-09-21`: every
+particle starts exactly at the source.
 
 **Limitations.** All particles share one origin, so early statistics are highly
 correlated.
@@ -146,7 +157,8 @@ likely to struggle, which is the point.
 
 **Diagnostics.** Search metrics at **@subpage 53_Search_Robustness_Metrics_Reference**.
 
-**Evidence.** Implemented only.
+**Evidence.** Analytically verified - `particle-seeding-restart-2026-09-21`: every particle sits exactly where its
+deterministic lattice formula places it.
 
 **Limitations.** Not a physically motivated distribution.
 
@@ -173,6 +185,8 @@ Mode details:
 
 `Volume` (`1`):
 
+- the global count is split across ranks in proportion to owned cells, by largest
+  remainder, and particle IDs are numbered contiguously across ranks,
 - random logical coordinates inside locally owned cells,
 - mapped to physical space via metric interpolation.
 
@@ -238,8 +252,10 @@ For loaded particles:
 **Diagnostics.** The startup banner reports the resolved particle restart mode and the seeded count. A swarm that seeds at the wrong size shows here, before the first step.
 
 **Evidence.** Integration verified - `make unit-particles` covers the seeding branches.
+Analytically verified - `particle-seeding-restart-2026-09-21`: a restart with `init` reseeded the run's own step-0
+population and advected it by the carrier velocity to 5.5e-16.
 
-**Limitations.** Any statistics accumulated by a previous run's particles are lost, because the particles they described no longer exist.
+**Limitations.** Any statistics accumulated by a previous run's particles are lost, because the particles they described no longer exist. Placement is seeded from `random_seed`, so with the seed unchanged a restart reseeds the same positions the run started with; change the seed for a statistically independent swarm.
 
 @subsection p45_cap_restart_load_sub load
 
@@ -258,8 +274,14 @@ For loaded particles:
 **Diagnostics.** A missing or empty particle group in the checkpoint is a fatal startup error naming the step, not a silent reseed. The restored count is reported in the banner.
 
 **Evidence.** Integration verified - `make unit-particles` covers the restore path.
+Analytically verified - `particle-seeding-restart-2026-09-21`: a 10-step run restarted for 10 more reproduced the
+continuous 20-step swarm bitwise, lost particles included.
 
-**Limitations.** Restart is not bit-exact: boundary conditions are re-applied on load, which introduces a perturbation around 1e-7 regardless of solver tolerance. That is a floor on any claim of trajectory continuity across a restart.
+**Limitations.** The particle state itself restarts exactly, as the evidence shows on an
+analytical carrier. Under a solved flow the Eulerian restart re-applies boundary
+conditions, which perturbs the flow around 1e-7 regardless of solver tolerance, and the
+particles inherit that; it is a floor on any claim of trajectory continuity across a
+solved-flow restart.
 
 @section p45_fields_sec 6. Swarm Fields Initialized at Startup
 

@@ -107,7 +107,7 @@
       <nav class="pic-development-links" aria-label="PICurv development resources">
         <a href="https://github.com/VishalKandala/PICurv/issues"><span><strong>Issues and questions</strong><small>Bugs, numerical questions, missing documentation, custom grids, and Slurm workflows.</small></span><b aria-hidden="true">→</b></a>
         <a href="https://github.com/VishalKandala/PICurv/pulls"><span><strong>Pull requests</strong><small>Concrete solver, verification, and documentation contributions.</small></span><b aria-hidden="true">→</b></a>
-        <a href="57_Future_Architecture_Specifications.html"><span><strong>Future architecture</strong><small>Explicitly labeled experimental and longer-term solver directions.</small></span><b aria-hidden="true">→</b></a>
+        <a href="57_Future_Architecture_Specifications.html"><span><strong>Planned work</strong><small>The one page that describes what is planned, and what must exist before it is accepted.</small></span><b aria-hidden="true">→</b></a>
         <a href="40_Testing_and_Quality_Guide.html"><span><strong>Testing and quality</strong><small>Automated gates used to verify proposed changes.</small></span><b aria-hidden="true">→</b></a>
       </nav>
     </div>

@@ -64,7 +64,6 @@ Most solver-wide state flows through:
 Related ownership note:
 
 - most numerics run at finest level `simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user[*]`
-- multiblock loops (`for bi in block_number`) are common in setup, IO, and update stages
 
 @section p46_init_branches_sec 4. Initialization Branches
 

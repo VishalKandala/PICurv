@@ -3,6 +3,7 @@
 @brief Workspace topology, reusable asset, version, input, and recipe lifecycle tests.
 """
 
+import copy
 import json
 import shutil
 import subprocess
@@ -346,6 +347,59 @@ def test_asset_identity_covers_case_values_the_build_reads(tmp_path):
         rescaled["properties"]["scaling"]["length_ref"]
     ) * 2.0
     assert actions(rescaled)["grid"] == "build"
+
+
+def test_generated_profile_on_a_programmatic_grid_is_normalized_on_its_faces(tmp_path):
+    """!
+    @brief A generated inlet on a programmatic_c grid delivers its bulk velocity exactly.
+    @details The simulator builds a programmatic_c grid itself, so the profile generator
+             used to see no grid: it sampled uniform logical points, normalized to the
+             continuous-area mean, and the inlet delivered about 2/n too much flux
+             (programmatic-inlet-flux-2026-09-18). It now samples the bridge grid, whose
+             settings therefore enter the profile's identity.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return None.
+    """
+    workspace = _write_workspace(tmp_path / "ws")
+    case = yaml.safe_load((FIXTURES / "case.yml").read_text(encoding="utf-8"))
+    case["title"] = "programmatic-profile"
+    case["grid"]["programmatic_settings"]["rys"] = 1.2
+    inlet = next(bc for bc in case["boundary_conditions"] if bc["face"] == "-Zeta")
+    inlet.update({
+        "type": "INLET",
+        "handler": "prescribed_flow",
+        "params": {"source": {
+            "type": "generated",
+            "generator": "square_duct_poiseuille",
+            "params": {"bulk_velocity": 1.0, "n_terms": 31},
+        }},
+    })
+    case_path = workspace / "config" / "case.yml"
+    core.write_yaml_file(str(case_path), case)
+
+    core.precompute_case_assets(str(workspace), case, str(case_path), requested=["inlet-profiles"])
+    infos = list((workspace / "assets" / "objects" / "inlet_profiles").glob(
+        "*/payload/inputs/inlet_profiles/profile.info"))
+    assert len(infos) == 1
+    info = infos[0].read_text(encoding="utf-8")
+    assert "normalization = geometric_area" in info
+    assert "sampling = grid_face_centers" in info
+    realized = next(float(line.split("=", 1)[1]) for line in info.splitlines()
+                    if line.startswith("area_weighted_mean_after_normalization"))
+    assert realized == pytest.approx(1.0, rel=1e-12)
+
+    def profile_identity(cfg):
+        """!
+        @brief Identity of the inlet-profile provider for one case mapping.
+        @param[in] cfg Case mapping.
+        @return The provider's spec hash.
+        """
+        graph = core.build_case_asset_graph(cfg, str(case_path))
+        return next(p["spec_sha256"] for p in graph["providers"] if p["kind"] == "inlet-profiles")
+
+    stretched = copy.deepcopy(case)
+    stretched["grid"]["programmatic_settings"]["rys"] = 1.5
+    assert profile_identity(stretched) != profile_identity(case)
 
 
 def test_asset_identity_follows_the_dependencies_it_declares(tmp_path):
@@ -1036,3 +1090,121 @@ def test_study_members_launch_their_own_pins_through_one_array_script(tmp_path, 
     unpinned = _run_with_initial_config(tmp_path / "case_2")
     with pytest.raises(ValueError, match="disagree"):
         core.resolve_sweep_stage_executables([str(m) for m in members] + [str(unpinned)])
+
+
+def _git(arguments, cwd):
+    """!
+    @brief Run a git command for a version-workflow fixture and fail loudly if it fails.
+    @param[in] arguments Git arguments excluding the executable.
+    @param[in] cwd Working directory.
+    @return Captured standard output.
+    """
+    result = subprocess.run(["git", *arguments], cwd=str(cwd), text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def _source_checkout_with_origin(tmp_path: Path):
+    """!
+    @brief Build a real origin repository, a clone of it, and a second clone that can push.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return Tuple of (checkout the conductor manages, publisher clone).
+    """
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+    for arguments in (["init", "-q"], ["config", "user.email", "tests@example.com"],
+                      ["config", "user.name", "PICurv Tests"], ["add", "."],
+                      ["commit", "-q", "-m", "first"], ["tag", "v1.0.0"]):
+        _git(arguments, seed)
+    origin = tmp_path / "origin.git"
+    _git(["clone", "-q", "--bare", str(seed), str(origin)], tmp_path)
+    checkout = tmp_path / "checkout"
+    publisher = tmp_path / "publisher"
+    for clone in (checkout, publisher):
+        _git(["clone", "-q", str(origin), str(clone)], tmp_path)
+        _git(["config", "user.email", "tests@example.com"], clone)
+        _git(["config", "user.name", "PICurv Tests"], clone)
+    return checkout, publisher
+
+
+def test_source_update_fetches_new_tags_without_moving_the_checkout(tmp_path, monkeypatch, capsys):
+    """!
+    @brief `source update` makes a new release visible and leaves the running code alone.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @param[in] capsys Pytest output-capture fixture.
+    @return None.
+    """
+    checkout, publisher = _source_checkout_with_origin(tmp_path)
+    head_before = _git(["rev-parse", "HEAD"], checkout).strip()
+    (publisher / "VERSION").write_text("1.1.0\n", encoding="utf-8")
+    _git(["commit", "-q", "-am", "second"], publisher)
+    _git(["tag", "v1.1.0"], publisher)
+    _git(["push", "-q", "origin", "HEAD", "--tags"], publisher)
+    monkeypatch.setattr(core, "PACKAGE_PROJECT_ROOT", str(checkout))
+
+    core.source_workflow(build_main_parser().parse_args(["source", "update"]))
+
+    assert "v1.1.0" in _git(["tag", "--list"], checkout).split()
+    assert _git(["rev-parse", "HEAD"], checkout).strip() == head_before
+    assert (checkout / "VERSION").read_text(encoding="utf-8") == "1.0.0\n"
+    assert "active checkout was not changed" in capsys.readouterr().out
+
+
+def test_source_update_reports_an_unreachable_remote(tmp_path, monkeypatch):
+    """!
+    @brief A fetch failure is an error, not a silent no-op.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @return None.
+    """
+    checkout, _ = _source_checkout_with_origin(tmp_path)
+    monkeypatch.setattr(core, "PACKAGE_PROJECT_ROOT", str(checkout))
+    args = build_main_parser().parse_args(["source", "update", "--remote", "nowhere"])
+    with pytest.raises(ValueError):
+        core.source_workflow(args)
+
+
+def test_versions_list_orders_tags_by_version_not_text(tmp_path, monkeypatch, capsys):
+    """!
+    @brief `versions list` names the active build and every tag, newest release first.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @param[in] capsys Pytest output-capture fixture.
+    @return None.
+    """
+    checkout, _ = _source_checkout_with_origin(tmp_path)
+    for tag in ("v1.2.0", "v1.10.0", "v1.9.0"):
+        _git(["tag", tag], checkout)
+    monkeypatch.setattr(core, "PACKAGE_PROJECT_ROOT", str(checkout))
+
+    core.versions_workflow(build_main_parser().parse_args(["versions", "list"]))
+
+    out = capsys.readouterr().out
+    assert out.startswith(f"Active: {core.PICURV_BUILD['build_id']}")
+    listed = [line.strip() for line in out.splitlines() if line.startswith("  ")]
+    assert listed == ["v1.10.0", "v1.9.0", "v1.2.0", "v1.0.0"]
+
+
+def test_versions_activate_reads_a_leading_option_as_a_make_argument(tmp_path, monkeypatch):
+    """!
+    @brief `versions activate -- -j8` keeps the workspace version and passes -j8 to make.
+    @details argparse binds '-j8' to the optional version positional; git then received
+             it as a ref and printed its usage.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @return None.
+    """
+    matching = {name: {"available": True, "matches_source": True, "build_id": "1.2.3+gfedcba987654"}
+                for name in ("simulator", "postprocessor")}
+    recorded = _stub_version_install(monkeypatch, matching)
+    monkeypatch.setattr(core, "_workspace_requested_version", lambda root: "1.2.3")
+    args = build_main_parser().parse_args(
+        ["versions", "activate", "--workspace", str(tmp_path), "--", "-j8"]
+    )
+
+    core.versions_workflow(args)
+
+    assert recorded["make_args"] == ["-j8"]
+    assert ["checkout", "--detach", "v1.2.3"] in recorded["git"]

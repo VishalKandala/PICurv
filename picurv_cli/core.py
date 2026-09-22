@@ -2559,6 +2559,40 @@ def list_template_relative_files(template_dir: str, excluded_rel_paths=None):
     return relative_paths
 
 
+def render_template_workspace(template_dir: str, template_name: str, destination: str) -> dict:
+    """!
+    @brief Render an example template into the canonical workspace layout at a new path.
+    @details This is the one transformation `init` applies to a template: copy it, drop the
+             execution example, then relocate and rewrite its files through
+             organize_initialized_workspace(). `sync-config` and `status-source` render the
+             current template the same way, so all three agree on where each file lives and
+             what it contains.
+    @param[in] template_dir Example template directory to render.
+    @param[in] template_name Example template identity.
+    @param[in] destination Path to render into; it must not exist.
+    @return The layout mapping returned by organize_initialized_workspace().
+    """
+    shutil.copytree(template_dir, destination)
+    copied_runtime_example = os.path.join(destination, RUNTIME_EXECUTION_EXAMPLE_FILENAME)
+    if os.path.isfile(copied_runtime_example):
+        os.remove(copied_runtime_example)
+    return organize_initialized_workspace(destination, template_name, source_template_root=template_dir)
+
+
+def list_rendered_template_files(rendered_root: str) -> list:
+    """!
+    @brief List the template-managed files of a rendered workspace, workspace-relative.
+    @details The workspace identity file is excluded: it records when and where the
+             workspace was created, which is the workspace's own state, not the template's.
+    @param[in] rendered_root Root produced by render_template_workspace().
+    @return Sorted workspace-relative paths.
+    """
+    return sorted(
+        rel for rel in list_template_relative_files(rendered_root)
+        if rel != WORKSPACE_CONFIG_FILENAME
+    )
+
+
 def list_source_binaries(source_project_root: str):
     """!
     @brief List binary artifacts currently available in the source repo bin directory.
@@ -2597,7 +2631,7 @@ def sync_case_binaries(case_dir: str, source_project_root: str):
 
 
 def sync_case_template_files(case_dir: str, template_dir: str, overwrite: bool = False,
-                             prune: bool = False, managed_rel_paths=None):
+                             prune: bool = False, managed_rel_paths=None, template_name: str = None):
     """!
     @brief Sync template files into a case directory, preserving modified files unless overwrite is requested.
     @param[in] case_dir Argument passed to `sync_case_template_files()`.
@@ -2605,12 +2639,17 @@ def sync_case_template_files(case_dir: str, template_dir: str, overwrite: bool =
     @param[in] overwrite Argument passed to `sync_case_template_files()`.
     @param[in] prune Argument passed to `sync_case_template_files()`.
     @param[in] managed_rel_paths Argument passed to `sync_case_template_files()`.
+    @param[in] template_name Template identity; defaults to the template directory name.
     @return Value returned by `sync_case_template_files()`.
+    @details Files are compared with a fresh rendering of the template in the workspace
+             layout `init` creates, so a case file is matched with the template file it
+             was made from, under its workspace name and rewritten contents.
     """
     case_dir_abs = os.path.abspath(case_dir)
     template_dir_abs = os.path.abspath(template_dir)
     if not os.path.isdir(template_dir_abs):
         raise ValueError(f"Template directory not found: {template_dir_abs}")
+    template_name = template_name or os.path.basename(template_dir_abs)
 
     summary = {
         "copied": [],
@@ -2620,20 +2659,12 @@ def sync_case_template_files(case_dir: str, template_dir: str, overwrite: bool =
         "pruned": [],
         "prune_requested_without_tracking": False,
     }
-    excluded_rel_paths = {RUNTIME_EXECUTION_EXAMPLE_FILENAME}
-    current_template_files = list_template_relative_files(
-        template_dir_abs,
-        excluded_rel_paths=excluded_rel_paths,
-    )
-    current_template_set = set(current_template_files)
-
-    for root, _, files in os.walk(template_dir_abs):
-        rel_root = os.path.relpath(root, template_dir_abs)
-        for filename in sorted(files):
-            src_path = os.path.join(root, filename)
-            rel_path = filename if rel_root == "." else os.path.join(rel_root, filename)
-            if rel_path in excluded_rel_paths:
-                continue
+    with tempfile.TemporaryDirectory(prefix="picurv-template-") as scratch:
+        rendered_root = os.path.join(scratch, os.path.basename(case_dir_abs) or "workspace")
+        render_template_workspace(template_dir_abs, template_name, rendered_root)
+        current_template_files = list_rendered_template_files(rendered_root)
+        for rel_path in current_template_files:
+            src_path = os.path.join(rendered_root, rel_path)
             dest_path = os.path.join(case_dir_abs, rel_path)
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
@@ -2651,6 +2682,7 @@ def sync_case_template_files(case_dir: str, template_dir: str, overwrite: bool =
                 summary["overwritten"].append(dest_path)
             else:
                 summary["skipped_modified"].append(dest_path)
+    current_template_set = set(current_template_files)
 
     managed_set = set(managed_rel_paths or [])
     if prune:
@@ -2727,21 +2759,21 @@ def compute_case_source_status(case_dir: str, source_project_root: str, template
     if template_name:
         try:
             template_dir = resolve_template_directory(source_root_abs, template_name)
-            template_files = list_template_relative_files(
-                template_dir,
-                excluded_rel_paths={RUNTIME_EXECUTION_EXAMPLE_FILENAME},
-            )
-            config_status["template_available"] = True
-            config_status["template_files"] = template_files
-            for rel_path in template_files:
-                src_path = os.path.join(template_dir, rel_path)
-                case_path = os.path.join(case_dir_abs, rel_path)
-                if not os.path.isfile(case_path):
-                    config_status["case_missing_files"].append(rel_path)
-                elif filecmp.cmp(src_path, case_path, shallow=False):
-                    config_status["case_current_files"].append(rel_path)
-                else:
-                    config_status["case_modified_files"].append(rel_path)
+            with tempfile.TemporaryDirectory(prefix="picurv-template-") as scratch:
+                rendered_root = os.path.join(scratch, os.path.basename(case_dir_abs) or "workspace")
+                render_template_workspace(template_dir, template_name, rendered_root)
+                template_files = list_rendered_template_files(rendered_root)
+                config_status["template_available"] = True
+                config_status["template_files"] = template_files
+                for rel_path in template_files:
+                    src_path = os.path.join(rendered_root, rel_path)
+                    case_path = os.path.join(case_dir_abs, rel_path)
+                    if not os.path.isfile(case_path):
+                        config_status["case_missing_files"].append(rel_path)
+                    elif filecmp.cmp(src_path, case_path, shallow=False):
+                        config_status["case_current_files"].append(rel_path)
+                    else:
+                        config_status["case_modified_files"].append(rel_path)
             managed_files = metadata.get("template_managed_files")
             if isinstance(managed_files, list):
                 config_status["template_removed_since_last_sync"] = sorted(set(managed_files) - set(template_files))
@@ -3125,6 +3157,10 @@ POST_FIELD_STATISTICS_FORMATS = ("vtk", "csv")
 #: How the grid reaches the solver.
 GRID_MODES = ("file", "programmatic_c", "grid_gen")
 
+#: Flow dimensionality. `2D` does not change the grid: it zeroes the i-direction row of
+#: the momentum right-hand side (`-TwoD 1`), so the i velocity component never evolves.
+DOMAIN_DIMENSIONALITY_MODES = ("3D", "2D")
+
 #: Geometries the bundled grid generator can produce.
 GRID_GENERATOR_TYPES = ("box", "sweep")
 
@@ -3142,7 +3178,7 @@ GRID_WALL_SEGMENT_KINDS = ("flat", "step", "ramp", "arc", "sine", "gaussian", "h
 GRID_PATH_SEGMENT_KINDS = ("straight", "arc")
 
 #: Placement and similarity operations applied after a geometry map.
-GRID_TRANSFORM_KINDS = ("anchor", "translate", "scale", "rotate", "mirror", "permute")
+GRID_TRANSFORM_KINDS = ("anchor", "translate", "scale", "rotate", "mirror", "permute", "reverse")
 
 #: Whether a run seeds particles afresh or restores them from a checkpoint.
 PARTICLE_RESTART_MODES = ("init", "load")
@@ -3180,15 +3216,42 @@ PRESCRIBED_FLOW_SOURCE_TYPES = ("file", "generated", "field_slice")
 #: Analytic scalar profiles the verification source may generate.
 VERIFICATION_SCALAR_PROFILES = ("CONSTANT", "LINEAR_X", "SIN_PRODUCT")
 
+#: solver.yml `scalar_transport` keys and the runtime flag each becomes. Every value is a
+#: positive number: the Schmidt numbers set particle diffusivity, and `iem_constant` is
+#: C_IEM in the IEM mixing rate Omega = C_IEM Gamma / Delta^2 (runtime default 2.0).
+SCALAR_TRANSPORT_FLAGS = {
+    "schmidt_number": "-schmidt_number",
+    "turbulent_schmidt_number": "-turb_schmidt_number",
+    "iem_constant": "-iem_constant",
+}
+
 #: Image formats `picurv sweep` can render study plots in.
 STUDY_PLOT_FORMATS = ("png", "pdf", "svg")
 
 #: How much per-timestep profiling output the monitor emits.
 PROFILING_TIMESTEP_MODES = ("off", "selected", "all")
 
-#: Krylov methods for which a `gmres.restart` parameter is meaningful. This does NOT
-#: restrict `poisson_solver.method`, which passes any PETSc KSP token through.
+#: Krylov methods for which a `gmres.restart` parameter is meaningful.
 GMRES_RESTART_METHODS = ("gmres", "fgmres", "lgmres")
+
+#: Outer Poisson Krylov methods verified against the multigrid preconditioner, with the
+#: PETSc options that make each stop on the true residual. The preconditioner is not a
+#: single fixed linear operator, which only a flexible method tolerates: under gmres,
+#: lgmres and bcgs - left- or right-preconditioned - the Krylov residual fell to 1e-12
+#: while the true residual stalled near 1e-3 and the projection left a divergence of 2e-4.
+#: CG keeps its left preconditioner and is told to monitor the unpreconditioned norm. Any
+#: other KSP type is reachable only through petsc_passthrough_options, unverified.
+POISSON_KSP_METHODS = {
+    "fgmres": {},
+    "cg": {"-ps_ksp_norm_type": "unpreconditioned"},
+}
+
+#: Methods refused with a specific reason rather than the generic unverified message.
+POISSON_KSP_REFUSED = {
+    "gmres": "is not flexible",
+    "lgmres": "is not flexible",
+    "bcgs": "is not flexible",
+}
 
 #: Analytical solution types the Eulerian source can impose.
 ANALYTICAL_SOLUTION_TYPES = ("TGV3D", "ZERO_FLOW", "UNIFORM_FLOW")
@@ -5067,6 +5130,11 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
         statistics_state = str(requested_statistics_state).lower()
         if statistics_state == "carry" and not statistics_enabled:
             raise ValueError("--statistics-state carry requires field_statistics.enabled: true.")
+        # Carried windows are read from the source checkpoint even when nothing else is:
+        # an analytical Eulerian source restores no fields, but its statistics still
+        # live in that bundle, and an unstaged restart directory fails at start-up.
+        if statistics_state == "carry":
+            requires_source = True
 
         # === MODE 1: New run, restart from another run ===
         source_run = os.path.abspath(restart_from)
@@ -6041,15 +6109,28 @@ def resolve_target_grid_for_field_slice(case_cfg: dict, case_path: str, run_dir:
 
 def resolve_target_grid_for_generated_profile(case_cfg: dict, case_path: str, run_dir: str) -> str:
     """!
-    @brief Resolve an optional target canonical PICGRID for generated profile sampling.
+    @brief Resolve the target canonical PICGRID for generated profile sampling.
+    @details The simulator builds a programmatic_c grid itself, so no grid file exists
+             here. The profile is sampled instead on the bridge PICGRID that a Python
+             initial condition already uses, written with the solver's own node formula.
+             Without a grid the generator could only sample uniform logical points and
+             normalize to the continuous-area mean, which delivered about 2/n too much
+             flux on n cells across (programmatic-inlet-flux-2026-09-18).
     @param[in] case_cfg Parsed current case config.
     @param[in] case_path Current case.yml path.
     @param[in] run_dir Current run/precompute directory.
-    @return Absolute target PICGRID path, or None when no canonical grid is available yet.
+    @return Absolute target PICGRID path.
     """
-    grid_mode = (case_cfg.get("grid", {}) or {}).get("mode")
-    if grid_mode == "programmatic_c":
-        return None
+    grid_cfg = case_cfg.get("grid", {}) or {}
+    if grid_cfg.get("mode") == "programmatic_c":
+        bridge = os.path.abspath(os.path.join(run_dir, "inputs", "grid", "grid.run"))
+        if not os.path.isfile(bridge):
+            scaling = (case_cfg.get("properties", {}) or {}).get("scaling", {}) or {}
+            generate_picgrid_from_programmatic_settings(
+                grid_cfg.get("programmatic_settings", {}), bridge,
+                float(scaling.get("length_ref", 1.0)),
+            )
+        return bridge
     return resolve_target_grid_for_field_slice(case_cfg, case_path, run_dir)
 
 def write_profile_info(config_dir: str, summaries: list) -> str:
@@ -6641,6 +6722,19 @@ def _les_periodic_axes(case_cfg: dict) -> set:
     }
 
 
+#: Printed whenever a case enables RANS. `k_omega` is known-defective: setup never
+#: allocates the k-omega fields and FlowSolver's transport update is commented out, so
+#: the first history update copies a null vector and the solver aborts at the end of
+#: step one. The selector stays reachable so the path can be repaired in place; this
+#: message is its disclosure.
+RANS_KNOWN_DEFECT_DISCLOSURE = (
+    "models.physics.turbulence.rans selects k_omega, which is known-defective: the "
+    "k-omega fields are never allocated and their transport equations are never solved, "
+    "so the solver aborts with a null-vector error at the end of the first timestep. "
+    "Disable RANS."
+)
+
+
 def validate_wall_model_pairing(case_cfg: dict, les_cfg, rans_cfg, wall_cfg,
                                 case_path: str, errors: list, warnings: list):
     """!
@@ -6697,14 +6791,16 @@ def validate_wall_model_pairing(case_cfg: dict, les_cfg, rans_cfg, wall_cfg,
             f"  {case_path}: models.physics.turbulence.wall_function.model 'cabot' cannot "
             "be used with RANS. Cabot solves the wall layer with its own mixing-length "
             "eddy viscosity, so under a RANS model the near-wall layer would carry two "
-            "turbulence closures with no matching between them. Use 'log_law' with RANS.")
+            "turbulence closures with no matching between them. Only 'log_law' is a RANS "
+            "wall law, and RANS itself is known-defective: k_omega has no transport update.")
     if rans_on and model == 2:
         errors.append(
             f"  {case_path}: models.physics.turbulence.wall_function.model 'werner' cannot "
             "be used with RANS. Werner-Wengle applies its power law to the instantaneous "
             "filtered velocity, which is a large-eddy quantity; a RANS field is already "
-            "averaged and wants a wall law derived for the mean profile. Use 'log_law' "
-            "with RANS.")
+            "averaged and wants a wall law derived for the mean profile. Only 'log_law' is "
+            "a RANS wall law, and RANS itself is known-defective: k_omega has no transport "
+            "update.")
 
     # A wall law describes a turbulent boundary layer. Below transition there is no
     # inertial region for it to stand on, and it would impose a profile the flow does not
@@ -7220,7 +7316,7 @@ _CASE_SCHEMA = {
     ("models", "domain"): {"blocks"},
     ("models", "physics"): {"dimensionality", "fsi", "particles", "turbulence"},
     ("models", "physics", "fsi"): {"immersed", "moving_fsi"},
-    ("models", "physics", "particles"): {"count", "init_mode", "restart_mode", "point_source"},
+    ("models", "physics", "particles"): {"count", "init_mode", "restart_mode", "point_source", "random_seed"},
     ("models", "physics", "particles", "point_source"): {"x", "y", "z"},
     ("models", "physics", "turbulence"): {"les", "rans", "wall_function"},
     ("models", "physics", "turbulence", "les"): {
@@ -7335,7 +7431,7 @@ _SOLVER_SCHEMA = {
     ("verification", "sources", "scalar"): {
         "mode", "profile", "value", "phi0", "slope_x", "amplitude", "kx", "ky", "kz",
     },
-    ("scalar_transport",): {"schmidt_number", "turbulent_schmidt_number"},
+    ("scalar_transport",): set(SCALAR_TRANSPORT_FLAGS),
 }
 
 
@@ -8129,9 +8225,15 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                     errors.append(f"  {case_path}: {resolved_ic['label']} requires uniform programmatic spacing (rxs/rys/rzs: 1.0).")
             except (TypeError, ValueError):
                 pass
-    if grid_mode == 'programmatic_c' and resolved_ic and is_generated_ic_provider(resolved_ic):
+    generated_profile = any(
+        bc.get("handler") == "prescribed_flow"
+        and ((bc.get("params") or {}).get("source") or {}).get("type") == "generated"
+        for block in (prepared_blocks or []) for bc in block
+    )
+    if grid_mode == 'programmatic_c' and (
+            generated_profile or (resolved_ic and is_generated_ic_provider(resolved_ic))):
         try:
-            validate_programmatic_generated_ic_grid_settings(grid_cfg.get('programmatic_settings'))
+            validate_programmatic_bridge_grid_settings(grid_cfg.get('programmatic_settings'))
         except ValueError as e:
             errors.append(f"  {case_path}: {e}")
 
@@ -8146,6 +8248,17 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         except ValueError as e:
             errors.append(f"  {case_path}: {e}")
             pinit_code = None
+
+        # One base seed drives every particle random stream - initial placement, inlet
+        # re-placement, and Brownian motion - so identical inputs on the same rank count
+        # reproduce. Omitted, the runtime uses 12345.
+        random_seed = particles_cfg.get('random_seed')
+        if random_seed is not None and (isinstance(random_seed, bool) or not isinstance(random_seed, int)
+                                        or not 0 <= random_seed <= 2147483647):
+            errors.append(
+                f"  {case_path}: models.physics.particles.random_seed must be an integer from 0 to "
+                f"2147483647 (got {random_seed!r})."
+            )
 
         restart_mode = particles_cfg.get('restart_mode')
         if restart_mode is not None and str(restart_mode).lower() not in PARTICLE_RESTART_MODES:
@@ -8176,6 +8289,43 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                             f"  {case_path}: models.physics.particles.point_source.{coord} is required when init_mode is PointSource."
                         )
 
+    # --- case.yml: domain and physics switches ---
+    # Multi-block coupling, immersed boundaries and moving bodies are planned, not
+    # implemented. The switches stay in the schema so that setting one fails here with a
+    # reason, rather than as an unknown key or, worse, as a run that solves a different
+    # problem: the solver would accept all three and silently ignore what they promise.
+    models_cfg = case_cfg.get('models', {}) or {}
+    domain_cfg = models_cfg.get('domain', {}) or {}
+    physics_cfg = models_cfg.get('physics', {}) or {}
+    try:
+        block_count = int(domain_cfg.get('blocks', 1))
+    except (TypeError, ValueError):
+        block_count = None
+    if block_count != 1:
+        errors.append(
+            f"  {case_path}: models.domain.blocks must be 1 (got {domain_cfg.get('blocks')!r}). "
+            "Multi-block domains are planned, not implemented: no solver exchanges data across "
+            "the faces blocks share, so each block would be solved as an isolated domain."
+        )
+    fsi_cfg = physics_cfg.get('fsi', {}) or {}
+    if not isinstance(fsi_cfg, dict):
+        errors.append(f"  {case_path}: 'models.physics.fsi' must be a mapping.")
+    else:
+        for key, feature in (('immersed', 'An immersed boundary'),
+                             ('moving_fsi', 'Moving-body fluid-structure interaction')):
+            if fsi_cfg.get(key):
+                errors.append(
+                    f"  {case_path}: models.physics.fsi.{key} must be false. {feature} is planned, "
+                    "not implemented: no body geometry is loaded, and the interpolation that would "
+                    "impose one on the flow was never ported."
+                )
+    dimensionality = str(physics_cfg.get('dimensionality', '3D')).strip()
+    if dimensionality not in DOMAIN_DIMENSIONALITY_MODES:
+        errors.append(
+            f"  {case_path}: models.physics.dimensionality must be one of "
+            f"{list(DOMAIN_DIMENSIONALITY_MODES)} (got '{dimensionality}')."
+        )
+
     # --- case.yml: turbulence model validation ---
     turbulence_cfg = case_cfg.get('models', {}).get('physics', {}).get('turbulence', {})
     if turbulence_cfg is not None and not isinstance(turbulence_cfg, dict):
@@ -8204,13 +8354,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             except ValueError:
                 rans_enabled = False
             if rans_enabled:
-                warnings.append(
-                    f"{case_path}: models.physics.turbulence.rans is accepted, but the k-omega runtime update is currently incomplete."
-                )
+                warnings.append(f"{case_path}: {RANS_KNOWN_DEFECT_DISCLOSURE}")
         elif rans_cfg:
-            warnings.append(
-                f"{case_path}: models.physics.turbulence.rans is accepted, but the k-omega runtime update is currently incomplete."
-            )
+            warnings.append(f"{case_path}: {RANS_KNOWN_DEFECT_DISCLOSURE}")
 
         if isinstance(wall_cfg, dict):
             if 'enabled' in wall_cfg and not isinstance(wall_cfg['enabled'], bool):
@@ -8429,16 +8575,17 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         if transport_cfg is not None and not isinstance(transport_cfg, dict):
             errors.append(f"  {solver_path}: 'scalar_transport' must be a mapping when provided.")
         elif isinstance(transport_cfg, dict):
-            unknown_transport_keys = sorted(set(transport_cfg.keys()) - {"schmidt_number", "turbulent_schmidt_number"})
+            unknown_transport_keys = sorted(set(transport_cfg.keys()) - set(SCALAR_TRANSPORT_FLAGS))
             if unknown_transport_keys:
                 errors.append(
                     f"  {solver_path}: unsupported scalar_transport entries: {unknown_transport_keys}. "
-                    "Currently supported: 'schmidt_number', 'turbulent_schmidt_number'."
+                    f"Currently supported: {sorted(SCALAR_TRANSPORT_FLAGS)}."
                 )
-            for key in ("schmidt_number", "turbulent_schmidt_number"):
+            for key in SCALAR_TRANSPORT_FLAGS:
                 if key in transport_cfg:
                     try:
-                        value = float(transport_cfg[key])
+                        value = (_to_finite_float(transport_cfg[key], f"scalar_transport.{key}")
+                                 if key == "iem_constant" else float(transport_cfg[key]))
                         if value <= 0.0:
                             errors.append(f"  {solver_path}: scalar_transport.{key} must be positive.")
                     except (TypeError, ValueError):
@@ -8887,6 +9034,15 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
             list_val = io_cfg.get(list_key)
             if list_val is not None and not isinstance(list_val, list):
                 errors.append(f"  {post_path}: 'io.{list_key}' must be a list when provided.")
+        # Qcrit is computed at cell centres, and a .vts carries point data only: written
+        # directly it would sit half a cell away from the node the file assigns it.
+        eulerian_fields = io_cfg.get('eulerian_fields')
+        if isinstance(eulerian_fields, list) and 'Qcrit' in eulerian_fields:
+            errors.append(
+                f"  {post_path}: 'io.eulerian_fields' lists 'Qcrit', which is cell-centred and cannot be "
+                "written as point data. Add a nodal_average task (input_field: Qcrit, output_field: "
+                "Qcrit_nodal) after q_criterion and write 'Qcrit_nodal'."
+            )
 
     # --- Check eulerian_pipeline entries have 'task' key ---
     eulerian_pipeline = post_cfg.get('eulerian_pipeline', [])
@@ -8995,6 +9151,28 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
                 normalize_statistics_task(task_name)
             except ValueError as e:
                 errors.append(f"  {post_path}: {e}")
+
+    # MSD measures displacement from the configured point source, not from each
+    # particle's own start. Any other seeding leaves that point unset - the coordinate
+    # origin - and the statistic measures distance from the origin instead. With no
+    # particles the task writes nothing, so only a seeded case is refused.
+    if case_cfg is not None and "ComputeMSD" in get_post_statistics_task_tokens(post_cfg):
+        particles_cfg = (((case_cfg.get('models') or {}).get('physics') or {}).get('particles') or {})
+        try:
+            particle_count = int(particles_cfg.get('count', 0) or 0)
+        except (TypeError, ValueError):
+            particle_count = 0
+        init_mode = particles_cfg.get('init_mode', 'Surface')
+        try:
+            is_point_source = normalize_particle_init_mode(init_mode) == 2
+        except ValueError:
+            is_point_source = True  # the case file reports its own init_mode error
+        if particle_count > 0 and not is_point_source:
+            errors.append(
+                f"  {post_path}: statistics task 'msd' measures displacement from "
+                f"models.physics.particles.point_source, so it requires init_mode: PointSource "
+                f"(the case seeds with '{init_mode}')."
+            )
 
     legacy_stats_output_prefix = post_cfg.get('statistics_output_prefix')
     if legacy_stats_output_prefix is not None and not isinstance(legacy_stats_output_prefix, str):
@@ -10838,29 +11016,32 @@ def translate_programmatic_grid_settings(grid_settings: dict) -> dict:
     return translated
 
 
-PROGRAMMATIC_GENERATED_IC_GRID_KEYS = (
+PROGRAMMATIC_BRIDGE_GRID_KEYS = (
     "im", "jm", "km",
     "xMins", "xMaxs", "yMins", "yMaxs", "zMins", "zMaxs",
     "rxs", "rys", "rzs",
 )
 
 
-def validate_programmatic_generated_ic_grid_settings(raw_settings: dict) -> None:
+def validate_programmatic_bridge_grid_settings(raw_settings: dict) -> None:
     """!
-    @brief Validate scalar programmatic grid settings needed by file-generating IC providers.
+    @brief Validate the scalar programmatic grid settings the bridge PICGRID is built from.
+    @details A Python generator - an initial condition or a generated inlet profile - runs
+             as a separate process and reads the programmatic grid from that bridge, which
+             supports one block with scalar settings.
     @param[in] raw_settings programmatic_settings dict from case.yml.
     @throws ValueError when required scalar settings are missing or invalid.
     """
     if not isinstance(raw_settings, dict):
         raise ValueError(
-            "grid.programmatic_settings must be a mapping for a generated initial condition."
+            "grid.programmatic_settings must be a mapping when a Python generator reads the grid."
         )
 
-    missing = [key for key in PROGRAMMATIC_GENERATED_IC_GRID_KEYS if key not in raw_settings]
+    missing = [key for key in PROGRAMMATIC_BRIDGE_GRID_KEYS if key not in raw_settings]
     if missing:
         raise ValueError(
             "grid.programmatic_settings must include "
-            f"{missing} when grid.mode is 'programmatic_c' and the initial condition requires a grid file."
+            f"{missing} when grid.mode is 'programmatic_c' and a Python generator reads the grid."
         )
 
     for key in ("im", "jm", "km"):
@@ -10868,7 +11049,7 @@ def validate_programmatic_generated_ic_grid_settings(raw_settings: dict) -> None
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be a positive scalar integer cell count "
-                "for programmatic_c with a generated initial condition."
+                "when a Python generator reads the programmatic_c grid."
             )
 
     for key in ("xMins", "xMaxs", "yMins", "yMaxs", "zMins", "zMaxs", "rxs", "rys", "rzs"):
@@ -10876,24 +11057,24 @@ def validate_programmatic_generated_ic_grid_settings(raw_settings: dict) -> None
         if isinstance(value, (list, tuple, dict, bool)):
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be a scalar numeric value "
-                "for a generated initial condition."
+                "when a Python generator reads the programmatic_c grid."
             )
         try:
             numeric = float(value)
         except (TypeError, ValueError):
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be a scalar numeric value "
-                "for a generated initial condition."
+                "when a Python generator reads the programmatic_c grid."
             )
         if not math.isfinite(numeric):
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be finite "
-                "for a generated initial condition."
+                "when a Python generator reads the programmatic_c grid."
             )
         if key in {"rxs", "rys", "rzs"} and numeric <= 0.0:
             raise ValueError(
                 f"grid.programmatic_settings.{key} must be positive "
-                "for a generated initial condition."
+                "when a Python generator reads the programmatic_c grid."
             )
 
 
@@ -10907,7 +11088,7 @@ def generate_picgrid_from_programmatic_settings(raw_settings: dict, dest_path: s
     @param[in] L_ref Reference length for nondimensionalization (must be non-zero).
     @return Summary dict: nblk, dims [(IM, JM, KM)], total_nodes.
     """
-    validate_programmatic_generated_ic_grid_settings(raw_settings)
+    validate_programmatic_bridge_grid_settings(raw_settings)
     if L_ref == 0.0:
         raise ValueError("length_ref must be non-zero for programmatic grid generation.")
     IM = int(raw_settings.get("im", 0)) + 1
@@ -12734,7 +12915,7 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
     FLAG_MAP = {
         'domain': {'blocks': '-nblk'},
         'physics.fsi': {'immersed': '-imm', 'moving_fsi': '-fsi'},
-        'physics.particles': {'count': '-numParticles'},
+        'physics.particles': {'count': '-numParticles', 'random_seed': '-particle_random_seed'},
     }
     for section_path, flags in FLAG_MAP.items():
         current_level = models
@@ -12864,20 +13045,17 @@ def parse_solver_config(solver_cfg: dict) -> dict:
     if transport_cfg:
         if not isinstance(transport_cfg, dict):
             raise ValueError("scalar_transport must be a mapping when provided.")
-        transport_map = {
-            'schmidt_number': '-schmidt_number',
-            'turbulent_schmidt_number': '-turb_schmidt_number',
-        }
-        unknown_transport_keys = sorted(set(transport_cfg.keys()) - set(transport_map.keys()))
+        unknown_transport_keys = sorted(set(transport_cfg.keys()) - set(SCALAR_TRANSPORT_FLAGS))
         if unknown_transport_keys:
             raise ValueError(
                 f"scalar_transport has unsupported key(s): {unknown_transport_keys}. "
-                "Use 'schmidt_number' or 'turbulent_schmidt_number'."
+                f"Use one of {sorted(SCALAR_TRANSPORT_FLAGS)}."
             )
-        for key, flag in transport_map.items():
+        for key, flag in SCALAR_TRANSPORT_FLAGS.items():
             if key in transport_cfg:
                 try:
-                    value = float(transport_cfg[key])
+                    value = (_to_finite_float(transport_cfg[key], f"scalar_transport.{key}")
+                             if key == "iem_constant" else float(transport_cfg[key]))
                 except (TypeError, ValueError) as exc:
                     raise ValueError(f"scalar_transport.{key} must be numeric.") from exc
                 if value <= 0.0:
@@ -13091,6 +13269,19 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         method = str(value).strip().lower()
         if not method:
             raise ValueError("poisson_solver.method cannot be empty.")
+        if method in POISSON_KSP_REFUSED:
+            raise ValueError(
+                f"poisson_solver.method '{method}' {POISSON_KSP_REFUSED[method]}: PICurv's "
+                "multigrid preconditioner is not a single fixed linear operator, and with it "
+                f"'{method}' reports convergence while the true residual stalls, so the "
+                "projection uses the wrong pressure. Use 'fgmres' (default) or 'cg'."
+            )
+        if method not in POISSON_KSP_METHODS:
+            raise ValueError(
+                f"poisson_solver.method '{method}' is not one of {sorted(POISSON_KSP_METHODS)}, "
+                "the methods verified with the multigrid preconditioner. Another PETSc KSP type "
+                "can still be set through petsc_passthrough_options (-ps_ksp_type), unverified."
+            )
         return method
 
     def _normalize_poisson_preconditioner(value) -> str:
@@ -13158,15 +13349,19 @@ def parse_solver_config(solver_cfg: dict) -> dict:
         if 'method' in ps:
             method = _normalize_poisson_method(ps['method'])
             flags['-ps_ksp_type'] = method
+            flags.update(POISSON_KSP_METHODS[method])
         if 'absolute_tolerance' in ps:
             flags['-ps_ksp_atol'] = ps['absolute_tolerance']
-            flags['-poisson_tol'] = ps['absolute_tolerance']
         if 'relative_tolerance' in ps:
             flags['-ps_ksp_rtol'] = ps['relative_tolerance']
         if 'max_iterations' in ps:
             flags['-ps_ksp_max_it'] = ps['max_iterations']
         if 'tolerance' in ps:
-            flags['-poisson_tol'] = ps['tolerance']
+            raise ValueError(
+                f"{source_key}.tolerance is not a solver control: the runtime read it and never "
+                "used it. Use absolute_tolerance (-> -ps_ksp_atol) and relative_tolerance "
+                "(-> -ps_ksp_rtol), which the Poisson KSP applies."
+            )
 
         gmres_cfg = ps.get('gmres', {})
         if gmres_cfg is not None:
@@ -13221,7 +13416,12 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                         raise ValueError(f"{source_key}.multigrid.level_solvers.{level_name} must be a mapping.")
                     level_num = _poisson_level_number(level_name)
                     for key, value in settings.items():
-                        mapped_key = {'method': 'ksp_type', 'preconditioner': 'pc_type'}.get(key, key)
+                        # PETSc prefixes every per-level KSP control with ksp_; emitted
+                        # bare, max_it/rtol/atol were left unused and silently ignored.
+                        mapped_key = {
+                            'method': 'ksp_type', 'preconditioner': 'pc_type',
+                            'max_it': 'ksp_max_it', 'rtol': 'ksp_rtol', 'atol': 'ksp_atol',
+                        }.get(key, key)
                         # PETSc names the coarsest solver separately from positive levels.
                         if level_num == 0:
                             prefix = "-ps_mg_coarse_"
@@ -15773,11 +15973,16 @@ def build_case_asset_graph(case_cfg: dict, case_path: str) -> dict:
             "viscosity": fluid.get("viscosity"),
             "boundary_conditions": case_cfg.get("boundary_conditions"),
         },
-        # Profile generation dimensionalizes against the same scaling contract.
+        # Profile generation dimensionalizes against the same scaling contract. On a
+        # programmatic_c grid, which is not an asset the profile can depend on, it samples
+        # the bridge built from programmatic_settings, so those settings are read too.
         "inlet-profiles": {
             "length_ref": scaling.get("length_ref"),
             "velocity_ref": scaling.get("velocity_ref"),
             "blocks": domain_blocks,
+            "programmatic_settings": (
+                grid_cfg.get("programmatic_settings") if grid_mode == "programmatic_c" else None
+            ),
         },
     }
 
@@ -20565,14 +20770,18 @@ def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
     candidates = []
     if os.path.isdir(spectra_dir):
         # The staged initial-condition spectrum shares this directory but is the
-        # reference overlay, never a task a user can select.
+        # reference overlay, never a task a user can select. Post recipes write into
+        # their own subdirectory (resolve_recipe_spectra_output_dir), so one level is
+        # searched too; a candidate is named by its path under the spectra directory.
         reference_name = os.path.basename(INITIAL_CONDITION_SPECTRUM_RELPATH)
-        candidates = sorted(
-            name for name in os.listdir(spectra_dir)
-            if name.endswith(".csv")
-            and not name.endswith("_history.csv")
-            and name != reference_name
-        )
+        for root, _dirs, files in os.walk(spectra_dir):
+            if os.path.relpath(root, spectra_dir).count(os.sep) > 0:
+                continue
+            for name in files:
+                if (name.endswith(".csv") and not name.endswith("_history.csv")
+                        and name != reference_name):
+                    candidates.append(os.path.relpath(os.path.join(root, name), spectra_dir))
+        candidates.sort()
     if not candidates:
         raise ValueError(
             "No spectra were found for this run. Run "
@@ -20639,7 +20848,7 @@ def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
             "line_width": 2.4 if step == ordered_steps[-1] else 1.65,
         })
 
-    name = matches[0][: -len(".csv")]
+    name = os.path.basename(matches[0])[: -len(".csv")]
     fallback = os.path.join(
         context["run_dir"], CANONICAL_RUN_PATHS["plots"], f"{name}.png"
     )
@@ -22236,9 +22445,11 @@ def versions_workflow(args):
         return
     version = getattr(args, "version", None)
     make_args = list(getattr(args, "make_args", None) or [])
-    if version and _MAKE_ASSIGNMENT_PATTERN.match(str(version)):
-        # `versions activate SYSTEM=cluster` binds the assignment to the optional
-        # version positional. No tag or commit contains '=', so it is a make argument.
+    if version and (_MAKE_ASSIGNMENT_PATTERN.match(str(version)) or str(version).startswith("-")):
+        # `versions activate SYSTEM=cluster` and `versions activate -- -j8` bind the
+        # make argument to the optional version positional. No tag or commit contains
+        # '=' or starts with '-', so either is a make argument; handing '-j8' to git as
+        # a ref printed git's usage instead.
         make_args.insert(0, str(version))
         version = None
     if make_args_include_explicit_goal(make_args):
@@ -22338,18 +22549,11 @@ def init_case(args):
         sys.exit(1)
 
     print(f"[INFO] Initializing new case '{os.path.basename(dest_path)}' from template '{args.template_name}'...")
-    
-    shutil.copytree(template_path, dest_path)
-    print(f"[SUCCESS] Copied template files to: {dest_path}")
-
-    copied_runtime_example = os.path.join(dest_path, RUNTIME_EXECUTION_EXAMPLE_FILENAME)
-    if os.path.isfile(copied_runtime_example):
-        os.remove(copied_runtime_example)
 
     try:
-        workspace_layout = organize_initialized_workspace(
-            dest_path, args.template_name, source_template_root=template_path
-        )
+        workspace_layout = render_template_workspace(template_path, args.template_name, dest_path)
+        template_managed_files = list_rendered_template_files(dest_path)
+        print(f"[SUCCESS] Copied template files to: {dest_path}")
         print(f"[INFO] Wrote workspace identity: {os.path.relpath(workspace_layout['workspace_config'])}")
         if workspace_layout["canonical_roles"]:
             print("[INFO] Canonical editable configurations:")
@@ -22374,10 +22578,7 @@ def init_case(args):
             dest_path,
             source_project_root,
             template_name=args.template_name,
-            template_managed_files=list_template_relative_files(
-                template_path,
-                excluded_rel_paths={RUNTIME_EXECUTION_EXAMPLE_FILENAME},
-            ),
+            template_managed_files=template_managed_files,
         )
         print(f"[INFO] Wrote case origin metadata: {os.path.relpath(metadata_path)}")
     except Exception as e:
@@ -22439,6 +22640,7 @@ def sync_case_config_command(args):
             overwrite=getattr(args, "overwrite", False),
             prune=getattr(args, "prune", False),
             managed_rel_paths=existing_managed,
+            template_name=template_name,
         )
         metadata_path, _ = write_case_origin_metadata(
             case_dir,

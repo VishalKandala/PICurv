@@ -722,6 +722,39 @@ def test_status_source_cli_reports_json_for_real_case(tmp_path):
     assert "case.yml" in payload["config"]["case_modified_files"]
 
 
+def test_status_and_sync_follow_the_workspace_layout_init_creates(tmp_path):
+    """!
+    @brief Test that status-source and sync-config compare files where init put them.
+    @details init renames template files into canonical config/ names and rewrites their
+             paths. Comparing against the raw template reported a configured edit as
+             unmodified and made sync-config copy the template into the workspace root.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return None.
+    """
+    result = run_picurv(["init", "flat_channel", "--dest", "ws"], cwd=tmp_path)
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    workspace = tmp_path / "ws"
+    root_files_before = sorted(p.name for p in workspace.iterdir())
+
+    status = run_picurv(["status-source", "--case-dir", str(workspace), "--format", "json"], cwd=tmp_path)
+    assert status.returncode == 0, status.stdout + "\n" + status.stderr
+    config = json.loads(status.stdout)["config"]
+    assert config["case_missing_files"] == []
+    assert config["case_modified_files"] == []
+    assert "config/solver.yml" in config["case_current_files"]
+
+    solver = workspace / "config" / "solver.yml"
+    solver.write_text(solver.read_text(encoding="utf-8") + "# local edit\n", encoding="utf-8")
+    status = run_picurv(["status-source", "--case-dir", str(workspace), "--format", "json"], cwd=tmp_path)
+    assert json.loads(status.stdout)["config"]["case_modified_files"] == ["config/solver.yml"]
+
+    synced = run_picurv(["sync-config", "--case-dir", str(workspace)], cwd=tmp_path)
+    assert synced.returncode == 0, synced.stdout + "\n" + synced.stderr
+    assert "Copied new files     : 0" in synced.stdout
+    assert solver.read_text(encoding="utf-8").endswith("# local edit\n")
+    assert sorted(p.name for p in workspace.iterdir()) == root_files_before
+
+
 def test_pull_source_cli_updates_all_local_tracking_branches_and_restores_original_branch(tmp_path):
     """!
     @brief Test that the real pull-source CLI updates every local tracking branch and returns to the starting branch.

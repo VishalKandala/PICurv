@@ -11,7 +11,7 @@ This example verifies the particle-to-grid scatter path for the particle scalar
 - the existing runtime `Psi -> user->Psi` scatter path is reused
 - the scattered Eulerian `Psi` field is compared against analytical truth at
   **physical cell centers**
-- the runtime writes `<run.runtime_logs>/scatter_metrics.csv`
+- the runtime writes `<run.analysis.metrics>/scatter_metrics.csv`
 
 This example exists because scatter verification needs an artificial particle
 truth field. Unlike the interpolation test, there is no ordinary end-to-end
@@ -38,7 +38,7 @@ be paired with `ZERO_FLOW`, `UNIFORM_FLOW`, or `TGV3D`.
 
 The runtime diagnostic writes one row per output point to:
 
-- `<run.runtime_logs>/scatter_metrics.csv`
+- `<run.analysis.metrics>/scatter_metrics.csv`
 
 Columns include:
 
@@ -98,7 +98,7 @@ feature.
 
 Primary output:
 
-- `<run.runtime_logs>/scatter_metrics.csv`
+- `<run.analysis.metrics>/scatter_metrics.csv`
 
 Optional visualization output:
 
@@ -142,20 +142,17 @@ Stage either study without submitting jobs:
 ./bin/picurv sweep   --study examples/scatter_verification/fixed_ppc_grid_study.yml   --cluster config/schedulers/slurm_default.yml   --no-submit
 ```
 
-## Future Verification And Diagnostic Pathways Enabled
+## Other Checks The Same Pathway Supports
 
-This feature is intentionally broader than one study. Prescribed scalar truth
-injection plus runtime scatter metrics opens up several future pathways:
+Prescribed scalar truth injection plus runtime scatter metrics is not specific to
+this study. The same configuration supports:
 
 - static deposition verification with `ZERO_FLOW`
 - moving-cloud verification with `UNIFORM_FLOW`
 - coupled flow-plus-scatter verification with `TGV3D`
 - conservation diagnostics for deposited scalar fields
 - grid and curvilinear-geometry sensitivity studies
-- future scalar-transport or scalar-mixing verification reuse without adding a
-  one-off test hook each time
 
-That is the main reason the analytical scalar truth lives in
-`AnalyticalSolutions` and the runtime override lives in `verification_sources`:
-this is meant to be reusable verification infrastructure, not a one-off study
-patch.
+That is why the analytical scalar truth lives in `AnalyticalSolutions` and the
+runtime override lives in `verification_sources`, rather than in a study-specific
+hook.

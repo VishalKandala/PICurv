@@ -9,10 +9,7 @@ It documents what is currently supported by the Python conductor and what is cur
 
 @section p44_grammar_sec 1. Boundary-Condition Grammar
 
-`case.yml -> boundary_conditions` supports:
-
-- single-block form: one list with 6 faces,
-- multi-block form: list-of-lists, one 6-face list per block.
+`case.yml -> boundary_conditions` is one list with 6 faces.
 
 Face names:
 
@@ -51,7 +48,7 @@ capability you can select today.
 
 **Diagnostics.** The startup banner lists the resolved type and handler per face.
 
-**Evidence.** Unit verified - `make unit-boundaries`.
+**Evidence.** Unit verified - `make unit-boundaries`. Analytically verified - `duct-poiseuille-picard-2026-09-18`.
 
 **Limitations.** `MOVING_WALL` is present in the C enum and accepted by the C
 compatibility check, but no public handler exposes it.
@@ -77,7 +74,7 @@ domain with an inlet needs an outlet to conserve against.
 values per face.
 
 **Evidence.** Unit verified - `make unit-boundaries`. Production exercised in
-`examples/flat_channel`.
+`examples/flat_channel`. Analytically verified - `duct-poiseuille-picard-2026-09-18`.
 
 **Limitations.** Time-varying inlet types exist in the C enum but are not exposed.
 
@@ -100,7 +97,7 @@ is derived from global conservation rather than prescribed.
 **Diagnostics.** The inlet/outlet flux balance is reported at startup.
 
 **Evidence.** Unit verified - `make unit-boundaries`. Production exercised in
-`examples/flat_channel`.
+`examples/flat_channel`. Analytically verified - `duct-poiseuille-picard-2026-09-18`.
 
 **Limitations.** A pressure-specified outlet exists in the C enum but is not exposed.
 
@@ -126,10 +123,15 @@ a driven pair must carry the **same** driven handler.
 validated translation.
 
 **Evidence.** Unit verified - `make unit-periodic`. Regression verified -
-`make smoke-periodic`.
+`make smoke-periodic`. Analytically verified - `tgv2d-picard-order-2026-09-18`: a
+triply periodic Taylor-Green vortex at second order in time and space; `periodic-channel-laminar-picard-2026-09-18`: a
+channel periodic in two directions reproduces the laminar profile at second order and
+stays uniform along both periodic axes to 5e-12.
 
 **Limitations.** Requires a matching translation between paired faces; see
-@ref p54_grid_sec.
+@ref p54_grid_sec. The wall-bounded pseudo-time stall once recorded here did not
+reproduce at current code (@ref p54_driven_limits_sub); turbulent periodic channels at
+production resolution have not been re-characterized.
 
 @section p44_supported_sec 3. Supported Handlers
 
@@ -186,7 +188,7 @@ cell layer; `LOG_FIELD_MIN_MAX` on `Ucat` is the quickest check.
 
 **Evidence.** Unit verified - `make unit-boundaries` exercises the handler factory
 and direct handler behavior in `tests/c/test_boundaries.c`. Production exercised in
-every shipped wall-bounded example.
+every shipped wall-bounded example. Analytically verified - `duct-poiseuille-picard-2026-09-18`: the walls of a laminar square duct reproduce the Poiseuille profile at second order.
 
 **Limitations.** `MOVING_WALL` exists in the C enum but is not exposed through the
 validator, so a moving wall cannot currently be configured from YAML.
@@ -218,7 +220,9 @@ introduces; pair it with `conservation`.
 is separate from the banner.
 
 **Evidence.** Unit verified - `make unit-boundaries`. Production exercised in
-`examples/flat_channel`.
+`examples/flat_channel`. Analytically verified - `duct-inlet-handlers-2026-09-21`: the
+inlet delivers bulk velocity 1.00000 and the duct develops to Poiseuille flow at order
+1.87.
 
 **Limitations.** Uniform in space and constant in time. Time-varying inlets
 (`BC_HANDLER_INLET_PULSATILE_FLUX`) exist in the C enum but are not exposed.
@@ -249,9 +253,16 @@ validated developed profile. For a genuinely developed inlet, use
 not an integrated flux. If the face is not bounded by walls on the axes the profile
 assumes, the profile will not vanish at the edges - inspect the inlet plane.
 
-**Evidence.** Unit verified - `make unit-boundaries`.
+**Evidence.** Unit verified - `make unit-boundaries`. Analytically verified -
+`duct-inlet-handlers-2026-09-21`: the delivered bulk velocity matches the sampled
+product parabola on `n` cells per side, `v_max ((2n^2 + 1) / (3n^2))^2`, which tends to
+`(4/9) v_max`, to five digits, and the duct
+develops to Poiseuille flow at order 1.86. Before the 2026-09-21 fix the profile vanished
+at the wall-adjacent cell centres and delivered 27% and 13% too little.
 
-**Limitations.** The profile shape is fixed and assumes a wall-bounded face.
+**Limitations.** The profile is a product of logical-space parabolas, one per wall-bounded
+axis, not the duct solution; it is uniform along a periodic axis. On a graded or curved
+face it is not a physical parabola.
 
 @subsection p44_cap_prescribed_flow_sub prescribed_flow
 
@@ -297,11 +308,16 @@ actually imposed is recoverable after the fact.
 `tests/c/test_boundaries.c`. Integration verified - `tests/test_config_regressions.py`
 exercises all three source types and the face-dimension validation. It is offered by
 `examples/master_template`; no shipped runnable example currently selects it, so
-there is no production-exercised facet.
+there is no production-exercised facet. Analytically verified - `duct-poiseuille-picard-2026-09-18`: a generated square-duct profile on a grid_gen grid delivered the requested flux to 1e-9 and was held downstream; `programmatic-inlet-flux-2026-09-18` measured the flux excess on `programmatic_c` grids that the 2026-09-21 fix below removed, and `programmatic-inlet-flux-fixed-2026-09-21` measured the fixed inlet delivering the requested flux to 1e-9 on uniform and stretched `programmatic_c` grids of 8 and 16 cells across. Unit verified - `tests/test_workspace_lifecycle.py` checks that a generated profile on a stretched `programmatic_c` grid is normalized on its face areas and re-identifies when the grid settings change.
 
 **Limitations.** The profile is steady: it is imposed once and held, with no time
-variation. `BC_HANDLER_INLET_INTERP_FROM_FILE`, which would interpolate between
-supplied profiles, exists in the C enum but is not exposed.
+variation. A generated profile is sampled at the target grid's face centres and
+normalized by face area on every grid mode. On `programmatic_c`, which the simulator
+builds itself, the target is the single-block bridge grid written with the solver's own
+node formula, so a multi-block `programmatic_c` case with a generated profile is refused
+at validation. Before 2026-09-21 a `programmatic_c` profile was sampled at uniform
+logical points and normalized to its continuous mean, and the inlet delivered roughly
+`2/n` too much flux for `n` cells across - 12% at 16 cells.
 
 @subsection p44_cap_conservation_sub conservation
 
@@ -328,7 +344,7 @@ conserve against.
 first thing to check when mass appears not to be conserved.
 
 **Evidence.** Unit verified - `make unit-boundaries`. Production exercised in
-`examples/flat_channel`.
+`examples/flat_channel`. Analytically verified - `duct-poiseuille-picard-2026-09-18`: outflow matched inflow to 1e-9 in a laminar square duct.
 
 **Limitations.** `BC_HANDLER_OUTLET_PRESSURE`, a pressure-specified outlet, exists
 in the C enum but is not exposed.
@@ -360,10 +376,14 @@ validated translation.
 
 **Evidence.** Unit verified - `make unit-periodic`. Regression verified -
 `make smoke-periodic`. Production exercised in the decaying-isotropic-turbulence
-example.
+example. Analytically verified - `tgv2d-picard-order-2026-09-18` on a triply periodic
+box, `periodic-channel-laminar-picard-2026-09-18` on a doubly periodic channel, and `pipe-poiseuille-curvilinear-2026-09-18`
+across the ends of a curvilinear pipe, each at second order.
 
 **Limitations.** Requires a matching translation between the paired faces; a grid
-that is not truly periodic is rejected rather than approximated.
+that is not truly periodic is rejected rather than approximated. The wall-bounded
+pseudo-time stall once recorded here did not reproduce at current code
+(@ref p54_driven_limits_sub).
 
 @subsection p44_cap_constant_flux_sub constant_flux
 
@@ -398,14 +418,17 @@ can reintroduce divergence the pressure solve just removed.
 whether you need it before enabling it.
 
 **Evidence.** Regression verified - `tests/smoke/run_driven_periodic_regression.sh`
-and `make smoke-driven-periodic`. Benchmark characterized against a laminar channel
-with an exact answer.
+and `make smoke-driven-periodic`. Analytically verified - `periodic-channel-laminar-picard-2026-09-18`: on a laminar channel the
+applied force matches `3 nu U_b / h^2` to 0.18% at the finest grid, the profile converges
+at second order, and the bulk velocity converges to the controller law below;
+`explicit-rk4-order-2026-09-21` finds the same law under Explicit RK4.
 
-**Limitations and full treatment.** The control law, update cadence and its
-consequences for both momentum solvers, the restart contract, and the worked
-validation cases are documented at @ref p54_driven_sec. That page also carries the
-current convergence caveat for periodic wall-bounded flow, which you should read
-before planning a campaign.
+**Limitations and full treatment.** The proportional controller settles below its
+target, at `U_target / (1 + 3 nu dt / (2.7 h^2))` on a laminar channel - 10% low at
+`dt = 1`, `nu = 0.1`, `h = 1` - so choose `dt` small against `h^2 / nu` or set the
+target above the flux wanted. The control law, update cadence and its consequences for
+both momentum solvers, the restart contract, and the worked validation cases are
+documented at @ref p54_driven_sec.
 
 @subsection p44_cap_initial_flux_sub initial_flux
 
@@ -437,10 +460,13 @@ restored from a checkpoint. A restart that re-measures instead of restoring is
 logged explicitly.
 
 **Evidence.** Regression verified - `make smoke-driven-periodic`. Production
-exercised in the driven-channel examples.
+exercised in the driven-channel examples. Analytically verified - `periodic-channel-laminar-picard-2026-09-18`: gives the same
+field as `constant_flux` with the same target, to round-off, and reproduces the laminar
+profile at second order; `pipe-poiseuille-curvilinear-2026-09-18` drives Hagen-Poiseuille
+flow with it on a curvilinear pipe.
 
-**Limitations and full treatment.** See @ref p54_driven_sec, including the
-convergence caveat for periodic wall-bounded flow.
+**Limitations and full treatment.** Shares `constant_flux`'s controller and its
+shortfall below target (@ref p44_cap_constant_flux). See @ref p54_driven_sec.
 
 @section p44_nondim_sec 5. Non-Dimensionalization Before C Input
 
@@ -506,10 +532,8 @@ boundary_conditions:
         path: profiles/inlet.picslice
 ```
 
-For multi-block cases, keep using the existing list-of-lists
-`boundary_conditions` shape. Each block face can reference its own `.picslice`;
-`picurv` stages one solver-scale file per block face and writes `source_file=...`
-into that block's `bcs_block*.run`.
+Each face can reference its own `.picslice`; `picurv` stages one solver-scale file
+per face and writes `source_file=...` into the run's `bcs.run`.
 
 Generated profiles currently support analytical square-duct Poiseuille flow:
 
@@ -541,15 +565,17 @@ it reads the source `PICGRID` header. Generated dimensional profiles and
 solver-scale `.picslice` is referenced from `bcs.run`.
 
 For `square_duct_poiseuille`, `bulk_velocity` is the target inlet bulk speed.
-When a canonical target `PICGRID` is available, `picurv` evaluates the analytical
-profile at target inlet face centers and rescales it using geometric quad face
-areas so `sum(u * area) / sum(area)` matches `bulk_velocity`. `profile.info`
-records the normalization mode, sampling mode, area-weighted mean before and
-after normalization, total inlet area, face-area range, and discrete sample mean.
-If no target grid is available yet, generation falls back to continuous-area
-normalization on uniform logical sample points. Exact C metric-vector area
-matching is a future refinement; the current Python path uses geometric quad
-areas from the target grid coordinates.
+`picurv` evaluates the analytical profile at the target inlet face centers and
+rescales it using geometric quad face areas so `sum(u * area) / sum(area)` matches
+`bulk_velocity`. The target is the grid file for `file`, the generated grid for
+`grid_gen`, and for `programmatic_c` the bridge `PICGRID` built from
+`programmatic_settings` with the formula the solver uses, so its stretching is honoured.
+`profile.info` records the normalization mode, sampling mode, area-weighted mean before
+and after normalization, total inlet area, face-area range, and discrete sample mean.
+Only `profile.gen` run by hand without `--target-grid` falls back to continuous-area
+normalization on uniform logical sample points, and `profile.info` then says so. The
+areas are geometric quad areas computed from the target grid coordinates, not the C
+metric face-area vectors.
 
 Field-sliced profiles reuse an existing Cartesian velocity field as a new inlet:
 

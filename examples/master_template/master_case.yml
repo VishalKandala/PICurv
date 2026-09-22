@@ -11,7 +11,7 @@
 #   1. simulation_control:  How long the simulation runs and at what time resolution.
 #   2. properties:          The core physical numbers (density, viscosity, scales).
 #   3. grid:                The geometric domain, either from a file or generated.
-#   4. models:              Switches to turn on/off different physics modules (LES, FSI, etc.).
+#   4. models:              Switches to turn on/off different physics modules (LES, particles, etc.).
 #   5. boundary_conditions: What happens at the edges of the domain.
 #
 # YAML SYNTAX NOTE:
@@ -95,7 +95,7 @@ properties:
     # source_file: initial_conditions/velocity.dat
 
     # --- External deterministic generator (ic_gen), materialized during run/precompute. ---
-    # Repository ic.gen supports file, grid_gen, and single-block programmatic_c grids.
+    # Repository ic.gen supports file, grid_gen, and programmatic_c grids.
     # For programmatic_c, scalar programmatic_settings are materialized as config/grid.run first.
     # mode: generated
     # generator: ic_gen
@@ -118,7 +118,6 @@ grid:
   # --- Optional Global DMDA Layout (applies to all grid modes) ---
   # Edit or remove these for parallel runs. The product must equal the total
   # MPI process count (-n) when all three are set.
-  # NOTE: Per-block processor decomposition is not implemented on the C side.
   da_processors_x: 2
   da_processors_y: 2
   da_processors_z: 4
@@ -147,16 +146,15 @@ grid:
   # Use this to have the C solver generate a structured Cartesian grid.
   # `im/jm/km` are cell counts in YAML; picurv converts them to node counts
   # before emitting `-im/-jm/-km` for the C runtime.
-  # For MULTI-BLOCK cases, all values must be LISTS of the same length.
   programmatic_settings:
     # --- Cell Counts ---
-    im: 64              # [Cells in i-direction] -> For 2 blocks: [64, 128]
-    jm: 32              # [Cells in j-direction] -> For 2 blocks: [32, 32]
-    km: 128             # [Cells in k-direction] -> For 2 blocks: [128, 256]
+    im: 64              # [Cells in i-direction]
+    jm: 32              # [Cells in j-direction]
+    km: 128             # [Cells in k-direction]
 
     # --- Domain Bounds (in physical units [m]) ---
-    xMins: 0.0          # [Min x-coordinate] -> For 2 blocks: [0.0, 1.0]
-    xMaxs: 1.0          # [Max x-coordinate] -> For 2 blocks: [1.0, 2.0]
+    xMins: 0.0          # [Min x-coordinate]
+    xMaxs: 1.0          # [Max x-coordinate]
     yMins: 0.0
     yMaxs: 0.5
     zMins: 0.0
@@ -183,24 +181,17 @@ grid:
 #    If a section or key is omitted, the C-code's default will be used.
 # ==============================================================================
 models:
-  # --- Domain and Block Configuration ---
-  domain:
-    blocks: 1          # [Integer] -> -nblk. CRITICAL for multi-block setups.
-    # Periodic axes are derived exclusively from paired PERIODIC boundary
-    # conditions. Do not add separate periodic flags here.
-
   # --- Core Physics Modules ---
   physics:
-    dimensionality: "3D" # Options: "3D" (default), "2D" (sets -TwoD 1)
-    
-    fsi:
-      immersed: false    # [true/false] -> -imm (Immersed Boundary Method)
-      moving_fsi: false  # [true/false] -> -fsi (Fluid-Structure Interaction)
+    dimensionality: "3D" # Options: "3D" (default), "2D" (sets -TwoD 1: the i velocity
+                         # component is held fixed; the grid is unchanged)
 
     particles:
       count: 0             # [Integer] -> -numParticles
       init_mode: "Surface" # [string] -> -pinit. Options: "Surface", "Volume", "PointSource", "SurfaceEdges"
       restart_mode: "init" # [string] -> -particle_restart_mode. Options: "init", "load"
+      random_seed: 12345   # [Integer, optional] -> -particle_random_seed. 0..2147483647; seeds
+                           # initial placement and Brownian draws (default 12345)
       point_source:        # Required only when init_mode = "PointSource" (maps to -psrc_x/-psrc_y/-psrc_z)
         x: 0.5
         y: 0.5
@@ -281,7 +272,7 @@ models:
           #   homogeneous -> average over the directions named below, or over the
           #                  periodic axes when none are named. A triply periodic box
           #                  gives one coefficient; a channel gives a wall-normal profile.
-          #   global      -> average over the whole block regardless of boundaries.
+          #   global      -> average over the whole domain regardless of boundaries.
           # [String] -> -les_averaging_mode
           mode: "local"
 
@@ -317,7 +308,7 @@ models:
           # [Boolean] -> -les_gradient_model
           enabled: false
 
-        # Per-step coefficient statistics appended to logs/les_coefficient.csv:
+        # Per-step coefficient statistics appended to output/analysis/metrics/les_coefficient.csv:
         # the effective Cs, its spread, eddy-viscosity levels, the modelled subgrid
         # energy, and the fractions of the domain backscattering or limited before
         # clipping. Those last two describe a state no stored field preserves.
@@ -337,10 +328,11 @@ models:
           # [Number] -> -les_yoshizawa_ci
           yoshizawa_ci: 0.09
 
-      # RANS selector. The k-omega runtime path is accepted but currently incomplete.
+      # RANS selector. k_omega is known-defective: its fields are never allocated and
+      # its transport equations are never solved, so enabling it aborts the solver at
+      # the end of the first timestep. Keep enabled: false.
       rans:
         enabled: false
-        # model is only needed when enabled: true. Currently supported: k_omega
         # model: "k_omega"
 
       # Wall functions are independent of LES/RANS and apply on WALL faces. The
@@ -368,19 +360,15 @@ models:
   
 # ==============================================================================
 # 5. BOUNDARY CONDITIONS
-#    Defines the behavior at each of the 6 faces of the computational domain(s).
+#    Defines the behavior at each of the 6 faces of the computational domain.
 # ==============================================================================
-# --- For SINGLE-BLOCK cases: Provide a simple list of 6 face definitions. ---
-# --- For MULTI-BLOCK cases: Provide a LIST OF LISTS. The outer list corresponds
-#     to the block index [0, 1, ...], and each inner list defines the 6 faces
-#     for that block. See the multi-block example commented out below. ---
+# --- Provide a list of 6 face definitions, one per face. ---
 # --- Geometric periodicity: set both opposite faces to PERIODIC/geometric.
 #     Periodic axes are derived from these BC pairs. The paired grid surfaces
 #     must match pointwise under one nonzero constant Cartesian translation,
 #     and the axis must contain at least four physical nodes. Periodic particle
 #     wrapping is not implemented. See examples/periodic_test/. ---
 boundary_conditions:
-  # --- Example for a Single Block Case ---
   - face: "-Xi"
     type: WALL
     handler: noslip
@@ -500,50 +488,6 @@ boundary_conditions:
 #                                     reintroduce divergence and injects single-plane noise.
 #                                     `apply_trim` is accepted as a deprecated alias.
 
-# --- Example for a 2-Block Case (syntax example; all handlers shown are currently supported) ---
-# boundary_conditions:
-#   # --- Block 0 Definitions ---
-#   - - face: "-Xi"
-#       type: INLET
-#       handler: constant_velocity
-#       params: { vx: 1.5, vy: 0.0, vz: 0.0 }
-#     - face: "+Xi"
-#       type: OUTLET
-#       handler: conservation
-#     - face: "-Eta"
-#       type: WALL
-#       handler: noslip
-#     - face: "+Eta"
-#       type: WALL
-#       handler: noslip
-#     - face: "-Zeta"
-#       type: WALL
-#       handler: noslip
-#     - face: "+Zeta"
-#       type: WALL
-#       handler: noslip
-#
-#   # --- Block 1 Definitions ---
-#   - - face: "-Xi"
-#       type: INLET
-#       handler: parabolic
-#       params: { v_max: 1.5 }
-#     - face: "+Xi"
-#       type: OUTLET
-#       handler: conservation
-#     - face: "-Eta"
-#       type: WALL
-#       handler: noslip
-#     - face: "+Eta"
-#       type: WALL
-#       handler: noslip
-#     - face: "-Zeta"
-#       type: WALL
-#       handler: noslip
-#     - face: "+Zeta"
-#       type: WALL
-#       handler: noslip
-
 # ==============================================================================
 # 6. ADVANCED PASSTHROUGH (OPTIONAL)
 # ------------------------------------------------------------------------------
@@ -551,5 +495,4 @@ boundary_conditions:
 # Keys must be full C/PETSc-style flags (including leading '-').
 # ==============================================================================
 # solver_parameters:
-#   -read_fields: true
 #   -some_new_flag: 123

@@ -3734,7 +3734,7 @@ def test_dry_run_post_process_requires_all_requested_output_families_for_resume(
             "output_directory": "visualization/mixed",
             "output_filename_prefix": "field_data",
             "particle_filename_prefix": "particle_data",
-            "eulerian_fields": ["Qcrit"],
+            "eulerian_fields": ["Ucat_nodal"],
             "output_particles": True,
             "particle_fields": ["position"],
         },
@@ -4680,6 +4680,32 @@ def test_spectrum_plot_request_selects_representative_states_and_report_labels(t
     assert request["lines"][0]["role"] == "reference"
     assert request["lines"][-1]["role"] == "latest"
     assert len(request["lines"]) == 7
+
+
+def test_spectrum_plot_request_finds_spectra_in_recipe_directories(tmp_path):
+    """!
+    @brief Spectra a post recipe wrote into its own subdirectory are plottable.
+
+    @details Post recipes write spectra under a per-recipe directory; the plot request
+             used to look only at the top of the spectra directory and reported none.
+             Identical task names from two recipes are told apart by their recipe path.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    picurv.ensure_run_layout(str(run_dir))
+    spectra_dir = run_dir / picurv.CANONICAL_RUN_PATHS["spectra"]
+    name = "Spectrum_shell_spectrum_Ucat_block0000_continuum.csv"
+    for recipe in ("dit-aaaa", "dit-bbbb"):
+        (spectra_dir / recipe).mkdir(parents=True)
+        (spectra_dir / recipe / name).write_text("step,time,k,energy\n0,0,2,0.0625\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="matched 2 files"):
+        picurv._build_spectrum_plot_request({"run_dir": str(run_dir)}, "Ucat", False, False, None)
+    request = picurv._build_spectrum_plot_request({"run_dir": str(run_dir)}, "bbbb", False, False, None)
+    assert request["series"] == name[: -len(".csv")]
+    assert request["lines"][0]["points"] == [[2.0, 0.0625]]
 
 
 def test_summarize_plot_rejects_incompatible_selector_and_json(tmp_path):
@@ -9066,3 +9092,100 @@ def test_branching_requires_a_statistics_decision_when_windows_are_enabled(tmp_p
         unstated, case_cfg, solver_cfg, monitor_cfg, str(new_run)
     )
     assert lineage["statistics_state"] == "reset"
+
+
+def test_carrying_statistics_stages_the_restart_bundle_without_restored_fields(tmp_path):
+    """!
+    @brief Carried windows are read from the source checkpoint even when no field is.
+
+    @details An analytical Eulerian source restores no fields on a branch, so the
+             restart bundle used to be skipped; the solver then failed at start-up
+             reading the carried windows from an empty restart directory.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    case_cfg, solver_cfg, monitor_cfg, source, new_run = _branch_restart_fixture(tmp_path, picurv)
+    solver_cfg["operation_mode"] = {"eulerian_field_source": "analytical", "analytical_type": "TGV3D"}
+    monitor_cfg["field_statistics"] = {
+        "enabled": True,
+        "windows": [{
+            "name": "production", "start_time": 0.0, "weighting": "sample",
+            "step_cadence": 1, "fields": [{"field": "Ucat", "moments": ["first"]}],
+        }],
+    }
+    assert not picurv.needs_restart_source(case_cfg, solver_cfg)
+
+    reset = SimpleNamespace(restart_from=str(source), continue_run=False, run_dir=None,
+                            statistics_state="reset")
+    resolved, _is_continue, _lineage = picurv.resolve_restart_source(
+        reset, case_cfg, solver_cfg, monitor_cfg, str(new_run)
+    )
+    assert resolved is None
+
+    carry = SimpleNamespace(restart_from=str(source), continue_run=False, run_dir=None,
+                            statistics_state="carry")
+    resolved, _is_continue, lineage = picurv.resolve_restart_source(
+        carry, case_cfg, solver_cfg, monitor_cfg, str(new_run)
+    )
+    assert resolved is not None
+    assert lineage["statistics_state"] == "carry"
+
+
+def test_post_msd_requires_point_source_seeding(tmp_path, capsys):
+    """!
+    @brief MSD is measured from the configured point source, so other seeding is refused.
+
+    With `Volume` or `Surface` seeding the point source is unset - the coordinate origin -
+    and the statistic would report distance from the origin. A case without particles
+    writes nothing and is accepted.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] capsys Pytest capture fixture.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    post_cfg = _post_with_window(0, 100, 100)
+    post_cfg["statistics_pipeline"] = {"tasks": [{"task": "msd"}]}
+    monitor_cfg = _monitor_with_output_cadence(100)
+
+    def case(count, init_mode):
+        """!
+        @brief A minimal case carrying only the particle block.
+        @param[in] count Particle count.
+        @param[in] init_mode Particle seeding mode.
+        @return Case mapping.
+        """
+        return {"models": {"physics": {"particles": {"count": count, "init_mode": init_mode}}}}
+
+    with pytest.raises(SystemExit):
+        picurv.validate_post_config(post_cfg, str(tmp_path / "post.yml"), monitor_cfg,
+                                    case(1000, "Volume"))
+    assert "requires init_mode: PointSource" in capsys.readouterr().err
+
+    picurv.validate_post_config(post_cfg, str(tmp_path / "post.yml"), monitor_cfg,
+                                case(1000, "PointSource"))
+    picurv.validate_post_config(post_cfg, str(tmp_path / "post.yml"), monitor_cfg,
+                                case(0, "Surface"))
+
+
+def test_post_refuses_cell_centred_qcrit_output(tmp_path, capsys):
+    """!
+    @brief Qcrit is cell-centred, so it must reach a .vts through nodal_average.
+
+    Written directly as point data it sat half a cell from the node the file assigned it.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] capsys Pytest capture fixture.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    post_cfg = _post_with_window(0, 100, 100)
+    post_cfg["eulerian_pipeline"] = [{"task": "q_criterion"}]
+    post_cfg["io"]["eulerian_fields"] = ["Qcrit"]
+    with pytest.raises(SystemExit):
+        picurv.validate_post_config(post_cfg, str(tmp_path / "post.yml"), _monitor_with_output_cadence(100))
+    assert "Qcrit_nodal" in capsys.readouterr().err
+
+    post_cfg["eulerian_pipeline"].append(
+        {"task": "nodal_average", "input_field": "Qcrit", "output_field": "Qcrit_nodal"})
+    post_cfg["io"]["eulerian_fields"] = ["Qcrit_nodal"]
+    picurv.validate_post_config(post_cfg, str(tmp_path / "post.yml"), _monitor_with_output_cadence(100))

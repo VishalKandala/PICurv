@@ -7,7 +7,7 @@
 What confidence this project claims for each capability in the families covered so far.
 
 The table is generated from the capability registry and now covers every public
-capability family the census recognises - 37 families, 117 canonical values.
+capability family the census recognises - 40 families, 131 canonical values.
 
 @warning **Coverage is not credibility.** A complete table means every capability has
 been *asked* what evidence stands behind it, not that the answers are strong. Many
@@ -50,27 +50,28 @@ beyond the canonical value they resolve to.
 Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
-- **`Explicit RK4` has no facets.** `src/guide.md` records "direct positive-path
-  momentum solver harnesses, especially explicit RK" as an open coverage gap, and no
-  shipped example selects it. Treat it as unverified.
-- **No capability claims `analytical` or `reference` facets.** The particle
-  verification examples in **@subpage 65_Example_Catalog** are *designed* to compare
-  against exact solutions, but a numerical acceptance threshold has not been run and
-  gated as part of this work. Design intent is not evidence, so no tick was recorded.
-
-- **The grid generator's composed geometries are exercised, but only along their plainest
-  path.** Both geometries are production-exercised: every `examples/periodic_test` case
-  generates its mesh with `box`, and `examples/bent_channel` generates its square duct and
-  quarter turn with `sweep`. Each reproduces what it replaced - the `box` cases
-  byte-identically against the retired `warp` meshes, `sweep` to 5e-8 against the `.picgrid`
-  `bent_channel` used to ship, which is that file's own write precision. `bent_channel` also
-  carries the only evidence any of the composed parameters have: an unshaped `rectangle`
-  section and two default-axis `straight`/`arc` path segments. Everything else - all seven
-  wall-segment kinds, the `circle` cross-section, chaining `arc` about different axes or with
-  a negative `deg`, a `cross_section_scale` field, and all six transforms - declares no facet
-  beyond unit coverage in `tests/test_grid_generator.py`. No solve has been run on a stepped
-  wall or a scaled sweep, and metric quality at a resolved corner is reported by the
-  generator but has not been validated against a solution.
+- **Analytical facets rest on single recorded measurements, and none is `reference`.**
+  81 values cite `measurement:` records - 23 distinct ones, taken on 2026-09-18 and
+  2026-09-21 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
+  pipe Poiseuille flow, the Poisson options, every initial-condition mode, every
+  particle seeding and restart mode, both interpolation methods, the post-processing
+  kernels, field statistics, spectra, metric closure on every grid-generator feature,
+  and the workspace input import modes. Each record states what it does not establish, and none is gated in CI. Five
+  records are cited by no value: the two `not-met` ones (the Q-criterion output
+  placement and the generated inlet flux on `programmatic_c` grids, both since fixed
+  and re-measured), the superseded `inconclusive` drift measurement,
+  and the paired drift and scalar-scatter measurements, which verify subsystems with no
+  selector value to cite them. No capability has been compared against external
+  reference data.
+- **The grid generator's closure is metric consistency, not accuracy on every shape.**
+  Every geometry, section, wall segment, path segment and transform closes a uniform
+  flow to round-off in the solver's metrics, but solves have been run only on flat
+  boxes, the swept circle, and a mirrored hill channel. Metric quality at a resolved
+  step corner is reported by the generator and not validated against a solution.
+- **The turbulence closures carry no measured facet.** Every LES, RANS and
+  wall-function value is experimental or known-defective; at most they carry unit
+  coverage and, for the dynamic model, a production example. The LES models are
+  detailed next.
 
 - **All four LES models are `experimental`.** All are implemented and carry unit
   coverage in `tests/c/test_les.c`, including an analytic check of the Germano model

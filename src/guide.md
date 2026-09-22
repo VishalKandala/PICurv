@@ -62,6 +62,38 @@ Practical tip:
 - Keep high-level orchestration logic in orchestrator modules; keep math kernels in subsystem files.
 - Avoid hidden behavior in utility helpers that bypass main execution flow assumptions.
 
+## Removed Legacy Runtime Flags
+
+Internal record; not published. On 2026-09-18 these PETSc options were deleted from
+`CreateSimulationContext()` in `setup.c`, together with the `SimCtx` fields they wrote
+(`include/variables.h`) and their entries in `tests/tooling/audit_ingress_manifest.json`.
+Each was read into a field that nothing outside `setup.c` ever used - the only other
+references were default assignments or code that was already commented out - so no run
+could depend on them. The conductor never emitted any of them; they were reachable only
+through a PETSc passthrough, where they now surface as PETSc "unused option" warnings.
+
+| Removed option | Former `SimCtx` field | What it was |
+| --- | --- | --- |
+| `-sediment`, `-rheology` | `sediment`, `rheology` | legacy physics switches, never implemented here |
+| `-thin`, `-blk` | `thin`, `blank` | legacy geometry switches |
+| `-dgf_x/-dgf_y/-dgf_z/-dgf_ax/-dgf_ay/-dgf_az` | same names | legacy body degree-of-freedom switches |
+| `-cop`, `-fish`, `-cstart`, `-fishcyl`, `-eel`, `-pizza`, `-turbine`, `-wing`, `-hydro`, `-Pipe` | `cop`, `fish`, `fish_c`, `fishcyl`, `eel`, `pizza`, `turbine`, `wing`, `hydro`, `Pipe` | legacy case-specific switches |
+| `-Turbulent_Channel_z` | `channelz` | legacy case-specific switch |
+| `-mg_max_it`, `-mg_idx` | `mg_MAX_IT`, `mg_idx` | legacy multigrid controls; the Poisson solve reads `-ps_*` options |
+| `-str` | `STRONG_COUPLING` | legacy FSI coupling switch |
+| `-grid1d`, `-Ogrid` | `grid1d`, `Ogrid` | legacy grid switches; the O-grid force branch was commented out |
+| `-pbc_domain` | `blkpbc` | legacy periodic-block switch |
+| `-grid_rotation_angle`, `-Croty`, `-Crotz` | same names | legacy grid-rotation parameters |
+| `-U_bc` | `U_bc` | legacy boundary velocity |
+| `-read_fields` | `readFields` | legacy field-read switch; `-euler_field_source load` owns this |
+| `-rs_fsi`, `-duplicate` | `rstart_fsi`, `duplicate` | legacy FSI restart switches |
+| `-no_of_bodies` | read removed; `NumberOfBodies` kept at 1 | the dormant immersed-body flux routine in `poisson.c` still reads the field |
+| `-poisson_tol` | `poisson_tol` | a Poisson tolerance nothing read; removed with the `poisson_solver.tolerance` YAML key, which validation now refuses in favour of `absolute_tolerance`/`relative_tolerance`, and the conductor no longer emits it beside `-ps_ksp_atol` |
+
+Recover any of them from history (the parent of the commit that removes this table's
+source lines) if an implementation ever needs one; do not re-add a read without a
+consumer.
+
 ## Change-Safety Checklist
 
 - Update matching headers for every public symbol change.
@@ -80,8 +112,8 @@ The source tree is broadly touched by current tests, but function-level direct d
 Current next-gap priorities:
 
 - direct walking-search branch coverage for locate/migrate edge cases
-- direct positive-path momentum solver harnesses, especially explicit RK
-- deeper bespoke Poisson/multigrid coverage beyond helper-level invariants
+- unit-level single-step momentum harnesses: Explicit RK4 and Picard are gated end to end by `make smoke` (RK4's stable step and stability-limit stop) and measured for order, but no unit test drives one step on a fixture
+- periodic Poisson/multigrid stencil branches (`PoissonSolver_MG` itself is covered by `make unit-poisson-rhs`)
 - non-restart MPI migration and multi-pass particle handoff coverage
 - richer-runtime fixture variants beyond the tiny Cartesian baseline
 

@@ -16,14 +16,11 @@ It emphasizes architecture boundaries, method-level reasoning, and safe extensio
 - **@subpage 15_Config_Ingestion_Map**: where specific YAML keys enter C/Python paths.
 - **@subpage 16_Config_Extension_Playbook**: adding new keys/features safely.
 - **@subpage 50_Modular_Selector_Extension_Guide**: selector-by-selector hook points for extending current user-facing options.
-- **@subpage 17_Workflow_Extensibility**: extending orchestration beyond current run/sweep modes.
 - **@subpage 46_C_Runtime_Execution_Map**: startup/timestep execution trace across C modules.
 - **@subpage 56_Field_Identity_and_Layout_Catalog**: typed Eulerian/particle field identities, runtime views, and coupling metadata.
 - **@subpage 58_Field_Statistics**: scientific field statistics — accumulation, monitoring, checkpoint state, derived output, and extension points.
 - **@subpage 72_LES_Turbulence_Closure**: subgrid closure formulation, the Germano-Lilly procedure, coefficient averaging and limiting, and the kernels a new closure reuses.
-- **@subpage 57_Future_Architecture_Specifications**: status and sequencing of proposed future architecture.
-- **@subpage 60_Field_Statistics_Planned_Extensions**: spatial targets, further products, and histories, with their dependency order.
-- **@subpage 59_Function_Identity_and_Observability_Specification**: deferred, benchmark-gated logging/profiling identity design.
+- **@subpage 57_Future_Architecture_Specifications**: the one place planned work is described, with what must exist before each item is accepted.
 
 @section p43_contracts_sec 2. Documentation Contracts
 

@@ -40,7 +40,7 @@ The method pages below document each major stage in detail.
 
 @section p21_method_map_sec 3. Method Map
 
-- **@subpage 22_CURVIB_Method**: curvilinear grid/metric framework and immersed-boundary context.
+- **@subpage 22_CURVIB_Method**: curvilinear grid/metric framework.
 - **@subpage 23_Fractional_Step_Method**: predictor/projection incompressible update.
 - **@subpage 24_Dual_Time_Picard_Jameson_RK**: implicit-in-physical-time momentum iteration.
 - **@subpage 25_Pressure_Poisson_GMRES_Multigrid**: Poisson assembly and PETSc multigrid/KSP path.

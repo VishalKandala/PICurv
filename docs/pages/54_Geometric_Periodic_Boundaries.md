@@ -150,6 +150,18 @@ holds the flux to first order in `dt`: the force applied during a step is the
 one that would have corrected the flux measured at its beginning. Halving `dt`
 halves the lag.
 
+The controller is proportional, so it settles **below** the target. The applied force is
+`f = G * (U_target - U_b) / dt` with gain `G = 1.5 * 1.8 = 2.7` (the BDF2 coefficient times
+the internal `-driven_flow_scaling_factor`, default 1.8, which no YAML key sets). In steady
+state that force balances the wall drag, so the realized bulk velocity falls short of the
+target by `f * dt / 2.7`. For a laminar channel of half-height `h`, where
+`f = 3 nu U_b / h^2`, this gives `U_b = U_target / (1 + 3 nu dt / (2.7 h^2))`: 0.056% short
+for the shipped laminar case, and 10% short at `nu = 0.1, dt = 1`, where the measurement
+above confirmed the law to second order in the grid. Read the realized flux from the
+controller log rather than assuming the target; in turbulent runs at typical `dt` the
+shortfall is far below the statistical noise.
+
+
 @subsection p54_driven_trim_sub 5.3 The seam trim (`enforce_seam_flux`)
 
 The controller has two actuators, and this option controls the second one.
@@ -305,16 +317,15 @@ hand.
 
 @subsection p54_driven_limits_sub 5.7 Known limitations
 
-**Initial-condition seeding.** There is no generator that produces a
-divergence-free perturbed field respecting no-slip, so a wall-bounded turbulent
-case has no good seed in-tree. `ic.gen`'s `spectral_random_velocity` is not
-usable here: it explicitly requires `PERIODIC`/`geometric` on all six faces and
-is rejected otherwise, which is correct - it cannot respect a no-slip wall. The
-shipped turbulent cases seed with `streamwise_constant`, a laminar profile;
-transition from it is slow and is not guaranteed without a finite-amplitude
-perturbation. Until a seeded generator exists, develop a field at coarse
-resolution (or from a precursor run) and carry it in, then use `initial_flux` to
-hold its flux.
+**Initial-condition seeding.** Experimental `channel_spectral_velocity` and
+`duct_spectral_velocity` providers generate wall-bounded discrete-curl perturbations;
+see @ref p33_cap_gen_channel_spectral_velocity and @ref p33_cap_gen_duct_spectral_velocity.
+The `turbulent_channel` example and `periodic_test/driven_duct/case_spectral.yml`
+exercise these startup paths. Other driven-channel variants still use
+`streamwise_constant`; a laminar start does not guarantee transition. Neither a
+seeded perturbation nor a short successful solve establishes developed turbulence.
+The triply periodic `spectral_random_velocity` provider remains unsuitable for
+no-slip walls.
 
 **Wall-normal profiles from statistics.** `field_statistics` is BC-agnostic - it
 accumulates per-cell time moments and works unchanged under periodic boundaries.
@@ -325,26 +336,14 @@ outside the postprocessor from the window payloads.
 
 **Momentum convergence on periodic wall-bounded flow.**
 
-@warning Status: previously observed; requires re-characterization at current
-`HEAD`. The observation below was measured on 2026-08-24. Commits landed on
-2026-08-25 moved momentum convergence onto a residual criterion, retired
-`absolute_tol`, and changed the pseudo-CFL controller's wall-relearning behavior -
-that is, they rewrote the exact criterion this was measured against. Do not treat
-it as current solver behavior, and do not cite it, until the cases below are rerun.
-
-As measured on 2026-08-24: under the Dual Time Picard Jameson RK solver these cases
-did not reach the pseudo-time convergence tolerance. The pseudo-CFL controller drove
-`dtau` to its floor and the residual ratio plateaued near 1, so every step reported
-"reached N total attempts without convergence" and continued from the last accepted
-state. The behavior was independent of the driven-flow machinery - an otherwise
-identical case with plain `geometric` handlers behaved the same, while the shipped
-wall-bounded inlet/outlet example converged cleanly - and independent of
-`central_diff` and of the pseudo-CFL floor. The Poisson side was healthy throughout
-(maximum divergence around 1e-14).
-
-If the behavior reproduces at current `HEAD`, it must be resolved before the
-turbulent campaigns above can be run. If it does not, replace this note with the
-new measured result rather than deleting it silently.
+Re-characterized at current `HEAD` on 2026-09-18 (measurement
+`periodic-channel-laminar-picard-2026-09-18`); the stall recorded on 2026-08-24 does not
+reproduce. That observation predated the 2026-08-25 move of momentum convergence onto a
+residual criterion and the change to the pseudo-CFL controller. The shipped laminar
+channel (`Re = 100`, 17 x 33 x 17 cells, 4 ranks, `dt = 0.05`, `initial_flux`) now
+converges every step in 9 to 29 pseudo-iterations against a cap of 50. At `Re = 10` the
+steady state reproduces the exact parabola at second order with both driven handlers:
+the maximum profile error falls 1.8e-2, 5.2e-3, 1.4e-3 on 9, 17 and 33 wall-normal cells.
 
 @section p54_diag_sec 6. Diagnostics and Tests
 

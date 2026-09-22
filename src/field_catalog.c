@@ -184,7 +184,14 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
     FIELD_ENTRY(FIELD_ID_POST_VECTOR, "PostVector", NULL, NULL, 3,
                 FIELD_DM_FDA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
-                FIELD_CAPABILITY_GHOST_UPDATE, PostVector, lPostVector)
+                FIELD_CAPABILITY_GHOST_UPDATE, PostVector, lPostVector),
+    /* The Q-criterion is computed at cell centres. It is catalogued only so the nodal
+     * average can refresh its ghosts by name: a cell value written as point data sits
+     * half a cell away from the node the file assigns it. Post-processor only. */
+    FIELD_ENTRY(FIELD_ID_QCRIT, "Qcrit", NULL, NULL, 1,
+                FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
+                FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
+                FIELD_CAPABILITY_GHOST_UPDATE, Qcrit, lQcrit)
 };
 
 _Static_assert(sizeof(gFieldCatalog) / sizeof(gFieldCatalog[0]) == FIELD_ID_COUNT,

@@ -55,7 +55,7 @@ For each run, `picurv` generates:
 - For `grid_gen`, `grid.generator.config_file` is required today. `grid.gen` consumes cell counts and writes node counts into `.picgrid`.
 - `grid.generator.output_file`, `stats_file`, and `vts_file` are rejected: `picurv` chooses the destination for the generated grid, its `.vts` preview, and its `.info` quality report, and writes all three unconditionally into the run's own asset store.
 - `grid.generator.cli_args` is a raw token list passed through to `grid.gen`, but closed-choice values inside it (a `--cross-section` value, or the segment kinds inside `--wall-j-lo`/`--path`/`--transforms`/etc.) are checked at validation time against the same sets `grid.gen` itself enforces, so a misspelled selector fails before the run rather than partway into it. See @ref p48_grammar_ssec.
-- `boundary_conditions` supports single-block list or multi-block list-of-lists.
+- `boundary_conditions` is a list of six face entries.
 - `INLET` + `prescribed_flow` supports `source.type: file`, `source.type: generated`,
   and `source.type: field_slice`. Generated square-duct Poiseuille profiles and
   old-field slices are produced by Python, written under `<run.config>/`, summarized
@@ -137,9 +137,9 @@ For each run, `picurv` generates:
   internally and is not a normal structured YAML choice.
 - `interpolation.method` -> `-interpolation_method`. Defaults to `Trilinear` (direct cell-center, second-order). Set to `CornerAveraged` for the legacy two-stage path.
 - `petsc_passthrough_options` remains the escape hatch for advanced PETSc/C flags.
-- `scalar_transport.schmidt_number` and `scalar_transport.turbulent_schmidt_number`
-  are the structured scalar/Brownian transport controls; do not use passthrough
-  for ordinary Schmidt-number tuning.
+- `scalar_transport.schmidt_number`, `scalar_transport.turbulent_schmidt_number`, and
+  `scalar_transport.iem_constant` are the structured scalar/Brownian transport and IEM
+  mixing controls; do not use passthrough for them.
 - `case.yml -> models.physics.turbulence` is the structured turbulence control surface.
   LES uses `les.enabled/model` plus `constant_cs` -> `-les_constant_cs`,
   `dynamic_frequency` -> `-les_dynamic_frequency`, `filter_width` ->
@@ -168,7 +168,7 @@ Verification-pathway rule:
 
 - `solver.yml -> verification.sources.diffusivity` and `solver.yml -> verification.sources.scalar` are reserved for verification-only source overrides when no cleaner end-to-end path exists.
 - they are only valid for analytical solver runs.
-- `verification.sources.scalar` prescribes particle `Psi` and drives the runtime diagnostic `<run.runtime_logs>/scatter_metrics.csv` while leaving ordinary production runs unchanged when absent.
+- `verification.sources.scalar` prescribes particle `Psi` and drives the runtime diagnostic `<run.analysis.metrics>/scatter_metrics.csv` while leaving ordinary production runs unchanged when absent.
 - new verification source overrides belong in `verification_sources.*`, with production call sites kept as thin delegation points.
 
 @section p14_monitor_sec 5. Monitor Contract Highlights
@@ -315,6 +315,5 @@ Examples:
 - `generator: zero` requires no `params`,
 - omitting `models.physics.particles.restart_mode` on a particle restart emits a warning that C will default to `load`.
 
-For workflow growth patterns (grid generation orchestration, multi-run studies, and ML coupling paths), see **@subpage 17_Workflow_Extensibility**.
 For worked examples and profile-composition patterns, see **@subpage 49_Workflow_Recipes_and_Config_Cookbook**.
 For selector-specific contributor hook points, see **@subpage 50_Modular_Selector_Extension_Guide**.

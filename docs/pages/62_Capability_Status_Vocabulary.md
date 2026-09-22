@@ -33,6 +33,11 @@ Status describes what the project claims about a capability today.
 | `removed` | No longer present; retained only as history and migration guidance. | Changelog/history only |
 | `known-defective` | Reachable by a user but known to produce incorrect results. | Yes - disclosure is mandatory |
 
+A value never claims more than the subsystem that owns it: a `supported` value under an
+`experimental` subsystem is refused by `make audit-subsystems`. The only exception is the
+value that switches its subsystem off, such as `none` for a turbulence model, which says
+nothing about the subsystem it disables. The rules are at @ref p64_ceiling_sub.
+
 @section p62_defective_sec 2. The `known-defective` Rule
 
 `known-defective` is the one status with a hard placement requirement:

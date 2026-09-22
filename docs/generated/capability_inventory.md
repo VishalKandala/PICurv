@@ -40,6 +40,15 @@ Selector: `solver.yml -> strategy.momentum_solver`
 | `Explicit RK4` | `EXPLICIT_RK` |
 | `Newton Krylov` | `newton_krylov` |
 
+### Pressure Poisson Krylov Methods
+
+Selector: `solver.yml -> poisson_solver.method`
+
+| Value | Maps to |
+|---|---|
+| `cg` | `cg` |
+| `fgmres` | `fgmres` |
+
 ### LES Subgrid Models
 
 Selector: `case.yml -> models.physics.turbulence.les.model`
@@ -211,6 +220,15 @@ Selector: `case.yml -> grid.mode`
 | `grid_gen` | `grid_gen` |
 | `programmatic_c` | `programmatic_c` |
 
+### Flow Dimensionality
+
+Selector: `case.yml -> models.physics.dimensionality`
+
+| Value | Maps to |
+|---|---|
+| `2D` | `2D` |
+| `3D` | `3D` |
+
 ### Grid Generator Geometries
 
 Selector: `case.yml -> grid.generator.grid_type`
@@ -261,6 +279,7 @@ Selector: `grid.gen --transforms, or the `transforms` config key`
 | `anchor` | `anchor` |
 | `mirror` | `mirror` |
 | `permute` | `permute` |
+| `reverse` | `reverse` |
 | `rotate` | `rotate` |
 | `scale` | `scale` |
 | `translate` | `translate` |

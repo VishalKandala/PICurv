@@ -29,6 +29,9 @@ global_operations:
 
 eulerian_pipeline:
   - task: q_criterion
+  - task: nodal_average
+    input_field: 'Qcrit'
+    output_field: 'Qcrit_nodal'
 
   - task: nodal_average
     input_field: 'P'
@@ -50,7 +53,7 @@ io:
   eulerian_fields:
     - 'Ucat_nodal'
     - 'P_nodal'
-    - 'Qcrit'
+    - 'Qcrit_nodal'
 
   output_particles: false
   particle_fields: []

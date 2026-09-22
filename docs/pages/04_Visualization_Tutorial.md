@@ -28,7 +28,7 @@ When you load a `.vts` file, you'll be able to color and analyze several data fi
 
 -   `Ucat_nodal`: A **3-component vector** representing the fluid velocity at the grid nodes. This is the primary field you will use for visualizing the flow.
 -   `P_nodal`: A **scalar** representing the pressure field at the grid nodes.
--   `Qcrit`: A **scalar** representing the Q-criterion, a value used to identify vortices and turbulent structures in the flow.
+-   `Qcrit_nodal`: A **scalar** representing the Q-criterion averaged to grid nodes, a value used to identify vortices and turbulent structures in the flow.
 
 @section p04_paraview_basics_sec 2. The ParaView Interface
 

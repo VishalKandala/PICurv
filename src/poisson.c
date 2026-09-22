@@ -3269,9 +3269,9 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
         ierr = PCMGSetCycleType(mgpc, PC_MG_CYCLE_V); CHKERRQ(ierr);
         ierr = PCMGSetType(mgpc, PC_MG_MULTIPLICATIVE); CHKERRQ(ierr);
         if (simCtx->mg_preItr != simCtx->mg_poItr) {
-            LOG_ALLOW(GLOBAL, LOG_WARNING,
-                      "PETSc PCMG exposes one smoother count in this build; using max(pre_sweeps=%d, post_sweeps=%d).\n",
-                      simCtx->mg_preItr, simCtx->mg_poItr);
+            LOG(GLOBAL, LOG_WARNING,
+                "PETSc PCMG exposes one smoother count in this build; using max(pre_sweeps=%d, post_sweeps=%d).\n",
+                simCtx->mg_preItr, simCtx->mg_poItr);
         }
         PetscInt mg_smooths = simCtx->mg_preItr > simCtx->mg_poItr ? simCtx->mg_preItr : simCtx->mg_poItr;
         ierr = PCMGSetNumberSmooth(mgpc, mg_smooths); CHKERRQ(ierr);
@@ -3378,6 +3378,30 @@ PetscErrorCode PoissonSolver_MG(UserMG *usermg)
         ierr = KSPSetFromOptions(mgksp); CHKERRQ(ierr);
         ierr = KSPSetUp(mgksp); CHKERRQ(ierr);
         ierr = KSPSolve(mgksp, user[bi].B, user[bi].Phi); CHKERRQ(ierr);
+
+        /* A failed pressure solve used to pass unnoticed: the projection ran on an
+           unsolved Phi, and the next momentum step failed with "non-finite trial at
+           minimum pseudo-CFL", pointing at the wrong solver. A non-finite residual or a
+           preconditioner that could not be built leaves Phi meaningless, so both are
+           fatal. Stopping at max_it is this solve's normal mode and stays silent; any
+           other divergence is reported, because the projection proceeds on that Phi. */
+        {
+            KSPConvergedReason reason;
+            ierr = KSPGetConvergedReason(mgksp, &reason); CHKERRQ(ierr);
+            PetscCheck(reason != KSP_DIVERGED_NANORINF && reason != KSP_DIVERGED_PC_FAILED,
+                       PETSC_COMM_WORLD, PETSC_ERR_NOT_CONVERGED,
+                       "Pressure Poisson solve on block %" PetscInt_FMT " failed at step %" PetscInt_FMT
+                       " (KSP reason %s). Known causes: a multigrid hierarchy coarsened too far "
+                       "(reduce poisson_solver.multigrid.levels or refine the grid), or a momentum "
+                       "field that has already diverged, such as an explicit time step beyond its "
+                       "stability limit.",
+                       bi, simCtx->step, KSPConvergedReasons[reason]);
+            if (reason < 0 && reason != KSP_DIVERGED_ITS) {
+                LOG(GLOBAL, LOG_WARNING, "Pressure Poisson solve on block %" PetscInt_FMT
+                    " diverged at step %" PetscInt_FMT " (KSP reason %s); the projection uses the last iterate.\n",
+                    bi, simCtx->step, KSPConvergedReasons[reason]);
+            }
+        }
 
         // --- 7. Cleanup for this block ---
         for (l = usermg->mglevels - 1; l >= 0; l--) {

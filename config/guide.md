@@ -21,7 +21,7 @@ For CFD users, the key idea is separation of concerns. Instead of creating one m
 
 Two repo-wide patterns are especially important in the current codebase:
 
-- `solver.yml -> verification.sources.*` is reserved for verification-only injections/overrides when no cleaner end-to-end path exists. For example, `verification.sources.scalar` prescribes particle `Psi` from analytical truth and enables the runtime diagnostic `<run.runtime_logs>/scatter_metrics.csv` without changing ordinary production runs.
+- `solver.yml -> verification.sources.*` is reserved for verification-only injections/overrides when no cleaner end-to-end path exists. For example, `verification.sources.scalar` prescribes particle `Psi` from analytical truth and enables the runtime diagnostic `<run.analysis.metrics>/scatter_metrics.csv` without changing ordinary production runs.
 - `case.yml -> boundary_conditions[].params.source` owns inlet profile sourcing
   for `prescribed_flow`. Use `source.type: file` for inspected PICSLICE inputs
   `source.type: generated` for conductor-managed analytical profiles, and

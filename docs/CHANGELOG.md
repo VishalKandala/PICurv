@@ -22,7 +22,7 @@
     checkpoint. It is now the catalogued field `Utau`, written when a wall model is
     active. It is not read back on restart, because the first boundary pass of the
     restarted run recomputes it from the restored velocity.
-  - New `<run.runtime_logs>/wall_model.csv`, one row per step: the friction velocity's
+  - New `<run.analysis.metrics>/wall_model.csv`, one row per step: the friction velocity's
     mean, RMS and extrema over the corrected cells, the first-cell `y+` and wall
     distance, and the cell count. `y+` is formed inside the wall-model dispatch, where
     the wall distance is still in hand; nothing downstream can recover it. A step that
@@ -223,7 +223,7 @@
     control-file path and the test fixtures cannot drift. The dead `-mixed`,
     `-testfilter_1d`, and `-i/j/k_homo_filter` options are removed; the homogeneous-filter
     intent they carried is served by `averaging.directions`.
-  - Per-step diagnostics are written to `<run.runtime_logs>/les_coefficient.csv`,
+  - Per-step diagnostics are written to `<run.analysis.metrics>/les_coefficient.csv`,
     including the pre-clipping backscattering and limited fractions, which no stored
     field preserves.
   - `les.c` is rebuilt from named kernels — symmetric-tensor algebra, strain rate, filter
@@ -565,7 +565,7 @@
 
 - Search robustness observability:
   - added always-on aggregate search instrumentation for particle-enabled runs.
-  - added `logs/search_metrics.csv` with timestep-level search, traversal, tie-break, boundary-clamp, bbox-guess, pass-depth, per-step loss, run-local cumulative loss, V2 population/outcome counters, and derived `search_failure_fraction`, `search_work_index`, and `re_search_fraction` signals.
+  - added `<run.analysis.metrics>/search_metrics.csv` with timestep-level search, traversal, tie-break, boundary-clamp, bbox-guess, pass-depth, per-step loss, run-local cumulative loss, V2 population/outcome counters, and derived `search_failure_fraction`, `search_work_index`, and `re_search_fraction` signals.
   - added `LOG_SEARCH_METRICS` for compact DEBUG-gated console summaries when explicitly allow-listed.
   - added the `examples/search_robustness/` example family with Brownian Cartesian/curvilinear baselines plus deterministic Cartesian/curvilinear `UNIFORM_FLOW` migration-stress variants, a study starter, and a dedicated metrics-reference docs page.
 

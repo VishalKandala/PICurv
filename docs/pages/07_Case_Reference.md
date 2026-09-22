@@ -191,9 +191,9 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Diagnostics.** The startup banner reports the resolved grid source. A missing or unreadable file is a fatal `picurv validate` error naming the path, not a runtime failure.
 
-**Evidence.** Production exercised - `examples/search_robustness` runs from a staged `.picgrid`. It carries the only grid file the examples still ship: `bent_channel` moved to `grid_gen` once the generator could express its geometry, which removed a duplicate of the same 2.9 MB file.
+**Evidence.** Production exercised - `examples/search_robustness` runs from a staged `.picgrid`. It carries the only grid file the examples still ship: `bent_channel` moved to `grid_gen` once the generator could express its geometry, which removed a duplicate of the same 2.9 MB file. Analytically verified - `curvilinear-gcl-2026-09-18`: the face-area metrics of a curvilinear file grid close to round-off in every cell; `eulerian-source-domain-modes-2026-09-21`: a curvilinear pipe loaded as a file reproduced the grid, velocity and pressure of the same run from `grid_gen` exactly after ten steps; `grid-generator-closure-2026-09-21`: every generator feature, loaded as a file grid, closes a uniform flow to round-off.
 
-**Limitations.** `picurv` does not inspect the mesh beyond existence and header validity, so a geometrically wrong but well-formed file is accepted here and only shows up in metric or Jacobian diagnostics.
+**Limitations.** `picurv` does not inspect the mesh beyond existence and header validity, so a geometrically wrong but well-formed file is accepted here and only shows up in metric or Jacobian diagnostics. The solver itself refuses a uniformly left-handed file, whose logical axes would need renumbering (@ref p48_cap_xform_reverse).
 
 @subsection p07_cap_gridmode_programmatic_c_sub programmatic_c
 
@@ -211,7 +211,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Diagnostics.** The startup banner reports the resolved block extents and counts. A count/extent mismatch across per-block lists is a validation error naming the offending key.
 
-**Evidence.** Production exercised - `examples/flat_channel`; integration verified - `make unit-grid`.
+**Evidence.** Production exercised - `examples/flat_channel`; integration verified - `make unit-grid`. Analytically verified - `duct-inlet-handlers-2026-09-21`: a programmatic square duct develops to the Poiseuille series at second order; `poisson-options-2026-09-21` and `initial-conditions-2026-09-21` run on it.
 
 **Limitations.** Restricted to a rectangular Cartesian block - `cgrids` does not add curvilinear geometry (@ref p07_grid_prog_ssec). Anything bent, branched, or externally meshed needs `file` or `grid_gen`.
 
@@ -231,7 +231,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Diagnostics.** Generator stdout is captured into the run's scheduler log, and the staged `.picgrid` appears under `<run.config>/`. A generator failure aborts before the solver launches.
 
-**Evidence.** Production exercised - `examples/periodic_test` cases stage grids this way.
+**Evidence.** Production exercised - `examples/periodic_test` cases stage grids this way. Analytically verified - `duct-poiseuille-picard-2026-09-18` on a generated box and `pipe-poiseuille-curvilinear-2026-09-18` on a generated swept circle, each at second order.
 
 **Limitations.** Adds a build step to every launch, and the run's geometry depends on the generator's current behaviour rather than on a fixed artefact. `config_file` is mandatory today.
 
@@ -239,8 +239,6 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 ```yaml
 models:
-  domain:
-    blocks: 1
   physics:
     dimensionality: "3D"
     turbulence:
@@ -257,7 +255,6 @@ models:
 ```
 
 Common mappings:
-- `domain.blocks` -> `-nblk`
 - periodic axes are derived from paired `PERIODIC` boundary conditions before
   DMDA creation; `models.domain` does not accept periodic flags
 - `physics.dimensionality: "2D"` -> `-TwoD 1`
@@ -272,12 +269,13 @@ Common mappings:
 - `physics.turbulence.les.clipping.mode/max_cs/min_viscosity_ratio` -> `-les_clip_mode`, `-les_clip_max_cs`, `-les_min_viscosity_ratio`
 - `physics.turbulence.les.gradient_model.enabled` -> `-les_gradient_model`
 - `physics.turbulence.les.diagnostics.enabled/cadence/yoshizawa_ci` -> `-les_diagnostics`, `-les_diagnostics_cadence`, `-les_yoshizawa_ci`
-- `physics.turbulence.rans.enabled/model` -> `-rans` (`k_omega` accepted; runtime update currently incomplete)
+- `physics.turbulence.rans.enabled/model` -> `-rans` (`k_omega` is known-defective; see @ref p07_cap_rans_k_omega_sub)
 - `physics.turbulence.wall_function.enabled/model` -> `-wallfunction` (`1` log law, `2` Werner-Wengle, `3` Cabot)
 - `physics.turbulence.wall_function.roughness_height` -> `-wall_roughness` (`log_law` only)
 - `physics.particles.count` -> `-numParticles`
 - `physics.particles.init_mode` -> `-pinit` (`Surface`, `Volume`, `PointSource`, `SurfaceEdges`)
 - `physics.particles.restart_mode` -> `-particle_restart_mode`
+- `physics.particles.random_seed` -> `-particle_random_seed` (integer `0`..`2147483647`, default `12345`)
 - point source coordinates -> `-psrc_x/-psrc_y/-psrc_z`
 
 Legacy turbulence shorthand remains valid:
@@ -286,13 +284,79 @@ Legacy turbulence shorthand remains valid:
 - `les: true` or `les: 1` -> constant Smagorinsky (`-les 1`)
 - `les: 2` -> dynamic Smagorinsky (`-les 2`)
 
-LES and RANS are mutually exclusive in one case. `wall_function` is a sibling option because wall functions can be used with wall-modeled LES or RANS boundary treatments.
+LES and RANS are mutually exclusive in one case. `wall_function` is a sibling of both because a wall model is configured independently of the closure it pairs with; the pairing rules are listed with the wall laws in @ref p07_rans_filter_sec.
 
 Restart note:
 
 - if `run_control.start_step > 0`, particles are enabled, and `restart_mode` is omitted, `picurv` warns that C will default to `load`.
 
 For mode-specific particle behavior and restart flow, see **@subpage 45_Particle_Initialization_and_Restart**.
+
+@subsection p07_dim_sec 4.1 Dimensionality Entries
+
+@htmlinclude generated/capability_inventory_domain_dimensionality.html
+
+`models.physics.dimensionality` must be exactly `3D` or `2D`; any other spelling is
+refused at validation.
+
+@subsection p07_cap_dim_3d_sub 3D
+
+@anchor p07_cap_dim_3d
+
+**Identity.** `models.physics.dimensionality: "3D"`, the default. No `-TwoD` flag is
+emitted, so the runtime value stays 0.
+
+**What it does.** Evolves all three contravariant velocity components.
+
+**When to choose it.** Every case that is not deliberately planar.
+
+**Parameters it owns.** None.
+
+**Interactions.** Required by generated initial conditions that build a fresh
+three-dimensional field, such as `spectral_random_velocity`.
+
+**Diagnostics.** None of its own: the generated control file carries no `-TwoD` line.
+
+**Evidence.** Production exercised - every shipped example, including
+`examples/flat_channel`, runs in 3D. Analytically verified - every solve measurement,
+for instance `tgv2d-picard-order-2026-09-18`, runs in 3D.
+
+**Limitations.** None of its own.
+
+@subsection p07_cap_dim_2d_sub 2D
+
+@anchor p07_cap_dim_2d
+
+**Identity.** `models.physics.dimensionality: "2D"` -> `-TwoD 1`.
+
+**What it does.** Zeroes the i-direction row of the momentum right-hand side in every
+cell, so the i contravariant velocity component never moves from its initial value.
+Nothing else changes: the grid, the pressure solve, and the particles stay
+three-dimensional. It is a 3D solve with one momentum component held fixed, not a
+two-dimensional discretization.
+
+**When to choose it.** A flow that is planar in the j-k plane, on a grid thin in i, with
+the i velocity component initialized to zero.
+
+**Parameters it owns.** None.
+
+**Interactions.** Refused by the Newton-Krylov solver and by generated initial conditions
+that need a fresh 3D field. Only the i direction can be held fixed from YAML; the runtime
+also accepts `-TwoD 2` (j) and `-TwoD 3` (k), reachable only through a PETSc passthrough.
+
+**Diagnostics.** The generated control file carries `-TwoD 1`; there is no startup banner
+line for it.
+
+**Evidence.** Unit verified - the active-row mask cases in
+`tests/c/test_solver_kernels.c`, run by `make unit-solver`. Analytically verified -
+`eulerian-source-domain-modes-2026-09-21`: a Taylor-Green vortex in the j-k plane with a
+frozen i velocity ran 20 steps in 2D and in 3D; the i component moved by at most 3.1e-16
+and the j and k components matched the 3D run to 2.8e-15.
+
+**Limitations.** Nothing checks that the i component starts at zero. The pressure
+projection still acts on every face, so the i component stays frozen only while the
+pressure field does not vary along i; a flow that develops an i pressure gradient breaks
+the planar assumption without warning.
 
 @section p07_les_sec 5. LES Subgrid Models
 
@@ -363,7 +427,7 @@ from the configuration, so `nu_t` is built from it directly; nothing is synchron
 checkpointed, or written to disk on its behalf.
 
 **Diagnostics.** The startup banner reports the resolved turbulence model. With
-`diagnostics.enabled` set, `<run.runtime_logs>/les_coefficient.csv` records the eddy-viscosity levels
+`diagnostics.enabled` set, `<run.analysis.metrics>/les_coefficient.csv` records the eddy-viscosity levels
 and the modelled subgrid energy each step. The eddy-viscosity field is available for
 output.
 
@@ -402,7 +466,7 @@ in the domain.
 factor multiplying `Delta^2 |S|`, which is `Cs^2` in the classical notation - not `Cs`.
 Under `clipping.mode: none` it is signed, because a negative coefficient is backscatter.
 
-**Diagnostics.** With `diagnostics.enabled`, `<run.runtime_logs>/les_coefficient.csv` records the
+**Diagnostics.** With `diagnostics.enabled`, `<run.analysis.metrics>/les_coefficient.csv` records the
 effective coefficient converted to `Cs`, its spatial spread, eddy-viscosity levels, and
 the fractions of the domain that were backscattering or limited before clipping. Those
 last two describe a pre-clipping state that no stored field preserves.
@@ -680,7 +744,7 @@ set can be justified.
 
 **Interactions.** `averaging.directions` does not apply and is rejected.
 
-**Diagnostics.** The coefficient spread columns in `<run.runtime_logs>/les_coefficient.csv` show how
+**Diagnostics.** The coefficient spread columns in `<run.analysis.metrics>/les_coefficient.csv` show how
 noisy the field is.
 
 **Evidence.** Implemented, covered by `tests/c/test_les.c` case
@@ -713,7 +777,7 @@ of `[i, j, k]` overriding the periodic default.
 with a warning, since homogeneity is the user's claim to make. Requesting this mode with
 neither periodic pairs nor an explicit list is rejected.
 
-**Diagnostics.** `cs_effective` in `<run.runtime_logs>/les_coefficient.csv` is the whole-domain value
+**Diagnostics.** `cs_effective` in `<run.analysis.metrics>/les_coefficient.csv` is the whole-domain value
 regardless of mode, so it stays comparable across modes.
 
 **Evidence.** Implemented, covered by `tests/c/test_les.c` cases
@@ -738,8 +802,7 @@ answer without asserting anything the boundary conditions do not already say.
 
 **Parameters it owns.** None.
 
-**Interactions.** `averaging.directions` does not apply and is rejected. In a
-multi-block case the average is per block.
+**Interactions.** `averaging.directions` does not apply and is rejected.
 
 **Diagnostics.** As above.
 
@@ -775,7 +838,7 @@ catches divergence without shaping the ordinary distribution.
 **Interactions.** Removes backscatter, so the total-viscosity floor never engages from
 below.
 
-**Diagnostics.** `limited_fraction` in `<run.runtime_logs>/les_coefficient.csv` reports the volume
+**Diagnostics.** `limited_fraction` in `<run.analysis.metrics>/les_coefficient.csv` reports the volume
 fraction the clip modified. A ceiling that is doing nothing reads near zero.
 
 **Evidence.** Implemented, covered by `tests/c/test_les.c` case
@@ -827,7 +890,7 @@ stay positive for the momentum operator to remain well posed.
 **Interactions.** The stored coefficient field becomes signed. Anything reading `CS`
 must expect negative values.
 
-**Diagnostics.** `backscatter_fraction` in `<run.runtime_logs>/les_coefficient.csv` reports the volume
+**Diagnostics.** `backscatter_fraction` in `<run.analysis.metrics>/les_coefficient.csv` reports the volume
 fraction with a negative coefficient, which is exactly what the other two modes discard.
 
 **Evidence.** Implemented, covered by `tests/c/test_les.c` cases
@@ -853,8 +916,8 @@ spellings: `off`, `disabled`.
 **What it does.** Disables RANS modelling. Momentum is closed by molecular viscosity, or
 by LES if that is enabled instead.
 
-**When to choose it.** Whenever you are not running RANS - which, given the status of the
-alternative below, is currently always.
+**When to choose it.** Always, in this tree: the only alternative, `k_omega`, is
+known-defective.
 
 **Parameters it owns.** None.
 
@@ -874,26 +937,32 @@ both run with RANS off.
 **Identity.** `turbulence.rans.model: k_omega` -> `-rans 1`. Accepted spelling: `komega`.
 
 **What it does.** Intended to close the momentum equations with a two-equation k-omega
-model.
+model. It does not: see the disclosure below.
 
-**When to choose it.** Not currently - see the status below.
+**When to choose it.** Never, in this tree.
 
 **Parameters it owns.** The RANS block in `case.yml`.
 
 **Interactions.** Mutually exclusive with LES. Wall functions are configured separately
-and are not implied by enabling RANS.
+and are not implied by enabling RANS. The wall-model pairing rules that refuse `cabot`
+and `werner` under RANS still apply, but a RANS run cannot reach the wall pass at all.
 
-**Diagnostics.** The startup banner reports the model as resolved even though the update
-is incomplete, so the banner alone is not evidence that it is working.
+**Diagnostics.** `picurv validate` and `picurv run` print the defect disclosure as a
+warning. The startup banner reports the model as resolved, so the banner is not
+evidence that it works.
 
-**Evidence.** Implemented only. No facet is claimed.
+**Evidence.** None. The model is known-defective; no facet is claimed.
 
-@warning **Status: experimental - the runtime update is incomplete.** The configuration
-layer accepts `k_omega` and the flag reaches the runtime, but the transport equations are
-not fully updated each step. Do not treat RANS results from this tree as meaningful.
+@warning **Status: known-defective - enabling it aborts the solver.** Setup never
+allocates the k-omega fields, and the transport update in `FlowSolver` is commented out.
+The first solver-history update after step one copies a null vector, so the run stops
+with a PETSc null-argument error in `UpdateSolverHistoryVectors`. No RANS solution is
+ever produced. The selector stays reachable so the path can be repaired in place; the
+defect is recorded in `tests/tooling/capability_scope_records.json`.
 
-**Limitations.** Beyond the incomplete update, only `k_omega` is exposed; no other
-closure is selectable.
+**Limitations.** Nothing about RANS works in this tree: no field storage, no transport
+equations, no eddy-viscosity update. Only `k_omega` is exposed; no other closure is
+selectable.
 
 @subsection p07_cap_filter_volume_weighted_box_sub volume_weighted_box
 
@@ -915,7 +984,7 @@ kernel, and applies to either kernel.
 **Interactions.** Consulted only by @ref p07_cap_les_dynamic_smagorinsky "dynamic_smagorinsky".
 
 **Diagnostics.** No dedicated output; its effect reaches
-`<run.runtime_logs>/les_coefficient.csv` through the coefficient.
+`<run.analysis.metrics>/les_coefficient.csv` through the coefficient.
 
 **Evidence.** Implemented, covered by `tests/c/test_solver_kernels.c`, which checks that
 it preserves a constant field and returns zero when the stencil is entirely solid.
@@ -979,7 +1048,7 @@ viscosity is the one which reproduces it, `nu_eff = tau_w y / u`. Molecular visc
 alone delivers a fraction `u+/y+` of the stress, which at `y+ = 267` is about a
 fourteenth of it. The wall model therefore installs its own effective eddy viscosity at
 its wall face, in place of the subgrid value, which is zero there in a wall-resolved run.
-`nu_wall_over_nu_mean` in `<run.runtime_logs>/wall_model.csv` reports it.
+`nu_wall_over_nu_mean` in `<run.analysis.metrics>/wall_model.csv` reports it.
 
 @subsection p07_cap_wall_log_law_sub log_law
 
@@ -1091,8 +1160,7 @@ accepted and ignored. The mixing-length constant is fixed.
 
 @section p07_bc_sec 7. boundary_conditions
 
-Single-block syntax: list of 6 face entries.
-Multi-block syntax: list-of-lists, one 6-face list per block.
+Syntax: a list of 6 face entries, one per face.
 
 Supported face names:
 - `-Xi`, `+Xi`, `-Eta`, `+Eta`, `-Zeta`, `+Zeta`
@@ -1161,8 +1229,7 @@ Optional escape hatch for flags not yet exposed in structured schema:
 
 ```yaml
 solver_parameters:
-  -read_fields: true
-  -some_new_flag: 123
+  -mom_stability_shadow: true   # diagnostic-only momentum stability estimate
 ```
 
 Use sparingly and prefer structured keys when available.

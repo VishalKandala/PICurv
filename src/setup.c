@@ -383,18 +383,12 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
     // --- Group 3: High-Level Physics & Model Selection Flags ---
     simCtx->immersed = 0; simCtx->movefsi = 0; simCtx->rotatefsi = 0;
-    simCtx->sediment = 0; simCtx->rheology = 0; simCtx->invicid = 0;
-    simCtx->TwoD = 0; simCtx->thin = 0; simCtx->moveframe = 0;
-    simCtx->rotateframe = 0; simCtx->blank = 0;
-    simCtx->dgf_x = 0; simCtx->dgf_y = 1; simCtx->dgf_z = 0;
-    simCtx->dgf_ax = 1; simCtx->dgf_ay = 0; simCtx->dgf_az = 0;
+    simCtx->invicid = 0;
+    simCtx->TwoD = 0; simCtx->moveframe = 0; simCtx->rotateframe = 0;
     strcpy(simCtx->AnalyticalSolutionType,"TGV3D");
 
-    // --- Group 4: Specific Simulation Case Flags --- (DEPRICATED)
-    simCtx->cop=0; simCtx->fish=0; simCtx->fish_c=0; simCtx->fishcyl=0;
-    simCtx->eel=0; simCtx->pizza=0; simCtx->turbine=0; simCtx->Pipe=0;
-    simCtx->wing=0; simCtx->hydro=0; simCtx->MHV=0; simCtx->LV=0;
-    simCtx->channelz = 0;
+    // --- Group 4: Immersed-body flux corrections (refused; see Group 3 parsing) ---
+    simCtx->MHV=0; simCtx->LV=0;
 
     // --- Group 5: Solver & Numerics Parameters ---
     simCtx->mom_solver_type = MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK; simCtx->mom_max_pseudo_steps = 50;
@@ -407,10 +401,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
      * user-written config. Set both non-positive to opt back out deliberately. */
     simCtx->mom_resid_atol = 1e-8; simCtx->mom_resid_rtol = 1e-3;
     simCtx->imp_stol = 1.e-8;
-    simCtx->mglevels = 3; simCtx->mg_MAX_IT = 30; simCtx->mg_idx = 1;
+    simCtx->mglevels = 3;
     simCtx->mg_preItr = 1; simCtx->mg_poItr = 1;
-    simCtx->poisson = 0; simCtx->poisson_tol = 5.e-9;
-    simCtx->STRONG_COUPLING = 0;simCtx->central=0;
+    simCtx->poisson = 0;
+    simCtx->central=0;
     /* pseudo_cfl and its bounds are now dimensionless Courant numbers: CFL = dtau * lambda_max,
        where lambda_max is the global spectral radius computed at each physical timestep.
        Stable range for 4-stage Jameson RK: ~0–2.83. Initial 0.5 gives a comfortable margin. */
@@ -460,19 +454,17 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->CMx_c=0.0; simCtx->CMy_c=0.0; simCtx->CMz_c=0.0;
     simCtx->wall_roughness_height = 1e-16;
     simCtx->schmidt_number = 1.0; simCtx->Turbulent_schmidt_number = 0.7;
+    simCtx->iem_constant = 2.0;
 
     // --- Group 7: Grid, Domain, and Boundary Condition Settings ---
     simCtx->block_number = 1; simCtx->inletprofile = 1;
-    simCtx->grid1d = 0; simCtx->Ogrid = 0;
     simCtx->i_periodic = 0; simCtx->j_periodic = 0; simCtx->k_periodic = 0;
-    simCtx->blkpbc = 10; simCtx->pseudo_periodic = 0;
+    simCtx->pseudo_periodic = 0;
     strcpy(simCtx->grid_file, "config/grid.run");
     simCtx->generate_grid = PETSC_FALSE;
     simCtx->da_procs_x = PETSC_DECIDE;
     simCtx->da_procs_y = PETSC_DECIDE;
     simCtx->da_procs_z = PETSC_DECIDE;
-    simCtx->grid_rotation_angle  = 0.0;
-    simCtx->Croty = 0.0; simCtx->Crotz = 0.0;
     simCtx->num_bcs_files = 1;
     ierr = PetscMalloc1(1, &simCtx->bcs_files); CHKERRQ(ierr);
     ierr = PetscStrallocpy("config/bcs.run", &simCtx->bcs_files[0]); CHKERRQ(ierr);
@@ -484,7 +476,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->bulkVelocityCorrection = 0.0;
     simCtx->boundaryVelocityCorrection = 0.0;
     simCtx->AreaInSum = 0.0; simCtx->AreaOutSum = 0.0;
-    simCtx->U_bc = 0.0; simCtx->ccc = 0;
+    simCtx->ccc = 0;
     simCtx->ratio = 0.0;
     
     
@@ -494,7 +486,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = LESConfigSetDefaults(&simCtx->les_config); CHKERRQ(ierr);
 
     // --- Group 9: Particle / DMSwarm Data & Settings ---
-    simCtx->np = 0; simCtx->readFields = PETSC_FALSE;
+    simCtx->np = 0;
+    simCtx->particleRandomSeed = 12345;
     simCtx->dm_swarm = NULL; simCtx->bboxlist = NULL;
     simCtx->ParticleInitialization = PARTICLE_INIT_SURFACE_RANDOM;
     simCtx->interpolationMethod = INTERP_TRILINEAR;
@@ -524,7 +517,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
     // --- Group 10: Immersed Boundary & FSI Data Object Pointers ---
     simCtx->ibm = NULL; simCtx->ibmv = NULL; simCtx->fsi = NULL;
-    simCtx->rstart_fsi = PETSC_FALSE; simCtx->duplicate = 0;
 
     // --- Group 11: Logging and Custom Configuration ---
     strcpy(simCtx->allowedFile, "config/whitelist.run");
@@ -746,37 +738,34 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-imm", &simCtx->immersed, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-fsi", &simCtx->movefsi, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-rfsi", &simCtx->rotatefsi, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-sediment", &simCtx->sediment, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-rheology", &simCtx->rheology, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-inv", &simCtx->invicid, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-TwoD", &simCtx->TwoD, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-thin", &simCtx->thin, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-mframe", &simCtx->moveframe, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-rframe", &simCtx->rotateframe, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-blk", &simCtx->blank, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-dgf_z", &simCtx->dgf_z, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-dgf_y", &simCtx->dgf_y, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-dgf_x", &simCtx->dgf_x, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-dgf_az", &simCtx->dgf_az, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-dgf_ay", &simCtx->dgf_ay, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-dgf_ax", &simCtx->dgf_ax, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL,NULL,"-analytical_type",simCtx->AnalyticalSolutionType,sizeof(simCtx->AnalyticalSolutionType),NULL);CHKERRQ(ierr);
 
+    /* Immersed boundaries, moving bodies and moving reference frames are planned, not
+       implemented. No body geometry is ever loaded, and the IBM interpolation the
+       momentum solvers would call is commented out and defined nowhere, so -imm only
+       reconfigures the Poisson solve around a body that is not there. The moving-frame
+       convection branch in ComputeRHS is commented out as well, so -mframe/-rframe would
+       drop the convective term. Each would run a different problem without saying so;
+       the conductor refuses the YAML switches, and this refuses the same flags arriving
+       through a PETSc passthrough. */
+    PetscCheck(!simCtx->immersed && !simCtx->movefsi && !simCtx->rotatefsi, PETSC_COMM_WORLD, PETSC_ERR_SUP,
+               "Immersed boundaries and moving bodies (-imm, -fsi, -rfsi) are planned, not implemented.");
+    PetscCheck(!simCtx->moveframe && !simCtx->rotateframe, PETSC_COMM_WORLD, PETSC_ERR_SUP,
+               "Moving and rotating reference frames (-mframe, -rframe) are planned, not implemented: "
+               "their convection branch is absent, so the convective term would be dropped.");
+
     //  --- Group 4
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 4: Specific Simulation Case Flags \n");
-    ierr = PetscOptionsGetInt(NULL, NULL, "-cop", &simCtx->cop, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-fish", &simCtx->fish, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-pizza", &simCtx->pizza, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-turbine", &simCtx->turbine, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-fishcyl", &simCtx->fishcyl, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-eel", &simCtx->eel, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-cstart", &simCtx->fish_c, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-wing", &simCtx->wing, NULL); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 4: Immersed-Body Flux Corrections and Driven-Flow Controls\n");
     ierr = PetscOptionsGetInt(NULL, NULL, "-mhv", &simCtx->MHV, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-hydro", &simCtx->hydro, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-lv", &simCtx->LV, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-Pipe", &simCtx->Pipe, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-Turbulent_Channel_z", &simCtx->channelz, NULL); CHKERRQ(ierr);
+    /* The heart-valve volume-flux corrections balance flux across an immersed body, which
+       cannot exist while immersed boundaries are unimplemented (see the Group 3 check). */
+    PetscCheck(!simCtx->MHV && !simCtx->LV, PETSC_COMM_WORLD, PETSC_ERR_SUP,
+               "The -mhv/-lv immersed-body flux corrections need immersed boundaries, which are planned, not implemented.");
     ierr = PetscOptionsGetReal(NULL,NULL,"-driven_flow_initial_force",&simCtx->drivingForceMagnitude,NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL,NULL,"-driven_flow_scaling_factor",&simCtx->forceScalingFactor,NULL);CHKERRQ(ierr);
     //  --- Group 5
@@ -848,15 +837,11 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
     // --- Multigrid Options ---
     ierr = PetscOptionsGetInt(NULL, NULL, "-mg_level", &simCtx->mglevels, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-mg_max_it", &simCtx->mg_MAX_IT, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-mg_idx", &simCtx->mg_idx, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-mg_pre_it", &simCtx->mg_preItr, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-mg_post_it", &simCtx->mg_poItr, NULL); CHKERRQ(ierr);
 
     // --- Other Solver Options ---
     ierr = PetscOptionsGetInt(NULL, NULL, "-poisson", &simCtx->poisson, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-poisson_tol", &simCtx->poisson_tol, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-str", &simCtx->STRONG_COUPLING, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-ren", &simCtx->ren, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-pseudo_cfl", &simCtx->pseudo_cfl, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-max_pseudo_cfl", &simCtx->max_pseudo_cfl, NULL); CHKERRQ(ierr);
@@ -1017,7 +1002,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 6: Physical & Geometric Parameters \n");   
     ierr = PetscOptionsGetReal(NULL,NULL,"-schmidt_number",&simCtx->schmidt_number,NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL,NULL,"-turb_schmidt_number",&simCtx->Turbulent_schmidt_number,NULL);CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-no_of_bodies", &simCtx->NumberOfBodies, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL,NULL,"-iem_constant",&simCtx->iem_constant,NULL);CHKERRQ(ierr);
+    PetscCheck(simCtx->iem_constant > 0.0 && !PetscIsInfOrNanReal(simCtx->iem_constant),
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-iem_constant must be a positive finite number (got %g).", (double)simCtx->iem_constant);
     ierr = PetscOptionsGetReal(NULL,NULL,"-wall_roughness",&simCtx->wall_roughness_height,NULL);CHKERRQ(ierr);
     // NOTE: angle is not parsed in the original code, it set programmatically. We will follow that.
     // NOTE: max_angle is calculated based on other flags (like MHV) in the legacy code.
@@ -1028,25 +1016,24 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
      //  --- Group 7
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 7: Grid, Domain, and Boundary Condition Settings \n");
     ierr = PetscOptionsGetInt(NULL, NULL, "-nblk", &simCtx->block_number, NULL); CHKERRQ(ierr); // This is also a modern option
+    /* Every inter-block exchange (Block_Interface_U) is commented out in the momentum
+       solvers and the initial condition, so blocks would be solved as isolated domains.
+       Multi-block coupling is planned, not implemented. */
+    PetscCheck(simCtx->block_number == 1, PETSC_COMM_WORLD, PETSC_ERR_SUP,
+               "Multi-block domains are planned, not implemented: blocks are never coupled (got -nblk %" PetscInt_FMT ").",
+               simCtx->block_number);
     ierr = PetscOptionsGetInt(NULL, NULL, "-inlet", &simCtx->inletprofile, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-Ogrid", &simCtx->Ogrid, NULL); CHKERRQ(ierr);
     // NOTE: channelz was not parsed, likely set programmatically. We will omit its parsing call.
-    ierr = PetscOptionsGetInt(NULL, NULL, "-grid1d", &simCtx->grid1d, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-grid", &simCtx->generate_grid, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL, NULL, "-grid_file", simCtx->grid_file, PETSC_MAX_PATH_LEN, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-da_processors_x", &simCtx->da_procs_x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-da_processors_y", &simCtx->da_procs_y, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-da_processors_z", &simCtx->da_procs_z, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-pbc_domain", &simCtx->blkpbc, NULL); CHKERRQ(ierr);
     // NOTE: pseudo_periodic was not parsed. We will omit its parsing call. 
-    ierr = PetscOptionsGetReal(NULL, NULL, "-grid_rotation_angle", &simCtx->grid_rotation_angle, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-Croty", &simCtx->Croty, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetReal(NULL, NULL, "-Crotz", &simCtx->Crotz, NULL); CHKERRQ(ierr);
     PetscBool bcs_flg;
     char      file_list_str[PETSC_MAX_PATH_LEN * 10]; // Buffer for comma-separated list
 
     ierr = PetscOptionsGetString(NULL, NULL, "-bcs_files", file_list_str, sizeof(file_list_str), &bcs_flg); CHKERRQ(ierr);
-     ierr = PetscOptionsGetReal(NULL, NULL, "-U_bc", &simCtx->U_bc, NULL); CHKERRQ(ierr);
 
     if (bcs_flg) {
       LOG_ALLOW(GLOBAL, LOG_DEBUG, "Found -bcs_files option, overriding default.\n");
@@ -1105,7 +1092,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
      //  --- Group 9
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 9:  Particle / DMSwarm Data & Settings \n");
     ierr = PetscOptionsGetInt(NULL, NULL, "-numParticles", &simCtx->np, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetBool(NULL, NULL, "-read_fields", &simCtx->readFields, NULL); CHKERRQ(ierr);
     PetscInt temp_pinit = (PetscInt)PARTICLE_INIT_SURFACE_RANDOM;
     ierr = PetscOptionsGetInt(NULL, NULL, "-pinit", &temp_pinit, NULL); CHKERRQ(ierr);
     simCtx->ParticleInitialization = (ParticleInitializationType)temp_pinit;
@@ -1125,11 +1111,12 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     if (strcmp(simCtx->particleRestartMode, "load") != 0 && strcmp(simCtx->particleRestartMode, "init") != 0) {
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -particle_restart_mode. Must be 'load' or 'init'. You provided '%s'.", simCtx->particleRestartMode);
     }
+    ierr = PetscOptionsGetInt(NULL, NULL, "-particle_random_seed", &simCtx->particleRandomSeed, NULL); CHKERRQ(ierr);
+    PetscCheck(simCtx->particleRandomSeed >= 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-particle_random_seed must be non-negative (got %" PetscInt_FMT ").", simCtx->particleRandomSeed);
     ierr = InitializeBrownianRNG(simCtx); CHKERRQ(ierr);
     // --- Group 10
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 10: Immersed Boundary & FSI Data Object Pointers \n");
-    ierr = PetscOptionsGetBool(NULL, NULL, "-rs_fsi", &simCtx->rstart_fsi, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetInt(NULL, NULL, "-duplicate", &simCtx->duplicate, NULL); CHKERRQ(ierr);
 
     // --- Group 11
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 11: Top-Level Managers & Custom Configuration \n");
@@ -1830,6 +1817,27 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
     // Synchronize all processes before proceeding
     ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRMPI(ierr);
 
+    /* PETSc opens a -info file during PetscInitialize, before the fresh-run wipe above
+       removes the log directory it usually lives in. Every later record would then go
+       to an unlinked file and the run would end with no info log at all, so each rank
+       reopens its file once the directory exists again. Records from initialization
+       itself are the only ones lost. */
+    if (simCtx->exec_mode == EXEC_MODE_SOLVER && !simCtx->continueMode) {
+        char *info_name = NULL;
+        FILE *info_file = NULL;
+        ierr = PetscInfoGetFile(&info_name, &info_file); CHKERRQ(ierr);
+        if (info_name && info_name[0] != '\0') {
+            char reopen_name[PETSC_MAX_PATH_LEN];
+            ierr = PetscStrncpy(reopen_name, info_name, sizeof(reopen_name)); CHKERRQ(ierr);
+            if (info_file && info_file != PETSC_STDOUT) {
+                ierr = PetscFClose(PETSC_COMM_SELF, info_file); CHKERRQ(ierr);
+            }
+            ierr = PetscInfoSetFile(reopen_name, "w"); CHKERRQ(ierr);
+        }
+        /* PetscInfoGetFile hands back its own copy of the name. */
+        ierr = PetscFree(info_name); CHKERRQ(ierr);
+    }
+
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Environment setup complete ---\n");
 
     PetscFunctionReturn(0);
@@ -2253,6 +2261,10 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 
                 ierr = VecDuplicate(user->P, &user->Qcrit); CHKERRQ(ierr);
                 ierr = VecSet(user->Qcrit, 0.0); CHKERRQ(ierr);
+                ierr = DMCreateLocalVector(user->da, &user->lQcrit); CHKERRQ(ierr);
+                ierr = VecSet(user->lQcrit, 0.0); CHKERRQ(ierr);
+                ierr = VecDuplicate(user->P, &user->Qcrit_nodal); CHKERRQ(ierr);
+                ierr = VecSet(user->Qcrit_nodal, 0.0); CHKERRQ(ierr);
 
                 LOG_ALLOW(LOCAL, LOG_DEBUG, "Derived field vectors P_nodal, Ucat_nodal, and Qcrit created.\n");
 
@@ -2267,6 +2279,8 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
                 user->P_nodal = NULL;
                 user->Ucat_nodal = NULL;
                 user->Qcrit = NULL;
+                user->lQcrit = NULL;
+                user->Qcrit_nodal = NULL;
                 user->Psi_nodal = NULL;
         }
 	  }
@@ -3840,7 +3854,10 @@ PetscErrorCode InitializeRandomGenerators(UserCtx* user, PetscRandom *randx, Pet
     ierr = PetscRandomCreate(PETSC_COMM_SELF, randx); CHKERRQ(ierr);
     ierr = PetscRandomSetType((*randx), PETSCRAND48); CHKERRQ(ierr);
     ierr = PetscRandomSetInterval(*randx, user->bbox.min_coords.x, user->bbox.max_coords.x); CHKERRQ(ierr);
-    ierr = PetscRandomSetSeed(*randx, rank + 12345); CHKERRQ(ierr);  // Unique seed per rank
+    /* Offsets reproduce the historical fixed seeds (12345, 67890, 54321 plus rank) at the
+       default base seed, so existing placements are unchanged. */
+    const unsigned long base_seed = (unsigned long)user->simCtx->particleRandomSeed;
+    ierr = PetscRandomSetSeed(*randx, base_seed + (unsigned long)rank); CHKERRQ(ierr);
     ierr = PetscRandomSeed(*randx); CHKERRQ(ierr);
     LOG_ALLOW_SYNC(LOCAL,LOG_VERBOSE, "[Rank %d]Initialized RNG for X-axis.\n",rank);
 
@@ -3848,7 +3865,7 @@ PetscErrorCode InitializeRandomGenerators(UserCtx* user, PetscRandom *randx, Pet
     ierr = PetscRandomCreate(PETSC_COMM_SELF, randy); CHKERRQ(ierr);
     ierr = PetscRandomSetType((*randy), PETSCRAND48); CHKERRQ(ierr);
     ierr = PetscRandomSetInterval(*randy, user->bbox.min_coords.y, user->bbox.max_coords.y); CHKERRQ(ierr);
-    ierr = PetscRandomSetSeed(*randy, rank + 67890); CHKERRQ(ierr);  // Unique seed per rank
+    ierr = PetscRandomSetSeed(*randy, base_seed + 55545UL + (unsigned long)rank); CHKERRQ(ierr);
     ierr = PetscRandomSeed(*randy); CHKERRQ(ierr);
     LOG_ALLOW_SYNC(LOCAL,LOG_VERBOSE, "[Rank %d]Initialized RNG for Y-axis.\n",rank);
 
@@ -3856,7 +3873,7 @@ PetscErrorCode InitializeRandomGenerators(UserCtx* user, PetscRandom *randx, Pet
     ierr = PetscRandomCreate(PETSC_COMM_SELF, randz); CHKERRQ(ierr);
     ierr = PetscRandomSetType((*randz), PETSCRAND48); CHKERRQ(ierr);
     ierr = PetscRandomSetInterval(*randz, user->bbox.min_coords.z, user->bbox.max_coords.z); CHKERRQ(ierr);
-    ierr = PetscRandomSetSeed(*randz, rank + 54321); CHKERRQ(ierr);  // Unique seed per rank
+    ierr = PetscRandomSetSeed(*randz, base_seed + 41976UL + (unsigned long)rank); CHKERRQ(ierr);
     ierr = PetscRandomSeed(*randz); CHKERRQ(ierr);
     LOG_ALLOW_SYNC(LOCAL,LOG_VERBOSE, "[Rank %d]Initialized RNG for Z-axis.\n",rank);
 
@@ -3870,7 +3887,7 @@ PetscErrorCode InitializeRandomGenerators(UserCtx* user, PetscRandom *randx, Pet
  * @brief Internal helper implementation: `InitializeLogicalSpaceRNGs()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom *rand_logic_j, PetscRandom *rand_logic_k) {
+PetscErrorCode InitializeLogicalSpaceRNGs(PetscInt base_seed, PetscRandom *rand_logic_i, PetscRandom *rand_logic_j, PetscRandom *rand_logic_k) {
     PetscErrorCode ierr;
     PetscMPIInt rank;
     PetscFunctionBeginUser;
@@ -3883,7 +3900,8 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom
     ierr = PetscRandomCreate(PETSC_COMM_SELF, rand_logic_i); CHKERRQ(ierr);
     ierr = PetscRandomSetType((*rand_logic_i), PETSCRAND48); CHKERRQ(ierr);
     ierr = PetscRandomSetInterval(*rand_logic_i, 0.0, 1.0); CHKERRQ(ierr); // Key change: [0,1)
-    ierr = PetscRandomSetSeed(*rand_logic_i, rank + 202401); CHKERRQ(ierr); // Unique seed
+    /* Offsets reproduce the historical seeds (202401..202403 plus rank) at the default base. */
+    ierr = PetscRandomSetSeed(*rand_logic_i, (unsigned long)base_seed + 190056UL + (unsigned long)rank); CHKERRQ(ierr);
     ierr = PetscRandomSeed(*rand_logic_i); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d] Initialized RNG for i-logical dimension [0,1).\n",rank);
 
@@ -3891,7 +3909,7 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom
     ierr = PetscRandomCreate(PETSC_COMM_SELF, rand_logic_j); CHKERRQ(ierr);
     ierr = PetscRandomSetType((*rand_logic_j), PETSCRAND48); CHKERRQ(ierr);
     ierr = PetscRandomSetInterval(*rand_logic_j, 0.0, 1.0); CHKERRQ(ierr); // Key change: [0,1)
-    ierr = PetscRandomSetSeed(*rand_logic_j, rank + 202402); CHKERRQ(ierr);
+    ierr = PetscRandomSetSeed(*rand_logic_j, (unsigned long)base_seed + 190057UL + (unsigned long)rank); CHKERRQ(ierr);
     ierr = PetscRandomSeed(*rand_logic_j); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d] Initialized RNG for j-logical dimension [0,1).\n",rank);
 
@@ -3899,7 +3917,7 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscRandom *rand_logic_i, PetscRandom
     ierr = PetscRandomCreate(PETSC_COMM_SELF, rand_logic_k); CHKERRQ(ierr);
     ierr = PetscRandomSetType((*rand_logic_k), PETSCRAND48); CHKERRQ(ierr);
     ierr = PetscRandomSetInterval(*rand_logic_k, 0.0, 1.0); CHKERRQ(ierr); // Key change: [0,1)
-    ierr = PetscRandomSetSeed(*rand_logic_k, rank + 202403); CHKERRQ(ierr);
+    ierr = PetscRandomSetSeed(*rand_logic_k, (unsigned long)base_seed + 190058UL + (unsigned long)rank); CHKERRQ(ierr);
     ierr = PetscRandomSeed(*rand_logic_k); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d] Initialized RNG for k-logical dimension [0,1).\n",rank);
 
@@ -3931,9 +3949,13 @@ PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx) {
     // This is required for the Gaussian math to work.
     ierr = PetscRandomSetInterval(simCtx->BrownianMotionRNG, 0.0, 1.0); CHKERRQ(ierr);
 
-    // 3. Seed based on Rank to ensure spatial randomness
-    // Multiplying by a large prime helps separate the streams significantly
-    unsigned long seed = (unsigned long)rank * 987654321 + (unsigned long)time(NULL);
+    // 3. Seed from the configured base, the rank, and the start step. It was seeded from
+    //    the wall clock, so no two runs of the same inputs agreed. The start step keeps a
+    //    restart from replaying the increments the first segment already drew, which would
+    //    correlate them; the same restart is still reproducible.
+    unsigned long seed = (unsigned long)simCtx->particleRandomSeed
+                       + (unsigned long)rank * 987654321UL
+                       + (unsigned long)simCtx->StartStep * 1000003UL;
     ierr = PetscRandomSetSeed(simCtx->BrownianMotionRNG, seed); CHKERRQ(ierr);
     ierr = PetscRandomSeed(simCtx->BrownianMotionRNG); CHKERRQ(ierr);
 
@@ -4209,6 +4231,8 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->P_nodal) { ierr = VecDestroy(&user->P_nodal); CHKERRQ(ierr); }
     if (user->Ucat_nodal) { ierr = VecDestroy(&user->Ucat_nodal); CHKERRQ(ierr); }
     if (user->Qcrit) { ierr = VecDestroy(&user->Qcrit); CHKERRQ(ierr); }
+    if (user->lQcrit) { ierr = VecDestroy(&user->lQcrit); CHKERRQ(ierr); }
+    if (user->Qcrit_nodal) { ierr = VecDestroy(&user->Qcrit_nodal); CHKERRQ(ierr); }
     if (user->Psi_nodal) { ierr = VecDestroy(&user->Psi_nodal); CHKERRQ(ierr); }
 
     // --- Group K: Interpolation Vectors (Lazy allocation) ---

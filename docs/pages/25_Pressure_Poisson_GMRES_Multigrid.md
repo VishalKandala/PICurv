@@ -34,7 +34,7 @@ Null-space handling is explicitly configured for Neumann-like pressure systems v
 
 1. assembles per-level operators,
 2. configures `KSP` + `PCMG`,
-3. sets restriction/interpolation operators (@ref MyRestriction and @ref MyInterpolation plus solid-aware variants),
+3. sets restriction/interpolation operators (@ref MyRestriction and @ref MyInterpolation),
 4. applies level smoothers/coarse solve,
 5. solves finest-level system for `Phi`.
 
@@ -47,8 +47,15 @@ After Poisson solve:
 
 From `solver.yml` via `picurv_cli/core.py`:
 
-- `poisson_solver.method` -> `-ps_ksp_type`
-- `poisson_solver.absolute_tolerance` -> `-ps_ksp_atol` and legacy `-poisson_tol`
+- `poisson_solver.method` -> `-ps_ksp_type`; `fgmres` (default) or `cg`. The multigrid
+  preconditioner is not a single fixed linear operator, which only a flexible Krylov method
+  tolerates. Under `gmres`, `lgmres` and `bcgs` - left- or right-preconditioned - the Krylov
+  residual fell to 1e-12 while the true residual stalled near 1e-3, and the projection left
+  a divergence of 2e-4 in a duct; validation refuses all three. `cg` emits
+  `-ps_ksp_norm_type unpreconditioned` so it stops on the true residual; `fgmres` and `cg`
+  reproduce each other to 1e-14 (`poisson-options-2026-09-21`). Any other KSP type
+  needs `petsc_passthrough_options` and is unverified.
+- `poisson_solver.absolute_tolerance` -> `-ps_ksp_atol`
 - `poisson_solver.relative_tolerance` -> `-ps_ksp_rtol`
 - `poisson_solver.max_iterations` -> `-ps_ksp_max_it`
 - `poisson_solver.gmres.restart` -> `-ps_ksp_gmres_restart`
@@ -59,6 +66,10 @@ From `solver.yml` via `picurv_cli/core.py`:
 - `poisson_solver.multigrid.semi_coarsening.{i,j,k}` -> `-mg_i_semi`, `-mg_j_semi`, `-mg_k_semi`
 - `poisson_solver.multigrid.level_solvers.level_N.method` -> `-ps_mg_levels_N_ksp_type`
 - `poisson_solver.multigrid.level_solvers.level_N.preconditioner` -> `-ps_mg_levels_N_pc_type`
+- `poisson_solver.multigrid.level_solvers.level_N.max_it`, `.rtol`, `.atol` ->
+  `-ps_mg_levels_N_ksp_max_it`, `_ksp_rtol`, `_ksp_atol` (the `level_0` forms use the
+  `-ps_mg_coarse_` prefix). Before 2026-09-18 these were emitted without the `ksp_` prefix,
+  which PETSc left unused, so they had no effect.
 - `poisson_solver.multigrid.cycle` and `.mode` are accepted structured keys; current supported values are `v` and `multiplicative`
 - `pressure_solver` remains a legacy alias for `poisson_solver`
 - `petsc_passthrough_options` -> advanced PETSc flags not exposed as structured YAML
@@ -86,8 +97,18 @@ Common MG-level preconditioner notes:
 Current implementation includes:
 
 - periodic-boundary pressure synchronization,
-- immersed-boundary-aware treatment paths (`Nvert`/solid checks),
 - optional Poisson monitor logging via `monitor.yml -> solver_monitoring.poisson.pic_true_residual`.
+
+**A pressure solve that cannot be completed stops the run.** If PETSc reports a
+non-finite residual (`DIVERGED_NANORINF`) or a preconditioner it could not build
+(`DIVERGED_PC_FAILED`), the solver aborts at that step with the KSP reason, because the
+projection would otherwise proceed on an unsolved `Phi`. Stopping at `max_iterations` is
+this solve's normal mode and is not reported; any other divergence prints a warning and
+continues. One confirmed cause of `DIVERGED_PC_FAILED` is a hierarchy coarsened too far: a
+duct 9 nodes across with `levels: 3` fails at step 1, while the same grid with
+`levels: 2` runs cleanly. The node count at the coarsest level does not predict it on its
+own - a 5-node grid coarsened to 3 nodes with `levels: 2` also runs - so reduce the level
+count when this reason appears.
 
 If pressure solve quality degrades, check first:
 
@@ -306,7 +327,28 @@ Current direct tests are strongest for helper and invariant behavior:
 - `PoissonNullSpaceFunction`
 - RHS-related helpers used by `ComputeRHS`
 
-The main remaining gap is `PoissonSolver_MG`: it is exercised in runtime smoke, but still lacks equivalent direct bespoke coverage for debugging. Periodic and immersed-boundary stencil branches also remain thinner than the core Cartesian helper surface.
+`PoissonSolver_MG` has direct coverage in `make unit-poisson-rhs`:
+`poisson-solver-mg-projects-to-divergence-free` perturbs interior face fluxes on a
+17-cubed three-level hierarchy, solves and projects, and checks the result is
+divergence-free; `poisson-solver-mg-refuses-an-overcoarsened-hierarchy` checks that a
+hierarchy coarsened past what a 9-cubed grid supports stops with the fatal Poisson error
+rather than projecting on an unsolved `Phi`. Periodic stencil branches remain thinner than
+the core Cartesian helper surface.
+
+Every user-selectable option was run end to end by `poisson-options-2026-09-21`: one and
+two levels, full coarsening, one and three sweeps, Chebyshev and Jacobi smoothers, a
+Krylov coarse solve, a per-level iteration cap, and `cg` each reproduced the baseline
+velocity to 7e-15 and gauge-free pressure to 8e-14. The same measurement found `gmres`,
+`lgmres` and `bcgs` converging their Krylov residual to 1e-12 while the true residual
+stalled near 1e-3, with left or right preconditioning; those methods are now refused (see
+@ref p25_config_sec), and the per-level `max_it`, `rtol` and `atol` keys, which were
+emitted without PETSc's `ksp_` prefix and silently ignored, now reach the level solvers.
+
+End to end, `make smoke-driven-periodic` asserts at 4 and 10 ranks that the multigrid
+coarse solve keeps tracked and true residuals within 1e-4 of each other and the maximum
+divergence below 1e-11. The recorded measurement `duct-poiseuille-picard-2026-09-18`
+(see @ref 66_Evidence_Matrix) reproduced the analytic axial pressure gradient of laminar
+square-duct flow at second order on three grids, with divergence at most 5.5e-8.
 
 @section p25_refs_sec 6. Related Pages
 

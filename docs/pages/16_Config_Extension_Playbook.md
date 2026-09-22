@@ -66,5 +66,4 @@ Use this checklist when adding a new particle model constant, source term, or in
 - Existing templates/run paths still work with omitted new keys.
 - Verification-only source overrides should live in `verification_sources.*` and be used only when no ordinary end-to-end path can test the feature.
 
-See also **@subpage 17_Workflow_Extensibility** for higher-level workflow expansion patterns.
 For selector-by-selector hook points, use **@subpage 50_Modular_Selector_Extension_Guide**.

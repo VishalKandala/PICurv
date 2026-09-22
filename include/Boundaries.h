@@ -540,7 +540,7 @@ PetscErrorCode UpdateCornerNodes(UserCtx *user);
 PetscErrorCode ApplyWallFunction(UserCtx *user);
 
 /**
- * @brief Appends one row of near-wall statistics to `<run.runtime_logs>/wall_model.csv`.
+ * @brief Appends one row of near-wall statistics to `<run.analysis.metrics>/wall_model.csv`.
  *
  * Reduces the state @ref ApplyWallFunction accumulated over the wall faces this rank owns
  * and writes the run-wide row from rank 0. `y+` is the column that matters: it says

@@ -1084,12 +1084,12 @@ static PetscErrorCode ComputeCurrentFlowObservables(SimCtx *simCtx, PetscReal *m
 
     for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
         const DMDALocalInfo info = user[bi].info;
-        const PetscBool x_per = (PetscBool)(simCtx->i_periodic != 0);
-        const PetscBool y_per = (PetscBool)(simCtx->j_periodic != 0);
-        const PetscBool z_per = (PetscBool)(simCtx->k_periodic != 0);
-        const PetscInt i_end = (x_per && (info.xs + info.xm == info.mx)) ? info.mx - 1 : info.xs + info.xm;
-        const PetscInt j_end = (y_per && (info.ys + info.ym == info.my)) ? info.my - 1 : info.ys + info.ym;
-        const PetscInt k_end = (z_per && (info.zs + info.zm == info.mz)) ? info.mz - 1 : info.zs + info.zm;
+        /* Physical cells only. Index 0 and mx-1 are ghost layers on every axis - a
+           boundary-condition image on a wall, a copy of the opposite cell on a
+           periodic axis - and counting them biased every mean and norm here. */
+        const PetscInt i_start = PetscMax(info.xs, 1), i_end = PetscMin(info.xs + info.xm, info.mx - 1);
+        const PetscInt j_start = PetscMax(info.ys, 1), j_end = PetscMin(info.ys + info.ym, info.my - 1);
+        const PetscInt k_start = PetscMax(info.zs, 1), k_end = PetscMin(info.zs + info.zm, info.mz - 1);
         Cmpnts           ***ucat = NULL;
         PetscReal        ***aj = NULL;
         PetscReal        ***nvert = NULL;
@@ -1098,9 +1098,9 @@ static PetscErrorCode ComputeCurrentFlowObservables(SimCtx *simCtx, PetscReal *m
         PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].Aj, &aj));
         PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].Nvert, &nvert));
 
-        for (PetscInt k = info.zs; k < k_end; ++k) {
-            for (PetscInt j = info.ys; j < j_end; ++j) {
-                for (PetscInt i = info.xs; i < i_end; ++i) {
+        for (PetscInt k = k_start; k < k_end; ++k) {
+            for (PetscInt j = j_start; j < j_end; ++j) {
+                for (PetscInt i = i_start; i < i_end; ++i) {
                     PetscReal jac = aj[k][j][i];
                     PetscReal cell_volume = 0.0;
                     PetscReal speed = 0.0;
@@ -1242,12 +1242,12 @@ static PetscErrorCode ComputeDeterministicSolutionMetrics(SimCtx *simCtx,
 
     for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
         const DMDALocalInfo info = user[bi].info;
-        const PetscBool x_per = (PetscBool)(simCtx->i_periodic != 0);
-        const PetscBool y_per = (PetscBool)(simCtx->j_periodic != 0);
-        const PetscBool z_per = (PetscBool)(simCtx->k_periodic != 0);
-        const PetscInt i_end = (x_per && (info.xs + info.xm == info.mx)) ? info.mx - 1 : info.xs + info.xm;
-        const PetscInt j_end = (y_per && (info.ys + info.ym == info.my)) ? info.my - 1 : info.ys + info.ym;
-        const PetscInt k_end = (z_per && (info.zs + info.zm == info.mz)) ? info.mz - 1 : info.zs + info.zm;
+        /* Physical cells only. Index 0 and mx-1 are ghost layers on every axis - a
+           boundary-condition image on a wall, a copy of the opposite cell on a
+           periodic axis - and counting them biased every mean and norm here. */
+        const PetscInt i_start = PetscMax(info.xs, 1), i_end = PetscMin(info.xs + info.xm, info.mx - 1);
+        const PetscInt j_start = PetscMax(info.ys, 1), j_end = PetscMin(info.ys + info.ym, info.my - 1);
+        const PetscInt k_start = PetscMax(info.zs, 1), k_end = PetscMin(info.zs + info.zm, info.mz - 1);
         Cmpnts           ***ucat = NULL;
         Cmpnts           ***ucat_ref = NULL;
         PetscReal        ***pressure = NULL;
@@ -1276,9 +1276,9 @@ static PetscErrorCode ComputeDeterministicSolutionMetrics(SimCtx *simCtx,
             PetscCall(DMDAVecGetArrayRead(user[bi].da, pressure_reference_vec, &pressure_ref));
         }
 
-        for (PetscInt k = info.zs; k < k_end; ++k) {
-            for (PetscInt j = info.ys; j < j_end; ++j) {
-                for (PetscInt i = info.xs; i < i_end; ++i) {
+        for (PetscInt k = k_start; k < k_end; ++k) {
+            for (PetscInt j = j_start; j < j_end; ++j) {
+                for (PetscInt i = i_start; i < i_end; ++i) {
                     PetscReal jac = aj[k][j][i];
                     PetscReal cell_volume = 0.0;
                     PetscReal speed = 0.0;
@@ -1352,12 +1352,12 @@ static PetscErrorCode ComputeDeterministicSolutionMetrics(SimCtx *simCtx,
 
     for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
         const DMDALocalInfo info = user[bi].info;
-        const PetscBool x_per = (PetscBool)(simCtx->i_periodic != 0);
-        const PetscBool y_per = (PetscBool)(simCtx->j_periodic != 0);
-        const PetscBool z_per = (PetscBool)(simCtx->k_periodic != 0);
-        const PetscInt i_end = (x_per && (info.xs + info.xm == info.mx)) ? info.mx - 1 : info.xs + info.xm;
-        const PetscInt j_end = (y_per && (info.ys + info.ym == info.my)) ? info.my - 1 : info.ys + info.ym;
-        const PetscInt k_end = (z_per && (info.zs + info.zm == info.mz)) ? info.mz - 1 : info.zs + info.zm;
+        /* Physical cells only. Index 0 and mx-1 are ghost layers on every axis - a
+           boundary-condition image on a wall, a copy of the opposite cell on a
+           periodic axis - and counting them biased every mean and norm here. */
+        const PetscInt i_start = PetscMax(info.xs, 1), i_end = PetscMin(info.xs + info.xm, info.mx - 1);
+        const PetscInt j_start = PetscMax(info.ys, 1), j_end = PetscMin(info.ys + info.ym, info.my - 1);
+        const PetscInt k_start = PetscMax(info.zs, 1), k_end = PetscMin(info.zs + info.zm, info.mz - 1);
         PetscReal        ***pressure = NULL;
         PetscReal        ***pressure_ref = NULL;
         PetscReal        ***aj = NULL;
@@ -1369,9 +1369,9 @@ static PetscErrorCode ComputeDeterministicSolutionMetrics(SimCtx *simCtx,
         PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].Aj, &aj));
         PetscCall(DMDAVecGetArrayRead(user[bi].da, user[bi].Nvert, &nvert));
 
-        for (PetscInt k = info.zs; k < k_end; ++k) {
-            for (PetscInt j = info.ys; j < j_end; ++j) {
-                for (PetscInt i = info.xs; i < i_end; ++i) {
+        for (PetscInt k = k_start; k < k_end; ++k) {
+            for (PetscInt j = j_start; j < j_end; ++j) {
+                for (PetscInt i = i_start; i < i_end; ++i) {
                     PetscReal jac = aj[k][j][i];
                     PetscReal cell_volume = 0.0;
                     PetscReal current_pressure = 0.0;
@@ -2122,6 +2122,20 @@ PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step)
         if (strcmp(simCtx->profilingTimestepMode, "all") == 0 || g_profiler_registry[i].always_log) {
             should_write = PETSC_TRUE;
             break;
+        }
+    }
+
+    /* A selected name that matches no instrumented function records nothing, and a
+       list made only of such names writes no file at all. Say so once, on the first
+       step, rather than leave an absent file to be discovered after the run. */
+    if (step == simCtx->StartStep + 1 && strcmp(simCtx->profilingTimestepMode, "selected") == 0) {
+        for (PetscInt i = 0; i < g_profiler_count; ++i) {
+            if (g_profiler_registry[i].always_log && g_profiler_registry[i].total_call_count == 0) {
+                LOG(GLOBAL, LOG_WARNING,
+                    "profiling.timestep_output.functions lists '%s', which recorded no call in the first "
+                    "step. It is not an instrumented function; the final summary lists the names that are.\n",
+                    g_profiler_registry[i].name);
+            }
         }
     }
 
@@ -3004,7 +3018,7 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
             if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
                 fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
             }
-            PetscReal t = (PetscReal)simCtx->ti * simCtx->dt;
+            PetscReal t = simCtx->ti;  /* ti is already physical time; it is not a step count */
             fprintf(f, "%d,%.6e,%.6e,%.6e,%.6e,%.4f\n",
                     (int)simCtx->step, t,
                     Interpolation_error, Maximum_Interpolation_error,

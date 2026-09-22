@@ -269,3 +269,32 @@ Common stability tuning order:
 For many cases, robust Poisson settings and sane initialization matter as much as dual-time tolerances.
 
 For contributor extension steps, see **@subpage 50_Modular_Selector_Extension_Guide**.
+
+@section p24_limits_sec 8. Limitations
+
+**A physical step is only as accurate as its pseudo-time convergence.** When a step
+exhausts `max_pseudo_steps` without meeting its tolerance, the solver logs
+`reached N total attempts without convergence; continuing from last accepted finite
+state` and moves on. Nothing downstream corrects that step, so a run that logs this
+warning repeatedly is advancing on partially converged steps and its transient is not
+the physical one. On a laminar square duct at Re = 100 with `dt = 1.0`, every step hit
+the default cap of 50; the profile approached its steady state about ten times more
+slowly than the viscous time scale predicts, and the axial pressure gradient finished
+18% away from the analytic value. The same duct at Re = 10 with `dt = 0.05` converged
+every step and reproduced the analytic solution at second order in space. Reduce `dt`
+until the warning disappears rather than raising the cap and accepting the drift.
+
+**Temporal and curvilinear accuracy are measured, for converged steps.** On the
+two-dimensional Taylor-Green vortex in a triply periodic box, velocity and pressure
+converge at second order in time (successive-refinement orders 1.87 then 1.96) and in
+space (1.98 then 1.96), with every step converged
+(`tgv2d-picard-order-2026-09-18`). Hagen-Poiseuille flow on the swept circle - maximum
+non-orthogonality near 80 degrees - converges at second order in space
+(`pipe-poiseuille-curvilinear-2026-09-18`). Only central differencing was measured for
+order, and only on laminar flows.
+
+**The streamwise-periodic wall-bounded stall did not reproduce.** Re-characterized on
+2026-09-18 at current code, every step of the shipped laminar driven channel converged in
+9 to 29 pseudo-iterations, and the Re = 10 channel reproduced the laminar profile at
+second order (`periodic-channel-laminar-picard-2026-09-18`); see @ref p54_driven_limits_sub.
+Turbulent periodic channels at production resolution have not been re-run.

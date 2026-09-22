@@ -10,7 +10,7 @@
 > run and `Cs(t)` recorded.
 >
 > **What to check.** With `diagnostics.enabled` the solver appends a row per step to
-> `<run.runtime_logs>/les_coefficient.csv`. The `cs_effective` column is the whole-domain
+> `<run.analysis.metrics>/les_coefficient.csv`. The `cs_effective` column is the whole-domain
 > coefficient reported as `Cs`, and after the initial transient it is expected to
 > settle near **0.16-0.17**, Lilly's value for isotropic turbulence. A curve that
 > settles elsewhere, drifts, or oscillates is the signal to investigate before

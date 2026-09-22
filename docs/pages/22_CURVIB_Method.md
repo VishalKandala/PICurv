@@ -2,7 +2,7 @@
 
 @anchor _CURVIB_Method
 
-PICurv solves flow on structured curvilinear grids and applies immersed-boundary-aware logic in metric, pressure, and projection stages.
+PICurv solves flow on structured curvilinear grids using the curvilinear formulation of CURVIB. It has no immersed-boundary capability.
 
 @tableofcontents
 
@@ -28,7 +28,7 @@ Main setup touchpoints:
 - coordinate assignment: @ref AssignAllGridCoordinates
 - face metrics: @ref ComputeFaceMetrics
 - cell-centered Jacobian inverse: @ref ComputeCellCenteredJacobianInverse
-- orientation checks/fixups: @ref CheckAndFixGridOrientation
+- orientation check, which refuses a uniformly left-handed grid rather than repairing it: @ref CheckAndFixGridOrientation
 
 Useful geometric helper for BC and flux logic:
 
@@ -49,16 +49,7 @@ it sits in space:
 diagonal instead. Those change when the same cell is rotated, which is why no subgrid
 path uses it; it has no production caller.
 
-@section p22_ibm_sec 3. Immersed-Boundary Role In Current Code
-
-The current branch keeps immersed-boundary hooks in solver paths, while several IBM-specific calls are conditional or currently inactive in default runs.
-In practice:
-
-- geometry masking uses `Nvert`/solid markers in key kernels,
-- Poisson and projection stencils include boundary-aware logic,
-- IBM-specific interpolation hooks remain extension points for fully active IBM runs.
-
-@section p22_literature_sec 4. Literature Anchors
+@section p22_literature_sec 3. Literature Anchors
 
 Relevant CURVIB references for this code path:
 
@@ -68,9 +59,9 @@ Relevant CURVIB references for this code path:
 PICurv implementation notes:
 
 - PICurv follows the same curvilinear metric-centered philosophy (precomputed geometric tensors and metric-aware operators).
-- the current branch emphasizes stable production paths for structured curvilinear flow + particle workflows, while preserving immersed-boundary extension hooks for deeper IBM/FSI development.
+- PICurv implements the curvilinear formulation these references build on, together with the particle workflows; it does not implement their immersed-boundary or fluid-structure components.
 
-@section p22_practical_sec 5. What This Means For Users
+@section p22_practical_sec 4. What This Means For Users
 
 You mainly control CurvIB behavior through:
 
@@ -81,7 +72,7 @@ You mainly control CurvIB behavior through:
 
 Even when users never interact with metric tensors directly, they govern stability, pressure correction quality, and particle coupling accuracy.
 
-@section p22_refs_sec 6. Related Pages
+@section p22_refs_sec 5. Related Pages
 
 - **@subpage 20_Grid_Cell_Architecture_Guide**
 - **@subpage 23_Fractional_Step_Method**

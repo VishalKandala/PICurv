@@ -47,8 +47,6 @@ grid:
     grid_type: box
 
 models:
-  domain:
-    blocks: 1
   physics:
     particles:
       count: 0

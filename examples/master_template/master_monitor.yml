@@ -23,7 +23,7 @@ logging:
   # Options: ERROR, WARNING, INFO, DEBUG, TRACE, VERBOSE
   # WARNING is the production default: quiet runtime, still shows warnings.
   # The startup banner remains visible and reports walltime-guard status.
-  # Runtime metrics such as logs/search_metrics.csv may still be written even
+  # Runtime metrics such as output/analysis/metrics/search_metrics.csv may still be written even
   # when console verbosity stays low.
   verbosity: WARNING
 
@@ -32,7 +32,7 @@ logging:
   # file so the C runtime falls back to its built-in default allow-list.
   # Example: allow-list LOG_SEARCH_METRICS with DEBUG verbosity when you want
   # compact console summaries in addition to the always-written
-  # logs/search_metrics.csv artifact for particle-enabled runs.
+  # output/analysis/metrics/search_metrics.csv artifact for particle-enabled runs.
   enabled_functions: []
 
 # ==============================================================================
@@ -48,9 +48,9 @@ profiling:
   #   all      -> write every instrumented function that ran that step
   timestep_output:
     mode: "off"
-    # functions:
-    #   - AdvanceSimulation
-    #   - Flow_Solver
+    # functions:            # instrumented names, as listed by mode "all" or the final summary
+    #   - FlowSolver
+    #   - PoissonSolver_MG
     file: "Profiling_Timestep_Summary.csv"
 
   # --- Final Profiling Summary ---

@@ -528,6 +528,9 @@ Use `picurv storage --help` and `picurv storage <action> --help` for the complet
 
 @htmlinclude generated/capability_inventory_storage_compression.html
 
+Every policy below is experimental: the offload and restore cycle has not been exercised
+against a real remote at campaign scale.
+
 @subsection p61_cap_comp_auto_sub auto
 
 @anchor p61_cap_comp_auto
@@ -603,7 +606,10 @@ available, otherwise gzip level 6 across independent chunks.
 
 **Diagnostics.** Reported by `picurv storage plan` and recorded in the catalog entry.
 
-**Evidence.** Unit verified - `tests/test_storage.py` exercises the resolver and the archive path for this policy.**Limitations.** Nothing establishes that gzip's default is the right point on the curve for this project's data; it is a conventional choice, not a measured one.
+**Evidence.** Implemented only. `auto` resolves to `balanced` only for artifacts in a
+middle size band, and the storage tests package artifacts too small to reach it.
+
+**Limitations.** Nothing establishes that gzip's default is the right point on the curve for this project's data; it is a conventional choice, not a measured one.
 
 @subsection p61_cap_comp_maximum_sub maximum
 
@@ -633,6 +639,8 @@ compression on a compute node when cluster login-node policy or memory is restri
 @section p61_cap_policy_sec 9.2 Offload Policy Entries
 
 @htmlinclude generated/capability_inventory_storage_offload_policy.html
+
+Every policy below is experimental, for the same reason as the compression policies.
 
 @subsection p61_cap_policy_metadata_only_sub metadata-only
 
@@ -724,6 +732,8 @@ restore those inputs explicitly when required.
 @section p61_cap_retain_sec 9.3 Retention Component Entries
 
 @htmlinclude generated/capability_inventory_storage_retention_component.html
+
+Every component below is experimental, for the same reason as the compression policies.
 
 A named `--policy` is a preset, not a ceiling. `--retain` and `--drop` adjust one
 component at a time on top of whichever preset is in force, so a campaign whose

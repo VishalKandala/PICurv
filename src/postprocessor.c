@@ -243,8 +243,14 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
                 field_vec = user->P_nodal; num_components = 1;
             } else if (!strcasecmp(field_name, "Ucat_nodal")) {
                 field_vec = user->Ucat_nodal; num_components = 3;
+            } else if (!strcasecmp(field_name, "Qcrit_nodal")) {
+                field_vec = user->Qcrit_nodal; num_components = 1;
             } else if (!strcasecmp(field_name, "Qcrit")) {
-                field_vec = user->Qcrit;    num_components = 1;
+                /* Qcrit is cell-centred; written as point data it would sit half a cell
+                   from the node the file assigns it. The conductor refuses this too. */
+                SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                        "Field 'Qcrit' is cell-centred and cannot be written as point data. "
+                        "Add a nodal_average task (input_field: Qcrit, output_field: Qcrit_nodal) and write 'Qcrit_nodal'.");
             } else if (!strcasecmp(field_name, "Psi_nodal")){
                 if(user->simCtx->np==0){
                     LOG_ALLOW(LOCAL, LOG_WARNING, "Field 'Psi_nodal' requested but no particles are present. Skipping.\n");
@@ -863,12 +869,23 @@ int main(int argc, char **argv)
     LOG_ALLOW(GLOBAL, LOG_INFO, "=============================================================\n");
 
 
+    // The grid is loaded once, so it is dimensionalized once; the per-step pipeline
+    // scales only the fields it reloads.
+    PetscBool coordinates_dimensionalized = PETSC_FALSE;
+
     // === VII. MAIN POST-PROCESSING LOOP ======================================
     for (PetscInt ti = pps->startTime; ti <= pps->endTime; ti += pps->timeStep) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "--- Processing Time Step %" PetscInt_FMT " ---\n", ti);
 
         // 1. Load Data (UpdateLocalGhosts is called inside the kernels)
         ierr = ReadSimulationFields(user, ti); CHKERRQ(ierr);
+
+        // After the first read, which validates the checkpoint against the grid in
+        // nondimensional units and caches that geometry digest.
+        if (pps->dimensionalize && !coordinates_dimensionalized) {
+            ierr = DimensionalizeField(user, "Coordinates"); CHKERRQ(ierr);
+            coordinates_dimensionalized = PETSC_TRUE;
+        }
         
         // 2. Transform Data
         ierr = EulerianDataProcessingPipeline(user, pps); CHKERRQ(ierr);
@@ -882,17 +899,25 @@ int main(int argc, char **argv)
 
             // 2. Load particle data into the correctly sized swarm
             ierr = ReadAllSwarmFields(user, ti); CHKERRQ(ierr);
-            
-            // 3. Transform particle data
+
+            // 3. Global statistical reductions (MSD, etc.) → CSV files. These compare
+            //    against nondimensional theory, so they read the positions as loaded.
+            ierr = GlobalStatisticsPipeline(user, pps, ti); CHKERRQ(ierr);
+
+            // 4. Dimensionalize the loaded particle fields before anything derives from
+            //    or writes them; they are loaded after the Eulerian pipeline has run.
+            if (pps->dimensionalize) {
+                ierr = DimensionalizeField(user, "ParticlePosition"); CHKERRQ(ierr);
+                ierr = DimensionalizeField(user, "ParticleVelocity"); CHKERRQ(ierr);
+            }
+
+            // 5. Transform particle data
             ierr = ParticleDataProcessingPipeline(user, pps); CHKERRQ(ierr);
 
-            // 4. Write particle output (optional)
+            // 6. Write particle output (optional)
             if (pps->outputParticles) {
                 ierr = WriteParticleFile(user, pps, ti); CHKERRQ(ierr);
             }
-
-            // 5. Global statistical reductions (MSD, etc.) → CSV files
-            ierr = GlobalStatisticsPipeline(user, pps, ti); CHKERRQ(ierr);
         }
 
         // 4. Accumulated Eulerian window statistics → derived fields and history.

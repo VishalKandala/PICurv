@@ -6,7 +6,7 @@
       "title": "Dual-Time Picard--Jameson Momentum Solver",
       "status": "supported",
       "visibility": "public",
-      "previous_status": "supported",
+      "previous_status": "experimental",
       "capability_families": [
         "momentum.solver"
       ],
@@ -50,8 +50,8 @@
           "anchor": "p24_logging_sec"
         },
         "limitations": {
-          "page": "31_Momentum_Solvers",
-          "anchor": "p31_status_sec"
+          "page": "24_Dual_Time_Picard_Jameson_RK",
+          "anchor": "p24_limits_sec"
         },
         "safe_use_boundaries": {
           "page": "24_Dual_Time_Picard_Jameson_RK",
@@ -103,7 +103,8 @@
           "page": "66_Evidence_Matrix",
           "anchor": "p66_matrix_sec"
         }
-      }
+      },
+      "note": "Promoted 2026-09-21. Measured: square-duct Poiseuille flow at second order in space (duct-poiseuille-picard-2026-09-18); the two-dimensional Taylor-Green vortex at second order in time and space (tgv2d-picard-order-2026-09-18); Hagen-Poiseuille flow on the swept circle (pipe-poiseuille-curvilinear-2026-09-18); and the driven periodic channel, where the 2026-08-24 stall did not reproduce (periodic-channel-laminar-picard-2026-09-18). The results hold for converged steps: the Re = 100 duct at dt = 1.0 hit the pseudo-time cap every step and finished 18% off in pressure gradient, which page 24 section 8 states. Only central differencing and laminar flows were measured."
     },
     {
       "id": "momentum.newton_krylov",
@@ -112,7 +113,8 @@
       "visibility": "public",
       "previous_status": "experimental",
       "capability_families": [
-        "momentum.solver"
+        "momentum.solver",
+        "momentum.nk_preconditioner"
       ],
       "obligations": {
         "purpose": {
@@ -219,7 +221,7 @@
     {
       "id": "momentum.explicit_rk4",
       "title": "Explicit RK4 Momentum Advance",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
       "previous_status": "experimental",
       "capability_families": [
@@ -271,6 +273,29 @@
         "safe_use_boundaries": {
           "page": "31_Momentum_Solvers",
           "anchor": "p31_status_sec"
+        },
+        "evidence": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_cap_explicit_rk4"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_restart_cfd"
+        },
+        "operations": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_strategy_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_diverge_sec"
+        },
+        "examples": {
+          "not_applicable": "No shipped example selects Explicit RK4. The reproducible configuration is run_explicit_rk4_smoke in tests/smoke/run_smoke.sh: flat_channel with the Picard solver block removed, run once stable and once past the stability limit."
+        },
+        "complete_reference": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_cap_explicit_rk4"
         }
       },
       "concerns": {
@@ -283,9 +308,11 @@
           "anchor": "p08_entries_sec"
         },
         "scientific_verification": {
-          "not_applicable": "No validation campaign has been run against this path; that absence is what keeps the subsystem experimental rather than supported."
+          "page": "08_Solver_Reference",
+          "anchor": "p08_cap_explicit_rk4"
         }
-      }
+      },
+      "note": "Promoted 2026-09-21. On the two-dimensional Taylor-Green vortex, velocity converges at second order in time and space, while pressure is first order in time from the projection splitting; the driven channel converges at order 1.97 (explicit-rk4-order-2026-09-21). make smoke runs one stable step and one past the stability limit. Found and fixed: a step past the limit used to surface as a Poisson failure blamed on the multigrid depth; it now stops and names the limit. There is no step control."
     },
     {
       "id": "turbulence.les",
@@ -368,7 +395,7 @@
     {
       "id": "turbulence.rans",
       "title": "RANS Turbulence Models",
-      "status": "experimental",
+      "status": "known-defective",
       "visibility": "public",
       "previous_status": "experimental",
       "capability_families": [
@@ -414,11 +441,18 @@
         },
         "limitations": {
           "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "anchor": "p07_cap_rans_k_omega_sub"
         },
         "safe_use_boundaries": {
           "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "anchor": "p07_cap_rans_k_omega_sub"
+        },
+        "defect_disclosure": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_cap_rans_k_omega_sub"
+        },
+        "defect_scope_record": {
+          "value": "tests/tooling/capability_scope_records.json: turbulence.rans.k_omega"
         }
       },
       "concerns": {
@@ -431,9 +465,11 @@
           "anchor": "p07_rans_filter_sec"
         },
         "scientific_verification": {
-          "not_applicable": "The k-omega path has not been validated against a reference case in this tree; no verification claim is made for it."
+          "not_applicable": "The k-omega path produces no solution to verify: enabling it aborts the solver at the end of the first timestep, so no verification claim of any kind is made for it."
         }
-      }
+      },
+      "peak_status": "experimental",
+      "note": "Declared known-defective on 2026-09-18 after a code survey and a three-step run of the flat-channel case with k_omega enabled. Setup never allocates the K_Omega fields and FlowSolver's transport update is commented out, so the first UpdateSolverHistoryVectors call copies a null vector and PETSc aborts with a null-argument error at the end of step one. The previous record described the runtime update as incomplete; it was absent. The selector stays reachable, with the disclosure printed by picurv validate and run, so the path can be repaired in place and return to experimental."
     },
     {
       "id": "turbulence.wall_function",
@@ -508,17 +544,18 @@
           "not_applicable": "The wall_function block and its -wallfunction / -wall_roughness flags are unchanged; nothing has been renamed or retired."
         }
       },
-      "note": "Separated from the RANS record because a wall function is configured independently of both LES and RANS, and because the RANS runtime update is incomplete while this treatment is separately usable. The velocity laws and their friction-velocity root-finds carry unit coverage, and the integration that applies them across the six faces is covered by tests/c/test_boundaries.c, which checks that the corrected first-interior velocity is the modelled profile at that cell's wall distance. Status is experimental rather than supported because no reference-flow comparison has been run and no shipped case enables it. All three laws are now reachable: the integration dispatches on the configured model rather than calling the log law unconditionally, and a channel run shows the three producing distinct friction velocities where the laws should differ and identical ones in the viscous sublayer, where every wall model must reduce to u+ = y+. The pass now records the friction velocity as the catalogued field `Utau` and writes near-wall statistics to <run.runtime_logs>/wall_model.csv, including the first-cell y+ that says whether the selected law is being applied where it is valid; before that, u_tau was computed every step and discarded, so no wall diagnostic existed. Its storage was also allocated from the dof-3 DM while every reader opened it through the dof-1 DM, a pairing PETSc rejects, so enabling wall functions on a case with a WALL face aborted; tests/c/test_boundaries.c now allocates the way production does and compares the allocation against the field catalog descriptor, which is what makes that class of mismatch fail in the suite. A toy channel exercising all three laws end to end found two defects that unit coverage could not reach. Werner-Wengle reported one identical u_tau at every wall cell, because wall_function() used its Newton initial guess as the answer; it now uses the closed-form taw_Werner()/u_Werner_explicit() pair, which is the Werner-Wengle model proper - the profile integrated across the first cell inverts without any root-find, realising the no-inner-iteration property the model is chosen for. The earlier iterative helpers are retained, unwired, with the reasons recorded at their definitions: their branch threshold depends on the friction velocity being solved for, and their two branches invert different relations, so they reconstruct the pointwise profile only below y+ = 11.81. Separately, the friction-velocity storage was allocated inside the LES/RANS block, so enabling a wall model without either of them left ApplyWallFunction dereferencing a null vector; allocation is now gated on the wall model alone, which is what the schema has always said. All three laws now produce friction velocities that vary cell to cell and differ from one another at y+ ~ 10-14, and agree exactly at y+ ~ 1.4 where every wall model must reduce to u+ = y+. None of this is validation against a reference flow, which has still not been run. The modelled stress now actually reaches the momentum equation. The correction sets a velocity, and the viscous operator reaches the wall through a viscosity times a gradient, so with the subgrid viscosity zeroed at wall faces - correct for a wall-resolved run, backwards for a wall-modelled one - only the molecular fraction u+/y+ of the stress was delivered, about a fourteenth at y+ = 267. The wall pass now publishes an effective wall eddy viscosity that the viscous flux uses at that face instead, reported as nu_wall_over_nu_mean; a 30-step channel shows the solutions with and without it separating monotonically, so the term is live, though its effect on a developed flow is not established. Three pairings are now rejected before a run starts - a wall model with no turbulence model, and cabot or werner under RANS - and a first-cell y+ outside the selected law's range warns each sample and stops the run after ten consecutive ones, since that depends on the mesh and cannot be settled at validation time."
+      "note": "Separated from the RANS record because a wall function is configured independently of both LES and RANS, and because the RANS runtime update is incomplete while this treatment is separately usable. The velocity laws and their friction-velocity root-finds carry unit coverage, and the integration that applies them across the six faces is covered by tests/c/test_boundaries.c, which checks that the corrected first-interior velocity is the modelled profile at that cell's wall distance. Status is experimental rather than supported because no reference-flow comparison has been run and no shipped case enables it. All three laws are now reachable: the integration dispatches on the configured model rather than calling the log law unconditionally, and a channel run shows the three producing distinct friction velocities where the laws should differ and identical ones in the viscous sublayer, where every wall model must reduce to u+ = y+. The pass now records the friction velocity as the catalogued field `Utau` and writes near-wall statistics to <run.analysis.metrics>/wall_model.csv, including the first-cell y+ that says whether the selected law is being applied where it is valid; before that, u_tau was computed every step and discarded, so no wall diagnostic existed. Its storage was also allocated from the dof-3 DM while every reader opened it through the dof-1 DM, a pairing PETSc rejects, so enabling wall functions on a case with a WALL face aborted; tests/c/test_boundaries.c now allocates the way production does and compares the allocation against the field catalog descriptor, which is what makes that class of mismatch fail in the suite. A toy channel exercising all three laws end to end found two defects that unit coverage could not reach. Werner-Wengle reported one identical u_tau at every wall cell, because wall_function() used its Newton initial guess as the answer; it now uses the closed-form taw_Werner()/u_Werner_explicit() pair, which is the Werner-Wengle model proper - the profile integrated across the first cell inverts without any root-find, realising the no-inner-iteration property the model is chosen for. The earlier iterative helpers are retained, unwired, with the reasons recorded at their definitions: their branch threshold depends on the friction velocity being solved for, and their two branches invert different relations, so they reconstruct the pointwise profile only below y+ = 11.81. Separately, the friction-velocity storage was allocated inside the LES/RANS block, so enabling a wall model without either of them left ApplyWallFunction dereferencing a null vector; allocation is now gated on the wall model alone, which is what the schema has always said. All three laws now produce friction velocities that vary cell to cell and differ from one another at y+ ~ 10-14, and agree exactly at y+ ~ 1.4 where every wall model must reduce to u+ = y+. None of this is validation against a reference flow, which has still not been run. The modelled stress now actually reaches the momentum equation. The correction sets a velocity, and the viscous operator reaches the wall through a viscosity times a gradient, so with the subgrid viscosity zeroed at wall faces - correct for a wall-resolved run, backwards for a wall-modelled one - only the molecular fraction u+/y+ of the stress was delivered, about a fourteenth at y+ = 267. The wall pass now publishes an effective wall eddy viscosity that the viscous flux uses at that face instead, reported as nu_wall_over_nu_mean; a 30-step channel shows the solutions with and without it separating monotonically, so the term is live, though its effect on a developed flow is not established. Three pairings are now rejected before a run starts - a wall model with no turbulence model, and cabot or werner under RANS - and a first-cell y+ outside the selected law's range warns each sample and stops the run after ten consecutive ones, since that depends on the mesh and cannot be settled at validation time."
     },
     {
       "id": "particles.transport",
       "title": "Lagrangian Particle Transport",
       "status": "supported",
       "visibility": "public",
-      "previous_status": "supported",
+      "previous_status": "experimental",
       "capability_families": [
         "particle.init_mode",
-        "particle.interpolation"
+        "particle.interpolation",
+        "particle.restart_mode"
       ],
       "obligations": {
         "purpose": {
@@ -561,7 +598,7 @@
         },
         "limitations": {
           "page": "34_Particle_Model_Overview",
-          "anchor": "p34_physics_sec"
+          "anchor": "p34_limits_sec"
         },
         "safe_use_boundaries": {
           "page": "45_Particle_Initialization_and_Restart",
@@ -605,8 +642,8 @@
           "anchor": "p45_restart_matrix_sec"
         },
         "determinism_and_reproducibility": {
-          "page": "45_Particle_Initialization_and_Restart",
-          "anchor": "p45_mode_behavior_sec"
+          "page": "34_Particle_Model_Overview",
+          "anchor": "p34_limits_sec"
         },
         "mpi_distributed_execution": {
           "page": "26_Walking_Search_Method"
@@ -615,15 +652,20 @@
           "page": "66_Evidence_Matrix",
           "anchor": "p66_matrix_sec"
         }
-      }
+      },
+      "note": "Promoted 2026-09-21. Measured: the Einstein relation (brownian-msd-2026-09-18); uniform drift (uniform-drift-2026-09-18); the gradient drift with paired seeds (diffusivity-gradient-drift-paired-2026-09-18); every seeding mode and both restart modes (particle-seeding-restart-2026-09-21); and both interpolation methods' orders (interpolation-methods-tgv-2026-09-21). Found and fixed 2026-09-21: multi-rank Volume seeding put equal counts into unequal subdomains; ranks now split the count by owned cells. Particles are not wrapped across periodic faces, as page 34 states."
     },
     {
       "id": "post.field_statistics",
       "title": "Online Eulerian Field Statistics",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
       "previous_status": "experimental",
-      "capability_families": [],
+      "capability_families": [
+        "statistics.weighting",
+        "post.field_statistics_output",
+        "run.restart_statistics_state"
+      ],
       "obligations": {
         "purpose": {
           "page": "58_Field_Statistics",
@@ -726,8 +768,7 @@
           "anchor": "p58_target_sec"
         }
       },
-      "proposed_status": "supported",
-      "promotion_rationale": "Documented to the supported bar, including checkpoint/restart continuation and window identity. The unresolved question is whether the derived statistics have been validated against a reference profile rather than only unit-tested for internal consistency."
+      "note": "Promoted 2026-09-21. The accumulators, all five derived outputs, both weightings and both restart states matched the exact weighted moments of the analytic TGV3D field to round-off (field-statistics-tgv3d-2026-09-21). Found and fixed: carry failed at start-up with an analytical Eulerian source, because no restart bundle was staged. Not yet compared against a turbulent reference profile, and carrying a window across a change of rank count is unmeasured."
     },
     {
       "id": "post.field_statistics_extensions",
@@ -769,8 +810,7 @@
       "status": "experimental",
       "visibility": "public",
       "capability_families": [
-        "workspace.input_import_mode",
-        "run.restart_statistics_state"
+        "workspace.input_import_mode"
       ],
       "obligations": {
         "purpose": {
@@ -859,7 +899,7 @@
           "not_applicable": "Imports and asset publication read and write local paths under the invoking user's own permissions; reference-mode imports store a path, never a credential."
         }
       },
-      "note": "Content-addressed asset identity covers the normalized provider settings, the checksums of referenced files, and the PICurv build, so an unchanged input reuses its object and any change to an equation, grid configuration, imported field, inlet parameter, or generator selects a new one. Publication is all-or-nothing per invocation: providers build into an isolated temporary run layout and nothing is published unless every selected provider succeeds. Status is experimental rather than supported because the reuse and materialization paths carry unit coverage in tests/test_workspace_lifecycle.py and the migrated precompute coverage in tests/test_cli_smoke.py, but no campaign has exercised the store at the scale where reflink availability, object accumulation, and pruning policy start to matter, and no retention policy for orphaned objects exists yet. A provider that only exists inside the simulator is reported as runtime-c and never imitated in Python, so a Python initial-condition generator paired with a programmatic_c grid fails at planning time rather than producing a silently different field."
+      "note": "Content-addressed asset identity covers the normalized provider settings, the checksums of referenced files, and the PICurv build, so an unchanged input reuses its object and any change to an equation, grid configuration, imported field, inlet parameter, or generator selects a new one. Publication is all-or-nothing per invocation: providers build into an isolated temporary run layout and nothing is published unless every selected provider succeeds. Status is experimental rather than supported because the reuse and materialization paths carry unit coverage in tests/test_workspace_lifecycle.py and the migrated precompute coverage in tests/test_cli_smoke.py, but no campaign has exercised the store at the scale where reflink availability, object accumulation, and pruning policy start to matter, and nothing removes orphaned objects automatically: the explicit `picurv storage prune --assets --unused-locally` command (storage.management) is the only reclamation path, and it has not been exercised at campaign scale. Exercised locally 2026-09-21 (asset-store-local-2026-09-21): all four import modes, content-addressed reuse, all-or-nothing publication, run materialization, and prune's blocked decision behaved as documented; a changed reference target is used without a warning. What keeps it experimental needs the cluster: reflink and hardlink on cluster filesystems, object accumulation at campaign scale, and remote-backed pruning, which prune requires. The restart statistics-state selector that this record once listed belongs to post.field_statistics, whose continuation it controls."
     },
     {
       "id": "storage.management",
@@ -867,7 +907,11 @@
       "status": "experimental",
       "visibility": "public",
       "previous_status": "experimental",
-      "capability_families": [],
+      "capability_families": [
+        "storage.compression",
+        "storage.offload_policy",
+        "storage.retention_component"
+      ],
       "obligations": {
         "purpose": {
           "page": "61_Storage_Management_Guide",
@@ -1066,12 +1110,13 @@
         "mpi_distributed_execution": {
           "not_applicable": "The guard runs on rank zero before the collective directory setup and aborts the whole job, so no rank-dependent behavior arises."
         }
-      }
+      },
+      "note": "Verified locally 2026-09-18 by tests/test_run_directory_containment.py in the full Python suite; no separate runtime check was run."
     },
     {
       "id": "boundary.periodic",
       "title": "Geometric Periodic Boundaries",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
       "previous_status": "experimental",
       "capability_families": [
@@ -1173,8 +1218,7 @@
           "anchor": "p54_diag_sec"
         }
       },
-      "proposed_status": "supported",
-      "promotion_rationale": "Documented to the supported bar. The unresolved question is the wall-bounded pseudo-time convergence behaviour, which page 54 records as previously observed and requiring re-characterisation at current HEAD. A supported claim should not sit above an open characterisation question."
+      "note": "Promoted 2026-09-21. geometric, constant_flux and initial_flux were measured on the triply periodic Taylor-Green vortex, the doubly periodic laminar channel and the curvilinear pipe, each at second order, and the wall-bounded pseudo-time stall did not reproduce at current code. The proportional flux controller settles below its target by f dt / 2.7, which pages 44 and 54 state. Turbulent periodic channels at production resolution have not been re-characterized."
     },
     {
       "id": "observability.logging",
@@ -1277,7 +1321,1577 @@
           "not_applicable": "Nothing logging produces is a scientific claim of its own; it reports quantities the subsystems that compute them are separately accountable for. Its own contracts - level gating, allow-list behaviour, snapshot cadence, string conversion - are behavioural and are covered by tests/c/test_logging.c rather than by physical validation."
         }
       },
-      "note": "Registered as its own subsystem because every other module reports through it while nothing depends on it for a result, which is exactly the shape that leaves a module unowned: before this record it appeared in no subsystem, no capability family, no contract, no freshness surface, and in neither src/guide.md nor the module map of 13_Code_Architecture, despite owning the console tier system, the runtime metric emitters, and the lifecycle of every file in <run.runtime_logs>. A change to what a user sees therefore tripped no staleness suspicion anywhere. Status is supported rather than experimental because the console contracts carry direct unit coverage in tests/c/test_logging.c and the configuration surface has been stable and user-facing across releases; the claim is about those behavioural contracts, not about the correctness of any quantity another subsystem hands it to print."
+      "note": "Registered as its own subsystem because every other module reports through it while nothing depends on it for a result, which is exactly the shape that leaves a module unowned: before this record it appeared in no subsystem, no capability family, no contract, no freshness surface, and in neither src/guide.md nor the module map of 13_Code_Architecture, despite owning the console tier system, the runtime metric emitters, and the lifecycle of every file in <run.runtime_logs>. A change to what a user sees therefore tripped no staleness suspicion anywhere. Status is supported rather than experimental because the console contracts carry direct unit coverage in tests/c/test_logging.c and the configuration surface has been stable and user-facing across releases; the claim is about those behavioural contracts, not about the correctness of any quantity another subsystem hands it to print. Verified locally 2026-09-18 by unit-logging within make unit; no runtime behaviour was re-measured."
+    },
+    {
+      "id": "domain.definition",
+      "title": "Domain Definition: Grid Ingestion, Metrics, and Dimensionality",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [
+        "grid.mode",
+        "domain.dimensionality"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_grid_sec"
+        },
+        "intended_scope": {
+          "page": "12_Capabilities_Summary",
+          "anchor": "p12_ingest_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "22_CURVIB_Method",
+          "anchor": "p22_setup_sec"
+        },
+        "architecture_boundary": {
+          "page": "13_Code_Architecture",
+          "anchor": "p13_modules_sec"
+        },
+        "dependencies": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_case_sec"
+        },
+        "developer_entry_points": {
+          "page": "22_CURVIB_Method",
+          "anchor": "p22_setup_sec"
+        },
+        "configuration": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_grid_sec"
+        },
+        "selection_guidance": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_choose_sec"
+        },
+        "observability": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_quality_ssec"
+        },
+        "limitations": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_cap_gridmode_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "70_Case_Design_Guide",
+          "anchor": "p70_geometry_sec"
+        },
+        "evidence": {
+          "page": "66_Evidence_Matrix",
+          "anchor": "p66_matrix_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_compat_sec"
+        },
+        "operations": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_layout_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_validate_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_start_sec"
+        },
+        "complete_reference": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_grid_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "22_CURVIB_Method",
+          "anchor": "p22_formulation_sec"
+        },
+        "user_selector": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_cap_gridmode_sec"
+        },
+        "units_and_nondimensionalization": {
+          "page": "19_Nondimensionalization",
+          "anchor": "p19_fields_sec"
+        },
+        "file_format": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_grid_file_ssec"
+        },
+        "mpi_distributed_execution": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_mpi_ssec"
+        }
+      },
+      "note": "Promoted 2026-09-21. Owns how the computational domain reaches the solver: the three grid ingestion modes, PICGRID validation and nondimensionalization, metric construction, DMDA partition hints, and the 2D row mask. Multi-block domains are domain.multiblock (planned), and composed geometries are grid.generator. Measured: metric closure on curvilinear file grids (curvilinear-gcl-2026-09-18, grid-generator-closure-2026-09-21); known solutions on programmatic_c and grid_gen grids; a file grid reproducing its grid_gen run exactly; and 2D matching its planar 3D counterpart to 2.8e-15 (eulerian-source-domain-modes-2026-09-21). Found and fixed 2026-09-21: a left-handed grid was 'repaired' by negating metric vectors, which gave a mirrored duct forty times its bulk velocity. The solver now refuses a left-handed grid."
+    },
+    {
+      "id": "domain.multiblock",
+      "title": "Multi-Block Domain Coupling",
+      "status": "planned",
+      "visibility": "public",
+      "previous_status": null,
+      "capability_families": [],
+      "obligations": {
+        "purpose": {
+          "page": "57_Future_Architecture_Specifications",
+          "anchor": "p57_multiblock_sec"
+        },
+        "intended_scope": {
+          "page": "57_Future_Architecture_Specifications",
+          "anchor": "p57_multiblock_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "not_implemented_status": {
+          "page": "57_Future_Architecture_Specifications",
+          "anchor": "p57_multiblock_sec"
+        }
+      },
+      "concerns": {
+        "user_selector": {
+          "not_applicable": "models.domain.blocks is refused at validation for any value other than 1, and -nblk other than 1 is refused at setup, so nothing is selectable until the coupling exists."
+        },
+        "mpi_distributed_execution": {
+          "page": "57_Future_Architecture_Specifications",
+          "anchor": "p57_multiblock_sec"
+        }
+      },
+      "note": "Recorded on 2026-09-18 when a code survey found that every inter-block exchange (Block_Interface_U) is commented out, so a multi-block case ran as isolated single-block solves. The switch had been accepted and page 12 advertised multi-block support; both are now corrected, and tests/c/test_setup_lifecycle.c and tests/test_config_regressions.py hold the refusal."
+    },
+    {
+      "id": "immersed_boundary",
+      "title": "Immersed Boundaries, Moving Bodies, and Moving Frames",
+      "status": "planned",
+      "visibility": "public",
+      "previous_status": null,
+      "capability_families": [],
+      "obligations": {
+        "purpose": {
+          "page": "57_Future_Architecture_Specifications",
+          "anchor": "p57_ibm_sec"
+        },
+        "intended_scope": {
+          "page": "57_Future_Architecture_Specifications",
+          "anchor": "p57_ibm_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "not_implemented_status": {
+          "page": "57_Future_Architecture_Specifications",
+          "anchor": "p57_ibm_sec"
+        }
+      },
+      "concerns": {
+        "user_selector": {
+          "not_applicable": "models.physics.fsi.immersed and moving_fsi are refused at validation when true, and -imm, -fsi, -rfsi, -mframe, -rframe, -mhv and -lv are refused at setup, so nothing is selectable until the implementation exists."
+        },
+        "numerical_method": {
+          "page": "57_Future_Architecture_Specifications",
+          "anchor": "p57_ibm_sec"
+        }
+      },
+      "note": "Recorded on 2026-09-18. The switches were accepted before and each ran a different problem without saying so: immersed reconfigured the Poisson solve around a body that is never loaded (ibm_interpolation_advanced is called only from commented-out code and defined nowhere), moving_fsi was inert, and the passthrough-only -mframe/-rframe skipped the convective term. The dormant Poisson branch and the Nvert solid markers are retained for the implementation this record describes."
+    },
+    {
+      "id": "grid.generator",
+      "title": "Composed Grid Generator (grid.gen)",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [
+        "grid.generator_type",
+        "grid.cross_section",
+        "grid.wall_segment",
+        "grid.path_segment",
+        "grid.transform"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_role_sec"
+        },
+        "intended_scope": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_types_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_role_sec"
+        },
+        "architecture_boundary": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_case_sec"
+        },
+        "dependencies": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_config_sec"
+        },
+        "developer_entry_points": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_grammar_ssec"
+        },
+        "configuration": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_config_sec"
+        },
+        "selection_guidance": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_choose_sec"
+        },
+        "observability": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_quality_ssec"
+        },
+        "limitations": {
+          "page": "66_Evidence_Matrix",
+          "anchor": "p66_gaps_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_quality_ssec"
+        },
+        "evidence": {
+          "page": "66_Evidence_Matrix",
+          "anchor": "p66_matrix_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_layout_sec"
+        },
+        "operations": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_case_sec"
+        },
+        "troubleshooting": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_quality_ssec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_flow_sec"
+        },
+        "complete_reference": {
+          "page": "48_Grid_Generator_Guide"
+        }
+      },
+      "concerns": {
+        "generated_artifact": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_outputs_sec"
+        },
+        "file_format": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_outputs_sec"
+        },
+        "units_and_nondimensionalization": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_units_sec"
+        },
+        "user_selector": {
+          "page": "48_Grid_Generator_Guide",
+          "anchor": "p48_cap_geom_sec"
+        }
+      },
+      "note": "Promoted 2026-09-21. Every geometry, cross-section, wall segment, path segment and transform closes a uniform flow to round-off in the solver's metrics (grid-generator-closure-2026-09-21). Solves were run on the circle section (pipe-poiseuille-curvilinear-2026-09-18), on flat boxes, and on the mirrored hill. Found and fixed: unknown specification keys were silently ignored (now refused), and a transform list ending left-handed reached the solver (now refused, with reverse:axis=i|j|k to renumber). Closure establishes metric consistency, not accuracy over each shaped wall."
+    },
+    {
+      "id": "flow.initial_conditions",
+      "title": "Eulerian Initial Conditions",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [
+        "initial.field_mode",
+        "initial.target_field",
+        "initial.file_generator"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_overview_sec"
+        },
+        "intended_scope": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_euler_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_restart_modes_sec"
+        },
+        "architecture_boundary": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_euler_modes_sec"
+        },
+        "dependencies": {
+          "page": "15_Config_Ingestion_Map",
+          "anchor": "p15_mode_dependent_sec"
+        },
+        "developer_entry_points": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_euler_modes_sec"
+        },
+        "configuration": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_euler_sec"
+        },
+        "selection_guidance": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_entries_sec"
+        },
+        "observability": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_checks_sec"
+        },
+        "limitations": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_checks_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_restart_modes_sec"
+        },
+        "evidence": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_entries_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_restart_modes_sec"
+        },
+        "operations": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_precompute_sec"
+        },
+        "troubleshooting": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_checks_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_flow_sec"
+        },
+        "complete_reference": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_euler_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_euler_modes_sec"
+        },
+        "user_selector": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_entries_sec"
+        },
+        "persistent_restart_state": {
+          "page": "33_Initial_Conditions",
+          "anchor": "p33_restart_modes_sec"
+        },
+        "units_and_nondimensionalization": {
+          "page": "19_Nondimensionalization",
+          "anchor": "p19_fields_sec"
+        }
+      },
+      "note": "Promoted 2026-09-21. Owns the C-runtime field modes (Zero, Constant, Poiseuille), the target field (Ucat or Ucont), and the conductor's file, ic_gen and spectral_random_velocity providers. Every mode staged the field it defines (initial-conditions-2026-09-21). Found and fixed 2026-09-18: Poiseuille vanished at the first cell centres rather than on the walls, and was applied across periodic axes. The wall-bounded spectral providers added on main after 3a5821c are not covered by that measurement. The file-backed generator family is also owned here; its values remain experimental, including the channel and duct spectral providers, whose seeded startup does not establish developed turbulence."
+    },
+    {
+      "id": "flow.eulerian_source",
+      "title": "Eulerian Field Source and Analytical Fields",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [
+        "eulerian.field_source",
+        "analytical.solution_type"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_opmode_sec"
+        },
+        "intended_scope": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_more_entries_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "32_Analytical_Solutions",
+          "anchor": "p32_types_sec"
+        },
+        "architecture_boundary": {
+          "page": "32_Analytical_Solutions",
+          "anchor": "p32_activation_sec"
+        },
+        "dependencies": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_restart_particle"
+        },
+        "developer_entry_points": {
+          "page": "32_Analytical_Solutions",
+          "anchor": "p32_extension_sec"
+        },
+        "configuration": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_opmode_sec"
+        },
+        "selection_guidance": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_more_entries_sec"
+        },
+        "observability": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_startup_banner_sec"
+        },
+        "limitations": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_more_entries_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "32_Analytical_Solutions",
+          "anchor": "p32_activation_sec"
+        },
+        "evidence": {
+          "page": "66_Evidence_Matrix",
+          "anchor": "p66_matrix_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_restart_particle"
+        },
+        "operations": {
+          "page": "49_Workflow_Recipes_and_Config_Cookbook",
+          "anchor": "p49_drift_verification_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_restart_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_verify_sec"
+        },
+        "complete_reference": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_more_entries_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "32_Analytical_Solutions",
+          "anchor": "p32_tgv_sec"
+        },
+        "user_selector": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_more_entries_sec"
+        },
+        "persistent_restart_state": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_restart_particle"
+        }
+      },
+      "note": "Promoted 2026-09-21. solve, load and analytical are measured. load replays a stored run bitwise (eulerian-source-domain-modes-2026-09-21) and needs a checkpoint at every step it serves. TGV3D matches its formula to 9e-16 (solution-monitoring-tgv3d-2026-09-18), but it is a kinematic field, not a Navier-Stokes solution, as page 32 now states. UNIFORM_FLOW and ZERO_FLOW carried the particle measurements. The solver behind 'solve' is owned by the momentum and pressure records."
+    },
+    {
+      "id": "pressure.poisson",
+      "title": "Pressure-Poisson Projection and Multigrid",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [
+        "poisson.method"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "25_Pressure_Poisson_GMRES_Multigrid",
+          "anchor": "p25_equation_sec"
+        },
+        "intended_scope": {
+          "page": "23_Fractional_Step_Method",
+          "anchor": "p23_equations_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "25_Pressure_Poisson_GMRES_Multigrid",
+          "anchor": "p25_mg_sec"
+        },
+        "architecture_boundary": {
+          "page": "23_Fractional_Step_Method",
+          "anchor": "p23_implementation_sec"
+        },
+        "dependencies": {
+          "page": "25_Pressure_Poisson_GMRES_Multigrid",
+          "anchor": "p25_mg_sec"
+        },
+        "developer_entry_points": {
+          "page": "25_Pressure_Poisson_GMRES_Multigrid",
+          "anchor": "p25_mg_sec"
+        },
+        "configuration": {
+          "page": "25_Pressure_Poisson_GMRES_Multigrid",
+          "anchor": "p25_config_sec"
+        },
+        "selection_guidance": {
+          "page": "25_Pressure_Poisson_GMRES_Multigrid",
+          "anchor": "p25_robustness_sec"
+        },
+        "observability": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_solver_monitoring_sec"
+        },
+        "limitations": {
+          "page": "25_Pressure_Poisson_GMRES_Multigrid",
+          "anchor": "p25_robustness_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "25_Pressure_Poisson_GMRES_Multigrid",
+          "anchor": "p25_robustness_sec"
+        },
+        "evidence": {
+          "page": "25_Pressure_Poisson_GMRES_Multigrid",
+          "anchor": "p25_testing_sec"
+        },
+        "lifecycle_and_restart": {
+          "not_applicable": "The pressure solve keeps no state of its own across a restart: P is part of the committed checkpoint bundle the run lifecycle owns, and the correction Phi and every multigrid operator are rebuilt each step from the current grid and velocity."
+        },
+        "operations": {
+          "page": "25_Pressure_Poisson_GMRES_Multigrid",
+          "anchor": "p25_robustness_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_noconverge_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_flow_sec"
+        },
+        "complete_reference": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_poisson_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "25_Pressure_Poisson_GMRES_Multigrid",
+          "anchor": "p25_equation_sec"
+        },
+        "mpi_distributed_execution": {
+          "page": "25_Pressure_Poisson_GMRES_Multigrid",
+          "anchor": "p25_robustness_sec"
+        },
+        "scientific_verification": {
+          "page": "25_Pressure_Poisson_GMRES_Multigrid",
+          "anchor": "p25_testing_sec"
+        }
+      },
+      "note": "Promoted 2026-09-21. PoissonSolver_MG has direct coverage in unit-poisson-rhs: projection to a divergence-free field on a three-level hierarchy, and a fatal stop on an over-coarsened one. Every user-selectable option reproduced the baseline solution (poisson-options-2026-09-21). That measurement found gmres, lgmres and bcgs losing the true residual under the multigrid preconditioner (now refused), per-level max_it, rtol and atol emitted without PETSc's ksp_ prefix (now mapped), and a tolerance key nothing read (removed). The immersed pre-solve branch is dormant and belongs to the planned immersed_boundary record."
+    },
+    {
+      "id": "boundary.conditions",
+      "title": "Boundary Conditions",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [
+        "boundary.handler",
+        "boundary.type"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_grammar_sec"
+        },
+        "intended_scope": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_supported_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_c_gap_sec"
+        },
+        "architecture_boundary": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_c_pipeline_sec"
+        },
+        "dependencies": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_nondim_sec"
+        },
+        "developer_entry_points": {
+          "page": "50_Modular_Selector_Extension_Guide"
+        },
+        "configuration": {
+          "page": "07_Case_Reference",
+          "anchor": "p07_bc_sec"
+        },
+        "selection_guidance": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_entries_sec"
+        },
+        "observability": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_startup_banner_sec"
+        },
+        "limitations": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_c_gap_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "70_Case_Design_Guide",
+          "anchor": "p70_boundaries_sec"
+        },
+        "evidence": {
+          "page": "66_Evidence_Matrix",
+          "anchor": "p66_matrix_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_compat_sec"
+        },
+        "operations": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_examples_sec"
+        },
+        "troubleshooting": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_troubleshoot_sec"
+        },
+        "examples": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_examples_sec"
+        },
+        "complete_reference": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_entries_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "23_Fractional_Step_Method",
+          "anchor": "p23_boundary_sec"
+        },
+        "user_selector": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_entries_sec"
+        },
+        "file_format": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_picslice_ssec"
+        },
+        "units_and_nondimensionalization": {
+          "page": "44_Boundary_Conditions_Guide",
+          "anchor": "p44_nondim_sec"
+        }
+      },
+      "note": "Promoted 2026-09-21. Owns the boundary grammar, the wall, inlet and outlet types, their handlers, and the prescribed-flow inlet sources including profile.gen. The periodic type and the three periodic handlers are co-listed here but owned by boundary.periodic; each value names its owner in capability_families.json. Measured: noslip, prescribed_flow and conservation reproduce duct Poiseuille flow at second order (duct-poiseuille-picard-2026-09-18); constant_velocity and parabolic deliver their documented flux and develop into the duct solution (duct-inlet-handlers-2026-09-21, after the parabolic wall-vanishing fix). Found and fixed 2026-09-21: a generated prescribed_flow profile on a programmatic_c grid was sampled at uniform logical points and normalized to its continuous mean, delivering about 2/n too much flux (programmatic-inlet-flux-2026-09-18, not-met); it is now sampled on the bridge PICGRID and delivers the requested flux to 1e-9 (programmatic-inlet-flux-fixed-2026-09-21). The symmetry type stays internal: no public handler supports it."
+    },
+    {
+      "id": "particles.scalar_mixing",
+      "title": "Particle Scalar Micromixing (IEM)",
+      "status": "experimental",
+      "visibility": "public",
+      "previous_status": null,
+      "capability_families": [],
+      "obligations": {
+        "purpose": {
+          "page": "28_IEM_and_Statistical_Averaging",
+          "anchor": "p28_iem_sec"
+        },
+        "intended_scope": {
+          "page": "28_IEM_and_Statistical_Averaging",
+          "anchor": "p28_iem_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "28_IEM_and_Statistical_Averaging",
+          "anchor": "p28_dataflow_sec"
+        },
+        "architecture_boundary": {
+          "page": "34_Particle_Model_Overview",
+          "anchor": "p34_loop_sec"
+        },
+        "dependencies": {
+          "page": "28_IEM_and_Statistical_Averaging",
+          "anchor": "p28_dataflow_sec"
+        },
+        "developer_entry_points": {
+          "page": "34_Particle_Model_Overview",
+          "anchor": "p34_extension_sec"
+        },
+        "configuration": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_scalar_transport_sec"
+        },
+        "selection_guidance": {
+          "not_applicable": "IEM has no selector. It updates the particle scalar Psi on every particle every step whenever particles are active, with C_IEM configured by scalar_transport.iem_constant (default 2.0), and is bypassed only when a verification scalar profile overrides Psi; there is no alternative model to choose between."
+        },
+        "observability": {
+          "page": "34_Particle_Model_Overview",
+          "anchor": "p34_statistics_sec"
+        },
+        "limitations": {
+          "page": "28_IEM_and_Statistical_Averaging",
+          "anchor": "p28_iem_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "28_IEM_and_Statistical_Averaging",
+          "anchor": "p28_dataflow_sec"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "28_IEM_and_Statistical_Averaging",
+          "anchor": "p28_iem_sec"
+        },
+        "scientific_verification": {
+          "not_applicable": "The setup lifecycle test checks non-zero swarm relaxation toward a prescribed mean for default and overridden C_IEM. No coupled-flow test compares Psi variance decay against the IEM analytic rate for a known turbulence time scale; that scientific verification remains deferred."
+        }
+      },
+      "note": "Separated from particles.transport because it is a physics model with its own unvalidated coefficient, while transport - search, interpolation, advection, diffusion - is supported. The Schmidt numbers in solver.yml scalar_transport set particle diffusivity and belong to transport. The IEM constant C_IEM is configurable as scalar_transport.iem_constant (default 2.0) since 2026-09-21. Held at experimental, by the owner's decision of 2026-09-21: every particle's Psi starts at zero and no configuration seeds or sources a scalar, so the IEM relaxation acts on nothing outside the verification scalar source, which bypasses it; a user-facing initial scalar is deferred."
+    },
+    {
+      "id": "verification.prescribed_sources",
+      "title": "Prescribed Verification Sources",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [],
+      "obligations": {
+        "purpose": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_verification_sec"
+        },
+        "intended_scope": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_verify_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_verification_sec"
+        },
+        "architecture_boundary": {
+          "page": "34_Particle_Model_Overview",
+          "anchor": "p34_physics_sec"
+        },
+        "dependencies": {
+          "page": "49_Workflow_Recipes_and_Config_Cookbook",
+          "anchor": "p49_drift_verification_sec"
+        },
+        "developer_entry_points": {
+          "page": "13_Code_Architecture",
+          "anchor": "p13_modules_sec"
+        },
+        "configuration": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_verification_sec"
+        },
+        "selection_guidance": {
+          "page": "49_Workflow_Recipes_and_Config_Cookbook",
+          "anchor": "p49_drift_verification_sec"
+        },
+        "observability": {
+          "page": "49_Workflow_Recipes_and_Config_Cookbook",
+          "anchor": "p49_scatter_recipe_sec"
+        },
+        "limitations": {
+          "page": "66_Evidence_Matrix",
+          "anchor": "p66_gaps_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_verification_sec"
+        },
+        "evidence": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_verification_sec"
+        },
+        "lifecycle_and_restart": {
+          "not_applicable": "The sources hold no state of their own: they are re-applied from configuration every step, overwriting the particle fields they prescribe before use, so a restart re-reads the same configuration and reproduces them."
+        },
+        "operations": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_verify_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_particles_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_verify_sec"
+        },
+        "complete_reference": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_verification_sec"
+        }
+      },
+      "concerns": {
+        "scientific_verification": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_verification_sec"
+        },
+        "user_selector": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_verification_sec"
+        }
+      },
+      "note": "Promoted 2026-09-21. Replaces a physical field with an analytic one, so that a particle kernel can be checked against an exact answer (src/verification_sources.c). The LINEAR_X diffusivity drives the paired drift measurement (diffusivity-gradient-drift-paired-2026-09-18). The scalar source's CONSTANT profile gives exact scatter errors and SIN_PRODUCT first-order ones (scalar-scatter-verification-2026-09-21). The scalar LINEAR_X profile is unmeasured, and no threshold is gated in CI."
+    },
+    {
+      "id": "post.pipeline",
+      "title": "Post-Processing Pipeline",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [
+        "post.eulerian_task",
+        "post.lagrangian_task",
+        "statistics.task"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "10_Post_Processing_Reference"
+        },
+        "intended_scope": {
+          "page": "12_Capabilities_Summary",
+          "anchor": "p12_post_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_pipelines_sec"
+        },
+        "architecture_boundary": {
+          "page": "13_Code_Architecture",
+          "anchor": "p13_post_flow_sec"
+        },
+        "dependencies": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_source_sec"
+        },
+        "developer_entry_points": {
+          "page": "50_Modular_Selector_Extension_Guide"
+        },
+        "configuration": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_pipelines_sec"
+        },
+        "selection_guidance": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_post_sec"
+        },
+        "observability": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_io_sec"
+        },
+        "limitations": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_stats_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_post_sec"
+        },
+        "evidence": {
+          "page": "66_Evidence_Matrix",
+          "anchor": "p66_matrix_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_post_sec"
+        },
+        "operations": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_post_existing_ssec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_output_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_verify_sec"
+        },
+        "complete_reference": {
+          "page": "10_Post_Processing_Reference"
+        }
+      },
+      "concerns": {
+        "generated_artifact": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_io_sec"
+        },
+        "file_format": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_io_sec"
+        },
+        "units_and_nondimensionalization": {
+          "page": "19_Nondimensionalization",
+          "anchor": "p19_pipeline_sec"
+        }
+      },
+      "note": "Promoted 2026-09-21. Owns the postprocessor's Eulerian and Lagrangian kernels, dimensionalization, VTK output, and the particle statistics pipeline; field statistics and spectra have their own records. Every kernel matched its definition, and every dimensionalized output its reference scale applied exactly once (post-pipeline-dimensionalize-2026-09-21, q-criterion-nodal-tgv-2026-09-18, brownian-msd-2026-09-18). Found and fixed 2026-09-21: coordinates were scaled once per processed step, particle positions and velocities not at all, and Q by U_ref^2 instead of (U_ref/L_ref)^2. msd stays nondimensional by design, as page 10 states."
+    },
+    {
+      "id": "post.spectra",
+      "title": "Turbulent Energy Spectra",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [
+        "post.spectra_task"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_sec"
+        },
+        "intended_scope": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_preconditions_sub"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_preconditions_sub"
+        },
+        "architecture_boundary": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_only_sub"
+        },
+        "dependencies": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_preconditions_sub"
+        },
+        "developer_entry_points": {
+          "page": "60_Field_Statistics_Planned_Extensions",
+          "anchor": "p60_spectra_partial_sec"
+        },
+        "configuration": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_keys_sub"
+        },
+        "selection_guidance": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_spectra_ssec"
+        },
+        "observability": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_outputs_sub"
+        },
+        "limitations": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_preconditions_sub"
+        },
+        "safe_use_boundaries": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_crosscheck_sub"
+        },
+        "evidence": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_cap_spec_shell_spectrum"
+        },
+        "lifecycle_and_restart": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_sec"
+        },
+        "operations": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_spectra_ssec"
+        },
+        "troubleshooting": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_preconditions_sub"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_flow_sec"
+        },
+        "complete_reference": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_keys_sub"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_cap_spec_shell_spectrum_sub"
+        },
+        "generated_artifact": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_spectra_outputs_sub"
+        },
+        "user_selector": {
+          "page": "10_Post_Processing_Reference",
+          "anchor": "p10_cap_spec_sec"
+        }
+      },
+      "note": "Promoted 2026-09-21. Covers spectra.gen shell_spectrum, its conductor stage, and summarize --plot-spectrum. Single modes on a periodic box landed in the right shells at their exact energies with zero Parseval residual, and the length scales matched their closed forms (post-spectra-analytic-2026-09-21). Found and fixed: --plot-spectrum searched only the top-level spectra directory and so missed every recipe's output."
+    },
+    {
+      "id": "observability.monitoring",
+      "title": "Run Monitoring, Diagnostics, and Inspection",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [
+        "solver.convergence_mode"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_solution_monitoring_sec"
+        },
+        "intended_scope": {
+          "page": "12_Capabilities_Summary",
+          "anchor": "p12_inspection_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_solver_monitoring_sec"
+        },
+        "architecture_boundary": {
+          "page": "13_Code_Architecture",
+          "anchor": "p13_modules_sec"
+        },
+        "dependencies": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_diagnostics_sec"
+        },
+        "developer_entry_points": {
+          "page": "13_Code_Architecture",
+          "anchor": "p13_extension_sec"
+        },
+        "configuration": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_solution_monitoring_sec"
+        },
+        "selection_guidance": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_more_entries_sec"
+        },
+        "observability": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_summarize_sec"
+        },
+        "limitations": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_more_entries_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_diagnostics_sec"
+        },
+        "evidence": {
+          "page": "40_Testing_and_Quality_Guide",
+          "anchor": "p40_python_files_ssec"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_continue"
+        },
+        "operations": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_summarize_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_noconverge_sec"
+        },
+        "examples": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_run_sec"
+        },
+        "complete_reference": {
+          "page": "09_Monitor_Reference"
+        }
+      },
+      "concerns": {
+        "numerical_method": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_more_entries_sec"
+        },
+        "user_selector": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_more_entries_sec"
+        },
+        "generated_artifact": {
+          "page": "09_Monitor_Reference",
+          "anchor": "p09_diagnostics_sec"
+        },
+        "file_format": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_summarize_sec"
+        }
+      },
+      "note": "Promoted 2026-09-21. Owns everything in monitor.yml except logging and field statistics, plus picurv summarize and plot.gen. The four convergence modes log what they claim against the closed-form TGV3D field (solution-monitoring-tgv3d-2026-09-18). They only log, and never judge or stop a run, as page 08 now states. Found and fixed: observable means counted ghost cells (1.7% and 14% high); the profiling names on page 09 matched no instrumented function (they now draw a warning); the PETSc -info file was lost to the fresh-run log wipe (it is now reopened, and the reopen's filename copy leaked 112 bytes until 2026-09-21); and the interpolation_error.csv time column multiplied physical time by dt again."
+    },
+    {
+      "id": "run.lifecycle",
+      "title": "Run Execution, Validation, Checkpoints, and Restart",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": null,
+      "capability_families": [],
+      "obligations": {
+        "purpose": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_scope_sec"
+        },
+        "intended_scope": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_newrun_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_scope_layout_sub"
+        },
+        "architecture_boundary": {
+          "page": "46_C_Runtime_Execution_Map",
+          "anchor": "p46_startup_sec"
+        },
+        "dependencies": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_run_sec"
+        },
+        "developer_entry_points": {
+          "page": "46_C_Runtime_Execution_Map",
+          "anchor": "p46_extension_sec"
+        },
+        "configuration": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_run_sec"
+        },
+        "selection_guidance": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_compat_axes_sub"
+        },
+        "observability": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_dry_run_schema_sec"
+        },
+        "limitations": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_compat_exact_sub"
+        },
+        "safe_use_boundaries": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_rules_sec"
+        },
+        "evidence": {
+          "page": "40_Testing_and_Quality_Guide",
+          "anchor": "p40_smoke_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_restart_sec"
+        },
+        "operations": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_run_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_restart_sec"
+        },
+        "examples": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_restart_ssec"
+        },
+        "complete_reference": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_command_matrix_sec"
+        }
+      },
+      "concerns": {
+        "persistent_restart_state": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_restart_sec"
+        },
+        "artifact_topology": {
+          "page": "71_Invariant_Contracts",
+          "anchor": "p71_topology_sec"
+        },
+        "determinism_and_reproducibility": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_compat_exact_sub"
+        },
+        "mpi_distributed_execution": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_mpi_ssec"
+        },
+        "file_format": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_artifacts_sec"
+        }
+      },
+      "note": "Owns picurv run and validate, control-file generation, the committed checkpoint bundle, and every restart path (--continue, --restart-from, rank-change restart). Restart equivalence and rank-change restart are asserted by the smoke suite; restart is not bit-exact, at a characterized ~1e-7 floor that page 52 records. The run tree's containment guard is the separate run.directory_containment record; the inputs and assets a run consumes belong to workspace.asset_lifecycle; batch launch belongs to cluster.scheduling. Verified locally 2026-09-18: make smoke and smoke-mpi, including restart equivalence and restart across a changed rank count, and the walltime guard stopping a staged run at step 10 with a final checkpoint and clean exit inside its limit."
+    },
+    {
+      "id": "cluster.scheduling",
+      "title": "Cluster Scheduling and Batch Execution",
+      "status": "experimental",
+      "visibility": "public",
+      "previous_status": null,
+      "capability_families": [],
+      "obligations": {
+        "purpose": {
+          "page": "36_Cluster_Run_Guide",
+          "anchor": "p36_flow_sec"
+        },
+        "intended_scope": {
+          "page": "12_Capabilities_Summary",
+          "anchor": "p12_orchestration_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_launchers_sec"
+        },
+        "architecture_boundary": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_cluster_sec"
+        },
+        "dependencies": {
+          "page": "36_Cluster_Run_Guide",
+          "anchor": "p36_inputs_sec"
+        },
+        "developer_entry_points": {
+          "page": "14_Config_Contract",
+          "anchor": "p14_cluster_sec"
+        },
+        "configuration": {
+          "page": "14_Config_Contract",
+          "anchor": "p14_cluster_sec"
+        },
+        "selection_guidance": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_launchers_sec"
+        },
+        "observability": {
+          "page": "36_Cluster_Run_Guide",
+          "anchor": "p36_artifacts_sec"
+        },
+        "limitations": {
+          "page": "36_Cluster_Run_Guide",
+          "anchor": "p36_notes_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "36_Cluster_Run_Guide",
+          "anchor": "p36_notes_sec"
+        }
+      },
+      "concerns": {
+        "external_service": {
+          "page": "36_Cluster_Run_Guide",
+          "anchor": "p36_flow_sec"
+        },
+        "generated_artifact": {
+          "page": "36_Cluster_Run_Guide",
+          "anchor": "p36_artifacts_sec"
+        },
+        "mpi_distributed_execution": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_launchers_sec"
+        }
+      },
+      "note": "Owns cluster.yml, run --cluster, submit, cancel (including --graceful), scheduler-script generation, and the warmup-and-extrapolate walltime guard. Slurm is the only scheduler. Covered by the conductor tests in tests/test_cli_smoke.py and production-exercised on the owner's cluster; submission itself cannot run in the local suite. Verified locally 2026-09-18 up to submission: run --cluster --no-submit staged correct sbatch scripts (resources, walltime export, identity check, srun layout), submit --dry-run chained post with afterok, and the walltime guard fired end to end. Slurm submission itself is not verified here. Held at experimental until a cluster run verifies what the local suite cannot reach: sbatch submission and its accounting, cancel and cancel --graceful against a live job, and the post job's afterok dependency firing."
+    },
+    {
+      "id": "study.orchestration",
+      "title": "Parameter Sweeps and Studies",
+      "status": "experimental",
+      "visibility": "public",
+      "previous_status": null,
+      "capability_families": [
+        "study.type"
+      ],
+      "obligations": {
+        "purpose": {
+          "page": "37_Sweep_Studies_Guide",
+          "anchor": "p37_inputs_sec"
+        },
+        "intended_scope": {
+          "page": "37_Sweep_Studies_Guide",
+          "anchor": "p37_contract_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "37_Sweep_Studies_Guide",
+          "anchor": "p37_contract_sec"
+        },
+        "architecture_boundary": {
+          "page": "14_Config_Contract",
+          "anchor": "p14_study_sec"
+        },
+        "dependencies": {
+          "page": "36_Cluster_Run_Guide",
+          "anchor": "p36_inputs_sec"
+        },
+        "developer_entry_points": {
+          "page": "50_Modular_Selector_Extension_Guide"
+        },
+        "configuration": {
+          "page": "14_Config_Contract",
+          "anchor": "p14_study_sec"
+        },
+        "selection_guidance": {
+          "page": "37_Sweep_Studies_Guide",
+          "anchor": "p37_cap_study_sec"
+        },
+        "observability": {
+          "page": "37_Sweep_Studies_Guide",
+          "anchor": "p37_outputs_sec"
+        },
+        "limitations": {
+          "page": "37_Sweep_Studies_Guide",
+          "anchor": "p37_cap_study_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "37_Sweep_Studies_Guide",
+          "anchor": "p37_continue_sec"
+        }
+      },
+      "concerns": {
+        "generated_artifact": {
+          "page": "37_Sweep_Studies_Guide",
+          "anchor": "p37_outputs_sec"
+        },
+        "external_service": {
+          "page": "36_Cluster_Run_Guide",
+          "anchor": "p36_flow_sec"
+        },
+        "user_selector": {
+          "page": "37_Sweep_Studies_Guide",
+          "anchor": "p37_cap_study_sec"
+        }
+      },
+      "note": "Owns study.yml, picurv sweep (including --continue and --reaggregate), array-script generation, metric aggregation, and study plots. grid_independence is production-exercised by shipped studies; timestep_independence and sensitivity are experimental. Verified locally 2026-09-18: a shipped scatter study was staged with --no-submit, each case executed locally from its case index, and sweep --reaggregate filled every metric. Found and fixed: six shipped studies globbed metrics under logs/ while the runtime writes them to <run.analysis.metrics>, and the interpolation study named a file that does not exist. Array submission itself is not verified here. Held at experimental until a cluster run verifies the array job, max_concurrent_array_tasks throttling, and aggregation over cases that ran as array tasks."
+    },
+    {
+      "id": "workspace.case_templates",
+      "title": "Case Templates and Initialization",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [],
+      "obligations": {
+        "purpose": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_init_sec"
+        },
+        "intended_scope": {
+          "page": "41_Getting_Started_Index",
+          "anchor": "p41_init_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_sync_sec"
+        },
+        "architecture_boundary": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_modular_sec"
+        },
+        "dependencies": {
+          "page": "01_Installation",
+          "anchor": "p01_build_sec"
+        },
+        "developer_entry_points": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_authoring_sec"
+        },
+        "configuration": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_init_sec"
+        },
+        "selection_guidance": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_authoring_sec"
+        },
+        "observability": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_sync_sec"
+        },
+        "limitations": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_sync_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_sync_sec"
+        },
+        "evidence": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_sync_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_newrun_sec"
+        },
+        "operations": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_init_basic_ssec"
+        },
+        "troubleshooting": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_sync_sec"
+        },
+        "examples": {
+          "page": "65_Example_Catalog",
+          "anchor": "p65_authoring_sec"
+        },
+        "complete_reference": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_command_matrix_sec"
+        }
+      },
+      "concerns": {
+        "destructive_scope": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_sync_sec"
+        },
+        "generated_artifact": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_init_sec"
+        }
+      },
+      "note": "Promoted 2026-09-21. Owns picurv init, sync-config (including --overwrite and --prune) and status-source. The 2026-09-18 findings are fixed: status-source compared files by their original template names, and sync-config duplicated templates into the case root. On a fresh workspace both now compare canonical config/ names, and page 05 no longer documents a case-local wrapper."
+    },
+    {
+      "id": "release.version_management",
+      "title": "Build, Source, and Version Management",
+      "status": "supported",
+      "visibility": "public",
+      "previous_status": "experimental",
+      "capability_families": [],
+      "obligations": {
+        "purpose": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_build_sec"
+        },
+        "intended_scope": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_sync_sec"
+        },
+        "design_owner": {
+          "value": "PICurv maintainers (repository owner)"
+        },
+        "scope_boundary": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_binaries_sec"
+        },
+        "architecture_boundary": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_binaries_sec"
+        },
+        "dependencies": {
+          "page": "01_Installation",
+          "anchor": "p01_build_sec"
+        },
+        "developer_entry_points": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_binaries_sec"
+        },
+        "configuration": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_init_pin_ssec"
+        },
+        "selection_guidance": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_rebuild_ssec"
+        },
+        "observability": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_binaries_sec"
+        },
+        "limitations": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_sync_sec"
+        },
+        "safe_use_boundaries": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_rebuild_ssec"
+        },
+        "evidence": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_sync_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_binaries_sec"
+        },
+        "operations": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_init_pin_ssec"
+        },
+        "troubleshooting": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_rebuild_ssec"
+        },
+        "examples": {
+          "page": "11_User_How_To_Guides",
+          "anchor": "p11_init_pin_ssec"
+        },
+        "complete_reference": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_command_matrix_sec"
+        }
+      },
+      "concerns": {
+        "determinism_and_reproducibility": {
+          "page": "61_Storage_Management_Guide",
+          "anchor": "p61_code_sec"
+        },
+        "external_service": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_sync_sec"
+        }
+      },
+      "note": "Promoted 2026-09-21. Owns build, version, versions list/install/activate, source update, pull-source, per-run executable pinning, the job-start identity check, and reproducibility.require_clean_release. Tested against real Git repositories with stubbed builds; rebuilding a real release is not part of the suite. Found and fixed 2026-09-21: 'versions activate -- -j8' bound -j8 to the version positional and handed it to Git."
     }
   ],
   "owner_decisions_note": "A record carrying `proposed_status` is documented to that higher bar but still claims the lower one. The lifecycle gate checks documentation obligations against the proposal, so nothing is under-written; what it cannot check is production suitability or scientific correctness, which is why the promotion waits for the repository owner rather than being taken by the tooling."

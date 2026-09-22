@@ -46,17 +46,23 @@ models:
 grid:
   mode: programmatic_c
   programmatic_settings:
-    km: [3]
+    im: 3
 ```
 
 Why:
 
-- 2D mode still uses a thin third dimension for structured-grid machinery,
-- small `km` is typically enough for planar scenarios.
+- `2D` holds the **i** velocity component fixed (`-TwoD 1`), so the flow plane is j-k
+  and the thin direction must be i; thinning j or k instead freezes an in-plane
+  component,
+- the grid stays three-dimensional, so a small `im` keeps the structured-grid
+  machinery working without resolving a direction the flow does not use.
 
 Quick check:
 
-- confirm generated run uses expected Z resolution.
+- confirm the generated control file contains `-TwoD 1` and the expected i resolution,
+- start from an initial condition whose i component is zero, since `2D` never changes it.
+
+Status: `2D` is experimental; see @ref p07_cap_dim_2d_sub.
 
 @subsection p11_gridres_ssec 1.3 Increase Grid Resolution
 
@@ -357,16 +363,22 @@ eulerian_pipeline:
     input_field: Ucat
     output_field: Ucat_nodal
   - task: q_criterion
+  - task: nodal_average
+    input_field: Qcrit
+    output_field: Qcrit_nodal
 
 io:
   eulerian_fields:
     - Ucat_nodal
-    - Qcrit
+    - Qcrit_nodal
 ```
+
+`Qcrit` itself is cell-centred and cannot be written directly; the nodal average places it
+on the grid nodes the `.vts` file uses.
 
 Verification:
 
-- open VTK output and confirm `Qcrit` field is present.
+- open VTK output and confirm the `Qcrit_nodal` field is present.
 
 @subsection p11_stats_ssec 4.3 Enable Statistics Output (MSD)
 

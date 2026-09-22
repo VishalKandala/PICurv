@@ -21,7 +21,7 @@ concern modules at each.
 |---|---|---|
 | New **value** in an existing family | a boundary handler, a momentum solver, a post kernel | one capability entry |
 | New **family** in an existing subsystem | a family of preconditioners, particle-wall models | a family page, then one entry per value |
-| New **subsystem** | immersed boundaries, a grid-generation framework, ML integration | a subsystem charter, then families beneath it |
+| New **subsystem** | a new physics model, a grid-generation framework | a subsystem charter, then families beneath it |
 
 Pick the smallest scale that fits. Most changes are the first.
 
@@ -139,6 +139,12 @@ when the declared transition is not one the lifecycle allows - a removed subsyst
 cannot be revived in place, and nothing that was ever built reaches `removed` without
 first being deprecated or declared defective.
 
+`supported -> experimental` is allowed only with a `demotion_reason` naming what the
+earlier claim did not establish. A demotion is not a defect report: the code may be
+correct and the evidence simply thinner than a supported claim implies. A record that
+still carries its supported documentation keeps it by declaring `proposed_status:
+supported` with a `promotion_rationale` naming the checks that would restore the claim.
+
 `planned -> removed` is the single deliberate exception: a cancelled design was never
 built, so it owes a history record and the rejection behaviour, not a migration path
 for users who never had it.
@@ -163,6 +169,30 @@ audit-subsystems` lists every pending promotion after its summary.
 
 @warning A promotion recorded by tooling is not a promotion. If a subsystem's status
 changed because a gate passed, the gate was measuring the wrong thing.
+
+@subsection p64_ceiling_sub 4.3 Every Value Has an Owner, and Cannot Outrank It
+
+A capability value's status and its subsystem's status were once independent, which let a
+value read `supported` under a subsystem that was still `experimental`. The subsystem's
+status is now a ceiling, and `make audit-subsystems` enforces four rules over the whole
+registry:
+
+- **Every family is owned.** Each family in `capability_families.json` appears in the
+  `capability_families` list of at least one subsystem record.
+- **A shared family names each value's owner.** When several subsystems list one family,
+  each canonical value declares `"subsystem": "<id>"` in its metadata, naming one of them.
+  The Newton-Krylov solver value belongs to `momentum.newton_krylov`, the periodic handlers
+  to `boundary.periodic`. Spellings and deprecated aliases inherit their target's owner.
+- **A value never outranks its owner.** On the ladder `planned` < `internal` <
+  `experimental` < `supported`, a value may not claim a rung above its owner's. Under an
+  owner that is `known-defective` or `deprecated`, a value shares that status or is
+  `removed`.
+- **The switch that turns a subsystem off is exempt.** A value marked `"off_switch": true`
+  - `none` for the LES or RANS model - claims nothing about the subsystem it disables, so
+  it may be `supported` under an `experimental` owner. A family has at most one.
+
+Promoting a subsystem therefore promotes nothing on its own: each value is promoted
+separately, and only as far as its owner allows.
 
 @section p64_concerns_sec 5. Concern Modules
 

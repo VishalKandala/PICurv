@@ -142,17 +142,13 @@ alone.
 
 ## 6. Before you launch a campaign
 
-Two things currently stand between these case files and a finished validation.
-Both are described in full in `docs/pages/54_Geometric_Periodic_Boundaries.md`,
-section 5.7.
+One thing still stands between the turbulent case files and a finished validation;
+see `docs/pages/54_Geometric_Periodic_Boundaries.md`, section 5.7.
 
-**Momentum convergence.** Under the Dual Time Picard Jameson RK solver these
-periodic wall-bounded cases were observed on 2026-08-24 not to reach the
-pseudo-time tolerance. That observation predates the 2026-08-25 change of the
-momentum convergence criterion and **requires re-characterization at current
-`HEAD`** — do not treat it as current solver behavior. The canonical, dated
-statement lives in `docs/pages/54_Geometric_Periodic_Boundaries.md`, section 5.7;
-check there before planning a campaign around it.
+**Momentum convergence** is no longer one of them. The pseudo-time stall observed on
+2026-08-24 was re-characterized on 2026-09-18 and does not reproduce: the laminar case
+converges every step, and at `Re = 10` reproduces the exact parabola at second order
+under both driven handlers.
 
 **Initial-condition seeding.** The shipped cases seed with
 `streamwise_constant`, which is a laminar profile. Transition from it is slow

@@ -21,14 +21,11 @@ with `strategy.momentum_solver: "Newton Krylov"`.
 Version one is deliberately narrow and validates its inputs up front
 (@ref MomentumSolver_NewtonKrylov rejects anything outside this set):
 
-- exactly **one block**, no immersed boundaries, no moving/rotating bodies, FSI,
-  or reference frames;
 - **no RANS or TwoD masking**;
 - fresh starts and Eulerian field restarts (including `--continue`); the first
   solved restart step uses BDF1 because only the checkpoint state is available;
-- solid cells are permitted but the immersed-boundary method is not: a masked row
-  carries no unknown and is constrained like any other such row, but the IBM velocity
-  reconstruction does not run inside this solver's residual;
+- solid cells are permitted: a masked row carries no unknown and is constrained like
+  any other such row;
 - boundary handlers limited to no-slip walls, the constant/parabolic/file inlets,
   the conservation outlet, and periodic faces (with paired periodic axes) using
   the `geometric`, `constant_flux`, or `initial_flux` handler.
@@ -265,37 +262,8 @@ nonlinear residual \f$F(U)\f$ is differentiated numerically.
 products on demand and does not assemble the Jacobian. Finite difference is the
 construction type; matrix free is one mode within that type.
 
-The planned second finite-difference mode is `colored_sparse`, which would
-assemble a sparse numerical Jacobian using coloring. It is future syntax and is
-rejected today:
-
-```yaml
-    jacobian:
-      type: finite_difference
-      finite_difference:
-        mode: colored_sparse
-```
-
-Planned frozen-momentum approximations are a different Jacobian type, not
-storage modes of finite difference. Their future forms are:
-
-```yaml
-    jacobian:
-      type: frozen_momentum_approximation
-      frozen_momentum_approximation:
-        structure: diagonal
-```
-
-or:
-
-```yaml
-    jacobian:
-      type: frozen_momentum_approximation
-      frozen_momentum_approximation:
-        structure: full_sparse
-```
-
-Those forms are also rejected today.
+No other finite-difference mode or Jacobian type is implemented; any other value is
+rejected at validation.
 
 The Jacobian fields map to `-mom_nk_jacobian_type finite_difference` and
 `-mom_nk_jacobian_fd_mode matrix_free`. The preconditioner fields map to
@@ -424,7 +392,7 @@ first of those and exposes the second, because an interior row would then need t
 eddy viscosity on the wall face to build its off-diagonal. Issue #8 tracks fixing it
 before any preconditioner with a wider stencil. It still intentionally omits pressure, the eddy-viscosity *derivatives* with
 respect to velocity, nonorthogonal viscous cross-couplings, the gradient (Clark)
-stress, boundary-map and IBM derivatives, and body-force derivatives. The eddy viscosity
+stress, boundary-map derivatives, and body-force derivatives. The eddy viscosity
 and the Clark stress are omitted for different reasons, and only one of them was a
 judgement call: the eddy term was restored because it changes the viscous diagonal by the
 eddy-to-molecular ratio, while the Clark term is higher order and non-diagonal, so
@@ -462,7 +430,7 @@ are exposed before their implementations exist.
 
 **Evidence.** Integration verified - `make unit-newton-krylov` exercises this path.
 
-**Limitations.** Iteration counts grow with conditioning, so on stiff or highly stretched grids the unpreconditioned solve can dominate the timestep cost.
+**Limitations.** Iteration counts grow with conditioning, so on stiff or highly stretched grids the unpreconditioned solve can dominate the timestep cost. Experimental with the solver it belongs to, which has not been run at the problem sizes a production claim implies.
 
 @subsection p55_cap_pc_frozen_momentum_jacobian_sub frozen_momentum_jacobian
 
@@ -476,7 +444,7 @@ are exposed before their implementations exist.
 
 **Parameters it owns.** `preconditioner.structure.type`, which must be `point_block`. It is not an independent choice: the model determines it, and any other value is a validation error.
 
-**Interactions.** Requires `structure.type: point_block` and is rejected without it. Its viscous diagonal carries the residual's own effective viscosity `nu + nu_t`, so a turbulence model is represented at the level the diagonal can represent it. A wall model is not: the wall-face eddy viscosity is the one place this matrix does not follow the residual, which is harmless only while the stencil stays at zero (issue #8). The matrix still deliberately omits pressure, the eddy-viscosity derivatives with respect to velocity, nonorthogonal viscous cross-couplings, the gradient (Clark) stress, boundary-map and IBM derivatives, and body-force derivatives - so its quality degrades as those terms matter more.
+**Interactions.** Requires `structure.type: point_block` and is rejected without it. Its viscous diagonal carries the residual's own effective viscosity `nu + nu_t`, so a turbulence model is represented at the level the diagonal can represent it. A wall model is not: the wall-face eddy viscosity is the one place this matrix does not follow the residual, which is harmless only while the stencil stays at zero (issue #8). The matrix still deliberately omits pressure, the eddy-viscosity derivatives with respect to velocity, nonorthogonal viscous cross-couplings, the gradient (Clark) stress, boundary-map derivatives, and body-force derivatives - so its quality degrades as those terms matter more.
 
 **Diagnostics.** Krylov iteration counts before and after are the only meaningful diagnostic. `PCPBJACOBI` appears in PETSc output as the internal backend mapping; it is not a user-facing numerical model and should not be read as one.
 

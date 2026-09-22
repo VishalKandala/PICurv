@@ -848,9 +848,7 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Rank %d is on inlet face %s. Attempting to re-place %d local particles.\n", currentTime, step, rank, BCFaceToString(user->identifiedInletBCFace), nlocal_current);
 
     // Initialize fresh RNGs for this re-placement to ensure good distribution
-    ierr = InitializeLogicalSpaceRNGs(&rand_logic_reinit_i, &rand_logic_reinit_j, &rand_logic_reinit_k); CHKERRQ(ierr);
-    // Optional: Seed RNGs for deterministic behavior if required, e.g., based on rank and step.
-    // PetscRandomSetSeed(rand_logic_i, (unsigned long)rank*1000 + step + 100); PetscRandomSeed(rand_logic_i); // Example
+    ierr = InitializeLogicalSpaceRNGs(user->simCtx->particleRandomSeed, &rand_logic_reinit_i, &rand_logic_reinit_j, &rand_logic_reinit_k); CHKERRQ(ierr);
 
     // Loop over all particles currently local to this rank
     for (PetscInt p = 0; p < nlocal_current; p++) {

@@ -69,9 +69,12 @@ global_operations:
 eulerian_pipeline:
 
   # Computes the Q-Criterion for vortex identification.
-  # Creates a new field named "Qcrit".
+  # Creates a new cell-centred field named "Qcrit"; average it to nodes (below) before writing it.
   # Invokes the C function: `ComputeQCriterion()`.
   - task: q_criterion
+  - task: nodal_average
+    input_field: 'Qcrit'
+    output_field: 'Qcrit_nodal'
 
   # (Optional) Performs cell-to-node averaging on specified fields.
   # For each field in the list (e.g., 'P'), this computes a new field
@@ -263,11 +266,12 @@ io:
 
   # (Required) List of Eulerian fields to save to the output .vts files.
   # You can include original fields ('P', 'Ucat') and newly computed fields
-  # from the pipeline ('Qcrit', 'P_nodal', 'Ucat_nodal').
+  # from the pipeline ('Qcrit_nodal', 'P_nodal', 'Ucat_nodal'). Cell-centred fields such as
+  # 'Qcrit' cannot be written directly: nodal-average them first.
   # Maps to 'output_fields_instantaneous' in post.run.
   eulerian_fields:
     - 'Ucat_nodal'
-    - 'Qcrit'
+    - 'Qcrit_nodal'
     - 'P_nodal'
 
   # (Optional) A master switch for all particle-related output. Defaults to false.

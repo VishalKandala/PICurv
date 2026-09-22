@@ -111,13 +111,22 @@ of `dt`, grid size, and flow speed. The stable range for the 4-stage Jameson RK 
 
 @section p31_testing_sec 4. Current test status
 
-Current testing is uneven by solver path:
+Current testing by solver path:
 
 - dispatch and guardrails are directly covered through `FlowSolver`-side unit tests
-- `MomentumSolver_DualTime_Picard_JamesonRK` is exercised mainly through smoke and runtime orchestration
-- `MomentumSolver_Explicit_RungeKutta4` still needs a direct positive-path harness
+- `MomentumSolver_DualTime_Picard_JamesonRK` is exercised through smoke and runtime
+  orchestration, and its accuracy is measured: second order in time and space on the
+  two-dimensional Taylor-Green vortex, and second order in space on duct, channel and
+  curvilinear pipe Poiseuille flow (@ref p08_cap_dual_time_picard_jameson_rk)
+- `MomentumSolver_Explicit_RungeKutta4` is exercised by `make smoke` on a stable step and
+  on a step past its stability limit, which must stop with the stability message; its
+  accuracy is measured at second order in velocity (@ref p08_cap_explicit_rk4)
+- `MomentumSolver_NewtonKrylov` carries its own unit and fixed-point suites
+  (@ref p08_cap_newton_krylov)
 
-That means the momentum stack is currently a stronger regression gate than bespoke debugging surface.
+Neither Picard nor Explicit RK4 has a unit-level harness that drives one step on a
+fixture and compares the result, so a regression shows in the smoke runs and in a
+re-measurement rather than in a targeted test.
 
 @section p31_rhs_cadence_sec 6. Call Cadence of the Shared RHS (Read Before Adding State)
 

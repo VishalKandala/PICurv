@@ -86,7 +86,11 @@ Current scalar model path:
 - batch loop: @ref UpdateFieldForAllParticles
 - orchestrator: @ref UpdateAllParticleFields
 
-This presently implements IEM-style relaxation for `Psi`, with model constants sourced from runtime context.
+This presently implements IEM-style relaxation for `Psi`, with the mixing constant
+`C_IEM` set by `scalar_transport.iem_constant` (default 2.0; @ref p08_scalar_transport_sec).
+It is also
+inert in practice: `Psi` starts at zero on every particle and no configuration seeds or
+sources a scalar, so the relaxation has nothing to act on (@ref p28_iem_sec).
 
 @section p34_statistics_sec 4. Statistics and Diagnostics
 
@@ -95,13 +99,35 @@ Post statistics currently include global kernels such as:
 - @ref ComputeParticleMSD
 
 Additional health indicators are available from migration counters and settlement-pass counts stored in `SimCtx` fields updated by location logic.
-For particle-enabled runs, the runtime also writes `<run.runtime_logs>/search_metrics.csv`
+For particle-enabled runs, the runtime also writes `<run.analysis.metrics>/search_metrics.csv`
 with per-step and cumulative loss plus aggregated search-attempt, traversal,
 tie-break, boundary-clamp, bbox-guess, and pass-depth signals. The
 `examples/search_robustness/` bundle is the dedicated end-to-end reference for
 interpreting that artifact.
 
-@section p34_extension_sec 5. Extending To New Closures
+@section p34_limits_sec 5. Limitations
+
+- **Particles are not wrapped across periodic boundaries.** Neither the motion update
+  nor the walking search handles periodicity, so a particle that crosses a periodic face
+  leaves the domain and is removed as lost.
+- **A lost particle is removed, not reflected.** Steady loss through a boundary you did
+  not intend usually means the carrier velocity or the diffusion step carries particles
+  out; the per-step lost count reports it.
+- **Diffusion, advection, the gradient drift and interpolation are verified.** A
+  10,000-particle cloud in zero flow reproduced the Einstein relation to 0.17% in the MSD
+  slope; a cloud in uniform flow drifted at exactly the carrier velocity; paired runs with
+  the same seed resolved the drift a linear diffusivity gradient adds to 1.1% of `a t`
+  (`diffusivity-gradient-drift-paired-2026-09-18`); and Trilinear interpolation of the
+  TGV3D field converged at order 1.97. Only one gradient, and zero or uniform carriers,
+  were measured. The examples are listed in @ref p65_verify_sec.
+- **Brownian trajectories repeat only for the same rank count.** Placement and Brownian
+  draws are seeded from `models.physics.particles.random_seed` (default `12345`) plus the
+  MPI rank, so identical inputs on the same number of ranks give identical trajectories,
+  while a different rank count gives a different, equally valid, realization. A restart
+  does not continue the sequence it stopped in: it draws a fresh sequence determined by
+  the seed and the restart step.
+
+@section p34_extension_sec 6. Extending To New Closures
 
 Recommended extension pattern:
 
@@ -117,7 +143,7 @@ For configuration contract changes, update:
 - **@subpage 16_Config_Extension_Playbook**
 - **@subpage 40_Testing_and_Quality_Guide**
 
-@section p34_refs_sec 6. Related Pages
+@section p34_refs_sec 7. Related Pages
 
 - **@subpage 33_Initial_Conditions**
 - **@subpage 45_Particle_Initialization_and_Restart**

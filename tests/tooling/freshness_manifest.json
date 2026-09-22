@@ -43,7 +43,7 @@
         "10_Post_Processing_Reference",
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:f4faae2b6ac6cd6b09d58b53273e1c708471b4f87ac70ab53c491e02b233f0f9"
+      "attested_digest": "sha256:1fe6ca95527da1cb2119d3019b4ff7c3f3aadb59e9084309610b685cf650dfd1"
     },
     {
       "id": "capability.evidence_matrix",
@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:7412802c5d2ee957a0907e3daa9c9f6859da7d423e9c18fe46a37223d7d61921"
+      "attested_digest": "sha256:8f3a8d9894ffff171c8766f70c51114ba636c9da0cbec1e3063485f51a4136e5"
     },
     {
       "id": "artifact.topology",
@@ -73,7 +73,7 @@
         "61_Storage_Management_Guide",
         "37_Sweep_Studies_Guide"
       ],
-      "attested_digest": "sha256:80a9726f75889ce4bb8b25cc1eddd7a82493f694be0bfb640c06c575a3016c4d"
+      "attested_digest": "sha256:a9236b11b4270d26500f458cb6d5124c0d7b4be848f72d224c30ed7522fd00cb"
     },
     {
       "id": "docs.subsystem_records",
@@ -87,7 +87,7 @@
       "dependent_pages": [
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:87d4682196f973018044d4f457bafd457e1ecb9b0b61ef3a24b8ad41dbe8a7f6"
+      "attested_digest": "sha256:06cff811afab5380f411ec8a0d792f6c418e9a9f2d14bec886c70ce4569b5afa"
     },
     {
       "id": "docs.page_types",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:da0df6ba4a6627900b474d2b6841da742c905fd9e05b22184911e86ee5e6e7fd",
+      "attested_digest": "sha256:ea5b66d8fdea331edfd7026b45a258f74594719e94f2895b8903140b162f0fa7",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
@@ -435,7 +435,7 @@
       "dependent_pages": [
         "07_Case_Reference"
       ],
-      "attested_digest": "sha256:09810749dcd604b9638b9ff1cebf654e63ea1e61a9a5da64c4e8da0bc1668eff",
+      "attested_digest": "sha256:65bfb6ef5d6a32684ba396afac86fa696cddb5d2458381973f1ba5607b03e9b5",
       "note": "Page 48 enumerates the geometries, their options and the quality report. Nothing watched this file before, so the page describing it could never be flagged stale no matter how far the generator moved."
     }
   ]

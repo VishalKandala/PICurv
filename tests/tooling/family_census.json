@@ -20,7 +20,7 @@
     },
     "picurv_cli.core::GMRES_RESTART_METHODS": {
       "classification": "structural",
-      "reason": "Not a menu: the Krylov methods for which a `gmres.restart` parameter is meaningful. `poisson_solver.method` passes any PETSc KSP token through, so this set only decides whether a restart key is accepted alongside it."
+      "reason": "Not a menu: the Krylov methods for which a `gmres.restart` parameter is meaningful. The outer `poisson_solver.method` is the registered family poisson.method, of which only `fgmres` takes a restart; Newton-Krylov's `linear_solver.method` passes any PETSc KSP token through, so this set only decides whether a restart key is accepted alongside it."
     },
     "picurv_cli.core::KRYLOV_KSP_TYPES": {
       "classification": "structural",

@@ -298,8 +298,8 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user);
  * |------|--------|
  * | 1 | Compute global `Aj_min`, `Aj_max`.                          |
  * | 2 | **Mixed signs** (`Aj_min < 0 && Aj_max > 0`) &rarr; abort: the mesh is topologically inconsistent. |
- * | 3 | **All negative** (`Aj_max < 0`) &rarr; flip <br>`Csi`, `Eta`, `Zet`, `Aj` & update local ghosts. |
- * | 4 | Store `user->orientation = ±1` so BC / IC routines can apply sign-aware logic if they care about inlet direction. |
+ * | 3 | **All negative** (`Aj_max < 0`) &rarr; abort: the grid is left-handed. Negating the metric vectors is not a valid repair (a mirrored duct solved that way was wrong by a factor of forty), so the grid must be renumbered along one logical axis instead. |
+ * | 4 | Store `user->GridOrientation = +1`, the only orientation the solver accepts. |
  *
  * @param[in,out] user  Fully initialised #UserCtx that already contains  
  *                      `Csi`, `Eta`, `Zet`, `Aj`, their **local** ghosts, and

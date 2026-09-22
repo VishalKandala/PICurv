@@ -121,9 +121,43 @@ The repository generator requires a staged PICGRID. `grid.mode: file` and
 `<run.config>/grid.run` bridge from scalar `programmatic_settings` before invoking
 `ic.gen`.
 
+Repository spectral provider, for a triply periodic box:
+
+```yaml
+properties:
+  initial_conditions:
+    mode: generated
+    generator: spectral_random_velocity
+    params:
+      field: Ucat
+      seed: 12345
+      spectrum: {type: k4_exponential, k0: 4.0, k_cut: 20.0}
+      projection: {type: solenoidal, operator: picurv_discrete}
+      normalization: {type: component_rms, target: 1.0}
+      remove_mean: true
+```
+
+It draws a seeded random field, shapes it to the spectrum envelope
+(`k4_exponential` is `E(k) ~ k^4 exp(-2 (k/k0)^2)`, nothing above `k_cut`), projects it
+to be divergence-free under the chosen operator, and scales it to the requested
+component RMS. It requires every face geometric-periodic and a fresh 3D run, and writes
+`<run.analysis>/metrics/initial_condition_summary.json` and the staged spectrum beside
+the field. `examples/decaying_isotropic_turbulence` configures it; its README covers the
+keys. With `operator: picurv_discrete` the solver's own step-0 divergence is at round-off;
+`initial-conditions-2026-09-21` measured 3.1e-14 against a flux scale of 4.3, component RMS 1.000000, the shell
+spectrum within 4.7% (energy-weighted) of the envelope, and the same seed reproducing
+the same field.
+
 @section p33_entries_sec 3. Field Initialization Mode Entries
 
 @htmlinclude generated/capability_inventory_initial_field_mode.html
+
+Every entry below, and the `streamwise_constant`, `ic_gen` and `file` sources above, was
+checked against the field it claims to produce by `initial-conditions-2026-09-21`: on a
+programmatic duct the staged interior face fluxes equal their definitions to 3.5e-18 or
+exactly, and a `file` source reproduces the generated run it was taken from bitwise.
+Step-0 `Ucat` next to walls and inlets reflects the boundary faces, because it is
+reconstructed from the fluxes after boundary conditions apply.
 
 @subsection p33_cap_zero_sub Zero
 
@@ -146,7 +180,7 @@ that combination needs a driven handler to do anything.
 **Diagnostics.** The startup banner reports the resolved initial-condition mode; step 0
 output shows a zero field.
 
-**Evidence.** Implemented only.
+**Evidence.** Analytically verified - `initial-conditions-2026-09-21`: every staged face flux is exactly zero.
 
 **Limitations.** Transition from rest can be slow, and for turbulence it will not occur
 at all without a finite-amplitude perturbation.
@@ -168,7 +202,10 @@ resolve that discontinuity, which can be abrupt.
 
 **Diagnostics.** As above.
 
-**Evidence.** Implemented only.
+**Evidence.** Regression verified - `make smoke-periodic` asserts the streamwise-constant
+initial-condition banner. Production exercised - `examples/flat_channel` starts from a
+constant field. Analytically verified - `initial-conditions-2026-09-21`: `(0.3, -0.2, 0.7)` and a streamwise constant
+of 1.3 along `+Zeta` stage the face fluxes they define to round-off.
 
 **Limitations.** Not divergence-free in general on a curvilinear grid, so the first
 pressure solve does real work.
@@ -179,23 +216,34 @@ pressure solve does real work.
 
 **Identity.** Field mode `Poiseuille` -> `-finit 2` -> `IC_MODE_POISEUILLE`.
 
-**What it does.** Initializes with an analytic parabolic profile.
+**What it does.** Sets the streamwise face flux to `peak * f1 * f2` times the face area,
+where each cross-stream factor is `1 - s^2` and `s` runs from -1 to 1 across the axis in
+logical (index) space: cell `c` of an axis with `n` nodes sits at `s = (c - 1/2 - (n-1)/2) /
+((n-1)/2)`, so the profile vanishes on the walls. A periodic cross-stream axis has no walls,
+and its factor is 1.
 
 **When to choose it.** A wall-bounded channel or duct where you want a developed-looking
 start rather than a transient from rest.
 
 **Parameters it owns.** The profile scaling in the initial-condition block.
 
-**Interactions.** Assumes a wall-bounded geometry; in a domain without the expected walls
-the profile will not vanish where you expect.
+**Interactions.** The coordinate is logical, so the profile is a parabola in physical space
+only on a grid uniform across the section. On a channel periodic in the spanwise axis it is
+the exact laminar profile; on a rectangular duct the product of two parabolas is a start,
+not the duct solution.
 
 **Diagnostics.** As above; inspect the step-0 field before committing to a long run.
 
-**Evidence.** Implemented only.
+**Evidence.** Unit verified -
+`set-initial-interior-field-poiseuille-profile` and
+`set-initial-interior-field-poiseuille-uniform-along-periodic-axis` in `make unit-runtime`
+check the wall-vanishing product profile and the periodic-axis rule;
+`initial-conditions-2026-09-21` found the staged interior face fluxes equal to this formula
+to 3.5e-18 in a solver run.
 
-**Limitations.** An analytic approximation, not a solution of the case being run. The C
-enum also carries `IC_MODE_CONSTANT_STREAMWISE` and `IC_MODE_FILE`, which this selector
-does not expose.
+**Limitations.** Logical-space only: on a stretched or curved cross-section the profile is
+not a physical parabola. Before 2026-09-18 the parabola vanished at the first cell centres
+rather than on the walls, and it was applied across periodic axes too.
 
 @htmlinclude generated/capability_inventory_initial_target_field.html
 
@@ -220,7 +268,9 @@ conversion to the evolved `Ucont` fluxes before the first step. See
 
 **Diagnostics.** Step-0 output shows the initialized field.
 
-**Evidence.** Production exercised - `examples/flat_channel`.
+**Evidence.** Production exercised - `examples/flat_channel`. Analytically verified -
+`initial-conditions-2026-09-21`: `ic_gen` `Ucat` expressions and every built-in mode stage the fluxes their Cartesian
+values define.
 
 **Limitations.** On a strongly curvilinear grid the conversion from a Cartesian profile to
 fluxes is not exact in the sense of preserving the intended profile shape.
@@ -246,10 +296,13 @@ makes this the less intuitive of the two.
 
 **Diagnostics.** Step-0 output; check the derived `Ucat` looks as intended.
 
-**Evidence.** Implemented only. No shipped example selects it.
+**Evidence.** Analytically verified - `initial-conditions-2026-09-21`: `ic_gen` `Ucont` expressions stage exactly,
+and a `file` source of `Ucont` reproduces the generated run bitwise. No shipped example
+selects it.
 
-**Limitations.** Unverified by any in-tree case, and easier to get wrong because the
-values are fluxes rather than velocities.
+**Limitations.** Easier to get wrong than `Ucat`, because the values are fluxes rather
+than velocities: a face flux carries the face area, so a velocity typed where a flux is
+expected is off by that area. Only uniform Cartesian grids were checked.
 
 @section p33_euler_modes_sec 4. C Runtime Modes and Entry Points
 
@@ -308,7 +361,6 @@ Common pitfalls:
 - supplying a bulk/mean velocity to Poiseuille mode when the current implementation expects `Vmax`,
 - forgetting that initialization sets the interior only; boundary handlers then overwrite face values,
 - providing a PETSc vector whose size does not match the target DM,
-- attempting a file-backed IC for a multi-block case in the first implementation,
 - omitting `flow_direction` when the domain is fully periodic (no INLET face),
 - comparing `u_physical` directly to `Ucont` without accounting for metric-face scaling.
 

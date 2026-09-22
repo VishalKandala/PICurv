@@ -35,5 +35,6 @@ Primary output:
 ## Verification
 
 Fit `com_x` vs `t` and confirm the slope is `0.1`. `com_y` and `com_z` should
-remain near zero. `MSD_total` should remain negligible because diffusivity is
-suppressed for this verification case.
+remain near zero. `MSD_total` is measured from the point source, so it equals the
+squared drift `(0.1 t)^2`; the spread about the centre, `MSD_total - |com|^2`, should
+stay zero because diffusivity is suppressed for this verification case.

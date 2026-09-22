@@ -442,7 +442,7 @@ This dated snapshot records non-periodic C sources that still look thinly exerci
 evidence of confirmed product defects.
 
 - `src/les.c`: `29.46%`. Add a direct dynamic-Smagorinsky fixture that executes the filtered-stress procedure, rather than only the constant-model and eddy-viscosity paths.
-- `src/poisson.c`: `47.61%`. Add multigrid-cycle, periodic/IBM, solid-aware restriction/interpolation, and driven-flux correction cases.
+- `src/poisson.c`: `47.61%`. Add multigrid-cycle, periodic, and driven-flux correction cases.
 - `src/momentum_newton_krylov.c`: `62.50%`. The focused residual/constraint/Jacobian/rollback suite is strong; extend it across less-common solver-option and nonlinear-error branches.
 - `src/runloop.c`: `66.46%`. Add controlled live-run coverage for signal receipt and automatic walltime-guard shutdown/restart output.
 - `src/postprocessor.c`: `69.42%`. Add malformed/empty/unknown pipeline-stage and optional-field combination coverage.
@@ -556,7 +556,7 @@ P1 (next):
 - direct positive-path momentum harnesses:
   - `MomentumSolver_Explicit_RungeKutta4`
   - one small invariant case for `MomentumSolver_DualTime_Picard_JamesonRK`
-- deeper `PoissonSolver_MG` and periodic/IBM stencil behavior checks beyond the current helper-level `unit-poisson-rhs` surface
+- deeper `PoissonSolver_MG` and periodic stencil behavior checks beyond the current helper-level `unit-poisson-rhs` surface
 - broader richer-runtime fixture variants so grid/setup/metric tests cover more than the tiny Cartesian baseline
 - broaden the MPI rank matrix to larger optional decompositions (for example `SMOKE_MPI_MATRIX_NPROCS="2 3 4 6"`) in CI/nightly profiles
 - coverage follow-up from the `2026-07-31` audit: dynamic LES, Poisson multigrid/stencils, live walltime/signal shutdown, postprocessor pipeline errors, and remaining Newton--Krylov option/error paths (see section 8.1 for measured coverage and scope).

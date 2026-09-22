@@ -626,3 +626,32 @@ def test_a_negative_eddy_viscosity_ratio_is_refused():
     """! @brief A ratio below zero has no physical reading for a design estimate. """
     with pytest.raises(ValueError, match="nut_ratio"):
         GRID.resolve_reference_quantities(1.0, 2.5e-5, 1.0, None, None, -1.0)
+
+
+def test_an_unknown_specification_key_is_refused():
+    """!
+    @brief A key the kind does not read is an error, not a silent default.
+    @details `mirror:axis=y` used to mirror about the default plane and `scale:s=2` to
+             leave the grid unscaled, because unknown keys were accepted and ignored.
+    @return None.
+    """
+    with pytest.raises(ValueError, match="does not take 'axis'"):
+        GRID.parse_transform_token("mirror:axis=y")
+    with pytest.raises(ValueError, match="does not take 's'"):
+        GRID.parse_transform_token("scale:s=2")
+    with pytest.raises(ValueError, match="does not take 'wobble'"):
+        GRID.parse_spec_token("hill:len=2,height=0.3,wobble=5", GRID.GRID_WALL_SEGMENT_KINDS, "wall segment")
+
+
+def test_a_left_handed_result_is_refused_until_an_axis_is_reversed():
+    """!
+    @brief The solver needs right-handed logical axes; reverse restores them by renumbering.
+    @return None.
+    """
+    i, j, k = np.meshgrid(np.arange(3.0), np.arange(4.0), np.arange(5.0), indexing="ij")
+    with pytest.raises(ValueError, match="left-handed"):
+        GRID.place_and_transform(i, j, k, [0.0, 0.0, 0.0], ["mirror:plane=xy"])
+    X, Y, Z = GRID.place_and_transform(i, j, k, [0.0, 0.0, 0.0], ["mirror:plane=xy", "reverse:axis=k"])
+    assert np.all(GRID.signed_cell_volumes(X, Y, Z) > 0.0)
+    # Renumbering keeps the node set: the mirrored geometry is unchanged.
+    assert np.allclose(np.sort(Z.ravel()), np.sort((4.0 - k).ravel()))

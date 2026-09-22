@@ -50,7 +50,7 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
     DM             da = user->da;
     PetscInt       n_local;
     PetscReal      dt = user->simCtx->dt;
-    PetscReal      C_IEM = 2.0;
+    PetscReal      C_IEM = user->simCtx->iem_constant;
 
     PetscReal       *psi_arr = NULL;
     PetscReal       *diff_arr = NULL;

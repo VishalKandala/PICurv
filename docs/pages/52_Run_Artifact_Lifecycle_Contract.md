@@ -168,7 +168,11 @@ The object identity includes normalized provider settings, the case values each 
 reads, the identities of the assets it depends on, checksums of referenced
 files, and the PICurv build. Changing an equation, grid config, imported field, inlet
 parameters, or generator code therefore selects a new object. Unchanged inputs reuse
-the existing object. `--only grid,initial-condition` selects a dependency closure;
+the existing object. The provider settings include each input's workspace path, so the
+same bytes imported under two names build two objects. An external reference enters
+through its target's current checksum: a target changed since registration builds a new
+object rather than reusing a stale one, and the checksum recorded at registration is kept
+for provenance, not compared. `--only grid,initial-condition` selects a dependency closure;
 publication remains all-or-nothing for that invocation.
 
 A provider executed only in C is reported as `runtime-c`. Precompute does not imitate
@@ -400,7 +404,7 @@ Operational patterns for post-only reuse:
 - Live solver example: if `post.yml` requests `0..1000` every `10`, but solver source files currently exist only through step `420`, PICurv launches only `0..420` on the first pass. A later `--continue` run resumes at `430` after those source files appear.
 - Interrupted batch example: if `Field_00070.vts` exists but the required MSD CSV still stops at `60`, step `70` is treated as incomplete and the next `--continue` run restarts from `70`.
 - Explicit rerun example: if you omit `--continue`, PICurv honors the requested window exactly, rewrites any overlapping VTK files for those steps, and rewrites repeated statistics rows so each step still appears once in the final CSV.
-- Changed recipe example: if you point the same `run_dir` at a different `post.yml` recipe, such as adding `Qcrit` or changing the statistics prefix, PICurv starts from that recipe's configured `start_step` instead of inheriting completion from the previous recipe.
+- Changed recipe example: if you point the same `run_dir` at a different `post.yml` recipe, such as adding `Qcrit_nodal` or changing the statistics prefix, PICurv starts from that recipe's configured `start_step` instead of inheriting completion from the previous recipe.
 - Concurrency rule: PICurv holds a post lock while the stage is active. A second writer
   targeting the same output lineage is refused so generated controls and result files
   cannot race.
@@ -537,6 +541,10 @@ drifted one.
 
 @htmlinclude generated/capability_inventory_run_restart_statistics_state.html
 
+Both modes behave as documented on a known field (`field-statistics-tgv3d-2026-09-21`):
+`carry` continues a window exactly and `reset` starts it afresh. The derived statistics
+they continue have not yet been compared against a turbulent reference profile.
+
 @subsection p52_cap_restart_stats_reset_sub reset
 
 @anchor p52_cap_restart_stats_reset
@@ -566,10 +574,13 @@ selection or Eulerian restart authority.
 the new run's active configuration records `statistics_state: reset`.
 
 **Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` exercises the CLI
-choice and generated run control surface.
+choice and generated run control surface. Analytically verified - `field-statistics-tgv3d-2026-09-21`: a TGV3D run
+restarted at step 10 with `reset` anchored each window at the first state the restarted
+run completed and accumulated the remaining samples exactly.
 
 **Limitations.** It cannot merge old and new statistics later; preserve or postprocess
-the old window separately if both are needed.
+the old window separately if both are needed. The interval between the restart point and
+the first state the new run completes is not represented in the reset window.
 
 @subsection p52_cap_restart_stats_carry_sub carry
 
@@ -592,13 +603,19 @@ can make the requested state unusable.
 
 **Diagnostics.** The generated control contains the continue flag. A missing or
 incompatible checkpoint statistics payload fails during restart setup rather than
-silently resetting.
+silently resetting. The restart bundle is staged whenever `carry` is requested, whatever
+the Eulerian source: an analytical-source run used to stage none, because it needs no
+fields, and then failed at start-up looking for the accumulators.
 
 **Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` exercises the CLI
-choice and generated run control surface.
+choice and generated run control surface. Analytically verified - `field-statistics-tgv3d-2026-09-21`: a TGV3D run
+restarted at step 10 with `carry` reproduced the continuous run's windows to 1.1e-16 at
+step 20.
 
-**Limitations.** Experimental: numerical equivalence across every change of MPI layout
-and optional field combination has not been characterized.
+**Limitations.** Measured on one rank. `make smoke-mpi` checks that a window's payloads
+are identical between one rank and several within a single run, but carrying a window
+across a restart that changes the rank count, or the optional field set, has not been
+measured.
 
 @section p52_rules_sec 9. Safe Rules Of Thumb
 

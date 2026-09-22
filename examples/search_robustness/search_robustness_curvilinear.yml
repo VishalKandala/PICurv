@@ -26,8 +26,6 @@ grid:
   source_file: "bent_channel_coarse.picgrid"
 
 models:
-  domain:
-    blocks: 1
 
   physics:
     turbulence:
