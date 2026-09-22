@@ -6,7 +6,7 @@
   flux-normalized product parabola to 3e-15, the walls carry zero velocity, and the flux
   field the runtime reconstructs is divergence-free at round-off. They remain startup
   constructions: nothing here establishes sustained turbulence.
-- **RANS is removed and returned to planned.** `models.physics.turbulence.rans` is
+- RANS is removed and returned to planned. `models.physics.turbulence.rans` is
   refused at validation and `-rans` at setup; both name the status rather than ignoring
   the setting. Nothing behind the selector was ever implemented - the `K_Omega` fields
   were never allocated, the transport update in `FlowSolver` was commented out, and the
