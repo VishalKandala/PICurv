@@ -4239,7 +4239,9 @@ def resolve_post_requested_window(post_cfg: dict, case_cfg: dict = None) -> "tup
     """
     start_step = int(get_post_run_control_value(post_cfg, 'start_step', 0) or 0)
     end_step = int(get_post_run_control_value(post_cfg, 'end_step', 0) or 0)
-    step_interval = int(get_post_run_control_value(post_cfg, 'step_interval', 1) or 1)
+    step_interval = int(get_post_run_control_value(post_cfg, 'step_interval', 1))
+    if step_interval <= 0:
+        raise ValueError('run_control.step_interval must be positive.')
     if end_step < 0 and case_cfg:
         case_run = case_cfg.get('run_control', {}) or {}
         case_start = int(case_run.get('start_step', 0) or 0)
@@ -8820,9 +8822,9 @@ def check_post_checkpoint_cadence_alignment(post_cfg: dict, monitor_cfg: dict, p
 
              The solver also commits the initial and final states off cadence, which
              is why a misaligned `start_step` is a warning rather than an error: it
-             may legitimately be the run's own starting step. `step_interval` has no
-             such exemption, because a stride off the cadence cannot land on two
-             consecutive checkpoints whatever the run's bounds are.
+             may legitimately be the run's initial or final step. A bounded selection
+             containing only one checkpoint has no stride to align; its interval must
+             still be positive. Multi-checkpoint selections retain the cadence check.
 
     @param[in] post_cfg     Parsed post-processing configuration.
     @param[in] monitor_cfg  Parsed monitor configuration governing the source run.
@@ -8851,13 +8853,13 @@ def check_post_checkpoint_cadence_alignment(post_cfg: dict, monitor_cfg: dict, p
         return errors, warnings
 
     try:
-        step_interval = int(get_post_run_control_value(post_cfg, "step_interval", 1))
-        start_step = int(get_post_run_control_value(post_cfg, "start_step", 0))
+        start_step, end_step, step_interval = resolve_post_requested_window(post_cfg)
     except (TypeError, ValueError):
         # Reported by the run_control checks, which run against the same values.
         return errors, warnings
 
-    if step_interval > 0 and step_interval % cadence != 0:
+    single_checkpoint = end_step >= start_step and end_step - start_step < step_interval
+    if not single_checkpoint and step_interval % cadence != 0:
         suggestion = max(cadence, (step_interval // cadence) * cadence)
         errors.append(
             f"  {post_path}: 'run_control.step_interval' is {step_interval}, which is not a "
@@ -8871,7 +8873,7 @@ def check_post_checkpoint_cadence_alignment(post_cfg: dict, monitor_cfg: dict, p
         warnings.append(
             f"{post_path}: 'run_control.start_step' is {start_step}, which is not a multiple of "
             f"'io.data_output_frequency' ({cadence}) in {monitor_path}. That step only exists if "
-            f"it is the run's own starting step, which is committed off cadence."
+            f"it is the run's initial or final step, which is committed off cadence."
         )
 
     return errors, warnings
@@ -8962,7 +8964,9 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
                     continue
                 raw_value = _mapping_value_with_aliases(rc, *aliases)
                 try:
-                    int(raw_value)
+                    value = int(raw_value)
+                    if canonical_key == "step_interval" and value <= 0:
+                        errors.append(f"  {post_path}: 'run_control.step_interval' must be positive.")
                 except (TypeError, ValueError):
                     alias_name = next((alias for alias in aliases if alias in rc), canonical_key)
                     errors.append(

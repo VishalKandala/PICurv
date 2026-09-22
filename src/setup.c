@@ -1131,7 +1131,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     // This logic determines the Post Processing configuration and STORES it in simCtx for later reference and cleanup.
     ierr = PetscOptionsGetString(NULL,NULL,"-postprocessing_config_file",simCtx->PostprocessingControlFile,PETSC_MAX_PATH_LEN,NULL); CHKERRQ(ierr);
     /* Parse post settings for both solver and post-processor binaries using the single pre-allocated pps object. */
-    ierr = ParsePostProcessingSettings(simCtx);
+    ierr = ParsePostProcessingSettings(simCtx); CHKERRQ(ierr);
 
     // === 5. Dependent Parameter Calculations ================================
     // Some parameters depend on others, so we calculate them here.

@@ -3355,7 +3355,10 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     // --- 3. Parse Command-Line Options (overrides file settings and defaults) ---
     PetscOptionsGetInt(NULL, NULL, "-startTime", &pps->startTime, &startTimeSet);
     PetscOptionsGetInt(NULL, NULL, "-endTime", &pps->endTime, &endTimeSet);
-    PetscOptionsGetInt(NULL, NULL, "-timeStep", &pps->timeStep, &timeStepSet);
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-timeStep", &pps->timeStep, &timeStepSet));
+    PetscCheck(pps->timeStep > 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "Post-processing timeStep must be positive (got %" PetscInt_FMT "). "
+               "For one checkpoint, set startTime=endTime and timeStep=1.", pps->timeStep);
     PetscOptionsGetBool(NULL, NULL, "-output_particles", &pps->outputParticles, NULL);
 
     if(pps->endTime==-1){

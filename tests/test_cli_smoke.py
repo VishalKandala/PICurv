@@ -8814,6 +8814,40 @@ def test_post_validation_rejects_step_interval_off_checkpoint_cadence(tmp_path, 
     assert "Use 100" in errors
 
 
+@pytest.mark.parametrize("start,end,interval", [(100, 100, 1), (105, 105, 1), (100, 101, 2)])
+def test_post_validation_accepts_single_checkpoint(tmp_path, start, end, interval):
+    """!
+    @brief A selection containing one checkpoint has no stride to align with output cadence.
+    @param[in] tmp_path Temporary recipe directory.
+    @param[in] start First selected checkpoint.
+    @param[in] end Inclusive selection bound.
+    @param[in] interval Positive stride selecting only the first checkpoint.
+    """
+    picurv = load_picurv_module()
+    picurv.validate_post_config(_post_with_window(start, end, interval),
+                               str(tmp_path / "post.yml"), _monitor_with_output_cadence(100))
+
+
+@pytest.mark.parametrize("interval", [0, -1])
+@pytest.mark.parametrize("legacy", [False, True])
+def test_post_validation_rejects_nonpositive_interval(tmp_path, capsys, interval, legacy):
+    """!
+    @brief Canonical and legacy interval keys must reject a non-advancing loop.
+    @param[in] tmp_path Temporary recipe directory.
+    @param[in] capsys Captured validation diagnostics.
+    @param[in] interval Invalid interval.
+    @param[in] legacy Whether to use the legacy timeStep alias.
+    """
+    post = _post_with_window(100, 100, interval)
+    if legacy:
+        post["run_control"]["timeStep"] = post["run_control"].pop("step_interval")
+    errors = _post_validation_errors(post, _monitor_with_output_cadence(100), tmp_path, capsys)
+    assert "must be positive" in errors
+    picurv = load_picurv_module()
+    with pytest.raises(ValueError, match="must be positive"):
+        picurv.resolve_post_requested_window(post)
+
+
 def test_post_validation_accepts_step_interval_matching_cadence(tmp_path):
     """!
     @brief A stride that is a multiple of the cadence resolves to real checkpoints.

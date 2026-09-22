@@ -686,6 +686,24 @@ static PetscErrorCode TestParsePostProcessingSettings(void)
     PetscCall(PicurvAssertBool((PetscBool)(strcmp(simCtx->pps->output_prefix, "SmokeField") == 0),
                                "ParsePostProcessingSettings should parse output_prefix"));
 
+    /* File and command-line ingress both guard the loop after override precedence. */
+    const PetscInt intervals[] = {1, 0, -1, 1, 1, 0};
+    const char *overrides[] = {NULL, NULL, NULL, "0", "-1", "1"};
+    for (size_t n = 0; n < sizeof(intervals) / sizeof(intervals[0]); ++n) {
+        PetscErrorCode parse_ierr;
+        file = fopen(cfg_path, "w");
+        PetscCheck(file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Failed to reopen post config.");
+        fprintf(file, "startTime = 100\nendTime = 100\ntimeStep = %d\n", (int)intervals[n]);
+        fclose(file);
+        if (overrides[n]) PetscCall(PetscOptionsSetValue(NULL, "-timeStep", overrides[n]));
+        PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+        parse_ierr = ParsePostProcessingSettings(simCtx);
+        PetscCall(PetscPopErrorHandler());
+        PetscCall(PetscOptionsClearValue(NULL, "-timeStep"));
+        PetscCall(PicurvAssertIntEqual((n == 0 || n == 5) ? 0 : PETSC_ERR_ARG_OUTOFRANGE,
+                    parse_ierr, "post interval must be positive after command-line overrides"));
+    }
+
     PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);

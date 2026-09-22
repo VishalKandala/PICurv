@@ -670,10 +670,11 @@ PY
 
 prepare_flat_case_les() {
   local case_dir="$1"
-  python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
+  python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" "${2:-1}" <<'PY'
 import sys
 import yaml
-case_path, solver_path, monitor_path, post_path = sys.argv[1:]
+case_path, solver_path, monitor_path, post_path = sys.argv[1:5]
+cadence = int(sys.argv[5])
 with open(case_path, "r", encoding="utf-8") as f:
     case_cfg = yaml.safe_load(f)
 with open(solver_path, "r", encoding="utf-8") as f:
@@ -700,14 +701,14 @@ solver_cfg.setdefault("operation_mode", {})
 solver_cfg["operation_mode"]["eulerian_field_source"] = "solve"
 
 monitor_cfg.setdefault("io", {})
-monitor_cfg["io"]["data_output_frequency"] = 1
+monitor_cfg["io"]["data_output_frequency"] = cadence
 monitor_cfg["io"]["particle_console_output_frequency"] = 0
 monitor_cfg["io"]["particle_log_interval"] = 1
 
 post_cfg.setdefault("run_control", {})
 post_cfg["run_control"]["start_step"] = 0
 post_cfg["run_control"]["end_step"] = 3
-post_cfg["run_control"]["step_interval"] = 1
+post_cfg["run_control"]["step_interval"] = cadence
 post_cfg.setdefault("io", {})
 post_cfg["io"]["output_directory"] = "viz/les_smoke"
 post_cfg["io"]["output_filename_prefix"] = "Field"
@@ -1824,7 +1825,7 @@ run_full_runtime_smoke() {
   local brownian_case="${tmp_root}/brownian"
 
   "${picurv_exe}" init flat_channel --dest "${flat_les_case}" >/dev/null
-  prepare_flat_case_les "${flat_les_case}"
+  prepare_flat_case_les "${flat_les_case}" 2
   run_case_workflow \
     "${flat_les_case}" \
     "${flat_les_case}/config/case.yml" \
@@ -1840,12 +1841,53 @@ run_full_runtime_smoke() {
   require_count_ge "${flat_les_run}/output/checkpoints" "Ucat.dat" 1 "flat LES Eulerian checkpoint payloads"
   require_count_ge "${flat_les_run}/output/visualization" "*.vts" 1 "flat LES post VTS files"
   require_file_contains "${LAST_SOLVER_LOG}" "Run Mode                   : Full Simulation" "runtime banner run mode"
-  require_file_contains "${LAST_SOLVER_LOG}" "Field/Restart Cadence      : every 1 step(s)" "runtime banner field cadence"
+  require_file_contains "${LAST_SOLVER_LOG}" "Field/Restart Cadence      : every 2 step(s)" "runtime banner field cadence"
   require_file_contains "${LAST_SOLVER_LOG}" "Immersed Boundary          : DISABLED" "runtime banner immersed-boundary state"
   require_file_contains "${LAST_SOLVER_LOG}" "Number of Particles         : 0" "runtime banner particle count"
   require_file_not_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence" "runtime banner particle console cadence omission"
   require_file_not_contains "${LAST_SOLVER_LOG}" "Particle Log Row Sampling" "runtime banner particle row sampling omission"
   require_file_not_contains "${LAST_SOLVER_LOG}" "Particle Initialization Mode" "runtime banner particle init omission"
+
+  # The final checkpoint (3) is off cadence (2); interval 1 must process it once.
+  local single_post="${flat_les_case}/post_single.yml"
+  python3 - "${flat_les_case}/config/post.yml" "${single_post}" <<'PY_SINGLE'
+import sys
+import yaml
+with open(sys.argv[1], encoding="utf-8") as stream:
+    recipe = yaml.safe_load(stream)
+recipe["run_control"] = {"start_step": 3, "end_step": 3, "step_interval": 1}
+recipe["io"]["output_filename_prefix"] = "SingleCheckpoint"
+with open(sys.argv[2], "w", encoding="utf-8") as stream:
+    yaml.safe_dump(recipe, stream)
+PY_SINGLE
+  timeout 60 "${picurv_exe}" run --post-process -n "${nprocs}" \
+    --run-dir "${flat_les_run}" --post "${single_post}" \
+    >"${tmp_root}/single-checkpoint-post.log" 2>&1 || {
+      cat "${tmp_root}/single-checkpoint-post.log" >&2
+      die "single-checkpoint post-processing failed or did not terminate"
+    }
+  python3 - "${flat_les_run}" <<'PY_SINGLE'
+from pathlib import Path
+import sys
+outputs = list((Path(sys.argv[1]) / "output" / "visualization").rglob("SingleCheckpoint_*.vts"))
+assert len(outputs) == 1 and outputs[0].name == "SingleCheckpoint_00003.vts", outputs
+PY_SINGLE
+
+  # Direct executable ingress must also refuse zero, even without YAML validation.
+  local post_control
+  local zero_status=0
+  post_control="$(find "${flat_les_run}/config" -maxdepth 1 -name '*.control' -print -quit)"
+  require_file "${post_control}" "single-checkpoint control file"
+  (
+    cd "${flat_les_run}"
+    timeout 20 "${mpi_launcher_cmd[@]}" -n "${nprocs}" "${postprocessor_exe}" \
+      -control_file "${post_control}" -startTime 3 -endTime 3 -timeStep 0
+  ) >"${tmp_root}/zero-post-interval.log" 2>&1 || zero_status=$?
+  if [[ "${zero_status}" == 0 || "${zero_status}" == 124 ]]; then
+    die "postprocessor failed to reject timeStep=0 promptly (status ${zero_status})"
+  fi
+  require_file_contains "${tmp_root}/zero-post-interval.log" "timeStep must be positive" \
+    "zero post interval rejection"
 
   "${picurv_exe}" init bent_channel --dest "${bent_case}" >/dev/null
   prepare_bent_case_tiny "${bent_case}"

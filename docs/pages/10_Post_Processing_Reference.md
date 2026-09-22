@@ -78,13 +78,18 @@ Mappings in generated `post.run`:
 - `end_step` -> `endTime`
 - `step_interval` -> `timeStep`
 
+`step_interval` must be positive; zero and negative values are rejected by both
+YAML validation and the C postprocessor. To process one checkpoint, set
+`start_step` and `end_step` to that checkpoint and use `step_interval: 1`.
+
 **Requested steps must be steps the solver committed.** The solver writes a
 checkpoint every `monitor.yml -> io.data_output_frequency` completed steps, plus
-the initial and final states. `step_interval` must therefore be a multiple of that
-cadence; a finer stride names steps that were never written, and post-processing
-stops at the first one it cannot find rather than skipping it. `picurv validate`
-rejects a mismatch, and warns when `start_step` is off cadence — that one is only
-valid if it is the run's own starting step, which is committed off cadence.
+the initial and final states. A selection requesting multiple checkpoints must use
+an interval that is a multiple of that cadence. A bounded selection containing only
+one checkpoint is exempt from this alignment check. An off-cadence `start_step`
+draws a warning because it may be an initial or final checkpoint; the selected
+checkpoint must still exist. Post-processing stops at the first missing checkpoint
+rather than skipping it.
 
 Operational semantics when launched through `picurv`:
 - keep `start_step` and `end_step` as the full logical analysis window you want the recipe to represent.

@@ -334,6 +334,27 @@ static PetscErrorCode TestIEMConstantIsConfigurable(void)
 }
 
 /**
+ * @brief Ensures setup propagates invalid post intervals before either executable can loop.
+ */
+static PetscErrorCode TestSetupRejectsNonpositivePostInterval(void)
+{
+    const char *options[] = {"-timeStep 0\n", "-timeStep -1\n"};
+
+    PetscFunctionBeginUser;
+    for (size_t n = 0; n < sizeof(options) / sizeof(options[0]); ++n) {
+        SimCtx *simCtx = NULL;
+        char tmpdir[PETSC_MAX_PATH_LEN];
+        PetscErrorCode setup_ierr;
+        PetscCall(TryContextWithExtraLines(options[n], &simCtx, &setup_ierr, tmpdir, sizeof(tmpdir)));
+        PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_OUTOFRANGE, setup_ierr,
+                    "setup must propagate rejection of a nonpositive post interval"));
+        PetscCall(FreeLifecycleContext(&simCtx));
+        PetscCall(PicurvRemoveTempDir(tmpdir));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Checks configured IEM relaxation through the production swarm update.
  */
 static PetscErrorCode TestConfiguredIEMUpdatesSwarm(void)
@@ -824,6 +845,7 @@ int main(int argc, char **argv)
         {"setup-lifecycle-cleanup-across-initialization-states", TestSetupLifecycleCleanupAcrossInitializationStates},
         {"setup-rejects-unimplemented-feature-flags", TestSetupRejectsUnimplementedFeatureFlags},
         {"iem-constant-is-configurable", TestIEMConstantIsConfigurable},
+        {"setup-rejects-nonpositive-post-interval", TestSetupRejectsNonpositivePostInterval},
         {"configured-iem-updates-swarm", TestConfiguredIEMUpdatesSwarm},
         {"brownian-rng-seeded-from-configuration", TestBrownianRNGIsSeededFromConfiguration},
         {"shared-runtime-fixture-contracts", TestSharedRuntimeFixtureContracts},

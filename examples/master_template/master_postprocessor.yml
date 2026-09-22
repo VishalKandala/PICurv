@@ -40,8 +40,9 @@ run_control:
 
   # (Optional) The interval for processing steps (e.g., 100 means process
   # steps 0, 100, 200...). Defaults to 1.
-  # Must be a multiple of monitor.yml -> io.data_output_frequency: the solver only
-  # commits a checkpoint at that cadence, so a finer stride names steps that were
+  # Must be positive. For a single checkpoint, set start_step = end_step and use 1.
+  # For multiple checkpoints, use a multiple of monitor.yml -> io.data_output_frequency:
+  # the solver only commits at that cadence, so a finer stride names steps that were
   # never written. Validation rejects a mismatch rather than letting the run stop
   # at the first missing step.
   # Maps to 'timeStep' in the generated C-side post.run recipe.
