@@ -118,18 +118,6 @@ Selector: `solver.yml -> solution_convergence.mode`
 | `steady_deterministic` | `STEADY_DETERMINISTIC` |
 | `transient` | `TRANSIENT` |
 
-### RANS Models
-
-Selector: `case.yml -> models.physics.turbulence.rans.model`
-
-| Value | Maps to |
-|---|---|
-| `disabled` | `0` |
-| `k_omega` | `1` |
-| `komega` | `1` |
-| `none` | `0` |
-| `off` | `0` |
-
 ### LES Test Filters
 
 Selector: `case.yml -> models.physics.turbulence.les.test_filter.kernel`

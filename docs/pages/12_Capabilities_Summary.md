@@ -68,9 +68,10 @@ dynamic model is decaying isotropic turbulence with homogeneous averaging, where
 `Cs(t)` should settle near 0.16-0.17. Until such a run is recorded, treat coefficient
 magnitudes as uncharacterized.
 
-RANS (`k_omega`) is known-defective: the configuration layer accepts it, but setup
-never allocates its fields and its transport update is commented out, so enabling it
-aborts the solver after the first step (@ref p07_cap_rans_k_omega_sub). Wall functions are configured separately from both, and offer three
+There is no RANS closure. A `k_omega` selector existed until 2026-09-22, but nothing
+behind it was ever implemented, so it was removed and the subsystem returned to planned;
+`models.physics.turbulence.rans` is now refused at validation (@ref p57_rans_sec). Wall
+functions are configured separately from the LES closure, and offer three
 laws - `log_law`, `werner`, and `cabot`. The correction is applied inside the
 momentum solve and again before the LES strain rates are formed, so a
 wall-modelled large-eddy simulation is coupled in both directions, and the modelled
@@ -80,9 +81,8 @@ the wall face.
 @note A wall model is not independent of the turbulence model in the way its
 configuration placement suggests. It supplies the stress of a layer the mesh does not
 resolve, which is only meaningful if the unresolved motions are modelled somewhere, so
-a wall model with LES and RANS both disabled is rejected - there is no implicit-LES
-scheme here to stand in. `cabot` and `werner` are rejected under RANS, being large-eddy
-constructs, and a wall model on a laminar case is rejected outright. Whether the first
+a wall model with LES disabled is rejected - there is no implicit-LES scheme here to
+stand in - and a wall model on a laminar case is rejected outright. Whether the first
 cell falls in the selected law's valid range depends on the mesh and is checked at
 runtime instead.
 

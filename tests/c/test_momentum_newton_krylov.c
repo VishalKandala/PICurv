@@ -1139,7 +1139,7 @@ static PetscErrorCode TestUnsupportedConfigurationFailsBeforeAllocation(void)
            claimed as supported; they are simply no longer refused. */
         PetscInt *unsupported_flags[] = {
             &simCtx->immersed, &simCtx->movefsi, &simCtx->rotatefsi,
-            &simCtx->moveframe, &simCtx->rotateframe, &simCtx->rans,
+            &simCtx->moveframe, &simCtx->rotateframe,
             &simCtx->TwoD
         };
         for (size_t flag = 0; flag < sizeof(unsupported_flags) / sizeof(unsupported_flags[0]); ++flag) {

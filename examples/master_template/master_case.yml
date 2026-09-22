@@ -328,14 +328,10 @@ models:
           # [Number] -> -les_yoshizawa_ci
           yoshizawa_ci: 0.09
 
-      # RANS selector. k_omega is known-defective: its fields are never allocated and
-      # its transport equations are never solved, so enabling it aborts the solver at
-      # the end of the first timestep. Keep enabled: false.
-      rans:
-        enabled: false
-        # model: "k_omega"
+      # There is no RANS selector: the closure is planned, not implemented, and a
+      # `rans:` block is refused at validation. Use `les` above, or run laminar.
 
-      # Wall functions are independent of LES/RANS and apply on WALL faces. The
+      # Wall functions are independent of the LES closure and apply on WALL faces. The
       # correction is applied inside the momentum solve's boundary pass and again
       # before the LES strain rates are formed, so the closure and the momentum
       # equation agree about the near-wall velocity.

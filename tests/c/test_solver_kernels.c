@@ -668,11 +668,11 @@ static PetscErrorCode MomMakeUnitGridP(SimCtx **simCtx, UserCtx **user, PetscInt
     (*user)->boundary_faces[BC_FACE_NEG_Z].mathematical_type = pz ? PERIODIC : bc;
     (*user)->boundary_faces[BC_FACE_POS_Z].mathematical_type = pz ? PERIODIC : bc;
     (*simCtx)->dt = 0.1; (*simCtx)->step = 1; (*simCtx)->StartStep = 0;   /* a0=1 -> lambda_t=10 */
-    (*simCtx)->ren = 1.0; (*simCtx)->les = 0; (*simCtx)->rans = 0;
+    (*simCtx)->ren = 1.0; (*simCtx)->les = 0;
     (*simCtx)->central = 0; (*simCtx)->invicid = 0; (*simCtx)->block_number = 1;
     (*simCtx)->TwoD = 0; (*simCtx)->les_gradient_model = 0;
     /* The minimal fixture does not allocate lNu_t (LES off by default); create a
-       zeroed one so the estimator can read it when a test enables LES/RANS. */
+       zeroed one so the estimator can read it when a test enables LES. */
     if (!(*user)->lNu_t) PetscCall(DMCreateLocalVector((*user)->da, &(*user)->lNu_t));
     PetscCall(MomFillLocalCmpnts((*user)->fda, (*user)->lUcont, 0.0, 0.0, 0.0));
     PetscCall(MomFillLocalCmpnts((*user)->fda, (*user)->lUcat,  0.0, 0.0, 0.0));

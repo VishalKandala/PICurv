@@ -334,11 +334,6 @@ PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user, PetscBool preserve_prev
         ierr = VecCopy(user->Nvert, user->Nvert_o); CHKERRQ(ierr);
     }
 
-    // --- Update History for Turbulence Models (if active) ---
-    if (simCtx->rans) {
-       ierr = VecCopy(user->K_Omega, user->K_Omega_o); CHKERRQ(ierr);
-    }
-    
     // --- Synchronize Local Ghost Regions for the new history vectors ---
     // This is essential so that stencils in the next time step's calculations
     // have correct values from neighboring processes.
@@ -347,10 +342,6 @@ PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user, PetscBool preserve_prev
     
     if (simCtx->immersed) {
         ierr = UpdateLocalGhosts(user, FIELD_ID_NVERT_O); CHKERRQ(ierr);
-    }
-    
-    if (simCtx->rans) {
-       ierr = UpdateLocalGhosts(user, FIELD_ID_K_OMEGA_O); CHKERRQ(ierr);
     }
     
     PetscFunctionReturn(0);
@@ -645,7 +636,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             // a. Update Eulerian Transport Properties:
             // Optimization: Only recalculate if turbulence is active (Nu_t changes).
             // For Laminar flow, the value calculated at Setup is constant.
-            if (simCtx->les || simCtx->rans) {
+            if (simCtx->les) {
                 for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
                     ierr = ComputeEulerianDiffusivity(&user[bi]); CHKERRQ(ierr);
                     ierr = ComputeEulerianDiffusivityGradient(&user[bi]); CHKERRQ(ierr);

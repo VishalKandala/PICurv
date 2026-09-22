@@ -60,8 +60,6 @@ models:
     turbulence:
       les:
         enabled: false
-      rans:
-        enabled: false
       wall_function:
         enabled: false
 boundary_conditions:

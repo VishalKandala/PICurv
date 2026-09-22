@@ -156,12 +156,6 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
     FIELD_ENTRY(FIELD_ID_PARTICLE_COUNT, "ParticleCount", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_PARTICLES,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_CHECKPOINT, ParticleCount, lParticleCount),
-    FIELD_ENTRY(FIELD_ID_K_OMEGA, "K_Omega", NULL, NULL, 2, FIELD_DM_FDA2, FIELD_LAYOUT_CELL_CENTERED,
-                FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_RANS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_CHECKPOINT, K_Omega, lK_Omega),
-    FIELD_ENTRY(FIELD_ID_K_OMEGA_O, "K_Omega_o", NULL, NULL, 2, FIELD_DM_FDA2, FIELD_LAYOUT_CELL_CENTERED,
-                FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_RANS,
-                FIELD_CAPABILITY_GHOST_UPDATE, K_Omega_o, lK_Omega_o),
     /* Corner-staging workspace. Node-centered by construction: the interpolation
      * writes cell-centered data onto grid corners. Not checkpointed, since it is
      * transient scratch rebuilt on every conversion. */
@@ -306,9 +300,6 @@ PetscErrorCode FieldGetView(UserCtx *user, FieldId field_id, FieldView *view)
             break;
         case FIELD_DM_FDA:
             view->dm = user->fda;
-            break;
-        case FIELD_DM_FDA2:
-            view->dm = user->fda2;
             break;
         case FIELD_DM_COORDINATES:
             view->dm = user->fda;

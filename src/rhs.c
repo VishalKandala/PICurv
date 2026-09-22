@@ -473,7 +473,6 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 
   // Create local variables to mirror the legacy globals for minimal code changes.
   const LESModelType les = simCtx->les;
-  const PetscInt rans = simCtx->rans;
   const PetscInt ti = simCtx->step; // Assuming simCtx->step is the new integer time counter
   const	PetscReal ren = simCtx->ren;
   const PetscInt clark = simCtx->les_gradient_model;
@@ -543,9 +542,6 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
   PetscReal ***lnu_wall = NULL;
 
   if(les) {
-    DMDAVecGetArray(da, user->lNu_t, &lnu_t);
-  } else if (rans) {
-   
     DMDAVecGetArray(da, user->lNu_t, &lnu_t);
   }
   /* A wall model replaces the subgrid viscosity at its own face rather than adding to
@@ -662,7 +658,7 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 
 	double nu = 1./ren, nu_t=0;
 	
-	if( les || (rans && ti>0) ) {
+	if( les ) {
 	  //nu_t = pow( 0.5 * ( sqrt(lnu_t[k][j][i]) + sqrt(lnu_t[k][j][i+1]) ), 2.0) * Sabs;
 	  nu_t = 0.5 * (lnu_t[k][j][i] + lnu_t[k][j][i+1]);
 	  /* Zero is right for a wall-resolved run, where the subgrid stress vanishes at
@@ -827,7 +823,7 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 
 	double nu = 1./ren, nu_t = 0;
 		
-	if( les || (rans && ti>0) ) {
+	if( les ) {
 	  //nu_t = pow( 0.5 * ( sqrt(lnu_t[k][j][i]) + sqrt(lnu_t[k][j+1][i]) ), 2.0) * Sabs;
 	  nu_t = 0.5 * (lnu_t[k][j][i] + lnu_t[k][j+1][i]);
 	  /* Zero is right for a wall-resolved run, where the subgrid stress vanishes at
@@ -984,7 +980,7 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 
 	double nu = 1./ren, nu_t =0;
 		
-	if( les || (rans && ti>0) ) {
+	if( les ) {
 	  //nu_t = pow( 0.5 * ( sqrt(lnu_t[k][j][i]) + sqrt(lnu_t[k+1][j][i]) ), 2.0) * Sabs;
 	  nu_t = 0.5 * (lnu_t[k][j][i] + lnu_t[k+1][j][i]);
 	  /* Zero is right for a wall-resolved run, where the subgrid stress vanishes at
@@ -1106,9 +1102,6 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
   DMDAVecRestoreArray(da, user->lNvert, &nvert);
 
   if(les) {
-    DMDAVecRestoreArray(da, user->lNu_t, &lnu_t);
-  } else if (rans) {
-  
     DMDAVecRestoreArray(da, user->lNu_t, &lnu_t);
   }
   /* Opened independently of the turbulence model, so closed independently of it. */
@@ -1916,8 +1909,8 @@ PetscErrorCode ComputeEulerianDiffusivity(UserCtx *user)
     // Pre-calculate molecular component
     gamma_molecular = nu_molecular / Sc;
 
-    // Check if a turbulence model is active (LES or RANS)
-    use_turbulence_model = (user->simCtx->les || user->simCtx->rans) ? PETSC_TRUE : PETSC_FALSE;
+    // Check if a turbulence model is active
+    use_turbulence_model = user->simCtx->les ? PETSC_TRUE : PETSC_FALSE;
 
     // ------------------------------------------------------------------------
     // 2. Data Access

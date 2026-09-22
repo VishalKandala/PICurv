@@ -431,6 +431,21 @@
       },
       "limitations": "Square duct faces only; the downstream development on programmatic_c was not re-measured here because the profile it imposes is the same exact duct solution the grid_gen duct measurement developed. Single-block only: the bridge supports one block, and multi-block domains are refused anyway.",
       "artifacts": []
+    },
+    {
+      "id": "wall-spectral-ic-2026-09-22",
+      "question": "Do the channel and duct spectral initial conditions stage the field they document: the flux-normalized product-parabola mean, a perturbation at the requested RMS, no-slip walls, and a discretely divergence-free field the runtime reproduces?",
+      "date": "2026-09-22",
+      "commit": "46a0680 (main)",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, 1 rank",
+      "configuration": "channel_spectral_velocity: the examples/turbulent_channel case reduced to 32 x 32 x 64 cells, wall axis j stretched (ratio 2.0, first cell 0.01 of the 2.0 height), periodic i and k; duct_spectral_velocity: examples/periodic_test/driven_duct case_spectral reduced the same way with both i and j stretched. Both with bulk_velocity 1.0, perturbation_rms 0.1, wall_modes 3, k4_exponential (k0 4.0, k_cut 8.0), seed 12345. Each was precomputed and then run one step. The staged Ucat was read back from the published asset payload and compared against the documented contract, and the divergence of the runtime's own step-0 Ucont was computed offline as the sum of each cell's six face fluxes.",
+      "result": {
+        "measured": "channel: volume-averaged streamwise velocity 1.0000000000000002 against the requested 1.0; the wall-normal mean profile equals the flux-normalized product parabola 4t(1-t) to 1.3e-15; perturbation RMS 0.10000000000000002, per-component 0.1048, 0.0890, 0.1053, each component's volume mean below 1e-17; the dummy layers are exact odd reflections of the first interior cells about both wall faces (error 0.0), so the wall face carries zero velocity; the runtime's step-0 Ucont has maximum cell divergence 1.4e-17 against a face-flux scale of 4.5e-2, a relative 3.2e-16. duct: bulk 1.0 exactly; mean profile to 2.7e-15; perturbation RMS 0.1 with per-component 0.0965, 0.1085, 0.0945; odd reflection exact on all four walls; step-0 divergence 1.1e-17 against a flux scale of 3.0e-2, a relative 3.6e-16. Re-generating with seed 12345 reproduced the payload bitwise; seed 999 produced a different field.",
+        "threshold": "Bulk velocity and perturbation RMS equal to their requested values, the mean equal to the documented parabola, zero velocity at the wall faces, and discrete divergence at round-off relative to the flux scale.",
+        "verdict": "met"
+      },
+      "limitations": "A startup construction, not developed turbulence: nothing here establishes that the seeded field sustains turbulence, and the perturbation spectrum shapes a vector potential rather than a promised velocity spectrum. Reduced 32 x 32 x 64 grids on one rank, not the shipped 128 x 128 x 256 production sizes; one spectrum type and one wall_modes value. The diagnostic plane and line spectra the stage writes were produced but not compared against a reference spectrum.",
+      "artifacts": []
     }
   ]
 }

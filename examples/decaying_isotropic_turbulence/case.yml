@@ -58,7 +58,6 @@ models:
         diagnostics:
           enabled: true
           cadence: 1
-      rans: {enabled: false}
       wall_function: {enabled: false}
 
 boundary_conditions:

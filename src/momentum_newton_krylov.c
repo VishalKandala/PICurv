@@ -269,8 +269,6 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user)
                "Newton Krylov version one does not support moving or rotating bodies/FSI.");
     PetscCheck(!simCtx->moveframe && !simCtx->rotateframe, PETSC_COMM_WORLD, PETSC_ERR_SUP,
                "Newton Krylov version one does not support moving or rotating reference frames.");
-    PetscCheck(!simCtx->rans, PETSC_COMM_WORLD, PETSC_ERR_SUP,
-               "Newton Krylov version one does not support RANS.");
     PetscCheck(!simCtx->TwoD, PETSC_COMM_WORLD, PETSC_ERR_SUP,
                "Newton Krylov version one does not support TwoD component masking.");
     for (PetscInt face = 0; face < 6; ++face) {
@@ -609,7 +607,7 @@ static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
     /* The eddy viscosity enters the preconditioner only when a turbulence model is
        actually producing one; without it the field may not even be allocated. */
     const PetscBool has_eddy_viscosity =
-        (PetscBool)((simCtx->les || simCtx->rans) && user->lNu_t != NULL);
+        (PetscBool)(simCtx->les && user->lNu_t != NULL);
     PetscErrorCode ierr = PETSC_SUCCESS, cleanup_ierr;
 
     PetscFunctionBeginUser;

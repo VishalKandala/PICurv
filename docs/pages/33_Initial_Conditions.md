@@ -443,9 +443,14 @@ There is no per-timestep injection, and transition/sustained turbulence is not g
 
 **Diagnostics.** Malformed expressions and missing inputs fail before solver launch.
 
-**Evidence.** Implemented only; generator and CLI regression tests exercise the file route. No developed turbulence validation is claimed.
+**Evidence.** Unit verified - `make test-python` covers the generator and the CLI file
+route. Analytically verified - `initial-conditions-2026-09-21`: staged `Ucat` and `Ucont`
+expressions equal their definitions exactly, and a `file` source re-reading the staged
+vectors reproduces the run bitwise.
 
-**Limitations.** Experimental. No divergence or turbulence property is implied by arbitrary expressions.
+**Limitations.** No divergence or turbulence property is implied by arbitrary
+expressions: whatever the expression says is what is staged. Measured on uniform
+Cartesian grids; expressions on curved grids are not covered.
 
 @subsection p33_cap_gen_spectral_random_velocity_sub spectral_random_velocity
 
@@ -463,9 +468,18 @@ There is no per-timestep injection, and transition/sustained turbulence is not g
 
 **Diagnostics.** The IC summary reports selected-operator divergence and realized energy; shell spectra measure the generated field.
 
-**Evidence.** Implemented only; generator and CLI regression tests exercise the file route. No developed turbulence validation is claimed.
+**Evidence.** Unit verified - `make test-python`. Production exercised in
+`examples/decaying_isotropic_turbulence`. Analytically verified -
+`initial-conditions-2026-09-21`: fluctuation RMS 1.000000 and kinetic energy 1.500000 as
+requested, the solver's own step-0 divergence 3.1e-14 against a flux scale of 4.3 under
+`operator: picurv_discrete`, the shell spectrum within 4.7% (energy-weighted) of the
+`k4_exponential` envelope with nothing above `k_cut`, and identical seeds reproducing
+identical fields.
 
-**Limitations.** Experimental. A continuum solenoidal field need not be discretely solenoidal; runtime reconstruction changes energy.
+**Limitations.** A continuum solenoidal field need not be discretely solenoidal - choose
+`operator: picurv_discrete` when the solver's own divergence must vanish - and runtime
+reconstruction changes the energy from the staged value, which the summary predicts
+separately. A startup field, not developed turbulence.
 
 @subsection p33_cap_gen_channel_spectral_velocity_sub channel_spectral_velocity
 
@@ -483,9 +497,18 @@ There is no per-timestep injection, and transition/sustained turbulence is not g
 
 **Diagnostics.** Summary reports bulk velocity, perturbation RMS and discrete divergence; selected plane/line spectra measure the seed.
 
-**Evidence.** Implemented only; generator and CLI regression tests exercise the file route. No developed turbulence validation is claimed.
+**Evidence.** Unit verified - `make test-python`. Production exercised in
+`examples/turbulent_channel`. Analytically verified - `wall-spectral-ic-2026-09-22`: on a
+stretched 32 x 32 x 64 channel the volume-averaged streamwise velocity equals the
+requested bulk to 2e-16, the mean profile equals the flux-normalized `4t(1-t)` parabola to
+1.3e-15, the perturbation RMS is exactly the requested 0.1 with zero component means, the
+dummy layers are exact odd reflections so the wall faces carry zero velocity, and the
+runtime's step-0 flux field has a cell divergence of 1.4e-17 against a flux scale of
+4.5e-2.
 
-**Limitations.** Experimental. Experimental startup construction; amplitude and resolution do not establish sustained turbulence.
+**Limitations.** A startup construction: amplitude and resolution do not establish
+sustained turbulence, and the spectrum shapes the vector potential rather than the
+velocity. Measured on a reduced grid on one rank, not at the shipped production size.
 
 @subsection p33_cap_gen_duct_spectral_velocity_sub duct_spectral_velocity
 
@@ -503,6 +526,14 @@ There is no per-timestep injection, and transition/sustained turbulence is not g
 
 **Diagnostics.** Summary reports bulk velocity and discrete divergence; actual selected line spectra report sample energy and Parseval residual.
 
-**Evidence.** Implemented only; generator and CLI regression tests exercise the file route. No developed turbulence validation is claimed.
+**Evidence.** Unit verified - `make test-python`. Production exercised in
+`examples/periodic_test/driven_duct`. Analytically verified - `wall-spectral-ic-2026-09-22`:
+on a doubly stretched 32 x 32 x 64 duct the volume-averaged streamwise velocity equals the
+requested bulk exactly, the mean equals the flux-normalized product of `4t(1-t)` parabolas
+to 2.7e-15, the perturbation RMS is exactly the requested 0.1, all four walls carry zero
+velocity through exact odd reflection, and the runtime's step-0 flux field has a cell
+divergence of 1.1e-17 against a flux scale of 3.0e-2.
 
-**Limitations.** Experimental. Experimental; product-parabola startup mean is not the exact laminar duct solution. Circular pipes and immersed boundaries are outside this provider.
+**Limitations.** The product-parabola startup mean is not the exact laminar duct solution,
+and a startup construction establishes no sustained turbulence. Circular pipes and
+immersed boundaries are outside this provider. Measured on a reduced grid on one rank.

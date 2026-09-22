@@ -55,6 +55,12 @@ VALID_STATUSES = tuple(LADDER) + tuple(TERMINAL_OBLIGATIONS)
 # (see DEMOTIONS): a supported claim that turns out to rest on less verification than
 # it implied is withdrawn openly, not left standing because no defect was found.
 #
+# `known-defective -> planned` is allowed on the same terms, and means something
+# narrower than a demotion: a subsystem declared defective that turns out never to have
+# been implemented at all, whose dead hooks have since been removed. The reason says what
+# was found and what came out, so the record does not read as a working feature that
+# broke.
+#
 # `planned -> removed` is the one deliberate exception, and it is not a removal in the
 # same sense: nothing was ever built, so a cancelled design owes a history record and
 # a rejection behaviour rather than a migration path. Every other route to `removed`
@@ -65,14 +71,15 @@ TRANSITIONS = {
     "internal": {"internal", "experimental", "supported", "known-defective", "deprecated"},
     "experimental": {"experimental", "supported", "known-defective", "deprecated"},
     "supported": {"supported", "experimental", "known-defective", "deprecated"},
-    "known-defective": {"known-defective", "experimental", "supported", "deprecated", "removed"},
+    "known-defective": {"known-defective", "planned", "experimental", "supported", "deprecated", "removed"},
     "deprecated": {"deprecated", "removed"},
     "removed": {"removed"},
 }
 
 # Transitions down the ladder that must say why. A demotion is not a defect: nothing
 # may be wrong with the code, only with the evidence the earlier claim rested on.
-DEMOTIONS = {("supported", "experimental")}
+# `known-defective -> planned` withdraws a feature that was never implemented.
+DEMOTIONS = {("supported", "experimental"), ("known-defective", "planned")}
 
 VALID_VISIBILITY = ("internal", "public")
 

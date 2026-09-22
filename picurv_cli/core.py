@@ -6724,20 +6724,19 @@ def _les_periodic_axes(case_cfg: dict) -> set:
     }
 
 
-#: Printed whenever a case enables RANS. `k_omega` is known-defective: setup never
-#: allocates the k-omega fields and FlowSolver's transport update is commented out, so
-#: the first history update copies a null vector and the solver aborts at the end of
-#: step one. The selector stays reachable so the path can be repaired in place; this
-#: message is its disclosure.
-RANS_KNOWN_DEFECT_DISCLOSURE = (
-    "models.physics.turbulence.rans selects k_omega, which is known-defective: the "
-    "k-omega fields are never allocated and their transport equations are never solved, "
-    "so the solver aborts with a null-vector error at the end of the first timestep. "
-    "Disable RANS."
+#: Refused whenever a case carries a RANS block. The k-omega transport update was never
+#: written and its fields were never allocated, so the closure was removed on 2026-09-22
+#: and the subsystem returned to `planned`; src/guide.md records the hooks that went with
+#: it. The message names the status rather than leaving a silently ignored block.
+RANS_PLANNED_REFUSAL = (
+    "models.physics.turbulence.rans is not accepted: RANS closures are planned, not "
+    "implemented. No transport equation was ever solved for them, and the selector and "
+    "its dead hooks were removed. Remove the block; use models.physics.turbulence.les, "
+    "or run laminar."
 )
 
 
-def validate_wall_model_pairing(case_cfg: dict, les_cfg, rans_cfg, wall_cfg,
+def validate_wall_model_pairing(case_cfg: dict, les_cfg, wall_cfg,
                                 case_path: str, errors: list, warnings: list):
     """!
     @brief Rejects wall-model selections that no turbulence treatment can support.
@@ -6749,7 +6748,6 @@ def validate_wall_model_pairing(case_cfg: dict, les_cfg, rans_cfg, wall_cfg,
 
     @param case_cfg Parsed case configuration, read for the Reynolds number.
     @param les_cfg  `models.physics.turbulence.les`, or None.
-    @param rans_cfg `models.physics.turbulence.rans`, or None.
     @param wall_cfg `models.physics.turbulence.wall_function`, or None.
     @param case_path Case path, for message prefixes.
     @param errors   Collected blocking messages, appended to.
@@ -6767,13 +6765,11 @@ def validate_wall_model_pairing(case_cfg: dict, les_cfg, rans_cfg, wall_cfg,
 
     les_on = isinstance(les_cfg, dict) and bool(les_cfg.get('enabled', False)) \
         and str(les_cfg.get('model', 'dynamic_smagorinsky')).strip().lower() != 'none'
-    rans_on = isinstance(rans_cfg, dict) and bool(rans_cfg.get('enabled', False))
-
     # A wall model with nothing to sit on. The convective scheme here is QUICK, whose
     # dissipation is linear and upwind-biased; it is not a limiter-based scheme whose
     # truncation error stands in for a subgrid stress, so there is no implicit LES to
     # appeal to.
-    if not les_on and not rans_on:
+    if not les_on:
         errors.append(
             f"  {case_path}: models.physics.turbulence.wall_function is enabled with no "
             "turbulence model. A wall model supplies the stress of a boundary layer it "
@@ -6782,27 +6778,6 @@ def validate_wall_model_pairing(case_cfg: dict, les_cfg, rans_cfg, wall_cfg,
             "QUICK, whose numerical dissipation is not a subgrid model - so enable "
             "models.physics.turbulence.les, or resolve the wall and disable the wall "
             "function.")
-
-    # Cabot carries a mixing-length eddy viscosity in the wall layer, which is itself a
-    # RANS closure; nesting it inside a RANS model is two closures for one layer with no
-    # defined matching between them. Werner-Wengle applies its power law to an
-    # instantaneous filtered velocity, which is an LES construct and has no standing as a
-    # RANS wall function.
-    if rans_on and model == 3:
-        errors.append(
-            f"  {case_path}: models.physics.turbulence.wall_function.model 'cabot' cannot "
-            "be used with RANS. Cabot solves the wall layer with its own mixing-length "
-            "eddy viscosity, so under a RANS model the near-wall layer would carry two "
-            "turbulence closures with no matching between them. Only 'log_law' is a RANS "
-            "wall law, and RANS itself is known-defective: k_omega has no transport update.")
-    if rans_on and model == 2:
-        errors.append(
-            f"  {case_path}: models.physics.turbulence.wall_function.model 'werner' cannot "
-            "be used with RANS. Werner-Wengle applies its power law to the instantaneous "
-            "filtered velocity, which is a large-eddy quantity; a RANS field is already "
-            "averaged and wants a wall law derived for the mean profile. Only 'log_law' is "
-            "a RANS wall law, and RANS itself is known-defective: k_omega has no transport "
-            "update.")
 
     # A wall law describes a turbulent boundary layer. Below transition there is no
     # inertial region for it to stand on, and it would impose a profile the flow does not
@@ -7320,6 +7295,8 @@ _CASE_SCHEMA = {
     ("models", "physics", "fsi"): {"immersed", "moving_fsi"},
     ("models", "physics", "particles"): {"count", "init_mode", "restart_mode", "point_source", "random_seed"},
     ("models", "physics", "particles", "point_source"): {"x", "y", "z"},
+    # 'rans' stays listed so a case carrying it gets the planned-status refusal rather
+    # than a generic unknown-key error; nothing translates it.
     ("models", "physics", "turbulence"): {"les", "rans", "wall_function"},
     ("models", "physics", "turbulence", "les"): {
         "enabled", "model", "constant_cs", "vreman_coefficient", "wale_coefficient",
@@ -8345,20 +8322,11 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         if isinstance(les_cfg, dict):
             validate_les_configuration(case_cfg, les_cfg, case_path, errors, warnings)
 
-        validate_wall_model_pairing(case_cfg, les_cfg, rans_cfg, wall_cfg, case_path,
+        validate_wall_model_pairing(case_cfg, les_cfg, wall_cfg, case_path,
                                     errors, warnings)
 
-        if isinstance(rans_cfg, dict):
-            if 'enabled' in rans_cfg and not isinstance(rans_cfg['enabled'], bool):
-                errors.append(f"  {case_path}: models.physics.turbulence.rans.enabled must be true or false.")
-            try:
-                rans_enabled = bool(rans_cfg.get('enabled', True)) and normalize_rans_model(rans_cfg.get('model', 'k_omega')) != 0
-            except ValueError:
-                rans_enabled = False
-            if rans_enabled:
-                warnings.append(f"{case_path}: {RANS_KNOWN_DEFECT_DISCLOSURE}")
-        elif rans_cfg:
-            warnings.append(f"{case_path}: {RANS_KNOWN_DEFECT_DISCLOSURE}")
+        if rans_cfg is not None:
+            errors.append(f"  {case_path}: {RANS_PLANNED_REFUSAL}")
 
         if isinstance(wall_cfg, dict):
             if 'enabled' in wall_cfg and not isinstance(wall_cfg['enabled'], bool):
@@ -10475,11 +10443,10 @@ def _statistics_subsystem_available(case_cfg: dict, requirement) -> bool:
             return False
     turbulence = physics.get("turbulence", {}) or {}
     les_on = bool((turbulence.get("les", {}) or {}).get("enabled", False))
-    rans_on = bool((turbulence.get("rans", {}) or {}).get("enabled", False))
     if requirement == "les":
         return les_on
     if requirement == "turbulence":
-        return les_on or rans_on
+        return les_on
     return False
 
 
@@ -12560,34 +12527,6 @@ def normalize_les_averaging_directions(value) -> str:
         selected.append(token)
     return "".join(axis for axis in LES_AVERAGING_DIRECTION_AXES if axis in selected)
 
-def normalize_rans_model(value) -> int:
-    """!
-    @brief Maps RANS model selectors to the current C -rans switch.
-    @param[in] value RANS selector name or legacy integer/bool value.
-    @return Integer code accepted by -rans.
-    @throws ValueError if the input cannot be mapped.
-    """
-    if isinstance(value, bool):
-        return 1 if value else 0
-    if isinstance(value, int):
-        if value in (0, 1):
-            return value
-        raise ValueError("models.physics.turbulence.rans must be 0, 1, false/true, or a supported model block.")
-    if value is None:
-        raise ValueError("RANS model cannot be None")
-
-    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
-    mapped = {
-        "none": 0,
-        "off": 0,
-        "disabled": 0,
-        "k_omega": 1,
-        "komega": 1,
-    }.get(key)
-    if mapped is None:
-        raise ValueError(f"Unknown RANS model '{value}'. Use one of: 'none', 'k_omega'.")
-    return mapped
-
 def normalize_wall_function_model(value) -> int:
     """!
     @brief Maps wall-function model selectors to the C -wallfunction flag.
@@ -12723,7 +12662,6 @@ def append_turbulence_flags(models: dict, control_lines: list):
     rans_cfg = turbulence_cfg.get('rans')
     wall_cfg = turbulence_cfg.get('wall_function')
     les_code = None
-    rans_code = None
 
     if isinstance(les_cfg, dict):
         enabled = resolve_enabled_flag(les_cfg, "models.physics.turbulence.les")
@@ -12735,17 +12673,8 @@ def append_turbulence_flags(models: dict, control_lines: list):
         les_code = normalize_les_model(les_cfg)
         control_lines.append(f"-les {les_code}")
 
-    if isinstance(rans_cfg, dict):
-        enabled = resolve_enabled_flag(rans_cfg, "models.physics.turbulence.rans")
-        model_value = rans_cfg.get('model', 'k_omega')
-        rans_code = normalize_rans_model(model_value) if enabled else 0
-        control_lines.append(f"-rans {rans_code}")
-    elif rans_cfg is not None:
-        rans_code = normalize_rans_model(rans_cfg)
-        control_lines.append(f"-rans {rans_code}")
-
-    if les_code and rans_code:
-        raise ValueError("models.physics.turbulence cannot enable both LES and RANS in the same case.")
+    if rans_cfg is not None:
+        raise ValueError(RANS_PLANNED_REFUSAL)
 
     if isinstance(wall_cfg, dict):
         enabled = resolve_enabled_flag(wall_cfg, "models.physics.turbulence.wall_function")
@@ -18375,7 +18304,7 @@ def _summarize_turbulence(turbulence_cfg: dict) -> dict:
     @return Curated turbulence and wall-model mapping.
     """
     result = {}
-    for key in ("les", "rans", "wall_function"):
+    for key in ("les", "wall_function"):
         value = turbulence_cfg.get(key)
         if isinstance(value, dict):
             result[key] = {

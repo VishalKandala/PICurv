@@ -145,6 +145,12 @@ correct and the evidence simply thinner than a supported claim implies. A record
 still carries its supported documentation keeps it by declaring `proposed_status:
 supported` with a `promotion_rationale` naming the checks that would restore the claim.
 
+`known-defective -> planned` is allowed on the same terms, with a `demotion_reason`, and
+means something narrower: a subsystem declared defective that turns out never to have
+been implemented at all, once its dead hooks are removed. The reason says what was found
+and what came out, so the record does not read as a working feature that broke. The RANS
+closure took that route on 2026-09-22.
+
 `planned -> removed` is the single deliberate exception: a cancelled design was never
 built, so it owes a history record and the rejection behaviour, not a migration path
 for users who never had it.
@@ -188,7 +194,7 @@ registry:
   owner that is `known-defective` or `deprecated`, a value shares that status or is
   `removed`.
 - **The switch that turns a subsystem off is exempt.** A value marked `"off_switch": true`
-  - `none` for the LES or RANS model - claims nothing about the subsystem it disables, so
+  - `none` for the LES model - claims nothing about the subsystem it disables, so
   it may be `supported` under an `experimental` owner. A family has at most one.
 
 Promoting a subsystem therefore promotes nothing on its own: each value is promoted

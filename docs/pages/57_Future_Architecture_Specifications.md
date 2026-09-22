@@ -22,6 +22,7 @@ says otherwise.
 | @ref 59_Function_Identity_and_Observability_Specification | deferred, benchmark-gated | none |
 | Immersed boundaries, moving bodies, moving frames (@ref p57_ibm_sec) | planned; switches refused | none |
 | Multi-block coupling (@ref p57_multiblock_sec) | planned; `blocks` other than 1 refused | none |
+| RANS closures (@ref p57_rans_sec) | planned; `rans` block and `-rans` refused | none |
 | Newton-Krylov Jacobian types and modes (@ref p57_nk_jacobian_sec) | planned; refused at validation | Newton-Krylov solver |
 | @ref 17_Workflow_Extensibility | proposed extension directions | none |
 
@@ -143,6 +144,32 @@ solution. The Newton-Krylov solver refuses multiple blocks independently. Field
 statistics payloads are already block scoped and follow the same natural ordering
 the Eulerian payloads do; the harness that proves multi-block equivalence should
 cover them at the same time.
+
+**Design owner:** the repository owner. Nothing here is scheduled.
+
+@section p57_rans_sec 6a. RANS Closures
+
+**Status: planned, not implemented.** PICurv models turbulence with the LES closures at
+**@subpage 72_LES_Turbulence_Closure**; there is no Reynolds-averaged path. A `k_omega`
+selector existed until 2026-09-22 and was removed: nothing behind it was ever built. Setup
+allocated an eddy viscosity but never the `K_Omega` fields, the transport update in
+`FlowSolver` was commented out, and the function it called was defined nowhere, so a case
+that enabled it copied a null vector and aborted at the end of the first timestep. It was
+recorded known-defective on 2026-09-18 and, since no implementation had ever existed,
+returned to planned when the dead hooks came out. `src/guide.md` lists exactly what was
+removed.
+
+`models.physics.turbulence.rans` is refused at validation, and `-rans` is refused at setup,
+so nothing is silently ignored.
+
+**What must exist before a RANS selector returns.** Storage and ghost exchange for the
+turbulence variables; a transport equation for each, discretized on the same curvilinear
+metrics as momentum, with their production, dissipation and cross-diffusion terms; wall
+treatment matched to the closure, including which wall function is admissible with it;
+checkpoint and restart of the turbulence state; and a validation case with a reference
+profile - a channel at a published `Re_tau` - showing the mean profile and the eddy
+viscosity the closure is supposed to produce. A wall-modelled LES path is the nearer
+alternative for the same engineering questions, and the wall functions already exist.
 
 **Design owner:** the repository owner. Nothing here is scheduled.
 

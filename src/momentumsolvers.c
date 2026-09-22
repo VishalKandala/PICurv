@@ -440,7 +440,7 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
     PetscCheck(simCtx != NULL, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "user[0].simCtx is NULL");
     const PetscReal a0       = MomentumBDFCoefficient(simCtx);
     const PetscBool centered = (PetscBool)(simCtx->les || simCtx->central);
-    const PetscBool has_nut  = (PetscBool)(simCtx->les || simCtx->rans);
+    const PetscBool has_nut  = (PetscBool)(simCtx->les != NO_LES_MODEL);
     const PetscBool inviscid = (PetscBool)simCtx->invicid;
     PetscCheck(inviscid || (PetscIsNormalReal(simCtx->ren) && simCtx->ren > 0.0),
                PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Reynolds number must be finite and positive when viscous");
@@ -449,12 +449,12 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
     const PetscInt  twoD     = simCtx->TwoD;
 
     /* Shadow-mode completeness flag. The estimate does NOT cover the Clark nonlinear stress
-       Jacobian, nor RANS eddy-viscosity sign behaviour (not verified sign-definite).
+       Jacobian (not verified sign-definite).
        Body forces in the supported configs read a per-timestep-frozen scalar
        (simCtx->bulkVelocityCorrection) inside ComputeRHS, so within a pseudo-solve they are a
        constant forcing with ZERO velocity Jacobian (consistent with the frozen-pressure
        treatment) -- they do not make the estimate incomplete. */
-    rep->estimate_incomplete = (PetscBool)(simCtx->les_gradient_model || simCtx->rans);
+    rep->estimate_incomplete = (PetscBool)(simCtx->les_gradient_model);
 
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 

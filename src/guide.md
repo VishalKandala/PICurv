@@ -94,6 +94,29 @@ Recover any of them from history (the parent of the commit that removes this tab
 source lines) if an implementation ever needs one; do not re-add a read without a
 consumer.
 
+## Removed RANS Hooks
+
+Internal record; not published. On 2026-09-22 the k-omega RANS closure was removed and
+the `turbulence.rans` subsystem returned to `planned`. Nothing was ever built: setup
+never allocated the fields, and `FlowSolver`'s transport update was commented out, so a
+case that enabled it aborted on a null vector at the end of step one. What went with it:
+
+| Removed | Where it lived | What it was |
+| --- | --- | --- |
+| `-rans` option and `SimCtx::rans` | `setup.c`, `variables.h` | the selector; `-rans` is now refused as planned, not implemented |
+| `K_Omega`, `lK_Omega`, `K_Omega_o`, `lK_Omega_o` | `variables.h`, `field_catalog.c` | the k-omega vectors and their two catalog entries; never allocated |
+| `FIELD_AVAILABILITY_RANS`, `FIELD_DM_FDA2`, `UserCtx::fda2` | `field_catalog.h`, `variables.h`, `setup.c` | the availability flag and the two-component DM only those fields used; `fda2` was destroyed but never created |
+| the commented k-omega update | `solvers.c` | calls to `K_Omega_Set_Constant`, `K_Omega_IC` and `Solve_K_Omega`, none of which exist |
+| `simCtx->rans` guards | `rhs.c`, `runloop.c`, `io.c`, `momentumsolvers.c`, `momentum_newton_krylov.c` | eddy-viscosity, history-copy and Newton-Krylov scope branches that could never be taken |
+| `-checkpoint_rans` | `io.c` | checkpoint metadata key, written and required; a checkpoint written now is not readable by a pre-removal binary, which still requires it. The format version stays 1, so existing checkpoints remain readable |
+| `models.physics.turbulence.rans`, `normalize_rans_model()` | `picurv_cli/core.py` | the YAML block and its translation; the block is now refused with the planned-status message |
+
+The wall-function treatment is unaffected: it is configured independently of any
+closure, and only its two RANS-specific pairing refusals (`cabot` and `werner` under
+RANS) went with the selector.
+
+A future implementation starts from the charter on page 57, not from this history.
+
 ## Change-Safety Checklist
 
 - Update matching headers for every public symbol change.

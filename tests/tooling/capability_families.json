@@ -728,50 +728,6 @@
       }
     },
     {
-      "id": "turbulence.rans_model",
-      "title": "RANS Models",
-      "selector": "case.yml -> models.physics.turbulence.rans.model",
-      "public_surface": {
-        "kind": "python_normalizer",
-        "module": "picurv_cli.core",
-        "symbol": "normalize_rans_model"
-      },
-      "parity_sources": [],
-      "family_page": "07_Case_Reference",
-      "entry_anchor_prefix": "p07_cap_rans_",
-      "coverage_enforced": true,
-      "value_metadata": {
-        "none": {
-          "status": "supported",
-          "canonical": true,
-          "evidence": {
-            "production": [
-              "example:examples/flat_channel",
-              "example:examples/bent_channel"
-            ]
-          },
-          "off_switch": true
-        },
-        "off": {
-          "canonical": false,
-          "spelling_of": "none"
-        },
-        "disabled": {
-          "canonical": false,
-          "spelling_of": "none"
-        },
-        "k_omega": {
-          "status": "known-defective",
-          "canonical": true,
-          "evidence": {}
-        },
-        "komega": {
-          "canonical": false,
-          "spelling_of": "k_omega"
-        }
-      }
-    },
-    {
       "id": "turbulence.les_test_filter",
       "title": "LES Test Filters",
       "selector": "case.yml -> models.physics.turbulence.les.test_filter.kernel",
@@ -2091,24 +2047,61 @@
       "coverage_enforced": true,
       "value_metadata": {
         "ic_gen": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "unit": [
+              "make:test-python"
+            ],
+            "analytical": [
+              "measurement:initial-conditions-2026-09-21"
+            ]
+          }
         },
         "spectral_random_velocity": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "unit": [
+              "make:test-python"
+            ],
+            "production": [
+              "example:examples/decaying_isotropic_turbulence"
+            ],
+            "analytical": [
+              "measurement:initial-conditions-2026-09-21"
+            ]
+          }
         },
         "channel_spectral_velocity": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "unit": [
+              "make:test-python"
+            ],
+            "production": [
+              "example:examples/turbulent_channel"
+            ],
+            "analytical": [
+              "measurement:wall-spectral-ic-2026-09-22"
+            ]
+          }
         },
         "duct_spectral_velocity": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "unit": [
+              "make:test-python"
+            ],
+            "production": [
+              "example:examples/periodic_test/driven_duct"
+            ],
+            "analytical": [
+              "measurement:wall-spectral-ic-2026-09-22"
+            ]
+          }
         }
       }
     }

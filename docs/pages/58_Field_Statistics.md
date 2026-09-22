@@ -31,10 +31,10 @@ as zeros.
 
 Three boundaries are worth stating because they are easy to assume away.
 
-**LES and RANS quantities stay model quantities.** `Nu_t` and `CS` can be
-averaged like any other field, but modelled `k` is never relabelled as the
-turbulent kinetic energy derived from resolved velocity fluctuations. The two
-are different quantities and the pipeline does not conflate them.
+**Modelled quantities stay model quantities.** `Nu_t` and `CS` can be averaged like any
+other field, but a modelled quantity is never relabelled as the turbulent kinetic energy
+derived from resolved velocity fluctuations. The two are different quantities and the
+pipeline does not conflate them.
 
 **Full-field time histories are out of scope.** The accumulator holds moments,
 not snapshots. A run that needs the states themselves selects ordinary

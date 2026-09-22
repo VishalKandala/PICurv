@@ -46,7 +46,7 @@ static PetscBool ValidateEulerianVTKFile(const char *path, PetscInt mx, PetscInt
     while (fgets(line, sizeof(line), file)) {
         if (strstr(line, "Name=\"P_nodal\"")) saw_pressure = PETSC_TRUE;
         if (strstr(line, "Name=\"Ucat_nodal\"")) saw_velocity = PETSC_TRUE;
-        if (strstr(line, "Name=\"Qcrit\"")) saw_qcrit = PETSC_TRUE;
+        if (strstr(line, "Name=\"Qcrit_nodal\"")) saw_qcrit = PETSC_TRUE;
         if (strstr(line, expected_extent)) saw_extent = PETSC_TRUE;
         if (strstr(line, "<AppendedData encoding=\"raw\">")) break;
     }
@@ -73,7 +73,7 @@ static PetscBool ValidateEulerianVTKFile(const char *path, PetscInt mx, PetscInt
     if (!velocity ||
         fread(velocity, sizeof(PetscScalar), (size_t)(3 * npoints), file) != (size_t)(3 * npoints)) goto cleanup;
 
-    /* Qcrit. */
+    /* Qcrit_nodal. */
     if (fread(&block_size, sizeof(block_size), 1, file) != 1 ||
         block_size != (uint32_t)(npoints * (PetscInt)sizeof(PetscScalar))) goto cleanup;
     qcrit = malloc((size_t)npoints * sizeof(*qcrit));
@@ -147,7 +147,7 @@ static PetscErrorCode TestWriteEulerianFileCollectiveMultiRank(void)
 
     PetscCall(DMDAVecGetArray(user->da, user->P_nodal, &pressure));
     PetscCall(DMDAVecGetArray(user->fda, user->Ucat_nodal, &velocity));
-    PetscCall(DMDAVecGetArray(user->da, user->Qcrit, &qcrit));
+    PetscCall(DMDAVecGetArray(user->da, user->Qcrit_nodal, &qcrit));
     for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k) {
         for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j) {
             for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
@@ -161,7 +161,7 @@ static PetscErrorCode TestWriteEulerianFileCollectiveMultiRank(void)
     }
     PetscCall(DMDAVecRestoreArray(user->da, user->P_nodal, &pressure));
     PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat_nodal, &velocity));
-    PetscCall(DMDAVecRestoreArray(user->da, user->Qcrit, &qcrit));
+    PetscCall(DMDAVecRestoreArray(user->da, user->Qcrit_nodal, &qcrit));
 
     if (user->IM - 1 >= user->info.xs && user->IM - 1 < user->info.xs + user->info.xm &&
         user->JM - 1 >= user->info.ys && user->JM - 1 < user->info.ys + user->info.ym &&
@@ -173,7 +173,7 @@ static PetscErrorCode TestWriteEulerianFileCollectiveMultiRank(void)
                                "the final physical VTK point should have the expected owner"));
 
     PetscCall(PetscStrncpy(pps.output_fields_instantaneous,
-                           "P_nodal,Ucat_nodal,Qcrit",
+                           "P_nodal,Ucat_nodal,Qcrit_nodal",
                            sizeof(pps.output_fields_instantaneous)));
 
     PetscCall(WriteEulerianFile(user, &pps, 3));

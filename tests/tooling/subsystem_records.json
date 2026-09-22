@@ -348,7 +348,7 @@
         },
         "dependencies": {
           "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "anchor": "p07_wall_laws_sec"
         },
         "developer_entry_points": {
           "page": "50_Modular_Selector_Extension_Guide"
@@ -395,81 +395,38 @@
     {
       "id": "turbulence.rans",
       "title": "RANS Turbulence Models",
-      "status": "known-defective",
+      "status": "planned",
       "visibility": "public",
-      "previous_status": "experimental",
-      "capability_families": [
-        "turbulence.rans_model"
-      ],
+      "previous_status": "known-defective",
+      "demotion_reason": "Declared known-defective on 2026-09-18, but the survey that followed found nothing had ever been implemented: the k-omega fields were never allocated, the transport update in FlowSolver was commented out, and the function it called was defined nowhere. A defect record implies a feature that broke; this one never worked. The selector and its dead hooks were removed on 2026-09-22 (src/guide.md lists them) and the subsystem returned to planned.",
+      "capability_families": [],
       "obligations": {
         "purpose": {
-          "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "page": "57_Future_Architecture_Specifications",
+          "anchor": "p57_rans_sec"
         },
         "intended_scope": {
-          "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "page": "57_Future_Architecture_Specifications",
+          "anchor": "p57_rans_sec"
         },
         "design_owner": {
           "value": "PICurv maintainers (repository owner)"
         },
-        "scope_boundary": {
-          "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
-        },
-        "architecture_boundary": {
-          "page": "21_Methods_Overview"
-        },
-        "dependencies": {
-          "page": "07_Case_Reference",
-          "anchor": "p07_models_sec"
-        },
-        "developer_entry_points": {
-          "page": "50_Modular_Selector_Extension_Guide"
-        },
-        "configuration": {
-          "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
-        },
-        "selection_guidance": {
-          "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
-        },
-        "observability": {
-          "page": "09_Monitor_Reference",
-          "anchor": "p09_startup_banner_sec"
-        },
-        "limitations": {
-          "page": "07_Case_Reference",
-          "anchor": "p07_cap_rans_k_omega_sub"
-        },
-        "safe_use_boundaries": {
-          "page": "07_Case_Reference",
-          "anchor": "p07_cap_rans_k_omega_sub"
-        },
-        "defect_disclosure": {
-          "page": "07_Case_Reference",
-          "anchor": "p07_cap_rans_k_omega_sub"
-        },
-        "defect_scope_record": {
-          "value": "tests/tooling/capability_scope_records.json: turbulence.rans.k_omega"
+        "not_implemented_status": {
+          "page": "57_Future_Architecture_Specifications",
+          "anchor": "p57_rans_sec"
         }
       },
       "concerns": {
-        "numerical_method": {
-          "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
-        },
         "user_selector": {
-          "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "not_applicable": "models.physics.turbulence.rans is refused at validation and -rans is refused at setup, so nothing is selectable until a closure exists."
         },
-        "scientific_verification": {
-          "not_applicable": "The k-omega path produces no solution to verify: enabling it aborts the solver at the end of the first timestep, so no verification claim of any kind is made for it."
+        "numerical_method": {
+          "page": "57_Future_Architecture_Specifications",
+          "anchor": "p57_rans_sec"
         }
       },
-      "peak_status": "experimental",
-      "note": "Declared known-defective on 2026-09-18 after a code survey and a three-step run of the flat-channel case with k_omega enabled. Setup never allocates the K_Omega fields and FlowSolver's transport update is commented out, so the first UpdateSolverHistoryVectors call copies a null vector and PETSc aborts with a null-argument error at the end of step one. The previous record described the runtime update as incomplete; it was absent. The selector stays reachable, with the disclosure printed by picurv validate and run, so the path can be repaired in place and return to experimental."
+      "note": "Removed and returned to planned on 2026-09-22. Turbulence modelling in PICurv is the LES path (turbulence.les) with the wall functions (turbulence.wall_function), both of which are configured independently of any RANS closure and were unaffected. Page 57 carries the charter: what must exist before a selector returns, and why a wall-modelled LES path is the nearer alternative."
     },
     {
       "id": "turbulence.wall_function",
@@ -483,18 +440,18 @@
       "obligations": {
         "purpose": {
           "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "anchor": "p07_wall_laws_sec"
         },
         "intended_scope": {
           "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "anchor": "p07_wall_laws_sec"
         },
         "design_owner": {
           "value": "PICurv maintainers (repository owner)"
         },
         "scope_boundary": {
           "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "anchor": "p07_wall_laws_sec"
         },
         "architecture_boundary": {
           "page": "21_Methods_Overview"
@@ -508,11 +465,11 @@
         },
         "configuration": {
           "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "anchor": "p07_wall_laws_sec"
         },
         "selection_guidance": {
           "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "anchor": "p07_wall_laws_sec"
         },
         "observability": {
           "page": "09_Monitor_Reference",
@@ -520,25 +477,25 @@
         },
         "limitations": {
           "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "anchor": "p07_wall_laws_sec"
         },
         "safe_use_boundaries": {
           "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "anchor": "p07_wall_laws_sec"
         }
       },
       "concerns": {
         "numerical_method": {
           "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "anchor": "p07_wall_laws_sec"
         },
         "user_selector": {
           "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "anchor": "p07_wall_laws_sec"
         },
         "scientific_verification": {
           "page": "07_Case_Reference",
-          "anchor": "p07_rans_filter_sec"
+          "anchor": "p07_wall_laws_sec"
         },
         "backward_compatibility": {
           "not_applicable": "The wall_function block and its -wallfunction / -wall_roughness flags are unchanged; nothing has been renamed or retired."

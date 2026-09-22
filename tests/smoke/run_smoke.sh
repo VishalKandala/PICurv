@@ -137,7 +137,6 @@ for step in range(first_step, last_step + 1):
         "-checkpoint_particles false",
         "-checkpoint_particle_count 0",
         "-checkpoint_les false",
-        "-checkpoint_rans false",
         f"-checkpoint_payload_count {len(payloads)}",
         "-checkpoint_block_0_im 4",
         "-checkpoint_block_0_jm 4",

@@ -161,7 +161,7 @@ PetscErrorCode WriteFieldData(UserCtx *user, const char *field_name, Vec field_v
  * @brief Writes simulation fields to files.
  *
  * This function writes contravariant velocity, Cartesian velocity, pressure, and node state
- * fields to their respective binary files. It also conditionally writes LES and RANS
+ * fields to their respective binary files. It also conditionally writes LES
  * model fields when those models are enabled.
  *
  * @param[in] user Pointer to the UserCtx structure containing simulation context.

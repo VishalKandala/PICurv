@@ -150,7 +150,6 @@ static PetscErrorCode TestComputeEulerianDiffusivityMolecularOnly(void)
     simCtx->ren = 2.0;
     simCtx->schmidt_number = 4.0;
     simCtx->les = PETSC_FALSE;
-    simCtx->rans = PETSC_FALSE;
     PetscCall(VecZeroEntries(user->Diffusivity));
 
     PetscCall(ComputeEulerianDiffusivity(user));
@@ -263,7 +262,6 @@ static PetscErrorCode ClarkToMolecularRatioPerX(PetscReal h, PetscInt probe, Pet
     PetscCall(ScaleMinimalMetricsToSpacing(user, h));
     simCtx->ren = 1.0;
     simCtx->les = NO_LES_MODEL;
-    simCtx->rans = 0;
 
     PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
     for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k)

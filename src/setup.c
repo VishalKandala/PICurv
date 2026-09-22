@@ -480,8 +480,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->ratio = 0.0;
     
     
-    // --- Group 8: Turbulence Modeling (LES/RANS) ---
-    simCtx->les = NO_LES_MODEL; simCtx->rans = 0;
+    // --- Group 8: Turbulence Modeling (LES) ---
+    simCtx->les = NO_LES_MODEL;
     simCtx->wallfunction = 0; simCtx->les_gradient_model = 0;
     ierr = LESConfigSetDefaults(&simCtx->les_config); CHKERRQ(ierr);
 
@@ -1070,7 +1070,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     
 
      //  --- Group 8
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 8: Turbulence Modeling (LES/RANS) \n");
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 8: Turbulence Modeling (LES) \n");
     // Seeded from the default already in simCtx: PetscOptionsGetInt leaves the target
     // untouched when -les is absent, and an uninitialized value would become the model.
     PetscInt temp_les_model = (PetscInt)simCtx->les;
@@ -1080,7 +1080,17 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
                "-les must be 0 (none), 1 (constant_smagorinsky), 2 (dynamic_smagorinsky), "
                "3 (vreman), or 4 (wale); received %" PetscInt_FMT ".", temp_les_model);
     simCtx->les = (LESModelType)temp_les_model;
-    ierr = PetscOptionsGetInt(NULL, NULL, "-rans", &simCtx->rans, NULL); CHKERRQ(ierr);
+    {
+        /* RANS is planned, not implemented: the k-omega transport update was never
+           written and its fields were never allocated. The selector and its dead
+           hooks were removed on 2026-09-22 (see src/guide.md); this refuses the flag
+           arriving through a PETSc passthrough. */
+        PetscInt requested_rans = 0;
+        ierr = PetscOptionsGetInt(NULL, NULL, "-rans", &requested_rans, NULL); CHKERRQ(ierr);
+        PetscCheck(requested_rans == 0, PETSC_COMM_WORLD, PETSC_ERR_SUP,
+                   "RANS closures (-rans) are planned, not implemented: no transport equation is "
+                   "solved for them. Use an LES closure, or run laminar.");
+    }
     ierr = PetscOptionsGetInt(NULL, NULL, "-wallfunction", &simCtx->wallfunction, NULL); CHKERRQ(ierr);
     PetscCheck(simCtx->wallfunction >= WALL_FUNCTION_NONE && simCtx->wallfunction <= WALL_FUNCTION_CABOT,
                PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
@@ -2133,10 +2143,10 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 
 	    if(level == usermg->mglevels -1){
 	    // --- Group G: Turbulence Models (Finest Level Only) ---
-            if (simCtx->les || simCtx->rans) {
+            if (simCtx->les) {
                 ierr = DMCreateGlobalVector(user->da, &user->Nu_t); CHKERRQ(ierr); ierr = VecSet(user->Nu_t, 0.0); CHKERRQ(ierr);
                 ierr = DMCreateLocalVector(user->da, &user->lNu_t); CHKERRQ(ierr); ierr = VecSet(user->lNu_t, 0.0); CHKERRQ(ierr);
-                LOG_ALLOW(GLOBAL, LOG_DEBUG, "Turbulence viscosity (Nu_t) vectors created for LES/RANS model.\n");
+                LOG_ALLOW(GLOBAL, LOG_DEBUG, "Turbulence viscosity (Nu_t) vectors created for the LES model.\n");
                 // Only the dynamic model carries a coefficient field. The constant model
                 // reads its coefficient straight from configuration, so allocating,
                 // synchronizing, and checkpointing a field of one repeated number would
@@ -4203,7 +4213,7 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->lCenty) { ierr = VecDestroy(&user->lCenty); CHKERRQ(ierr); }
     if (user->lCentz) { ierr = VecDestroy(&user->lCentz); CHKERRQ(ierr); }
 
-    // --- Group G: Turbulence Model Vectors (Finest level, conditional on les/rans) ---
+    // --- Group G: Turbulence Model Vectors (Finest level, conditional on les) ---
     if (user->Nu_t) { ierr = VecDestroy(&user->Nu_t); CHKERRQ(ierr); }
     if (user->lNu_t) { ierr = VecDestroy(&user->lNu_t); CHKERRQ(ierr); }
     if (user->CS) { ierr = VecDestroy(&user->CS); CHKERRQ(ierr); }
@@ -4212,10 +4222,6 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->lNu_Wall) { ierr = VecDestroy(&user->lNu_Wall); CHKERRQ(ierr); }
     if (user->Friction_Velocity) { ierr = VecDestroy(&user->Friction_Velocity); CHKERRQ(ierr); }
     if (user->lFriction_Velocity) { ierr = VecDestroy(&user->lFriction_Velocity); CHKERRQ(ierr); }
-    if (user->K_Omega) { ierr = VecDestroy(&user->K_Omega); CHKERRQ(ierr); }
-    if (user->lK_Omega) { ierr = VecDestroy(&user->lK_Omega); CHKERRQ(ierr); }
-    if (user->K_Omega_o) { ierr = VecDestroy(&user->K_Omega_o); CHKERRQ(ierr); }
-    if (user->lK_Omega_o) { ierr = VecDestroy(&user->lK_Omega_o); CHKERRQ(ierr); }
 
     // --- Group H: Particle Vectors (Finest level, conditional on np > 0) ---
     if (user->ParticleCount) { ierr = VecDestroy(&user->ParticleCount); CHKERRQ(ierr); }
@@ -4330,7 +4336,7 @@ PetscErrorCode DestroyUserContext(UserCtx *user)
     }
 
     // --- Step 5: Destroy DM Objects ---
-    // Destroy in reverse order of dependency: post_swarm, swarm, fda6, fda2, fda, da
+    // Destroy in reverse order of dependency: post_swarm, swarm, fda6, fda, da
     if (user->post_swarm) {
         ierr = DMDestroy(&user->post_swarm); CHKERRQ(ierr);
         LOG_ALLOW(LOCAL, LOG_DEBUG, "  post_swarm DM destroyed.\n");
@@ -4342,10 +4348,6 @@ PetscErrorCode DestroyUserContext(UserCtx *user)
     if (user->fda6) {
         ierr = DMDestroy(&user->fda6); CHKERRQ(ierr);
         LOG_ALLOW(LOCAL, LOG_DEBUG, "  fda6 DM destroyed.\n");
-    }
-    if (user->fda2) {
-        ierr = DMDestroy(&user->fda2); CHKERRQ(ierr);
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "  fda2 DM destroyed.\n");
     }
     if (user->da) {
         ierr = DMDestroy(&user->da); CHKERRQ(ierr);

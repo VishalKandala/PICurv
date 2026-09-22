@@ -726,7 +726,7 @@ static PetscErrorCode TestFieldCatalogMetadataAndViews(void)
                                    "failed field-name resolution should return FIELD_ID_INVALID"));
 
     PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
-    unavailable_view_ierr = FieldGetView(user, FIELD_ID_K_OMEGA, &view);
+    unavailable_view_ierr = FieldGetView(user, FIELD_ID_CS, &view);
     PetscCall(PetscPopErrorHandler());
     PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_WRONGSTATE, unavailable_view_ierr,
                                    "catalogued optional fields without storage should report unavailable state"));

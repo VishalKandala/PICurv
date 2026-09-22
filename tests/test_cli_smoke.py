@@ -137,7 +137,6 @@ def write_eulerian_checkpoint(
         f"-checkpoint_particles {'true' if include_particles else 'false'}",
         f"-checkpoint_particle_count {1 if include_particles else 0}",
         "-checkpoint_les false",
-        "-checkpoint_rans false",
         f"-checkpoint_payload_count {len(payloads)}",
         "-checkpoint_block_0_im 4",
         "-checkpoint_block_0_jm 4",

@@ -437,38 +437,6 @@
   },
   {
     "family_page": "07_Case_Reference",
-    "id": "turbulence.rans_model",
-    "parity": [],
-    "public_values": {
-      "disabled": {
-        "maps_to": 0,
-        "spelling_of": "none",
-        "status": "supported"
-      },
-      "k_omega": {
-        "maps_to": 1,
-        "status": "known-defective"
-      },
-      "komega": {
-        "maps_to": 1,
-        "spelling_of": "k_omega",
-        "status": "known-defective"
-      },
-      "none": {
-        "maps_to": 0,
-        "status": "supported"
-      },
-      "off": {
-        "maps_to": 0,
-        "spelling_of": "none",
-        "status": "supported"
-      }
-    },
-    "selector": "case.yml -> models.physics.turbulence.rans.model",
-    "title": "RANS Models"
-  },
-  {
-    "family_page": "07_Case_Reference",
     "id": "turbulence.les_test_filter",
     "parity": [],
     "public_values": {
@@ -1089,19 +1057,19 @@
     "public_values": {
       "channel_spectral_velocity": {
         "maps_to": "channel_spectral_velocity",
-        "status": "experimental"
+        "status": "supported"
       },
       "duct_spectral_velocity": {
         "maps_to": "duct_spectral_velocity",
-        "status": "experimental"
+        "status": "supported"
       },
       "ic_gen": {
         "maps_to": "ic_gen",
-        "status": "experimental"
+        "status": "supported"
       },
       "spectral_random_velocity": {
         "maps_to": "spectral_random_velocity",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "case.yml -> properties.initial_conditions.generator (Python providers)",

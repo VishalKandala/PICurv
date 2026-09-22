@@ -45,25 +45,11 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
 
     
     // ========================================================================
-    //   SECTION: Turbulence Models (RANS/LES)
+    //   SECTION: Turbulence Models (LES)
     // ========================================================================
     // These models compute the turbulent eddy viscosity (Nu_t) which is then
     // used by the momentum solver in the diffusion term.
 
-    /*
-    if (simCtx->rans) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Updating RANS (k-omega) model...\n");
-        for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-            K_Omega_Set_Constant(&user[bi]);
-            if (simCtx->step == simCtx->StartStep) {
-                LOG_ALLOW(LOCAL, LOG_DEBUG, "  Initializing K-Omega field for block %d.\n", bi);
-                K_Omega_IC(&user[bi]);
-            }
-            // In a full implementation, the K-Omega transport equations would be solved here.
-            // Solve_K_Omega(&user[bi]);
-        }
-    }
-    */
 
     if (simCtx->les) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating LES subgrid-scale model...\n");

@@ -659,11 +659,15 @@ def test_only_the_off_switch_escapes_the_ceiling(records, families):
 def test_a_value_under_a_defective_owner_shares_its_status(records, families):
     """!
     @brief Under a known-defective subsystem, a value cannot read as merely experimental.
+    @details No subsystem is off the ladder today - RANS was the last, and it returned to
+             planned when its unimplemented hooks were removed - so the owner status is
+             set here rather than borrowed from the registry.
     @param[in] records Fixture.
     @param[in] families Fixture.
     @return None.
     """
-    edited = copy.deepcopy(families)
-    edited["turbulence.rans_model"]["value_metadata"]["k_omega"]["status"] = "experimental"
-    problems = lifecycle.validate_value_ownership(records, edited)
-    assert any("'k_omega' is 'experimental' under 'turbulence.rans'" in p for p in problems)
+    edited_records = copy.deepcopy(records)
+    owner = next(r for r in edited_records if r["id"] == "turbulence.les")
+    owner["status"] = "known-defective"
+    problems = lifecycle.validate_value_ownership(edited_records, families)
+    assert any("'vreman' is 'experimental' under 'turbulence.les'" in p for p in problems)

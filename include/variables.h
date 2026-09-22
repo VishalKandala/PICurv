@@ -544,7 +544,7 @@ typedef struct Cstart {
 } Cstart;
 
 //--------------------------------------------------------------------------------
-//               7. LES/RANS TURBULENCE MODEL STRUCTS & ENUMS
+//               7. LES TURBULENCE MODEL STRUCTS & ENUMS
 //--------------------------------------------------------------------------------
 /** @brief Identifies the subgrid-scale closure evaluated during a timestep.
  *
@@ -563,7 +563,7 @@ typedef enum {
  *
  * The value doubles as the enable switch: ::WALL_FUNCTION_NONE disables the treatment,
  * and every other value both enables it and names the law. Configured independently of
- * LES and RANS.
+ * the LES closure.
  *
  * Add new enum values only when the parser, runtime dispatch, docs, and tests are
  * updated in the same change.
@@ -629,9 +629,8 @@ typedef enum {
 /** @brief Every user-selectable parameter of the LES closure.
  *
  * Resolved once from the generated control file by @ref CreateSimulationContext and
- * read-only thereafter. The model selector itself stays on `SimCtx::les` beside
- * `SimCtx::rans`, because dispatch and field availability are decided from it
- * throughout the runtime.
+ * read-only thereafter. The model selector itself stays on `SimCtx::les`, because
+ * dispatch and field availability are decided from it throughout the runtime.
  */
 typedef struct LESConfig {
     PetscInt            dynamic_frequency;       ///< Recompute the dynamic coefficient every N steps.
@@ -982,9 +981,8 @@ typedef struct SimCtx {
     PetscInt   ccc;
     PetscReal  ratio;
   
-    //================ Group 8: Turbulence Modeling (LES/RANS) ================
+    //================ Group 8: Turbulence Modeling (LES) ================
     PetscInt  les;                  ///< Active LES closure; an ::LESModelType value.
-    PetscInt  rans;                 ///< Active RANS closure. Known-defective: the k-omega fields are never allocated, so enabling it aborts after step one.
     PetscInt  wallfunction;         ///< Enable wall functions on WALL faces.
     PetscInt  les_gradient_model;   ///< Add the Clark gradient (tensor-diffusivity) term to the viscous flux.
     LESConfig les_config;           ///< Parameters of the LES closure selected by `les`.
@@ -1073,7 +1071,7 @@ typedef struct UserCtx {
     SimCtx *simCtx;  ///< Back-pointer to the master simulation context.
 
     // --- Grid, Geometry & Parallelization (Per-Level) ---
-    DM da, fda, fda2;
+    DM da, fda;
     /* Symmetric second-order tensor DM (dof 6), mirroring da's decomposition.
      * Field-statistics products need six components at each point; splitting them
      * across six scalar vectors would cost six memory streams in the per-step
@@ -1149,8 +1147,8 @@ typedef struct UserCtx {
   Vec 	JCsi, JEta, JZet, JAj, lJCsi, lJEta, lJZet, lJAj;
   Vec 	KCsi, KEta, KZet, KAj, lKCsi, lKEta, lKZet, lKAj;
 
-  // --- Turbulence Modeling (LES/RANS) ---
-  Vec Nu_t, lNu_t, CS, lCs, K_Omega, lK_Omega, K_Omega_o, lK_Omega_o, Distance;
+  // --- Turbulence Modeling (LES) ---
+  Vec Nu_t, lNu_t, CS, lCs, Distance;
   LESDiagnosticsState les_diagnostics; ///< Pre-clipping statistics from the last dynamic update.
   WallModelDiagnosticsState wall_diagnostics; ///< Near-wall statistics from the last wall-model pass.
   PetscInt wall_yplus_excursions; ///< Consecutive diagnostic samples with the first cell outside the selected law's valid y+ range.

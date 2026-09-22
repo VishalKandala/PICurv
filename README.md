@@ -184,10 +184,9 @@ commands can rebuild, pull, and resync from the original code directory.
 `picurv` treats `case.yml`, `solver.yml`, `monitor.yml`, and `post.yml` as modular profiles.
 You can reuse and recombine them instead of rewriting a monolithic config for every run.
 Turbulence model selection lives in `case.yml -> models.physics.turbulence`.
-Use the structured `les.enabled/model` block for constant or dynamic Smagorinsky,
-`rans.enabled/model` for the k-omega selector (known-defective: enabling it aborts the
-solver after the first step), and sibling
-`wall_function.enabled/model/roughness_height` settings for wall treatment. The dynamic
+Use the structured `les.enabled/model` block for constant or dynamic Smagorinsky, and
+sibling `wall_function.enabled/model/roughness_height` settings for wall treatment.
+There is no RANS closure: a `rans` block is refused. The dynamic
 model implements the Germano-Lilly procedure with selectable filter width, test filter,
 coefficient averaging, and limiting; its coefficient magnitude has not yet been
 validated against a reference flow.

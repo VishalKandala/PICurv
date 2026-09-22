@@ -1467,7 +1467,6 @@ def test_parse_model_flags_maps_structured_turbulence_options():
                         "gradient_model": {"enabled": True},
                         "diagnostics": {"enabled": True, "cadence": 5, "yoshizawa_ci": 0.11},
                     },
-                    "rans": {"enabled": False},
                     "wall_function": {
                         "enabled": True,
                         "model": "log_law",
@@ -1495,7 +1494,6 @@ def test_parse_model_flags_maps_structured_turbulence_options():
     assert "-les_diagnostics true" in control_lines
     assert "-les_diagnostics_cadence 5" in control_lines
     assert "-les_yoshizawa_ci 0.11" in control_lines
-    assert "-rans 0" in control_lines
     assert "-wallfunction 1" in control_lines
     assert "-wall_roughness 1e-05" in control_lines
 
@@ -1739,11 +1737,10 @@ def test_vreman_refuses_a_scalar_filter_width():
     assert not errors, errors
 
 
-def _wall_pairing_errors(les=None, rans=None, wall=None, viscosity=0.001):
+def _wall_pairing_errors(les=None, wall=None, viscosity=0.001):
     """!
     @brief Runs the wall-model pairing validation over one turbulence block.
     @param les       The `les` block, or None.
-    @param rans      The `rans` block, or None.
     @param wall      The `wall_function` block, or None.
     @param viscosity Fluid viscosity, which with unit reference scales sets the Reynolds number.
     @return The list of blocking messages it produced.
@@ -1756,7 +1753,7 @@ def _wall_pairing_errors(les=None, rans=None, wall=None, viscosity=0.001):
         }
     }
     errors, warnings = [], []
-    picurv.validate_wall_model_pairing(case_cfg, les, rans, wall, "case.yml", errors, warnings)
+    picurv.validate_wall_model_pairing(case_cfg, les, wall, "case.yml", errors, warnings)
     return errors
 
 
@@ -1767,35 +1764,37 @@ def test_wall_model_without_a_turbulence_model_is_rejected():
     The convection scheme's dissipation is not a subgrid model, so there is no implicit
     LES to appeal to; the message has to say that rather than leave the user assuming it.
     """
-    errors = _wall_pairing_errors(
-        les={"enabled": False}, rans={"enabled": False}, wall={"enabled": True})
+    errors = _wall_pairing_errors(les={"enabled": False}, wall={"enabled": True})
     assert any("no turbulence model" in e for e in errors)
     assert any("implicit-LES" in e for e in errors)
 
     # With LES on, the same wall model is accepted.
     assert _wall_pairing_errors(
         les={"enabled": True, "model": "dynamic_smagorinsky"},
-        rans={"enabled": False}, wall={"enabled": True}) == []
+        wall={"enabled": True}) == []
 
     # A wall model that is present but disabled is not a pairing at all.
-    assert _wall_pairing_errors(
-        les={"enabled": False}, rans={"enabled": False}, wall={"enabled": False}) == []
+    assert _wall_pairing_errors(les={"enabled": False}, wall={"enabled": False}) == []
 
 
-def test_les_only_wall_models_are_rejected_under_rans():
+def test_a_rans_block_is_refused_as_planned():
     """!
-    @brief Test that the two large-eddy wall laws are refused with RANS, and log law is not.
-    """
-    for model, fragment in (("cabot", "mixing-length"), ("werner", "instantaneous")):
-        errors = _wall_pairing_errors(
-            les={"enabled": False}, rans={"enabled": True},
-            wall={"enabled": True, "model": model})
-        assert any(fragment in e for e in errors), model
-        assert any("Only 'log_law' is a RANS wall law" in e for e in errors), model
+    @brief Test that a RANS block is refused rather than translated.
 
-    assert _wall_pairing_errors(
-        les={"enabled": False}, rans={"enabled": True},
-        wall={"enabled": True, "model": "log_law"}) == []
+    The k-omega closure was never implemented and its hooks were removed on 2026-09-22;
+    a case carrying the block must be told that, not have it silently ignored.
+    """
+    picurv = load_picurv_module()
+    case_cfg = {
+        "models": {"physics": {"turbulence": {"rans": {"enabled": True, "model": "k_omega"}}}}
+    }
+    with pytest.raises(ValueError, match="planned, not implemented"):
+        picurv.parse_and_add_model_flags(case_cfg, [])
+
+    # Even disabled, the block names a closure that does not exist.
+    disabled = {"models": {"physics": {"turbulence": {"rans": {"enabled": False}}}}}
+    with pytest.raises(ValueError, match="planned, not implemented"):
+        picurv.parse_and_add_model_flags(disabled, [])
 
 
 def test_wall_model_on_a_laminar_case_is_rejected():
@@ -1945,7 +1944,6 @@ def test_parse_model_flags_allows_minimal_disabled_turbulence_blocks():
             "physics": {
                 "turbulence": {
                     "les": {"enabled": False},
-                    "rans": {"enabled": False},
                     "wall_function": {"enabled": False},
                 }
             }
@@ -1956,7 +1954,6 @@ def test_parse_model_flags_allows_minimal_disabled_turbulence_blocks():
     picurv.parse_and_add_model_flags(case_cfg, control_lines)
 
     assert "-les 0" in control_lines
-    assert "-rans 0" in control_lines
     assert "-wallfunction 0" in control_lines
 
 

@@ -244,8 +244,6 @@ models:
     turbulence:
       les:
         enabled: false
-      rans:
-        enabled: false
       wall_function:
         enabled: false
     particles:
@@ -269,7 +267,6 @@ Common mappings:
 - `physics.turbulence.les.clipping.mode/max_cs/min_viscosity_ratio` -> `-les_clip_mode`, `-les_clip_max_cs`, `-les_min_viscosity_ratio`
 - `physics.turbulence.les.gradient_model.enabled` -> `-les_gradient_model`
 - `physics.turbulence.les.diagnostics.enabled/cadence/yoshizawa_ci` -> `-les_diagnostics`, `-les_diagnostics_cadence`, `-les_yoshizawa_ci`
-- `physics.turbulence.rans.enabled/model` -> `-rans` (`k_omega` is known-defective; see @ref p07_cap_rans_k_omega_sub)
 - `physics.turbulence.wall_function.enabled/model` -> `-wallfunction` (`1` log law, `2` Werner-Wengle, `3` Cabot)
 - `physics.turbulence.wall_function.roughness_height` -> `-wall_roughness` (`log_law` only)
 - `physics.particles.count` -> `-numParticles`
@@ -284,7 +281,10 @@ Legacy turbulence shorthand remains valid:
 - `les: true` or `les: 1` -> constant Smagorinsky (`-les 1`)
 - `les: 2` -> dynamic Smagorinsky (`-les 2`)
 
-LES and RANS are mutually exclusive in one case. `wall_function` is a sibling of both because a wall model is configured independently of the closure it pairs with; the pairing rules are listed with the wall laws in @ref p07_rans_filter_sec.
+`wall_function` is a sibling of `les` because a wall model is configured independently of
+the closure it pairs with; the pairing rules are listed with the wall laws in
+@ref p07_wall_laws_sec. There is no RANS closure: `models.physics.turbulence.rans` is
+refused at validation, and the charter for a future one is at @ref p57_rans_sec.
 
 Restart note:
 
@@ -382,7 +382,7 @@ subgrid model is one more thing to be wrong when you are chasing a discrepancy.
 **Parameters it owns.** None. Setting `constant_cs` or dynamic-model controls
 alongside `none` has no effect.
 
-**Interactions.** LES and RANS are mutually exclusive within one case. Wall
+**Interactions.** Wall
 functions are configured separately and are not implied by disabling LES.
 
 **Diagnostics.** The startup banner reports the resolved turbulence model. With no
@@ -418,7 +418,7 @@ turbulence conventionally uses Lilly's 0.16-0.17, but only where the grid cutoff
 in an inertial range; at low `Re_lambda` a smaller value near 0.1 is more appropriate.
 The default is not a universal choice - set it deliberately for your flow.
 
-**Interactions.** Mutually exclusive with RANS. `dynamic_frequency` and the test-filter,
+**Interactions.** `dynamic_frequency` and the test-filter,
 averaging, and clipping controls belong to the dynamic procedure, and the other models'
 coefficients to those models; all are rejected here rather than silently ignored.
 
@@ -459,7 +459,7 @@ in the domain.
 **Parameters it owns.** `dynamic_frequency` -> `-les_dynamic_frequency`, plus the
 `filter_width`, `test_filter`, `averaging`, and `clipping` blocks documented below.
 
-**Interactions.** Mutually exclusive with RANS. `constant_cs`, `vreman_coefficient`, and
+**Interactions.** `constant_cs`, `vreman_coefficient`, and
 `wale_coefficient` belong to the other models and are rejected here.
 
 **Storage.** The coefficient field is stored in `CS` and checkpointed. It holds `C`, the
@@ -524,7 +524,7 @@ laminar shear.
 `c`, default 0.07: Vreman's `c = 2.5 Cs^2` for `Cs = 0.17`, calibrated on decaying
 isotropic turbulence.
 
-**Interactions.** Mutually exclusive with RANS. `filter_width` is refused, since the
+**Interactions.** `filter_width` is refused, since the
 model takes each direction's spacing from the cell's edges rather than from one width;
 the parameters of the other models are refused as well. Central convection is used, as
 for every LES model. The Clark gradient term is independent and may be combined.
@@ -572,7 +572,7 @@ geometry with no homogeneous direction.
 **Parameters it owns.** `wale_coefficient` -> `-les_wale_coefficient`, the constant
 `C_w`, default 0.5, within Nicoud & Ducros's isotropic calibration of 0.55-0.60.
 
-**Interactions.** Mutually exclusive with RANS. Takes `filter_width` like the Smagorinsky
+**Interactions.** Takes `filter_width` like the Smagorinsky
 models; the parameters of the other models are refused. Central convection is used, as
 for every LES model. The Clark gradient term is independent and may be combined.
 
@@ -658,7 +658,7 @@ directions.
 
 **When to choose it.** When the model should act on the largest unresolved scale the cell
 can hold: a wall-modelled LES whose near-wall cells are deliberately coarse, a hybrid
-RANS-LES treatment, or a deliberately over-dissipative start-up.
+hybrid treatment, or a deliberately over-dissipative start-up.
 
 **Parameters it owns.** None.
 
@@ -901,68 +901,9 @@ points in developed turbulence, so this mode leans hard on the viscosity floor. 
 with `averaging.mode: homogeneous`, where the averaged coefficient is negative only when
 the whole homogeneous set is backscattering on balance.
 
-@section p07_rans_filter_sec 6. RANS and Test-Filter Entries
+@section p07_wall_laws_sec 6. Test-Filter and Wall-Function Entries
 
-@htmlinclude generated/capability_inventory_turbulence_rans_model.html
 @htmlinclude generated/capability_inventory_turbulence_les_test_filter.html
-
-@subsection p07_cap_rans_none_sub none
-
-@anchor p07_cap_rans_none
-
-**Identity.** `turbulence.rans.enabled: false`, or `model: none` -> `-rans 0`. Accepted
-spellings: `off`, `disabled`.
-
-**What it does.** Disables RANS modelling. Momentum is closed by molecular viscosity, or
-by LES if that is enabled instead.
-
-**When to choose it.** Always, in this tree: the only alternative, `k_omega`, is
-known-defective.
-
-**Parameters it owns.** None.
-
-**Interactions.** RANS and LES are mutually exclusive within one case.
-
-**Diagnostics.** The startup banner reports the resolved turbulence model.
-
-**Evidence.** Production exercised - `examples/flat_channel` and `examples/bent_channel`
-both run with RANS off.
-
-**Limitations.** None; this is the absence of a model.
-
-@subsection p07_cap_rans_k_omega_sub k_omega
-
-@anchor p07_cap_rans_k_omega
-
-**Identity.** `turbulence.rans.model: k_omega` -> `-rans 1`. Accepted spelling: `komega`.
-
-**What it does.** Intended to close the momentum equations with a two-equation k-omega
-model. It does not: see the disclosure below.
-
-**When to choose it.** Never, in this tree.
-
-**Parameters it owns.** The RANS block in `case.yml`.
-
-**Interactions.** Mutually exclusive with LES. Wall functions are configured separately
-and are not implied by enabling RANS. The wall-model pairing rules that refuse `cabot`
-and `werner` under RANS still apply, but a RANS run cannot reach the wall pass at all.
-
-**Diagnostics.** `picurv validate` and `picurv run` print the defect disclosure as a
-warning. The startup banner reports the model as resolved, so the banner is not
-evidence that it works.
-
-**Evidence.** None. The model is known-defective; no facet is claimed.
-
-@warning **Status: known-defective - enabling it aborts the solver.** Setup never
-allocates the k-omega fields, and the transport update in `FlowSolver` is commented out.
-The first solver-history update after step one copies a null vector, so the run stops
-with a PETSc null-argument error in `UpdateSolverHistoryVectors`. No RANS solution is
-ever produced. The selector stays reachable so the path can be repaired in place; the
-defect is recorded in `tests/tooling/capability_scope_records.json`.
-
-**Limitations.** Nothing about RANS works in this tree: no field storage, no transport
-equations, no eddy-viscosity update. Only `k_omega` is exposed; no other closure is
-selectable.
 
 @subsection p07_cap_filter_volume_weighted_box_sub volume_weighted_box
 
@@ -1022,20 +963,14 @@ else.
 @htmlinclude generated/capability_inventory_turbulence_wall_function.html
 
 A wall model supplies the stress of a boundary layer the mesh does not resolve, so it is
-only meaningful when the unresolved motions are modelled somewhere. Three pairings are
-therefore rejected before a run starts.
+only meaningful when the unresolved motions are modelled somewhere. One pairing is
+therefore refused before a run starts.
 
-- **No turbulence model.** A wall model with LES and RANS both off is refused. This
-  solver has no implicit-LES scheme to stand in for the missing closure: its convection
-  is QUICK, whose numerical dissipation is linear and upwind-biased rather than a
-  limiter-based truncation error standing in for a subgrid stress. Enable LES, or
-  resolve the wall and switch the wall function off.
-- **`cabot` with RANS.** Cabot closes the wall layer with its own mixing-length eddy
-  viscosity. Under a RANS model that layer would carry two closures with no matching
-  between them.
-- **`werner` with RANS.** Werner-Wengle applies its power law to an instantaneous
-  filtered velocity, which is a large-eddy quantity. A RANS field is already averaged and
-  wants a law derived for the mean profile.
+- **No turbulence model.** A wall model with LES off is refused. This solver has no
+  implicit-LES scheme to stand in for the missing closure: its convection is QUICK, whose
+  numerical dissipation is linear and upwind-biased rather than a limiter-based truncation
+  error standing in for a subgrid stress. Enable LES, or resolve the wall and switch the
+  wall function off.
 
 A wall model on a laminar case is refused for the same reason from the other direction:
 these laws describe a turbulent boundary layer, and below transition there is no inertial
@@ -1066,7 +1001,7 @@ you accept a modelled wall stress rather than a computed one.
 
 **Parameters it owns.** `wall_function.roughness_height` -> `-wall_roughness`.
 
-**Interactions.** Configured independently of LES and RANS - enabling a turbulence model
+**Interactions.** Configured independently of the LES closure - enabling a turbulence model
 does not imply a wall function, and vice versa. The wall handler itself remains
 @ref p44_cap_noslip "noslip"; the wall function changes how the stress is imposed, not the
 BC selection.

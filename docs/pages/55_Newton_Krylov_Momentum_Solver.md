@@ -21,7 +21,7 @@ with `strategy.momentum_solver: "Newton Krylov"`.
 Version one is deliberately narrow and validates its inputs up front
 (@ref MomentumSolver_NewtonKrylov rejects anything outside this set):
 
-- **no RANS or TwoD masking**;
+- **no TwoD masking**;
 - fresh starts and Eulerian field restarts (including `--continue`); the first
   solved restart step uses BDF1 because only the checkpoint state is available;
 - solid cells are permitted: a masked row carries no unknown and is constrained like
