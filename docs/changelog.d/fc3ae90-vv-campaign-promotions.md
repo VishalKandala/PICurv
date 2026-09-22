@@ -51,5 +51,8 @@
     scalar is inert because nothing seeds a non-zero `Psi`; and an external input
     reference's registration checksum is recorded but not compared, so a changed target
     is used as it now is, under a new asset identity.
+  - New: `scalar_transport.iem_constant` sets the IEM mixing constant `C_IEM`, default
+    2.0, for sensitivity studies. Particle scalar mixing stays experimental: nothing
+    seeds a non-zero `Psi` yet.
   - A supported subsystem may now be demoted to experimental, with a recorded
     `demotion_reason` saying what the earlier claim did not establish.

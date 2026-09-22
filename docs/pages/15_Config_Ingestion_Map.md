@@ -33,7 +33,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `solver.verification.sources.scalar.*` | `-verification_scalar_mode/-profile/-value/-phi0/-slope_x/-amplitude/-kx/-ky/-kz` | `src/setup.c` | `src/verification_sources.c`, `src/AnalyticalSolutions.c`, `src/ParticlePhysics.c`, `src/logging.c` |
 | `solver.strategy/tolerances/momentum_solver.*` | solver flags (`-mom_*`, pseudo-CFL, etc.) | `src/setup.c` | `src/momentumsolvers.c` |
 | `solver.momentum_solver.newton_krylov.*` | application selectors `-mom_nk_jacobian_*`, `-mom_nk_preconditioner_*`; prefixed `-mom_nk_snes_*`, `-mom_nk_ksp_*` | application parsing plus PETSc options db via `SNESSetFromOptions()` | `src/momentum_newton_krylov.c` |
-| `solver.scalar_transport.*` | `-schmidt_number`, `-turb_schmidt_number` | `src/setup.c` | `src/rhs.c`, `src/particle_statistics.c`, scalar/particle transport |
+| `solver.scalar_transport.*` | `-schmidt_number`, `-turb_schmidt_number`, `-iem_constant` | `src/setup.c` | `src/rhs.c`, `src/particle_statistics.c`, `src/ParticlePhysics.c` (IEM), scalar/particle transport |
 | `solver.poisson_solver.*` / legacy `solver.pressure_solver.*` | `-ps_ksp_*`, `-ps_pc_type`, `-mg_*`, `-ps_mg_levels_*` | `src/setup.c` + PETSc options db | `src/poisson.c` |
 | `solver.petsc_passthrough_options` | raw flags in control | PETSc options db | PETSc KSP/PC stack, mostly in `src/poisson.c` |
 | `monitor.io.data_output_frequency` | `-tio` | `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c` |

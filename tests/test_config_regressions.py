@@ -1399,6 +1399,7 @@ def test_parse_solver_config_maps_scalar_transport_flags():
         "scalar_transport": {
             "schmidt_number": 1.0e12,
             "turbulent_schmidt_number": 0.9,
+            "iem_constant": 3.5,
         }
     }
 
@@ -1406,6 +1407,40 @@ def test_parse_solver_config_maps_scalar_transport_flags():
 
     assert flags["-schmidt_number"] == 1.0e12
     assert flags["-turb_schmidt_number"] == 0.9
+    assert flags["-iem_constant"] == 3.5
+
+
+@pytest.mark.parametrize("value", [0.0, -1.0, float("nan"), float("inf"), -float("inf"), True])
+def test_parse_solver_config_refuses_an_invalid_iem_constant(value):
+    """!
+    @brief The IEM mixing constant must be positive and finite, as the runtime requires.
+    @param[in] value Invalid model constant.
+    """
+    picurv = load_picurv_module()
+    with pytest.raises(ValueError, match="iem_constant"):
+        picurv.parse_solver_config({"scalar_transport": {"iem_constant": value}})
+
+
+
+@pytest.mark.parametrize("value", [0.0, -1.0, float("nan"), float("inf"), True, 3.5])
+def test_validate_iem_constant_at_cli_ingress(tmp_path, value):
+    """!
+    @brief Exercise IEM validation through the user-facing validate command.
+    @param[in] tmp_path Temporary configuration directory.
+    @param[in] value Model constant accepted only when positive and finite.
+    """
+    valid = FIXTURES / "valid"
+    solver = yaml.safe_load((valid / "solver.yml").read_text())
+    solver["scalar_transport"] = {"iem_constant": value}
+    solver_path = tmp_path / "solver.yml"
+    solver_path.write_text(yaml.safe_dump(solver))
+    result = run_picurv(["validate", "--case", str(valid / "case.yml"),
+                         "--solver", str(solver_path), "--monitor", str(valid / "monitor.yml")])
+    if value == 3.5:
+        assert result.returncode == 0, result.stdout + result.stderr
+    else:
+        assert result.returncode != 0
+        assert "iem_constant" in result.stdout + result.stderr
 
 
 def test_parse_model_flags_maps_structured_turbulence_options():

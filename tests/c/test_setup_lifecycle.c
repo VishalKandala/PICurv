@@ -6,6 +6,7 @@
 #include "test_support.h"
 
 #include "ParticleSwarm.h"
+#include "ParticlePhysics.h"
 #include "initialcondition.h"
 #include "runloop.h"
 #include "setup.h"
@@ -268,6 +269,117 @@ static PetscErrorCode TestBrownianRNGIsSeededFromConfiguration(void)
     PetscCall(PicurvAssertRealNear(first, again, 0.0, "the same seed must reproduce the Brownian stream"));
     PetscCall(PicurvAssertBool((PetscBool)(first != other_seed), "a different seed must change the Brownian stream"));
     PetscCall(PicurvAssertBool((PetscBool)(first != restarted), "a restart must not replay the first segment's stream"));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Builds a context from the fixture control file with extra lines appended.
+ * @param[in]  extra_lines Control-file lines appended after the fixture's own.
+ * @param[out] simCtx_out  Context on success; the partially built context on failure.
+ * @param[out] ierr_out    CreateSimulationContext's return code, errors suppressed.
+ * @param[out] tmpdir      Fixture directory, removed by the caller.
+ * @param[in]  tmpdir_len  Capacity of `tmpdir`.
+ */
+static PetscErrorCode TryContextWithExtraLines(const char *extra_lines, SimCtx **simCtx_out,
+                                               PetscErrorCode *ierr_out, char *tmpdir,
+                                               size_t tmpdir_len)
+{
+    char control_path[PETSC_MAX_PATH_LEN];
+    FILE *file = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscOptionsClear(NULL));
+    PetscCall(PrepareContextOnlyConfig(tmpdir, tmpdir_len, control_path, sizeof(control_path)));
+    file = fopen(control_path, "a");
+    PetscCheck(file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Failed to reopen '%s'.", control_path);
+    fputs(extra_lines, file);
+    fclose(file);
+    PetscCall(PetscOptionsSetValue(NULL, "-control_file", control_path));
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    *ierr_out = CreateSimulationContext(0, NULL, simCtx_out);
+    PetscCall(PetscPopErrorHandler());
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that the IEM mixing constant defaults to 2.0, follows -iem_constant, and
+ *        refuses a value that is not a positive finite number.
+ */
+static PetscErrorCode TestIEMConstantIsConfigurable(void)
+{
+    const char *cases[] = {"", "-iem_constant 3.5\n", "-iem_constant 0\n", "-iem_constant -1\n",
+                           "-iem_constant nan\n", "-iem_constant inf\n"};
+    const PetscReal expected[] = {2.0, 3.5, 0.0, 0.0, 0.0, 0.0};
+
+    PetscFunctionBeginUser;
+    for (size_t n = 0; n < sizeof(cases) / sizeof(cases[0]); ++n) {
+        char tmpdir[PETSC_MAX_PATH_LEN];
+        SimCtx *simCtx = NULL;
+        PetscErrorCode setup_ierr = 0;
+
+        PetscCall(TryContextWithExtraLines(cases[n], &simCtx, &setup_ierr, tmpdir, sizeof(tmpdir)));
+        if (expected[n] > 0.0) {
+            PetscCall(PicurvAssertIntEqual(0, setup_ierr, "a positive -iem_constant must be accepted"));
+            PetscCall(PicurvAssertRealNear(expected[n], simCtx->iem_constant, 0.0,
+                                           "the IEM constant must follow -iem_constant, default 2.0"));
+        } else {
+            PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_OUTOFRANGE, setup_ierr,
+                                           "a non-positive or non-finite -iem_constant must be refused"));
+        }
+        PetscCall(FreeLifecycleContext(&simCtx));
+        PetscCall(PetscOptionsClear(NULL));
+        PetscCall(PicurvRemoveTempDir(tmpdir));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Checks configured IEM relaxation through the production swarm update.
+ */
+static PetscErrorCode TestConfiguredIEMUpdatesSwarm(void)
+{
+    const char *options[] = {"", "-iem_constant 3.5\n"};
+    const PetscReal constants[] = {2.0, 3.5};
+
+    PetscFunctionBeginUser;
+    for (size_t n = 0; n < sizeof(constants) / sizeof(constants[0]); ++n) {
+        SimCtx *simCtx = NULL;
+        UserCtx *user = NULL;
+        char tmpdir[PETSC_MAX_PATH_LEN];
+        PetscInt nlocal;
+        PetscReal *psi = NULL, *diffusivity = NULL;
+        const char *psi_name = ParticleFieldName(PARTICLE_FIELD_ID_PSI);
+        const char *diff_name = ParticleFieldName(PARTICLE_FIELD_ID_DIFFUSIVITY);
+
+        PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_TRUE, options[n],
+                    &simCtx, &user, tmpdir, sizeof(tmpdir)));
+        PetscCall(InitializeEulerianState(simCtx));
+        PetscCall(InitializeParticleSwarm(simCtx));
+        PetscCall(PerformInitializedParticleSetup(simCtx));
+        simCtx->dt = 0.5;
+        /* Controlled nonzero test data; no public scalar initializer is implied. */
+        PetscCall(VecSet(user->lPsi, 3.0));
+        PetscCall(VecSet(user->lAj, 1.0));
+        PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+        PetscCall(PicurvAssertBool((PetscBool)(nlocal > 0), "IEM fixture must contain particles"));
+        PetscCall(DMSwarmGetField(user->swarm, psi_name, NULL, NULL, (void **)&psi));
+        PetscCall(DMSwarmGetField(user->swarm, diff_name, NULL, NULL, (void **)&diffusivity));
+        for (PetscInt p = 0; p < nlocal; ++p) {
+            psi[p] = 1.0;
+            diffusivity[p] = 0.2;
+        }
+        PetscCall(DMSwarmRestoreField(user->swarm, diff_name, NULL, NULL, (void **)&diffusivity));
+        PetscCall(DMSwarmRestoreField(user->swarm, psi_name, NULL, NULL, (void **)&psi));
+        PetscCall(UpdateAllParticleFields(user));
+        PetscCall(DMSwarmGetField(user->swarm, psi_name, NULL, NULL, (void **)&psi));
+        for (PetscInt p = 0; p < nlocal; ++p) {
+            PetscCall(PicurvAssertRealNear(3.0 - 2.0 * PetscExpReal(-constants[n] * 0.2 * 0.5),
+                        psi[p], 1.e-12, "configured IEM constant must control swarm relaxation"));
+        }
+        PetscCall(DMSwarmRestoreField(user->swarm, psi_name, NULL, NULL, (void **)&psi));
+        PetscCall(FreeLifecycleContext(&simCtx));
+        PetscCall(PicurvRemoveTempDir(tmpdir));
+    }
     PetscFunctionReturn(0);
 }
 
@@ -711,6 +823,8 @@ int main(int argc, char **argv)
         {"setup-lifecycle-random-generators-and-cleanup", TestSetupLifecycleRandomGeneratorsAndCleanup},
         {"setup-lifecycle-cleanup-across-initialization-states", TestSetupLifecycleCleanupAcrossInitializationStates},
         {"setup-rejects-unimplemented-feature-flags", TestSetupRejectsUnimplementedFeatureFlags},
+        {"iem-constant-is-configurable", TestIEMConstantIsConfigurable},
+        {"configured-iem-updates-swarm", TestConfiguredIEMUpdatesSwarm},
         {"brownian-rng-seeded-from-configuration", TestBrownianRNGIsSeededFromConfiguration},
         {"shared-runtime-fixture-contracts", TestSharedRuntimeFixtureContracts},
         {"field-catalog-metadata-and-views", TestFieldCatalogMetadataAndViews},

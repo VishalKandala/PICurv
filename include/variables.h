@@ -952,6 +952,7 @@ typedef struct SimCtx {
     ScalingCtx scaling;
     PetscReal  wall_roughness_height;
     PetscReal schmidt_number, Turbulent_schmidt_number;
+    PetscReal iem_constant;            /**< IEM mixing constant C_IEM in Omega = C_IEM Gamma / Delta^2 (default 2.0). */
 
     //================ Group 7: Grid, Domain, and Boundary Condition Settings ================
     PetscInt  block_number, inletprofile;

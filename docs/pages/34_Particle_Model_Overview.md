@@ -86,8 +86,9 @@ Current scalar model path:
 - batch loop: @ref UpdateFieldForAllParticles
 - orchestrator: @ref UpdateAllParticleFields
 
-This presently implements IEM-style relaxation for `Psi`, with the mixing constant fixed at
-`C_IEM = 2.0` inside @ref UpdateFieldForAllParticles; it is not configurable. It is also
+This presently implements IEM-style relaxation for `Psi`, with the mixing constant
+`C_IEM` set by `scalar_transport.iem_constant` (default 2.0; @ref p08_scalar_transport_sec).
+It is also
 inert in practice: `Psi` starts at zero on every particle and no configuration seeds or
 sources a scalar, so the relaxation has nothing to act on (@ref p28_iem_sec).
 

@@ -2046,7 +2046,7 @@
           "anchor": "p08_scalar_transport_sec"
         },
         "selection_guidance": {
-          "not_applicable": "IEM has no selector. It updates the particle scalar Psi on every particle every step whenever particles are active, with a fixed C_IEM of 2.0, and is bypassed only when a verification scalar profile overrides Psi; there is no alternative model to choose between."
+          "not_applicable": "IEM has no selector. It updates the particle scalar Psi on every particle every step whenever particles are active, with C_IEM configured by scalar_transport.iem_constant (default 2.0), and is bypassed only when a verification scalar profile overrides Psi; there is no alternative model to choose between."
         },
         "observability": {
           "page": "34_Particle_Model_Overview",
@@ -2067,10 +2067,10 @@
           "anchor": "p28_iem_sec"
         },
         "scientific_verification": {
-          "not_applicable": "No verification of the mixing rate has been run: no test compares the Psi variance decay against the IEM analytic rate for a known turbulence time scale, which is the check that would support a supported claim."
+          "not_applicable": "The setup lifecycle test checks non-zero swarm relaxation toward a prescribed mean for default and overridden C_IEM. No coupled-flow test compares Psi variance decay against the IEM analytic rate for a known turbulence time scale; that scientific verification remains deferred."
         }
       },
-      "note": "Separated from particles.transport because it is a physics model with its own unvalidated coefficient, while transport - search, interpolation, advection, diffusion - is supported. The Schmidt numbers in solver.yml scalar_transport set particle diffusivity and belong to transport."
+      "note": "Separated from particles.transport because it is a physics model with its own unvalidated coefficient, while transport - search, interpolation, advection, diffusion - is supported. The Schmidt numbers in solver.yml scalar_transport set particle diffusivity and belong to transport. The IEM constant C_IEM is configurable as scalar_transport.iem_constant (default 2.0) since 2026-09-21. Held at experimental, by the owner's decision of 2026-09-21: every particle's Psi starts at zero and no configuration seeds or sources a scalar, so the IEM relaxation acts on nothing outside the verification scalar source, which bypasses it; a user-facing initial scalar is deferred."
     },
     {
       "id": "verification.prescribed_sources",

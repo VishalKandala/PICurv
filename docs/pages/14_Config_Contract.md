@@ -137,9 +137,9 @@ For each run, `picurv` generates:
   internally and is not a normal structured YAML choice.
 - `interpolation.method` -> `-interpolation_method`. Defaults to `Trilinear` (direct cell-center, second-order). Set to `CornerAveraged` for the legacy two-stage path.
 - `petsc_passthrough_options` remains the escape hatch for advanced PETSc/C flags.
-- `scalar_transport.schmidt_number` and `scalar_transport.turbulent_schmidt_number`
-  are the structured scalar/Brownian transport controls; do not use passthrough
-  for ordinary Schmidt-number tuning.
+- `scalar_transport.schmidt_number`, `scalar_transport.turbulent_schmidt_number`, and
+  `scalar_transport.iem_constant` are the structured scalar/Brownian transport and IEM
+  mixing controls; do not use passthrough for them.
 - `case.yml -> models.physics.turbulence` is the structured turbulence control surface.
   LES uses `les.enabled/model` plus `constant_cs` -> `-les_constant_cs`,
   `dynamic_frequency` -> `-les_dynamic_frequency`, `filter_width` ->

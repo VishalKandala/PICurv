@@ -454,6 +454,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->CMx_c=0.0; simCtx->CMy_c=0.0; simCtx->CMz_c=0.0;
     simCtx->wall_roughness_height = 1e-16;
     simCtx->schmidt_number = 1.0; simCtx->Turbulent_schmidt_number = 0.7;
+    simCtx->iem_constant = 2.0;
 
     // --- Group 7: Grid, Domain, and Boundary Condition Settings ---
     simCtx->block_number = 1; simCtx->inletprofile = 1;
@@ -1001,6 +1002,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 6: Physical & Geometric Parameters \n");   
     ierr = PetscOptionsGetReal(NULL,NULL,"-schmidt_number",&simCtx->schmidt_number,NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL,NULL,"-turb_schmidt_number",&simCtx->Turbulent_schmidt_number,NULL);CHKERRQ(ierr);
+    ierr = PetscOptionsGetReal(NULL,NULL,"-iem_constant",&simCtx->iem_constant,NULL);CHKERRQ(ierr);
+    PetscCheck(simCtx->iem_constant > 0.0 && !PetscIsInfOrNanReal(simCtx->iem_constant),
+               PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+               "-iem_constant must be a positive finite number (got %g).", (double)simCtx->iem_constant);
     ierr = PetscOptionsGetReal(NULL,NULL,"-wall_roughness",&simCtx->wall_roughness_height,NULL);CHKERRQ(ierr);
     // NOTE: angle is not parsed in the original code, it set programmatically. We will follow that.
     // NOTE: max_angle is calculated based on other flags (like MHV) in the legacy code.

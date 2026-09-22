@@ -38,6 +38,7 @@
     "-ic_dir",
     "-ic_field",
     "-ic_velocity_physical",
+    "-iem_constant",
     "-im",
     "-imm",
     "-imp_stol",

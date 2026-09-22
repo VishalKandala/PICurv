@@ -3214,6 +3214,15 @@ PRESCRIBED_FLOW_SOURCE_TYPES = ("file", "generated", "field_slice")
 #: Analytic scalar profiles the verification source may generate.
 VERIFICATION_SCALAR_PROFILES = ("CONSTANT", "LINEAR_X", "SIN_PRODUCT")
 
+#: solver.yml `scalar_transport` keys and the runtime flag each becomes. Every value is a
+#: positive number: the Schmidt numbers set particle diffusivity, and `iem_constant` is
+#: C_IEM in the IEM mixing rate Omega = C_IEM Gamma / Delta^2 (runtime default 2.0).
+SCALAR_TRANSPORT_FLAGS = {
+    "schmidt_number": "-schmidt_number",
+    "turbulent_schmidt_number": "-turb_schmidt_number",
+    "iem_constant": "-iem_constant",
+}
+
 #: Image formats `picurv sweep` can render study plots in.
 STUDY_PLOT_FORMATS = ("png", "pdf", "svg")
 
@@ -7392,7 +7401,7 @@ _SOLVER_SCHEMA = {
     ("verification", "sources", "scalar"): {
         "mode", "profile", "value", "phi0", "slope_x", "amplitude", "kx", "ky", "kz",
     },
-    ("scalar_transport",): {"schmidt_number", "turbulent_schmidt_number"},
+    ("scalar_transport",): set(SCALAR_TRANSPORT_FLAGS),
 }
 
 
@@ -8533,16 +8542,17 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         if transport_cfg is not None and not isinstance(transport_cfg, dict):
             errors.append(f"  {solver_path}: 'scalar_transport' must be a mapping when provided.")
         elif isinstance(transport_cfg, dict):
-            unknown_transport_keys = sorted(set(transport_cfg.keys()) - {"schmidt_number", "turbulent_schmidt_number"})
+            unknown_transport_keys = sorted(set(transport_cfg.keys()) - set(SCALAR_TRANSPORT_FLAGS))
             if unknown_transport_keys:
                 errors.append(
                     f"  {solver_path}: unsupported scalar_transport entries: {unknown_transport_keys}. "
-                    "Currently supported: 'schmidt_number', 'turbulent_schmidt_number'."
+                    f"Currently supported: {sorted(SCALAR_TRANSPORT_FLAGS)}."
                 )
-            for key in ("schmidt_number", "turbulent_schmidt_number"):
+            for key in SCALAR_TRANSPORT_FLAGS:
                 if key in transport_cfg:
                     try:
-                        value = float(transport_cfg[key])
+                        value = (_to_finite_float(transport_cfg[key], f"scalar_transport.{key}")
+                                 if key == "iem_constant" else float(transport_cfg[key]))
                         if value <= 0.0:
                             errors.append(f"  {solver_path}: scalar_transport.{key} must be positive.")
                     except (TypeError, ValueError):
@@ -12944,20 +12954,17 @@ def parse_solver_config(solver_cfg: dict) -> dict:
     if transport_cfg:
         if not isinstance(transport_cfg, dict):
             raise ValueError("scalar_transport must be a mapping when provided.")
-        transport_map = {
-            'schmidt_number': '-schmidt_number',
-            'turbulent_schmidt_number': '-turb_schmidt_number',
-        }
-        unknown_transport_keys = sorted(set(transport_cfg.keys()) - set(transport_map.keys()))
+        unknown_transport_keys = sorted(set(transport_cfg.keys()) - set(SCALAR_TRANSPORT_FLAGS))
         if unknown_transport_keys:
             raise ValueError(
                 f"scalar_transport has unsupported key(s): {unknown_transport_keys}. "
-                "Use 'schmidt_number' or 'turbulent_schmidt_number'."
+                f"Use one of {sorted(SCALAR_TRANSPORT_FLAGS)}."
             )
-        for key, flag in transport_map.items():
+        for key, flag in SCALAR_TRANSPORT_FLAGS.items():
             if key in transport_cfg:
                 try:
-                    value = float(transport_cfg[key])
+                    value = (_to_finite_float(transport_cfg[key], f"scalar_transport.{key}")
+                             if key == "iem_constant" else float(transport_cfg[key]))
                 except (TypeError, ValueError) as exc:
                     raise ValueError(f"scalar_transport.{key} must be numeric.") from exc
                 if value <= 0.0:

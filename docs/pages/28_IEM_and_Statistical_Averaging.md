@@ -26,6 +26,10 @@ Closed-form update implemented in code:
 \Psi^{n+1}=\langle\Psi\rangle + (\Psi^n-\langle\Psi\rangle)e^{-\Omega\Delta t}.
 \f]
 
+`C_IEM` is `solver.yml -> scalar_transport.iem_constant` (`-iem_constant`), default 2.0,
+the conventional value; it is exposed for sensitivity studies, not because another value
+has been validated.
+
 Code touchpoints:
 
 - particle kernel: @ref UpdateParticleField
@@ -38,7 +42,10 @@ seeds, injects or sources a scalar, so \f$\Psi^n = \langle\Psi\rangle = 0\f$ and
 closed-form update returns zero every step. The one path that sets `Psi` - the
 verification scalar source (@ref p08_verification_sec) - prescribes it exactly and
 bypasses this update. The scatter of `Psi` to the grid is verified through that source;
-the IEM relaxation itself has not been exercised on a non-zero scalar.
+`TestConfiguredIEMUpdatesSwarm` in `tests/c/test_setup_lifecycle.c` checks non-zero
+scalar relaxation toward a prescribed mean for the default and an overridden constant.
+That controlled fixture does not establish coupled scalar-variance decay in a production
+flow; scalar initialization and that verification remain deferred.
 
 @section p28_dataflow_sec 2. Required Dataflow For IEM
 

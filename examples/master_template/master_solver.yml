@@ -61,6 +61,7 @@ operation_mode:
 scalar_transport:
   schmidt_number: 1.0              # -> -schmidt_number
   turbulent_schmidt_number: 0.7    # -> -turb_schmidt_number
+  iem_constant: 2.0                # -> -iem_constant; C_IEM in the IEM mixing rate (default 2.0)
 
 # ==============================================================================
 # 2. PRIMARY SOLVER STRATEGY & TOLERANCES
