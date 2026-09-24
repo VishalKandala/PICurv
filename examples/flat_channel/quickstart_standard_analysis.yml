@@ -4,7 +4,7 @@
 #         Post-Processing Profile: Standard Analysis
 # ==========================================================
 # A standard recipe to generate visualization files. It performs
-# cell-to-node averaging and calculates vorticity.
+# cell-to-node averaging and calculates Q-criterion.
 # ==========================================================
 
 source_data:
@@ -12,17 +12,16 @@ source_data:
 
 run_control:
   # Every step named here must be one the solver committed a checkpoint at, so the
-  # range and stride follow monitor.yml -> io.data_output_frequency, which is 100
-  # for this case over a 1000-step run. A stride finer than that cadence asks for
-  # steps that were never written, and validation rejects it.
+  # quickstart monitor writes every 10 steps over this 20-step run. The interval
+  # is unused for this single-snapshot window but remains a cadence multiple.
   # Analyze only the final timestep:
   start_step: 20
   end_step: 20
   step_interval: 100
   # For a movie over the whole run, use instead:
   #   start_step: 0
-  #   end_step: 1000
-  #   step_interval: 100
+  #   end_step: 20
+  #   step_interval: 20
 
 global_operations:
   dimensionalize: true
@@ -46,6 +45,10 @@ eulerian_pipeline:
     reference_point: [1, 1, 1]
 
 io:
+  # Index existing matching ancestor output using checkpoint physical time.
+  paraview_series:
+    enabled: true
+    scope: lineage
   output_directory: "visualization/standard_analysis"
   output_filename_prefix: "eulerian_data"
   particle_filename_prefix: "Particle"

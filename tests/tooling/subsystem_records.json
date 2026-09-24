@@ -2180,7 +2180,7 @@
         },
         "evidence": {
           "page": "66_Evidence_Matrix",
-          "anchor": "p66_matrix_sec"
+          "anchor": "p66_pvd_evidence"
         },
         "lifecycle_and_restart": {
           "page": "52_Run_Artifact_Lifecycle_Contract",
@@ -2216,7 +2216,7 @@
           "anchor": "p19_pipeline_sec"
         }
       },
-      "note": "Promoted 2026-09-21. Owns the postprocessor's Eulerian and Lagrangian kernels, dimensionalization, VTK output, and the particle statistics pipeline; field statistics and spectra have their own records. Every kernel matched its definition, and every dimensionalized output its reference scale applied exactly once (post-pipeline-dimensionalize-2026-09-21, q-criterion-nodal-tgv-2026-09-18, brownian-msd-2026-09-18). Found and fixed 2026-09-21: coordinates were scaled once per processed step, particle positions and velocities not at all, and Q by U_ref^2 instead of (U_ref/L_ref)^2. msd stays nondimensional by design, as page 10 states."
+      "note": "Promoted 2026-09-21. Owns the postprocessor's Eulerian and Lagrangian kernels, dimensionalization, VTK output, conductor-generated physical-time ParaView collections, and the particle statistics pipeline; field statistics and spectra have their own records. Every kernel matched its definition, and every dimensionalized output its reference scale applied exactly once (post-pipeline-dimensionalize-2026-09-21, q-criterion-nodal-tgv-2026-09-18, brownian-msd-2026-09-18). Found and fixed 2026-09-21: coordinates were scaled once per processed step, particle positions and velocities not at all, and Q by U_ref^2 instead of (U_ref/L_ref)^2. msd stays nondimensional by design, as page 10 states."
     },
     {
       "id": "post.spectra",

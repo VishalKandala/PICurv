@@ -18,6 +18,12 @@ cannot redirect output outside this home.
 
 You will typically find:
 
+- **Physical-time collections (`.pvd` files):** When
+  `post.yml -> io.paraview_series.enabled: true`, open the collection named after
+  the output prefix, such as `eulerian_data.pvd` or `Particle.pvd`. Its time axis
+  comes from committed checkpoints. With `scope: lineage`, it also references
+  compatible visualization files in ancestor runs recorded by `--restart-from`.
+
 -   **Eulerian Grid Data (`.vts` files):** These are VTK Structured Grid files (e.g., `Field_000100.vts`). They contain the computational mesh and any data fields that live on that grid, such as velocity and pressure. When you open them in ParaView, they will be grouped as a time series.
 
 -   **Lagrangian Particle Data (`.vtp` files):** These are VTK PolyData files (e.g., `Particle_000100.vtp`). They contain particle coordinates and particle fields. These files exist only when `post.yml -> io.output_particles: true`.
@@ -41,7 +47,10 @@ ParaView's interface has four key areas you will interact with constantly:
 
 @section p04_eulerian_recipes_sec 3. Recipes for Visualizing Grid Data (.vts files)
 
-Let's walk through the most common visualization techniques for the Eulerian grid data. First, open your `Field..vts` time series in ParaView and click **Apply**.
+Let's walk through the most common visualization techniques for the Eulerian grid data.
+Open the Eulerian `.pvd` collection and click **Apply**. If collection generation is
+disabled, open the numbered `.vts` group instead; filename grouping alone does not
+provide the checkpoint physical-time axis.
 
 @subsection p04_recipe_color_sec 3.1. Recipe: Coloring by a Scalar Field
 
@@ -80,7 +89,8 @@ To visualize the direction and magnitude of the flow:
 
 @section p04_lagrangian_recipes_sec 4. Recipes for Visualizing Particle Data (.vtp files)
 
-Load your `Particle..vtp` time series (if present) to visualize the Lagrangian particles.
+Load `Particle.pvd` (if present) to visualize the Lagrangian particles with physical
+time. Without a collection, load the numbered `Particle..vtp` group.
 
 1.  **Change Representation:** In the Properties panel, find the **Representation** dropdown. Change it from "Surface" to **Point Gaussian**. This will render the particles as spheres. You can adjust the **Gaussian Radius** to change their size.
 2.  **Color by Velocity:** Use the Coloring dropdown in the toolbar to color the particles by `velocity` and `Magnitude`.
@@ -95,6 +105,31 @@ Load your `Particle..vtp` time series (if present) to visualize the Lagrangian p
 - File prefixes are configurable in `post.yml` (`output_filename_prefix`, `particle_filename_prefix`), so your series may not always be named `Field_*` and `Particle_*`.
 - If particles were disabled in solver or post (`output_particles: false`), absence of `.vtp` files is expected.
 - Statistics pipeline outputs (e.g., MSD CSV) are analysis files, not ParaView geometry files.
+
+To enable collections in an existing post recipe, add:
+
+```yaml
+io:
+  paraview_series:
+    enabled: true
+    scope: lineage
+```
+
+Merge this block into the recipe's existing `io` mapping. Use `scope: run` for a
+collection confined to one run. Omitting the option disables collections; the
+standard analysis profiles explicitly enable them.
+
+Run the usual post-processing command, keeping the full desired analysis window.
+Postprocess ancestors with the same recipe before processing the child. Open the
+child's collection to see the retained ancestor frames followed by the child frames;
+the child owns the restart step. Repeating post `--continue` updates the collection
+through the currently available source frontier. Reopen the collection in ParaView
+to load its refreshed contents. Keep the referenced run directories accessible:
+the PVD contains relative links, not copies of the VTK data.
+
+See @ref 10_Post_Processing_Reference for recipe compatibility, cadence, and restart
+reset rules. In particular, changing the post stride creates a different recipe;
+the index does not search other recipe directories automatically.
 
 @htmlonly
 <div style="text-align:center; margin:1rem 0;">

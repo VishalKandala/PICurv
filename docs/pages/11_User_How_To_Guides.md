@@ -355,6 +355,17 @@ Behavior notes:
 
 For the broader run-directory lifecycle around restart, post-only reuse, and generated scheduler artifacts, see **@subpage 52_Run_Artifact_Lifecycle_Contract**.
 
+For a physical-time movie across a restart campaign, add
+`io.paraview_series: {enabled: true, scope: lineage}` to the existing post recipe.
+Postprocess the parent before the child, using the same recipe and a window that
+includes the desired parent history. The child processes only its owned steps and
+writes `<run.visualization>/<recipe_id>/<output_filename_prefix>.pvd`, which
+references both runs. Open that PVD in ParaView. A later catch-up invocation refreshes
+it; reopen it to load new frames. Use `scope: run` to restrict the view to one run.
+Different solver timesteps use checkpoint physical time; changing the post stride
+or fields creates a different recipe ID, which is not automatically combined with
+the earlier one. See @ref 10_Post_Processing_Reference for reset and retention rules.
+
 @subsection p11_qcrit_ssec 4.2 Add Q-Criterion to Eulerian Pipeline
 
 ```yaml

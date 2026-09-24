@@ -29,6 +29,11 @@ is `examples/search_robustness/`.
 Post-profile usage note:
 - keep `master_postprocessor.yml -> run_control` as the full logical analysis window you want a recipe to represent. When you later run `picurv run --post-process --continue --run-dir ... --post ...`, PICurv resumes the same recipe from the first unfinished step instead of requiring manual `start_step` edits.
 - on live solver runs, PICurv also caps each post launch to the highest fully available contiguous source prefix for that recipe.
+- `io.paraview_series` enables physical-time `.pvd` collections in the template.
+  `scope: lineage` follows recorded restart ancestry; `scope: run` indexes only the
+  current run. Matching ancestor VTK recipes must already exist. Changing the post
+  stride or fields changes recipe identity; changing only the logical window or
+  this presentation option does not. Reopen the PVD after post catch-up refreshes it.
 
 Launcher-related note:
 

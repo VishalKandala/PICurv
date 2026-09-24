@@ -5,12 +5,14 @@ This directory stores reusable `post.yml` analysis recipes for `./bin/picurv run
 ## 1. What A Post Profile Controls
 
 - timestep window selection (`run_control`),
-- input-source location and extension mapping (`source_data`, `io.input_extensions`),
+- input-source declarations (`source_data`, `io.input_extensions`; the conductor
+  resolves the run's checkpoint home and payload extensions remain `dat`),
 - Eulerian field operations,
 - Lagrangian particle operations,
 - particle statistics pipeline tasks,
 - derived Eulerian field statistics from accumulated solver windows,
 - output naming and directory policy.
+- physical-time ParaView collections and their run or restart-lineage scope.
 
 ## 2. Included Profiles
 
@@ -51,6 +53,27 @@ Solve and postprocess in one command:
 ```
 
 `-n/--num-procs` applies to both solver and field postprocessor execution.
+
+`standard_analysis.yml` enables `io.paraview_series` with `scope: lineage`.
+Open `<run.visualization>/<recipe_id>/Field.pvd` after postprocessing.
+The collection reads physical times from committed checkpoints and references the
+original VTK files, including matching ancestor recipes when the run has restart
+lineage. Postprocess those ancestors first. Repeating the catch-up command refreshes
+the collection; reopen it in ParaView to see the additional frames.
+
+Other profiles leave collections disabled unless you add the same block to their
+`io` mapping. This preserves their existing verification/particle-analysis behavior:
+
+```yaml
+paraview_series:
+  enabled: true
+  scope: lineage
+```
+
+Use `scope: run` for a local collection. The full compatibility and reset rules are
+in `docs/pages/10_Post_Processing_Reference.md`: changed solver timestep sizes use
+checkpoint time, but changing the post stride creates a different recipe ID and
+does not automatically stitch older recipe directories.
 
 ## 4. Notes on Newer Options
 

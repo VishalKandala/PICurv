@@ -89,6 +89,14 @@ A periodic wall-bounded case is not a known cause: the stall recorded for it on
 
 @section p67_restart_sec 6. Restart Is Rejected or Behaves Unexpectedly
 
+For a missing or incomplete PVD, first check `post.yml -> io.paraview_series`.
+Lineage indexing requires matching recipe IDs in accessible ancestor runs and
+physical times from committed checkpoints or retained PVDs. Changing post stride
+or fields creates a new recipe ID; an old directory is not automatically searched.
+Generate matching ancestor output, then repeat the child's post command. Open the
+child's `.pvd`, and reopen it after catch-up. A missing referenced VTK file cannot be
+recovered from the PVD itself; restore that run's visualization data.
+
 1. Confirm you want the operation you asked for: `--continue` resumes the same run;
    `--restart-from` seeds a new one. See **@subpage 52_Run_Artifact_Lifecycle_Contract**.
 2. Check that what you changed is compatible with continuing — @ref p52_compat_sec.

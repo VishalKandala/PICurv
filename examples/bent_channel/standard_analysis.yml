@@ -2,7 +2,7 @@
 #         Post-Processing Profile: Standard Analysis
 # ==========================================================
 # A standard recipe to generate visualization files. It performs
-# cell-to-node averaging and calculates vorticity.
+# cell-to-node averaging and calculates Q-criterion.
 # ==========================================================
 
 source_data:
@@ -44,6 +44,10 @@ eulerian_pipeline:
     reference_point: [1, 1, 1]
 
 io:
+  # Index existing matching ancestor output using checkpoint physical time.
+  paraview_series:
+    enabled: true
+    scope: lineage
   output_directory: "visualization/standard_analysis"
   output_filename_prefix: "eulerian_data"
   particle_filename_prefix: "Particle"

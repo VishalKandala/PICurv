@@ -38,6 +38,7 @@ import importlib.util
 import errno
 import tempfile
 from pathlib import Path
+from xml.etree import ElementTree
 
 try:
     from .storage import (
@@ -4021,6 +4022,11 @@ def compute_post_recipe_id(post_cfg: dict) -> str:
     label = "post"
     if isinstance(io, dict):
         io.pop("output_directory", None)
+        # ParaView collection generation changes only how existing VTK artifacts are
+        # indexed.  It must not split an otherwise identical computational recipe,
+        # especially when a child enables lineage indexing for an ancestor whose VTK
+        # files predate the option.
+        io.pop("paraview_series", None)
         raw_label = io.get("output_filename_prefix")
         if isinstance(raw_label, str) and raw_label.strip():
             label = re.sub(r"[^A-Za-z0-9_.-]+", "-", raw_label.strip()).strip("-") or "post"
@@ -4196,6 +4202,333 @@ def _post_requests_particle_output(post_cfg: dict) -> bool:
     return bool(io_cfg.get('output_particles')) and bool(io_cfg.get('particle_fields'))
 
 
+POST_PARAVIEW_SERIES_SCOPES = {"run", "lineage"}
+
+
+def normalize_post_paraview_series_config(post_cfg: dict) -> dict:
+    """!
+    @brief Normalize the optional ParaView collection policy in a post recipe.
+    @param[in] post_cfg Parsed post-processing configuration.
+    @return Mapping with enabled and scope keys.
+    """
+    raw = ((post_cfg or {}).get("io") or {}).get("paraview_series")
+    if raw is None:
+        return {"enabled": False, "scope": "run"}
+    if isinstance(raw, bool):
+        return {"enabled": raw, "scope": "lineage" if raw else "run"}
+    if not isinstance(raw, dict):
+        raise ValueError("'io.paraview_series' must be a boolean or mapping.")
+    enabled = raw.get("enabled", True)
+    scope = str(raw.get("scope", "lineage")).strip().lower()
+    if not isinstance(enabled, bool):
+        raise ValueError("'io.paraview_series.enabled' must be a boolean.")
+    if scope not in POST_PARAVIEW_SERIES_SCOPES:
+        raise ValueError("'io.paraview_series.scope' must be 'run' or 'lineage'.")
+    return {"enabled": enabled, "scope": scope}
+
+
+def _resolve_lineage_parent_run(child_run_dir: str, lineage: dict) -> str:
+    """!
+    @brief Resolve and identity-check one recorded lineage parent.
+    @param[in] child_run_dir Child run directory used to resolve workspace-relative paths.
+    @param[in] lineage Recorded branch-lineage mapping.
+    @return Absolute path to the identity-matched parent run.
+    """
+    recorded = lineage.get("parent_path")
+    parent_id = lineage.get("parent_run_id")
+    if not recorded or not parent_id:
+        raise ValueError(f"Run lineage is missing parent_path or parent_run_id: {child_run_dir}")
+    if os.path.isabs(str(recorded)):
+        candidates = [os.path.abspath(str(recorded))]
+    else:
+        workspace_root = find_workspace_root(child_run_dir)
+        candidates = ([os.path.abspath(os.path.join(workspace_root, str(recorded)))]
+                      if workspace_root else [])
+    workspace_root = find_workspace_root(child_run_dir)
+    if workspace_root:
+        runs_root = os.path.join(workspace_root, "runs")
+        if os.path.isdir(runs_root):
+            candidates.extend(
+                os.path.join(runs_root, name) for name in os.listdir(runs_root)
+                if os.path.isdir(os.path.join(runs_root, name))
+            )
+    seen = set()
+    for candidate in candidates:
+        candidate = os.path.abspath(candidate)
+        if candidate in seen or not os.path.isdir(candidate):
+            continue
+        seen.add(candidate)
+        try:
+            identity = read_artifact_identity(candidate)
+        except (OSError, ValueError, KeyError):
+            continue
+        if identity.get("run_id") == parent_id:
+            return candidate
+    raise ValueError(
+        f"Lineage parent '{parent_id}' for run '{os.path.basename(child_run_dir)}' "
+        f"could not be resolved from recorded path '{recorded}'."
+    )
+
+
+def resolve_run_lineage(run_dir: str, scope: str = "lineage") -> list:
+    """!
+    @brief Return root-to-leaf run segments for a ParaView collection.
+    @param[in] run_dir Leaf run whose lineage is resolved.
+    @param[in] scope Either run-local or full-lineage collection scope.
+    @return Ordered run-segment mappings from root to leaf.
+    @details Each entry carries the run path, manifest, and the checkpoint at which
+             that run branched from its parent. Cycles and unresolved parents fail.
+    """
+    current = os.path.abspath(run_dir)
+    reverse = []
+    seen_ids = set()
+    while True:
+        manifest = _read_json_if_exists(os.path.join(current, "manifest.json")) or {}
+        run_id = manifest.get("run_id") or os.path.basename(current)
+        if run_id in seen_ids:
+            chain = " -> ".join([entry["run_id"] for entry in reversed(reverse)] + [run_id])
+            raise ValueError(f"Cycle detected while resolving visualization lineage: {chain}")
+        seen_ids.add(run_id)
+        lineage = manifest.get("lineage") or {"relationship": "root"}
+        reverse.append({
+            "run_dir": current,
+            "run_id": run_id,
+            "manifest": manifest,
+            "lineage": lineage,
+            "fork_step": (int(lineage["checkpoint_step"])
+                          if lineage.get("relationship") == "branch" else None),
+        })
+        if scope == "run" or lineage.get("relationship") != "branch":
+            break
+        current = _resolve_lineage_parent_run(current, lineage)
+    return list(reversed(reverse))
+
+
+def _existing_pvd_times(pvd_path: str) -> dict:
+    """!
+    @brief Read step-to-time fallbacks from an existing PVD collection.
+    @param[in] pvd_path Existing collection path.
+    @return Mapping from output step to physical time.
+    """
+    if not os.path.isfile(pvd_path):
+        return {}
+    try:
+        root = ElementTree.parse(pvd_path).getroot()
+    except (ElementTree.ParseError, OSError):
+        return {}
+    result = {}
+    for dataset in root.findall(".//DataSet"):
+        filename = os.path.basename(dataset.get("file", ""))
+        match = re.search(r"_(\d+)\.(?:vts|vtp)$", filename)
+        try:
+            if match:
+                result[int(match.group(1))] = float(dataset.get("timestep"))
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def _checkpoint_time_for_series(run_dir: str, step: int, fallback: dict) -> float:
+    """!
+    @brief Read authoritative physical time for one visualization frame.
+    @param[in] run_dir Run owning the frame.
+    @param[in] step Frame checkpoint step.
+    @param[in] fallback Existing collection times used after checkpoint pruning.
+    @return Physical time recorded for the frame.
+    """
+    metadata_path = os.path.join(
+        run_dir, CANONICAL_RUN_PATHS["checkpoints"],
+        f"step_{step:0{CHECKPOINT_STEP_WIDTH}d}", "checkpoint.meta",
+    )
+    commit_path = os.path.join(os.path.dirname(metadata_path), "COMMITTED")
+    if os.path.isfile(metadata_path) and os.path.isfile(commit_path):
+        options = _read_checkpoint_options(metadata_path)
+        try:
+            recorded_step = int(options["checkpoint_step"])
+            physical_time = float(options["checkpoint_time"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"Checkpoint time metadata is malformed: {metadata_path}") from exc
+        if recorded_step != step or not math.isfinite(physical_time):
+            raise ValueError(f"Checkpoint time metadata does not match step {step}: {metadata_path}")
+        return physical_time
+    if step in fallback:
+        return float(fallback[step])
+    raise ValueError(
+        f"Visualization frame at step {step} has no locally available checkpoint time in "
+        f"'{run_dir}'. Restore its checkpoints or retain an existing PVD carrying the time."
+    )
+
+
+def _write_pvd_collection(path: str, entries: list) -> None:
+    """!
+    @brief Atomically write one VTK Collection file.
+    @param[in] path Destination PVD path.
+    @param[in] entries Ordered frame mappings.
+    @return None.
+    """
+    root = ElementTree.Element("VTKFile", {
+        "type": "Collection", "version": "0.1", "byte_order": "LittleEndian",
+    })
+    collection = ElementTree.SubElement(root, "Collection")
+    base = os.path.dirname(os.path.abspath(path))
+    for entry in entries:
+        ElementTree.SubElement(collection, "DataSet", {
+            "timestep": format(float(entry["time"]), ".17g"),
+            "group": "", "part": "0",
+            "file": os.path.relpath(entry["path"], base).replace(os.sep, "/"),
+        })
+    content = '<?xml version="1.0"?>\n' + ElementTree.tostring(root, encoding="unicode") + "\n"
+    os.makedirs(base, exist_ok=True)
+    temporary = f"{path}.tmp.{os.getpid()}"
+    try:
+        with open(temporary, "w", encoding="utf-8") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def _lineage_reset_index(segments: list, family: str) -> int:
+    """!
+    @brief Return the first segment belonging to one continuous artifact family.
+    @param[in] segments Root-to-leaf lineage segments.
+    @param[in] family Artifact family being indexed.
+    @return Index of the first segment after the last relevant reset.
+    """
+    start = 0
+    for index, segment in enumerate(segments[1:], start=1):
+        if family == "particle":
+            case_path = os.path.join(segment["run_dir"], "config", "case.yml")
+            case_cfg = read_yaml_file(case_path) if os.path.isfile(case_path) else {}
+            particles = (((case_cfg.get("models") or {}).get("physics") or {}).get("particles") or {})
+            if str(particles.get("restart_mode", "init")).strip().lower() != "load":
+                start = index
+        elif family == "statistics":
+            if str(segment["lineage"].get("statistics_state", "reset")).lower() != "carry":
+                start = index
+    return start
+
+
+def finalize_post_paraview_series(run_dir: str, post_cfg: dict) -> list:
+    """!
+    @brief Build physical-time ParaView collections from current or lineage VTK output.
+    @param[in] run_dir Leaf run receiving the collection.
+    @param[in] post_cfg Parsed post-processing recipe.
+    @return Absolute PVD paths written. Disabled recipes return an empty list.
+    """
+    policy = normalize_post_paraview_series_config(post_cfg)
+    if not policy["enabled"]:
+        return []
+    run_dir = os.path.abspath(run_dir)
+    if not isinstance((post_cfg or {}).get("_picurv_paths"), dict):
+        post_cfg, _ = apply_canonical_post_paths(post_cfg, run_dir)
+    recipe_id = post_cfg["_picurv_paths"]["recipe_id"]
+    requested_start, requested_end, _interval = resolve_post_requested_window(
+        post_cfg,
+        read_yaml_file(os.path.join(run_dir, "config", "case.yml")),
+    )
+    segments = resolve_run_lineage(run_dir, policy["scope"])
+    io_cfg = post_cfg.get("io", {}) or {}
+    families = []
+    if _post_requests_eulerian_output(post_cfg):
+        families.append(("field", io_cfg.get("output_filename_prefix", "Field"), "vts"))
+    if _post_requests_particle_output(post_cfg):
+        families.append(("particle", io_cfg.get("particle_filename_prefix", "Particle"), "vtp"))
+    for kind, prefix_path in get_post_field_statistics_artifacts(post_cfg, run_dir):
+        if kind == "vtk":
+            families.append(("statistics", os.path.basename(prefix_path), "vts"))
+
+    written = []
+    for family, prefix, extension in families:
+        active_segments = segments[_lineage_reset_index(segments, family):]
+        entries = []
+        for index, segment in enumerate(active_segments):
+            lower = requested_start
+            if segment["fork_step"] is not None:
+                lower = max(lower, int(segment["fork_step"]))
+            upper = requested_end
+            if index + 1 < len(active_segments):
+                upper = min(upper, int(active_segments[index + 1]["fork_step"]) - 1)
+            if lower > upper:
+                continue
+            viz_dir = os.path.join(
+                segment["run_dir"], CANONICAL_RUN_PATHS["visualization"], recipe_id
+            )
+            pvd_path = os.path.join(viz_dir, f"{prefix}.pvd")
+            fallback = _existing_pvd_times(pvd_path)
+            pattern = re.compile(rf"^{re.escape(prefix)}_(\d+)\.{re.escape(extension)}$")
+            found = []
+            if os.path.isdir(viz_dir):
+                for name in os.listdir(viz_dir):
+                    match = pattern.match(name)
+                    if match and lower <= int(match.group(1)) <= upper:
+                        found.append((int(match.group(1)), os.path.join(viz_dir, name)))
+            if not found and index + 1 < len(active_segments):
+                raise ValueError(
+                    f"Lineage run '{segment['run_id']}' has no {prefix} visualization "
+                    f"frames for its required segment {lower}..{upper} and recipe '{recipe_id}'."
+                )
+            for step, frame_path in sorted(found):
+                entries.append({
+                    "step": step,
+                    "time": _checkpoint_time_for_series(segment["run_dir"], step, fallback),
+                    "path": os.path.abspath(frame_path),
+                    "run_id": segment["run_id"],
+                })
+        if not entries:
+            continue
+        for previous, current in zip(entries, entries[1:]):
+            if current["time"] <= previous["time"]:
+                raise ValueError(
+                    f"ParaView series time is not strictly increasing: {previous['run_id']} "
+                    f"step {previous['step']} has {previous['time']:.17g}, followed by "
+                    f"{current['run_id']} step {current['step']} at {current['time']:.17g}."
+                )
+        output_dir = _post_output_directory_abs(run_dir, post_cfg)
+        output_path = os.path.join(output_dir, f"{prefix}.pvd")
+        _write_pvd_collection(output_path, entries)
+        print(
+            f"[SUCCESS] Wrote ParaView {family} series: {output_path} "
+            f"({len(entries)} frame(s), time {entries[0]['time']:.17g}..{entries[-1]['time']:.17g})"
+        )
+        written.append(output_path)
+    return written
+
+
+def _post_finalize_python_source() -> str:
+    """!
+    @brief Return the importable serial finalizer used by generated jobs.
+    @return Python source suitable for a serial interpreter invocation.
+    """
+    package_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return (
+        "import os,sys;"
+        f"sys.path.insert(0,{package_root!r});"
+        "from picurv_cli.core import read_yaml_file,apply_canonical_post_paths,finalize_post_paraview_series;"
+        "run=os.path.abspath(sys.argv[1]);cfg=read_yaml_file(sys.argv[2]);"
+        "cfg,_=apply_canonical_post_paths(cfg,run);finalize_post_paraview_series(run,cfg)"
+    )
+
+
+def build_post_finalize_command(run_dir: str, archived_post_path: str, post_cfg: dict) -> list:
+    """!
+    @brief Build the serial post-success command for staged execution.
+    @param[in] run_dir Run receiving the collection.
+    @param[in] archived_post_path Archived post recipe read by the finalizer.
+    @param[in] post_cfg Parsed post-processing recipe.
+    @return Command tokens, or an empty list when collection output is disabled.
+    """
+    if not normalize_post_paraview_series_config(post_cfg)["enabled"]:
+        return []
+    return [
+        sys.executable, "-c", _post_finalize_python_source(),
+        os.path.abspath(run_dir), os.path.abspath(archived_post_path),
+    ]
+
+
 def _post_requests_statistics(post_cfg: dict) -> bool:
     """!
     @brief Return whether the current post recipe expects statistics CSV artifacts.
@@ -4248,6 +4581,30 @@ def resolve_post_requested_window(post_cfg: dict, case_cfg: dict = None) -> "tup
         case_total = int(case_run.get('total_steps', 0) or 0)
         end_step = case_start + case_total
     return start_step, end_step, step_interval
+
+
+def resolve_post_owned_start(run_dir: str, post_cfg: dict, requested_start: int,
+                             step_interval: int) -> int:
+    """!
+    @brief Intersect a lineage recipe's logical cadence with this run's branch.
+    @param[in] run_dir Run whose branch ownership is inspected.
+    @param[in] post_cfg Parsed post-processing recipe.
+    @param[in] requested_start Logical recipe start step.
+    @param[in] step_interval Logical recipe cadence.
+    @return First cadence step owned by the run.
+    """
+    policy = normalize_post_paraview_series_config(post_cfg)
+    if not policy["enabled"] or policy["scope"] != "lineage":
+        return requested_start
+    manifest = _read_json_if_exists(os.path.join(run_dir, "manifest.json")) or {}
+    lineage = manifest.get("lineage") or {}
+    if lineage.get("relationship") != "branch":
+        return requested_start
+    fork_step = int(lineage["checkpoint_step"])
+    if fork_step <= requested_start:
+        return requested_start
+    intervals = (fork_step - requested_start + step_interval - 1) // step_interval
+    return requested_start + intervals * step_interval
 
 
 def prepare_effective_post_config(post_cfg: dict, resolved_source_dir: str, start_step: int = None, end_step: int = None) -> dict:
@@ -4531,6 +4888,7 @@ def main():
     parser.add_argument('--metadata-file', required=True)
     parser.add_argument('--run-dir', required=True)
     parser.add_argument('--recipe-fingerprint', required=True)
+    parser.add_argument('--success-command-json')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
@@ -4574,6 +4932,14 @@ def main():
 
     try:
         result = subprocess.run(command)
+        if result.returncode != 0:
+            return int(result.returncode)
+        if args.success_command_json:
+            success_command = json.loads(args.success_command_json)
+            if not isinstance(success_command, list) or not success_command:
+                print('[FATAL] Invalid post success command.', file=sys.stderr)
+                return 2
+            result = subprocess.run([str(token) for token in success_command])
         return int(result.returncode)
     finally:
         try:
@@ -4609,13 +4975,16 @@ def ensure_post_lock_wrapper(run_dir: str) -> str:
     return wrapper_path
 
 
-def build_post_locked_command(run_dir: str, recipe_fingerprint: str, wrapped_command: list, create_wrapper: bool = True) -> "tuple[list, dict]":
+def build_post_locked_command(run_dir: str, recipe_fingerprint: str, wrapped_command: list,
+                              create_wrapper: bool = True,
+                              success_command: "list | None" = None) -> "tuple[list, dict]":
     """!
     @brief Wrap a postprocessor command behind the run-dir-scoped lock wrapper.
     @param[in] run_dir Argument passed to `build_post_locked_command()`.
     @param[in] recipe_fingerprint Argument passed to `build_post_locked_command()`.
     @param[in] wrapped_command Argument passed to `build_post_locked_command()`.
     @param[in] create_wrapper Argument passed to `build_post_locked_command()`.
+    @param[in] success_command Optional serial command run under the same lock after success.
     @return Value returned by `build_post_locked_command()`.
     """
     lock_paths = get_post_lock_paths(run_dir)
@@ -4626,9 +4995,33 @@ def build_post_locked_command(run_dir: str, recipe_fingerprint: str, wrapped_com
         '--metadata-file', lock_paths['metadata_file'],
         '--run-dir', run_dir,
         '--recipe-fingerprint', recipe_fingerprint,
-        '--',
-    ] + list(wrapped_command)
+    ]
+    if success_command:
+        command += ['--success-command-json', json.dumps(list(success_command))]
+    command += ['--'] + list(wrapped_command)
     return command, lock_paths
+
+
+def run_post_finalize_locked(run_dir: str, recipe_fingerprint: str,
+                             finalize_command: list) -> None:
+    """!
+    @brief Refresh a collection-only result under the ordinary post writer lock.
+    @param[in] run_dir Run whose post writer lock is acquired.
+    @param[in] recipe_fingerprint Recipe identity recorded in lock metadata.
+    @param[in] finalize_command Serial collection finalizer command.
+    @return None.
+    """
+    if not finalize_command:
+        return
+    command, _ = build_post_locked_command(
+        run_dir, recipe_fingerprint, [sys.executable, "-c", "pass"],
+        create_wrapper=True, success_command=finalize_command,
+    )
+    result = subprocess.run(command, cwd=run_dir)
+    if result.returncode != 0:
+        raise ValueError(
+            f"ParaView series finalization failed with exit code {result.returncode}."
+        )
 
 
 def build_post_execution_plan(
@@ -4654,6 +5047,9 @@ def build_post_execution_plan(
     if not isinstance((post_cfg or {}).get("_picurv_paths"), dict):
         post_cfg, _ = apply_canonical_post_paths(post_cfg, run_dir)
     requested_start_step, requested_end_step, step_interval = resolve_post_requested_window(post_cfg, case_cfg)
+    owned_start_step = resolve_post_owned_start(
+        run_dir, post_cfg, requested_start_step, step_interval
+    )
     resolved_source_dir = _resolve_post_source_directory_preview(run_dir, monitor_cfg, post_cfg)
     resolved_post_cfg = prepare_effective_post_config(post_cfg, resolved_source_dir)
     recipe_cfg = build_post_recipe_config(resolved_post_cfg, monitor_cfg)
@@ -4684,7 +5080,7 @@ def build_post_execution_plan(
         run_dir,
         resolved_post_cfg,
         monitor_cfg,
-        requested_start_step,
+        owned_start_step,
         requested_end_step,
         step_interval,
     )
@@ -4695,7 +5091,7 @@ def build_post_execution_plan(
     if continue_requested and resume_recipe_match and completed_frontier_step is not None:
         effective_start_step = completed_frontier_step + step_interval
     else:
-        effective_start_step = requested_start_step
+        effective_start_step = owned_start_step
 
     source_frontier_step = None
     source_frontier_diagnostic = None
@@ -4740,6 +5136,7 @@ def build_post_execution_plan(
         'continue_requested': bool(continue_requested),
         'requested_start_step': requested_start_step,
         'requested_end_step': requested_end_step,
+        'owned_start_step': owned_start_step,
         'step_interval': step_interval,
         'source_data_directory': resolved_source_dir,
         'recipe_config': recipe_cfg,
@@ -7509,9 +7906,10 @@ _POST_SCHEMA = {
     ("io",): {
         "output_directory", "output_filename_prefix", "particle_filename_prefix", "output_particles",
         "particle_subsampling_frequency", "input_extensions",
-        "eulerian_fields", "particle_fields",
+        "eulerian_fields", "particle_fields", "paraview_series",
     },
     ("io", "input_extensions"): {"eulerian", "particle"},
+    ("io", "paraview_series"): {"enabled", "scope"},
 }
 
 
@@ -8965,6 +9363,10 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
                 errors.append(f"  {post_path}: 'io.{key_name}' must be a string when provided.")
         if 'output_particles' in io_cfg and not isinstance(io_cfg.get('output_particles'), bool):
             errors.append(f"  {post_path}: 'io.output_particles' must be a boolean when provided.")
+        try:
+            normalize_post_paraview_series_config(post_cfg)
+        except ValueError as exc:
+            errors.append(f"  {post_path}: {exc}")
         particle_subsampling_frequency = io_cfg.get('particle_subsampling_frequency')
         if particle_subsampling_frequency is not None:
             if not isinstance(particle_subsampling_frequency, int) or particle_subsampling_frequency <= 0:
@@ -14357,7 +14759,17 @@ def render_slurm_array_stage_script(
     # immediately before the executable's normal control/recipe options.
     if executable_token and command_text.count(executable_token) == 1:
         command_text = command_text.replace(f"{executable_token} ", f"{executable_token} {diag_var} ", 1)
-    lines.append(f"exec {command_text}")
+    if stage == "post":
+        # Study members are ordinary root runs, but their post recipes may request the
+        # same run-local physical-time PVD product as standalone runs.  Keep this serial
+        # and downstream of the MPI postprocessor.
+        lines.append(command_text)
+        lines.append(
+            f"{shlex.quote(sys.executable)} -c {shlex.quote(_post_finalize_python_source())} "
+            '"$RUN_DIR" "$RUN_DIR/config/post.yml"'
+        )
+    else:
+        lines.append(f"exec {command_text}")
 
     os.makedirs(os.path.dirname(script_path), exist_ok=True)
     with open(script_path, "w") as f:
@@ -15306,6 +15718,8 @@ def build_run_dry_plan(args) -> dict:
         )
 
         post_recipe_path = os.path.join(get_post_recipe_root(run_dir, post_cfg), "post.run")
+        archived_post_path = os.path.join(get_post_recipe_root(run_dir, post_cfg), "post.yml")
+        post_finalize_command = build_post_finalize_command(run_dir, archived_post_path, post_cfg)
         output_dir_rel = post_cfg.get("io", {}).get("output_directory")
         output_prefix = post_cfg.get("io", {}).get("output_filename_prefix")
         if not output_prefix:
@@ -15332,6 +15746,7 @@ def build_run_dry_plan(args) -> dict:
         ]
         plan["artifacts"].extend([
             post_recipe_path,
+            archived_post_path,
             output_dir_abs,
             post_plan["resume_state_path"],
             post_plan["lock_paths"]["wrapper_path"],
@@ -15339,6 +15754,16 @@ def build_run_dry_plan(args) -> dict:
             post_plan["lock_paths"]["metadata_file"],
         ])
         plan["artifacts"].extend(statistics_output_paths)
+        if post_finalize_command:
+            io_cfg = post_cfg.get("io", {}) or {}
+            if _post_requests_eulerian_output(post_cfg):
+                plan["artifacts"].append(os.path.join(
+                    output_dir_abs, f"{io_cfg.get('output_filename_prefix', 'Field')}.pvd"
+                ))
+            if _post_requests_particle_output(post_cfg):
+                plan["artifacts"].append(os.path.join(
+                    output_dir_abs, f"{io_cfg.get('particle_filename_prefix', 'Particle')}.pvd"
+                ))
 
         stage_meta = {
             "source_data_directory": post_plan["source_data_directory"],
@@ -15359,6 +15784,7 @@ def build_run_dry_plan(args) -> dict:
             "post_skipped_as_complete": post_plan["skip_reason"] == "already-complete-window",
             "recipe_fingerprint": post_plan["recipe_fingerprint"],
             "num_procs_effective": post_num_procs_effective,
+            "finalize_command": post_finalize_command,
         }
 
         if post_plan["skip_reason"] is None:
@@ -15379,6 +15805,7 @@ def build_run_dry_plan(args) -> dict:
                     post_plan["recipe_fingerprint"],
                     raw_post_cmd,
                     create_wrapper=False,
+                    success_command=post_finalize_command,
                 )
                 plan["artifacts"].append(post_script)
                 stage_meta.update({
@@ -15401,6 +15828,7 @@ def build_run_dry_plan(args) -> dict:
                     post_plan["recipe_fingerprint"],
                     raw_post_cmd,
                     create_wrapper=False,
+                    success_command=post_finalize_command,
                 )
                 post_stream_log = os.path.join(run_dir, "scheduler", f"{run_id}_{output_prefix}.log")
                 plan["artifacts"].append(post_stream_log)
@@ -16898,6 +17326,28 @@ def run_workflow(args):
             require_precomputed=bool(getattr(args, "require_precomputed", False)),
             fetch_missing=bool(getattr(args, "fetch_missing", False)),
         )
+        # Publish identity and lineage before either executable starts.  Besides making
+        # a staged run self-describing, this lets a dependent post job resolve branch
+        # ownership even though the interactive conductor has already exited.
+        write_json_file(
+            os.path.join(run_dir, "manifest.json"),
+            build_run_manifest(
+                run_dir,
+                run_id,
+                workspace_root=workspace_root,
+                launch_mode="slurm" if cluster_mode else "local",
+                num_procs=solver_num_procs_effective,
+                post_num_procs=post_num_procs_effective,
+                stages_requested={"solve": True, "post_process": bool(args.post_process)},
+                inputs={
+                    "case": _relative_to_workspace(args.case, workspace_root),
+                    "solver": _relative_to_workspace(args.solver, workspace_root),
+                    "monitor": _relative_to_workspace(args.monitor, workspace_root),
+                },
+                asset_lock=asset_lock,
+                lineage=run_lineage,
+            ),
+        )
 
         print("\n" + "="*25 + " SOLVER STAGE " + "="*25)
         source_files = {'Case': args.case, 'Solver': args.solver, 'Monitor': args.monitor}
@@ -17049,11 +17499,14 @@ def run_workflow(args):
         post_cfg = read_yaml_file(args.post)
 
         requested_start, requested_end, requested_interval = resolve_post_requested_window(post_cfg, case_cfg)
+        local_requested_start = resolve_post_owned_start(
+            run_dir, post_cfg, requested_start, requested_interval
+        )
         try:
             require_storage_payload_local(
                 run_dir,
                 "post-processing",
-                checkpoints=range(requested_start, requested_end + 1, requested_interval),
+                checkpoints=range(local_requested_start, requested_end + 1, requested_interval),
             )
         except StorageError as exc:
             emit_structured_error(
@@ -17093,6 +17546,10 @@ def run_workflow(args):
         )
 
         post_stages = resolve_post_stage_selection(getattr(args, 'only', None))
+        post_finalize_command = (
+            build_post_finalize_command(run_dir, archived_post_path, post_cfg)
+            if 'fields' in post_stages else []
+        )
         if post_stages != set(POST_STAGE_NAMES):
             print(f"[INFO] Post stages selected: {','.join(sorted(post_stages))}")
 
@@ -17120,6 +17577,10 @@ def run_workflow(args):
         if post_plan['skip_reason'] == 'already-complete-window':
             print("[INFO] Requested post window is already complete; skipping postprocessor launch.")
             persist_post_resume_state(run_dir, post_plan, last_successful_requested_end_step=post_plan['requested_end_step'])
+            if post_finalize_command:
+                run_post_finalize_locked(
+                    run_dir, post_plan['recipe_fingerprint'], post_finalize_command
+                )
         elif post_plan['skip_reason'] == 'already-caught-up-to-current-source-frontier':
             print("[INFO] Post outputs are already caught up to the current fully available source frontier; nothing new to launch right now.")
             diagnostic = post_plan.get('source_frontier_diagnostic') or {}
@@ -17130,6 +17591,10 @@ def run_workflow(args):
                     "[INFO] Closest complete source steps: "
                     f"near start={_format_optional_step(diagnostic.get('closest_complete_step_to_start'))}, "
                     f"near end={_format_optional_step(diagnostic.get('closest_complete_step_to_end'))}"
+                )
+            if post_finalize_command:
+                run_post_finalize_locked(
+                    run_dir, post_plan['recipe_fingerprint'], post_finalize_command
                 )
         elif post_plan['skip_reason'] == 'nothing-available-yet':
             diagnostic = post_plan.get('source_frontier_diagnostic') or {}
@@ -17243,6 +17708,7 @@ def run_workflow(args):
                         post_plan['recipe_fingerprint'],
                         raw_post_cmd,
                         create_wrapper=True,
+                        success_command=post_finalize_command,
                     )
                     spectra_follow = []
                     if 'spectra' in post_stages:
@@ -17277,6 +17743,7 @@ def run_workflow(args):
                         "source_frontier_step": post_plan['source_frontier_step'],
                         "source_frontier_deferred": post_plan['source_frontier_deferred'],
                         "recipe_fingerprint": post_plan['recipe_fingerprint'],
+                        "finalize_command": post_finalize_command,
                     }
                     print(f"[SUCCESS] Generated post Slurm script: {os.path.relpath(post_script)}")
 
@@ -17305,6 +17772,7 @@ def run_workflow(args):
                         post_plan['recipe_fingerprint'],
                         raw_command,
                         create_wrapper=True,
+                        success_command=post_finalize_command,
                     )
                     post_log = os.path.join("scheduler", f"{run_id}_{output_prefix}.log")
                     submission_meta["stages"]["post-process"] = {
@@ -17322,6 +17790,7 @@ def run_workflow(args):
                         "source_frontier_step": post_plan['source_frontier_step'],
                         "source_frontier_deferred": post_plan['source_frontier_deferred'],
                         "recipe_fingerprint": post_plan['recipe_fingerprint'],
+                        "finalize_command": post_finalize_command,
                     }
                     if args.no_submit:
                         print(f"[SUCCESS] Staged local post command: {post_log}")

@@ -36,6 +36,11 @@ If you run this example on a cluster and need site-specific MPI launcher tokens,
 
 ## Recommended Uses
 
+The standard and quickstart post recipes enable physical-time ParaView collections.
+Open `<run.visualization>/<recipe_id>/eulerian_data.pvd`; the default window contains
+only the final snapshot. See `flat_channel.md` and the post-processing reference for
+full-window movies, live catch-up, and restart-lineage requirements.
+
 - first local smoke run,
 - solver/post pipeline validation,
 - baseline for parameter perturbation studies,

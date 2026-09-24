@@ -720,6 +720,12 @@ can be cold, or `restart-ready` when continuation is more likely than analysis.
 **Interactions.** Existing derived results remain readable; rerunning post may still
 require restoring source checkpoints or raw output.
 
+A lineage `.pvd` can reference visualization files in other runs. Retaining the
+child's visualization alone does not retain those ancestor files: keep each
+referenced run's visualization accessible and preserve their relative locations.
+Existing PVDs carry physical times even after checkpoints are pruned; generating a
+new index without those recorded times requires restoring checkpoint metadata.
+
 **Diagnostics.** `storage plan` separates retained analysis/visualization bytes from
 pruned bytes, and the marker records both retained components.
 

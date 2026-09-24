@@ -75,8 +75,12 @@ the file-mode override above.
 
 ## 5. Output Check
 
-Open `<run.visualization>/standard_analysis/eulerian_data_*.vts` in ParaView and
+Open `<run.visualization>/<recipe_id>/eulerian_data.pvd` in ParaView and
 inspect streamlines colored by `Ucat_nodal` magnitude.
+
+The supplied recipe enables checkpoint physical time and restart-lineage indexing.
+It selects the final step by default; select the full window in `run_control` for
+a movie. Ancestor visualization must exist under the same recipe ID to be stitched.
 
 ## 6. Cluster and Sweep Examples
 

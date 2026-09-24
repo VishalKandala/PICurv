@@ -1,7 +1,12 @@
 {
   "description": "Census of public choice sets in the CLI. A surface must either be covered by a registered capability family or be classified here with a reason. Discovery is over `normalize_*` functions and module-level constants whose names end in one of audit_family_census.CHOICE_SET_SUFFIXES - which is why a closed choice set must be a named constant rather than a literal inline at its point of use. This exists because a registry that only checks itself cannot report a family nobody registered: the original failure mode, recreated at the registry boundary.",
-  "status": "All 29 public capability families are registered with enforced Tier-2 coverage; no family is public_pending. Every other discovered choice set carries a typed classification and a reason below.",
+  "status": "All 39 public capability families are registered with enforced Tier-2 coverage; no family is public_pending. Every other discovered choice set carries a typed classification and a reason below.",
   "acknowledged_uncovered": {
+    "picurv_cli.core::normalize_post_paraview_series_config": {
+      "classification": "parameter_of_entry",
+      "reason": "Normalizes the enabled flag and run versus lineage extent of the same PVD presentation product. It changes which existing VTK frames are indexed, not their computation. The post-processing reference documents both scopes, defaults, ancestry requirements, and recipe compatibility.",
+      "owner": "10_Post_Processing_Reference"
+    },
     "picurv_cli.cli::CLI_OUTPUT_FORMATS": {
       "classification": "cli_inventory_sufficient",
       "reason": "`--format text|json` on every command that prints a structured report. The generated CLI reference lists the flag and its choices wherever it appears, and the choice is an output encoding rather than a behaviour: there is no when-to-use answer beyond 'json when a machine reads it'."

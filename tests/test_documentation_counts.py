@@ -58,6 +58,28 @@ def test_page_metadata_matches_the_contract_registry(registry, page71):
     assert (int(match.group(1)), int(match.group(2))) == (enforced, total)
 
 
+def test_evidence_matrix_counts_match_capability_registry():
+    """!
+    @brief Keep the evidence page's stated family and canonical-value counts current.
+
+    @details Counts against the generated inventory `audit_capability_coverage.py`
+             itself reads, using its own selectable/alias/spelling/latent split, so
+             this check cannot drift from what `make audit-capability` reports.
+    @return None.
+    """
+    inventory = json.loads(_read(REPO_ROOT / "docs" / "generated" / "capability_inventory.json"))
+    page = _read(PAGES / "66_Evidence_Matrix.md")
+    stated = re.search(r"(\d+) families, (\d+) canonical values", page)
+    assert stated, "evidence page no longer states its coverage counts"
+    canonical = sum(
+        1 for family in inventory for spec in family["public_values"].values()
+        if spec.get("reachability") != "latent"
+        and not spec.get("alias_of")
+        and not spec.get("spelling_of")
+    )
+    assert tuple(map(int, stated.groups())) == (len(inventory), canonical)
+
+
 def test_page_body_matches_the_contract_registry(registry, page71):
     """!
     @brief The register section must agree with the registry too.

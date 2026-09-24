@@ -7,7 +7,7 @@
 What confidence this project claims for each capability in the families covered so far.
 
 The table is generated from the capability registry and now covers every public
-capability family the census recognises - 40 families, 131 canonical values.
+capability family the census recognises - 39 families, 129 canonical values.
 
 @warning **Coverage is not credibility.** A complete table means every capability has
 been *asked* what evidence stands behind it, not that the answers are strong. Many
@@ -46,6 +46,33 @@ Accepted spellings and latent values are omitted: they carry no evidence of thei
 beyond the canonical value they resolve to.
 
 @section p66_gaps_sec 3. Reading the Gaps
+
+@subsection p66_pvd_evidence Physical-Time ParaView Collections (post.pipeline)
+
+PVD indexing is a presentation option within `post.pipeline`, so it has no separate
+selector-value row in the generated table. Its direct regression evidence is
+`file:tests/test_cli_smoke.py`; run
+`python3 -m pytest -q tests/test_cli_smoke.py -k 'paraview or lineage_enabled_post_plan'`.
+
+| Checked behavior | Direct test |
+|---|---|
+| Toggling indexing preserves computational recipe identity | `test_paraview_series_is_presentation_only_for_recipe_identity` |
+| Checkpoint times, including a nonzero initial time, survive repeated collection growth | `test_paraview_series_uses_checkpoint_physical_time_and_refreshes_live_output` |
+| Nested A/B/C ancestry clips parents and selects the child at a fork | `test_paraview_lineage_flattens_nested_branches_and_child_wins_fork` |
+| Reinitialized particles start a new collection | `test_paraview_particle_series_starts_at_branch_when_particles_reinitialize` |
+| A child's post plan starts at its first owned cadence step | `test_lineage_enabled_post_plan_starts_at_child_owned_cadence` |
+
+These tests construct checkpoint metadata and visualization fixtures; they do not
+run a live concurrent solver or open ParaView. The nested test supplies nonuniform
+times and frame spacing under one recipe ID. It does not establish stitching across
+different post strides. `make smoke` exercises executable solver/post workflows and
+the supplied templates, but has no dedicated PVD-content assertions. PVD-specific
+Slurm execution, statistics carry/reset, interrupted-write recovery, pruned-checkpoint
+fallback, and a real ParaView reader session remain **not verified by this evidence**.
+The historical kernel measurements in the generated table do not establish these
+indexing properties. See @ref p10_io_sec for the implementation's current contract.
+
+@subsection p66_scientific_gaps Scientific Evidence Limits
 
 Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:

@@ -54,6 +54,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `post.run_control.*` | `startTime/endTime/timeStep` in `post.run` | `src/io.c` (`ParsePostProcessingSettings`) | `src/postprocessor.c` main loop |
 | `post.io.input_extensions.*` | `eulerianExt`, `particleExt` in `post.run` | `src/io.c` | `ReadSimulationFields`, `ReadAllSwarmFields`, swarm precheck |
 | `post.statistics_pipeline.*` | `statistics_pipeline`, `statistics_output_prefix` | `src/io.c` | `GlobalStatisticsPipeline` dispatch |
+| `post.io.paraview_series` | No PETSc option; conductor-only policy | `picurv_cli/core.py` | `finalize_post_paraview_series` writes PVD collections after field processing |
 | `post.field_statistics.*` | `field_statistics_windows`, `field_statistics_outputs`, `field_statistics_formats`, `field_statistics_source_step` | `src/io.c` (`ParsePostProcessingSettings`) | `FieldStatisticsPipeline` in `src/postprocessor.c`, derivation in `src/statistics_accumulator.c` |
 | `post.spectra.*` (digest only) | `spectra_signature` | `src/io.c` (`ParsePostProcessingSettings`) | accepted and ignored; exists so a changed spectra recipe reaches the `--continue` recipe fingerprint |
 

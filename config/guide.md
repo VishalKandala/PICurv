@@ -19,7 +19,11 @@ committing a `<repo>/config/` change.
 
 For CFD users, the key idea is separation of concerns. Instead of creating one monolithic YAML file, PICurv uses role-oriented contracts (`case`, `solver`, `monitor`, `post`, and optional `cluster`/`study`) so you can change numerical strategy without rewriting geometry definitions, or change post outputs without touching solver controls.
 
-Two repo-wide patterns are especially important in the current codebase:
+These configuration patterns are supported in the current codebase:
+
+- `post.yml -> io.paraview_series` controls physical-time ParaView collections.
+  The standard analysis profile enables restart-lineage indexing; see
+  `postprocessors/guide.md` for catch-up, ancestor preparation, and recipe compatibility.
 
 - `solver.yml -> verification.sources.*` is reserved for verification-only injections/overrides when no cleaner end-to-end path exists. For example, `verification.sources.scalar` prescribes particle `Psi` from analytical truth and enables the runtime diagnostic `<run.analysis.metrics>/scatter_metrics.csv` without changing ordinary production runs.
 - `case.yml -> boundary_conditions[].params.source` owns inlet profile sourcing

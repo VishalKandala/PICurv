@@ -128,7 +128,10 @@ Pipeline capabilities include:
 - particle statistics reduction pipeline (currently MSD family),
 - derived Eulerian field statistics: Reynolds stresses, RMS, turbulent kinetic
   energy, and turbulent fluxes from windows the solver accumulated online,
-- configurable input extensions and output field selection.
+- output field selection from checkpoint payloads (input extensions are fixed to `dat`),
+- optional physical-time PVD collections spanning compatible restart ancestry,
+  controlled by `post.yml -> io.paraview_series`; see @ref p66_pvd_evidence for
+  the direct tests and unverified scenarios.
 
 @section p12_orchestration_sec 6. Cluster and Study Orchestration
 

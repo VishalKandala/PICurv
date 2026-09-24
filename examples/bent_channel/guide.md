@@ -45,6 +45,11 @@ If you run this example on a cluster and need site-specific MPI launcher tokens,
 
 ## Recommended Uses
 
+The standard post recipe enables physical-time ParaView collections. Open
+`<run.visualization>/<recipe_id>/eulerian_data.pvd`; the default window contains only
+the final snapshot. See `bent_channel.md` and the post-processing reference for
+full-window movies, live catch-up, and restart-lineage requirements.
+
 - validating the `sweep` generator geometry and its config grammar,
 - checking BC behavior on curved geometry,
 - testing timestep sensitivity studies,

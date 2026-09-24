@@ -180,18 +180,20 @@ RUN SUMMARY
   Solver MPI procs: 2
   Post MPI procs  : 2
   Steps run       : 20
-  Post output     : runs/quickstart_flat_channel_&lt;timestamp&gt;/visualization/standard_analysis</code></pre>
+  Post output     : &lt;run.visualization&gt;/&lt;recipe_id&gt;/</code></pre>
 @endhtmlonly
 
 @section p41_result_sec 4. View the result
 
-The postprocessor writes one VTK structured-grid file for the final step:
+The postprocessor writes one VTK structured-grid file for the final step, and the
+conductor writes a collection containing its checkpoint physical time:
 
 ```text
-runs/quickstart_flat_channel_<timestamp>/visualization/standard_analysis/eulerian_data_00020.vts
+<run.visualization>/<recipe_id>/eulerian_data_00020.vts
+<run.visualization>/<recipe_id>/eulerian_data.pvd
 ```
 
-Open the file in ParaView, add a `Slice`, and color it by `Ucat_nodal`:
+Open `eulerian_data.pvd` in ParaView, add a `Slice`, and color it by `Ucat_nodal`:
 
 @htmlonly
 <figure class="pic-result-figure">

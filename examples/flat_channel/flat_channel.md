@@ -78,8 +78,12 @@ Grid-independence sweep:
 
 ## 6. Output Check
 
-Open `<run.visualization>/standard_analysis/eulerian_data_*.vts` in ParaView and
+Open `<run.visualization>/<recipe_id>/eulerian_data.pvd` in ParaView and
 color by `Ucat_nodal` to inspect channel profile development.
+
+The supplied recipe enables checkpoint physical time and restart-lineage indexing.
+It selects the final step by default; select the full window in `run_control` for
+a movie. Ancestor visualization must exist under the same recipe ID to be stitched.
 
 ## 7. Live Docs
 

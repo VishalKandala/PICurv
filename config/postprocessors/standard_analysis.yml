@@ -70,6 +70,13 @@ io:
   output_filename_prefix: "Field"
   particle_filename_prefix: "Particle"
 
+  # Write a ParaView collection whose physical-time axis comes from committed
+  # checkpoint metadata. A branched run follows manifest lineage and indexes the
+  # compatible frames already owned by its ancestors without copying them.
+  paraview_series:
+    enabled: true
+    scope: lineage
+
   eulerian_fields:
     - 'Ucat_nodal'
     - 'P_nodal'

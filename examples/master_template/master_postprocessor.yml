@@ -248,11 +248,8 @@ statistics_pipeline:
 # Controls what data is written to the final VTK files.
 # ==============================================================================
 io:
-  # (Required) The directory where output files will be saved, relative to the
-  # main run directory (e.g., 'runs/my_run_id/'). The picurv script will
-  # create this directory if it does not exist.
-  # picurv prepends this path onto the generated 'output_prefix' and
-  # 'particle_output_prefix' entries in post.run.
+  # Compatibility input: the conductor replaces this with the canonical
+  # <run.visualization>/<recipe_id>/ path. It does not redirect output.
   output_directory: "visualization/standard_analysis"
 
   # (Required) The base name for the Eulerian output files. The C code will append
@@ -262,8 +259,18 @@ io:
 
   # (Optional) The base name for particle output files. Defaults to "Particle".
   # Combined with output_directory to form 'particle_output_prefix' in post.run.
-  # Maps to 'particle_filename_prefix' in post.run.
+  # Maps to the basename of 'particle_output_prefix' in post.run.
   particle_filename_prefix: "Particle"
+
+  # (Optional) Write physical-time ParaView .pvd collections after successful field
+  # postprocessing. "run" indexes only this run; "lineage" follows recorded restart
+  # ancestry, clips each parent at its child's fork, and references compatible VTK
+  # files in place. The setting does not change computational recipe identity.
+  # Omission disables collections. Ancestors need the same recipe ID: changing
+  # post step_interval or fields changes that ID; changing the window does not.
+  paraview_series:
+    enabled: true
+    scope: lineage
 
   # (Required) List of Eulerian fields to save to the output .vts files.
   # You can include original fields ('P', 'Ucat') and newly computed fields

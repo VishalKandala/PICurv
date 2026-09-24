@@ -64,7 +64,8 @@ that the periodic axis has at least four physical nodes.
 
 @section p03_viz_sec 4. Visualize Results
 
-1. Open `<run.visualization>/<recipe_id>/Field_*.vts`.
+1. Open the recipe's `.pvd` under `<run.visualization>/<recipe_id>/` if
+   `io.paraview_series.enabled` is set. Otherwise open its numbered `.vts` files.
 2. Use `Stream Tracer` seeded near inlet.
 3. Color by `Ucat_nodal` magnitude.
 

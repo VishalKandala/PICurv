@@ -16,6 +16,7 @@ import sys
 import time
 from types import SimpleNamespace
 from pathlib import Path
+from xml.etree import ElementTree
 
 import pytest
 import yaml
@@ -1000,6 +1001,27 @@ def create_post_outputs(
             stats_file.parent.mkdir(parents=True, exist_ok=True)
             rows = ["step,value"] + [f"{step},1.0" for step in stats_steps]
             stats_file.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
+def set_checkpoint_time(run_dir: Path, step: int, physical_time: float):
+    """!
+    @brief Set a test checkpoint's authoritative time and refresh its commit marker.
+    @param[in] run_dir Test run directory.
+    @param[in] step Checkpoint step to update.
+    @param[in] physical_time Physical time to record.
+    @return None.
+    """
+    bundle = run_dir / "output" / "checkpoints" / f"step_{step:012d}"
+    metadata = bundle / "checkpoint.meta"
+    text = re.sub(
+        r"(?m)^-checkpoint_time\s+\S+$",
+        f"-checkpoint_time {physical_time:.17g}",
+        metadata.read_text(encoding="utf-8"),
+    )
+    metadata.write_text(text, encoding="utf-8")
+    (bundle / "COMMITTED").write_text(
+        hashlib.sha256(metadata.read_bytes()).hexdigest() + "\n", encoding="ascii"
+    )
 
 
 def write_legacy_post_recipe(run_dir: Path, run_id: str, post_cfg: dict, monitor_cfg: dict):
@@ -3642,6 +3664,166 @@ def test_dry_run_post_process_caps_to_current_live_source_frontier(tmp_path):
     assert stage["effective_start_step"] == 0
     assert stage["effective_end_step"] == 4
     assert stage["skip_reason"] is None
+
+
+def test_paraview_series_is_presentation_only_for_recipe_identity():
+    """! @brief Verify PVD indexing reuses compatible VTK output recipe identity."""
+    picurv = load_picurv_module()
+    base = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    enabled = json.loads(json.dumps(base))
+    enabled["io"]["paraview_series"] = {"enabled": True, "scope": "lineage"}
+
+    assert picurv.compute_post_recipe_id(base) == picurv.compute_post_recipe_id(enabled)
+
+
+def test_paraview_series_uses_checkpoint_physical_time_and_refreshes_live_output(tmp_path):
+    """!
+    @brief Verify live collection refresh uses checkpoint time instead of step times dt.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    case_cfg = yaml.safe_load((FIXTURES / "valid" / "case.yml").read_text(encoding="utf-8"))
+    case_cfg["run_control"].update({"start_step": 0, "total_steps": 20, "dt_physical": 99.0})
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="live_pvd", case_cfg=case_cfg)
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    post_cfg["run_control"].update({"start_step": 0, "end_step": 20, "step_interval": 10})
+    post_cfg["io"]["paraview_series"] = {"enabled": True, "scope": "lineage"}
+    (run_dir / "manifest.json").write_text(json.dumps({
+        "run_id": run_dir.name, "lineage": {"relationship": "root"}
+    }), encoding="utf-8")
+    create_post_source_steps(run_dir, monitor_cfg, [0, 10])
+    set_checkpoint_time(run_dir, 0, 2.5)
+    set_checkpoint_time(run_dir, 10, 3.0)
+    create_post_outputs(run_dir, post_cfg, monitor_cfg, euler_steps=[0, 10])
+
+    runtime, _ = picurv.apply_canonical_post_paths(post_cfg, str(run_dir))
+    [pvd] = picurv.finalize_post_paraview_series(str(run_dir), runtime)
+    datasets = ElementTree.parse(pvd).getroot().findall(".//DataSet")
+    assert [float(node.get("timestep")) for node in datasets] == [2.5, 3.0]
+
+    create_post_source_steps(run_dir, monitor_cfg, [20])
+    set_checkpoint_time(run_dir, 20, 4.25)
+    create_post_outputs(run_dir, post_cfg, monitor_cfg, euler_steps=[20])
+    picurv.finalize_post_paraview_series(str(run_dir), runtime)
+    datasets = ElementTree.parse(pvd).getroot().findall(".//DataSet")
+    assert [float(node.get("timestep")) for node in datasets] == [2.5, 3.0, 4.25]
+
+
+def test_paraview_lineage_flattens_nested_branches_and_child_wins_fork(tmp_path):
+    """!
+    @brief Verify nested lineage clips parents at forks across changed dt and cadence.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    post_cfg["run_control"].update({"start_step": 0, "end_step": 40, "step_interval": 5})
+    post_cfg["io"]["paraview_series"] = {"enabled": True, "scope": "lineage"}
+    runs = []
+    for name in ("A", "B", "C"):
+        run, _case, monitor = create_post_run_dir(tmp_path, name=name)
+        runs.append((run, monitor))
+    a, monitor = runs[0]
+    b, _ = runs[1]
+    c, _ = runs[2]
+    (a / "manifest.json").write_text(json.dumps({
+        "run_id": "A", "lineage": {"relationship": "root"}
+    }), encoding="utf-8")
+    (b / "manifest.json").write_text(json.dumps({
+        "run_id": "B", "lineage": {"relationship": "branch", "parent_run_id": "A",
+                                       "parent_path": str(a), "checkpoint_step": 10,
+                                       "statistics_state": "carry"}
+    }), encoding="utf-8")
+    (c / "manifest.json").write_text(json.dumps({
+        "run_id": "C", "lineage": {"relationship": "branch", "parent_run_id": "B",
+                                       "parent_path": str(b), "checkpoint_step": 25,
+                                       "statistics_state": "carry"}
+    }), encoding="utf-8")
+    frames = {
+        a: [(0, 0.0), (5, 0.5), (10, 1.0)],
+        b: [(10, 1.0), (15, 1.2), (20, 1.4), (25, 1.6)],
+        c: [(25, 1.6), (30, 2.1), (40, 3.1)],
+    }
+    for run, values in frames.items():
+        create_post_source_steps(run, monitor, [step for step, _time in values])
+        create_post_outputs(run, post_cfg, monitor, euler_steps=[step for step, _time in values])
+        for step, physical_time in values:
+            set_checkpoint_time(run, step, physical_time)
+
+    runtime, _ = picurv.apply_canonical_post_paths(post_cfg, str(c))
+    [pvd] = picurv.finalize_post_paraview_series(str(c), runtime)
+    datasets = ElementTree.parse(pvd).getroot().findall(".//DataSet")
+    files = [node.get("file") for node in datasets]
+    assert [float(node.get("timestep")) for node in datasets] == [0.0, 0.5, 1.0, 1.2, 1.4, 1.6, 2.1, 3.1]
+    assert sum(name.endswith("eulerian_data_00010.vts") for name in files) == 1
+    assert "B" in next(name for name in files if name.endswith("eulerian_data_00010.vts"))
+    assert next(name for name in files if name.endswith("eulerian_data_00025.vts")) == "eulerian_data_00025.vts"
+
+
+def test_paraview_particle_series_starts_at_branch_when_particles_reinitialize(tmp_path):
+    """!
+    @brief Verify a reinitialized particle collection begins at its branch.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    post_cfg["run_control"].update({"start_step": 0, "end_step": 20, "step_interval": 10})
+    post_cfg["io"].update({
+        "output_particles": True, "particle_fields": ["position"],
+        "paraview_series": {"enabled": True, "scope": "lineage"},
+    })
+    parent, parent_case, monitor = create_post_run_dir(tmp_path, name="particle_parent")
+    child_case = json.loads(json.dumps(parent_case))
+    child_case.setdefault("models", {}).setdefault("physics", {}).setdefault("particles", {})["restart_mode"] = "init"
+    child, _, _ = create_post_run_dir(tmp_path, name="particle_child", case_cfg=child_case, monitor_cfg=monitor)
+    (parent / "manifest.json").write_text(json.dumps({"run_id": "particle_parent", "lineage": {"relationship": "root"}}), encoding="utf-8")
+    (child / "manifest.json").write_text(json.dumps({
+        "run_id": "particle_child", "lineage": {"relationship": "branch", "parent_run_id": "particle_parent",
+        "parent_path": str(parent), "checkpoint_step": 10, "statistics_state": "reset"}
+    }), encoding="utf-8")
+    for run, values in ((parent, [(0, 0.0)]), (child, [(10, 1.0), (20, 2.0)])):
+        create_post_source_steps(run, monitor, [step for step, _time in values], include_particles=True)
+        create_post_outputs(run, post_cfg, monitor,
+                            euler_steps=[step for step, _time in values],
+                            particle_steps=[step for step, _time in values])
+        for step, physical_time in values:
+            set_checkpoint_time(run, step, physical_time)
+
+    runtime, _ = picurv.apply_canonical_post_paths(post_cfg, str(child))
+    paths = picurv.finalize_post_paraview_series(str(child), runtime)
+    particle_pvd = next(path for path in paths if path.endswith("Particle.pvd"))
+    particle_files = [node.get("file") for node in ElementTree.parse(particle_pvd).getroot().findall(".//DataSet")]
+    assert len(particle_files) == 2
+    assert all("particle_child" not in name or name.endswith(("00010.vtp", "00020.vtp")) for name in particle_files)
+    assert not any("particle_parent" in name for name in particle_files)
+
+
+def test_lineage_enabled_post_plan_starts_at_child_owned_cadence(tmp_path):
+    """!
+    @brief Verify a full logical post window intersects the branch's local ownership.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir, case_cfg, monitor_cfg = create_post_run_dir(tmp_path, name="branch_plan")
+    case_cfg["run_control"].update({"start_step": 12, "total_steps": 20})
+    (run_dir / "config" / "case.yml").write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+    (run_dir / "manifest.json").write_text(json.dumps({
+        "run_id": "branch_plan", "lineage": {"relationship": "branch",
+        "parent_run_id": "parent", "parent_path": str(tmp_path / "parent"),
+        "checkpoint_step": 12}
+    }), encoding="utf-8")
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    post_cfg["run_control"].update({"start_step": 0, "end_step": 30, "step_interval": 5})
+    post_cfg["io"]["paraview_series"] = {"enabled": True, "scope": "lineage"}
+    create_post_source_steps(run_dir, monitor_cfg, [15, 20, 25, 30])
+
+    plan = picurv.build_post_execution_plan(
+        str(run_dir), "branch_plan", case_cfg, monitor_cfg, post_cfg,
+        continue_requested=False, allow_source_frontier_scan=True,
+    )
+    assert plan["requested_start_step"] == 0
+    assert plan["owned_start_step"] == 15
+    assert plan["effective_start_step"] == 15
+    assert plan["effective_end_step"] == 30
 
 
 def test_dry_run_post_process_reports_nothing_available_yet_when_start_is_beyond_frontier(tmp_path):

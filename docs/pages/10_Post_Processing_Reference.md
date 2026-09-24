@@ -66,6 +66,9 @@ io:
   output_directory: "viz"
   output_filename_prefix: "Field"
   particle_filename_prefix: "Particle"
+  paraview_series:
+    enabled: true
+    scope: lineage
   output_particles: true
   eulerian_fields: [Ucat_nodal, Qcrit_nodal]
   particle_fields: [velocity, SpecificKE]
@@ -701,12 +704,47 @@ Mappings:
 - `particle_fields` -> `particle_fields_instantaneous` — **must be non-empty when `output_particles: true`**; an empty list produces no particle VTP output even if particle output is enabled. Standard swarm field names: `position`, `velocity`, `pid`, `CellID`, `weight`.
 - `input_extensions.eulerian/particle`, when present, must be `dat`; committed
   bundle payload names are fixed
+- `paraview_series.enabled` writes one `.pvd` beside each requested VTK family after
+  successful field postprocessing. `scope: run` indexes this run only;
+  `scope: lineage` follows the run manifest's restart ancestry, clips every parent at
+  its child's fork, and lets the child own a duplicate fork frame. The PVD timestep is
+  the authoritative `checkpoint_time`, so changed timestep size and changed output
+  cadence remain ordered without adding time to the VTS/VTP payload. The option is a
+  presentation product and does not change computational recipe identity.
 
 The postprocessor reads the catalogued `.dat` PETSc vectors inventoried by each
 committed checkpoint; input extensions are not runtime-selectable.
-`statistics_pipeline.output_prefix` is independent of `io.output_directory`; bare basenames
-default under `<monitor output>/statistics/`, while explicit relative or absolute paths are preserved.
+The conductor routes `statistics_pipeline.output_prefix` to
+`<run.analysis.statistics>/<recipe_id>/<basename>`; only the configured basename is
+retained. Relative or absolute directory components do not redirect the result.
 When the same timestep is post-processed again, PICurv now rewrites same-step VTK/VTP outputs and rewrites same-step statistics rows so the final CSV still contains one row per step.
+`picurv run --post-process --continue` may be repeated while a solver is active: each
+invocation stops at the current committed source frontier, appends newly available VTK
+frames, and atomically refreshes the PVD. Ancestor frames must already exist for the same
+recipe. Particle ancestry begins again when particles use `restart_mode: init`, and field
+statistics ancestry begins again after `--statistics-state reset`.
+
+Omitting `io.paraview_series` disables collection generation. The boolean shorthand
+`true` enables lineage scope; a mapping defaults to `enabled: true, scope: lineage`.
+The standard analysis profiles and master template explicitly enable lineage scope.
+The setting is consumed by the conductor and does not add a PETSc option or change
+VTK payload fields. A solve-only invocation does not generate collections, and
+`--only spectra` does not refresh them.
+
+Lineage indexing requires the same recipe ID in each contributing run. Changing
+the logical start/end window or toggling collection generation preserves that ID;
+changing the post `step_interval`, fields, or pipelines does not. Different solver
+`dt` values and checkpoint cadences can share a collection when the post recipe
+remains compatible and its requested steps exist. The index uses available VTK
+frames, but does not discover or combine outputs from other recipe IDs.
+
+Missing parents or ancestor segments with no matching frames produce an error.
+Every indexed frame needs committed checkpoint time metadata, or a retained PVD
+from which its time can be recovered after checkpoint pruning. Collections reference
+VTK files by relative path, so moving or deleting individual runs can break those
+references; retain the directory relationships or regenerate after restoring them.
+Refreshing a collection is atomic under the run's post writer lock. Reopen the PVD
+in ParaView after a refresh; PICurv does not push updates into an open GUI session.
 
 @section p10_next_steps_sec 10. Next Steps
 

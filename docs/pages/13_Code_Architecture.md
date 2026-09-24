@@ -40,6 +40,12 @@ High-level stages:
 - Execute configured Eulerian/Lagrangian/statistics pipelines
 - Write VTK outputs (`.vts`, `.vtp`) and statistics CSV outputs
 
+After successful field processing, the conductor's `finalize_post_paraview_series`
+can write `.pvd` indexes using committed checkpoint times and manifest ancestry.
+This serial presentation stage belongs to `post.pipeline`; it does not alter the
+C field kernels. Caught-up post invocations can refresh collections under the same
+post writer lock. See @ref p66_pvd_evidence for the tested scope.
+
 @section p13_contexts_sec 4. Core Context Objects
 
 @subsection p13_simctx_ssec 4.1 SimCtx

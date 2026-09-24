@@ -410,14 +410,24 @@ Detailed long-form option docs:
 - Single run:
   - `<run.config>/` generated C-facing runtime artifacts (`*.control`, `bcs*.run`, `post.run`, etc.)
   - `<run.scheduler>/` scheduler scripts/manifests when cluster mode is used
-  - `runs/<run_id>/summary/plots/` automatic headless `summarize --plot` fallback images
-  - `<run.visualization>/` and/or post outputs
+  - `<run.analysis.plots>/` automatic headless `summarize --plot` fallback images
+  - `<run.visualization>/<recipe_id>/` VTK frames and optional physical-time PVD collections
 - Parameter sweep:
   - `studies/<study_id>/cases/` materialized case variants
   - `studies/<study_id>/scheduler/` array scripts and submission metadata
   - `studies/<study_id>/results/metrics_table.csv` and plots
 
 ## Testing
+
+For a ParaView time series spanning restart runs, merge
+`paraview_series: {enabled: true, scope: lineage}` into `post.yml`'s `io` mapping.
+Postprocess ancestors with the same recipe, then run
+`picurv run --post-process --continue --run-dir <child_run> --post <post.yml>`.
+Open the child's `.pvd` collection; it references the original VTK files and uses
+checkpoint times. Repeat post catch-up and reopen the PVD as the solver produces
+more data. Changing the post stride or fields changes recipe identity and requires
+matching ancestor output. See the [post reference](docs/pages/10_Post_Processing_Reference.md)
+and [evidence record](docs/pages/66_Evidence_Matrix.md) for scope and verification limits.
 
 PICurv uses an intent-based local testing model so the command name tells you what kind of validation you are running.
 

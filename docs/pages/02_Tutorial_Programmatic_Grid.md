@@ -116,7 +116,9 @@ If results are missing, check the recipe-specific post state under
 
 @section p02_viz_sec 8. Visualize in ParaView
 
-1. Open `Field_*.vts` time series.
+1. Open `<run.visualization>/<recipe_id>/eulerian_data.pvd` for the standard
+   analysis recipe's checkpoint physical-time axis. If using a custom recipe with
+   collections disabled, open its numbered `.vts` files instead.
 2. Click `Apply`.
 3. Add `Slice` filter.
 4. Color by `Ucat_nodal` magnitude or streamwise component.

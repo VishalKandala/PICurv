@@ -408,6 +408,13 @@ Operational patterns for post-only reuse:
 - Concurrency rule: PICurv holds a post lock while the stage is active. A second writer
   targeting the same output lineage is refused so generated controls and result files
   cannot race.
+- ParaView lineage series: with `post.yml -> io.paraview_series.enabled: true` and
+  `scope: lineage`, a branch keeps the recipe's full logical window but postprocesses
+  only the cadence-aligned portion owned by that run. After success, PICurv writes a
+  flattened `.pvd` in the branch's recipe visualization directory. It references
+  compatible ancestor VTK files through each recorded fork and uses every checkpoint's
+  recorded physical time. Repeating post `--continue` while the solver is active grows
+  the collection only through the latest committed frontier.
 
 @section p52_cluster_sec 7. Batch Job Generation And Reuse
 

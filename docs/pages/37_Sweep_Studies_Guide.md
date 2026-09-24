@@ -129,7 +129,11 @@ Implementation details worth knowing:
 - submission chain: solver array → post array (`afterok`) → metrics job (`afterany`).
 - `<run.scheduler>/submission.json` is the study-directory contract consumed by `picurv submit --study-dir ...`.
 - generator/file grid external paths are rewritten to absolute paths during case materialization so they remain valid in `studies/<study_id>/cases/...`.
-- generated `solver_array.sbatch` exports walltime metadata for the runtime walltime guard, while `post_array.sbatch` remains a plain post-processing launcher.
+- generated `solver_array.sbatch` exports walltime metadata for the runtime walltime
+  guard. After successful field processing, `post_array.sbatch` also finalizes each
+  member's PVD collections when its post recipe enables `io.paraview_series`.
+  Collections describe one member's run or restart ancestry; they do not concatenate
+  independent sweep members into one time series.
 - `post_array.sbatch` uses the same `nodes * ntasks_per_node` allocation as the solver array; conflicting launcher `-n`/`-np` flags are rewritten to that task count.
 
 @section p37_continue_sec 6. Continuing a Partially-Completed Study

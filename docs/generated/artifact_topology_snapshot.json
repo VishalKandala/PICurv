@@ -28,6 +28,7 @@
     "run.analysis.plots",
     "run.visualization",
     "run.visualization.recipe",
+    "run.visualization.files",
     "run.manifest"
   ],
   "scenarios": [
@@ -42,6 +43,7 @@
         "<workspace>/runs/<run_id>/config/monitor.yml",
         "<workspace>/runs/<run_id>/config/post-recipes",
         "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-52e35ade0dd3/post.run",
+        "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-52e35ade0dd3/post.yml",
         "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-52e35ade0dd3/state.json",
         "<workspace>/runs/<run_id>/config/solver.yml",
         "<workspace>/runs/<run_id>/inputs",
@@ -62,6 +64,7 @@
         "<workspace>/runs/<run_id>/output/checkpoints",
         "<workspace>/runs/<run_id>/output/visualization",
         "<workspace>/runs/<run_id>/output/visualization/eulerian_data-52e35ade0dd3",
+        "<workspace>/runs/<run_id>/output/visualization/eulerian_data-52e35ade0dd3/eulerian_data.pvd",
         "<workspace>/runs/<run_id>/scheduler",
         "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
         "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
@@ -123,6 +126,7 @@
           ],
           "run.post_recipe.files": [
             "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-52e35ade0dd3/post.run",
+            "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-52e35ade0dd3/post.yml",
             "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-52e35ade0dd3/state.json"
           ],
           "run.post_recipes": [
@@ -152,6 +156,9 @@
           ],
           "run.visualization": [
             "<workspace>/runs/<run_id>/output/visualization"
+          ],
+          "run.visualization.files": [
+            "<workspace>/runs/<run_id>/output/visualization/eulerian_data-52e35ade0dd3/eulerian_data.pvd"
           ],
           "run.visualization.recipe": [
             "<workspace>/runs/<run_id>/output/visualization/eulerian_data-52e35ade0dd3"
@@ -286,6 +293,7 @@
         "<workspace>/runs/<run_id>/config/monitor.yml",
         "<workspace>/runs/<run_id>/config/post-recipes",
         "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-52e35ade0dd3/post.run",
+        "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-52e35ade0dd3/post.yml",
         "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-52e35ade0dd3/state.json",
         "<workspace>/runs/<run_id>/config/solver.yml",
         "<workspace>/runs/<run_id>/inputs",
@@ -306,6 +314,7 @@
         "<workspace>/runs/<run_id>/output/checkpoints",
         "<workspace>/runs/<run_id>/output/visualization",
         "<workspace>/runs/<run_id>/output/visualization/eulerian_data-52e35ade0dd3",
+        "<workspace>/runs/<run_id>/output/visualization/eulerian_data-52e35ade0dd3/eulerian_data.pvd",
         "<workspace>/runs/<run_id>/scheduler",
         "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
         "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
@@ -367,6 +376,7 @@
           ],
           "run.post_recipe.files": [
             "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-52e35ade0dd3/post.run",
+            "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-52e35ade0dd3/post.yml",
             "<workspace>/runs/<run_id>/config/post-recipes/eulerian_data-52e35ade0dd3/state.json"
           ],
           "run.post_recipes": [
@@ -396,6 +406,9 @@
           ],
           "run.visualization": [
             "<workspace>/runs/<run_id>/output/visualization"
+          ],
+          "run.visualization.files": [
+            "<workspace>/runs/<run_id>/output/visualization/eulerian_data-52e35ade0dd3/eulerian_data.pvd"
           ],
           "run.visualization.recipe": [
             "<workspace>/runs/<run_id>/output/visualization/eulerian_data-52e35ade0dd3"

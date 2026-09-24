@@ -66,6 +66,14 @@ For long or live runs, keep the full post-analysis window in `post.yml`, then us
 
 PICurv will resume the same recipe from the first unfinished step, cap the launch to the current live solver frontier, and refuse a second concurrent post writer on the same run directory.
 
+The flat-channel and bent-channel standard post recipes enable physical-time PVD
+collections through `io.paraview_series`. Open the `.pvd` under
+`<run.visualization>/<recipe_id>/` and reopen it after a catch-up invocation.
+For restart campaigns, process ancestors with the same recipe before opening the
+child's lineage collection. Specialized examples retain their existing collection
+defaults; enable the option explicitly when needed. See the post-processing
+reference for recipe-ID compatibility and particle/statistics reset behavior.
+
 `init` creates the case directory with config files — no binaries are copied. Runtime executables (`simulator`, `postprocessor`) are resolved from the project `bin/` directory via PATH. The initializer also writes `.picurv-origin.json` and an inert `.picurv-execution.yml`, which enables maintenance commands (`status-source`, `build`, `pull-source`, `sync-config`) and gives each case a safe place for site-specific launcher overrides when needed. To keep a run on the build it was staged with, stage it with `--pin-executables`, which copies them into the run's configuration directory.
 
 ## Composition Guidance

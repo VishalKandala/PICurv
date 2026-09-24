@@ -349,6 +349,14 @@ Follow-up execution/submission from existing artifacts:
 
 Post-only continuation examples:
 
+`post.yml -> io.paraview_series` optionally adds physical-time `.pvd` collections
+to this workflow. With `enabled: true, scope: lineage`, the conductor follows the
+existing manifest ancestry and indexes matching ancestor VTK recipes together with
+the current run's frames. Prepare ancestor output first. Post catch-up refreshes the
+collection even when the field window is already complete; solve-only and
+spectra-only invocations do not refresh it. See @ref 10_Post_Processing_Reference
+for recipe compatibility and @ref 04_Visualization_Tutorial for opening the result.
+
 - Catch up a live run without editing `post.yml.start_step`. Keep the full desired analysis window in `post.yml`, then let `--continue` move the launch cursor inside that window:
 
 ```bash
@@ -360,7 +368,7 @@ Post-only continuation examples:
 - If the solver has only written source data through step `420`, PICurv launches only the fully available prefix in the requested stride. A later `--continue` run picks up the newer steps after the solver produces them.
 - If the same recipe already post-processed the requested window, PICurv skips the launch and reports that the run is already caught up.
 - If you change the recipe itself, for example by adding `Qcrit_nodal` or changing the statistics output prefix, PICurv treats that as a new recipe lineage and starts again from the configured `start_step`.
-- PICurv allows only one post writer per run directory. If a second post job targets the same run, it is refused immediately instead of racing on `<run.visualization>/` or the statistics output beneath it.
+- PICurv allows only one post writer per run directory. If a second post job targets the same run, it is refused immediately instead of racing on `<run.visualization>/` or `<run.analysis.statistics>/`.
 
 Graceful shutdown note:
 

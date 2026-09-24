@@ -105,6 +105,23 @@ Operational notes:
 - if the solver has produced source data only through the current frontier, PICurv launches only the fully available contiguous prefix instead of failing.
 - if another post job already holds the same run directory, PICurv refuses the new writer immediately.
 
+For restart-lineage visualization, merge this into the recipe's `io` mapping:
+
+```yaml
+paraview_series:
+  enabled: true
+  scope: lineage
+```
+
+Postprocess ancestors with the same recipe first, then catch up the child using the
+command above and the full desired window. Open the child's `.pvd` in
+`<run.visualization>/<recipe_id>/`. Checkpoint times supply the time axis even when
+solver `dt` changes. The post stride and fields must retain the same recipe ID;
+otherwise ancestor results need to be generated for the new recipe. Catch-up
+refreshes the PVD atomically; reopen it in ParaView to see newly added frames.
+Use `scope: run` when ancestry should not be included. Full rules are in
+@ref 10_Post_Processing_Reference.
+
 Dry-run planning:
 
 ```bash

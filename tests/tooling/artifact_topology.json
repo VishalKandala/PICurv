@@ -551,13 +551,14 @@
       "configurable": false,
       "owner": "postprocessor",
       "writers": [
-        "postprocessor"
+        "postprocessor",
+        "picurv"
       ],
       "readers": [
         "humans",
         "ParaView"
       ],
-      "mutability": "append by stable recipe identity",
+      "mutability": "append by stable recipe identity; picurv atomically replaces recipe PVD indexes",
       "retention": "derived; policy driven",
       "restart_role": "none",
       "isolation_model": "isolated_run_tree",
@@ -573,13 +574,14 @@
       "configurable": false,
       "owner": "postprocessor",
       "writers": [
-        "postprocessor"
+        "postprocessor",
+        "picurv"
       ],
       "readers": [
         "humans",
         "ParaView"
       ],
-      "mutability": "recipe scoped",
+      "mutability": "recipe scoped; VTK frames append or replace by step and PVD indexes replace atomically",
       "retention": "derived; policy driven",
       "restart_role": "none",
       "isolation_model": "isolated_run_tree",
@@ -588,6 +590,21 @@
         "storage policy pruning"
       ],
       "destructive_scope": "one recipe output"
+    },
+    {
+      "id": "run.visualization.files",
+      "path_rule": "<run.visualization>/<recipe>/<name>",
+      "configurable": false,
+      "owner": "postprocessor",
+      "writers": ["postprocessor", "picurv"],
+      "readers": ["humans", "ParaView", "picurv"],
+      "mutability": "VTK frames replace by step; PVD collections replace atomically",
+      "retention": "derived; retain referenced ancestor frames for lineage collections",
+      "restart_role": "visualization only; PVD times can survive checkpoint pruning",
+      "isolation_model": "isolated_run_tree",
+      "containment": "fixed relative to run.visualization; PVD references can target ancestor runs",
+      "destructive_operations": ["storage policy pruning"],
+      "destructive_scope": "one recipe visualization artifact"
     },
     {
       "id": "run.manifest",
