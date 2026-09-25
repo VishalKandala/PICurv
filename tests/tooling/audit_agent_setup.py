@@ -17,6 +17,7 @@ EXPECTED_SKILLS = {
     "picurv-capability-change",
     "picurv-solver-debugging",
     "picurv-spatial-kernel-change",
+    "picurv-technical-communication",
 }
 LOCAL_SETTINGS = ".claude/settings.local.json"
 LOCAL_SETTINGS_PATTERN = "/.claude/settings.local.json"

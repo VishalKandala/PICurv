@@ -67,7 +67,7 @@ the user-facing PICurv runtime.
   never treat its edges as a semantic call graph.
 - `audit_agent_setup.py`: verifies that `AGENTS.md` is the regular canonical instruction
   file, `CLAUDE.md` imports it, Claude's local settings have an exact repository ignore,
-  and the three `.claude/skills/` trees are materialized byte-identical copies of
+  and the expected `.claude/skills/` trees are materialized byte-identical copies of
   `.agents/skills/`. Run `make sync-agent-skills` after an intentional canonical skill
   edit and `make audit-agent-setup` in verification.
 - `capability_scope_records.json`: non-rendered records for documentation that is scoped

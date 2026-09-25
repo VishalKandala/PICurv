@@ -71,6 +71,11 @@ clones whose toolchains do not follow the same discovery convention. Run
 `make audit-agent-setup` to verify portability and `make sync-agent-skills` after an
 intentional canonical skill edit.
 
+The cross-cutting `picurv-technical-communication` skill composes with the applicable
+workflow skill for substantive explanations, plans, findings, recommendations, and
+technical handoffs. It standardizes audience calibration and evidence-status language;
+it does not replace the workflow skill or make explanatory documentation authoritative.
+
 Agents use documentation and registries as a bounded index, then inspect the routed
 code and tests because runtime behavior remains authoritative. The review-packet modes
 documented in **@subpage 64_Documentation_Extension_Framework** join those declarations;
