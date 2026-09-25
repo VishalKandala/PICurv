@@ -19,18 +19,27 @@
 #     that a restart restores the latched target rather than re-measuring it
 #     from a field that has since drifted.
 #
-# Verified discrimination on this fixture (33^3 cells, 2 multigrid levels):
+# What this fixture can and cannot show (measured 2026-09-24, 32^3 cells, 2
+# multigrid levels, seeded initial condition, 4 and 10 ranks):
 #
-#   level_0 {preonly, redundant}  ->  worst tracked-vs-true difference 0.0
-#   level_0 {fgmres,  bjacobi }   ->  worst tracked-vs-true difference 1.7e-04, FAILS
+#   level_0 {preonly, redundant}          ->  worst difference above the floor 5.7e-06,
+#                                             max divergence 2.9e-13: passes
+#   level_0 {fgmres, bjacobi}             ->  indistinguishable from the above: passes
+#   level_0 {fgmres, bjacobi}, max_it 2   ->  still indistinguishable: passes
 #
-# The separation is much larger on a production grid (see the worked table in
-# docs/pages/25_Pressure_Poisson_GMRES_Multigrid.md, where the true residual was
-# five orders of magnitude above the tracked one). Note also that the norms are
-# parsed from formatted log output carrying about six significant digits, so
-# roughly 1e-6 is the finest difference this check can resolve at all; the 1e-4
-# threshold below is the "agree to at least four significant figures" criterion
-# and sits comfortably above that floor.
+# The outer FGMRES tolerates a variable preconditioner on this small Cartesian box,
+# so the check does NOT currently catch a Krylov level_0 here. The production
+# failure (docs/pages/25_Pressure_Poisson_GMRES_Multigrid.md, a curved, clustered
+# grid on 8 ranks) is not reproduced by this fixture. An earlier 33^3 version
+# appeared to discriminate, but only in the round-off regime of a plug-flow
+# right-hand side of ~5e-9 on a grid whose multigrid coarsening was misaligned.
+# What Part 1 does verify is that a real pressure solve at 4 and 10 ranks keeps
+# its tracked and true residuals in agreement above the round-off floor and
+# converges divergence below 1e-11.
+#
+# Norms are parsed from formatted log output carrying about six significant digits,
+# so roughly 1e-6 is the finest difference this check resolves; the 1e-4 threshold
+# is the "agree to at least four significant figures" criterion.
 #
 # Usage: run_driven_periodic_regression.sh <simulator> <mpi-launcher> [ranks...]
 
@@ -109,14 +118,28 @@ for nprocs in "${ranks[@]}"; do
   python3 - "${poisson_log}" "${nprocs}" <<'PY' || exit 1
 import re, sys
 path, nprocs = sys.argv[1], sys.argv[2]
-row = re.compile(r"Unprecond Norm:\s*(\S+)\s*\|\s*True Norm:\s*(\S+)")
-checked = worst = 0, 0.0
+row = re.compile(r"ts:\s*(\d+).*?iter:\s*(\d+).*?Unprecond Norm:\s*(\S+)\s*\|\s*True Norm:\s*(\S+)")
+# Once BOTH norms fall below this fraction of the step's initial residual, the
+# recursively tracked residual and the recomputed b - Ax drift apart by ~1e-3 even
+# with an exact coarse solve: the attainable accuracy of the recurrence in double
+# precision, not a nonlinear preconditioner. The defect this check exists for keeps
+# the TRUE norm high while the tracked one collapses, so a row is skipped only when
+# the larger of the two is below the floor; filtering on the tracked norm alone would
+# hide exactly those rows.
+ROUNDOFF_FLOOR = 1.0e-10
 checked, worst, worst_line = 0, 0.0, ""
+initial = {}
 for line in open(path):
     m = row.search(line)
     if not m:
         continue
-    tracked, true = float(m.group(1)), float(m.group(2))
+    step, iteration = int(m.group(1)), int(m.group(2))
+    tracked, true = float(m.group(3)), float(m.group(4))
+    if iteration == 0:
+        initial[step] = max(abs(tracked), abs(true))
+    r0 = initial.get(step, 0.0)
+    if r0 > 0.0 and max(abs(tracked), abs(true)) < ROUNDOFF_FLOOR * r0:
+        continue
     scale = max(abs(tracked), abs(true))
     if scale == 0.0:
         continue

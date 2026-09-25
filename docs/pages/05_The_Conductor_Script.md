@@ -767,8 +767,6 @@ above is hand-written and complements it; this section is the exhaustive referen
 
 `--strict` does not change baseline schema validation, but it adds file-system consistency checks for selected roles:
 
-- with `--post`:
-  - if `source_data.directory` is not `<solver_output_dir>`, the resolved directory must exist.
 - with `--study`:
   - base configs listed in `study.base_configs` are loaded and revalidated as real case/solver/monitor/post bundles.
   - this catches study files that are syntactically valid but point to invalid base configurations.

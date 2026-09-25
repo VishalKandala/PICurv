@@ -4,7 +4,7 @@
 # ==============================================================================
 # DNS resolution, no SGS model, so any error in the flux controller is not
 # conflated with an SGS-model error. Domain 4*pi*delta (streamwise) x
-# 2*delta (wall-normal) x 2*pi*delta (spanwise) on 129^3 cells.
+# 2*delta (wall-normal) x 2*pi*delta (spanwise) on 128^3 cells.
 #
 # Reference: Moser, Kim & Mansour (1999), Phys. Fluids 11, 943.
 #
@@ -16,9 +16,9 @@
 #
 # COST: this is a campaign case, not a smoke test. See driven_channel.md.
 #
-# SEEDING CAVEAT: streamwise_constant is a laminar seed. Transition from it
-# is slow and is not guaranteed at Re_tau = 180 without a finite-amplitude
-# perturbation. See driven_channel.md section 'Initial condition seeding'.
+# SEEDING: channel_spectral_velocity, a finite-amplitude perturbation. Transition
+# from it is still not guaranteed; watch fluctuation energy and Reynolds shear
+# stress. See driven_channel.md section 6.
 # ==============================================================================
 
 run_control:
@@ -34,11 +34,25 @@ properties:
     density: 1.0
     viscosity: 3.5714286e-04  # -> Re = 2800 = U_b * delta / nu
   initial_conditions:
+    # Divergence-free wall-respecting perturbation (RMS 0.1 U_b) on a parabolic mean
+    # normalized to U_b. k_cut must stay below two-thirds of the coarsest periodic
+    # axis's Nyquist wavenumber. Initial plane spectra record the seed at
+    # wall-normal cells 8, 32, 64 (zero-based).
     mode: generated
-    generator: streamwise_constant
+    generator: channel_spectral_velocity
     params:
-      velocity_physical: 1.0
-      flow_direction: "+Zeta"
+      field: Ucat
+      seed: 12345
+      wall_axes: [j]
+      streamwise_axis: k
+      bulk_velocity: 1.0
+      perturbation_rms: 0.1
+      wall_modes: 3
+      spectrum: {type: k4_exponential, k0: 4.0, k_cut: 8.0}
+      initial_spectra:
+        - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 8}, subtract_mean: sample}
+        - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 32}, subtract_mean: sample}
+        - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 64}, subtract_mean: sample}
 
 grid:
   mode: grid_gen

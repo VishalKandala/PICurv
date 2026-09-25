@@ -1,7 +1,7 @@
 # ==============================================================================
 #   Matrix-free Newton--Krylov momentum + geometric multigrid Poisson (Part C)
 # ==============================================================================
-# 129x129x257 cells (4.3M); 5 levels leave a 9x9x17 = 1377 unknown coarse grid.
+# 128x128x256 cells (4.2M); 5 levels leave a 9x9x17 = 1377 unknown coarse grid.
 #
 # Both driven periodic handlers are inside the validated Newton--Krylov boundary
 # scope: their PreStep freezes the momentum source once per physical timestep, so

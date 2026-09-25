@@ -443,6 +443,27 @@ def test_wall_seed_discrete_flux_and_stretched_grid(generator, walls):
     assert np.max(np.abs(flux_div)) < 1e-12
 
 
+def test_wall_seed_is_linear_in_wall_distance():
+    """!
+    @brief Wall-parallel fluctuation grows linearly from a no-slip wall.
+
+    The envelope is sin(pi t): the least that satisfies no-slip, and the physical
+    near-wall asymptotics, u' ~ y, from a potential ~ y^2. On a uniform grid the first
+    two cell centres sit at y and 3y, so the potential reads 1 and 9 there; the discrete
+    curl (face averages, zero wall flux) turns that into derivatives 5 and 12, a ratio
+    of 2.4. The former sin(pi t)^4, a potential ~ y^5, gave 12.8.
+    """
+    nodes = cartesian_nodes((32, 64, 32), (2., 2., 2.))
+    options = {'wall_axes': ['j'], 'streamwise_axis': 'k', 'seed': 5,
+               'spectrum': {'type': 'k4_exponential', 'k0': 4.0, 'k_cut': 8.0}}
+    full, _ = IC.generate_wall_spectral_velocity(nodes, options, 'channel_spectral_velocity')
+    u = full[1:-1, 1:-1, 1:-1]
+    fluctuation = u - u.mean(axis=(0, 2), keepdims=True)
+    rms = np.sqrt((fluctuation[..., 0]**2 + fluctuation[..., 2]**2).mean(axis=(0, 2)))
+    assert rms[1] / rms[0] == pytest.approx(2.4, rel=0.05)
+    assert rms[-2] / rms[-1] == pytest.approx(2.4, rel=0.05)
+
+
 def test_wall_provider_routes_and_rejects_incompatible_boundaries():
     """!
     @brief Wall provider routes and rejects incompatible boundaries.

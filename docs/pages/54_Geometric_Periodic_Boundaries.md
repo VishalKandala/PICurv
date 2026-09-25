@@ -317,12 +317,16 @@ hand.
 
 @subsection p54_driven_limits_sub 5.7 Known limitations
 
-**Initial-condition seeding.** Experimental `channel_spectral_velocity` and
+**Initial-condition seeding.** The `channel_spectral_velocity` and
 `duct_spectral_velocity` providers generate wall-bounded discrete-curl perturbations;
 see @ref p33_cap_gen_channel_spectral_velocity and @ref p33_cap_gen_duct_spectral_velocity.
-The `turbulent_channel` example and `periodic_test/driven_duct/case_spectral.yml`
-exercise these startup paths. Other driven-channel variants still use
-`streamwise_constant`; a laminar start does not guarantee transition. Neither a
+The `turbulent_channel` example and every turbulent and LES case under
+`periodic_test/driven_channel/` and `periodic_test/driven_duct/` seed with them; only
+the laminar channel starts from `streamwise_constant`. The perturbation grows linearly
+from the wall, as a developed near-wall field does: on the `Re_tau = 180` DNS grid its
+wall-parallel RMS is about `0.013 U_b` at `y+ ~ 5` and `0.031 U_b` at `y+ ~ 13`, against
+`0.13 U_b` at the centreline (developed turbulence peaks near `0.17 U_b` at `y+ ~ 13`).
+Transition from it is still not guaranteed. Neither a
 seeded perturbation nor a short successful solve establishes developed turbulence.
 The triply periodic `spectral_random_velocity` provider remains unsuitable for
 no-slip walls.

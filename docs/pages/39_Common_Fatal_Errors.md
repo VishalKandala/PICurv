@@ -58,7 +58,7 @@ Geometric-periodic runtime validation can also stop before timestepping:
 | Mistake | Likely result | Fix |
 |---|---|---|
 | Set `start_step: 501` after a run that ended at `500` | Off-by-one mismatch against the saved restart state | Set `start_step: 500`; the first new step will be `501`. |
-| Leave `eulerian_field_source` as `solve` for a restart | Fresh solve path instead of loading saved fields | Set `solver.yml -> operation_mode.eulerian_field_source: load`. |
+| Set `eulerian_field_source: load` to continue a run | The run replays stored fields instead of solving, and aborts at the first step past the source run's last checkpoint | Keep `eulerian_field_source: solve`; `start_step > 0` already loads the restart state. Use `load` only to replay a stored field. |
 | Omit or mis-set `particles.restart_mode` | Unexpected particle reseed/load behavior or warning-driven behavior | Set `restart_mode: load` or `restart_mode: init` explicitly. |
 | Choose a `start_step` that was never written | Runtime file-not-found or missing-data restart failure | Verify the requested restart step exists in the saved <run.solver_output>/restart files. |
 

@@ -7,8 +7,9 @@
 #   picurv sweep --cluster cluster.yml ...
 #
 # In v1, scheduler.type must be "slurm".
-# Run IDs are not configured here; picurv derives them from
-# <case_basename>_<timestamp> and uses that to name scheduler jobs.
+# Run IDs are not configured here; picurv derives them as <label>_<timestamp>,
+# where the label is case.yml `title` (study.yml `title` for a sweep) or else the
+# file stem, and uses them to name scheduler jobs.
 # ==============================================================================
 
 scheduler:

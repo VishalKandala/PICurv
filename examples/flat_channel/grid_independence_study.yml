@@ -12,7 +12,15 @@ parameters:
   case.grid.programmatic_settings.km: [48, 64, 80]
 
 metrics:
-  - msd_final
+  # Final volume-weighted mean kinetic energy, column 13 of the default
+  # (steady_deterministic) convergence log. The case carries no particles, so a
+  # particle statistic such as msd_final would never be populated.
+  - name: final_mean_ke
+    source: log_regex
+    file_glob: "logs/solution_convergence.log"
+    regex: "\\|\\s*(?:steady_deterministic|transient)\\s*\\|\\s*\\d+\\s*\\|(?:[^|]*\\|){8}\\s*([-+0-9.eE]+)"
+    reduction: "last"
+    plot_label: "Final mean kinetic energy"
 
 plotting:
   enabled: true

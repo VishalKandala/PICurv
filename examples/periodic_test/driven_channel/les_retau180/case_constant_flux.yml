@@ -6,8 +6,8 @@
 # Smagorinsky, run after the DNS pass so the SGS contribution is assessed
 # against an in-tree DNS rather than against literature alone.
 #
-# Same domain and Reynolds number as turbulent_retau180, on 33 x 65 x 33
-# cells (dx+ = 34, dz+ = 68, y+_1 = 1).
+# Same domain and Reynolds number as turbulent_retau180, on 32 x 64 x 32
+# cells (dx+ = 35, dz+ = 71, y+_1 = 1).
 # ==============================================================================
 
 run_control:
@@ -23,11 +23,25 @@ properties:
     density: 1.0
     viscosity: 3.5714286e-04  # -> Re = 2800 = U_b * delta / nu
   initial_conditions:
+    # Divergence-free wall-respecting perturbation (RMS 0.1 U_b) on a parabolic mean
+    # normalized to U_b. k_cut must stay below two-thirds of the coarsest periodic
+    # axis's Nyquist wavenumber. Initial plane spectra record the seed at
+    # wall-normal cells 4, 16, 32 (zero-based).
     mode: generated
-    generator: streamwise_constant
+    generator: channel_spectral_velocity
     params:
-      velocity_physical: 1.0
-      flow_direction: "+Zeta"
+      field: Ucat
+      seed: 12345
+      wall_axes: [j]
+      streamwise_axis: k
+      bulk_velocity: 1.0
+      perturbation_rms: 0.1
+      wall_modes: 3
+      spectrum: {type: k4_exponential, k0: 2.0, k_cut: 5.0}
+      initial_spectra:
+        - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 4}, subtract_mean: sample}
+        - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 16}, subtract_mean: sample}
+        - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 32}, subtract_mean: sample}
 
 grid:
   mode: grid_gen
@@ -40,8 +54,8 @@ models:
     particles:
       count: 0
     turbulence:
-      # Both LES models are experimental: implemented and unit-tested, but with no
-      # validated coefficient magnitude. The constant model applies constant_cs from
+      # All four LES models are experimental: implemented and unit-tested, but with
+      # no validated coefficient magnitude. The constant model applies constant_cs from
       # the first step and allocates no coefficient field.
       #
       # The channel is periodic in xi and zeta, so dynamic_smagorinsky with

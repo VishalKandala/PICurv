@@ -1,7 +1,7 @@
 # ==============================================================================
 #   Dual Time Picard Jameson RK + geometric multigrid Poisson
 # ==============================================================================
-# 129x257x257 cells (8.5M); 5 levels leave a 9x17x17 = 2601 unknown coarse grid.
+# 128x256x256 cells (8.4M); 5 levels leave a 9x17x17 = 2601 unknown coarse grid.
 # ==============================================================================
 
 operation_mode:

@@ -7,9 +7,6 @@
 # cell-to-node averaging and calculates Q-criterion.
 # ==========================================================
 
-source_data:
-  directory: "<solver_output_dir>"
-
 run_control:
   # Every step named here must be one the solver committed a checkpoint at, so the
   # quickstart monitor writes every 10 steps over this 20-step run. The interval

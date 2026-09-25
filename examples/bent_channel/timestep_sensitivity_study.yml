@@ -6,15 +6,29 @@ base_configs:
 
 study_type: "timestep_independence"
 
-parameters:
-  case.run_control.dt_physical: [0.001, 0.0005, 0.00025]
+# Each set ends at the same physical time, t = 20, so the runs differ only in dt.
+# post.run_control.end_step moves with total_steps so post covers each whole run.
+parameter_sets:
+  - case.run_control.dt_physical: 0.04
+    case.run_control.total_steps: 500
+    post.run_control.end_step: 500
+  - case.run_control.dt_physical: 0.02
+    case.run_control.total_steps: 1000
+    post.run_control.end_step: 1000
+  - case.run_control.dt_physical: 0.01
+    case.run_control.total_steps: 2000
+    post.run_control.end_step: 2000
 
 metrics:
-  - name: final_msd_total
-    source: "statistics_csv"
-    file_glob: "**/*_msd.csv"
-    column: "MSD_total"
+  # Final volume-weighted mean kinetic energy, column 13 of the default
+  # (steady_deterministic) convergence log. The case carries no particles, so a
+  # particle statistic such as msd_final would never be populated.
+  - name: final_mean_ke
+    source: log_regex
+    file_glob: "logs/solution_convergence.log"
+    regex: "\\|\\s*(?:steady_deterministic|transient)\\s*\\|\\s*\\d+\\s*\\|(?:[^|]*\\|){8}\\s*([-+0-9.eE]+)"
     reduction: "last"
+    plot_label: "Final mean kinetic energy"
 
 plotting:
   enabled: true

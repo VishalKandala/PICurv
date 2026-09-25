@@ -54,6 +54,7 @@ For each run, `picurv` generates:
 - `da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block MPI decomposition is not currently supported.
 - For `grid_gen`, `grid.generator.config_file` is required today. `grid.gen` consumes cell counts and writes node counts into `.picgrid`.
 - `grid.generator.output_file`, `stats_file`, and `vts_file` are rejected: `picurv` chooses the destination for the generated grid, its `.vts` preview, and its `.info` quality report, and writes all three unconditionally into the run's own asset store.
+- Generated initial conditions reject `output_file`, `summary_json`, and `spectrum_csv` in `properties.initial_conditions.params`, and generated or `field_slice` inlet profiles reject `source.output_file`, for the same reason.
 - `grid.generator.cli_args` is a raw token list passed through to `grid.gen`, but closed-choice values inside it (a `--cross-section` value, or the segment kinds inside `--wall-j-lo`/`--path`/`--transforms`/etc.) are checked at validation time against the same sets `grid.gen` itself enforces, so a misspelled selector fails before the run rather than partway into it. See @ref p48_grammar_ssec.
 - `boundary_conditions` is a list of six face entries.
 - `INLET` + `prescribed_flow` supports `source.type: file`, `source.type: generated`,

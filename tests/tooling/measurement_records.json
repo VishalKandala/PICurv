@@ -446,6 +446,36 @@
       },
       "limitations": "A startup construction, not developed turbulence: nothing here establishes that the seeded field sustains turbulence, and the perturbation spectrum shapes a vector potential rather than a promised velocity spectrum. Reduced 32 x 32 x 64 grids on one rank, not the shipped 128 x 128 x 256 production sizes; one spectrum type and one wall_modes value. The diagnostic plane and line spectra the stage writes were produced but not compared against a reference spectrum.",
       "artifacts": []
+    },
+    {
+      "id": "wall-spectral-ic-2026-09-24",
+      "question": "After the wall envelope changed from sin(pi t)^4 to sin(pi t), do the channel and duct spectral initial conditions still stage the documented field (flux-normalized mean, requested perturbation RMS, no-slip walls, a discretely divergence-free field the runtime reproduces), and does the wall-parallel perturbation now grow linearly from the wall?",
+      "date": "2026-09-24",
+      "commit": "d829d27 (main) plus the uncommitted working tree of 2026-09-24",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, 1 rank",
+      "configuration": "channel_spectral_velocity: the examples/turbulent_channel case reduced to 32 x 32 x 64 cells, wall axis j stretched (ratio 2.0, first cell 0.01 of the 2.0 height), periodic i and k; duct_spectral_velocity: examples/periodic_test/driven_duct case_spectral reduced the same way with both i and j stretched. Both with bulk_velocity 1.0, perturbation_rms 0.1, wall_modes 3, k4_exponential (k0 4.0, k_cut 8.0), seed 12345. Each was precomputed and then run one step. Near-wall growth compares the wall-parallel perturbation RMS in the first two cells of each wall axis; the face-average discrete curl gives 2.4 for a potential ~ y^2 on a uniform grid (and 12.8 for the former ~ y^5). The staged Ucat was read back from the published asset payload and compared against the documented contract, and the divergence of the runtime's own step-0 Ucont was computed offline as the sum of each cell's six face fluxes.",
+      "result": {
+        "measured": "channel: volume-averaged streamwise velocity 1.0000000000000002; planar mean equals the flux-normalized 4t(1-t) parabola to 2.0e-15; perturbation RMS 0.1, per-component 0.1022, 0.0946, 0.1030, component volume means below 1e-19; dummy layers are exact odd reflections (error 0.0); the runtime's step-0 Ucont has maximum cell divergence 1.4e-17 against a face-flux scale of 4.1e-2, a relative 3.4e-16; wall-parallel RMS ratio between the first two cells 2.424 (cell-centre distance ratio 3.183 on this stretched axis). duct: bulk 1.0 exactly; mean to 3.8e-15; RMS 0.1 with per-component 0.0999, 0.1076, 0.0918; odd reflection exact on all four walls; step-0 divergence 1.0e-17 against 2.7e-2, relative 3.9e-16; near-wall ratios 2.423 and 2.437. Regenerating with seed 12345 reproduced the staged payload bitwise; seed 999 produced a different field.",
+        "threshold": "Bulk velocity and perturbation RMS equal to their requested values, the mean equal to the documented parabola, zero velocity at the wall faces, and discrete divergence at round-off relative to the flux scale. Near-wall ratio consistent with linear growth under the discrete curl (near 2.4), not the former quintic potential.",
+        "verdict": "met"
+      },
+      "limitations": "A startup construction, not developed turbulence: nothing here establishes that the seeded field sustains turbulence, and the perturbation spectrum shapes a vector potential rather than a promised velocity spectrum. Reduced 32 x 32 x 64 grids on one rank, not the shipped 128 x 128 x 256 production sizes; one spectrum type and one wall_modes value. The diagnostic plane and line spectra the stage writes were produced but not compared against a reference spectrum. Near-wall linearity is a startup shape; it does not establish a faster transition, which only a developed-flow run can show.",
+      "artifacts": []
+    },
+    {
+      "id": "post-plane-line-spectra-2026-09-24",
+      "question": "Do plane_spectrum and line_spectrum, run through picurv run --post-process --only spectra on a real checkpoint, report every signed mode's per-component energy exactly, at the requested station, on a grid whose non-transformed axis is stretched, and refuse the configurations they cannot measure?",
+      "date": "2026-09-24",
+      "commit": "d829d27 (main) plus the uncommitted working tree of 2026-09-24",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, 2 ranks",
+      "configuration": "examples/turbulent_channel layout reduced to 32 x 32 x 64 cells: x in [0, 2pi] and z in [0, 4pi] periodic and uniform, y in [0, 2] no-slip walls with tanh stretching (first cell 0.01 of the height). ic_gen Ucat u = cos(y)(sin(x + z/2) + 0.5 cos(3x - z)), v = y(2 - y) sin(2z), w = 1 + 0.25 sin(2x); one step, checkpoint every step. Spectra of the step-0 checkpoint: plane_spectrum over (i, k) at j = 0, 7, 16, 31; line_spectrum along k at (i 3, j 7) and along i at (j 20, k 11); subtract_mean: sample. Every CSV row was compared with an independent reference, a direct DFT by explicit summation over the same checkpoint samples, and each designed mode with its analytic energy.",
+      "result": {
+        "measured": "8288 rows: largest difference from the direct DFT 1.9e-15 of the sample kinetic energy; every task's rows sum to the sample kinetic energy (relative 2.2e-16 or better); energy outside the designed modes at most 6.9e-30 of it, so the sample mean (w = 1) is removed and no mode leaks; reported positions equal the grid cell centres to 4.4e-16, including stations on the stretched wall-normal axis. Against the analytic amplitudes the designed modes read 1.0000 (w, no variation along its own axis), 0.9809 (u at k_x = 1) and 0.8386 (u at k_x = 3), which are cos^4(k_x h/2) = 0.9809 and 0.8386 exactly: the runtime's face-average reconstruction of the staged field before the step-0 checkpoint, not the spectrum. Refusals: a plane across the wall axis and symbol: discrete fail validation by name; an out-of-range fixed index fails when the staged grid is read; a stretched periodic x axis is refused for plane (i, k) and line-along-i tasks and accepted for a line along the uniform k axis.",
+        "threshold": "Agreement with the direct DFT and Parseval closure at round-off, no energy outside the designed modes beyond round-off, exact station positions, and designed-mode energies explained by the documented reconstruction.",
+        "verdict": "met"
+      },
+      "limitations": "Kernel correctness on one Cartesian grid with a stretched non-transformed axis, one block, two ranks. Checkpoint spectra measure the field the runtime holds, which differs from a staged expression by the reconstruction factor above; staged-IC spectra (initial_spectra) avoid that step. No developed-turbulence acceptance: that the spectra of a developed channel or duct match reference data is a flow result, left to the channel campaign. grid.mode programmatic_c stages no PICGRID and is refused at validation.",
+      "artifacts": []
     }
   ]
 }

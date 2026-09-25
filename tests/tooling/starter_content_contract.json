@@ -180,6 +180,12 @@
       "post": "examples/periodic_test/driven_channel/les_retau180/post.yml"
     },
     {
+      "case": "examples/periodic_test/driven_channel/les_wallmodel_retau1000/case_constant_flux.yml",
+      "solver": "examples/periodic_test/driven_channel/les_wallmodel_retau1000/solver.yml",
+      "monitor": "examples/periodic_test/driven_channel/les_wallmodel_retau1000/monitor.yml",
+      "post": "examples/periodic_test/driven_channel/les_wallmodel_retau1000/post.yml"
+    },
+    {
       "case": "examples/periodic_test/driven_duct/case_constant_flux.yml",
       "solver": "examples/periodic_test/driven_duct/solver.yml",
       "monitor": "examples/periodic_test/driven_duct/monitor.yml",
@@ -328,12 +334,14 @@
     "config/grids/bent_channel_coarse.cfg",
     "config/grids/coarse_square_tube_curved.cfg",
     "config/grids/guide.md",
+    "config/grids/humphrey_bend_wm.cfg",
     "config/grids/isotropic_box_64.cfg",
     "config/grids/plane_channel_laminar.cfg",
     "config/grids/plane_channel_les_retau180.cfg",
     "config/grids/plane_channel_regression.cfg",
     "config/grids/plane_channel_retau180.cfg",
     "config/grids/plane_channel_retau395.cfg",
+    "config/grids/plane_channel_wm_retau1000.cfg",
     "config/grids/square_duct_reb4410.cfg",
     "config/guide.md",
     "config/initial_conditions/expression.cfg",

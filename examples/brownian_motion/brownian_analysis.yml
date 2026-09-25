@@ -25,9 +25,6 @@ run_control:
   end_step: 2000
   step_interval: 100        # Read every 100-step snapshot (matches data_output_frequency)
 
-source_data:
-  directory: "<solver_output_dir>"
-
 global_operations:
   dimensionalize: true
 

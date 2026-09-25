@@ -147,10 +147,27 @@ def test_stretched_grid_is_rejected_before_the_field_is_read(tmp_path):
         SPECTRA.generate_spectrum("/nonexistent-field.dat", grid_path, 0, "continuum", "none")
 
 
+def test_plane_and_line_refuse_only_a_stretched_transform_axis():
+    """! @brief Stretching is refused on an axis a task transforms, and allowed on the rest.
+
+    Plane and line tasks exist for wall-bounded flows whose wall-normal axis is stretched,
+    so the uniformity requirement must follow each task's own transform axes.
+    """
+    nodes = cartesian_nodes()
+    x = nodes[0, 0, :, 0]
+    stretched = x[0] + (x[-1] - x[0]) * ((np.linspace(0.0, 1.0, x.size))**1.5)
+    nodes[..., 0] = stretched[None, None, :]
+    for axes in ((0, 2), (0,)):
+        with pytest.raises(ValueError, match="uniform positive x spacing"):
+            SPECTRA.validate_spectral_grid(nodes, axes)
+    cells, _ = SPECTRA.validate_spectral_grid(nodes, (1, 2))
+    assert cells == (16, 16, 16)
+
+
 def test_curvilinear_bent_channel_grid_is_rejected():
     """! @brief The bent duct has no homogeneous direction and must be refused. """
     grid = ROOT / "examples" / "search_robustness" / "bent_channel_coarse.picgrid"
-    with pytest.raises(ValueError, match="shell_spectrum requires"):
+    with pytest.raises(ValueError, match="spectra require"):
         SPECTRA.generate_spectrum("/nonexistent-field.dat", str(grid), 0, "continuum", "none")
 
 

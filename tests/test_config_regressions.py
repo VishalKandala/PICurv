@@ -1777,6 +1777,177 @@ def test_wall_model_without_a_turbulence_model_is_rejected():
     assert _wall_pairing_errors(les={"enabled": False}, wall={"enabled": False}) == []
 
 
+def test_generator_destination_keys_are_refused_rather_than_ignored():
+    """!
+    @brief Test that generated inputs cannot name their own output paths.
+
+    Initial conditions and inlet profiles always land at fixed asset-store paths, so an
+    `output_file`, `summary_json` or `spectrum_csv` was read and silently ignored, as the
+    grid generator's destination keys once were. They are now refused with the same
+    message.
+    """
+    picurv = load_picurv_module()
+    for params in (
+        {"field": "Ucat", "config_file": "config/ic.cfg", "output_file": "x.dat"},
+        {"field": "Ucat", "config_file": "config/ic.cfg", "summary_json": "s.json"},
+    ):
+        ic = {"mode": "generated", "generator": "ic_gen", "params": params}
+        with pytest.raises(ValueError, match="is no longer accepted"):
+            picurv.resolve_initial_condition_config(ic, [], U_ref=1.0)
+    ic = {"mode": "generated", "generator": "spectral_random_velocity",
+          "params": {"spectrum_csv": "spectrum.csv"}}
+    with pytest.raises(ValueError, match="is no longer accepted"):
+        picurv.resolve_initial_condition_config(ic, [], U_ref=1.0)
+
+    generated = {"type": "generated", "generator": "square_duct_poiseuille",
+                 "output_file": "x.picslice", "params": {"bulk_velocity": 1.0}}
+    with pytest.raises(ValueError, match="is no longer accepted"):
+        picurv._normalize_prescribed_flow_source(generated, "source")
+    sliced = {"type": "field_slice", "field_file": "u.dat", "grid_file": "g.run",
+              "velocity_scale": 1.0, "output_file": "x.picslice"}
+    with pytest.raises(ValueError, match="is no longer accepted"):
+        picurv._normalize_prescribed_flow_source(sliced, "source")
+
+
+def test_spectra_on_a_programmatic_grid_are_refused_at_validation():
+    """!
+    @brief Test that a spectra recipe is refused for a case that stages no PICGRID.
+
+    The spectra stage reads the staged grid, which programmatic_c never writes, so the
+    recipe validated and then failed only after the solve had run.
+    """
+    picurv = load_picurv_module()
+    case_cfg = yaml.safe_load((REPO_ROOT / "examples" / "flat_channel" / "flat_channel.yml").read_text())
+    assert case_cfg["grid"]["mode"] == "programmatic_c"
+    spectra = picurv.normalize_post_spectra_config({"spectra": {"tasks": [
+        {"task": "line_spectrum", "axes": ["k"], "fixed_indices": {"i": 1, "j": 1}}]}})
+    errors = picurv.validate_post_spectra_preconditions(spectra, case_cfg, "post.yml")
+    assert len(errors) == 1 and "staged PICGRID" in errors[0]
+
+
+def test_wall_spectral_seed_names_its_required_initial_spectra():
+    """!
+    @brief Test that a wall seed without initial_spectra is refused by name.
+
+    The list is required, but its absence surfaced as the post validator's
+    "'spectra.tasks' must be a non-empty list", which names a key the case does not have.
+    """
+    picurv = load_picurv_module()
+    faces = [{"face": f, "type": "PERIODIC", "handler": "geometric"} for f in ("-Xi", "+Xi")]
+    faces += [{"face": f, "type": "WALL", "handler": "noslip"} for f in ("-Eta", "+Eta")]
+    faces += [{"face": f, "type": "PERIODIC", "handler": "initial_flux"} for f in ("-Zeta", "+Zeta")]
+    ic = {"mode": "generated", "generator": "channel_spectral_velocity",
+          "params": {"seed": 1, "spectrum": {"type": "k4_exponential", "k0": 12.0, "k_cut": 30.0}}}
+    with pytest.raises(ValueError, match="requires params.initial_spectra"):
+        picurv.resolve_initial_condition_config(ic, [faces], U_ref=1.0)
+    ic["params"]["initial_spectra"] = [{"task": "plane_spectrum", "axes": ["i", "k"],
+                                        "fixed_indices": {"j": 4}, "subtract_mean": "sample"}]
+    resolved = picurv.resolve_initial_condition_config(ic, [faces], U_ref=1.0)
+    assert len(resolved["params"]["initial_spectra"]) == 1
+
+
+def test_post_recipe_id_ignores_an_absent_or_emptied_source_data():
+    """!
+    @brief Test that dropping the non-configurable source_data block keeps the recipe ID.
+
+    The directory is always replaced by the run's output, so the shipped recipes stopped
+    carrying it. A recipe with the directory, with an emptied block (what `picurv init`
+    writes), and with no block must name the same recipe, or every continued post would
+    start over under a new ID.
+    """
+    picurv = load_picurv_module()
+    base = {"run_control": {"start_step": 0, "end_step": 10, "step_interval": 1},
+            "io": {"output_filename_prefix": "Field", "eulerian_fields": ["Ucat"]}}
+    with_directory = {**base, "source_data": {"directory": "<solver_output_dir>"}}
+    emptied = {**base, "source_data": {}}
+    ids = {picurv.compute_post_recipe_id(cfg) for cfg in (base, with_directory, emptied)}
+    assert len(ids) == 1, ids
+    other = {**base, "source_data": {"input_extensions": {"eulerian": "dat"}}}
+    assert picurv.compute_post_recipe_id(other) not in ids
+
+
+def test_validate_warns_that_a_custom_post_source_directory_is_ignored(tmp_path):
+    """!
+    @brief Test that a configured post source directory is reported as ignored.
+
+    Strict validation used to refuse a missing custom directory, although the conductor
+    always replaces it with the run's own output; the check guarded a value never used.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    base = REPO_ROOT / "examples" / "flat_channel"
+    post = yaml.safe_load((base / "standard_analysis.yml").read_text())
+    post["source_data"] = {"directory": "no_such_directory"}
+    path = tmp_path / "post.yml"
+    path.write_text(yaml.safe_dump(post))
+    result = run_picurv(["validate", "--case", str(base / "flat_channel.yml"),
+                         "--solver", str(base / "Imp-MG-Standard.yml"),
+                         "--monitor", str(base / "Standard_Output.yml"),
+                         "--post", str(path), "--strict"], cwd=tmp_path)
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "source_data.directory 'no_such_directory' is ignored" in output
+
+
+def test_workspace_role_recognises_a_post_recipe_without_a_pipeline(tmp_path):
+    """!
+    @brief Test that `picurv init` keeps a post recipe that has no pipeline or source_data.
+
+    Role detection keyed on `source_data` or a pipeline, so a spectra-only recipe with
+    the optional `source_data` omitted had no role and was dropped from the workspace.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    recipes = {
+        "spectra.yml": {"run_control": {"start_step": 0, "end_step": 10, "step_interval": 1},
+                        "spectra": {"tasks": [{"task": "shell_spectrum"}]}},
+        "window.yml": {"run_control": {"start_step": 0, "end_step": 10, "step_interval": 1},
+                       "field_statistics": {"windows": ["w"]}, "io": {"eulerian_fields": []}},
+    }
+    for name, payload in recipes.items():
+        path = tmp_path / name
+        path.write_text(yaml.safe_dump(payload))
+        assert picurv._workspace_yaml_role(str(path)) == "post", name
+    monitor = tmp_path / "monitor.yml"
+    monitor.write_text(yaml.safe_dump({"io": {"data_output_frequency": 1},
+                                       "logging": {"verbosity": "INFO"},
+                                       "field_statistics": {"enabled": False}}))
+    assert picurv._workspace_yaml_role(str(monitor)) == "monitor"
+
+
+def test_log_regex_study_metric_validates_its_regex(tmp_path):
+    """!
+    @brief Test that a log metric's regex is accepted by the schema and checked for a group.
+
+    `extract_metric_from_log` reads `group(1)` of `regex`, but the study schema omitted the
+    key, so strict validation refused every explicit log metric. A regex without a capture
+    group would score every case empty, so it is refused instead.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    base = REPO_ROOT / "examples" / "flat_channel"
+    study = {
+        "base_configs": {
+            "case": str(base / "flat_channel.yml"),
+            "solver": str(base / "Imp-MG-Standard.yml"),
+            "monitor": str(base / "Standard_Output.yml"),
+            "post": str(base / "standard_analysis.yml"),
+        },
+        "study_type": "sensitivity",
+        "parameters": {"case.run_control.dt_physical": [0.001, 0.002]},
+    }
+    cluster = REPO_ROOT / "examples" / "master_template" / "master_cluster.yml"
+    for regex, accepted in ((r"mean_ke=([0-9.eE+-]+)", True), (r"mean_ke=[0-9.]+", False)):
+        study["metrics"] = [{"name": "ke", "source": "log_regex", "file_glob": "logs/*.log",
+                             "regex": regex, "reduction": "last"}]
+        path = tmp_path / "study.yml"
+        path.write_text(yaml.safe_dump(study))
+        result = run_picurv(["validate", "--study", str(path), "--cluster", str(cluster), "--strict"],
+                            cwd=tmp_path)
+        output = result.stdout + result.stderr
+        assert (result.returncode == 0) is accepted, output
+        if not accepted:
+            assert "capture group" in output
+
+
 def test_a_rans_block_is_refused_as_planned():
     """!
     @brief Test that a RANS block is refused rather than translated.
@@ -2383,6 +2554,32 @@ def test_aggregate_study_metrics_supports_parameter_normalization(tmp_path):
     assert abs(float(rows[0]["run_loss_fraction"]) - 0.2) < 1.0e-12
     assert abs(float(rows[0]["run_swi_p95"]) - picurv.np.percentile([1.0, 2.0, 4.0, 8.0], 95.0)) < 1.0e-12
     assert abs(float(rows[0]["mean_migration_fraction"]) - 0.175) < 1.0e-12
+
+
+def test_msd_final_shorthand_reads_the_total_msd_column(tmp_path):
+    """!
+    @brief Test that the default `msd_final` metric reports MSD_total.
+
+    The shorthand named no column, so the CSV reader fell back to the last one, which in
+    the particle MSD table is `frac_3sigma_pct`.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    stats_dir = run_dir / "output" / "analysis" / "statistics" / "post-abc"
+    stats_dir.mkdir(parents=True)
+    (stats_dir / "Stats_msd.csv").write_text(
+        "step,t,N,MSD_x,MSD_y,MSD_z,MSD_total,r_rms_meas,r_rms_theory,rel_err_pct,"
+        "com_x,com_y,com_z,frac_1sigma_pct,frac_2sigma_pct,frac_3sigma_pct\n"
+        "1,0.1,10,1,1,1,3,1.7,1.7,0,0,0,0,68,95,99.7\n"
+        "2,0.2,10,2,2,2,6,2.4,2.4,0,0,0,0,68,95,99.7\n",
+        encoding="utf-8",
+    )
+    cases = [{"case_id": "case_0001", "run_dir": str(run_dir), "parameters": {}}]
+    out_csv = picurv.aggregate_study_metrics({"metrics": ["msd_final"]}, cases, str(tmp_path / "results"))
+    with open(out_csv, "r", encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert float(rows[0]["msd_final"]) == 6.0
 
 
 def test_study_plot_axis_uses_grouped_physical_timestep_not_constant_first_parameter():

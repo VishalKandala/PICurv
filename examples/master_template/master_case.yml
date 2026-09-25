@@ -8,7 +8,8 @@
 # and boundary conditions. It is the "digital lab notebook" for your run.
 #
 # SECTIONS OVERVIEW:
-#   1. simulation_control:  How long the simulation runs and at what time resolution.
+#   0. title:               Human-readable name; the prefix of every run ID.
+#   1. run_control:         How long the simulation runs and at what time resolution.
 #   2. properties:          The core physical numbers (density, viscosity, scales).
 #   3. grid:                The geometric domain, either from a file or generated.
 #   4. models:              Switches to turn on/off different physics modules (LES, particles, etc.).
@@ -19,7 +20,21 @@
 #   - For lists, ensure there is a space after the hyphen (e.g., "- item").
 #   - For more details: https://learnxinyminutes.com/docs/yaml/
 #
+# FILE PATHS:
+#   Inside a workspace (a directory made by `picurv init`), every relative path
+#   in this file resolves against the workspace root, not against this file.
+#   Absolute paths and paths that escape the workspace ("../") are refused.
+#   Bring outside data in with `picurv inputs import <kind> <source>`; kinds and
+#   destinations are grid -> inputs/grids, initial-condition ->
+#   inputs/initial_conditions, inlet-profile -> inputs/inlet_profiles,
+#   reference-field -> inputs/reference_fields. `--mode reference` records an
+#   external file without copying it; name the written `<name>.reference.yml`.
+#
 # ==============================================================================
+
+# Optional. Run IDs are `<title>_<timestamp>`; without a title the file stem is
+# used. `picurv init` sets it to the template name.
+title: "master_template"
 
 # ==============================================================================
 # 1. SIMULATION CONTROL
@@ -61,7 +76,14 @@ properties:
   # The state of the fluid at the start of the simulation (t=0).
   # Values are in physical units [m/s].
   initial_conditions:
-    # Built-in generators: zero | constant | streamwise_constant | poiseuille | ic_gen
+    # Built into the solver:  zero | constant | streamwise_constant | poiseuille
+    # Python providers run by picurv before the solve (single block, staged grid):
+    #   ic_gen | spectral_random_velocity | channel_spectral_velocity | duct_spectral_velocity
+    # Python providers need a grid picurv can read before launch: `file` or
+    # `grid_gen`, or `programmatic_c` for ic_gen only. Their payload is always
+    # written to <run.inputs>/initial_condition/; destination keys (output_file,
+    # summary_json, spectrum_csv) are refused. `picurv precompute` builds it
+    # without running the solver.
     mode: generated
     generator: constant
     params:
@@ -81,7 +103,10 @@ properties:
     #                                 # Optional when a single INLET face is present.
 
     # --- Generator: poiseuille ---
-    # Sets the initial velocity to a fully-developed square-duct Poiseuille profile.
+    # A product of 1-D parabolas in logical coordinates, one per wall-bounded axis:
+    # zero on WALL faces, peak_velocity_physical at the centre, and uniform along
+    # periodic axes. It is not the exact square-duct series solution; for that, use
+    # an inlet `prescribed_flow` profile from square_duct_poiseuille.
     # flow_direction is required (or inferred from INLET face).
     # mode: generated
     # generator: poiseuille
@@ -92,18 +117,56 @@ properties:
     # --- File IC: one PETSc .dat velocity field, staged for ReadFieldData. ---
     # mode: file
     # field: Ucat       # Ucat | Ucont
-    # source_file: initial_conditions/velocity.dat
+    # source_file: inputs/initial_conditions/velocity.dat  # via `picurv inputs import initial-condition`
 
     # --- External deterministic generator (ic_gen), materialized during run/precompute. ---
     # Repository ic.gen supports file, grid_gen, and programmatic_c grids.
-    # For programmatic_c, scalar programmatic_settings are materialized as config/grid.run first.
+    # For programmatic_c, scalar programmatic_settings are first materialized as the
+    # <run.inputs>/grid/grid.run bridge. Evaluates an INI [expression] section.
     # mode: generated
     # generator: ic_gen
     # params:
-    #   field: Ucat
+    #   field: Ucat                 # Ucat | Ucont
     #   script: tools/custom_ic.py  # Optional; defaults to generators/ic.gen
     #   config_file: config/initial_conditions/expression.cfg
-    #   output_file: config/initial_condition.generated.dat
+    #   cli_args: []                # Optional raw tokens appended to the generator call
+
+    # --- Spectral random velocity: triply periodic box, all faces PERIODIC/geometric. ---
+    # Seeded Gaussian field shaped by a spectrum, optionally projected solenoidal and
+    # rescaled. The decaying_isotropic_turbulence example uses this block.
+    # mode: generated
+    # generator: spectral_random_velocity
+    # params:
+    #   field: Ucat
+    #   seed: 12345
+    #   random: { distribution: gaussian, mean: [0.0, 0.0, 0.0] }
+    #   spectrum:                   # white (default) | k4_exponential
+    #     type: k4_exponential
+    #     k0: 4.0                   # Energy-peak wavenumber
+    #     k_cut: 20.0               # Must not exceed the two-thirds resolution limit
+    #   projection: { type: solenoidal, operator: picurv_discrete }  # or { type: none }
+    #   normalization: { type: component_rms, target: 1.0 }          # or { type: none }
+    #   remove_mean: true
+
+    # --- Wall-bounded spectral seed: channel (one wall pair) or duct (two). ---
+    # A divergence-free perturbation (discrete curl of a seeded vector potential with a
+    # wall envelope) on a flux-normalized mean. Requires a single Cartesian block with
+    # uniform periodic axes: WALL/noslip pairs on wall_axes, PERIODIC elsewhere, and
+    # only the streamwise pair driven (constant_flux or initial_flux). Velocities are
+    # in solver units. The turbulent_channel example uses this block.
+    # mode: generated
+    # generator: channel_spectral_velocity   # or duct_spectral_velocity
+    # params:
+    #   field: Ucat
+    #   seed: 12345
+    #   wall_axes: [j]              # channel default [j]; duct default [i, j]
+    #   streamwise_axis: k          # Must be periodic
+    #   bulk_velocity: 1.0          # Mean of the startup profile
+    #   perturbation_rms: 0.1
+    #   wall_modes: 3               # Wall-normal modes; wall_modes + 1 <= cells/2 per wall axis
+    #   spectrum: { type: k4_exponential, k0: 4.0, k_cut: 8.0 }
+    #   initial_spectra:            # Optional plane/line spectra of the seed, periodic axes only
+    #     - { task: plane_spectrum, axes: [i, k], fixed_indices: { j: 8 }, subtract_mean: sample }
 
 # ==============================================================================
 # 3. GRID DEFINITION
@@ -125,12 +188,12 @@ grid:
   # --- Option A: Grid from File ---
   # Use this if you have a pre-generated grid file.
   # The script validates and non-dimensionalizes coordinates using 'length_ref'.
-  # source_file: "grids/my_premade_grid.picgrid"
+  # source_file: "inputs/grids/my_premade_grid.picgrid"   # via `picurv inputs import grid`
 
   # --- Option B: Grid via Python Grid Generator (generators/grid.gen) ---
   # Use this for complex curvilinear meshes generated before solver launch.
   # generator:
-  #   config_file: "config/grids/plane_channel_retau180.cfg"       # Required today. Relative to case.yml or absolute.
+  #   config_file: "config/grids/plane_channel_retau180.cfg"       # Required today. Workspace-relative.
   #   grid_type: "box"                 # Optional override: box | sweep
   #   # `box` is a Cartesian block whose walls may be shaped; `sweep` carries a
   #   # cross-section along a centreline. See 48_Grid_Generator_Guide.
@@ -386,7 +449,7 @@ boundary_conditions:
     # params:
     #   source:
     #     type: file
-    #     path: profiles/inlet.picslice
+    #     path: inputs/inlet_profiles/inlet.picslice  # via `picurv inputs import inlet-profile`
     #
     # Alternative generated analytical square-duct Poiseuille profile:
     # handler: prescribed_flow
@@ -395,21 +458,24 @@ boundary_conditions:
     #     type: generated
     #     generator: square_duct_poiseuille
     #     script: tools/custom_profile.py  # Optional; defaults to generators/profile.gen
-    #     output_file: config/inlet_profile_block0_negEta.generated.picslice
     #     params:
     #       bulk_velocity: 1.5
     #       n_terms: 101
     #
-    # Alternative profile sliced from an old Cartesian Ucat field:
+    # Alternative profile sliced from an old Cartesian Ucat field. The target grid
+    # must be file or grid_gen. Import the old run's files first, e.g.
+    #   picurv inputs import reference-field <old_run>/output/checkpoints/<step>/eulerian/block_0000/Ucat.dat --mode reference
+    #   picurv inputs import grid <old_run>/inputs/grid/grid.run --name old_grid.run
+    # Generated profiles are written under <run.inputs>/inlet_profiles/; output_file is refused.
     # handler: prescribed_flow
     # params:
     #   source:
     #     type: field_slice
     #     script: tools/custom_profile.py  # Optional; defaults to generators/profile.gen
-    #     field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
-    #     grid_file: ../old_run/inputs/grid/grid.run
-    #     source_case: ../old_run/config/case.yml
-    #     output_file: config/inlet_profile_block0_negEta.sliced.picslice
+    #     field_file: inputs/reference_fields/Ucat.dat.reference.yml
+    #     grid_file: inputs/grids/old_grid.run
+    #     source_case: config/old_case.yml  # A copy of the old case.yml, or velocity_scale: <old U_ref>
+    #     source_block: 0                   # Optional
     #     slice:
     #       face: "+Eta"
     #       orientation: opposite
@@ -442,13 +508,12 @@ boundary_conditions:
 #     params:
 #       source:
 #         type: file
-#         path: profiles/inlet.picslice
+#         path: inputs/inlet_profiles/inlet.picslice
 #
 #       # OR generate analytically:
 #       # source:
 #       #   type: generated
 #       #   generator: square_duct_poiseuille
-#       #   output_file: config/inlet_profile.generated.picslice
 #       #   params:
 #       #     bulk_velocity: 1.5
 #       #     n_terms: 101
@@ -456,10 +521,9 @@ boundary_conditions:
 #       # OR slice from an existing Ucat field:
 #       # source:
 #       #   type: field_slice
-#       #   field_file: ../old_run/output/checkpoints/step_000000010000/eulerian/block_0000/Ucat.dat
-#       #   grid_file: ../old_run/inputs/grid/grid.run
-#       #   source_case: ../old_run/config/case.yml
-#       #   output_file: config/inlet_profile.sliced.picslice
+#       #   field_file: inputs/reference_fields/Ucat.dat.reference.yml
+#       #   grid_file: inputs/grids/old_grid.run
+#       #   source_case: config/old_case.yml
 #       #   slice:
 #       #     face: "+Eta"
 #       #     orientation: opposite
@@ -483,6 +547,9 @@ boundary_conditions:
 #                                     persistently large seam mismatch - enabling it can
 #                                     reintroduce divergence and injects single-plane noise.
 #                                     `apply_trim` is accepted as a deprecated alias.
+#   handler: initial_flux               Like constant_flux, but holds the flux of the initial
+#     type: PERIODIC                    condition instead of a configured target. Takes no
+#     params: {}                        target_flux; enforce_seam_flux is optional.
 
 # ==============================================================================
 # 6. ADVANCED PASSTHROUGH (OPTIONAL)

@@ -20,6 +20,17 @@ The parabolic mean is normalized to discrete bulk velocity 1; the driven target
 flux is 4*pi. There is no recurring perturbation injection. Transition is not
 guaranteed by this amplitude; monitor fluctuation energy and Reynolds shear stress.
 
+## Momentum solver
+
+This example starts from the matrix-free Newton-Krylov momentum solver
+(experimental) so that one shipped case shows it; the dual-time Picard solver
+(supported) runs the same case. To switch, set `strategy.momentum_solver:
+"Dual Time Picard Jameson RK"` in `<workspace>/config/solver.yml` and replace the
+`momentum_solver.newton_krylov` block with a `dual_time_picard_jameson_rk` block,
+for example the one in `examples/flat_channel/Imp-MG-Standard.yml`. Changing the
+strategy line alone is refused, because a solver-specific block must match the
+selected solver. The Poisson settings stay as they are.
+
 ## Generate and inspect before solving
 
 ```bash

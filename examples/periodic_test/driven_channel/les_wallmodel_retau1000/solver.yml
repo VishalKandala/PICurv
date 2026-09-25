@@ -1,7 +1,7 @@
 # ==============================================================================
 #   Dual Time Picard Jameson RK + geometric multigrid Poisson
 # ==============================================================================
-# 32^3 cells; 2 levels leave a 17^3 = 4913 unknown coarse grid.
+# 32x20x48 cells; 3 levels leave a 9x6x13 = 702 unknown coarse grid.
 # ==============================================================================
 
 operation_mode:
@@ -30,21 +30,15 @@ momentum_solver:
 
 poisson_solver:
   method: "fgmres"
-  # Deliberately tighter than the physics cases: the divergence bound in the
-  # regression needs the solve converged to ~1e-13. The seeded initial condition
-  # gives the solve a real right-hand side (about 11 iterations per step). The
-  # tracked-vs-true comparison skips rows where both residuals are below 1e-10 of the
-  # step's initial residual, where the two drift apart by 1e-3 even with an exact
-  # coarse solve (round-off, not the defect it looks for).
-  absolute_tolerance: 1.0e-14
-  relative_tolerance: 1.0e-12
+  absolute_tolerance: 1.0e-8
+  relative_tolerance: 1.0e-11
   max_iterations: 50
   gmres:
     restart: 20
   preconditioner:
     type: "multigrid"
   multigrid:
-    levels: 2
+    levels: 3
     pre_sweeps: 2
     post_sweeps: 2
     cycle: "v"
@@ -64,6 +58,9 @@ poisson_solver:
         method: "preonly"           # -> -ps_mg_coarse_ksp_type
         preconditioner: "redundant" # -> -ps_mg_coarse_pc_type (replicated LU)
       level_1:
+        method: "richardson"
+        preconditioner: "bjacobi"
+      level_2:
         method: "richardson"
         preconditioner: "bjacobi"
 

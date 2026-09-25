@@ -14,13 +14,9 @@
 # Defines where to find the input data and which timesteps to process.
 # This section directly configures the main processing loop in the C executable.
 # ==============================================================================
-source_data:
-  # (Required) The directory containing the input solver data files (.dat).
-  #
-  # SPECIAL TOKEN: "<solver_output_dir>"
-  #   The picurv script replaces this with the solver's output directory.
-  #   This is the standard and recommended setting.
-  directory: "<solver_output_dir>"
+# The input directory is not configurable: picurv always reads the run's own
+# <run.output>, so a source_data.directory key is overwritten and plays no part in
+# the recipe identity. Omit it.
 
 run_control:
   # (Required) The first timestep in the logical analysis window.
@@ -103,11 +99,11 @@ eulerian_pipeline:
 lagrangian_pipeline:
   # A list of operations performed on particle data.
   # Computes the specific kinetic energy (0.5 * |v|^2) for each particle.
-  # Creates a new particle field named "specific_ke".
-  # Invokes the C function: `ComputeSpecificKE()`.
+  # Creates a new particle field named by output_field; list that same name in
+  # io.particle_fields to write it. Invokes the C function: `ComputeSpecificKE()`.
   - task: specific_ke
     input_field: 'velocity'
-    output_field: 'ske'
+    output_field: 'specific_ke'
 
 # --- Global Particle Statistics Pipeline ---
 # Optional reduction kernels that append CSV diagnostics per timestep.
@@ -116,7 +112,8 @@ statistics_pipeline:
   # Optional base name for CSV outputs (default: "Stats")
   output_prefix: "Stats"
   tasks:
-    # Mean-square displacement based on simCtx->psrc_x/y/z reference point.
+    # Mean-square displacement from case.yml models.physics.particles.point_source.
+    # Validation refuses it for a seeded case whose init_mode is not PointSource.
     - task: msd
 
 # Deprecated: statistics_output_prefix at the top level was an older way to
@@ -186,12 +183,20 @@ statistics_pipeline:
 #   picurv summarize --run-dir <run> --plot spectra.resolved_kinetic_energy
 #
 # PRECONDITIONS. A spectrum is only defined where the transform direction is
-# uniformly spaced, periodic, and statistically homogeneous. shell_spectrum
-# therefore requires every face PERIODIC, a single block, and a uniform
-# axis-aligned Cartesian grid. picurv validate checks this against case.yml
-# before any field is read, so a wall-bounded or curvilinear case is refused by
-# name rather than producing a curve with no meaning. A channel or a bend cannot
-# use this block.
+# uniformly spaced, periodic, and statistically homogeneous. picurv validate
+# checks each task against case.yml before any field is read, so a case that
+# does not meet them is refused by name rather than producing a meaningless curve.
+#   shell_spectrum  every face PERIODIC, one block, uniform axis-aligned Cartesian
+#                   grid; bins 3-D modes into |k| shells.
+#   plane_spectrum  one block, Cartesian; the two transformed axes
+#                   periodic and uniform, the third may stretch. A channel's
+#                   wall-parallel planes qualify.
+#   line_spectrum   as plane_spectrum, one transformed axis.
+# Plane and line tasks take symbol: continuum only, require `axes` and zero-based
+# `fixed_indices` on every other axis, and accept subtract_mean: sample (the mean
+# of the sampled plane or line). A curvilinear case such as a bend cannot use
+# any of them, and every task needs a staged grid: grid.mode grid_gen or file,
+# not programmatic_c.
 # spectra:
 #   # Prefix for the CSV basenames written under <monitor output>/spectra/.
 #   output_prefix: "Spectrum"
@@ -241,6 +246,20 @@ statistics_pipeline:
 #       # Optional baseline to overlay when plotting. The placeholder resolves to
 #       # the spectrum recorded for a generated initial condition.
 #       # reference: "<ic_spectrum>"
+#
+#     # A wall-parallel plane of a channel whose walls are on j:
+#     - task: plane_spectrum
+#       field: Ucat
+#       axes: [i, k]
+#       fixed_indices: { j: 8 }
+#       subtract_mean: sample
+#
+#     # A streamwise line:
+#     - task: line_spectrum
+#       field: Ucat
+#       axes: [k]
+#       fixed_indices: { i: 16, j: 8 }
+#       subtract_mean: sample
 
 # ==============================================================================
 # SECTION 4: OUTPUT CONFIGURATION

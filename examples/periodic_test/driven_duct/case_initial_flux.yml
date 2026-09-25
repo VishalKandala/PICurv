@@ -8,8 +8,8 @@
 # mean field.
 #
 # Duct half-width a = 1, so side length and hydraulic diameter D = 2a = 2.
-# Streamwise extent 4*pi*a. Cross-section resolved 129 x 129 with two-sided
-# clustering on both walled directions; 257 cells streamwise.
+# Streamwise extent 4*pi*a. Cross-section resolved 128 x 128 with two-sided
+# clustering on both walled directions; 256 cells streamwise.
 #
 # References:
 #   Gavrilakis (1992), JFM 244, 101      -- Re_b = 4410, Re_tau ~ 300
@@ -23,7 +23,8 @@
 # NOTE ON Re: the case Reynolds number below is U_b * a / nu = 2205. The
 # literature value Re_b = U_b * D / nu is twice that, 4410.
 #
-# SEEDING CAVEAT: as for the channel cases - see driven_channel.md.
+# SEEDING: duct_spectral_velocity. Transition from it is not guaranteed; see
+# driven_duct.md section 6.
 # ==============================================================================
 
 run_control:
@@ -39,11 +40,22 @@ properties:
     density: 1.0
     viscosity: 4.5351474e-04  # -> Re = 2205 = U_b * a / nu (literature Re_b = U_b * D / nu = 4410)
   initial_conditions:
+    # Divergence-free wall-respecting perturbation (RMS 0.1 U_b) on a flux-normalized
+    # product-parabola mean. k_cut stays below two-thirds of the streamwise Nyquist
+    # wavenumber (42.7). The initial line spectrum samples the duct centreline.
     mode: generated
-    generator: streamwise_constant
+    generator: duct_spectral_velocity
     params:
-      velocity_physical: 1.0
-      flow_direction: "+Zeta"
+      field: Ucat
+      seed: 12345
+      wall_axes: [i, j]
+      streamwise_axis: k
+      bulk_velocity: 1.0
+      perturbation_rms: 0.1
+      wall_modes: 3
+      spectrum: {type: k4_exponential, k0: 4.0, k_cut: 8.0}
+      initial_spectra:
+        - {task: line_spectrum, axes: [k], fixed_indices: {i: 64, j: 64}, subtract_mean: sample}
 
 grid:
   mode: grid_gen

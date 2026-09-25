@@ -827,11 +827,11 @@
     "public_values": {
       "line_spectrum": {
         "maps_to": "line_spectrum",
-        "status": "experimental"
+        "status": "supported"
       },
       "plane_spectrum": {
         "maps_to": "plane_spectrum",
-        "status": "experimental"
+        "status": "supported"
       },
       "shell_spectrum": {
         "maps_to": "shell_spectrum",

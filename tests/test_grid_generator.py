@@ -406,7 +406,7 @@ def test_wall_units_reproduce_the_channel_configs_hand_arithmetic():
     """! @brief The generator computes what the shipped config states in prose.
 
     @details config/grids/plane_channel_retau180.cfg asserts y+_1 = 0.5, dx+ = 8.8 and
-             dz+ = 17.5 in a comment nothing checks. Same domain and counts here.
+             dz+ = 17.7 in a comment nothing checks. Same domain and counts here.
     """
     reference = GRID.resolve_reference_quantities(1.0, 3.5714286e-04, 1.0, 180.0, None)
     X, Y, Z, factors = GRID.box_grid(
@@ -420,7 +420,7 @@ def test_wall_units_reproduce_the_channel_configs_hand_arithmetic():
     wall = GRID.analyze_grid_quality(X, Y, Z, factors, reference)['wall_units']
     assert wall['j']['first_start'] == pytest.approx(0.5, rel=1e-3)
     assert wall['i']['max'] == pytest.approx(8.8, rel=1e-2)
-    assert wall['k']['max'] == pytest.approx(17.5, rel=1e-2)
+    assert wall['k']['max'] == pytest.approx(17.7, rel=1e-2)
     assert wall['j']['extent'] == pytest.approx(360.0, rel=1e-6), "2 delta in wall units"
 
 

@@ -286,11 +286,12 @@ three acquisition routes:
 | `source.type` | Required keys | Optional keys | Use when |
 |---|---|---|---|
 | `file` | `path` | - | You already have a PICSLICE profile file |
-| `generated` | `generator` | `script`, `output_file`, `params` | A shipped generator can produce it (`square_duct_poiseuille`) |
-| `field_slice` | `field_file`, `grid_file`, and one of `source_case` or `velocity_scale` | `script`, `source_block`, `output_file`, `slice` | You are extracting a plane from an existing solution |
+| `generated` | `generator` | `script`, `params` | A shipped generator can produce it (`square_duct_poiseuille`) |
+| `field_slice` | `field_file`, `grid_file`, and one of `source_case` or `velocity_scale` | `script`, `source_block`, `slice` | You are extracting a plane from an existing solution |
 
 Unknown keys inside `source` are rejected with the allowed set named, rather than
-silently dropped.
+silently dropped. `output_file` is refused for both `generated` and `field_slice`:
+`picurv` writes generated profiles under `<run.inputs>/inlet_profiles/`.
 
 **Interactions.** Profile dimensions are validated against the resolved grid block
 node counts before the run starts: a `-Xi`/`+Xi` face expects `(KM-1, JM-1)`,
@@ -561,7 +562,7 @@ The face selects the two transverse dimensions automatically:
 For `grid.mode: grid_gen`, `picurv run --solve` generates the grid first, then
 reads the generated `PICGRID` header to size the profile. For `grid.mode: file`,
 it reads the source `PICGRID` header. Generated dimensional profiles and
-`profile.info` are written under `<run.config>/`, then the staged
+`profile.info` are written under `<run.inputs>/inlet_profiles/`, then the staged
 solver-scale `.picslice` is referenced from `bcs.run`.
 
 For `square_duct_poiseuille`, `bulk_velocity` is the target inlet bulk speed.

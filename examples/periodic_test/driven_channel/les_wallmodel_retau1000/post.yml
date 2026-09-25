@@ -10,7 +10,7 @@
 
 run_control:
   start_step: 0
-  end_step: 60000
+  end_step: 50000
   step_interval: 5000
 
 global_operations:
@@ -25,8 +25,8 @@ eulerian_pipeline:
     output_field: "P_nodal"
 
 io:
-  output_directory: "visualization/driven_channel_les_retau180"
-  output_filename_prefix: "driven_channel_les_retau180"
+  output_directory: "visualization/driven_channel_les_wallmodel_retau1000"
+  output_filename_prefix: "driven_channel_les_wallmodel_retau1000"
   eulerian_fields:
     - "Ucat_nodal"
     - "P_nodal"

@@ -1,14 +1,15 @@
 # Driven Periodic Plane Channel
 
 Streamwise-periodic channel flow held at a prescribed bulk flux by a driven
-boundary handler. Four cases, in increasing cost:
+boundary handler. Five cases, in increasing cost:
 
 | Directory | What it is | Grid | Cells |
 |---|---|---|---|
-| `laminar/` | exact closed-form verification | `plane_channel_laminar.cfg` | 17 x 33 x 17 |
-| `les_retau180/` | constant-Smagorinsky LES | `plane_channel_les_retau180.cfg` | 33 x 65 x 33 |
-| `turbulent_retau180/` | DNS, `Re_tau = 180` | `plane_channel_retau180.cfg` | 129^3 (2.15M) |
-| `turbulent_retau395/` | DNS, `Re_tau = 395` | `plane_channel_retau395.cfg` | 129 x 257 x 257 (8.5M) |
+| `laminar/` | exact closed-form verification | `plane_channel_laminar.cfg` | 16 x 32 x 16 |
+| `les_retau180/` | constant-Smagorinsky LES | `plane_channel_les_retau180.cfg` | 32 x 64 x 32 |
+| `les_wallmodel_retau1000/` | wall-modelled dynamic-Smagorinsky LES, `Re_tau ~ 1000` | `plane_channel_wm_retau1000.cfg` | 32 x 20 x 48 |
+| `turbulent_retau180/` | DNS, `Re_tau = 180` | `plane_channel_retau180.cfg` | 128^3 (2.1M) |
+| `turbulent_retau395/` | DNS, `Re_tau = 395` | `plane_channel_retau395.cfg` | 128 x 256 x 256 (8.4M) |
 
 Every directory ships `case_constant_flux.yml`, `solver.yml`, `monitor.yml` and
 `post.yml`; `laminar/` and `turbulent_retau180/` also ship
@@ -16,10 +17,11 @@ Every directory ships `case_constant_flux.yml`, `solver.yml`, `monitor.yml` and
 
 ## 1. Geometry and axis convention
 
-All four cases use the same axis assignment:
+All five cases use the same axis assignment:
 
 - `i` (Xi) — spanwise, periodic (`geometric`)
 - `j` (Eta) — wall-normal, no-slip walls at `y = 0` and `y = 2`
+  (`les_wallmodel_retau1000/` applies a wall function on both)
 - `k` (Zeta) — streamwise, periodic and **driven**
 
 The half-height is `h = 1`, so the centreline is at `y = 1`. `length_ref` is `h`
@@ -50,9 +52,11 @@ and wall-unit sections. `picurv run`/`precompute` already pass `length_ref` and
 `nu` from the case automatically; `re_tau` is a design target, so it stays a
 generator argument. See **@subpage 48_Grid_Generator_Guide**, section 5.2.
 
-Cell counts must stay **odd at every multigrid level**, because each level
-coarsens as `IM -> (IM+1)/2`. The shipped counts sit on the ladder
-`5 -> 9 -> 17 -> 33 -> 65 -> 129 -> 257`.
+Node counts (cells + 1) must stay **odd at every multigrid level**, because each
+level coarsens as `IM -> (IM+1)/2`. The shipped node counts sit on the ladder
+`5 -> 9 -> 17 -> 33 -> 65 -> 129 -> 257`, so the cell counts are 16, 32, 64, 128
+and 256. Each config declares `mg_levels`, so the generator refuses a count that
+breaks the ladder.
 
 ## 3. Choosing a handler
 
@@ -132,13 +136,33 @@ The coarse repeat of the `Re_tau = 180` case, run **after** the DNS so the SGS
 contribution is assessed against an in-tree DNS rather than against literature
 alone.
 
-> **Experimental LES.** Both LES models are implemented and unit-tested, but neither
+> **Experimental LES.** All four LES models (`constant_smagorinsky`,
+> `dynamic_smagorinsky`, `vreman`, `wale`) are implemented and unit-tested, but none
 > has a validated coefficient magnitude. This case selects `constant_smagorinsky`,
 > which now applies its configured coefficient from the first step. The channel is
 > periodic in xi and zeta, so `dynamic_smagorinsky` with `averaging.mode: homogeneous`
 > is also available here and derives those two directions from the boundary pairs,
 > giving a wall-normal coefficient profile. See `docs/pages/07_Case_Reference.md` and
 > `docs/pages/72_LES_Turbulence_Closure.md`.
+
+### 5.4 Wall-modelled LES (`les_wallmodel_retau1000/`)
+
+`Re = U_b h / nu = 20,000`, which Dean's correlation puts at `Re_tau ~ 1016`. The
+grid is uniform, so the wall layer is modelled rather than resolved: the first cell
+centre sits at `y+ ~ 51` once the flow is developed, with `dx+ ~ 100` and
+`dz+ ~ 133`. The closure is `dynamic_smagorinsky` averaged over `i` and `k`,
+with a `werner` wall function and LES coefficient diagnostics every 10 steps.
+
+`werner` rather than `log_law` is deliberate. The startup wall stress is near
+laminar, so the first cell reads `y+ ~ 26` for the first steps (a 20-step pilot on
+2026-09-24 measured `u_tau = 0.031`, mean `y+ = 31`), and the runtime stops a
+`log_law` run after 10 samples below `y+ = 30`. Werner's two-layer law is valid
+into the viscous sublayer. The same pilot took 4.4 s per step on 2 ranks of a debug
+build, so the 50,000-step run is a cluster job.
+
+Acceptance: realized `u_tau` against Dean (`0.0508 U_b`), `U+` against the log law
+above the first cell, and resolved RMS profiles against Lee & Moser (2015) away from
+the wall. None of these has been run.
 
 ## 6. Before you launch a campaign
 
@@ -150,14 +174,21 @@ see `docs/pages/54_Geometric_Periodic_Boundaries.md`, section 5.7.
 converges every step, and at `Re = 10` reproduces the exact parabola at second order
 under both driven handlers.
 
-**Initial-condition seeding.** The shipped cases seed with
-`streamwise_constant`, which is a laminar profile. Transition from it is slow
-and is not guaranteed without a finite-amplitude perturbation. There is no
-in-tree generator that produces a perturbed divergence-free field respecting
-no-slip: `spectral_random_velocity` explicitly requires `PERIODIC`/`geometric`
-on all six faces and is rejected here, correctly, because it cannot respect a
-wall. Until such a generator exists, develop a field at coarse resolution or
-from a precursor, carry it in, and use `initial_flux` to hold its flux.
+**Initial-condition seeding.** The turbulent and LES cases seed with
+`channel_spectral_velocity`: a discretely divergence-free perturbation, zero on
+the walls, of RMS `0.1 U_b` on a parabolic mean normalized to `U_b`. Precompute
+(`picurv precompute --case ...`) reports the realized bulk velocity, RMS, and
+divergence, and records plane spectra at three wall-normal stations. The DNS cases
+use `k0 = 4`, `k_cut = 8`; the LES grid's coarse streamwise spacing bounds `k_cut`
+at 5.3, so it uses `k0 = 2`, `k_cut = 5`.
+
+Transition from this seed is not guaranteed. The perturbation grows linearly from
+the wall, like a developed near-wall field: at `Re_tau = 180` its wall-parallel RMS
+is about `0.013 U_b` at `y+ ~ 5` and `0.031 U_b` at `y+ ~ 13`, against `0.13 U_b` at
+the centreline, whereas developed turbulence peaks near `0.17 U_b` at `y+ ~ 13`. Monitor fluctuation energy and
+Reynolds shear stress, and if the flow relaminarizes, develop a field at coarse
+resolution or from a precursor, carry it in with `mode: file`, and use
+`initial_flux` to hold its flux.
 
 ## 7. Extracting profiles for DNS comparison
 

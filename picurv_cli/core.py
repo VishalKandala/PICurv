@@ -2948,6 +2948,24 @@ def warn_on_grid_generator_hyphen_keys(generator: dict, case_path: str, warnings
             )
 
 
+#: Destination keys a generated initial condition once accepted. Its payload, summary and
+#: spectrum always land at fixed paths in the asset store, so these were read and ignored.
+RETIRED_INITIAL_CONDITION_DESTINATION_KEYS = ("output_file", "summary_json", "spectrum_csv")
+
+
+def retired_destination_message(label: str, key: str) -> str:
+    """!
+    @brief Explain why a generator may not choose its own output destination.
+    @param[in] label Dotted configuration path of the mapping carrying the key.
+    @param[in] key The refused destination key.
+    @return The refusal message, shared by every generator that once took one.
+    """
+    return (
+        f"'{label}.{key}' is no longer accepted. PICurv chooses where generated artifacts "
+        "go; the published asset carries the payload, its preview, and its validation record."
+    )
+
+
 def reject_generator_destination_keys(generator, case_path: str, label: str) -> list:
     """!
     @brief Reject generator settings that try to choose their own output destination.
@@ -2959,9 +2977,7 @@ def reject_generator_destination_keys(generator, case_path: str, label: str) -> 
     if not isinstance(generator, dict):
         return []
     return [
-        f"  {case_path}: '{label}.{key}' is no longer accepted. PICurv chooses where "
-        "generated artifacts go; the published asset carries the payload, its preview, "
-        "and its validation record."
+        f"  {case_path}: {retired_destination_message(label, key)}"
         for key in RETIRED_GENERATOR_DESTINATION_KEYS if key in generator
     ]
 
@@ -3435,6 +3451,17 @@ def validate_post_spectra_preconditions(spectra_cfg: dict, case_cfg: dict, post_
     for block_index, block_bcs in enumerate(prepared_blocks):
         faces = {entry.get("face") for entry in block_bcs if entry.get("type") == "PERIODIC"}
         periodic_faces[block_index] = faces
+
+    # run_post_spectra_stage reads the staged PICGRID, which only file and grid_gen
+    # grids provide; refuse here rather than after the solve has run.
+    grid_mode = str((case_cfg.get("grid", {}) or {}).get("mode", "")).strip()
+    if grid_mode == "programmatic_c":
+        errors.append(
+            f"  {post_path}: spectra need a staged PICGRID, which grid.mode 'programmatic_c' "
+            "does not provide. Use grid.mode 'grid_gen' or 'file' for a case whose spectra "
+            "are measured."
+        )
+        return errors
 
     all_faces = {"-Xi", "+Xi", "-Eta", "+Eta", "-Zeta", "+Zeta"}
     for task_cfg in spectra_cfg["tasks"]:
@@ -4015,7 +4042,10 @@ def compute_post_recipe_id(post_cfg: dict) -> str:
     """
     normalized = copy.deepcopy(post_cfg or {})
     normalized.pop("_picurv_paths", None)
-    source = normalized.get("source_data")
+    # source_data.directory is always replaced by the run's own output, so an absent
+    # block and an emptied one are the same recipe; both hash as the emptied form that
+    # every earlier recipe, which carried the directory, reduced to.
+    source = normalized.setdefault("source_data", {})
     if isinstance(source, dict):
         source.pop("directory", None)
     io = normalized.get("io")
@@ -6182,9 +6212,10 @@ def _normalize_field_slice_source(source, field_name: str) -> dict:
         "source_case",
         "velocity_scale",
         "source_block",
-        "output_file",
         "slice",
     }
+    if "output_file" in source:
+        raise ValueError(retired_destination_message(field_name, "output_file"))
     unknown = sorted(set(source.keys()) - allowed)
     if unknown:
         raise ValueError(f"Unknown keys in {field_name}: {unknown}. Allowed: {sorted(allowed)}.")
@@ -6226,11 +6257,6 @@ def _normalize_field_slice_source(source, field_name: str) -> dict:
         if source_block < 0:
             raise ValueError(f"{field_name}.source_block must be a non-negative integer.")
         normalized["source_block"] = source_block
-    if source.get("output_file") is not None:
-        output_file = source.get("output_file")
-        if not isinstance(output_file, str) or not output_file.strip():
-            raise ValueError(f"{field_name}.output_file must be a non-empty path when provided.")
-        normalized["output_file"] = output_file.strip()
     return normalized
 
 def _normalize_field_slice_selector(slice_cfg, field_name: str) -> dict:
@@ -6846,22 +6872,19 @@ def _normalize_prescribed_flow_source(source, field_name: str) -> dict:
                 f"{field_name}.generator must be one of {sorted(GENERATED_PROFILE_GENERATORS)} "
                 f"(got '{source.get('generator')}')."
             )
-        unknown = sorted(set(source.keys()) - {"type", "generator", "script", "output_file", "params"})
+        if "output_file" in source:
+            raise ValueError(retired_destination_message(field_name, "output_file"))
+        unknown = sorted(set(source.keys()) - {"type", "generator", "script", "params"})
         if unknown:
             raise ValueError(
                 f"Unknown keys in {field_name}: {unknown}. "
-                "Allowed: ['generator', 'output_file', 'params', 'script', 'type']."
+                "Allowed: ['generator', 'params', 'script', 'type']."
             )
         normalized = {
             "type": "generated",
             "generator": generator,
             "params": _normalize_square_duct_poiseuille_params(source.get("params", {}), field_name),
         }
-        output_file = source.get("output_file")
-        if output_file is not None:
-            if not isinstance(output_file, str) or not output_file.strip():
-                raise ValueError(f"{field_name}.output_file must be a non-empty path when provided.")
-            normalized["output_file"] = output_file.strip()
         script = source.get("script")
         if script is not None:
             if not isinstance(script, str) or not script.strip():
@@ -7936,7 +7959,7 @@ _STUDY_SCHEMA = {
     ("parameters",): None,
     ("parameter_sets", "[]"): None,
     ("metrics", "[]"): {
-        "name", "source", "file_glob", "column", "reduction", "normalize_by_parameter",
+        "name", "source", "file_glob", "column", "regex", "reduction", "normalize_by_parameter",
         "numerator_column", "denominator_column", "denominator_floor",
         "plot_label", "label", "units",
     },
@@ -9816,6 +9839,18 @@ def validate_study_config(study_cfg: dict, study_path: str, skip_base_file_check
                 errors.append(f"  {study_path}: metrics[{i}] missing required key 'name'.")
             if "source" not in metric:
                 errors.append(f"  {study_path}: metrics[{i}] missing required key 'source'.")
+            if str(metric.get("source", "")).strip().lower() in METRIC_SOURCE_KINDS[2:]:
+                # extract_metric_from_log reads group(1); without it every case scores empty.
+                regex = metric.get("regex")
+                try:
+                    has_group = isinstance(regex, str) and re.compile(regex).groups >= 1
+                except re.error:
+                    has_group = False
+                if not has_group:
+                    errors.append(
+                        f"  {study_path}: metrics[{i}].regex must be a valid regular expression "
+                        "with a capture group for the value when source is a log."
+                    )
             for label_key in ("plot_label", "label", "units"):
                 label_value = metric.get(label_key)
                 if label_value is not None and (not isinstance(label_value, str) or not label_value.strip()):
@@ -12092,6 +12127,9 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
     params = ic.get("params", {})
     if not isinstance(params, dict):
         raise ValueError("initial_conditions.params must be a mapping.")
+    for key in RETIRED_INITIAL_CONDITION_DESTINATION_KEYS:
+        if key in params:
+            raise ValueError(retired_destination_message("initial_conditions.params", key))
     if generator == "ic_gen":
         if prepared_blocks and len(prepared_blocks) > 1:
             raise ValueError("File-backed initial conditions currently support single-block cases only.")
@@ -12112,7 +12150,6 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
             "field_name": field_name, "field_code": field_code,
             "config_file": config_file.strip(),
             "script": script.strip() if script is not None else None,
-            "output_file": params.get("output_file"),
             "cli_args": cli_args,
         }
 
@@ -12139,7 +12176,11 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
                     valid = valid and bc["handler"] == "geometric"
             if not valid:
                 raise ValueError("wall spectral IC requires no-slip wall pairs and periodic remaining axes, driven only streamwise.")
-        spectra = normalize_post_spectra_config({"spectra": {"tasks": normalized.get("initial_spectra", [])}})
+        requested_spectra = normalized.get("initial_spectra")
+        if not isinstance(requested_spectra, list) or not requested_spectra:
+            raise ValueError(f"{generator} requires params.initial_spectra: a nonempty list of "
+                             "plane_spectrum or line_spectrum tasks over the periodic axes.")
+        spectra = normalize_post_spectra_config({"spectra": {"tasks": requested_spectra}})
         for task in spectra["tasks"]:
             if task["task"] == "shell_spectrum" or set(task["axes"]) & set(normalized["wall_axes"]):
                 raise ValueError("initial spectra must transform only periodic axes of the wall spectral IC.")
@@ -12158,15 +12199,10 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
             for bc in prepared_blocks[0]
         ):
             raise ValueError("spectral_random_velocity requires PERIODIC/geometric boundaries on all six faces.")
-        allowed = {"field", "seed", "random", "spectrum", "projection", "normalization", "remove_mean",
-                   "output_file", "summary_json", "spectrum_csv"}
+        allowed = {"field", "seed", "random", "spectrum", "projection", "normalization", "remove_mean"}
         unknown = sorted(set(params) - allowed)
         if unknown:
             raise ValueError(f"spectral_random_velocity has unsupported params: {unknown}.")
-        for path_key in ("output_file", "summary_json", "spectrum_csv"):
-            value = params.get(path_key)
-            if value is not None and (not isinstance(value, str) or not value.strip()):
-                raise ValueError(f"spectral_random_velocity params.{path_key} must be a non-empty path when provided.")
         field_name, field_code = normalize_initial_condition_field(params.get("field", "Ucat"))
         if field_code != 0:
             raise ValueError("spectral_random_velocity supports only params.field: Ucat.")
@@ -12236,8 +12272,6 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
                        "random": {"distribution": distribution, "mean": mean},
                        "spectrum": normalized_spectrum, "projection": normalized_projection,
                        "normalization": normalized_normalization, "remove_mean": remove_mean},
-            "output_file": params.get("output_file"), "summary_json": params.get("summary_json"),
-            "spectrum_csv": params.get("spectrum_csv"),
         }
 
     generator_modes = {
@@ -14954,6 +14988,8 @@ def normalize_metric_spec(metric):
                 "name": "msd_final",
                 "source": "statistics_csv",
                 "file_glob": "**/*_msd.csv",
+                # Named, not left to the last-column fallback, which is frac_3sigma_pct.
+                "column": "MSD_total",
                 "reduction": "last",
             }
         return {"name": metric, "source": "log_regex", "regex": metric}
@@ -16140,19 +16176,14 @@ def validate_workflow(args):
                 else:
                     print(f"[WARNING] Post-processor source data directory is missing or empty: {resolved_source}", file=sys.stderr)
 
-    if args.strict and post_cfg is not None:
-        post_path = os.path.abspath(args.post)
-        source_dir = post_cfg.get("source_data", {}).get("directory")
+    if post_cfg is not None:
+        # apply_canonical_post_paths always reads the run's own output, so a configured
+        # directory is never used; say so instead of checking that it exists.
+        source_dir = (post_cfg.get("source_data") or {}).get("directory")
         if source_dir and source_dir != "<solver_output_dir>":
-            resolved = resolve_path(post_path, source_dir)
-            if not os.path.isdir(resolved):
-                emit_structured_error(
-                    ERROR_CODE_CFG_FILE_NOT_FOUND,
-                    key="source_data.directory",
-                    file_path=post_path,
-                    message=f"strict mode: source_data.directory resolves to missing directory '{resolved}'.",
-                )
-                sys.exit(1)
+            print(f"[WARN] {os.path.abspath(args.post)}: source_data.directory '{source_dir}' is "
+                  "ignored; post-processing always reads the run's own output. Remove the key.",
+                  file=sys.stderr)
 
     if args.strict and study_cfg is not None:
         study_path = os.path.abspath(args.study)
@@ -16274,10 +16305,6 @@ def build_case_asset_graph(case_cfg: dict, case_path: str) -> dict:
     )
     initial_mode = str(initial.get("mode", "generated")).strip().lower()
     initial_generator = str(initial.get("generator", "constant")).strip().lower()
-    for key in ("output_file", "summary_json", "spectrum_csv"):
-        initial.pop(key, None)
-        if isinstance(initial.get("params"), dict):
-            initial["params"].pop(key, None)
     generated_python = (
         initial_mode == "generated"
         and initial_generator in _PYTHON_INITIAL_CONDITION_PROVIDERS
@@ -16300,7 +16327,6 @@ def build_case_asset_graph(case_cfg: dict, case_path: str) -> dict:
             if not isinstance(entry, dict) or str(entry.get("handler", "")).strip().lower() != "prescribed_flow":
                 continue
             source = copy.deepcopy(((entry.get("params") or {}).get("source") or {}))
-            source.pop("output_file", None)
             inlet_specs.append({"block": block_index, "face": entry.get("face"), "source": source})
     if inlet_specs:
         field_slice = any((item.get("source") or {}).get("type") == "field_slice" for item in inlet_specs)
@@ -22358,7 +22384,10 @@ def _workspace_yaml_role(path: str):
         return "study"
     if "scheduler" in keys and "resources" in keys:
         return "cluster"
-    if "source_data" in keys or "eulerian_pipeline" in keys or "lagrangian_pipeline" in keys:
+    # Any key only a post recipe owns; a spectra- or statistics-only recipe has no
+    # pipeline, and source_data is optional. run_control is shared with case.yml.
+    post_only = _POST_SCHEMA[()] - _MONITOR_SCHEMA[()] - {"run_control"}
+    if keys & post_only or ("run_control" in keys and not keys & _CASE_SCHEMA[()] - {"run_control", "title"}):
         return "post"
     if "io" in keys and ("logging" in keys or "profiling" in keys or "diagnostics" in keys):
         return "monitor"

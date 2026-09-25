@@ -96,14 +96,18 @@ properties:
       field: Ucat
       script: tools/custom_ic.py  # optional; defaults to generators/ic.gen
       config_file: config/initial_conditions/expression.cfg
-      output_file: config/initial_condition.generated.dat
 ```
+
+`picurv` chooses where the payload goes: it is always written to
+`<run.inputs>/initial_condition/initial_condition.generated.dat`. The retired
+destination keys `output_file`, `summary_json`, and `spectrum_csv` are refused
+with an error rather than ignored.
 
 The launcher invokes `generators/ic.gen` by default, or the optional case-relative/absolute
 `params.script` override, as:
 
 ```text
-python <ic-generator> -c <config_file> --field Ucat|Ucont --output <output_file> --grid <grid.run> [cli_args...]
+python <ic-generator> -c <config_file> --field Ucat|Ucont --output <run.inputs>/initial_condition/initial_condition.generated.dat --grid <run.inputs>/grid/grid.run [cli_args...]
 ```
 
 `picurv run --solve` materializes the result after grid preparation. `picurv precompute --case ...`
@@ -118,7 +122,7 @@ documented numerical functions. The first implementation supports one block.
 The repository generator requires a staged PICGRID. `grid.mode: file` and
 `grid.mode: grid_gen` provide that grid directly; for single-block
 `grid.mode: programmatic_c`, the launcher materializes a nondimensional
-`<run.config>/grid.run` bridge from scalar `programmatic_settings` before invoking
+`<run.inputs>/grid/grid.run` bridge from scalar `programmatic_settings` before invoking
 `ic.gen`.
 
 Repository spectral provider, for a triply periodic box:
@@ -404,11 +408,13 @@ params:
 Parameters use solver nondimensional units. `perturbation_rms` is
 `sqrt(volume_mean(u'^2+v'^2+w'^2)/3)`, not the RMS of each component independently.
 The spectral envelope shapes a seeded vector potential along periodic directions;
-wall basis functions are `sin(n*pi*t)*sin(pi*t)^4`, evaluated at physical cell
-centers. A curl using the separable face-average divergence operators produces a
+wall basis functions are `sin(n*pi*t)*sin(pi*t)`, evaluated at physical cell
+centers: the least envelope that keeps the potential and its wall-normal derivative
+zero at the wall, so the seed has the physical near-wall behaviour, wall-parallel
+`u' ~ y` and wall-normal `v' ~ y^2`. A curl using the separable face-average divergence operators produces a
 perturbation in the discrete divergence nullspace, including zero wall-face flux.
 Periodic modes at or above one third of the cell count are removed. Wall mode count
-plus four (the highest sine index added by the envelope) must fit below the wall-axis count limit; stretched
+plus one (the highest sine index added by the envelope) must fit below half the wall-axis cell count; stretched
 meshes still need a physical resolution check. The envelope is not a prescribed final
 isotropic velocity spectrum: the curl, wall functions, and stretching change it.
 
@@ -498,13 +504,14 @@ separately. A startup field, not developed turbulence.
 **Diagnostics.** Summary reports bulk velocity, perturbation RMS and discrete divergence; selected plane/line spectra measure the seed.
 
 **Evidence.** Unit verified - `make test-python`. Production exercised in
-`examples/turbulent_channel`. Analytically verified - `wall-spectral-ic-2026-09-22`: on a
+`examples/turbulent_channel`. Analytically verified - `wall-spectral-ic-2026-09-24`: on a
 stretched 32 x 32 x 64 channel the volume-averaged streamwise velocity equals the
 requested bulk to 2e-16, the mean profile equals the flux-normalized `4t(1-t)` parabola to
-1.3e-15, the perturbation RMS is exactly the requested 0.1 with zero component means, the
-dummy layers are exact odd reflections so the wall faces carry zero velocity, and the
+2.0e-15, the perturbation RMS is exactly the requested 0.1 with zero component means, the
+dummy layers are exact odd reflections so the wall faces carry zero velocity, the
 runtime's step-0 flux field has a cell divergence of 1.4e-17 against a flux scale of
-4.5e-2.
+4.1e-2, and the wall-parallel perturbation grows linearly from the wall (first-to-second
+cell RMS ratio 2.42, the discrete curl's value for a potential ~ y^2).
 
 **Limitations.** A startup construction: amplitude and resolution do not establish
 sustained turbulence, and the spectrum shapes the vector potential rather than the
@@ -527,12 +534,13 @@ velocity. Measured on a reduced grid on one rank, not at the shipped production 
 **Diagnostics.** Summary reports bulk velocity and discrete divergence; actual selected line spectra report sample energy and Parseval residual.
 
 **Evidence.** Unit verified - `make test-python`. Production exercised in
-`examples/periodic_test/driven_duct`. Analytically verified - `wall-spectral-ic-2026-09-22`:
+`examples/periodic_test/driven_duct`. Analytically verified - `wall-spectral-ic-2026-09-24`:
 on a doubly stretched 32 x 32 x 64 duct the volume-averaged streamwise velocity equals the
 requested bulk exactly, the mean equals the flux-normalized product of `4t(1-t)` parabolas
-to 2.7e-15, the perturbation RMS is exactly the requested 0.1, all four walls carry zero
-velocity through exact odd reflection, and the runtime's step-0 flux field has a cell
-divergence of 1.1e-17 against a flux scale of 3.0e-2.
+to 3.8e-15, the perturbation RMS is exactly the requested 0.1, all four walls carry zero
+velocity through exact odd reflection, the runtime's step-0 flux field has a cell
+divergence of 1.0e-17 against a flux scale of 2.7e-2, and near-wall growth is linear on
+both wall axes (ratios 2.42 and 2.44).
 
 **Limitations.** The product-parabola startup mean is not the exact laminar duct solution,
 and a startup construction establishes no sustained turbulence. Circular pipes and

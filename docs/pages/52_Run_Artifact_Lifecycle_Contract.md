@@ -155,7 +155,9 @@ worth. Inspection material describes the payload and is deliberately excluded fr
 object's identity, so changing a preview format does not re-identify every asset.
 
 Generated destinations are PICurv's. `grid.generator.output_file`, `stats_file`, and
-`vts_file` are rejected rather than honoured: a configuration file that names its own
+`vts_file` are rejected rather than honoured, as are the generated initial-condition
+keys `output_file`, `summary_json`, and `spectrum_csv` and a generated or `field_slice`
+inlet profile's `source.output_file`: a configuration file that names its own
 output path creates a competing directory outside the store, which is what the fixed
 topology exists to prevent.
 

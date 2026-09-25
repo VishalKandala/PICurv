@@ -698,7 +698,8 @@ def generate_wall_spectral_velocity(nodes, raw_params, generator):
     centers = [0.5*(a[:-1]+a[1:]) for a in axes]
     shape = list(cells)
     for a in walls:
-        if params["wall_modes"] + 4 > cells[2-a] // 2:
+        # sin(pi t) raises the highest sine index of sin(n pi t) by one.
+        if params["wall_modes"] + 1 > cells[2-a] // 2:
             raise ValueError("wall_modes plus the wall envelope are unresolved on this grid.")
         shape[2-a] = params["wall_modes"]
     potential = np.random.default_rng(params["seed"]).standard_normal((*shape, 3))
@@ -723,7 +724,12 @@ def generate_wall_spectral_velocity(nodes, raw_params, generator):
     mean = np.ones(cells)
     for a in walls:
         t = (centers[a]-axes[a][0])/lengths[a]
-        basis = np.sin(np.pi*t[:, None]*np.arange(1, params["wall_modes"]+1)) * np.sin(np.pi*t[:, None])**4
+        # One power of the envelope is the least that keeps the potential and its
+        # wall-normal derivative zero at the wall, so the curl satisfies no-slip with
+        # the physical asymptotics: wall-parallel u' ~ y, wall-normal v' ~ y^2. A
+        # higher power would starve the buffer layer (sin^4 left u' ~ y^4, 1e-3 of a
+        # developed flow's at y+ ~ 13 on the Re_tau = 180 channel).
+        basis = np.sin(np.pi*t[:, None]*np.arange(1, params["wall_modes"]+1)) * np.sin(np.pi*t[:, None])
         potential = np.moveaxis(np.tensordot(basis, potential, axes=(1, 2-a)), 0, 2-a)
         sh = [1, 1, 1]; sh[2-a] = len(t)
         mean *= (4*t*(1-t)).reshape(sh)

@@ -195,7 +195,11 @@ Because each level removes a factor of eight from a 3-D grid, this scales
 logarithmically: a grid of ~5M cells wants 5 levels, not 4.
 
 From above, coarsenability. Each level halves an axis as `IM -> (IM+1)/2`, so
-`IM` must stay **odd at every level** for the coarsening to be exact. The chain
+`IM` must stay **odd at every level** for the coarsening to be exact. `IM` is the
+node count, one more than the cell count that `case.yml` and a `grid.gen` config
+state, so an exact ladder needs an **even** cell count: 128 cells, not 129.
+Declaring `mg_levels` in a `grid.gen` config makes the generator refuse a count
+that cannot coarsen that far. The chain
 runs `IM_fine = 2 * IM_coarse - 1`, giving usable ladders such as
 
     5 -> 9 -> 17 -> 33 -> 65 -> 129 -> 257
@@ -345,8 +349,12 @@ stalled near 1e-3, with left or right preconditioning; those methods are now ref
 emitted without PETSc's `ksp_` prefix and silently ignored, now reach the level solvers.
 
 End to end, `make smoke-driven-periodic` asserts at 4 and 10 ranks that the multigrid
-coarse solve keeps tracked and true residuals within 1e-4 of each other and the maximum
-divergence below 1e-11. The recorded measurement `duct-poiseuille-picard-2026-09-18`
+coarse solve keeps tracked and true residuals within 1e-4 of each other until both fall
+below 1e-10 of the step's initial residual (below that the two drift apart in round-off
+even with an exact coarse solve; a row whose true residual stays high is always compared) and the maximum divergence below 1e-11. Its 32^3 Cartesian fixture does not
+reproduce the Krylov-`level_0` failure above: there the outer FGMRES tolerates even a
+coarse solve truncated at two iterations, so the check guards the working
+configuration rather than detecting that defect. The recorded measurement `duct-poiseuille-picard-2026-09-18`
 (see @ref 66_Evidence_Matrix) reproduced the analytic axial pressure gradient of laminar
 square-duct flow at second order on three grids, with divergence at most 5.5e-8.
 

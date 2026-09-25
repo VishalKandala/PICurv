@@ -181,7 +181,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Identity.** `grid.mode: file` with `grid.source_file` naming a `.picgrid` file.
 
-**What it does.** Reads an externally produced curvilinear mesh. `picurv` validates that the file exists and stages it into `<run.config>/`, so the run carries the mesh it was computed with rather than a path that may later change.
+**What it does.** Reads an externally produced curvilinear mesh. `picurv` validates that the file exists and stages it as `<run.inputs>/grid/grid.run`, so the run carries the mesh it was computed with rather than a path that may later change.
 
 **When to choose it.** When the geometry came from `grid.gen`, from a mesher, or from a previous study, and you want the exact same mesh across runs. Prefer it over `grid_gen` once a mesh is settled: regenerating on every launch is a way to silently change geometry.
 
@@ -221,7 +221,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Identity.** `grid.mode: grid_gen` with a `grid.generator` block naming a config file and a `grid_type`.
 
-**What it does.** Runs `generators/grid.gen` before the solver launches and stages the generated `.picgrid` into `<run.config>/`. The generated mesh, not the generator invocation, is what the solver reads.
+**What it does.** Runs `generators/grid.gen` before the solver launches and stages the generated `.picgrid` as `<run.inputs>/grid/grid.run`. The generated mesh, not the generator invocation, is what the solver reads.
 
 **When to choose it.** While a geometry is still being iterated - sweeping cell counts or bend angles across a study, where regenerating per case is the point. Once the mesh is settled, switch to `file` so the geometry stops depending on the generator's behaviour.
 
@@ -229,7 +229,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Interactions.** Mutually exclusive with `file` and `programmatic_c`. The generator accepts cell counts (`ncells_*`) and writes node counts into the `.picgrid` header, so the count convention matches `programmatic_c` at the YAML boundary.
 
-**Diagnostics.** Generator stdout is captured into the run's scheduler log, and the staged `.picgrid` appears under `<run.config>/`. A generator failure aborts before the solver launches.
+**Diagnostics.** Generator stdout is captured into the run's scheduler log, and the staged grid appears as `<run.inputs>/grid/grid.run`. A generator failure aborts before the solver launches.
 
 **Evidence.** Production exercised - `examples/periodic_test` cases stage grids this way. Analytically verified - `duct-poiseuille-picard-2026-09-18` on a generated box and `pipe-poiseuille-curvilinear-2026-09-18` on a generated swept circle, each at second order.
 

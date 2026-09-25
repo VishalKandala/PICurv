@@ -1572,14 +1572,34 @@
           }
         },
         "plane_spectrum": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "unit": [
+              "make:test-python"
+            ],
+            "production": [
+              "example:examples/turbulent_channel"
+            ],
+            "analytical": [
+              "measurement:post-plane-line-spectra-2026-09-24"
+            ]
+          }
         },
         "line_spectrum": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "unit": [
+              "make:test-python"
+            ],
+            "production": [
+              "example:examples/periodic_test/driven_duct"
+            ],
+            "analytical": [
+              "measurement:post-plane-line-spectra-2026-09-24"
+            ]
+          }
         }
       }
     },
@@ -2084,7 +2104,7 @@
               "example:examples/turbulent_channel"
             ],
             "analytical": [
-              "measurement:wall-spectral-ic-2026-09-22"
+              "measurement:wall-spectral-ic-2026-09-24"
             ]
           }
         },
@@ -2099,7 +2119,7 @@
               "example:examples/periodic_test/driven_duct"
             ],
             "analytical": [
-              "measurement:wall-spectral-ic-2026-09-22"
+              "measurement:wall-spectral-ic-2026-09-24"
             ]
           }
         }

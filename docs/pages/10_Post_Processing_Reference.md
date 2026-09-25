@@ -26,9 +26,6 @@ run_control:
   end_step: 1000
   step_interval: 100
 
-source_data:
-  directory: "<solver_output_dir>"
-
 global_operations:
   dimensionalize: true
 
@@ -102,8 +99,11 @@ Operational semantics when launched through `picurv`:
 
 @section p10_source_sec 3. source_data
 
-- `source_data.directory` -> `source_directory`
-- `<solver_output_dir>` is a supported placeholder resolved by `picurv`.
+- `source_data` is optional; omit it. `picurv` always sets `source_directory` to the
+  run's own `<run.output>`, so a configured `source_data.directory` (including the
+  legacy `<solver_output_dir>` placeholder) is overwritten, and `picurv validate` warns
+  about any other value. Omitting the block,
+  leaving it empty, or carrying the old directory all give the same recipe ID.
 - for live post-processing while the solver is still running, PICurv treats a
   timestep as source-available only when its checkpoint bundle has a valid
   `checkpoint.meta`/`COMMITTED` pair and complete payload inventory. A recipe
@@ -499,8 +499,8 @@ periodic, and statistically homogeneous. Each task declares what it needs, and
 | Task | Status | Requires |
 | --- | --- | --- |
 | `shell_spectrum` | supported | every face `PERIODIC`, a single block, and a uniform axis-aligned Cartesian grid |
-| `plane_spectrum` | experimental | two selected periodic uniform axes; remaining axis may stretch |
-| `line_spectrum` | experimental | one selected periodic uniform axis; remaining axes may stretch |
+| `plane_spectrum` | supported | two selected periodic uniform axes; remaining axis may stretch |
+| `line_spectrum` | supported | one selected periodic uniform axis; remaining axes may stretch |
 | `temporal_spectrum` | planned | no homogeneous direction needed; see @ref p60_spectra_temporal_sec |
 
 Plane and line tasks sample actual cell-center planes and lines in a single-block,
@@ -508,6 +508,8 @@ axis-aligned Cartesian grid. They do not average parallel samples. Use `axes: [i
 and `fixed_indices: {j: 32}` for a plane, or `axes: [k]` and
 `fixed_indices: {i: 32, j: 32}` for a line. Indices are zero-based physical cells,
 excluding dummy layers. Out-of-range selections fail when the staged grid is read.
+Every spectra task reads the staged PICGRID, so the case must use `grid.mode: grid_gen`
+or `file`; a `programmatic_c` case is refused at validation.
 
 Boundary conditions and block count are checked from `case.yml`; grid uniformity is
 checked by the generator against the staged PICGRID, which is the only place the node
@@ -669,9 +671,9 @@ spectrum comes from ensembling over seeds at matched times, not from pooling tim
 
 **Diagnostics.** CSV rows contain two signed `k_<axis>` columns in storage order, `energy_u/v/w`, total `energy`, and `position_<fixed-axis>`. Energies are per-mode contributions, not spectral densities: summing all rows equals half the sample mean squared speed. The history CSV reports sample kinetic energy and relative Parseval residual. Coordinates/wavenumbers/energies scale with length/velocity references when dimensionalization is requested. Task filenames include axes and fixed indices.
 
-**Evidence.** Implemented only; tests in `tests/test_spectra_shell_spectrum.py` check known modes and Parseval closure. No developed turbulent-channel acceptance is established.
+**Evidence.** Unit verified - `make test-python` (`tests/test_spectra_shell_spectrum.py`: known modes, Parseval closure, transform-axis uniformity). Production exercised in `examples/turbulent_channel`. Analytically verified - `post-plane-line-spectra-2026-09-24`: on a checkpoint of known Fourier content over a stretched wall-normal axis, every signed mode's per-component energy matched a direct DFT of the same samples to 1.9e-15 of the plane energy, rows summed to the sample kinetic energy, no energy appeared outside the designed modes, and positions matched the cell centres; designed-mode energies differed from the staged expression only by the runtime's reconstruction factor `cos^4(k h/2)`.
 
-**Limitations.** Experimental, serial whole-field input, one block, Cartesian geometry, no masked/immersed lines. No 2D heatmap is added to `--plot-spectrum`; use the CSV for 2D plotting. A seed spectrum is not a developed-turbulence benchmark.
+**Limitations.** Serial whole-field input, one block, Cartesian geometry, no masked/immersed lines. A checkpoint spectrum measures the field the runtime holds, smoothed by its reconstruction relative to a staged expression. No developed turbulent-channel acceptance is established; that is a flow result, not a property of the measurement. No 2D heatmap is added to `--plot-spectrum`; use the CSV for 2D plotting. A seed spectrum is not a developed-turbulence benchmark.
 
 @subsection p10_cap_spec_line_spectrum_sub line_spectrum
 
@@ -689,9 +691,9 @@ spectrum comes from ensembling over seeds at matched times, not from pooling tim
 
 **Diagnostics.** Rows contain signed `k`, `energy_u/v/w`, total `energy`, and both fixed-position columns. Sum all signed modes for sample kinetic energy; do not double the already retained negative partners. The history reports kinetic energy and Parseval residual. Filenames distinguish both transverse indices.
 
-**Evidence.** Implemented only; known-mode tests sample a physical line with a different amplitude at each transverse station. No developed duct-flow validation is claimed.
+**Evidence.** Unit verified - `make test-python`: known-mode tests sample a physical line with a different amplitude at each transverse station. Production exercised in `examples/periodic_test/driven_duct` (`post_spectral.yml`). Analytically verified - `post-plane-line-spectra-2026-09-24`: lines along a uniform periodic axis of a grid stretched in another direction matched a direct DFT of the same samples to round-off, with exact positions; a line along a stretched axis is refused. No developed duct-flow validation is claimed.
 
-**Limitations.** Experimental, single-block Cartesian grids without immersed masks. This does not produce line ensembles or temporal spectra. Existing curve plotting displays positive modes only; the CSV retains both signs.
+**Limitations.** Single-block Cartesian grids without immersed masks. This does not produce line ensembles or temporal spectra. Existing curve plotting displays positive modes only; the CSV retains both signs.
 
 @section p10_io_sec 9. io
 
@@ -732,7 +734,8 @@ VTK payload fields. A solve-only invocation does not generate collections, and
 `--only spectra` does not refresh them.
 
 Lineage indexing requires the same recipe ID in each contributing run. Changing
-the logical start/end window or toggling collection generation preserves that ID;
+the logical start/end window, toggling collection generation, or omitting
+`source_data` preserves that ID;
 changing the post `step_interval`, fields, or pipelines does not. Different solver
 `dt` values and checkpoint cadences can share a collection when the post recipe
 remains compatible and its requested steps exist. The index uses available VTK

@@ -1,6 +1,3 @@
-source_data:
-  directory: "<solver_output_dir>"
-
 run_control:
   # Keep the full intended window here. When you run post-only with
   # `--continue`, PICurv resumes the same recipe from the first unfinished

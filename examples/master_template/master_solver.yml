@@ -14,8 +14,11 @@
 # 1. SOLVER OPERATION MODE
 # ==============================================================================
 operation_mode:
-  # 'solve': (Default) Compute the fluid dynamics equations.
-  # 'load':  Load pre-computed field data from disk.
+  # 'solve':      (Default) Advance the flow equations. With case.yml start_step > 0
+  #               this is also the restart mode: the saved state is loaded, then solved on.
+  # 'load':       Replay stored fields; nothing is solved. Every replayed step needs its
+  #               own checkpoint in the --restart-from run (io.data_output_frequency: 1).
+  # 'analytical': Evaluate a closed-form field each step (analytical_type below).
   eulerian_field_source: "solve"  # -> -euler_field_source
   # Optional analytical solution selector used when eulerian_field_source = "analytical".
   # Supported values today: "TGV3D", "ZERO_FLOW", "UNIFORM_FLOW".
@@ -84,9 +87,8 @@ tolerances:
   residual_absolute_tol: 1.0e-8 # [Float] -> -mom_resid_atol. DIMENSIONLESS:
                                 # converges when |R| <= this * a0*|Ucont|_inf/dt. Sufficient alone.
   residual_relative_tol: 1.0e-3 # Use 1.0e-2 for looser exploratory LES
-  # Step-change tolerance: stop inner loop when ||u_n+1 - u_n|| < step_tol.
-  # Non-positive or omitted = disabled.
-  # step_tol: 0.0       # [Float] -> -imp_stol
+  # step_tol: 0.0       # DEPRECATED -> -imp_stol. Accepted but unused by every
+  #                     # momentum solver.
 
 # --- Advanced Momentum Solver Controls (optional) ---
 # This section exposes newer dual-time controls directly (no passthrough needed).
@@ -98,10 +100,9 @@ momentum_solver:
     # absolute_tol: 1.0e-8   # DEPRECATED -> -mom_atol. Takes no part while a
     #                        # residual tolerance is active (the default).
     relative_tol: 1.0e-5         # -> -mom_rtol
-    # Step-change tolerance (optional, mirrors tolerances.step_tol):
-    # step_tol: 0.0              # -> -imp_stol
+    # step_tol: 0.0              # DEPRECATED -> -imp_stol; accepted but unused.
     pseudo_cfl:
-      # Phase 3+: pseudo_cfl.* values are dimensionless Courant numbers, NOT fractions of dt.
+      # pseudo_cfl.* values are dimensionless Courant numbers, NOT fractions of dt.
       # The solver computes dtau = pseudo_cfl / lambda_max, where lambda_max is the global
       # maximum spectral radius of the convective operator (sum of |face fluxes| / cell volume,
       # global MPI max). This makes pseudo_cfl flow- and grid-independent.
@@ -180,7 +181,7 @@ poisson_solver:
   relative_tolerance: 1.0e-11  # -> -ps_ksp_rtol
   max_iterations: 50           # -> -ps_ksp_max_it
   gmres:
-    # Only valid for GMRES-family methods: gmres, fgmres, lgmres.
+    # Only valid with method: fgmres (cg has no restart).
     restart: 20                # -> -ps_ksp_gmres_restart
 
   preconditioner:
@@ -226,6 +227,7 @@ poisson_solver:
     # Friendly aliases: `method` -> ksp_type, `preconditioner` -> pc_type.
     # Other keys are forwarded verbatim under PETSc's level prefix: level_0
     # uses -ps_mg_coarse_<key>; positive levels use -ps_mg_levels_N_<key>.
+    # Friendly `max_it`, `rtol`, `atol` map to ksp_max_it, ksp_rtol, ksp_atol.
     # Supported direct keys include ksp_type, pc_type, ksp_max_it, ksp_rtol, ksp_atol.
     level_solvers:
       level_0:
@@ -270,9 +272,10 @@ interpolation:
   # Method for interpolating Eulerian fields to particle positions.
   # Options:
   #   - "Trilinear"       (default) Direct trilinear from 8 nearest cell centers.
-  #                        Second-order on both uniform and curvilinear grids.
+  #                        Measured L2 order 1.97 on TGV3D, uniform Cartesian grid.
   #   - "CornerAveraged"  Legacy two-stage: center->corner average, then trilinear
-  #                        from corners. Second-order only on uniform Cartesian grids.
+  #                        from corners. On the same test: 3-4x Trilinear's L2 error,
+  #                        L2 order 1.68, maximum-error order 0.96.
   method: "Trilinear"     # -> -interpolation_method
 
 # ==============================================================================

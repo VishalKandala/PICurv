@@ -236,16 +236,16 @@ def validate_spectral_grid(nodes, transform_axes=(0, 1, 2)):
     km, jm, im, _ = nodes.shape
     cells = (km - 1, jm - 1, im - 1)
     if min(cells) < 4:
-        raise ValueError(f"shell_spectrum requires at least four cells per axis; found {cells}.")
+        raise ValueError(f"spectra require at least four cells per axis; found {cells}.")
     axes = (nodes[0, 0, :, 0], nodes[0, :, 0, 1], nodes[:, 0, 0, 2])
     for axis, (physical_axis, values) in enumerate(zip("xyz", axes)):
         delta = numpy.diff(values)
         if not numpy.all(numpy.isfinite(delta)) or not numpy.all(delta > 0) or (axis in transform_axes and not numpy.allclose(delta, delta[0], rtol=1e-10, atol=1e-12)):
-            raise ValueError(f"shell_spectrum requires uniform positive {physical_axis} spacing.")
+            raise ValueError(f"spectra require uniform positive {physical_axis} spacing on every transformed axis.")
     if not (numpy.allclose(nodes[..., 0], axes[0][None, None, :]) and
             numpy.allclose(nodes[..., 1], axes[1][None, :, None]) and
             numpy.allclose(nodes[..., 2], axes[2][:, None, None])):
-        raise ValueError("shell_spectrum requires an axis-aligned Cartesian grid (x->i, y->j, z->k).")
+        raise ValueError("spectra require an axis-aligned Cartesian grid (x->i, y->j, z->k).")
     return cells, tuple(float(values[-1] - values[0]) for values in axes)
 
 

@@ -1,0 +1,115 @@
+# ==============================================================================
+#   Driven periodic plane channel - WALL-MODELLED LES, Re_tau ~ 1000
+#   Handler: constant_flux
+# ==============================================================================
+# The wall-modelled counterpart to les_retau180: dynamic Smagorinsky with the
+# coefficient averaged over the two homogeneous axes, and a Werner-Wengle wall
+# function on both walls. It is also the channel check for the wall treatment the
+# Humphrey bend campaign uses at a similar Re_tau.
+#
+# Re = U_b delta / nu = 20,000, so Re_b = 2 U_b delta / nu = 40,000. Dean's
+# correlation, C_f = 0.073 Re_b^(-1/4), gives u_tau / U_b = 0.0508 and
+# Re_tau ~ 1016; Re_tau is an outcome of the constant-flux driving, not an input.
+# Domain pi (spanwise) x 2 (wall-normal) x 2*pi (streamwise), uniform
+# 32 x 20 x 48 cells: dx+ ~ 100, first cell centre y+ ~ 51, dz+ ~ 133.
+#
+# References, none yet run in this repository:
+#   - the log law, u+ = (1/0.41) ln(y+) + 5.2 above y+ ~ 30;
+#   - Lee & Moser (2015), channel DNS at Re_tau = 1000, for mean and RMS profiles.
+#
+# Acceptance: realized u_tau against Dean, U+ vs y+ against the log law above the
+# first cell, and resolved RMS profiles against Lee & Moser away from the wall.
+#
+# COST: 50,000 steps. This is a campaign case; see driven_channel.md.
+# ==============================================================================
+
+run_control:
+  start_step: 0
+  total_steps: 50000
+  dt_physical: 0.02
+
+properties:
+  scaling:
+    length_ref: 1.0     # channel half-height delta
+    velocity_ref: 1.0   # target bulk velocity U_b
+  fluid:
+    density: 1.0
+    viscosity: 5.0e-5   # -> Re = 20000 = U_b * delta / nu
+  initial_conditions:
+    # Divergence-free wall-respecting perturbation (RMS 0.1 U_b) on a parabolic mean
+    # normalized to U_b. The streamwise spacing bounds k_cut at 16.
+    mode: generated
+    generator: channel_spectral_velocity
+    params:
+      field: Ucat
+      seed: 12345
+      wall_axes: [j]
+      streamwise_axis: k
+      bulk_velocity: 1.0
+      perturbation_rms: 0.1
+      wall_modes: 3
+      spectrum: {type: k4_exponential, k0: 4.0, k_cut: 8.0}
+      initial_spectra:
+        - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 2}, subtract_mean: sample}
+        - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 9}, subtract_mean: sample}
+
+grid:
+  mode: grid_gen
+  generator:
+    config_file: "../../../../config/grids/plane_channel_wm_retau1000.cfg"
+    grid_type: box
+
+models:
+  physics:
+    particles:
+      count: 0
+    turbulence:
+      # Experimental, like every LES model: implemented and unit-tested, not yet
+      # validated against a reference flow.
+      les:
+        enabled: true
+        model: "dynamic_smagorinsky"
+        dynamic_frequency: 1
+        test_filter: {kernel: "volume_weighted_box", width_ratio: 2.0}
+        averaging:
+          # Homogeneous along the walls, not across them: one coefficient per
+          # wall-normal station.
+          mode: "homogeneous"
+          directions: ["i", "k"]
+        clipping: {mode: "clamp", max_cs: 0.3}
+        diagnostics: {enabled: true, cadence: 10}
+      wall_function:
+        # Switch this off and the case becomes an under-resolved wall-resolved LES.
+        # Werner-Wengle rather than log_law: the startup wall stress is near laminar,
+        # so the first cell sits at y+ ~ 26 until the flow develops, and the runtime
+        # stops a log_law run after 10 samples below y+ = 30. Werner's two-layer form
+        # is valid into the viscous sublayer; only y+ > 300 stops it.
+        enabled: true
+        model: "werner"
+
+boundary_conditions:
+  # i (Xi): spanwise, plain periodic.
+  - face: "-Xi"
+    type: PERIODIC
+    handler: geometric
+  - face: "+Xi"
+    type: PERIODIC
+    handler: geometric
+  # j (Eta): wall-normal, no-slip walls with the wall function applied.
+  - face: "-Eta"
+    type: WALL
+    handler: noslip
+  - face: "+Eta"
+    type: WALL
+    handler: noslip
+  # k (Zeta): streamwise, periodic and DRIVEN.
+  - face: "-Zeta"
+    type: PERIODIC
+    handler: constant_flux
+    params:
+      target_flux: 6.283185307179586   # U_b * Lx_span * Ly = 1.0 * pi * 2.0 = 2*pi
+  - face: "+Zeta"
+    type: PERIODIC
+    handler: constant_flux
+    params:
+      target_flux: 6.283185307179586   # U_b * Lx_span * Ly = 1.0 * pi * 2.0 = 2*pi

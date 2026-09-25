@@ -1,8 +1,5 @@
 # Produce nodal velocity and normalized pressure at every smoke-test timestep.
 
-source_data:
-  directory: "<solver_output_dir>"
-
 run_control:
   start_step: 0
   end_step: 5

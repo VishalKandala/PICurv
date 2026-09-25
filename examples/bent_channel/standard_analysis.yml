@@ -5,9 +5,6 @@
 # cell-to-node averaging and calculates Q-criterion.
 # ==========================================================
 
-source_data:
-  directory: "<solver_output_dir>"
-
 run_control:
   # Every step named here must be one the solver committed a checkpoint at, so the
   # range and stride follow monitor.yml -> io.data_output_frequency, which is 100

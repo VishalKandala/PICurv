@@ -172,7 +172,7 @@ Full contract: **@subpage 64_Documentation_Extension_Framework**.
 
 - Schema home: `case.yml -> properties.initial_conditions.mode`
 - Canonical values:
-  - `generated` with `generator: zero|constant|streamwise_constant|poiseuille|ic_gen`
+  - `generated` with `generator: zero|constant|streamwise_constant|poiseuille|ic_gen|spectral_random_velocity|channel_spectral_velocity|duct_spectral_velocity`
   - `file` with `field: Ucat|Ucont`
 - Python hooks:
   - `resolve_initial_condition_config()`

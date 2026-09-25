@@ -125,11 +125,12 @@ Shipped profiles:
 
 | Config | Geometry |
 |---|---|
-| `plane_channel_laminar.cfg`, `plane_channel_retau180.cfg`, `plane_channel_retau395.cfg`, `plane_channel_les_retau180.cfg`, `plane_channel_regression.cfg` | `box`, plane channel |
+| `plane_channel_laminar.cfg`, `plane_channel_retau180.cfg`, `plane_channel_retau395.cfg`, `plane_channel_les_retau180.cfg`, `plane_channel_wm_retau1000.cfg`, `plane_channel_regression.cfg` | `box`, plane channel |
 | `square_duct_reb4410.cfg` | `box`, square duct |
 | `isotropic_box_64.cfg` | `box`, periodic cube |
 | `coarse_square_tube_curved.cfg` | `sweep`, bent square duct, 90 deg |
 | `bent_channel_coarse.cfg` | `sweep`, `examples/bent_channel`'s bent duct |
+| `humphrey_bend_wm.cfg` | `sweep`, Humphrey et al. (1981) 90 deg bend, `Rc/D = 2.3` |
 
 @section p48_outputs_sec 5. Outputs
 

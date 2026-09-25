@@ -443,10 +443,9 @@ run_control:
   total_steps: 1000
 ```
 
-```yaml
-operation_mode:
-  eulerian_field_source: "load"
-```
+`solver.yml` keeps `operation_mode.eulerian_field_source: "solve"`: with
+`start_step > 0` the solver loads the step-500 state and advances it. (`load`
+would instead replay stored fields and needs a checkpoint at every step.)
 
 Optional particle choice:
 

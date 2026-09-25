@@ -298,11 +298,13 @@ and `"CornerAveraged"` to compare methods:
 
 ```yaml
 interpolation:
-  method: "CornerAveraged"   # Legacy first-order method
+  method: "CornerAveraged"   # Legacy two-stage method
 ```
 
-The CornerAveraged method should show roughly 2x the L2 error of Trilinear at
-the same resolution, with first-order (rather than second-order) grid convergence.
+Measured on this TGV3D field at 16^3 and 32^3 cells, CornerAveraged had 3.0x and 3.7x
+the relative L2 error of Trilinear (7.99% and 2.49% against 2.63% and 0.669%). Its
+L2 error converged at order 1.68 against Trilinear's 1.97, and its maximum error at
+order 0.96, so it is not second order in either norm.
 
 ---
 

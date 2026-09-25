@@ -241,12 +241,11 @@ Meaning:
 - In this example, the restarted run advances from step 501 through step 1500.
 - When `--restart-from` is given, `picurv` automatically resolves the previous run's restart directory from that run's `<run.config>/monitor.yml` and injects the correct `-restart_dir` into the new control file.
 
-Typical full field restart (`solver.yml`):
-
-```yaml
-operation_mode:
-  eulerian_field_source: "load"
-```
+Keep `solver.yml -> operation_mode.eulerian_field_source: "solve"` (the default).
+With `start_step > 0` the solver reads the restart state at `start_step` and then
+advances it. `load` is a different mode: it replays a stored field at every step
+and never solves, so a continuation under `load` needs a checkpoint at every step
+it would advance through.
 
 Particle restart choices (`case.yml`):
 
@@ -270,8 +269,9 @@ models:
 
 Common combinations:
 
-- Full restart: `start_step > 0`, `eulerian_field_source: load`, `restart_mode: load`
-- Flow restart + fresh particles: `start_step > 0`, `eulerian_field_source: load`, `restart_mode: init`
+- Full restart: `start_step > 0`, `eulerian_field_source: solve`, `restart_mode: load`
+- Flow restart + fresh particles: `start_step > 0`, `eulerian_field_source: solve`, `restart_mode: init`
+- Frozen-field particle replay: `eulerian_field_source: load`, with a checkpoint at every replayed step
 - Analytical mode is different: `eulerian_field_source: analytical` regenerates the analytical field at the requested `(t, step)` instead of loading restart files.
 
 How to think about this workflow:
@@ -295,7 +295,7 @@ Before launching a restart, verify:
 Common restart mistakes:
 
 - Setting `start_step: 501` after a run that ended at 500. Use `start_step: 500`.
-- Forgetting `solver.yml -> operation_mode.eulerian_field_source: load` for a true field restart.
+- Setting `solver.yml -> operation_mode.eulerian_field_source: load` for a continuation. That replays stored fields instead of solving, and fails at the first step with no checkpoint.
 - Forgetting to choose `particles.restart_mode: load` or `init` explicitly.
 - Trying to restart from a step that was never written to disk.
 
@@ -442,7 +442,7 @@ field is read**.
 For anything else, which spectrum applies depends on how many directions are
 statistically homogeneous:
 
-- **one or two** — a periodic channel or straight duct. Experimental `line_spectrum`
+- **one or two** — a periodic channel or straight duct. `line_spectrum`
   and `plane_spectrum` tasks transform one selected physical line or plane on a
   single-block Cartesian grid. Set `axes` to the uniform periodic directions and
   `fixed_indices` to the remaining physical cell indices; see @ref p10_spectra_sec.

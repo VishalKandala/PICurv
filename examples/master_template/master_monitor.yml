@@ -103,8 +103,8 @@ diagnostics:
 # ==============================================================================
 solution_monitoring:
   convergence:
-    # Preserves the existing logs/solution_convergence.log writer and records
-    # every completed timestep.
+    # Writes one row per completed timestep to logs/solution_convergence.log.
+    # The mode chooses what the row measures; no mode stops or shortens a run.
     enabled: true
     mode: "steady_deterministic"
     # Options: steady_deterministic | periodic_deterministic |
@@ -166,8 +166,8 @@ field_statistics:
       # centered product is measured against it; list "second" as well to keep
       # the centered second moment that Reynolds stresses, RMS, and TKE need.
       # Available fields: Ucat, P, Nvert, Phi, Psi, ParticleCount, Nu_t, CS.
-      # Psi and ParticleCount require particles; Nu_t requires a turbulence
-      # model; CS requires LES. A field whose subsystem is inactive is rejected
+      # Psi and ParticleCount require particles; Nu_t and CS require LES
+      # (a wall function alone does not enable them). A field whose subsystem is inactive is rejected
       # at validation rather than accumulated as zeros.
       # [List] -> -field_statistics_window_<i>_field_<j>_name / _moments
       fields:

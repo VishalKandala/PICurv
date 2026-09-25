@@ -10,11 +10,16 @@
 # where target is one of: case, solver, monitor, post
 # ==============================================================================
 
+# Optional. Study IDs are `<title>_<timestamp>`; without a title the file stem is used.
+title: "master_study"
+
+# Paths resolve like case.yml paths. `picurv init` rewrites them to the
+# workspace's config/<role>.yml.
 base_configs:
-  case: "../flat_channel/flat_channel.yml"
-  solver: "../flat_channel/Imp-MG-Standard.yml"
-  monitor: "../flat_channel/Standard_Output.yml"
-  post: "../flat_channel/standard_analysis.yml"
+  case: "master_case.yml"
+  solver: "master_solver.yml"
+  monitor: "master_monitor.yml"
+  post: "master_postprocessor.yml"
 
 study_type: "grid_independence"   # grid_independence | timestep_independence | sensitivity
 
@@ -50,24 +55,33 @@ parameters:
 #     case.grid.programmatic_settings.km: 128
 #     case.models.physics.particles.count: 400000
 
+# Metrics are read from each finished case's run directory. Omitting the block
+# means [msd_final].
 metrics:
-  # String shorthand:
-  - msd_final
+  # Final volume-weighted mean kinetic energy from logs/solution_convergence.log.
+  # The column layout depends on solution_monitoring.convergence.mode; this pattern
+  # matches steady_deterministic (the default) and transient rows. `regex` must
+  # capture the value in group 1.
+  - name: final_mean_ke
+    source: log_regex
+    file_glob: "logs/solution_convergence.log"
+    regex: "\\|\\s*(?:steady_deterministic|transient)\\s*\\|\\s*\\d+\\s*\\|(?:[^|]*\\|){8}\\s*([-+0-9.eE]+)"
+    reduction: "last"     # Options: "last" | "min" | "max" | "mean" | "p95"
+    plot_label: "Final mean kinetic energy"  # Optional report-facing label.
 
-  # Explicit form examples:
+  # The only named shorthand is msd_final: the last MSD_total row of the particle
+  # statistics CSV. It needs particles seeded as PointSource and the msd task in
+  # post.yml; on a case without particles it stays empty.
+  # - msd_final
+  #
+  # Its explicit form. MSD CSV columns: step, t, N, MSD_x, MSD_y, MSD_z, MSD_total,
+  # r_rms_meas, r_rms_theory, rel_err_pct, com_x/y/z, frac_1/2/3sigma_pct.
   # - name: final_msd
   #   source: statistics_csv
   #   file_glob: "**/*_msd.csv"
-  #   column: "msd"
-  #   reduction: "last"     # Options: "last" | "min" | "max" | "mean" | "p95"
-  #   plot_label: "Final mean-squared displacement"  # Optional report-facing label.
-  #   units: "m²"                                      # Optional axis units.
-  #
-  # - name: residual_floor
-  #   source: log_regex
-  #   file_glob: "logs/*solver*.log"
-  #   regex: "Final residual\\s*=\\s*([0-9.eE+-]+)"
+  #   column: "MSD_total"
   #   reduction: "last"
+  #   units: "m²"                                      # Optional axis units.
   #
   # --- Derived / normalized metric forms ---
   #
@@ -76,16 +90,17 @@ metrics:
   # - name: msd_per_dt
   #   source: statistics_csv
   #   file_glob: "**/*_msd.csv"
-  #   column: "msd"
+  #   column: "MSD_total"
   #   reduction: "last"
   #   normalize_by_parameter: "case.run_control.dt_physical"  # Divide result by this parameter value.
   #
-  # Compute a ratio of two columns from the same CSV (e.g., signal-to-noise):
-  # - name: signal_noise_ratio
+  # Compute a per-row ratio of two columns from the same CSV, then reduce it
+  # (here, measured over theoretical RMS displacement):
+  # - name: rms_ratio
   #   source: statistics_csv
   #   file_glob: "**/*_msd.csv"
-  #   numerator_column: "msd"
-  #   denominator_column: "msd_variance"
+  #   numerator_column: "r_rms_meas"
+  #   denominator_column: "r_rms_theory"
   #   denominator_floor: 1.0e-12    # Clamp denominator to avoid division by zero.
   #   reduction: "last"
 

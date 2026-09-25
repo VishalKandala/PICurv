@@ -7,15 +7,17 @@ generated deterministically from parameters rather than from a manually curated 
 
 | Config | Geometry | Case | Cells |
 |---|---|---|---|
-| `plane_channel_laminar.cfg` | `box` | laminar exact verification | 17 x 33 x 17 |
-| `plane_channel_regression.cfg` | `box` | rank-robust fixture for `make smoke-driven-periodic` | 33^3 |
-| `plane_channel_les_retau180.cfg` | `box` | constant-Smagorinsky LES, `Re_tau = 180` | 33 x 65 x 33 |
-| `plane_channel_retau180.cfg` | `box` | channel DNS, `Re_tau = 180` | 129^3 |
-| `plane_channel_retau395.cfg` | `box` | channel DNS, `Re_tau = 395` | 129 x 257 x 257 |
-| `square_duct_reb4410.cfg` | `box` | square duct DNS, `Re_b = 4410` | 129 x 129 x 257 |
+| `plane_channel_laminar.cfg` | `box` | laminar exact verification | 16 x 32 x 16 |
+| `plane_channel_regression.cfg` | `box` | rank-robust fixture for `make smoke-driven-periodic` | 32^3 |
+| `plane_channel_les_retau180.cfg` | `box` | constant-Smagorinsky LES, `Re_tau = 180` | 32 x 64 x 32 |
+| `plane_channel_retau180.cfg` | `box` | channel DNS, `Re_tau = 180` | 128^3 |
+| `plane_channel_retau395.cfg` | `box` | channel DNS, `Re_tau = 395` | 128 x 256 x 256 |
+| `plane_channel_wm_retau1000.cfg` | `box` | wall-modelled LES channel, `Re_tau ~ 1000` | 32 x 20 x 48 |
+| `square_duct_reb4410.cfg` | `box` | square duct DNS, `Re_b = 4410` | 128 x 128 x 256 |
 | `isotropic_box_64.cfg` | `box` | decaying isotropic turbulence | 64^3 |
 | `coarse_square_tube_curved.cfg` | `sweep` | bent square duct, 90 deg | 64 x 64 x 280 |
 | `bent_channel_coarse.cfg` | `sweep` | `examples/bent_channel` | 20 x 20 x 144 |
+| `humphrey_bend_wm.cfg` | `sweep` | Humphrey et al. (1981) 90 deg bend, `Rc/D = 2.3`, wall-modelled rung | 32 x 32 x 256 |
 
 A `box` with no wall lists is an exactly Cartesian block, which is what every channel and
 duct profile above is. Shaping a wall is what turns the same geometry into a step, a hill

@@ -61,6 +61,17 @@ For a quick smoke run, copy the case configuration, set `im/jm/km` to 16,
 `k_cut` to 5, multigrid levels to 2, and `total_steps` to 1 before running the
 full 64-cubed case.
 
+## Momentum solver
+
+This example starts from the matrix-free Newton-Krylov momentum solver
+(experimental) so that one shipped case shows it; the dual-time Picard solver
+(supported) runs the same case. To switch, set `strategy.momentum_solver:
+"Dual Time Picard Jameson RK"` in `<workspace>/config/solver.yml` and replace the
+`momentum_solver.newton_krylov` block with a `dual_time_picard_jameson_rk` block,
+for example the one in `examples/flat_channel/Imp-MG-Standard.yml`. Changing the
+strategy line alone is refused, because a solver-specific block must match the
+selected solver. The Poisson settings stay as they are.
+
 ## Turbulence statistics
 
 `monitor.yml` accumulates two field-statistics windows while the solver runs, so

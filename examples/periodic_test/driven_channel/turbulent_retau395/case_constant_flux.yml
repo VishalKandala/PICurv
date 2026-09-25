@@ -4,7 +4,7 @@
 # ==============================================================================
 # DNS resolution, no SGS model. Domain follows Moser, Kim & Mansour (1999):
 # 2*pi*delta (streamwise) x 2*delta (wall-normal) x pi*delta (spanwise),
-# here on 129 x 257 x 257 cells (8.5M).
+# here on 128 x 256 x 256 cells (8.4M).
 #
 # Reference: Moser, Kim & Mansour (1999), Phys. Fluids 11, 943.
 #
@@ -27,11 +27,25 @@ properties:
     density: 1.0
     viscosity: 1.4545455e-04  # -> Re = 6875 = U_b * delta / nu
   initial_conditions:
+    # Divergence-free wall-respecting perturbation (RMS 0.1 U_b) on a parabolic mean
+    # normalized to U_b. k_cut must stay below two-thirds of the coarsest periodic
+    # axis's Nyquist wavenumber. Initial plane spectra record the seed at
+    # wall-normal cells 8, 64, 128 (zero-based).
     mode: generated
-    generator: streamwise_constant
+    generator: channel_spectral_velocity
     params:
-      velocity_physical: 1.0
-      flow_direction: "+Zeta"
+      field: Ucat
+      seed: 12345
+      wall_axes: [j]
+      streamwise_axis: k
+      bulk_velocity: 1.0
+      perturbation_rms: 0.1
+      wall_modes: 3
+      spectrum: {type: k4_exponential, k0: 4.0, k_cut: 8.0}
+      initial_spectra:
+        - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 8}, subtract_mean: sample}
+        - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 64}, subtract_mean: sample}
+        - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 128}, subtract_mean: sample}
 
 grid:
   mode: grid_gen

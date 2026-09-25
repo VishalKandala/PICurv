@@ -19,8 +19,8 @@ will drown it.
 - `k` (Zeta) — streamwise, periodic and **driven**, length `4*pi`
 
 The duct half-width is `a = 1`, so the side length and hydraulic diameter are
-`D = 2a = 2`. Grid: `config/grids/square_duct_reb4410.cfg`, 129 x 129 x 257
-cells (4.3M), with two-sided tanh clustering on **both** walled directions.
+`D = 2a = 2`. Grid: `config/grids/square_duct_reb4410.cfg`, 128 x 128 x 256
+cells (4.2M), with two-sided tanh clustering on **both** walled directions.
 Clustering the two identically keeps the corner region symmetric, which matters
 because the corner is where the secondary flow lives.
 
@@ -54,6 +54,9 @@ while Gavrilakis quotes it on the hydraulic diameter `D = 2a`.
 
 `case_initial_flux.yml` runs the same case under the `initial_flux` handler, and
 `solver_newton_krylov.yml` under the matrix-free Newton--Krylov momentum solver.
+Both campaign cases seed with `duct_spectral_velocity`. `case_spectral.yml` (with
+`grid_spectral.cfg` and `post_spectral.yml`) is a short 1000-step seeded startup
+for inspecting that seed and its spectra, not a campaign case.
 `target_flux` is a volumetric flux: `U_b * Lx * Ly = 1 * 2 * 2 = 4.0`.
 
 ## 5. Acceptance criteria
@@ -74,18 +77,17 @@ cells should be.
 
 ## 6. Before you launch
 
-The two blockers described in
-`examples/periodic_test/driven_channel/driven_channel.md` section 6 —
-pseudo-time momentum convergence on periodic wall-bounded flow, and the absence
-of a wall-respecting perturbed initial-condition generator — apply here too, and
-bite harder: a duct will not develop turbulence from a laminar seed at this
-Reynolds number without a finite-amplitude perturbation.
+Neither blocker once listed here stands. The pseudo-time momentum stall on periodic
+wall-bounded flow was re-characterized on 2026-09-18 and does not reproduce (see
+`examples/periodic_test/driven_channel/driven_channel.md` section 6 and
+`docs/pages/54_Geometric_Periodic_Boundaries.md`, section 5.7). The duct cases now
+seed with `duct_spectral_velocity`, a wall-respecting divergence-free perturbation
+of RMS `0.1 U_b`.
 
-The momentum-convergence blocker carries a status caveat: it was measured on
-2026-08-24 and **requires re-characterization at current `HEAD`** after the
-2026-08-25 convergence-criterion change. See
-`docs/pages/54_Geometric_Periodic_Boundaries.md`, section 5.7, for the canonical
-dated statement. The initial-condition gap is unaffected and still stands.
+A duct will not develop turbulence at this Reynolds number without a
+finite-amplitude perturbation, and transition from this one is not guaranteed.
+Watch fluctuation energy and the cross-plane secondary flow before committing to
+a long averaging window.
 
 Validate the plane channel first. It is cheaper, it has an exact laminar answer,
 and it isolates the flux controller from everything the duct adds.

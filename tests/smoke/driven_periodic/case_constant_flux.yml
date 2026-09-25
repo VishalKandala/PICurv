@@ -34,11 +34,25 @@ properties:
     density: 1.0
     viscosity: 0.01     # -> Re = rho * U_ref * L_ref / mu = 100 (well below transition)
   initial_conditions:
+    # A seeded, discretely divergence-free perturbation (RMS 0.1) on a mean normalized
+    # to U_b = 1, so the latched flux is still exactly U_b * Lx * Ly = 2.0. A uniform
+    # plug is exactly divergence-free and leaves the Poisson right-hand side at
+    # round-off (zero on this grid), where the coarse-solve check measures nothing;
+    # the perturbation's convective terms give the pressure solve real work.
+    # The box's fundamental wavenumber is 2*pi, so k0 and k_cut sit above it.
     mode: generated
-    generator: streamwise_constant
+    generator: channel_spectral_velocity
     params:
-      velocity_physical: 1.0
-      flow_direction: "+Zeta"
+      field: Ucat
+      seed: 12345
+      wall_axes: [j]
+      streamwise_axis: k
+      bulk_velocity: 1.0
+      perturbation_rms: 0.1
+      wall_modes: 3
+      spectrum: {type: k4_exponential, k0: 12.0, k_cut: 30.0}
+      initial_spectra:   # required by the provider; one centreline plane
+        - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 16}, subtract_mean: sample}
 
 grid:
   mode: grid_gen
