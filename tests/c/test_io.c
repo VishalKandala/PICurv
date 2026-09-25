@@ -124,6 +124,59 @@ static PetscErrorCode TestWriteAndReadSimulationFields(void)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Tests that a dimensionalizing post-processor scales each loaded field once per load.
+ * @details Scaling happens as a field is read, so reading the same checkpoint twice yields
+ *          the same physical values both times: a field is scaled by its own catalog
+ *          dimension, never again on a later step. At L=2, U=3, rho=5 velocity scales by 3,
+ *          a face flux by 12, and pressure by 45.
+ */
+static PetscErrorCode TestPostprocessorReadScalesEachLoadOnce(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    tmpdir[0] = '\0';
+    if (simCtx->rank == 0) PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCallMPI(MPI_Bcast(tmpdir, sizeof(tmpdir), MPI_CHAR, 0, PETSC_COMM_WORLD));
+
+    PetscCall(PetscStrncpy(simCtx->output_dir, tmpdir, sizeof(simCtx->output_dir)));
+    PetscCall(PetscStrncpy(simCtx->restart_dir, tmpdir, sizeof(simCtx->restart_dir)));
+    PetscCall(VecSet(user->P, 2.0));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(VecSet(user->Ucat, 1.0));
+    PetscCall(VecSet(user->Ucont, 1.0));
+    PetscCall(VecSet(user->Ucont_rm1, 1.0));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(WriteCheckpointBundle(simCtx, "test"));
+
+    PetscCall(PetscCalloc1(1, &simCtx->pps));
+    simCtx->pps->dimensionalize = PETSC_TRUE;
+    PetscCall(PetscStrncpy(simCtx->pps->source_dir, tmpdir, sizeof(simCtx->pps->source_dir)));
+    simCtx->exec_mode = EXEC_MODE_POSTPROCESSOR;
+    simCtx->scaling.L_ref = 2.0;
+    simCtx->scaling.U_ref = 3.0;
+    simCtx->scaling.rho_ref = 5.0;
+    simCtx->scaling.P_ref = 45.0;
+
+    for (PetscInt pass = 0; pass < 2; ++pass) {
+        PetscCall(ReadSimulationFields(user, simCtx->step));
+        PetscCall(PicurvAssertVecConstant(user->Ucat, 3.0, 1.0e-12, "loaded velocity is scaled by U once"));
+        PetscCall(PicurvAssertVecConstant(user->Ucont, 12.0, 1.0e-12, "loaded face flux is scaled by U L^2 once"));
+        PetscCall(PicurvAssertVecConstant(user->P, 90.0, 1.0e-12, "loaded pressure is scaled by rho U^2 once"));
+    }
+
+    simCtx->exec_mode = EXEC_MODE_SOLVER;
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    if (simCtx->rank == 0) PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
 /** @brief Builds the statistics fixture: one Ucat/P window with a second moment. */
 static PicurvWindowDefinition StatisticsFixtureDefinition(void)
 {
@@ -1069,6 +1122,7 @@ int main(int argc, char **argv)
         {"should-write-data-output", TestShouldWriteDataOutput},
         {"verify-path-existence", TestVerifyPathExistence},
         {"write-and-read-simulation-fields", TestWriteAndReadSimulationFields},
+        {"postprocessor-read-scales-each-load-once", TestPostprocessorReadScalesEachLoadOnce},
         {"checkpoint-same-step-rewrite-rejected", TestCheckpointSameStepRewriteIsRejected},
         {"display-banner-reports-statistics-cadence", TestDisplayBannerReportsStatisticsCadence},
         {"checkpoint-statistics-round-trip", TestCheckpointStatisticsRoundTrip},

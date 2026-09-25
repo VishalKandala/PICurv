@@ -190,13 +190,19 @@
       "id": "units.nondimensionalization",
       "title": "Units and Non-Dimensionalization",
       "kind": "units",
-      "status": "tracked",
+      "status": "enforced",
       "authoritative_sources": [
         "picurv_cli/core.py",
-        "src/io.c"
+        "generators/ic.gen",
+        "src/io.c",
+        "src/field_catalog.c",
+        "src/particle_field_catalog.c",
+        "include/field_catalog.h"
       ],
       "extractor": null,
-      "checker": null,
+      "checker": [
+        "tests/tooling/audit_units.py"
+      ],
       "canonical_documentation": [
         "19_Nondimensionalization"
       ],
@@ -206,8 +212,8 @@
         "70_Case_Design_Guide",
         "68_Glossary"
       ],
-      "enforcement": "report-only",
-      "note": "High risk: unit errors are silent. A dedicated extractor over the conversion table is the obvious next contract to promote to enforced. src/io.c performs the length_ref division for grid.mode=programmatic_c (ReadGridGenerationInputs), the one grid mode whose bounds are staged directly in the C runtime rather than in the Python conductor.",
+      "enforcement": "blocking",
+      "note": "Every configuration input records its dimension and conversion site in INPUT_QUANTITIES (with BC_PARAM_QUANTITIES and IC_PARAM_QUANTITIES) in picurv_cli/core.py, and every catalogued field records a FIELD_DIM_* dimension. The checker fails when a solver-facing input has no recorded dimension, or when page 19's input or field index disagrees with those records. It does not prove a conversion is performed where recorded: the non-unit ingress tests in tests/test_units_and_scaling.py and the units-equivalence smoke run check that.",
       "requires_built_docs": false
     },
     {

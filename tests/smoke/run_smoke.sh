@@ -1541,6 +1541,103 @@ PY
   require_file_contains "${created_run}/logs/Runtime_Memory.log" "Process Current MB Max" "runtime memory log header"
 }
 
+run_units_equivalence_smoke() {
+  # One physical case at two reference-scale choices. Every input is physical, so the
+  # solver state must agree once rescaled by L, and dimensionalized output must agree
+  # outright. Uniform flow drifts the point-source cloud and Brownian motion spreads it:
+  # the physical diffusivity mu/(rho Sc) does not depend on the scales, so the same seed
+  # draws the same physical displacements.
+  local unit_case="${tmp_root}/units-unit-scales"
+  local scaled_case="${tmp_root}/units-scaled"
+  local unit_run="" scaled_run=""
+  for case_dir in "${unit_case}" "${scaled_case}"; do
+    "${picurv_exe}" init brownian_motion --dest "${case_dir}" >/dev/null
+    prepare_brownian_case_analytical "${case_dir}"
+  done
+  for spec in "${unit_case}:1.0:1.0" "${scaled_case}:2.0:3.0"; do
+    IFS=: read -r case_dir length_ref velocity_ref <<<"${spec}"
+    python3 - "${case_dir}/config" "${length_ref}" "${velocity_ref}" <<'PY'
+import sys
+import yaml
+config, length_ref, velocity_ref = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])
+def edit(name, change):
+    path = f"{config}/{name}.yml"
+    with open(path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    change(cfg)
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(cfg, f, sort_keys=False)
+def case(cfg):
+    cfg["properties"]["scaling"] = {"length_ref": length_ref, "velocity_ref": velocity_ref}
+    cfg["run_control"]["total_steps"] = 4
+    particles = cfg["models"]["physics"]["particles"]
+    particles["init_mode"] = "PointSource"
+    particles["point_source"] = {"x": 0.5, "y": 0.5, "z": 0.5}
+def solver(cfg):
+    cfg["operation_mode"]["analytical_type"] = "UNIFORM_FLOW"
+    cfg["operation_mode"]["uniform_flow"] = {"u": 0.3, "v": 0.0, "w": 0.0}
+def post(cfg):
+    cfg.setdefault("global_operations", {})["dimensionalize"] = True
+    cfg["run_control"]["end_step"] = 4
+edit("case", case)
+edit("solver", solver)
+edit("post", post)
+PY
+  done
+  run_case_workflow "${unit_case}" config/case.yml config/solver.yml config/monitor.yml \
+    config/post.yml "units-unit-scales"
+  unit_run="${LAST_RUN_DIR}"
+  run_case_workflow "${scaled_case}" config/case.yml config/solver.yml config/monitor.yml \
+    config/post.yml "units-scaled"
+  scaled_run="${LAST_RUN_DIR}"
+
+  python3 - "${unit_run}" "${scaled_run}" <<'PY' || die "units equivalence: the two scale choices disagree."
+import csv
+import struct
+import sys
+from pathlib import Path
+
+unit_run, scaled_run = (Path(arg) for arg in sys.argv[1:3])
+LENGTH_SCALE = 2.0  # scaled run's L_ref; the unit run's is 1
+
+def vec(path):
+    data = path.read_bytes()
+    _, count = struct.unpack(">ii", data[:8])
+    return struct.unpack(f">{count}d", data[8:8 + 8 * count])
+
+def ints(path):
+    data = path.read_bytes()
+    _, count = struct.unpack(">ii", data[:8])
+    width = (len(data) - 8) // max(count, 1)
+    fmt = ">q" if width == 8 else ">i"
+    return [struct.unpack(fmt, data[8 + i * width:8 + (i + 1) * width])[0] for i in range(count)]
+
+def positions(run):
+    step = sorted((run / "output" / "checkpoints").glob("step_*"))[-1] / "particles"
+    xyz = vec(step / "position.dat")
+    ids = ints(step / "pid.dat") if (step / "pid.dat").exists() else ints(step / "DMSwarm_pid.dat")
+    return {pid: xyz[3 * i:3 * i + 3] for i, pid in enumerate(ids)}
+
+unit, scaled = positions(unit_run), positions(scaled_run)
+assert unit and set(unit) == set(scaled), "particle identities differ"
+worst = max(abs(a - LENGTH_SCALE * b) for pid in unit for a, b in zip(unit[pid], scaled[pid]))
+assert worst < 1e-10, f"solver positions differ after rescaling by L: {worst:.3e}"
+moved = max(abs(p[0] - 0.5) for p in unit.values())
+assert moved > 1e-6, "the cloud did not move; the comparison would be vacuous"
+
+def msd_rows(run):
+    [path] = (run / "output" / "analysis" / "statistics").rglob("*_msd.csv")
+    with open(path, newline="") as stream:
+        return list(csv.DictReader(stream))
+
+for a, b in zip(msd_rows(unit_run), msd_rows(scaled_run)):
+    for column in ("t", "MSD_total", "r_rms_meas", "r_rms_theory", "rel_err_pct", "com_x"):
+        x, y = float(a[column]), float(b[column])
+        assert abs(x - y) <= 1e-8 * max(1.0, abs(x)), f"dimensionalized MSD {column}: {x} vs {y}"
+print(f"units equivalence: {len(unit)} particles agree to {worst:.1e}; dimensionalized MSD agrees")
+PY
+}
+
 run_restart_equivalence_smoke() {
   local continuous_case="${tmp_root}/restart-equivalence-continuous"
   local split_case="${tmp_root}/restart-equivalence-split"
@@ -2570,6 +2667,9 @@ run_restart_resolution_smoke
 
 echo "==> PICurv smoke: field statistics accumulation, monitoring, and post-processing"
 run_field_statistics_smoke
+
+echo "==> PICurv smoke: physical inputs give the same result at two reference-scale choices"
+run_units_equivalence_smoke
 
 if [[ "${nprocs}" -gt 1 ]]; then
   echo "==> PICurv smoke: multi-rank runtime sequences (flat+bent)"

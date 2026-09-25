@@ -62,6 +62,7 @@ typedef struct {
     unsigned int              capabilities;
     PetscReal                 default_real_value;
     FieldId                   eulerian_scatter_target;
+    FieldDimension            dimension;
 } ParticleFieldDescriptor;
 
 /**
@@ -80,6 +81,16 @@ PetscErrorCode ParticleFieldGetDescriptor(ParticleFieldId field_id,
  * @return Zero on success; `PETSC_ERR_ARG_UNKNOWN_TYPE` for unknown text.
  */
 PetscErrorCode ParticleFieldIdFromName(const char *field_name, ParticleFieldId *field_id);
+
+/**
+ * @brief Look a name up without treating an unknown name as an error.
+ * @param[in]  field_name Canonical particle name or registered alias.
+ * @param[out] field_id   Resolved identity, or `PARTICLE_FIELD_ID_INVALID` when not found.
+ * @param[out] found      Whether the name is registered.
+ * @return Zero on success; PETSc error only for null arguments.
+ */
+PetscErrorCode ParticleFieldTryIdFromName(const char *field_name, ParticleFieldId *field_id,
+                                          PetscBool *found);
 
 /**
  * @brief Return the canonical PETSc DMSwarm name for an ID.

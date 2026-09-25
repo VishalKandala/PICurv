@@ -49,6 +49,9 @@ share no state with field windows. See @ref 28_IEM_and_Statistical_Averaging.
 A window is an independently accumulating average over a named stretch of
 physical time. Windows may overlap freely; each owns its own state, so two
 windows covering the same interval with different cadences do not interact.
+`start_time`, `end_time`, and `time_cadence` are written in seconds and reach the
+runtime divided by `length_ref / velocity_ref`, because the runtime's clock is solver
+time; see @ref p19_inputs_sec.
 
 A window is `pending` before its start time, `active` while accumulating, and
 `complete` once a bounded window passes its end. It records its requested and
@@ -289,7 +292,7 @@ a zero that reads like a measurement.
 
 At startup the resolved definition is hashed once with SHA-256
 ([checksum.h](../../include/checksum.h)). The hash is checkpoint metadata, not a
-user option. Hashed, in fixed order: window name; `start_time`; weighting mode;
+user option. Hashed, in fixed order: window name; `start_time` in solver time; weighting mode;
 cadence kind and value; resolved field entries ordered by field identity, each
 with its moment set; resolved covariance pairs, canonicalized within each pair and
 ordered; mask identity; and target kind and layout semantics.
@@ -427,8 +430,8 @@ different fields, so its factor is the product of their two scales rather than e
 one squared. The exponent is what the per-field scaling table
 alone cannot express, and one blanket velocity factor would be wrong for three of the
 five kinds. The factor is applied to the staging field both the VTK output and the
-convergence-history CSV read, so those two cannot disagree about units. A field with no
-declared reference scale is left non-dimensional and warns.
+convergence-history CSV read, so those two cannot disagree about units. Every eligible
+field has a catalog dimension (@ref p19_fields_sec), so there is no unscaled case.
 
 @section p58_monitoring_sec 9. Runtime Monitoring and Logging
 

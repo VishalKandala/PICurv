@@ -236,6 +236,19 @@ PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, Petsc
     /* ------------------------------------------------------------------ *
      * Output: CSV + LOG_INFO (rank 0 only)                                *
      * ------------------------------------------------------------------ */
+    /* The comparison with theory is made in solver units above. A dimensionalizing
+     * post-processor then reports every dimensional column physically; the relative error
+     * and shell fractions are ratios and are the same in either system. */
+    PetscReal time_scale = 1.0, length_scale = 1.0;
+    if (simCtx->pps && simCtx->pps->dimensionalize) {
+        const FieldDimension time_dimension = FIELD_DIM_TIME;
+        const FieldDimension length_dimension = FIELD_DIM_LENGTH;
+
+        ierr = FieldDimensionReferenceScale(&simCtx->scaling, time_dimension, &time_scale); CHKERRQ(ierr);
+        ierr = FieldDimensionReferenceScale(&simCtx->scaling, length_dimension, &length_scale); CHKERRQ(ierr);
+    }
+    const PetscReal area_scale = length_scale * length_scale;
+
     if (rank == 0) {
         char csv_path[PETSC_MAX_PATH_LEN];
         char row_line[1024];
@@ -244,10 +257,10 @@ PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, Petsc
             row_line,
             sizeof(row_line),
             "%d,%.6e,%.0f,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.4f,%.6e,%.6e,%.6e,%.2f,%.2f,%.2f\n",
-            (int)ti, t, N_total,
-            MSD_x, MSD_y, MSD_z, MSD_total,
-            r_rms_meas, r_theory, rel_err_pct,
-            com_x, com_y, com_z,
+            (int)ti, t * time_scale, N_total,
+            MSD_x * area_scale, MSD_y * area_scale, MSD_z * area_scale, MSD_total * area_scale,
+            r_rms_meas * length_scale, r_theory * length_scale, rel_err_pct,
+            com_x * length_scale, com_y * length_scale, com_z * length_scale,
             frac_1s, frac_2s, frac_3s
         );
         PetscCall(RewriteParticleMSDCSV(csv_path, ti, row_line));

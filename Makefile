@@ -985,6 +985,11 @@ audit-page-types:
 audit-field-catalog:
 	@python3 tests/tooling/audit_field_catalog.py
 
+## @target audit-units
+## @brief Fails when an input lacks a recorded dimension or page 19's indexes disagree with the code.
+audit-units:
+	@python3 tests/tooling/audit_units.py
+
 ## @target audit-family-census
 ## @brief Reports public selector surfaces that no capability family covers.
 audit-family-census:

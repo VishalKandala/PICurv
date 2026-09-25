@@ -310,13 +310,13 @@ def test_provider_registry_periodicity_and_shared_fluid_scaling_contract():
     periodic = [{"type": "PERIODIC", "handler": "geometric"} for _ in range(6)]
     resolved = CORE.resolve_initial_condition_config(
         {"mode": "generated", "generator": "spectral_random_velocity", "params": params()},
-        [periodic], U_ref=4.0, provider_context={"kinematic_viscosity": 0.005})
+        [periodic], scales={"length_ref": 2.0, "velocity_ref": 4.0}, provider_context={"kinematic_viscosity": 0.005})
     assert CORE.is_generated_ic_provider(resolved)
     nonperiodic = [dict(face) for face in periodic]; nonperiodic[0] = {"type": "WALL", "handler": "noslip"}
     with pytest.raises(ValueError, match="PERIODIC"):
         CORE.resolve_initial_condition_config(
             {"mode": "generated", "generator": "spectral_random_velocity", "params": params()},
-            [nonperiodic], U_ref=4.0)
+            [nonperiodic], scales={"length_ref": 2.0, "velocity_ref": 4.0})
 
 
 def test_spectral_ic_is_subordinate_to_restart_eulerian_state(tmp_path):
@@ -382,7 +382,7 @@ def test_conductor_and_generator_defaults_and_finite_validation_agree():
     periodic = [[{"type": "PERIODIC", "handler": "geometric"} for _ in range(6)]]
     resolved = CORE.resolve_initial_condition_config(
         {"mode": "generated", "generator": "spectral_random_velocity", "params": {}},
-        periodic, U_ref=1.0)
+        periodic, scales={"length_ref": 1.0, "velocity_ref": 1.0})
     normalized = IC.validate_spectral_random_velocity_params({})
     assert resolved["params"] == normalized == {
         "field": "Ucat", "seed": 12345,
@@ -399,7 +399,7 @@ def test_conductor_and_generator_defaults_and_finite_validation_agree():
         with pytest.raises(ValueError):
             CORE.resolve_initial_condition_config(
                 {"mode": "generated", "generator": "spectral_random_velocity", "params": bad},
-                periodic, U_ref=1.0)
+                periodic, scales={"length_ref": 1.0, "velocity_ref": 1.0})
 
 
 @pytest.mark.parametrize('generator,walls', [('channel_spectral_velocity', [a]) for a in 'ijk'] + [('duct_spectral_velocity', list(a)) for a in ('ij','jk','ik')])
@@ -473,10 +473,10 @@ def test_wall_provider_routes_and_rejects_incompatible_boundaries():
            for face in ('Xi','Eta','Zeta') for sign in ('-','+')]
     cfg = {'mode':'generated', 'generator':'channel_spectral_velocity', 'params': {
         'initial_spectra':[{'task':'plane_spectrum','axes':['i','k'],'fixed_indices':{'j':3},'subtract_mean':'sample'}]}}
-    resolved = CORE.resolve_initial_condition_config(cfg, [bcs], U_ref=1.0)
+    resolved = CORE.resolve_initial_condition_config(cfg, [bcs], scales={"length_ref": 1.0, "velocity_ref": 1.0})
     assert resolved['field_code'] == 0
     paths = CORE.initial_condition_diagnostic_paths('/tmp/run',resolved)
     assert len(paths)==3 and '/output/analysis/spectra/' in paths[1]
     bcs[2]['handler'] = 'slip'
     with pytest.raises(ValueError, match='no-slip'):
-        CORE.resolve_initial_condition_config(cfg,[bcs], U_ref=1.0)
+        CORE.resolve_initial_condition_config(cfg,[bcs], scales={"length_ref": 1.0, "velocity_ref": 1.0})

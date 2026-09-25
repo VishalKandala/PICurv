@@ -335,7 +335,7 @@ def test_sampled_spectra_real_staging_and_checkpoint_dispatch(tmp_path, monkeypa
               'handler':'noslip' if face=='Eta' else 'geometric'}
              for face in ('Xi','Eta','Zeta') for sign in ('-','+')]
     resolved = core.resolve_initial_condition_config({'mode':'generated','generator':'channel_spectral_velocity',
-                                                     'params':params_wall},[faces],U_ref=1.)
+                                                     'params':params_wall},[faces],scales={"length_ref": 1.0, "velocity_ref": 1.0})
     case_path = tmp_path/'case.yml'
     case_path.write_text('{}')
     staged = core.stage_initial_condition_file(str(tmp_path), str(case_path), resolved)

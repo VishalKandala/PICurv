@@ -155,6 +155,13 @@ is a test-local routine.
   - capability parity, value metadata, and coverage-entry shape
   - contract registry and artifact-topology snapshot validation
   - documentation scaffolding output, and repository-wide fragment-link resolution
+- `test_units_and_scaling.py`
+  - every solver-facing input records a dimension and conversion site, and the units
+    audit (`tests/tooling/audit_units.py`) passes against page 19's indexes
+  - each conversion at non-unit scales: `dt`, grid lengths, BC velocities and fluxes, the
+    point source, window times, spectral provider parameters, `ic_gen` expressions, and
+    a file initial condition staged from physical units or from another run's scales
+  - the validate notice names inputs whose reading changed, only at non-unit scales
 - `test_field_catalog.py`
   - the published field inventory matches the compiled Eulerian and particle catalogs
   - missing fields, wrong layout groups, undocumented layout values, and renamed

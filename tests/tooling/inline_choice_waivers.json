@@ -98,20 +98,15 @@
       "classification": "not_public",
       "reason": "Internal convergence-mode labels used when formatting a summary line. The user surface is solver.convergence_mode, which is a registered capability family."
     },
-    "picurv_cli.core::{step,time,timestep}": {
+    "picurv_cli.core::{physical_time,step,time,timestep}": {
       "classification": "parameter_of_entry",
-      "reason": "Abscissae a study metric may be plotted against. A presentation choice within the sweep plotting block, documented with the study types that use it.",
+      "reason": "Columns that index a history rather than measure it: the abscissae a study metric may be plotted against, skipped when a metric names no column. A presentation choice within the sweep plotting block, documented with the study types that use it.",
       "owner": "study.type"
     },
     "picurv_cli.core::{step,time_step,timestep}": {
       "classification": "spelling_alias",
       "reason": "Accepted spellings of one configuration key name. Key-name spellings are a compatibility surface, documented with the key rather than as a family.",
       "owner": "07_Case_Reference::p07_run_control_sec"
-    },
-    "picurv_cli.core::{v_max,vx,vy,vz}": {
-      "classification": "parameter_of_entry",
-      "reason": "Velocity component keys a constant or parabolic inlet accepts. They are the parameters an inlet handler owns, enumerated in that handler's entry - not a choice between behaviours.",
-      "owner": "boundary.handler"
     },
     "picurv_cli.storage::{file,symlink}": {
       "classification": "not_public",

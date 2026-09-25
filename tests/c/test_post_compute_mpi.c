@@ -60,6 +60,7 @@ static PetscErrorCode TestEulerianPipelineDecompositionIndependent(void)
     pps->reference[2] = 1;
     simCtx->scaling.L_ref = 1.0;
     simCtx->scaling.U_ref = 1.0;
+    simCtx->scaling.rho_ref = 2.0;
     simCtx->scaling.P_ref = 2.0;
 
     PetscCall(DMDAVecGetArray(user->da, user->P, &pressure));
@@ -78,9 +79,13 @@ static PetscErrorCode TestEulerianPipelineDecompositionIndependent(void)
     PetscCall(VecSet(user->Ucat_nodal, kSentinel));
     PetscCall(VecSet(user->Qcrit, kSentinel));
 
+    /* A dimensionalizing post-processor scales pressure as it is loaded, by rho U^2 = 2,
+     * before the pipeline runs; normalization is linear, so the expected values are
+     * the same whichever of the two is applied first. */
+    PetscCall(DimensionalizeField(user, "P"));
     PetscCall(PetscStrncpy(
         pps->process_pipeline,
-        "NormalizeRelativeField:P;DimensionalizeAllLoadedFields;"
+        "NormalizeRelativeField:P;"
         "CellToNodeAverage:P>P_nodal;CellToNodeAverage:Ucat>Ucat_nodal;"
         "ComputeQCriterion",
         sizeof(pps->process_pipeline)));

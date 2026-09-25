@@ -85,6 +85,21 @@ are converted by @ref Cart2Contra; `Ucont` inputs are used directly. The first i
 supports one block only because it intentionally reuses the existing single-field
 @ref ReadFieldData path.
 
+The payload is physical: `Ucat` in velocity units, `Ucont` in volume flux per face. It is
+divided by `velocity_ref` (or `velocity_ref length_ref^2`) as it is staged. A field saved by
+an earlier PICurv run is in that run's solver units, so it declares the scales it was
+written in, and staging rescales it to this case's:
+
+```yaml
+    mode: file
+    field: Ucat
+    source_file: inputs/initial_conditions/velocity.dat
+    source_case: runs/<earlier_run>/config/case.yml   # or: velocity_scale: 1.5
+```
+
+`velocity_scale` needs `length_scale` too for a `Ucont` payload, and `source_case` and the
+explicit scales are mutually exclusive.
+
 Repository generator:
 
 ```yaml
@@ -107,8 +122,11 @@ The launcher invokes `generators/ic.gen` by default, or the optional case-relati
 `params.script` override, as:
 
 ```text
-python <ic-generator> -c <config_file> --field Ucat|Ucont --output <run.inputs>/initial_condition/initial_condition.generated.dat --grid <run.inputs>/grid/grid.run [cli_args...]
+python <ic-generator> -c <config_file> --field Ucat|Ucont --output <run.inputs>/initial_condition/initial_condition.generated.dat --grid <run.inputs>/grid/grid.run --length-ref <L> --velocity-ref <U> [cli_args...]
 ```
+
+A generator receives the non-dimensional staged grid and the case's reference scales, and
+writes solver units; a custom `params.script` must accept the two scale options.
 
 `picurv run --solve` materializes the result after grid preparation. `picurv precompute --case ...`
 materializes and stages the same artifact without running the solver.
@@ -118,7 +136,10 @@ define `u`, `v`, and `w`, evaluated at actual cell centers with extrapolated
 dummy-cell centers. `Ucont` configs define `u_xi`, `u_eta`, and `u_zeta`,
 evaluated at their corresponding geometric face centers. Expressions may use
 `x/y/z`, normalized logical `xi/eta/zeta`, storage `i/j/k`, `pi`, and the
-documented numerical functions. The first implementation supports one block.
+documented numerical functions. Expressions are physical: `x/y/z` are the grid's
+physical coordinates (the staged grid times `length_ref`), and each value is a physical
+velocity for `Ucat` or a physical volume flux for `Ucont`; `scale`, `zero_tolerance`, and
+`max_magnitude` act on those physical values. The first implementation supports one block.
 The repository generator requires a staged PICGRID. `grid.mode: file` and
 `grid.mode: grid_gen` provide that grid directly; for single-block
 `grid.mode: programmatic_c`, the launcher materializes a nondimensional
@@ -144,7 +165,9 @@ properties:
 It draws a seeded random field, shapes it to the spectrum envelope
 (`k4_exponential` is `E(k) ~ k^4 exp(-2 (k/k0)^2)`, nothing above `k_cut`), projects it
 to be divergence-free under the chosen operator, and scales it to the requested
-component RMS. It requires every face geometric-periodic and a fresh 3D run, and writes
+component RMS. `random.mean` and `normalization.target` are velocities and `k0`,
+`k_cut` wavenumbers, all physical, and are converted before the provider runs on the
+staged non-dimensional grid. It requires every face geometric-periodic and a fresh 3D run, and writes
 `<run.analysis>/metrics/initial_condition_summary.json` and the staged spectrum beside
 the field. `examples/decaying_isotropic_turbulence` configures it; its README covers the
 keys. With `operator: picurv_discrete` the solver's own step-0 divergence is at round-off;
@@ -405,7 +428,8 @@ params:
     - {task: plane_spectrum, axes: [i, k], fixed_indices: {j: 32}, subtract_mean: sample}
 ```
 
-Parameters use solver nondimensional units. `perturbation_rms` is
+Parameters are physical: `bulk_velocity` and `perturbation_rms` are velocities and the
+spectrum wavenumbers are per length, converted before the provider runs. `perturbation_rms` is
 `sqrt(volume_mean(u'^2+v'^2+w'^2)/3)`, not the RMS of each component independently.
 The spectral envelope shapes a seeded vector potential along periodic directions;
 wall basis functions are `sin(n*pi*t)*sin(pi*t)`, evaluated at physical cell

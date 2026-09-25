@@ -68,8 +68,8 @@ static PetscErrorCode CopyOwnedLocalScalarToGlobal(DM dm, Vec local_vec, Vec glo
     PetscFunctionReturn(0);
 }
 
-/** @brief Return whether a catalogued field belongs in the current checkpoint. */
-static PetscBool CheckpointFieldIsEnabled(const SimCtx *simCtx, const FieldDescriptor *descriptor)
+/** @brief Implementation of \ref CheckpointFieldIsEnabled(). */
+PetscBool CheckpointFieldIsEnabled(const SimCtx *simCtx, const FieldDescriptor *descriptor)
 {
     const unsigned int availability = descriptor ? descriptor->availability : FIELD_AVAILABILITY_ALWAYS;
 
@@ -1526,6 +1526,15 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
             !(simCtx->les && les_saved)) continue;
         PetscCall(FieldGetView(user, descriptor->id, &view));
         PetscCall(ReadFieldData(user, descriptor->canonical_name, view.global_vec, "dat"));
+        /* A dimensionalizing post-processor scales each field as it is loaded, so a field
+           is scaled exactly once per load: one that this step skipped keeps its earlier,
+           already scaled, value instead of being scaled again. */
+        if (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR && simCtx->pps && simCtx->pps->dimensionalize) {
+            PetscReal scale = 1.0;
+
+            PetscCall(PicurvFieldReferenceScale(simCtx, descriptor->canonical_name, &scale, NULL, 0));
+            if (scale != 1.0) PetscCall(VecScale(view.global_vec, scale));
+        }
         if (view.local_vec) PetscCall(UpdateLocalGhosts(user, descriptor->id));
     }
     simCtx->restartHistoryAvailable = PETSC_TRUE;
@@ -3160,6 +3169,22 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "PicurvPhysicalTime"
+/** @brief Implementation of \ref PicurvPhysicalTime(). */
+PetscErrorCode PicurvPhysicalTime(const SimCtx *simCtx, PetscReal solver_time, PetscReal *physical)
+{
+    const FieldDimension time_dimension = FIELD_DIM_TIME;
+    PetscReal            scale = 1.0;
+
+    PetscFunctionBeginUser;
+    PetscCheck(simCtx && physical, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Context and physical-time output are required.");
+    PetscCall(FieldDimensionReferenceScale(&simCtx->scaling, time_dimension, &scale));
+    *physical = solver_time * scale;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "PicurvFieldReferenceScale"
 /**
  * @brief Implementation of \ref PicurvFieldReferenceScale().
@@ -3170,28 +3195,36 @@ PetscErrorCode PicurvFieldReferenceScale(SimCtx *simCtx, const char *field_name,
                                         PetscReal *scale, char *description,
                                         size_t description_length)
 {
+    FieldDimension  dimension;
+    FieldId         field_id = FIELD_ID_INVALID;
+    ParticleFieldId particle_id = PARTICLE_FIELD_ID_INVALID;
+    PetscBool       found = PETSC_FALSE;
+
     PetscFunctionBeginUser;
     PetscCheck(simCtx && field_name && scale, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Context, field name, and output scale are required.");
-    *scale = 1.0;
-    if (description && description_length) PetscCall(PetscStrncpy(description, "Unknown", description_length));
 
-    /* One table. Every consumer that needs a physical scale reads it from here, so a
-       new field is described in one place rather than once per output path. */
-    if (!strcasecmp(field_name, "Ucat") || !strcasecmp(field_name, "ParticleVelocity")) {
-        *scale = simCtx->scaling.U_ref;
-        if (description) PetscCall(PetscStrncpy(description, "Velocity (L/T)", description_length));
-    } else if (!strcasecmp(field_name, "Ucont")) {
-        *scale = simCtx->scaling.U_ref * simCtx->scaling.L_ref * simCtx->scaling.L_ref;
-        if (description) PetscCall(PetscStrncpy(description, "Contravariant Volume Flux (L^3/T)", description_length));
-    } else if (!strcasecmp(field_name, "P")) {
-        *scale = simCtx->scaling.P_ref;
-        if (description) PetscCall(PetscStrncpy(description, "Pressure (M L^-1 T^-2)", description_length));
-    } else if (!strcasecmp(field_name, "Coordinates") || !strcasecmp(field_name, "ParticlePosition")) {
-        *scale = simCtx->scaling.L_ref;
-        if (description) PetscCall(PetscStrncpy(description, "Length (L)", description_length));
+    /* The dimension is a property of the field, recorded on its catalog entry. */
+    PetscCall(FieldTryIdFromName(field_name, &field_id, &found));
+    if (found) {
+        const FieldDescriptor *descriptor = NULL;
+
+        PetscCall(FieldGetDescriptor(field_id, &descriptor));
+        dimension = descriptor->dimension;
     } else {
-        PetscFunctionReturn(PETSC_ERR_ARG_WRONG);
+        const ParticleFieldDescriptor *descriptor = NULL;
+
+        PetscCall(ParticleFieldTryIdFromName(field_name, &particle_id, &found));
+        PetscCheck(found, PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE,
+                   "Field '%s' is in neither the Eulerian nor the particle field catalog.", field_name);
+        PetscCall(ParticleFieldGetDescriptor(particle_id, &descriptor));
+        dimension = descriptor->dimension;
+    }
+    PetscCheck(dimension.kind == FIELD_DIMENSION_FIXED, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+               "Field '%s' has no fixed physical dimension, so it has no reference scale.", field_name);
+    PetscCall(FieldDimensionReferenceScale(&simCtx->scaling, dimension, scale));
+    if (description && description_length) {
+        PetscCall(FieldDimensionLabel(dimension, description, description_length));
     }
     PetscFunctionReturn(0);
 }

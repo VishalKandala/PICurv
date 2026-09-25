@@ -139,12 +139,12 @@ field_statistics:
 
       # Physical time at which the window starts accumulating. The first accepted
       # state anchors the window; it contributes no interval of its own.
-      # [Number] -> -field_statistics_window_<i>_start_time
+      # [Number, s] -> -field_statistics_window_<i>_start_time (divided by length_ref/velocity_ref)
       start_time: 1.0
 
       # Physical time at which the window stops. Omit for an open-ended window
       # that keeps accumulating until the run ends.
-      # [Number] -> -field_statistics_window_<i>_end_time
+      # [Number, s] -> -field_statistics_window_<i>_end_time
       # end_time: 10.0
 
       # How an accepted state is weighted.
@@ -159,7 +159,7 @@ field_statistics:
       # or past each multiple of the interval.
       # [Positive Integer] -> -field_statistics_window_<i>_step_cadence
       step_cadence: 10
-      # [Positive Number] -> -field_statistics_window_<i>_time_cadence
+      # [Positive Number, s] -> -field_statistics_window_<i>_time_cadence
       # time_cadence: 0.05
 
       # Fields to accumulate. The first moment is always kept, because every

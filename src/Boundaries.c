@@ -3143,15 +3143,17 @@ PetscErrorCode LogWallModelDiagnostics(UserCtx *user)
         PetscCall(PicurvOpenDiagnosticsCsv(simCtx, "wall_model.csv",
                                            "step,time,wall_cells,u_tau_mean,u_tau_rms,"
                                            "u_tau_min,u_tau_max,y_plus_mean,y_plus_max,"
-                                           "wall_distance_mean,nu_wall_over_nu_mean", &file));
+                                           "wall_distance_mean,nu_wall_over_nu_mean,physical_time", &file));
+        PetscReal physical_time = 0.0;
+        PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
         fprintf(file,
-                "%d,%.6e,%d,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e\n",
+                "%d,%.6e,%d,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e\n",
                 (int)simCtx->step, (double)simCtx->ti, (int)cells,
                 (double)mean, (double)PetscSqrtReal(variance),
                 (double)global_min, (double)global_max[0],
                 (double)(global_sum[3] / cells), (double)global_max[1],
                 (double)(global_sum[4] / cells),
-                (double)(global_sum[5] / cells * simCtx->ren));
+                (double)(global_sum[5] / cells * simCtx->ren), (double)physical_time);
         PetscCheck(fclose(file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
                    "Unable to close the wall-model diagnostics file.");
 

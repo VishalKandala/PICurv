@@ -14,46 +14,45 @@
  */
 PetscErrorCode DimensionalizeField(UserCtx *user, const char *field_name)
 {
-    PetscErrorCode ierr;
-    SimCtx         *simCtx = user->simCtx;
-    Vec            target_vec = NULL;
-    PetscReal      scale_factor = 1.0;
-    char           field_type[64] = "Unknown";
-    PetscBool      is_swarm_field = PETSC_FALSE; // Flag for special swarm handling
-    const char     *swarm_field_name = NULL;    // Name of the field within the swarm
+    PetscErrorCode  ierr;
+    SimCtx          *simCtx = NULL;
+    Vec             target_vec = NULL;
+    PetscReal       scale_factor = 1.0;
+    char            field_type[64] = "Unknown";
+    PetscBool       is_swarm_field = PETSC_FALSE; // Flag for special swarm handling
+    const char      *swarm_field_name = NULL;    // Name of the field within the swarm
+    FieldId         field_id = FIELD_ID_INVALID;
+    ParticleFieldId particle_id = PARTICLE_FIELD_ID_INVALID;
+    PetscBool       found = PETSC_FALSE;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx is NULL.");
     if (!field_name) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "field_name is NULL.");
+    simCtx = user->simCtx;
 
-    // --- 1. Identify the target Vec, then read its scale from the shared table ---
-    if (strcasecmp(field_name, "Ucat") == 0) {
-        target_vec = user->Ucat;
-    } else if (strcasecmp(field_name, "Ucont") == 0) {
-        target_vec = user->Ucont;
-    } else if (strcasecmp(field_name, "P") == 0) {
-        target_vec = user->P;
-    } else if (strcasecmp(field_name, "Coordinates") == 0) {
+    // --- 1. Resolve the field in either catalog; its entry records its dimension ---
+    ierr = FieldTryIdFromName(field_name, &field_id, &found); CHKERRQ(ierr);
+    if (found && field_id == FIELD_ID_COORDINATES) {
         ierr = DMGetCoordinates(user->da, &target_vec); CHKERRQ(ierr);
-    } else if (strcasecmp(field_name, "ParticlePosition") == 0) {
-        is_swarm_field = PETSC_TRUE;
-        swarm_field_name = "position";
-    } else if (strcasecmp(field_name, "ParticleVelocity") == 0) {
-        is_swarm_field = PETSC_TRUE;
-        swarm_field_name = "velocity";
+    } else if (found) {
+        FieldView view;
+
+        ierr = FieldGetView(user, field_id, &view); CHKERRQ(ierr);
+        target_vec = view.global_vec;
     } else {
-        LOG(GLOBAL, LOG_WARNING, "DimensionalizeField: Unknown or unhandled field_name '%s'. Field will not be scaled.\n", field_name);
-        PROFILE_FUNCTION_END;
-        PetscFunctionReturn(0);
+        const ParticleFieldDescriptor *descriptor = NULL;
+
+        ierr = ParticleFieldTryIdFromName(field_name, &particle_id, &found); CHKERRQ(ierr);
+        PetscCheck(found, PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE,
+                   "DimensionalizeField: '%s' is in neither field catalog.", field_name);
+        ierr = ParticleFieldGetDescriptor(particle_id, &descriptor); CHKERRQ(ierr);
+        is_swarm_field = PETSC_TRUE;
+        swarm_field_name = descriptor->canonical_name;
     }
-    if (PicurvFieldReferenceScale(simCtx, field_name, &scale_factor,
-                                  field_type, sizeof(field_type))) {
-        LOG(GLOBAL, LOG_WARNING, "DimensionalizeField: No reference scale for '%s'. Field will not be scaled.\n", field_name);
-        PROFILE_FUNCTION_END;
-        PetscFunctionReturn(0);
-    }
-    
+    ierr = PicurvFieldReferenceScale(simCtx, field_name, &scale_factor,
+                                     field_type, sizeof(field_type)); CHKERRQ(ierr);
+
     // --- 2. Check for trivial scaling ---
     if (PetscAbsReal(scale_factor - 1.0) < PETSC_MACHINE_EPSILON) {
         LOG(GLOBAL, LOG_DEBUG, "DimensionalizeField: Scaling factor for '%s' is 1.0. Skipping operation.\n", field_name);
@@ -82,38 +81,6 @@ PetscErrorCode DimensionalizeField(UserCtx *user, const char *field_name)
     if (strcasecmp(field_name, "Coordinates") == 0) {
         ierr = UpdateLocalGhosts(user, FIELD_ID_COORDINATES); CHKERRQ(ierr);
     }
-
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-#undef __FUNCT__
-#define __FUNCT__ "DimensionalizeAllLoadedFields"
-/**
- * @brief Internal helper implementation: `DimensionalizeAllLoadedFields()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode DimensionalizeAllLoadedFields(UserCtx *user)
-{
-    PetscErrorCode ierr;
-    SimCtx         *simCtx = user->simCtx;
-
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-
-    LOG(GLOBAL, LOG_INFO, "--- Converting all loaded fields to dimensional units ---\n");
-    (void)simCtx;
-
-    /* Only the fields reloaded every step are scaled here. The grid coordinates persist
-       across steps, so scaling them in this per-step pipeline multiplied them by L_ref
-       once per processed step; the postprocessor scales them once, before its loop.
-       Particle fields are loaded after this pipeline runs, so they are scaled where they
-       are read (see RunPostProcessor). */
-    ierr = DimensionalizeField(user, "Ucat"); CHKERRQ(ierr);
-    ierr = DimensionalizeField(user, "Ucont"); CHKERRQ(ierr);
-    ierr = DimensionalizeField(user, "P"); CHKERRQ(ierr);
-
-    LOG(GLOBAL, LOG_INFO, "--- Field dimensionalization complete ---\n");
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -433,6 +400,18 @@ PetscErrorCode ComputeWindowStatisticsSummary(UserCtx *user, PetscInt window_ind
         has_tke = PETSC_TRUE;
     }
 
+    /* The window's clock is solver time. A dimensionalized summary reports its derived
+     * statistics physically, so the times beside them are reported in seconds too; a
+     * time-weighted total weight is a time, a sample-weighted one is a count. */
+    PetscReal time_scale = 1.0;
+    if (simCtx->pps && simCtx->pps->dimensionalize) {
+        const FieldDimension time_dimension = FIELD_DIM_TIME;
+
+        ierr = FieldDimensionReferenceScale(&simCtx->scaling, time_dimension, &time_scale); CHKERRQ(ierr);
+    }
+    const PetscReal weight_scale =
+        (window->definition.weighting == PICURV_WEIGHTING_PHYSICAL_TIME) ? time_scale : 1.0;
+
     if (simCtx->rank == 0) {
         FILE *csv = NULL;
         PetscBool exists = PETSC_FALSE;
@@ -449,7 +428,8 @@ PetscErrorCode ComputeWindowStatisticsSummary(UserCtx *user, PetscInt window_ind
         }
         fprintf(csv, "%" PetscInt_FMT ",%s,%d,%.10e,%.10e,%.6f,%.6f,",
                 ti, PicurvWindowStateName(window->state), window->sample_count,
-                (double)window->total_weight, (double)window->represented_time,
+                (double)(window->total_weight * weight_scale),
+                (double)(window->represented_time * time_scale),
                 (double)lowest, (double)highest);
         if (has_tke) fprintf(csv, "%.10e\n", (double)mean_tke);
         else fprintf(csv, "\n");

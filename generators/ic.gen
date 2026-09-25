@@ -619,6 +619,11 @@ def generate_spectral_random_velocity(nodes, raw_params, context=None):
     return full, summary
 
 
+#: Parameters the channel and duct seeds accept.
+WALL_SPECTRAL_PARAMS = frozenset({"field", "seed", "streamwise_axis", "wall_axes", "bulk_velocity",
+                                  "perturbation_rms", "wall_modes", "spectrum", "initial_spectra"})
+
+
 def validate_wall_spectral_params(raw, generator):
     """!
     @brief Validate a channel/duct seed; axes use Cartesian i/j/k order, velocities solver units.
@@ -626,9 +631,7 @@ def validate_wall_spectral_params(raw, generator):
     @param[in] generator Channel or duct provider identifier.
     @return Normalized wall-seed parameters.
     """
-    allowed = {"field", "seed", "streamwise_axis", "wall_axes", "bulk_velocity",
-               "perturbation_rms", "wall_modes", "spectrum", "initial_spectra"}
-    if not isinstance(raw, dict) or set(raw) - allowed:
+    if not isinstance(raw, dict) or set(raw) - WALL_SPECTRAL_PARAMS:
         raise ValueError("wall spectral IC has unsupported parameters.")
     if raw.get("field", "Ucat") != "Ucat":
         raise ValueError("wall spectral IC requires field: Ucat.")
@@ -789,7 +792,37 @@ def build_parser():
     parser.add_argument("--output", required=True, help="Output PETSc binary vector.")
     parser.add_argument("--grid", help="Canonical nondimensional PICGRID; defaults to grid.run beside output.")
     parser.add_argument("--summary-json", help="Optional summary JSON path.")
+    parser.add_argument("--length-ref", type=float, default=1.0,
+                        help="Reference length: expressions see physical coordinates, grid * length_ref.")
+    parser.add_argument("--velocity-ref", type=float, default=1.0,
+                        help="Reference velocity: expression values are physical and are written in solver units.")
     return parser
+
+
+#: Reference scale of each expression field's values, as (length, velocity) exponents:
+#: Ucat is a velocity, and each Ucont component is a volume flux through its face.
+EXPRESSION_FIELD_DIMENSIONS = {"Ucat": (0, 1), "Ucont": (2, 1)}
+
+
+def generate_expression_field(nodes, config, field_name, length_ref=1.0, velocity_ref=1.0):
+    """!
+    @brief Evaluate a physical expression field and return it in solver units.
+    @details The staged grid is nondimensional, so it is scaled back to physical
+             coordinates before evaluation; the expressions, and the configured controls,
+             then act on physical values, which one division returns to solver units.
+    @param[in] nodes Nondimensional PICGRID coordinates.
+    @param[in] config Normalized expression configuration.
+    @param[in] field_name `Ucat` or `Ucont`.
+    @param[in] length_ref Reference length of the case.
+    @param[in] velocity_ref Reference velocity of the case.
+    @return Field in solver units.
+    """
+    if length_ref <= 0.0 or velocity_ref <= 0.0:
+        raise ValueError("length_ref and velocity_ref must be positive.")
+    physical_nodes = nodes * length_ref
+    field = generate_ucat(physical_nodes, config) if field_name == "Ucat" else generate_ucont(physical_nodes, config)
+    length_power, velocity_power = EXPRESSION_FIELD_DIMENSIONS[field_name]
+    return field / (length_ref ** length_power * velocity_ref ** velocity_power)
 
 
 def main(argv=None) -> int:
@@ -814,9 +847,10 @@ def main(argv=None) -> int:
             if not args.config or not args.field:
                 raise ValueError("expression generation requires --config and --field.")
             config = read_config(args.config)
-            field = generate_ucat(nodes, config) if args.field == "Ucat" else generate_ucont(nodes, config)
+            field = generate_expression_field(nodes, config, args.field, args.length_ref, args.velocity_ref)
             summary = {
                 "field": args.field, "generator": "expression", "grid": os.path.abspath(grid_path),
+                "units": "solver", "length_ref": args.length_ref, "velocity_ref": args.velocity_ref,
                 "output": os.path.abspath(args.output), "grid_dims": list(dims),
                 "vector_shape": list(field.shape), "scalar_count": int(field.size),
                 "min_components": [float(np.min(field[..., component])) for component in range(3)],

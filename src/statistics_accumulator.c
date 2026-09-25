@@ -645,17 +645,12 @@ PetscErrorCode PicurvWindowDerive(UserCtx *user, const PicurvWindowDefinition *d
             if (user->simCtx->pps && user->simCtx->pps->dimensionalize) {
                 PetscReal first_scale = 1.0, second_scale = 1.0;
 
-                if (!PicurvFieldReferenceScale(user->simCtx, first->canonical_name,
-                                               &first_scale, NULL, 0)
-                    && !PicurvFieldReferenceScale(user->simCtx, second->canonical_name,
-                                                  &second_scale, NULL, 0)) {
-                    dimensional_factor = first_scale * second_scale;
-                } else {
-                    LOG_ALLOW(GLOBAL, LOG_WARNING,
-                              "A co-moment of '%s' and '%s' has no declared reference "
-                              "scale pair; it stays non-dimensional.\n",
-                              first->canonical_name, second->canonical_name);
-                }
+                /* A co-moment carries the product of its two fields' dimensions. */
+                PetscCall(PicurvFieldReferenceScale(user->simCtx, first->canonical_name,
+                                                    &first_scale, NULL, 0));
+                PetscCall(PicurvFieldReferenceScale(user->simCtx, second->canonical_name,
+                                                    &second_scale, NULL, 0));
+                dimensional_factor = first_scale * second_scale;
             }
             PetscCall(PetscSNPrintf(field->name, sizeof(field->name), "%s_%s_%s_flux",
                                     definition->name, first->canonical_name, second->canonical_name));
@@ -774,14 +769,9 @@ PetscErrorCode PicurvWindowDerive(UserCtx *user, const PicurvWindowDefinition *d
             if (kind != DERIVED_FLUX && descriptor) {
                 PetscReal base = 1.0;
 
-                if (!PicurvFieldReferenceScale(user->simCtx, descriptor->canonical_name,
-                                               &base, NULL, 0)) {
-                    dimensional_factor = PetscPowRealInt(base, kDerivedKindScaleExponent[kind]);
-                } else {
-                    LOG_ALLOW(GLOBAL, LOG_WARNING,
-                              "Field '%s' has no declared reference scale; its derived "
-                              "statistics stay non-dimensional.\n", descriptor->canonical_name);
-                }
+                PetscCall(PicurvFieldReferenceScale(user->simCtx, descriptor->canonical_name,
+                                                    &base, NULL, 0));
+                dimensional_factor = PetscPowRealInt(base, kDerivedKindScaleExponent[kind]);
             }
             if (PetscAbsReal(dimensional_factor - 1.0) > PETSC_MACHINE_EPSILON) {
                 PetscCall(VecScale(destination, dimensional_factor));

@@ -7,51 +7,58 @@
 
 #define FIELD_NO_VEC_OFFSET ((size_t)-1)
 
-#define FIELD_ENTRY(field_id_, name_, alias1_, alias2_, dof_, dm_, layout_, sync_, availability_, capabilities_, global_member_, local_member_) \
-    [field_id_] = {                                                                                                                     \
-        field_id_, name_, alias1_, alias2_, dof_, dm_, layout_, sync_, availability_, capabilities_,                                  \
-        offsetof(UserCtx, global_member_), offsetof(UserCtx, local_member_)                                                             \
+#define FIELD_ENTRY(field_id_, name_, alias1_, alias2_, dof_, dm_, layout_, sync_, availability_, capabilities_, global_member_, local_member_, dimension_) \
+    [field_id_] = {                                                                                                                                 \
+        field_id_, name_, alias1_, alias2_, dof_, dm_, layout_, sync_, availability_, capabilities_,                                              \
+        offsetof(UserCtx, global_member_), offsetof(UserCtx, local_member_), dimension_                                                             \
     }
 
-#define FIELD_COORDINATE_ENTRY(field_id_, name_, dof_, layout_, capabilities_) \
-    [field_id_] = {                                                               \
-        field_id_, name_, NULL, NULL, dof_, FIELD_DM_COORDINATES, layout_,         \
-        FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS, capabilities_,             \
-        FIELD_NO_VEC_OFFSET, FIELD_NO_VEC_OFFSET                                   \
+#define FIELD_COORDINATE_ENTRY(field_id_, name_, dof_, layout_, capabilities_, dimension_) \
+    [field_id_] = {                                                                           \
+        field_id_, name_, NULL, NULL, dof_, FIELD_DM_COORDINATES, layout_,                     \
+        FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS, capabilities_,                         \
+        FIELD_NO_VEC_OFFSET, FIELD_NO_VEC_OFFSET, dimension_                                   \
     }
 
 static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
     FIELD_COORDINATE_ENTRY(FIELD_ID_COORDINATES, "Coordinates", 3, FIELD_LAYOUT_NODE_CENTERED,
-                           FIELD_CAPABILITY_GHOST_UPDATE),
+                           FIELD_CAPABILITY_GHOST_UPDATE, FIELD_DIM_LENGTH),
     FIELD_ENTRY(FIELD_ID_UCAT, "Ucat", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC |
-                FIELD_CAPABILITY_CHECKPOINT, Ucat, lUcat),
+                FIELD_CAPABILITY_CHECKPOINT, Ucat, lUcat,
+                FIELD_DIM_VELOCITY),
     FIELD_ENTRY(FIELD_ID_UCONT, "Ucont", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_COMPONENT_STAGGERED,
                 FIELD_SYNC_COMPONENT_STAGGERED, FIELD_AVAILABILITY_ALWAYS,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_STAGGERED_SYNC |
-                FIELD_CAPABILITY_CHECKPOINT, Ucont, lUcont),
+                FIELD_CAPABILITY_CHECKPOINT, Ucont, lUcont,
+                FIELD_DIM_VOLUME_FLUX),
     FIELD_ENTRY(FIELD_ID_UCONT_O, "Ucont_o", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_COMPONENT_STAGGERED,
                 FIELD_SYNC_COMPONENT_STAGGERED, FIELD_AVAILABILITY_FINEST_LEVEL,
-                FIELD_CAPABILITY_GHOST_UPDATE, Ucont_o, lUcont_o),
+                FIELD_CAPABILITY_GHOST_UPDATE, Ucont_o, lUcont_o,
+                FIELD_DIM_VOLUME_FLUX),
     FIELD_ENTRY(FIELD_ID_UCONT_RM1, "Ucont_rm1", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_COMPONENT_STAGGERED,
                 FIELD_SYNC_COMPONENT_STAGGERED, FIELD_AVAILABILITY_FINEST_LEVEL,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_CHECKPOINT, Ucont_rm1, lUcont_rm1),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_CHECKPOINT, Ucont_rm1, lUcont_rm1,
+                FIELD_DIM_VOLUME_FLUX),
     FIELD_ENTRY(FIELD_ID_P, "P", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC |
-                FIELD_CAPABILITY_CHECKPOINT, P, lP),
+                FIELD_CAPABILITY_CHECKPOINT, P, lP,
+                FIELD_DIM_PRESSURE),
     FIELD_ENTRY(FIELD_ID_NU_T, "Nu_t", "Eddy Viscosity", NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_TURBULENCE,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC |
-                FIELD_CAPABILITY_CHECKPOINT, Nu_t, lNu_t),
+                FIELD_CAPABILITY_CHECKPOINT, Nu_t, lNu_t,
+                FIELD_DIM_DIFFUSIVITY),
     /* Holds the model coefficient C that multiplies Delta^2 |S|, which is Cs^2 in the
        classical notation and is signed once backscatter is admitted. Exists only for
        the dynamic model; the constant model prescribes its coefficient from config. */
     FIELD_ENTRY(FIELD_ID_CS, "CS", "Cs", NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_LES_DYNAMIC,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC |
-                FIELD_CAPABILITY_CHECKPOINT, CS, lCs),
+                FIELD_CAPABILITY_CHECKPOINT, CS, lCs,
+                FIELD_DIM_DIMENSIONLESS),
     /* Wall-model friction velocity, nonzero only in the first interior cell of a WALL
        face. It is the quantity a wall model is scored against, so it is checkpointed and
        exposed to postprocessing rather than being recomputed from the corrected velocity,
@@ -60,7 +67,8 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
                 FIELD_LAYOUT_CELL_CENTERED, FIELD_SYNC_STANDARD,
                 FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_WALL_MODEL,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC |
-                FIELD_CAPABILITY_CHECKPOINT, Friction_Velocity, lFriction_Velocity),
+                FIELD_CAPABILITY_CHECKPOINT, Friction_Velocity, lFriction_Velocity,
+                FIELD_DIM_VELOCITY),
     /* The wall model's effective eddy viscosity at its own wall face. A wall-resolved
        run has no such face and carries zero here; the field exists so the viscous flux
        can deliver the modelled stress without re-deriving the wall distance and
@@ -69,104 +77,135 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
                 FIELD_LAYOUT_CELL_CENTERED, FIELD_SYNC_STANDARD,
                 FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_WALL_MODEL,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC,
-                Nu_Wall, lNu_Wall),
+                Nu_Wall, lNu_Wall,
+                FIELD_DIM_DIFFUSIVITY),
     FIELD_ENTRY(FIELD_ID_DIFFUSIVITY, "Diffusivity", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC, Diffusivity, lDiffusivity),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC, Diffusivity, lDiffusivity,
+                FIELD_DIM_DIFFUSIVITY),
     FIELD_ENTRY(FIELD_ID_DIFFUSIVITY_GRADIENT, "DiffusivityGradient", NULL, NULL, 3, FIELD_DM_FDA,
                 FIELD_LAYOUT_CELL_CENTERED, FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE, DiffusivityGradient, lDiffusivityGradient),
+                FIELD_CAPABILITY_GHOST_UPDATE, DiffusivityGradient, lDiffusivityGradient,
+                FIELD_DIM_VELOCITY),
     FIELD_ENTRY(FIELD_ID_CSI, "Csi", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_I_FACE,
                 FIELD_SYNC_I_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, Csi, lCsi),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, Csi, lCsi,
+                FIELD_DIM_AREA),
     FIELD_ENTRY(FIELD_ID_ETA, "Eta", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_J_FACE,
                 FIELD_SYNC_J_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, Eta, lEta),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, Eta, lEta,
+                FIELD_DIM_AREA),
     FIELD_ENTRY(FIELD_ID_ZET, "Zet", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_K_FACE,
                 FIELD_SYNC_K_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, Zet, lZet),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, Zet, lZet,
+                FIELD_DIM_AREA),
     FIELD_ENTRY(FIELD_ID_NVERT, "Nvert", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC |
-                FIELD_CAPABILITY_CHECKPOINT, Nvert, lNvert),
+                FIELD_CAPABILITY_CHECKPOINT, Nvert, lNvert,
+                FIELD_DIM_DIMENSIONLESS),
     FIELD_ENTRY(FIELD_ID_AJ, "Aj", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC, Aj, lAj),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC, Aj, lAj,
+                FIELD_DIM_INVERSE_VOLUME),
     FIELD_ENTRY(FIELD_ID_CENT, "Cent", "Center-Coordinates", NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_CELL_CENTERED,
-                FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS, FIELD_CAPABILITY_GHOST_UPDATE, Cent, lCent),
+                FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS, FIELD_CAPABILITY_GHOST_UPDATE, Cent, lCent,
+                FIELD_DIM_LENGTH),
     FIELD_ENTRY(FIELD_ID_GRID_SPACE, "GridSpace", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_CELL_CENTERED,
-                FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS, FIELD_CAPABILITY_GHOST_UPDATE, GridSpace, lGridSpace),
+                FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS, FIELD_CAPABILITY_GHOST_UPDATE, GridSpace, lGridSpace,
+                FIELD_DIM_LENGTH),
     FIELD_ENTRY(FIELD_ID_CENTX, "Centx", "X-Face-Centers", NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_I_FACE,
                 FIELD_SYNC_I_FACE, FIELD_AVAILABILITY_ALWAYS,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC |
-                FIELD_CAPABILITY_PERIODIC_GEOMETRY_SHIFT, Centx, lCentx),
+                FIELD_CAPABILITY_PERIODIC_GEOMETRY_SHIFT, Centx, lCentx,
+                FIELD_DIM_LENGTH),
     FIELD_ENTRY(FIELD_ID_CENTY, "Centy", "Y-Face-Centers", NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_J_FACE,
                 FIELD_SYNC_J_FACE, FIELD_AVAILABILITY_ALWAYS,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC |
-                FIELD_CAPABILITY_PERIODIC_GEOMETRY_SHIFT, Centy, lCenty),
+                FIELD_CAPABILITY_PERIODIC_GEOMETRY_SHIFT, Centy, lCenty,
+                FIELD_DIM_LENGTH),
     FIELD_ENTRY(FIELD_ID_CENTZ, "Centz", "Z-Face-Centers", NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_K_FACE,
                 FIELD_SYNC_K_FACE, FIELD_AVAILABILITY_ALWAYS,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC |
-                FIELD_CAPABILITY_PERIODIC_GEOMETRY_SHIFT, Centz, lCentz),
+                FIELD_CAPABILITY_PERIODIC_GEOMETRY_SHIFT, Centz, lCentz,
+                FIELD_DIM_LENGTH),
     FIELD_ENTRY(FIELD_ID_ICSI, "ICsi", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_I_FACE,
                 FIELD_SYNC_I_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, ICsi, lICsi),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, ICsi, lICsi,
+                FIELD_DIM_AREA),
     FIELD_ENTRY(FIELD_ID_IETA, "IEta", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_I_FACE,
                 FIELD_SYNC_I_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, IEta, lIEta),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, IEta, lIEta,
+                FIELD_DIM_AREA),
     FIELD_ENTRY(FIELD_ID_IZET, "IZet", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_I_FACE,
                 FIELD_SYNC_I_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, IZet, lIZet),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, IZet, lIZet,
+                FIELD_DIM_AREA),
     FIELD_ENTRY(FIELD_ID_JCSI, "JCsi", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_J_FACE,
                 FIELD_SYNC_J_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, JCsi, lJCsi),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, JCsi, lJCsi,
+                FIELD_DIM_AREA),
     FIELD_ENTRY(FIELD_ID_JETA, "JEta", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_J_FACE,
                 FIELD_SYNC_J_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, JEta, lJEta),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, JEta, lJEta,
+                FIELD_DIM_AREA),
     FIELD_ENTRY(FIELD_ID_JZET, "JZet", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_J_FACE,
                 FIELD_SYNC_J_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, JZet, lJZet),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, JZet, lJZet,
+                FIELD_DIM_AREA),
     FIELD_ENTRY(FIELD_ID_KCSI, "KCsi", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_K_FACE,
                 FIELD_SYNC_K_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, KCsi, lKCsi),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, KCsi, lKCsi,
+                FIELD_DIM_AREA),
     FIELD_ENTRY(FIELD_ID_KETA, "KEta", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_K_FACE,
                 FIELD_SYNC_K_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, KEta, lKEta),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, KEta, lKEta,
+                FIELD_DIM_AREA),
     FIELD_ENTRY(FIELD_ID_KZET, "KZet", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_K_FACE,
                 FIELD_SYNC_K_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, KZet, lKZet),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, KZet, lKZet,
+                FIELD_DIM_AREA),
     FIELD_ENTRY(FIELD_ID_IAJ, "IAj", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_I_FACE,
                 FIELD_SYNC_I_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, IAj, lIAj),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, IAj, lIAj,
+                FIELD_DIM_INVERSE_VOLUME),
     FIELD_ENTRY(FIELD_ID_JAJ, "JAj", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_J_FACE,
                 FIELD_SYNC_J_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, JAj, lJAj),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, JAj, lJAj,
+                FIELD_DIM_INVERSE_VOLUME),
     FIELD_ENTRY(FIELD_ID_KAJ, "KAj", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_K_FACE,
                 FIELD_SYNC_K_FACE, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, KAj, lKAj),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_FACE_SYNC, KAj, lKAj,
+                FIELD_DIM_INVERSE_VOLUME),
     FIELD_ENTRY(FIELD_ID_PHI, "Phi", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC, Phi, lPhi),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC, Phi, lPhi,
+                FIELD_DIM_PRESSURE),
     FIELD_ENTRY(FIELD_ID_PSI, "Psi", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_PARTICLES,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_CHECKPOINT, Psi, lPsi),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_CHECKPOINT, Psi, lPsi,
+                FIELD_DIM_DIMENSIONLESS),
     FIELD_ENTRY(FIELD_ID_NVERT_O, "Nvert_o", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
-                FIELD_CAPABILITY_GHOST_UPDATE, Nvert_o, lNvert_o),
+                FIELD_CAPABILITY_GHOST_UPDATE, Nvert_o, lNvert_o,
+                FIELD_DIM_DIMENSIONLESS),
     FIELD_ENTRY(FIELD_ID_PARTICLE_COUNT, "ParticleCount", NULL, NULL, 1, FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL | FIELD_AVAILABILITY_PARTICLES,
-                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_CHECKPOINT, ParticleCount, lParticleCount),
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_CHECKPOINT, ParticleCount, lParticleCount,
+                FIELD_DIM_DIMENSIONLESS),
     /* Corner-staging workspace. Node-centered by construction: the interpolation
      * writes cell-centered data onto grid corners. Not checkpointed, since it is
      * transient scratch rebuilt on every conversion. */
     FIELD_ENTRY(FIELD_ID_CELL_SCALAR_AT_CORNER, "CellScalarAtCorner", NULL, NULL, 1,
                 FIELD_DM_DA, FIELD_LAYOUT_NODE_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
-                FIELD_CAPABILITY_GHOST_UPDATE, CellScalarAtCorner, lCellScalarAtCorner),
+                FIELD_CAPABILITY_GHOST_UPDATE, CellScalarAtCorner, lCellScalarAtCorner,
+                FIELD_DIM_FROM_SOURCE),
     FIELD_ENTRY(FIELD_ID_CELL_VECTOR_AT_CORNER, "CellVectorAtCorner", NULL, NULL, 3,
                 FIELD_DM_FDA, FIELD_LAYOUT_NODE_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
-                FIELD_CAPABILITY_GHOST_UPDATE, CellVectorAtCorner, lCellVectorAtCorner),
+                FIELD_CAPABILITY_GHOST_UPDATE, CellVectorAtCorner, lCellVectorAtCorner,
+                FIELD_DIM_FROM_SOURCE),
     /* Post-processing staging fields. A derived statistic is config-counted and so
      * has no compile-time offset of its own; staging the result here lets the
      * existing ghost, nodal-average, and logging paths address it by name instead
@@ -174,18 +213,21 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
     FIELD_ENTRY(FIELD_ID_POST_SCALAR, "PostScalar", NULL, NULL, 1,
                 FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
-                FIELD_CAPABILITY_GHOST_UPDATE, PostScalar, lPostScalar),
+                FIELD_CAPABILITY_GHOST_UPDATE, PostScalar, lPostScalar,
+                FIELD_DIM_FROM_SOURCE),
     FIELD_ENTRY(FIELD_ID_POST_VECTOR, "PostVector", NULL, NULL, 3,
                 FIELD_DM_FDA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
-                FIELD_CAPABILITY_GHOST_UPDATE, PostVector, lPostVector),
+                FIELD_CAPABILITY_GHOST_UPDATE, PostVector, lPostVector,
+                FIELD_DIM_FROM_SOURCE),
     /* The Q-criterion is computed at cell centres. It is catalogued only so the nodal
      * average can refresh its ghosts by name: a cell value written as point data sits
      * half a cell away from the node the file assigns it. Post-processor only. */
     FIELD_ENTRY(FIELD_ID_QCRIT, "Qcrit", NULL, NULL, 1,
                 FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
-                FIELD_CAPABILITY_GHOST_UPDATE, Qcrit, lQcrit)
+                FIELD_CAPABILITY_GHOST_UPDATE, Qcrit, lQcrit,
+                FIELD_DIM_INVERSE_TIME_SQUARED)
 };
 
 _Static_assert(sizeof(gFieldCatalog) / sizeof(gFieldCatalog[0]) == FIELD_ID_COUNT,
@@ -219,12 +261,29 @@ PetscErrorCode FieldGetDescriptor(FieldId field_id, const FieldDescriptor **desc
  */
 PetscErrorCode FieldIdFromName(const char *field_name, FieldId *field_id)
 {
+    PetscBool found = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PetscCall(FieldTryIdFromName(field_name, field_id, &found));
+    PetscCheck(found, PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE,
+               "Field name '%s' is not registered in the Eulerian field catalog.", field_name);
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Searches canonical names and aliases, reporting a miss instead of failing.
+ * @see FieldTryIdFromName()
+ */
+PetscErrorCode FieldTryIdFromName(const char *field_name, FieldId *field_id, PetscBool *found)
+{
     PetscFunctionBeginUser;
     PetscCheck(field_name != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Field name cannot be NULL.");
-    PetscCheck(field_id != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
-               "FieldId output cannot be NULL.");
+    PetscCheck(field_id != NULL && found != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "FieldId and found outputs cannot be NULL.");
 
+    *field_id = FIELD_ID_INVALID;
+    *found = PETSC_FALSE;
     for (PetscInt index = 0; index < FIELD_ID_COUNT; ++index) {
         const FieldDescriptor *descriptor = &gFieldCatalog[index];
         PetscBool match = PETSC_FALSE;
@@ -234,13 +293,65 @@ PetscErrorCode FieldIdFromName(const char *field_name, FieldId *field_id)
         if (!match && descriptor->alias_2) PetscCall(PetscStrcasecmp(field_name, descriptor->alias_2, &match));
         if (match) {
             *field_id = descriptor->id;
-            PetscFunctionReturn(0);
+            *found = PETSC_TRUE;
+            break;
         }
     }
+    PetscFunctionReturn(0);
+}
 
-    *field_id = FIELD_ID_INVALID;
-    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE,
-            "Field name '%s' is not registered in the Eulerian field catalog.", field_name);
+/**
+ * @brief Multiplies the reference scales raised to the dimension's exponents.
+ * @see FieldDimensionReferenceScale()
+ */
+PetscErrorCode FieldDimensionReferenceScale(const ScalingCtx *scaling, FieldDimension dimension,
+                                            PetscReal *scale)
+{
+    PetscFunctionBeginUser;
+    PetscCheck(scaling != NULL && scale != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Scaling context and scale output cannot be NULL.");
+    PetscCheck(dimension.kind == FIELD_DIMENSION_FIXED, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+               "Only a field with a fixed physical dimension has a reference scale.");
+    *scale = PetscPowRealInt(scaling->L_ref, dimension.length) *
+             PetscPowRealInt(scaling->U_ref, dimension.velocity) *
+             PetscPowRealInt(scaling->rho_ref, dimension.density);
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Formats the nonzero exponents, or names the non-fixed kinds.
+ * @see FieldDimensionLabel()
+ */
+PetscErrorCode FieldDimensionLabel(FieldDimension dimension, char *label, size_t length)
+{
+    const char *symbols[3] = {"L", "U", "rho"};
+    const int   exponents[3] = {dimension.length, dimension.velocity, dimension.density};
+    size_t      used = 0;
+
+    PetscFunctionBeginUser;
+    PetscCheck(label != NULL && length > 0, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "Dimension label buffer cannot be NULL or empty.");
+    label[0] = '\0';
+    if (dimension.kind == FIELD_DIMENSION_NOT_A_QUANTITY) {
+        PetscCall(PetscStrncpy(label, "not a physical quantity", length));
+        PetscFunctionReturn(0);
+    }
+    if (dimension.kind == FIELD_DIMENSION_FROM_SOURCE) {
+        PetscCall(PetscStrncpy(label, "dimension of its source field", length));
+        PetscFunctionReturn(0);
+    }
+    for (int index = 0; index < 3; ++index) {
+        if (!exponents[index]) continue;
+        if (exponents[index] == 1) {
+            PetscCall(PetscSNPrintf(label + used, length - used, "%s%s", used ? " " : "", symbols[index]));
+        } else {
+            PetscCall(PetscSNPrintf(label + used, length - used, "%s%s^%d", used ? " " : "",
+                                    symbols[index], exponents[index]));
+        }
+        PetscCall(PetscStrlen(label, &used));
+    }
+    if (!used) PetscCall(PetscStrncpy(label, "dimensionless", length));
+    PetscFunctionReturn(0);
 }
 
 /**

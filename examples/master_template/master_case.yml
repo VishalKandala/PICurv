@@ -115,14 +115,19 @@ properties:
     #   flow_direction: "+Zeta"       # Same options as streamwise_constant
 
     # --- File IC: one PETSc .dat velocity field, staged for ReadFieldData. ---
+    # The payload is physical ([m/s] for Ucat, [m^3/s] per face for Ucont) and is divided
+    # by its reference scale when staged. A field saved by an earlier PICurv run is in that
+    # run's solver units: name the case that wrote it, or give its scales directly.
     # mode: file
     # field: Ucat       # Ucat | Ucont
     # source_file: inputs/initial_conditions/velocity.dat  # via `picurv inputs import initial-condition`
+    # source_case: runs/<earlier_run>/config/case.yml       # optional; or velocity_scale (+ length_scale for Ucont)
 
     # --- External deterministic generator (ic_gen), materialized during run/precompute. ---
     # Repository ic.gen supports file, grid_gen, and programmatic_c grids.
     # For programmatic_c, scalar programmatic_settings are first materialized as the
-    # <run.inputs>/grid/grid.run bridge. Evaluates an INI [expression] section.
+    # <run.inputs>/grid/grid.run bridge. Evaluates an INI [expression] section in physical
+    # units: x, y, z in [m], velocities in [m/s], Ucont fluxes in [m^3/s].
     # mode: generated
     # generator: ic_gen
     # params:
@@ -139,13 +144,13 @@ properties:
     # params:
     #   field: Ucat
     #   seed: 12345
-    #   random: { distribution: gaussian, mean: [0.0, 0.0, 0.0] }
+    #   random: { distribution: gaussian, mean: [0.0, 0.0, 0.0] }   # [m/s]
     #   spectrum:                   # white (default) | k4_exponential
     #     type: k4_exponential
-    #     k0: 4.0                   # Energy-peak wavenumber
-    #     k_cut: 20.0               # Must not exceed the two-thirds resolution limit
+    #     k0: 4.0                   # [1/m] Energy-peak wavenumber
+    #     k_cut: 20.0               # [1/m] Must not exceed the two-thirds resolution limit
     #   projection: { type: solenoidal, operator: picurv_discrete }  # or { type: none }
-    #   normalization: { type: component_rms, target: 1.0 }          # or { type: none }
+    #   normalization: { type: component_rms, target: 1.0 }          # [m/s]; or { type: none }
     #   remove_mean: true
 
     # --- Wall-bounded spectral seed: channel (one wall pair) or duct (two). ---
@@ -153,7 +158,7 @@ properties:
     # wall envelope) on a flux-normalized mean. Requires a single Cartesian block with
     # uniform periodic axes: WALL/noslip pairs on wall_axes, PERIODIC elsewhere, and
     # only the streamwise pair driven (constant_flux or initial_flux). Velocities are
-    # in solver units. The turbulent_channel example uses this block.
+    # in physical units [m/s]. The turbulent_channel example uses this block.
     # mode: generated
     # generator: channel_spectral_velocity   # or duct_spectral_velocity
     # params:
@@ -161,10 +166,10 @@ properties:
     #   seed: 12345
     #   wall_axes: [j]              # channel default [j]; duct default [i, j]
     #   streamwise_axis: k          # Must be periodic
-    #   bulk_velocity: 1.0          # Mean of the startup profile
-    #   perturbation_rms: 0.1
+    #   bulk_velocity: 1.0          # [m/s] Mean of the startup profile
+    #   perturbation_rms: 0.1       # [m/s]
     #   wall_modes: 3               # Wall-normal modes; wall_modes + 1 <= cells/2 per wall axis
-    #   spectrum: { type: k4_exponential, k0: 4.0, k_cut: 8.0 }
+    #   spectrum: { type: k4_exponential, k0: 4.0, k_cut: 8.0 }   # wavenumbers in [1/m]
     #   initial_spectra:            # Optional plane/line spectra of the seed, periodic axes only
     #     - { task: plane_spectrum, axes: [i, k], fixed_indices: { j: 8 }, subtract_mean: sample }
 
@@ -256,9 +261,9 @@ models:
       random_seed: 12345   # [Integer, optional] -> -particle_random_seed. 0..2147483647; seeds
                            # initial placement and Brownian draws (default 12345)
       point_source:        # Required only when init_mode = "PointSource" (maps to -psrc_x/-psrc_y/-psrc_z)
-        x: 0.5
-        y: 0.5
-        z: 0.5
+        x: 0.5             # [m] Physical position, divided by length_ref like the grid bounds.
+        y: 0.25            #     This one is the centre of the domain defined under grid.
+        z: 1.0
 
     turbulence:
       # Preferred structured LES form. Legacy shorthand is still accepted:
@@ -415,7 +420,7 @@ models:
 
         # Wall roughness height. Used by log_law only; werner and cabot ignore it.
         # [Number] -> -wall_roughness
-        roughness_height: 1.0e-16
+        roughness_height: 1.0e-16   # [m] Physical length, divided by length_ref.
   
 # ==============================================================================
 # 5. BOUNDARY CONDITIONS

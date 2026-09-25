@@ -1,8 +1,11 @@
 # Initial-Condition Generation
 
 `generators/ic.gen` generates one complete PETSc binary `Ucat` or `Ucont` vector
-from expressions evaluated on a staged nondimensional `PICGRID`. The staged grid
-may come from `file`, `grid_gen`, or single-block `programmatic_c` cases.
+from expressions written in physical units: `x`, `y`, `z` are the grid's physical
+coordinates and each value is a physical velocity (`Ucat`) or volume flux (`Ucont`).
+The launcher passes the case's `length_ref` and `velocity_ref`, and the generator
+writes solver units. The staged grid may come from `file`, `grid_gen`, or
+single-block `programmatic_c` cases.
 
 ```ini
 [expression]
@@ -58,6 +61,10 @@ Defaults are `field: Ucat`, `seed: 12345`, Gaussian sampling with zero requested
 mean, `spectrum.type: white`, `projection.type: none`,
 `normalization.type: none`, and `remove_mean: true`. Selectors are strict; no
 hyphenated or case-specific compatibility aliases are accepted.
+
+`random.mean` and `normalization.target` are physical velocities and `k0`, `k_cut`
+physical wavenumbers (per length); the launcher converts them before the provider
+runs, and the summary reports solver units.
 
 `spectrum.type` may be `white` or `k4_exponential`. White applies no spectral
 shaping. The latter gives `E(k) proportional to k^4 exp[-2(k/k0)^2]`, requires

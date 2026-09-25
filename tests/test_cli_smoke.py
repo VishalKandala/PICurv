@@ -321,6 +321,8 @@ def write_fake_ic_generator(path: Path, require_grid_run: bool = False) -> Path:
         "p.add_argument('--field', required=True)\n"
         "p.add_argument('--output', required=True)\n"
         "p.add_argument('--grid')\n"
+        "p.add_argument('--length-ref', type=float, default=1.0)\n"
+        "p.add_argument('--velocity-ref', type=float, default=1.0)\n"
         "a=p.parse_args()\n"
         + grid_assertion +
         "shutil.copy2(a.c, a.output)\n",
@@ -358,7 +360,7 @@ def test_structured_initial_condition_modes_resolve_to_c_contract(tmp_path):
             "params": {"velocity_physical": 2.0, "flow_direction": "+Zeta"},
         },
         [],
-        U_ref=2.0,
+        scales={"length_ref": 1.0, "velocity_ref": 2.0},
     )
     assert built_in["finit"] == 3
     assert built_in["cli_params"]["ic_velocity_physical"] == pytest.approx(1.0)
@@ -367,7 +369,7 @@ def test_structured_initial_condition_modes_resolve_to_c_contract(tmp_path):
     file_ic = picurv.resolve_initial_condition_config(
         {"mode": "file", "field": "Ucat", "source_file": str(source)},
         [],
-        U_ref=1.0,
+        scales={"length_ref": 1.0, "velocity_ref": 1.0},
     )
     assert file_ic["finit"] == 4
     assert file_ic["field_name"] == "ufield"
@@ -385,7 +387,7 @@ def test_file_initial_condition_rejects_multiblock_contract(tmp_path):
         picurv.resolve_initial_condition_config(
             {"mode": "file", "field": "Ucat", "source_file": str(source)},
             [[], []],
-            U_ref=1.0,
+            scales={"length_ref": 1.0, "velocity_ref": 1.0},
         )
 
 
@@ -403,7 +405,7 @@ def test_ic_gen_defaults_to_repository_script_and_accepts_override(tmp_path):
             "params": {"field": "Ucat", "config_file": str(config_file)},
         },
         [[]],
-        U_ref=1.0,
+        scales={"length_ref": 1.0, "velocity_ref": 1.0},
     )
     assert resolved["script"] is None
     override = picurv.resolve_initial_condition_config(
@@ -417,7 +419,7 @@ def test_ic_gen_defaults_to_repository_script_and_accepts_override(tmp_path):
             },
         },
         [[]],
-        U_ref=1.0,
+        scales={"length_ref": 1.0, "velocity_ref": 1.0},
     )
     assert override["script"] == "tools/custom_ic.py"
 
@@ -492,6 +494,7 @@ def test_stage_initial_condition_file_uses_readfielddata_layout(tmp_path):
         "source_file": str(source),
         "field_name": "ufield",
         "field_code": 0,
+        "scales": {"length_ref": 1.0, "velocity_ref": 1.0},
     }
     summary = picurv.stage_initial_condition_file(str(tmp_path / "run"), str(case_path), resolved)
     assert Path(summary["staged"]).name == "ufield00000_0.dat"
@@ -3707,6 +3710,42 @@ def test_paraview_series_uses_checkpoint_physical_time_and_refreshes_live_output
     picurv.finalize_post_paraview_series(str(run_dir), runtime)
     datasets = ElementTree.parse(pvd).getroot().findall(".//DataSet")
     assert [float(node.get("timestep")) for node in datasets] == [2.5, 3.0, 4.25]
+
+
+def test_paraview_series_reports_physical_time_when_dimensionalized(tmp_path):
+    """!
+    @brief A dimensionalized collection times frames in seconds: solver time times L/U.
+    @details Checkpoints record solver time. With L = 2 m and U = 4 m/s the reference time
+             is 0.5 s, so checkpoint times 2 and 6 become 1 and 3; without
+             dimensionalization the collection stays in solver time, like its frames.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    case_cfg = yaml.safe_load((FIXTURES / "valid" / "case.yml").read_text(encoding="utf-8"))
+    case_cfg["properties"]["scaling"] = {"length_ref": 2.0, "velocity_ref": 4.0}
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="scaled_pvd", case_cfg=case_cfg)
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    post_cfg["run_control"].update({"start_step": 0, "end_step": 10, "step_interval": 10})
+    post_cfg["io"]["paraview_series"] = {"enabled": True, "scope": "run"}
+    (run_dir / "manifest.json").write_text(json.dumps({
+        "run_id": run_dir.name, "lineage": {"relationship": "root"}
+    }), encoding="utf-8")
+    create_post_source_steps(run_dir, monitor_cfg, [0, 10])
+    set_checkpoint_time(run_dir, 0, 2.0)
+    set_checkpoint_time(run_dir, 10, 6.0)
+    create_post_outputs(run_dir, post_cfg, monitor_cfg, euler_steps=[0, 10])
+
+    runtime, _ = picurv.apply_canonical_post_paths(post_cfg, str(run_dir))
+    [pvd] = picurv.finalize_post_paraview_series(str(run_dir), runtime)
+    datasets = ElementTree.parse(pvd).getroot().findall(".//DataSet")
+    assert [float(node.get("timestep")) for node in datasets] == pytest.approx([1.0, 3.0])
+
+    post_cfg["global_operations"]["dimensionalize"] = False
+    runtime, _ = picurv.apply_canonical_post_paths(post_cfg, str(run_dir))
+    create_post_outputs(run_dir, runtime, monitor_cfg, euler_steps=[0, 10])
+    [pvd] = picurv.finalize_post_paraview_series(str(run_dir), runtime)
+    datasets = ElementTree.parse(pvd).getroot().findall(".//DataSet")
+    assert [float(node.get("timestep")) for node in datasets] == pytest.approx([2.0, 6.0])
 
 
 def test_paraview_lineage_flattens_nested_branches_and_child_wins_fork(tmp_path):
@@ -8650,7 +8689,8 @@ def _statistics_monitor_cfg(**overrides):
 #: Sentinel meaning "remove this key" in `_statistics_monitor_cfg()`.
 _ABSENT = object()
 
-_NO_PARTICLES_CASE = {"models": {"physics": {"particles": {"count": 0}}}}
+_NO_PARTICLES_CASE = {"models": {"physics": {"particles": {"count": 0}}},
+                      "properties": {"scaling": {"length_ref": 1.0, "velocity_ref": 1.0}}}
 
 
 def test_field_statistics_eligible_fields_match_the_c_catalog():

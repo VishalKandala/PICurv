@@ -537,18 +537,43 @@ PetscErrorCode DeterminePeriodicity(SimCtx *simCtx);
 void TrimWhitespace(char *str);
 
 /**
+ * @brief Return whether a catalogued field belongs in the current checkpoint.
+ * @details A checkpointed field whose subsystem is active (turbulence, dynamic LES,
+ *          particles, wall model). These are exactly the fields a checkpoint read can
+ *          load, so consumers of loaded state use the same predicate.
+ * @param[in] simCtx     Run context whose active subsystems decide availability.
+ * @param[in] descriptor Catalog entry to test.
+ * @return `PETSC_TRUE` when the field is checkpointed in this run.
+ */
+PetscBool CheckpointFieldIsEnabled(const SimCtx *simCtx, const FieldDescriptor *descriptor);
+
+/**
+ * @brief Convert a solver time to physical seconds, `t * L_ref / U_ref`.
+ * @details Runtime diagnostics record solver time; each also reports this physical time
+ *          so a history can be plotted in seconds without the case's scales at hand.
+ * @param[in]  simCtx      Context carrying the reference scales.
+ * @param[in]  solver_time Time in solver units.
+ * @param[out] physical    Time in seconds.
+ * @return Zero on success.
+ */
+PetscErrorCode PicurvPhysicalTime(const SimCtx *simCtx, PetscReal solver_time, PetscReal *physical);
+
+/**
  * @brief Physical scale one field is multiplied by to leave non-dimensional form.
  *
- * The single reference table. Field dimensionalization, derived field statistics, and
- * anything else needing a physical scale read it from here, so a field's units are
- * stated once rather than once per output path.
+ * Each field's dimension is recorded once, on its entry in the Eulerian or particle
+ * field catalog; this resolves a name against both and applies the run's reference
+ * scales. Field dimensionalization, derived field statistics, and anything else needing
+ * a physical scale read it from here.
  *
  * @param[in]  simCtx             Context carrying the resolved reference scales.
- * @param[in]  field_name         Case-insensitive catalogued field name.
- * @param[out] scale              Multiplicative factor; 1.0 when the field is unknown.
- * @param[out] description        Optional human-readable units, may be NULL.
+ * @param[in]  field_name         Case-insensitive catalogued field name or alias.
+ * @param[out] scale              Multiplicative factor.
+ * @param[out] description        Optional human-readable dimension, may be NULL.
  * @param[in]  description_length Capacity of `description`.
- * @return 0 on success; `PETSC_ERR_ARG_WRONG` when the field has no declared scale.
+ * @return 0 on success; `PETSC_ERR_ARG_UNKNOWN_TYPE` for a name in neither catalog, and
+ *         `PETSC_ERR_ARG_WRONGSTATE` for a field without a fixed dimension (bookkeeping,
+ *         or staging storage whose dimension is its source's).
  */
 PetscErrorCode PicurvFieldReferenceScale(SimCtx *simCtx, const char *field_name,
                                         PetscReal *scale, char *description,

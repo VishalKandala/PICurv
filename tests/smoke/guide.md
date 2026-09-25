@@ -14,6 +14,9 @@ This directory holds executable smoke assets for the canonical `make smoke` fami
 - Tiny real solve+post paths for flat, bent, and particle-enabled flat cases.
 - Restart branch coverage (`load` and `init`) including restart-equivalence checks.
 - Analytical Brownian runtime path including particle output and MSD statistics.
+- Units equivalence: one physical Brownian drift case at unit scales and at
+  `length_ref: 2, velocity_ref: 3` gives the same solver state once rescaled and the same
+  dimensionalized MSD.
 - Multi-rank tiny runtime flows for flat/bent and particle restart branches.
 
 ## Why This Matters
@@ -42,6 +45,7 @@ The documentation pages refer to smoke sequences using these labels:
 - `S4`: analytical Brownian path with particle VTP + MSD CSV
 - `S5`: multi-rank tiny runtime paths (flat/bent + particle restart branches)
 - `S6`: restart-equivalence continuity check
+- `S7`: units equivalence across two reference-scale choices
 
 ## Useful Environment Knobs
 

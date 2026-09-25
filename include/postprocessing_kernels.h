@@ -91,31 +91,18 @@ PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_
 /**
  * @brief Scales a specified field from non-dimensional to dimensional units in-place.
  *
- * This function acts as a dispatcher. It takes the string name of a field,
- * identifies the corresponding PETSc Vec object and the correct physical
- * scaling factor (e.g., U_ref for velocity, P_ref for pressure), and then
- * performs an in-place VecScale operation. It correctly handles the different
- * physical dimensions of Cartesian velocity vs. contravariant volume flux.
+ * Resolves the name in the Eulerian field catalog, then the particle field catalog,
+ * and scales the field's storage (its global Vec, the DM coordinates, or its DMSwarm
+ * field) by the reference scale of the dimension recorded on its catalog entry.
  *
- * @param[in,out] user        The UserCtx containing the PETSc Vecs to be modified.
- * @param[in]     field_name  The case-insensitive string name of the field to dimensionalize
- *                            (e.g., "Ucat", "P", "Ucont", "Coordinates", "ParticlePosition", "ParticleVelocity").
- * @return PetscErrorCode
+ * @param[in,out] user        The UserCtx whose storage is modified.
+ * @param[in]     field_name  Case-insensitive catalogued name or alias, e.g. "Ucat",
+ *                            "Nu_t", "Coordinates", "ParticlePosition".
+ * @return Zero on success; `PETSC_ERR_ARG_UNKNOWN_TYPE` for a name in neither catalog,
+ *         and `PETSC_ERR_ARG_WRONGSTATE` for a field without a fixed dimension or without
+ *         storage in this run.
  */
 PetscErrorCode DimensionalizeField(UserCtx *user, const char *field_name);
-
-/**
- * @brief Orchestrates the dimensionalization of all relevant fields loaded from a file.
- *
- * This function is intended to be called in the post-processor immediately after
- * all solver output has been read into memory. It calls DimensionalizeField() for each of the core
- * physical quantities to convert the entire loaded state from non-dimensional to
- * dimensional units, preparing it for analysis and visualization.
- *
- * @param[in,out] user The UserCtx containing all the fields to be dimensionalized.
- * @return PetscErrorCode
- */
-PetscErrorCode DimensionalizeAllLoadedFields(UserCtx *user);
 
 // ===========================================================================
 // Particle Post-Processing Kernels

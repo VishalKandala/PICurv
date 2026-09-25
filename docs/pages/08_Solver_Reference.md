@@ -25,7 +25,7 @@ operation_mode:
 Mappings:
 - `eulerian_field_source` -> `-euler_field_source` (`solve`, `load`, `analytical`)
 - `analytical_type` -> `-analytical_type`
-- `uniform_flow.u/v/w` -> `-analytical_uniform_u/-analytical_uniform_v/-analytical_uniform_w` when `analytical_type: "UNIFORM_FLOW"`
+- `uniform_flow.u/v/w` -> `-analytical_uniform_u/-analytical_uniform_v/-analytical_uniform_w` when `analytical_type: "UNIFORM_FLOW"`; physical velocities, divided by `velocity_ref`
 
 `uniform_flow` is only valid when `analytical_type: "UNIFORM_FLOW"`.
 
@@ -895,6 +895,12 @@ Mappings:
 - `verification.sources.scalar.slope_x` -> `-verification_scalar_slope_x`
 - `verification.sources.scalar.amplitude` -> `-verification_scalar_amplitude`
 - `verification.sources.scalar.kx/ky/kz` -> `-verification_scalar_kx/-verification_scalar_ky/-verification_scalar_kz`
+
+Units: every value is physical and is converted with the case's scales. `gamma0` is a
+diffusivity (divided by `velocity_ref length_ref`) and the diffusivity `slope_x` a
+diffusivity per length (divided by `velocity_ref`); the scalar `slope_x` and `kx/ky/kz` are
+per length (multiplied by `length_ref`); `value`, `phi0`, and `amplitude` are dimensionless.
+See @ref p19_inputs_sec.
 
 Rules:
 - this path is verification-only and should be used only when no ordinary end-to-end workflow can expose the behavior under test

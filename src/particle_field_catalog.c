@@ -5,48 +5,58 @@
 
 #include "particle_field_catalog.h"
 
-#define PARTICLE_FIELD_ENTRY(field_id_, name_, alias1_, alias2_, components_, type_, registration_, capabilities_, default_, scatter_target_) \
-    [field_id_] = {                                                                                                                         \
-        field_id_, name_, alias1_, alias2_, components_, type_, registration_, capabilities_, default_, scatter_target_                    \
+#define PARTICLE_FIELD_ENTRY(field_id_, name_, alias1_, alias2_, components_, type_, registration_, capabilities_, default_, scatter_target_, dimension_) \
+    [field_id_] = {                                                                                                                                     \
+        field_id_, name_, alias1_, alias2_, components_, type_, registration_, capabilities_, default_, scatter_target_, dimension_                     \
     }
 
 static const ParticleFieldDescriptor gParticleFieldCatalog[PARTICLE_FIELD_ID_COUNT] = {
     PARTICLE_FIELD_ENTRY(PARTICLE_FIELD_ID_POSITION, "position", "ParticlePosition", NULL,
                          3, PETSC_REAL, PARTICLE_FIELD_REGISTRATION_PICURV,
-                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT, 0.0, FIELD_ID_INVALID),
+                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT, 0.0, FIELD_ID_INVALID,
+                FIELD_DIM_LENGTH),
     PARTICLE_FIELD_ENTRY(PARTICLE_FIELD_ID_VELOCITY, "velocity", "ParticleVelocity", NULL,
                          3, PETSC_REAL, PARTICLE_FIELD_REGISTRATION_PICURV,
                          PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE |
-                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT, 0.0, FIELD_ID_INVALID),
+                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT, 0.0, FIELD_ID_INVALID,
+                FIELD_DIM_VELOCITY),
     PARTICLE_FIELD_ENTRY(PARTICLE_FIELD_ID_CELL_ID, "DMSwarm_CellID", "CellID", NULL,
                          3, PETSC_INT, PARTICLE_FIELD_REGISTRATION_PICURV,
-                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT, 0.0, FIELD_ID_INVALID),
+                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT, 0.0, FIELD_ID_INVALID,
+                FIELD_DIM_NOT_A_QUANTITY),
     PARTICLE_FIELD_ENTRY(PARTICLE_FIELD_ID_WEIGHT, "weight", "ParticleWeight", NULL,
                          3, PETSC_REAL, PARTICLE_FIELD_REGISTRATION_PICURV,
                          PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE |
-                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT, 0.0, FIELD_ID_INVALID),
+                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT, 0.0, FIELD_ID_INVALID,
+                FIELD_DIM_DIMENSIONLESS),
     PARTICLE_FIELD_ENTRY(PARTICLE_FIELD_ID_DIFFUSIVITY, "Diffusivity", NULL, NULL,
                          1, PETSC_REAL, PARTICLE_FIELD_REGISTRATION_PICURV,
-                         PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE, 1.0, FIELD_ID_INVALID),
+                         PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE, 1.0, FIELD_ID_INVALID,
+                FIELD_DIM_DIFFUSIVITY),
     PARTICLE_FIELD_ENTRY(PARTICLE_FIELD_ID_DIFFUSIVITY_GRADIENT, "DiffusivityGradient", NULL, NULL,
                          3, PETSC_REAL, PARTICLE_FIELD_REGISTRATION_PICURV,
-                         PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE, 1.0, FIELD_ID_INVALID),
+                         PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE, 1.0, FIELD_ID_INVALID,
+                FIELD_DIM_VELOCITY),
     PARTICLE_FIELD_ENTRY(PARTICLE_FIELD_ID_PSI, "Psi", NULL, NULL,
                          1, PETSC_REAL, PARTICLE_FIELD_REGISTRATION_PICURV,
                          PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE |
                          PARTICLE_FIELD_CAPABILITY_MODEL_UPDATE |
                          PARTICLE_FIELD_CAPABILITY_EULERIAN_SCATTER |
                          PARTICLE_FIELD_CAPABILITY_CHECKPOINT,
-                         0.0, FIELD_ID_PSI),
+                         0.0, FIELD_ID_PSI,
+                FIELD_DIM_DIMENSIONLESS),
     PARTICLE_FIELD_ENTRY(PARTICLE_FIELD_ID_LOCATION_STATUS, "DMSwarm_location_status", "Migration Status", NULL,
                          1, PETSC_INT, PARTICLE_FIELD_REGISTRATION_PICURV,
-                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT, 0.0, FIELD_ID_INVALID),
+                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT, 0.0, FIELD_ID_INVALID,
+                FIELD_DIM_NOT_A_QUANTITY),
     PARTICLE_FIELD_ENTRY(PARTICLE_FIELD_ID_PID, "DMSwarm_pid", "pid", "Particle ID",
                          1, PETSC_INT64, PARTICLE_FIELD_REGISTRATION_PETSC,
-                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT, 0.0, FIELD_ID_INVALID),
+                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT, 0.0, FIELD_ID_INVALID,
+                FIELD_DIM_NOT_A_QUANTITY),
     PARTICLE_FIELD_ENTRY(PARTICLE_FIELD_ID_RANK, "DMSwarm_rank", "rank", NULL,
                          1, PETSC_INT, PARTICLE_FIELD_REGISTRATION_PETSC,
-                         PARTICLE_FIELD_CAPABILITY_NONE, 0.0, FIELD_ID_INVALID)
+                         PARTICLE_FIELD_CAPABILITY_NONE, 0.0, FIELD_ID_INVALID,
+                FIELD_DIM_NOT_A_QUANTITY)
 };
 
 _Static_assert(sizeof(gParticleFieldCatalog) / sizeof(gParticleFieldCatalog[0]) == PARTICLE_FIELD_ID_COUNT,
@@ -79,12 +89,31 @@ PetscErrorCode ParticleFieldGetDescriptor(ParticleFieldId field_id,
  */
 PetscErrorCode ParticleFieldIdFromName(const char *field_name, ParticleFieldId *field_id)
 {
+    PetscBool found = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PetscCall(ParticleFieldTryIdFromName(field_name, field_id, &found));
+    PetscCheck(found, PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE,
+               "Particle field name '%s' is not registered in the persistent particle field catalog.",
+               field_name);
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Searches canonical names and aliases, reporting a miss instead of failing.
+ * @see ParticleFieldTryIdFromName()
+ */
+PetscErrorCode ParticleFieldTryIdFromName(const char *field_name, ParticleFieldId *field_id,
+                                          PetscBool *found)
+{
     PetscFunctionBeginUser;
     PetscCheck(field_name != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Particle field name cannot be NULL.");
-    PetscCheck(field_id != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
-               "ParticleFieldId output cannot be NULL.");
+    PetscCheck(field_id != NULL && found != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "ParticleFieldId and found outputs cannot be NULL.");
 
+    *field_id = PARTICLE_FIELD_ID_INVALID;
+    *found = PETSC_FALSE;
     for (PetscInt index = 0; index < PARTICLE_FIELD_ID_COUNT; ++index) {
         const ParticleFieldDescriptor *descriptor = &gParticleFieldCatalog[index];
         PetscBool match = PETSC_FALSE;
@@ -94,14 +123,11 @@ PetscErrorCode ParticleFieldIdFromName(const char *field_name, ParticleFieldId *
         if (!match && descriptor->alias_2) PetscCall(PetscStrcasecmp(field_name, descriptor->alias_2, &match));
         if (match) {
             *field_id = descriptor->id;
-            PetscFunctionReturn(0);
+            *found = PETSC_TRUE;
+            break;
         }
     }
-
-    *field_id = PARTICLE_FIELD_ID_INVALID;
-    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE,
-            "Particle field name '%s' is not registered in the persistent particle field catalog.",
-            field_name);
+    PetscFunctionReturn(0);
 }
 
 /**

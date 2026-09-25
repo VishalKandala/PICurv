@@ -3013,16 +3013,19 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
         FILE *f = fopen(csv_path, "a");
         if (f) {
             if (ftell(f) == 0) {
-                fprintf(f, "step,time,L2_error,Linf_error,L2_analytical,error_pct\n");
+                fprintf(f, "step,time,L2_error,Linf_error,L2_analytical,error_pct,physical_time\n");
             }
             if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
                 fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
             }
-            PetscReal t = simCtx->ti;  /* ti is already physical time; it is not a step count */
-            fprintf(f, "%d,%.6e,%.6e,%.6e,%.6e,%.4f\n",
+            /* ti is solver time, not a step count; physical_time is it in seconds. */
+            PetscReal t = simCtx->ti;
+            PetscReal physical_time = 0.0;
+            ierr = PicurvPhysicalTime(simCtx, t, &physical_time); CHKERRQ(ierr);
+            fprintf(f, "%d,%.6e,%.6e,%.6e,%.6e,%.4f,%.6e\n",
                     (int)simCtx->step, t,
                     Interpolation_error, Maximum_Interpolation_error,
-                    AnalyticalSolution_magnitude, ErrorPercentage);
+                    AnalyticalSolution_magnitude, ErrorPercentage, physical_time);
             fclose(f);
         }
     }
@@ -3165,12 +3168,15 @@ PetscErrorCode LOG_SCATTER_METRICS(UserCtx *user)
                 fprintf(f,
                         "step,time,total_particles,total_cells,occupied_cells,occupancy_fraction,"
                         "mean_particles_per_occupied_cell,particle_integral,grid_integral,"
-                        "conservation_error_abs,L1_error,L2_error,Linf_error,relative_L2_error\n");
+                        "conservation_error_abs,L1_error,L2_error,Linf_error,relative_L2_error,"
+                        "physical_time\n");
             }
             if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
                 fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
             }
-            fprintf(f, "%d,%.6e,%lld,%lld,%lld,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e\n",
+            PetscReal physical_time = 0.0;
+            ierr = PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time); CHKERRQ(ierr);
+            fprintf(f, "%d,%.6e,%lld,%lld,%lld,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e\n",
                     (int)simCtx->step,
                     (double)simCtx->ti,
                     (long long)global_particle_count,
@@ -3184,7 +3190,8 @@ PetscErrorCode LOG_SCATTER_METRICS(UserCtx *user)
                     (double)global_l1,
                     (double)l2_error,
                     (double)global_linf,
-                    (double)relative_l2_error);
+                    (double)relative_l2_error,
+                    (double)physical_time);
             fclose(f);
         }
     }
@@ -3319,7 +3326,9 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
     if (simCtx->rank == 0) {
         char csv_path[PETSC_MAX_PATH_LEN + 32];
         FILE *f = NULL;
+        PetscReal searchPhysicalTime = 0.0;
 
+        ierr = PicurvPhysicalTime(simCtx, simCtx->ti, &searchPhysicalTime); CHKERRQ(ierr);
         ierr = PetscSNPrintf(csv_path, sizeof(csv_path), "%s/search_metrics.csv", simCtx->analysis_dir); CHKERRQ(ierr);
         f = fopen(csv_path, "a");
         if (!f) {
@@ -3331,13 +3340,14 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
                         "mean_traversal_steps,max_traversal_steps,tie_break_count,boundary_clamp_count,"
                         "bbox_guess_success_count,bbox_guess_fallback_count,max_particle_pass_depth,load_imbalance,"
                         "search_population,search_located_count,search_lost_count,traversal_steps_sum,re_search_count,"
-                        "max_traversal_fail_count,search_failure_fraction,search_work_index,re_search_fraction\n");
+                        "max_traversal_fail_count,search_failure_fraction,search_work_index,re_search_fraction,"
+                        "physical_time\n");
             }
             if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
                 fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
             }
             fprintf(f,
-                    "%d,%.6e,%d,%d,%d,%d,%d,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%.6e,%.6e\n",
+                    "%d,%.6e,%d,%d,%d,%d,%d,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%.6e,%.6e,%.6e\n",
                     (int)simCtx->step,
                     (double)simCtx->ti,
                     (int)totalParticles,
@@ -3362,7 +3372,8 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
                     maxTraversalFailCount,
                     (double)searchFailureFraction,
                     (double)searchWorkIndex,
-                    (double)reSearchFraction);
+                    (double)reSearchFraction,
+                    (double)searchPhysicalTime);
             fclose(f);
         }
     }

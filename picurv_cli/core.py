@@ -411,6 +411,10 @@ _ASSET_SOURCE_REFERENCE_KEYS = {
     "source_file", "path", "config_file", "field_file", "grid_file", "source_case", "script"
 }
 _PYTHON_INITIAL_CONDITION_PROVIDERS = {"ic_gen", "spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"}
+#: Parameters `spectral_random_velocity` accepts.
+SPECTRAL_RANDOM_VELOCITY_PARAMS = frozenset(
+    {"field", "seed", "random", "spectrum", "projection", "normalization", "remove_mean"}
+)
 _FILE_BACKED_GRID_VALUES = {"file", "grid_gen"}
 _WORKSPACE_MANAGED_PATHS = {"assets", "inputs", "runs", "studies"}
 _VENDORABLE_CONFIG_REFERENCE_KEYS = {"config_file", "script"}
@@ -3613,6 +3617,8 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
     # non-dimensional grid, so physical units are the generator's to apply. The run's
     # own configuration snapshot is the authority for the scales it used.
     scale_arguments = []
+    # Checkpoint times are solver time; a dimensionalized result reports physical time.
+    time_scale = 1.0
     if bool((post_cfg.get("global_operations") or {}).get("dimensionalize", False)):
         active_case = load_active_run_configuration(run_dir).get("case")
         case_path = os.path.join(run_dir, active_case) if active_case else None
@@ -3622,6 +3628,7 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
                 "--velocity-ref", repr(float(scaling["velocity_ref"])),
                 "--length-ref", repr(float(scaling["length_ref"])),
             ]
+            time_scale = reference_scale(TIME, scaling)
         elif not quiet:
             print("[WARNING] Spectra: dimensionalize was requested but this run carries no "
                   "readable case snapshot; results stay non-dimensional.", file=sys.stderr)
@@ -3654,7 +3661,7 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
 
         for step in ordered_steps:
             bundle = validate_committed_checkpoint(source_dir, step)
-            time = float(bundle["metadata"]["checkpoint_time"])
+            time = float(bundle["metadata"]["checkpoint_time"]) * time_scale
             field_path = _resolve_spectra_payload(
                 bundle, "eulerian", task_cfg["field"], task_cfg["block"]
             )
@@ -3938,10 +3945,9 @@ def build_post_recipe_config(post_cfg: dict, monitor_cfg=None) -> dict:
     eulerian_pipeline_parts = []
     dimensionalize = bool(post_cfg.get('global_operations', {}).get('dimensionalize', False))
     if dimensionalize:
-        eulerian_pipeline_parts.append('DimensionalizeAllLoadedFields')
-        # The field pipeline is one of three producers. Derived statistics scale in the
-        # accumulator and spectra scale in their generator, so the request has to reach
-        # them as a setting rather than as a pipeline stage.
+        # A setting rather than a pipeline stage: loaded fields are scaled as they are
+        # read, derived statistics in the accumulator, particles after their MSD, and
+        # spectra in their generator, each once, where the value is produced.
         c_config['dimensionalize'] = 'true'
 
     for task in post_cfg.get('eulerian_pipeline', []):
@@ -4358,13 +4364,18 @@ def _existing_pvd_times(pvd_path: str) -> dict:
     return result
 
 
-def _checkpoint_time_for_series(run_dir: str, step: int, fallback: dict) -> float:
+def _checkpoint_time_for_series(run_dir: str, step: int, fallback: dict, time_scale: float = 1.0) -> float:
     """!
-    @brief Read authoritative physical time for one visualization frame.
+    @brief Read the authoritative time of one visualization frame.
+    @details Checkpoints record solver time. A dimensionalized recipe writes physical
+             frames, so its collection reports physical time: the checkpoint time
+             multiplied by the owning run's reference time.
     @param[in] run_dir Run owning the frame.
     @param[in] step Frame checkpoint step.
-    @param[in] fallback Existing collection times used after checkpoint pruning.
-    @return Physical time recorded for the frame.
+    @param[in] fallback Existing collection times, already in the collection's units,
+               used after checkpoint pruning.
+    @param[in] time_scale Factor from solver time to the collection's time unit.
+    @return Frame time in the collection's unit system.
     """
     metadata_path = os.path.join(
         run_dir, CANONICAL_RUN_PATHS["checkpoints"],
@@ -4380,7 +4391,7 @@ def _checkpoint_time_for_series(run_dir: str, step: int, fallback: dict) -> floa
             raise ValueError(f"Checkpoint time metadata is malformed: {metadata_path}") from exc
         if recorded_step != step or not math.isfinite(physical_time):
             raise ValueError(f"Checkpoint time metadata does not match step {step}: {metadata_path}")
-        return physical_time
+        return physical_time * time_scale
     if step in fallback:
         return float(fallback[step])
     raise ValueError(
@@ -4471,6 +4482,21 @@ def finalize_post_paraview_series(run_dir: str, post_cfg: dict) -> list:
         if kind == "vtk":
             families.append(("statistics", os.path.basename(prefix_path), "vts"))
 
+    # Each run's frames are timed by that run's own reference time, so a lineage stays
+    # physically continuous even across runs whose scales differ.
+    dimensionalize = bool((post_cfg.get("global_operations") or {}).get("dimensionalize", False))
+
+    def segment_time_scale(segment: dict) -> float:
+        """!
+        @brief Return the factor from one lineage run's solver time to the collection's time.
+        @param[in] segment Lineage segment.
+        @return Reference time of the run when dimensionalizing, otherwise 1.
+        """
+        if not dimensionalize:
+            return 1.0
+        case_path = os.path.join(segment["run_dir"], "config", "case.yml")
+        return reference_scale(TIME, resolve_reference_scales(read_yaml_file(case_path)))
+
     written = []
     for family, prefix, extension in families:
         active_segments = segments[_lineage_reset_index(segments, family):]
@@ -4504,7 +4530,8 @@ def finalize_post_paraview_series(run_dir: str, post_cfg: dict) -> list:
             for step, frame_path in sorted(found):
                 entries.append({
                     "step": step,
-                    "time": _checkpoint_time_for_series(segment["run_dir"], step, fallback),
+                    "time": _checkpoint_time_for_series(segment["run_dir"], step, fallback,
+                                                        segment_time_scale(segment)),
                     "path": os.path.abspath(frame_path),
                     "run_id": segment["run_id"],
                 })
@@ -6550,10 +6577,10 @@ def resolve_target_grid_for_generated_profile(case_cfg: dict, case_path: str, ru
     if grid_cfg.get("mode") == "programmatic_c":
         bridge = os.path.abspath(os.path.join(run_dir, "inputs", "grid", "grid.run"))
         if not os.path.isfile(bridge):
-            scaling = (case_cfg.get("properties", {}) or {}).get("scaling", {}) or {}
             generate_picgrid_from_programmatic_settings(
                 grid_cfg.get("programmatic_settings", {}), bridge,
-                float(scaling.get("length_ref", 1.0)),
+                input_reference_scale(("case", "grid", "programmatic_settings", "xMins"),
+                                      resolve_reference_scales(case_cfg)),
             )
         return bridge
     return resolve_target_grid_for_field_slice(case_cfg, case_path, run_dir)
@@ -7432,13 +7459,7 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
     @return Value returned by `validate_and_prepare_boundary_conditions()`.
     """
     num_blocks = int(case_cfg.get('models', {}).get('domain', {}).get('blocks', 1))
-    scales = case_cfg.get('properties', {}).get('scaling', {})
-    L_ref = _to_float(scales.get('length_ref'), "properties.scaling.length_ref")
-    U_ref = _to_float(scales.get('velocity_ref'), "properties.scaling.velocity_ref")
-    if U_ref == 0.0:
-        raise ValueError("properties.scaling.velocity_ref must be non-zero for non-dimensionalization.")
-    if L_ref == 0.0:
-        raise ValueError("properties.scaling.length_ref must be non-zero for non-dimensionalization.")
+    scales = resolve_reference_scales(case_cfg)
 
     all_blocks_bcs = normalize_boundary_conditions_layout(case_cfg.get('boundary_conditions', []), num_blocks)
     prepared_blocks = []
@@ -7525,11 +7546,9 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
             converted_params = {}
             for key, value in params.items():
                 if key in _NUMERIC_BC_PARAMS:
-                    numeric = _to_float(value, f"boundary_conditions[{bi}][{idx}].params.{key}")
-                    if key in {"vx", "vy", "vz", "v_max"}:
-                        converted_params[key] = numeric / U_ref
-                    elif key == "target_flux":
-                        converted_params[key] = numeric / (U_ref * (L_ref ** 2))
+                    converted_params[key] = quantity_to_solver_units(
+                        value, BC_PARAM_QUANTITIES[key], scales,
+                        f"boundary_conditions[{bi}][{idx}].params.{key}")
                 elif key in _BOOL_BC_PARAMS:
                     canonical = _DEPRECATED_BC_PARAM_ALIASES.get(key, key)
                     if canonical != key:
@@ -7691,6 +7710,7 @@ _CASE_SCHEMA = {
     ("properties", "fluid"): {"density", "viscosity"},
     ("properties", "initial_conditions"): {
         "mode", "generator", "params", "field", "source_file",
+        "source_case", "velocity_scale", "length_scale",
         "u_physical", "v_physical", "w_physical", "peak_velocity_physical",
         "velocity_physical", "flow_direction",
     },
@@ -7980,6 +8000,312 @@ _WORKSPACE_SCHEMA = {
 # Directories the run owns and writes into. `log` is the safety-critical one: the C
 # runtime calls PetscRMTree on it at the start of a fresh solve, so a value that
 # escapes the run directory means the solver recursively deletes whatever is there.
+#: Physical dimensions, as exponents of the reference length, velocity, and density.
+#:
+#: Every input a user writes is physical, and it becomes a solver value by one division,
+#: by `length_ref**a * velocity_ref**b * density**c` for dimension `(a, b, c)`. The C
+#: field catalogs carry the same triple for the reverse conversion in post-processing,
+#: so the two directions use one vocabulary. See docs/pages/19_Nondimensionalization.md.
+DIMENSIONLESS = (0, 0, 0)
+LENGTH = (1, 0, 0)
+VELOCITY = (0, 1, 0)
+TIME = (1, -1, 0)
+WAVENUMBER = (-1, 0, 0)
+VOLUME_FLUX = (2, 1, 0)
+DIFFUSIVITY = (1, 1, 0)
+PRESSURE = (0, 2, 1)
+DENSITY = (0, 0, 1)
+DYNAMIC_VISCOSITY = (1, 1, 1)
+
+#: Where an input's conversion to solver units happens. `cli` converts the value while
+#: writing the control file; `c` converts it in the runtime (programmatic grid bounds,
+#: which have no staging step); `staging` scales a file payload as it is staged; `provider`
+#: means a generator receives the reference scales and emits solver units; `reference`
+#: marks the inputs that define the scales themselves; `passthrough` marks raw solver
+#: flags, which are expert input in solver units by definition. An empty string means
+#: there is nothing to convert.
+INPUT_CONVERSION_SITES = ("cli", "c", "staging", "provider", "reference", "passthrough", "")
+
+NOT_A_QUANTITY = (None, "")
+UNITLESS = (DIMENSIONLESS, "")
+
+#: The physical dimension of every configuration input, and where it is converted.
+#:
+#: Keys are the configuration role followed by the same path tuples the key schemas use.
+#: An entry for an interior path covers every leaf beneath it; that form is reserved for
+#: subtrees that are inherently free of physical quantities (numerical controls, logging,
+#: selectors). `tests/test_units_and_scaling.py` requires every schema leaf, every BC
+#: handler parameter, and every initial-condition generator parameter to be covered, so a
+#: new key cannot be added without deciding what it measures.
+INPUT_QUANTITIES = {
+    # ----- case.yml -----
+    ("case", "title"): NOT_A_QUANTITY,
+    ("case", "run_control", "start_step"): NOT_A_QUANTITY,
+    ("case", "run_control", "total_steps"): NOT_A_QUANTITY,
+    ("case", "run_control", "dt_physical"): (TIME, "cli"),
+    ("case", "properties", "scaling", "length_ref"): (LENGTH, "reference"),
+    ("case", "properties", "scaling", "velocity_ref"): (VELOCITY, "reference"),
+    ("case", "properties", "fluid", "density"): (DENSITY, "reference"),
+    ("case", "properties", "fluid", "viscosity"): (DYNAMIC_VISCOSITY, "reference"),
+    ("case", "properties", "initial_conditions", "mode"): NOT_A_QUANTITY,
+    ("case", "properties", "initial_conditions", "generator"): NOT_A_QUANTITY,
+    ("case", "properties", "initial_conditions", "field"): NOT_A_QUANTITY,
+    ("case", "properties", "initial_conditions", "flow_direction"): NOT_A_QUANTITY,
+    # The payload's dimension follows its field: velocity for Ucat, volume flux for Ucont.
+    ("case", "properties", "initial_conditions", "source_file"): (None, "staging"),
+    ("case", "properties", "initial_conditions", "source_case"): NOT_A_QUANTITY,
+    ("case", "properties", "initial_conditions", "velocity_scale"): (VELOCITY, "reference"),
+    ("case", "properties", "initial_conditions", "length_scale"): (LENGTH, "reference"),
+    ("case", "properties", "initial_conditions", "u_physical"): (VELOCITY, "cli"),
+    ("case", "properties", "initial_conditions", "v_physical"): (VELOCITY, "cli"),
+    ("case", "properties", "initial_conditions", "w_physical"): (VELOCITY, "cli"),
+    ("case", "properties", "initial_conditions", "velocity_physical"): (VELOCITY, "cli"),
+    ("case", "properties", "initial_conditions", "peak_velocity_physical"): (VELOCITY, "cli"),
+    ("case", "grid", "mode"): NOT_A_QUANTITY,
+    ("case", "grid", "source_file"): (LENGTH, "staging"),
+    ("case", "grid", "da_processors_x"): NOT_A_QUANTITY,
+    ("case", "grid", "da_processors_y"): NOT_A_QUANTITY,
+    ("case", "grid", "da_processors_z"): NOT_A_QUANTITY,
+    ("case", "grid", "programmatic_settings", "im"): NOT_A_QUANTITY,
+    ("case", "grid", "programmatic_settings", "jm"): NOT_A_QUANTITY,
+    ("case", "grid", "programmatic_settings", "km"): NOT_A_QUANTITY,
+    ("case", "grid", "programmatic_settings", "cgrids"): NOT_A_QUANTITY,
+    ("case", "grid", "programmatic_settings", "da_processors_x"): NOT_A_QUANTITY,
+    ("case", "grid", "programmatic_settings", "da_processors_y"): NOT_A_QUANTITY,
+    ("case", "grid", "programmatic_settings", "da_processors_z"): NOT_A_QUANTITY,
+    ("case", "grid", "programmatic_settings", "rxs"): UNITLESS,
+    ("case", "grid", "programmatic_settings", "rys"): UNITLESS,
+    ("case", "grid", "programmatic_settings", "rzs"): UNITLESS,
+    ("case", "grid", "programmatic_settings", "xMins"): (LENGTH, "c"),
+    ("case", "grid", "programmatic_settings", "xMaxs"): (LENGTH, "c"),
+    ("case", "grid", "programmatic_settings", "yMins"): (LENGTH, "c"),
+    ("case", "grid", "programmatic_settings", "yMaxs"): (LENGTH, "c"),
+    ("case", "grid", "programmatic_settings", "zMins"): (LENGTH, "c"),
+    ("case", "grid", "programmatic_settings", "zMaxs"): (LENGTH, "c"),
+    # grid.gen writes a physical PICGRID, which is staged like a file grid.
+    ("case", "grid", "generator"): (LENGTH, "staging"),
+    ("case", "models", "domain", "blocks"): NOT_A_QUANTITY,
+    ("case", "models", "physics", "dimensionality"): NOT_A_QUANTITY,
+    ("case", "models", "physics", "fsi"): NOT_A_QUANTITY,
+    ("case", "models", "physics", "particles", "count"): NOT_A_QUANTITY,
+    ("case", "models", "physics", "particles", "init_mode"): NOT_A_QUANTITY,
+    ("case", "models", "physics", "particles", "restart_mode"): NOT_A_QUANTITY,
+    ("case", "models", "physics", "particles", "random_seed"): NOT_A_QUANTITY,
+    ("case", "models", "physics", "particles", "point_source", "x"): (LENGTH, "cli"),
+    ("case", "models", "physics", "particles", "point_source", "y"): (LENGTH, "cli"),
+    ("case", "models", "physics", "particles", "point_source", "z"): (LENGTH, "cli"),
+    # Model constants, ratios, cadences, and selectors: nothing here carries a unit.
+    ("case", "models", "physics", "turbulence", "les"): UNITLESS,
+    ("case", "models", "physics", "turbulence", "rans"): NOT_A_QUANTITY,
+    ("case", "models", "physics", "turbulence", "wall_function", "enabled"): NOT_A_QUANTITY,
+    ("case", "models", "physics", "turbulence", "wall_function", "model"): NOT_A_QUANTITY,
+    ("case", "models", "physics", "turbulence", "wall_function", "roughness_height"): (LENGTH, "cli"),
+    ("case", "boundary_conditions", "[]", "face"): NOT_A_QUANTITY,
+    ("case", "boundary_conditions", "[]", "type"): NOT_A_QUANTITY,
+    ("case", "boundary_conditions", "[]", "handler"): NOT_A_QUANTITY,
+    ("case", "boundary_conditions", "[]", "[]", "face"): NOT_A_QUANTITY,
+    ("case", "boundary_conditions", "[]", "[]", "type"): NOT_A_QUANTITY,
+    ("case", "boundary_conditions", "[]", "[]", "handler"): NOT_A_QUANTITY,
+    ("case", "solver_parameters"): (None, "passthrough"),
+    # ----- solver.yml -----
+    ("solver", "operation_mode", "eulerian_field_source"): NOT_A_QUANTITY,
+    ("solver", "operation_mode", "analytical_type"): NOT_A_QUANTITY,
+    ("solver", "operation_mode", "uniform_flow", "u"): (VELOCITY, "cli"),
+    ("solver", "operation_mode", "uniform_flow", "v"): (VELOCITY, "cli"),
+    ("solver", "operation_mode", "uniform_flow", "w"): (VELOCITY, "cli"),
+    # Iteration controls act on residuals the solver forms in its own units.
+    ("solver", "strategy"): NOT_A_QUANTITY,
+    ("solver", "tolerances"): UNITLESS,
+    ("solver", "momentum_solver"): UNITLESS,
+    ("solver", "poisson_solver"): UNITLESS,
+    ("solver", "pressure_solver"): UNITLESS,
+    ("solver", "interpolation"): NOT_A_QUANTITY,
+    ("solver", "petsc_passthrough_options"): (None, "passthrough"),
+    ("solver", "verification", "sources", "diffusivity", "mode"): NOT_A_QUANTITY,
+    ("solver", "verification", "sources", "diffusivity", "profile"): NOT_A_QUANTITY,
+    ("solver", "verification", "sources", "diffusivity", "gamma0"): (DIFFUSIVITY, "cli"),
+    # Gamma = gamma0 + slope_x * x, so the slope is a diffusivity per length.
+    ("solver", "verification", "sources", "diffusivity", "slope_x"): (VELOCITY, "cli"),
+    ("solver", "verification", "sources", "scalar", "mode"): NOT_A_QUANTITY,
+    ("solver", "verification", "sources", "scalar", "profile"): NOT_A_QUANTITY,
+    ("solver", "verification", "sources", "scalar", "value"): UNITLESS,
+    ("solver", "verification", "sources", "scalar", "phi0"): UNITLESS,
+    ("solver", "verification", "sources", "scalar", "amplitude"): UNITLESS,
+    ("solver", "verification", "sources", "scalar", "slope_x"): (WAVENUMBER, "cli"),
+    ("solver", "verification", "sources", "scalar", "kx"): (WAVENUMBER, "cli"),
+    ("solver", "verification", "sources", "scalar", "ky"): (WAVENUMBER, "cli"),
+    ("solver", "verification", "sources", "scalar", "kz"): (WAVENUMBER, "cli"),
+    ("solver", "scalar_transport"): UNITLESS,
+    # ----- monitor.yml -----
+    ("monitor", "logging"): NOT_A_QUANTITY,
+    ("monitor", "profiling"): NOT_A_QUANTITY,
+    ("monitor", "diagnostics"): NOT_A_QUANTITY,
+    ("monitor", "io"): NOT_A_QUANTITY,
+    ("monitor", "solver_monitoring"): NOT_A_QUANTITY,
+    ("monitor", "solution_monitoring"): NOT_A_QUANTITY,
+    ("monitor", "field_statistics", "enabled"): NOT_A_QUANTITY,
+    ("monitor", "field_statistics", "windows", "[]", "name"): NOT_A_QUANTITY,
+    ("monitor", "field_statistics", "windows", "[]", "weighting"): NOT_A_QUANTITY,
+    ("monitor", "field_statistics", "windows", "[]", "step_cadence"): NOT_A_QUANTITY,
+    ("monitor", "field_statistics", "windows", "[]", "start_time"): (TIME, "cli"),
+    ("monitor", "field_statistics", "windows", "[]", "end_time"): (TIME, "cli"),
+    ("monitor", "field_statistics", "windows", "[]", "time_cadence"): (TIME, "cli"),
+    ("monitor", "field_statistics", "windows", "[]", "fields"): NOT_A_QUANTITY,
+    ("monitor", "field_statistics", "windows", "[]", "covariances"): NOT_A_QUANTITY,
+    # ----- post.yml: steps, indices, selectors, and names only -----
+    ("post",): NOT_A_QUANTITY,
+}
+
+#: Boundary-condition handler parameters (the free-form `params` mapping of a face).
+BC_PARAM_QUANTITIES = {
+    "vx": (VELOCITY, "cli"),
+    "vy": (VELOCITY, "cli"),
+    "vz": (VELOCITY, "cli"),
+    "v_max": (VELOCITY, "cli"),
+    "target_flux": (VOLUME_FLUX, "cli"),
+    "enforce_seam_flux": NOT_A_QUANTITY,
+    "apply_trim": NOT_A_QUANTITY,
+    # Every profile source stages a velocity PICSLICE: a file or generated profile is
+    # physical, and a field_slice declares the scales it was written in.
+    "source": (VELOCITY, "staging"),
+}
+
+#: Initial-condition generator parameters (`properties.initial_conditions.params`), by
+#: generator. Nested mappings use dotted names.
+IC_PARAM_QUANTITIES = {
+    "zero": {},
+    "constant": {
+        "u_physical": (VELOCITY, "cli"), "v_physical": (VELOCITY, "cli"),
+        "w_physical": (VELOCITY, "cli"), "velocity_physical": (VELOCITY, "cli"),
+        "flow_direction": NOT_A_QUANTITY,
+    },
+    "streamwise_constant": {
+        "velocity_physical": (VELOCITY, "cli"), "flow_direction": NOT_A_QUANTITY,
+    },
+    "poiseuille": {
+        "peak_velocity_physical": (VELOCITY, "cli"), "flow_direction": NOT_A_QUANTITY,
+    },
+    "ic_gen": {
+        "field": NOT_A_QUANTITY, "script": NOT_A_QUANTITY, "cli_args": NOT_A_QUANTITY,
+        # Expressions are written in physical coordinates and physical values.
+        "config_file": (None, "provider"),
+    },
+    "spectral_random_velocity": {
+        "field": NOT_A_QUANTITY, "seed": NOT_A_QUANTITY, "remove_mean": NOT_A_QUANTITY,
+        "random.distribution": NOT_A_QUANTITY, "random.mean": (VELOCITY, "cli"),
+        "spectrum.type": NOT_A_QUANTITY,
+        "spectrum.k0": (WAVENUMBER, "cli"), "spectrum.k_cut": (WAVENUMBER, "cli"),
+        "projection.type": NOT_A_QUANTITY, "projection.operator": NOT_A_QUANTITY,
+        "normalization.type": NOT_A_QUANTITY, "normalization.target": (VELOCITY, "cli"),
+    },
+}
+IC_PARAM_QUANTITIES["channel_spectral_velocity"] = IC_PARAM_QUANTITIES["duct_spectral_velocity"] = {
+    "field": NOT_A_QUANTITY, "seed": NOT_A_QUANTITY, "streamwise_axis": NOT_A_QUANTITY,
+    "wall_axes": NOT_A_QUANTITY, "wall_modes": NOT_A_QUANTITY, "initial_spectra": NOT_A_QUANTITY,
+    "bulk_velocity": (VELOCITY, "cli"), "perturbation_rms": (VELOCITY, "cli"),
+    "spectrum.type": NOT_A_QUANTITY,
+    "spectrum.k0": (WAVENUMBER, "cli"), "spectrum.k_cut": (WAVENUMBER, "cli"),
+}
+
+
+def input_quantity(path: tuple) -> tuple:
+    """!
+    @brief Return the `(dimension, conversion site)` recorded for one configuration input.
+    @param[in] path Role followed by the schema path, e.g. `("case", "run_control", "dt_physical")`.
+    @return The entry for the path, or for its nearest covering ancestor.
+    @throws KeyError when no entry covers the path.
+    """
+    for length in range(len(path), 0, -1):
+        entry = INPUT_QUANTITIES.get(tuple(path[:length]))
+        if entry is not None:
+            return entry
+    raise KeyError(f"No physical dimension is recorded for input {'.'.join(map(str, path))}.")
+
+
+def reference_scale(dimension: tuple, scales: dict) -> float:
+    """!
+    @brief Return the factor that turns a physical quantity of this dimension into solver units.
+    @param[in] dimension `(length, velocity, density)` exponents.
+    @param[in] scales Mapping with `length_ref` and `velocity_ref`, and `density` when used.
+    @return `length_ref**a * velocity_ref**b * density**c`.
+    """
+    length, velocity, density = dimension
+    factor = float(scales["length_ref"]) ** length * float(scales["velocity_ref"]) ** velocity
+    if density:
+        factor *= float(scales["density"]) ** density
+    return factor
+
+
+def input_reference_scale(path: tuple, scales: dict) -> float:
+    """!
+    @brief Return the reference scale of one recorded input, for converting a whole payload.
+    @details File payloads (grids, inlet profiles) are converted element by element by
+             their own readers; this gives them the one factor their recorded dimension
+             implies, so they do not restate the dimension.
+    @param[in] path Role and schema path of the input.
+    @param[in] scales Reference scales, as returned by `resolve_reference_scales()`.
+    @return The reference scale of the input's recorded dimension.
+    """
+    dimension, _site = input_quantity(path)
+    if dimension is None:
+        raise ValueError(f"Input {'.'.join(map(str, path[1:]))} has no fixed dimension.")
+    return reference_scale(dimension, scales)
+
+
+def quantity_to_solver_units(value, quantity: tuple, scales: dict, label: str):
+    """!
+    @brief Convert a physical value, or a list of them, by one recorded quantity entry.
+    @param[in] value Physical value as written by the user.
+    @param[in] quantity `(dimension, conversion site)` entry from a dimension table.
+    @param[in] scales Reference scales, as returned by `resolve_reference_scales()`.
+    @param[in] label Configuration path, for diagnostics.
+    @return The value divided by its dimension's reference scale.
+    @throws ValueError when the entry records no fixed dimension.
+    """
+    dimension, _site = quantity
+    if dimension is None:
+        raise ValueError(f"Input {label} has no fixed dimension to convert.")
+    factor = reference_scale(dimension, scales)
+    if isinstance(value, (list, tuple)):
+        return [_to_finite_float(item, label) / factor for item in value]
+    return _to_finite_float(value, label) / factor
+
+
+def to_solver_units(value, path: tuple, scales: dict):
+    """!
+    @brief Convert one physical configuration value, or a list of them, to solver units.
+    @param[in] value Physical value as written by the user.
+    @param[in] path Role and schema path whose recorded dimension governs the conversion.
+    @param[in] scales Reference scales, as returned by `resolve_reference_scales()`.
+    @return The value divided by its dimension's reference scale.
+    @throws ValueError when the path records no fixed dimension.
+    """
+    return quantity_to_solver_units(value, input_quantity(path), scales,
+                                    ".".join(str(part) for part in path[1:]))
+
+
+def resolve_reference_scales(case_cfg: dict) -> dict:
+    """!
+    @brief Resolve the reference length and velocity (and density, when given) of a case.
+    @details This is the part of the scaling contract every conversion needs. It does not
+             require the fluid block, so boundary-condition preparation can use it before
+             the full fluid contract is validated.
+    @param[in] case_cfg Parsed case configuration.
+    @return Mapping with `length_ref`, `velocity_ref`, and optionally `density`.
+    @throws ValueError when a reference scale is missing, non-finite, or not positive.
+    """
+    scaling = ((case_cfg.get("properties") or {}).get("scaling") or {})
+    length_ref = _to_finite_float(scaling.get("length_ref"), "properties.scaling.length_ref")
+    velocity_ref = _to_finite_float(scaling.get("velocity_ref"), "properties.scaling.velocity_ref")
+    if length_ref <= 0.0 or velocity_ref <= 0.0:
+        raise ValueError("properties.scaling.length_ref and velocity_ref must be positive.")
+    scales = {"length_ref": length_ref, "velocity_ref": velocity_ref}
+    density = ((case_cfg.get("properties") or {}).get("fluid") or {}).get("density")
+    if density is not None:
+        scales["density"] = _to_finite_float(density, "properties.fluid.density")
+    return scales
+
+
 RUN_OWNED_DIRECTORY_KEYS = ("log", "output")
 UNSAFE_PATHS_OVERRIDE_KEY = "allow_unsafe_paths"
 
@@ -8412,6 +8738,54 @@ def validate_reserved_directory_flags(config: dict, config_path: str, label: str
     return violations
 
 
+def physical_units_transition_notices(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict) -> list:
+    """!
+    @brief Name the inputs whose meaning changed when every input became physical.
+    @details These inputs were once read in solver units. At unit reference scales the
+             two readings coincide, so a notice is only needed when the scales differ
+             from one; it says which values are now divided by a reference scale.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] solver_cfg Parsed solver configuration.
+    @param[in] monitor_cfg Parsed monitor configuration.
+    @return Warning lines, empty when the case uses unit reference scales.
+    """
+    try:
+        scales = resolve_reference_scales(case_cfg)
+    except (ValueError, TypeError, AttributeError):
+        return []
+    if scales["length_ref"] == 1.0 and scales["velocity_ref"] == 1.0:
+        return []
+    physics = ((case_cfg.get("models") or {}).get("physics") or {})
+    ic = ((case_cfg.get("properties") or {}).get("initial_conditions") or {})
+    operation = (solver_cfg or {}).get("operation_mode") or {}
+    windows = (((monitor_cfg or {}).get("field_statistics") or {}).get("windows") or [])
+    changed = []
+    if isinstance((physics.get("particles") or {}).get("point_source"), dict):
+        changed.append("models.physics.particles.point_source")
+    wall_cfg = (physics.get("turbulence") or {}).get("wall_function")
+    if isinstance(wall_cfg, dict) and "roughness_height" in wall_cfg:
+        changed.append("models.physics.turbulence.wall_function.roughness_height")
+    if str(ic.get("mode", "")).strip().lower() == "file":
+        changed.append("properties.initial_conditions (mode: file payload)")
+    if str(ic.get("generator", "")).strip().lower().replace("-", "_") in _PYTHON_INITIAL_CONDITION_PROVIDERS:
+        changed.append(f"properties.initial_conditions.params ({ic.get('generator')})")
+    if isinstance(operation, dict) and operation.get("uniform_flow"):
+        changed.append("operation_mode.uniform_flow")
+    if ((solver_cfg or {}).get("verification") or {}).get("sources"):
+        changed.append("verification.sources")
+    if any(isinstance(window, dict) and ({"start_time", "end_time", "time_cadence"} & set(window))
+           for window in windows):
+        changed.append("field_statistics.windows[].{start_time,end_time,time_cadence}")
+    if not changed:
+        return []
+    return [
+        f"Physical units: with length_ref={scales['length_ref']:g} and "
+        f"velocity_ref={scales['velocity_ref']:g}, these inputs are read as physical values and "
+        f"converted to solver units: {', '.join(changed)}. Inputs written in solver units "
+        f"before this rule must be converted; see docs/pages/19_Nondimensionalization.md."
+    ]
+
+
 def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
                                 case_path: str, solver_path: str, monitor_path: str):
     """!
@@ -8435,6 +8809,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
     """
     errors = []
     warnings = []
+    warnings.extend(physical_units_transition_notices(case_cfg, solver_cfg, monitor_cfg))
     errors.extend(validate_reserved_directory_flags(
         case_cfg, case_path, "case solver_parameters / passthrough"))
     errors.extend(validate_reserved_directory_flags(
@@ -8601,7 +8976,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         try:
             scaling_contract = resolve_fluid_scaling(case_cfg)
             resolved_ic = resolve_initial_condition_config(
-                ic, prepared_blocks, U_ref=scaling_contract["velocity_ref"],
+                ic, prepared_blocks, scales=scaling_contract,
                 provider_context={"kinematic_viscosity": scaling_contract["nondimensional_kinematic_viscosity"]},
             )
         except KeyError as e:
@@ -8732,7 +9107,10 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         errors.append(f"  {case_path}: 'models.physics.turbulence' must be a mapping.")
     elif isinstance(turbulence_cfg, dict) and turbulence_cfg:
         try:
-            append_turbulence_flags(case_cfg.get('models', {}), [])
+            # Only the selectors are checked here and the flags are discarded, so unit
+            # scales stand in for the case's, whose own validation runs separately.
+            append_turbulence_flags(case_cfg.get('models', {}), [],
+                                    {"length_ref": 1.0, "velocity_ref": 1.0})
         except ValueError as e:
             errors.append(f"  {case_path}: {e}")
 
@@ -11086,21 +11464,35 @@ def resolve_field_statistics_flags(monitor_cfg: dict, case_cfg: dict = None) -> 
     if not config["enabled"]:
         return []
 
+    # Window times are physical; the runtime compares them against its own clock, which
+    # is in solver time, so each is divided by the reference time L_ref / U_ref.
+    scales = resolve_reference_scales(case_cfg or {})
+    window_path = ("monitor", "field_statistics", "windows", "[]")
+
+    def solver_time(key: str, value: float) -> float:
+        """!
+        @brief Convert one physical window time to solver time.
+        @param[in] key Window key, for the recorded dimension.
+        @param[in] value Physical time.
+        @return Solver time.
+        """
+        return to_solver_units(value, window_path + (key,), scales)
+
     lines = ["-field_statistics_enabled true",
              f"-field_statistics_window_count {len(config['windows'])}"]
     for index, window in enumerate(config["windows"]):
         prefix = f"-field_statistics_window_{index}"
         lines.append(f"{prefix}_name {window['name']}")
-        lines.append(f"{prefix}_start_time {window['start_time']!r}")
+        lines.append(f"{prefix}_start_time {solver_time('start_time', window['start_time'])!r}")
         # An absent end time is what makes a window open ended, so the option is
         # omitted rather than given a sentinel value.
         if window["end_time"] is not None:
-            lines.append(f"{prefix}_end_time {window['end_time']!r}")
+            lines.append(f"{prefix}_end_time {solver_time('end_time', window['end_time'])!r}")
         lines.append(f"{prefix}_weighting {window['weighting']}")
         if window["step_cadence"] is not None:
             lines.append(f"{prefix}_step_cadence {window['step_cadence']}")
         else:
-            lines.append(f"{prefix}_time_cadence {window['time_cadence']!r}")
+            lines.append(f"{prefix}_time_cadence {solver_time('time_cadence', window['time_cadence'])!r}")
         lines.append(f"{prefix}_field_count {len(window['fields'])}")
         for field_index, field_entry in enumerate(window["fields"]):
             lines.append(f"{prefix}_field_{field_index}_name {field_entry['field']}")
@@ -11264,10 +11656,8 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
     prepared_blocks = validate_and_prepare_boundary_conditions(case_cfg)
     case_path = source_files.get("Case") if source_files else None
     profile_grid_dims = None
-    scales = case_cfg.get('properties', {}).get('scaling', {})
-    U_ref = _to_float(scales.get('velocity_ref'), "properties.scaling.velocity_ref")
-    if U_ref == 0.0:
-        raise ValueError("properties.scaling.velocity_ref must be non-zero for prescribed_flow profile staging.")
+    # Every profile source stages a physical velocity PICSLICE.
+    profile_velocity_scale = reference_scale(BC_PARAM_QUANTITIES["source"][0], resolve_reference_scales(case_cfg))
 
     if any(bc.get("handler") == "prescribed_flow" for block in prepared_blocks for bc in block):
         profile_grid_dims = resolve_grid_block_dimensions_for_profiles(case_cfg, case_path, run_dir)
@@ -11364,7 +11754,7 @@ def generate_multi_block_bcs(run_dir: str, run_id: str, case_cfg: dict, source_f
                 elif source is not None:
                     raise ValueError(f"Unsupported prescribed_flow source type '{source.get('type')}'.")
                 if source is not None:
-                    summary = validate_and_nondimensionalize_picslice(source_path, staged_path, U_ref, expected_dims)
+                    summary = validate_and_nondimensionalize_picslice(source_path, staged_path, profile_velocity_scale, expected_dims)
                     print(
                         f"[SUCCESS] Staged prescribed_flow profile for block {i}, face {face}: "
                         f"{os.path.relpath(staged_path)} dims={summary['dims']}"
@@ -12035,6 +12425,68 @@ def normalize_initial_condition_field(value: str) -> "tuple[str, int]":
         return "vfield", 1
     raise ValueError("initial_conditions.field must be 'Ucat' or 'Ucont'.")
 
+
+#: Physical dimension of a staged initial-condition payload, by C field code.
+IC_PAYLOAD_DIMENSIONS = {0: VELOCITY, 1: VOLUME_FLUX}
+
+
+def resolve_ic_payload_provenance(ic: dict, field_code: int) -> dict:
+    """!
+    @brief Resolve which scales a file-backed initial condition was written in.
+    @details A payload is physical unless it declares otherwise. A field saved by an
+             earlier run is in that run's solver units, so it names the case that wrote
+             it (`source_case`) or gives its scales directly, the same way a
+             `field_slice` inlet profile does.
+    @param[in] ic Initial-condition YAML mapping.
+    @param[in] field_code C field code: 0 for Ucat, 1 for Ucont.
+    @return Mapping with `source_case`, or `velocity_scale` and `length_scale`, or empty.
+    @throws ValueError on a conflicting, incomplete, or invalid declaration.
+    """
+    source_case = ic.get("source_case")
+    has_scale = any(key in ic for key in ("velocity_scale", "length_scale"))
+    if source_case is not None:
+        if has_scale:
+            raise ValueError("initial_conditions: give source_case or velocity_scale/length_scale, not both.")
+        if not isinstance(source_case, str) or not source_case.strip():
+            raise ValueError("initial_conditions.source_case must be a non-empty path.")
+        return {"source_case": source_case.strip()}
+    if not has_scale:
+        return {}
+    if "velocity_scale" not in ic:
+        raise ValueError("initial_conditions.length_scale requires velocity_scale.")
+    provenance = {"velocity_scale": _to_finite_float(ic["velocity_scale"], "initial_conditions.velocity_scale"),
+                  "length_scale": 1.0}
+    if field_code == 1:
+        if "length_scale" not in ic:
+            raise ValueError("initial_conditions.length_scale is required for a Ucont payload in solver units.")
+        provenance["length_scale"] = _to_finite_float(ic["length_scale"], "initial_conditions.length_scale")
+    elif "length_scale" in ic:
+        raise ValueError("initial_conditions.length_scale applies only to a Ucont payload.")
+    if provenance["velocity_scale"] <= 0.0 or provenance["length_scale"] <= 0.0:
+        raise ValueError("initial_conditions.velocity_scale and length_scale must be positive.")
+    return provenance
+
+
+def ic_payload_divisor(resolved_ic: dict, case_dir: str) -> float:
+    """!
+    @brief Return the factor a file-backed initial condition is divided by when staged.
+    @details A physical payload is divided by its dimension's reference scale. A payload in
+             another run's solver units is first returned to physical units by that run's
+             scale, so the two factors combine into one ratio.
+    @param[in] resolved_ic Resolved `mode: file` initial condition.
+    @param[in] case_dir Directory that relative `source_case` paths resolve against.
+    @return Positive divisor; 1.0 when the payload already matches this case's solver units.
+    """
+    dimension = IC_PAYLOAD_DIMENSIONS[resolved_ic["field_code"]]
+    provenance = resolved_ic.get("payload_provenance") or {}
+    source_scales = {"length_ref": 1.0, "velocity_ref": 1.0}
+    if "source_case" in provenance:
+        source_path = _resolve_case_relative_path(provenance["source_case"], case_dir)
+        source_scales = resolve_reference_scales(read_yaml_file(source_path))
+    elif provenance:
+        source_scales = {"length_ref": provenance["length_scale"], "velocity_ref": provenance["velocity_scale"]}
+    return reference_scale(dimension, resolved_ic["scales"]) / reference_scale(dimension, source_scales)
+
 GENERATED_IC_PROVIDERS = {
     "channel_spectral_velocity": {"requires_grid": True, "requires_fresh_3d": True},
     "duct_spectral_velocity": {"requires_grid": True, "requires_fresh_3d": True},
@@ -12087,12 +12539,39 @@ def resolve_fluid_scaling(case_cfg: dict) -> dict:
     }
 
 
-def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, provider_context=None) -> dict:
+def ic_provider_params_to_solver_units(generator: str, params: dict, scales: dict) -> dict:
+    """!
+    @brief Convert a provider's validated physical parameters to solver units.
+    @details Providers work on the staged nondimensional grid, so every dimensional
+             parameter recorded in `IC_PARAM_QUANTITIES` is converted before the provider
+             runs. Nested mappings are addressed by dotted name.
+    @param[in] generator Provider identifier.
+    @param[in] params Validated parameter mapping in physical units.
+    @param[in] scales Reference scales, as returned by `resolve_reference_scales()`.
+    @return A copy of the mapping with dimensional values in solver units.
+    """
+    converted = copy.deepcopy(params)
+    for name, quantity in IC_PARAM_QUANTITIES[generator].items():
+        if quantity[1] != "cli":
+            continue
+        *parents, leaf = name.split(".")
+        holder = converted
+        for parent in parents:
+            holder = holder.get(parent) if isinstance(holder, dict) else None
+        if isinstance(holder, dict) and leaf in holder:
+            holder[leaf] = quantity_to_solver_units(
+                holder[leaf], quantity, scales, f"initial_conditions.params.{name}")
+    return converted
+
+
+def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, provider_context=None) -> dict:
     """!
     @brief Resolve legacy and structured initial-condition YAML into one launcher contract.
+    @details Every value the user writes is physical; the resolved contract carries solver
+             units, or the scales a provider or the staging step needs to reach them.
     @param[in] ic Initial-condition YAML mapping.
     @param[in] prepared_blocks Normalized boundary-condition blocks.
-    @param[in] U_ref Physical reference velocity.
+    @param[in] scales Reference scales, as returned by `resolve_reference_scales()`.
     @param[in] provider_context Optional conductor-derived provider context.
     @return Normalized launcher initial-condition contract.
     """
@@ -12103,7 +12582,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
     # Backward-compatible legacy spelling.
     if mode in LEGACY_FIELD_INIT_SPELLINGS:
         finit_code = normalize_field_init_mode(mode)
-        params = resolve_ic_cli_params(ic, finit_code, prepared_blocks, U_ref)
+        params = resolve_ic_cli_params(ic, finit_code, prepared_blocks, scales)
         if finit_code == 1 and params.pop("ic_coordinate_system", 0) == 1:
             finit_code = 3
         return {"finit": finit_code, "cli_params": params, "kind": "builtin", "label": mode}
@@ -12119,6 +12598,8 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
         return {
             "finit": 4, "cli_params": {}, "kind": "file", "label": "file",
             "source_file": source_file.strip(), "field_name": field_name, "field_code": field_code,
+            "payload_provenance": resolve_ic_payload_provenance(ic, field_code),
+            "scales": dict(scales),
         }
     if normalized_mode != "generated":
         raise ValueError("initial_conditions.mode must be 'generated' or 'file'.")
@@ -12151,6 +12632,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
             "config_file": config_file.strip(),
             "script": script.strip() if script is not None else None,
             "cli_args": cli_args,
+            "scales": dict(scales),
         }
 
     if generator in ("channel_spectral_velocity", "duct_spectral_velocity"):
@@ -12188,7 +12670,8 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
                 raise ValueError("initial spectra require block 0, no window mean, and no reference.")
         normalized["initial_spectra"] = spectra["tasks"]
         return {"finit": 4, "cli_params": {}, "kind": generator, "label": generator,
-                "field_name": "ufield", "field_code": 0, "params": normalized,
+                "field_name": "ufield", "field_code": 0,
+                "params": ic_provider_params_to_solver_units(generator, normalized, scales),
                 "provider_context": dict(provider_context or {})}
 
     if generator == "spectral_random_velocity":
@@ -12199,8 +12682,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
             for bc in prepared_blocks[0]
         ):
             raise ValueError("spectral_random_velocity requires PERIODIC/geometric boundaries on all six faces.")
-        allowed = {"field", "seed", "random", "spectrum", "projection", "normalization", "remove_mean"}
-        unknown = sorted(set(params) - allowed)
+        unknown = sorted(set(params) - SPECTRAL_RANDOM_VELOCITY_PARAMS)
         if unknown:
             raise ValueError(f"spectral_random_velocity has unsupported params: {unknown}.")
         field_name, field_code = normalize_initial_condition_field(params.get("field", "Ucat"))
@@ -12268,10 +12750,13 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
         return {
             "finit": 4, "cli_params": {}, "kind": "spectral_random_velocity", "label": "spectral_random_velocity",
             "field_name": field_name, "field_code": field_code, "provider_context": context,
-            "params": {"field": "Ucat", "seed": seed,
-                       "random": {"distribution": distribution, "mean": mean},
-                       "spectrum": normalized_spectrum, "projection": normalized_projection,
-                       "normalization": normalized_normalization, "remove_mean": remove_mean},
+            "params": ic_provider_params_to_solver_units(
+                "spectral_random_velocity",
+                {"field": "Ucat", "seed": seed,
+                 "random": {"distribution": distribution, "mean": mean},
+                 "spectrum": normalized_spectrum, "projection": normalized_projection,
+                 "normalization": normalized_normalization, "remove_mean": remove_mean},
+                scales),
         }
 
     generator_modes = {
@@ -12292,7 +12777,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, U_ref: float, pr
         legacy_ic,
         1 if finit_code == 3 else finit_code,
         prepared_blocks,
-        U_ref,
+        scales,
     )
     cli_params.pop("ic_coordinate_system", None)
     return {"finit": finit_code, "cli_params": cli_params, "kind": "builtin", "label": generator}
@@ -12317,6 +12802,35 @@ def validate_petsc_vec_binary(path: str) -> dict:
             f"PETSc Vec payload size mismatch in {path}: expected {scalar_count * 8} bytes, found {len(payload)}."
         )
     return {"path": os.path.abspath(path), "scalar_count": scalar_count}
+
+
+def write_scaled_petsc_vec_binary(source: str, destination: str, divisor: float) -> dict:
+    """!
+    @brief Copy a PETSc binary Vec, dividing every scalar by one factor.
+    @details Used to stage a physical payload in solver units. The envelope is the one
+             `validate_petsc_vec_binary()` accepts: a big-endian class id and count,
+             followed by big-endian doubles.
+    @param[in] source Validated PETSc binary vector path.
+    @param[in] destination Path to write the scaled vector to.
+    @param[in] divisor Reference scale the payload is divided by.
+    @return Summary of the destination, as `validate_petsc_vec_binary()` reports it.
+    """
+    from array import array
+    validate_petsc_vec_binary(source)
+    with open(source, "rb") as fin:
+        header = fin.read(8)
+        values = array("d")
+        values.frombytes(fin.read())
+    if sys.byteorder == "little":
+        values.byteswap()
+    for index, value in enumerate(values):
+        values[index] = value / divisor
+    if sys.byteorder == "little":
+        values.byteswap()
+    with open(destination, "wb") as fout:
+        fout.write(header)
+        fout.write(values.tobytes())
+    return validate_petsc_vec_binary(destination)
 
 def initial_condition_diagnostic_paths(run_dir, resolved_ic):
     """!
@@ -12424,6 +12938,10 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
     staged_grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
     if os.path.isfile(staged_grid):
         cmd.extend(["--grid", staged_grid])
+    # Expressions are written in physical units; the generator is given the scales and
+    # writes solver units, like every other initial-condition provider.
+    cmd.extend(["--length-ref", repr(float(resolved_ic["scales"]["length_ref"])),
+                "--velocity-ref", repr(float(resolved_ic["scales"]["velocity_ref"]))])
     cmd.extend(str(token) for token in resolved_ic.get("cli_args", []))
     result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
     if result.returncode != 0:
@@ -12454,19 +12972,23 @@ def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict
         if resolved_ic["kind"] in ("spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"):
             summary["diagnostics"] = initial_condition_diagnostic_paths(run_dir, resolved_ic)
         return summary
+    divisor = 1.0
     if is_generated_ic_provider(resolved_ic):
+        # Providers are handed the scales they need and write solver units.
         source_path = run_initial_condition_generator(case_path, run_dir, resolved_ic)
     else:
-        source_path = _resolve_case_relative_path(
-            resolved_ic["source_file"], os.path.dirname(os.path.abspath(case_path))
-        )
+        case_dir = os.path.dirname(os.path.abspath(case_path))
+        source_path = _resolve_case_relative_path(resolved_ic["source_file"], case_dir)
         if not os.path.isfile(source_path):
             raise ValueError(f"Initial-condition source file not found: {source_path}")
         validate_petsc_vec_binary(source_path)
-    if os.path.abspath(source_path) != os.path.abspath(staged_path):
+        divisor = ic_payload_divisor(resolved_ic, case_dir)
+    if divisor != 1.0:
+        write_scaled_petsc_vec_binary(source_path, staged_path, divisor)
+    elif os.path.abspath(source_path) != os.path.abspath(staged_path):
         shutil.copy2(source_path, staged_path)
     summary = {"source": os.path.abspath(source_path), "staged": os.path.abspath(staged_path),
-               "directory": os.path.abspath(stage_dir)}
+               "directory": os.path.abspath(stage_dir), "payload_divisor": divisor}
     if resolved_ic["kind"] in ("spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"):
         summary["diagnostics"] = initial_condition_diagnostic_paths(run_dir, resolved_ic)
     return summary
@@ -12504,13 +13026,13 @@ def _ic_has_inlet(prepared_blocks) -> bool:
                 return True
     return False
 
-def resolve_ic_cli_params(ic: dict, finit_code: int, prepared_blocks, U_ref: float) -> dict:
+def resolve_ic_cli_params(ic: dict, finit_code: int, prepared_blocks, scales: dict) -> dict:
     """!
     @brief Resolve all IC parameters and return a dict of PETSc option values.
     @param[in] ic The properties.initial_conditions mapping.
     @param[in] finit_code Normalized -finit integer code.
     @param[in] prepared_blocks Normalized BC blocks (may be None).
-    @param[in] U_ref Reference velocity for non-dimensionalization.
+    @param[in] scales Reference scales, as returned by `resolve_reference_scales()`.
     @return Dict with keys matching PETSc option names (without leading dash).
     @throws KeyError if a required key is absent.
     @throws ValueError on invalid combinations or values.
@@ -12540,7 +13062,8 @@ def resolve_ic_cli_params(ic: dict, finit_code: int, prepared_blocks, U_ref: flo
                     f"Invalid value for initial_conditions.velocity_physical: {ic['velocity_physical']!r}. "
                     "Expected a numeric value."
                 ) from exc
-            result["ic_velocity_physical"] = vel_phys / U_ref if U_ref != 0 else 0.0
+            result["ic_velocity_physical"] = to_solver_units(
+                vel_phys, ("case", "properties", "initial_conditions", "velocity_physical"), scales)
 
             if "flow_direction" in ic:
                 result["flow_direction"] = normalize_flow_direction_token(ic["flow_direction"])
@@ -12559,10 +13082,10 @@ def resolve_ic_cli_params(ic: dict, finit_code: int, prepared_blocks, U_ref: flo
             cs_code = 0
             result["ic_coordinate_system"] = cs_code
             u, v, w = parse_initial_velocity_components(ic, finit_code, require_explicit=True)
-            scale = 1.0 / U_ref if U_ref != 0 else 0.0
-            result["ucont_x"] = u * scale
-            result["ucont_y"] = v * scale
-            result["ucont_z"] = w * scale
+            ic_path = ("case", "properties", "initial_conditions")
+            result["ucont_x"] = to_solver_units(u, ic_path + ("u_physical",), scales)
+            result["ucont_y"] = to_solver_units(v, ic_path + ("v_physical",), scales)
+            result["ucont_z"] = to_solver_units(w, ic_path + ("w_physical",), scales)
 
     elif finit_code == 2:  # Poiseuille
         if any(k in ic for k in ("u_physical", "v_physical", "w_physical")):
@@ -12582,7 +13105,8 @@ def resolve_ic_cli_params(ic: dict, finit_code: int, prepared_blocks, U_ref: flo
                 f"Invalid value for initial_conditions.peak_velocity_physical: "
                 f"{ic['peak_velocity_physical']!r}. Expected a numeric value."
             ) from exc
-        result["ic_velocity_physical"] = peak / U_ref if U_ref != 0 else 0.0
+        result["ic_velocity_physical"] = to_solver_units(
+            peak, ("case", "properties", "initial_conditions", "peak_velocity_physical"), scales)
 
         if "flow_direction" in ic:
             fd_int = normalize_flow_direction_token(ic["flow_direction"])
@@ -13082,11 +13606,14 @@ def append_les_parameter_flags(les_cfg: dict, control_lines: list):
             control_lines.append(
                 f"-les_yoshizawa_ci {format_flag_value(diagnostics['yoshizawa_ci'])}")
 
-def append_turbulence_flags(models: dict, control_lines: list):
+def append_turbulence_flags(models: dict, control_lines: list, scales: dict = None):
     """!
     @brief Appends turbulence model flags from legacy or structured case.yml blocks.
     @param[in] models Parsed case.yml `models` mapping.
     @param[out] control_lines A list of strings to which C-flags will be appended.
+    @param[in] scales The case's reference scales. Required only when a physical
+               roughness height is set.
+    @throws RuntimeError when a roughness height is set and no scales were supplied.
     """
     turbulence_cfg = models.get('physics', {}).get('turbulence', {})
     if not turbulence_cfg:
@@ -13119,7 +13646,12 @@ def append_turbulence_flags(models: dict, control_lines: list):
         wall_model = normalize_wall_function_model(wall_cfg.get('model'))
         control_lines.append(f"-wallfunction {wall_model if enabled else 0}")
         if 'roughness_height' in wall_cfg:
-            control_lines.append(f"-wall_roughness {format_flag_value(wall_cfg['roughness_height'])}")
+            if scales is None:
+                raise RuntimeError("wall_function.roughness_height is a physical length and needs the case reference scales.")
+            roughness = to_solver_units(
+                wall_cfg['roughness_height'],
+                ("case", "models", "physics", "turbulence", "wall_function", "roughness_height"), scales)
+            control_lines.append(f"-wall_roughness {format_flag_value(roughness)}")
     elif wall_cfg is not None:
         control_lines.append(f"-wallfunction {format_flag_value(wall_cfg)}")
 
@@ -13295,7 +13827,10 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
                     control_lines.append(f"{flag} {format_flag_value(current_level[yaml_key])}")
         except KeyError: continue
 
-    append_turbulence_flags(models, control_lines)
+    wall_cfg = (((models.get('physics') or {}).get('turbulence') or {}).get('wall_function'))
+    needs_scales = isinstance(wall_cfg, dict) and 'roughness_height' in wall_cfg
+    append_turbulence_flags(models, control_lines,
+                            resolve_reference_scales(case_cfg) if needs_scales else None)
 
     if models.get('physics', {}).get('dimensionality') == '2D':
         control_lines.append("-TwoD 1")
@@ -13310,16 +13845,16 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
         point_cfg = particles_cfg.get('point_source', {})
         if not isinstance(point_cfg, dict):
             raise ValueError("models.physics.particles.point_source must be a mapping when init_mode is PointSource.")
+        scales = resolve_reference_scales(case_cfg)
+        point_path = ("case", "models", "physics", "particles", "point_source")
         try:
-            psrc_x = float(point_cfg['x'])
-            psrc_y = float(point_cfg['y'])
-            psrc_z = float(point_cfg['z'])
+            psrc = [to_solver_units(point_cfg[axis], point_path + (axis,), scales) for axis in ("x", "y", "z")]
         except (KeyError, TypeError, ValueError):
             raise ValueError("PointSource init_mode requires numeric point_source.{x,y,z} values.")
-        control_lines.append(f"-psrc_x {psrc_x}")
-        control_lines.append(f"-psrc_y {psrc_y}")
-        control_lines.append(f"-psrc_z {psrc_z}")
-        print(f"  - Particle Point Source: ({psrc_x}, {psrc_y}, {psrc_z})")
+        for axis, value in zip(("x", "y", "z"), psrc):
+            control_lines.append(f"-psrc_{axis} {value}")
+        print(f"  - Particle Point Source: ({point_cfg['x']}, {point_cfg['y']}, {point_cfg['z']}) "
+              f"-> solver units ({psrc[0]}, {psrc[1]}, {psrc[2]})")
 
     p_restart_mode = particles_cfg.get('restart_mode')
     if p_restart_mode:
@@ -13337,13 +13872,31 @@ KRYLOV_KSP_TYPES = {
     "tfqmr", "tcqmr", "minres", "symmlq", "cr", "lsqr", "pipecg", "pipefgmres",
 }
 
-def parse_solver_config(solver_cfg: dict) -> dict:
+def parse_solver_config(solver_cfg: dict, scales: dict = None) -> dict:
     """!
     @brief Parses the structured solver.yml into a flat dictionary of {flag: value}.
     @param[in] solver_cfg The parsed solver.yml configuration dictionary.
+    @param[in] scales The case's reference scales. Required only when solver.yml sets a
+               dimensional value, which is physical and is converted here.
     @return A dictionary where keys are C-solver flags and values are the corresponding settings.
     """
     flags = {}
+
+    def solver_value(path: tuple, value) -> float:
+        """!
+        @brief Convert one solver.yml value by its recorded dimension.
+        @param[in] path Schema path under solver.yml.
+        @param[in] value Value as written.
+        @return The value in solver units.
+        @throws RuntimeError when the value is dimensional and no scales were supplied; that
+                is a caller error, kept distinct from the ValueError of an invalid value.
+        """
+        full_path = ("solver",) + path
+        if input_quantity(full_path)[0] == DIMENSIONLESS:
+            return _to_finite_float(value, ".".join(path))
+        if scales is None:
+            raise RuntimeError(f"{'.'.join(path)} is a physical value and needs the case reference scales.")
+        return to_solver_units(value, full_path, scales)
     if 'operation_mode' in solver_cfg and isinstance(solver_cfg['operation_mode'], dict):
         op_mode = solver_cfg['operation_mode']
         if 'eulerian_field_source' in op_mode:
@@ -13357,9 +13910,9 @@ def parse_solver_config(solver_cfg: dict) -> dict:
                 if not isinstance(uniform_flow_cfg, dict):
                     raise ValueError("operation_mode.uniform_flow must be a mapping when analytical_type is 'UNIFORM_FLOW'.")
                 try:
-                    flags['-analytical_uniform_u'] = float(uniform_flow_cfg['u'])
-                    flags['-analytical_uniform_v'] = float(uniform_flow_cfg['v'])
-                    flags['-analytical_uniform_w'] = float(uniform_flow_cfg['w'])
+                    for component in ("u", "v", "w"):
+                        flags[f'-analytical_uniform_{component}'] = solver_value(
+                            ("operation_mode", "uniform_flow", component), uniform_flow_cfg[component])
                 except KeyError as exc:
                     raise ValueError(f"operation_mode.uniform_flow.{exc.args[0]} is required when analytical_type is 'UNIFORM_FLOW'.") from exc
                 except (TypeError, ValueError) as exc:
@@ -13379,8 +13932,9 @@ def parse_solver_config(solver_cfg: dict) -> dict:
             try:
                 flags['-verification_diffusivity_mode'] = f"\"{str(diff_cfg['mode']).strip().lower()}\""
                 flags['-verification_diffusivity_profile'] = f"\"{str(diff_cfg['profile']).strip().upper()}\""
-                flags['-verification_diffusivity_gamma0'] = float(diff_cfg['gamma0'])
-                flags['-verification_diffusivity_slope_x'] = float(diff_cfg['slope_x'])
+                for key in ("gamma0", "slope_x"):
+                    flags[f'-verification_diffusivity_{key}'] = solver_value(
+                        ("verification", "sources", "diffusivity", key), diff_cfg[key])
             except KeyError as exc:
                 raise ValueError(f"verification.sources.diffusivity.{exc.args[0]} is required.") from exc
             except (TypeError, ValueError) as exc:
@@ -13404,7 +13958,8 @@ def parse_solver_config(solver_cfg: dict) -> dict:
             profile = str(scalar_cfg.get('profile', '')).strip().upper()
             for key in scalar_numeric_keys.get(profile, ()):
                 try:
-                    flags[f'-verification_scalar_{key}'] = float(scalar_cfg[key])
+                    flags[f'-verification_scalar_{key}'] = solver_value(
+                        ("verification", "sources", "scalar", key), scalar_cfg[key])
                 except KeyError as exc:
                     raise ValueError(f"verification.sources.scalar.{exc.args[0]} is required.") from exc
                 except (TypeError, ValueError) as exc:
@@ -13903,9 +14458,8 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         U_ref = fluid_scaling["velocity_ref"]
         rho = fluid_scaling["density"]
         reynolds = fluid_scaling["reynolds"]
-        dt_phys = float(run_ctrl['dt_physical'])
-        T_ref = L_ref / U_ref if U_ref != 0 else float('inf')
-        dt_nondim = dt_phys / T_ref if T_ref != float('inf') else 0.0
+        dt_nondim = to_solver_units(run_ctrl['dt_physical'], ("case", "run_control", "dt_physical"), fluid_scaling)
+        grid_length_scale = input_reference_scale(("case", "grid", "source_file"), fluid_scaling)
         print(f"  - Reynolds Number (Re) = {reynolds:.4f}")
         print(f"  - Non-Dimensional dt*  = {dt_nondim:.6f}")
         eulerian_source = normalize_eulerian_field_source(
@@ -13916,7 +14470,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         ic_cli = []
         if ic_is_authoritative:
             resolved_ic = resolve_initial_condition_config(
-                ic, prepared_blocks, U_ref,
+                ic, prepared_blocks, fluid_scaling,
                 provider_context={"kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]},
             )
             finit_mode_str = resolved_ic["label"]
@@ -13996,7 +14550,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
             grid_for_validation = source_grid
             try:
                 summary = validate_and_nondimensionalize_picgrid(
-                    grid_for_validation, nondim_grid_path, L_ref, expected_nblk=expected_nblk
+                    grid_for_validation, nondim_grid_path, grid_length_scale, expected_nblk=expected_nblk
                 )
                 print(
                     f"[SUCCESS] Validated and non-dimensionalized grid: {os.path.relpath(nondim_grid_path)} "
@@ -14018,7 +14572,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 generated_grid = run_grid_generator(
                     configs['case_path'], run_dir, grid_cfg, case_cfg=case_cfg)
                 summary = validate_and_nondimensionalize_picgrid(
-                    generated_grid, nondim_grid_path, L_ref, expected_nblk=expected_nblk
+                    generated_grid, nondim_grid_path, grid_length_scale, expected_nblk=expected_nblk
                 )
                 print(
                     f"[SUCCESS] grid.gen output validated and non-dimensionalized: {os.path.relpath(nondim_grid_path)} "
@@ -14046,7 +14600,8 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
             if not os.path.isfile(nondim_grid_path):
                 try:
                     generate_picgrid_from_programmatic_settings(
-                        grid_cfg.get('programmatic_settings', {}), nondim_grid_path, L_ref
+                        grid_cfg.get('programmatic_settings', {}), nondim_grid_path,
+                        input_reference_scale(("case", "grid", "programmatic_settings", "xMins"), fluid_scaling),
                     )
                     print(
                         "[SUCCESS] Materialized a bridge grid for the Python initial-condition "
@@ -14091,7 +14646,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 control_lines.append(f"{key} {format_flag_value(value)}")
 
     try:
-        solver_flags = parse_solver_config(solver_cfg)
+        solver_flags = parse_solver_config(solver_cfg, resolve_reference_scales(case_cfg))
     except ValueError as e:
         print(f"[FATAL] Invalid solver.yml settings: {e}", file=sys.stderr)
         sys.exit(1)
@@ -14921,7 +15476,7 @@ def extract_metric_from_csv(case_dir: str, spec: dict):
             denominator_floor = float(spec.get("denominator_floor", 0.0) or 0.0)
             if not column and not numerator_column:
                 for name in reversed(reader.fieldnames):
-                    if name and name.lower() not in {"step", "time", "timestep"}:
+                    if name and name.lower() not in {"step", "time", "timestep", "physical_time"}:
                         column = name
                         break
             if not column and not numerator_column:
@@ -15979,7 +16534,7 @@ def add_planned_initial_condition_artifacts(plan: dict, case_cfg: dict, solver_c
         resolved = resolve_initial_condition_config(
             (case_cfg.get("properties", {}) or {}).get("initial_conditions", {}),
             validate_and_prepare_boundary_conditions(case_cfg),
-            U_ref=fluid_scaling["velocity_ref"],
+            scales=fluid_scaling,
             provider_context={"kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]},
         )
     except (KeyError, ValueError):
@@ -16511,23 +17066,24 @@ def _build_selected_asset_payloads(build_root: str, case_cfg: dict, case_path: s
         ]
 
     grid_cfg = case_cfg.get("grid", {}) or {}
-    scaling = (case_cfg.get("properties", {}) or {}).get("scaling", {}) or {}
-    length_ref = float(scaling.get("length_ref", 1.0))
     expected_nblk = int((case_cfg.get("models", {}) or {}).get("domain", {}).get("blocks", 1))
     staged_grid = os.path.join(build_root, "inputs", "grid", "grid.run")
     if "grid" in selected_kinds:
         before = fingerprint("grid")
+        if grid_cfg.get("mode") in _FILE_BACKED_GRID_VALUES:
+            grid_length_scale = input_reference_scale(("case", "grid", "source_file"),
+                                                      resolve_reference_scales(case_cfg))
         if grid_cfg.get("mode") == "grid_gen":
             generated = run_grid_generator(case_path, build_root, grid_cfg, case_cfg=case_cfg)
             validate_and_nondimensionalize_picgrid(
-                generated, staged_grid, length_ref, expected_nblk=expected_nblk
+                generated, staged_grid, grid_length_scale, expected_nblk=expected_nblk
             )
         elif grid_cfg.get("mode") == "file":
             source = _resolve_case_relative_path(
                 grid_cfg.get("source_file"), os.path.dirname(os.path.abspath(case_path))
             )
             validate_and_nondimensionalize_picgrid(
-                source, staged_grid, length_ref, expected_nblk=expected_nblk
+                source, staged_grid, grid_length_scale, expected_nblk=expected_nblk
             )
         record_changes("grid", before)
 
@@ -16545,7 +17101,7 @@ def _build_selected_asset_payloads(build_root: str, case_cfg: dict, case_path: s
         resolved_ic = resolve_initial_condition_config(
             (case_cfg.get("properties", {}) or {}).get("initial_conditions", {}),
             validate_and_prepare_boundary_conditions(case_cfg),
-            U_ref=fluid_scaling["velocity_ref"],
+            scales=fluid_scaling,
             provider_context={
                 "kinematic_viscosity": fluid_scaling["nondimensional_kinematic_viscosity"]
             },
@@ -16561,7 +17117,8 @@ def _build_selected_asset_payloads(build_root: str, case_cfg: dict, case_path: s
             # solver builds moments later; it is not published as its own asset, since a
             # programmatic_c grid is never a persisted asset in its own right.
             generate_picgrid_from_programmatic_settings(
-                grid_cfg.get("programmatic_settings", {}), staged_grid, length_ref
+                grid_cfg.get("programmatic_settings", {}), staged_grid,
+                input_reference_scale(("case", "grid", "programmatic_settings", "xMins"), fluid_scaling),
             )
         stage_initial_condition_file(build_root, case_path, resolved_ic)
         record_changes("initial-condition", before)
@@ -18860,7 +19417,9 @@ def _build_case_overview(context: dict) -> dict:
             "end_step": start + total,
             "dt_physical": dt,
             "duration_physical": total * dt,
-            "dt_nondimensional": dt * velocity_ref / length_ref,
+            "dt_nondimensional": to_solver_units(
+                dt, ("case", "run_control", "dt_physical"),
+                {"length_ref": length_ref, "velocity_ref": velocity_ref}),
         },
         "properties": {
             "length_ref": length_ref,

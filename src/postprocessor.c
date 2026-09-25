@@ -166,9 +166,10 @@ PetscErrorCode EulerianDataProcessingPipeline(UserCtx* user, PostProcessParams* 
             ierr = ComputeQCriterion(user); CHKERRQ(ierr);
         }
         else if (strcasecmp(keyword, "DimensionalizeAllLoadedFields") == 0) {
-            /* Emitted by global_operations.dimensionalize. It had no dispatch branch,
-             * so the option was accepted, serialized, and then silently skipped. */
-            ierr = DimensionalizeAllLoadedFields(user); CHKERRQ(ierr);
+            /* Retired stage. Loaded fields are now scaled as they are read, which is the
+             * only point that knows which fields a step actually loaded; scaling them here
+             * too would scale them twice. Recipes locked before the change still carry
+             * the token, so it is accepted and does nothing. */
         }
         else if (strcasecmp(keyword, "NormalizeRelativeField") == 0) {
             if (!args_str) SETERRQ(PETSC_COMM_SELF, 1, "NormalizePressure requires the pressure field name (e.g., 'P') as an argument.");
@@ -907,8 +908,15 @@ int main(int argc, char **argv)
             // 4. Dimensionalize the loaded particle fields before anything derives from
             //    or writes them; they are loaded after the Eulerian pipeline has run.
             if (pps->dimensionalize) {
-                ierr = DimensionalizeField(user, "ParticlePosition"); CHKERRQ(ierr);
-                ierr = DimensionalizeField(user, "ParticleVelocity"); CHKERRQ(ierr);
+                // Every loaded particle field with a physical dimension, each once.
+                for (PetscInt raw_id = 0; raw_id < PARTICLE_FIELD_ID_COUNT; ++raw_id) {
+                    const ParticleFieldDescriptor *descriptor = NULL;
+
+                    ierr = ParticleFieldGetDescriptor((ParticleFieldId)raw_id, &descriptor); CHKERRQ(ierr);
+                    if (!(descriptor->capabilities & PARTICLE_FIELD_CAPABILITY_CHECKPOINT)) continue;
+                    if (descriptor->dimension.kind != FIELD_DIMENSION_FIXED) continue;
+                    ierr = DimensionalizeField(user, descriptor->canonical_name); CHKERRQ(ierr);
+                }
             }
 
             // 5. Transform particle data

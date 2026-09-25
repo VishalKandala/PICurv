@@ -31,7 +31,8 @@ Mapping to control flags:
 - `init_mode` -> `-pinit`
 - `restart_mode` -> `-particle_restart_mode`
 - `random_seed` -> `-particle_random_seed` (optional; integer `0`..`2147483647`, default `12345`)
-- `point_source` -> `-psrc_x/-psrc_y/-psrc_z` (required when `init_mode` is `PointSource`)
+- `point_source` -> `-psrc_x/-psrc_y/-psrc_z` (required when `init_mode` is `PointSource`); a
+  physical position, divided by `length_ref` like the grid bounds it sits within
 
 Note: The interpolation method (`Trilinear` / `CornerAveraged`) is configured in `solver.yml`, not `case.yml`. See **@subpage 08_Solver_Reference** and **@subpage 27_Trilinear_Interpolation_and_Projection**.
 

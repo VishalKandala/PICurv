@@ -115,6 +115,43 @@ typedef enum {
     FIELD_CAPABILITY_CHECKPOINT                = 1u << 5
 } FieldCapabilities;
 
+/** @brief How a field's physical dimension is known. */
+typedef enum {
+    FIELD_DIMENSION_FIXED = 0,       /**< The exponents are the field's dimension. */
+    FIELD_DIMENSION_NOT_A_QUANTITY,  /**< Integer bookkeeping: identities, flags, ranks. */
+    FIELD_DIMENSION_FROM_SOURCE      /**< Staging storage: carries whatever was written into it. */
+} FieldDimensionKind;
+
+/**
+ * @brief Physical dimension as exponents of the reference length, velocity, and density.
+ *
+ * A solver value of dimension (a, b, c) becomes physical when multiplied by
+ * `L_ref^a U_ref^b rho_ref^c`. The launcher records input dimensions with the same
+ * triple (`picurv_cli/core.py`, `INPUT_QUANTITIES`), so input and output conversion use
+ * one vocabulary. See docs/pages/19_Nondimensionalization.md.
+ */
+typedef struct {
+    FieldDimensionKind kind;
+    signed char        length;
+    signed char        velocity;
+    signed char        density;
+} FieldDimension;
+
+/* Named dimensions for catalog entries. Each expands to a brace initializer, so it can
+ * be passed through an entry macro as one argument. */
+#define FIELD_DIM_DIMENSIONLESS        {FIELD_DIMENSION_FIXED, 0, 0, 0}
+#define FIELD_DIM_LENGTH               {FIELD_DIMENSION_FIXED, 1, 0, 0}
+#define FIELD_DIM_AREA                 {FIELD_DIMENSION_FIXED, 2, 0, 0}
+#define FIELD_DIM_INVERSE_VOLUME       {FIELD_DIMENSION_FIXED, -3, 0, 0}
+#define FIELD_DIM_TIME                 {FIELD_DIMENSION_FIXED, 1, -1, 0}
+#define FIELD_DIM_VELOCITY             {FIELD_DIMENSION_FIXED, 0, 1, 0}
+#define FIELD_DIM_VOLUME_FLUX          {FIELD_DIMENSION_FIXED, 2, 1, 0}
+#define FIELD_DIM_DIFFUSIVITY          {FIELD_DIMENSION_FIXED, 1, 1, 0}
+#define FIELD_DIM_PRESSURE             {FIELD_DIMENSION_FIXED, 0, 2, 1}
+#define FIELD_DIM_INVERSE_TIME_SQUARED {FIELD_DIMENSION_FIXED, -2, 2, 0}
+#define FIELD_DIM_NOT_A_QUANTITY       {FIELD_DIMENSION_NOT_A_QUANTITY, 0, 0, 0}
+#define FIELD_DIM_FROM_SOURCE          {FIELD_DIMENSION_FROM_SOURCE, 0, 0, 0}
+
 /** @brief Immutable metadata for one field identity. */
 typedef struct {
     FieldId           id;
@@ -129,6 +166,7 @@ typedef struct {
     unsigned int      capabilities;
     size_t            global_vec_offset;
     size_t            local_vec_offset;
+    FieldDimension    dimension;
 } FieldDescriptor;
 
 /** @brief Non-owning runtime objects resolved for one field and UserCtx. */
@@ -154,6 +192,37 @@ PetscErrorCode FieldGetDescriptor(FieldId field_id, const FieldDescriptor **desc
  * @return Zero on success; PETSc unknown-type error for an unregistered name.
  */
 PetscErrorCode FieldIdFromName(const char *field_name, FieldId *field_id);
+
+/**
+ * @brief Look a name up without treating an unknown name as an error.
+ * @details For callers that consult more than one catalog, such as a name that may be an
+ *          Eulerian or a particle field.
+ * @param[in]  field_name Canonical name or registered alias.
+ * @param[out] field_id   Resolved identity, or `FIELD_ID_INVALID` when not found.
+ * @param[out] found      Whether the name is registered.
+ * @return Zero on success; PETSc error only for null arguments.
+ */
+PetscErrorCode FieldTryIdFromName(const char *field_name, FieldId *field_id, PetscBool *found);
+
+/**
+ * @brief Return the factor that turns a solver value of one dimension into physical units.
+ * @param[in]  scaling   Reference scales of the run.
+ * @param[in]  dimension Dimension to scale.
+ * @param[out] scale     `L_ref^a U_ref^b rho_ref^c` for a fixed dimension `(a, b, c)`.
+ * @return Zero on success; `PETSC_ERR_ARG_WRONGSTATE` for a dimension that is not fixed,
+ *         since bookkeeping and staging storage have no scale of their own.
+ */
+PetscErrorCode FieldDimensionReferenceScale(const ScalingCtx *scaling, FieldDimension dimension,
+                                            PetscReal *scale);
+
+/**
+ * @brief Write a printable form of a dimension, such as `L^2 U` or `dimensionless`.
+ * @param[in]  dimension Dimension to describe.
+ * @param[out] label     Destination buffer.
+ * @param[in]  length    Buffer length.
+ * @return Zero on success.
+ */
+PetscErrorCode FieldDimensionLabel(FieldDimension dimension, char *label, size_t length);
 
 /**
  * @brief Return the canonical printable name for an ID.

@@ -117,15 +117,15 @@ Eulerian tasks (`eulerian_pipeline`):
 - `normalize_field` -> `NormalizeRelativeField:<field>`
 
 Global operation:
-- `global_operations.dimensionalize: true` prepends `DimensionalizeAllLoadedFields`
-  and reports every derived product in physical units. It reaches three producers:
-  the field pipeline scales loaded fields, the accumulator scales derived statistics,
-  and the spectra generator scales its own outputs. Each quantity is scaled once:
-  grid coordinates by `L_ref`, `Ucat` and `Ucont` by `U_ref`, `P` by `rho U_ref^2`,
-  particle positions by `L_ref` and velocities by `U_ref` before the Lagrangian tasks
-  run, and `Qcrit` by `(U_ref / L_ref)^2`. The `msd` statistic is the exception: it runs
-  before particle positions are scaled and stays non-dimensional, because it is
-  compared against the non-dimensional diffusivity `1 / (Re Sc)`.
+- `global_operations.dimensionalize: true` reports every output in physical units. It
+  is a setting, not a pipeline stage: each producer scales its own values once, where
+  they are made. Loaded fields are scaled by their catalog dimension as they are read
+  (`Ucat` by `U_ref`, `Ucont` by `U_ref L_ref^2`, `P` by `rho U_ref^2`), grid coordinates
+  by `L_ref` once, particle positions and velocities before the Lagrangian tasks run,
+  derived statistics in the accumulator, spectra in their generator, `Qcrit` by
+  `(U_ref / L_ref)^2`, and the `msd` columns as they are written. Without it, every
+  output is in solver units. The per-producer table and the per-field index are on
+  @ref p19_output_sec.
 
 Lagrangian tasks (`lagrangian_pipeline`):
 - `specific_ke` -> `ComputeSpecificKE:<in>><out>`
@@ -296,8 +296,9 @@ Each window writes its own files, so a window name may not be listed twice.
 **Derived statistics follow `global_operations.dimensionalize`.** Each carries the
 source field's reference scale raised to its own power: a mean and an RMS are linear
 in it, a Reynolds stress, a turbulent kinetic energy and a co-moment flux quadratic.
-A field with no declared reference scale stays non-dimensional and says so in the log.
-See @ref p58_derived_sec.
+Every statistics-eligible field has a catalog dimension; the time columns of the history
+CSV (`represented_time`, and `total_weight` under `physical_time` weighting) are reported
+in seconds too. See @ref p58_derived_sec.
 
 @section p10_cap_fso_sec 6.1 Field Statistics Output Entries
 
@@ -446,7 +447,11 @@ name follows the configured statistics prefix.
 by the Eulerian field source.
 
 **Diagnostics.** The emitted CSV is the diagnostic: a linear MSD in time indicates
-diffusive behaviour, a quadratic one indicates ballistic transport.
+diffusive behaviour, a quadratic one indicates ballistic transport. The comparison with
+`r_rms_theory = sqrt(6 D t)`, `D = 1/(Re Sc)`, is made in solver units. Under
+`dimensionalize: true` the dimensional columns are written physically (`t` times
+`L_ref/U_ref`, `MSD_*` times `L_ref^2`, radii and centre of mass times `L_ref`); the
+relative error and shell fractions are ratios and are the same in either system.
 
 **Evidence.** Unit verified - `make unit-statistics` covers the MSD kernel including its
 empty-swarm behaviour. Analytically verified - `brownian-msd-2026-09-18`: the MSD slope of a Brownian cloud matched the Einstein relation to 0.17%.

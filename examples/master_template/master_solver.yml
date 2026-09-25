@@ -28,9 +28,9 @@ operation_mode:
   # Parameters for analytical_type: "UNIFORM_FLOW".
   # Uncomment this block only when analytical_type = "UNIFORM_FLOW".
   # uniform_flow:
-  #   u: 0.0                      # -> -analytical_uniform_u
-  #   v: 0.0                      # -> -analytical_uniform_v
-  #   w: 0.0                      # -> -analytical_uniform_w
+  #   u: 0.0                      # [m/s] -> -analytical_uniform_u (divided by velocity_ref)
+  #   v: 0.0                      # [m/s] -> -analytical_uniform_v
+  #   w: 0.0                      # [m/s] -> -analytical_uniform_w
 
 # Verification-only source overrides.
 # Use these only when ordinary end-to-end setup cannot expose the behavior you need to test.
@@ -41,17 +41,17 @@ operation_mode:
 #     diffusivity:
 #       mode: "analytical"        # Verification-only selector; currently fixed to analytical
 #       profile: "LINEAR_X"       # Supported today: LINEAR_X
-#       gamma0: 1.0e-3             # -> -verification_diffusivity_gamma0
-#       slope_x: 2.0e-4            # -> -verification_diffusivity_slope_x
+#       gamma0: 1.0e-3             # [m^2/s] -> -verification_diffusivity_gamma0
+#       slope_x: 2.0e-4            # [m/s], diffusivity per metre -> -verification_diffusivity_slope_x
 #
 #     scalar:
 #       mode: "analytical"        # Verification-only selector; currently fixed to analytical
 #       profile: "CONSTANT"       # Supported: CONSTANT, LINEAR_X, SIN_PRODUCT
 #       value: 1.0                 # CONSTANT -> -verification_scalar_value
 #       # phi0: 0.0                # LINEAR_X -> -verification_scalar_phi0
-#       # slope_x: 1.0             # LINEAR_X -> -verification_scalar_slope_x
+#       # slope_x: 1.0             # [1/m] LINEAR_X -> -verification_scalar_slope_x
 #       # amplitude: 1.0           # SIN_PRODUCT -> -verification_scalar_amplitude
-#       # kx: 3.141592653589793    # SIN_PRODUCT -> -verification_scalar_kx
+#       # kx: 3.141592653589793    # [1/m] SIN_PRODUCT -> -verification_scalar_kx
 #       # ky: 3.141592653589793    # SIN_PRODUCT -> -verification_scalar_ky
 #       # kz: 3.141592653589793    # SIN_PRODUCT -> -verification_scalar_kz
 #

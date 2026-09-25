@@ -268,12 +268,12 @@ Common mappings:
 - `physics.turbulence.les.gradient_model.enabled` -> `-les_gradient_model`
 - `physics.turbulence.les.diagnostics.enabled/cadence/yoshizawa_ci` -> `-les_diagnostics`, `-les_diagnostics_cadence`, `-les_yoshizawa_ci`
 - `physics.turbulence.wall_function.enabled/model` -> `-wallfunction` (`1` log law, `2` Werner-Wengle, `3` Cabot)
-- `physics.turbulence.wall_function.roughness_height` -> `-wall_roughness` (`log_law` only)
+- `physics.turbulence.wall_function.roughness_height` -> `-wall_roughness` (`log_law` only); a physical length, divided by `length_ref`
 - `physics.particles.count` -> `-numParticles`
 - `physics.particles.init_mode` -> `-pinit` (`Surface`, `Volume`, `PointSource`, `SurfaceEdges`)
 - `physics.particles.restart_mode` -> `-particle_restart_mode`
 - `physics.particles.random_seed` -> `-particle_random_seed` (integer `0`..`2147483647`, default `12345`)
-- point source coordinates -> `-psrc_x/-psrc_y/-psrc_z`
+- point source coordinates -> `-psrc_x/-psrc_y/-psrc_z`; a physical position, divided by `length_ref`
 
 Legacy turbulence shorthand remains valid:
 

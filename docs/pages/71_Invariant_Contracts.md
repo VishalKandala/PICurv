@@ -2,7 +2,7 @@
 
 @anchor _Invariant_Contracts
 
-@pagemeta{Reference, Maintainers and contributors, 13 enforced of 20 registered}
+@pagemeta{Reference, Maintainers and contributors, 14 enforced of 20 registered}
 
 PICurv documentation covers two kinds of truth, and only one of them is a choice.
 
@@ -43,18 +43,26 @@ would be told. Most invariants in this project are currently tracked.
 
 @section p71_register_sec 3. The Register
 
-Run `make audit-contracts` for the live list. Currently **13 enforced, 6 tracked,
+Run `make audit-contracts` for the live list. Currently **14 enforced, 5 tracked,
 1 planned**.
 
 **Enforced.** PETSc option ingress; user-facing reporting grammar; run artifact
 **path** topology; logical run-path locators in prose; the public capability surface;
 the capability family census; published-site integrity; the generated CLI reference;
 page-type coverage; named public choice sets; subsystem lifecycle obligations;
-documentation freshness attestation; the field identity and layout inventory.
+documentation freshness attestation; the field identity and layout inventory; units and
+non-dimensionalization.
 
-**Tracked.** Run artifact **lifecycle semantics**; checkpoint bundle schema; units and
-non-dimensionalization; run/study/submission/storage manifest schemas; CLI structured
-output schemas; durable file formats such as PICGRID and PICSLICE.
+**Tracked.** Run artifact **lifecycle semantics**; checkpoint bundle schema;
+run/study/submission/storage manifest schemas; CLI structured output schemas; durable file
+formats such as PICGRID and PICSLICE.
+
+@warning `units.nondimensionalization` is enforced over the **records**:
+`audit_units.py` fails when a solver-facing configuration input has no recorded dimension
+and conversion site, or when either index of `19_Nondimensionalization` disagrees with
+`INPUT_QUANTITIES` or the catalogs' `FIELD_DIM_*` arguments. It does not prove that a
+conversion is performed where recorded; the non-unit ingress tests in
+`tests/test_units_and_scaling.py` and the units-equivalence smoke run check that.
 
 @warning `field.identity_and_layout` is enforced over the catalog's **identity and
 layout** only: `audit_field_catalog.py` compares the field names and their layout
@@ -106,10 +114,6 @@ block for soft surfaces: it states honestly that no page has yet been compared a
 that source. Eight implementation surfaces are in that state now, most of them the
 physics pages whose scientific review is still outstanding.
 
-@note The highest-value promotion from `tracked` to `enforced` is
-**units and non-dimensionalization**. Unit errors are silent — wrong by a constant
-factor, plausible output, no crash — which makes them exactly the class where an
-automated check earns the most.
 
 @section p71_topology_sec 4. Artifact Topology
 

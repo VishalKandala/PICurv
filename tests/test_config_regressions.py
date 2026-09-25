@@ -543,12 +543,15 @@ def test_parse_solver_config_maps_uniform_flow_velocity_flags():
         }
     }
 
-    flags = picurv.parse_solver_config(solver_cfg)
+    flags = picurv.parse_solver_config(solver_cfg, {"length_ref": 2.0, "velocity_ref": 4.0})
 
+    # The velocities are physical and reach the solver divided by velocity_ref.
     assert flags["-analytical_type"] == '"UNIFORM_FLOW"'
-    assert flags["-analytical_uniform_u"] == 0.5
-    assert flags["-analytical_uniform_v"] == -0.25
-    assert flags["-analytical_uniform_w"] == 0.125
+    assert flags["-analytical_uniform_u"] == pytest.approx(0.5 / 4.0)
+    assert flags["-analytical_uniform_v"] == pytest.approx(-0.25 / 4.0)
+    assert flags["-analytical_uniform_w"] == pytest.approx(0.125 / 4.0)
+    with pytest.raises(RuntimeError, match="reference scales"):
+        picurv.parse_solver_config(solver_cfg)
 
 
 def test_parse_solver_config_maps_verification_diffusivity_flags():
@@ -573,12 +576,13 @@ def test_parse_solver_config_maps_verification_diffusivity_flags():
         },
     }
 
-    flags = picurv.parse_solver_config(solver_cfg)
+    flags = picurv.parse_solver_config(solver_cfg, {"length_ref": 2.0, "velocity_ref": 4.0})
 
+    # gamma0 is a diffusivity (L U) and slope_x a diffusivity per length (U).
     assert flags["-verification_diffusivity_mode"] == '"analytical"'
     assert flags["-verification_diffusivity_profile"] == '"LINEAR_X"'
-    assert flags["-verification_diffusivity_gamma0"] == 1.0e-3
-    assert flags["-verification_diffusivity_slope_x"] == 2.0e-4
+    assert flags["-verification_diffusivity_gamma0"] == pytest.approx(1.0e-3 / 8.0)
+    assert flags["-verification_diffusivity_slope_x"] == pytest.approx(2.0e-4 / 4.0)
 
 
 def test_parse_solver_config_maps_verification_scalar_flags():
@@ -605,14 +609,16 @@ def test_parse_solver_config_maps_verification_scalar_flags():
         },
     }
 
-    flags = picurv.parse_solver_config(solver_cfg)
+    flags = picurv.parse_solver_config(solver_cfg, {"length_ref": 2.0, "velocity_ref": 4.0})
 
+    # Wavenumbers are per physical length, so they are multiplied by length_ref; the
+    # scalar amplitude is dimensionless.
     assert flags["-verification_scalar_mode"] == '"analytical"'
     assert flags["-verification_scalar_profile"] == '"SIN_PRODUCT"'
     assert flags["-verification_scalar_amplitude"] == 2.5
-    assert flags["-verification_scalar_kx"] == 3.141592653589793
-    assert flags["-verification_scalar_ky"] == 1.5707963267948966
-    assert flags["-verification_scalar_kz"] == 0.7853981633974483
+    assert flags["-verification_scalar_kx"] == pytest.approx(2.0 * 3.141592653589793)
+    assert flags["-verification_scalar_ky"] == pytest.approx(2.0 * 1.5707963267948966)
+    assert flags["-verification_scalar_kz"] == pytest.approx(2.0 * 0.7853981633974483)
 
 
 def test_solution_monitoring_maps_solution_convergence_flags():
@@ -1474,7 +1480,8 @@ def test_parse_model_flags_maps_structured_turbulence_options():
                     },
                 }
             }
-        }
+        },
+        "properties": {"scaling": {"length_ref": 0.5, "velocity_ref": 1.0}},
     }
     control_lines = []
 
@@ -1495,7 +1502,8 @@ def test_parse_model_flags_maps_structured_turbulence_options():
     assert "-les_diagnostics_cadence 5" in control_lines
     assert "-les_yoshizawa_ci 0.11" in control_lines
     assert "-wallfunction 1" in control_lines
-    assert "-wall_roughness 1e-05" in control_lines
+    # The roughness height is a physical length, so it reaches the solver divided by L_ref.
+    assert "-wall_roughness 2e-05" in control_lines
 
 
 def test_parse_model_flags_preserves_legacy_les_true_constant_smagorinsky():
@@ -1793,11 +1801,11 @@ def test_generator_destination_keys_are_refused_rather_than_ignored():
     ):
         ic = {"mode": "generated", "generator": "ic_gen", "params": params}
         with pytest.raises(ValueError, match="is no longer accepted"):
-            picurv.resolve_initial_condition_config(ic, [], U_ref=1.0)
+            picurv.resolve_initial_condition_config(ic, [], scales={"length_ref": 1.0, "velocity_ref": 1.0})
     ic = {"mode": "generated", "generator": "spectral_random_velocity",
           "params": {"spectrum_csv": "spectrum.csv"}}
     with pytest.raises(ValueError, match="is no longer accepted"):
-        picurv.resolve_initial_condition_config(ic, [], U_ref=1.0)
+        picurv.resolve_initial_condition_config(ic, [], scales={"length_ref": 1.0, "velocity_ref": 1.0})
 
     generated = {"type": "generated", "generator": "square_duct_poiseuille",
                  "output_file": "x.picslice", "params": {"bulk_velocity": 1.0}}
@@ -1839,10 +1847,10 @@ def test_wall_spectral_seed_names_its_required_initial_spectra():
     ic = {"mode": "generated", "generator": "channel_spectral_velocity",
           "params": {"seed": 1, "spectrum": {"type": "k4_exponential", "k0": 12.0, "k_cut": 30.0}}}
     with pytest.raises(ValueError, match="requires params.initial_spectra"):
-        picurv.resolve_initial_condition_config(ic, [faces], U_ref=1.0)
+        picurv.resolve_initial_condition_config(ic, [faces], scales={"length_ref": 1.0, "velocity_ref": 1.0})
     ic["params"]["initial_spectra"] = [{"task": "plane_spectrum", "axes": ["i", "k"],
                                         "fixed_indices": {"j": 4}, "subtract_mean": "sample"}]
-    resolved = picurv.resolve_initial_condition_config(ic, [faces], U_ref=1.0)
+    resolved = picurv.resolve_initial_condition_config(ic, [faces], scales={"length_ref": 1.0, "velocity_ref": 1.0})
     assert len(resolved["params"]["initial_spectra"]) == 1
 
 
@@ -2058,14 +2066,14 @@ def test_wall_function_model_selector_reaches_the_control_file():
         control_lines = []
         picurv.append_turbulence_flags(
             {"physics": {"turbulence": {"wall_function": {"enabled": True, "model": name}}}},
-            control_lines)
+            control_lines, {"length_ref": 1.0, "velocity_ref": 1.0})
         assert f"-wallfunction {code}" in control_lines, name
 
     # Disabled outranks the model.
     control_lines = []
     picurv.append_turbulence_flags(
         {"physics": {"turbulence": {"wall_function": {"enabled": False, "model": "cabot"}}}},
-        control_lines)
+        control_lines, {"length_ref": 1.0, "velocity_ref": 1.0})
     assert "-wallfunction 0" in control_lines
 
 

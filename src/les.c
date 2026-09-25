@@ -1147,9 +1147,11 @@ PetscErrorCode LogLESDiagnostics(UserCtx *user)
                                            "step,time,cs_effective,cs_mean,coefficient_mean,"
                                            "coefficient_rms,coefficient_min,coefficient_max,"
                                            "nu_t_mean,nu_t_max,nu_t_over_nu_mean,k_sgs_mean,"
-                                           "backscatter_fraction,limited_fraction", &file));
+                                           "backscatter_fraction,limited_fraction,physical_time", &file));
+        PetscReal physical_time = 0.0;
+        PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
         fprintf(file,
-                "%d,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e\n",
+                "%d,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e\n",
                 (int)simCtx->step, (double)simCtx->ti,
                 has_coefficient ? (double)cs_effective : (double)NAN,
                 has_coefficient ? (double)cs_mean : (double)NAN,
@@ -1160,7 +1162,8 @@ PetscErrorCode LogLESDiagnostics(UserCtx *user)
                 (double)(global_sum[3] / volume), (double)global_max[1],
                 (double)(global_sum[3] / volume / molecular),
                 (double)(global_sum[4] / volume),
-                (double)(global_sum[5] / volume), (double)(global_sum[6] / volume));
+                (double)(global_sum[5] / volume), (double)(global_sum[6] / volume),
+                (double)physical_time);
         PetscCheck(fclose(file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
                    "Unable to close the LES diagnostics file.");
 

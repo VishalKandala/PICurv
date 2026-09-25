@@ -55,6 +55,9 @@ Raw per-timestep counters written directly by the runtime:
 - `lost_cumulative`
 - `load_imbalance`
 
+Each row is indexed by `step`, `time` (solver time), and `physical_time` (seconds, the last
+column).
+
 These are cheap, always-on aggregate counters. They are the authoritative source
 for later derived signals and study reductions.
 

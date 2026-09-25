@@ -176,49 +176,56 @@ static PetscErrorCode TestDimensionalizePressureField(void)
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    simCtx->scaling.L_ref = 1.0;
+    simCtx->scaling.U_ref = 1.0;
+    simCtx->scaling.rho_ref = 3.0;
     simCtx->scaling.P_ref = 3.0;
 
     PetscCall(VecSet(user->P, 2.0));
     PetscCall(DimensionalizeField(user, "P"));
-    PetscCall(PicurvAssertVecConstant(user->P, 6.0, 1.0e-12, "DimensionalizeField should scale pressure by P_ref"));
+    PetscCall(PicurvAssertVecConstant(user->P, 6.0, 1.0e-12, "DimensionalizeField should scale pressure by rho U^2"));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests that the per-step dimensionalization leaves the persistent grid alone.
- * @details The postprocessor runs DimensionalizeAllLoadedFields once per processed step.
- *          Scaling the coordinates there multiplied them by L_ref once per step; they are
- *          loaded once and must be scaled once, by the postprocessor loop.
+ * @brief Tests that each field is scaled by the dimension its catalog entry records.
+ * @details At L=2, U=3, rho=5: velocity scales by U, a face flux by U L^2, pressure and
+ *          the pressure correction by rho U^2, and the dimensionless solid marker not at
+ *          all. A name in neither catalog is refused instead of being left unscaled.
  */
-static PetscErrorCode TestDimensionalizeAllLoadedFieldsLeavesCoordinatesAlone(void)
+static PetscErrorCode TestDimensionalizeFieldUsesCatalogDimensions(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
-    Vec coordinates = NULL, before = NULL;
-    PetscReal difference = 0.0;
+    PetscErrorCode refused = 0;
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
     simCtx->scaling.L_ref = 2.0;
     simCtx->scaling.U_ref = 3.0;
-    simCtx->scaling.P_ref = 5.0;
-    PetscCall(DMGetCoordinates(user->da, &coordinates));
-    PetscCall(VecDuplicate(coordinates, &before));
-    PetscCall(VecCopy(coordinates, before));
+    simCtx->scaling.rho_ref = 5.0;
+    simCtx->scaling.P_ref = 45.0;
     PetscCall(VecSet(user->Ucat, 1.0));
+    PetscCall(VecSet(user->Ucont, 1.0));
+    PetscCall(VecSet(user->Phi, 1.0));
+    PetscCall(VecSet(user->Nvert, 1.0));
 
-    PetscCall(DimensionalizeAllLoadedFields(user));
-    PetscCall(DimensionalizeAllLoadedFields(user));
+    PetscCall(DimensionalizeField(user, "Ucat"));
+    PetscCall(DimensionalizeField(user, "Ucont"));
+    PetscCall(DimensionalizeField(user, "Phi"));
+    PetscCall(DimensionalizeField(user, "Nvert"));
+    PetscCall(PicurvAssertVecConstant(user->Ucat, 3.0, 1.0e-12, "velocity scales by U"));
+    PetscCall(PicurvAssertVecConstant(user->Ucont, 12.0, 1.0e-12, "a face flux scales by U L^2"));
+    PetscCall(PicurvAssertVecConstant(user->Phi, 45.0, 1.0e-12, "the pressure correction is a pressure"));
+    PetscCall(PicurvAssertVecConstant(user->Nvert, 1.0, 1.0e-12, "the solid marker is dimensionless"));
 
-    PetscCall(VecAXPY(before, -1.0, coordinates));
-    PetscCall(VecNorm(before, NORM_INFINITY, &difference));
-    PetscCall(PicurvAssertRealNear(0.0, difference, 1.0e-14,
-                                   "per-step dimensionalization must not rescale the grid coordinates"));
-    PetscCall(PicurvAssertVecConstant(user->Ucat, 9.0, 1.0e-12,
-                                      "each call scales the reloaded velocity by U_ref"));
+    PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+    refused = DimensionalizeField(user, "NotAField");
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_UNKNOWN_TYPE, refused,
+                                   "an uncatalogued name is refused, not silently left unscaled"));
 
-    PetscCall(VecDestroy(&before));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -314,7 +321,7 @@ int main(int argc, char **argv)
         {"normalize-relative-field", TestNormalizeRelativeField},
         {"dimensionalize-pressure-field", TestDimensionalizePressureField},
         {"compute-qcriterion-zero-flow", TestComputeQCriterionZeroFlow},
-        {"dimensionalize-all-loaded-fields-leaves-coordinates-alone", TestDimensionalizeAllLoadedFieldsLeavesCoordinatesAlone},
+        {"dimensionalize-field-uses-catalog-dimensions", TestDimensionalizeFieldUsesCatalogDimensions},
         {"compute-qcriterion-dimensionalized-scales-by-length-squared", TestComputeQCriterionDimensionalizedScalesByLengthSquared},
     };
 
