@@ -525,6 +525,63 @@ static PetscErrorCode TestIEMRelaxesTowardOwnCellMean(void)
 }
 
 /**
+ * @brief Checks that post-processing loads the particle averages a checkpoint holds.
+ * @details A case with `restart_mode: init` reseeds particles on a solver restart, so the
+ *          solver must not restore the averages of the particles it discards; the
+ *          postprocessor reads the same control settings but visualizes what was saved, so it
+ *          must load them, and refresh the ghosted copy that nodal averaging reads.
+ */
+static PetscErrorCode TestPostprocessorLoadsSavedParticleAverages(void)
+{
+    const char *options = "-particle_fields_count 1\n"
+                          "-particle_fields_0_name Psi\n"
+                          "-particle_fields_0_expr_0 \"where(uniform() < 0.5, 0, 1)\"\n"
+                          "-particle_restart_mode init\n";
+    SimCtx     *simCtx = NULL;
+    UserCtx    *user = NULL;
+    char        tmpdir[PETSC_MAX_PATH_LEN];
+    Vec         saved = NULL, local_saved = NULL;
+    PetscReal   saved_norm = 0.0, difference = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_TRUE, options, &simCtx, &user,
+                                                       tmpdir, sizeof(tmpdir)));
+    PetscCall(InitializeEulerianState(simCtx));
+    PetscCall(InitializeParticleSwarm(simCtx));
+    PetscCall(PerformInitializedParticleSetup(simCtx));
+    PetscCall(VecDuplicate(user->Psi, &saved));
+    PetscCall(VecCopy(user->Psi, saved));
+    PetscCall(VecNorm(saved, NORM_INFINITY, &saved_norm));
+    PetscCall(PicurvAssertBool((PetscBool)(saved_norm > 0.0), "the fixture must scatter a nonzero Psi"));
+    PetscCall(WriteCheckpointBundle(simCtx, "test"));
+
+    PetscCall(PetscCalloc1(1, &simCtx->pps));
+    PetscCall(PetscStrncpy(simCtx->pps->source_dir, simCtx->output_dir, sizeof(simCtx->pps->source_dir)));
+    simCtx->exec_mode = EXEC_MODE_POSTPROCESSOR;
+    PetscCall(VecSet(user->Psi, 0.0));
+    PetscCall(VecSet(user->lPsi, 0.0));
+    PetscCall(ReadSimulationFields(user, simCtx->step));
+
+    PetscCall(VecAXPY(saved, -1.0, user->Psi));
+    PetscCall(VecNorm(saved, NORM_INFINITY, &difference));
+    PetscCall(PicurvAssertRealNear(0.0, difference, 1.0e-12, "post-processing restores the saved Psi average"));
+    PetscCall(DMCreateLocalVector(user->da, &local_saved));
+    PetscCall(DMGlobalToLocalBegin(user->da, user->Psi, INSERT_VALUES, local_saved));
+    PetscCall(DMGlobalToLocalEnd(user->da, user->Psi, INSERT_VALUES, local_saved));
+    PetscCall(VecAXPY(local_saved, -1.0, user->lPsi));
+    PetscCall(VecNorm(local_saved, NORM_INFINITY, &difference));
+    PetscCall(PicurvAssertRealNear(0.0, difference, 1.0e-12, "the ghosted Psi is refreshed for nodal averaging"));
+
+    simCtx->exec_mode = EXEC_MODE_SOLVER;
+    PetscCall(PetscFree(simCtx->pps));
+    PetscCall(VecDestroy(&local_saved));
+    PetscCall(VecDestroy(&saved));
+    PetscCall(FreeLifecycleContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests that the shared richer runtime fixture mirrors normalized production setup contracts.
  */
 static PetscErrorCode TestSharedRuntimeFixtureContracts(void)
@@ -969,6 +1026,7 @@ int main(int argc, char **argv)
         {"configured-iem-updates-swarm", TestConfiguredIEMUpdatesSwarm},
         {"configured-particle-initial-value", TestConfiguredParticleInitialValue},
         {"iem-relaxes-toward-own-cell-mean", TestIEMRelaxesTowardOwnCellMean},
+        {"postprocessor-loads-saved-particle-averages", TestPostprocessorLoadsSavedParticleAverages},
         {"brownian-rng-seeded-from-configuration", TestBrownianRNGIsSeededFromConfiguration},
         {"shared-runtime-fixture-contracts", TestSharedRuntimeFixtureContracts},
         {"field-catalog-metadata-and-views", TestFieldCatalogMetadataAndViews},

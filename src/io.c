@@ -1514,8 +1514,11 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
 
         PetscCall(FieldGetDescriptor((FieldId)raw_id, &descriptor));
         if (!CheckpointFieldIsEnabled(simCtx, descriptor)) continue;
+        /* A solver restart that reseeds particles (restart_mode init) must not restore the
+           averages of the particles it discards; post-processing shows what was saved. */
         if ((descriptor->availability & FIELD_AVAILABILITY_PARTICLES) &&
-            (!particles_saved || strcmp(simCtx->particleRestartMode, "load"))) continue;
+            (!particles_saved ||
+             (simCtx->exec_mode == EXEC_MODE_SOLVER && strcmp(simCtx->particleRestartMode, "load")))) continue;
         if ((descriptor->availability & FIELD_AVAILABILITY_LES_DYNAMIC) && !les_saved) continue;
         /* Wall-model state is derived, not carried: the first boundary pass of the
            restarted run recomputes it from the restored velocity field. Writing it keeps

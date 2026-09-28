@@ -198,7 +198,11 @@ once when dimensionalized.
 ghost cells included, to 2.2e-16; `q-criterion-nodal-tgv-2026-09-18` measures the
 smoothing it adds to `Qcrit_nodal`.
 
-**Limitations.** Averaging is a low-pass filter: peak values move toward their neighbourhood mean, so nodal fields understate extrema and should not be used for max-value claims.
+**Limitations.** Averaging is a low-pass filter: peak values move toward their neighbourhood mean, so nodal fields understate extrema and should not be used for max-value claims. The
+boundary slots it averages hold boundary-condition values for `P` and `Ucat`, but nothing
+fills them for `Psi`, which stays 0 there: `Psi_nodal` on the domain boundary is diluted
+(a corner node carries one eighth of its cell's value), and only interior nodes are cell
+means. The particle `.vtp` output carries each particle's own `Psi`.
 
 @section p10_cap_lag_sec 4.2 Lagrangian Post-Processing Kernel Entries
 
