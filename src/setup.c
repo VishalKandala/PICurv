@@ -10,6 +10,8 @@
 #include "setup.h"
 #include "statistics_config.h"
 #include "statistics_accumulator.h"
+#include "ParticleInitialConditions.h"
+#include "verification_sources.h"
 #include <unistd.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -1127,6 +1129,13 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     PetscCheck(simCtx->particleRandomSeed >= 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
                "-particle_random_seed must be non-negative (got %" PetscInt_FMT ").", simCtx->particleRandomSeed);
     ierr = InitializeBrownianRNG(simCtx); CHKERRQ(ierr);
+    ierr = ParticleFieldPlanCreate(&simCtx->particleFieldPlan); CHKERRQ(ierr);
+    PetscCheck(!simCtx->particleFieldPlan || simCtx->np > 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+               "Particle field initial values are configured but the run has no particles.");
+    PetscCheck(!simCtx->particleFieldPlan || !VerificationScalarOverrideActive(simCtx), PETSC_COMM_WORLD,
+               PETSC_ERR_ARG_WRONG,
+               "Particle field initial values cannot be combined with the verification scalar source, "
+               "which prescribes Psi at every step.");
     // --- Group 10
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 10: Immersed Boundary & FSI Data Object Pointers \n");
 
@@ -4401,6 +4410,7 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
 
     ierr = DestroySolutionConvergenceState(simCtx); CHKERRQ(ierr);
     ierr = DestroyFieldStatisticsConfig(simCtx); CHKERRQ(ierr);
+    ierr = ParticleFieldPlanDestroy(&simCtx->particleFieldPlan); CHKERRQ(ierr);
 
     if (simCtx->usermg.mgctx) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Destroying multigrid hierarchy (%d levels)...\n",

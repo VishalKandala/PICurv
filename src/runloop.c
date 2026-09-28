@@ -9,6 +9,7 @@
 #include "runloop.h"
 #include "statistics_window.h"
 #include "verification_sources.h"
+#include "ParticleInitialConditions.h"
 
 static volatile sig_atomic_t g_runtime_shutdown_signal = 0;
 static PetscBool             g_runtime_shutdown_auto_requested = PETSC_FALSE;
@@ -400,6 +401,19 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
 
     }
     
+    // --- 2b. Configured initial particle-field values, once positions are final ---
+    // Surface seeding places particles in step 2, so this comes after it; the scatter
+    // below then carries the values to the Eulerian mean before the first update.
+    if (simCtx->particleFieldPlan) {
+        PetscInt           nlocal = 0;
+        ParticleFieldEvent event = {0.0, 0};
+
+        ierr = PicurvPhysicalTime(simCtx, simCtx->ti, &event.physical_time); CHKERRQ(ierr);
+        ierr = DMSwarmGetLocalSize(user->swarm, &nlocal); CHKERRQ(ierr);
+        ierr = ParticleFieldPlanApply(user, simCtx->particleFieldPlan, &event, 0, nlocal); CHKERRQ(ierr);
+        ierr = ParticleFieldPlanSummarize(user, simCtx->particleFieldPlan); CHKERRQ(ierr);
+    }
+
     // --- 3. Finalize State for t=0 ---
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Interpolating initial fields to settled particles.\n", simCtx->ti, simCtx->step);
     ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);

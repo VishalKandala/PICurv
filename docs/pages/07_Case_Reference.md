@@ -273,6 +273,9 @@ Common mappings:
 - `physics.particles.init_mode` -> `-pinit` (`Surface`, `Volume`, `PointSource`, `SurfaceEdges`)
 - `physics.particles.restart_mode` -> `-particle_restart_mode`
 - `physics.particles.random_seed` -> `-particle_random_seed` (integer `0`..`2147483647`, default `12345`)
+- `physics.particles.fields` -> `-particle_fields_*` (optional initial values of
+  particle-carried fields, today `Psi`: a number, an expression, or regions over a
+  background; see @ref p45_particle_values_sec)
 - point source coordinates -> `-psrc_x/-psrc_y/-psrc_z`; a physical position, divided by `length_ref`
 
 Legacy turbulence shorthand remains valid:

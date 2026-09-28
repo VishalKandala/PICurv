@@ -160,13 +160,13 @@ SIMULATOR_OBJS := $(addprefix $(OBJDIR)/, \
                  Boundaries.o BC_Handlers.o wallfunction.o runloop.o walkingsearch.o BodyForces.o\
                  ParticleSwarm.o ParticleMotion.o ParticlePhysics.o interpolation.o \
                  initialcondition.o rhs.o solvers.o momentumsolvers.o momentum_newton_krylov.o poisson.o verification_sources.o\
-				 les.o  Filter.o)
+				 les.o  Filter.o ParticleInitialConditions.o)
 
 POSTPROCESSOR_OBJS := $(addprefix $(OBJDIR)/, \
                      postprocessor.o setup.o checksum.o statistics_moments.o statistics_target.o statistics_window.o statistics_accumulator.o statistics_config.o field_catalog.o particle_field_catalog.o logging.o grid.o io.o Metric.o AnalyticalSolutions.o\
                      Boundaries.o BC_Handlers.o wallfunction.o postprocessing_kernels.o vtk_io.o \
 					 ParticleSwarm.o ParticleMotion.o interpolation.o walkingsearch.o \
-					 particle_statistics.o verification_sources.o)
+					 particle_statistics.o verification_sources.o ParticleInitialConditions.o)
 
 # --- 4. Executable Definitions ---
 # Define the final paths for the compiled programs.

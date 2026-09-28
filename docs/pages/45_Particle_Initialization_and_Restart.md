@@ -23,6 +23,8 @@ models:
         x: 0.5
         y: 0.5
         z: 0.5
+      fields:                         # optional; see 1.1
+        Psi: 0.5
 ```
 
 Mapping to control flags:
@@ -33,8 +35,93 @@ Mapping to control flags:
 - `random_seed` -> `-particle_random_seed` (optional; integer `0`..`2147483647`, default `12345`)
 - `point_source` -> `-psrc_x/-psrc_y/-psrc_z` (required when `init_mode` is `PointSource`); a
   physical position, divided by `length_ref` like the grid bounds it sits within
+- `fields` -> `-particle_fields_*` (optional; see @ref p45_particle_values_sec)
 
 Note: The interpolation method (`Trilinear` / `CornerAveraged`) is configured in `solver.yml`, not `case.yml`. See **@subpage 08_Solver_Reference** and **@subpage 27_Trilinear_Interpolation_and_Projection**.
+
+@section p45_particle_values_sec 1.1 Configured Particle Values (`fields`)
+
+`fields` gives particle-carried fields a value when the population is created. Only fields
+the particle carries from step to step can be set; every other particle field is
+re-derived from the Eulerian fields or from particle location, so a value given to it
+would not survive. Today that is `Psi`, the scalar that IEM micromixing relaxes (see
+**@subpage 28_IEM_and_Statistical_Averaging**).
+
+```yaml
+models:
+  physics:
+    particles:
+      count: 50000
+      init_mode: "Volume"
+      fields:
+        Psi: 0.5                                  # a number
+        # Psi: "0.5 + 0.5*sin(2*pi*xn)"           # or an expression
+        # Psi:                                    # or regions over a background
+        #   params: {r: 0.1}
+        #   background: 0
+        #   regions:
+        #     - {shape: half_space, axis: x, at: 0.5, side: above, value: 1,
+        #        edge: {profile: smoothstep, width: 0.02}}
+        #     - {shape: ball, center: [0.5, 0.5, 0.5], radius: r, value: "uniform()"}
+```
+
+Each value is one of:
+
+| Form | Meaning |
+|---|---|
+| number | every particle gets it |
+| expression string | evaluated per particle |
+| `{params, value}` | an expression that may use the named numbers in `params` |
+| `{params, background, regions}` | start from `background`; each region, in order, paints its `value` over what came before |
+
+**Expressions** use the language of `ic_gen` Eulerian initial conditions
+(**@subpage 33_Initial_Conditions**): `+ - * / % **`, comparisons (chains such as
+`0.2 < x < 0.5` included), `and or not`, `abs sin cos tan exp sqrt minimum maximum
+where(c, a, b)`, and `pi`. A comparison or logical expression is 1 when true and 0 when
+false. Numbers are decimal literals. A particle expression may use:
+
+| Name | Value |
+|---|---|
+| `x`, `y`, `z` | particle position, physical |
+| `xn`, `yn`, `zn` | position normalized to the domain bounding box, 0 to 1 |
+| `pid` | particle ID |
+| `t` | physical time of the event that creates the particle |
+| `uniform()`, `normal()` | a per-particle draw in [0, 1), or from N(0, 1) |
+
+A draw is a pure function of `random_seed`, the particle ID, and the field; it does not
+depend on the rank a particle lives on or the order particles are visited. `uniform(k)` and `normal(k)`
+with a non-negative integer literal `k` name a stream shared across fields, so two fields
+can draw the same number for one particle.
+
+**Regions** are `half_space` (`axis`, `at`, `side: above | below`), `slab` (`axis`, `from`,
+`to`), `box` (`min`, `max`), `ball` (`center`, `radius`), and `cylinder` (`axis`, `center`
+in the other two coordinates, `radius`), all in physical coordinates. Without `edge`, a
+region's boundary is sharp; `edge: {profile, width}` blends across a band of that width
+centred on the boundary with `linear`, `smoothstep`, or `cosine`, reaching one half on the
+boundary itself. Region numbers may name a `params` entry.
+
+**When it applies.** A value is applied once each particle's position is final: after
+placement and location, and before interpolation and the first scatter, so the t=0 cell
+mean already reflects it. A particle restored from a checkpoint (`restart_mode: load`)
+keeps its saved value, and `fields` is ignored with a warning.
+
+**Units.** Values are physical, in the field's units, and are divided by the field's
+reference scale as they are stored (**@subpage 19_Nondimensionalization**). `Psi` is
+dimensionless.
+
+**Validation.** `picurv validate` refuses an unknown or re-derived field, an expression
+outside the language, a region with a missing or unknown key, `fields` without particles,
+and `fields` together with `solver.yml` `verification.sources.scalar`, which prescribes
+`Psi` at every step. It warns when a `PointSource` value has no draw, because every
+particle then starts at one point with one value.
+
+**Diagnostics.** The launcher prints each lowered expression. After applying them, the
+solver logs each field's particle count, mean, variance, minimum, and maximum (info
+level), and `particle_initial_fields.csv` in the run's analysis directory records the same
+per field and component, with a ten-bin histogram between the minimum and maximum.
+
+Mapping to control flags: `-particle_fields_count`, then per field `-particle_fields_<i>_name`
+and one `-particle_fields_<i>_expr_<c>` per component, holding the lowered expression.
 
 @section p45_mode_values_sec 2. Accepted `init_mode` Values
 
@@ -223,8 +310,10 @@ For initialized particles (`StartStep == 0` path):
 1. `LocateAllParticlesInGrid` performs location/migration.
 2. surface modes call @ref ReinitializeParticlesOnInletSurface.
 3. statuses are reset and location pass is repeated.
-4. `InterpolateAllFieldsToSwarm` assigns flow fields at particle positions.
-5. optional scatter updates Eulerian particle-derived fields.
+4. @ref ParticleFieldPlanApply sets configured `fields` values, and
+   @ref ParticleFieldPlanSummarize logs and records them.
+5. `InterpolateAllFieldsToSwarm` assigns flow fields at particle positions.
+6. the scatter updates Eulerian particle-derived fields.
 
 For loaded particles:
 
@@ -294,6 +383,9 @@ After position/PID/cell placeholders, initialization sets defaults for:
 - `DiffusivityGradient` (vector),
 - `Psi` (scalar).
 
+These are the catalog defaults. Once positions are final, configured `fields` values
+(@ref p45_particle_values_sec) replace the defaults of the fields they name.
+
 Cell IDs start at `-1` until location confirms host cells.
 
 @section p45_diagnostics_sec 7. Diagnostics and Sanity Checks
@@ -308,7 +400,13 @@ Typical errors:
 
 - no INLET face with surface modes,
 - missing `point_source.{x,y,z}` for point source mode,
-- restart mode not in `{init, load}`.
+- restart mode not in `{init, load}`,
+- a `fields` entry naming a field the runtime re-derives, or an expression outside the
+  language (the error names the configuration path of the value).
+
+The `[Particle IC]` log line and `particle_initial_fields.csv` show what the configured
+values produced: a minimum and maximum that are equal where a spread was expected usually
+means the expression does not depend on anything that varies across the particles.
 
 @section p45_extension_sec 8. Contributor Extension Points
 

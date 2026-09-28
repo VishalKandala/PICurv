@@ -42,16 +42,18 @@ Code touchpoints:
 - per-field particle loop: @ref UpdateFieldForAllParticles
 - stage wrapper: @ref UpdateAllParticleFields
 
-@warning **The update runs, but nothing gives it a scalar to mix.** Every particle's
-`Psi` is initialized to the particle field catalog's default, 0.0, and no configuration
-seeds, injects or sources a scalar, so \f$\Psi^n = \langle\Psi\rangle = 0\f$ and the
-closed-form update returns zero every step. The one path that sets `Psi` - the
-verification scalar source (@ref p08_verification_sec) - prescribes it exactly and
-bypasses this update. The scatter of `Psi` to the grid is verified through that source;
-`TestConfiguredIEMUpdatesSwarm` in `tests/c/test_setup_lifecycle.c` checks non-zero
-scalar relaxation toward a prescribed mean for the default and an overridden constant.
-That controlled fixture does not establish coupled scalar-variance decay in a production
-flow; scalar initialization and that verification remain deferred.
+The scalar to mix comes from `models.physics.particles.fields` (@ref p45_particle_values_sec),
+which sets each particle's `Psi` before the first scatter; without it, every particle
+starts at the catalog default 0.0 and the update has nothing to relax. A double-delta
+start, for example, is a sharp `half_space` region with `value: 1` over `background: 0`.
+
+@warning **Coupled scalar-variance decay is not yet verified.** The verification scalar
+source (@ref p08_verification_sec) prescribes `Psi` exactly and bypasses this update, and
+the scatter of `Psi` to the grid is verified through it. `TestConfiguredIEMUpdatesSwarm`
+in `tests/c/test_setup_lifecycle.c` checks relaxation toward a prescribed mean for the
+default and an overridden constant, and `TestConfiguredParticleInitialValue` checks that a
+configured value reaches every particle and the t=0 cell mean. Neither establishes the
+decay of scalar variance in a production flow.
 
 @section p28_dataflow_sec 2. Required Dataflow For IEM
 

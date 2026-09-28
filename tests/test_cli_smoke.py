@@ -2009,7 +2009,7 @@ def test_ic_gen_rejects_unsafe_expression(tmp_path):
         cwd=str(REPO_ROOT), text=True, capture_output=True, timeout=60, check=False,
     )
     assert result.returncode == 1
-    assert "only documented numerical functions" in result.stderr
+    assert "is not an available function" in result.stderr
 
 
 def test_profile_gen_square_duct_poiseuille_cli(tmp_path):

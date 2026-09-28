@@ -162,6 +162,16 @@ is a test-local routine.
     point source, window times, spectral provider parameters, `ic_gen` expressions, and
     a file initial condition staged from physical units or from another run's scales
   - the validate notice names inputs whose reading changed, only at non-unit scales
+- `test_expression_language.py`
+  - `generators/ic.gen` reproduces every case of `tests/fixtures/expression_conformance.txt`,
+    which `make unit-particles` also evaluates through the C runtime evaluator
+  - constructs outside the language are refused; draws are particle-only
+  - region and edge lowering: paint order, half-way edge value, inlined `params`
+- `test_particle_fields.py`
+  - `models.physics.particles.fields`: the settable set matches the C catalog's
+    `USER_INITIALIZE` capability, values become quoted `-particle_fields_*` options, and
+    validation refuses unknown fields, bad expressions, particle-free runs, and a
+    conflicting verification scalar source
 - `test_field_catalog.py`
   - the published field inventory matches the compiled Eulerian and particle catalogs
   - missing fields, wrong layout groups, undocumented layout values, and renamed

@@ -42,7 +42,8 @@ static const ParticleFieldDescriptor gParticleFieldCatalog[PARTICLE_FIELD_ID_COU
                          PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE |
                          PARTICLE_FIELD_CAPABILITY_MODEL_UPDATE |
                          PARTICLE_FIELD_CAPABILITY_EULERIAN_SCATTER |
-                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT,
+                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT |
+                         PARTICLE_FIELD_CAPABILITY_USER_INITIALIZE,
                          0.0, FIELD_ID_PSI,
                 FIELD_DIM_DIMENSIONLESS),
     PARTICLE_FIELD_ENTRY(PARTICLE_FIELD_ID_LOCATION_STATUS, "DMSwarm_location_status", "Migration Status", NULL,

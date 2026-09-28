@@ -7734,7 +7734,9 @@ _CASE_SCHEMA = {
     ("models", "domain"): {"blocks"},
     ("models", "physics"): {"dimensionality", "fsi", "particles", "turbulence"},
     ("models", "physics", "fsi"): {"immersed", "moving_fsi"},
-    ("models", "physics", "particles"): {"count", "init_mode", "restart_mode", "point_source", "random_seed"},
+    ("models", "physics", "particles"): {"count", "init_mode", "restart_mode", "point_source", "random_seed",
+                                         "fields"},
+    ("models", "physics", "particles", "fields"): None,
     ("models", "physics", "particles", "point_source"): {"x", "y", "z"},
     # 'rans' stays listed so a case carrying it gets the planned-status refusal rather
     # than a generic unknown-key error; nothing translates it.
@@ -8023,9 +8025,10 @@ DYNAMIC_VISCOSITY = (1, 1, 1)
 #: which have no staging step); `staging` scales a file payload as it is staged; `provider`
 #: means a generator receives the reference scales and emits solver units; `reference`
 #: marks the inputs that define the scales themselves; `passthrough` marks raw solver
-#: flags, which are expert input in solver units by definition. An empty string means
-#: there is nothing to convert.
-INPUT_CONVERSION_SITES = ("cli", "c", "staging", "provider", "reference", "passthrough", "")
+#: flags, which are expert input in solver units by definition; `evaluator` means the
+#: runtime evaluates an expression at physical coordinates and divides its value by the
+#: target field's reference scale. An empty string means there is nothing to convert.
+INPUT_CONVERSION_SITES = ("cli", "c", "staging", "provider", "evaluator", "reference", "passthrough", "")
 
 NOT_A_QUANTITY = (None, "")
 UNITLESS = (DIMENSIONLESS, "")
@@ -8095,6 +8098,8 @@ INPUT_QUANTITIES = {
     ("case", "models", "physics", "particles", "point_source", "x"): (LENGTH, "cli"),
     ("case", "models", "physics", "particles", "point_source", "y"): (LENGTH, "cli"),
     ("case", "models", "physics", "particles", "point_source", "z"): (LENGTH, "cli"),
+    # Expressions at physical coordinates; each value is in its field's physical units.
+    ("case", "models", "physics", "particles", "fields"): (None, "evaluator"),
     # Model constants, ratios, cadences, and selectors: nothing here carries a unit.
     ("case", "models", "physics", "turbulence", "les"): UNITLESS,
     ("case", "models", "physics", "turbulence", "rans"): NOT_A_QUANTITY,
@@ -9064,6 +9069,34 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                         errors.append(
                             f"  {case_path}: models.physics.particles.point_source.{coord} is required when init_mode is PointSource."
                         )
+
+        if 'fields' in particles_cfg:
+            try:
+                particle_fields = normalize_particle_fields(particles_cfg['fields'])
+            except ValueError as e:
+                errors.append(f"  {case_path}: {e}")
+                particle_fields = []
+            if particle_fields and int(particles_cfg.get('count', 0) or 0) <= 0:
+                errors.append(f"  {case_path}: models.physics.particles.fields needs particles (count > 0).")
+            if particle_fields and ((solver_cfg.get('verification') or {}).get('sources') or {}).get('scalar'):
+                errors.append(
+                    f"  {case_path}: models.physics.particles.fields cannot be combined with "
+                    f"{solver_path} verification.sources.scalar, which prescribes Psi at every step.")
+            if pinit_code == 2:
+                for entry in particle_fields:
+                    if not any(re.search(r"\b(uniform|normal)\s*\(", e) for e in entry["expressions"]):
+                        warnings.append(
+                            f"{case_path}: models.physics.particles.fields.{entry['name']} has no random draw, "
+                            "but init_mode is PointSource: every particle starts at one point and gets the "
+                            "same value. Use a constant, or uniform()/normal() for per-particle values.")
+            try:
+                resumes = int(rc.get('start_step', 0)) > 0
+            except (TypeError, ValueError):
+                resumes = False
+            if particle_fields and resumes and str(particles_cfg.get('restart_mode', 'load')).lower() == 'load':
+                warnings.append(
+                    f"{case_path}: models.physics.particles.fields is ignored when particles are restored "
+                    "(restart_mode: load); their values come from the checkpoint.")
 
     # --- case.yml: domain and physics switches ---
     # Multi-block coupling, immersed boundaries and moving bodies are planned, not
@@ -12542,6 +12575,60 @@ def resolve_fluid_scaling(case_cfg: dict) -> dict:
     }
 
 
+def load_ic_generator_module():
+    """!
+    @brief Load `generators/ic.gen`, which owns the expression language and the IC providers.
+    @return Loaded module.
+    """
+    from importlib.machinery import SourceFileLoader
+    loader = SourceFileLoader("picurv_ic_generator", os.path.join(GENERATORS_PATH, "ic.gen"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+#: Particle fields a case may give an initial value, with their component counts: the
+#: fields the particle carries (catalog capability `USER_INITIALIZE`). Every other particle
+#: field is re-derived from the Eulerian fields or from particle location, so a configured
+#: value would not survive. `tests/test_particle_fields.py` checks this against the catalog.
+PARTICLE_SETTABLE_FIELDS = {"Psi": 1}
+
+
+def normalize_particle_fields(fields_cfg) -> list:
+    """!
+    @brief Validate `models.physics.particles.fields` and lower each value to expressions.
+    @details A value is a number, an expression, or a mapping with `params` and either
+             `value` or `background` with `regions`; a field with several components takes a
+             list of values, one per component. Expressions use physical coordinates
+             `x y z`, domain-normalized `xn yn zn`, `pid`, and physical time `t`, and may
+             draw with `uniform()`/`normal()`.
+    @param[in] fields_cfg The `fields` mapping.
+    @return List of `{"name", "expressions"}` in configuration order.
+    @throws ValueError on an unknown field, a wrong component count, or an invalid value.
+    """
+    if not isinstance(fields_cfg, dict) or not fields_cfg:
+        raise ValueError("models.physics.particles.fields must be a non-empty mapping of field names to values.")
+    ic_gen = load_ic_generator_module()
+    normalized = []
+    for name, spec in fields_cfg.items():
+        if name not in PARTICLE_SETTABLE_FIELDS:
+            raise ValueError(
+                f"models.physics.particles.fields.{name}: not a field a case can set; the runtime "
+                f"re-derives it. Settable fields: {sorted(PARTICLE_SETTABLE_FIELDS)}.")
+        components = PARTICLE_SETTABLE_FIELDS[name]
+        specs = spec if components > 1 else [spec]
+        if not isinstance(specs, list) or len(specs) != components:
+            raise ValueError(f"models.physics.particles.fields.{name} takes {components} component values.")
+        expressions = [
+            ic_gen.lower_value(item, ic_gen.PARTICLE_EXPRESSION_NAMES, random=True,
+                               where=f"models.physics.particles.fields.{name}")
+            for item in specs
+        ]
+        normalized.append({"name": name, "expressions": expressions})
+    return normalized
+
+
 def ic_provider_params_to_solver_units(generator: str, params: dict, scales: dict) -> dict:
     """!
     @brief Convert a provider's validated physical parameters to solver units.
@@ -12639,12 +12726,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
         }
 
     if generator in ("channel_spectral_velocity", "duct_spectral_velocity"):
-        from importlib.machinery import SourceFileLoader
-        loader = SourceFileLoader("picurv_wall_ic", os.path.join(GENERATORS_PATH, "ic.gen"))
-        spec = importlib.util.spec_from_loader(loader.name, loader)
-        module = importlib.util.module_from_spec(spec)
-        loader.exec_module(module)
-        normalized = module.validate_wall_spectral_params(params, generator)
+        normalized = load_ic_generator_module().validate_wall_spectral_params(params, generator)
         if not prepared_blocks or len(prepared_blocks) != 1:
             raise ValueError("wall spectral IC requires exactly one block with resolved boundaries.")
         face_axes = {"Xi": "i", "Eta": "j", "Zeta": "k"}
@@ -13858,6 +13940,16 @@ def parse_and_add_model_flags(case_cfg: dict, control_lines: list):
             control_lines.append(f"-psrc_{axis} {value}")
         print(f"  - Particle Point Source: ({point_cfg['x']}, {point_cfg['y']}, {point_cfg['z']}) "
               f"-> solver units ({psrc[0]}, {psrc[1]}, {psrc[2]})")
+
+    if particles_cfg.get('fields'):
+        particle_fields = normalize_particle_fields(particles_cfg['fields'])
+        control_lines.append(f"-particle_fields_count {len(particle_fields)}")
+        for index, entry in enumerate(particle_fields):
+            control_lines.append(f"-particle_fields_{index}_name {entry['name']}")
+            for component, expression in enumerate(entry["expressions"]):
+                text = control_value(expression, f"models.physics.particles.fields.{entry['name']}")
+                control_lines.append(f"-particle_fields_{index}_expr_{component} \"{text}\"")
+            print(f"  - Particle Field Initial Value: {entry['name']} = {' ; '.join(entry['expressions'])}")
 
     p_restart_mode = particles_cfg.get('restart_mode')
     if p_restart_mode:

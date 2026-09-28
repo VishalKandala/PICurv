@@ -1546,7 +1546,8 @@ run_units_equivalence_smoke() {
   # solver state must agree once rescaled by L, and dimensionalized output must agree
   # outright. Uniform flow drifts the point-source cloud and Brownian motion spreads it:
   # the physical diffusivity mu/(rho Sc) does not depend on the scales, so the same seed
-  # draws the same physical displacements.
+  # draws the same physical displacements. A configured particle value `Psi = x + ...`
+  # is evaluated at physical coordinates, so both runs start the cloud at Psi ~ 0.5.
   local unit_case="${tmp_root}/units-unit-scales"
   local scaled_case="${tmp_root}/units-scaled"
   local unit_run="" scaled_run=""
@@ -1573,6 +1574,7 @@ def case(cfg):
     particles = cfg["models"]["physics"]["particles"]
     particles["init_mode"] = "PointSource"
     particles["point_source"] = {"x": 0.5, "y": 0.5, "z": 0.5}
+    particles["fields"] = {"Psi": "x + 0.001*uniform()"}
 def solver(cfg):
     cfg["operation_mode"]["analytical_type"] = "UNIFORM_FLOW"
     cfg["operation_mode"]["uniform_flow"] = {"u": 0.3, "v": 0.0, "w": 0.0}
@@ -1634,7 +1636,19 @@ for a, b in zip(msd_rows(unit_run), msd_rows(scaled_run)):
     for column in ("t", "MSD_total", "r_rms_meas", "r_rms_theory", "rel_err_pct", "com_x"):
         x, y = float(a[column]), float(b[column])
         assert abs(x - y) <= 1e-8 * max(1.0, abs(x)), f"dimensionalized MSD {column}: {x} vs {y}"
-print(f"units equivalence: {len(unit)} particles agree to {worst:.1e}; dimensionalized MSD agrees")
+def initial_psi(run):
+    [path] = run.rglob("particle_initial_fields.csv")
+    with open(path, newline="") as stream:
+        [row] = [r for r in csv.DictReader(stream) if r["field"] == "Psi"]
+    return row
+
+for row in (initial_psi(unit_run), initial_psi(scaled_run)):
+    assert int(row["count"]) == len(unit), f"initial Psi summary counts {row['count']} particles"
+    assert 0.5 <= float(row["min"]) and float(row["max"]) < 0.501, \
+        f"initial Psi not evaluated at the physical point source: {row['min']}..{row['max']}"
+    assert float(row["variance"]) > 0.0, "the per-particle draw gave every particle the same value"
+print(f"units equivalence: {len(unit)} particles agree to {worst:.1e}; dimensionalized MSD agrees; "
+      "configured Psi evaluated at physical coordinates")
 PY
 }
 

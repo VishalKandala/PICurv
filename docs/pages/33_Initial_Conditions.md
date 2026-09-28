@@ -136,7 +136,11 @@ define `u`, `v`, and `w`, evaluated at actual cell centers with extrapolated
 dummy-cell centers. `Ucont` configs define `u_xi`, `u_eta`, and `u_zeta`,
 evaluated at their corresponding geometric face centers. Expressions may use
 `x/y/z`, normalized logical `xi/eta/zeta`, storage `i/j/k`, `pi`, and the
-documented numerical functions. Expressions are physical: `x/y/z` are the grid's
+documented numerical functions. The language is shared with particle `fields` values
+(@ref p45_particle_values_sec): `+ - * / % **`, comparisons including chains such as
+`0.2 < x < 0.5`, `and or not` (a comparison or logical expression is 1 or 0), decimal
+literals, and `abs sin cos tan exp sqrt minimum maximum where`; per-particle draws are
+particle-only. Expressions are physical: `x/y/z` are the grid's
 physical coordinates (the staged grid times `length_ref`), and each value is a physical
 velocity for `Ucat` or a physical volume flux for `Ucont`; `scale`, `zero_tolerance`, and
 `max_magnitude` act on those physical values. The first implementation supports one block.

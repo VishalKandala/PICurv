@@ -165,6 +165,11 @@
       "classification": "not_public",
       "reason": "Parses a metric expression rather than selecting from a set."
     },
+    "picurv_cli.core::normalize_particle_fields": {
+      "classification": "parameter_of_entry",
+      "owner": "45_Particle_Initialization_and_Restart::p45_particle_values_sec",
+      "reason": "Lowers models.physics.particles.fields values to runtime expressions. The field set, PARTICLE_SETTABLE_FIELDS, has one value (Psi) and follows the catalog's USER_INITIALIZE capability, so there is no choice to guide yet. The region shapes and edge profiles are vocabulary of the value language, defined in generators/ic.gen like the spectral providers' parameters, and each is documented with its keys in page 45 section 1.1. A second settable field, or a shape or profile with a real trade-off to explain, is the point at which this becomes a registered family."
+    },
     "picurv_cli.core::normalize_post_field_statistics_config": {
       "classification": "not_public",
       "reason": "Normalizes the field_statistics block of post.yml: window names, outputs, and formats. The selectable sets inside it are separate surfaces - POST_FIELD_STATISTICS_OUTPUTS is a registered capability family and POST_FIELD_STATISTICS_FORMATS is classified as a parameter of it. This function validates the block's shape, which is structure rather than a choice."

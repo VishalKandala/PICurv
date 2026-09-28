@@ -3,7 +3,8 @@
   "sources": [
     "src/setup.c",
     "src/io.c",
-    "src/statistics_config.c"
+    "src/statistics_config.c",
+    "src/ParticleInitialConditions.c"
   ],
   "known_petsc_options": [
     "-TwoD",
@@ -177,6 +178,9 @@
     "-field_statistics_window_%_start_time",
     "-field_statistics_window_%_step_cadence",
     "-field_statistics_window_%_time_cadence",
-    "-field_statistics_window_%_weighting"
+    "-field_statistics_window_%_weighting",
+    "-particle_fields_%_expr_%",
+    "-particle_fields_%_name",
+    "-particle_fields_count"
   ]
 }

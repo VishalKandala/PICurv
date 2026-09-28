@@ -87,7 +87,7 @@
       "dependent_pages": [
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:848b17a60b1ae241a03a61c8c3adf25ba2d0eb244632cf440a06ebfea4e7e69d"
+      "attested_digest": "sha256:107c43c34e85b9a6137767dc15a6c3f00a29b9f35f1cb5009fa839e3d08b890a"
     },
     {
       "id": "docs.page_types",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:38bbf038d72535c6e1fbcdc3e4f5963440598e33dbdfddf732f171593130980b",
+      "attested_digest": "sha256:41f42457fefb3a747d148dff6713e6437003ae20ccb3e6a3ecf9a2d35004b4e5",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
@@ -278,9 +278,11 @@
         "src/ParticleMotion.c",
         "src/ParticlePhysics.c",
         "src/ParticleSwarm.c",
+        "src/ParticleInitialConditions.c",
         "include/ParticleMotion.h",
         "include/ParticlePhysics.h",
-        "include/ParticleSwarm.h"
+        "include/ParticleSwarm.h",
+        "include/ParticleInitialConditions.h"
       ],
       "owning_pages": [
         "34_Particle_Model_Overview"
@@ -384,7 +386,8 @@
         "33_Initial_Conditions"
       ],
       "dependent_pages": [
-        "32_Analytical_Solutions"
+        "32_Analytical_Solutions",
+        "45_Particle_Initialization_and_Restart"
       ],
       "attested_digest": "unattested"
     },

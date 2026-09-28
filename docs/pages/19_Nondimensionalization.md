@@ -59,6 +59,7 @@ Each physical input is converted at one site, recorded beside its dimension:
 | `c` | the runtime divides it, because the input reaches C with no staging step | `programmatic_settings` domain bounds (`ReadGridGenerationInputs()` in `src/io.c`) |
 | `staging` | a file payload is divided as it is staged under `<run.inputs>` | `.picgrid` grids, `grid.gen` output, inlet-profile PICSLICEs, a `mode: file` initial condition |
 | `provider` | a generator is handed the reference scales and writes solver units | `ic_gen` expressions (`--length-ref`, `--velocity-ref`) |
+| `evaluator` | the runtime evaluates an expression at physical coordinates and divides the value by its field's scale | particle `fields` initial values |
 | `reference` | the input defines a scale | `length_ref`, `velocity_ref`, `density`, `viscosity`, the provenance scales of a file payload |
 | `passthrough` | raw solver flags, in solver units by definition | `solver_parameters`, `petsc_passthrough_options` |
 
@@ -71,7 +72,8 @@ The dimension and site of every input are recorded in `INPUT_QUANTITIES` (with
 Every input that carries a physical dimension. Selectors, counts, steps, grid indices,
 tolerances, and dimensionless model constants are recorded as such and are not listed.
 `PAYLOAD` marks a file whose dimension follows its content: velocity for `Ucat`, volume
-flux for `Ucont`, and physical coordinates and values for `ic_gen` expressions.
+flux for `Ucont`, and physical coordinates and values for `ic_gen` expressions and
+particle `fields`.
 
 | Input | Dimension | Converted by | Scale |
 |---|---|---|---|
@@ -108,6 +110,7 @@ flux for `Ucont`, and physical coordinates and values for `ic_gen` expressions.
 | `case.yml: initial_conditions.params.velocity_physical (constant)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.velocity_physical (streamwise_constant)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.w_physical (constant)` | VELOCITY | cli | U |
+| `case.yml: models.physics.particles.fields` | PAYLOAD | evaluator | by payload field |
 | `case.yml: models.physics.particles.point_source.x` | LENGTH | cli | L |
 | `case.yml: models.physics.particles.point_source.y` | LENGTH | cli | L |
 | `case.yml: models.physics.particles.point_source.z` | LENGTH | cli | L |
@@ -244,6 +247,10 @@ solver's own units exactly.
 - **`ic_gen` expressions** are evaluated at physical coordinates and give physical values.
   The generator receives `--length-ref` and `--velocity-ref` and writes solver units; a
   custom `params.script` receives the same two options.
+- **Particle `fields` expressions** are evaluated by the runtime at physical coordinates
+  (`x y z` are the particle position times `L`, `t` the physical time) and give values in
+  the field's physical units; each value is divided by the field's catalog scale before it
+  is stored. `Psi` is dimensionless, so its values are stored as given.
 - **Spectral providers** receive their velocities and wavenumbers already converted, and
   work on the staged non-dimensional grid; their summaries report solver units.
 

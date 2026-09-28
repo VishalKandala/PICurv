@@ -89,6 +89,7 @@ extern "C" {
 // --- Forward Declarations ---
 // These declarations allow pointers to these types before their full definition.
 typedef struct SimCtx SimCtx;
+struct ParticleFieldPlan;
 struct PicurvWindow;
 struct PicurvWindowStorage;
 typedef struct UserCtx UserCtx;
@@ -998,6 +999,7 @@ typedef struct SimCtx {
     PetscInt particlesLostLastStep;
     PetscInt particlesLostCumulative;
     PetscReal particlesLostScalarLastStep; /**< Sum of Psi over the particles removed this step. */
+    struct ParticleFieldPlan *particleFieldPlan; /**< Configured initial particle-field values, or NULL. */
     PetscInt migrationPassesLastStep;
     PetscInt particlesMigratedLastStep;
     PetscInt occupiedCellCount;

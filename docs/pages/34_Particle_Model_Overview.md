@@ -88,9 +88,9 @@ Current scalar model path:
 
 This presently implements IEM-style relaxation for `Psi`, with the mixing constant
 `C_IEM` set by `scalar_transport.iem_constant` (default 2.0; @ref p08_scalar_transport_sec).
-It is also
-inert in practice: `Psi` starts at zero on every particle and no configuration seeds or
-sources a scalar, so the relaxation has nothing to act on (@ref p28_iem_sec).
+`Psi` starts at zero unless `models.physics.particles.fields` gives it an initial value
+(@ref p45_particle_values_sec); without one, the relaxation has nothing to act on
+(@ref p28_iem_sec).
 
 @section p34_statistics_sec 4. Statistics and Diagnostics
 

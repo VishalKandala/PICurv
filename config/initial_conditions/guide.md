@@ -33,7 +33,10 @@ geometric face centers and represents a contravariant flux.
 
 Available values are `x`, `y`, `z`, `xi`, `eta`, `zeta`, `i`, `j`, `k`, and
 `pi`. Supported functions are `sin`, `cos`, `tan`, `exp`, `sqrt`, `abs`,
-`minimum`, `maximum`, and `where`.
+`minimum`, `maximum`, and `where`. Operators are `+ - * / % **`, comparisons (chains
+such as `0.2 < x < 0.5` included), and `and`, `or`, `not`; a comparison or logical
+expression is 1 when true and 0 when false. Numbers are decimal literals. The same
+language gives particle initial values (`models.physics.particles.fields`).
 
 Use `picurv precompute --case case.yml` to inspect the generated and staged
 PETSc vectors before launching a solve.

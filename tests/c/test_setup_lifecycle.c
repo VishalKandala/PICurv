@@ -355,6 +355,56 @@ static PetscErrorCode TestSetupRejectsNonpositivePostInterval(void)
 }
 
 /**
+ * @brief Checks a configured particle initial value through the production setup path.
+ * @details `Psi = x + 2*pid` is read from the options, compiled, and applied once positions
+ *          are final; it varies across particles wherever the fixture seeds them. Every particle must carry exactly its value, and the
+ *          t=0 scatter must already reflect it: the count-weighted Eulerian `Psi` sums to
+ *          the particles' total, so the first IEM update relaxes toward the right mean.
+ */
+static PetscErrorCode TestConfiguredParticleInitialValue(void)
+{
+    const char *options = "-particle_fields_count 1\n"
+                          "-particle_fields_0_name Psi\n"
+                          "-particle_fields_0_expr_0 \"x + 2*pid\"\n";
+    SimCtx          *simCtx = NULL;
+    UserCtx         *user = NULL;
+    char             tmpdir[PETSC_MAX_PATH_LEN];
+    PetscInt         nlocal = 0;
+    const PetscReal  *psi = NULL, *position = NULL;
+    const PetscInt64 *pid = NULL;
+    PetscReal         particle_sum = 0.0, eulerian_sum = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_TRUE, options, &simCtx, &user,
+                                                       tmpdir, sizeof(tmpdir)));
+    PetscCall(PicurvAssertBool((PetscBool)(simCtx->particleFieldPlan != NULL), "the plan is read from the options"));
+    PetscCall(InitializeEulerianState(simCtx));
+    PetscCall(InitializeParticleSwarm(simCtx));
+    PetscCall(PerformInitializedParticleSetup(simCtx));
+
+    PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&position));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+    for (PetscInt p = 0; p < nlocal; ++p) {
+        const PetscReal expected = position[3 * p] * simCtx->scaling.L_ref + 2.0 * (PetscReal)pid[p];
+        PetscCall(PicurvAssertRealNear(expected, psi[p], 1.0e-12, "each particle carries its initial value"));
+        particle_sum += psi[p];
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&position));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &particle_sum, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCall(VecDot(user->Psi, user->ParticleCount, &eulerian_sum));
+    PetscCall(PicurvAssertRealNear(particle_sum, eulerian_sum, 1.0e-9,
+                                   "the t=0 scatter carries the initial value to the Eulerian mean"));
+
+    PetscCall(FreeLifecycleContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Checks configured IEM relaxation through the production swarm update.
  * @details A zero constant switches micromixing off, and must leave Psi bit-identical:
  *          Psi = 0.1 against a mean of 3 would not survive `3 + (0.1 - 3) * 1` exactly,
@@ -856,6 +906,7 @@ int main(int argc, char **argv)
         {"iem-constant-is-configurable", TestIEMConstantIsConfigurable},
         {"setup-rejects-nonpositive-post-interval", TestSetupRejectsNonpositivePostInterval},
         {"configured-iem-updates-swarm", TestConfiguredIEMUpdatesSwarm},
+        {"configured-particle-initial-value", TestConfiguredParticleInitialValue},
         {"brownian-rng-seeded-from-configuration", TestBrownianRNGIsSeededFromConfiguration},
         {"shared-runtime-fixture-contracts", TestSharedRuntimeFixtureContracts},
         {"field-catalog-metadata-and-views", TestFieldCatalogMetadataAndViews},

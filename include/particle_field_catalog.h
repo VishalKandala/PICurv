@@ -47,7 +47,10 @@ typedef enum {
     PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE = 1u << 0,
     PARTICLE_FIELD_CAPABILITY_MODEL_UPDATE       = 1u << 1,
     PARTICLE_FIELD_CAPABILITY_EULERIAN_SCATTER   = 1u << 2,
-    PARTICLE_FIELD_CAPABILITY_CHECKPOINT          = 1u << 3
+    PARTICLE_FIELD_CAPABILITY_CHECKPOINT          = 1u << 3,
+    /** The particle carries the value, so a configured initial value survives: nothing
+        re-derives it from the Eulerian fields or from particle location. */
+    PARTICLE_FIELD_CAPABILITY_USER_INITIALIZE     = 1u << 4
 } ParticleFieldCapabilities;
 
 /** @brief Immutable metadata for one persistent particle field. */
