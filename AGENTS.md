@@ -127,6 +127,21 @@ A test that was passing before your change is not evidence that it still passes.
 State which targets you re-ran and which you did not, so the difference is visible
 rather than assumed.
 
+## Technical communication
+
+For substantive PICurv explanations, plans, findings, observations, recommendations,
+and user-facing or agent-to-agent technical handoffs, apply
+`picurv-technical-communication` alongside every applicable workflow skill. This includes
+case design and execution, output or plot interpretation, scientific comparison,
+mathematics, code behavior, debugging, reviews, and feature design. Trivial file lookups
+or commands do not require it.
+
+Workflow skills control investigation, actions, and verification. The communication skill
+controls explanation depth, organization, terminology, and claim labeling. Use the
+repository documentation as an index and verify behavioral claims according to the trust
+hierarchy below. Do not let presentation guidance weaken a workflow skill's evidence or
+handoff requirements.
+
 ## Committing
 
 Do not commit scratch, temp files, run output, or generated artifacts. Before
