@@ -55,8 +55,9 @@ Raw per-timestep counters written directly by the runtime:
 - `lost_cumulative`
 - `load_imbalance`
 
-Each row is indexed by `step`, `time` (solver time), and `physical_time` (seconds, the last
-column).
+Each row is indexed by `step`, `time` (solver time), and `physical_time` (seconds). The last
+column, `lost_psi_sum`, is the sum of `Psi` over the particles removed that step: with a 0/1
+label and `iem_constant: 0`, the number of labelled particles that left the domain.
 
 These are cheap, always-on aggregate counters. They are the authoritative source
 for later derived signals and study reductions.

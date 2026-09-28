@@ -1416,10 +1416,10 @@ def test_parse_solver_config_maps_scalar_transport_flags():
     assert flags["-iem_constant"] == 3.5
 
 
-@pytest.mark.parametrize("value", [0.0, -1.0, float("nan"), float("inf"), -float("inf"), True])
+@pytest.mark.parametrize("value", [-1.0, float("nan"), float("inf"), -float("inf"), True])
 def test_parse_solver_config_refuses_an_invalid_iem_constant(value):
     """!
-    @brief The IEM mixing constant must be positive and finite, as the runtime requires.
+    @brief The IEM mixing constant must be non-negative and finite, as the runtime requires.
     @param[in] value Invalid model constant.
     """
     picurv = load_picurv_module()
@@ -1432,8 +1432,9 @@ def test_parse_solver_config_refuses_an_invalid_iem_constant(value):
 def test_validate_iem_constant_at_cli_ingress(tmp_path, value):
     """!
     @brief Exercise IEM validation through the user-facing validate command.
+    @details Zero is accepted: it switches micromixing off.
     @param[in] tmp_path Temporary configuration directory.
-    @param[in] value Model constant accepted only when positive and finite.
+    @param[in] value Model constant accepted only when non-negative and finite.
     """
     valid = FIXTURES / "valid"
     solver = yaml.safe_load((valid / "solver.yml").read_text())
@@ -1442,7 +1443,7 @@ def test_validate_iem_constant_at_cli_ingress(tmp_path, value):
     solver_path.write_text(yaml.safe_dump(solver))
     result = run_picurv(["validate", "--case", str(valid / "case.yml"),
                          "--solver", str(solver_path), "--monitor", str(valid / "monitor.yml")])
-    if value == 3.5:
+    if value in (0.0, 3.5):
         assert result.returncode == 0, result.stdout + result.stderr
     else:
         assert result.returncode != 0

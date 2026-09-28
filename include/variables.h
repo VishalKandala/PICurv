@@ -997,6 +997,7 @@ typedef struct SimCtx {
     char particleRestartMode[16];
     PetscInt particlesLostLastStep;
     PetscInt particlesLostCumulative;
+    PetscReal particlesLostScalarLastStep; /**< Sum of Psi over the particles removed this step. */
     PetscInt migrationPassesLastStep;
     PetscInt particlesMigratedLastStep;
     PetscInt occupiedCellCount;

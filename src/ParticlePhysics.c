@@ -159,7 +159,14 @@ PetscErrorCode UpdateAllParticleFields(UserCtx *user)
         PetscFunctionReturn(0);
     }
 
-    ierr = UpdateFieldForAllParticles(user, PARTICLE_FIELD_ID_PSI); CHKERRQ(ierr);
+    /* C_IEM = 0 switches micromixing off. The update is skipped rather than run with a
+     * zero rate: mean + (psi - mean) * 1 need not round-trip to psi exactly, and a passive
+     * label must stay bit-identical. */
+    if (user->simCtx->iem_constant == 0.0) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "IEM constant is zero; Psi is carried unchanged.\n");
+    } else {
+        ierr = UpdateFieldForAllParticles(user, PARTICLE_FIELD_ID_PSI); CHKERRQ(ierr);
+    }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "All particle physical properties updated.\n");
 

@@ -42,14 +42,21 @@ static PetscBool RuntimeShutdownRequested(void)
 }
 
 /**
- * @brief Applies verification-only scalar truth and refreshes the scattered Eulerian scalar state.
- * @details Local to this translation unit.
+ * @brief Makes the Eulerian particle averages consistent with the particles before step 1.
+ * @details The first step's particle update relaxes each particle toward the scattered
+ *          Eulerian mean, and its own scatter comes only after that update. So whatever
+ *          the particles hold at setup - an initial condition, a loaded state, or the
+ *          verification profile - must be scattered here, or step 1 relaxes toward a mean
+ *          that never saw it. The verification profile, when active, is applied first.
+ *          Local to this translation unit.
  */
-static PetscErrorCode RefreshVerificationScalarScatterState(UserCtx *user)
+static PetscErrorCode RefreshScatteredParticleState(UserCtx *user)
 {
     PetscFunctionBeginUser;
-    if (!user || !VerificationScalarOverrideActive(user->simCtx)) PetscFunctionReturn(0);
-    PetscCall(ApplyVerificationScalarOverrideToParticles(user));
+    if (!user) PetscFunctionReturn(0);
+    if (VerificationScalarOverrideActive(user->simCtx)) {
+        PetscCall(ApplyVerificationScalarOverrideToParticles(user));
+    }
     PetscCall(ScatterAllParticleFieldsToEulerFields(user));
     PetscFunctionReturn(0);
 }
@@ -396,7 +403,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     // --- 3. Finalize State for t=0 ---
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Interpolating initial fields to settled particles.\n", simCtx->ti, simCtx->step);
     ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
-    ierr = RefreshVerificationScalarScatterState(user); CHKERRQ(ierr);
+    ierr = RefreshScatteredParticleState(user); CHKERRQ(ierr);
 
     // --- 4. Initial History and Output ---
     // Update solver history vectors with the t=0 state before the first real step
@@ -458,11 +465,7 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
 
     // 3. Update Eulerian source terms from the loaded particle data.
-    if (VerificationScalarOverrideActive(simCtx)) {
-        ierr = RefreshVerificationScalarScatterState(user); CHKERRQ(ierr);
-    } else {
-        ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
-    }
+    ierr = RefreshScatteredParticleState(user); CHKERRQ(ierr);
 
     // --- 4. Initial History and Output ---
     // Update solver history vectors with the t=0 state before the first real step
@@ -549,6 +552,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
     // Variables for particle removal statistics
     //PetscInt removed_local_ob, removed_global_ob;
     PetscInt removed_local_lost, removed_global_lost;
+    PetscReal removed_scalar_lost = 0.0;
     PetscBool terminated_early = PETSC_FALSE;
     PetscInt  last_completed_loop_index = StartStep - 1;
 
@@ -632,6 +636,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         if (simCtx->np > 0) {
             LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Lagrangian particle system...\n");
             simCtx->particlesLostLastStep = 0;
+            simCtx->particlesLostScalarLastStep = 0.0;
 
             // a. Update Eulerian Transport Properties:
             // Optimization: Only recalculate if turbulence is active (Nu_t changes).
@@ -659,9 +664,11 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = LocateAllParticlesInGrid(user, simCtx->bboxlist); CHKERRQ(ierr);
  
             // d. Remove any particles that are now lost or out of the global domain.
-            ierr = CheckAndRemoveLostParticles(user, &removed_local_lost, &removed_global_lost); CHKERRQ(ierr);
+            ierr = CheckAndRemoveLostParticles(user, &removed_local_lost, &removed_global_lost,
+                                               &removed_scalar_lost); CHKERRQ(ierr);
             //ierr = CheckAndRemoveOutOfBoundsParticles(user, &removed_local_ob, &removed_global_ob, simCtx->bboxlist); CHKERRQ(ierr);
             simCtx->particlesLostLastStep = removed_global_lost;
+            simCtx->particlesLostScalarLastStep = removed_scalar_lost;
             simCtx->particlesLostCumulative += removed_global_lost;
             if (removed_global_lost> 0) { // if(removed_global_lost + removed_global_ob > 0){
                 LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %d particles globally this step.\n", removed_global_lost); // removed_global_lost + removed_global_ob;

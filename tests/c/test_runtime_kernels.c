@@ -944,10 +944,17 @@ static PetscErrorCode TestCheckAndRemoveLostParticlesRemovesLostEntries(void)
     PetscInt removed_local = 0;
     PetscInt removed_global = 0;
     PetscInt nlocal = 0;
+    PetscReal *psi = NULL;
+    PetscReal removed_psi = 0.0;
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
     PetscCall(PicurvCreateSwarmPair(user, 3, "ske"));
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    psi[0] = 0.5;
+    psi[1] = 2.0;
+    psi[2] = 3.0;
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
 
     PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
     status[0] = ACTIVE_AND_LOCATED;
@@ -955,8 +962,9 @@ static PetscErrorCode TestCheckAndRemoveLostParticlesRemovesLostEntries(void)
     status[2] = LOST;
     PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
 
-    PetscCall(CheckAndRemoveLostParticles(user, &removed_local, &removed_global));
+    PetscCall(CheckAndRemoveLostParticles(user, &removed_local, &removed_global, &removed_psi));
     PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+    PetscCall(PicurvAssertRealNear(5.0, removed_psi, 0.0, "the removed particles carried Psi 2 and 3"));
     PetscCall(PicurvAssertIntEqual(2, removed_local, "Two LOST particles should be removed locally"));
     PetscCall(PicurvAssertIntEqual(2, removed_global, "Global LOST-particle removal count should match the local single-rank result"));
     PetscCall(PicurvAssertIntEqual(1, nlocal, "One non-LOST particle should remain"));

@@ -105,12 +105,16 @@ PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
  * @param[in,out]  user              Pointer to the UserCtx structure containing the swarm.
  * @param[out]     removedCountLocal Pointer to store the number of particles removed on this rank.
  * @param[out]     removedCountGlobal Pointer to store the total number of particles removed across all ranks.
+ * @param[out]     removedScalarSumGlobal Optional, may be NULL: the sum of `Psi` over every
+ *                 particle removed on any rank. With a 0/1 label and micromixing off, it
+ *                 counts the removed particles that carried the label.
  *
  * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
  */
 PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
                                            PetscInt *removedCountLocal,
-                                           PetscInt *removedCountGlobal);
+                                           PetscInt *removedCountGlobal,
+                                           PetscReal *removedScalarSumGlobal);
 
 /**
  * @brief Defines the basic migration pattern for particles within the swarm.

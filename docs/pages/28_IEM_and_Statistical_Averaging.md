@@ -28,7 +28,13 @@ Closed-form update implemented in code:
 
 `C_IEM` is `solver.yml -> scalar_transport.iem_constant` (`-iem_constant`), default 2.0,
 the conventional value; it is exposed for sensitivity studies, not because another value
-has been validated.
+has been validated. `C_IEM = 0` switches micromixing off: @ref UpdateAllParticleFields
+skips the update rather than running it at a zero rate, because
+\f$\langle\Psi\rangle + (\Psi^n-\langle\Psi\rangle)\f$ need not round to
+\f$\Psi^n\f$ exactly, and a passive label must stay bit-identical. With a 0/1 label the
+scattered cell mean is then the local fraction of particles that carried it, and the
+`lost_psi_sum` column of `search_metrics.csv` counts the labelled particles leaving the
+domain each step.
 
 Code touchpoints:
 

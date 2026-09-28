@@ -494,6 +494,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     strcpy(simCtx->particleRestartMode,"load");
     simCtx->particlesLostLastStep = 0;
     simCtx->particlesLostCumulative = 0;
+    simCtx->particlesLostScalarLastStep = 0.0;
     simCtx->particlesMigratedLastStep = 0;
     simCtx->occupiedCellCount = 0;
     simCtx->particleLoadImbalance = 0.0;
@@ -1003,9 +1004,10 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetReal(NULL,NULL,"-schmidt_number",&simCtx->schmidt_number,NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL,NULL,"-turb_schmidt_number",&simCtx->Turbulent_schmidt_number,NULL);CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL,NULL,"-iem_constant",&simCtx->iem_constant,NULL);CHKERRQ(ierr);
-    PetscCheck(simCtx->iem_constant > 0.0 && !PetscIsInfOrNanReal(simCtx->iem_constant),
+    /* Zero is valid: it switches micromixing off, so a particle scalar is carried unchanged. */
+    PetscCheck(simCtx->iem_constant >= 0.0 && !PetscIsInfOrNanReal(simCtx->iem_constant),
                PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
-               "-iem_constant must be a positive finite number (got %g).", (double)simCtx->iem_constant);
+               "-iem_constant must be a non-negative finite number (got %g).", (double)simCtx->iem_constant);
     ierr = PetscOptionsGetReal(NULL,NULL,"-wall_roughness",&simCtx->wall_roughness_height,NULL);CHKERRQ(ierr);
     // NOTE: angle is not parsed in the original code, it set programmatically. We will follow that.
     // NOTE: max_angle is calculated based on other flags (like MHV) in the legacy code.

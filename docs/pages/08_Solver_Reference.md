@@ -851,8 +851,10 @@ Mappings:
   `Omega = C_IEM Gamma_eff / Delta^2` (@ref p28_iem_sec)
 
 Rules:
-- values must be positive numbers; both configuration validation and the runtime
-  require `iem_constant` to be finite
+- the Schmidt numbers must be positive; `iem_constant` must be non-negative, and both
+  configuration validation and the runtime require it to be finite
+- `iem_constant: 0` switches micromixing off: the particle update is skipped, so each
+  particle's `Psi` is carried unchanged and bit-identical - a passive label
 - omitted values use the C runtime defaults: `schmidt_number = 1.0`,
   `turbulent_schmidt_number = 0.7`, and `iem_constant = 2.0`
 - `iem_constant` changes nothing while every particle's `Psi` is zero, which it is

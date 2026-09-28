@@ -302,14 +302,14 @@ static PetscErrorCode TryContextWithExtraLines(const char *extra_lines, SimCtx *
 }
 
 /**
- * @brief Tests that the IEM mixing constant defaults to 2.0, follows -iem_constant, and
- *        refuses a value that is not a positive finite number.
+ * @brief Tests that the IEM mixing constant defaults to 2.0, follows -iem_constant,
+ *        accepts zero (no micromixing), and refuses a negative or non-finite value.
  */
 static PetscErrorCode TestIEMConstantIsConfigurable(void)
 {
     const char *cases[] = {"", "-iem_constant 3.5\n", "-iem_constant 0\n", "-iem_constant -1\n",
                            "-iem_constant nan\n", "-iem_constant inf\n"};
-    const PetscReal expected[] = {2.0, 3.5, 0.0, 0.0, 0.0, 0.0};
+    const PetscReal expected[] = {2.0, 3.5, 0.0, -1.0, -1.0, -1.0};  /* -1: refused */
 
     PetscFunctionBeginUser;
     for (size_t n = 0; n < sizeof(cases) / sizeof(cases[0]); ++n) {
@@ -318,13 +318,13 @@ static PetscErrorCode TestIEMConstantIsConfigurable(void)
         PetscErrorCode setup_ierr = 0;
 
         PetscCall(TryContextWithExtraLines(cases[n], &simCtx, &setup_ierr, tmpdir, sizeof(tmpdir)));
-        if (expected[n] > 0.0) {
-            PetscCall(PicurvAssertIntEqual(0, setup_ierr, "a positive -iem_constant must be accepted"));
+        if (expected[n] >= 0.0) {
+            PetscCall(PicurvAssertIntEqual(0, setup_ierr, "a non-negative -iem_constant must be accepted"));
             PetscCall(PicurvAssertRealNear(expected[n], simCtx->iem_constant, 0.0,
                                            "the IEM constant must follow -iem_constant, default 2.0"));
         } else {
             PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_OUTOFRANGE, setup_ierr,
-                                           "a non-positive or non-finite -iem_constant must be refused"));
+                                           "a negative or non-finite -iem_constant must be refused"));
         }
         PetscCall(FreeLifecycleContext(&simCtx));
         PetscCall(PetscOptionsClear(NULL));
@@ -356,11 +356,14 @@ static PetscErrorCode TestSetupRejectsNonpositivePostInterval(void)
 
 /**
  * @brief Checks configured IEM relaxation through the production swarm update.
+ * @details A zero constant switches micromixing off, and must leave Psi bit-identical:
+ *          Psi = 0.1 against a mean of 3 would not survive `3 + (0.1 - 3) * 1` exactly,
+ *          so the exact comparison shows the update is skipped, not run at a zero rate.
  */
 static PetscErrorCode TestConfiguredIEMUpdatesSwarm(void)
 {
-    const char *options[] = {"", "-iem_constant 3.5\n"};
-    const PetscReal constants[] = {2.0, 3.5};
+    const char *options[] = {"", "-iem_constant 3.5\n", "-iem_constant 0\n"};
+    const PetscReal constants[] = {2.0, 3.5, 0.0};
 
     PetscFunctionBeginUser;
     for (size_t n = 0; n < sizeof(constants) / sizeof(constants[0]); ++n) {
@@ -385,8 +388,9 @@ static PetscErrorCode TestConfiguredIEMUpdatesSwarm(void)
         PetscCall(PicurvAssertBool((PetscBool)(nlocal > 0), "IEM fixture must contain particles"));
         PetscCall(DMSwarmGetField(user->swarm, psi_name, NULL, NULL, (void **)&psi));
         PetscCall(DMSwarmGetField(user->swarm, diff_name, NULL, NULL, (void **)&diffusivity));
+        const PetscReal psi_initial = (constants[n] == 0.0) ? 0.1 : 1.0;
         for (PetscInt p = 0; p < nlocal; ++p) {
-            psi[p] = 1.0;
+            psi[p] = psi_initial;
             diffusivity[p] = 0.2;
         }
         PetscCall(DMSwarmRestoreField(user->swarm, diff_name, NULL, NULL, (void **)&diffusivity));
@@ -394,8 +398,13 @@ static PetscErrorCode TestConfiguredIEMUpdatesSwarm(void)
         PetscCall(UpdateAllParticleFields(user));
         PetscCall(DMSwarmGetField(user->swarm, psi_name, NULL, NULL, (void **)&psi));
         for (PetscInt p = 0; p < nlocal; ++p) {
-            PetscCall(PicurvAssertRealNear(3.0 - 2.0 * PetscExpReal(-constants[n] * 0.2 * 0.5),
-                        psi[p], 1.e-12, "configured IEM constant must control swarm relaxation"));
+            if (constants[n] == 0.0) {
+                PetscCall(PicurvAssertBool((PetscBool)(psi[p] == psi_initial),
+                            "a zero IEM constant must leave Psi bit-identical"));
+            } else {
+                PetscCall(PicurvAssertRealNear(3.0 - 2.0 * PetscExpReal(-constants[n] * 0.2 * 0.5),
+                            psi[p], 1.e-12, "configured IEM constant must control swarm relaxation"));
+            }
         }
         PetscCall(DMSwarmRestoreField(user->swarm, psi_name, NULL, NULL, (void **)&psi));
         PetscCall(FreeLifecycleContext(&simCtx));

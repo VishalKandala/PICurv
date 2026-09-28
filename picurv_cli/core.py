@@ -3237,9 +3237,10 @@ PRESCRIBED_FLOW_SOURCE_TYPES = ("file", "generated", "field_slice")
 #: Analytic scalar profiles the verification source may generate.
 VERIFICATION_SCALAR_PROFILES = ("CONSTANT", "LINEAR_X", "SIN_PRODUCT")
 
-#: solver.yml `scalar_transport` keys and the runtime flag each becomes. Every value is a
-#: positive number: the Schmidt numbers set particle diffusivity, and `iem_constant` is
-#: C_IEM in the IEM mixing rate Omega = C_IEM Gamma / Delta^2 (runtime default 2.0).
+#: solver.yml `scalar_transport` keys and the runtime flag each becomes. The Schmidt
+#: numbers are positive and set particle diffusivity; `iem_constant` is C_IEM in the IEM
+#: mixing rate Omega = C_IEM Gamma / Delta^2 (runtime default 2.0), and 0 switches
+#: micromixing off so a particle scalar is a passive label.
 SCALAR_TRANSPORT_FLAGS = {
     "schmidt_number": "-schmidt_number",
     "turbulent_schmidt_number": "-turb_schmidt_number",
@@ -9355,8 +9356,10 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                     try:
                         value = (_to_finite_float(transport_cfg[key], f"scalar_transport.{key}")
                                  if key == "iem_constant" else float(transport_cfg[key]))
-                        if value <= 0.0:
-                            errors.append(f"  {solver_path}: scalar_transport.{key} must be positive.")
+                        # iem_constant = 0 switches micromixing off; the Schmidt numbers divide.
+                        if value < 0.0 or (value == 0.0 and key != "iem_constant"):
+                            errors.append(f"  {solver_path}: scalar_transport.{key} must be "
+                                          f"{'non-negative' if key == 'iem_constant' else 'positive'}.")
                     except (TypeError, ValueError):
                         errors.append(f"  {solver_path}: scalar_transport.{key} must be numeric.")
 
@@ -13982,8 +13985,9 @@ def parse_solver_config(solver_cfg: dict, scales: dict = None) -> dict:
                              if key == "iem_constant" else float(transport_cfg[key]))
                 except (TypeError, ValueError) as exc:
                     raise ValueError(f"scalar_transport.{key} must be numeric.") from exc
-                if value <= 0.0:
-                    raise ValueError(f"scalar_transport.{key} must be positive.")
+                if value < 0.0 or (value == 0.0 and key != "iem_constant"):
+                    raise ValueError(f"scalar_transport.{key} must be "
+                                     f"{'non-negative' if key == 'iem_constant' else 'positive'}.")
                 flags[flag] = value
 
     selected_solver = None

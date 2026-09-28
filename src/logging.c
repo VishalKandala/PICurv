@@ -3341,13 +3341,13 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
                         "bbox_guess_success_count,bbox_guess_fallback_count,max_particle_pass_depth,load_imbalance,"
                         "search_population,search_located_count,search_lost_count,traversal_steps_sum,re_search_count,"
                         "max_traversal_fail_count,search_failure_fraction,search_work_index,re_search_fraction,"
-                        "physical_time\n");
+                        "physical_time,lost_psi_sum\n");
             }
             if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
                 fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
             }
             fprintf(f,
-                    "%d,%.6e,%d,%d,%d,%d,%d,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%.6e,%.6e,%.6e\n",
+                    "%d,%.6e,%d,%d,%d,%d,%d,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%.6e,%.6e,%.6e,%.10e\n",
                     (int)simCtx->step,
                     (double)simCtx->ti,
                     (int)totalParticles,
@@ -3373,7 +3373,8 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
                     (double)searchFailureFraction,
                     (double)searchWorkIndex,
                     (double)reSearchFraction,
-                    (double)searchPhysicalTime);
+                    (double)searchPhysicalTime,
+                    (double)simCtx->particlesLostScalarLastStep);
             fclose(f);
         }
     }
