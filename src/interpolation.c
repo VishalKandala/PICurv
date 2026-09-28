@@ -1924,6 +1924,8 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
         // Call the unified scatter function. It will handle DM determination and validation.
         // It will also error out if the *particle* field "Psi" doesn't exist in the swarm.
         ierr = ScatterParticleFieldToEulerField(user, PARTICLE_FIELD_ID_PSI, user->Psi); CHKERRQ(ierr);
+        // IEM reads the cell mean through the ghosted lPsi; refresh it from the new average.
+        ierr = UpdateLocalGhosts(user, FIELD_ID_PSI); CHKERRQ(ierr);
 	ierr = VecMean(user->Psi,&Avg_Psi);
 	
 	LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Scalar(Psi) after  scatter: %.4f.\n",Avg_Psi);

@@ -101,9 +101,11 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
         PetscReal p_vol  = 1.0;
 
         if (field_id == PARTICLE_FIELD_ID_PSI) {
-            PetscInt i = cell_arr[3*p + 0];
-            PetscInt j = cell_arr[3*p + 1];
-            PetscInt k = cell_arr[3*p + 2];
+            // Cell IDs are 0-based geometric indices; cell-centred storage starts at index 1
+            // (index 0 is the boundary slot), the shift the scatter applies when it writes lPsi.
+            PetscInt i = cell_arr[3*p + 0] + 1;
+            PetscInt j = cell_arr[3*p + 1] + 1;
+            PetscInt k = cell_arr[3*p + 2] + 1;
 
             p_diff = diff_arr[p];
             p_mean = grid_mean[k][j][i];

@@ -44,16 +44,21 @@ Code touchpoints:
 
 The scalar to mix comes from `models.physics.particles.fields` (@ref p45_particle_values_sec),
 which sets each particle's `Psi` before the first scatter; without it, every particle
-starts at the catalog default 0.0 and the update has nothing to relax. A double-delta
-start, for example, is a sharp `half_space` region with `value: 1` over `background: 0`.
+starts at the catalog default 0.0 and the update has nothing to relax. IEM relaxes each
+particle toward its own cell's mean, so it only mixes values that share a cell: a
+double-delta start inside every cell is `"where(uniform() < 0.5, 0, 1)"`, whereas a sharp
+`half_space` region mixes only in the cells its boundary cuts, and spreads beyond them only
+as fast as particles move.
 
 @warning **Coupled scalar-variance decay is not yet verified.** The verification scalar
 source (@ref p08_verification_sec) prescribes `Psi` exactly and bypasses this update, and
 the scatter of `Psi` to the grid is verified through it. `TestConfiguredIEMUpdatesSwarm`
 in `tests/c/test_setup_lifecycle.c` checks relaxation toward a prescribed mean for the
-default and an overridden constant, and `TestConfiguredParticleInitialValue` checks that a
-configured value reaches every particle and the t=0 cell mean. Neither establishes the
-decay of scalar variance in a production flow.
+default and an overridden constant; `TestIEMRelaxesTowardOwnCellMean` checks, from a
+random 0/1 start, that each particle relaxes toward its own cell's scattered mean, so the
+scalar total is conserved while its spread shrinks; and `TestConfiguredParticleInitialValue`
+checks that a configured value reaches every particle and the t=0 cell mean. None
+establishes the decay of scalar variance in a production flow.
 
 @section p28_dataflow_sec 2. Required Dataflow For IEM
 

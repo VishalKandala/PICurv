@@ -464,6 +464,67 @@ static PetscErrorCode TestConfiguredIEMUpdatesSwarm(void)
 }
 
 /**
+ * @brief Checks that IEM relaxes each particle toward its own cell's scattered mean.
+ * @details Particles start at random 0 or 1, so cell means differ from cell to cell and
+ *          from the zero in the boundary storage slots. Relaxing toward the particle's own
+ *          cell mean at a rate uniform within the cell conserves every cell's scalar sum,
+ *          so the total is unchanged while the spread shrinks; reading a neighbour's mean,
+ *          or a boundary slot, breaks the conservation.
+ */
+static PetscErrorCode TestIEMRelaxesTowardOwnCellMean(void)
+{
+    const char *options = "-particle_fields_count 1\n"
+                          "-particle_fields_0_name Psi\n"
+                          "-particle_fields_0_expr_0 \"where(uniform() < 0.5, 0, 1)\"\n";
+    SimCtx     *simCtx = NULL;
+    UserCtx    *user = NULL;
+    char        tmpdir[PETSC_MAX_PATH_LEN];
+    PetscInt    nlocal = 0;
+    PetscReal  *psi = NULL, *diffusivity = NULL;
+    PetscReal   sums[2][2] = {{0.0, 0.0}, {0.0, 0.0}}; /* [before|after][sum|sum of squares] */
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_TRUE, options, &simCtx, &user,
+                                                       tmpdir, sizeof(tmpdir)));
+    PetscCall(InitializeEulerianState(simCtx));
+    PetscCall(InitializeParticleSwarm(simCtx));
+    PetscCall(PerformInitializedParticleSetup(simCtx));
+    simCtx->dt = 0.5;
+
+    PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmGetField(user->swarm, "Diffusivity", NULL, NULL, (void **)&diffusivity));
+    for (PetscInt p = 0; p < nlocal; ++p) {
+        diffusivity[p] = 0.2;
+        sums[0][0] += psi[p];
+        sums[0][1] += psi[p] * psi[p];
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, "Diffusivity", NULL, NULL, (void **)&diffusivity));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+
+    PetscCall(UpdateAllParticleFields(user));
+
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    for (PetscInt p = 0; p < nlocal; ++p) {
+        sums[1][0] += psi[p];
+        sums[1][1] += psi[p] * psi[p];
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, sums, 4, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+
+    PetscCall(PicurvAssertBool((PetscBool)(sums[0][0] > 0.0 && sums[0][0] < (PetscReal)simCtx->np),
+                               "the fixture must start with both values present"));
+    PetscCall(PicurvAssertRealNear(sums[0][0], sums[1][0], 1.0e-9,
+                                   "relaxing toward each particle's own cell mean conserves the scalar"));
+    PetscCall(PicurvAssertBool((PetscBool)(sums[1][1] < sums[0][1] - 1.0e-6),
+                               "the update must reduce the scalar's spread"));
+
+    PetscCall(FreeLifecycleContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests that the shared richer runtime fixture mirrors normalized production setup contracts.
  */
 static PetscErrorCode TestSharedRuntimeFixtureContracts(void)
@@ -907,6 +968,7 @@ int main(int argc, char **argv)
         {"setup-rejects-nonpositive-post-interval", TestSetupRejectsNonpositivePostInterval},
         {"configured-iem-updates-swarm", TestConfiguredIEMUpdatesSwarm},
         {"configured-particle-initial-value", TestConfiguredParticleInitialValue},
+        {"iem-relaxes-toward-own-cell-mean", TestIEMRelaxesTowardOwnCellMean},
         {"brownian-rng-seeded-from-configuration", TestBrownianRNGIsSeededFromConfiguration},
         {"shared-runtime-fixture-contracts", TestSharedRuntimeFixtureContracts},
         {"field-catalog-metadata-and-views", TestFieldCatalogMetadataAndViews},
