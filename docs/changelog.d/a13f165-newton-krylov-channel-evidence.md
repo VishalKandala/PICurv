@@ -1,3 +1,4 @@
+
 - Newton--Krylov momentum and its unpreconditioned matrix-free path are now `supported`
   within the documented single-block scope. A retained 96 x 96 x 256-cell,
   144-rank channel campaign records 10,000 converged and committed steps, the
