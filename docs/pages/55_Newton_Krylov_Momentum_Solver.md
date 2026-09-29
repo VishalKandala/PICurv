@@ -429,8 +429,10 @@ are exposed before their implementations exist.
 **Diagnostics.** The Krylov iteration count per Newton step is the signal. It is reported by the SNES/KSP monitors described in @ref p55_monitors_sec; a rising count across timesteps is what motivates preconditioning.
 
 **Evidence.** Integration verified - `make unit-newton-krylov` exercises this path.
+Production exercised - `turbulent-channel-nk-2026-09-29`, retained at
+@ref p55_channel_evidence_sub, uses this model on 144 ranks.
 
-**Limitations.** Iteration counts grow with conditioning, so on stiff or highly stretched grids the unpreconditioned solve can dominate the timestep cost. Experimental with the solver it belongs to, which has not been run at the problem sizes a production claim implies.
+**Limitations.** Iteration counts grow with conditioning, so on stiff or highly stretched grids the unpreconditioned solve can dominate the timestep cost. Supported within the solver's declared scope; one production campaign establishes neither performance scaling nor accuracy for other flows.
 
 @subsection p55_cap_pc_frozen_momentum_jacobian_sub frozen_momentum_jacobian
 
@@ -454,7 +456,8 @@ are exposed before their implementations exist.
 
 @section p55_validation_sec 10. Validation Coverage
 
-The Newton--Krylov path is covered at two levels:
+The Newton--Krylov path has two regression levels and the retained production
+measurement below:
 
 - **Default suite** (`unit-newton-krylov`, part of `make check`): constraint-row
   Jacobian structure, matrix-free vs direct differencing, preconditioning-engine
@@ -473,6 +476,83 @@ The Newton--Krylov path is covered at two levels:
 Validated behavior on that case: convergence in about two Newton iterations from
 the true projected step-1 state, identical results with classical and modified
 Gram--Schmidt, and divergence-free projection, on both one and four ranks.
+
+@subsection p55_channel_evidence_sub 10.1 Retained turbulent-channel campaign (2026-09-29)
+
+The repository owner approved promotion of the solver and `preconditioner.model:
+none` after this campaign closed the previously recorded production-size gap.
+`tests/tooling/measurement_records.json`, record
+`turbulent-channel-nk-2026-09-29`, is the durable source for the configuration,
+measurements, acceptance criterion, provenance hashes, and limitations. Its verdict
+concerns successful production execution. The DNS comparison below remains
+exploratory; it does not establish quantitative turbulent-flow accuracy.
+
+The run used commit `e37e868821beae3732b97cce8c0c6bc125914b82`, PETSc 3.20.3
+debug, OpenMPI 4.1.5, and 144 Slurm ranks with a 4 x 4 x 9 decomposition.
+The grid had 96 x 96 x 256 physical cells in spanwise, wall-normal, and streamwise
+directions, respectively, spanning 2 pi x 2 x 4 pi, with stretched wall-normal
+spacing. It used a single block, no-slip walls, periodic spanwise boundaries,
+constant-flux streamwise forcing, bulk target 1, viscosity 1/2800, and timestep
+0.005. Momentum used central convection, matrix-free finite differences, SNES
+`newtonls` with backtracking, GMRES, and no preconditioner; pressure used FGMRES
+and four-level multigrid. LES, wall functions, IBM, and particles were disabled.
+
+The supplied continuation logs cover steps 10,001 through 20,000. Every one of
+those 10,000 steps reports a converged Newton solve and committed state; maximum
+logged divergence is 5.26e-11. Logs for startup steps 0 through 10,000 were not
+available for this audit. The step-20,000 checkpoint contains 1,999 accepted
+statistics samples with total time weight 49.975, last sample step 19,996, and
+one restart inside the statistics window. This establishes continuation of the
+accumulators; it is not a comparison against an uninterrupted run.
+
+The comparison uses the Lee--Moser Re_tau = 182.088
+[mean profile](https://turbulence.oden.utexas.edu/channel2015/data/LM_Channel_0180_mean_prof.dat)
+and [velocity fluctuations](https://turbulence.oden.utexas.edu/channel2015/data/LM_Channel_0180_vel_fluc_prof.dat).
+Here h = 1; streamwise velocity is the k component and wall-normal velocity is
+the j component. Plane-averaged checkpoint statistics are compared at equal
+wall distance y/h. Wall friction is inferred from a no-slip quadratic fit to
+the first two cell-center means at each wall; the two wall stresses are averaged
+before taking the square root for u_tau. It is not a recorded solver traction.
+Skin friction is Cf = 2 u_tau^2 / Ub^2. The reference Cf uses its reported
+viscosity, friction Reynolds number, and bulk velocity.
+
+| Retained quantity | Channel run | Lee--Moser reference |
+| --- | ---: | ---: |
+| Bulk velocity | 0.9999903 | 1 |
+| Inferred Re_tau | 202.876 | 182.088 |
+| Cf | 0.01049987 | 0.00812326 |
+| Peak Reynolds shear, -uv / Ub^2 | 0.00392530 | 0.00295518 |
+| Peak Reynolds shear, -uv / u_tau^2 (each flow's own u_tau) | 0.7477 | 0.7276 |
+| Centerline velocity / Ub | 1.18153 | 1.16426 |
+
+The run's friction is 29.3% above the reference and its bulk-normalized shear
+peak is 32.8% above it. Rescaling by each flow's own friction velocity reduces
+the shear-peak difference to 2.8%; that rescaling does not remove the friction
+error. The internal total-shear residual has an interior RMS of 1.22% of the
+inferred wall stress. This balance is a consistency check, not independent DNS
+validation.
+
+Separate halves reconstructed from the weighted checkpoint accumulators give
+Re_tau 203.584 then 202.166, volume-averaged temporal TKE 0.00876582 then
+0.00899821, and peak -uv/Ub^2 0.00390817 then 0.00394227. Full-window TKE is
+0.00911349; variation of the mean between halves adds variance, so it need not
+lie between the two half-window TKE values. These two blocks do not establish
+a confidence interval. Spectra were produced from 51 checkpoints, but no DNS
+spectrum acceptance test was performed.
+
+| Experimental surface exercised | Lifecycle decision from this run |
+| --- | --- |
+| `momentum.newton_krylov`, `momentum.solver: Newton Krylov`, `momentum.nk_preconditioner: none` | Supported within the declared scope; record the campaign under production evidence |
+| `cluster.scheduling` | Remains experimental: Slurm submission and dependent post-processing ran, but live cancellation, graceful cancellation, and accounting reconciliation were not checked |
+| `workspace.asset_lifecycle` | Remains experimental: manifest records content-addressed grid/IC materialization through hardlinks; cluster import modes, campaign-scale reuse, reflinks, and remote-backed pruning were not checked |
+
+Statistics, spectra, initial-condition generation, periodic forcing, and restart
+already have supported records. Asset materialization through hardlinks does
+not establish that the selectable `workspace.input_import_mode: hardlink`
+operation was invoked. The frozen-Jacobian preconditioner, LES, wall functions,
+storage operations, and parameter sweeps were not exercised by this campaign.
+No refinement study, solver-strategy comparison, parallel scaling measurement,
+or fully converged DNS validation is claimed.
 
 @section p55_vs_jameson_sec 11. Differences from Dual-Time Picard--Jameson
 

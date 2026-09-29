@@ -244,7 +244,7 @@
       },
       "Newton Krylov": {
         "maps_to": "newton_krylov",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "solver.yml -> strategy.momentum_solver",
@@ -919,7 +919,7 @@
       },
       "none": {
         "maps_to": "none",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "solver.yml -> momentum_solver.newton_krylov.preconditioner.model",

@@ -191,7 +191,7 @@ configuration - explicit `type: finite_difference` requires
 `finite_difference.mode: matrix_free`), `preconditioner` (`model` and `structure`),
 `nonlinear_solver` (including `line_search`), and `linear_solver`.
 
-**Interactions.** Supported combinations are finite-difference/matrix-free with either
+**Interactions.** Accepted combinations are finite-difference/matrix-free with either
 no preconditioner or a frozen momentum Jacobian / point-block preconditioner. Any
 other Jacobian type or finite-difference mode is rejected. Raw `petsc_passthrough_options` are applied last, but
 an incompatible raw `-mom_nk_pc_type` override is rejected by the runtime.
@@ -203,10 +203,15 @@ configuration error.
 
 **Evidence.** Unit verified - `make unit-newton-krylov`. Integration verified -
 `make unit-momentum-newton-boundary-fixedpoint` on a production-sized straight duct.
+Production exercised - `turbulent-channel-nk-2026-09-29`: 96 x 96 x 256 cells on
+144 ranks, all 10,000 inspected steps converged and committed; see
+@ref p55_channel_evidence_sub for the retained measurements and DNS discrepancy.
 
 **Limitations and full treatment.** **@subpage 55_Newton_Krylov_Momentum_Solver**
-carries the scope limits, preconditioner findings, and tuning guidance. Experimental until the solver has been run at the problem sizes a production
-claim implies.
+carries the scope limits, preconditioner findings, and tuning guidance. Supported
+within that scope; the production campaign used `preconditioner.model: none`.
+`frozen_momentum_jacobian` remains experimental. Quantitative turbulent-channel DNS
+agreement, refinement convergence, and parallel scaling remain unverified.
 
 @subsection p08_cap_dual_time_picard_rk4_sub Dual Time Picard RK4 (deprecated)
 

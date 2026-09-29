@@ -96,8 +96,10 @@ Momentum:
 - tunable tolerances and pseudo-CFL controls (Picard-Jameson only).
 
 @note `Explicit RK4` and `Dual Time Picard Jameson RK` are `supported`, with measured
-orders at @ref p08_entries_sec; `Newton Krylov` is `experimental` until it has run at
-production size. `Dual Time Picard Jameson RK` is the production default.
+orders at @ref p08_entries_sec. `Newton Krylov` is `supported` within its documented
+scope, with a 144-rank channel campaign using no preconditioner; its quantitative DNS
+discrepancy is recorded at @ref p55_channel_evidence_sub. The frozen-Jacobian
+preconditioner remains `experimental`. `Dual Time Picard Jameson RK` is the production default.
 
 Pressure:
 

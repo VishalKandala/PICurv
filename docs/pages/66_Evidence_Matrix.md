@@ -78,20 +78,25 @@ Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
 - **Analytical facets rest on single recorded measurements, and none is `reference`.**
-  87 values cite `measurement:` records - 25 distinct ones, taken between 2026-09-18 and
-  2026-09-24 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
+  89 values cite `measurement:` records - 26 distinct ones, taken between 2026-09-18 and
+  2026-09-29 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
   pipe Poiseuille flow, the Poisson options, every initial-condition mode, every
   particle seeding and restart mode, both interpolation methods, the post-processing
   kernels, field statistics, shell, plane and line spectra, metric closure on every
   grid-generator feature, the workspace input import modes, and the four generated
-  initial-condition providers.
+  initial-condition providers, plus Newton--Krylov production execution on a
+  144-rank turbulent channel.
   Each record states what it does not establish, and none is gated in CI. Six records
   are cited by no value: the two `not-met` ones (the Q-criterion output placement and the
   generated inlet flux on `programmatic_c` grids, both since fixed and re-measured), the
   superseded `inconclusive` drift measurement, the 2026-09-22 wall-seed measurement
   taken on the former `sin(pi t)^4` envelope (superseded by `wall-spectral-ic-2026-09-24`), and the paired drift and scalar-scatter
   measurements, which verify subsystems with no selector value to cite them. No
-  capability has been compared against external reference data.
+  capability claims validated external-reference agreement. The exploratory
+  Lee--Moser DNS comparison in `turbulent-channel-nk-2026-09-29` retains an 11.4%
+  friction-Reynolds-number discrepancy and 29.3% excess skin friction; its `met`
+  verdict concerns converged production execution, so it contributes a
+  `production` facet rather than a `reference` facet. See @ref p55_channel_evidence_sub.
 - **The grid generator's closure is metric consistency, not accuracy on every shape.**
   Every geometry, section, wall segment, path segment and transform closes a uniform
   flow to round-off in the solver's metrics, but solves have been run only on flat

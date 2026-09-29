@@ -109,7 +109,7 @@
     {
       "id": "momentum.newton_krylov",
       "title": "Newton--Krylov Momentum Solver",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
       "previous_status": "experimental",
       "capability_families": [
@@ -215,8 +215,7 @@
           "anchor": "p55_validation_sec"
         }
       },
-      "proposed_status": "supported",
-      "promotion_rationale": "Documented to the supported bar: scope limits, configuration, monitors, failure reasons, validation coverage, restart seeding, and a complete reference. The unresolved question is production suitability - the solver is characterised on single-block cases within a narrow declared scope, and no campaign has run it at the sizes a supported claim implies."
+      "note": "Promoted 2026-09-29 with the repository owner's approval, closing the proposed promotion's production-size gap: turbulent-channel-nk-2026-09-29 records 96 x 96 x 256 cells on 144 ranks, with all 10,000 inspected steps converged and committed and maximum logged divergence 5.26e-11. Support remains within page 55's single-block 3D runtime scope; the production measurement uses a matrix-free finite-difference Jacobian, no preconditioner, central convection, no LES or wall function, and a constant-flux periodic channel. The frozen_momentum_jacobian selector remains experimental. This is production-execution evidence, not quantitative DNS validation: inferred Re_tau is 202.876 against 182.088, and skin friction is 29.3% high. No grid/time refinement, statistical confidence interval, or scaling claim is established."
     },
     {
       "id": "momentum.explicit_rk4",
@@ -856,7 +855,7 @@
           "not_applicable": "Imports and asset publication read and write local paths under the invoking user's own permissions; reference-mode imports store a path, never a credential."
         }
       },
-      "note": "Content-addressed asset identity covers the normalized provider settings, the checksums of referenced files, and the PICurv build, so an unchanged input reuses its object and any change to an equation, grid configuration, imported field, inlet parameter, or generator selects a new one. Publication is all-or-nothing per invocation: providers build into an isolated temporary run layout and nothing is published unless every selected provider succeeds. Status is experimental rather than supported because the reuse and materialization paths carry unit coverage in tests/test_workspace_lifecycle.py and the migrated precompute coverage in tests/test_cli_smoke.py, but no campaign has exercised the store at the scale where reflink availability, object accumulation, and pruning policy start to matter, and nothing removes orphaned objects automatically: the explicit `picurv storage prune --assets --unused-locally` command (storage.management) is the only reclamation path, and it has not been exercised at campaign scale. Exercised locally 2026-09-21 (asset-store-local-2026-09-21): all four import modes, content-addressed reuse, all-or-nothing publication, run materialization, and prune's blocked decision behaved as documented; a changed reference target is used without a warning. What keeps it experimental needs the cluster: reflink and hardlink on cluster filesystems, object accumulation at campaign scale, and remote-backed pruning, which prune requires. The restart statistics-state selector that this record once listed belongs to post.field_statistics, whose continuation it controls."
+      "note": "Content-addressed asset identity covers the normalized provider settings, the checksums of referenced files, and the PICurv build, so an unchanged input reuses its object and any change to an equation, grid configuration, imported field, inlet parameter, or generator selects a new one. Publication is all-or-nothing per invocation: providers build into an isolated temporary run layout and nothing is published unless every selected provider succeeds. Reuse and materialization carry unit coverage in tests/test_workspace_lifecycle.py and migrated precompute coverage in tests/test_cli_smoke.py. Exercised locally 2026-09-21 (asset-store-local-2026-09-21): import modes, content-addressed reuse, all-or-nothing publication, run materialization, and prune's blocked decision; reflink was refused on the tested filesystem, and a changed reference target was used without a warning. The turbulent-channel-nk-2026-09-29 campaign manifest records grid and initial-condition objects materialized through hardlinks on the cluster. That is not a test of the selectable input import mode. Held at experimental: successful cluster reflinks/import modes, object accumulation at campaign scale, and remote-backed pruning remain unverified. Nothing removes orphaned objects automatically: explicit `picurv storage prune --assets --unused-locally` (storage.management) is the reclamation path. The restart statistics-state selector belongs to post.field_statistics."
     },
     {
       "id": "storage.management",
@@ -1664,7 +1663,7 @@
           "anchor": "p19_fields_sec"
         }
       },
-      "note": "Promoted 2026-09-21. Owns the C-runtime field modes (Zero, Constant, Poiseuille), the target field (Ucat or Ucont), and the conductor's file, ic_gen and spectral_random_velocity providers. Every mode staged the field it defines (initial-conditions-2026-09-21). Found and fixed 2026-09-18: Poiseuille vanished at the first cell centres rather than on the walls, and was applied across periodic axes. The wall-bounded spectral providers added on main after 3a5821c are not covered by that measurement. The file-backed generator family is also owned here; its values remain experimental, including the channel and duct spectral providers, whose seeded startup does not establish developed turbulence."
+      "note": "Promoted 2026-09-21. Owns the C-runtime field modes (Zero, Constant, Poiseuille), the target field (Ucat or Ucont), and the conductor's file-backed generator family. Every original mode staged the field it defines (initial-conditions-2026-09-21). Found and fixed 2026-09-18: Poiseuille vanished at the first cell centres rather than on the walls, and was applied across periodic axes. The channel and duct spectral providers are supported with separate startup-construction evidence (wall-spectral-ic-2026-09-24), as recorded in initial.file_generator; that evidence alone does not establish developed turbulence. The later turbulent-channel-nk-2026-09-29 campaign records sustained fluctuations in a channel seeded with channel_spectral_velocity, with an unresolved DNS friction discrepancy and no startup convergence or transition-time audit."
     },
     {
       "id": "flow.eulerian_source",
@@ -2591,7 +2590,7 @@
           "anchor": "p52_launchers_sec"
         }
       },
-      "note": "Owns cluster.yml, run --cluster, submit, cancel (including --graceful), scheduler-script generation, and the warmup-and-extrapolate walltime guard. Slurm is the only scheduler. Covered by the conductor tests in tests/test_cli_smoke.py and production-exercised on the owner's cluster; submission itself cannot run in the local suite. Verified locally 2026-09-18 up to submission: run --cluster --no-submit staged correct sbatch scripts (resources, walltime export, identity check, srun layout), submit --dry-run chained post with afterok, and the walltime guard fired end to end. Slurm submission itself is not verified here. Held at experimental until a cluster run verifies what the local suite cannot reach: sbatch submission and its accounting, cancel and cancel --graceful against a live job, and the post job's afterok dependency firing."
+      "note": "Owns cluster.yml, run --cluster, submit, cancel (including --graceful), scheduler-script generation, and the warmup-and-extrapolate walltime guard. Slurm is the only scheduler. Covered by the conductor tests in tests/test_cli_smoke.py; submission itself cannot run in the local suite. Verified locally 2026-09-18 up to submission: run --cluster --no-submit staged correct sbatch scripts (resources, walltime export, identity check, srun layout), submit --dry-run chained post with afterok, and the walltime guard fired end to end. Cluster evidence retained in turbulent-channel-nk-2026-09-29: sbatch accepted solver job 19896210 and post job 19896212 with afterok:19896210; both application logs reach completion on 144 ranks. This closes the submission and successful dependent-execution gaps. Held at experimental pending scheduler accounting reconciliation, cancel and cancel --graceful against live jobs; the campaign does not establish those paths."
     },
     {
       "id": "study.orchestration",

@@ -46,7 +46,7 @@ solves the momentum residual with PETSc `SNES`, using matrix-free
 Jacobian--vector products (finite-difference `Jv`), an inner GMRES Krylov solve,
 and a backtracking line search. It exposes nonlinear, line-search, GMRES, and
 preconditioner controls. The supported baseline is unpreconditioned
-matrix-free differencing; the supported alternative is a provisional
+matrix-free differencing; the experimental alternative is a provisional
 frozen-momentum point-block preconditioner, whose PETSc block-Jacobi backend is
 chosen internally. It requires a deterministic residual (its Cartesian boundary state is reconstructed
 from the current trial vector before boundary conditions are applied). Its

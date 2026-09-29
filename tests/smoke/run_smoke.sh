@@ -1571,6 +1571,10 @@ def edit(name, change):
 def case(cfg):
     cfg["properties"]["scaling"] = {"length_ref": length_ref, "velocity_ref": velocity_ref}
     cfg["run_control"]["total_steps"] = 4
+    # With three MPI ranks, the former 8^3-cell fixture left one coarse-grid
+    # node on a rank, below the DMDA stencil width of two. Keep its default
+    # three-level hierarchy and give the coarse grid enough nodes per rank.
+    cfg["grid"]["programmatic_settings"].update({"im": 24, "jm": 24, "km": 24})
     particles = cfg["models"]["physics"]["particles"]
     particles["init_mode"] = "PointSource"
     particles["point_source"] = {"x": 0.5, "y": 0.5, "z": 0.5}

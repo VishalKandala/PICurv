@@ -315,7 +315,7 @@
           }
         },
         "Newton Krylov": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "momentum.newton_krylov",
           "evidence": {
@@ -324,6 +324,9 @@
             ],
             "integration": [
               "make:unit-momentum-newton-boundary-fixedpoint"
+            ],
+            "production": [
+              "measurement:turbulent-channel-nk-2026-09-29"
             ]
           }
         },
@@ -1769,11 +1772,14 @@
       "coverage_enforced": true,
       "value_metadata": {
         "none": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "integration": [
               "make:unit-newton-krylov"
+            ],
+            "production": [
+              "measurement:turbulent-channel-nk-2026-09-29"
             ]
           }
         },
