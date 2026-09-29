@@ -83,6 +83,7 @@ post writer lock. See @ref p66_pvd_evidence for the tested scope.
   - `src/ParticleSwarm.c`
   - `src/ParticleMotion.c`
   - `src/ParticlePhysics.c`
+  - `src/ParticleInitialConditions.c`
   - `src/interpolation.c`
   - `src/particle_statistics.c`
 - Postprocessing and VTK:
@@ -123,7 +124,7 @@ Function names come from `include/*.h` and represent the safest integration seam
   - files: `Boundaries.c`, `BC_Handlers.c`, `wallfunction.c`
   - APIs: @ref BoundarySystem_Initialize, @ref BoundaryCondition_Create, @ref ApplyBoundaryConditions, @ref Validate_DrivenFlowConfiguration
 - particle stack:
-  - files: `ParticleSwarm.c`, `ParticleMotion.c`, `ParticlePhysics.c`, `walkingsearch.c`, `interpolation.c`
+  - files: `ParticleSwarm.c`, `ParticleMotion.c`, `ParticlePhysics.c`, `ParticleInitialConditions.c`, `walkingsearch.c`, `interpolation.c`
   - APIs: @ref InitializeParticleSwarm, @ref LocateAllParticlesInGrid, @ref PerformMigration, @ref UpdateAllParticleFields, @ref InterpolateAllFieldsToSwarm
 - I/O and post:
   - files: `io.c`, `postprocessor.c`, `postprocessing_kernels.c`, `particle_statistics.c`, `vtk_io.c`

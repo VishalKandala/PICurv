@@ -20,9 +20,13 @@
  *       dot products and deriving `Ucat` through `Contra2Cart`.
  *     - Declaring the physical values on the boundaries by populating the boundary condition
  *       vector (`user->Bcs.Ubcs`).
- *     It does NOT implement the numerical scheme for ghost cells. Instead, after setting the
- *     physical state, it relies on the solver's standard utility functions (`UpdateDummyCells`,
- *     `UpdateCornerNodes`) to correctly populate all ghost cell layers.
+ *     It does NOT fill dummy cells itself. After setting the physical state, every setter
+ *     runs the same sequence the solved flow is finalized with (see
+ *     `FinalizePostProjectionCellFields`): `UpdateDummyCells` on non-periodic faces,
+ *     `SynchronizePeriodicCellFields` on periodic ones, `UpdateCornerNodes` for edges and
+ *     corners, and the periodic synchronization again because corner averaging can overwrite
+ *     periodic endpoints. The boundary values are this module's own `Ubcs`, which is why the
+ *     setters do not call that finalizer: it would refresh `Ubcs` from the boundary handlers.
  *
  * 3.  **Extensibility:** The dispatcher design makes it straightforward to add new analytical
  *     solutions. A developer only needs to add a new `else if` condition and a corresponding
@@ -34,6 +38,10 @@
 
 // Forward-declare the private function for the TGV3D case.
 // This function is not visible outside this file, enforcing modularity.
+/** @brief Cell-centred fields every analytical setter finalizes, in the order the
+ *         post-projection finalization uses for the solved flow. */
+static const FieldId kAnalyticalCellFields[] = {FIELD_ID_UCAT, FIELD_ID_P};
+
 static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx);
 static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx);
 static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx);
@@ -334,16 +342,6 @@ static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx)
             ubcs[ze-1][j][i].x = V0*sin(k*fcx)*cos(k*fcy)*cos(k*fcz)*vel_decay; ubcs[ze-1][j][i].y = -V0*cos(k*fcx)*sin(k*fcy)*cos(k*fcz)*vel_decay; ubcs[ze-1][j][i].z = 0.0;
         }
 
-        // --- Set PRESSURE GHOST CELLS (Neumann BC: P_ghost = P_interior) ---
-        if (xs == 0) for (PetscInt k=lzs; k<lze; k++) for (PetscInt j=lys; j<lye; j++) p[k][j][xs] = p[k][j][xs+1];
-        if (xe == mx) for (PetscInt k=lzs; k<lze; k++) for (PetscInt j=lys; j<lye; j++) p[k][j][xe-1] = p[k][j][xe-2];
-        
-        if (ys == 0) for (PetscInt k=lzs; k<lze; k++) for (PetscInt i=lxs; i<lxe; i++) p[k][ys][i] = p[k][ys+1][i];
-        if (ye == my) for (PetscInt k=lzs; k<lze; k++) for (PetscInt i=lxs; i<lxe; i++) p[k][ye-1][i] = p[k][ye-2][i];
-
-        if (zs == 0) for (PetscInt j=lys; j<lye; j++) for (PetscInt i=lxs; i<lxe; i++) p[zs][j][i] = p[zs+1][j][i];
-        if (ze == mz) for (PetscInt j=lys; j<lye; j++) for (PetscInt i=lxs; i<lxe; i++) p[ze-1][j][i] = p[ze-2][j][i];
-
         // --- Restore all arrays ---
         ierr = DMDAVecRestoreArray(user->fda, user->Ucat, &ucat); CHKERRQ(ierr);
         ierr = DMDAVecRestoreArray(user->da, user->P, &p); CHKERRQ(ierr);
@@ -358,8 +356,12 @@ static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx)
         ierr = UpdateLocalGhosts(user, FIELD_ID_P);
 
         // --- Finalize all ghost cell values ---
-        ierr = UpdateDummyCells(user); CHKERRQ(ierr);
-        ierr = UpdateCornerNodes(user); CHKERRQ(ierr);
+        ierr = UpdateDummyCells(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+        ierr = UpdateDummyCells(user, FIELD_ID_P); CHKERRQ(ierr);
+        ierr = SynchronizePeriodicCellFields(user, 2, kAnalyticalCellFields); CHKERRQ(ierr);
+        ierr = UpdateCornerNodes(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+        ierr = UpdateCornerNodes(user, FIELD_ID_P); CHKERRQ(ierr);
+        ierr = SynchronizePeriodicCellFields(user, 2, kAnalyticalCellFields); CHKERRQ(ierr);
 
         // Final Synchronization.
         ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT);
@@ -392,8 +394,12 @@ static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx)
         // Ghost-cell finalization — identical sequence to TGV3D
         ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, FIELD_ID_P);    CHKERRQ(ierr);
-        ierr = UpdateDummyCells(user);          CHKERRQ(ierr);
-        ierr = UpdateCornerNodes(user);         CHKERRQ(ierr);
+        ierr = UpdateDummyCells(user, FIELD_ID_UCAT);          CHKERRQ(ierr);
+        ierr = UpdateDummyCells(user, FIELD_ID_P);          CHKERRQ(ierr);
+        ierr = SynchronizePeriodicCellFields(user, 2, kAnalyticalCellFields); CHKERRQ(ierr);
+        ierr = UpdateCornerNodes(user, FIELD_ID_UCAT);         CHKERRQ(ierr);
+        ierr = UpdateCornerNodes(user, FIELD_ID_P);         CHKERRQ(ierr);
+        ierr = SynchronizePeriodicCellFields(user, 2, kAnalyticalCellFields); CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, FIELD_ID_P);    CHKERRQ(ierr);
     }
@@ -448,8 +454,12 @@ static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx)
         ierr = Contra2Cart(user);                CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT);  CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, FIELD_ID_P);     CHKERRQ(ierr);
-        ierr = UpdateDummyCells(user);           CHKERRQ(ierr);
-        ierr = UpdateCornerNodes(user);          CHKERRQ(ierr);
+        ierr = UpdateDummyCells(user, FIELD_ID_UCAT);           CHKERRQ(ierr);
+        ierr = UpdateDummyCells(user, FIELD_ID_P);           CHKERRQ(ierr);
+        ierr = SynchronizePeriodicCellFields(user, 2, kAnalyticalCellFields); CHKERRQ(ierr);
+        ierr = UpdateCornerNodes(user, FIELD_ID_UCAT);          CHKERRQ(ierr);
+        ierr = UpdateCornerNodes(user, FIELD_ID_P);          CHKERRQ(ierr);
+        ierr = SynchronizePeriodicCellFields(user, 2, kAnalyticalCellFields); CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT);  CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, FIELD_ID_P);     CHKERRQ(ierr);
     }

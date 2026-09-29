@@ -75,6 +75,9 @@ Lagrangian:
 
 - @ref InitializeParticleSwarm selects initialize-vs-load based on `StartStep` and `particle_restart_mode`.
 - fresh path uses random/deterministic placement logic depending on `-pinit`.
+- configured `models.physics.particles.fields` values are applied in
+  @ref PerformInitializedParticleSetup once positions are final and before the first
+  scatter (@ref ParticleFieldPlanApply); a loaded swarm keeps its checkpointed values.
 - load path may use @ref MigrateRestartParticlesUsingCellID for direct ownership migration.
 
 @section p46_loop_sec 5. Timestep Loop (`AdvanceSimulation`)

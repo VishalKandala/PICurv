@@ -14,6 +14,7 @@ For maintainers, this directory is a stability boundary: changes here can impact
 - `setup.h`, `runloop.h`, `solvers.h`: top-level runtime orchestration APIs.
 - `grid.h`, `Metric.h`, `Boundaries.h`, `poisson.h`, `rhs.h`: Eulerian solver subsystem APIs.
 - `ParticleSwarm.h`, `ParticleMotion.h`, `interpolation.h`, `ParticlePhysics.h`: Lagrangian/coupling subsystem APIs.
+- `ParticleInitialConditions.h`: the expression engine and the plan that applies configured particle initial values (`models.physics.particles.fields`).
 - `postprocessor.h`, `postprocessing_kernels.h`, `particle_statistics.h`: post/statistics interfaces.
 - `statistics_moments.h`, `statistics_window.h`, `statistics_accumulator.h`,
   `statistics_target.h`, `statistics_config.h`: Eulerian field-statistics kernels,

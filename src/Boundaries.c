@@ -2242,236 +2242,146 @@ PetscErrorCode ApplyPeriodicBCs(UserCtx *user)
 #undef __FUNCT__
 #define __FUNCT__ "UpdateDummyCells"
 /**
- * @brief Internal helper implementation: `UpdateDummyCells()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateDummyCells().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/Boundaries.h`.
+ * @see UpdateDummyCells()
  */
-PetscErrorCode UpdateDummyCells(UserCtx *user)
+PetscErrorCode UpdateDummyCells(UserCtx *user, FieldId field_id)
 {
-    PetscErrorCode ierr;
-    DM            fda = user->fda;
     DMDALocalInfo info = user->info;
     PetscInt      xs = info.xs, xe = info.xs + info.xm;
     PetscInt      ys = info.ys, ye = info.ys + info.ym;
     PetscInt      zs = info.zs, ze = info.zs + info.zm;
     PetscInt      mx = info.mx, my = info.my, mz = info.mz;
+    FieldView     view;
+    PetscScalar ****field = NULL, ****ubcs = NULL;
+    PetscInt      dof;
+    PetscBool     from_boundary_value;
 
     // --- Calculate shrunken loop ranges to avoid edges and corners ---
-    PetscInt lxs = xs, lxe = xe;
-    PetscInt lys = ys, lye = ye;
-    PetscInt lzs = zs, lze = ze;
+    PetscInt lxs = (xs == 0) ? xs + 1 : xs, lxe = (xe == mx) ? xe - 1 : xe;
+    PetscInt lys = (ys == 0) ? ys + 1 : ys, lye = (ye == my) ? ye - 1 : ye;
+    PetscInt lzs = (zs == 0) ? zs + 1 : zs, lze = (ze == mz) ? ze - 1 : ze;
 
-    if (xs == 0) lxs = xs + 1;
-    if (ys == 0) lys = ys + 1;
-    if (zs == 0) lzs = zs + 1;
-
-    if (xe == mx) lxe = xe - 1;
-    if (ye == my) lye = ye - 1;
-    if (ze == mz) lze = ze - 1;
-
-    Cmpnts        ***ucat, ***ubcs;
     PetscFunctionBeginUser;
+    PetscCall(FieldGetView(user, field_id, &view));
+    PetscCheck(view.descriptor->layout == FIELD_LAYOUT_CELL_CENTERED, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+               "UpdateDummyCells fills cell-centred fields; '%s' is not one.", view.descriptor->canonical_name);
+    /* The dummy value is the quantity's boundary condition. Velocity takes the
+     * boundary value the handlers set, placed so the face average equals it. Pressure
+     * and the particle scalar take the adjacent cell's value: zero normal gradient. */
+    PetscCheck(field_id == FIELD_ID_UCAT || field_id == FIELD_ID_P || field_id == FIELD_ID_PSI,
+               PETSC_COMM_SELF, PETSC_ERR_SUP,
+               "UpdateDummyCells has no boundary rule for '%s'; one must be chosen for the quantity "
+               "before its dummy cells are filled.", view.descriptor->canonical_name);
+    from_boundary_value = (PetscBool)(field_id == FIELD_ID_UCAT);
+    dof = view.descriptor->dof;
 
-    ierr = DMDAVecGetArray(fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(fda, user->Ucat, &ucat); CHKERRQ(ierr);
+    PetscCall(DMDAVecGetArrayDOF(view.dm, view.global_vec, &field));
+    if (from_boundary_value) PetscCall(DMDAVecGetArrayDOF(user->fda, user->Bcs.Ubcs, &ubcs));
 
     // -X Face
     if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC && xs == 0) {
-        for (PetscInt k = lzs; k < lze; k++) for (PetscInt j = lys; j < lye; j++) {
-            ucat[k][j][xs].x = 2.0 * ubcs[k][j][xs].x - ucat[k][j][xs + 1].x;
-            ucat[k][j][xs].y = 2.0 * ubcs[k][j][xs].y - ucat[k][j][xs + 1].y;
-            ucat[k][j][xs].z = 2.0 * ubcs[k][j][xs].z - ucat[k][j][xs + 1].z;
-        }
+        for (PetscInt k = lzs; k < lze; k++) for (PetscInt j = lys; j < lye; j++) for (PetscInt c = 0; c < dof; c++)
+            field[k][j][xs][c] = from_boundary_value ? 2.0 * ubcs[k][j][xs][c] - field[k][j][xs + 1][c]
+                                                     : field[k][j][xs + 1][c];
     }
     // +X Face
     if (user->boundary_faces[BC_FACE_POS_X].mathematical_type != PERIODIC && xe == mx) {
-        for (PetscInt k = lzs; k < lze; k++) for (PetscInt j = lys; j < lye; j++) {
-            ucat[k][j][xe-1].x = 2.0 * ubcs[k][j][xe-1].x - ucat[k][j][xe - 2].x;
-            ucat[k][j][xe-1].y = 2.0 * ubcs[k][j][xe-1].y - ucat[k][j][xe - 2].y;
-            ucat[k][j][xe-1].z = 2.0 * ubcs[k][j][xe-1].z - ucat[k][j][xe - 2].z;
-        }
+        for (PetscInt k = lzs; k < lze; k++) for (PetscInt j = lys; j < lye; j++) for (PetscInt c = 0; c < dof; c++)
+            field[k][j][xe-1][c] = from_boundary_value ? 2.0 * ubcs[k][j][xe-1][c] - field[k][j][xe - 2][c]
+                                                       : field[k][j][xe - 2][c];
     }
-
     // -Y Face
     if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC && ys == 0) {
-        for (PetscInt k = lzs; k < lze; k++) for (PetscInt i = lxs; i < lxe; i++) {
-            ucat[k][ys][i].x = 2.0 * ubcs[k][ys][i].x - ucat[k][ys + 1][i].x;
-            ucat[k][ys][i].y = 2.0 * ubcs[k][ys][i].y - ucat[k][ys + 1][i].y;
-            ucat[k][ys][i].z = 2.0 * ubcs[k][ys][i].z - ucat[k][ys + 1][i].z;
-        }
+        for (PetscInt k = lzs; k < lze; k++) for (PetscInt i = lxs; i < lxe; i++) for (PetscInt c = 0; c < dof; c++)
+            field[k][ys][i][c] = from_boundary_value ? 2.0 * ubcs[k][ys][i][c] - field[k][ys + 1][i][c]
+                                                     : field[k][ys + 1][i][c];
     }
     // +Y Face
     if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type != PERIODIC && ye == my) {
-        for (PetscInt k = lzs; k < lze; k++) for (PetscInt i = lxs; i < lxe; i++) {
-            ucat[k][ye-1][i].x = 2.0 * ubcs[k][ye-1][i].x - ucat[k][ye-2][i].x;
-            ucat[k][ye-1][i].y = 2.0 * ubcs[k][ye-1][i].y - ucat[k][ye-2][i].y;
-            ucat[k][ye-1][i].z = 2.0 * ubcs[k][ye-1][i].z - ucat[k][ye-2][i].z;
-        }
+        for (PetscInt k = lzs; k < lze; k++) for (PetscInt i = lxs; i < lxe; i++) for (PetscInt c = 0; c < dof; c++)
+            field[k][ye-1][i][c] = from_boundary_value ? 2.0 * ubcs[k][ye-1][i][c] - field[k][ye-2][i][c]
+                                                       : field[k][ye-2][i][c];
     }
-
     // -Z Face
     if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC && zs == 0) {
-        for (PetscInt j = lys; j < lye; j++) for (PetscInt i = lxs; i < lxe; i++) {
-            ucat[zs][j][i].x = 2.0 * ubcs[zs][j][i].x - ucat[zs + 1][j][i].x;
-            ucat[zs][j][i].y = 2.0 * ubcs[zs][j][i].y - ucat[zs + 1][j][i].y;
-            ucat[zs][j][i].z = 2.0 * ubcs[zs][j][i].z - ucat[zs + 1][j][i].z;
-        }
+        for (PetscInt j = lys; j < lye; j++) for (PetscInt i = lxs; i < lxe; i++) for (PetscInt c = 0; c < dof; c++)
+            field[zs][j][i][c] = from_boundary_value ? 2.0 * ubcs[zs][j][i][c] - field[zs + 1][j][i][c]
+                                                     : field[zs + 1][j][i][c];
     }
     // +Z Face
     if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type != PERIODIC && ze == mz) {
-        for (PetscInt j = lys; j < lye; j++) for (PetscInt i = lxs; i < lxe; i++) {
-            ucat[ze-1][j][i].x = 2.0 * ubcs[ze-1][j][i].x - ucat[ze-2][j][i].x;
-            ucat[ze-1][j][i].y = 2.0 * ubcs[ze-1][j][i].y - ucat[ze-2][j][i].y;
-            ucat[ze-1][j][i].z = 2.0 * ubcs[ze-1][j][i].z - ucat[ze-2][j][i].z;
-        }
+        for (PetscInt j = lys; j < lye; j++) for (PetscInt i = lxs; i < lxe; i++) for (PetscInt c = 0; c < dof; c++)
+            field[ze-1][j][i][c] = from_boundary_value ? 2.0 * ubcs[ze-1][j][i][c] - field[ze-2][j][i][c]
+                                                       : field[ze-2][j][i][c];
     }
 
-    ierr = DMDAVecRestoreArray(fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(fda, user->Ucat, &ucat); CHKERRQ(ierr);
-
+    if (from_boundary_value) PetscCall(DMDAVecRestoreArrayDOF(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(DMDAVecRestoreArrayDOF(view.dm, view.global_vec, &field));
     PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__
 #define __FUNCT__ "UpdateCornerNodes"
 /**
- * @brief Internal helper implementation: `UpdateCornerNodes()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref UpdateCornerNodes().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/Boundaries.h`.
+ * @see UpdateCornerNodes()
  */
-PetscErrorCode UpdateCornerNodes(UserCtx *user)
+PetscErrorCode UpdateCornerNodes(UserCtx *user, FieldId field_id)
 {
-    PetscErrorCode ierr;
-    DM            da = user->da, fda = user->fda;
     DMDALocalInfo info = user->info;
     PetscInt      xs = info.xs, xe = info.xs + info.xm;
     PetscInt      ys = info.ys, ye = info.ys + info.ym;
     PetscInt      zs = info.zs, ze = info.zs + info.zm;
     PetscInt      mx = info.mx, my = info.my, mz = info.mz;
-
-    Cmpnts        ***ucat;
-    PetscReal     ***p;
+    FieldView     view;
+    PetscScalar ****f = NULL;
+    PetscInt      dof;
 
     PetscFunctionBeginUser;
+    PetscCall(FieldGetView(user, field_id, &view));
+    PetscCheck(view.descriptor->layout == FIELD_LAYOUT_CELL_CENTERED, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+               "UpdateCornerNodes fills cell-centred fields; '%s' is not one.", view.descriptor->canonical_name);
+    dof = view.descriptor->dof;
+    PetscCall(DMDAVecGetArrayDOF(view.dm, view.global_vec, &f));
 
-    ierr = DMDAVecGetArray(fda, user->Ucat, &ucat); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(da, user->P, &p); CHKERRQ(ierr);
+/* Each edge dummy cell is the mean of its two face-adjacent dummy cells. */
+#define EDGE_AVERAGE(tk, tj, ti, ak, aj, ai, bk, bj, bi) \
+    for (PetscInt c = 0; c < dof; c++) f[tk][tj][ti][c] = 0.5 * (f[ak][aj][ai][c] + f[bk][bj][bi][c])
 
     // --- Update Edges and Corners by Averaging ---
     // The order of these blocks ensures that corners (where 3 faces meet) are
     // computed using data from edges (where 2 faces meet), which are computed first.
-// Edges connected to the -Z face (k=zs)
-  if (zs == 0) {
-      if (xs == 0) {
-          for (PetscInt j = ys; j < ye; j++) {
-              p[zs][j][xs] = 0.5 * (p[zs+1][j][xs] + p[zs][j][xs+1]);
-              ucat[zs][j][xs].x = 0.5 * (ucat[zs+1][j][xs].x + ucat[zs][j][xs+1].x);
-              ucat[zs][j][xs].y = 0.5 * (ucat[zs+1][j][xs].y + ucat[zs][j][xs+1].y);
-              ucat[zs][j][xs].z = 0.5 * (ucat[zs+1][j][xs].z + ucat[zs][j][xs+1].z);
-          }
-      }
-      if (xe == mx) {
-          for (PetscInt j = ys; j < ye; j++) {
-              p[zs][j][mx-1] = 0.5 * (p[zs+1][j][mx-1] + p[zs][j][mx-2]);
-              ucat[zs][j][mx-1].x = 0.5 * (ucat[zs+1][j][mx-1].x + ucat[zs][j][mx-2].x);
-              ucat[zs][j][mx-1].y = 0.5 * (ucat[zs+1][j][mx-1].y + ucat[zs][j][mx-2].y);
-              ucat[zs][j][mx-1].z = 0.5 * (ucat[zs+1][j][mx-1].z + ucat[zs][j][mx-2].z);
-          }
-      }
-      if (ys == 0) {
-          for (PetscInt i = xs; i < xe; i++) {
-              p[zs][ys][i] = 0.5 * (p[zs+1][ys][i] + p[zs][ys+1][i]);
-              ucat[zs][ys][i].x = 0.5 * (ucat[zs+1][ys][i].x + ucat[zs][ys+1][i].x);
-              ucat[zs][ys][i].y = 0.5 * (ucat[zs+1][ys][i].y + ucat[zs][ys+1][i].y);
-              ucat[zs][ys][i].z = 0.5 * (ucat[zs+1][ys][i].z + ucat[zs][ys+1][i].z);
-          }
-      }
-      if (ye == my) {
-          for (PetscInt i = xs; i < xe; i++) {
-              p[zs][my-1][i] = 0.5 * (p[zs+1][my-1][i] + p[zs][my-2][i]);
-              ucat[zs][my-1][i].x = 0.5 * (ucat[zs+1][my-1][i].x + ucat[zs][my-2][i].x);
-              ucat[zs][my-1][i].y = 0.5 * (ucat[zs+1][my-1][i].y + ucat[zs][my-2][i].y);
-              ucat[zs][my-1][i].z = 0.5 * (ucat[zs+1][my-1][i].z + ucat[zs][my-2][i].z);
-          }
-      }
-  }
+    // Edges connected to the -Z face (k=zs)
+    if (zs == 0) {
+        if (xs == 0)  for (PetscInt j = ys; j < ye; j++) { EDGE_AVERAGE(zs, j, xs,     zs+1, j, xs,     zs, j, xs+1); }
+        if (xe == mx) for (PetscInt j = ys; j < ye; j++) { EDGE_AVERAGE(zs, j, mx-1,   zs+1, j, mx-1,   zs, j, mx-2); }
+        if (ys == 0)  for (PetscInt i = xs; i < xe; i++) { EDGE_AVERAGE(zs, ys, i,     zs+1, ys, i,     zs, ys+1, i); }
+        if (ye == my) for (PetscInt i = xs; i < xe; i++) { EDGE_AVERAGE(zs, my-1, i,   zs+1, my-1, i,   zs, my-2, i); }
+    }
+    // Edges connected to the +Z face (k=ze-1)
+    if (ze == mz) {
+        if (xs == 0)  for (PetscInt j = ys; j < ye; j++) { EDGE_AVERAGE(mz-1, j, xs,   mz-2, j, xs,     mz-1, j, xs+1); }
+        if (xe == mx) for (PetscInt j = ys; j < ye; j++) { EDGE_AVERAGE(mz-1, j, mx-1, mz-2, j, mx-1,   mz-1, j, mx-2); }
+        if (ys == 0)  for (PetscInt i = xs; i < xe; i++) { EDGE_AVERAGE(mz-1, ys, i,   mz-2, ys, i,     mz-1, ys+1, i); }
+        if (ye == my) for (PetscInt i = xs; i < xe; i++) { EDGE_AVERAGE(mz-1, my-1, i, mz-2, my-1, i,   mz-1, my-2, i); }
+    }
+    // Remaining edges on the XY plane (that are not on Z faces)
+    if (ys == 0) {
+        if (xs == 0)  for (PetscInt k = zs; k < ze; k++) { EDGE_AVERAGE(k, ys, xs,     k, ys+1, xs,     k, ys, xs+1); }
+        if (xe == mx) for (PetscInt k = zs; k < ze; k++) { EDGE_AVERAGE(k, ys, mx-1,   k, ys+1, mx-1,   k, ys, mx-2); }
+    }
+    if (ye == my) {
+        if (xs == 0)  for (PetscInt k = zs; k < ze; k++) { EDGE_AVERAGE(k, my-1, xs,   k, my-2, xs,     k, my-1, xs+1); }
+        if (xe == mx) for (PetscInt k = zs; k < ze; k++) { EDGE_AVERAGE(k, my-1, mx-1, k, my-2, mx-1,   k, my-1, mx-2); }
+    }
+#undef EDGE_AVERAGE
 
-  // Edges connected to the +Z face (k=ze-1)
-  if (ze == mz) {
-      if (xs == 0) {
-          for (PetscInt j = ys; j < ye; j++) {
-              p[mz-1][j][xs] = 0.5 * (p[mz-2][j][xs] + p[mz-1][j][xs+1]);
-              ucat[mz-1][j][xs].x = 0.5 * (ucat[mz-2][j][xs].x + ucat[mz-1][j][xs+1].x);
-              ucat[mz-1][j][xs].y = 0.5 * (ucat[mz-2][j][xs].y + ucat[mz-1][j][xs+1].y);
-              ucat[mz-1][j][xs].z = 0.5 * (ucat[mz-2][j][xs].z + ucat[mz-1][j][xs+1].z);
-          }
-      }
-      if (xe == mx) {
-          for (PetscInt j = ys; j < ye; j++) {
-              p[mz-1][j][mx-1] = 0.5 * (p[mz-2][j][mx-1] + p[mz-1][j][mx-2]);
-              ucat[mz-1][j][mx-1].x = 0.5 * (ucat[mz-2][j][mx-1].x + ucat[mz-1][j][mx-2].x);
-              ucat[mz-1][j][mx-1].y = 0.5 * (ucat[mz-2][j][mx-1].y + ucat[mz-1][j][mx-2].y);
-              ucat[mz-1][j][mx-1].z = 0.5 * (ucat[mz-2][j][mx-1].z + ucat[mz-1][j][mx-2].z);
-          }
-      }
-      if (ys == 0) {
-          for (PetscInt i = xs; i < xe; i++) {
-              p[mz-1][ys][i] = 0.5 * (p[mz-2][ys][i] + p[mz-1][ys+1][i]);
-              ucat[mz-1][ys][i].x = 0.5 * (ucat[mz-2][ys][i].x + ucat[mz-1][ys+1][i].x);
-              ucat[mz-1][ys][i].y = 0.5 * (ucat[mz-2][ys][i].y + ucat[mz-1][ys+1][i].y);
-              ucat[mz-1][ys][i].z = 0.5 * (ucat[mz-2][ys][i].z + ucat[mz-1][ys+1][i].z);
-          }
-      }
-      if (ye == my) {
-          for (PetscInt i = xs; i < xe; i++) {
-              p[mz-1][my-1][i] = 0.5 * (p[mz-2][my-1][i] + p[mz-1][my-2][i]);
-              ucat[mz-1][my-1][i].x = 0.5 * (ucat[mz-2][my-1][i].x + ucat[mz-1][my-2][i].x);
-              ucat[mz-1][my-1][i].y = 0.5 * (ucat[mz-2][my-1][i].y + ucat[mz-1][my-2][i].y);
-              ucat[mz-1][my-1][i].z = 0.5 * (ucat[mz-2][my-1][i].z + ucat[mz-1][my-2][i].z);
-          }
-      }
-  }
-
-  // Remaining edges on the XY plane (that are not on Z faces)
-  if (ys == 0) {
-      if (xs == 0) {
-          for (PetscInt k = zs; k < ze; k++) {
-              p[k][ys][xs] = 0.5 * (p[k][ys+1][xs] + p[k][ys][xs+1]);
-              ucat[k][ys][xs].x = 0.5 * (ucat[k][ys+1][xs].x + ucat[k][ys][xs+1].x);
-              ucat[k][ys][xs].y = 0.5 * (ucat[k][ys+1][xs].y + ucat[k][ys][xs+1].y);
-              ucat[k][ys][xs].z = 0.5 * (ucat[k][ys+1][xs].z + ucat[k][ys][xs+1].z);
-          }
-      }
-      if (xe == mx) {
-          for (PetscInt k = zs; k < ze; k++) {
-              p[k][ys][mx-1] = 0.5 * (p[k][ys+1][mx-1] + p[k][ys][mx-2]);
-              ucat[k][ys][mx-1].x = 0.5 * (ucat[k][ys+1][mx-1].x + ucat[k][ys][mx-2].x);
-              ucat[k][ys][mx-1].y = 0.5 * (ucat[k][ys+1][mx-1].y + ucat[k][ys][mx-2].y);
-              ucat[k][ys][mx-1].z = 0.5 * (ucat[k][ys+1][mx-1].z + ucat[k][ys][mx-2].z);
-          }
-      }
-  }
-
-  if (ye == my) {
-      if (xs == 0) {
-          for (PetscInt k = zs; k < ze; k++) {
-              p[k][my-1][xs] = 0.5 * (p[k][my-2][xs] + p[k][my-1][xs+1]);
-              ucat[k][my-1][xs].x = 0.5 * (ucat[k][my-2][xs].x + ucat[k][my-1][xs+1].x);
-              ucat[k][my-1][xs].y = 0.5 * (ucat[k][my-2][xs].y + ucat[k][my-1][xs+1].y);
-              ucat[k][my-1][xs].z = 0.5 * (ucat[k][my-2][xs].z + ucat[k][my-1][xs+1].z);
-          }
-      }
-      if (xe == mx) {
-          for (PetscInt k = zs; k < ze; k++) {
-              p[k][my-1][mx-1] = 0.5 * (p[k][my-2][mx-1] + p[k][my-1][mx-2]);
-              ucat[k][my-1][mx-1].x = 0.5 * (ucat[k][my-2][mx-1].x + ucat[k][my-1][mx-2].x);
-              ucat[k][my-1][mx-1].y = 0.5 * (ucat[k][my-2][mx-1].y + ucat[k][my-1][mx-2].y);
-              ucat[k][my-1][mx-1].z = 0.5 * (ucat[k][my-2][mx-1].z + ucat[k][my-1][mx-2].z);
-          }
-      }
-  }
-
-    ierr = DMDAVecRestoreArray(fda, user->Ucat, &ucat); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(da, user->P, &p); CHKERRQ(ierr);
-
+    PetscCall(DMDAVecRestoreArrayDOF(view.dm, view.global_vec, &f));
     PetscFunctionReturn(0);
 }
 
@@ -3257,11 +3167,13 @@ PetscErrorCode FinalizePostProjectionCellFields(UserCtx *user)
     ierr = BoundarySystem_RefreshUbcs(user); CHKERRQ(ierr);
 
     // Establish flat non-periodic faces and periodic endpoints before corners.
-    ierr = UpdateDummyCells(user); CHKERRQ(ierr);
+    ierr = UpdateDummyCells(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+    ierr = UpdateDummyCells(user, FIELD_ID_P); CHKERRQ(ierr);
     ierr = SynchronizePeriodicCellFields(user, 2, cell_fields); CHKERRQ(ierr);
 
     // Corner averaging can overwrite periodic endpoints, so restore them after.
-    ierr = UpdateCornerNodes(user); CHKERRQ(ierr);
+    ierr = UpdateCornerNodes(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+    ierr = UpdateCornerNodes(user, FIELD_ID_P); CHKERRQ(ierr);
     ierr = SynchronizePeriodicCellFields(user, 2, cell_fields); CHKERRQ(ierr);
 
     // Synchronize explicitly because the periodic helper is a no-op when every
@@ -3326,7 +3238,8 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
 
         // (f) Update the first layer of ghost cells for non-periodic faces using
         //     the newly computed `ubcs` values.
-        ierr = UpdateDummyCells(user); CHKERRQ(ierr);
+        ierr = UpdateDummyCells(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+        ierr = UpdateDummyCells(user, FIELD_ID_P); CHKERRQ(ierr);
 
         LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Dummy Cells/Ghost Cells Updated.\n");
 
@@ -3338,7 +3251,8 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
         // (h) Update the corner and edge ghost nodes. This routine calculates
         // values for corners/edges by averaging their neighbors, which have been
         // finalized in the steps above (both periodic and non-periodic).
-        ierr = UpdateCornerNodes(user); CHKERRQ(ierr);
+        ierr = UpdateCornerNodes(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+        ierr = UpdateCornerNodes(user, FIELD_ID_P); CHKERRQ(ierr);
         
         // (i) Synchronize the updated edge and corner cells across all processors to ensure
         //     consistency before the next iteration or finalization.

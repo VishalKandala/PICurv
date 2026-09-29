@@ -357,13 +357,18 @@ static PetscErrorCode TestSetupRejectsNonpositivePostInterval(void)
 /**
  * @brief Checks a configured particle initial value through the production setup path.
  * @details `Psi = x + 2*pid` is read from the options, compiled, and applied once positions
- *          are final; it varies across particles wherever the fixture seeds them. Every particle must carry exactly its value, and the
- *          t=0 scatter must already reflect it: the count-weighted Eulerian `Psi` sums to
- *          the particles' total, so the first IEM update relaxes toward the right mean.
+ *          are final; it varies across particles wherever they are seeded. Particles fill the
+ *          volume, so cells next to every face are occupied. Every particle must carry
+ *          exactly its value, and the t=0 scatter must already reflect it: the
+ *          count-weighted Eulerian `Psi` sums to the particles' total, so the first IEM
+ *          update relaxes toward the right mean, and each non-periodic face's dummy cells
+ *          carry the adjacent cell's mean.
  */
 static PetscErrorCode TestConfiguredParticleInitialValue(void)
 {
-    const char *options = "-particle_fields_count 1\n"
+    const char *options = "-numParticles 400\n"
+                          "-pinit 1\n"
+                          "-particle_fields_count 1\n"
                           "-particle_fields_0_name Psi\n"
                           "-particle_fields_0_expr_0 \"x + 2*pid\"\n";
     SimCtx          *simCtx = NULL;
@@ -398,6 +403,44 @@ static PetscErrorCode TestConfiguredParticleInitialValue(void)
     PetscCall(VecDot(user->Psi, user->ParticleCount, &eulerian_sum));
     PetscCall(PicurvAssertRealNear(particle_sum, eulerian_sum, 1.0e-9,
                                    "the t=0 scatter carries the initial value to the Eulerian mean"));
+    {
+        /* The scatter leaves empty dummy cells at zero; the production path must then give
+           each non-periodic face's dummy the adjacent cell's mean. */
+        const DMDALocalInfo info = user->info;
+        const PetscReal   ***mean = NULL, ***count = NULL;
+        PetscReal           checked = 0.0;
+
+        PetscCall(DMDAVecGetArrayRead(user->da, user->Psi, &mean));
+        PetscCall(DMDAVecGetArrayRead(user->da, user->ParticleCount, &count));
+        for (PetscInt k = info.zs; k < info.zs + info.zm; k++)
+        for (PetscInt j = info.ys; j < info.ys + info.ym; j++)
+        for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
+            /* A flat-face dummy cell and its adjacent interior cell, one axis at a time. */
+            const PetscInt  index[3] = {i, j, k}, extent[3] = {info.mx, info.my, info.mz};
+            PetscInt        dummy_axes = 0, axis = -1;
+
+            for (PetscInt d = 0; d < 3; d++) {
+                if (index[d] == 0 || index[d] == extent[d] - 1) { dummy_axes++; axis = d; }
+            }
+            if (dummy_axes != 1) continue;
+            if (user->boundary_faces[2 * axis].mathematical_type == PERIODIC) continue;
+            {
+                const PetscInt step = (index[axis] == 0) ? 1 : -1;
+                const PetscInt ai = i + (axis == 0 ? step : 0), aj = j + (axis == 1 ? step : 0),
+                               ak = k + (axis == 2 ? step : 0);
+
+                if (count[ak][aj][ai] < 0.5) continue;
+                PetscCall(PicurvAssertRealNear(mean[ak][aj][ai], mean[k][j][i], 0.0,
+                                               "the scatter fills each dummy cell with the adjacent cell mean"));
+                checked += 1.0;
+            }
+        }
+        PetscCall(DMDAVecRestoreArrayRead(user->da, user->ParticleCount, &count));
+        PetscCall(DMDAVecRestoreArrayRead(user->da, user->Psi, &mean));
+        PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, &checked, 1, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+        PetscCall(PicurvAssertBool((PetscBool)(checked > 0.0),
+                                   "the fixture must seed particles next to a non-periodic face"));
+    }
 
     PetscCall(FreeLifecycleContext(&simCtx));
     PetscCall(PicurvRemoveTempDir(tmpdir));

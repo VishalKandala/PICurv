@@ -99,7 +99,8 @@ is derived from global conservation rather than prescribed.
 **Evidence.** Unit verified - `make unit-boundaries`. Production exercised in
 `examples/flat_channel`. Analytically verified - `duct-poiseuille-picard-2026-09-18`.
 
-**Limitations.** A pressure-specified outlet exists in the C enum but is not exposed.
+**Limitations.** A pressure-specified outlet exists in the C enum but is not exposed;
+no handler implements it. What a pressure condition needs is at @ref p57_pressure_bc_sec.
 
 @subsection p44_type_periodic_sub periodic
 
@@ -348,7 +349,8 @@ first thing to check when mass appears not to be conserved.
 `examples/flat_channel`. Analytically verified - `duct-poiseuille-picard-2026-09-18`: outflow matched inflow to 1e-9 in a laminar square duct.
 
 **Limitations.** `BC_HANDLER_OUTLET_PRESSURE`, a pressure-specified outlet, exists
-in the C enum but is not exposed.
+in the C enum but is not exposed, and no handler implements it; see
+@ref p57_pressure_bc_sec for what adding one involves.
 
 @subsection p44_cap_geometric_sub geometric
 

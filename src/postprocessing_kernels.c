@@ -226,6 +226,10 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
     // --- 2. Ensure Input Data Ghosts are Up-to-Date ---
     ierr = FieldIdFromName(in_field_name, &in_field_id); CHKERRQ(ierr);
     ierr = UpdateLocalGhosts(user, in_field_id); CHKERRQ(ierr);
+    /* The boundary node average reads the dummy cells, so show them before averaging. */
+    if (get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)) {
+        ierr = LOG_FIELD_ANATOMY(user, in_field_id, "PreNodalAverage"); CHKERRQ(ierr);
+    }
 
     // --- 3. Get DMDA info and array pointers ---
     DMDALocalInfo info;

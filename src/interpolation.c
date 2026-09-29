@@ -1924,6 +1924,11 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
         // Call the unified scatter function. It will handle DM determination and validation.
         // It will also error out if the *particle* field "Psi" doesn't exist in the swarm.
         ierr = ScatterParticleFieldToEulerField(user, PARTICLE_FIELD_ID_PSI, user->Psi); CHKERRQ(ierr);
+        // The average leaves the empty dummy cells at zero; give them the adjacent cell's
+        // value (no scalar flux through the boundary) so node averages near a boundary read
+        // cell means, not a mix with zeros.
+        ierr = UpdateDummyCells(user, FIELD_ID_PSI); CHKERRQ(ierr);
+        ierr = UpdateCornerNodes(user, FIELD_ID_PSI); CHKERRQ(ierr);
         // IEM reads the cell mean through the ghosted lPsi; refresh it from the new average.
         ierr = UpdateLocalGhosts(user, FIELD_ID_PSI); CHKERRQ(ierr);
 	ierr = VecMean(user->Psi,&Avg_Psi);

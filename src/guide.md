@@ -25,8 +25,8 @@ This directory contains the C implementation for the solver, postprocessor, and 
   - files: `Boundaries.c`, `BC_Handlers.c`, `wallfunction.c`
   - APIs: `BoundarySystem_Initialize`, `BoundaryCondition_Create`, `ApplyBoundaryConditions`, `Validate_DrivenFlowConfiguration`
 - particle transport/coupling:
-  - files: `ParticleSwarm.c`, `ParticleMotion.c`, `ParticlePhysics.c`, `walkingsearch.c`, `interpolation.c`
-  - APIs: `InitializeParticleSwarm`, `LocateAllParticlesInGrid`, `PerformMigration`, `UpdateAllParticleFields`, `InterpolateAllFieldsToSwarm`
+  - files: `ParticleSwarm.c`, `ParticleMotion.c`, `ParticlePhysics.c`, `ParticleInitialConditions.c`, `walkingsearch.c`, `interpolation.c`
+  - APIs: `InitializeParticleSwarm`, `LocateAllParticlesInGrid`, `PerformMigration`, `UpdateAllParticleFields`, `InterpolateAllFieldsToSwarm`, `ParticleFieldPlanCreate`, `ParticleFieldPlanApply`
 - I/O and post:
   - files: `io.c`, `postprocessor.c`, `postprocessing_kernels.c`, `particle_statistics.c`, `vtk_io.c`
   - APIs: `ReadSimulationFields`, `WriteSimulationFields`, `ParsePostProcessingSettings`, `EulerianDataProcessingPipeline`, `GlobalStatisticsPipeline`

@@ -23,6 +23,7 @@ says otherwise.
 | Immersed boundaries, moving bodies, moving frames (@ref p57_ibm_sec) | planned; switches refused | none |
 | Multi-block coupling (@ref p57_multiblock_sec) | planned; `blocks` other than 1 refused | none |
 | RANS closures (@ref p57_rans_sec) | planned; `rans` block and `-rans` refused | none |
+| Pressure boundary conditions (@ref p57_pressure_bc_sec) | planned; no selector exists | boundary system |
 | Newton-Krylov Jacobian types and modes (@ref p57_nk_jacobian_sec) | planned; refused at validation | Newton-Krylov solver |
 | @ref 17_Workflow_Extensibility | proposed extension directions | none |
 
@@ -170,6 +171,49 @@ checkpoint and restart of the turbulence state; and a validation case with a ref
 profile - a channel at a published `Re_tau` - showing the mean profile and the eddy
 viscosity the closure is supposed to produce. A wall-modelled LES path is the nearer
 alternative for the same engineering questions, and the wall functions already exist.
+
+**Design owner:** the repository owner. Nothing here is scheduled.
+
+@section p57_pressure_bc_sec 6b. Pressure Boundary Conditions
+
+**Status: planned, not implemented.** No boundary handler sets pressure. Every
+non-periodic face - wall, inlet, and the `conservation` outlet - prescribes the normal
+velocity, and the pressure solve treats all of them as zero normal gradient by leaving
+the face out rather than by any stored value: the Poisson operator drops each boundary
+face's term (`PoissonLHSNew()` in `src/poisson.c`), the dummy rows are identities with a
+zero right-hand side, the projection corrects interior faces only (`Projection()`), and
+the constant null space is removed, so the pressure level is free. The `conservation`
+outlet's flux rescaling is what keeps that all-Neumann problem solvable.
+
+`UpdateDummyCells()` fills pressure's dummy cells with the adjacent interior value. That
+matches the condition above and exists so that `P_nodal` and near-wall pressure
+gradients read consistent values; it is output hygiene, not a boundary condition the
+solve uses.
+
+**What must change together when a pressure condition is added.** A Dirichlet face -
+a far field, or a pressure outlet at `p_b` - reaches four places, and setting the dummy
+value alone changes nothing the solve sees:
+
+- the Poisson operator keeps that face's term, with the correction's dummy value tied
+  to the interior as `phi_dummy = -phi_interior` (the correction vanishes on the face,
+  because `p_b` is fixed);
+- the constant null space is removed only when no face fixes the pressure level;
+- the projection corrects that face's flux from `p_interior - p_dummy`, which is where
+  the stored dummy value `2 p_b - p_interior` - the same form `UpdateDummyCells()` uses for
+  velocity - is finally read; and
+- the face's velocity condition becomes an outflow the pressure drives, not a
+  prescribed flux, so the `conservation` rescaling must not apply to it.
+
+The existing surfaces are the place for it: the boundary handler system for the new
+face type and its parameters, `UpdateDummyCells()` for the dummy value, and the Poisson
+assembly and projection for the rest. Scaffolding without behavior already exists and
+should be completed rather than paralleled: the `FARFIELD` face type, the
+`BC_HANDLER_FARFIELD_NONREFLECTING` and `BC_HANDLER_OUTLET_PRESSURE` handler identities
+(no handler implements either), and a farfield priority stage in
+`BoundarySystem_ExecuteStep()` that today finds no handlers to run. None of the four can be settled in isolation,
+so the design is to be planned as one change, with a verification case - a channel
+driven by a pressure difference against its analytic flow rate - before a selector is
+exposed.
 
 **Design owner:** the repository owner. Nothing here is scheduled.
 

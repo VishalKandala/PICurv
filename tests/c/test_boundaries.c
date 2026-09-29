@@ -1600,6 +1600,115 @@ static PetscErrorCode TestWallModelDiagnosticsRecordTheCorrectedCells(void)
 }
 
 /**
+ * @brief Checks each cell-centred field's dummy-cell rule, faces then edges.
+ * @details Interior cells carry index-unique sentinels and every dummy cell starts
+ *          poisoned, so a wrong offset or a missed face shows. Velocity dummies must put
+ *          the face average on `Ubcs`; pressure and the particle scalar copy the adjacent
+ *          cell (zero normal gradient); each edge dummy is the mean of its two face
+ *          neighbours; and a field with no rule, or one that is not cell-centred, is refused.
+ */
+static PetscErrorCode TestDummyCellsFollowEachFieldsBoundaryRule(void)
+{
+    SimCtx       *simCtx = NULL;
+    UserCtx      *user = NULL;
+    const FieldId scalars[] = {FIELD_ID_P, FIELD_ID_PSI};
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 6, 7));
+    const DMDALocalInfo info = user->info;
+    const PetscInt mx = info.mx, my = info.my, mz = info.mz;
+    PetscCall(VecSet(user->Bcs.Ubcs, 0.0));
+    {
+        PetscReal ***p = NULL, ***psi = NULL;
+        Cmpnts    ***ucat = NULL, ***ubcs = NULL;
+
+        PetscCall(DMDAVecGetArray(user->da, user->P, &p));
+        PetscCall(DMDAVecGetArray(user->da, user->Psi, &psi));
+        PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
+        PetscCall(DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs));
+        for (PetscInt k = info.zs; k < info.zs + info.zm; k++)
+        for (PetscInt j = info.ys; j < info.ys + info.ym; j++)
+        for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
+            const PetscBool interior = (PetscBool)(i > 0 && i < mx - 1 && j > 0 && j < my - 1 && k > 0 && k < mz - 1);
+            const PetscReal sentinel = 100.0 * k + 10.0 * j + i;
+
+            p[k][j][i] = interior ? sentinel : -999.0;
+            psi[k][j][i] = interior ? -sentinel : -999.0;
+            ucat[k][j][i].x = interior ? sentinel : -999.0;
+            ucat[k][j][i].y = interior ? 2.0 * sentinel : -999.0;
+            ucat[k][j][i].z = interior ? 3.0 * sentinel : -999.0;
+            ubcs[k][j][i] = (Cmpnts){1.0, 2.0, 3.0};
+        }
+        PetscCall(DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs));
+        PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
+        PetscCall(DMDAVecRestoreArray(user->da, user->Psi, &psi));
+        PetscCall(DMDAVecRestoreArray(user->da, user->P, &p));
+    }
+
+    PetscCall(UpdateDummyCells(user, FIELD_ID_UCAT));
+    PetscCall(UpdateCornerNodes(user, FIELD_ID_UCAT));
+    for (size_t n = 0; n < sizeof(scalars) / sizeof(scalars[0]); ++n) {
+        PetscCall(UpdateDummyCells(user, scalars[n]));
+        PetscCall(UpdateCornerNodes(user, scalars[n]));
+    }
+
+    for (size_t n = 0; n < sizeof(scalars) / sizeof(scalars[0]); ++n) {
+        FieldView  view;
+        PetscReal ***f = NULL;
+
+        PetscCall(FieldGetView(user, scalars[n], &view));
+        PetscCall(DMDAVecGetArrayRead(user->da, view.global_vec, &f));
+        for (PetscInt k = 1; k < mz - 1; k++) for (PetscInt j = 1; j < my - 1; j++) {
+            PetscCall(PicurvAssertRealNear(f[k][j][1], f[k][j][0], 0.0, "-x dummy copies the adjacent cell"));
+            PetscCall(PicurvAssertRealNear(f[k][j][mx - 2], f[k][j][mx - 1], 0.0, "+x dummy copies the adjacent cell"));
+        }
+        for (PetscInt k = 1; k < mz - 1; k++) for (PetscInt i = 1; i < mx - 1; i++) {
+            PetscCall(PicurvAssertRealNear(f[k][1][i], f[k][0][i], 0.0, "-y dummy copies the adjacent cell"));
+            PetscCall(PicurvAssertRealNear(f[k][my - 2][i], f[k][my - 1][i], 0.0, "+y dummy copies the adjacent cell"));
+        }
+        for (PetscInt j = 1; j < my - 1; j++) for (PetscInt i = 1; i < mx - 1; i++) {
+            PetscCall(PicurvAssertRealNear(f[1][j][i], f[0][j][i], 0.0, "-z dummy copies the adjacent cell"));
+            PetscCall(PicurvAssertRealNear(f[mz - 2][j][i], f[mz - 1][j][i], 0.0, "+z dummy copies the adjacent cell"));
+        }
+        for (PetscInt j = 0; j < my; j++) {
+            PetscCall(PicurvAssertRealNear(0.5 * (f[1][j][0] + f[0][j][1]), f[0][j][0], 0.0,
+                                           "a (-z,-x) edge dummy is the mean of its face neighbours"));
+        }
+        PetscCall(PicurvAssertBool((PetscBool)(f[0][0][0] != -999.0 && f[mz - 1][my - 1][mx - 1] != -999.0),
+                                   "corner dummies are written"));
+        PetscCall(DMDAVecRestoreArrayRead(user->da, view.global_vec, &f));
+    }
+    {
+        const Cmpnts ***ucat = NULL;
+
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, &ucat));
+        for (PetscInt k = 1; k < mz - 1; k++) for (PetscInt j = 1; j < my - 1; j++) {
+            PetscCall(PicurvAssertRealNear(1.0, 0.5 * (ucat[k][j][0].x + ucat[k][j][1].x), 1.0e-12,
+                                           "a velocity dummy puts the face average on Ubcs"));
+            PetscCall(PicurvAssertRealNear(3.0, 0.5 * (ucat[k][j][mx - 1].z + ucat[k][j][mx - 2].z), 1.0e-12,
+                                           "a velocity dummy puts the face average on Ubcs"));
+        }
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ucat));
+    }
+
+    {
+        PetscErrorCode refused;
+
+        PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+        refused = UpdateDummyCells(user, FIELD_ID_NVERT);
+        PetscCall(PetscPopErrorHandler());
+        PetscCall(PicurvAssertIntEqual(PETSC_ERR_SUP, refused, "a field with no boundary rule is refused"));
+        PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
+        refused = UpdateDummyCells(user, FIELD_ID_COORDINATES);
+        PetscCall(PetscPopErrorHandler());
+        PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_WRONG, refused, "a field that is not cell-centred is refused"));
+    }
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Runs the unit-boundaries PETSc test binary.
  */
 
@@ -1615,6 +1724,7 @@ int main(int argc, char **argv)
         {"deterministic-face-grid-location-matrix", TestGetDeterministicFaceGridLocationFaceMatrix},
         {"random-inlet-face-location-matrix", TestGetRandomCellAndLogicalCoordsOnInletFaceMatrix},
         {"wall-no-slip-handler-face-matrix", TestWallNoSlipHandlerFaceMatrix},
+        {"dummy-cells-follow-each-fields-boundary-rule", TestDummyCellsFollowEachFieldsBoundaryRule},
         {"inlet-constant-velocity-handler-behavior", TestInletConstantVelocityHandlerBehavior},
         {"inlet-constant-velocity-handler-face-matrix", TestInletConstantVelocityHandlerFaceMatrix},
         {"inlet-parabolic-profile-handler-behavior", TestInletParabolicProfileHandlerBehavior},

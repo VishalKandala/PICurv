@@ -57,6 +57,9 @@ Representative named cases by suite (exact strings used in `PicurvTestCase` arra
   - `field-catalog-metadata-and-views`
   - `particle-field-catalog-metadata`
   - `field-catalog-typed-ghost-updates`
+  - `configured-particle-initial-value`
+  - `iem-relaxes-toward-own-cell-mean`
+  - `postprocessor-loads-saved-particle-averages`
 - `test_solver_kernels.c`:
   - `les-filter-paths`
   - `analytical-geometry-selection`
@@ -70,6 +73,9 @@ Representative named cases by suite (exact strings used in `PicurvTestCase` arra
   - `check-cell-within-local-grid`
   - `initialize-traversal-parameters`
   - `retrieve-current-cell`
+  - `expression-conformance`
+  - `expression-rejects-outside-language`
+  - `expression-draws-are-pure-and-keyed`
 - `test_io.c`:
   - `should-write-data-output`
   - `verify-path-existence`
@@ -128,6 +134,7 @@ Representative named cases by suite (exact strings used in `PicurvTestCase` arra
   - `can-rank-service-face-matches-inlet-when-defined`
   - `can-rank-service-inlet-face-requires-definition`
   - `boundary-condition-factory-assignments`
+  - `dummy-cells-follow-each-fields-boundary-rule`
   - `boundary-condition-factory-implemented-handler-matrix`
   - `boundary-condition-factory-rejects-unsupported-handler`
   - `deterministic-face-grid-location-matrix`

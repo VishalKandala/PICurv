@@ -640,6 +640,17 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_UCAT, "PostFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_P, "PostFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_UCONT, "PostFlowSolver"); CHKERRQ(ierr);
+            /* Model fields exist only when their model is active. */
+            if (simCtx->les) {
+                ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_NU_T, "PostFlowSolver"); CHKERRQ(ierr);
+            }
+            if (simCtx->les == DYNAMIC_SMAGORINSKY) {
+                ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_CS, "PostFlowSolver"); CHKERRQ(ierr);
+            }
+            if (simCtx->wallfunction) {
+                ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_U_TAU, "PostFlowSolver"); CHKERRQ(ierr);
+                ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_NU_WALL, "PostFlowSolver"); CHKERRQ(ierr);
+            }
         }
 
 
@@ -710,6 +721,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
                 LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Post Lagrangian update field states:\n");
                 ierr = LOG_FIELD_MIN_MAX(&user[0], FIELD_ID_PSI); CHKERRQ(ierr);
+                ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_PSI, "PostScatter"); CHKERRQ(ierr);
+                ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_PARTICLE_COUNT, "PostScatter"); CHKERRQ(ierr);
             }
         }
 

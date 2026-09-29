@@ -454,42 +454,57 @@ PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user);
 PetscErrorCode ApplyPeriodicBCs(UserCtx *user);
 
 /**
- * @brief Updates the dummy cells (ghost nodes) on the faces of the local domain for NON-PERIODIC boundaries.
+ * @brief Fills the dummy cells on the non-periodic faces of one cell-centred field.
  *
- * This function's role is to apply a second-order extrapolation to set the ghost
- * cell values based on the boundary condition value (stored in `ubcs`) and the
- * first interior cell.
+ * A cell-centred field stores cell `c` at index `c+1`; index 0 and the last index
+ * along each axis are dummy cells outside the domain. Stencils and node averages that
+ * reach across a boundary read them, so their value is the field's boundary condition:
  *
- * NOTE: This function deliberately IGNORES periodic boundaries. It is part of a
- * larger workflow where `ApplyPeriodicBCs` handles periodic faces first.
+ * | Field  | Dummy value                  | Condition it encodes |
+ * |--------|------------------------------|----------------------|
+ * | `Ucat` | `2 Ubcs - interior`          | face average equals the handler's boundary velocity |
+ * | `P`    | the adjacent interior cell   | zero normal gradient |
+ * | `Psi`  | the adjacent interior cell   | zero normal gradient (no scalar flux) |
  *
- * CRITICAL DETAIL: This function uses shrunken loop ranges (lxs, lxe, etc.) to
- * intentionally update only the flat part of the faces, avoiding the edges and
-
- * corners. The edges and corners are then handled separately by `UpdateCornerNodes`.
- * This precisely replicates the logic of the original FormBCS function.
+ * Any other field is refused: its condition must be chosen for the quantity before its
+ * dummy cells are filled (see @ref p60_stats_boundary_sec for why no default serves
+ * every quantity).
  *
- * @param user The main UserCtx struct containing all necessary data.
- * @return PetscErrorCode 0 on success.
+ * **Pressure.** Zero gradient is the condition the pressure solve already implies on
+ * every non-periodic face: the Poisson operator drops each boundary face's term, the
+ * dummy rows are identities with a zero right-hand side, and the projection corrects
+ * interior faces only. Nothing in the solve reads these values; filling them makes
+ * `P_nodal` and near-wall pressure gradients (the Cabot wall model) consistent with that
+ * condition, instead of averaging in a dummy value that stays at its initial zero. A
+ * pressure boundary condition (a far field, or a pressure outlet) will set its dummy
+ * value here as well, but that alone changes nothing the solve sees; see
+ * @ref p57_pressure_bc_sec for what has to change with it.
+ *
+ * Periodic faces are skipped: the periodic synchronizers own them. Only the flat part
+ * of each face is written (shrunken loop ranges); edges and corners are filled
+ * afterwards by `UpdateCornerNodes` from these values.
+ *
+ * @param user     Block context supplying the layout, face types, and `Ubcs`.
+ * @param field_id Cell-centred field to fill: `FIELD_ID_UCAT`, `FIELD_ID_P`, or `FIELD_ID_PSI`.
+ * @return Zero on success; `PETSC_ERR_ARG_WRONG` for a field that is not cell-centred,
+ *         `PETSC_ERR_SUP` for one with no boundary rule.
  */
-PetscErrorCode UpdateDummyCells(UserCtx *user);
+PetscErrorCode UpdateDummyCells(UserCtx *user, FieldId field_id);
 
 /**
- * @brief Updates the corner and edge ghost nodes of the local domain by averaging.
+ * @brief Fills the edge and corner dummy cells of one cell-centred field by averaging.
  *
- * This function should be called AFTER the face ghost nodes are finalized by both
- * `ApplyPeriodicBCs` and `UpdateDummyCells`. It resolves the values at shared
- * edges and corners by averaging the values of adjacent, previously-computed
- * ghost nodes.
+ * Call after the face dummy cells are final, both periodic (the periodic
+ * synchronizers) and non-periodic (`UpdateDummyCells`). Each edge dummy cell becomes the
+ * mean of its two face-adjacent dummy cells; the edges along the Z faces are done
+ * first, so the corners the remaining edges pass through are averaged from finished
+ * edges. The rule is the same whatever the adjacent face types are.
  *
- * The logic is generic and works correctly regardless of the boundary types on
- * the adjacent faces (e.g., it will correctly average a periodic face neighbor
- * with a wall face neighbor).
- *
- * @param user The main UserCtx struct containing all necessary data.
- * @return PetscErrorCode 0 on success.
+ * @param user     Block context supplying the layout.
+ * @param field_id Cell-centred field whose edges and corners are filled.
+ * @return Zero on success; `PETSC_ERR_ARG_WRONG` for a field that is not cell-centred.
  */
-PetscErrorCode UpdateCornerNodes(UserCtx *user);
+PetscErrorCode UpdateCornerNodes(UserCtx *user, FieldId field_id);
 
 /**
  * @brief Applies wall function modeling to near-wall velocities for all wall-type boundaries.

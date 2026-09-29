@@ -204,9 +204,9 @@ is a test-local routine.
 
 - `test_install_check.c`: PETSc environment and basic object viability (`doctor`: `environment-visible`, `basic-petsc-objects`)
 - `test_geometry.c`: interpolation and geometric signed-distance helpers
-- `test_setup_lifecycle.c`: setup/cleanup lifecycle, RNG, and initialized particle-settlement contracts
+- `test_setup_lifecycle.c`: setup/cleanup lifecycle, RNG, and initialized particle-settlement contracts; configured particle initial values reaching every particle, the t=0 cell mean, and the scatter's filled `Psi` dummy cells; IEM relaxing each particle toward its own cell mean; post-processing loading saved particle averages
 - `test_solver_kernels.c`: analytical geometry/particle dispatch, LES filter/eddy-viscosity, FlowSolver guardrails, and analytical source helpers
-- `test_particle_kernels.c`: walking-search helper kernels
+- `test_particle_kernels.c`: walking-search helper kernels, and the initial-value expression engine (shared conformance cases, refusals, keyed draws)
 - `test_io.c`: I/O path checks, parser helpers, scaling-ingestion contracts, and startup-banner summary contracts
 - `test_logging.c`: log-level, allow-list, string-conversion, continuity/min-max/interpolation diagnostics, profiling, and snapshot-cadence contracts
 - `test_postprocessing.c`: post-processing kernel contracts (specific-KE, displacement, nodal average, normalization, dimensionalization, Q-criterion)
@@ -223,7 +223,7 @@ is a test-local routine.
 - `test_statistics_config.c`: field-statistics control resolution from the generated control file
 - `test_grid.c`: local/global bounding-box helpers
 - `test_metric.c`: metric inversion, contravariant velocity, face geometry helpers, and the degeneracy check on a wall-resolved-sized cell
-- `test_boundaries.c`: boundary factory, direct handler-behavior checks, and wall-model dispatch across the log law, Werner-Wengle, and Cabot
+- `test_boundaries.c`: boundary factory, direct handler-behavior checks, wall-model dispatch across the log law, Werner-Wengle, and Cabot, and each cell field's dummy-cell rule (`UpdateDummyCells`, `UpdateCornerNodes`)
 - `test_les.c`: LES closure kernels - symmetric-tensor algebra, strain rate, filter widths (including the Scotti closed form and independence from cell orientation), the Germano model tensor and Leonard stress, coefficient clipping and the viscosity floor, homogeneous-direction resolution, the WALE and Vreman kernels against independent evaluations, and cell edge vectors recovered from metrics
 - `test_periodic_dev.c`: gating geometric-periodic boundary and synchronization harness
 - `test_poisson_rhs.c`: pressure update, RHS, projection, body-force and diffusivity helpers, and the Clark gradient term's scaling and coefficient on non-unit cells
