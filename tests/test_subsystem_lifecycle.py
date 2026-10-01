@@ -552,7 +552,12 @@ def test_obligations_are_checked_against_the_proposal(records, pages, families, 
     @return None.
     """
     proposals = [r for r in records if r.get("proposed_status")]
-    assert proposals, "this branch defers at least one promotion"
+    if not proposals:
+        # No promotion is pending in the registry; check the rule on a synthetic one, so
+        # the test keeps holding the mechanism and not the registry's current state.
+        candidate = copy.deepcopy(next(r for r in records if r["status"] == "supported"))
+        candidate.update(status="experimental", proposed_status="supported")
+        proposals = [candidate]
     for record in proposals:
         owed = lifecycle.required_obligations(record)
         assert "evidence" in owed and "troubleshooting" in owed, record["id"]

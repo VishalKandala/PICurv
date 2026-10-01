@@ -932,23 +932,23 @@
     "public_values": {
       "auto": {
         "maps_to": "auto",
-        "status": "experimental"
+        "status": "supported"
       },
       "balanced": {
         "maps_to": "balanced",
-        "status": "experimental"
+        "status": "supported"
       },
       "fast": {
         "maps_to": "fast",
-        "status": "experimental"
+        "status": "supported"
       },
       "maximum": {
         "maps_to": "maximum",
-        "status": "experimental"
+        "status": "supported"
       },
       "none": {
         "maps_to": "none",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "picurv storage --compression / storage.yml -> compression",
@@ -1003,15 +1003,15 @@
     "public_values": {
       "analysis-ready": {
         "maps_to": "analysis-ready",
-        "status": "experimental"
+        "status": "supported"
       },
       "metadata-only": {
         "maps_to": "metadata-only",
-        "status": "experimental"
+        "status": "supported"
       },
       "restart-ready": {
         "maps_to": "restart-ready",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "picurv storage offload --policy / storage profile -> offload_policy",
@@ -1024,19 +1024,19 @@
     "public_values": {
       "analysis": {
         "maps_to": "analysis",
-        "status": "experimental"
+        "status": "supported"
       },
       "checkpoints": {
         "maps_to": "checkpoints",
-        "status": "experimental"
+        "status": "supported"
       },
       "inputs": {
         "maps_to": "inputs",
-        "status": "experimental"
+        "status": "supported"
       },
       "logs": {
         "maps_to": "logs",
-        "status": "experimental"
+        "status": "supported"
       },
       "raw-output": {
         "maps_to": "raw-output",
@@ -1044,7 +1044,7 @@
       },
       "visualization": {
         "maps_to": "visualization",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "picurv storage offload/plan --retain / --drop",

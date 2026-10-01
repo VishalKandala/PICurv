@@ -21,7 +21,7 @@
         "36_Cluster_Run_Guide",
         "37_Sweep_Studies_Guide"
       ],
-      "attested_digest": "sha256:9ed1e8dca6c3cdda913affa3cabb8e5865ab7a04086bac32ca0a85f21a75c4e2",
+      "attested_digest": "sha256:723c58c922aa64cf5c77a946b43739ee32fbd11fd2eb0290843166fdbf6b9dc6",
       "note": "Normalized argparse structure, so a comment or docstring change in cli.py does not fire this fingerprint."
     },
     {
@@ -43,7 +43,7 @@
         "10_Post_Processing_Reference",
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:7976cb06c29500e40c6ee50d6cabdc0f95cc724d9518ac67cc1b9b93330aa822"
+      "attested_digest": "sha256:f8693b07f961655dae3749bf56631e2478a2ed1860dc22e1e3c9581272a4da58"
     },
     {
       "id": "capability.evidence_matrix",
@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:17f55a272303988db62de454dbc609d4581f162d2051509c5813e709e13aa63e"
+      "attested_digest": "sha256:62f7d46ef7cb4bfa1923edb22206f111ffe2d7e8d379f655a8d2d2a41bee67fe"
     },
     {
       "id": "artifact.topology",
@@ -87,7 +87,7 @@
       "dependent_pages": [
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:bc3153b70484a183627d10b0710f5f37636324ebee102de5c31ce9cb664baca1"
+      "attested_digest": "sha256:dbf0582c3ab1cbc6dfc8d8bae741b88861fc15cac9f5a179da89ee9640638158"
     },
     {
       "id": "docs.page_types",

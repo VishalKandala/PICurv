@@ -161,6 +161,12 @@ picurv storage protect \
 
 This gives the run a verified remote copy while `--continue`, post-processing, and ordinary file access continue to use the full local tree.
 
+When the run later becomes cold, `picurv storage offload` reuses that archive instead of
+uploading the run again, as long as nothing in the run changed since it was protected
+("Reusing verified archive ..."). An explicit `--compression` is honoured: an archive made
+at another level is not reused for it, and a new one is created. Pass the same
+`--compression` to `offload` as to `protect`, or none, to reuse.
+
 @subsection p61_mixed_study 3.3 Only Some Cases in a Study Are Finished
 
 Inspect all numbered members:
@@ -205,7 +211,8 @@ picurv storage offload \
 Choose compression per operation when the profile default is not appropriate:
 
 ```bash
-# Small/already-compressed data: package without compression.
+# Small or already-compressed data: package without compression.
+# PICurv checkpoints compress by about 30%, so this rarely pays for them.
 picurv storage protect --run-dir runs/small_run --compression none
 
 # Large data where transfer size matters more than compression time.
@@ -253,6 +260,10 @@ picurv storage restore \
 
 A whole-study archive is restored with `--study-dir` and no case selector.
 
+Restoring into the artifact's own directory downloads only what it does not already hold:
+components kept by the offload policy or restored earlier are skipped and listed as
+"Already local, not downloaded again". `--force` downloads everything.
+
 @subsection p61_restore_deleted 4.2 Every Local Directory Was Deleted
 
 The catalog lives on the remote and does not depend on local marker files:
@@ -280,7 +291,7 @@ picurv storage restore \
 
 When an individually archived study member is restored after the entire study was deleted, its archive also recreates the small parent study context, including `study.yml`, `study_manifest.json`, and `<run.scheduler>/case_index.tsv` when those files were present at archive time.
 
-An alternate-location restore conservatively replaces the old run/study prefix in known generated text files (`.control`, `.run`, `.sbatch`, JSON, TSV, and YAML), matching only whole path components. A run or study moved by hand gets the same rewrite the next time PICurv opens it (see @ref p52_scope_move_sub). Inspect regenerated scheduler scripts and any user-authored absolute paths before submitting on a different cluster. Remote archive bytes remain unchanged.
+An alternate-location restore conservatively replaces the old run/study prefix in known generated text files (`.control`, `.run`, `.sbatch`, JSON, TSV, and YAML), matching only whole path components. Asset objects (`assets/objects/`) and committed checkpoint bundles are never rewritten: their contents are checked against recorded digests, and the paths they carry are provenance. A run or study moved by hand gets the same rewrite the next time PICurv opens it (see @ref p52_scope_move_sub). Inspect regenerated scheduler scripts and any user-authored absolute paths before submitting on a different cluster. Remote archive bytes remain unchanged.
 
 @subsection p61_restore_checkpoint 4.3 Only Particular Checkpoints Are Needed
 
@@ -333,7 +344,14 @@ picurv storage prune --workspace . --assets --unused-locally --dry-run
 ```
 
 Both selectors are required: `prune` removes nothing else, and it says what it decided
-before it decides it.
+before it decides it. A removal the filesystem refuses is reported with its error and the
+command exits non-zero, rather than being counted as removed.
+
+`prune` acts on local copies only; nothing in `picurv storage` deletes from the remote.
+`storage restore --run-dir` restores a run's own copies of its inputs, not the workspace's
+shared objects. A pruned object comes back when a run is staged with `--fetch-missing`, or
+from the workspace archive (`storage restore --archive-id <workspace archive> --component assets`).
+Verify a workspace's own archive with `picurv storage verify --workspace .`.
 
 ```text
 8df21abc0e4f1a92  grids
@@ -528,8 +546,20 @@ Use `picurv storage --help` and `picurv storage <action> --help` for the complet
 
 @htmlinclude generated/capability_inventory_storage_compression.html
 
-Every policy below is experimental: the offload and restore cycle has not been exercised
-against a real remote at campaign scale.
+Every policy below is supported. Each was exercised against a Google Drive remote on a
+3.5 GiB run of the turbulent-channel campaign, protected, sized, timed, restored to a new
+directory, and compared file by file (`storage-campaign-grace-2026-09-30`). On that run (3.794 GB raw):
+
+| Policy | Stored | Ratio | Protect wall / CPU | Peak memory | Restore |
+|---|---|---|---|---|---|
+| `none` | 3.795 GB | 1.000 | not timed | - | 59.5 s |
+| `fast` | 2.671 GB | 0.704 | 12:57 / 114 s | 95 MB | 51.6 s |
+| `balanced` | 2.652 GB | 0.699 | 13:33 / 137 s | 78 MB | 62.7 s |
+| `maximum` | 2.462 GB | 0.649 | 30:24 / 1526 s | 3.8 GB | 2:42 |
+
+The upload ran at about 3.4 MB/s and the download at 50-65 MB/s, so the upload dominated
+`fast` and `balanced` and compression saved time as well as space; `maximum` was bound by
+xz instead. These figures describe one data set and one network link.
 
 @subsection p61_cap_comp_auto_sub auto
 
@@ -547,7 +577,9 @@ against a real remote at campaign scale.
 
 **Diagnostics.** `picurv storage plan` prints the policy it resolved to and the payload size that decided it.
 
-**Evidence.** Unit verified - `tests/test_storage.py` exercises the resolver and the archive path for this policy.**Limitations.** The thresholds are judgement, not measurement, and they take no account of the data's compressibility: an incompressible payload just above 256 MiB pays for `balanced` and gains nothing.
+**Evidence.** Unit verified - `tests/test_storage.py` exercises the resolver and the archive path for this policy. Production exercised - on the cluster campaign `storage-campaign-grace-2026-09-30` it resolved a 3.5 GiB run to `balanced`.
+
+**Limitations.** The thresholds are judgement, not measurement, and they take no account of the data's compressibility: an incompressible payload just above 256 MiB pays for `balanced` and gains nothing. The 20 GiB switch to `maximum` was not exercised; on the measured link `maximum` took 2.3 times as long as `balanced` and 3.8 GB of memory for an archive 7% smaller, so pin `--compression balanced` for large runs when time or login-node memory matters.
 
 @subsection p61_cap_comp_none_sub none
 
@@ -557,15 +589,17 @@ against a real remote at campaign scale.
 
 **What it does.** Archives without compressing. Bytes on disk equal bytes transferred.
 
-**When to choose it.** For payloads that are already compressed - most binary checkpoint formats - and for anything where restore latency matters more than footprint. Also the right choice when the archive is a staging step before something that compresses anyway.
+**When to choose it.** For payloads that are already compressed, or when the archive is a staging step before something that compresses anyway. PICurv checkpoints are not in that class: they compressed by about 30% at `fast`.
 
 **Parameters it owns.** None.
 
-**Interactions.** Produces the largest artefact and the fastest offload and restore of the four.
+**Interactions.** Produces the largest artefact. It costs no CPU, but on a slow upload link it is not the fastest offload: transferring the extra bytes takes longer than compressing them.
 
 **Diagnostics.** The `.tar` suffix in the catalog listing identifies it after the fact.
 
-**Evidence.** Unit verified - `tests/test_storage.py` exercises the resolver and the archive path for this policy.**Limitations.** Storage cost is the full payload size, which for a long campaign is the dominant term.
+**Evidence.** Unit verified - `tests/test_storage.py` exercises the resolver and the archive path for this policy. Production exercised and benchmark characterized - `storage-campaign-grace-2026-09-30`.
+
+**Limitations.** Storage cost is the full payload size, which for a long campaign is the dominant term.
 
 @subsection p61_cap_comp_fast_sub fast
 
@@ -585,7 +619,7 @@ does not distinguish them; the catalog records the policy, worker count, and com
 
 **Diagnostics.** Catalog metadata records the policy used, which is the only way to tell `fast` and `balanced` archives apart afterwards.
 
-**Evidence.** Implemented only.
+**Evidence.** Unit verified - `tests/test_storage.py` archives at this level. Production exercised and benchmark characterized - `storage-campaign-grace-2026-09-30`: 2.671 GB from 3.794 GB raw in 12:57, of which 114 s was CPU.
 
 **Limitations.** Shares an extension with `balanced`, so an archive inspected outside PICurv cannot be identified by filename alone.
 
@@ -606,10 +640,9 @@ available, otherwise gzip level 6 across independent chunks.
 
 **Diagnostics.** Reported by `picurv storage plan` and recorded in the catalog entry.
 
-**Evidence.** Implemented only. `auto` resolves to `balanced` only for artifacts in a
-middle size band, and the storage tests package artifacts too small to reach it.
+**Evidence.** Production exercised and benchmark characterized - `storage-campaign-grace-2026-09-30`: 2.652 GB from 3.794 GB raw in 13:33, of which 137 s was CPU. The storage tests package artifacts too small for `auto` to select it.
 
-**Limitations.** Nothing establishes that gzip's default is the right point on the curve for this project's data; it is a conventional choice, not a measured one.
+**Limitations.** On the measured data it stored 0.7% less than `fast` for 20% more CPU; whether gzip's default level is worth it for other data is not measured.
 
 @subsection p61_cap_comp_maximum_sub maximum
 
@@ -631,16 +664,19 @@ together.
 **Diagnostics.** The `.tar.xz` suffix identifies it, and `picurv storage plan` reports it in advance.
 
 **Evidence.** Unit verified — `tests/test_storage.py` creates and extracts a native xz
-chunk while asserting the requested worker count.
+chunk while asserting the requested worker count. Production exercised and benchmark
+characterized - `storage-campaign-grace-2026-09-30`: 2.462 GB from 3.794 GB raw in 30:24 at 85% CPU with a 3.8 GB peak,
+restored in 2:42.
 
-**Limitations.** xz memory use scales with its window and worker count. Request the
-compression on a compute node when cluster login-node policy or memory is restrictive.
+**Limitations.** xz memory use scales with its window and worker count: with 8 workers it
+peaked at 3.8 GB. Request the compression on a compute node when cluster login-node policy
+or memory is restrictive. Restore is also slower than for the gzip policies.
 
 @section p61_cap_policy_sec 9.2 Offload Policy Entries
 
 @htmlinclude generated/capability_inventory_storage_offload_policy.html
 
-Every policy below is experimental, for the same reason as the compression policies.
+Every policy below is supported. Each was applied to its own 3.5 GiB run against a Google Drive remote, and the files left behind were compared with the documented components (`storage-campaign-grace-2026-09-30`): `metadata-only` left 720K, `restart-ready` 1.2G, and `analysis-ready` 674M. A restart from a checkpoint offloaded and restored by `restart-ready` ran normally.
 
 @subsection p61_cap_policy_metadata_only_sub metadata-only
 
@@ -668,7 +704,7 @@ an incomplete run.
 the policy; `storage status` reports `COLD` after offload.
 
 **Evidence.** Unit verified — `tests/test_storage.py` exercises the policy mapping,
-pruning, state marker, and remote round trip.
+pruning, state marker, and remote round trip. Production exercised - `storage-campaign-grace-2026-09-30`.
 
 **Limitations.** Logs and metadata can still be large in pathological runs; the policy
 does not truncate them.
@@ -696,7 +732,7 @@ retained step. Other steps remain cold and trigger a selective restore instructi
 `inputs` and `checkpoint:<step>` in `retained_components`.
 
 **Evidence.** Unit verified — `tests/test_storage.py` exercises the policy mapping and
-latest-checkpoint retention behavior.
+latest-checkpoint retention behavior. Production exercised - `storage-campaign-grace-2026-09-30`.
 
 **Limitations.** It retains only one checkpoint; branching from older states requires
 a selective remote restore.
@@ -730,7 +766,7 @@ new index without those recorded times requires restoring checkpoint metadata.
 pruned bytes, and the marker records both retained components.
 
 **Evidence.** Unit verified — `tests/test_storage.py` exercises all named policy
-mappings and semantic component classification.
+mappings and semantic component classification. Production exercised - `storage-campaign-grace-2026-09-30`.
 
 **Limitations.** It cannot infer whether a particular future analysis needs raw fields;
 restore those inputs explicitly when required.
@@ -739,7 +775,7 @@ restore those inputs explicitly when required.
 
 @htmlinclude generated/capability_inventory_storage_retention_component.html
 
-Every component below is experimental, for the same reason as the compression policies.
+Every component below except `raw-output` is supported. On a Google Drive remote (`storage-campaign-grace-2026-09-30`), `--policy metadata-only --retain visualization --drop logs` kept every visualization file, pruned every log the preset would otherwise keep, and pruned the rest as the preset does; a whole restore returned every file bit for bit. The other components were exercised through the presets. `raw-output` held no data in those runs and stays experimental.
 
 A named `--policy` is a preset, not a ceiling. `--retain` and `--drop` adjust one
 component at a time on top of whichever preset is in force, so a campaign whose
@@ -795,7 +831,7 @@ instead of naming one step, and lists `checkpoints` under both `Kept components`
 
 **Evidence.** Unit verified — `tests/test_storage.py` asserts that every step is
 retained under it, that `--keep-latest-checkpoint` retains only the newest, and that
-the conflict with `--drop-all-checkpoints` is refused.
+the conflict with `--drop-all-checkpoints` is refused. Production exercised - `storage-campaign-grace-2026-09-30`: every checkpoint pruned by `metadata-only` and `analysis-ready`, the latest kept by `restart-ready`, each restored bit for bit.
 
 **Limitations.** It is the most expensive selection available; on a long run the
 checkpoint set is usually the bulk of local size, so retaining it recovers almost no
@@ -825,7 +861,7 @@ says so rather than reporting an empty history.
 `Dropped by flag` when it was removed from a preset that would have kept it.
 
 **Evidence.** Unit verified — `tests/test_storage.py` asserts the component is
-selectable in both directions against a preset that retains it by default.
+selectable in both directions against a preset that retains it by default. Production exercised - `storage-campaign-grace-2026-09-30`: `--drop logs` pruned all 7 logs from a `metadata-only` offload.
 
 **Limitations.** Dropping logs removes the cheapest evidence a run leaves behind; the
 space recovered is rarely worth it outside pathological verbosity settings.
@@ -855,7 +891,7 @@ restore is the only way back to those numbers.
 it. `storage status` reports `PARTIAL` for a run whose analysis was pruned.
 
 **Evidence.** Unit verified — `tests/test_storage.py` asserts the component is added to
-a preset that omits it and removed from one that includes it.
+a preset that omits it and removed from one that includes it. Production exercised - `storage-campaign-grace-2026-09-30`: kept by `analysis-ready`, pruned by `metadata-only` and `restart-ready`, restored bit for bit.
 
 **Limitations.** It is a single switch over the whole analysis tree; individual metrics,
 spectra, or plot sets are not separately selectable.
@@ -885,7 +921,7 @@ line, and the per-component chunk table reports its packaged size, so its share 
 archive is visible before the upload starts.
 
 **Evidence.** Unit verified — `tests/test_storage.py` asserts the component is
-selectable in both directions.
+selectable in both directions. Production exercised - `storage-campaign-grace-2026-09-30`: `--retain visualization` kept all 5 files of a `metadata-only` offload.
 
 **Limitations.** One switch covers every post recipe's output; a single recipe's
 directory cannot be selected on its own.
@@ -917,7 +953,7 @@ reports the run `COLD` or `PARTIAL` once it was pruned, and `--restart-from` or
 
 **Evidence.** Unit verified — `tests/test_storage.py` asserts the component is
 selectable in both directions, and that the always-retained workspace components are
-unaffected by it.
+unaffected by it. Production exercised - `storage-campaign-grace-2026-09-30`: pruned by `metadata-only` and `analysis-ready` except the two metadata files, kept by `restart-ready`.
 
 **Limitations.** Dropping it does not free the underlying asset object, which
 `storage prune --assets --unused-locally` owns and removes only when no active local

@@ -2355,6 +2355,18 @@
               {
                 "choices": [],
                 "default": null,
+                "dest": "workspace",
+                "flags": [
+                  "--workspace"
+                ],
+                "help": "Workspace whose own archive to verify.",
+                "is_flag": false,
+                "nargs": null,
+                "required": false
+              },
+              {
+                "choices": [],
+                "default": null,
                 "dest": "case_ids",
                 "flags": [
                   "--case-id"

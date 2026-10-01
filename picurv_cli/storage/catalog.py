@@ -105,18 +105,26 @@ def prune_unused_workspace_assets(workspace_root: str, profile: dict,
         decision = {**entry, "remote_protection": "verified" if verified else "none",
                     "local_removal": "safe" if removable else "blocked"}
         if removable and not dry_run:
-            shutil.rmtree(entry["object"], ignore_errors=True)
-            decision["removed"] = True
+            try:
+                shutil.rmtree(entry["object"])
+                decision["removed"] = True
+            except OSError as exc:
+                # Partly deleted is still present: report it rather than count it as gone.
+                decision["removed"] = False
+                decision["error"] = str(exc)
         decisions.append(decision)
     return decisions
 
 
-def _find_reusable_archive(profile: dict, target: dict, fingerprint: str) -> dict:
+def _find_reusable_archive(profile: dict, target: dict, fingerprint: str,
+                           compression: str = None) -> dict:
     """!
     @brief Find a completed archive of this artifact whose content is already current.
     @param[in] profile Resolved storage profile.
     @param[in] target Local artifact target.
     @param[in] fingerprint Inventory fingerprint of the artifact as it stands now.
+    @param[in] compression Resolved compression the archive must have been made with;
+                           an archive at another level is not what was asked for.
     @return Matching remote manifest, or None.
     """
     if not fingerprint:
@@ -133,6 +141,8 @@ def _find_reusable_archive(profile: dict, target: dict, fingerprint: str) -> dic
     newest = None
     for manifest in candidates:
         if manifest.get("inventory_sha256") != fingerprint:
+            continue
+        if compression and manifest.get("compression") != compression:
             continue
         if (manifest.get("artifact_type"), manifest.get("run_id"),
                 manifest.get("study_id"), manifest.get("case_id")) != identity:

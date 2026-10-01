@@ -860,7 +860,7 @@
     {
       "id": "storage.management",
       "title": "Run Storage Management",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
       "previous_status": "experimental",
       "capability_families": [
@@ -965,8 +965,7 @@
           "not_applicable": "Remote access reuses the operator's existing rclone remote and credentials; PICurv stores only the remote name/path and never copies provider credentials into a workspace."
         }
       },
-      "proposed_status": "supported",
-      "promotion_rationale": "Documented to the supported bar, including failure safety and restore. The unresolved question is operational: the offload/restore cycle has not been exercised against the owner's actual remote at campaign scale."
+      "note": "Promoted 2026-10-01. Protect, offload under all three policies, verify, list, selective and full restore, restore to another directory, all four compression levels, workspace protection, and asset prune were exercised against a Google Drive remote on 3.5 GiB runs of the turbulent-channel campaign, with every file recorded by SHA-256 before and after (storage-campaign-grace-2026-09-30): every restore was bit identical, each policy left exactly its documented components, a checkpoint offloaded and restored restarted normally, and prune removed only verified, unreferenced objects. Found and fixed: a workspace restored to another directory had its asset payloads rewritten so they failed their digests; an explicit --compression was satisfied by an archive of another level; verify did not accept --workspace; prune counted a failed deletion as removed; restore re-downloaded chunks already local. The fixes are verified locally (tests/test_storage.py), not yet on the cluster. --retain visualization and --drop logs were exercised on a metadata-only offload. Not exercised: archives above 3.8 GB (so auto's switch to maximum at 20 GiB), the raw-output component with data (it stays experimental), study archives, and --fetch-missing asset recovery."
     },
     {
       "id": "run.directory_containment",

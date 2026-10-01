@@ -1559,3 +1559,139 @@ def test_setup_still_edits_a_shared_configuration_when_it_is_named(
 
     assert yaml.safe_load(shared.read_text(encoding="utf-8"))["profiles"]["archive"]["remote"] == "fake:picurv-data"
     assert not (workspace / storage.STORAGE_CONFIG_FILENAME).exists()
+
+
+def test_relocated_workspace_restore_keeps_asset_payloads_intact(tmp_path, local_rclone):
+    """!
+    @brief Restoring a workspace elsewhere rewrites its configuration, never its asset objects.
+
+    @details Found on the cluster: an initial-condition object's summary JSON records
+             absolute paths under the workspace, and the relocation rewrite edited it,
+             so every such object failed its own payload digest after the restore.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    workspace = _write_workspace_artifact(tmp_path / "pilot64")
+    payload = workspace / "assets" / "objects" / "grids" / ("a" * 64) / "payload" / "summary.json"
+    original = json.dumps({"grid": f"{workspace}/assets/.precompute-x/grid.run"}) + "\n"
+    payload.write_text(original, encoding="utf-8")
+    note = workspace / "config" / "paths.yml"
+    note.write_text(f"root: {workspace}/runs\n", encoding="utf-8")
+    profile = _profile(tmp_path)
+    manifest = storage.archive_artifact(
+        storage.resolve_local_storage_targets(workspace=str(workspace))[0], profile
+    )
+
+    moved = tmp_path / "elsewhere" / "pilot64"
+    storage.restore_archive(profile, manifest["archive_id"], destination=str(moved))
+    restored = moved / "assets" / "objects" / "grids" / ("a" * 64) / "payload" / "summary.json"
+    assert restored.read_text(encoding="utf-8") == original
+    assert (moved / "config" / "paths.yml").read_text(encoding="utf-8") == f"root: {moved}/runs\n"
+
+
+def test_a_rewritten_file_does_not_change_a_hard_link_to_it(tmp_path):
+    """!
+    @brief The relocation rewrite replaces a file, so another hard link keeps its bytes.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @return None.
+    """
+    from picurv_cli.storage.compatibility import _rebase_restored_text_paths
+    shared = tmp_path / "store" / "summary.json"
+    shared.parent.mkdir()
+    shared.write_text('{"root": "/x/run1"}\n', encoding="utf-8")
+    run_copy = tmp_path / "run" / "summary.json"
+    run_copy.parent.mkdir()
+    os.link(shared, run_copy)
+    _rebase_restored_text_paths(str(tmp_path / "run"), [("/x/run1", "/y/run1")])
+    assert run_copy.read_text(encoding="utf-8") == '{"root": "/y/run1"}\n'
+    assert shared.read_text(encoding="utf-8") == '{"root": "/x/run1"}\n'
+
+
+def test_an_explicit_compression_is_never_satisfied_by_another_levels_archive(tmp_path, local_rclone):
+    """!
+    @brief Reuse honours a requested compression; without one, any current archive is reused.
+
+    @details Found on the cluster: `protect --compression balanced` on an unchanged run
+             reported success against the existing `fast` archive.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    run = _write_run(tmp_path / "runs" / "levels")
+    profile = _profile(tmp_path)
+    target = storage.resolve_local_storage_targets(str(run), None)[0]
+    fast = storage.archive_artifact(target, profile, compression="fast")
+    again = storage.archive_artifact(target, profile, compression="fast")
+    assert again["archive_id"] == fast["archive_id"]
+    none = storage.archive_artifact(target, profile, compression="none")
+    assert none["archive_id"] != fast["archive_id"] and none["compression"] == "none"
+    plain = storage.archive_artifact(target, profile)
+    assert plain["archive_id"] in {fast["archive_id"], none["archive_id"]}
+
+
+def test_verify_accepts_a_workspace(tmp_path, local_rclone):
+    """!
+    @brief `storage verify --workspace` resolves the workspace's own archive, as protect does.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @return None.
+    """
+    from picurv_cli.storage.operations import _resolve_archive_id_from_args
+    workspace = _write_workspace_artifact(tmp_path / "pilot64")
+    manifest = storage.archive_artifact(
+        storage.resolve_local_storage_targets(workspace=str(workspace))[0], _profile(tmp_path)
+    )
+    args = build_main_parser().parse_args(["storage", "verify", "--workspace", str(workspace)])
+    assert _resolve_archive_id_from_args(args) == manifest["archive_id"]
+
+
+def test_a_failed_asset_removal_is_reported_not_counted(tmp_path, local_rclone, monkeypatch):
+    """!
+    @brief Prune reports an object it could not delete instead of counting it as removed.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    @return None.
+    """
+    import picurv_cli.storage.catalog as catalog
+    workspace = _write_workspace_artifact(tmp_path / "pilot64")
+    profile = _profile(tmp_path)
+    storage.archive_artifact(storage.resolve_local_storage_targets(workspace=str(workspace))[0], profile)
+
+    def refuse(path, *args, **kwargs):
+        """!
+        @brief Stand in for a deletion the filesystem refuses.
+        @param[in] path Directory that would be removed.
+        @param[in] args Ignored positional arguments.
+        @param[in] kwargs Ignored keyword arguments.
+        """
+        raise PermissionError(13, "Permission denied", path)
+
+    monkeypatch.setattr(catalog.shutil, "rmtree", refuse)
+    [decision] = storage.prune_unused_workspace_assets(str(workspace), profile)
+    assert decision["local_removal"] == "safe"
+    assert decision["removed"] is False and "Permission denied" in decision["error"]
+
+
+def test_a_restore_does_not_download_what_is_already_local(tmp_path, local_rclone, capsys):
+    """!
+    @brief Restoring a partly offloaded run fetches only what it does not already hold.
+
+    @details Found on the cluster: a full restore after a selective one downloaded every
+             chunk again, including the checkpoint the offload had kept.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] local_rclone Fake rclone object-store fixture.
+    @param[in] capsys Pytest output capture fixture.
+    @return None.
+    """
+    run = _write_run(tmp_path / "runs" / "partial")
+    profile = _profile(tmp_path)
+    target = storage.resolve_local_storage_targets(str(run), None)[0]
+    manifest = storage.archive_artifact(target, profile, prune_local=True, policy="restart-ready")
+    capsys.readouterr()
+    storage.restore_archive(profile, manifest["archive_id"], destination=str(run))
+    output = capsys.readouterr().out
+    assert "Already local, not downloaded again:" in output and "checkpoint:10" in output
+    assert all(f"Restoring chunk" not in line or "checkpoint:10" not in line for line in output.splitlines())
+    assert (run / "output" / "checkpoints" / "step_000000000010" / "checkpoint.meta").is_file()

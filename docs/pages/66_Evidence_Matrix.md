@@ -78,14 +78,15 @@ Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
 - **Analytical facets rest on single recorded measurements, and none is `reference`.**
-  89 values cite `measurement:` records - 26 distinct ones, taken between 2026-09-18 and
-  2026-09-29 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
+  102 values cite `measurement:` records - 27 distinct ones, taken between 2026-09-18 and
+  2026-09-30 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
   pipe Poiseuille flow, the Poisson options, every initial-condition mode, every
   particle seeding and restart mode, both interpolation methods, the post-processing
   kernels, field statistics, shell, plane and line spectra, metric closure on every
   grid-generator feature, the workspace input import modes, and the four generated
   initial-condition providers, plus Newton--Krylov production execution on a
-  144-rank turbulent channel.
+  144-rank turbulent channel and the storage compression levels, offload policies, and retention
+  components against a Google Drive remote.
   Each record states what it does not establish, and none is gated in CI. Eight records
   are cited by no value: three `not-met` ones (the Q-criterion output placement and the
   generated inlet flux on `programmatic_c` grids, both since fixed and re-measured, and

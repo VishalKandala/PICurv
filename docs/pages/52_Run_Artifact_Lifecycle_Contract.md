@@ -106,7 +106,7 @@ absolute paths into the run or study. `<run.manifest>` records the run's root
 where it now is, it first rewrites those paths to the new location, the same rewrite a
 relocated `picurv storage restore` applies, and reports how many files it changed. A
 `--dry-run` reports the move without rewriting anything. A path is rewritten only where
-it ends at a path boundary, so moving `runs/run1` leaves `runs/run10` untouched.
+it ends at a path boundary, so moving `runs/run1` leaves `runs/run10` untouched. Checkpoint bundles and workspace asset objects are never rewritten, because their contents are checked against recorded digests.
 
 For a run staged before the manifest recorded its root, the old location is read from a
 control-file path that names one of the run's own files. Paths a run records for other

@@ -1809,39 +1809,71 @@
       "coverage_enforced": true,
       "value_metadata": {
         "auto": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "file:tests/test_storage.py"
+            ],
+            "production": [
+              "measurement:storage-campaign-grace-2026-09-30"
             ]
           }
         },
         "none": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "file:tests/test_storage.py"
+            ],
+            "production": [
+              "measurement:storage-campaign-grace-2026-09-30"
+            ],
+            "benchmark": [
+              "measurement:storage-campaign-grace-2026-09-30"
             ]
           }
         },
         "fast": {
-          "status": "experimental",
-          "canonical": true,
-          "evidence": {}
-        },
-        "balanced": {
-          "status": "experimental",
-          "canonical": true,
-          "evidence": {}
-        },
-        "maximum": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "file:tests/test_storage.py"
+            ],
+            "production": [
+              "measurement:storage-campaign-grace-2026-09-30"
+            ],
+            "benchmark": [
+              "measurement:storage-campaign-grace-2026-09-30"
+            ]
+          }
+        },
+        "balanced": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "production": [
+              "measurement:storage-campaign-grace-2026-09-30"
+            ],
+            "benchmark": [
+              "measurement:storage-campaign-grace-2026-09-30"
+            ]
+          }
+        },
+        "maximum": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "file:tests/test_storage.py"
+            ],
+            "production": [
+              "measurement:storage-campaign-grace-2026-09-30"
+            ],
+            "benchmark": [
+              "measurement:storage-campaign-grace-2026-09-30"
             ]
           }
         }
@@ -1960,29 +1992,38 @@
       "coverage_enforced": true,
       "value_metadata": {
         "metadata-only": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "file:tests/test_storage.py"
+            ],
+            "production": [
+              "measurement:storage-campaign-grace-2026-09-30"
             ]
           }
         },
         "restart-ready": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "file:tests/test_storage.py"
+            ],
+            "production": [
+              "measurement:storage-campaign-grace-2026-09-30"
             ]
           }
         },
         "analysis-ready": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "file:tests/test_storage.py"
+            ],
+            "production": [
+              "measurement:storage-campaign-grace-2026-09-30"
             ]
           }
         }
@@ -2003,47 +2044,62 @@
       "coverage_enforced": true,
       "value_metadata": {
         "checkpoints": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "file:tests/test_storage.py"
+            ],
+            "production": [
+              "measurement:storage-campaign-grace-2026-09-30"
             ]
           }
         },
         "logs": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "file:tests/test_storage.py"
+            ],
+            "production": [
+              "measurement:storage-campaign-grace-2026-09-30"
             ]
           }
         },
         "analysis": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "file:tests/test_storage.py"
+            ],
+            "production": [
+              "measurement:storage-campaign-grace-2026-09-30"
             ]
           }
         },
         "visualization": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "file:tests/test_storage.py"
+            ],
+            "production": [
+              "measurement:storage-campaign-grace-2026-09-30"
             ]
           }
         },
         "inputs": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "file:tests/test_storage.py"
+            ],
+            "production": [
+              "measurement:storage-campaign-grace-2026-09-30"
             ]
           }
         },

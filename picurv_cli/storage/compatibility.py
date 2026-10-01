@@ -259,11 +259,17 @@ def _rebase_restored_text_paths(root: str, replacements: list) -> list:
     @brief Rebase known generated text artifacts after a run or study changed location.
     @details Used after a relocated restore and when a moved run or study is next opened.
              An old path is replaced only where it ends at a path boundary, so moving
-             `/a/run1` does not rewrite `/a/run10`.
+             `/a/run1` does not rewrite `/a/run10`. Immutable stores are never rewritten:
+             an asset object's payload is checked against the digests in its `asset.json`,
+             and a committed checkpoint against its commit marker, so editing either would
+             invalidate it; the paths they carry are provenance, not inputs. A rewritten
+             file replaces the old one instead of being edited in place, so a hard link
+             to it (a run input materialized from an asset object) keeps the original.
     @param[in] root Directory whose generated text artifacts are rewritten.
     @param[in] replacements (old absolute path, new absolute path) pairs.
     @return Paths of the files that changed.
     """
+    immutable = re.compile(r"(^|/)(assets/objects|checkpoints/step_\d+)/")
     patterns = [
         (re.compile(re.escape(old) + r"(?=$|[/\s'\"=,;:)\]}])", re.MULTILINE), new)
         for old, new in replacements
@@ -276,6 +282,8 @@ def _rebase_restored_text_paths(root: str, replacements: list) -> list:
             continue
         if path.suffix.lower() not in allowed_suffixes:
             continue
+        if immutable.search(path.relative_to(root).as_posix()):
+            continue
         try:
             content = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -284,6 +292,9 @@ def _rebase_restored_text_paths(root: str, replacements: list) -> list:
         for pattern, new in patterns:
             updated = pattern.sub(lambda _match, value=new: value, updated)
         if updated != content:
-            path.write_text(updated, encoding="utf-8")
+            staging = path.with_name(f".{path.name}.rebase")
+            staging.write_text(updated, encoding="utf-8")
+            shutil.copymode(path, staging)
+            os.replace(staging, path)
             changed.append(str(path))
     return changed

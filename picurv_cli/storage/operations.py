@@ -271,7 +271,12 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
         inventory = plan["inventory"]
         _assert_archive_safe(inventory)
         fingerprint = _inventory_fingerprint(inventory)
-        reusable = _find_reusable_archive(profile, target, fingerprint)
+        # An explicitly requested compression must be honoured; without one, any
+        # current archive of the artifact will do (protect, then a plain offload).
+        reusable = _find_reusable_archive(
+            profile, target, fingerprint,
+            compression=plan["compression"] if compression else None,
+        )
         if reusable is not None:
             # `protect` then `offload` is the documented workflow for "back it up now,
             # free the space later". Re-packaging and re-uploading an unchanged artifact
@@ -735,6 +740,26 @@ def restore_archive(profile: dict, archive_id: str, destination: str = None,
                 f"Restore destination already exists and is not the matching cold artifact: {destination_abs}. "
                 "Choose --to or use --force after verifying the destination."
             )
+        # Components this artifact already holds locally - restored earlier or never
+        # pruned - are not downloaded again; --force fetches everything.
+        already_local = (set(existing_state.get("restored_components") or [])
+                         | set(existing_state.get("retained_components") or []))
+        def held_locally(component: str) -> bool:
+            """!
+            @brief Whether a chunk's component is already present in the destination.
+            @param[in] component Chunk component name.
+            @return True for a restored or retained component; a retained `checkpoints`
+                    entry covers every committed step.
+            """
+            return component in already_local or (
+                component.startswith("checkpoint:") and "checkpoints" in already_local)
+
+        skipped = [chunk["component"] for chunk in chunks
+                   if chunk.get("component") not in ALWAYS_RESTORED_COMPONENTS
+                   and held_locally(str(chunk.get("component", "")))]
+        if skipped:
+            chunks = [chunk for chunk in chunks if chunk.get("component") not in skipped]
+            print(f"[INFO] Already local, not downloaded again: {', '.join(skipped)}")
     parent = os.path.dirname(destination_abs)
     os.makedirs(parent, exist_ok=True)
     # Every selected chunk is extracted in full before `_merge_tree` copies it into
@@ -873,7 +898,8 @@ def _resolve_archive_id_from_args(args) -> str:
             workspace_id,
         )
     targets = resolve_local_storage_targets(
-        getattr(args, "run_dir", None), getattr(args, "study_dir", None), getattr(args, "case_ids", None)
+        getattr(args, "run_dir", None), getattr(args, "study_dir", None), getattr(args, "case_ids", None),
+        workspace=getattr(args, "workspace", None),
     )
     if len(targets) != 1:
         raise StorageError("Restore/verify by local marker requires exactly one target.")
@@ -1146,11 +1172,16 @@ def storage_prune_workflow(args) -> None:
             f"  local removal                   {decision['local_removal']}"
         )
     removed = [item for item in decisions if item.get("removed")]
+    failed = [item for item in decisions if item.get("error")]
     if args.dry_run:
         safe = [item for item in decisions if item["local_removal"] == "safe"]
         print(f"[INFO] Dry-run only. {len(safe)} object(s) would be removed.")
     else:
+        for item in failed:
+            print(f"[ERROR] Could not remove {item['object']}: {item['error']}", file=sys.stderr)
         print(f"[SUCCESS] Removed {len(removed)} local asset object(s).")
+        if failed:
+            raise StorageError(f"{len(failed)} asset object(s) could not be removed; see above.")
 
 
 def storage_verify_workflow(args) -> None:
@@ -1423,6 +1454,7 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
     verify_source.add_argument("--archive-id")
     verify_source.add_argument("--run-dir")
     verify_source.add_argument("--study-dir")
+    verify_source.add_argument("--workspace", help="Workspace whose own archive to verify.")
     verify.add_argument("--case-id", dest="case_ids", action="append")
     add_profile_options(verify)
 
