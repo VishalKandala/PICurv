@@ -88,14 +88,15 @@ the initial and final states. A selection requesting multiple checkpoints must u
 an interval that is a multiple of that cadence. A bounded selection containing only
 one checkpoint is exempt from this alignment check. An off-cadence `start_step`
 draws a warning because it may be an initial or final checkpoint; the selected
-checkpoint must still exist. Post-processing stops at the first missing checkpoint
-rather than skipping it.
+checkpoint must still exist. A requested step without a committed checkpoint is not
+processed; it waits until the solver writes it.
 
 Operational semantics when launched through `picurv`:
 - keep `start_step` and `end_step` as the full logical analysis window you want the recipe to represent.
-- `picurv run --post-process --continue --run-dir ... --post post.yml` computes an internal effective start step for the same recipe lineage, so you do not need to keep editing `start_step` during batch catch-up.
-- if the recipe changes in a way that affects generated outputs, such as `step_interval`, pipeline tasks, output prefixes, or selected fields, PICurv starts from the configured `start_step` instead of inheriting completion from the previous recipe.
-- on live solver runs, `end_step: -1` still means "up to the last available step", but PICurv now caps each invocation to the highest fully available contiguous source prefix before generating `post.run`.
+- `picurv run --post-process --run-dir ... --post post.yml` processes only the requested steps whose output is missing or stale, so you never edit `start_step` during batch catch-up. A step is up to date while all its output files exist and its record in `<recipe>/state.json` names the current recipe and the checkpoint now on disk. A field-statistics window's file is required only at steps whose source checkpoint records a sample for it. `--recompute` regenerates every step (see @ref p05_run_sec).
+- if the recipe changes in a way that affects generated outputs, such as `step_interval`, pipeline tasks, output prefixes, or selected fields, it is a new recipe with its own output directory, and its whole window is processed.
+- on live solver runs, `end_step: -1` still means "up to the last available step"; each invocation processes the steps whose checkpoints are committed and leaves the rest for a later run.
+- the conductor hands the postprocessor an explicit step list (`step_list_file` in `post.run`, written when the job starts); `startTime`/`endTime`/`timeStep` then only describe the requested window.
 
 @section p10_source_sec 3. source_data
 
@@ -203,7 +204,7 @@ the domain boundary also averages the dummy cells beyond it, so what they hold d
 the boundary node. `Ucat`'s put the face average on the boundary velocity; `P`'s and
 `Psi`'s repeat the adjacent cell (zero normal gradient), so `P_nodal` and `Psi_nodal`
 continue the interior there (`UpdateDummyCells()`). `Qcrit` and the statistics staging
-fields are filled on periodic faces only (`ExtendToLayoutBoundary()`); on a wall, inlet,
+fields are filled on periodic faces only (`SynchronizePeriodicCellFields()`); on a wall, inlet,
 or outlet their dummy cells stay zero, so the outermost node layer of `Qcrit_nodal` and
 of a statistics field is diluted toward zero - see @ref p60_stats_boundary_sec for why no
 single rule is applied there. Runs written before 2026-09-28 carry zero `P` and `Psi`
@@ -492,7 +493,7 @@ post-processor. They are measured by `generators/spectra.gen`, which the conduct
 runs against the raw checkpoint payloads, so the stage needs no field output and does
 not depend on `eulerian_pipeline`. The only key that reaches the C recipe is
 `spectra_signature`, a digest the post-processor accepts and ignores; it exists so a
-changed spectra recipe reaches the recipe fingerprint that `--continue` compares.
+changed spectra recipe reaches the recipe fingerprint each step's record carries.
 
 @subsection p10_spectra_only_sub Running spectra alone
 
@@ -503,6 +504,12 @@ picurv run --post-process --only spectra --run-dir runs/my_run --post post.yml
 `--only` selects among the post stages, `fields` (the field post-processor) and
 `spectra`, and defaults to both. Re-measuring a spectrum is cheap; rebuilding the
 field output is not, so the analysis loop belongs behind `--only spectra`.
+
+Each task's spectrum and history CSVs accumulate across invocations of one recipe. Like
+field output, a step is measured only when its rows are missing, its spectra settings
+changed, or its checkpoint changed, and `--recompute` measures every committed step. An
+invocation replaces the rows of the steps it measures and keeps the rest. A file whose
+columns differ from the current format is rewritten whole.
 
 @subsection p10_spectra_preconditions_sub Preconditions
 
@@ -734,9 +741,9 @@ The conductor routes `statistics_pipeline.output_prefix` to
 `<run.analysis.statistics>/<recipe_id>/<basename>`; only the configured basename is
 retained. Relative or absolute directory components do not redirect the result.
 When the same timestep is post-processed again, PICurv now rewrites same-step VTK/VTP outputs and rewrites same-step statistics rows so the final CSV still contains one row per step.
-`picurv run --post-process --continue` may be repeated while a solver is active: each
-invocation stops at the current committed source frontier, appends newly available VTK
-frames, and atomically refreshes the PVD. Ancestor frames must already exist for the same
+`picurv run --post-process` may be repeated while a solver is active: each invocation
+processes the newly committed steps, adds their VTK frames, and atomically refreshes the
+PVD. Ancestor frames must already exist for the same
 recipe. Particle ancestry begins again when particles use `restart_mode: init`, and field
 statistics ancestry begins again after `--statistics-state reset`.
 

@@ -1221,9 +1221,17 @@ def main(argv=None) -> int:
         summary.update({"grid": os.path.abspath(grid_path), "output": os.path.abspath(args.output),
                         "grid_dims": list(dims)})
         if args.summary_json:
-            os.makedirs(os.path.dirname(os.path.abspath(args.summary_json)), exist_ok=True)
+            summary_dir = os.path.dirname(os.path.abspath(args.summary_json))
+            os.makedirs(summary_dir, exist_ok=True)
+            # The summary is asset payload built in a temporary directory; absolute
+            # paths would make identical fields publish as different assets. Record
+            # them relative to the summary so they resolve wherever it is materialized.
+            stored = dict(summary)
+            for key in ("grid", "output"):
+                if isinstance(stored.get(key), str):
+                    stored[key] = os.path.relpath(stored[key], summary_dir)
             with open(args.summary_json, "w", encoding="utf-8") as fout:
-                json.dump(summary, fout, indent=2, sort_keys=True)
+                json.dump(stored, fout, indent=2, sort_keys=True)
                 fout.write("\n")
         print(json.dumps(summary, sort_keys=True))
         return 0

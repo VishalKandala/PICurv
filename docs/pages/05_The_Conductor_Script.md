@@ -357,17 +357,22 @@ collection even when the field window is already complete; solve-only and
 spectra-only invocations do not refresh it. See @ref 10_Post_Processing_Reference
 for recipe compatibility and @ref 04_Visualization_Tutorial for opening the result.
 
-- Catch up a live run without editing `post.yml.start_step`. Keep the full desired analysis window in `post.yml`, then let `--continue` move the launch cursor inside that window:
+- Post-processing is incremental. Keep the full analysis window in `post.yml`; each run processes only the steps whose output is missing or stale, and launches nothing when every step is up to date:
 
 ```bash
-./bin/picurv run --post-process --continue \
+./bin/picurv run --post-process \
   --run-dir runs/search_robustness_20260322-073415 \
   --post search_robustness_analysis.yml
 ```
 
-- If the solver has only written source data through step `420`, PICurv launches only the fully available prefix in the requested stride. A later `--continue` run picks up the newer steps after the solver produces them.
-- If the same recipe already post-processed the requested window, PICurv skips the launch and reports that the run is already caught up.
-- If you change the recipe itself, for example by adding `Qcrit_nodal` or changing the statistics output prefix, PICurv treats that as a new recipe lineage and starts again from the configured `start_step`.
+- Every step the postprocessor produces is recorded in the recipe's `state.json` with the recipe fingerprint and its checkpoint's commit marker. A step is processed again when any of its output files is missing, when the recipe changed, or when its checkpoint changed. Output written before these records existed is kept when it is newer than its checkpoint. Steps need not be contiguous: a single deleted file is reprocessed alone.
+- Rebuilding the postprocessor does not make output stale. PICurv reports how many up-to-date steps another or an unrecorded build made; `--recompute` regenerates every requested step that has a committed checkpoint, for every selected stage.
+- A step whose checkpoint is not committed yet waits. If the solver has written source data only through step `420`, a run over `0..1000` processes the committed steps; a later run picks up the rest once the solver writes them.
+- The steps are decided when the post job starts, under the post lock. A Slurm post job staged before the solver ran, or resubmitted later, processes only what is missing when it starts. A job that fails or is interrupted part-way keeps the steps it finished.
+- A field-statistics window's output is expected only at steps where that window had accumulated a sample, so a window that opens late (or has not opened yet) does not make earlier steps incomplete.
+- `--continue` belongs to `--solve`; on a post-only command it is ignored with a warning.
+- A recipe that differs from another recipe in the same run is a separate recipe with its own outputs; fields and statistics windows the two share are recomputed, not reused, because a recipe writes one file per step holding all its fields. PICurv warns when another recipe already produced them for the steps about to be processed. To compute only what is new, put the new outputs in a recipe of their own.
+- If you change the recipe itself, for example by adding `Qcrit_nodal`, changing the statistics output prefix, or changing `step_interval`, PICurv treats it as a new recipe with its own output directory and processes its whole window.
 - PICurv allows only one post writer per run directory. If a second post job targets the same run, it is refused immediately instead of racing on `<run.visualization>/` or `<run.analysis.statistics>/`.
 
 Graceful shutdown note:
@@ -503,8 +508,13 @@ settings, referenced-file checksums, and software identity determine reuse.
 
 The build occurs under `assets/.precompute-*` and publishes to `assets/objects/` only
 after the whole requested dependency closure succeeds. The mutable pointer in
-`assets/sets/` records which objects match the current case. A normal run reuses those
-objects automatically and writes the exact selection to `inputs/assets.lock.yml`.
+`assets/sets/` records which objects match the current case file. A normal run reuses
+those objects automatically and writes the exact selection to `inputs/assets.lock.yml`.
+When the case file's set has no match - a new, copied, or renamed case file - the run
+looks for a published object with the same provider identity before building, adopts it,
+and records it in that case file's set. Generated payloads are byte-reproducible (their
+summaries record paths relative to themselves), so rebuilding an unchanged provider
+publishes the same object rather than a duplicate.
 
 Providers owned by the C runtime are reported but never approximated by Python. A
 selected C-only provider makes precompute fail before publication. See
@@ -524,7 +534,11 @@ Behavior:
 - executes/submits `solve`, `post-process`, or both,
 - wires the post stage dependency automatically for Slurm when `all` is selected,
 - executes local staged stages in order when `launch_mode: local`,
-- refuses re-submission unless `--force` is explicitly provided.
+- refuses re-submission unless `--force` is explicitly provided,
+- refuses a local post-process stage while a solve staged in the same set has not run; a post staged on its own is accepted,
+- a resubmitted post-process stage decides at start which steps need work, so it skips output that is already up to date,
+- for a study, submits the set staged last: the original arrays, or the ones `sweep --continue --no-submit` staged; the metrics aggregation job follows the post array (`afterany`), as `sweep` chains it,
+- first points a run or study that was moved at its new location (see @ref p52_scope_move_sub).
 
 Examples:
 

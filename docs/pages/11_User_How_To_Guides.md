@@ -288,7 +288,7 @@ Before launching a restart, verify:
 - the previous run actually wrote solver outputs for the target `start_step`,
 - the `--restart-from` path points to the intended previous run directory,
 - the selected previous run has its checkpoint component locally available (restore
-  it with `picurv storage restore --component checkpoints` when cold),
+  it with `picurv storage restore --run-dir <previous_run> --checkpoint <start_step>` when cold),
 - restart source files for the requested step exist,
 - `start_step` matches an actual saved timestep, not just a desired number.
 
@@ -339,19 +339,13 @@ Prefer narrow function lists to keep logs manageable.
 
 Use when solver outputs already exist and you are iterating only on analysis pipeline.
 
-To catch up the same recipe in batches while the solver is still running, add `--continue` and keep the full desired window in `post.yml`:
-
-```bash
-./bin/picurv run --post-process --continue \
-  --run-dir runs/flat_channel_20240401-153000 \
-  --post my_study/standard_analysis.yml
-```
+To catch up the same recipe in batches while the solver is still running, repeat the same command and keep the full desired window in `post.yml`. Each run processes only the steps whose output is missing or stale.
 
 Behavior notes:
-- if the same recipe already produced steps `0..60` and `post.yml` still asks for `0..100`, PICurv launches only `70..100`.
-- if source files currently exist only through `420`, PICurv launches only the fully available contiguous prefix and exits successfully; a later `--continue` run picks up the newer steps.
-- if you change the recipe itself, PICurv starts from that recipe's configured `start_step` instead of inheriting completion from the earlier recipe.
-- if you omit `--continue`, PICurv honors the requested window exactly and treats the run as an explicit rerun.
+- if the same recipe already produced steps `0..60` and `post.yml` still asks for `0..100`, PICurv processes only `70..100`.
+- if source files currently exist only through `420`, PICurv processes the committed steps and exits successfully; a later run picks up the newer steps.
+- if you change the recipe itself, it is a new recipe with its own output directory, and its whole window is processed.
+- to regenerate output that is still up to date, for example after rebuilding the postprocessor, add `--recompute`.
 
 For the broader run-directory lifecycle around restart, post-only reuse, and generated scheduler artifacts, see **@subpage 52_Run_Artifact_Lifecycle_Contract**.
 

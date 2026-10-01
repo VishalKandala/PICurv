@@ -256,11 +256,19 @@ def _restore_study_context(manifest: dict, case_destination: str) -> None:
 
 def _rebase_restored_text_paths(root: str, replacements: list) -> list:
     """!
-    @brief Rebase known generated text artifacts after an explicit relocated restore.
-    @param[in] root Value supplied through the `root` argument.
-    @param[in] replacements Value supplied through the `replacements` argument.
-    @return Result produced by this operation.
+    @brief Rebase known generated text artifacts after a run or study changed location.
+    @details Used after a relocated restore and when a moved run or study is next opened.
+             An old path is replaced only where it ends at a path boundary, so moving
+             `/a/run1` does not rewrite `/a/run10`.
+    @param[in] root Directory whose generated text artifacts are rewritten.
+    @param[in] replacements (old absolute path, new absolute path) pairs.
+    @return Paths of the files that changed.
     """
+    patterns = [
+        (re.compile(re.escape(old) + r"(?=$|[/\s'\"=,;:)\]}])", re.MULTILINE), new)
+        for old, new in replacements
+        if old and new and old != new
+    ]
     changed = []
     allowed_suffixes = {".control", ".run", ".sbatch", ".json", ".tsv", ".yml", ".yaml"}
     for path in Path(root).rglob("*"):
@@ -273,9 +281,8 @@ def _rebase_restored_text_paths(root: str, replacements: list) -> list:
         except (OSError, UnicodeDecodeError):
             continue
         updated = content
-        for old, new in replacements:
-            if old and new and old != new:
-                updated = updated.replace(old, new)
+        for pattern, new in patterns:
+            updated = pattern.sub(lambda _match, value=new: value, updated)
         if updated != content:
             path.write_text(updated, encoding="utf-8")
             changed.append(str(path))

@@ -493,6 +493,12 @@ def test_post_and_submit_refuse_cold_run_before_missing_data_is_misdiagnosed(tmp
     run = _write_run(tmp_path / "runs" / "cold-cli")
     marker = {"storage_schema_version": 1, "archive_id": "b" * 32, "local_pruned": True}
     (run / storage.STORAGE_STATE_FILENAME).write_text(json.dumps(marker) + "\n", encoding="utf-8")
+    # A valid recipe, so the refusal is not a configuration error that happens to precede it.
+    (run / "config" / "post.yml").write_text(
+        "run_control:\n  start_step: 10\n  end_step: 10\n  step_interval: 10\n"
+        "source_data: {}\nio:\n  output_filename_prefix: Field\n",
+        encoding="utf-8",
+    )
 
     post_args = build_main_parser().parse_args([
         "run", "--post-process", "--run-dir", str(run), "--post", str(run / "config" / "post.yml")
@@ -630,6 +636,20 @@ def test_relocated_restore_rebases_known_generated_paths(tmp_path, local_rclone)
     restored_control = destination / "config" / "original.control"
     assert str(destination / "output") in restored_control.read_text(encoding="utf-8")
     assert storage.read_storage_state(str(destination))["relocated_from"] == str(run)
+
+
+def test_rebasing_a_path_rewrites_only_whole_path_components(tmp_path):
+    """!
+    @brief Moving /x/run1 rewrites its own paths but leaves a sibling /x/run10 alone.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    """
+    from picurv_cli.storage.compatibility import _rebase_restored_text_paths
+    control = tmp_path / "case.control"
+    control.write_text('-grid_file /x/run1/inputs/grid.run\n-other /x/run10/a\n-root "/x/run1"\n',
+                       encoding="utf-8")
+    assert _rebase_restored_text_paths(str(tmp_path), [("/x/run1", "/y/moved")]) == [str(control)]
+    assert control.read_text(encoding="utf-8") == (
+        '-grid_file /y/moved/inputs/grid.run\n-other /x/run10/a\n-root "/y/moved"\n')
 
 
 def test_offload_policy_reports_and_retains_latest_checkpoint(tmp_path, local_rclone):

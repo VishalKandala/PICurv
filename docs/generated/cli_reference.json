@@ -198,7 +198,7 @@
           }
         ]
       },
-      "help": "Create a study directory from examples/<template_name>.",
+      "help": "Create a case workspace from examples/<template_name>.",
       "name": "init",
       "subcommands": {}
     },
@@ -451,7 +451,7 @@
           }
         ]
       },
-      "help": "Update the source repository without leaving an initialized case directory.",
+      "help": "Legacy maintenance command; new workspaces use `picurv source update` and",
       "name": "pull-source",
       "subcommands": {}
     },
@@ -580,7 +580,7 @@
             "flags": [
               "--run-dir"
             ],
-            "help": "Path to an existing run directory.\n(Used with --post-process or --continue).",
+            "help": "Path to an existing run directory.\n(Used with --post-process or --solve --continue).",
             "is_flag": false,
             "nargs": null,
             "required": false
@@ -604,9 +604,21 @@
             "flags": [
               "--only"
             ],
-            "help": "Comma-separated post stages to run: 'fields' (the field post-processor)\nand/or 'spectra'. Defaults to every stage.\nUse --only spectra to re-measure spectra without rebuilding field output.",
+            "help": "Comma-separated post stages to run: 'fields' (the field post-processor)\nand/or 'spectra'. Defaults to every stage.\nUse --only spectra to measure spectra without running the field stage.",
             "is_flag": false,
             "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "recompute_post",
+            "flags": [
+              "--recompute"
+            ],
+            "help": "Regenerate every requested step that has a committed checkpoint, including\nsteps whose output is up to date (for example, after rebuilding the\npostprocessor). Applies to every selected stage.",
+            "is_flag": true,
+            "nargs": "0",
             "required": false
           }
         ],
@@ -732,7 +744,7 @@
             "flags": [
               "--continue"
             ],
-            "help": "Resume an existing run directory in-place. Requires --run-dir.\nWith --solve, requires start_step > 0 and appends to existing solver output/logs.\nWith --post-process, resumes the same recipe from the first unfinished step\nand skips already-complete work inside the current live source frontier.",
+            "help": "Extend an existing run's solve in place. Requires --solve and --run-dir,\nand start_step > 0; appends to existing solver output/logs.\nPost-processing needs no flag: it always skips up-to-date steps.",
             "is_flag": true,
             "nargs": "0",
             "required": false
@@ -869,7 +881,7 @@
           }
         ]
       },
-      "help": "Inspect whether the source repo, copied binaries, and template-managed files have drifted",
+      "help": "Legacy maintenance command; `picurv version status` reports build coherence for",
       "name": "status-source",
       "subcommands": {}
     },

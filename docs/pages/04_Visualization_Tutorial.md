@@ -122,8 +122,8 @@ standard analysis profiles explicitly enable them.
 Run the usual post-processing command, keeping the full desired analysis window.
 Postprocess ancestors with the same recipe before processing the child. Open the
 child's collection to see the retained ancestor frames followed by the child frames;
-the child owns the restart step. Repeating post `--continue` updates the collection
-through the currently available source frontier. Reopen the collection in ParaView
+the child owns the restart step. Repeating the post command updates the collection
+with the steps the solver has committed since. Reopen the collection in ParaView
 to load its refreshed contents. Keep the referenced run directories accessible:
 the PVD contains relative links, not copies of the VTK data.
 

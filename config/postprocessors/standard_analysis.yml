@@ -9,8 +9,8 @@
 run_control:
   # Process all available timesteps by default.
   # Keep this as the full logical window for the recipe.
-  # With `picurv run --post-process --continue`, PICurv computes the
-  # effective restart step internally for the same recipe lineage.
+  # Each `picurv run --post-process` processes only the steps whose output is
+  # missing or stale.
   start_step: 0
   end_step: -1
   # Must be a multiple of the paired monitor's io.data_output_frequency: only

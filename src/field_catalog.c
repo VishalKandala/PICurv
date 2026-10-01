@@ -213,12 +213,12 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
     FIELD_ENTRY(FIELD_ID_POST_SCALAR, "PostScalar", NULL, NULL, 1,
                 FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
-                FIELD_CAPABILITY_GHOST_UPDATE, PostScalar, lPostScalar,
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC, PostScalar, lPostScalar,
                 FIELD_DIM_FROM_SOURCE),
     FIELD_ENTRY(FIELD_ID_POST_VECTOR, "PostVector", NULL, NULL, 3,
                 FIELD_DM_FDA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
-                FIELD_CAPABILITY_GHOST_UPDATE, PostVector, lPostVector,
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC, PostVector, lPostVector,
                 FIELD_DIM_FROM_SOURCE),
     /* The Q-criterion is computed at cell centres. It is catalogued only so the nodal
      * average can refresh its ghosts by name: a cell value written as point data sits
@@ -226,7 +226,7 @@ static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
     FIELD_ENTRY(FIELD_ID_QCRIT, "Qcrit", NULL, NULL, 1,
                 FIELD_DM_DA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_FINEST_LEVEL,
-                FIELD_CAPABILITY_GHOST_UPDATE, Qcrit, lQcrit,
+                FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC, Qcrit, lQcrit,
                 FIELD_DIM_INVERSE_TIME_SQUARED)
 };
 

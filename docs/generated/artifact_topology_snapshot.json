@@ -68,8 +68,8 @@
         "<workspace>/runs/<run_id>/scheduler",
         "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
         "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
-        "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-52e35ade0dd3.lock",
-        "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-52e35ade0dd3.lock.json",
+        "<workspace>/runs/<run_id>/scheduler/post.lock",
+        "<workspace>/runs/<run_id>/scheduler/post.lock.json",
         "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py"
       ],
       "identities": {
@@ -147,8 +147,8 @@
           "run.scheduler.files": [
             "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
             "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
-            "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-52e35ade0dd3.lock",
-            "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-52e35ade0dd3.lock.json",
+            "<workspace>/runs/<run_id>/scheduler/post.lock",
+            "<workspace>/runs/<run_id>/scheduler/post.lock.json",
             "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py"
           ],
           "run.solver_output": [
@@ -318,8 +318,8 @@
         "<workspace>/runs/<run_id>/scheduler",
         "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
         "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
-        "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-52e35ade0dd3.lock",
-        "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-52e35ade0dd3.lock.json",
+        "<workspace>/runs/<run_id>/scheduler/post.lock",
+        "<workspace>/runs/<run_id>/scheduler/post.lock.json",
         "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py"
       ],
       "identities": {
@@ -397,8 +397,8 @@
           "run.scheduler.files": [
             "<workspace>/runs/<run_id>/scheduler/<run_id>_eulerian_data.log",
             "<workspace>/runs/<run_id>/scheduler/<run_id>_solver.log",
-            "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-52e35ade0dd3.lock",
-            "<workspace>/runs/<run_id>/scheduler/post.eulerian_data-52e35ade0dd3.lock.json",
+            "<workspace>/runs/<run_id>/scheduler/post.lock",
+            "<workspace>/runs/<run_id>/scheduler/post.lock.json",
             "<workspace>/runs/<run_id>/scheduler/post_lock_wrapper.py"
           ],
           "run.solver_output": [

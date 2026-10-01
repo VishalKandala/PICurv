@@ -506,6 +506,52 @@ static PetscErrorCode TestWriteParticleFileRewritesSameStepCleanly(void)
 }
 
 /**
+ * @brief Tests that a step list file selects exactly the listed steps, in order.
+ * @details Without a list the time controls define the window; with one, comment and
+ *          blank lines are skipped and gaps are allowed; a named but missing list fails.
+ * @return Petsc error code.
+ */
+static PetscErrorCode TestResolvePostProcessingStepsReadsStepList(void)
+{
+    PostProcessParams pps;
+    PetscInt *steps = NULL, count = 0;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    FILE *file = NULL;
+    PetscErrorCode ierr;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMemzero(&pps, sizeof(pps)));
+    pps.startTime = 2;
+    pps.endTime = 8;
+    pps.timeStep = 3;
+    PetscCall(ResolvePostProcessingSteps(&pps, &steps, &count));
+    PetscCall(PicurvAssertIntEqual(3, count, "window step count"));
+    PetscCall(PicurvAssertIntEqual(8, steps[2], "window last step"));
+    PetscCall(PetscFree(steps));
+
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(PetscSNPrintf(pps.step_list_file, sizeof(pps.step_list_file), "%s/post.steps", tmpdir));
+    file = fopen(pps.step_list_file, "w");
+    PetscCheck(file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Failed to create %s.", pps.step_list_file);
+    fputs("# planned at launch\n0\n\n3\n  7  \n", file);
+    fclose(file);
+    PetscCall(ResolvePostProcessingSteps(&pps, &steps, &count));
+    PetscCall(PicurvAssertIntEqual(3, count, "listed step count"));
+    PetscCall(PicurvAssertIntEqual(0, steps[0], "first listed step"));
+    PetscCall(PicurvAssertIntEqual(3, steps[1], "second listed step"));
+    PetscCall(PicurvAssertIntEqual(7, steps[2], "third listed step"));
+    PetscCall(PetscFree(steps));
+
+    PetscCall(PetscSNPrintf(pps.step_list_file, sizeof(pps.step_list_file), "%s/absent.steps", tmpdir));
+    PetscCall(PetscPushErrorHandler(PetscReturnErrorHandler, NULL));
+    ierr = ResolvePostProcessingSteps(&pps, &steps, &count);
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertBool((PetscBool)(ierr != 0), "a missing step list is an error"));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Runs the unit-postprocessor PETSc test binary.
  */
 
@@ -523,6 +569,7 @@ int main(int argc, char **argv)
         {"write-particle-file-writes-vtp", TestWriteParticleFileWritesVTP},
         {"write-eulerian-file-rewrites-same-step-cleanly", TestWriteEulerianFileRewritesSameStepCleanly},
         {"write-particle-file-rewrites-same-step-cleanly", TestWriteParticleFileRewritesSameStepCleanly},
+        {"resolve-post-processing-steps-reads-step-list", TestResolvePostProcessingStepsReadsStepList},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv postprocessor tests");

@@ -1,6 +1,7 @@
 """Invariant tests for the standalone shell-spectrum generator."""
 
 import importlib.machinery
+import json
 import importlib.util
 from pathlib import Path
 
@@ -356,3 +357,20 @@ def test_sampled_spectra_real_staging_and_checkpoint_dispatch(tmp_path, monkeypa
     assert len(post)==len(initial)
     assert [{k:v for k,v in row.items() if k not in ('step','time')} for row in post]==initial
     assert set(core.GENERATED_IC_PROVIDERS)==core._PYTHON_INITIAL_CONDITION_PROVIDERS
+
+
+def test_summary_json_records_paths_relative_to_itself(staged_case, tmp_path):
+    """! @brief A spectrum summary written to disk must not embed its build location.
+
+    An initial-condition spectrum is asset payload built in a temporary directory; an
+    absolute path gave every rebuild different bytes and so a different asset.
+    @param[in] staged_case Staged case. @param[in] tmp_path Temp dir. """
+    summary_path = tmp_path / "output" / "analysis" / "spectra" / "plane.json"
+    assert SPECTRA.main([
+        "plane-spectrum", "--field-file", staged_case["field"], "--source-grid", staged_case["grid"],
+        "--spectrum-csv", str(summary_path.with_suffix(".csv")), "--axes", "i", "k",
+        "--fixed-indices", '{"j": 3}', "--subtract-mean", "sample", "--summary-json", str(summary_path),
+    ]) == 0
+    stored = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert stored["grid"] == "../../../grid.run"
+    assert stored["field_file"] == "../../../ufield00000_0.dat"

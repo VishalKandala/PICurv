@@ -626,9 +626,19 @@ def main(argv=None) -> int:
             parser.error(f"unsupported command {args.command}")
             return 2
         if args.summary_json:
-            os.makedirs(os.path.dirname(os.path.abspath(args.summary_json)), exist_ok=True)
+            summary_dir = os.path.dirname(os.path.abspath(args.summary_json))
+            os.makedirs(summary_dir, exist_ok=True)
+            # Paths are recorded relative to the summary itself. An initial-condition
+            # spectrum is part of that asset's payload, built in a temporary directory;
+            # an absolute path there would give every rebuild different bytes and a
+            # different asset identity. Relative, it stays resolvable wherever the
+            # payload is materialized.
+            stored = dict(summary)
+            for key in ("field_file", "grid"):
+                if isinstance(stored.get(key), str):
+                    stored[key] = os.path.relpath(stored[key], summary_dir)
             with open(args.summary_json, "w", encoding="utf-8") as fout:
-                json.dump(summary, fout, indent=2, sort_keys=True)
+                json.dump(stored, fout, indent=2, sort_keys=True)
                 fout.write("\n")
         if args.spectrum_csv:
             os.makedirs(os.path.dirname(os.path.abspath(args.spectrum_csv)), exist_ok=True)

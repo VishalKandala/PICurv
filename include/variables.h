@@ -766,6 +766,8 @@ typedef struct PostProcessParams {
     PetscInt startTime;
     PetscInt endTime;
     PetscInt timeStep;
+    /** File listing the exact steps to process, one per line; empty uses the time controls. */
+    char step_list_file[PETSC_MAX_PATH_LEN];
     PetscBool outputParticles;
 
     // --- Configuration primarily from the .cfg file ---

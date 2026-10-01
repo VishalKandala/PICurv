@@ -110,6 +110,19 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
 PetscErrorCode GlobalStatisticsPipeline(UserCtx *user, PostProcessParams *pps, PetscInt ti);
 
 /**
+ * @brief Resolve the ordered steps one post-processing run processes.
+ * @details A step list file, written by the conductor when a job starts, names exactly
+ *          the steps whose output is missing or stale; without one the time controls
+ *          define an evenly spaced window. Rank 0 reads the file and broadcasts it, so
+ *          every rank iterates the same steps.
+ * @param[in]  pps   Post-processing settings holding the time controls and list file.
+ * @param[out] steps Newly allocated array of steps; the caller frees it with PetscFree().
+ * @param[out] count Number of entries in `steps`.
+ * @return PetscErrorCode 0 on success; an error when the list file cannot be read.
+ */
+PetscErrorCode ResolvePostProcessingSteps(PostProcessParams *pps, PetscInt **steps, PetscInt *count);
+
+/**
  * @brief Derives and writes field statistics for the windows a recipe requests.
  *
  * Runs once per processed step, beside the particle statistics pipeline, because a

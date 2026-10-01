@@ -37,7 +37,7 @@ Postprocess an existing run:
 Catch up the same post profile on an existing run without editing `run_control.start_step`:
 
 ```bash
-./bin/picurv run --post-process --continue \
+./bin/picurv run --post-process \
   --run-dir runs/<run_id> \
   --post config/postprocessors/standard_analysis.yml
 ```
@@ -82,8 +82,8 @@ does not automatically stitch older recipe directories.
 - `field_statistics` is a separate recipe that derives Reynolds stresses, RMS, turbulent kinetic energy, and fluxes from windows the solver accumulated. It names windows configured in `monitor.yml` rather than redescribing them, so it only applies to runs that had field statistics enabled.
 - `io.input_extensions.eulerian/particle`, when present, must remain `dat`;
   committed checkpoint payload filenames are fixed.
-- keep the full desired timestep window in `run_control` for a reusable post profile. With `--continue`, PICurv computes the effective restart step for the same recipe lineage instead of requiring you to edit `start_step` by hand.
-- if the solver is still writing outputs, PICurv processes only the highest fully available contiguous source prefix for the current recipe.
+- keep the full desired timestep window in `run_control` for a reusable post profile. Each post run processes only the steps whose output is missing or stale, so `start_step` never needs editing by hand.
+- if the solver is still writing outputs, PICurv processes the steps whose checkpoints are committed and leaves the rest for a later run.
 - PICurv enforces a single post writer per run directory so two post jobs cannot race on the same `viz/` or `statistics/` outputs.
 
 ## 5. Validation Tips

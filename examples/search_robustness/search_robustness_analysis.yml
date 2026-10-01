@@ -1,7 +1,7 @@
 run_control:
-  # Keep the full intended window here. When you run post-only with
-  # `--continue`, PICurv resumes the same recipe from the first unfinished
-  # step instead of requiring manual `start_step` edits.
+  # Keep the full intended window here. Each post-only run processes only
+  # the steps whose output is missing or stale, so `start_step` never needs
+  # manual edits.
   start_step: 0
   end_step: 60
   step_interval: 10

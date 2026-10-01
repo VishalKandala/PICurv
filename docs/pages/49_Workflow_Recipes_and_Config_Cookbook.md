@@ -96,13 +96,13 @@ Post-process an existing run with a different recipe:
 Catch up the same recipe in batches while the solver is still producing new source steps:
 
 ```bash
-./bin/picurv run --post-process --continue --run-dir runs/<run_id> --post post.yml
+./bin/picurv run --post-process --run-dir runs/<run_id> --post post.yml
 ```
 
 Operational notes:
-- keep the full logical analysis window in `post.yml`; `--continue` moves the effective launch start internally for the same recipe.
-- if the requested window is already complete for that recipe, PICurv skips the launch and reports that the run is already caught up.
-- if the solver has produced source data only through the current frontier, PICurv launches only the fully available contiguous prefix instead of failing.
+- keep the full logical analysis window in `post.yml`; each run processes only the steps whose output is missing or stale.
+- if every requested step is up to date, PICurv does not launch the postprocessor.
+- steps whose checkpoints the solver has not committed yet are left for a later run instead of failing.
 - if another post job already holds the same run directory, PICurv refuses the new writer immediately.
 
 For restart-lineage visualization, merge this into the recipe's `io` mapping:

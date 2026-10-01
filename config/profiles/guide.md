@@ -67,8 +67,9 @@ of the truncated analytical sine series. The generator reports both
 `area_mean_speed` and `discrete_mean_speed` in its summary so coarse face samples
 do not hide the normalization convention.
 
-Use `picurv precompute --case case.yml --output-dir precomputed/<name>` when you
-want to generate and inspect profile artifacts before launching the solver.
+Use `picurv precompute --case case.yml --only inlet-profiles` when you want to
+generate and inspect profile artifacts before launching the solver; they are
+published in the workspace asset store and reused by the run that follows.
 
 ## Standalone Engine
 

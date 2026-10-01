@@ -52,6 +52,7 @@ try:
         require_storage_payload_local,
         runtime_stage_lock,
         storage_state_summary,
+        _rebase_restored_text_paths,
     )
 except ImportError:
     # White-box tests also load core.py directly rather than as a package module. The
@@ -71,6 +72,7 @@ except ImportError:
     require_storage_payload_local = _storage_module.require_storage_payload_local
     runtime_stage_lock = _storage_module.runtime_stage_lock
     storage_state_summary = _storage_module.storage_state_summary
+    _rebase_restored_text_paths = _storage_module._rebase_restored_text_paths
 
 _NUMPY_MODULE = None
 _MATPLOTLIB_PYPLOT = None
@@ -335,8 +337,10 @@ POST_RESUME_STATE_FILENAME = "post.resume.json"
 POST_LOCK_FILENAME = "post.lock"
 POST_LOCK_METADATA_FILENAME = "post.lock.json"
 POST_LOCK_WRAPPER_FILENAME = "post_lock_wrapper.py"
-POST_RESUME_SCHEMA_VERSION = 1
-POST_RECIPE_SIGNATURE_EXCLUDED_KEYS = {"startTime", "endTime"}
+POST_RESUME_SCHEMA_VERSION = 2
+# Keys that choose which steps are processed or where they are read from, not what a
+# step's output contains; a step's record stays valid across a change to any of them.
+POST_RECIPE_SIGNATURE_EXCLUDED_KEYS = {"startTime", "endTime", "timeStep", "source_directory"}
 CHECKPOINT_FORMAT = "picurv-checkpoint"
 CHECKPOINT_VERSION = 1
 CHECKPOINT_STEP_WIDTH = 12
@@ -721,7 +725,7 @@ def enforce_run_directory_structure(run_dir: str) -> None:
     """
     errors, warnings = validate_run_directory_structure(run_dir)
     for message in warnings:
-        print(f"[WARN] {message}", file=sys.stderr)
+        print(f"[WARNING] {message}", file=sys.stderr)
     if not errors:
         return
     for message in errors:
@@ -1063,7 +1067,7 @@ def pin_run_executables(run_dir: str, revision: str) -> dict:
     for name in RUN_EXECUTABLE_NAMES:
         source = resolve_runtime_executable(name)
         if not os.path.isfile(source):
-            print(f"[WARN] {name} is not built at {source}, so it is not pinned; a stage that "
+            print(f"[WARNING] {name} is not built at {source}, so it is not pinned; a stage that "
                   "launches it will use whatever is there when it starts.", file=sys.stderr)
             continue
         os.makedirs(target, exist_ok=True)
@@ -1360,6 +1364,9 @@ def build_run_manifest(run_dir: str, run_id: str, *, workspace_root=None,
         "stages_completed_or_submitted": stages_completed or [],
         "inputs": inputs or {},
         "paths": dict(CANONICAL_RUN_PATHS),
+        # Where the run lived when its files were generated; adopt_relocated_artifact()
+        # compares it with where the run is now.
+        "root_path": os.path.abspath(run_dir),
         # Fixed schema, every component present whatever happened, so a reader never
         # has to distinguish "absent because it was not asked for" from "absent because
         # it failed" by looking for empty directories.
@@ -1374,6 +1381,73 @@ def build_run_manifest(run_dir: str, run_id: str, *, workspace_root=None,
         "submission": submission or {},
     }
     return payload
+
+
+def _recorded_run_root(run_dir: str):
+    """!
+    @brief Return the location a run's generated files refer to.
+    @details Runs staged before the manifest recorded `root_path` are read from the
+             active control file, whose generated input paths all start at the run root.
+    @param[in] run_dir Current run directory.
+    @return Recorded absolute root, or None when it cannot be determined.
+    """
+    manifest = _read_json_if_exists(os.path.join(run_dir, "manifest.json")) or {}
+    if manifest.get("root_path"):
+        return manifest["root_path"]
+    control = auto_identify_run_inputs(os.path.join(run_dir, CANONICAL_RUN_PATHS["config"]))[2]
+    if not (control and os.path.isfile(control)):
+        return None
+    markers = tuple(f"/{CANONICAL_RUN_PATHS[key]}/" for key in ("config", "inputs"))
+    with open(control, "r", encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            for token in line.split()[1:]:
+                for marker in markers:
+                    if not (token.startswith("/") and marker in token):
+                        continue
+                    candidate, rest = token.split(marker, 1)
+                    # Only a path that names a file of this run identifies its old root;
+                    # an external input that merely contains the same segment does not.
+                    if os.path.exists(os.path.join(run_dir, marker.strip("/"), rest)):
+                        return candidate
+    return None
+
+
+def adopt_relocated_artifact(root: str, kind: str = "run", dry_run: bool = False) -> int:
+    """!
+    @brief Point a moved run's or study's generated files at where it now lives.
+    @details Generated control files, recipes, scheduler scripts, and case indexes hold
+             absolute paths, so a run or study moved or copied to another directory would
+             otherwise launch against its old location. The rewrite is the one a
+             relocated storage restore applies, after which the recorded root is updated.
+    @param[in] root Current run or study directory.
+    @param[in] kind "run" or "study".
+    @param[in] dry_run Report the relocation without rewriting anything.
+    @return Number of files rewritten (0 when the artifact has not moved).
+    """
+    root = os.path.abspath(root)
+    if kind == "study":
+        manifest_path = os.path.join(root, "study_manifest.json")
+        recorded = ((_read_json_if_exists(manifest_path) or {}).get("paths") or {}).get("study_dir")
+    else:
+        manifest_path = os.path.join(root, "manifest.json")
+        recorded = _recorded_run_root(root)
+    if not recorded or os.path.realpath(recorded) == os.path.realpath(root) or recorded == root:
+        return 0
+    if dry_run:
+        print(f"[WARNING] This {kind} was moved from {recorded}; a real invocation first updates "
+              "its generated files to the new location.", file=sys.stderr)
+        return 0
+    changed = _rebase_restored_text_paths(root, [(recorded, root)])
+    manifest = _read_json_if_exists(manifest_path)
+    if isinstance(manifest, dict):
+        if kind == "study":
+            manifest.setdefault("paths", {})["study_dir"] = root
+        else:
+            manifest["root_path"] = root
+        write_json_file(manifest_path, manifest)
+    print(f"[INFO] This {kind} was moved from {recorded}; updated {len(changed)} generated "
+          "file(s) to its new location.")
+    return len(changed)
 
 
 def _checkpoint_bundle_path(source_dir: str, step: int) -> str:
@@ -1780,16 +1854,16 @@ def warn_on_stale_runtime_binaries(identities: dict) -> list:
              if identity.get("available") and not identity.get("matches_source")]
     for name in stale:
         print(
-            f"[WARN] {name} was built from {identities[name]['build_id']}, but the active "
+            f"[WARNING] {name} was built from {identities[name]['build_id']}, but the active "
             f"source is {PICURV_BUILD['build_id']}. Checkpoints will record the binary's "
-            "identity, not the source's. Run 'make all' to rebuild.",
+            "identity, not the source's. Run 'picurv build' to rebuild.",
             file=sys.stderr,
         )
     for name, identity in sorted(identities.items()):
         if identity.get("available"):
             continue
         print(
-            f"[WARN] The build identity of {name} could not be read "
+            f"[WARNING] The build identity of {name} could not be read "
             f"({identity.get('reason', 'unknown')}); this run's manifest will not record "
             f"which build it used. Path: {identity.get('path')}",
             file=sys.stderr,
@@ -3579,7 +3653,8 @@ def resolve_post_stage_selection(only) -> set:
 
 
 def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
-                           source_dir: str, steps, quiet: bool = False) -> dict:
+                           source_dir: str, steps, quiet: bool = False,
+                           plan: "dict | None" = None, recompute: bool = False) -> dict:
     """!
     @brief Measure spectra for every requested task across a window of committed steps.
 
@@ -3595,6 +3670,10 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
     @param[in] source_dir Directory holding the committed checkpoints.
     @param[in] steps Iterable of checkpoint steps to process, in order.
     @param[in] quiet Suppress progress reporting.
+    @param[in] plan Post plan whose recipe state records each measured step; with it, a
+                    step whose rows are still valid (classify_post_step()) is not
+                    measured again. None measures every committed step given.
+    @param[in] recompute Measure every committed step even when its rows are valid.
     @return Summary with the written paths and the steps actually processed.
     @throws ValueError when the generator fails or a requested payload is absent.
     """
@@ -3635,20 +3714,54 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
                   "readable case snapshot; results stay non-dimensional.", file=sys.stderr)
 
     requested = sorted(set(int(step) for step in steps))
-    # The requested window is what the recipe asks for, not what exists. The field
-    # post-processor is bounded by the available source frontier and this must be too:
-    # a window reaching past the last committed checkpoint is normal while a solve is
-    # still running, and is not an error.
+    signature = compute_post_spectra_signature(spectra)
+    records = {}
+    if plan is not None:
+        # Steps whose rows are still valid are not measured again; unrecorded rows are
+        # adopted on the same terms as field output (classify_post_step()).
+        existing = _read_post_records(plan['resume_state_path'])[1]
+        # Each task writes a spectrum and a history file; a step is measured only when
+        # both of every task's files hold it.
+        spectra_files = [
+            os.path.join(output_dir, f"{post_spectra_task_basename(task, spectra['output_prefix'])}{suffix}.csv")
+            for task in spectra["tasks"] for suffix in ("", "_history")
+        ]
+        measured = set.intersection(*(_scan_post_statistics_csv_steps(path) for path in spectra_files))
+        pending = []
+        for step in requested:
+            record = existing.get(str(step))
+            commit = _checkpoint_commit(source_dir, step)
+            reason = classify_post_step(record, spectra_files if step in measured else None,
+                                        commit, signature, recompute)
+            if reason is not None:
+                pending.append(step)
+            elif record is None:
+                records[step] = {"recipe": signature, "checkpoint": commit[0] if commit else None}
+        if not quiet and len(pending) != len(requested):
+            print(f"[INFO] Spectra: {len(requested) - len(pending)} requested step(s) are up to date.")
+        try:
+            require_storage_payload_local(run_dir, "spectra", checkpoints=pending)
+        except StorageError as exc:
+            raise ValueError(str(exc)) from exc
+        requested = pending
+        if not requested:
+            persist_post_resume_state(run_dir, plan, spectra=records)
+            return {"tasks": [], "steps": [], "artifacts": []}
+    # The requested window is what the recipe asks for, not what exists. Like the field
+    # stage, only committed checkpoints are measured: a window reaching past the last
+    # committed checkpoint is normal while a solve is still running, and is not an error.
     available = _scan_committed_checkpoint_steps(source_dir)
     ordered_steps = [step for step in requested if step in available]
     if not ordered_steps:
         if not quiet:
-            print("[INFO] Spectra: no committed checkpoint in the requested window yet; "
-                  "nothing measured.")
+            print("[INFO] Spectra: no step needing measurement has a committed checkpoint "
+                  "yet; nothing measured.")
+        if plan is not None:
+            persist_post_resume_state(run_dir, plan, spectra=records)
         return {"tasks": [], "steps": [], "artifacts": []}
     if not quiet and len(ordered_steps) != len(requested):
-        print(f"[INFO] Spectra: {len(ordered_steps)} of {len(requested)} requested step(s) "
-              f"are committed; measuring those.")
+        print(f"[INFO] Spectra: {len(ordered_steps)} of {len(requested)} step(s) needing "
+              f"measurement are committed; measuring those.")
     artifacts = []
     for task_cfg in spectra["tasks"]:
         basename = post_spectra_task_basename(task_cfg, spectra["output_prefix"])
@@ -3688,24 +3801,61 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
             scalar_rows.append({"step": step, "time": time,
                                 **{name: summary[name] for name in scalar_columns}})
 
+        spectrum_fields = ("step", "time", *summary.get("spectrum_columns", ("k", "energy")))
+        scalar_fields = ("step", "time") + scalar_columns
+        # Only the steps that were missing or stale are measured; keep the rows already
+        # written for every other step, replacing only those re-measured now.
+        remeasured = set(ordered_steps)
+        spectrum_rows = _merge_spectra_rows(spectrum_path, spectrum_fields, remeasured, spectrum_rows)
+        scalar_rows = _merge_spectra_rows(scalar_path, scalar_fields, remeasured, scalar_rows)
         with open(spectrum_path, "w", newline="", encoding="utf-8") as stream:
-            writer = csv.DictWriter(stream, fieldnames=("step", "time", *summary.get("spectrum_columns", ("k", "energy"))))
+            writer = csv.DictWriter(stream, fieldnames=spectrum_fields)
             writer.writeheader()
             writer.writerows(spectrum_rows)
         with open(scalar_path, "w", newline="", encoding="utf-8") as stream:
-            writer = csv.DictWriter(stream, fieldnames=("step", "time") + scalar_columns)
+            writer = csv.DictWriter(stream, fieldnames=scalar_fields)
             writer.writeheader()
             writer.writerows(scalar_rows)
         artifacts.extend([spectrum_path, scalar_path])
         if not quiet:
-            print(f"[INFO] Spectra: wrote {len(scalar_rows)} step(s) for task "
-                  f"'{task_cfg['task']}' to {os.path.relpath(spectrum_path, run_dir)}")
+            print(f"[INFO] Spectra: measured {len(ordered_steps)} step(s) for task "
+                  f"'{task_cfg['task']}'; {os.path.relpath(spectrum_path, run_dir)} now holds "
+                  f"{len(scalar_rows)} step(s)")
 
+    if plan is not None:
+        for step in ordered_steps:
+            commit = _checkpoint_commit(source_dir, step)
+            records[step] = {"recipe": signature, "checkpoint": commit[0] if commit else None}
+        persist_post_resume_state(run_dir, plan, spectra=records)
     return {
         "tasks": [entry["task"] for entry in spectra["tasks"]],
         "steps": ordered_steps,
         "artifacts": artifacts,
     }
+
+
+def _merge_spectra_rows(path: str, fieldnames: tuple, remeasured: set, new_rows: list) -> list:
+    """!
+    @brief Combine newly measured spectra rows with those already written for other steps.
+    @details The file belongs to one recipe, whose identity covers the spectra settings, so
+             its existing rows come from the same measurement. Rows for a re-measured step
+             are replaced; rows for every other step are kept. A file whose columns differ
+             is not merged: it was written by another format and is rewritten whole.
+    @param[in] path Existing CSV path, which may be absent.
+    @param[in] fieldnames Columns the new rows carry.
+    @param[in] remeasured Steps measured in this invocation.
+    @param[in] new_rows Rows measured in this invocation.
+    @return All rows, ordered by step with each step's rows in their measured order.
+    """
+    kept = []
+    try:
+        with open(path, newline="", encoding="utf-8") as stream:
+            reader = csv.DictReader(stream)
+            if tuple(reader.fieldnames or ()) == tuple(fieldnames):
+                kept = [row for row in reader if int(row["step"]) not in remeasured]
+    except FileNotFoundError:
+        pass
+    return sorted(kept + list(new_rows), key=lambda row: int(row["step"]))
 
 
 def compute_post_spectra_signature(spectra_cfg: dict) -> str:
@@ -3904,7 +4054,7 @@ def get_post_field_statistics_artifacts(post_cfg: dict, run_dir: str):
              half-finished window from a completed one.
     @param[in] post_cfg Parsed post-processing configuration.
     @param[in] run_dir Run directory the outputs are written under.
-    @return List of (kind, path_prefix) tuples; kind is 'vtk' or 'csv'.
+    @return List of (kind, path_prefix, window) tuples; kind is 'vtk' or 'csv'.
     """
     config = normalize_post_field_statistics_config(post_cfg)
     if not config["windows"]:
@@ -3921,12 +4071,12 @@ def get_post_field_statistics_artifacts(post_cfg: dict, run_dir: str):
         if "vtk" in config["formats"]:
             artifacts.append(("vtk", os.path.join(
                 visualization_dir, f"{visualization_prefix}_statistics_{window}"
-            )))
+            ), window))
         if "csv" in config["formats"]:
             csv_base = csv_prefix_path or os.path.join(
                 visualization_dir, str(visualization_prefix)
             )
-            artifacts.append(("csv", f"{csv_base}_statistics_{window}.csv"))
+            artifacts.append(("csv", f"{csv_base}_statistics_{window}.csv", window))
     return artifacts
 
 
@@ -4032,7 +4182,7 @@ def build_post_recipe_config(post_cfg: dict, monitor_cfg=None) -> dict:
 
     # Spectra run in the conductor's Python stage, but the recipe fingerprint is
     # computed over this mapping, so the block has to be represented here or a
-    # changed spectra recipe would resume against stale lineage. The C
+    # changed spectra recipe would leave its steps' records looking valid. The C
     # post-processor accepts and ignores the key.
     spectra = normalize_post_spectra_config(post_cfg)
     if spectra["tasks"]:
@@ -4143,25 +4293,6 @@ def compute_post_recipe_fingerprint(recipe_cfg: dict) -> "tuple[dict, str]":
     signature = normalize_post_recipe_signature(recipe_cfg)
     payload = json.dumps(signature, sort_keys=True, separators=(',', ':')).encode('utf-8')
     return signature, hashlib.sha256(payload).hexdigest()
-
-
-def parse_post_recipe_file(post_recipe_path: str):
-    """!
-    @brief Parse an existing generated post.run file into a key/value mapping.
-    @param[in] post_recipe_path Argument passed to `parse_post_recipe_file()`.
-    @return Value returned by `parse_post_recipe_file()`.
-    """
-    if not post_recipe_path or not os.path.isfile(post_recipe_path):
-        return None
-    recipe_cfg = {}
-    with open(post_recipe_path, 'r', encoding='utf-8', errors='replace') as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line or line.startswith('#') or '=' not in line:
-                continue
-            key, value = line.split('=', 1)
-            recipe_cfg[key.strip()] = value.strip()
-    return recipe_cfg
 
 
 def get_post_resume_state_path(run_dir: str, post_cfg: dict = None) -> str:
@@ -4479,7 +4610,7 @@ def finalize_post_paraview_series(run_dir: str, post_cfg: dict) -> list:
         families.append(("field", io_cfg.get("output_filename_prefix", "Field"), "vts"))
     if _post_requests_particle_output(post_cfg):
         families.append(("particle", io_cfg.get("particle_filename_prefix", "Particle"), "vtp"))
-    for kind, prefix_path in get_post_field_statistics_artifacts(post_cfg, run_dir):
+    for kind, prefix_path, _window in get_post_field_statistics_artifacts(post_cfg, run_dir):
         if kind == "vtk":
             families.append(("statistics", os.path.basename(prefix_path), "vts"))
 
@@ -4644,16 +4775,17 @@ def resolve_post_requested_window(post_cfg: dict, case_cfg: dict = None) -> "tup
 def resolve_post_owned_start(run_dir: str, post_cfg: dict, requested_start: int,
                              step_interval: int) -> int:
     """!
-    @brief Intersect a lineage recipe's logical cadence with this run's branch.
+    @brief Intersect a recipe's logical cadence with this run's branch.
+    @details A branch run holds checkpoints only from the step it forked at, so steps
+             before it belong to its ancestors and never appear here; the run's window
+             starts at its first cadence step at or after the fork.
     @param[in] run_dir Run whose branch ownership is inspected.
     @param[in] post_cfg Parsed post-processing recipe.
     @param[in] requested_start Logical recipe start step.
     @param[in] step_interval Logical recipe cadence.
     @return First cadence step owned by the run.
     """
-    policy = normalize_post_paraview_series_config(post_cfg)
-    if not policy["enabled"] or policy["scope"] != "lineage":
-        return requested_start
+    del post_cfg
     manifest = _read_json_if_exists(os.path.join(run_dir, "manifest.json")) or {}
     lineage = manifest.get("lineage") or {}
     if lineage.get("relationship") != "branch":
@@ -4686,23 +4818,23 @@ def prepare_effective_post_config(post_cfg: dict, resolved_source_dir: str, star
     return effective_cfg
 
 
-def _scan_post_vtk_steps(prefix_path: str, extension: str) -> "set[int]":
+def _scan_post_vtk_steps(prefix_path: str, extension: str) -> "dict[int, str]":
     """!
-    @brief Collect step numbers from VTK files named with a prefix, step suffix, and extension.
+    @brief Collect the VTK files named with a prefix, step suffix, and extension.
     @param[in] prefix_path Output path prefix before the numeric step suffix.
     @param[in] extension VTK file extension to match without its leading dot.
-    @return Set of step numbers represented by matching files in the prefix directory.
+    @return Mapping of each step number to its file path in the prefix directory.
     """
     directory = os.path.dirname(prefix_path)
     if not os.path.isdir(directory):
-        return set()
+        return {}
     basename = os.path.basename(prefix_path)
     pattern = re.compile(rf'^{re.escape(basename)}_(\d+)\.{re.escape(extension)}$')
-    steps = set()
+    steps = {}
     for name in os.listdir(directory):
         match = pattern.match(name)
         if match:
-            steps.add(int(match.group(1)))
+            steps[int(match.group(1))] = os.path.join(directory, name)
     return steps
 
 
@@ -4729,63 +4861,122 @@ def _scan_post_statistics_csv_steps(csv_path: str) -> "set[int]":
     return steps
 
 
-def collect_post_completion_families(run_dir: str, post_cfg: dict, monitor_cfg=None) -> "list[set[int]]":
+def collect_post_completion_families(run_dir: str, post_cfg: dict, monitor_cfg=None) -> "list[tuple]":
     """!
-    @brief Collect per-family completed-step sets for the current post recipe.
+    @brief Collect the output files each output family of the current recipe holds per step.
     @param[in] run_dir Argument passed to `collect_post_completion_families()`.
     @param[in] post_cfg Argument passed to `collect_post_completion_families()`.
     @param[in] monitor_cfg Optional parsed monitor YAML configuration dictionary.
-    @return Value returned by `collect_post_completion_families()`.
+    @return (step-to-path mapping, window, per_step) per family; window names the
+            field-statistics window a family belongs to, or is None for a family every
+            processed step must produce; per_step is False for a CSV shared by all steps.
     """
     io_cfg = post_cfg.get('io', {}) or {}
     output_dir_abs = _post_output_directory_abs(run_dir, post_cfg)
     families = []
 
+    def csv_family(path):
+        """!
+        @brief Map every step a shared CSV holds to that CSV.
+        @param[in] path CSV artifact path.
+        @return Mapping of step to the CSV path.
+        """
+        return {step: path for step in _scan_post_statistics_csv_steps(path)}
+
     if _post_requests_eulerian_output(post_cfg):
         prefix = os.path.join(output_dir_abs, io_cfg.get('output_filename_prefix', 'Field'))
-        families.append(_scan_post_vtk_steps(prefix, 'vts'))
+        families.append((_scan_post_vtk_steps(prefix, 'vts'), None, True))
 
     if _post_requests_particle_output(post_cfg):
         prefix = os.path.join(output_dir_abs, io_cfg.get('particle_filename_prefix', 'Particle'))
-        families.append(_scan_post_vtk_steps(prefix, 'vtp'))
+        families.append((_scan_post_vtk_steps(prefix, 'vtp'), None, True))
 
     for stats_path in get_post_statistics_output_artifacts(post_cfg, run_dir, monitor_cfg):
-        families.append(_scan_post_statistics_csv_steps(stats_path))
+        families.append((csv_family(stats_path), None, False))
 
     # Each window and format is its own family, so a run that produced the Eulerian
     # fields but not the statistics is not mistaken for a completed step.
-    for kind, path in get_post_field_statistics_artifacts(post_cfg, run_dir):
+    for kind, path, window in get_post_field_statistics_artifacts(post_cfg, run_dir):
         if kind == 'vtk':
-            families.append(_scan_post_vtk_steps(path, 'vts'))
+            families.append((_scan_post_vtk_steps(path, 'vts'), window, True))
         else:
-            families.append(_scan_post_statistics_csv_steps(path))
+            families.append((csv_family(path), window, False))
 
     return families
 
 
-def detect_post_completed_frontier(run_dir: str, post_cfg: dict, monitor_cfg, start_step: int, end_step: int, step_interval: int) -> dict:
+def _field_statistics_window_samples(run_dir: str, step: int):
     """!
-    @brief Detect the highest contiguous fully completed post step for the current recipe.
-    @param[in] run_dir Argument passed to `detect_post_completed_frontier()`.
-    @param[in] post_cfg Argument passed to `detect_post_completed_frontier()`.
-    @param[in] monitor_cfg Argument passed to `detect_post_completed_frontier()`.
-    @param[in] start_step Argument passed to `detect_post_completed_frontier()`.
-    @param[in] end_step Argument passed to `detect_post_completed_frontier()`.
-    @param[in] step_interval Argument passed to `detect_post_completed_frontier()`.
-    @return Value returned by `detect_post_completed_frontier()`.
+    @brief Read each field-statistics window's sample count from one committed checkpoint.
+    @param[in] run_dir Run directory whose output holds the checkpoint.
+    @param[in] step Checkpoint step.
+    @return Mapping of window name to sample count, or None when the metadata is absent
+            (never written, pruned, or offloaded).
+    """
+    metadata = os.path.join(
+        _checkpoint_bundle_path(os.path.join(run_dir, CANONICAL_RUN_PATHS["output"]), step),
+        "checkpoint.meta",
+    )
+    if not os.path.isfile(metadata):
+        return None
+    options = _read_checkpoint_options(metadata)
+    samples = {}
+    for index in range(int(options.get("checkpoint_statistics_window_count", 0) or 0)):
+        name = options.get(f"checkpoint_statistics_window_{index}_name")
+        if name is not None:
+            samples[name] = int(options.get(f"checkpoint_statistics_window_{index}_sample_count", 0) or 0)
+    return samples
+
+
+def post_step_outputs(run_dir: str, post_cfg: dict, monitor_cfg=None):
+    """!
+    @brief Return a lookup of the output files one step of the current recipe holds.
+    @details A step is complete when every family it must produce has its output. The
+             post-processor writes a statistics window's output at a step only if the
+             window had accumulated a sample in the bundle it reads, the pinned
+             source_step or the step itself, so a window that had not opened yet is not
+             required there.
+    @param[in] run_dir Run whose output is inspected.
+    @param[in] post_cfg Runtime recipe with canonical paths.
+    @param[in] monitor_cfg Parsed monitor configuration.
+    @return Function mapping a step to (per-step files, shared files), or None when the
+            step lacks an output it must have.
     """
     families = collect_post_completion_families(run_dir, post_cfg, monitor_cfg)
-    frontier = None
-    if families:
-        for step in _iter_post_steps(start_step, end_step, step_interval):
-            if all(step in family for family in families):
-                frontier = step
-            else:
-                break
-    return {
-        'frontier_step': frontier,
-        'artifact_family_count': len(families),
-    }
+    pinned = normalize_post_field_statistics_config(post_cfg).get("source_step")
+    sample_cache = {}
+
+    def expected(window, step):
+        """!
+        @brief Whether a family's output must exist at this step.
+        @param[in] window Field-statistics window the family belongs to, or None.
+        @param[in] step Processed step.
+        @return True when the family is always required or its window had samples.
+        """
+        if window is None:
+            return True
+        source = int(pinned) if pinned is not None else step
+        if source not in sample_cache:
+            sample_cache[source] = _field_statistics_window_samples(run_dir, source)
+        samples = sample_cache[source]
+        # Without the checkpoint's record the output cannot be ruled out, so it stays required.
+        return samples is None or samples.get(window, 0) > 0
+
+    def outputs(step):
+        """!
+        @brief Collect one step's output files.
+        @param[in] step Processed step.
+        @return (per-step files, shared files), or None when an expected output is missing.
+        """
+        own, shared = [], []
+        for mapping, window, per_step in families:
+            if step in mapping:
+                (own if per_step else shared).append(mapping[step])
+            elif expected(window, step):
+                return None
+        return own, shared
+
+    return outputs
 
 
 def _nearest_step(steps: "set[int]", target: int):
@@ -4898,16 +5089,33 @@ def detect_post_source_frontier(source_dir: str, monitor_cfg: dict, post_cfg: di
     }
 
 
-def persist_post_resume_state(run_dir: str, plan: dict, last_successful_requested_end_step=None):
+def _read_post_records(state_path: str) -> "tuple[dict, dict]":
     """!
-    @brief Persist post resume lineage metadata for future --continue runs.
-    @param[in] run_dir Argument passed to `persist_post_resume_state()`.
-    @param[in] plan Argument passed to `persist_post_resume_state()`.
-    @param[in] last_successful_requested_end_step Argument passed to `persist_post_resume_state()`.
-    @return Value returned by `persist_post_resume_state()`.
+    @brief Read the per-step output records a recipe's state holds.
+    @param[in] state_path The recipe's state.json.
+    @return (field-stage records, spectra records), each keyed by the step as text; both
+            empty for a state written before records existed.
+    """
+    state = _read_json_if_exists(state_path)
+    if not isinstance(state, dict) or state.get("schema_version") != POST_RESUME_SCHEMA_VERSION:
+        return {}, {}
+    return dict(state.get("steps") or {}), dict(state.get("spectra") or {})
+
+
+def persist_post_resume_state(run_dir: str, plan: dict, steps=None, spectra=None):
+    """!
+    @brief Write a recipe's state: the window last planned and its per-step output records.
+    @param[in] run_dir Run the recipe belongs to.
+    @param[in] plan Plan from build_post_execution_plan().
+    @param[in] steps Field-stage records to merge in, keyed by step, or None.
+    @param[in] spectra Spectra records to merge in, keyed by step, or None.
+    @return Path of the written state file.
     """
     state_path = plan.get("resume_state_path") or get_post_resume_state_path(run_dir)
-    payload = {
+    field_records, spectra_records = _read_post_records(state_path)
+    field_records.update({str(step): record for step, record in (steps or {}).items()})
+    spectra_records.update({str(step): record for step, record in (spectra or {}).items()})
+    write_json_file(state_path, {
         'schema_version': POST_RESUME_SCHEMA_VERSION,
         'run_id': plan.get('run_id'),
         'recipe_fingerprint': plan.get('recipe_fingerprint'),
@@ -4916,19 +5124,130 @@ def persist_post_resume_state(run_dir: str, plan: dict, last_successful_requeste
         'requested_end_step': plan.get('requested_end_step'),
         'step_interval': plan.get('step_interval'),
         'source_directory': plan.get('source_data_directory'),
-        'resume_match_source': plan.get('resume_match_source'),
-        'last_successful_requested_end_step': last_successful_requested_end_step,
         'updated_at': datetime.now().isoformat(),
-    }
-    write_json_file(state_path, payload)
+        'steps': dict(sorted(field_records.items(), key=lambda item: int(item[0]))),
+        'spectra': dict(sorted(spectra_records.items(), key=lambda item: int(item[0]))),
+    })
     return state_path
+
+
+def _checkpoint_commit(source_dir: str, step: int):
+    """!
+    @brief Identify one committed checkpoint by its commit marker.
+    @param[in] source_dir Output root holding the checkpoints.
+    @param[in] step Checkpoint step.
+    @return (marker digest, marker modification time), or None when the checkpoint is not
+            local (never written, archived, or pruned).
+    """
+    marker = os.path.join(_checkpoint_bundle_path(source_dir, step), "COMMITTED")
+    try:
+        with open(marker, "r", encoding="ascii") as stream:
+            return stream.read().strip(), os.stat(marker).st_mtime
+    except OSError:
+        return None
+
+
+def classify_post_step(record, files, commit, recipe: str, recompute: bool = False) -> "str | None":
+    """!
+    @brief Decide whether one step's existing output is still valid.
+    @details Output stays valid while it was made by the same recipe from the checkpoint
+             now on disk. The build that made it does not invalidate it: a rebuild changes
+             every binary's hash, and redoing a whole window after each one is what
+             `--recompute` is for. Output without a record (written before records
+             existed, or by a job killed before it could record) is accepted when it is
+             newer than its checkpoint, or when the checkpoint is no longer local.
+    @param[in] record The step's record, or None.
+    @param[in] files Files the step's output consists of, or None when any is missing.
+    @param[in] commit Checkpoint identity from _checkpoint_commit(), or None.
+    @param[in] recipe Current recipe fingerprint.
+    @param[in] recompute Whether the invocation regenerates every step.
+    @return None when the output is valid, else the reason it must be (re)made:
+            `missing`, `recompute`, `recipe`, or `checkpoint`.
+    """
+    if files is None or (not files and record is None):
+        return "missing"
+    if recompute:
+        return "recompute"
+    if record is None:
+        if commit is None or min(os.path.getmtime(path) for path in files) >= commit[1]:
+            return None
+        return "checkpoint"
+    if record.get("recipe") != recipe:
+        return "recipe"
+    if commit is not None and record.get("checkpoint") not in (None, commit[0]):
+        return "checkpoint"
+    return None
+
+
+def warn_overlapping_post_recipes(run_dir: str, post_cfg: dict, plan: dict, post_stages) -> None:
+    """!
+    @brief Warn when another recipe in this run already produced outputs this one repeats.
+    @details A recipe writes one file per step holding all its fields, so a recipe that
+             repeats another's fields recomputes them rather than reusing them. The
+             warning names the shared fields and statistics windows and the overlapping
+             steps, so the new outputs can go into a recipe of their own instead.
+    @param[in] run_dir Run being post-processed.
+    @param[in] post_cfg Runtime recipe with canonical paths.
+    @param[in] plan Plan from build_post_execution_plan().
+    @param[in] post_stages Selected post stages.
+    @return None.
+    """
+    if 'fields' not in post_stages:
+        return
+    current_id = ((post_cfg.get("_picurv_paths") or {}).get("recipe_id")
+                  or compute_post_recipe_id(post_cfg))
+    steps = set(plan['steps_to_process'])
+    fields = set(((post_cfg.get('io') or {}).get('eulerian_fields')) or [])
+    windows = set(normalize_post_field_statistics_config(post_cfg)["windows"])
+    root = os.path.join(os.path.abspath(run_dir), "config", "post-recipes")
+    if not steps or not (fields or windows) or not os.path.isdir(root):
+        return
+    for other_id in sorted(os.listdir(root)):
+        archived = os.path.join(root, other_id, "post.yml")
+        if other_id == current_id or not os.path.isfile(archived):
+            continue
+        try:
+            other_cfg, resolved_id = apply_canonical_post_paths(read_yaml_file(archived), run_dir)
+        except Exception:  # an unreadable archived recipe says nothing about overlap
+            continue
+        if resolved_id != other_id:
+            continue
+        labels, done = [], set()
+        shared_fields = fields & set(((other_cfg.get('io') or {}).get('eulerian_fields')) or [])
+        if shared_fields:
+            prefix = os.path.join(_post_output_directory_abs(run_dir, other_cfg),
+                                  (other_cfg.get('io') or {}).get('output_filename_prefix', 'Field'))
+            found = steps & _scan_post_vtk_steps(prefix, 'vts').keys()
+            if found:
+                labels.append(f"fields {', '.join(sorted(shared_fields))}")
+                done |= found
+        shared_windows = []
+        for kind, path, window in get_post_field_statistics_artifacts(other_cfg, run_dir):
+            if kind == 'vtk' and window in windows:
+                found = steps & _scan_post_vtk_steps(path, 'vts').keys()
+                if found:
+                    shared_windows.append(window)
+                    done |= found
+        if shared_windows:
+            labels.append(f"statistics windows {', '.join(shared_windows)}")
+        if labels:
+            print(f"[WARNING] Recipe {other_id} already produced {'; '.join(labels)} for "
+                  f"{len(done)} of these steps ({min(done)}..{max(done)}); this recipe computes "
+                  "them again. If only some outputs are new, a recipe holding just those avoids "
+                  "the repeat.", file=sys.stderr)
 
 
 def _build_post_lock_wrapper_source() -> str:
     """!
-    @brief Return the Python wrapper used to hold an exclusive post-stage lock.
+    @brief Return the Python wrapper that runs one post job under an exclusive lock.
+    @details Given `--post-recipe`, the wrapper plans the job's steps as it starts
+             (prepare_post_job()), skips the postprocessor when none need work, and
+             records the steps produced when the postprocessor exits, even on failure
+             (finish_post_job()). It imports the conductor from this installation, so it
+             must run under the conductor's interpreter.
     @return Value returned by `_build_post_lock_wrapper_source()`.
     """
+    package_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return """#!/usr/bin/env python3
 import argparse
 import fcntl
@@ -4939,13 +5258,18 @@ import subprocess
 import sys
 import time
 
+PICURV_PACKAGE_ROOT = """ + repr(package_root) + """
+
 
 def main():
     parser = argparse.ArgumentParser(description='PICurv post-stage lock wrapper')
     parser.add_argument('--lock-file', required=True)
     parser.add_argument('--metadata-file', required=True)
     parser.add_argument('--run-dir', required=True)
-    parser.add_argument('--recipe-fingerprint', required=True)
+    parser.add_argument('--recipe-fingerprint', default='')
+    parser.add_argument('--post-recipe')
+    parser.add_argument('--postprocessor')
+    parser.add_argument('--recompute', action='store_true')
     parser.add_argument('--success-command-json')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -4989,16 +5313,33 @@ def main():
         handle.write('\\n')
 
     try:
-        result = subprocess.run(command)
-        if result.returncode != 0:
-            return int(result.returncode)
+        planned = None
+        if args.post_recipe:
+            sys.path.insert(0, PICURV_PACKAGE_ROOT)
+            from picurv_cli.core import finish_post_job, prepare_post_job
+            planned = prepare_post_job(args.run_dir, args.post_recipe, args.postprocessor,
+                                       recompute=args.recompute)
+            sys.stdout.flush()
+        if planned != 0:
+            try:
+                result = subprocess.run(command)
+            finally:
+                if args.post_recipe:
+                    finish_post_job(args.run_dir, args.post_recipe)
+                    sys.stdout.flush()
+            if result.returncode != 0:
+                return int(result.returncode)
+        else:
+            print('[INFO] Every requested step with a committed checkpoint is up to date; '
+                  'the postprocessor is not launched.')
         if args.success_command_json:
             success_command = json.loads(args.success_command_json)
             if not isinstance(success_command, list) or not success_command:
                 print('[FATAL] Invalid post success command.', file=sys.stderr)
                 return 2
             result = subprocess.run([str(token) for token in success_command])
-        return int(result.returncode)
+            return int(result.returncode)
+        return 0
     finally:
         try:
             os.remove(args.metadata_file)
@@ -5035,7 +5376,10 @@ def ensure_post_lock_wrapper(run_dir: str) -> str:
 
 def build_post_locked_command(run_dir: str, recipe_fingerprint: str, wrapped_command: list,
                               create_wrapper: bool = True,
-                              success_command: "list | None" = None) -> "tuple[list, dict]":
+                              success_command: "list | None" = None,
+                              post_recipe: "str | None" = None,
+                              postprocessor: "str | None" = None,
+                              recompute: bool = False) -> "tuple[list, dict]":
     """!
     @brief Wrap a postprocessor command behind the run-dir-scoped lock wrapper.
     @param[in] run_dir Argument passed to `build_post_locked_command()`.
@@ -5043,17 +5387,26 @@ def build_post_locked_command(run_dir: str, recipe_fingerprint: str, wrapped_com
     @param[in] wrapped_command Argument passed to `build_post_locked_command()`.
     @param[in] create_wrapper Argument passed to `build_post_locked_command()`.
     @param[in] success_command Optional serial command run under the same lock after success.
+    @param[in] post_recipe Recipe whose steps the wrapper plans at launch; None runs the
+                           command as given.
+    @param[in] postprocessor Postprocessor the command launches, recorded with its output.
+    @param[in] recompute Regenerate every step whose checkpoint is committed.
     @return Value returned by `build_post_locked_command()`.
     """
     lock_paths = get_post_lock_paths(run_dir)
     wrapper_path = ensure_post_lock_wrapper(run_dir) if create_wrapper else lock_paths['wrapper_path']
     command = [
-        wrapper_path,
+        sys.executable, wrapper_path,
         '--lock-file', lock_paths['lock_file'],
         '--metadata-file', lock_paths['metadata_file'],
         '--run-dir', run_dir,
         '--recipe-fingerprint', recipe_fingerprint,
     ]
+    if post_recipe:
+        command += ['--post-recipe', os.path.abspath(post_recipe),
+                    '--postprocessor', os.path.abspath(postprocessor)]
+        if recompute:
+            command.append('--recompute')
     if success_command:
         command += ['--success-command-json', json.dumps(list(success_command))]
     command += ['--'] + list(wrapped_command)
@@ -5088,19 +5441,27 @@ def build_post_execution_plan(
     case_cfg: dict,
     monitor_cfg: dict,
     post_cfg: dict,
-    continue_requested: bool = False,
+    recompute: bool = False,
     allow_source_frontier_scan: bool = True,
+    postprocessor_sha: "str | None" = None,
 ) -> dict:
     """!
-    @brief Resolve post resume/source-availability behavior into one execution plan.
-    @param[in] run_dir Argument passed to `build_post_execution_plan()`.
-    @param[in] run_id Argument passed to `build_post_execution_plan()`.
-    @param[in] case_cfg Argument passed to `build_post_execution_plan()`.
-    @param[in] monitor_cfg Argument passed to `build_post_execution_plan()`.
-    @param[in] post_cfg Argument passed to `build_post_execution_plan()`.
-    @param[in] continue_requested Argument passed to `build_post_execution_plan()`.
-    @param[in] allow_source_frontier_scan Argument passed to `build_post_execution_plan()`.
-    @return Value returned by `build_post_execution_plan()`.
+    @brief Decide which steps of a recipe's window one invocation processes.
+    @details Every requested step is classified by classify_post_step(): valid output is
+             kept, and missing or stale output is (re)made once its checkpoint is
+             committed. Steps need not be contiguous. When the solver stage has not run
+             yet the source scan is deferred and every step without valid output is
+             planned; the post job plans again when it starts (prepare_post_job()).
+    @param[in] run_dir Run being post-processed.
+    @param[in] run_id Run identity recorded in the recipe state.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] monitor_cfg Parsed monitor configuration.
+    @param[in] post_cfg Parsed post recipe.
+    @param[in] recompute Regenerate every step whose checkpoint is committed.
+    @param[in] allow_source_frontier_scan False when the solver stage has not produced output yet.
+    @param[in] postprocessor_sha Hash of the postprocessor that would run, used only to
+                                 report valid output another build made.
+    @return Plan mapping; see the keys of the returned dictionary.
     """
     if not isinstance((post_cfg or {}).get("_picurv_paths"), dict):
         post_cfg, _ = apply_canonical_post_paths(post_cfg, run_dir)
@@ -5112,86 +5473,69 @@ def build_post_execution_plan(
     resolved_post_cfg = prepare_effective_post_config(post_cfg, resolved_source_dir)
     recipe_cfg = build_post_recipe_config(resolved_post_cfg, monitor_cfg)
     recipe_signature, recipe_fingerprint = compute_post_recipe_fingerprint(recipe_cfg)
-
     state_path = get_post_resume_state_path(run_dir, resolved_post_cfg)
-    state_payload = _read_json_if_exists(state_path)
-    state_match = bool(isinstance(state_payload, dict) and state_payload.get('recipe_fingerprint') == recipe_fingerprint)
+    records, _ = _read_post_records(state_path)
 
-    legacy_post_run_path = os.path.join(run_dir, 'config', 'post.run')
-    legacy_recipe_cfg = parse_post_recipe_file(legacy_post_run_path)
-    legacy_recipe_signature = normalize_post_recipe_signature(legacy_recipe_cfg or {}) if legacy_recipe_cfg else None
-    legacy_match = bool(legacy_recipe_signature and legacy_recipe_signature == recipe_signature)
-
-    resume_recipe_match = False
-    resume_match_source = None
-    resume_bootstrapped = False
-    if continue_requested:
-        if state_match:
-            resume_recipe_match = True
-            resume_match_source = 'state'
-        elif not state_payload and legacy_match:
-            resume_recipe_match = True
-            resume_match_source = 'legacy_post_run'
-            resume_bootstrapped = True
-
-    completion_info = detect_post_completed_frontier(
-        run_dir,
-        resolved_post_cfg,
-        monitor_cfg,
-        owned_start_step,
-        requested_end_step,
-        step_interval,
-    )
-    completed_frontier_step = completion_info['frontier_step']
-    if completion_info['artifact_family_count'] == 0 and state_match:
-        completed_frontier_step = _parse_int_loose(state_payload.get('last_successful_requested_end_step'))
-
-    if continue_requested and resume_recipe_match and completed_frontier_step is not None:
-        effective_start_step = completed_frontier_step + step_interval
-    else:
-        effective_start_step = owned_start_step
-
+    source_frontier_deferred = not allow_source_frontier_scan
+    available = None
     source_frontier_step = None
     source_frontier_diagnostic = None
-    source_frontier_deferred = not allow_source_frontier_scan
-    skip_reason = None
-    if effective_start_step > requested_end_step:
-        skip_reason = 'already-complete-window'
-        effective_end_step = requested_end_step
-    elif allow_source_frontier_scan:
+    if not source_frontier_deferred:
+        available = _scan_committed_checkpoint_steps(
+            resolved_source_dir, require_particles=_post_needs_particle_source(resolved_post_cfg)
+        )
         source_frontier_info = detect_post_source_frontier(
-            resolved_source_dir,
-            monitor_cfg,
-            resolved_post_cfg,
-            effective_start_step,
-            requested_end_step,
-            step_interval,
+            resolved_source_dir, monitor_cfg, resolved_post_cfg,
+            owned_start_step, requested_end_step, step_interval,
         )
         source_frontier_step = source_frontier_info['frontier_step']
         source_frontier_diagnostic = source_frontier_info['diagnostic']
-        if source_frontier_step is None or source_frontier_step < effective_start_step:
-            if continue_requested and resume_recipe_match and completed_frontier_step is not None:
-                skip_reason = 'already-caught-up-to-current-source-frontier'
-            else:
-                skip_reason = 'nothing-available-yet'
-            effective_end_step = None
-        else:
-            effective_end_step = min(requested_end_step, source_frontier_step)
-    else:
-        effective_end_step = requested_end_step
 
+    outputs = post_step_outputs(run_dir, resolved_post_cfg, monitor_cfg)
+    process, unavailable, reasons, adopted = [], [], {}, {}
+    current = other_build = 0
+    for step in _iter_post_steps(owned_start_step, requested_end_step, step_interval):
+        record = records.get(str(step))
+        found = outputs(step)
+        files = None if found is None else found[0] + found[1]
+        commit = _checkpoint_commit(resolved_source_dir, step)
+        reason = classify_post_step(record, files, commit, recipe_fingerprint, recompute)
+        if reason is None:
+            current += 1
+            if record is None:
+                record = adopted[step] = {
+                    "recipe": recipe_fingerprint,
+                    "checkpoint": commit[0] if commit else None,
+                    "postprocessor": None,
+                }
+            if postprocessor_sha and record.get("postprocessor") != postprocessor_sha:
+                other_build += 1
+        elif available is None or step in available:
+            process.append(step)
+            reasons[reason] = reasons.get(reason, 0) + 1
+        else:
+            unavailable.append(step)
+
+    skip_reason = None
+    if not process:
+        if not unavailable:
+            skip_reason = 'already-complete-window'
+        elif current:
+            skip_reason = 'already-caught-up-to-current-source-frontier'
+        else:
+            skip_reason = 'nothing-available-yet'
+    effective_start_step = process[0] if process else None
+    effective_end_step = process[-1] if process else None
     effective_post_cfg = None
     if skip_reason is None:
         effective_post_cfg = prepare_effective_post_config(
-            post_cfg,
-            resolved_source_dir,
-            start_step=effective_start_step,
-            end_step=effective_end_step,
+            post_cfg, resolved_source_dir,
+            start_step=effective_start_step, end_step=effective_end_step,
         )
 
     return {
         'run_id': run_id,
-        'continue_requested': bool(continue_requested),
+        'recompute': bool(recompute),
         'requested_start_step': requested_start_step,
         'requested_end_step': requested_end_step,
         'owned_start_step': owned_start_step,
@@ -5201,23 +5545,173 @@ def build_post_execution_plan(
         'recipe_signature': recipe_signature,
         'recipe_fingerprint': recipe_fingerprint,
         'resume_state_path': state_path,
-        'resume_state_payload': state_payload,
-        'resume_recipe_match': resume_recipe_match,
-        'resume_match_source': resume_match_source,
-        'resume_bootstrapped': resume_bootstrapped,
-        'completed_frontier_step': completed_frontier_step,
+        'steps_to_process': process,
+        'steps_unavailable': unavailable,
+        'steps_current': current,
+        'steps_other_build': other_build,
+        'process_reasons': reasons,
+        'adopted_records': adopted,
         'source_frontier_step': source_frontier_step,
         'source_frontier_diagnostic': source_frontier_diagnostic,
         'source_frontier_deferred': source_frontier_deferred,
+        'source_committed_count': None if available is None else len(available),
+        'source_latest_step': max(available) if available else None,
         'effective_start_step': effective_start_step,
         'effective_end_step': effective_end_step,
         'skip_reason': skip_reason,
         'resolved_post_cfg': resolved_post_cfg,
         'effective_post_cfg': effective_post_cfg,
-        'lock_paths': get_post_lock_paths(
-            run_dir, ((resolved_post_cfg.get("_picurv_paths") or {}).get("recipe_id"))
-        ),
+        # The lock build_post_locked_command() takes: one post writer per run.
+        'lock_paths': get_post_lock_paths(run_dir),
     }
+
+
+POST_PROCESS_REASON_LABELS = {
+    "missing": "no output yet",
+    "recipe": "recipe changed",
+    "checkpoint": "checkpoint changed",
+    "recompute": "--recompute",
+}
+
+
+def report_post_plan(plan: dict) -> None:
+    """!
+    @brief Print which steps a post plan processes, keeps, and waits for.
+    @param[in] plan Plan from build_post_execution_plan().
+    @return None.
+    """
+    process = plan['steps_to_process']
+    if plan['source_frontier_deferred']:
+        print(f"[INFO] Post steps: {len(process)} planned; the post job decides when it starts, "
+              "after the solver has written them.")
+        return
+    why = ", ".join(f"{count} {POST_PROCESS_REASON_LABELS.get(reason, reason)}"
+                    for reason, count in sorted(plan['process_reasons'].items()))
+    span = f" ({process[0]}..{process[-1]}; {why})" if process else ""
+    print(f"[INFO] Post steps: {len(process)} to process{span}, {plan['steps_current']} up to date, "
+          f"{len(plan['steps_unavailable'])} without a committed checkpoint.")
+    if plan['steps_other_build']:
+        print(f"[INFO] {plan['steps_other_build']} up-to-date step(s) were made by another or an "
+              "unrecorded postprocessor build and are kept; --recompute regenerates them.")
+
+
+def get_post_step_list_path(run_dir: str, post_cfg: dict) -> str:
+    """!
+    @brief Return the file naming the steps a launched post job processes.
+    @param[in] run_dir Run directory.
+    @param[in] post_cfg Runtime recipe with canonical paths.
+    @return Absolute path; a companion `<path>.json` holds what recording needs.
+    """
+    return os.path.abspath(os.path.join(get_post_recipe_root(run_dir, post_cfg), "post.steps"))
+
+
+def _load_post_job_configs(run_dir: str, post_recipe_path: str) -> "tuple[dict, dict, dict]":
+    """!
+    @brief Load the configuration a post job needs from the run it runs in.
+    @param[in] run_dir Run directory.
+    @param[in] post_recipe_path The recipe the job was staged with.
+    @return (case configuration, monitor configuration, runtime recipe with canonical paths).
+    """
+    case_path, monitor_path, _ = auto_identify_run_inputs(os.path.join(run_dir, "config"))
+    if not (case_path and monitor_path):
+        raise ValueError(f"Could not identify the case and monitor files of {run_dir}.")
+    post_cfg, _ = apply_canonical_post_paths(read_yaml_file(post_recipe_path), run_dir)
+    return read_yaml_file(case_path), read_yaml_file(monitor_path), post_cfg
+
+
+def prepare_post_job(run_dir: str, post_recipe_path: str, postprocessor: str,
+                     recompute: bool = False) -> int:
+    """!
+    @brief Decide, as a post job starts, which steps it processes.
+    @details Runs under the post lock immediately before the postprocessor, so a job
+             staged long before it runs still skips output produced in the meantime and
+             sees checkpoints the solver has written since. Writes the step list the
+             postprocessor reads, and records what finish_post_job() needs.
+    @param[in] run_dir Run directory.
+    @param[in] post_recipe_path The recipe the job was staged with.
+    @param[in] postprocessor Postprocessor executable the job launches.
+    @param[in] recompute Regenerate every step whose checkpoint is committed.
+    @return Number of steps to process; 0 means the postprocessor need not run.
+    """
+    run_dir = os.path.abspath(run_dir)
+    case_cfg, monitor_cfg, post_cfg = _load_post_job_configs(run_dir, post_recipe_path)
+    try:
+        run_id = read_artifact_identity(run_dir)["run_id"]
+    except Exception:
+        run_id = os.path.basename(run_dir)
+    sha = _file_sha256(postprocessor)
+    plan = build_post_execution_plan(run_dir, run_id, case_cfg, monitor_cfg, post_cfg,
+                                     recompute=recompute, postprocessor_sha=sha)
+    report_post_plan(plan)
+    persist_post_resume_state(run_dir, plan, steps=plan['adopted_records'])
+    list_path = get_post_step_list_path(run_dir, post_cfg)
+    steps = plan['steps_to_process'] if plan['skip_reason'] is None else []
+    if not steps:
+        for path in (list_path, list_path + ".json"):
+            if os.path.exists(path):
+                os.remove(path)
+        return 0
+    outputs = post_step_outputs(run_dir, plan['resolved_post_cfg'], monitor_cfg)
+    before = {}
+    for step in steps:
+        found = outputs(step)
+        before[str(step)] = {path: os.stat(path).st_mtime_ns
+                             for path in (found[0] + found[1] if found else [])}
+    write_json_file(list_path + ".json", {
+        "postprocessor": sha,
+        "outputs_before": before,
+        "plan": {key: plan[key] for key in (
+            "run_id", "recipe_fingerprint", "recipe_signature", "requested_start_step",
+            "requested_end_step", "step_interval", "source_data_directory", "resume_state_path")},
+    })
+    with open(list_path, "w", encoding="utf-8") as stream:
+        stream.write("".join(f"{step}\n" for step in steps))
+    return len(steps)
+
+
+def finish_post_job(run_dir: str, post_recipe_path: str) -> int:
+    """!
+    @brief Record, after a post job ends, which steps it produced.
+    @details Runs whether or not the postprocessor succeeded, so the steps a failed or
+             interrupted job completed are kept. A step is credited only when all its
+             output exists and was written by this job.
+    @param[in] run_dir Run directory.
+    @param[in] post_recipe_path The recipe the job was staged with.
+    @return Number of steps recorded.
+    """
+    run_dir = os.path.abspath(run_dir)
+    _case_cfg, monitor_cfg, post_cfg = _load_post_job_configs(run_dir, post_recipe_path)
+    list_path = get_post_step_list_path(run_dir, post_cfg)
+    job = _read_json_if_exists(list_path + ".json")
+    if not isinstance(job, dict):
+        return 0
+    plan = job["plan"]
+    source = plan["source_data_directory"]
+    runtime_cfg = prepare_effective_post_config(post_cfg, source)
+    outputs = post_step_outputs(run_dir, runtime_cfg, monitor_cfg)
+    records = {}
+    for step_text, before in job["outputs_before"].items():
+        step = int(step_text)
+        found = outputs(step)
+        if found is None:
+            continue
+        # A shared CSV changes with every step, so it proves a step was written only
+        # when the step has no file of its own.
+        written = found[0] or found[1]
+        if not written or any(before.get(path) == os.stat(path).st_mtime_ns for path in written):
+            continue
+        commit = _checkpoint_commit(source, step)
+        records[step] = {
+            "recipe": plan["recipe_fingerprint"],
+            "checkpoint": commit[0] if commit else None,
+            "postprocessor": job["postprocessor"],
+        }
+    persist_post_resume_state(run_dir, plan, steps=records)
+    for path in (list_path, list_path + ".json"):
+        if os.path.exists(path):
+            os.remove(path)
+    print(f"[INFO] Post job recorded {len(records)} of {len(job['outputs_before'])} planned step(s).")
+    return len(records)
 
 
 def needs_restart_source(case_cfg: dict, solver_cfg: dict) -> bool:
@@ -5615,8 +6109,8 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
         if not requires_source:
             # R7: analytical + init — warn that --restart-from is unused
             print(
-                "[WARN] --restart-from specified but no data will be read "
-                "(analytical + init does not need restart data).",
+                "[WARNING] --restart-from has no effect: an analytical flow with freshly "
+                "initialized particles reads no restart data.",
                 file=sys.stderr,
             )
             return None, False, None
@@ -5663,12 +6157,21 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
         validate_continue_case_identity(continue_run_dir, case_cfg)
 
         source_output = resolve_run_output_dir(continue_run_dir, monitor_cfg)
-        # Warn if start_step != last checkpoint
         last_step = detect_last_checkpoint_step(source_output)
-        if last_step is not None and last_step != start_step:
-            print(
-                f"[WARN] start_step={start_step} but last checkpoint in output is step {last_step}.",
-                file=sys.stderr,
+        # The solver never overwrites a committed checkpoint, so continuing from an earlier
+        # one would keep the old states after it and mix two histories in one run.
+        if last_step is not None and start_step < last_step:
+            raise ValueError(
+                f"--continue starts at step {start_step}, but this run already has committed "
+                f"checkpoints through step {last_step}. Continuing in place from an earlier "
+                "checkpoint would keep the later ones from the old trajectory. Set "
+                f"run_control.start_step to {last_step} to extend the run, or branch a new run "
+                f"from step {start_step} with --restart-from {continue_run_dir}."
+            )
+        if last_step is not None and start_step > last_step:
+            raise ValueError(
+                f"--continue starts at step {start_step}, but this run's last committed "
+                f"checkpoint is step {last_step}. Set run_control.start_step to {last_step}."
             )
 
         if eulerian_source == "load":
@@ -6090,7 +6593,7 @@ def validate_and_nondimensionalize_picslice(source_slice: str, dest_slice: str, 
             raise ValueError(f"Invalid frame count '{frame_line}' in PICSLICE file '{source_slice}'.")
         if frame_count != 1:
             raise ValueError(
-                f"PICSLICE file '{source_slice}' has frame count {frame_count}; Phase 1 supports exactly 1."
+                f"PICSLICE file '{source_slice}' has frame count {frame_count}; PICurv reads exactly one frame."
             )
 
         try:
@@ -8793,7 +9296,8 @@ def physical_units_transition_notices(case_cfg: dict, solver_cfg: dict, monitor_
 
 
 def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: dict,
-                                case_path: str, solver_path: str, monitor_path: str):
+                                case_path: str, solver_path: str, monitor_path: str,
+                                restart_source_given: bool = False):
     """!
     @brief Validates every configuration a simulation run consumes, before any work is done.
     @details Covers the three roles the solver is launched with: the case, the solver,
@@ -8811,6 +9315,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
     @param[in] case_path   Path to case file (for error messages).
     @param[in] solver_path Path to solver file (for error messages).
     @param[in] monitor_path Path to monitor file (for error messages).
+    @param[in] restart_source_given Whether the invocation names a restart source
+                                    (--restart-from or --continue), which silences the
+                                    reminder that the case needs one.
     @throws SystemExit on validation failure.
     """
     errors = []
@@ -9597,7 +10104,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         except ValueError as e:
             errors.append(f"  {monitor_path}: {e}")
 
-    if not errors:
+    if not errors and not restart_source_given:
         if needs_restart_source(case_cfg, solver_cfg):
             warnings.append(
                 f"{case_path}: This configuration requires restart data (start_step > 0, "
@@ -9608,7 +10115,7 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
     if errors:
         _print_validation_errors(errors)
     for warning in warnings:
-        print(f"[WARN] {warning}", file=sys.stderr)
+        print(f"[WARNING] {warning}", file=sys.stderr)
 
 
 def check_post_checkpoint_cadence_alignment(post_cfg: dict, monitor_cfg: dict, post_path: str,
@@ -9619,8 +10126,8 @@ def check_post_checkpoint_cadence_alignment(post_cfg: dict, monitor_cfg: dict, p
     @details The post-processor reads committed bundles, and the solver commits one
              every `io.data_output_frequency` completed steps. A `step_interval` that
              is not a multiple of that cadence therefore asks for steps that were
-             never written: the source-frontier scan stops at the first missing one
-             and processes far less than the recipe requested. That is only
+             never written: those steps wait forever for a checkpoint, and far less
+             than the recipe requested is processed. That is only
              discovered after a solve has already run, so it is caught here instead.
 
              The solver also commits the initial and final states off cadence, which
@@ -9999,7 +10506,7 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
     if errors:
         _print_validation_errors(errors)
     for warning in warnings:
-        print(f"[WARN] {warning}", file=sys.stderr)
+        print(f"[WARNING] {warning}", file=sys.stderr)
 
 def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
     """!
@@ -10151,7 +10658,7 @@ def validate_cluster_config(cluster_cfg: dict, cluster_path: str):
 
     if warnings:
         for warning in warnings:
-            print(f"[WARN] {warning}", file=sys.stderr)
+            print(f"[WARNING] {warning}", file=sys.stderr)
 
     if errors:
         _print_validation_errors(errors)
@@ -10434,7 +10941,8 @@ def resolve_conductor_entry_point() -> list:
     return [sys.executable, os.path.join(PACKAGE_PROJECT_ROOT, "picurv_cli", "picurv")]
 
 
-def build_spectra_follow_command(run_dir: str, post_path: str, post_cfg: dict) -> list:
+def build_spectra_follow_command(run_dir: str, post_path: str, post_cfg: dict,
+                                 recompute: bool = False) -> list:
     """!
     @brief Build the batch-script step that measures spectra after the field stage.
 
@@ -10446,6 +10954,7 @@ def build_spectra_follow_command(run_dir: str, post_path: str, post_cfg: dict) -
     @param[in] run_dir Run directory the batch job operates on.
     @param[in] post_path Post recipe path, reachable from the compute node.
     @param[in] post_cfg Effective post configuration.
+    @param[in] recompute Re-measure steps whose spectra are still valid.
     @return Argv list, or an empty list when the recipe requests no spectra.
     """
     try:
@@ -10459,7 +10968,7 @@ def build_spectra_follow_command(run_dir: str, post_path: str, post_cfg: dict) -
         "run", "--post-process", "--only", "spectra",
         "--run-dir", os.path.abspath(run_dir),
         "--post", os.path.abspath(post_path),
-    ]
+    ] + (["--recompute"] if recompute else [])
 
 
 def executable_identity_check_lines(executable: str, expected_version_line: "str | None",
@@ -11273,6 +11782,10 @@ def build_petsc_diagnostics_args(monitor_cfg: dict, run_dir: str, stage_label: s
         args.append("-log_all")
     if petsc["options_left"] is not None:
         args.extend(["-options_left", "true" if petsc["options_left"] else "false"])
+    elif stage_label == "PostProcessor":
+        # The postprocessor reads the solver's control file, so every solver-only option
+        # would be reported as unused on each run; left unset, the report is turned off.
+        args.extend(["-options_left", "false"])
     return args
 
 
@@ -13238,6 +13751,34 @@ def normalize_eulerian_field_source(value: str) -> str:
         )
     return mapped
 
+
+def initial_condition_is_authoritative(case_cfg: dict, solver_cfg: dict) -> bool:
+    """!
+    @brief Whether the configured initial condition is the field the solver starts from.
+    @details A restart (start_step > 0) starts from saved state, and the load and
+             analytical Eulerian sources supply their own field, so in each of those the
+             configured initial condition is never read.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] solver_cfg Parsed solver configuration.
+    @return True only for a fresh solve.
+    """
+    source = normalize_eulerian_field_source(
+        ((solver_cfg or {}).get("operation_mode", {}) or {}).get("eulerian_field_source", "solve")
+    )
+    start_step = int(((case_cfg or {}).get("run_control", {}) or {}).get("start_step", 0) or 0)
+    return source == "solve" and start_step == 0
+
+
+def unused_asset_kinds(case_cfg: dict, solver_cfg: dict) -> tuple:
+    """!
+    @brief Asset kinds a run with these configurations would build but never read.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] solver_cfg Parsed solver configuration.
+    @return Kinds to leave out of the run's asset materialization.
+    """
+    return () if initial_condition_is_authoritative(case_cfg, solver_cfg) else ("initial-condition",)
+
+
 def normalize_analytical_type(value: str) -> str:
     """!
     @brief Normalizes the analytical solution selector to the C-side canonical string.
@@ -14584,11 +15125,9 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
             if "flow_direction" in ic_params:
                 ic_cli.append(f"-flow_direction {ic_params['flow_direction']}")
         else:
-            print(
-                f"[WARN] Ignoring configured initial condition because "
-                f"eulerian_field_source={eulerian_source!r} and start_step={start_step} select another source.",
-                file=sys.stderr,
-            )
+            source = (f"the run starts from the checkpoint at step {start_step}" if start_step > 0
+                      else f"eulerian_field_source={eulerian_source!r} reads stored fields")
+            print(f"[INFO] Initial condition not applied: {source}.")
             finit_code = 0
             resolved_ic = None
         control_lines.extend([
@@ -14823,6 +15362,8 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
     for key, value in c_config.items():
         if value is not None and str(value) != "":
             lines.append(f"{key} = {value}")
+    # The steps themselves are decided when the job starts (prepare_post_job()).
+    lines.append(f"step_list_file = {get_post_step_list_path(run_dir, post_cfg)}")
 
     with open(post_recipe_path, "w") as f:
         f.write("\n".join(lines))
@@ -14854,14 +15395,11 @@ def execute_command(command: list, run_dir: str, log_filename: str, monitor_cfg:
     }
 
     if monitor_cfg:
-        print("[INFO] Creating custom environment to set LOG_LEVEL.")
         run_env = os.environ.copy()
         verbosity = monitor_cfg.get('logging', {}).get('verbosity', 'INFO').upper()
         run_env['LOG_LEVEL'] = verbosity
-        print(f"[INFO] Setting LOG_LEVEL={verbosity} for C executable.")
+        print(f"[INFO] Log level: {verbosity}")
         popen_kwargs['env'] = run_env
-    else:
-        print("[INFO] Using inherited environment for process.")
 
     print("-" * 60)
     try:
@@ -15445,10 +15983,20 @@ def render_slurm_array_stage_script(
     if executable_token and command_text.count(executable_token) == 1:
         command_text = command_text.replace(f"{executable_token} ", f"{executable_token} {diag_var} ", 1)
     if stage == "post":
+        # A member's post runs under the same lock wrapper as a standalone run, which
+        # plans the steps as the task starts, so a continued study skips every member
+        # step whose output is up to date.
+        lock_paths = get_post_lock_paths("$RUN_DIR")
+        lines.append(
+            f"{shlex.quote(sys.executable)} \"{lock_paths['wrapper_path']}\" "
+            f"--lock-file \"{lock_paths['lock_file']}\" "
+            f"--metadata-file \"{lock_paths['metadata_file']}\" "
+            f"--run-dir \"$RUN_DIR\" --post-recipe \"$RUN_DIR/config/post.yml\" "
+            f"--postprocessor {executable_token} -- {command_text}"
+        )
         # Study members are ordinary root runs, but their post recipes may request the
         # same run-local physical-time PVD product as standalone runs.  Keep this serial
         # and downstream of the MPI postprocessor.
-        lines.append(command_text)
         lines.append(
             f"{shlex.quote(sys.executable)} -c {shlex.quote(_post_finalize_python_source())} "
             '"$RUN_DIR" "$RUN_DIR/config/post.yml"'
@@ -15697,7 +16245,7 @@ def aggregate_study_metrics(study_cfg: dict, cases: list, results_dir: str) -> s
                 rows.append(row)
                 continue
             print(
-                f"[WARN] {case['case_id']} is in cold storage and no previous metrics "
+                f"[WARNING] {case['case_id']} is in cold storage and no previous metrics "
                 "row was found; its values are reported as unavailable.",
                 file=sys.stderr,
             )
@@ -16147,7 +16695,7 @@ def build_run_dry_plan(args) -> dict:
                 ERROR_CODE_CFG_INVALID_VALUE,
                 key="scheduler.type",
                 file_path=cluster_path,
-                message=f"Unsupported scheduler '{scheduler_type}'. Only Slurm is supported in v1.",
+                message=f"Unsupported scheduler '{scheduler_type}'. Only Slurm is supported.",
             )
             sys.exit(1)
         cluster_tasks = get_cluster_total_tasks(cluster_cfg)
@@ -16177,8 +16725,10 @@ def build_run_dry_plan(args) -> dict:
     if not args.solve:
         if getattr(args, 'restart_from', None):
             print("[WARNING] --restart-from has no effect without --solve and will be ignored.", file=sys.stderr)
-        if getattr(args, 'continue_run', False) and not args.post_process:
-            print("[WARNING] --continue has no effect without --solve or --post-process and will be ignored.", file=sys.stderr)
+        if getattr(args, 'continue_run', False):
+            print("[WARNING] --continue only extends a solve in place and is ignored here. "
+                  "Post-processing always skips steps whose output is up to date; drop "
+                  "--continue from post-only commands.", file=sys.stderr)
 
     if args.solve:
         case_path = os.path.abspath(args.case)
@@ -16191,7 +16741,10 @@ def build_run_dry_plan(args) -> dict:
         loaded_case_cfg = read_yaml_file(case_path)
         solver_cfg = read_yaml_file(solver_path)
         loaded_monitor_cfg = read_yaml_file(monitor_path)
-        validate_simulation_configs(loaded_case_cfg, solver_cfg, loaded_monitor_cfg, case_path, solver_path, monitor_path)
+        validate_simulation_configs(
+            loaded_case_cfg, solver_cfg, loaded_monitor_cfg, case_path, solver_path, monitor_path,
+            restart_source_given=bool(getattr(args, 'restart_from', None) or getattr(args, 'continue_run', False)),
+        )
 
         continue_mode = getattr(args, 'continue_run', False)
 
@@ -16208,6 +16761,7 @@ def build_run_dry_plan(args) -> dict:
                     message="Specified run directory not found.",
                 )
                 sys.exit(1)
+            adopt_relocated_artifact(run_dir, dry_run=True)
             run_id = os.path.basename(run_dir)
         else:
             runs_root = workspace_artifact_root(workspace_root, "runs")
@@ -16261,7 +16815,9 @@ def build_run_dry_plan(args) -> dict:
             else:
                 plan["blocking"].append(_message)
         plan["inputs"].update({"case": case_path, "solver": solver_path, "monitor": monitor_path})
-        asset_plan = plan_run_assets(loaded_case_cfg, case_path)
+        asset_plan = plan_run_assets(
+            loaded_case_cfg, case_path, unused_asset_kinds(loaded_case_cfg, solver_cfg)
+        )
         plan["asset_actions"] = [
             {"kind": item["kind"], "provider": item["provider"], "action": item["action"]}
             for item in asset_plan["actions"]
@@ -16365,6 +16921,7 @@ def build_run_dry_plan(args) -> dict:
                     message="Specified run directory not found.",
                 )
                 sys.exit(1)
+            adopt_relocated_artifact(run_dir, dry_run=True)
             run_id = os.path.basename(run_dir)
         elif not args.solve:
             fail_cli_usage("--post-process requires --run-dir when not used with --solve.")
@@ -16394,14 +16951,20 @@ def build_run_dry_plan(args) -> dict:
 
         post_cfg, recipe_id = apply_canonical_post_paths(post_cfg, run_dir)
         allow_source_frontier_scan = not args.solve
+        recompute = bool(getattr(args, 'recompute_post', False))
+        if args.solve:
+            post_exe = executable_plan["paths"]["postprocessor"]
+        else:
+            post_exe = run_executable_path(run_dir, "postprocessor")
         post_plan = build_post_execution_plan(
             run_dir,
             run_id,
             loaded_case_cfg,
             loaded_monitor_cfg,
             post_cfg,
-            continue_requested=getattr(args, 'continue_run', False),
+            recompute=recompute,
             allow_source_frontier_scan=allow_source_frontier_scan,
+            postprocessor_sha=_file_sha256(post_exe),
         )
 
         post_recipe_path = os.path.join(get_post_recipe_root(run_dir, post_cfg), "post.run")
@@ -16419,10 +16982,6 @@ def build_run_dry_plan(args) -> dict:
             sys.exit(1)
         output_dir_abs = os.path.abspath(os.path.join(run_dir, output_dir_rel))
         statistics_output_paths = get_post_statistics_output_artifacts(post_cfg, run_dir, loaded_monitor_cfg)
-        if args.solve:
-            post_exe = executable_plan["paths"]["postprocessor"]
-        else:
-            post_exe = run_executable_path(run_dir, "postprocessor")
         post_diagnostics = resolve_diagnostics_config(loaded_monitor_cfg, run_dir, "PostProcessor")
         plan["artifacts"].extend(post_diagnostics["artifacts"])
         post_args = build_petsc_diagnostics_args(loaded_monitor_cfg, run_dir, "PostProcessor") + [
@@ -16457,11 +17016,12 @@ def build_run_dry_plan(args) -> dict:
             "requested_start_step": post_plan["requested_start_step"],
             "requested_end_step": post_plan["requested_end_step"],
             "step_interval": post_plan["step_interval"],
-            "resume_applied": bool(post_plan["continue_requested"] and post_plan["resume_recipe_match"]),
-            "resume_recipe_match": post_plan["resume_recipe_match"],
-            "resume_bootstrapped": post_plan["resume_bootstrapped"],
-            "resume_match_source": post_plan["resume_match_source"],
-            "completed_frontier_step": post_plan["completed_frontier_step"],
+            "recompute": recompute,
+            "steps_to_process": post_plan["steps_to_process"],
+            "steps_current": post_plan["steps_current"],
+            "steps_other_build": post_plan["steps_other_build"],
+            "steps_unavailable": post_plan["steps_unavailable"],
+            "process_reasons": post_plan["process_reasons"],
             "source_frontier_step": post_plan["source_frontier_step"],
             "source_frontier_diagnostic": post_plan["source_frontier_diagnostic"],
             "source_frontier_deferred": post_plan["source_frontier_deferred"],
@@ -16493,6 +17053,9 @@ def build_run_dry_plan(args) -> dict:
                     raw_post_cmd,
                     create_wrapper=False,
                     success_command=post_finalize_command,
+                    post_recipe=archived_post_path,
+                    postprocessor=post_exe,
+                    recompute=recompute,
                 )
                 plan["artifacts"].append(post_script)
                 stage_meta.update({
@@ -16516,6 +17079,9 @@ def build_run_dry_plan(args) -> dict:
                     raw_post_cmd,
                     create_wrapper=False,
                     success_command=post_finalize_command,
+                    post_recipe=archived_post_path,
+                    postprocessor=post_exe,
+                    recompute=recompute,
                 )
                 post_stream_log = os.path.join(run_dir, "scheduler", f"{run_id}_{output_prefix}.log")
                 plan["artifacts"].append(post_stream_log)
@@ -16660,7 +17226,7 @@ def render_run_dry_plan(plan: dict, output_format: str = "text"):
         return 1 if plan.get("blocking") else 0
 
     for message in plan.get("warnings", []):
-        print(f"[WARN]   {message}", file=sys.stderr)
+        print(f"[WARNING]   {message}", file=sys.stderr)
     if plan.get("blocking"):
         print("[FATAL] This configuration would be refused. The plan below is what the "
               "run WOULD do; it will not get that far:", file=sys.stderr)
@@ -16746,8 +17312,9 @@ def validate_workflow(args):
     if not solver_group_selected:
         if restart_from:
             print("[WARNING] --restart-from has no effect without --case/--solver/--monitor and will be ignored.", file=sys.stderr)
-        if continue_run and not args.post:
-            print("[WARNING] --continue has no effect without solver configs or --post and will be ignored.", file=sys.stderr)
+        if continue_run:
+            print("[WARNING] --continue validates a solve continued in place and needs "
+                  "--case/--solver/--monitor; it is ignored here.", file=sys.stderr)
     if continue_run and not run_dir_val:
         fail_cli_usage(RESTART_RUN_DIR_REQUIRED_MESSAGE)
 
@@ -16760,7 +17327,10 @@ def validate_workflow(args):
         case_cfg = read_yaml_file(case_path)
         solver_cfg = read_yaml_file(solver_path)
         monitor_cfg = read_yaml_file(monitor_path)
-        validate_simulation_configs(case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path)
+        validate_simulation_configs(
+            case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path,
+            restart_source_given=bool(restart_from or continue_run),
+        )
         checked.extend([case_path, solver_path, monitor_path])
 
         # Validate restart flags if provided
@@ -16770,7 +17340,7 @@ def validate_workflow(args):
                 resolve_restart_source(args, case_cfg, solver_cfg, monitor_cfg, target_run_dir)
                 print("[SUCCESS] Restart source validation passed.")
             except ValueError as e:
-                print(f"[ERROR] Restart validation failed: {e}", file=sys.stderr)
+                print(f"[FATAL] Restart validation failed: {e}", file=sys.stderr)
                 sys.exit(1)
 
     post_cfg = None
@@ -16832,7 +17402,7 @@ def validate_workflow(args):
         # directory is never used; say so instead of checking that it exists.
         source_dir = (post_cfg.get("source_data") or {}).get("directory")
         if source_dir and source_dir != "<solver_output_dir>":
-            print(f"[WARN] {os.path.abspath(args.post)}: source_data.directory '{source_dir}' is "
+            print(f"[WARNING] {os.path.abspath(args.post)}: source_data.directory '{source_dir}' is "
                   "ignored; post-processing always reads the run's own output. Remove the key.",
                   file=sys.stderr)
 
@@ -17599,11 +18169,51 @@ def _workspace_asset_set_path(workspace_root: str, case_path: str) -> str:
     return os.path.join(workspace_root, "assets", "sets", f"{name}.yml")
 
 
-def plan_run_assets(case_cfg: dict, case_path: str) -> dict:
+def _find_stored_asset(workspace_root: str, provider: dict):
+    """!
+    @brief Find a published object built from exactly this provider's inputs.
+    @details Asset sets are named after case files, so they miss an object another case
+             file already built from identical inputs. The provider identity is what the
+             object was built from, so any published object carrying it is reusable; the
+             lowest asset id is taken so repeated lookups agree. Payload checksums are
+             verified when the object is materialized, not here.
+    @param[in] workspace_root Owning workspace.
+    @param[in] provider Provider entry from build_case_asset_graph().
+    @return Asset reference in the shape _publish_asset_object() returns, or None.
+    """
+    kind_dir = ASSET_KIND_DIRECTORIES.get(provider["kind"])
+    if not kind_dir:
+        return None
+    objects_root = os.path.join(workspace_root, "assets", "objects", kind_dir)
+    if not os.path.isdir(objects_root):
+        return None
+    for asset_id in sorted(os.listdir(objects_root)):
+        object_root = os.path.join(objects_root, asset_id)
+        manifest = _read_json_if_exists(os.path.join(object_root, "asset.json"))
+        if not (isinstance(manifest, dict)
+                and manifest.get("schema_version") == ASSET_MANIFEST_SCHEMA_VERSION
+                and manifest.get("asset_id") == asset_id
+                and manifest.get("kind") == provider["kind"]
+                and manifest.get("provider_spec_sha256") == provider["spec_sha256"]):
+            continue
+        return {
+            "asset_id": asset_id,
+            "kind": provider["kind"],
+            "provider": manifest.get("provider", provider["provider"]),
+            "provider_spec_sha256": provider["spec_sha256"],
+            "object": os.path.relpath(object_root, workspace_root).replace(os.sep, "/"),
+            "files": manifest.get("files", []),
+            "inspection": manifest.get("inspection", []),
+        }
+    return None
+
+
+def plan_run_assets(case_cfg: dict, case_path: str, skip_kinds=()) -> dict:
     """!
     @brief Plan reuse/build/runtime actions for all configured run providers.
     @param[in] case_cfg Parsed case configuration.
     @param[in] case_path Source case path.
+    @param[in] skip_kinds Kinds the run will not read; planned as `unused`, never built.
     @return Workspace, graph, set path, and per-provider actions.
     """
     workspace_root = find_workspace_root(case_path)
@@ -17626,13 +18236,24 @@ def plan_run_assets(case_cfg: dict, case_path: str) -> dict:
                 workspace_root, reference.get("object", ""), "asset.json"
             ))
         )
+        adopted = False
+        if provider["kind"] in skip_kinds:
+            actions.append({**provider, "action": "unused", "reference": None, "adopted": False})
+            continue
+        if not matches and workspace_root and provider["execution"] != "runtime-c":
+            # The asset set is named after the case file, so a copied or renamed case
+            # has none; identity is the provider's, so an object built for another case
+            # file with the same inputs is the same asset.
+            reference = _find_stored_asset(workspace_root, provider)
+            matches = adopted = reference is not None
         if provider["execution"] == "runtime-c":
             action = "runtime-c"
         elif matches:
             action = "reuse"
         else:
             action = "build"
-        actions.append({**provider, "action": action, "reference": reference if matches else None})
+        actions.append({**provider, "action": action, "reference": reference if matches else None,
+                        "adopted": adopted})
     return {
         "workspace_root": workspace_root,
         "graph": graph,
@@ -17679,7 +18300,7 @@ def _materialize_asset_file(source: str, destination: str) -> str:
 
 def materialize_run_assets(run_dir: str, case_cfg: dict, case_path: str,
                            require_precomputed: bool = False,
-                           fetch_missing: bool = False) -> dict:
+                           fetch_missing: bool = False, skip_kinds=()) -> dict:
     """!
     @brief Resolve/build workspace assets and write the exact run input lock.
     @param[in] run_dir Run receiving immutable input exposures.
@@ -17687,9 +18308,10 @@ def materialize_run_assets(run_dir: str, case_cfg: dict, case_path: str,
     @param[in] case_path Source case path.
     @param[in] require_precomputed Refuse any missing deterministic asset.
     @param[in] fetch_missing Request remote fetch before local build.
+    @param[in] skip_kinds Kinds the run will not read (see unused_asset_kinds()).
     @return Written lock mapping, or a standalone-provider summary outside a workspace.
     """
-    plan = plan_run_assets(case_cfg, case_path)
+    plan = plan_run_assets(case_cfg, case_path, skip_kinds)
     workspace_root = plan["workspace_root"]
     if not workspace_root:
         return {
@@ -17724,7 +18346,7 @@ def materialize_run_assets(run_dir: str, case_cfg: dict, case_path: str,
                 _write_workspace_asset_set(
                     workspace_root, case_path, plan["graph"], recovered_refs
                 )
-            plan = plan_run_assets(case_cfg, case_path)
+            plan = plan_run_assets(case_cfg, case_path, skip_kinds)
             missing = [item for item in plan["actions"] if item["action"] == "build"]
     if missing and require_precomputed:
         names = ", ".join(f"{item['kind']}={item['provider']}" for item in missing)
@@ -17739,7 +18361,7 @@ def materialize_run_assets(run_dir: str, case_cfg: dict, case_path: str,
             requested=[item["kind"] for item in missing],
             precomputable_only=True,
         )
-        plan = plan_run_assets(case_cfg, case_path)
+        plan = plan_run_assets(case_cfg, case_path, skip_kinds)
         still_missing = [item for item in plan["actions"] if item["action"] == "build"]
         if still_missing:
             raise ValueError(
@@ -17747,6 +18369,13 @@ def materialize_run_assets(run_dir: str, case_cfg: dict, case_path: str,
                 + ", ".join(item["kind"] for item in still_missing)
             )
 
+    adopted = {
+        item["kind"]: item["reference"] for item in plan["actions"] if item.get("adopted")
+    }
+    if adopted:
+        # Found by provider identity rather than through this case's own set; record it
+        # there so the next run of this case file resolves it directly.
+        _write_workspace_asset_set(workspace_root, case_path, plan["graph"], adopted)
     assets = {}
     for item in plan["actions"]:
         reference = item.get("reference")
@@ -17772,7 +18401,8 @@ def materialize_run_assets(run_dir: str, case_cfg: dict, case_path: str,
             "provider": item["provider"],
             "provider_spec_sha256": item["spec_sha256"],
         }
-        for item in plan["actions"] if item["execution"] == "runtime-c"
+        for item in plan["actions"]
+        if item["execution"] == "runtime-c" and item["action"] != "unused"
     }
     for kind, provider in runtime_providers.items():
         print(f"[INFO] Runtime provider {kind}: {provider['provider']} (generated by simulator)")
@@ -17864,7 +18494,7 @@ def run_workflow(args):
             )
             sys.exit(1)
         if scheduler_type != "slurm":
-            print(f"[FATAL] Unsupported scheduler '{scheduler_type}'. Only Slurm is supported in v1.", file=sys.stderr)
+            print(f"[FATAL] Unsupported scheduler '{scheduler_type}'. Only Slurm is supported.", file=sys.stderr)
             sys.exit(1)
         cluster_tasks = get_cluster_total_tasks(cluster_cfg)
         if (args.solve or args.post_process) and args.num_procs not in (1, cluster_tasks):
@@ -17898,8 +18528,10 @@ def run_workflow(args):
     if not args.solve:
         if getattr(args, 'restart_from', None):
             print("[WARNING] --restart-from has no effect without --solve and will be ignored.", file=sys.stderr)
-        if getattr(args, 'continue_run', False) and not args.post_process:
-            print("[WARNING] --continue has no effect without --solve or --post-process and will be ignored.", file=sys.stderr)
+        if getattr(args, 'continue_run', False):
+            print("[WARNING] --continue only extends a solve in place and is ignored here. "
+                  "Post-processing always skips steps whose output is up to date; drop "
+                  "--continue from post-only commands.", file=sys.stderr)
 
     # --- Stage 1: Solver (if requested) ---
     if args.solve:
@@ -17920,7 +18552,8 @@ def run_workflow(args):
         print("\n[INFO] Validating configuration files...")
         validate_simulation_configs(
             configs['case'], configs['solver'], configs['monitor'],
-            args.case, args.solver, args.monitor
+            args.case, args.solver, args.monitor,
+            restart_source_given=bool(getattr(args, 'restart_from', None) or getattr(args, 'continue_run', False)),
         )
         print("[SUCCESS] All configuration files passed validation.\n")
 
@@ -17938,6 +18571,7 @@ def run_workflow(args):
                     message="Specified run directory not found.",
                 )
                 sys.exit(1)
+            adopt_relocated_artifact(run_dir)
             run_id = os.path.basename(run_dir)
         else:
             runs_root = workspace_artifact_root(workspace_root, "runs")
@@ -18004,6 +18638,7 @@ def run_workflow(args):
             configs["case_path"],
             require_precomputed=bool(getattr(args, "require_precomputed", False)),
             fetch_missing=bool(getattr(args, "fetch_missing", False)),
+            skip_kinds=unused_asset_kinds(configs["case"], configs["solver"]),
         )
         # Publish identity and lineage before either executable starts.  Besides making
         # a staged run self-describing, this lets a dependent post job resolve branch
@@ -18150,6 +18785,7 @@ def run_workflow(args):
                 print(f"[FATAL] Specified run directory not found: {run_dir}", file=sys.stderr)
                 sys.exit(1)
             print(f"[INFO] Operating on existing run directory: {os.path.relpath(run_dir)}")
+            adopt_relocated_artifact(run_dir)
             enforce_run_directory_structure(run_dir)
             run_id = read_artifact_identity(run_dir)["run_id"]
         elif not args.solve:
@@ -18177,25 +18813,6 @@ def run_workflow(args):
         monitor_cfg = read_yaml_file(monitor_path)
         post_cfg = read_yaml_file(args.post)
 
-        requested_start, requested_end, requested_interval = resolve_post_requested_window(post_cfg, case_cfg)
-        local_requested_start = resolve_post_owned_start(
-            run_dir, post_cfg, requested_start, requested_interval
-        )
-        try:
-            require_storage_payload_local(
-                run_dir,
-                "post-processing",
-                checkpoints=range(local_requested_start, requested_end + 1, requested_interval),
-            )
-        except StorageError as exc:
-            emit_structured_error(
-                ERROR_CODE_CFG_FILE_NOT_FOUND,
-                key="storage",
-                file_path=run_dir,
-                message=str(exc),
-            )
-            sys.exit(1)
-
         print("[INFO] Validating post-processing configuration...")
         validate_post_config(post_cfg, args.post, monitor_cfg, case_cfg)
         print("[SUCCESS] Post-processing configuration passed validation.\n")
@@ -18213,18 +18830,40 @@ def run_workflow(args):
             shutil.copy2(args.post, archived_post_path)
 
         solver_sources_deferred = bool(args.solve and (cluster_mode or args.no_submit))
-        allow_source_frontier_scan = not solver_sources_deferred
+        recompute = bool(getattr(args, 'recompute_post', False))
+        post_stages = resolve_post_stage_selection(getattr(args, 'only', None))
+        try:
+            post_exe = run_executable_path(run_dir, "postprocessor")
+        except ValueError as exc:
+            post_exe = None
+            post_exe_error = exc
         post_plan = build_post_execution_plan(
             run_dir,
             run_id,
             case_cfg,
             monitor_cfg,
             post_cfg,
-            continue_requested=getattr(args, 'continue_run', False),
-            allow_source_frontier_scan=allow_source_frontier_scan,
+            recompute=recompute,
+            allow_source_frontier_scan=not solver_sources_deferred,
+            postprocessor_sha=_file_sha256(post_exe) if post_exe else None,
         )
+        # Only the checkpoints of steps that need work must be local: a step whose output
+        # is up to date is not read, so an offload that archived it does not block the run.
+        needed_steps = post_plan['steps_to_process'] + post_plan['steps_unavailable']
+        if 'fields' in post_stages and not solver_sources_deferred and needed_steps:
+            try:
+                require_storage_payload_local(
+                    run_dir, "post-processing", checkpoints=needed_steps,
+                )
+            except StorageError as exc:
+                emit_structured_error(
+                    ERROR_CODE_CFG_FILE_NOT_FOUND,
+                    key="storage",
+                    file_path=run_dir,
+                    message=str(exc),
+                )
+                sys.exit(1)
 
-        post_stages = resolve_post_stage_selection(getattr(args, 'only', None))
         post_finalize_command = (
             build_post_finalize_command(run_dir, archived_post_path, post_cfg)
             if 'fields' in post_stages else []
@@ -18234,71 +18873,90 @@ def run_workflow(args):
 
         print(f"[INFO] Post recipe: {recipe_id}")
         print(f"[INFO] Post-processor source data: {os.path.relpath(post_plan['source_data_directory'])}")
-
-        if getattr(args, 'continue_run', False):
-            if post_plan['resume_recipe_match']:
-                print(f"[INFO] Post resume recipe match: yes ({post_plan['resume_match_source']}).")
-            else:
-                print("[INFO] Post resume recipe match: no. Using the configured start_step for this recipe.")
-        if post_plan['completed_frontier_step'] is not None:
-            print(f"[INFO] Completed post frontier: step {post_plan['completed_frontier_step']}")
-        else:
-            print("[INFO] Completed post frontier: none")
         if post_plan['source_frontier_deferred']:
-            print("[INFO] Source availability frontier: deferred because the solver stage will populate the requested window before post starts.")
-        elif post_plan['source_frontier_step'] is not None:
-            print(f"[INFO] Current source availability frontier: step {post_plan['source_frontier_step']}")
+            print("[INFO] Source checkpoints: not scanned; the solver stage writes them before post starts.")
+        elif post_plan['source_latest_step'] is not None:
+            print(f"[INFO] Source checkpoints: {post_plan['source_committed_count']} committed, "
+                  f"latest at step {post_plan['source_latest_step']}.")
         else:
-            print("[INFO] Current source availability frontier: none")
+            print("[INFO] Source checkpoints: none committed yet.")
 
-        persist_post_resume_state(run_dir, post_plan, last_successful_requested_end_step=post_plan['completed_frontier_step'])
+        # A local launch plans again under the post lock and reports that plan, so only an
+        # invocation that stages the work, or finds none, reports this one.
+        executes_fields_now = (
+            'fields' in post_stages and post_plan['skip_reason'] is None
+            and not cluster_mode and not args.no_submit
+        )
+        if 'fields' in post_stages:
+            if not executes_fields_now:
+                report_post_plan(post_plan)
+            warn_overlapping_post_recipes(run_dir, post_cfg, post_plan, post_stages)
+        persist_post_resume_state(run_dir, post_plan, steps=post_plan['adopted_records'])
 
-        if post_plan['skip_reason'] == 'already-complete-window':
-            print("[INFO] Requested post window is already complete; skipping postprocessor launch.")
-            persist_post_resume_state(run_dir, post_plan, last_successful_requested_end_step=post_plan['requested_end_step'])
-            if post_finalize_command:
-                run_post_finalize_locked(
-                    run_dir, post_plan['recipe_fingerprint'], post_finalize_command
-                )
-        elif post_plan['skip_reason'] == 'already-caught-up-to-current-source-frontier':
-            print("[INFO] Post outputs are already caught up to the current fully available source frontier; nothing new to launch right now.")
-            diagnostic = post_plan.get('source_frontier_diagnostic') or {}
-            first_incomplete = diagnostic.get('first_incomplete_step')
-            if first_incomplete is not None:
-                print(f"[INFO] First incomplete requested source step: {first_incomplete}")
-                print(
-                    "[INFO] Closest complete source steps: "
-                    f"near start={_format_optional_step(diagnostic.get('closest_complete_step_to_start'))}, "
-                    f"near end={_format_optional_step(diagnostic.get('closest_complete_step_to_end'))}"
-                )
-            if post_finalize_command:
-                run_post_finalize_locked(
-                    run_dir, post_plan['recipe_fingerprint'], post_finalize_command
-                )
-        elif post_plan['skip_reason'] == 'nothing-available-yet':
-            diagnostic = post_plan.get('source_frontier_diagnostic') or {}
-            first_incomplete = diagnostic.get('first_incomplete_step')
-            if first_incomplete is not None:
-                print(
-                    f"[INFO] First requested source step {first_incomplete} is incomplete; "
-                    "skipping postprocessor launch for now."
-                )
-                print(
-                    "[INFO] Closest complete source steps: "
-                    f"near start={_format_optional_step(diagnostic.get('closest_complete_step_to_start'))}, "
-                    f"near end={_format_optional_step(diagnostic.get('closest_complete_step_to_end'))}"
-                )
-                missing_files = diagnostic.get('missing_files_for_first_incomplete_step') or []
-                if missing_files:
-                    print(f"[INFO] Missing files for step {first_incomplete}: {', '.join(missing_files[:4])}")
-            else:
-                print("[INFO] No fully available source steps exist yet in the requested window; skipping postprocessor launch for now.")
-        else:
-            print(
-                f"[INFO] Effective post window: {post_plan['effective_start_step']}..{post_plan['effective_end_step']} "
-                f"(stride {post_plan['step_interval']})"
+        # Spectra run in the conductor rather than in the submitted job, so they can
+        # only be measured when this invocation is the one doing the work. Under a
+        # scheduler, with --no-submit, or before the solver has written anything,
+        # the sources do not exist yet and the measurement is deferred instead.
+        spectra_execute_now = (
+            not cluster_mode
+            and not args.no_submit
+            and not post_plan['source_frontier_deferred']
+        )
+        fields_job_measures_spectra = (
+            cluster_mode and 'fields' in post_stages and post_plan['skip_reason'] is None
+        )
+        if 'spectra' in post_stages and spectra_execute_now:
+            spectra_summary = run_post_spectra_stage(
+                run_dir,
+                post_plan['resolved_post_cfg'],
+                monitor_cfg,
+                post_plan['source_data_directory'],
+                _iter_post_steps(post_plan['owned_start_step'], post_plan['requested_end_step'],
+                                 post_plan['step_interval']),
+                plan=post_plan,
+                recompute=recompute,
             )
+            for artifact in spectra_summary['artifacts']:
+                print(f"[INFO] Spectra output: {os.path.relpath(artifact)}")
+        elif 'spectra' in post_stages and not fields_job_measures_spectra:
+            reason = ("the solver stage has not produced output yet"
+                      if post_plan['source_frontier_deferred'] else
+                      "this invocation only stages work")
+            print(f"[INFO] Spectra deferred: {reason}. Measure them once the run has "
+                  f"checkpoints with:")
+            print(f"[INFO]   picurv run --post-process --only spectra "
+                  f"--run-dir {os.path.relpath(run_dir)} --post {args.post}")
 
+        if 'fields' not in post_stages:
+            # --only selected a subset that excludes the field post-processor.
+            print("[INFO] Skipping the field post-processor (--only "
+                  f"{','.join(sorted(post_stages))}).")
+            stages_completed.append('post-process')
+        elif post_plan['skip_reason'] is not None:
+            diagnostic = post_plan.get('source_frontier_diagnostic') or {}
+            first_incomplete = diagnostic.get('first_incomplete_step')
+            if post_plan['skip_reason'] == 'already-complete-window':
+                print("[INFO] Every requested step is up to date; the postprocessor is not launched.")
+            elif post_plan['skip_reason'] == 'already-caught-up-to-current-source-frontier':
+                print("[INFO] Every requested step with a committed checkpoint is up to date; "
+                      "the postprocessor is not launched.")
+            else:
+                print("[INFO] No requested step has a committed checkpoint yet; the "
+                      "postprocessor is not launched.")
+                missing_files = diagnostic.get('missing_files_for_first_incomplete_step') or []
+                if first_incomplete is not None and missing_files:
+                    print(f"[INFO] Missing files for step {first_incomplete}: {', '.join(missing_files[:4])}")
+            if first_incomplete is not None:
+                print(
+                    "[INFO] Closest committed source steps: "
+                    f"near start={_format_optional_step(diagnostic.get('closest_complete_step_to_start'))}, "
+                    f"near end={_format_optional_step(diagnostic.get('closest_complete_step_to_end'))}"
+                )
+            if post_finalize_command and post_plan['steps_current']:
+                run_post_finalize_locked(
+                    run_dir, post_plan['recipe_fingerprint'], post_finalize_command
+                )
+        else:
             post_effective_cfg = post_plan['effective_post_cfg']
             post_io_cfg = post_effective_cfg.get('io', {})
             try:
@@ -18315,171 +18973,122 @@ def run_workflow(args):
             for stats_path in statistics_output_paths:
                 print(f"[INFO] Statistics CSV output: {os.path.relpath(stats_path)}")
 
-            # Spectra run in the conductor rather than in the submitted job, so they can
-            # only be measured when this invocation is the one doing the work. Under a
-            # scheduler, with --no-submit, or before the solver has written anything,
-            # the sources do not exist yet and the measurement is deferred instead.
-            spectra_execute_now = (
-                not cluster_mode
-                and not args.no_submit
-                and not post_plan['source_frontier_deferred']
-            )
-            if 'spectra' in post_stages and spectra_execute_now:
-                spectra_summary = run_post_spectra_stage(
-                    run_dir,
-                    post_effective_cfg,
-                    monitor_cfg,
-                    post_plan['source_data_directory'],
-                    range(post_plan['effective_start_step'],
-                          post_plan['effective_end_step'] + 1,
-                          post_plan['step_interval']),
+            source_files_post = {'Case': case_path, 'Post-Profile': args.post}
+            post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_effective_cfg, source_files_post, monitor_cfg)
+            if post_exe is None:
+                print(f"[FATAL] {post_exe_error}", file=sys.stderr)
+                sys.exit(1)
+            post_args = build_petsc_diagnostics_args(monitor_cfg, run_dir, "PostProcessor") + [
+                "-control_file",
+                solver_control_path,
+                "-postprocessing_config_file",
+                post_recipe_file,
+            ]
+            post_stage_meta = {
+                "num_procs_effective": post_num_procs_effective,
+                "steps_planned": len(post_plan['steps_to_process']),
+                "steps_current": post_plan['steps_current'],
+                "recompute": recompute,
+                "source_frontier_step": post_plan['source_frontier_step'],
+                "source_frontier_deferred": post_plan['source_frontier_deferred'],
+                "recipe_fingerprint": post_plan['recipe_fingerprint'],
+                "finalize_command": post_finalize_command,
+                "submitted": False,
+            }
+            if cluster_mode:
+                scheduler_dir = os.path.join(run_dir, "scheduler")
+                os.makedirs(scheduler_dir, exist_ok=True)
+                post_script = os.path.join(scheduler_dir, "post.sbatch")
+                post_log = os.path.join(scheduler_dir, "post_%j.out")
+                post_err = os.path.join(scheduler_dir, "post_%j.err")
+                post_cluster_cfg = cluster_cfg
+                raw_post_cmd = build_cluster_launch_command(
+                    post_cluster_cfg,
+                    post_exe,
+                    post_args,
+                    config_search_anchor=case_path,
+                    extra_search_anchors=[cluster_path],
+                    force_num_procs=post_num_procs_effective,
                 )
-                for artifact in spectra_summary['artifacts']:
-                    print(f"[INFO] Spectra output: {os.path.relpath(artifact)}")
-            elif 'spectra' in post_stages and not (cluster_mode and 'fields' in post_stages):
-                # Under a scheduler with the field stage selected the batch script runs
-                # the spectra step itself, so no instruction is printed for that case.
-                reason = ("the solver stage has not produced output yet"
-                          if post_plan['source_frontier_deferred'] else
-                          "this invocation only stages the post job")
-                print(f"[INFO] Spectra deferred: {reason}. Measure them once the run has "
-                      f"checkpoints with:")
-                print(f"[INFO]   picurv run --post-process --only spectra "
-                      f"--run-dir {os.path.relpath(run_dir)} --post {args.post}")
+                post_cmd, _ = build_post_locked_command(
+                    run_dir,
+                    post_plan['recipe_fingerprint'],
+                    raw_post_cmd,
+                    create_wrapper=True,
+                    success_command=post_finalize_command,
+                    post_recipe=archived_post_path,
+                    postprocessor=post_exe,
+                    recompute=recompute,
+                )
+                spectra_follow = []
+                if 'spectra' in post_stages:
+                    follow = build_spectra_follow_command(run_dir, args.post, post_effective_cfg,
+                                                          recompute=recompute)
+                    if follow:
+                        spectra_follow = [follow]
+                        print("[INFO] Spectra will be measured in the post job, after "
+                              "the field post-processor completes.")
+                render_slurm_script(
+                    post_script,
+                    f"{run_id}_post",
+                    post_cluster_cfg,
+                    post_cmd,
+                    run_dir,
+                    post_log,
+                    post_err,
+                    env_vars={"LOG_LEVEL": monitor_cfg.get('logging', {}).get('verbosity', 'INFO').upper()},
+                    follow_commands=spectra_follow,
+                    identity_check=(post_exe, read_binary_build_identity(post_exe).get("version_line"),
+                                    "postprocessor" in load_run_executables(run_dir)),
+                )
+                submission_meta["stages"]["post-process"] = {"script": post_script, **post_stage_meta}
+                print(f"[SUCCESS] Generated post Slurm script: {os.path.relpath(post_script)}")
 
-            if 'fields' not in post_stages:
-                # --only selected a subset that excludes the field post-processor.
-                print("[INFO] Skipping the field post-processor (--only "
-                      f"{','.join(sorted(post_stages))}).")
+                if not args.no_submit:
+                    dependency_job = None
+                    if args.solve:
+                        dependency_job = submission_meta.get("stages", {}).get("solve", {}).get("job_id")
+                    submit_info = submit_sbatch(post_script, dependency=dependency_job)
+                    submission_meta["stages"]["post-process"].update(submit_info)
+                    submission_meta["stages"]["post-process"]["submitted"] = True
+                    if dependency_job:
+                        submission_meta["stages"]["post-process"]["dependency"] = f"afterok:{dependency_job}"
+                    print(f"[SUCCESS] Submitted post job: {submit_info['job_id']}")
                 stages_completed.append('post-process')
             else:
-                source_files_post = {'Case': case_path, 'Post-Profile': args.post}
-                post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_effective_cfg, source_files_post, monitor_cfg)
-
-                try:
-                    post_exe = run_executable_path(run_dir, "postprocessor")
-                except ValueError as exc:
-                    print(f"[FATAL] {exc}", file=sys.stderr)
-                    sys.exit(1)
-                post_args = build_petsc_diagnostics_args(monitor_cfg, run_dir, "PostProcessor") + [
-                    "-control_file",
-                    solver_control_path,
-                    "-postprocessing_config_file",
-                    post_recipe_file,
-                ]
-                if cluster_mode:
-                    scheduler_dir = os.path.join(run_dir, "scheduler")
-                    os.makedirs(scheduler_dir, exist_ok=True)
-                    post_script = os.path.join(scheduler_dir, "post.sbatch")
-                    post_log = os.path.join(scheduler_dir, "post_%j.out")
-                    post_err = os.path.join(scheduler_dir, "post_%j.err")
-                    post_cluster_cfg = cluster_cfg
-                    raw_post_cmd = build_cluster_launch_command(
-                        post_cluster_cfg,
-                        post_exe,
-                        post_args,
-                        config_search_anchor=case_path,
-                        extra_search_anchors=[cluster_path],
-                        force_num_procs=post_num_procs_effective,
-                    )
-                    post_cmd, _ = build_post_locked_command(
-                        run_dir,
-                        post_plan['recipe_fingerprint'],
-                        raw_post_cmd,
-                        create_wrapper=True,
-                        success_command=post_finalize_command,
-                    )
-                    spectra_follow = []
-                    if 'spectra' in post_stages:
-                        follow = build_spectra_follow_command(run_dir, args.post, post_effective_cfg)
-                        if follow:
-                            spectra_follow = [follow]
-                            print("[INFO] Spectra will be measured in the post job, after "
-                                  "the field post-processor completes.")
-                    render_slurm_script(
-                        post_script,
-                        f"{run_id}_post",
-                        post_cluster_cfg,
-                        post_cmd,
-                        run_dir,
-                        post_log,
-                        post_err,
-                        env_vars={"LOG_LEVEL": monitor_cfg.get('logging', {}).get('verbosity', 'INFO').upper()},
-                        follow_commands=spectra_follow,
-                        identity_check=(post_exe, read_binary_build_identity(post_exe).get("version_line"),
-                                        "postprocessor" in load_run_executables(run_dir)),
-                    )
-                    submission_meta["stages"]["post-process"] = {
-                        "script": post_script,
-                        "submitted": False,
-                        "num_procs_effective": post_num_procs_effective,
-                        "resume_recipe_match": post_plan['resume_recipe_match'],
-                        "resume_bootstrapped": post_plan['resume_bootstrapped'],
-                        "resume_match_source": post_plan['resume_match_source'],
-                        "effective_start_step": post_plan['effective_start_step'],
-                        "effective_end_step": post_plan['effective_end_step'],
-                        "completed_frontier_step": post_plan['completed_frontier_step'],
-                        "source_frontier_step": post_plan['source_frontier_step'],
-                        "source_frontier_deferred": post_plan['source_frontier_deferred'],
-                        "recipe_fingerprint": post_plan['recipe_fingerprint'],
-                        "finalize_command": post_finalize_command,
-                    }
-                    print(f"[SUCCESS] Generated post Slurm script: {os.path.relpath(post_script)}")
-
-                    if not args.no_submit:
-                        dependency_job = None
-                        if args.solve:
-                            dependency_job = submission_meta.get("stages", {}).get("solve", {}).get("job_id")
-                        submit_info = submit_sbatch(post_script, dependency=dependency_job)
-                        submission_meta["stages"]["post-process"].update(submit_info)
-                        submission_meta["stages"]["post-process"]["submitted"] = True
-                        if dependency_job:
-                            submission_meta["stages"]["post-process"]["dependency"] = f"afterok:{dependency_job}"
-                        print(f"[SUCCESS] Submitted post job: {submit_info['job_id']}")
-                    stages_completed.append('post-process')
+                raw_command = build_local_launch_command(
+                    post_exe,
+                    post_args,
+                    post_num_procs_effective,
+                    config_search_anchor=case_path,
+                    allow_single_rank_launcher_override=True,
+                    force_num_procs=post_num_procs_effective,
+                )
+                command, _ = build_post_locked_command(
+                    run_dir,
+                    post_plan['recipe_fingerprint'],
+                    raw_command,
+                    create_wrapper=True,
+                    success_command=post_finalize_command,
+                    post_recipe=archived_post_path,
+                    postprocessor=post_exe,
+                    recompute=recompute,
+                )
+                post_log = os.path.join("scheduler", f"{run_id}_{output_prefix}.log")
+                submission_meta["stages"]["post-process"] = {
+                    "command": command,
+                    "command_string": format_command_for_display(command),
+                    "log_file": post_log,
+                    **post_stage_meta,
+                }
+                if args.no_submit:
+                    print(f"[SUCCESS] Staged local post command: {post_log}")
                 else:
-                    raw_command = build_local_launch_command(
-                        post_exe,
-                        post_args,
-                        post_num_procs_effective,
-                        config_search_anchor=case_path,
-                        allow_single_rank_launcher_override=True,
-                        force_num_procs=post_num_procs_effective,
-                    )
-                    command, _ = build_post_locked_command(
-                        run_dir,
-                        post_plan['recipe_fingerprint'],
-                        raw_command,
-                        create_wrapper=True,
-                        success_command=post_finalize_command,
-                    )
-                    post_log = os.path.join("scheduler", f"{run_id}_{output_prefix}.log")
-                    submission_meta["stages"]["post-process"] = {
-                        "command": command,
-                        "command_string": format_command_for_display(command),
-                        "log_file": post_log,
-                        "submitted": False,
-                        "num_procs_effective": post_num_procs_effective,
-                        "resume_recipe_match": post_plan['resume_recipe_match'],
-                        "resume_bootstrapped": post_plan['resume_bootstrapped'],
-                        "resume_match_source": post_plan['resume_match_source'],
-                        "effective_start_step": post_plan['effective_start_step'],
-                        "effective_end_step": post_plan['effective_end_step'],
-                        "completed_frontier_step": post_plan['completed_frontier_step'],
-                        "source_frontier_step": post_plan['source_frontier_step'],
-                        "source_frontier_deferred": post_plan['source_frontier_deferred'],
-                        "recipe_fingerprint": post_plan['recipe_fingerprint'],
-                        "finalize_command": post_finalize_command,
-                    }
-                    if args.no_submit:
-                        print(f"[SUCCESS] Staged local post command: {post_log}")
-                    else:
-                        execute_command(command, run_dir, post_log, monitor_cfg)
-                        persist_post_resume_state(run_dir, post_plan, last_successful_requested_end_step=post_plan['effective_end_step'])
-                        submission_meta["stages"]["post-process"]["submitted"] = True
-                        submission_meta["stages"]["post-process"]["executed"] = True
-                        submission_meta["stages"]["post-process"]["completed_at"] = datetime.now().isoformat()
-                    stages_completed.append('post-process')
+                    execute_command(command, run_dir, post_log, monitor_cfg)
+                    submission_meta["stages"]["post-process"]["submitted"] = True
+                    submission_meta["stages"]["post-process"]["executed"] = True
+                    submission_meta["stages"]["post-process"]["completed_at"] = datetime.now().isoformat()
+                stages_completed.append('post-process')
 
     if run_dir:
         workspace_root = find_workspace_root(run_dir)
@@ -18726,7 +19335,9 @@ def sweep_workflow(args):
         validate_simulation_configs(case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path)
         validate_post_config(post_cfg, post_path, monitor_cfg, case_cfg)
 
-        asset_lock = materialize_run_assets(run_dir, case_cfg, case_path)
+        asset_lock = materialize_run_assets(
+            run_dir, case_cfg, case_path, skip_kinds=unused_asset_kinds(case_cfg, solver_cfg)
+        )
 
         source_files = {'Case': case_path, 'Solver': solver_path, 'Monitor': monitor_path}
         monitor_files = prepare_monitor_files(run_dir, case_id, monitor_cfg, source_files)
@@ -18756,6 +19367,7 @@ def sweep_workflow(args):
             os.makedirs(os.path.join(run_dir, relative), exist_ok=True)
         output_prefix = post_cfg.get("io", {}).get("output_filename_prefix", "post")
         post_recipe = generate_post_recipe_file(run_dir, case_id, post_cfg, {'Case': case_path, 'Post-Profile': post_path}, monitor_cfg)
+        ensure_post_lock_wrapper(run_dir)
 
         case_entries.append({
             "index": idx,
@@ -18913,6 +19525,8 @@ def sweep_workflow(args):
     print(f"  Array spec      : {array_spec}")
     print(f"  Solver script   : {os.path.relpath(solver_array_script)}")
     print(f"  Post script     : {os.path.relpath(post_array_script)}")
+    if args.no_submit:
+        print(f"  Submit with     : picurv submit --study-dir {os.path.relpath(study_dir)}")
     if metrics_csv:
         print(f"  Metrics table   : {os.path.relpath(metrics_csv)}")
     if plots:
@@ -18934,6 +19548,7 @@ def sweep_continue_workflow(args):
     if not os.path.isfile(manifest_path):
         print(f"[FATAL] Study manifest not found: {manifest_path}", file=sys.stderr)
         sys.exit(1)
+    adopt_relocated_artifact(study_dir, kind="study")
     manifest = _read_json_if_exists(manifest_path)
     study_id = manifest["study_id"]
 
@@ -19090,6 +19705,10 @@ def sweep_continue_workflow(args):
         sys.exit(1)
     solver_exe, solver_version_line = stage_executables["simulator"]
     post_exe, post_version_line = stage_executables["postprocessor"]
+    # The post array relaunches every member through the lock wrapper; a study staged
+    # by an earlier version holds a wrapper without the launch-time planning it needs.
+    for entry in all_case_entries:
+        ensure_post_lock_wrapper(entry["run_dir"])
 
     solver_continue_script = os.path.join(scheduler_dir, "solver_continue_array.sbatch")
     post_continue_script = os.path.join(scheduler_dir, "post_continue_array.sbatch")
@@ -19177,9 +19796,8 @@ def sweep_continue_workflow(args):
     if not args.no_submit:
         print(f"  [Metrics aggregation will run automatically after post-processing]")
     else:
-        print(f"  [--no-submit] Scripts generated but not submitted.")
-        print(f"  After manual submission and completion, run:")
-        print(f"    picurv sweep --reaggregate --study-dir {os.path.relpath(study_dir)}")
+        print(f"  [--no-submit] Scripts generated but not submitted. Submit them with:")
+        print(f"    picurv submit --study-dir {os.path.relpath(study_dir)}")
     print("=" * 60)
 
 
@@ -19193,6 +19811,7 @@ def sweep_reaggregate_workflow(args):
     if not os.path.isfile(study_path):
         print(f"[FATAL] Study config not found: {study_path}", file=sys.stderr)
         sys.exit(1)
+    adopt_relocated_artifact(study_dir, kind="study")
     study_cfg = read_yaml_file(study_path)
     validate_study_config(study_cfg, study_path, skip_base_file_check=True)
 
@@ -21867,8 +22486,8 @@ def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
         candidates.sort()
     if not candidates:
         raise ValueError(
-            "No spectra were found for this run. Run "
-            "'picurv run --post-process --only spectra' first."
+            "No spectra were found for this run. Measure them first with "
+            "'picurv run --post-process --only spectra --run-dir <run> --post <post.yml>'."
         )
     matches = [name for name in candidates if task in name] if task else candidates
     if len(matches) != 1:
@@ -22296,6 +22915,15 @@ def _resolve_submission_target(run_dir: str = None, study_dir: str = None) -> di
 
     scheduler_dir = os.path.join(root_dir, "scheduler")
     submission_path = os.path.join(scheduler_dir, "submission.json")
+    continuation = False
+    if target_kind == "study":
+        # `sweep --continue` stages its scripts in a set of their own; the set staged
+        # last is the one to submit.
+        continue_path = os.path.join(scheduler_dir, "submission_continue.json")
+        if os.path.isfile(continue_path) and (
+                not os.path.isfile(submission_path)
+                or os.path.getmtime(continue_path) >= os.path.getmtime(submission_path)):
+            submission_path, continuation = continue_path, True
     submission_meta = _read_json_if_exists(submission_path)
     if not isinstance(submission_meta, dict):
         emit_structured_error(
@@ -22335,11 +22963,20 @@ def _resolve_submission_target(run_dir: str = None, study_dir: str = None) -> di
         display_label = "Run directory"
         manifest_path = None
     else:
+        stage_keys = ({"solve": "solver_continue_array", "post-process": "post_continue_array",
+                       "metrics": "metrics_aggregate"} if continuation else
+                      {"solve": "solver_array", "post-process": "post_array",
+                       "metrics": "metrics_aggregate"})
+        default_scripts = ({"solve": "solver_continue_array.sbatch", "post-process": "post_continue_array.sbatch",
+                            "metrics": "metrics_continue_aggregate.sbatch"} if continuation else
+                           {"solve": "solver_array.sbatch", "post-process": "post_array.sbatch",
+                            "metrics": "metrics_aggregate.sbatch"})
         script_map = {
-            "solve": os.path.join(scheduler_dir, "solver_array.sbatch"),
-            "post-process": os.path.join(scheduler_dir, "post_array.sbatch"),
+            stage: ((submission_meta.get(key) or {}).get("script")
+                    or os.path.join(scheduler_dir, default_scripts[stage]))
+            for stage, key in stage_keys.items()
         }
-        display_label = "Study directory"
+        display_label = "Study continuation" if continuation else "Study directory"
         manifest_path = os.path.join(root_dir, "study_manifest.json")
 
     return {
@@ -22353,6 +22990,8 @@ def _resolve_submission_target(run_dir: str = None, study_dir: str = None) -> di
         "script_map": script_map,
         "display_label": display_label,
         "manifest_path": manifest_path,
+        "continuation": continuation,
+        "stage_keys": stage_keys if target_kind == "study" else None,
     }
 
 
@@ -22371,8 +23010,7 @@ def _get_submission_stage_metadata(target_context: dict, stage_name: str) -> dic
         stage_meta = stages.get(stage_name)
         return copy.deepcopy(stage_meta) if isinstance(stage_meta, dict) else {}
 
-    key = "solver_array" if stage_name == "solve" else "post_array"
-    stage_meta = submission_meta.get(key)
+    stage_meta = submission_meta.get(target_context["stage_keys"][stage_name])
     return copy.deepcopy(stage_meta) if isinstance(stage_meta, dict) else {}
 
 
@@ -22392,10 +23030,9 @@ def _get_recorded_submission_stages(target_context: dict) -> list:
                     recorded.append(stage_name)
         return recorded
 
-    if isinstance(submission_meta.get("solver_array"), dict):
-        recorded.append("solve")
-    if isinstance(submission_meta.get("post_array"), dict):
-        recorded.append("post-process")
+    for stage_name in ("solve", "post-process"):
+        if isinstance(submission_meta.get(target_context["stage_keys"][stage_name]), dict):
+            recorded.append(stage_name)
     return recorded
 
 
@@ -22489,8 +23126,7 @@ def _set_submission_stage_metadata(target_context: dict, stage_name: str, stage_
         stages[stage_name] = stage_meta
         return
 
-    key = "solver_array" if stage_name == "solve" else "post_array"
-    submission_meta[key] = stage_meta
+    submission_meta[target_context["stage_keys"][stage_name]] = stage_meta
 
 
 def _write_submission_target_metadata(target_context: dict):
@@ -22504,7 +23140,10 @@ def _write_submission_target_metadata(target_context: dict):
     if manifest_path and os.path.isfile(manifest_path):
         manifest_payload = _read_json_if_exists(manifest_path)
         if isinstance(manifest_payload, dict):
-            manifest_payload["submission"] = target_context["submission_meta"]
+            if target_context.get("continuation"):
+                manifest_payload.setdefault("continuation", {})["submission"] = target_context["submission_meta"]
+            else:
+                manifest_payload["submission"] = target_context["submission_meta"]
             write_json_file(manifest_path, manifest_payload)
 
 
@@ -22643,6 +23282,10 @@ def submit_staged_jobs(args):
     @brief Submit previously staged Slurm artifacts from an existing run/study directory.
     @param[in] args Command-line style argument list supplied to the function.
     """
+    if getattr(args, "run_dir", None) and os.path.isdir(args.run_dir):
+        adopt_relocated_artifact(args.run_dir)
+    elif getattr(args, "study_dir", None) and os.path.isdir(args.study_dir):
+        adopt_relocated_artifact(args.study_dir, kind="study")
     target_context = _resolve_submission_target(
         run_dir=getattr(args, "run_dir", None),
         study_dir=getattr(args, "study_dir", None),
@@ -22656,7 +23299,7 @@ def submit_staged_jobs(args):
         target_context["root_dir"]
     )
     for warning in preflight_warnings:
-        print(f"[WARN] {warning.strip()}", file=sys.stderr)
+        print(f"[WARNING] {warning.strip()}", file=sys.stderr)
     if preflight_errors:
         print(
             "[FATAL] Submission preflight failed: the staged run has an unsafe run-directory "
@@ -22732,17 +23375,19 @@ def submit_staged_jobs(args):
         if stage_name == "post-process":
             if "solve" in selected_stages:
                 dependency = "__NEW_SOLVE_JOB_ID__"
-            else:
-                if not (solve_existing_meta.get("submitted") and solve_existing_job_id):
-                    emit_structured_error(
-                        ERROR_CODE_CFG_INCONSISTENT_COMBO,
-                        key="scheduler.post-process.dependency",
-                        file_path=target_context["submission_path"],
-                        message="Post-process submission requires a recorded solve job id when solve is not being submitted in the same command.",
-                        hint="Submit --stage solve or --stage all first, or use --force only after solve metadata exists.",
-                    )
-                    sys.exit(1)
+            elif solve_existing_meta.get("submitted") and solve_existing_job_id:
                 dependency = solve_existing_job_id
+            elif solve_existing_meta and not args.force:
+                # A post staged on its own has no solve to wait for: it reads a run solved
+                # earlier and plans its steps from what is committed when it starts.
+                emit_structured_error(
+                    ERROR_CODE_CFG_INCONSISTENT_COMBO,
+                    key="scheduler.post-process.dependency",
+                    file_path=target_context["submission_path"],
+                    message="This run's staged solve has not been submitted, so its post-process job would have nothing to read.",
+                    hint="Submit --stage solve or --stage all first, or use --force to submit the post job without a dependency.",
+                )
+                sys.exit(1)
 
         stage_plans.append(
             {
@@ -22753,40 +23398,58 @@ def submit_staged_jobs(args):
             }
         )
 
+    # A study aggregates its metrics after its post array, as `sweep` chains it, whether
+    # or not every member succeeded.
+    if target_context["target_kind"] == "study" and "post-process" in selected_stages:
+        metrics_meta = _get_submission_stage_metadata(target_context, "metrics")
+        metrics_script = target_context["script_map"]["metrics"]
+        if metrics_meta and os.path.isfile(metrics_script) and (not metrics_meta.get("submitted") or args.force):
+            stage_plans.append({
+                "stage": "metrics",
+                "script": metrics_script,
+                "dependency": "__NEW_POST_JOB_ID__",
+                "dependency_type": "afterany",
+                "existing_meta": metrics_meta,
+            })
+
     if args.dry_run:
         for plan in stage_plans:
             cmd = ["sbatch"]
             dependency = plan["dependency"]
+            dependency_type = plan.get("dependency_type", "afterok")
             if dependency == "__NEW_SOLVE_JOB_ID__":
                 cmd.append("--dependency=afterok:<new solve job id>")
+            elif dependency == "__NEW_POST_JOB_ID__":
+                cmd.append(f"--dependency={dependency_type}:<new post job id>")
             elif dependency:
-                cmd.append(f"--dependency=afterok:{dependency}")
+                cmd.append(f"--dependency={dependency_type}:{dependency}")
             cmd.append(plan["script"])
             print(f"[DRY-RUN] Would run: {' '.join(cmd)}")
         print("[INFO] Dry-run only. No jobs were submitted.")
         return
 
-    latest_solve_job_id = None
+    new_job_ids = {}
     for plan in stage_plans:
         dependency = plan["dependency"]
+        dependency_type = plan.get("dependency_type", "afterok")
         if dependency == "__NEW_SOLVE_JOB_ID__":
-            dependency = latest_solve_job_id
+            dependency = new_job_ids.get("solve")
+        elif dependency == "__NEW_POST_JOB_ID__":
+            dependency = new_job_ids.get("post-process")
 
-        submit_info = submit_sbatch(plan["script"], dependency=dependency)
+        submit_info = submit_sbatch(plan["script"], dependency=dependency, dependency_type=dependency_type)
         stage_meta = copy.deepcopy(plan["existing_meta"])
         stage_meta.update(submit_info)
         stage_meta["script"] = plan["script"]
         stage_meta["submitted"] = True
         if dependency:
-            stage_meta["dependency"] = f"afterok:{dependency}"
+            stage_meta["dependency"] = f"{dependency_type}:{dependency}"
         else:
             stage_meta.pop("dependency", None)
 
         _set_submission_stage_metadata(target_context, plan["stage"], stage_meta)
         print(f"[SUCCESS] Submitted {plan['stage']} job: {submit_info['job_id']}")
-
-        if plan["stage"] == "solve":
-            latest_solve_job_id = submit_info["job_id"]
+        new_job_ids[plan["stage"]] = submit_info["job_id"]
 
     _write_submission_target_metadata(target_context)
 
@@ -22810,7 +23473,10 @@ def submit_staged_local_run(args, target_context: dict, selected_stages: list):
 
     stage_plans = []
     solve_existing_meta = _get_submission_stage_metadata(target_context, "solve")
-    solve_already_done = bool(solve_existing_meta.get("submitted") or solve_existing_meta.get("executed"))
+    # Only a solve staged in this same set can still be pending; a post staged on its own
+    # reads a run solved earlier and plans its steps from what is committed when it starts.
+    solve_pending = bool(solve_existing_meta) and not bool(
+        solve_existing_meta.get("submitted") or solve_existing_meta.get("executed"))
 
     for stage_name in selected_stages:
         existing_meta = _get_submission_stage_metadata(target_context, stage_name)
@@ -22839,13 +23505,13 @@ def submit_staged_local_run(args, target_context: dict, selected_stages: list):
             )
             sys.exit(1)
 
-        if stage_name == "post-process" and "solve" not in selected_stages and not args.force and not solve_already_done:
+        if stage_name == "post-process" and "solve" not in selected_stages and not args.force and solve_pending:
             emit_structured_error(
                 ERROR_CODE_CFG_INCONSISTENT_COMBO,
                 key="scheduler.post-process.dependency",
                 file_path=target_context["submission_path"],
-                message="Post-process local execution requires a recorded completed solve stage when solve is not being executed in the same command.",
-                hint="Submit --stage solve or --stage all first, or use --force after confirming source data exists.",
+                message="This run's staged solve has not run yet, so its post-process stage has nothing to read.",
+                hint="Submit --stage solve or --stage all first, or use --force to run the post stage anyway.",
             )
             sys.exit(1)
 

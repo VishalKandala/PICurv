@@ -234,11 +234,11 @@ For batch-policy files, prefer local operational names such as `short_job.local.
 
 Catch up post-processing on an existing run without editing `post.yml.start_step`:
 ```bash
-./bin/picurv run --post-process --continue \
+./bin/picurv run --post-process \
   --run-dir runs/<run_id> \
   --post my_case/standard_analysis.yml
 ```
-For the same recipe, `--continue` keeps the full logical window in `post.yml` and moves the effective start step internally. If the solver has only written source data through the current frontier, PICurv post-processes only that fully available contiguous prefix and exits cleanly. If another post job is already active on the same run directory, the new writer is refused instead of racing on shared output files.
+Each run processes only the steps of the window whose output is missing or stale, and leaves steps the solver has not committed yet for a later run; `--recompute` regenerates everything. If another post job is already active on the same run directory, the new writer is refused instead of racing on shared output files.
 
 ## Case Maintenance
 
@@ -423,7 +423,7 @@ Detailed long-form option docs:
 For a ParaView time series spanning restart runs, merge
 `paraview_series: {enabled: true, scope: lineage}` into `post.yml`'s `io` mapping.
 Postprocess ancestors with the same recipe, then run
-`picurv run --post-process --continue --run-dir <child_run> --post <post.yml>`.
+`picurv run --post-process --run-dir <child_run> --post <post.yml>`.
 Open the child's `.pvd` collection; it references the original VTK files and uses
 checkpoint times. Repeat post catch-up and reopen the PVD as the solver produces
 more data. Changing the post stride or fields changes recipe identity and requires

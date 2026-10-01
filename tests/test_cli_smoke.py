@@ -696,7 +696,7 @@ def test_generate_solver_control_file_ignores_superseded_file_ic(
     assert "-finit 0" in content
     assert "-ic_dir " not in content
     assert not (run_dir / "inputs" / "initial_condition" / "ufield00000_0.dat").exists()
-    assert "Ignoring configured initial condition" in captured.err
+    assert "Initial condition not applied" in captured.out
 
 
 def test_precompute_materializes_ic_gen_initial_condition(tmp_path, monkeypatch):
@@ -1026,27 +1026,6 @@ def set_checkpoint_time(run_dir: Path, step: int, physical_time: float):
         hashlib.sha256(metadata.read_bytes()).hexdigest() + "\n", encoding="ascii"
     )
 
-
-def write_legacy_post_recipe(run_dir: Path, run_id: str, post_cfg: dict, monitor_cfg: dict):
-    """!
-    @brief Write a legacy-style post.run file matching the supplied post config.
-    @param[in] run_dir Argument passed to `write_legacy_post_recipe()`.
-    @param[in] run_id Argument passed to `write_legacy_post_recipe()`.
-    @param[in] post_cfg Argument passed to `write_legacy_post_recipe()`.
-    @param[in] monitor_cfg Argument passed to `write_legacy_post_recipe()`.
-    """
-    picurv = load_picurv_module()
-    canonical_post_cfg, _ = picurv.apply_canonical_post_paths(post_cfg, str(run_dir))
-    resolved_source = picurv._resolve_post_source_directory_preview(
-        str(run_dir), monitor_cfg, canonical_post_cfg
-    )
-    resolved_post_cfg = picurv.prepare_effective_post_config(canonical_post_cfg, resolved_source)
-    recipe_cfg = picurv.build_post_recipe_config(resolved_post_cfg, monitor_cfg)
-    lines = ["# legacy post.run"]
-    for key, value in recipe_cfg.items():
-        if value is not None and str(value) != "":
-            lines.append(f"{key} = {value}")
-    (run_dir / "config" / "post.run").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 def test_env_script_falls_back_to_package_entrypoint_when_bin_launcher_is_missing(tmp_path):
     """!
@@ -1832,7 +1811,7 @@ def test_picslice_validation_rejects_bad_shape_and_values(tmp_path):
 
     bad_frame = tmp_path / "bad_frame.picslice"
     bad_frame.write_text("PICSLICE\n2\n2 2\n1\n2\n3\n4\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="exactly 1"):
+    with pytest.raises(ValueError, match="exactly one frame"):
         picurv.validate_and_nondimensionalize_picslice(str(bad_frame), str(dest), 1.0, expected_dims=(2, 2))
 
     negative = tmp_path / "negative.picslice"
@@ -3516,127 +3495,170 @@ def test_local_no_submit_solve_post_stages_post_with_deferred_sources(tmp_path):
     assert "command" in post_meta
 
 
-def test_dry_run_post_process_continue_bootstraps_same_recipe_tail(tmp_path):
+def _dry_run_post_stage(tmp_path, run_dir, post_cfg, *extra):
     """!
-    @brief Test that post --continue bootstraps from legacy post.run and resumes at the first unfinished step.
+    @brief Dry-run a post-only invocation and return its post-process stage plan.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] run_dir Run directory to post-process.
+    @param[in] post_cfg Post recipe to write and pass.
+    @param[in] extra Additional CLI arguments.
+    @return The `post-process` stage of the JSON plan.
     """
-    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="resume_bootstrap")
-    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
-    post_path = tmp_path / "post_resume.yml"
+    post_path = tmp_path / f"post_{run_dir.name}.yml"
     post_path.write_text(yaml.safe_dump(post_cfg, sort_keys=False), encoding="utf-8")
-
-    create_post_source_steps(run_dir, monitor_cfg, range(0, 11))
-    create_post_outputs(run_dir, post_cfg, monitor_cfg, euler_steps=range(0, 7))
-    write_legacy_post_recipe(run_dir, run_dir.name, post_cfg, monitor_cfg)
-
     result = run_picurv(
-        [
-            "run",
-            "--post-process",
-            "--continue",
-            "--run-dir",
-            str(run_dir),
-            "--post",
-            str(post_path),
-            "--dry-run",
-            "--format",
-            "json",
-        ],
+        ["run", "--post-process", "--run-dir", str(run_dir), "--post", str(post_path),
+         *extra, "--dry-run", "--format", "json"],
         cwd=tmp_path,
     )
-
     assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
-    stage = payload["stages"]["post-process"]
-    assert stage["resume_recipe_match"] is True
-    assert stage["resume_bootstrapped"] is True
-    assert stage["completed_frontier_step"] == 6
+    return json.loads(result.stdout)["stages"]["post-process"]
+
+
+def test_dry_run_post_process_keeps_existing_output_and_plans_the_rest(tmp_path):
+    """!
+    @brief Test that a plain post run keeps valid output and plans only the missing steps.
+
+    Output written before step records existed is adopted when it is newer than its
+    checkpoint, so upgrading does not recompute a finished window.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="keeps_output")
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    create_post_source_steps(run_dir, monitor_cfg, range(0, 11))
+    create_post_outputs(run_dir, post_cfg, monitor_cfg, euler_steps=range(0, 7))
+
+    stage = _dry_run_post_stage(tmp_path, run_dir, post_cfg)
+    assert stage["steps_to_process"] == [7, 8, 9, 10]
+    assert stage["steps_current"] == 7
+    assert stage["process_reasons"] == {"missing": 4}
     assert stage["effective_start_step"] == 7
     assert stage["effective_end_step"] == 10
-    assert stage["launch_command"][0].endswith("post_lock_wrapper.py")
+    assert stage["launch_command"][1].endswith("post_lock_wrapper.py")
+    assert "--post-recipe" in stage["launch_command"]
     assert any(str(REPO_ROOT / "bin" / "postprocessor") == token for token in stage["launch_command"])
 
+    stage = _dry_run_post_stage(tmp_path, run_dir, post_cfg, "--recompute")
+    assert stage["steps_to_process"] == list(range(0, 11))
+    assert "--recompute" in stage["launch_command"]
 
-def test_dry_run_post_process_continue_skips_complete_window(tmp_path):
+
+def test_dry_run_post_process_processes_only_the_missing_steps(tmp_path):
     """!
-    @brief Test that post --continue skips launch when the requested window is already fully complete.
+    @brief Test that steps missing in the middle of a window are processed alone.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="gaps")
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    create_post_source_steps(run_dir, monitor_cfg, range(0, 11))
+    create_post_outputs(run_dir, post_cfg, monitor_cfg,
+                        euler_steps=[step for step in range(0, 11) if step not in (0, 3, 7)])
+
+    stage = _dry_run_post_stage(tmp_path, run_dir, post_cfg)
+    assert stage["steps_to_process"] == [0, 3, 7]
+    assert stage["steps_current"] == 8
+
+
+def test_dry_run_post_process_skips_complete_window(tmp_path):
+    """!
+    @brief Test that a post run skips launch when every requested step is up to date.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="resume_complete")
     post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
-    post_path = tmp_path / "post_complete.yml"
-    post_path.write_text(yaml.safe_dump(post_cfg, sort_keys=False), encoding="utf-8")
-
     create_post_source_steps(run_dir, monitor_cfg, range(0, 11))
     create_post_outputs(run_dir, post_cfg, monitor_cfg, euler_steps=range(0, 11))
-    write_legacy_post_recipe(run_dir, run_dir.name, post_cfg, monitor_cfg)
 
-    result = run_picurv(
-        [
-            "run",
-            "--post-process",
-            "--continue",
-            "--run-dir",
-            str(run_dir),
-            "--post",
-            str(post_path),
-            "--dry-run",
-            "--format",
-            "json",
-        ],
-        cwd=tmp_path,
-    )
-
-    assert result.returncode == 0, result.stderr
-    stage = json.loads(result.stdout)["stages"]["post-process"]
+    stage = _dry_run_post_stage(tmp_path, run_dir, post_cfg)
     assert stage["skip_reason"] == "already-complete-window"
     assert stage["post_skipped_as_complete"] is True
     assert stage["launch_command"] == []
 
 
-def test_dry_run_post_process_continue_starts_fresh_when_step_interval_changes(tmp_path):
+def test_dry_run_post_process_reprocesses_output_older_than_its_checkpoint(tmp_path):
     """!
-    @brief Test that changing step_interval starts a fresh post lineage instead of resuming the old one.
+    @brief Test that unrecorded output older than its checkpoint is treated as stale.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
-    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="resume_interval_change")
-    legacy_post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
-    current_post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
-    current_post_cfg["run_control"]["step_interval"] = 2
-    post_path = tmp_path / "post_interval_change.yml"
-    post_path.write_text(yaml.safe_dump(current_post_cfg, sort_keys=False), encoding="utf-8")
-
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="stale")
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
     create_post_source_steps(run_dir, monitor_cfg, range(0, 11))
-    create_post_outputs(run_dir, legacy_post_cfg, monitor_cfg, euler_steps=range(0, 7))
-    write_legacy_post_recipe(run_dir, run_dir.name, legacy_post_cfg, monitor_cfg)
+    create_post_outputs(run_dir, post_cfg, monitor_cfg, euler_steps=range(0, 11))
+    marker = run_dir / "output" / "checkpoints" / f"step_{4:012d}" / "COMMITTED"
+    later = max(path.stat().st_mtime for path in run_dir.rglob("*.vts")) + 60
+    os.utime(marker, (later, later))
 
-    result = run_picurv(
-        [
-            "run",
-            "--post-process",
-            "--continue",
-            "--run-dir",
-            str(run_dir),
-            "--post",
-            str(post_path),
-            "--dry-run",
-            "--format",
-            "json",
-        ],
-        cwd=tmp_path,
+    stage = _dry_run_post_stage(tmp_path, run_dir, post_cfg)
+    assert stage["steps_to_process"] == [4]
+    assert stage["process_reasons"] == {"checkpoint": 1}
+
+
+def test_post_requires_only_the_archived_checkpoints_it_reads(tmp_path):
+    """!
+    @brief Test that an offloaded run blocks post only for checkpoints it must process.
+
+    A step whose output is up to date is not read, so its archived checkpoint does not
+    block a run that finds the window complete; a step still to be processed does, with
+    the restore command for that step.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="offloaded")
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    post_path = tmp_path / "post_offloaded.yml"
+    post_path.write_text(yaml.safe_dump(post_cfg, sort_keys=False), encoding="utf-8")
+    create_post_source_steps(run_dir, monitor_cfg, range(0, 11))
+    (run_dir / ".picurv-storage.json").write_text(
+        json.dumps({"storage_schema_version": 1, "archive_id": "a" * 32, "local_pruned": True}),
+        encoding="utf-8",
     )
+    command = ["run", "--post-process", "--run-dir", str(run_dir), "--post", str(post_path)]
 
+    create_post_outputs(run_dir, post_cfg, monitor_cfg, euler_steps=range(0, 10))
+    result = run_picurv(command, cwd=tmp_path)
+    assert result.returncode != 0
+    assert "--checkpoint 10" in result.stderr and "--checkpoint 9" not in result.stderr
+
+    create_post_outputs(run_dir, post_cfg, monitor_cfg, euler_steps=range(0, 11))
+    result = run_picurv(command, cwd=tmp_path)
     assert result.returncode == 0, result.stderr
-    stage = json.loads(result.stdout)["stages"]["post-process"]
-    assert stage["resume_recipe_match"] is False
-    assert stage["effective_start_step"] == 0
-    assert stage["effective_end_step"] == 10
+    assert "Every requested step is up to date" in result.stdout
+
+
+def test_recompute_requires_post_process(tmp_path):
+    """!
+    @brief Test that --recompute is refused without a post stage to apply to.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    result = run_picurv(["run", "--recompute", "--solve", "--case", str(valid / "case.yml"),
+                         "--solver", str(valid / "solver.yml"), "--monitor", str(valid / "monitor.yml")],
+                        cwd=tmp_path)
+    assert result.returncode != 0
+    assert "requires --post-process" in result.stderr
+
+
+def test_dry_run_post_process_changed_step_interval_is_a_new_recipe(tmp_path):
+    """!
+    @brief Test that a changed step_interval is its own recipe and plans its whole cadence.
+
+    The cadence is part of the recipe identity, so each cadence keeps its own output
+    directory; the earlier cadence's files are neither reused nor overwritten.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="interval_change")
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    create_post_source_steps(run_dir, monitor_cfg, range(0, 11))
+    create_post_outputs(run_dir, post_cfg, monitor_cfg, euler_steps=range(0, 7))
+    post_cfg["run_control"]["step_interval"] = 2
+
+    stage = _dry_run_post_stage(tmp_path, run_dir, post_cfg)
+    assert stage["steps_current"] == 0
+    assert stage["steps_to_process"] == [0, 2, 4, 6, 8, 10]
 
 
 def test_dry_run_post_process_caps_to_current_live_source_frontier(tmp_path):
     """!
-    @brief Test that post dry-run only launches the currently available contiguous source prefix.
+    @brief Test that post dry-run plans only the steps whose checkpoints are committed.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="live_prefix")
@@ -3836,6 +3858,67 @@ def test_paraview_particle_series_starts_at_branch_when_particles_reinitialize(t
     assert not any("particle_parent" in name for name in particle_files)
 
 
+def test_a_moved_run_is_pointed_at_its_new_location(tmp_path):
+    """!
+    @brief Test that opening a moved run rewrites its generated paths once.
+
+    The old root comes from the manifest, or, for a run staged before the manifest
+    recorded it, from a control-file path that names one of the run's own files. An
+    unmoved run is left untouched.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    old = tmp_path / "old" / "run1"
+    (old / "config").mkdir(parents=True)
+    (old / "inputs" / "grid").mkdir(parents=True)
+    (old / "inputs" / "grid" / "grid.run").write_text("grid")
+    control = old / "config" / "run1.control"
+    control.write_text(f"-grid_file {old}/inputs/grid/grid.run\n-other /data/inputs/x.dat\n")
+    (old / "config" / "case.yml").write_text("models: {}\nboundary_conditions: []\n")
+    (old / "config" / "monitor.yml").write_text("io: {}\nlogging: {}\n")
+    (old / "manifest.json").write_text(json.dumps({"run_id": "run1", "root_path": str(old)}))
+    assert picurv.adopt_relocated_artifact(str(old)) == 0
+
+    new = tmp_path / "new" / "renamed"
+    new.parent.mkdir()
+    old.rename(new)
+    assert picurv.adopt_relocated_artifact(str(new), dry_run=True) == 0
+    assert str(old) in (new / "config" / "run1.control").read_text()
+    assert picurv.adopt_relocated_artifact(str(new)) >= 1
+    text = (new / "config" / "run1.control").read_text()
+    assert f"{new}/inputs/grid/grid.run" in text and "/data/inputs/x.dat" in text
+    assert json.loads((new / "manifest.json").read_text())["root_path"] == str(new)
+    assert picurv.adopt_relocated_artifact(str(new)) == 0
+
+    legacy = tmp_path / "legacy"
+    new.rename(legacy)
+    manifest = json.loads((legacy / "manifest.json").read_text())
+    manifest.pop("root_path")
+    (legacy / "manifest.json").write_text(json.dumps(manifest))
+    assert picurv.adopt_relocated_artifact(str(legacy)) >= 1
+    assert f"{legacy}/inputs/grid/grid.run" in (legacy / "config" / "run1.control").read_text()
+
+
+def test_a_moved_study_is_pointed_at_its_new_location(tmp_path):
+    """!
+    @brief Test that a moved study's case index and scripts are rewritten to its new root.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    old = tmp_path / "studies" / "s1"
+    (old / "scheduler").mkdir(parents=True)
+    (old / "study_manifest.json").write_text(json.dumps({"study_id": "s1", "paths": {"study_dir": str(old)}}))
+    (old / "scheduler" / "case_index.tsv").write_text(f"0\tcase_0000\t{old}/cases/case_0000\n")
+    new = tmp_path / "elsewhere" / "s1"
+    new.parent.mkdir()
+    old.rename(new)
+    assert picurv.adopt_relocated_artifact(str(new), kind="study") == 2
+    assert f"{new}/cases/case_0000" in (new / "scheduler" / "case_index.tsv").read_text()
+    manifest = json.loads((new / "study_manifest.json").read_text())
+    assert manifest["paths"]["study_dir"] == str(new)
+
+
 def test_lineage_enabled_post_plan_starts_at_child_owned_cadence(tmp_path):
     """!
     @brief Verify a full logical post window intersects the branch's local ownership.
@@ -3857,7 +3940,7 @@ def test_lineage_enabled_post_plan_starts_at_child_owned_cadence(tmp_path):
 
     plan = picurv.build_post_execution_plan(
         str(run_dir), "branch_plan", case_cfg, monitor_cfg, post_cfg,
-        continue_requested=False, allow_source_frontier_scan=True,
+        allow_source_frontier_scan=True,
     )
     assert plan["requested_start_step"] == 0
     assert plan["owned_start_step"] == 15
@@ -3902,7 +3985,7 @@ def test_dry_run_post_process_reports_nothing_available_yet_when_start_is_beyond
 
 def test_dry_run_post_process_reports_nearest_available_source_steps(tmp_path):
     """!
-    @brief Test that post dry-run explains when later complete sources exist but the requested start is missing.
+    @brief Test that post processes the committed steps and reports the nearest ones when the window's start is missing.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="live_gap_at_start")
@@ -3933,7 +4016,10 @@ def test_dry_run_post_process_reports_nearest_available_source_steps(tmp_path):
     assert result.returncode == 0, result.stderr
     stage = json.loads(result.stdout)["stages"]["post-process"]
     diagnostic = stage["source_frontier_diagnostic"]
-    assert stage["skip_reason"] == "nothing-available-yet"
+    # Committed steps are processed even though the window's first steps are missing.
+    assert stage["skip_reason"] is None
+    assert stage["steps_to_process"] == list(range(1000, 15001, 500))
+    assert stage["steps_unavailable"] == [0, 500]
     assert stage["source_frontier_step"] is None
     assert diagnostic["first_requested_step"] == 0
     assert diagnostic["first_incomplete_step"] == 0
@@ -3942,9 +4028,9 @@ def test_dry_run_post_process_reports_nearest_available_source_steps(tmp_path):
     assert "checkpoints/step_000000000000/checkpoint.meta" in diagnostic["missing_files_for_first_incomplete_step"]
 
 
-def test_dry_run_post_process_requires_all_requested_output_families_for_resume(tmp_path):
+def test_dry_run_post_process_requires_all_requested_output_families(tmp_path):
     """!
-    @brief Test that mixed Eulerian/particle/statistics recipes resume from the first step missing any requested artifact family.
+    @brief Test that a step of a mixed Eulerian/particle/statistics recipe is up to date only when every requested artifact family has it.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="mixed_resume")
@@ -3965,29 +4051,10 @@ def test_dry_run_post_process_requires_all_requested_output_families_for_resume(
 
     create_post_source_steps(run_dir, monitor_cfg, range(0, 4), include_particles=True)
     create_post_outputs(run_dir, post_cfg, monitor_cfg, euler_steps=range(0, 3), particle_steps=range(0, 3), stats_steps=(0, 1))
-    write_legacy_post_recipe(run_dir, run_dir.name, post_cfg, monitor_cfg)
 
-    result = run_picurv(
-        [
-            "run",
-            "--post-process",
-            "--continue",
-            "--run-dir",
-            str(run_dir),
-            "--post",
-            str(post_path),
-            "--dry-run",
-            "--format",
-            "json",
-        ],
-        cwd=tmp_path,
-    )
-
-    assert result.returncode == 0, result.stderr
-    stage = json.loads(result.stdout)["stages"]["post-process"]
-    assert stage["completed_frontier_step"] == 1
-    assert stage["effective_start_step"] == 2
-    assert stage["effective_end_step"] == 3
+    stage = _dry_run_post_stage(tmp_path, run_dir, post_cfg)
+    assert stage["steps_current"] == 2
+    assert stage["steps_to_process"] == [2, 3]
 
 
 def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
@@ -4069,7 +4136,7 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
         picurv.execute_command = original_execute
 
     assert len(calls) == 1
-    assert calls[0]["command"][0].endswith("post_lock_wrapper.py")
+    assert calls[0]["command"][1].endswith("post_lock_wrapper.py")
     assert any(token.endswith("/postprocessor") for token in calls[0]["command"])
     assert calls[0]["log_filename"] == os.path.join("scheduler", "existing_run_eulerian_data.log")
     recipe_dirs = list((config_dir / "post-recipes").iterdir())
@@ -4078,6 +4145,87 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
     assert (recipe_dirs[0] / "post.yml").read_text(encoding="utf-8") == post_path.read_text(encoding="utf-8")
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["stages_completed_or_submitted"] == ["post-process"]
+
+
+POST_JOB_STAND_IN = (
+    "import sys\n"
+    "steps_file, prefix, calls, fail_at = sys.argv[1:5]\n"
+    "steps = [int(line) for line in open(steps_file) if line.strip()]\n"
+    "open(calls, 'a').write(','.join(map(str, steps)) + '\\n')\n"
+    "for index, step in enumerate(steps):\n"
+    "    if index == int(fail_at):\n"
+    "        sys.exit(3)\n"
+    "    open(f'{prefix}_{step:05d}.vts', 'w').write('vtk')\n"
+)
+
+
+def test_post_job_plans_at_launch_records_output_and_skips_valid_steps(tmp_path):
+    """!
+    @brief Test the lock wrapper's launch-time planning and output recording end to end.
+
+    A stand-in postprocessor writes one file per listed step. The first job processes
+    every step and records it; a second launches nothing; a deleted step is processed
+    alone; a job that fails part-way keeps the steps it finished.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    run_dir, _, monitor_cfg = create_post_run_dir(tmp_path, name="post_job")
+    create_post_source_steps(run_dir, monitor_cfg, range(0, 5))
+    post_cfg = {"run_control": {"start_step": 0, "end_step": 4, "step_interval": 1},
+                "io": {"output_directory": "viz", "output_filename_prefix": "Field",
+                       "eulerian_fields": ["Ucat_nodal"]}}
+    runtime, _ = picurv.apply_canonical_post_paths(post_cfg, str(run_dir))
+    archived = Path(picurv.get_post_recipe_root(str(run_dir), runtime)) / "post.yml"
+    archived.parent.mkdir(parents=True)
+    picurv.write_yaml_file(str(archived), post_cfg)
+    viz = Path(picurv._post_output_directory_abs(str(run_dir), runtime))
+    viz.mkdir(parents=True)
+    steps_file = picurv.get_post_step_list_path(str(run_dir), runtime)
+    calls = tmp_path / "calls.txt"
+    postprocessor = tmp_path / "postprocessor"
+    postprocessor.write_text("build one")
+    state_path = Path(picurv.get_post_resume_state_path(str(run_dir), runtime))
+
+    def launch(fail_at=-1):
+        """!
+        @brief Run one post job through the wrapper with the stand-in postprocessor.
+        @param[in] fail_at Index of the listed step at which the stand-in fails, or -1.
+        @return Completed process.
+        """
+        command, _ = picurv.build_post_locked_command(
+            str(run_dir), "fingerprint",
+            [sys.executable, "-c", POST_JOB_STAND_IN, steps_file, str(viz / "Field"),
+             str(calls), str(fail_at)],
+            post_recipe=str(archived), postprocessor=str(postprocessor),
+        )
+        return subprocess.run(command, cwd=run_dir, text=True, capture_output=True)
+
+    result = launch()
+    assert result.returncode == 0, result.stderr
+    assert calls.read_text().splitlines() == ["0,1,2,3,4"]
+    records = json.loads(state_path.read_text())["steps"]
+    assert sorted(records, key=int) == ["0", "1", "2", "3", "4"]
+    assert records["2"]["postprocessor"] == picurv._file_sha256(str(postprocessor))
+    assert not Path(steps_file).exists() and not Path(steps_file + ".json").exists()
+
+    result = launch()
+    assert result.returncode == 0, result.stderr
+    assert "not launched" in result.stdout
+    assert calls.read_text().splitlines() == ["0,1,2,3,4"]
+
+    (viz / "Field_00002.vts").unlink()
+    assert launch().returncode == 0
+    assert calls.read_text().splitlines()[-1] == "2"
+
+    (viz / "Field_00003.vts").unlink()
+    (viz / "Field_00004.vts").unlink()
+    result = launch(fail_at=1)
+    assert result.returncode == 3
+    assert calls.read_text().splitlines()[-1] == "3,4"
+    assert "recorded 1 of 2" in result.stdout
+    assert launch().returncode == 0
+    assert calls.read_text().splitlines()[-1] == "4"
 
 
 def test_post_lock_wrapper_refuses_second_writer(tmp_path):
@@ -5598,7 +5746,7 @@ def test_case_local_symlinked_picurv_prefers_local_binaries(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["stages"]["solve"]["launch_command"][0] == str(case_dir / "simulator")
     post_launch = payload["stages"]["post-process"]["launch_command"]
-    assert post_launch[0].endswith("post_lock_wrapper.py")
+    assert post_launch[1].endswith("post_lock_wrapper.py")
     assert str(case_dir / "postprocessor") in post_launch
 
 
@@ -5653,7 +5801,7 @@ def test_case_local_copied_picurv_prefers_local_binaries(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["stages"]["solve"]["launch_command"][0] == str(case_dir / "simulator")
     post_launch = payload["stages"]["post-process"]["launch_command"]
-    assert post_launch[0].endswith("post_lock_wrapper.py")
+    assert post_launch[1].endswith("post_lock_wrapper.py")
     assert str(case_dir / "postprocessor") in post_launch
 
 
@@ -6462,6 +6610,40 @@ def test_continue_mode_auto_populates_restart(tmp_path):
     assert resolved == str(run_dir / picurv.CANONICAL_RUN_PATHS["restart"])
     bundle = Path(resolved) / "checkpoints" / "step_000000000010"
     assert (bundle / "eulerian" / "block_0000" / "Ucat.dat").exists()
+
+
+def test_continue_refuses_to_start_before_the_last_committed_checkpoint(tmp_path):
+    """!
+    @brief Test that an in-place continuation cannot rewind a run.
+
+    The solver never overwrites a committed checkpoint, so continuing from an earlier one
+    would keep the later states of the old trajectory. The refusal names both the step to
+    extend from and the branch alternative.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+    run_dir = tmp_path / "my_run"
+    output_dir = run_dir / "output"
+    output_dir.mkdir(parents=True)
+    (run_dir / "config").mkdir()
+    case_cfg["run_control"]["start_step"] = 10
+    picurv.write_yaml_file(str(run_dir / "config" / "case.yml"), case_cfg)
+    write_eulerian_checkpoint(output_dir, 10, "euler")
+    write_eulerian_checkpoint(output_dir, 20, "euler")
+    args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=str(run_dir))
+
+    with pytest.raises(ValueError, match=r"through step 20.*start_step to 20.*--restart-from"):
+        picurv.resolve_restart_source(args, case_cfg, solver_cfg, monitor_cfg, str(run_dir))
+
+    case_cfg["run_control"]["start_step"] = 20
+    _resolved, is_continue, _lineage = picurv.resolve_restart_source(
+        args, case_cfg, solver_cfg, monitor_cfg, str(run_dir)
+    )
+    assert is_continue
 
 
 def test_continue_mode_ignores_uncommitted_restart_staging(tmp_path):
@@ -7345,7 +7527,7 @@ def test_validate_cluster_warns_on_sample_placeholder_values(tmp_path):
     )
     result = run_picurv(["validate", "--cluster", str(cluster_placeholder)])
     assert result.returncode == 0, result.stderr
-    assert "[WARN]" in result.stderr
+    assert "[WARNING]" in result.stderr
     assert "my_project_account" in result.stderr
     assert "user@example.edu" in result.stderr
 
@@ -7881,23 +8063,40 @@ def test_submit_local_run_explicit_absent_stage_hint_names_requested_stage(tmp_p
     assert "does not record a staged post-process" in post_result.stderr
 
 
-def test_submit_local_run_post_stage_keeps_dependency_error_when_solve_not_done(tmp_path):
+def test_submit_local_post_stage_waits_only_for_a_pending_staged_solve(tmp_path):
     """!
-    @brief Test that staged post without solve completion reports dependency, not missing command.
+    @brief Test that submitting a post stage is refused only while its staged solve is pending.
+
+    A post staged on its own reads a run solved earlier, so it is accepted. A post staged
+    together with a solve that has not run yet reports the dependency, not a missing command.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
-    run_dir = create_staged_run_dir(
+    post_only = create_staged_run_dir(
         tmp_path,
+        name="post_only",
         launch_mode="local",
         solve_meta=False,
         post_meta={"command": ["fake-post"], "log_file": "scheduler/post.log"},
     )
     result = run_picurv(
-        ["submit", "--run-dir", str(run_dir), "--stage", "post-process", "--dry-run"],
+        ["submit", "--run-dir", str(post_only), "--stage", "post-process", "--dry-run"],
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+
+    pending = create_staged_run_dir(
+        tmp_path,
+        name="solve_pending",
+        launch_mode="local",
+        solve_meta={"command": ["fake-solver"], "log_file": "scheduler/solve.log"},
+        post_meta={"command": ["fake-post"], "log_file": "scheduler/post.log"},
+    )
+    result = run_picurv(
+        ["submit", "--run-dir", str(pending), "--stage", "post-process", "--dry-run"],
         cwd=tmp_path,
     )
     assert result.returncode == 1
-    assert "requires a recorded completed solve stage" in result.stderr
+    assert "staged solve has not run yet" in result.stderr
     assert "scheduler.post-process.dependency" in result.stderr
 
 
@@ -7911,11 +8110,12 @@ def test_submit_run_stage_solve_only_updates_submission_metadata(tmp_path):
     run_dir = create_staged_run_dir(tmp_path)
     calls = []
 
-    def fake_submit_sbatch(script_path, dependency=None):
+    def fake_submit_sbatch(script_path, dependency=None, dependency_type="afterok"):
         """!
         @brief Record staged submissions without calling Slurm.
         @param[in] script_path Argument passed to `fake_submit_sbatch()`.
         @param[in] dependency Argument passed to `fake_submit_sbatch()`.
+        @param[in] dependency_type Slurm dependency type passed to `fake_submit_sbatch()`.
         @return Value returned by `fake_submit_sbatch()`.
         """
         calls.append({"script": script_path, "dependency": dependency})
@@ -7955,11 +8155,12 @@ def test_submit_run_stage_all_adds_post_dependency_on_new_solve_job(tmp_path):
     calls = []
     job_ids = iter(["601", "602"])
 
-    def fake_submit_sbatch(script_path, dependency=None):
+    def fake_submit_sbatch(script_path, dependency=None, dependency_type="afterok"):
         """!
         @brief Record staged submissions without calling Slurm.
         @param[in] script_path Argument passed to `fake_submit_sbatch()`.
         @param[in] dependency Argument passed to `fake_submit_sbatch()`.
+        @param[in] dependency_type Slurm dependency type passed to `fake_submit_sbatch()`.
         @return Value returned by `fake_submit_sbatch()`.
         """
         job_id = next(job_ids)
@@ -8012,15 +8213,28 @@ def test_submit_run_stage_all_slurm_missing_stage_metadata_has_targeted_hint(tmp
     assert "--stage post-process" in post_only_result.stderr
 
 
-def test_submit_post_process_requires_recorded_solve_job_id(tmp_path):
+def test_submit_post_process_waits_only_for_a_staged_solve(tmp_path):
     """!
-    @brief Test that post-only submit refuses when no recorded solve job id exists.
+    @brief Test the Slurm post submission dependency rule.
+
+    A staged solve that was never submitted blocks the post job unless --force is given;
+    a post staged on its own is submitted without a dependency.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     run_dir = create_staged_run_dir(tmp_path)
-    result = run_picurv(["submit", "--run-dir", str(run_dir), "--stage", "post-process"], cwd=tmp_path)
+    result = run_picurv(["submit", "--run-dir", str(run_dir), "--stage", "post-process", "--dry-run"], cwd=tmp_path)
     assert result.returncode == 1
-    assert "requires a recorded solve job id" in result.stderr
+    assert "staged solve has not been submitted" in result.stderr
+    result = run_picurv(["submit", "--run-dir", str(run_dir), "--stage", "post-process", "--dry-run", "--force"],
+                        cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "--dependency" not in result.stdout
+
+    post_only = create_staged_run_dir(tmp_path, name="post_only_slurm", solve_meta=False)
+    result = run_picurv(["submit", "--run-dir", str(post_only), "--stage", "post-process", "--dry-run"],
+                        cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "--dependency" not in result.stdout
 
 
 def test_submit_refuses_already_submitted_stage_without_force(tmp_path):
@@ -8050,11 +8264,12 @@ def test_submit_force_resubmits_recorded_stage(tmp_path):
     )
     calls = []
 
-    def fake_submit_sbatch(script_path, dependency=None):
+    def fake_submit_sbatch(script_path, dependency=None, dependency_type="afterok"):
         """!
         @brief Record forced re-submission without calling Slurm.
         @param[in] script_path Argument passed to `fake_submit_sbatch()`.
         @param[in] dependency Argument passed to `fake_submit_sbatch()`.
+        @param[in] dependency_type Slurm dependency type passed to `fake_submit_sbatch()`.
         @return Value returned by `fake_submit_sbatch()`.
         """
         calls.append({"script": script_path, "dependency": dependency})
@@ -8093,11 +8308,12 @@ def test_submit_study_dir_updates_submission_and_manifest(tmp_path):
     calls = []
     job_ids = iter(["801", "802"])
 
-    def fake_submit_sbatch(script_path, dependency=None):
+    def fake_submit_sbatch(script_path, dependency=None, dependency_type="afterok"):
         """!
         @brief Record study submissions without calling Slurm.
         @param[in] script_path Argument passed to `fake_submit_sbatch()`.
         @param[in] dependency Argument passed to `fake_submit_sbatch()`.
+        @param[in] dependency_type Slurm dependency type passed to `fake_submit_sbatch()`.
         @return Value returned by `fake_submit_sbatch()`.
         """
         job_id = next(job_ids)
@@ -8131,6 +8347,72 @@ def test_submit_study_dir_updates_submission_and_manifest(tmp_path):
     assert submission["post_array"]["dependency"] == "afterok:801"
     assert manifest["submission"]["solver_array"]["job_id"] == "801"
     assert manifest["submission"]["post_array"]["job_id"] == "802"
+
+
+def test_submit_study_dir_submits_the_latest_staged_set_and_chains_metrics(tmp_path):
+    """!
+    @brief Test that a study continuation staged with --no-submit is what submit submits.
+
+    `sweep --continue` records its scripts in submission_continue.json. Staged after the
+    original set, it is the one submitted; its metrics aggregation follows the post array
+    with afterany, and the job ids are written back to that set and the manifest.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return None.
+    """
+    import os
+    picurv = load_picurv_module()
+    study_dir = create_staged_study_dir(tmp_path)
+    scheduler = study_dir / "scheduler"
+    scripts = {name: scheduler / f"{name}.sbatch"
+               for name in ("solver_continue_array", "post_continue_array", "metrics_continue_aggregate")}
+    for path in scripts.values():
+        path.write_text("#!/bin/bash\n", encoding="utf-8")
+    continuation = {
+        "launch_mode": "slurm",
+        "continuation": True,
+        "solver_continue_array": {"script": str(scripts["solver_continue_array"]), "submitted": False},
+        "post_continue_array": {"script": str(scripts["post_continue_array"]), "submitted": False},
+        "metrics_aggregate": {"script": str(scripts["metrics_continue_aggregate"]), "submitted": False},
+    }
+    continue_path = scheduler / "submission_continue.json"
+    continue_path.write_text(json.dumps(continuation), encoding="utf-8")
+    original = scheduler / "submission.json"
+    os.utime(original, (original.stat().st_mtime - 60,) * 2)
+    calls = []
+    job_ids = iter(["901", "902", "903"])
+
+    def fake_submit_sbatch(script_path, dependency=None, dependency_type="afterok"):
+        """!
+        @brief Record study submissions without calling Slurm.
+        @param[in] script_path Argument passed to `fake_submit_sbatch()`.
+        @param[in] dependency Argument passed to `fake_submit_sbatch()`.
+        @param[in] dependency_type Slurm dependency type passed to `fake_submit_sbatch()`.
+        @return Value returned by `fake_submit_sbatch()`.
+        """
+        job_id = next(job_ids)
+        calls.append((Path(script_path).name, dependency, dependency_type))
+        return {"command": ["sbatch", script_path], "returncode": 0, "stdout": "", "stderr": "",
+                "script": script_path, "job_id": job_id}
+
+    original_submit = picurv.submit_sbatch
+    picurv.submit_sbatch = fake_submit_sbatch
+    try:
+        picurv.submit_staged_jobs(
+            SimpleNamespace(run_dir=None, study_dir=str(study_dir), stage="all", force=False, dry_run=False)
+        )
+    finally:
+        picurv.submit_sbatch = original_submit
+
+    assert calls == [
+        ("solver_continue_array.sbatch", None, "afterok"),
+        ("post_continue_array.sbatch", "901", "afterok"),
+        ("metrics_continue_aggregate.sbatch", "902", "afterany"),
+    ]
+    recorded = json.loads(continue_path.read_text(encoding="utf-8"))
+    assert recorded["metrics_aggregate"]["dependency"] == "afterany:902"
+    assert json.loads(original.read_text(encoding="utf-8"))["solver_array"]["submitted"] is False
+    manifest = json.loads((study_dir / "study_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["continuation"]["submission"]["post_continue_array"]["job_id"] == "902"
 
 
 def test_submit_rejects_malformed_local_or_missing_submission_metadata(tmp_path):
@@ -8538,6 +8820,12 @@ def test_sweep_no_submit_writes_array_stdout_stderr_to_scheduler_dir(tmp_path):
     assert f"#SBATCH --error={study_dir / 'scheduler' / 'post_%A_%a.err'}" in post_script
     assert "PICURV_JOB_START_EPOCH" not in post_script
     assert "srun -n 4 " in post_script
+    # Each member's post plans its steps at launch under the run's lock wrapper.
+    assert '"$RUN_DIR/scheduler/post_lock_wrapper.py"' in post_script
+    assert '--post-recipe "$RUN_DIR/config/post.yml"' in post_script
+    for member in (study_dir / "cases").iterdir():
+        assert (member / "scheduler" / "post_lock_wrapper.py").is_file()
+        assert "step_list_file = " in next((member / "config" / "post-recipes").glob("*/post.run")).read_text()
 
     sample_control = next((study_dir / "cases").glob("*/config/*.control"))
     sample_control_text = sample_control.read_text(encoding="utf-8")
@@ -8901,10 +9189,10 @@ def test_post_field_statistics_completion_families_cover_every_window():
         "field_statistics": {"windows": ["production", "spinup"], "formats": ["vtk", "csv"]},
     }
     artifacts = picurv.get_post_field_statistics_artifacts(post_cfg, "/run")
-    kinds = [kind for kind, _ in artifacts]
+    kinds = [kind for kind, _, _ in artifacts]
     assert kinds.count("vtk") == 2 and kinds.count("csv") == 2
-    assert any(path.endswith("Field_statistics_production") for kind, path in artifacts if kind == "vtk")
-    assert any(path.endswith("Field_statistics_spinup.csv") for kind, path in artifacts if kind == "csv")
+    assert any(path.endswith("Field_statistics_production") for kind, path, _ in artifacts if kind == "vtk")
+    assert any(path.endswith("Field_statistics_spinup.csv") for kind, path, _ in artifacts if kind == "csv")
 
 
 def test_post_field_statistics_predicate_tracks_statistics_only_recipes():
@@ -9094,7 +9382,7 @@ def test_post_validation_warns_but_allows_start_step_off_cadence(tmp_path, capsy
         _post_with_window(150, 1000, 100), str(tmp_path / "post.yml"),
         _monitor_with_output_cadence(100))
     captured = capsys.readouterr().err
-    assert "[WARN]" in captured
+    assert "[WARNING]" in captured
     assert "'run_control.start_step' is 150" in captured
 
 

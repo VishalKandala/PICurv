@@ -543,10 +543,10 @@ periodic.** `PicurvWindowDerive` writes the physical interior of the staging buf
 zeroes the rest, so the layout boundary would otherwise reach `ComputeNodalAverage` as
 structural zeros — a zero meaning "never written", not "zero". A boundary node averages
 four such entries with four real cells and lands at roughly half its true value.
-`ExtendToLayoutBoundary` closes that on periodic faces, where the correct value exists
-and is exact: the low dummy plane repeats the last physical plane and the high dummy
-plane repeats the first, which is the same convention boundary-condition application
-already gives `Ucat`, `P`, `Nu_t`, and `CS`.
+`SynchronizePeriodicCellFields` closes that on periodic faces, where the correct value
+exists and is exact: the low dummy plane repeats the last physical plane and the high
+dummy plane repeats the first. It is the same synchronizer boundary-condition application
+uses for `Ucat`, `P`, `Nu_t`, and `CS`, so it holds under any MPI decomposition.
 
 On a **non-periodic** face nothing is written, because nothing defines it. The correct
 value there depends on both the quantity and the boundary type, and one staging buffer

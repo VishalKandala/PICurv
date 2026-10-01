@@ -364,7 +364,9 @@ for the solver stage, with analogous `PostProcessor` log names for post runs.
   `<run.runtime_logs>/PETSc_LogView_Solver.log`, and matching `PostProcessor` files.
 - `objects_dump` accepts `false`, `true`, or `all`.
 - `options_left` accepts `true`, `false`, or `null`; use `null` to omit the
-  PETSc option entirely.
+  PETSc option entirely. The
+  postprocessor reads the solver's control file, so for post runs `null` means `false`:
+  otherwise every solver-only option would be reported as unused.
 - PETSc diagnostics that support output files use run-local defaults under
   `<run.runtime_logs>/`, with solver/postprocessor-specific filenames. Boolean-only PETSc
   diagnostics remain in the captured solver/post stream logs.

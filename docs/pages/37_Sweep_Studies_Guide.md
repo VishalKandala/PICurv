@@ -135,6 +135,7 @@ Implementation details worth knowing:
   Collections describe one member's run or restart ancestry; they do not concatenate
   independent sweep members into one time series.
 - `post_array.sbatch` uses the same `nodes * ntasks_per_node` allocation as the solver array; conflicting launcher `-n`/`-np` flags are rewritten to that task count.
+- each member's post runs under that member's post lock and processes only the steps whose output is missing or stale when its array task starts, as `picurv run --post-process` does (see @ref p05_run_sec).
 
 @section p37_continue_sec 6. Continuing a Partially-Completed Study
 
@@ -163,6 +164,10 @@ What `--continue` does:
    for the full restart scenario matrix.
 5. For empty cases (no checkpoint): re-runs from scratch with unmodified control files.
 6. Submits a sparse solver array (incomplete cases only) → full post array → metrics aggregation.
+   The post array covers every member, but a member whose output is up to date launches no
+   postprocessor, so only the continued members' new steps are processed. With `--no-submit`
+   the three scripts are staged instead; `picurv submit --study-dir <study>` submits them in
+   that order.
 
 Repeated continuation is safe: the target step count is always computed from the
 original `study.yml`, not from the (potentially modified) per-case `case.yml`.

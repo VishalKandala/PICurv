@@ -491,6 +491,36 @@
       },
       "limitations": "Kernel correctness on one Cartesian grid with a stretched non-transformed axis, one block, two ranks. Checkpoint spectra measure the field the runtime holds, which differs from a staged expression by the reconstruction factor above; staged-IC spectra (initial_spectra) avoid that step. No developed-turbulence acceptance: that the spectra of a developed channel or duct match reference data is a flow result, left to the channel campaign. grid.mode programmatic_c stages no PICGRID and is refused at validation.",
       "artifacts": []
+    },
+    {
+      "id": "cluster-cancel-pending-2026-09-29",
+      "question": "Does picurv cancel stop every submitted stage of a run through Slurm, and does scheduler accounting record the cancellation?",
+      "date": "2026-09-29",
+      "commit": "e37e868 (owner's cluster install, clean; picurv version reports the simulator and postprocessor matching source)",
+      "environment": "Owner's Slurm cluster (TAMU Grace), 48-core nodes; picurv run --cluster with 144 MPI tasks per stage; partition short",
+      "configuration": "Three 200-step continuations of the turbulent-channel campaign run (storage_a/b/c_20260929-19xxxx), each staged with run --solve --post-process --cluster, giving a solver job and an afterok post job per run (19907091/19907092, 19907246/19907248, 19907318/19907323). The partition had no idle nodes, so the jobs were still pending when picurv cancel --run-dir was issued for each run.",
+      "result": {
+        "measured": "For each run picurv cancel read scheduler/submission.json, identified both requested stages, and reported 'Canceled Slurm job' for the solver and the post job. sacct reports all six jobs CANCELLED with Elapsed 00:00:00.",
+        "threshold": "Every submitted stage of the run is cancelled and accounting records the cancellation.",
+        "verdict": "met"
+      },
+      "limitations": "Pending jobs only: cancelling a running solver and cancel --graceful (SIGUSR1, clean shutdown with an off-cadence checkpoint) are not exercised. Accounting was read for cancelled jobs, not reconciled against a completed run's resource use. One cluster, one Slurm site.",
+      "artifacts": []
+    },
+    {
+      "id": "asset-reuse-identity-2026-09-29",
+      "question": "Does a run reuse a published asset whenever its provider inputs are unchanged, including from a different case file, and does an unchanged generated provider rebuild to the same object?",
+      "date": "2026-09-29",
+      "commit": "Observed on e37e868 (owner's cluster); reproduced and fixed on 3421751 plus the working tree of 2026-09-29",
+      "environment": "Owner's Slurm cluster (observation); local WSL2 workstation, Python 3.8 (reproduction and fix)",
+      "configuration": "Cluster: three case files differing only in title (config/storage_test/case.yml, case_b.yml, case_c.yml), each staged with picurv run from the turbulent-channel workspace. Local: examples/decaying_isotropic_turbulence initialized into a scratch workspace, precomputed as config/case.yml and again as a title-only copy; the two IC objects compared byte by byte; then materialize_run_assets for a third, never-built copy.",
+      "result": {
+        "measured": "Cluster: all three runs resolved the same grid object (1bef2323...) but three different initial-condition objects (7ab7ebf3..., 532bfde5..., b513129f...). Local reproduction: the grid regenerated for the copy and republished the same object; the IC published a second object whose field (ufield00000_0.dat) and spectrum were byte-identical to the first, differing only in initial_condition_summary.json, which recorded absolute paths inside the temporary build directories (assets/.precompute-d03uvyc5 vs .precompute-6gr9qa9h). Two causes: lookup went only through the case file's own asset set, and the IC payload was not byte-reproducible. After the fix (summary paths recorded relative to the summary in ic.gen and spectra.gen; plan_run_assets adopts any published object with the same provider_spec_sha256 and records it in the case file's set), the two precomputes published one IC object (0a9deed9...) and the never-built copy reused both objects without building.",
+        "threshold": "One object per unchanged provider input, reused from any case file.",
+        "verdict": "not-met"
+      },
+      "limitations": "The verdict describes e37e868; the fix is verified locally by tests/test_workspace_lifecycle.py (copied case file adopts; generated IC rebuilds to the same object) and tests/test_spectra_shell_spectrum.py (relative summary paths), not yet on the cluster. Objects published before the fix keep their old ids; duplicates already in a store are not merged. Inlet profiles were inspected, not rebuilt: profile.info writes no paths, so the same cause cannot apply there, but no double build was compared.",
+      "artifacts": []
     }
   ]
 }

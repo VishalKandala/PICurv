@@ -88,7 +88,8 @@ assets/objects/               immutable content-addressed payloads
 
 Use `picurv inputs import` to copy, reflink, hardlink, or explicitly reference imported
 files. Use `picurv precompute` to publish a validated asset set; subsequent runs reuse
-that set when its provider configuration has the same digest.
+an object whenever its provider configuration has the same digest, including from a
+different case file.
 
 @section p06_next_steps_sec 5. Next Steps
 

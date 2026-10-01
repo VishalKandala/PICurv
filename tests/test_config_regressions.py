@@ -2946,3 +2946,128 @@ def test_per_level_multigrid_tolerances_reach_petsc_under_their_real_names():
     assert float(flags["-ps_mg_levels_1_ksp_atol"]) == 1.0e-9
     assert not any(key.endswith(("_max_it", "_rtol", "_atol")) and "_ksp_" not in key
                    for key in flags if key.startswith("-ps_mg_"))
+
+
+def test_spectra_rows_of_steps_not_remeasured_survive_a_partial_measurement(tmp_path):
+    """!
+    @brief Test that a partial spectra measurement keeps the rows it did not re-measure.
+
+    The spectra stage measures only the steps whose rows are missing or stale and used
+    to rewrite the whole CSV from them, discarding every other step.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    path = tmp_path / "history.csv"
+    fields = ("step", "time", "resolved_kinetic_energy")
+    path.write_text("step,time,resolved_kinetic_energy\n0,0.0,1.0\n5,0.5,0.9\n10,1.0,0.8\n")
+    new = [{"step": 10, "time": 1.0, "resolved_kinetic_energy": 0.75},
+           {"step": 15, "time": 1.5, "resolved_kinetic_energy": 0.7}]
+    merged = picurv._merge_spectra_rows(str(path), fields, {10, 15}, new)
+    assert [int(row["step"]) for row in merged] == [0, 5, 10, 15]
+    assert float(merged[2]["resolved_kinetic_energy"]) == 0.75, "a re-measured step is replaced"
+    other = picurv._merge_spectra_rows(str(path), ("step", "time", "other"), {15}, new[1:])
+    assert [int(row["step"]) for row in other] == [15], "a file with other columns is not merged"
+
+
+def test_a_step_requires_window_output_only_where_the_window_had_samples(tmp_path):
+    """!
+    @brief Test that a field-statistics window opening late does not make earlier steps incomplete.
+
+    The post-processor writes a window only once it has accumulated a sample, so a step
+    before that is complete without the window's file. A missing output where the window
+    did have samples still makes the step incomplete.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    viz = run_dir / "viz"
+    viz.mkdir(parents=True)
+    samples = {0: 0, 2: 0, 4: 1, 6: 3}
+    for step, count in samples.items():
+        bundle = run_dir / "output" / "checkpoints" / f"step_{step:012d}"
+        bundle.mkdir(parents=True)
+        (bundle / "checkpoint.meta").write_text(
+            "-checkpoint_statistics_window_count 1\n"
+            "-checkpoint_statistics_window_0_name early\n"
+            f"-checkpoint_statistics_window_0_sample_count {count}\n")
+        (viz / f"Field_{step:05d}.vts").write_text("")
+        if count:
+            (viz / f"Field_statistics_early_{step:05d}.vts").write_text("")
+    post_cfg = {"io": {"output_directory": "viz", "output_filename_prefix": "Field",
+                       "eulerian_fields": ["Ucat_nodal"]},
+                "field_statistics": {"windows": ["early"], "formats": ["vtk"]}}
+    outputs = picurv.post_step_outputs(str(run_dir), post_cfg, None)
+    assert all(outputs(step) is not None for step in samples)
+    assert len(outputs(0)[0]) == 1 and len(outputs(4)[0]) == 2
+    (viz / "Field_statistics_early_00004.vts").unlink()
+    outputs = picurv.post_step_outputs(str(run_dir), post_cfg, None)
+    assert outputs(4) is None and outputs(6) is not None
+
+
+def test_a_step_output_is_valid_while_its_recipe_and_checkpoint_are_unchanged(tmp_path):
+    """!
+    @brief Test the per-step decision that lets a post run skip valid output.
+
+    Output is kept while its record names the current recipe and the checkpoint now on
+    disk, whichever build made it. Unrecorded output is adopted when it is newer than
+    its checkpoint or the checkpoint is no longer local.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    import os
+    picurv = load_picurv_module()
+    output = tmp_path / "Field_00004.vts"
+    output.write_text("")
+    now = output.stat().st_mtime
+    commit = ("c" * 64, now - 10)
+    record = {"recipe": "r", "checkpoint": "c" * 64, "postprocessor": "old-build"}
+    classify = picurv.classify_post_step
+    assert classify(record, None, commit, "r") == "missing"
+    assert classify(None, [], commit, "r") == "missing"
+    assert classify(record, [str(output)], commit, "r") is None
+    assert classify(record, [str(output)], commit, "r", recompute=True) == "recompute"
+    assert classify(record, [str(output)], commit, "other") == "recipe"
+    assert classify(record, [str(output)], ("d" * 64, now - 10), "r") == "checkpoint"
+    assert classify(record, [str(output)], None, "r") is None
+    assert classify(None, [str(output)], commit, "r") is None
+    assert classify(None, [str(output)], None, "r") is None
+    os.utime(output, (now - 20, now - 20))
+    assert classify(None, [str(output)], commit, "r") == "checkpoint"
+
+
+def test_a_recipe_repeating_another_recipes_fields_is_warned(tmp_path, capsys):
+    """!
+    @brief Test that recomputing fields another recipe already wrote is reported.
+
+    A recipe writes one file per step holding all its fields, so a second recipe that
+    shares fields recomputes them. The warning names the recipe, the shared fields, and
+    the overlapping steps; a recipe sharing nothing, or a spectra-only run, is silent.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] capsys Pytest output capture fixture.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    base = {"run_control": {"start_step": 0, "end_step": 4, "step_interval": 2},
+            "io": {"output_filename_prefix": "Field", "eulerian_fields": ["Ucat_nodal", "P_nodal"]}}
+    first, first_id = picurv.apply_canonical_post_paths(base, str(run_dir))
+    archived = run_dir / "config" / "post-recipes" / first_id / "post.yml"
+    archived.parent.mkdir(parents=True)
+    picurv.write_yaml_file(str(archived), base)
+    viz = Path(picurv._post_output_directory_abs(str(run_dir), first))
+    viz.mkdir(parents=True)
+    for step in (0, 2):
+        (viz / f"Field_{step:05d}.vts").write_text("")
+
+    second_cfg = {**base, "io": {**base["io"], "eulerian_fields": ["Ucat_nodal", "Qcrit_nodal"]}}
+    second, _ = picurv.apply_canonical_post_paths(second_cfg, str(run_dir))
+    plan = {"steps_to_process": [0, 2, 4]}
+    picurv.warn_overlapping_post_recipes(str(run_dir), second, plan, {"fields"})
+    err = capsys.readouterr().err
+    assert f"Recipe {first_id} already produced fields Ucat_nodal for 2 of these steps (0..2)" in err
+    assert err.count("[WARNING]") == 1, "one line per other recipe"
+
+    picurv.warn_overlapping_post_recipes(str(run_dir), second, plan, {"spectra"})
+    disjoint, _ = picurv.apply_canonical_post_paths(
+        {**base, "io": {**base["io"], "eulerian_fields": ["Qcrit_nodal"]}}, str(run_dir))
+    picurv.warn_overlapping_post_recipes(str(run_dir), disjoint, plan, {"fields"})
+    picurv.warn_overlapping_post_recipes(str(run_dir), first, plan, {"fields"})
+    assert capsys.readouterr().err == ""

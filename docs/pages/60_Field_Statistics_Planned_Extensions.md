@@ -252,7 +252,7 @@ behaviour is to leave derived output nondimensional and say so.
 
 @section p60_stats_boundary_sec 12. Derived Statistics At Non-Periodic Boundaries
 
-**What exists today.** `ExtendToLayoutBoundary` populates the layout boundary of a
+**What exists today.** `SynchronizePeriodicCellFields` populates the layout boundary of a
 derived statistics field on **periodic** faces only, where the value is exact. See
 @ref p58_output_sec. On a wall, inlet, or outlet nothing is written, so the outermost
 node layer of the `.vts` keeps whatever the interior-only derivation left there.

@@ -1208,3 +1208,126 @@ def test_versions_activate_reads_a_leading_option_as_a_make_argument(tmp_path, m
 
     assert recorded["make_args"] == ["-j8"]
     assert ["checkout", "--detach", "v1.2.3"] in recorded["git"]
+
+
+def test_a_copied_case_file_reuses_the_assets_built_for_the_original(tmp_path):
+    """!
+    @brief Asset reuse follows provider identity, not the case file's name.
+
+    @details Asset sets are named after case files, so a copy that differed only in its
+             title found no set and rebuilt every provider. The copy must adopt the
+             published object and record it in its own set.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return None.
+    """
+    workspace = _write_workspace(tmp_path / "ws")
+    case, case_path = _write_file_grid_case(workspace)
+    reference = core.precompute_case_assets(
+        str(workspace), case, str(case_path), requested=["grid"]
+    )["assets"]["grid"]
+
+    copy_cfg = copy.deepcopy(case)
+    copy_cfg["title"] = "asset-case-copy"
+    copy_path = workspace / "config" / "case_copy.yml"
+    core.write_yaml_file(str(copy_path), copy_cfg)
+    action = core.plan_run_assets(copy_cfg, str(copy_path))["actions"][0]
+    assert action["action"] == "reuse" and action["adopted"]
+    assert action["reference"]["asset_id"] == reference["asset_id"]
+
+    run_dir = workspace / "runs" / "asset-case-copy_20260929-120000"
+    core.ensure_run_layout(str(run_dir))
+    lock = core.materialize_run_assets(
+        str(run_dir), copy_cfg, str(copy_path), require_precomputed=True
+    )
+    assert lock["assets"]["grid"]["asset_id"] == reference["asset_id"]
+    assert len(list((workspace / "assets" / "objects" / "grids").iterdir())) == 1
+    followup = core.plan_run_assets(copy_cfg, str(copy_path))["actions"][0]
+    assert followup["action"] == "reuse" and not followup["adopted"], "recorded in its own set"
+
+
+def test_a_generated_initial_condition_rebuilds_to_the_same_object(tmp_path):
+    """!
+    @brief A Python-generated initial condition is byte-reproducible, so rebuilding it
+           publishes no second object.
+
+    @details The IC summary is payload and used to record absolute paths inside the
+             temporary build directory, so every rebuild of an identical field published
+             a new object under a new asset id.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return None.
+    """
+    workspace = _write_workspace(tmp_path / "ws")
+    case, case_path = _write_spectral_ic_case(workspace)
+
+    first = core.precompute_case_assets(str(workspace), case, str(case_path))["assets"]
+    second = core.precompute_case_assets(str(workspace), case, str(case_path))["assets"]
+    assert second["initial-condition"]["asset_id"] == first["initial-condition"]["asset_id"]
+    assert len(list((workspace / "assets" / "objects" / "initial_conditions").iterdir())) == 1
+    summary = json.loads(
+        (workspace / first["initial-condition"]["object"] / "payload" / "output" / "analysis"
+         / "metrics" / "initial_condition_summary.json").read_text(encoding="utf-8")
+    )
+    assert summary["grid"] == "../../../inputs/grid/grid.run"
+
+
+def _write_spectral_ic_case(workspace: Path):
+    """!
+    @brief Write a 16^3 triply periodic case whose Python-generated IC is an asset.
+    @param[in] workspace Initialized workspace path.
+    @return Parsed case mapping and case path.
+    """
+    grid_cfg = workspace / "config" / "grids" / "box16.cfg"
+    grid_cfg.parent.mkdir(parents=True, exist_ok=True)
+    grid_cfg.write_text(
+        "[box]\nncells_i = 16\nncells_j = 16\nncells_k = 16\n"
+        "bounds_x = 0.0 6.283185307179586\nbounds_y = 0.0 6.283185307179586\n"
+        "bounds_z = 0.0 6.283185307179586\norigin = 0.0 0.0 0.0\n"
+        "periodic = i j k\nshow_stats = no\nwrite_vtk = no\n",
+        encoding="utf-8",
+    )
+    case = yaml.safe_load(
+        (REPO_ROOT / "examples" / "decaying_isotropic_turbulence" / "case.yml").read_text(encoding="utf-8")
+    )
+    case["grid"]["generator"]["config_file"] = "config/grids/box16.cfg"
+    case["properties"]["initial_conditions"]["params"]["spectrum"] = {
+        "type": "k4_exponential", "k0": 2.0, "k_cut": 4.0,
+    }
+    case_path = workspace / "config" / "case.yml"
+    core.write_yaml_file(str(case_path), case)
+    return case, case_path
+
+
+def test_a_restart_neither_builds_nor_materializes_the_unused_initial_condition(tmp_path):
+    """!
+    @brief A run that starts from saved state does not build or expose the configured IC.
+
+    @details The control file already ignored the IC on a restart, but asset staging still
+             materialized it, and would have generated it had no object existed.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @return None.
+    """
+    workspace = _write_workspace(tmp_path / "ws")
+    case, case_path = _write_spectral_ic_case(workspace)
+    case["run_control"]["start_step"] = 100
+    core.write_yaml_file(str(case_path), case)
+    solver = {"operation_mode": {"eulerian_field_source": "solve"}}
+    skip = core.unused_asset_kinds(case, solver)
+    assert skip == ("initial-condition",)
+    actions = {item["kind"]: item["action"]
+               for item in core.plan_run_assets(case, str(case_path), skip)["actions"]}
+    assert actions["initial-condition"] == "unused"
+
+    run_dir = workspace / "runs" / "restart_20260929-120000"
+    core.ensure_run_layout(str(run_dir))
+    lock = core.materialize_run_assets(str(run_dir), case, str(case_path), skip_kinds=skip)
+    assert "initial-condition" not in lock["assets"]
+    assert "initial-condition" not in lock["runtime_providers"]
+    ic_store = workspace / "assets" / "objects" / "initial_conditions"
+    assert not ic_store.exists() or not any(ic_store.iterdir()), "no IC object was built"
+    assert not (run_dir / "inputs" / "initial_condition").exists() or not any(
+        (run_dir / "inputs" / "initial_condition").iterdir())
+
+    fresh = dict(case, run_control=dict(case["run_control"], start_step=0))
+    assert core.unused_asset_kinds(fresh, solver) == ()
+    assert core.unused_asset_kinds(fresh, {"operation_mode": {"eulerian_field_source": "load"}}) == (
+        "initial-condition",)

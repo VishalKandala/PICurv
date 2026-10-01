@@ -96,6 +96,22 @@ Scientific output belongs under `<run.checkpoints>`, `<run.analysis>`, or
 a stray note costs nothing, and refusing to resume a long campaign over one would be a
 worse failure than the one being prevented.
 
+@subsection p52_scope_move_sub 1.3 Moving Or Copying A Run Or Study
+
+Generated control files, post recipes, scheduler scripts, and a study's case index hold
+absolute paths into the run or study. `<run.manifest>` records the run's root
+(`root_path`), and `study_manifest.json` records the study's (`paths.study_dir`). When
+`picurv run --post-process`, `run --solve --continue`, `submit`, or
+`sweep --continue`/`--reaggregate` opens a run or study whose recorded root differs from
+where it now is, it first rewrites those paths to the new location, the same rewrite a
+relocated `picurv storage restore` applies, and reports how many files it changed. A
+`--dry-run` reports the move without rewriting anything. A path is rewritten only where
+it ends at a path boundary, so moving `runs/run1` leaves `runs/run10` untouched.
+
+For a run staged before the manifest recorded its root, the old location is read from a
+control-file path that names one of the run's own files. Paths a run records for other
+runs, such as a branch's `parent_path`, are not rewritten.
+
 @section p52_newrun_sec 2. Editable Configurations And Imported Files
 
 Run commands from the workspace and refer to canonical configuration paths:
@@ -153,6 +169,12 @@ payload. A preview is skipped, and `validation.json` says so, when the first blo
 exceeds two million nodes: past that the ASCII geometry costs more than the look is
 worth. Inspection material describes the payload and is deliberately excluded from the
 object's identity, so changing a preview format does not re-identify every asset.
+
+An asset set is keyed by the case file's name, but reuse is keyed by provider identity:
+a case file with no matching set adopts any published object carrying the same
+`provider_spec_sha256` and records it in its own set. Payload files record paths relative
+to themselves, never the temporary build directory, so an unchanged provider rebuilds to
+the same asset id.
 
 Generated destinations are PICurv's. `grid.generator.output_file`, `stats_file`, and
 `vts_file` are rejected rather than honoured, as are the generated initial-condition
@@ -308,6 +330,7 @@ picurv run --solve --continue --run-dir runs/my_run \
 Operational meaning:
 
 - `case.yml -> run_control.start_step` must be the saved checkpoint step and must be greater than zero; use a normal run without `--continue` for a fresh start at step zero,
+- `start_step` may not be earlier than the run's last committed checkpoint. The solver never overwrites a committed checkpoint, so a continuation from an earlier one would keep the later states of the old trajectory and mix two histories in one run. To redo a stretch from an earlier checkpoint, branch a new run from that step with `--restart-from`,
 - PICurv validates the requested immutable bundle in `<run.checkpoints>` and
   materializes it into `<run.inputs>/restart`, the one restart home every mode uses,
   so the generated control carries a single canonical path. Same-filesystem reflink
@@ -395,28 +418,30 @@ another.
 
 Operational patterns for post-only reuse:
 
-- Keep `post.yml` as the full analysis window you want, then use `--continue` to skip steps that were already completed for the same recipe. You do not need to keep editing `start_step` during batch catch-up.
+- Keep `post.yml` as the full analysis window you want. Each post run processes only the steps whose output is missing or stale and records each step it produces in `config/post-recipes/<recipe-id>/state.json`, so you never edit `start_step` during batch catch-up.
 
 ```bash
-./bin/picurv run --post-process --continue \
+./bin/picurv run --post-process \
   --run-dir runs/search_robustness_20260322-073415 \
   --post search_robustness_analysis.yml
 ```
 
-- Live solver example: if `post.yml` requests `0..1000` every `10`, but solver source files currently exist only through step `420`, PICurv launches only `0..420` on the first pass. A later `--continue` run resumes at `430` after those source files appear.
-- Interrupted batch example: if `Field_00070.vts` exists but the required MSD CSV still stops at `60`, step `70` is treated as incomplete and the next `--continue` run restarts from `70`.
-- Explicit rerun example: if you omit `--continue`, PICurv honors the requested window exactly, rewrites any overlapping VTK files for those steps, and rewrites repeated statistics rows so each step still appears once in the final CSV.
-- Changed recipe example: if you point the same `run_dir` at a different `post.yml` recipe, such as adding `Qcrit_nodal` or changing the statistics prefix, PICurv starts from that recipe's configured `start_step` instead of inheriting completion from the previous recipe.
+- Live solver example: if `post.yml` requests `0..1000` every `10`, but solver source files currently exist only through step `420`, PICurv processes `0..420` on the first pass. A later run processes `430` onward after those source files appear.
+- Interrupted batch example: if `Field_00070.vts` exists but the required MSD CSV still stops at `60`, step `70` is incomplete and the next run processes it again. A job that fails part-way records the steps it finished.
+- Explicit rerun example: `--recompute` regenerates every requested step with a committed checkpoint, rewrites the VTK files for those steps, and rewrites repeated statistics rows so each step still appears once in the final CSV.
+- Changed recipe example: if you point the same `run_dir` at a different `post.yml` recipe, such as adding `Qcrit_nodal` or changing the statistics prefix, it is a separate recipe and its whole window is processed.
+- While a post job runs, `config/post-recipes/<recipe-id>/post.steps` lists the steps it processes and `post.steps.json` holds what recording them needs; both are removed when the job ends.
 - Concurrency rule: PICurv holds a post lock while the stage is active. A second writer
   targeting the same output lineage is refused so generated controls and result files
   cannot race.
+- Branch runs: a branch keeps the recipe's full logical window but post-processes only
+  the cadence-aligned steps from its fork onward; earlier steps belong to its ancestors.
 - ParaView lineage series: with `post.yml -> io.paraview_series.enabled: true` and
-  `scope: lineage`, a branch keeps the recipe's full logical window but postprocesses
-  only the cadence-aligned portion owned by that run. After success, PICurv writes a
+  `scope: lineage`, PICurv also writes, after success, a
   flattened `.pvd` in the branch's recipe visualization directory. It references
   compatible ancestor VTK files through each recorded fork and uses every checkpoint's
-  recorded physical time. Repeating post `--continue` while the solver is active grows
-  the collection only through the latest committed frontier.
+  recorded physical time. Repeating the post command while the solver is active grows
+  the collection with the steps committed since.
 
 @section p52_cluster_sec 7. Batch Job Generation And Reuse
 

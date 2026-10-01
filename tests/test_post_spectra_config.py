@@ -325,6 +325,53 @@ def test_stage_measures_only_committed_steps(tmp_path, monkeypatch):
     assert calls == [0, 50]
 
 
+def test_stage_measures_only_missing_or_stale_steps(tmp_path, monkeypatch):
+    """!
+    @brief With a plan, the stage records each measured step and skips it while it is valid.
+
+    A second pass measures nothing; a changed checkpoint is measured again; `recompute`
+    measures every committed step.
+    @param[in] tmp_path Temp dir.
+    @param[in] monkeypatch Fixture.
+    @return None.
+    """
+    calls = []
+    digests = {0: "a" * 64, 50: "b" * 64}
+    monkeypatch.setattr(CORE, "_scan_committed_checkpoint_steps", lambda *a, **k: {0, 50})
+    monkeypatch.setattr(CORE, "_checkpoint_commit", lambda src, step: (digests[step], 0.0))
+    monkeypatch.setattr(CORE, "validate_committed_checkpoint",
+                        lambda src, step: calls.append(step) or {
+                            "bundle": str(tmp_path), "metadata": {"checkpoint_time": "0.0"},
+                            "payloads": [{"kind": "eulerian", "field": "Ucat", "block": "0",
+                                          "path": "eulerian/block_0000/Ucat.dat"}]})
+    (tmp_path / "inputs" / "grid").mkdir(parents=True)
+    (tmp_path / "inputs" / "grid" / "grid.run").write_text("grid")
+
+    class Result:
+        returncode = 0
+        stdout = '{"shell_spectrum": [{"k": 1, "energy": 1.0}], ' + ", ".join(
+            f'"{name}": 0.0' for name in CORE.POST_SPECTRA_SCALAR_COLUMNS) + "}"
+        stderr = ""
+    monkeypatch.setattr(CORE.subprocess, "run", lambda *a, **k: Result())
+    plan = {"resume_state_path": str(tmp_path / "state.json")}
+
+    def measure(**options):
+        """! @brief Run the stage over steps 0 and 50. @param[in] options Stage options. @return Measured steps. """
+        calls.clear()
+        CORE.run_post_spectra_stage(str(tmp_path), recipe(), {}, str(tmp_path), [0, 50],
+                                    quiet=True, plan=plan, **options)
+        return calls
+
+    assert measure() == [0, 50]
+    assert measure() == []
+    spectrum = next(path for path in tmp_path.rglob("*.csv") if not path.name.endswith("_history.csv"))
+    spectrum.unlink()
+    assert measure() == [0, 50], "a missing spectrum file is measured again, not only a missing history"
+    digests[50] = "c" * 64
+    assert measure() == [50]
+    assert measure(recompute=True) == [0, 50]
+
+
 def test_stage_is_a_no_op_when_nothing_is_committed(tmp_path, monkeypatch):
     """! @brief A window with no committed checkpoint must return empty, not raise. @param[in] tmp_path Temp dir. @param[in] monkeypatch Fixture. """
     monkeypatch.setattr(CORE, "_scan_committed_checkpoint_steps", lambda *a, **k: set())

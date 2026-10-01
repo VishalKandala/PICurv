@@ -51,12 +51,13 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `monitor.solver_monitoring.poisson.*` | prefixed Poisson monitor flags in control (`-ps_ksp_*`) | PETSc options db | `src/poisson.c` KSP monitor setup |
 | `monitor.solver_monitoring.momentum.*` | bare Newton history/SNES/KSP monitor flags (`-mom_nk_*`) | `src/setup.c` + PETSc options db | `src/momentum_newton_krylov.c` |
 | `monitor.solver_monitoring.petsc_passthrough_options` | raw flags in control | PETSc options db | PETSc monitors/debug options |
-| `post.run_control.*` | `startTime/endTime/timeStep` in `post.run` | `src/io.c` (`ParsePostProcessingSettings`) | `src/postprocessor.c` main loop |
+| `post.run_control.*` | `startTime/endTime/timeStep` in `post.run` | `src/io.c` (`ParsePostProcessingSettings`) | `src/postprocessor.c` main loop, when no step list is given |
+| (conductor, at job start) | `step_list_file` in `post.run` | `src/io.c` (`ParsePostProcessingSettings`) | `ResolvePostProcessingSteps` in `src/postprocessor.c` |
 | `post.io.input_extensions.*` | `eulerianExt`, `particleExt` in `post.run` | `src/io.c` | `ReadSimulationFields`, `ReadAllSwarmFields`, swarm precheck |
 | `post.statistics_pipeline.*` | `statistics_pipeline`, `statistics_output_prefix` | `src/io.c` | `GlobalStatisticsPipeline` dispatch |
 | `post.io.paraview_series` | No PETSc option; conductor-only policy | `picurv_cli/core.py` | `finalize_post_paraview_series` writes PVD collections after field processing |
 | `post.field_statistics.*` | `field_statistics_windows`, `field_statistics_outputs`, `field_statistics_formats`, `field_statistics_source_step` | `src/io.c` (`ParsePostProcessingSettings`) | `FieldStatisticsPipeline` in `src/postprocessor.c`, derivation in `src/statistics_accumulator.c` |
-| `post.spectra.*` (digest only) | `spectra_signature` | `src/io.c` (`ParsePostProcessingSettings`) | accepted and ignored; exists so a changed spectra recipe reaches the `--continue` recipe fingerprint |
+| `post.spectra.*` (digest only) | `spectra_signature` | `src/io.c` (`ParsePostProcessingSettings`) | accepted and ignored; exists so a changed spectra recipe reaches the recipe fingerprint each step's output record carries |
 
 @section p15_python_only_sec 3. Python-Only Orchestration Mapping (No C Ingestion)
 

@@ -2450,6 +2450,76 @@ run_field_statistics_rank_equivalence_smoke() {
   done < <(find "${serial_run}/${stats_dir}" -type f -name '*.dat' -printf '%f\n' | sort)
 }
 
+run_periodic_post_rank_equivalence_smoke() {
+  # A fully periodic post must fill each cell field's dummy planes from the wrapped
+  # physical planes on whichever rank owns them. The kernel this replaced read the
+  # far plane by its global index, which exists locally only when one rank spans the
+  # axis, and crashed as soon as the axis was split. Derived statistics and the
+  # Q-criterion both take this path.
+  local case_dir="${tmp_root}/periodic-post-ranks"
+  local saved_nprocs="${nprocs}"
+  local run_dir="" recipe_rel="" relative=""
+  if [[ "${saved_nprocs}" -le 1 ]]; then
+    echo "    (skipped: rank equivalence needs a multi-rank harness, have ${saved_nprocs})"
+    return 0
+  fi
+  "${picurv_exe}" init decaying_isotropic_turbulence --dest "${case_dir}" >/dev/null
+  python3 - "${case_dir}" <<'PY'
+import sys, yaml
+root = sys.argv[1]
+def edit(name, change):
+    path = f"{root}/config/{name}.yml"
+    cfg = yaml.safe_load(open(path)); change(cfg); yaml.safe_dump(cfg, open(path, "w"), sort_keys=False)
+with open(f"{root}/config/grids/box16.cfg", "w") as handle:
+    handle.write("[box]\nncells_i = 16\nncells_j = 16\nncells_k = 16\n"
+                 "bounds_x = 0.0 6.283185307179586\nbounds_y = 0.0 6.283185307179586\n"
+                 "bounds_z = 0.0 6.283185307179586\norigin = 0.0 0.0 0.0\n"
+                 "periodic = i j k\nshow_stats = no\nwrite_vtk = no\n")
+def case(cfg):
+    cfg["grid"]["generator"]["config_file"] = "config/grids/box16.cfg"
+    cfg["properties"]["initial_conditions"]["params"]["spectrum"] = {"type": "k4_exponential", "k0": 2.0, "k_cut": 4.0}
+    cfg["run_control"]["total_steps"] = 4
+def solver(cfg):
+    mg = cfg["poisson_solver"]["multigrid"]; mg["levels"] = 2
+    mg["level_solvers"] = {k: v for k, v in (mg.get("level_solvers") or {}).items() if k in ("level_0", "level_1")}
+def monitor(cfg):
+    cfg["io"]["data_output_frequency"] = 2
+    for window in cfg["field_statistics"]["windows"]:
+        window.update(start_time=0.0, end_time=1.0, step_cadence=1)
+def post(cfg):
+    cfg["run_control"] = {"start_step": 2, "end_step": 4, "step_interval": 2}
+    cfg.pop("spectra", None)
+edit("case", case); edit("solver", solver); edit("monitor", monitor); edit("post", post)
+PY
+  (
+    cd "${case_dir}"
+    "${picurv_exe}" run --solve -n 1 --case config/case.yml --solver config/solver.yml \
+      --monitor config/monitor.yml >"${case_dir}/solve.log" 2>&1
+  ) || { cat "${case_dir}/solve.log" >&2; die "periodic post rank-equivalence solve failed"; }
+  run_dir="$(ls -d "${case_dir}"/runs/*/ | head -1)"
+  for ranks in 1 "${saved_nprocs}"; do
+    rm -rf "${run_dir}/output/visualization" "${run_dir}/output/analysis/statistics"
+    (
+      cd "${case_dir}"
+      "${picurv_exe}" run --post-process -n "${ranks}" --run-dir "${run_dir}" \
+        --post config/post.yml >"${case_dir}/post_${ranks}.log" 2>&1
+    ) || { cat "${case_dir}/post_${ranks}.log" >&2; die "periodic post on ${ranks} rank(s) failed"; }
+    mkdir -p "${case_dir}/out_${ranks}"
+    cp -r "${run_dir}/output/visualization" "${run_dir}/output/analysis/statistics" "${case_dir}/out_${ranks}/"
+  done
+  require_count_ge "${case_dir}/out_1" "*.vts" 6 "periodic post field and statistics VTS files"
+  while IFS= read -r relative; do
+    require_files_identical \
+      "${case_dir}/out_1/${relative}" \
+      "${case_dir}/out_${saved_nprocs}/${relative}" \
+      "periodic post output ${relative} (1 rank vs ${saved_nprocs} ranks)"
+  done < <(cd "${case_dir}/out_1" && find . -type f | sed 's|^\./||' | sort)
+  for window in early_decay late_decay; do
+    python3 "${repo_root}/tests/tooling/check_statistics_nodal_consistency.py" "${run_dir}" "${window}" \
+      >/dev/null || die "periodic post statistics VTK disagrees with the CSV for window ${window}"
+  done
+}
+
 run_stress_smoke() {
   local particle_case="${tmp_root}/flat-particles-stress"
   local restart_case="${tmp_root}/restart-chain-stress"
@@ -2696,6 +2766,8 @@ if [[ "${nprocs}" -gt 1 ]]; then
   run_rank_change_restart_smoke
   echo "==> PICurv smoke: field statistics across a changed MPI rank count"
   run_field_statistics_rank_equivalence_smoke
+  echo "==> PICurv smoke: periodic post-processing across a changed MPI rank count"
+  run_periodic_post_rank_equivalence_smoke
 else
   echo "==> PICurv smoke: Newton--Krylov flat-channel BDF1 startup"
   run_newton_krylov_flat_channel_startup_smoke

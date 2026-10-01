@@ -151,7 +151,7 @@ def check_periodic_wrap(arrays, nodes, periodic):
             if not numpy.allclose(low, high):
                 print(f"[FAIL] '{name}': the two layout boundary planes in the periodic "
                       f"{label} direction differ, so the wrap was not applied. See "
-                      f"ExtendToLayoutBoundary().", file=sys.stderr)
+                      f"SynchronizePeriodicCellFields().", file=sys.stderr)
                 return 1
             checked += 1
     print(f"[INFO] periodic layout boundary wraps verified on {checked} array/direction pair(s).")
@@ -218,7 +218,7 @@ def main(argv=None):
                 f"[FAIL] derived statistics VTK and convergence CSV disagree by "
                 f"{100*deviation:.2f}%, above the {100*tolerance:.0f}% interpolation "
                 f"allowance. A layout boundary left unwritten by an interior-only "
-                f"producer is the usual cause; see ExtendToLayoutBoundary().",
+                f"producer is the usual cause; see SynchronizePeriodicCellFields().",
                 file=sys.stderr,
             )
             return 1
@@ -236,7 +236,7 @@ def main(argv=None):
                 print(
                     f"[FAIL] every boundary node is defined on a fully periodic layout, "
                     f"but the whole-domain nodal mean is off by {100*whole_deviation:.2f}%. "
-                    f"The layout boundary was left unwritten; see ExtendToLayoutBoundary().",
+                    f"The layout boundary was left unwritten; see SynchronizePeriodicCellFields().",
                     file=sys.stderr,
                 )
                 return 1

@@ -59,10 +59,10 @@ python3 tests/tooling/audit_starter_content.py
 For long or live runs, keep the full post-analysis window in `post.yml`, then use:
 
 ```bash
-./bin/picurv run --post-process --continue --run-dir runs/<run_id> --post my_case/post.yml
+./bin/picurv run --post-process --run-dir runs/<run_id> --post my_case/post.yml
 ```
 
-PICurv will resume the same recipe from the first unfinished step, cap the launch to the current live solver frontier, and refuse a second concurrent post writer on the same run directory.
+PICurv processes only the steps whose output is missing or stale, leaves steps without a committed checkpoint for a later run, and refuses a second concurrent post writer on the same run directory.
 
 The flat-channel and bent-channel standard post recipes enable physical-time PVD
 collections through `io.paraview_series`. Open the `.pvd` under

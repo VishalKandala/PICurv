@@ -62,8 +62,9 @@ def _add_run_parser(subparsers):
             "Notes:\n"
             "  - --num-procs applies to solver and post-processing stage launches.\n"
             "  - With --solve, --continue resumes the existing run directory in-place.\n"
-            "  - With --post-process, --continue resumes the same recipe from the first unfinished step\n"
-            "    and caps the launch to the highest fully available contiguous source frontier.\n\n"
+            "  - --post-process processes only the steps whose output is missing or stale: no output,\n"
+            "    a changed recipe, or a changed checkpoint. Steps without a committed checkpoint\n"
+            "    wait for the solver. --recompute regenerates every step.\n\n"
             "Diagnostics:\n"
             "  - PETSc and runtime memory diagnostics live under monitor.yml -> diagnostics.\n"
             "  - Use --dry-run to inspect resolved PETSc flags and expected log destinations.\n\n"
@@ -72,7 +73,7 @@ def _add_run_parser(subparsers):
             "  picurv run --solve --restart-from runs/old_run --case case.yml --solver solver.yml --monitor monitor.yml\n"
             "  picurv run --solve --continue --run-dir runs/my_run --case case.yml --solver solver.yml --monitor monitor.yml\n"
             "  picurv run --post-process --run-dir runs/my_run --post post.yml\n"
-            "  picurv run --post-process --continue --run-dir runs/my_run --post post.yml\n"
+            "  picurv run --post-process --recompute --run-dir runs/my_run --post post.yml\n"
             "  picurv run --solve --case case.yml --solver solver.yml --monitor monitor.yml --dry-run"
         ),
         epilog="Next: run `picurv validate ...` first for config-only checks.",
@@ -113,20 +114,27 @@ def _add_run_parser(subparsers):
         "--continue",
         action="store_true",
         dest="continue_run",
-        help="Resume an existing run directory in-place. Requires --run-dir.\n"
-             "With --solve, requires start_step > 0 and appends to existing solver output/logs.\n"
-             "With --post-process, resumes the same recipe from the first unfinished step\n"
-             "and skips already-complete work inside the current live source frontier.",
+        help="Extend an existing run's solve in place. Requires --solve and --run-dir,\n"
+             "and start_step > 0; appends to existing solver output/logs.\n"
+             "Post-processing needs no flag: it always skips up-to-date steps.",
     )
 
     post_group = p_run.add_argument_group("post-processor inputs (required for --post-process)")
-    post_group.add_argument("--run-dir", help="Path to an existing run directory.\n(Used with --post-process or --continue).")
+    post_group.add_argument("--run-dir", help="Path to an existing run directory.\n(Used with --post-process or --solve --continue).")
     post_group.add_argument("--post", help="Path to the post-processing recipe file (e.g., post.yml).")
     post_group.add_argument(
         "--only",
         help="Comma-separated post stages to run: 'fields' (the field post-processor)\n"
              "and/or 'spectra'. Defaults to every stage.\n"
-             "Use --only spectra to re-measure spectra without rebuilding field output.",
+             "Use --only spectra to measure spectra without running the field stage.",
+    )
+    post_group.add_argument(
+        "--recompute",
+        action="store_true",
+        dest="recompute_post",
+        help="Regenerate every requested step that has a committed checkpoint, including\n"
+             "steps whose output is up to date (for example, after rebuilding the\n"
+             "postprocessor). Applies to every selected stage.",
     )
 
     p_run.add_argument(
@@ -485,7 +493,9 @@ def _add_submit_parser(subparsers):
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
             "Consume an existing artifact set created by picurv --no-submit and\n"
-            "execute/submit it later without regenerating configs or scripts.\n\n"
+            "execute/submit it later without regenerating configs or scripts.\n"
+            "A post-process job decides when it starts which steps need work, so\n"
+            "submitting it again skips output that is already up to date.\n\n"
             "Examples:\n"
             "  picurv submit --run-dir runs/my_run\n"
             "  picurv submit --run-dir runs/my_run --stage solve\n"
@@ -523,10 +533,10 @@ def _add_init_parser(subparsers):
     """
     p_init = subparsers.add_parser(
         "init",
-        help="Initialize a new case study directory from a template.",
+        help="Initialize a new case workspace from a template.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
-            "Create a study directory from examples/<template_name>.\n\n"
+            "Create a case workspace from examples/<template_name>.\n\n"
             "Examples:\n"
             "  picurv init flat_channel --dest my_case\n"
             "  picurv init bent_channel --dest my_bent_case\n"
@@ -639,10 +649,12 @@ def _add_pull_source_parser(subparsers):
     """
     p_pull = subparsers.add_parser(
         "pull-source",
-        help="Refresh source branches from an initialized case directory.",
+        help="(Legacy) Refresh source branches from an initialized case directory.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
-            "Update the source repository without leaving an initialized case directory.\n\n"
+            "Legacy maintenance command; new workspaces use `picurv source update` and\n"
+            "`picurv versions`. Updates the source repository without leaving an\n"
+            "initialized case directory.\n\n"
             "By default this refreshes every local branch that tracks an upstream,\n"
             "then restores the branch you started on.\n\n"
             "Examples:\n"
@@ -674,10 +686,11 @@ def _add_status_source_parser(subparsers):
     """
     p_status = subparsers.add_parser(
         "status-source",
-        help="Report source/case drift for an initialized case directory.",
+        help="(Legacy) Report source/case drift for an initialized case directory.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
-            "Inspect whether the source repo, copied binaries, and template-managed files have drifted\n"
+            "Legacy maintenance command; `picurv version status` reports build coherence for\n"
+            "new workspaces. Inspects whether the source repo, copied binaries, and template-managed files have drifted\n"
             "from the current case directory.\n\n"
             "Examples:\n"
             "  ./picurv status-source\n"
@@ -713,7 +726,7 @@ def build_main_parser():
             "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --dry-run\n"
             "  picurv run --solve --post-process --case case.yml --solver solver.yml --monitor monitor.yml --post post.yml --no-submit\n"
             "  picurv precompute --case config/case.yml --only grid,initial-condition\n"
-            "  picurv run --post-process --continue --run-dir runs/my_run --post post.yml\n"
+            "  picurv run --post-process --run-dir runs/my_run --post post.yml\n"
             "  picurv summarize --run-dir runs/my_run --latest\n"
             "  picurv summarize --run-dir runs/my_run --list-plot-series\n"
             "  picurv summarize --run-dir runs/my_run --plot momentum.residual_norm --last 100\n"
@@ -726,7 +739,7 @@ def build_main_parser():
             "  - Config debugging: picurv validate ...\n"
             "  - Artifact generation: picurv precompute ...\n"
             "  - Launch planning: picurv run ... --dry-run\n"
-            "  - Post-only catch-up: picurv run --post-process --continue --run-dir ... --post ...\n"
+            "  - Post-only catch-up: picurv run --post-process --run-dir ... --post ...\n"
             "  - Deferred submission: picurv submit --run-dir ...\n"
             "  - Run inspection/plots: picurv summarize ...\n"
             "  - Run cancellation: picurv cancel --run-dir ...; use --graceful for solver final-output shutdown"
@@ -766,6 +779,8 @@ def dispatch_command(args):
             fail_cli_usage("--post-process requires --post.")
         if getattr(args, "only", None) and not args.post_process:
             fail_cli_usage("--only selects post-processing stages and requires --post-process.")
+        if getattr(args, "recompute_post", False) and not args.post_process:
+            fail_cli_usage("--recompute regenerates post-processing output and requires --post-process.")
         if args.scheduler and not args.cluster:
             fail_cli_usage("--scheduler requires --cluster in this version.")
         run_workflow(args)

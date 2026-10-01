@@ -26,7 +26,7 @@
 <tr><td class="markdownTableBodyNone"><code>--graceful</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">For solver jobs, request a clean runtime shutdown by sending SIGUSR1 to the process tree instead of hard-canceling immediately. The solver writes the latest safe off-cadence step at the next checkpoint. Non-solver stages still use ordinary scancel.</td></tr>
 </table>
 <h3 id="cli_init"><code>picurv init</code></h3>
-<p>Create a study directory from examples/&lt;template_name&gt;.</p>
+<p>Create a case workspace from examples/&lt;template_name&gt;.</p>
 <p><b>positional arguments</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>template_name</code> (positional)</td><td class="markdownTableBodyNone">yes</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Name of the case template directory to copy (e.g., 'flat_channel').</td></tr>
@@ -69,7 +69,7 @@ or to protect running jobs from concurrent rebuilds.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--only</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>all</code></td><td class="markdownTableBodyNone">Comma-separated asset kinds (grid, initial-condition, inlet-profiles), or all.</td></tr>
 </table>
 <h3 id="cli_pull_source"><code>picurv pull-source</code></h3>
-<p>Update the source repository without leaving an initialized case directory.</p>
+<p>Legacy maintenance command; new workspaces use `picurv source update` and</p>
 <p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>
@@ -102,10 +102,9 @@ report the build identity read at staging.</td></tr>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>--solve</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Execute the solver stage (creates a new run directory).</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--post-process</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Execute the post-processing stage on a run directory.</td></tr>
-<tr><td class="markdownTableBodyNone"><code>--continue</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Resume an existing run directory in-place. Requires --run-dir.
-With --solve, requires start_step &gt; 0 and appends to existing solver output/logs.
-With --post-process, resumes the same recipe from the first unfinished step
-and skips already-complete work inside the current live source frontier.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--continue</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Extend an existing run's solve in place. Requires --solve and --run-dir,
+and start_step &gt; 0; appends to existing solver output/logs.
+Post-processing needs no flag: it always skips up-to-date steps.</td></tr>
 </table>
 <p><b>solver inputs (required for --solve)</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
@@ -123,11 +122,14 @@ saved window state. Ignored when field statistics are disabled.</td></tr>
 <p><b>post-processor inputs (required for --post-process)</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>--run-dir</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to an existing run directory.
-(Used with --post-process or --continue).</td></tr>
+(Used with --post-process or --solve --continue).</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--post</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to the post-processing recipe file (e.g., post.yml).</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--only</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Comma-separated post stages to run: 'fields' (the field post-processor)
 and/or 'spectra'. Defaults to every stage.
-Use --only spectra to re-measure spectra without rebuilding field output.</td></tr>
+Use --only spectra to measure spectra without running the field stage.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--recompute</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Regenerate every requested step that has a committed checkpoint, including
+steps whose output is up to date (for example, after rebuilding the
+postprocessor). Applies to every selected stage.</td></tr>
 </table>
 <h3 id="cli_source"><code>picurv source</code></h3>
 <p><b>options</b></p>
@@ -141,7 +143,7 @@ Use --only spectra to re-measure spectra without rebuilding field output.</td></
 <tr><td class="markdownTableBodyNone"><code>--remote</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>origin</code></td><td class="markdownTableBodyNone"></td></tr>
 </table>
 <h3 id="cli_status_source"><code>picurv status-source</code></h3>
-<p>Inspect whether the source repo, copied binaries, and template-managed files have drifted</p>
+<p>Legacy maintenance command; `picurv version status` reports build coherence for</p>
 <p><b>options</b></p>
 <table class="markdownTable"><tr><th class="markdownTableHeadNone">Flag</th><th class="markdownTableHeadNone">Required</th><th class="markdownTableHeadNone">Choices</th><th class="markdownTableHeadNone">Default</th><th class="markdownTableHeadNone">Description</th></tr>
 <tr><td class="markdownTableBodyNone"><code>-h</code>, <code>--help</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">show this help message and exit</td></tr>

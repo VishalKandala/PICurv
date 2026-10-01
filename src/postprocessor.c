@@ -816,6 +816,76 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "ResolvePostProcessingSteps"
+/**
+ * @brief Internal helper implementation: `ResolvePostProcessingSteps()`.
+ * @details Local to this translation unit.
+ */
+PetscErrorCode ResolvePostProcessingSteps(PostProcessParams *pps, PetscInt **steps, PetscInt *count)
+{
+    PetscMPIInt rank;
+
+    PetscFunctionBeginUser;
+    *steps = NULL;
+    *count = 0;
+    if (pps->step_list_file[0] == '\0') {
+        PetscInt n = (pps->endTime >= pps->startTime) ? (pps->endTime - pps->startTime) / pps->timeStep + 1 : 0;
+        PetscCall(PetscMalloc1(n > 0 ? n : 1, steps));
+        for (PetscInt k = 0; k < n; ++k) (*steps)[k] = pps->startTime + k * pps->timeStep;
+        *count = n;
+        PetscFunctionReturn(0);
+    }
+
+    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
+    /* Rank 0 reads; a failure is broadcast as a negative count so every rank stops
+       together instead of the others waiting in the broadcast. */
+    PetscInt n = 0, capacity = 0;
+    PetscInt *list = NULL;
+    char bad_line[256] = "";
+    if (rank == 0) {
+        char line[256];
+        FILE *file = fopen(pps->step_list_file, "r");
+        if (!file) n = -1;
+        while (file && n >= 0 && fgets(line, sizeof(line), file)) {
+            char *end = NULL;
+            long value;
+            TrimWhitespace(line);
+            if (line[0] == '\0' || line[0] == '#') continue;
+            value = strtol(line, &end, 10);
+            if (end == line || *end != '\0') {
+                PetscCall(PetscStrncpy(bad_line, line, sizeof(bad_line)));
+                n = -2;
+                break;
+            }
+            if (n == capacity) {
+                PetscInt *grown = NULL;
+                capacity = capacity ? 2 * capacity : 64;
+                PetscCall(PetscMalloc1(capacity, &grown));
+                if (n) PetscCall(PetscArraycpy(grown, list, n));
+                PetscCall(PetscFree(list));
+                list = grown;
+            }
+            list[n++] = (PetscInt)value;
+        }
+        if (file) fclose(file);
+    }
+    PetscCallMPI(MPI_Bcast(&n, 1, MPIU_INT, 0, PETSC_COMM_WORLD));
+    if (n < 0) {
+        PetscCall(PetscFree(list));
+        PetscCheck(n != -1, PETSC_COMM_WORLD, PETSC_ERR_FILE_OPEN,
+                   "Step list file '%s' is missing. It is written when picurv launches the post "
+                   "stage; launch post-processing through picurv.", pps->step_list_file);
+        SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
+                "Step list file '%s' has a non-integer line '%s'.", pps->step_list_file, bad_line);
+    }
+    if (rank != 0) PetscCall(PetscMalloc1(n > 0 ? n : 1, &list));
+    if (n > 0) PetscCallMPI(MPI_Bcast(list, (PetscMPIInt)n, MPIU_INT, 0, PETSC_COMM_WORLD));
+    *steps = list;
+    *count = n;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "main"
 #ifndef PICURV_POSTPROCESSOR_NO_MAIN
 /**
@@ -875,7 +945,11 @@ int main(int argc, char **argv)
     PetscBool coordinates_dimensionalized = PETSC_FALSE;
 
     // === VII. MAIN POST-PROCESSING LOOP ======================================
-    for (PetscInt ti = pps->startTime; ti <= pps->endTime; ti += pps->timeStep) {
+    PetscInt *steps = NULL, step_count = 0;
+    ierr = ResolvePostProcessingSteps(pps, &steps, &step_count); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Processing %" PetscInt_FMT " step(s).\n", step_count);
+    for (PetscInt k = 0; k < step_count; ++k) {
+        const PetscInt ti = steps[k];
         LOG_ALLOW(GLOBAL, LOG_INFO, "--- Processing Time Step %" PetscInt_FMT " ---\n", ti);
 
         // 1. Load Data (UpdateLocalGhosts is called inside the kernels)
@@ -934,31 +1008,27 @@ int main(int argc, char **argv)
         ierr = FieldStatisticsPipeline(user, pps, ti); CHKERRQ(ierr);
 
         if(simCtx->rank == 0){
-            PetscInt StepsToRun = pps->endTime - pps->startTime;
             PetscReal currentTime = (PetscReal)ti*simCtx->dt;
-            PrintProgressBar(ti-1,pps->startTime,StepsToRun,currentTime);
+            PrintProgressBar(k, 0, step_count, currentTime);
             if(get_log_level()>LOG_ERROR)PetscPrintf(PETSC_COMM_SELF,"\n");
         }
         ierr = RuntimeMemoryLogSample(simCtx, ti, "Post", "-"); CHKERRQ(ierr);
     }
 
-    // After the loop, print the 100% complete bar on rank 0 and add a newline
-    // to ensure subsequent terminal output starts on a fresh line.
-    if (simCtx->rank == 0) {
-        PetscInt endTime = pps->endTime-1; // needs to be verified.
-        PetscInt StepsToRun = pps->endTime - pps->startTime;
-        PetscReal endTimeValue = (PetscReal)pps->endTime*simCtx->dt;
-        PrintProgressBar(endTime, pps->startTime, StepsToRun, endTimeValue);
+    // End the progress bar's line so subsequent terminal output starts on a fresh line.
+    if (simCtx->rank == 0 && step_count > 0) {
         PetscPrintf(PETSC_COMM_SELF, "\n");
         fflush(stdout);
     }
+    const PetscInt last_step = step_count > 0 ? steps[step_count - 1] : pps->endTime;
+    ierr = PetscFree(steps); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "=============================================================\n");
     LOG_ALLOW(GLOBAL, LOG_INFO, "Post-processing finished successfully.\n");
     
 
     // === VIII. FINALIZE =========================================================
-    ierr = RuntimeMemoryLogSample(simCtx, pps->endTime, "Final", "Complete"); CHKERRQ(ierr);
+    ierr = RuntimeMemoryLogSample(simCtx, last_step, "Final", "Complete"); CHKERRQ(ierr);
     ierr = ProfilingFinalize(simCtx); CHKERRQ(ierr);
     ierr = FinalizeSimulation(simCtx); CHKERRQ(ierr);
     ierr = PetscFinalize();

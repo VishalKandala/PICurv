@@ -27,8 +27,8 @@ is `examples/search_robustness/`.
 6. Execute with `picurv run` or `picurv sweep`.
 
 Post-profile usage note:
-- keep `master_postprocessor.yml -> run_control` as the full logical analysis window you want a recipe to represent. When you later run `picurv run --post-process --continue --run-dir ... --post ...`, PICurv resumes the same recipe from the first unfinished step instead of requiring manual `start_step` edits.
-- on live solver runs, PICurv also caps each post launch to the highest fully available contiguous source prefix for that recipe.
+- keep `master_postprocessor.yml -> run_control` as the full logical analysis window you want a recipe to represent. Each later `picurv run --post-process --run-dir ... --post ...` processes only the steps whose output is missing or stale, so `start_step` never needs manual edits.
+- on live solver runs, steps without a committed checkpoint are left for a later post run.
 - `io.paraview_series` enables physical-time `.pvd` collections in the template.
   `scope: lineage` follows recorded restart ancestry; `scope: run` indexes only the
   current run. Matching ancestor VTK recipes must already exist. Changing the post

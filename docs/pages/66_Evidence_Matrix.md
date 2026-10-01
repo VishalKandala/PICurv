@@ -86,12 +86,14 @@ likely to matter:
   grid-generator feature, the workspace input import modes, and the four generated
   initial-condition providers, plus Newton--Krylov production execution on a
   144-rank turbulent channel.
-  Each record states what it does not establish, and none is gated in CI. Six records
-  are cited by no value: the two `not-met` ones (the Q-criterion output placement and the
-  generated inlet flux on `programmatic_c` grids, both since fixed and re-measured), the
+  Each record states what it does not establish, and none is gated in CI. Eight records
+  are cited by no value: three `not-met` ones (the Q-criterion output placement and the
+  generated inlet flux on `programmatic_c` grids, both since fixed and re-measured, and
+  asset reuse for identical inputs, fixed and awaiting a cluster re-check), the
   superseded `inconclusive` drift measurement, the 2026-09-22 wall-seed measurement
-  taken on the former `sin(pi t)^4` envelope (superseded by `wall-spectral-ic-2026-09-24`), and the paired drift and scalar-scatter
-  measurements, which verify subsystems with no selector value to cite them. No
+  taken on the former `sin(pi t)^4` envelope (superseded by
+  `wall-spectral-ic-2026-09-24`), and the paired drift, scalar-scatter, and pending-job
+  cancellation measurements, which verify subsystems with no selector value to cite them. No
   capability claims validated external-reference agreement. The exploratory
   Lee--Moser DNS comparison in `turbulent-channel-nk-2026-09-29` retains an 11.4%
   friction-Reynolds-number discrepancy and 29.3% excess skin friction; its `met`

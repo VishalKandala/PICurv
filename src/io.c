@@ -3258,6 +3258,7 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     pps->startTime = 0;
     pps->endTime = 0;
     pps->timeStep = 1;
+    pps->step_list_file[0] = '\0';
     pps->outputParticles = PETSC_FALSE;
     pps->particle_output_freq = simCtx->LoggingFrequency; // Default to logging frequency;
     strcpy(pps->process_pipeline, "");
@@ -3296,6 +3297,10 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
                 if (strcmp(key, "startTime") == 0) pps->startTime = atoi(value);
                 else if (strcmp(key, "endTime") == 0) pps->endTime = atoi(value);
                 else if (strcmp(key, "timeStep") == 0) pps->timeStep = atoi(value);
+                else if (strcmp(key, "step_list_file") == 0) {
+                    strncpy(pps->step_list_file, value, sizeof(pps->step_list_file) - 1);
+                    pps->step_list_file[sizeof(pps->step_list_file) - 1] = '\0';
+                }
                 else if (strcmp(key, "output_particles") == 0) {
                     if (strcasecmp(value, "true") == 0) pps->outputParticles = PETSC_TRUE;
                 }
@@ -3359,9 +3364,9 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
                 } else if (strcasecmp(key, "spectra_signature") == 0) {
                     /* Spectra are computed by the conductor's Python stage, not here. The
                        key exists so a change to the spectra recipe reaches the recipe
-                       fingerprint that `--continue` compares; this executable has no use
-                       for it and accepting it silently keeps the log free of a warning
-                       that would appear on every post-processing run. */
+                       fingerprint each step's output record carries; this executable has
+                       no use for it and accepting it silently keeps the log free of a
+                       warning that would appear on every post-processing run. */
                 } else {
                     LOG_ALLOW(GLOBAL, LOG_WARNING, "Unknown key '%s' in post-processing config file. Ignoring.\n", key);
                 }

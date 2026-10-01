@@ -280,7 +280,7 @@ picurv storage restore \
 
 When an individually archived study member is restored after the entire study was deleted, its archive also recreates the small parent study context, including `study.yml`, `study_manifest.json`, and `<run.scheduler>/case_index.tsv` when those files were present at archive time.
 
-An alternate-location restore conservatively replaces the old run/study prefix in known generated text files (`.control`, `.run`, `.sbatch`, JSON, TSV, and YAML). Inspect regenerated scheduler scripts and any user-authored absolute paths before submitting on a different cluster. Remote archive bytes remain unchanged.
+An alternate-location restore conservatively replaces the old run/study prefix in known generated text files (`.control`, `.run`, `.sbatch`, JSON, TSV, and YAML), matching only whole path components. A run or study moved by hand gets the same rewrite the next time PICurv opens it (see @ref p52_scope_move_sub). Inspect regenerated scheduler scripts and any user-authored absolute paths before submitting on a different cluster. Remote archive bytes remain unchanged.
 
 @subsection p61_restore_checkpoint 4.3 Only Particular Checkpoints Are Needed
 
@@ -293,7 +293,7 @@ picurv storage restore \
   --checkpoint 600
 ```
 
-The result is `PARTIAL`. Restart and continuation proceed when their required checkpoint is present. Post-processing proceeds when all checkpoint steps in its requested start/end/interval window are present; otherwise PICurv prints the exact selective or full restore command to run.
+The result is `PARTIAL`. Restart and continuation proceed when their required checkpoint is present. Post-processing proceeds when the checkpoint of every requested step whose output is missing or stale is present; a step whose output is up to date is not read. Otherwise PICurv prints the exact selective or full restore command to run.
 
 `--force` permits a restore to merge into an existing directory that is not already the matching cold artifact. Because matching archived files can be replaced, use it only after inspecting the destination. Prefer a new `--to` path for recovery experiments.
 
@@ -410,7 +410,7 @@ The storage layer is additive and remains in the Python conductor. It does not c
 
 - `restart --from` behavior is represented by `picurv run --solve --restart-from ...`. A cold source is refused unless its requested start checkpoint has been restored.
 - `run --solve --continue --run-dir ...` follows the same checkpoint rule.
-- `run --post-process` accepts a partial restore only when the complete requested checkpoint window is local.
+- `run --post-process` accepts a partial restore only when every checkpoint it must process is local. Steps whose output is up to date are excluded, so a window that is already complete is reported as complete without a restore. Spectra follow the same rule.
 - `submit` refuses a cold run and refuses a study with cold members. Existing staged scripts and scheduler metadata are retained during offload.
 - `sweep --continue` refuses cold members instead of interpreting pruned checkpoints as incomplete cases; `--auto-fetch` restores them first instead of failing (see @ref p61_mixed_study).
 - `sweep --reaggregate` carries a cold member's previously aggregated values forward instead of refusing; `--auto-fetch` restores cold members first so they are re-measured like any other (see @ref p61_mixed_study).
