@@ -50,15 +50,86 @@ double-delta start inside every cell is `"where(uniform() < 0.5, 0, 1)"`, wherea
 `half_space` region mixes only in the cells its boundary cuts, and spreads beyond them only
 as fast as particles move.
 
-@warning **Coupled scalar-variance decay is not yet verified.** The verification scalar
-source (@ref p08_verification_sec) prescribes `Psi` exactly and bypasses this update, and
-the scatter of `Psi` to the grid is verified through it. `TestConfiguredIEMUpdatesSwarm`
-in `tests/c/test_setup_lifecycle.c` checks relaxation toward a prescribed mean for the
-default and an overridden constant; `TestIEMRelaxesTowardOwnCellMean` checks, from a
-random 0/1 start, that each particle relaxes toward its own cell's scattered mean, so the
-scalar total is conserved while its spread shrinks; and `TestConfiguredParticleInitialValue`
-checks that a configured value reaches every particle and the t=0 cell mean. None
-establishes the decay of scalar variance in a production flow.
+@subsection p28_verification_ssec 1.1 Verification
+
+**Verified** (measurement `iem-variance-decay-2026-10-01` in
+`tests/tooling/measurement_records.json`): in zero flow from a random 0/1 start on 8^3 uniform
+cells, the within-cell variance of `Psi` follows \f$e^{-2\Omega t}\f$ to 0.71% over its first
+e-fold for `C_IEM` = 2, 20 and 200. The solver's whole decay curve, over up to 2.9 decades,
+matches an independent NumPy emulation of the same step order to within 2.1 seed standard
+deviations, and a run continued from a checkpoint with `restart_mode: load` stays within
+0.52% of the uninterrupted run.
+
+Below the first e-fold, the solver decays more slowly than \f$e^{-2\Omega t}\f$ (+4% at a
+tenth of the initial variance with `C_IEM` = 20), and the emulation does the same. This is
+the model working as intended. \f$e^{-2\Omega t}\f$ is the decay of a field whose cell means
+are all equal; IEM never changes a cell mean, so any difference between neighbouring cell
+means survives the mixing, and particles diffusing across a face carry that difference into
+the next cell as new within-cell variance - the discrete form of scalar-variance production
+by a mean gradient. In this test the differences are sampling noise of a random 0/1 start,
+whose cell-mean variance is \f$1/(4N_{pc})\f$ for \f$N_{pc}\f$ particles per cell, so the
+excess falls as \f$1/N_{pc}\f$: about 1% at 256 per cell and 0.2% at 1024 in the emulation.
+Freezing the particles removes it exactly, and scattering the mean after the move instead
+of using the previous step's leaves it unchanged, so neither the kernel nor the step order
+causes it.
+
+The unit tests in `tests/c/test_setup_lifecycle.c` pin the kernel: `TestConfiguredIEMUpdatesSwarm`
+checks relaxation toward a prescribed mean for the default and an overridden constant;
+`TestIEMRelaxesTowardOwnCellMean` checks that each particle relaxes toward its own cell's
+scattered mean, conserving the scalar total; and `TestConfiguredParticleInitialValue`
+checks that a configured value reaches every particle and the t=0 cell mean.
+
+**Not validated:** the model. No turbulent flow has been run against a measured
+scalar-variance decay, so `C_IEM = 2` and the mixing time scale
+\f$V^{2/3}/(C_{IEM}\Gamma_{eff})\f$ are conventional choices, not calibrated ones.
+
+@subsection p28_running_ssec 1.2 Running a Mixing Case
+
+IEM needs only particles and a non-uniform `Psi`. This is the configuration of the
+verification runs, on any case with particles:
+
+```yaml
+# case.yml
+models:
+  physics:
+    particles:
+      count: 32768
+      init_mode: Volume
+      fields:
+        Psi: "where(uniform() < 0.5, 0, 1)"   # double delta inside every cell
+# solver.yml
+scalar_transport:
+  iem_constant: 2.0                            # the default; 0 makes Psi a passive label
+```
+
+Checkpoints store each particle's `Psi` (`particles/Psi.dat`). To see it, list `Psi` in
+`post.yml` `io.particle_fields` for the particle `.vtp` files, and add a `nodal_average`
+task from `Psi` to `Psi_nodal` for the scattered cell mean in the `.vts` files
+(@ref p10_cap_eul_nodal_average_sub describes the task). `Psi` is also a statistics-window field
+(@ref p58_scope_sec).
+
+@subsection p28_restart_ssec 1.3 Restart
+
+With `restart_mode: load`, each particle resumes with its saved `Psi`, the loaded state is
+scattered before the first step so step one relaxes toward a mean that has seen it, and
+`fields` is ignored with a warning. With `restart_mode: init`, the population is reseeded
+and `fields` applies again, so any mixing already done is discarded.
+@ref p45_restart_matrix_sec has the full matrix.
+
+@subsection p28_troubleshoot_ssec 1.4 Troubleshooting
+
+- **`Psi` never changes.** Either every particle in a cell holds the same value (the
+  default 0.0 when `fields` is absent, or a region whose boundary cuts no cell), or
+  `iem_constant` is 0, or `solver.yml` `verification.sources.scalar` is set, which
+  prescribes `Psi` and bypasses the update.
+- **Variance decays more slowly than \f$e^{-2\Omega t}\f$.** Cell means differ, and
+  particles crossing faces turn those differences into within-cell variance
+  (@ref p28_verification_ssec). In a resolved mixing problem that is real variance
+  production; when the differences are only sampling noise, more particles per cell
+  reduce it in proportion.
+- **The global mean of `Psi` drifts.** IEM conserves each cell's total, so a drift comes from
+  particles carrying `Psi` out of the domain; `lost_psi_sum` in `search_metrics.csv` counts
+  it each step.
 
 @section p28_dataflow_sec 2. Required Dataflow For IEM
 

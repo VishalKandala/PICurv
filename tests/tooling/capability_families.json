@@ -2104,7 +2104,7 @@
           }
         },
         "raw-output": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [

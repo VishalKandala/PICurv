@@ -862,9 +862,9 @@ Rules:
   particle's `Psi` is carried unchanged and bit-identical - a passive label
 - omitted values use the C runtime defaults: `schmidt_number = 1.0`,
   `turbulent_schmidt_number = 0.7`, and `iem_constant = 2.0`
-- `iem_constant` changes nothing while every particle's `Psi` is zero, which it is
-  unless the verification scalar source prescribes it - and that source bypasses IEM;
-  see @ref p28_iem_sec
+- `iem_constant` changes nothing while every particle's `Psi` is equal within each cell;
+  `models.physics.particles.fields` gives `Psi` its initial values (@ref p45_particle_values_sec),
+  and the verification scalar source, which also sets `Psi`, bypasses IEM; see @ref p28_iem_sec
 - use this structured block for ordinary scalar/Brownian transport tuning; reserve `petsc_passthrough_options` for flags without a YAML schema
 
 @section p08_verification_sec 11. verification

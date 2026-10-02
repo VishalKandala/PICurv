@@ -5849,6 +5849,33 @@ def test_init_does_not_copy_any_binaries(tmp_path):
         assert not (out_dir / exe_name).exists()
 
 
+def test_init_organizes_workspace_under_a_directory_named_runs(tmp_path):
+    """!
+    @brief Test that init canonicalizes a template whose destination path contains runs/ and studies/.
+    @details The organizer skips the workspace's own runs/ and studies/ trees. It once tested the
+             absolute path, so a workspace created under, for example, a cluster's .../runs/
+             directory was left with its template files at the root and no config/case.yml.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    parent = tmp_path / "runs" / "studies"
+    parent.mkdir(parents=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(parent)
+        picurv.init_case(
+            SimpleNamespace(template_name="flat_channel", dest_name="flat", source_root=str(REPO_ROOT))
+        )
+    finally:
+        os.chdir(original_cwd)
+
+    workspace = parent / "flat"
+    for role in ("case", "solver", "monitor", "post", "cluster"):
+        assert (workspace / "config" / f"{role}.yml").is_file(), role
+    assert sorted(p.name for p in workspace.glob("*.yml") if not p.name.startswith(".")) == []
+    assert list((workspace / "config" / "studies").glob("*.yml"))
+
+
 def test_init_pin_binaries_copies_simulator_and_postprocessor(tmp_path):
     """!
     @brief Test that init --pin-binaries copies simulator and postprocessor but not picurv.

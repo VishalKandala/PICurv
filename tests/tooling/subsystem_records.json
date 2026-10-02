@@ -965,7 +965,7 @@
           "not_applicable": "Remote access reuses the operator's existing rclone remote and credentials; PICurv stores only the remote name/path and never copies provider credentials into a workspace."
         }
       },
-      "note": "Promoted 2026-10-01. Protect, offload under all three policies, verify, list, selective and full restore, restore to another directory, all four compression levels, workspace protection, and asset prune were exercised against a Google Drive remote on 3.5 GiB runs of the turbulent-channel campaign, with every file recorded by SHA-256 before and after (storage-campaign-grace-2026-09-30): every restore was bit identical, each policy left exactly its documented components, a checkpoint offloaded and restored restarted normally, and prune removed only verified, unreferenced objects. Found and fixed: a workspace restored to another directory had its asset payloads rewritten so they failed their digests; an explicit --compression was satisfied by an archive of another level; verify did not accept --workspace; prune counted a failed deletion as removed; restore re-downloaded chunks already local. The fixes are verified locally (tests/test_storage.py), not yet on the cluster. --retain visualization and --drop logs were exercised on a metadata-only offload. Not exercised: archives above 3.8 GB (so auto's switch to maximum at 20 GiB), the raw-output component with data (it stays experimental), study archives, and --fetch-missing asset recovery."
+      "note": "Promoted 2026-10-01. Protect, offload under all three policies, verify, list, selective and full restore, restore to another directory, all four compression levels, workspace protection, and asset prune were exercised against a Google Drive remote on 3.5 GiB runs of the turbulent-channel campaign, with every file recorded by SHA-256 before and after (storage-campaign-grace-2026-09-30): every restore was bit identical, each policy left exactly its documented components, a checkpoint offloaded and restored restarted normally, and prune removed only verified, unreferenced objects. Found and fixed: a workspace restored to another directory had its asset payloads rewritten so they failed their digests; an explicit --compression was satisfied by an archive of another level; verify did not accept --workspace; prune counted a failed deletion as removed; restore re-downloaded chunks already local. The fixes are verified locally (tests/test_storage.py), not yet on the cluster. --retain visualization and --drop logs were exercised on a metadata-only offload. Not exercised: archives above 3.8 GB (so auto's switch to maximum at 20 GiB), the raw-output component with data (supported by the owner's decision of 2026-10-01, since every other component worked), study archives, and --fetch-missing asset recovery."
     },
     {
       "id": "run.directory_containment",
@@ -1965,9 +1965,9 @@
     {
       "id": "particles.scalar_mixing",
       "title": "Particle Scalar Micromixing (IEM)",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
+      "previous_status": "experimental",
       "capability_families": [],
       "obligations": {
         "purpose": {
@@ -2015,6 +2015,29 @@
         "safe_use_boundaries": {
           "page": "28_IEM_and_Statistical_Averaging",
           "anchor": "p28_dataflow_sec"
+        },
+        "evidence": {
+          "page": "28_IEM_and_Statistical_Averaging",
+          "anchor": "p28_verification_ssec"
+        },
+        "lifecycle_and_restart": {
+          "page": "28_IEM_and_Statistical_Averaging",
+          "anchor": "p28_restart_ssec"
+        },
+        "operations": {
+          "page": "28_IEM_and_Statistical_Averaging",
+          "anchor": "p28_running_ssec"
+        },
+        "troubleshooting": {
+          "page": "28_IEM_and_Statistical_Averaging",
+          "anchor": "p28_troubleshoot_ssec"
+        },
+        "examples": {
+          "not_applicable": "No shipped example seeds a mixing scalar: every example with particles either leaves Psi at its default or prescribes it through the verification source, which bypasses IEM. The reproducible configuration is the one in 28_IEM_and_Statistical_Averaging section 1.2, which is the setup of the registered measurement iem-variance-decay-2026-10-01 (examples/brownian_motion on 8^3 cells with Volume seeding and a random 0/1 Psi)."
+        },
+        "complete_reference": {
+          "page": "08_Solver_Reference",
+          "anchor": "p08_scalar_transport_sec"
         }
       },
       "concerns": {
@@ -2023,10 +2046,11 @@
           "anchor": "p28_iem_sec"
         },
         "scientific_verification": {
-          "not_applicable": "The setup lifecycle test checks non-zero swarm relaxation toward a prescribed mean for default and overridden C_IEM, and that a configured initial Psi reaches every particle and the t=0 cell mean; the units smoke checks the initial value is evaluated at physical coordinates. No coupled-flow test compares Psi variance decay against the IEM analytic rate for a known turbulence time scale; that scientific verification remains deferred."
+          "page": "28_IEM_and_Statistical_Averaging",
+          "anchor": "p28_verification_ssec"
         }
       },
-      "note": "Separated from particles.transport because it is a physics model with its own unvalidated coefficient, while transport - search, interpolation, advection, diffusion - is supported. The Schmidt numbers in solver.yml scalar_transport set particle diffusivity and belong to transport. The IEM constant C_IEM is configurable as scalar_transport.iem_constant (default 2.0) since 2026-09-21. Held at experimental, by the owner's decision of 2026-09-21, while no configuration could seed a scalar. Since 2026-09-28 models.physics.particles.fields sets each particle's initial Psi (a number, an expression, or regions, evaluated by src/ParticleInitialConditions.c), and iem_constant 0 keeps it as a passive label. Found and fixed 2026-09-28, with the first configured scalar: the update read the cell mean from lPsi, which nothing refreshed after the scatter wrote Psi, so every particle relaxed toward zero; and it indexed lPsi and lAj by the raw cell ID, one cell off from the +1 storage shift the scatter applies. The scatter now refreshes lPsi, the update applies the shift, and TestIEMRelaxesTowardOwnCellMean fails on either defect. In a zero-flow sandbox run from a random 0/1 start the within-cell variance then followed exp(-2 Omega t) to 1% over two decades before inter-cell particle exchange held it at a floor; that run is not registered evidence. Still experimental: no registered variance-decay measurement exists."
+      "note": "Promoted 2026-10-01. Measured (iem-variance-decay-2026-10-01): in zero flow from a random 0/1 start, the within-cell variance of Psi follows exp(-2 Omega t) to 0.71% over its first e-fold for C_IEM = 2, 20 and 200, and the solver's whole decay curve, over up to 2.9 decades, matches an independent NumPy emulation of the same step order within 2.1 seed standard deviations; the later slowing below exp(-2 Omega t) is variance production by differences between cell means (sampling noise of the random start), carried across faces by particle diffusion; it falls as 1/(particles per cell), to +1.1% at 256 per cell in the solver, and vanishes when particles are frozen. Supported means the implemented update is verified; the IEM model is not validated: C_IEM = 2 and the mixing time scale have not been compared with a measured scalar-variance decay in turbulence. History: separated from particles.transport as a physics model with its own coefficient; C_IEM configurable as scalar_transport.iem_constant (default 2.0) since 2026-09-21; held at experimental by the owner's decision of 2026-09-21 while no configuration could seed a scalar. Since 2026-09-28 models.physics.particles.fields sets each particle's initial Psi, and iem_constant 0 keeps it as a passive label. Found and fixed 2026-09-28: the update read the cell mean from an lPsi nothing refreshed after the scatter, so every particle relaxed toward zero, and indexed lPsi and lAj one cell off the scatter's +1 storage shift; TestIEMRelaxesTowardOwnCellMean fails on either defect."
     },
     {
       "id": "verification.prescribed_sources",

@@ -775,7 +775,7 @@ restore those inputs explicitly when required.
 
 @htmlinclude generated/capability_inventory_storage_retention_component.html
 
-Every component below except `raw-output` is supported. On a Google Drive remote (`storage-campaign-grace-2026-09-30`), `--policy metadata-only --retain visualization --drop logs` kept every visualization file, pruned every log the preset would otherwise keep, and pruned the rest as the preset does; a whole restore returned every file bit for bit. The other components were exercised through the presets. `raw-output` held no data in those runs and stays experimental.
+Every component below is supported. On a Google Drive remote (`storage-campaign-grace-2026-09-30`), `--policy metadata-only --retain visualization --drop logs` kept every visualization file, pruned every log the preset would otherwise keep, and pruned the rest as the preset does; a whole restore returned every file bit for bit. The other components were exercised through the presets. `raw-output` held no data in those runs; it is supported on the owner's decision of 2026-10-01, because it is classified and selected by the same code as the components that were exercised.
 
 A named `--policy` is a preset, not a ceiling. `--retain` and `--drop` adjust one
 component at a time on top of whichever preset is in force, so a campaign whose
@@ -984,7 +984,9 @@ the chunk is larger than the run should produce.
 
 **Evidence.** Unit verified — `tests/test_storage.py` asserts the component is
 selectable in both directions, and that a bundle whose step cannot be identified
-becomes `unclassified` rather than falling into this component.
+becomes `unclassified` rather than falling into this component. The cluster campaign
+archived and restored it, but it held no files there, so no data has passed through it
+on a real remote.
 
 **Limitations.** It is defined by what it is not, so an unexpected writer under
 `<run.output>` lands here and becomes prunable. Output that must survive belongs under

@@ -10,7 +10,7 @@ A parallel Eulerian-Lagrangian solver for incompressible flow and particle trans
 - Particle tracking with PETSc `DMSwarm`
 - Online Eulerian field statistics: named windows accumulating weighted centered moments during the solve, checkpointed with the flow state, and derived into Reynolds stresses, RMS, turbulent kinetic energy, and fluxes
 - Grid-particle interpolation and particle-grid projection
-- Configurable particle initial values (`models.physics.particles.fields`: numbers, expressions, or regions), and IEM micromixing of the particle scalar `Psi` (experimental)
+- Configurable particle initial values (`models.physics.particles.fields`: numbers, expressions, or regions), and IEM micromixing of the particle scalar `Psi`
 - Runtime search/migration observability via `<run.analysis.metrics>/search_metrics.csv` for particle-enabled runs
 - Analytical flow modes for verification (`TGV3D`, `ZERO_FLOW`, `UNIFORM_FLOW`)
 - Generated, field-sliced, and file-backed inlet `PICSLICE` profiles for `prescribed_flow`

@@ -23769,16 +23769,15 @@ def organize_initialized_workspace(workspace_root: str, template_name: str,
     """
     workspace_root = os.path.abspath(workspace_root)
     ensure_workspace_layout(workspace_root)
+    # Skip the workspace's own runs/ and studies/ trees, judged inside the workspace: a
+    # workspace that itself sits under a directory named runs/ must still be organized.
     yaml_files = [
-        str(path) for path in Path(workspace_root).rglob("*.yml")
+        str(path)
+        for pattern in ("*.yml", "*.yaml")
+        for path in Path(workspace_root).rglob(pattern)
         if path.name not in {RUNTIME_EXECUTION_EXAMPLE_FILENAME, RUNTIME_EXECUTION_CONFIG_FILENAME}
-        and "runs" not in path.parts and "studies" not in path.parts
+        and not {"runs", "studies"} & set(path.relative_to(workspace_root).parts)
     ]
-    yaml_files.extend(
-        str(path) for path in Path(workspace_root).rglob("*.yaml")
-        if path.name not in {RUNTIME_EXECUTION_EXAMPLE_FILENAME, RUNTIME_EXECUTION_CONFIG_FILENAME}
-        and "runs" not in path.parts and "studies" not in path.parts
-    )
     vendored_replacements = {}
     if source_template_root:
         source_template_root = os.path.abspath(source_template_root)
