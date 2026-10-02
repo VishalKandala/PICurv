@@ -243,6 +243,45 @@ workspace identity, active build, canonical paths, stages, locked assets, per-ex
 build identity of the executables the run launches (`binaries`), and each stage's
 lifecycle state (`components`: e.g. not_requested, planned, complete, offloaded).
 
+@subsection p52_assets_restart_sub 3.1 Assets Across Restarts, Moves, And Storage
+
+A run reads its assets from run-local files. Each payload file is exposed into the run by
+reflink when the filesystem allows it, otherwise by hardlink, otherwise by copy, and
+`inputs/assets.lock.yml` records the object and checksum behind every file. On a Lustre
+scratch filesystem, which refuses reflinks, a run in the same filesystem as its workspace
+therefore holds hardlinks to the shared objects: never edit a run's input files in place.
+
+A run that starts from saved state (`start_step > 0`), or whose Eulerian field comes from
+the `load` or an analytical source, never reads the configured initial condition. Planning
+marks that asset `unused` and neither builds nor materializes it; the grid and inlet
+profiles are still resolved.
+
+A moved run or study is adopted where it now stands (@ref p52_scope_move_sub).
+`picurv storage restore --run-dir` restores the run's own files but not the shared
+objects in `assets/objects/`; those come back through `--fetch-missing` when a run is
+staged, or by restoring a workspace archive's `assets` component. Objects that no run
+references are reclaimed only by an explicit `picurv storage prune --assets
+--unused-locally` (@ref p61_prune_assets).
+
+@subsection p52_assets_trouble_sub 3.2 When An Asset Is Missing Or Rejected
+
+- `Required precomputed asset(s) are missing or stale` comes from `--require-precomputed`;
+  run the `picurv precompute ... --only ...` command the message names.
+- `Asset generation completed without satisfying: <kind>` means precompute ran but that
+  kind still has no object; `picurv precompute --case <case> --only <kind>` shows the
+  provider's own output.
+- An import with `--mode reflink` that fails with `cp`'s "Operation not supported" is
+  on a filesystem without reflinks, such as Lustre or ext4. Use `copy`, or `hardlink`
+  within one filesystem; nothing falls back silently.
+- An import with `--mode hardlink` fails across filesystems, for example from a home
+  directory into scratch. Use `copy`.
+- A `reference` import whose target has disappeared fails when it is consumed. Make the
+  target available at the same path, or import a copy. A target whose bytes changed is
+  used as it now is and builds a new object, without a warning.
+- The same file imported under two names builds two objects, because each input's
+  workspace path is part of the provider settings. Point the case files at one imported
+  path; `storage prune --assets --unused-locally` reclaims the unused object.
+
 @section p52_launchers_sec 4. Local, Login-Node, and Batch Launch Resolution
 
 PICurv now separates case physics from site execution policy.

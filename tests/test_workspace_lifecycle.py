@@ -5,6 +5,7 @@
 
 import copy
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -872,6 +873,70 @@ def test_a_binary_that_cannot_start_is_not_reported_as_predating_identity(tmp_pa
     assert identity["available"] is False
     assert identity["reason"].startswith("--version exited 127")
     assert "libpetsc.so" in identity["reason"]
+
+
+def test_binary_petsc_build_is_read_from_version_output_and_from_a_binary_that_cannot_start(tmp_path):
+    """!
+    @brief The PETSc an executable was built against is read whether or not it can run.
+
+    @details A binary built against debug PETSc and started with a production PETSc on the
+             library path fails with `undefined symbol: petscstack` before it can print
+             anything, so the build stamp is also read from the file's bytes.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    current = tmp_path / "simulator"
+    current.write_text(
+        '#!/bin/sh\nprintf "simulator 0.2.0+gabcdef123456\\npetsc 3.20.3 debug arch-dbg /opt/petsc\\n"\n',
+        encoding="utf-8")
+    current.chmod(0o755)
+    identity = core.read_binary_build_identity(str(current))
+    assert identity["available"] is True
+    assert identity["build_id"] == "0.2.0+gabcdef123456"
+    assert identity["petsc"] == {"version": "3.20.3", "mode": "debug", "arch": "arch-dbg",
+                                 "dir": "/opt/petsc"}
+
+    older = _fake_binary(tmp_path / "postprocessor", "postprocessor 0.2.0+gabcdef123456")
+    assert core.read_binary_build_identity(str(older))["petsc"] is None
+
+    broken = tmp_path / "broken"
+    broken.write_text(
+        '#!/bin/sh\necho "symbol lookup error: undefined symbol: petscstack" >&2\nexit 127\n'
+        '# PICURV_PETSC_BUILD:petsc 3.20.3 debug arch-dbg /opt/petsc\n',
+        encoding="utf-8")
+    broken.chmod(0o755)
+    identity = core.read_binary_build_identity(str(broken))
+    assert identity["available"] is False
+    assert "petscstack" in identity["reason"]
+    assert identity["petsc"]["mode"] == "debug"
+    assert identity["petsc"]["dir"] == "/opt/petsc"
+
+
+def test_petsc_library_the_loader_resolves_is_compared_with_the_build(tmp_path, monkeypatch):
+    """!
+    @brief `ldd`'s libpetsc is flagged when it lies outside the PETSc the binary was built against.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    ldd = tools / "ldd"
+    ldd.write_text(
+        '#!/bin/sh\necho "\tlibm.so.6 => /lib/libm.so.6 (0x1)"\n'
+        'echo "\tlibpetsc.so.3.20 => /opt/petsc/arch-opt/lib/libpetsc.so.3.20 (0x2)"\n',
+        encoding="utf-8")
+    ldd.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tools}{os.pathsep}{os.environ['PATH']}")
+
+    library = core.resolved_petsc_library(str(tmp_path / "simulator"))
+    assert library == "/opt/petsc/arch-opt/lib/libpetsc.so.3.20"
+    debug = {"version": "3.20.3", "mode": "debug", "arch": "arch-dbg", "dir": "/opt/petsc"}
+    optimized = dict(debug, mode="optimized", arch="arch-opt")
+    assert core.petsc_library_mismatch(debug, library) is True
+    assert core.petsc_library_mismatch(optimized, library) is False
+    assert core.petsc_library_mismatch(debug, "not found") is True
+    # Unknown on either side is not a claim of mismatch.
+    assert core.petsc_library_mismatch(None, library) is False
+    assert core.petsc_library_mismatch(debug, None) is False
 
 
 def test_staging_warns_when_a_build_identity_cannot_be_read(tmp_path, capsys):

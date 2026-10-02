@@ -551,6 +551,36 @@
       },
       "limitations": "Zero flow, uniform Cartesian cells and constant Gamma; 2 ranks only. Verifies the implemented update and its coupling to the scatter, not the IEM model: no turbulent flow was run, so C_IEM = 2 and the LES mixing time scale V^(2/3)/(C_IEM Gamma_eff) are not validated against a measured scalar-variance decay. The emulation shares the solver's step order by construction; the fresh-mean variant shows that this ordering does not change the decay in this test, which has no mean flow. Up to 53% of particles left through the walls in the longest run; the pooled metric uses the survivors.",
       "artifacts": []
+    },
+    {
+      "id": "asset-lifecycle-grace-2026-10-01",
+      "question": "On the cluster's Lustre scratch, do the four input import modes behave as documented, does a precompute from each imported input publish a reusable asset, and does a case file that differs only in its title reuse the published objects?",
+      "date": "2026-10-01",
+      "commit": "022299f (origin/main), installed on Grace with picurv versions install",
+      "environment": "TAMU Grace login node (login4), Lustre /scratch; picurv CLI only - asset publication and imports run in the Python conductor, so no Slurm job or MPI rank was involved",
+      "configuration": "sandbox/cluster_campaign/session/picurv_cluster_session.sh section 5 (session cluster_session_20261001-200112): decaying_isotropic_turbulence workspace precomputed from config/case.yml and from a copy differing only in title; search_robustness workspace: bent_channel_coarse.picgrid imported with --mode copy, hardlink, reference, reflink, then each imported grid precomputed twice from a case file pointing at it.",
+      "result": {
+        "measured": "Title-only copy resolved the same grid (4757546718...) and initial-condition (03eb966fbf...) objects. copy: new inode, 1 link. hardlink: the source's inode, 2 links. reference: a 280-byte reference record, no payload copied. reflink: refused, exit 1, with cp's 'failed to clone ... Operation not supported'. For copy, hardlink and reference, the second precompute returned the first precompute's object id and published no new object (grid objects 1->1, 2->2, 3->3). The three imports of one byte-identical grid published three distinct objects (02ec2322..., 2ef9ffed..., 8a352a03...), because the source path is part of the provider settings that asset identity covers.",
+        "threshold": "Each mode leaves the documented on-disk result or refuses with the filesystem's reason; a repeated precompute and a title-only copy publish no new object.",
+        "verdict": "met"
+      },
+      "limitations": "A successful reflink was never observed: it was refused on Lustre here and on the local ext4 workstation (asset-store-local-2026-09-21); it needs a copy-on-write filesystem such as Btrfs or XFS with reflink support, and was promoted on the owner's decision. Identical content imported under different names is stored once per name, because asset identity covers the provider settings including the source path; prune reclaims the unused copies. Object accumulation at campaign scale, remote-backed pruning, and a reference whose target later changes (used without a warning, asset-store-local-2026-09-21) were not exercised. One login node; no Slurm job consumed the published objects in this session, though the turbulent-channel-nk-2026-09-29 runs materialized published objects inside cluster jobs.",
+      "artifacts": []
+    },
+    {
+      "id": "cluster-session-grace-2026-10-01",
+      "question": "On the cluster, do cancellation of a running solver job, graceful cancellation and continuation, job-time post planning in Slurm jobs, the storage fixes of f0097d7, and Slurm array studies of every type (throttling and aggregation over array tasks) behave as documented?",
+      "date": "2026-10-01",
+      "commit": "022299f (origin/main), installed on Grace",
+      "environment": "TAMU Grace, short partition, one node, 8 MPI tasks per job, mpirun with UCX; submitted from login node login4; Google Drive remote CSBL-runs:PICurv-archives",
+      "configuration": "sandbox/cluster_campaign/session/picurv_cluster_session.sh, session cluster_session_20261001-204747: flat_channel workspace (25x25x97 cells, dt 0.04, viscosity 1.0); 5000-step solves for the cancellation checks with checkpoints every 50 steps; 20-step solves elsewhere; post window every 50 steps; three studies staged with sweep --cluster: grid_independence (parameter_sets n = 17, 21, 25, km = 4n-3, max_concurrent_array_tasks 1), timestep_independence (dt 0.04, 0.02), sensitivity (viscosity 1.0, 2.0).",
+      "result": {
+        "measured": "picurv cancel of a RUNNING solver: sacct CANCELLED after 1:46. cancel --graceful: the solver logged the SIGUSR1 shutdown, wrote checkpoint 63 off its 50-step cadence, and ended COMPLETED; run --continue from 63 completed to 73. Slurm post jobs planned at start (2 of 2 steps recorded), reprocessed only a deleted step on resubmission (1 to process, 1 up to date), and did not launch the postprocessor when current. Storage on a Slurm-produced run: same-compression protect reused the archive, another level created one, protect without --compression reused one, verify --workspace and an in-place restore skipping local components worked. Studies: every solver, post and metrics job COMPLETED (21 array tasks); the grid study's --array=0-2%1 never ran more than one task; each metrics_table.csv held one row per member with its parameters and final_mean_ke, and the unmodified base configuration gave 0.56786037663 in all three studies.",
+        "threshold": "Each operation reaches its documented Slurm state and on-disk result; aggregation fills every member.",
+        "verdict": "met"
+      },
+      "limitations": "Two defects found here were fixed locally and promoted on the owner's decision without a further cluster run: sweep --continue resolved a staged study's base configs against the workspace instead of the study, so continuation failed for every study inside a workspace; and submit --stage post-process added afterok on a solve job Slurm had already forgotten (submitted 5 minutes after completion), which this site's sbatch rejected while exiting 0. Both are covered by tests in tests/test_cli_smoke.py. The relocated workspace restore was not re-checked: protect failed with 'rclone hashsum ... directory not found' 3 s after storage setup recreated the deleted remote folder, a transient not reproduced. The timestep study fixed the step count, so its two members end at different physical times: the table verifies aggregation, not timestep convergence. One node, short jobs; walltime-guard firing on the cluster and multi-node arrays were not exercised here.",
+      "artifacts": []
     }
   ]
 }

@@ -16,6 +16,29 @@
 #include <limits.h>
 #include <stdlib.h>
 
+#define PICURV_STRINGIZE_(x) #x
+#define PICURV_STRINGIZE(x) PICURV_STRINGIZE_(x)
+#if defined(PETSC_USE_DEBUG)
+#define PICURV_PETSC_MODE "debug"
+#else
+#define PICURV_PETSC_MODE "optimized"
+#endif
+#ifndef PETSC_ARCH
+#define PETSC_ARCH ""
+#endif
+#ifndef PETSC_DIR
+#define PETSC_DIR ""
+#endif
+#define PICURV_PETSC_STAMP_MARKER "PICURV_PETSC_BUILD:"
+
+/* The PETSc this binary was compiled against. It is printed by --version and also read
+ * from the file by the conductor, which needs it most when a library mismatch keeps the
+ * binary from starting at all. */
+static const char picurv_petsc_build_stamp[] =
+    PICURV_PETSC_STAMP_MARKER "petsc "
+    PICURV_STRINGIZE(PETSC_VERSION_MAJOR) "." PICURV_STRINGIZE(PETSC_VERSION_MINOR) "."
+    PICURV_STRINGIZE(PETSC_VERSION_SUBMINOR) " " PICURV_PETSC_MODE " " PETSC_ARCH " " PETSC_DIR;
+
 /**
  * @brief Implementation of \ref PicurvHandleVersionArgument().
  * @details The public argument and return contract is documented in `include/setup.h`.
@@ -28,6 +51,7 @@ int PicurvHandleVersionArgument(int argc, char **argv, const char *executable_na
             printf("%s %s+g%.12s%s\n", executable_name, PICURV_RELEASE_VERSION,
                    PICURV_GIT_COMMIT,
                    !strcmp(PICURV_BUILD_DIRTY, "true") ? ".dirty" : "");
+            printf("%s\n", picurv_petsc_build_stamp + sizeof(PICURV_PETSC_STAMP_MARKER) - 1);
             return 1;
         }
     }

@@ -1737,23 +1737,32 @@
       "coverage_enforced": true,
       "value_metadata": {
         "grid_independence": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "production": [
-              "example:examples/flat_channel"
+              "example:examples/flat_channel",
+              "measurement:cluster-session-grace-2026-10-01"
             ]
           }
         },
         "timestep_independence": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "production": [
+              "measurement:cluster-session-grace-2026-10-01"
+            ]
+          }
         },
         "sensitivity": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "production": [
+              "measurement:cluster-session-grace-2026-10-01"
+            ]
+          }
         }
       }
     },
@@ -1934,7 +1943,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "copy": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1942,29 +1951,38 @@
             ],
             "integration": [
               "measurement:asset-store-local-2026-09-21"
+            ],
+            "production": [
+              "measurement:asset-lifecycle-grace-2026-10-01"
             ]
           }
         },
         "reflink": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "integration": [
               "measurement:asset-store-local-2026-09-21"
+            ],
+            "production": [
+              "measurement:asset-lifecycle-grace-2026-10-01"
             ]
           }
         },
         "hardlink": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "integration": [
               "measurement:asset-store-local-2026-09-21"
+            ],
+            "production": [
+              "measurement:asset-lifecycle-grace-2026-10-01"
             ]
           }
         },
         "reference": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1972,6 +1990,9 @@
             ],
             "integration": [
               "measurement:asset-store-local-2026-09-21"
+            ],
+            "production": [
+              "measurement:asset-lifecycle-grace-2026-10-01"
             ]
           }
         }

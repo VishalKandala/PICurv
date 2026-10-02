@@ -845,6 +845,7 @@ def build_software_lock(run_dir: "str | None" = None) -> dict:
             "sha256": _file_sha256(path),
             "build_id": identity.get("build_id"),
             "matches_source": identity.get("matches_source"),
+            "petsc": identity.get("petsc"),
         }
     conductor = os.path.join(PACKAGE_PROJECT_ROOT, "picurv_cli", "core.py")
     lock["python_conductor_sha256"] = _file_sha256(conductor)
@@ -858,7 +859,9 @@ def build_software_lock(run_dir: "str | None" = None) -> dict:
 
 def _toolchain_identity() -> dict:
     """!
-    @brief Best-effort record of the PETSc, MPI, and compiler the binaries were built on.
+    @brief Best-effort record of the PETSc, MPI, and compiler in the shell staging the run.
+    @details This is the staging environment, which need not be what the binaries were
+             built against; each executable's own PETSc is recorded from its build stamp.
     @return Mapping of what could be determined; absent keys mean it could not be read.
     """
     identity = {}
@@ -1716,6 +1719,87 @@ def resolve_runtime_executable(executable_name: str) -> str:
 _BINARY_VERSION_PATTERN = re.compile(
     r"^(?P<name>\S+)\s+(?P<release>[^+\s]+)\+g(?P<commit>[0-9a-f]+)(?P<dirty>\.dirty)?\s*$"
 )
+#: Second `--version` line: the PETSc the executable was compiled against (src/setup.c).
+_BINARY_PETSC_PATTERN = re.compile(
+    r"^petsc (?P<version>\S+) (?P<mode>debug|optimized) (?P<arch>\S*) (?P<dir>.*)$"
+)
+#: Marker in front of the same text inside the executable, readable without running it.
+_BINARY_PETSC_STAMP_MARKER = b"PICURV_PETSC_BUILD:"
+
+
+def _parse_binary_petsc_line(line: str) -> "dict | None":
+    """!
+    @brief Parse the PETSc build line a native executable reports.
+    @param[in] line `petsc <version> <debug|optimized> <arch> <dir>`.
+    @return Mapping with version, mode, arch, and dir, or None when the line is not one.
+    """
+    match = _BINARY_PETSC_PATTERN.match((line or "").strip())
+    if not match:
+        return None
+    return {key: match.group(key) for key in ("version", "mode", "arch", "dir")}
+
+
+def read_binary_petsc_stamp(executable_path: str) -> "dict | None":
+    """!
+    @brief Read the PETSc build stamp from an executable's bytes, without running it.
+    @details A binary built against one PETSc and started against another cannot run
+             `--version` at all, which is exactly when knowing its PETSc matters.
+    @param[in] executable_path Path to `simulator` or `postprocessor`.
+    @return The parsed stamp, or None when the file carries none (built before it existed).
+    """
+    try:
+        with open(executable_path, "rb") as stream:
+            data = stream.read()
+    except OSError:
+        return None
+    start = data.find(_BINARY_PETSC_STAMP_MARKER)
+    if start < 0:
+        return None
+    start += len(_BINARY_PETSC_STAMP_MARKER)
+    text = data[start:start + 4096].split(b"\0", 1)[0].split(b"\n", 1)[0]
+    return _parse_binary_petsc_line(text.decode("utf-8", errors="replace"))
+
+
+def resolved_petsc_library(executable_path: str) -> "str | None":
+    """!
+    @brief The PETSc shared library the dynamic loader would give this executable now.
+    @details Uses `ldd`, so it answers for the current shell's library path; returns None
+             where `ldd` is unavailable or the executable links PETSc statically.
+    @param[in] executable_path Path to `simulator` or `postprocessor`.
+    @return Absolute library path, `not found`, or None.
+    """
+    ldd = shutil.which("ldd")
+    if not ldd:
+        return None
+    try:
+        result = subprocess.run([ldd, executable_path], text=True, capture_output=True,
+                                timeout=20, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in (result.stdout or "").splitlines():
+        name, _, target = line.strip().partition("=>")
+        if not name.strip().startswith("libpetsc"):
+            continue
+        target = target.strip()
+        if target.startswith("not found"):
+            return "not found"
+        return target.split(" (")[0].strip() or None
+    return None
+
+
+def petsc_library_mismatch(petsc: "dict | None", library: "str | None") -> bool:
+    """!
+    @brief Whether the library the loader resolves lies outside the PETSc the binary was built against.
+    @param[in] petsc Stamp from `read_binary_petsc_stamp()` or the `--version` line.
+    @param[in] library Path from `resolved_petsc_library()`.
+    @return True only when both are known and the library is not under the build's tree.
+    """
+    if not petsc or not petsc.get("dir") or not library:
+        return False
+    if library == "not found":
+        return True
+    build_root = os.path.realpath(os.path.join(petsc["dir"], petsc.get("arch") or ""))
+    return not os.path.realpath(library).startswith(build_root.rstrip(os.sep) + os.sep)
 
 
 def read_binary_build_identity(executable_path: str) -> dict:
@@ -1746,8 +1830,10 @@ def read_binary_build_identity(executable_path: str) -> dict:
         return {"available": False,
                 "reason": f"--version exited {result.returncode}"
                           + (f": {detail[0]}" if detail else ""),
-                "path": executable_path}
-    match = _BINARY_VERSION_PATTERN.match((result.stdout or "").strip())
+                "path": executable_path,
+                "petsc": read_binary_petsc_stamp(executable_path)}
+    lines = (result.stdout or "").strip().splitlines()
+    match = _BINARY_VERSION_PATTERN.match(lines[0] if lines else "")
     if not match:
         # A binary from before the identity flag existed, or a wrapper that prints
         # something else. Recorded as unavailable rather than guessed at.
@@ -1764,6 +1850,7 @@ def read_binary_build_identity(executable_path: str) -> dict:
             f"{match.group('release')}+g{match.group('commit')}"
             f"{'.dirty' if match.group('dirty') else ''}"
         ),
+        "petsc": _parse_binary_petsc_line(lines[1]) if len(lines) > 1 else None,
     }
 
 
@@ -11373,6 +11460,50 @@ def parse_slurm_job_id(sbatch_output: str) -> str:
     match = re.search(r"Submitted batch job\s+(\d+)", sbatch_output or "")
     return match.group(1) if match else None
 
+#: Slurm end states after which an `afterok` dependency can never be satisfied.
+_SLURM_FAILED_END_STATES = {
+    "FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL", "PREEMPTED",
+    "BOOT_FAIL", "DEADLINE",
+}
+
+
+def slurm_job_end_state(job_id: str) -> "tuple[str, str | None]":
+    """!
+    @brief Whether a recorded Slurm job (or array) is still queued, and how it ended if not.
+    @details Slurm forgets a finished job after its MinJobAge, and a dependency on a job it
+             no longer knows is rejected, so a stage submitted long after the job it waits
+             for must not depend on it. `squeue` answers for live jobs; `sacct` for ended ones.
+    @param[in] job_id Recorded job id; for an array, the array's id covers every task.
+    @return `("active", state)`, `("completed", "COMPLETED")`, `("failed", state)`,
+            `("unknown", state-or-None)` when the job is not queued but `sacct` cannot say how
+            it ended, or `("unchecked", None)` where `squeue` is unavailable.
+    """
+    squeue = shutil.which("squeue")
+    if not squeue:
+        return "unchecked", None
+    result = subprocess.run([squeue, "-h", "-j", str(job_id), "-o", "%T"],
+                            text=True, capture_output=True, check=False)
+    live = [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
+    if result.returncode == 0 and live:
+        return "active", live[0]
+    sacct = shutil.which("sacct")
+    if not sacct:
+        return "unknown", None
+    result = subprocess.run([sacct, "-n", "-X", "-P", "-j", str(job_id), "-o", "State"],
+                            text=True, capture_output=True, check=False)
+    # "CANCELLED by 123" carries the canceller; the state is the first word.
+    states = [line.split()[0] for line in (result.stdout or "").splitlines() if line.strip()]
+    if result.returncode != 0 or not states:
+        return "unknown", None
+    failed = [state for state in states if state in _SLURM_FAILED_END_STATES]
+    if failed:
+        return "failed", failed[0]
+    if all(state == "COMPLETED" for state in states):
+        return "completed", "COMPLETED"
+    # A state sacct reports for a job squeue no longer lists, such as a transient one.
+    return "unknown", states[0]
+
+
 def submit_sbatch(script_path: str, dependency: str = None, dependency_type: str = "afterok") -> dict:
     """!
     @brief Submit sbatch script and return submission metadata.
@@ -19604,8 +19735,10 @@ def sweep_continue_workflow(args):
         )
         sys.exit(1)
 
+    # Staging writes these as snapshots inside the study (base_configs/<role>.yml), so
+    # they resolve against the study directory, not the workspace that holds it.
     base_cfgs = study_cfg["base_configs"]
-    base_paths = {k: resolve_path(study_path, v) for k, v in base_cfgs.items()}
+    base_paths = {k: os.path.join(study_dir, v) for k, v in base_cfgs.items()}
     base_case = read_yaml_file(base_paths["case"])
 
     combinations = expand_study_parameter_combinations(study_cfg)
@@ -23377,6 +23510,29 @@ def submit_staged_jobs(args):
                 dependency = "__NEW_SOLVE_JOB_ID__"
             elif solve_existing_meta.get("submitted") and solve_existing_job_id:
                 dependency = solve_existing_job_id
+                end, state = slurm_job_end_state(solve_existing_job_id)
+                if end == "completed":
+                    # Slurm rejects a dependency on a job it has forgotten, and the post
+                    # job plans from committed checkpoints when it starts, so a solve that
+                    # already succeeded leaves nothing to wait for.
+                    print(f"[INFO] Solve job {solve_existing_job_id} has completed; the post job is "
+                          "submitted without a dependency.")
+                    dependency = None
+                elif end == "failed" and not args.force:
+                    emit_structured_error(
+                        ERROR_CODE_CFG_INCONSISTENT_COMBO,
+                        key="scheduler.post-process.dependency",
+                        file_path=target_context["submission_path"],
+                        message=f"Solve job {solve_existing_job_id} ended {state}, so a post job waiting on its success would never start.",
+                        hint="Resubmit the solve, or use --force to post-process the checkpoints it committed.",
+                    )
+                    sys.exit(1)
+                elif end != "active" and end != "unchecked":
+                    # Failed with --force, or ended in a state sacct cannot report.
+                    print(f"[WARNING] Solve job {solve_existing_job_id} is no longer queued "
+                          f"({state or 'end state unavailable from sacct'}); the post job is submitted "
+                          "without a dependency and processes what was committed.", file=sys.stderr)
+                    dependency = None
             elif solve_existing_meta and not args.force:
                 # A post staged on its own has no solve to wait for: it reads a run solved
                 # earlier and plans its steps from what is committed when it starts.
@@ -24074,6 +24230,10 @@ def version_workflow(args):
         software = load_workspace_config(workspace_root).get("software") or {}
         payload["workspace_requirement"] = software.get("picurv") if isinstance(software, dict) else None
     payload["binaries"] = runtime_build_identities()
+    for identity in payload["binaries"].values():
+        library = resolved_petsc_library(identity["path"]) if identity.get("path") else None
+        identity["petsc_library"] = library
+        identity["petsc_library_mismatch"] = petsc_library_mismatch(identity.get("petsc"), library)
     validating = getattr(args, "version_action", None) == "status"
     problems = build_identity_problems(payload["binaries"], payload["workspace_requirement"])
     payload["coherent"] = not problems
@@ -24094,9 +24254,10 @@ def version_workflow(args):
     for name, identity in sorted(payload["binaries"].items()):
         if not identity.get("available"):
             print(f"  {name:<14}: unavailable ({identity.get('reason', 'unknown')})")
-            continue
-        agreement = "matches source" if identity["matches_source"] else "STALE - rebuild"
-        print(f"  {name:<14}: {identity['build_id']} ({agreement})")
+        else:
+            agreement = "matches source" if identity["matches_source"] else "STALE - rebuild"
+            print(f"  {name:<14}: {identity['build_id']} ({agreement})")
+        _print_petsc_build(identity)
     if not validating:
         warn_on_stale_runtime_binaries(payload["binaries"])
         return
@@ -24107,6 +24268,26 @@ def version_workflow(args):
     for problem in problems:
         print(f"  - {problem}", file=sys.stderr)
     sys.exit(1)
+
+
+def _print_petsc_build(identity: dict) -> None:
+    """!
+    @brief Print the PETSc an executable was built against and the library it would load.
+    @param[in] identity One executable's entry from `runtime_build_identities()`, with
+                        `petsc_library` and `petsc_library_mismatch` filled in.
+    @return None.
+    """
+    petsc = identity.get("petsc")
+    if not petsc:
+        print(f"  {'':<14}  PETSc: not recorded (built before PETSc stamping)")
+        return
+    location = ", ".join(part for part in (petsc.get("arch"), petsc.get("dir")) if part)
+    print(f"  {'':<14}  PETSc: {petsc['version']} {petsc['mode']} ({location})")
+    library = identity.get("petsc_library")
+    if library:
+        flag = ("  <- NOT the PETSc it was built against; load that PETSc's module, "
+                "or rebuild under this one") if identity["petsc_library_mismatch"] else ""
+        print(f"  {'':<14}  loads: {library}{flag}")
 
 
 def _require_clean_source_checkout(action: str) -> None:

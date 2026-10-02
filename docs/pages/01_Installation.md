@@ -312,8 +312,10 @@ simulator --version
 postprocessor --version
 ```
 
-All three must report the same release. `picurv version --format json` also reports
-the Git commit, dirty-tree state, active workspace, and optional workspace requirement.
+All three must report the same release. Each executable's second line names the PETSc it
+was built against; under it `picurv version` shows the `libpetsc` this shell would load,
+marked when it is not that PETSc. `picurv version --format json` also reports the Git
+commit, dirty-tree state, active workspace, and optional workspace requirement.
 
 `picurv version status` checks that agreement for you and exits non-zero if it does not
 hold, which is the form to use in a job script or a CI step:

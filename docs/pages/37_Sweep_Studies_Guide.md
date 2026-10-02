@@ -95,8 +95,8 @@ Expected study outputs include:
 - `studies/<study_id>/scheduler/solver_<array_jobid>_<taskid>.out/.err` after submission
 - `studies/<study_id>/scheduler/post_<array_jobid>_<taskid>.out/.err` after submission
 - `studies/<study_id>/scheduler/submission.json` (when jobs are submitted)
-- `studies/<study_id>/results/metrics_table.csv`
-- `studies/<study_id>/results/plots/*` (when plotting is enabled and matplotlib is available)
+- `studies/<study_id>/output/analysis/metrics_table.csv`
+- `studies/<study_id>/output/analysis/plots/*` (when plotting is enabled and matplotlib is available)
 - `studies/<study_id>/study_manifest.json`
 
 This keeps raw run data and comparative study diagnostics in one reproducible structure.
@@ -172,6 +172,19 @@ What `--continue` does:
 Repeated continuation is safe: the target step count is always computed from the
 original `study.yml`, not from the (potentially modified) per-case `case.yml`.
 
+@subsection p37_trouble_sub 6.1 When A Study Does Not Finish
+
+- **One member's solve failed and the post array never ran.** The post array waits on the
+  whole solver array with `afterok`, so one failed member cancels it. Fix the cause, then
+  `picurv sweep --continue --study-dir <study>` resubmits only the incomplete members.
+- **`--continue` refuses a member in cold storage.** Restore it with the `picurv storage
+  restore` command the message prints, or pass `--auto-fetch`.
+- **A metric column is empty for a member that completed.** The metric's `file_glob` or
+  `regex` did not match that member's output. Correct `study.yml`, then
+  `picurv sweep --reaggregate --study-dir <study>` rebuilds the table without running anything.
+- **No job ID after `sweep` or `submit`.** Some sites' `sbatch` rejects a submission and still
+  exits 0; @ref p67_cluster_sec says how to see why.
+
 @section p37_reaggregate_sec 7. Manual Metrics Re-Aggregation
 
 If the automatic metrics Slurm job fails or you want to re-collect metrics after
@@ -181,7 +194,7 @@ manual intervention:
 ./bin/picurv sweep --reaggregate --study-dir studies/<study_id>
 ```
 
-This reads all case outputs, writes `results/metrics_table.csv`, and generates
+This reads all case outputs, writes `studies/<study_id>/output/analysis/metrics_table.csv`, and generates
 plots (if enabled in `study.yml`).
 
 @section p37_cap_study_sec 7.1 Study Type Entries
@@ -202,9 +215,11 @@ plots (if enabled in `study.yml`).
 
 **Interactions.** The sweep recognises the grid keys and orders the aggregated table by resolution. Combines naturally with `grid.mode: grid_gen`, which regenerates the mesh per case; with `mode: file` every resolution needs its own staged mesh.
 
-**Diagnostics.** `results/metrics_table.csv` carries one row per case. A metric that does not settle across the ladder is the finding, not a failure of the study.
+**Diagnostics.** `studies/<study_id>/output/analysis/metrics_table.csv` carries one row per case. A metric that does not settle across the ladder is the finding, not a failure of the study.
 
-**Evidence.** Production exercised - `examples/flat_channel/grid_independence_study.yml`.
+**Evidence.** Production exercised - `examples/flat_channel/grid_independence_study.yml`, and
+on the cluster in `cluster-session-grace-2026-10-01`: a three-member ladder ran as a Slurm
+array throttled to one task at a time and aggregated one row per member.
 
 **Limitations.** It varies what you list and nothing else: refining only one direction produces a table that looks converged while the unrefined direction still controls the error.
 
@@ -222,9 +237,10 @@ plots (if enabled in `study.yml`).
 
 **Interactions.** Independent of the momentum solver chosen, but the useful dt range is not: an explicit path is stability-limited where the implicit paths are not, so the ladder that is informative for one may not run at all for the other.
 
-**Diagnostics.** Same `results/metrics_table.csv` shape as the grid ladder, ordered by dt.
+**Diagnostics.** Same `studies/<study_id>/output/analysis/metrics_table.csv` shape as the grid ladder, ordered by dt.
 
-**Evidence.** Implemented only. No shipped study selects it.
+**Evidence.** Production exercised - `cluster-session-grace-2026-10-01`: a two-member study
+ran as a Slurm array and aggregated one row per member. No shipped study selects it.
 
 **Limitations.** Nothing here detects that the ladder crossed a stability boundary rather than a convergence one; a diverged case appears as a missing or absurd metric row.
 
@@ -242,9 +258,10 @@ plots (if enabled in `study.yml`).
 
 **Interactions.** The only study type that does not order its table by a convergence quantity, so the aggregation is a plain comparison. `execution.max_concurrent_array_tasks` matters most here, because a sensitivity sweep is usually the widest.
 
-**Diagnostics.** `results/metrics_table.csv` with one row per case and the varied keys as columns.
+**Diagnostics.** `studies/<study_id>/output/analysis/metrics_table.csv` with one row per case and the varied keys as columns.
 
-**Evidence.** Implemented only. No shipped study selects it.
+**Evidence.** Production exercised - `cluster-session-grace-2026-10-01`: a two-member study
+ran as a Slurm array and aggregated one row per member. No shipped study selects it.
 
 **Limitations.** It compares what you asked for and infers nothing: there is no sensitivity index, no ranking, and no detection that two varied parameters interact.
 

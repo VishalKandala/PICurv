@@ -25,6 +25,10 @@
 
 /**
  * @brief Print the shared native build identity when a version flag is present.
+ * @details Prints two lines: `<name> <release>+g<commit>[.dirty]`, then the PETSc this
+ *          binary was compiled against, `petsc <version> <debug|optimized> <arch> <dir>`.
+ *          The second line is also kept in the binary behind a `PICURV_PETSC_BUILD:`
+ *          marker, so the conductor can read it from a binary that cannot start.
  * @param[in] argc Native executable argument count.
  * @param[in] argv Native executable argument vector.
  * @param[in] executable_name User-facing executable name printed with the identity.

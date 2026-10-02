@@ -101,6 +101,13 @@ These coexist with standard runtime control artifacts used by solver/postprocess
 3. sbatch script rendering from scheduler settings,
 4. optional solver submission (`solver.sbatch`) immediately, or later via `picurv submit --run-dir ...`,
 5. optional post submission (`post.sbatch`), with `afterok:<solver_jobid>` dependency when solve+post are both requested in one command or when `submit --stage all` is used.
+   `submit --stage post-process` on its own depends on the recorded solve job only while that
+   job is still queued. Slurm forgets a finished job after its `MinJobAge` and then rejects
+   any dependency on it, so a solve that has completed is not waited for: the post job plans
+   its steps from the committed checkpoints when it starts. A solve that ended `FAILED`,
+   `CANCELLED`, `TIMEOUT` or similar is refused unless `--force` is given. When `sacct`
+   cannot say how the job ended, the post job is submitted without a dependency and a
+   warning says so.
 
 This allows consistent local dry-run and cluster production flow from the same inputs.
 
@@ -134,3 +141,16 @@ See also:
 - **@subpage 05_The_Conductor_Script**
 - **@subpage 52_Run_Artifact_Lifecycle_Contract**
 - **@subpage 39_Common_Fatal_Errors**
+
+@section p36_evidence_sec 6. What Has Been Verified On A Cluster
+
+On TAMU Grace (Slurm, one node, 8 MPI tasks per job), `cluster-session-grace-2026-10-01`
+recorded: `picurv cancel` stopping a running solver (`CANCELLED`); `cancel --graceful`
+making the solver write an off-cadence checkpoint and exit, and `run --continue` resuming
+from it; post jobs planning their steps when they start and skipping current output; and
+array studies honouring `max_concurrent_array_tasks`. `turbulent-channel-nk-2026-09-29`
+recorded a 144-rank solve with a dependent post job, and `cluster-cancel-pending-2026-09-29`
+the cancellation of pending jobs. The post-dependency rule of @ref p36_flow_sec and study
+continuation inside a workspace were fixed after that session and are verified by the
+local test suite only. Multi-node arrays and a walltime-guard stop on the cluster have not
+been exercised.

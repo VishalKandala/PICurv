@@ -146,7 +146,7 @@ What to inspect before submission:
 
 What to inspect after completion:
 
-- `studies/<study_id>/results/metrics_table.csv` (auto-collected by chained metrics job)
+- `studies/<study_id>/output/analysis/metrics_table.csv` (auto-collected by chained metrics job)
 - per-case `<run.analysis.metrics>/interpolation_error.csv`
 - scheduler stdout/stderr files for any failed array task
 
@@ -189,7 +189,7 @@ execution.
 
 8. Stage first with `--no-submit` and inspect generated study cases.
 9. Submit the study after confirming the three particle counts are correct.
-10. Review `results/metrics_table.csv` when all array tasks finish.
+10. Review `studies/<study_id>/output/analysis/metrics_table.csv` when all array tasks finish.
 
 Operational note:
 

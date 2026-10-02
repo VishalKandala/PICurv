@@ -763,7 +763,7 @@
     {
       "id": "workspace.asset_lifecycle",
       "title": "Workspace Topology and Reusable Asset Lifecycle",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
       "capability_families": [
         "workspace.input_import_mode"
@@ -814,6 +814,29 @@
         "safe_use_boundaries": {
           "page": "71_Invariant_Contracts",
           "anchor": "p71_isolation_sub"
+        },
+        "evidence": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_cap_input_mode_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_assets_restart_sub"
+        },
+        "operations": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_precompute_sec"
+        },
+        "troubleshooting": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_assets_trouble_sub"
+        },
+        "examples": {
+          "not_applicable": "The asset store has no example of its own: every example workspace uses it when precompute or run builds its grid and initial condition. examples/search_robustness ships bent_channel_coarse.picgrid, the file picurv inputs import takes in asset-lifecycle-grace-2026-10-01, with search_robustness_curvilinear.yml as the case that reads it."
+        },
+        "complete_reference": {
+          "page": "52_Run_Artifact_Lifecycle_Contract",
+          "anchor": "p52_layout_sec"
         }
       },
       "concerns": {
@@ -855,7 +878,8 @@
           "not_applicable": "Imports and asset publication read and write local paths under the invoking user's own permissions; reference-mode imports store a path, never a credential."
         }
       },
-      "note": "Content-addressed asset identity covers the normalized provider settings, the checksums of referenced files, and the PICurv build, so an unchanged input reuses its object and any change to an equation, grid configuration, imported field, inlet parameter, or generator selects a new one. Publication is all-or-nothing per invocation: providers build into an isolated temporary run layout and nothing is published unless every selected provider succeeds. Reuse and materialization carry unit coverage in tests/test_workspace_lifecycle.py and migrated precompute coverage in tests/test_cli_smoke.py. Exercised locally 2026-09-21 (asset-store-local-2026-09-21): import modes, content-addressed reuse, all-or-nothing publication, run materialization, and prune's blocked decision; reflink was refused on the tested filesystem, and a changed reference target was used without a warning. The turbulent-channel-nk-2026-09-29 campaign manifest records grid and initial-condition objects materialized through hardlinks on the cluster. That is not a test of the selectable input import mode. A 2026-09-29 cluster campaign found reuse broken for identical inputs (asset-reuse-identity-2026-09-29): lookup went only through the case file's own asset set, and a generated initial condition's payload summary embedded the temporary build path, so each rebuild published a new object. Both are fixed: a case file with no matching set adopts any published object with the same provider_spec_sha256, and payload summaries record paths relative to themselves; tests/test_workspace_lifecycle.py covers both. The fix still needs one cluster confirmation. Held at experimental: successful cluster reflinks/import modes, object accumulation at campaign scale, and remote-backed pruning remain unverified. Nothing removes orphaned objects automatically: explicit `picurv storage prune --assets --unused-locally` (storage.management) is the reclamation path. The restart statistics-state selector belongs to post.field_statistics."
+      "note": "Promoted 2026-10-01 on asset-lifecycle-grace-2026-10-01 (owner decision for reflink, never seen succeeding): on Grace's Lustre scratch a title-only case copy reused the grid and initial-condition objects (confirming the asset-reuse-identity-2026-09-29 fix on the cluster); copy, hardlink (shared inode) and reference imports each fed a precompute that a repeat reused without a new object; reflink was refused with cp's reason. Identical bytes imported under two names build two objects, because the workspace path is part of the provider settings (page 52 section 3). Not exercised: object accumulation at campaign scale, remote-backed pruning. Content-addressed asset identity covers the normalized provider settings, the checksums of referenced files, and the PICurv build, so an unchanged input reuses its object and any change to an equation, grid configuration, imported field, inlet parameter, or generator selects a new one. Publication is all-or-nothing per invocation: providers build into an isolated temporary run layout and nothing is published unless every selected provider succeeds. Reuse and materialization carry unit coverage in tests/test_workspace_lifecycle.py and migrated precompute coverage in tests/test_cli_smoke.py. Exercised locally 2026-09-21 (asset-store-local-2026-09-21): import modes, content-addressed reuse, all-or-nothing publication, run materialization, and prune's blocked decision; reflink was refused on the tested filesystem, and a changed reference target was used without a warning. The turbulent-channel-nk-2026-09-29 campaign manifest records grid and initial-condition objects materialized through hardlinks on the cluster. That is not a test of the selectable input import mode. A 2026-09-29 cluster campaign found reuse broken for identical inputs (asset-reuse-identity-2026-09-29): lookup went only through the case file's own asset set, and a generated initial condition's payload summary embedded the temporary build path, so each rebuild published a new object. Both are fixed: a case file with no matching set adopts any published object with the same provider_spec_sha256, and payload summaries record paths relative to themselves; tests/test_workspace_lifecycle.py covers both.  Nothing removes orphaned objects automatically: explicit `picurv storage prune --assets --unused-locally` (storage.management) is the reclamation path. The restart statistics-state selector belongs to post.field_statistics.",
+      "previous_status": "experimental"
     },
     {
       "id": "storage.management",
@@ -2546,9 +2570,9 @@
     {
       "id": "cluster.scheduling",
       "title": "Cluster Scheduling and Batch Execution",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
+      "previous_status": "experimental",
       "capability_families": [],
       "obligations": {
         "purpose": {
@@ -2597,6 +2621,29 @@
         "safe_use_boundaries": {
           "page": "36_Cluster_Run_Guide",
           "anchor": "p36_notes_sec"
+        },
+        "evidence": {
+          "page": "36_Cluster_Run_Guide",
+          "anchor": "p36_evidence_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "05_The_Conductor_Script",
+          "anchor": "p05_cancel_sec"
+        },
+        "operations": {
+          "page": "36_Cluster_Run_Guide",
+          "anchor": "p36_command_sec"
+        },
+        "troubleshooting": {
+          "page": "67_Troubleshooting",
+          "anchor": "p67_cluster_sec"
+        },
+        "examples": {
+          "not_applicable": "Scheduling is a launch mode of every example rather than an example of its own: each workspace's config/cluster.yml (from examples/*/slurm_cluster.yml or examples/master_template/master_cluster.yml) stages any shipped case with run --cluster. The cluster-session-grace-2026-10-01 checks used examples/flat_channel that way."
+        },
+        "complete_reference": {
+          "page": "14_Config_Contract",
+          "anchor": "p14_cluster_sec"
         }
       },
       "concerns": {
@@ -2613,14 +2660,14 @@
           "anchor": "p52_launchers_sec"
         }
       },
-      "note": "Owns cluster.yml, run --cluster, submit, cancel (including --graceful), scheduler-script generation, and the warmup-and-extrapolate walltime guard. Slurm is the only scheduler. Covered by the conductor tests in tests/test_cli_smoke.py; submission itself cannot run in the local suite. Verified locally 2026-09-18 up to submission: run --cluster --no-submit staged correct sbatch scripts (resources, walltime export, identity check, srun layout), submit --dry-run chained post with afterok, and the walltime guard fired end to end. Cluster evidence retained in turbulent-channel-nk-2026-09-29: sbatch accepted solver job 19896210 and post job 19896212 with afterok:19896210; both application logs reach completion on 144 ranks. This closes the submission and successful dependent-execution gaps. cluster-cancel-pending-2026-09-29: picurv cancel stopped both stages of three runs whose jobs were still pending, and sacct records all six jobs CANCELLED with zero elapsed time, which covers cancellation of pending jobs and reading scheduler accounting. Held at experimental pending cancel of a running solver and cancel --graceful (clean shutdown with an off-cadence checkpoint)."
+      "note": "Promoted 2026-10-01 on cluster-session-grace-2026-10-01: cancel of a RUNNING solver (sacct CANCELLED), cancel --graceful (off-cadence checkpoint 63, then run --continue completed), Slurm post jobs planning at start, and a throttled array; with turbulent-channel-nk-2026-09-29 (144-rank solve, afterok post) and cluster-cancel-pending-2026-09-29. Found and fixed after it, verified locally only (owner's decision): submit --stage post-process depended on a solve job Slurm had forgotten and was rejected; slurm_job_end_state now drops the dependency for a completed solve, refuses a failed one without --force, and warns when the end state is unknown. Not exercised: multi-node jobs, a walltime-guard stop on the cluster. Some sites' sbatch exits 0 on rejection; PICurv then reports no job id. Owns cluster.yml, run --cluster, submit, cancel (including --graceful), scheduler-script generation, and the warmup-and-extrapolate walltime guard. Slurm is the only scheduler. Covered by the conductor tests in tests/test_cli_smoke.py; submission itself cannot run in the local suite. Verified locally 2026-09-18 up to submission: run --cluster --no-submit staged correct sbatch scripts (resources, walltime export, identity check, srun layout), submit --dry-run chained post with afterok, and the walltime guard fired end to end. Cluster evidence retained in turbulent-channel-nk-2026-09-29: sbatch accepted solver job 19896210 and post job 19896212 with afterok:19896210; both application logs reach completion on 144 ranks. This closes the submission and successful dependent-execution gaps. cluster-cancel-pending-2026-09-29: picurv cancel stopped both stages of three runs whose jobs were still pending, and sacct records all six jobs CANCELLED with zero elapsed time, which covers cancellation of pending jobs and reading scheduler accounting. Held at experimental pending cancel of a running solver and cancel --graceful (clean shutdown with an off-cadence checkpoint)."
     },
     {
       "id": "study.orchestration",
       "title": "Parameter Sweeps and Studies",
-      "status": "experimental",
+      "status": "supported",
       "visibility": "public",
-      "previous_status": null,
+      "previous_status": "experimental",
       "capability_families": [
         "study.type"
       ],
@@ -2670,6 +2717,30 @@
         "safe_use_boundaries": {
           "page": "37_Sweep_Studies_Guide",
           "anchor": "p37_continue_sec"
+        },
+        "evidence": {
+          "page": "37_Sweep_Studies_Guide",
+          "anchor": "p37_cap_study_sec"
+        },
+        "lifecycle_and_restart": {
+          "page": "37_Sweep_Studies_Guide",
+          "anchor": "p37_continue_sec"
+        },
+        "operations": {
+          "page": "37_Sweep_Studies_Guide",
+          "anchor": "p37_operations_sec"
+        },
+        "troubleshooting": {
+          "page": "37_Sweep_Studies_Guide",
+          "anchor": "p37_trouble_sub"
+        },
+        "examples": {
+          "page": "37_Sweep_Studies_Guide",
+          "anchor": "p37_inputs_sec"
+        },
+        "complete_reference": {
+          "page": "14_Config_Contract",
+          "anchor": "p14_study_sec"
         }
       },
       "concerns": {
@@ -2686,7 +2757,7 @@
           "anchor": "p37_cap_study_sec"
         }
       },
-      "note": "Owns study.yml, picurv sweep (including --continue and --reaggregate), array-script generation, metric aggregation, and study plots. grid_independence is production-exercised by shipped studies; timestep_independence and sensitivity are experimental. Verified locally 2026-09-18: a shipped scatter study was staged with --no-submit, each case executed locally from its case index, and sweep --reaggregate filled every metric. Found and fixed: six shipped studies globbed metrics under logs/ while the runtime writes them to <run.analysis.metrics>, and the interpolation study named a file that does not exist. Array submission itself is not verified here. Held at experimental until a cluster run verifies the array job, max_concurrent_array_tasks throttling, and aggregation over cases that ran as array tasks."
+      "note": "Promoted 2026-10-01 on cluster-session-grace-2026-10-01: one study of each type ran as Slurm arrays (21 tasks, all COMPLETED), max_concurrent_array_tasks 1 held one task running, and the metrics job aggregated a row per member for every type. Found and fixed after it, verified locally only (owner's decision): sweep --continue resolved a staged study's base configs against the workspace, so continuation failed for every study inside a workspace; it now reads the study's own base_configs snapshots (test_sweep_continue_reads_the_study_snapshot_inside_a_workspace). Page 37 named results/metrics_table.csv; the table is output/analysis/metrics_table.csv. Owns study.yml, picurv sweep (including --continue and --reaggregate), array-script generation, metric aggregation, and study plots. Verified locally 2026-09-18: a shipped scatter study was staged with --no-submit, each case executed locally from its case index, and sweep --reaggregate filled every metric. Found and fixed: six shipped studies globbed metrics under logs/ while the runtime writes them to <run.analysis.metrics>, and the interpolation study named a file that does not exist. Array submission itself is not verified here."
     },
     {
       "id": "workspace.case_templates",

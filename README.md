@@ -416,7 +416,7 @@ Detailed long-form option docs:
 - Parameter sweep:
   - `studies/<study_id>/cases/` materialized case variants
   - `studies/<study_id>/scheduler/` array scripts and submission metadata
-  - `studies/<study_id>/results/metrics_table.csv` and plots
+  - `studies/<study_id>/output/analysis/metrics_table.csv` and plots
 
 ## Testing
 

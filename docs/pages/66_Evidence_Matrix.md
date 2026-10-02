@@ -78,23 +78,25 @@ Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
 - **Analytical facets rest on single recorded measurements, and none is `reference`.**
-  102 values cite `measurement:` records - 27 distinct ones, taken between 2026-09-18 and
-  2026-09-30 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
+  105 values cite `measurement:` records - 29 distinct ones, taken between 2026-09-18 and
+  2026-10-01 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
   pipe Poiseuille flow, the Poisson options, every initial-condition mode, every
   particle seeding and restart mode, both interpolation methods, the post-processing
   kernels, field statistics, shell, plane and line spectra, metric closure on every
   grid-generator feature, the workspace input import modes, and the four generated
   initial-condition providers, plus Newton--Krylov production execution on a
   144-rank turbulent channel and the storage compression levels, offload policies, and retention
-  components against a Google Drive remote.
-  Each record states what it does not establish, and none is gated in CI. Eight records
+  components against a Google Drive remote, and the three study types run as
+  Slurm arrays.
+  Each record states what it does not establish, and none is gated in CI. Nine records
   are cited by no value: three `not-met` ones (the Q-criterion output placement and the
   generated inlet flux on `programmatic_c` grids, both since fixed and re-measured, and
-  asset reuse for identical inputs, fixed and awaiting a cluster re-check), the
+  asset reuse for identical inputs, fixed and since confirmed on the cluster by
+  `asset-lifecycle-grace-2026-10-01`), the
   superseded `inconclusive` drift measurement, the 2026-09-22 wall-seed measurement
   taken on the former `sin(pi t)^4` envelope (superseded by
-  `wall-spectral-ic-2026-09-24`), and the paired drift, scalar-scatter, and pending-job
-  cancellation measurements, which verify subsystems with no selector value to cite them. No
+  `wall-spectral-ic-2026-09-24`), and the paired drift, scalar-scatter, pending-job cancellation, and IEM
+  variance-decay measurements, which verify subsystems with no selector value to cite them. No
   capability claims validated external-reference agreement. The exploratory
   Lee--Moser DNS comparison in `turbulent-channel-nk-2026-09-29` retains an 11.4%
   friction-Reynolds-number discrepancy and 29.3% excess skin friction; its `met`

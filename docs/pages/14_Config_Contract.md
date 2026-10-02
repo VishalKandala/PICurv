@@ -292,8 +292,8 @@ Optional shared runtime execution file:
 - `studies/<study_id>/scheduler/solver_array.sbatch`
 - `studies/<study_id>/scheduler/post_array.sbatch`
 - `studies/<study_id>/scheduler/solver_<array_jobid>_<taskid>.out/.err` and `post_<array_jobid>_<taskid>.out/.err` after submission
-- `studies/<study_id>/results/metrics_table.csv`
-- `studies/<study_id>/results/plots/*`
+- `studies/<study_id>/output/analysis/metrics_table.csv`
+- `studies/<study_id>/output/analysis/plots/*`
 
 @section p14_passthrough_sec 9. Escape Hatches and Defaults
 

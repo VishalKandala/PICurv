@@ -148,6 +148,15 @@ the conductor's says which source staged a run, the binaries' says which build p
 its checkpoints, and an edited C tree that was never rebuilt makes them disagree. The
 run manifest records both, and `run` warns at staging when a binary is stale.
 
+Each executable's `--version` has a second line naming the PETSc it was compiled against,
+`petsc <version> <debug|optimized> <arch> <dir>`, taken from PETSc's own headers. The same
+text is stamped into the binary, so `picurv version` still shows it when the executable
+cannot start - for example `undefined symbol: petscstack`, a debug-PETSc build launched
+with an optimized PETSc on the library path. Where `ldd` exists, it also shows the
+`libpetsc` the current shell would load and marks it when that library lies outside the
+PETSc the binary was built against. Binaries built before the stamp show
+`PETSc: not recorded`.
+
 `picurv version status` reports the same thing and then *validates* it, exiting 1 when
 the conductor, either executable, or the workspace's `software.picurv` requirement
 disagree, and naming each disagreement. Bare `picurv version` always exits 0: it is an
@@ -916,7 +925,8 @@ not the installation. Without the switch a run launches the installation's `bin/
 
 **Job-start identity check.** Every generated Slurm script, pinned or not, runs the
 executable's `--version` after module setup and before the launcher, and exits before any
-rank starts when the reported identity differs from the one read at staging. When staging
+rank starts when the reported identity, including the PETSc line, differs from the one read
+at staging. When staging
 could not read an identity, the job logs the one it finds and launches.
 
 `bin/picurv` is a launcher for `picurv_cli/picurv`. This means:
@@ -947,10 +957,11 @@ make all                                                         # safe: the run
 
 @htmlinclude generated/capability_inventory_workspace_input_import_mode.html
 
-Every mode below is experimental: the workspace asset store has been exercised locally
-(`asset-store-local-2026-09-21`) but not on the cluster filesystems where reflink and
-hardlink availability are decided, nor at the scale where object accumulation and
-remote-backed pruning start to matter.
+Every mode below is supported. They were exercised locally (`asset-store-local-2026-09-21`)
+and on the cluster's Lustre scratch (`asset-lifecycle-grace-2026-10-01`), where `copy`,
+`hardlink` and `reference` imports each fed a precompute that a second precompute reused,
+and `reflink` was refused with the filesystem's reason. Object accumulation at campaign
+scale and remote-backed pruning have not been exercised.
 
 @subsection p05_cap_input_mode_copy_sub copy
 
@@ -976,6 +987,8 @@ or missing source fails before the catalog changes.
 **Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` checks the copied
 bytes and catalog entry. Integration verified - `asset-store-local-2026-09-21`: a copied
 field became an initial-condition object that a second precompute reused unchanged.
+Production verified - `asset-lifecycle-grace-2026-10-01`: on Lustre a copied grid got its
+own inode, and a precompute from it was reused by the next precompute.
 
 **Limitations.** Uses additional disk space equal to the imported file.
 
@@ -1003,10 +1016,12 @@ unavailable and writes no catalog record.
 **Evidence.** Integration verified - `asset-store-local-2026-09-21`: on a filesystem
 without reflink support the import failed with `cp`'s "Operation not supported", left no
 temporary file, and wrote no catalog record. A successful reflink import has not been
-exercised; that needs a filesystem that supports it.
+exercised; that needs a filesystem that supports it. Production verified -
+`asset-lifecycle-grace-2026-10-01`: Lustre scratch refused it the same way. Supported on
+the owner's decision, since the refusal path is the one most users meet.
 
-**Limitations.** Experimental across cluster filesystems; support depends on the local
-`cp` and filesystem.
+**Limitations.** A successful clone needs a copy-on-write filesystem with reflink support,
+such as Btrfs or XFS; none has been tested.
 
 @subsection p05_cap_input_mode_hardlink_sub hardlink
 
@@ -1031,10 +1046,11 @@ catalog changes.
 **Evidence.** Integration verified - `asset-store-local-2026-09-21`: the imported path
 shares the source's inode, the catalog records the source checksum, and after one byte
 of the shared file changed the next precompute built a new object rather than reusing
-the old one.
+the old one. Production verified - `asset-lifecycle-grace-2026-10-01`: on Lustre the
+imported grid shared the source's inode (2 links), and its precompute was reused.
 
-**Limitations.** Experimental because shared-inode ownership is easy to misuse and it
-cannot cross filesystems.
+**Limitations.** Shared-inode ownership is easy to misuse, and it cannot cross
+filesystems.
 
 @subsection p05_cap_input_mode_reference_sub reference
 
@@ -1062,7 +1078,8 @@ fail when registered or consumed.
 **Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` checks reference
 content and catalog identity. Integration verified - `asset-store-local-2026-09-21`:
 a reference import fed a solver run, and changing one byte of its target built a new
-object.
+object. Production verified - `asset-lifecycle-grace-2026-10-01`: on Lustre a 280-byte
+reference record fed a precompute that the next precompute reused.
 
 **Limitations.** Restoring the workspace cannot restore an external target; its owner
 must make the same path available or the reference must be replaced.

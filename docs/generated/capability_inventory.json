@@ -894,15 +894,15 @@
     "public_values": {
       "grid_independence": {
         "maps_to": "grid_independence",
-        "status": "experimental"
+        "status": "supported"
       },
       "sensitivity": {
         "maps_to": "sensitivity",
-        "status": "experimental"
+        "status": "supported"
       },
       "timestep_independence": {
         "maps_to": "timestep_independence",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "study.yml -> study_type",
@@ -978,19 +978,19 @@
     "public_values": {
       "copy": {
         "maps_to": "copy",
-        "status": "experimental"
+        "status": "supported"
       },
       "hardlink": {
         "maps_to": "hardlink",
-        "status": "experimental"
+        "status": "supported"
       },
       "reference": {
         "maps_to": "reference",
-        "status": "experimental"
+        "status": "supported"
       },
       "reflink": {
         "maps_to": "reflink",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "picurv inputs import --mode",

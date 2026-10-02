@@ -5876,6 +5876,37 @@ def test_init_organizes_workspace_under_a_directory_named_runs(tmp_path):
     assert list((workspace / "config" / "studies").glob("*.yml"))
 
 
+def test_sweep_continue_reads_the_study_snapshot_inside_a_workspace(tmp_path, monkeypatch):
+    """!
+    @brief `sweep --continue` resolves a staged study's base configs inside the study.
+    @details Staging writes base_configs/<role>.yml snapshots into the study directory and
+             records them relative to it. Continuation resolved them against the workspace
+             instead, so every study staged in a workspace failed with
+             `<workspace>/base_configs/case.yml` not found.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    picurv = load_picurv_module()
+    monkeypatch.chdir(tmp_path)
+    picurv.init_case(SimpleNamespace(template_name="flat_channel", dest_name="ws",
+                                     source_root=str(REPO_ROOT)))
+    workspace = tmp_path / "ws"
+    monkeypatch.chdir(workspace)
+    picurv.sweep_workflow(SimpleNamespace(
+        study="config/studies/grid_independence_study.yml",
+        cluster="config/cluster.yml",
+        no_submit=True,
+    ))
+    study = next((workspace / "studies").iterdir())
+    assert (study / "base_configs" / "case.yml").is_file()
+    assert not (workspace / "base_configs").exists()
+
+    picurv.sweep_continue_workflow(SimpleNamespace(
+        study_dir=str(study), cluster=None, no_submit=True, auto_fetch=False,
+    ))
+    assert (study / "scheduler" / "submission_continue.json").is_file()
+
+
 def test_init_pin_binaries_copies_simulator_and_postprocessor(tmp_path):
     """!
     @brief Test that init --pin-binaries copies simulator and postprocessor but not picurv.
@@ -8261,6 +8292,57 @@ def test_submit_post_process_waits_only_for_a_staged_solve(tmp_path):
     result = run_picurv(["submit", "--run-dir", str(post_only), "--stage", "post-process", "--dry-run"],
                         cwd=tmp_path)
     assert result.returncode == 0, result.stderr
+    assert "--dependency" not in result.stdout
+
+
+def test_submit_post_process_drops_the_dependency_on_a_solve_that_already_ended(tmp_path):
+    """!
+    @brief A post submitted after its solve left the queue does not depend on that job.
+    @details Slurm forgets a finished job after MinJobAge and then rejects any dependency on
+             it, so `submit --stage post-process` long after the solve failed on the cluster.
+             A completed solve is dropped from the dependency, a failed one is refused
+             unless --force, and a job still queued keeps it.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return None.
+    """
+    tools = tmp_path / "tools"
+    tools.mkdir()
+
+    def slurm(queued: str, ended: str) -> dict:
+        """!
+        @brief Install fake `squeue` and `sacct` that print fixed output.
+        @param[in] queued What `squeue` prints for the recorded job.
+        @param[in] ended What `sacct` prints for it.
+        @return Environment override putting the fakes first on PATH.
+        """
+        (tools / "squeue").write_text(f'#!/bin/sh\nprintf "{queued}"\n', encoding="utf-8")
+        (tools / "sacct").write_text(f'#!/bin/sh\nprintf "{ended}"\n', encoding="utf-8")
+        for tool in ("squeue", "sacct"):
+            (tools / tool).chmod(0o755)
+        return {"PATH": f"{tools}{os.pathsep}{os.environ['PATH']}"}
+
+    run_dir = create_staged_run_dir(tmp_path, solve_meta={"submitted": True, "job_id": "777"})
+    command = ["submit", "--run-dir", str(run_dir), "--stage", "post-process", "--dry-run"]
+
+    result = run_picurv(command, cwd=tmp_path, env=slurm("", "COMPLETED\\n"))
+    assert result.returncode == 0, result.stderr
+    assert "Solve job 777 has completed" in result.stdout
+    assert "--dependency" not in result.stdout
+
+    result = run_picurv(command, cwd=tmp_path, env=slurm("RUNNING\\n", ""))
+    assert result.returncode == 0, result.stderr
+    assert "--dependency=afterok:777" in result.stdout
+
+    result = run_picurv(command, cwd=tmp_path, env=slurm("", "TIMEOUT\\n"))
+    assert result.returncode == 1
+    assert "ended TIMEOUT" in result.stderr
+    result = run_picurv(command + ["--force"], cwd=tmp_path, env=slurm("", "TIMEOUT\\n"))
+    assert result.returncode == 0, result.stderr
+    assert "--dependency" not in result.stdout
+
+    result = run_picurv(command, cwd=tmp_path, env=slurm("", ""))
+    assert result.returncode == 0, result.stderr
+    assert "no longer queued" in result.stderr
     assert "--dependency" not in result.stdout
 
 

@@ -469,8 +469,9 @@ The storage schema is versioned. Unsupported future or older schema versions are
 
 Every run also writes `inputs/software.lock.json` at solve time: the release version,
 Git commit, dirty-worktree status, and a SHA-256 of the simulator and postprocessor
-executables the run is about to execute with, alongside the generators and Python
-conductor. The manifest's build identity says which source was checked out; the lock
+executables the run is about to execute with, each with the PETSc it was built against,
+alongside the generators and Python conductor; `environment` records the PETSc, MPI, and
+compiler of the shell that staged the run, which need not be the same. The manifest's build identity says which source was checked out; the lock
 says which bytes the run launches. For a run staged with pinned executables those bytes
 are the copies in `<run.config.bin>`, which a rebuild of the installation does not touch;
 for an unpinned Slurm job, the job-start identity check stops a rebuilt executable before

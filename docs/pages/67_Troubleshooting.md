@@ -118,6 +118,14 @@ recovered from the PVD itself; restore that run's visualization data.
    this is usually why.
 4. Stage without submitting and inspect the generated scripts before blaming the
    solver: **@subpage 36_Cluster_Run_Guide**.
+5. `Could not parse Slurm job id from sbatch output` with nothing after it means `sbatch`
+   accepted no job. Some sites wrap `sbatch` and exit 0 on a rejection, printing the reason
+   only on stderr: run the staged script by hand (`sbatch <run.scheduler>/solver.sbatch`)
+   to see it. An account that is no longer active is the usual cause; check the site's
+   allocation command and `resources.account` in `cluster.yml`.
+6. `undefined symbol: petscstack`, or another symbol error as the executable starts, means
+   it was built against a different PETSc than the job loads. `picurv version` shows both;
+   see @ref p39_legacy_sec.
 
 @section p67_suspicious_sec 8. Results Look Numerically Suspicious
 
