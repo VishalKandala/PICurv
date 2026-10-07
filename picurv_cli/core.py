@@ -414,11 +414,35 @@ _WORKSPACE_ARTIFACT_ROOT_VALUES = {"runs", "studies"}
 _ASSET_SOURCE_REFERENCE_KEYS = {
     "source_file", "path", "config_file", "field_file", "grid_file", "source_case", "script"
 }
-_PYTHON_INITIAL_CONDITION_PROVIDERS = {"ic_gen", "spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"}
+_PYTHON_INITIAL_CONDITION_PROVIDERS = {"ic_gen", "spectral_random_velocity", "resampled_velocity",
+                                       "channel_spectral_velocity", "duct_spectral_velocity"}
+#: Providers `ic.gen` runs from structured parameters, each with a measured initial spectrum.
+SPECTRAL_IC_PROVIDERS = ("spectral_random_velocity", "resampled_velocity",
+                         "channel_spectral_velocity", "duct_spectral_velocity")
+#: Of those, the triply periodic ones, whose initial spectrum is shell-averaged.
+SHELL_SPECTRUM_IC_PROVIDERS = ("spectral_random_velocity", "resampled_velocity")
 #: Parameters `spectral_random_velocity` accepts.
 SPECTRAL_RANDOM_VELOCITY_PARAMS = frozenset(
     {"field", "seed", "random", "spectrum", "projection", "normalization", "remove_mean"}
 )
+#: Parameters `resampled_velocity` accepts.
+RESAMPLED_VELOCITY_PARAMS = frozenset(
+    {"field", "source_file", "format", "cells", "box_length", "sample_offset", "layout", "filter",
+     "projection", "remove_mean"}
+)
+#: `resampled_velocity` layout and projection choices.
+RESAMPLED_VELOCITY_FASTEST_AXES = ("x", "z")
+RESAMPLED_VELOCITY_COMPONENT_LAYOUTS = ("interleaved", "separate")
+RESAMPLED_VELOCITY_RAW_DTYPES = ("float32", "float64")
+RESAMPLED_VELOCITY_BYTE_ORDERS = ("little", "big", "native")
+RESAMPLED_VELOCITY_PROJECTIONS = ("picurv_discrete", "continuum", "none")
+#: Source containers `resampled_velocity` reads, and the layout keys each accepts.
+RESAMPLED_VELOCITY_LAYOUT_KEYS = {
+    "raw": {"fastest_axis", "components", "dtype", "byte_order", "header_bytes"},
+    "npy": {"fastest_axis", "components"},
+    "npz": {"fastest_axis", "components", "datasets"},
+    "hdf5": {"fastest_axis", "components", "datasets"},
+}
 _FILE_BACKED_GRID_VALUES = {"file", "grid_gen"}
 _WORKSPACE_MANAGED_PATHS = {"assets", "inputs", "runs", "studies"}
 _VENDORABLE_CONFIG_REFERENCE_KEYS = {"config_file", "script"}
@@ -8795,6 +8819,17 @@ IC_PARAM_QUANTITIES = {
         "normalization.type": NOT_A_QUANTITY, "normalization.target": (VELOCITY, "cli"),
     },
 }
+IC_PARAM_QUANTITIES["resampled_velocity"] = {
+    "field": NOT_A_QUANTITY, "format": NOT_A_QUANTITY, "cells": NOT_A_QUANTITY,
+    "sample_offset": NOT_A_QUANTITY, "projection": NOT_A_QUANTITY, "remove_mean": NOT_A_QUANTITY,
+    # The source file holds physical velocities; the provider divides them by velocity_ref.
+    "source_file": (VELOCITY, "provider"),
+    "box_length": (LENGTH, "cli"),
+    "layout.fastest_axis": NOT_A_QUANTITY, "layout.components": NOT_A_QUANTITY,
+    "layout.dtype": NOT_A_QUANTITY, "layout.byte_order": NOT_A_QUANTITY,
+    "layout.header_bytes": NOT_A_QUANTITY, "layout.datasets": NOT_A_QUANTITY,
+    "filter.type": NOT_A_QUANTITY, "filter.cutoff": (WAVENUMBER, "cli"), "filter.width": (LENGTH, "cli"),
+}
 IC_PARAM_QUANTITIES["channel_spectral_velocity"] = IC_PARAM_QUANTITIES["duct_spectral_velocity"] = {
     "field": NOT_A_QUANTITY, "seed": NOT_A_QUANTITY, "streamwise_axis": NOT_A_QUANTITY,
     "wall_axes": NOT_A_QUANTITY, "wall_modes": NOT_A_QUANTITY, "initial_spectra": NOT_A_QUANTITY,
@@ -13184,6 +13219,7 @@ GENERATED_IC_PROVIDERS = {
         ),
     },
 }
+GENERATED_IC_PROVIDERS["resampled_velocity"] = GENERATED_IC_PROVIDERS["spectral_random_velocity"]
 
 
 def is_generated_ic_provider(resolved_ic: dict) -> bool:
@@ -13298,6 +13334,132 @@ def ic_provider_params_to_solver_units(generator: str, params: dict, scales: dic
     return converted
 
 
+def resolve_resampled_velocity_params(params: dict, prepared_blocks, scales: dict, provider_context=None) -> dict:
+    """!
+    @brief Validate `resampled_velocity` parameters and convert them to the provider contract.
+    @details The provider brings an external triply periodic velocity field onto the case's
+             grid. Its box must be the case's box; the source's container, layout, and sample
+             positions are declared because no standard format records them all.
+    @param[in] params Raw provider parameters, physical units.
+    @param[in] prepared_blocks Normalized boundary-condition blocks.
+    @param[in] scales Reference scales.
+    @param[in] provider_context Optional conductor-derived provider context.
+    @return Resolved initial-condition contract; `source_file` stays as written and is
+            resolved against the workspace when the provider runs.
+    """
+    name = "resampled_velocity"
+    if prepared_blocks and len(prepared_blocks) != 1:
+        raise ValueError(f"{name} requires exactly one grid block.")
+    if not prepared_blocks or len(prepared_blocks[0]) != 6 or any(
+        bc.get("type") != "PERIODIC" or bc.get("handler") != "geometric" for bc in prepared_blocks[0]
+    ):
+        raise ValueError(f"{name} requires PERIODIC/geometric boundaries on all six faces; "
+                         "wall-bounded sources are not supported yet.")
+    unknown = sorted(set(params) - RESAMPLED_VELOCITY_PARAMS)
+    if unknown:
+        raise ValueError(f"{name} has unsupported params: {unknown}.")
+    # Ucont is the default: face-centre samples projected with PICurv's face-difference
+    # operator keep the most energy through the runtime's reconstruction and need the
+    # smallest projection; Ucat stages cell centres like the synthetic providers do.
+    field_name, field_code = normalize_initial_condition_field(params.get("field", "Ucont"))
+    source_file = params.get("source_file")
+    if not isinstance(source_file, str) or not source_file.strip():
+        raise ValueError(f"{name} requires params.source_file, the field to import.")
+    fmt = str(params.get("format", "")).lower()
+    if fmt not in RESAMPLED_VELOCITY_LAYOUT_KEYS:
+        raise ValueError(f"{name} params.format must be one of {sorted(RESAMPLED_VELOCITY_LAYOUT_KEYS)}.")
+    cells = params.get("cells")
+    if cells is not None:
+        if (not isinstance(cells, list) or len(cells) != 3
+                or any(isinstance(c, bool) or not isinstance(c, int) or c < 4 for c in cells)):
+            raise ValueError(f"{name} params.cells must list the source's sample counts along x, y, z, "
+                             "each an integer of at least 4.")
+    elif fmt == "raw":
+        raise ValueError(f"{name} with format: raw requires params.cells, the sample counts along x, y, z.")
+    box = params.get("box_length")
+    if not isinstance(box, list) or len(box) != 3:
+        raise ValueError(f"{name} requires params.box_length: the source's periods along x, y, z, "
+                         "in physical length.")
+    box = [_to_finite_float(value, f"initial_conditions.params.box_length[{index}]")
+           for index, value in enumerate(box)]
+    if any(value <= 0 for value in box):
+        raise ValueError(f"{name} params.box_length values must be positive.")
+    offset = params.get("sample_offset", 0.0)
+    offset = offset if isinstance(offset, list) else [offset, offset, offset]
+    if len(offset) != 3:
+        raise ValueError(f"{name} params.sample_offset is one number or three, along x, y, z.")
+    offset = [_to_finite_float(value, f"initial_conditions.params.sample_offset[{index}]")
+              for index, value in enumerate(offset)]
+    if any(value < 0.0 or value >= 1.0 for value in offset):
+        raise ValueError(f"{name} params.sample_offset is a fraction of the source spacing in [0, 1): "
+                         "0 for samples on the box origin, 0.5 for cell centres.")
+    layout = params.get("layout", {})
+    if not isinstance(layout, dict):
+        raise ValueError(f"{name} params.layout must be a mapping.")
+    extra = sorted(set(layout) - RESAMPLED_VELOCITY_LAYOUT_KEYS[fmt])
+    if extra:
+        raise ValueError(f"{name} layout keys {extra} do not apply to format: {fmt}; "
+                         f"it accepts {sorted(RESAMPLED_VELOCITY_LAYOUT_KEYS[fmt])}.")
+    normalized_layout = {"fastest_axis": str(layout.get("fastest_axis", "x")).lower(),
+                         "components": str(layout.get("components", "interleaved")).lower()}
+    if normalized_layout["fastest_axis"] not in RESAMPLED_VELOCITY_FASTEST_AXES:
+        raise ValueError(f"{name} layout.fastest_axis must be x (x varies fastest) or z.")
+    if normalized_layout["components"] not in RESAMPLED_VELOCITY_COMPONENT_LAYOUTS:
+        raise ValueError(f"{name} layout.components must be interleaved (u, v, w at each point) "
+                         "or separate (all u, then all v, then all w).")
+    if fmt == "raw":
+        dtype = str(layout.get("dtype", "")).lower()
+        if dtype not in RESAMPLED_VELOCITY_RAW_DTYPES:
+            raise ValueError(f"{name} format: raw requires layout.dtype: float32 or float64.")
+        byte_order = str(layout.get("byte_order", "native")).lower()
+        if byte_order not in RESAMPLED_VELOCITY_BYTE_ORDERS:
+            raise ValueError(f"{name} layout.byte_order must be little, big, or native.")
+        header = layout.get("header_bytes", 0)
+        if isinstance(header, bool) or not isinstance(header, int) or header < 0:
+            raise ValueError(f"{name} layout.header_bytes must be a non-negative integer.")
+        normalized_layout.update({"dtype": dtype, "byte_order": byte_order, "header_bytes": header})
+    elif "datasets" in RESAMPLED_VELOCITY_LAYOUT_KEYS[fmt]:
+        datasets = layout.get("datasets")
+        if (not isinstance(datasets, list) or len(datasets) not in (1, 3)
+                or any(not isinstance(item, str) or not item for item in datasets)):
+            raise ValueError(f"{name} format: {fmt} requires layout.datasets: one array name, "
+                             "or three for u, v, w.")
+        normalized_layout["datasets"] = list(datasets)
+    filter_cfg = params.get("filter", {"type": "none"})
+    if not isinstance(filter_cfg, dict):
+        raise ValueError(f"{name} params.filter must be a mapping.")
+    filter_type = str(filter_cfg.get("type", "none")).lower()
+    expected = {"none": set(), "sharp": {"cutoff"}, "gaussian": {"width"}, "box": {"width"}}
+    if filter_type not in expected:
+        raise ValueError(f"{name} filter.type must be one of {sorted(expected)}.")
+    if set(filter_cfg) - {"type"} != expected[filter_type]:
+        raise ValueError(f"{name} filter.type: {filter_type} takes exactly "
+                         f"{sorted(expected[filter_type]) or 'no parameters'}.")
+    normalized_filter = {"type": filter_type}
+    for key in expected[filter_type]:
+        value = _to_finite_float(filter_cfg[key], f"initial_conditions.params.filter.{key}")
+        if value <= 0:
+            raise ValueError(f"{name} filter.{key} must be positive.")
+        normalized_filter[key] = value
+    projection = str(params.get("projection", "picurv_discrete")).lower()
+    if projection not in RESAMPLED_VELOCITY_PROJECTIONS:
+        raise ValueError(f"{name} params.projection must be picurv_discrete, continuum, or none.")
+    remove_mean = params.get("remove_mean", True)
+    if not isinstance(remove_mean, bool):
+        raise ValueError(f"{name} params.remove_mean must be boolean.")
+    normalized = {"field": "Ucont" if field_code == 1 else "Ucat", "source_file": source_file,
+                  "format": fmt, "box_length": box,
+                  "sample_offset": offset, "layout": normalized_layout, "filter": normalized_filter,
+                  "projection": projection, "remove_mean": remove_mean}
+    if cells is not None:
+        normalized["cells"] = list(cells)
+    resolved = ic_provider_params_to_solver_units(name, normalized, scales)
+    resolved["velocity_divisor"] = float(scales["velocity_ref"])
+    return {"finit": 4, "cli_params": {}, "kind": name, "label": name,
+            "field_name": field_name, "field_code": field_code,
+            "provider_context": dict(provider_context or {}), "params": resolved}
+
+
 def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, provider_context=None) -> dict:
     """!
     @brief Resolve legacy and structured initial-condition YAML into one launcher contract.
@@ -13403,6 +13565,9 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
                 "params": ic_provider_params_to_solver_units(generator, normalized, scales),
                 "provider_context": dict(provider_context or {})}
 
+    if generator == "resampled_velocity":
+        return resolve_resampled_velocity_params(params, prepared_blocks, scales, provider_context)
+
     if generator == "spectral_random_velocity":
         if prepared_blocks and len(prepared_blocks) != 1:
             raise ValueError("spectral_random_velocity requires exactly one grid block.")
@@ -13497,7 +13662,8 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
     if generator not in generator_modes:
         raise ValueError(
             "initial_conditions.generator must be one of: zero, constant, "
-            "streamwise_constant, poiseuille, ic_gen, spectral_random_velocity, channel_spectral_velocity, duct_spectral_velocity."
+            "streamwise_constant, poiseuille, ic_gen, spectral_random_velocity, resampled_velocity, "
+            "channel_spectral_velocity, duct_spectral_velocity."
         )
     finit_code, legacy_mode = generator_modes[generator]
     legacy_ic = dict(params)
@@ -13568,10 +13734,10 @@ def initial_condition_diagnostic_paths(run_dir, resolved_ic):
     @param[in] resolved_ic Normalized file-backed IC provider.
     @return Canonical diagnostic artifact paths, including each sample CSV and JSON.
     """
-    if resolved_ic["kind"] not in ("spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"):
+    if resolved_ic["kind"] not in SPECTRAL_IC_PROVIDERS:
         return []
     paths = [os.path.join(run_dir, CANONICAL_RUN_PATHS["metrics"], "initial_condition_summary.json")]
-    if resolved_ic["kind"] == "spectral_random_velocity":
+    if resolved_ic["kind"] in SHELL_SPECTRUM_IC_PROVIDERS:
         return paths + [os.path.join(run_dir, INITIAL_CONDITION_SPECTRUM_RELPATH)]
     for task in resolved_ic["params"]["initial_spectra"]:
         base = post_spectra_task_basename(task, "initial_condition")
@@ -13624,7 +13790,7 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
     @return Generated PETSc vector path.
     """
     case_dir = os.path.dirname(os.path.abspath(case_path))
-    if resolved_ic["kind"] in ("spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"):
+    if resolved_ic["kind"] in SPECTRAL_IC_PROVIDERS:
         script = os.path.join(GENERATORS_PATH, "ic.gen")
         output_path = os.path.join(run_dir, "inputs", "initial_condition", "initial_condition.generated.dat")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -13635,18 +13801,37 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
         spectrum_path = os.path.join(run_dir, INITIAL_CONDITION_SPECTRUM_RELPATH)
         os.makedirs(os.path.dirname(summary_path), exist_ok=True)
         os.makedirs(os.path.dirname(spectrum_path), exist_ok=True)
+        provider_params = resolved_ic["params"]
+        provider_context = dict(resolved_ic.get("provider_context", {}))
+        measured_field = output_path
+        if resolved_ic["kind"] == "resampled_velocity" and provider_params.get("field") == "Ucont":
+            # Staged fluxes are not a velocity; the spectrum is measured on the velocity the
+            # runtime reconstructs from them, written beside the output and removed after.
+            measured_field = os.path.join(os.path.dirname(output_path), ".runtime_ucat_for_spectrum.dat")
+            provider_context["runtime_ucat_output"] = measured_field
+        if resolved_ic["kind"] == "resampled_velocity":
+            # The source is a workspace input, resolved here so the provider is handed one
+            # absolute path; a reference-mode import resolves to its external target.
+            provider_params = dict(provider_params)
+            provider_params["source_file"] = resolve_workspace_path(case_path, provider_params["source_file"])
+            if not os.path.isfile(provider_params["source_file"]):
+                raise ValueError(f"resampled_velocity source file not found: {provider_params['source_file']}")
         cmd = [sys.executable, script, "--generator", resolved_ic["kind"],
                "--grid", staged_grid, "--output", output_path,
-               "--params-json", json.dumps(resolved_ic["params"], sort_keys=True),
-               "--context-json", json.dumps(resolved_ic.get("provider_context", {}), sort_keys=True),
+               "--params-json", json.dumps(provider_params, sort_keys=True),
+               "--context-json", json.dumps(provider_context, sort_keys=True),
                "--summary-json", summary_path]
         result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
         if result.returncode != 0:
             details = (result.stderr or result.stdout or "").strip()
             raise ValueError(f"{resolved_ic['kind']} failed with exit code {result.returncode}. Details:\n{details}")
         validate_petsc_vec_binary(output_path)
-        if resolved_ic["kind"] == "spectral_random_velocity":
-            run_initial_spectrum_generator(output_path, staged_grid, spectrum_path, case_dir)
+        if resolved_ic["kind"] in SHELL_SPECTRUM_IC_PROVIDERS:
+            try:
+                run_initial_spectrum_generator(measured_field, staged_grid, spectrum_path, case_dir)
+            finally:
+                if measured_field != output_path and os.path.exists(measured_field):
+                    os.remove(measured_field)
         else:
             paths = initial_condition_diagnostic_paths(run_dir, resolved_ic)
             for task, path in zip(resolved_ic["params"]["initial_spectra"], paths[1::2]):
@@ -13679,6 +13864,34 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
     validate_petsc_vec_binary(output_path)
     return output_path
 
+def _check_file_ic_matches_grid(payload: dict, staged_grid: str, resolved_ic: dict) -> None:
+    """!
+    @brief Refuse a `mode: file` payload sized for another grid, and say what imports one.
+    @details `mode: file` reads its vector verbatim, so it must already be laid out for this
+             grid: one value per component per cell including one dummy layer. The runtime
+             would refuse a mismatch at startup; staging refuses it first and names
+             `resampled_velocity`, which brings a field from another grid onto this one.
+             Programmatic grids are not staged here, so they keep the runtime check.
+    @param[in] payload Header summary from `validate_petsc_vec_binary()`.
+    @param[in] staged_grid Staged PICGRID path, if the grid is file-backed.
+    @param[in] resolved_ic Normalized file-backed IC contract.
+    """
+    if not os.path.isfile(staged_grid):
+        return
+    dims = read_picgrid_header_dimensions(staged_grid)
+    if len(dims) != 1:
+        return
+    im, jm, km = dims[0]
+    expected = (im + 1) * (jm + 1) * (km + 1) * 3
+    if payload["scalar_count"] != expected:
+        raise ValueError(
+            f"Initial-condition file {payload['path']} holds {payload['scalar_count']} values; this grid "
+            f"({im - 1}x{jm - 1}x{km - 1} cells) needs {expected} for {resolved_ic.get('field_name', 'the field')}. "
+            "mode: file reads a field already laid out for this grid. To bring in a field from another "
+            "grid or format, use generator: resampled_velocity."
+        )
+
+
 def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict) -> dict:
     """!
     @brief Materialize and stage one file-backed IC in ReadFieldData's expected layout.
@@ -13698,7 +13911,7 @@ def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict
             "directory": os.path.abspath(stage_dir),
             "reused": True,
         }
-        if resolved_ic["kind"] in ("spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"):
+        if resolved_ic["kind"] in SPECTRAL_IC_PROVIDERS:
             summary["diagnostics"] = initial_condition_diagnostic_paths(run_dir, resolved_ic)
         return summary
     divisor = 1.0
@@ -13710,7 +13923,8 @@ def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict
         source_path = _resolve_case_relative_path(resolved_ic["source_file"], case_dir)
         if not os.path.isfile(source_path):
             raise ValueError(f"Initial-condition source file not found: {source_path}")
-        validate_petsc_vec_binary(source_path)
+        payload = validate_petsc_vec_binary(source_path)
+        _check_file_ic_matches_grid(payload, os.path.join(run_dir, "inputs", "grid", "grid.run"), resolved_ic)
         divisor = ic_payload_divisor(resolved_ic, case_dir)
     if divisor != 1.0:
         write_scaled_petsc_vec_binary(source_path, staged_path, divisor)
@@ -13718,7 +13932,7 @@ def stage_initial_condition_file(run_dir: str, case_path: str, resolved_ic: dict
         shutil.copy2(source_path, staged_path)
     summary = {"source": os.path.abspath(source_path), "staged": os.path.abspath(staged_path),
                "directory": os.path.abspath(stage_dir), "payload_divisor": divisor}
-    if resolved_ic["kind"] in ("spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"):
+    if resolved_ic["kind"] in SPECTRAL_IC_PROVIDERS:
         summary["diagnostics"] = initial_condition_diagnostic_paths(run_dir, resolved_ic)
     return summary
 
@@ -18763,14 +18977,19 @@ def run_workflow(args):
             discard_unused_run_directory(run_dir, created=not continue_mode)
             print(f"[FATAL] {exc}", file=sys.stderr)
             sys.exit(1)
-        asset_lock = materialize_run_assets(
-            run_dir,
-            configs["case"],
-            configs["case_path"],
-            require_precomputed=bool(getattr(args, "require_precomputed", False)),
-            fetch_missing=bool(getattr(args, "fetch_missing", False)),
-            skip_kinds=unused_asset_kinds(configs["case"], configs["solver"]),
-        )
+        try:
+            asset_lock = materialize_run_assets(
+                run_dir,
+                configs["case"],
+                configs["case_path"],
+                require_precomputed=bool(getattr(args, "require_precomputed", False)),
+                fetch_missing=bool(getattr(args, "fetch_missing", False)),
+                skip_kinds=unused_asset_kinds(configs["case"], configs["solver"]),
+            )
+        except ValueError as exc:
+            discard_unused_run_directory(run_dir, created=not continue_mode)
+            print(f"[FATAL] {exc}", file=sys.stderr)
+            sys.exit(1)
         # Publish identity and lineage before either executable starts.  Besides making
         # a staged run self-describing, this lets a dependent post job resolve branch
         # ownership even though the interactive conductor has already exited.
@@ -19466,9 +19685,13 @@ def sweep_workflow(args):
         validate_simulation_configs(case_cfg, solver_cfg, monitor_cfg, case_path, solver_path, monitor_path)
         validate_post_config(post_cfg, post_path, monitor_cfg, case_cfg)
 
-        asset_lock = materialize_run_assets(
-            run_dir, case_cfg, case_path, skip_kinds=unused_asset_kinds(case_cfg, solver_cfg)
-        )
+        try:
+            asset_lock = materialize_run_assets(
+                run_dir, case_cfg, case_path, skip_kinds=unused_asset_kinds(case_cfg, solver_cfg)
+            )
+        except ValueError as exc:
+            print(f"[FATAL] Study case {case_id}: {exc}", file=sys.stderr)
+            sys.exit(1)
 
         source_files = {'Case': case_path, 'Solver': solver_path, 'Monitor': monitor_path}
         monitor_files = prepare_monitor_files(run_dir, case_id, monitor_cfg, source_files)

@@ -25,68 +25,10 @@ import os
 import struct
 import sys
 
-
-def _drop_imported_package(package_name: str):
-    """!
-    @brief Remove a failed/partial import package tree from sys.modules.
-    @param[in] package_name Top-level package name.
-    """
-    prefix = package_name + "."
-    for module_name in list(sys.modules):
-        if module_name == package_name or module_name.startswith(prefix):
-            sys.modules.pop(module_name, None)
-
-
-def _prune_incompatible_python_site_paths(paths):
-    """!
-    @brief Remove site-package paths for a different Python major/minor version.
-    @param[in] paths Candidate sys.path entries.
-    @return Filtered path list.
-    """
-    current = (sys.version_info[0], sys.version_info[1])
-    filtered = []
-    for path in paths:
-        text = str(path)
-        marker = "python"
-        idx = text.lower().find(marker)
-        if idx >= 0 and ("site-packages" in text or "dist-packages" in text):
-            version_text = text[idx + len(marker):idx + len(marker) + 4].strip("-/")
-            parts = version_text.split(".")
-            try:
-                path_version = (int(parts[0]), int(parts[1]))
-            except (IndexError, ValueError):
-                filtered.append(path)
-                continue
-            if path_version != current:
-                continue
-        filtered.append(path)
-    return filtered
-
-
-def require_numpy():
-    """!
-    @brief Import NumPy with the same compatibility retry used by the conductor.
-    @return Imported NumPy module.
-    """
-    try:
-        import numpy
-        return numpy
-    except Exception as exc:
-        first_error = exc
-        original_path = list(sys.path)
-        try:
-            _drop_imported_package("numpy")
-            sys.path = _prune_incompatible_python_site_paths(original_path)
-            import numpy
-            return numpy
-        except Exception as retry_exc:
-            raise RuntimeError(
-                "NumPy is required for spectra generation, but no compatible "
-                "NumPy could be imported. "
-                f"First error: {first_error}. Retry error: {retry_exc}"
-            ) from retry_exc
-        finally:
-            sys.path = original_path
+_GENERATORS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _GENERATORS_DIR not in sys.path:
+    sys.path.insert(0, _GENERATORS_DIR)
+from periodic_spectral import require_numpy, spectral_symbols, validate_spectral_grid  # noqa: E402
 
 
 def read_picgrid_blocks(path: str) -> list:
@@ -223,48 +165,6 @@ def extract_interior_cells_scalar(values, node_dims):
             f"dimensions {(im, jm, km)}, found {values.size}."
         )
     return values.reshape((km + 1, jm + 1, im + 1))[1:km, 1:jm, 1:im]
-
-
-def validate_spectral_grid(nodes, transform_axes=(0, 1, 2)):
-    """!
-    @brief Validate the uniform Cartesian grid an FFT-based spectrum requires.
-    @param[in] nodes PICGRID node-coordinate array shaped `(KM, JM, IM, 3)`.
-    @param[in] transform_axes Cartesian axes that require uniform spacing.
-    @return Cell counts in storage order and physical lengths in Cartesian order.
-    """
-    numpy = require_numpy()
-    km, jm, im, _ = nodes.shape
-    cells = (km - 1, jm - 1, im - 1)
-    if min(cells) < 4:
-        raise ValueError(f"spectra require at least four cells per axis; found {cells}.")
-    axes = (nodes[0, 0, :, 0], nodes[0, :, 0, 1], nodes[:, 0, 0, 2])
-    for axis, (physical_axis, values) in enumerate(zip("xyz", axes)):
-        delta = numpy.diff(values)
-        if not numpy.all(numpy.isfinite(delta)) or not numpy.all(delta > 0) or (axis in transform_axes and not numpy.allclose(delta, delta[0], rtol=1e-10, atol=1e-12)):
-            raise ValueError(f"spectra require uniform positive {physical_axis} spacing on every transformed axis.")
-    if not (numpy.allclose(nodes[..., 0], axes[0][None, None, :]) and
-            numpy.allclose(nodes[..., 1], axes[1][None, :, None]) and
-            numpy.allclose(nodes[..., 2], axes[2][:, None, None])):
-        raise ValueError("spectra require an axis-aligned Cartesian grid (x->i, y->j, z->k).")
-    return cells, tuple(float(values[-1] - values[0]) for values in axes)
-
-
-def spectral_symbols(cells_kji, lengths_xyz):
-    """!
-    @brief Build continuum and centered-discrete Fourier symbols.
-    @param[in] cells_kji Cell counts in storage order.
-    @param[in] lengths_xyz Physical box lengths in Cartesian order.
-    @return Continuum symbols, centered-discrete symbols, and Cartesian spacings.
-    """
-    numpy = require_numpy()
-    nk, nj, ni = cells_kji
-    lx, ly, lz = lengths_xyz
-    dx, dy, dz = lx / ni, ly / nj, lz / nk
-    kz = 2*numpy.pi*numpy.fft.fftfreq(nk, d=dz)[:, None, None]
-    ky = 2*numpy.pi*numpy.fft.fftfreq(nj, d=dy)[None, :, None]
-    kx = 2*numpy.pi*numpy.fft.fftfreq(ni, d=dx)[None, None, :]
-    discrete = (numpy.sin(kx*dx)/dx, numpy.sin(ky*dy)/dy, numpy.sin(kz*dz)/dz)
-    return (kx, ky, kz), discrete, (dx, dy, dz)
 
 
 #: Physical dimensions of every quantity `shell_spectrum` reports, as the exponents of

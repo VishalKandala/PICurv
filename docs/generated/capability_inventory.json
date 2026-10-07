@@ -1067,6 +1067,10 @@
         "maps_to": "ic_gen",
         "status": "supported"
       },
+      "resampled_velocity": {
+        "maps_to": "resampled_velocity",
+        "status": "supported"
+      },
       "spectral_random_velocity": {
         "maps_to": "spectral_random_velocity",
         "status": "supported"

@@ -16,7 +16,12 @@ configuration.
 - `ic.gen`: expression-driven and configurable spectral-random PETSc
   initial-condition vector generation. Select the latter with
   `generator: spectral_random_velocity`. Channel and duct providers use discrete-curl
-  wall-compatible perturbations in the same script.
+  wall-compatible perturbations in the same script. `generator: resampled_velocity`
+  imports an external periodic field onto the grid.
+- `periodic_spectral.py`: not a command - the Fourier machinery for uniform periodic
+  axes that `ic.gen` and `spectra.gen` share (grid validation, continuum and
+  PICurv-discrete symbols, resampling and filtering). Both scripts import it from
+  beside themselves.
 - `plot.gen`: normalized scalar-history, iterative-convergence, and spectrum
   report rendering.
 

@@ -2205,6 +2205,19 @@
               "measurement:wall-spectral-ic-2026-09-24"
             ]
           }
+        },
+        "resampled_velocity": {
+          "status": "supported",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "file:tests/test_resampled_velocity.py",
+              "make:test-python"
+            ],
+            "analytical": [
+              "measurement:resampled-velocity-hom02-2026-10-03"
+            ]
+          }
         }
       }
     }

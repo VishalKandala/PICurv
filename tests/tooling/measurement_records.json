@@ -581,6 +581,21 @@
       },
       "limitations": "Two defects found here were fixed locally and promoted on the owner's decision without a further cluster run: sweep --continue resolved a staged study's base configs against the workspace instead of the study, so continuation failed for every study inside a workspace; and submit --stage post-process added afterok on a solve job Slurm had already forgotten (submitted 5 minutes after completion), which this site's sbatch rejected while exiting 0. Both are covered by tests in tests/test_cli_smoke.py. The relocated workspace restore was not re-checked: protect failed with 'rclone hashsum ... directory not found' 3 s after storage setup recreated the deleted remote folder, a transient not reproduced. The timestep study fixed the step count, so its two members end at different physical times: the table verifies aggregation, not timestep convergence. One node, short jobs; walltime-guard firing on the cluster and multi-node arrays were not exercised here.",
       "artifacts": []
+    },
+    {
+      "id": "resampled-velocity-hom02-2026-10-03",
+      "question": "Does resampled_velocity bring an external periodic velocity field onto a PICurv grid exactly for every mode both grids resolve, stage it divergence-free under PICurv's discrete operator, and hand the solver the energy its reconstruction predicts?",
+      "date": "2026-10-03",
+      "commit": "13aee5d plus the uncommitted resampled-velocity branch working tree (generators/periodic_spectral.py, generators/ic.gen, picurv_cli/core.py)",
+      "environment": "Local WSL2 workstation, 12 cores; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; generator serial, solver on 4 ranks",
+      "configuration": "Analytic: a band-limited continuum-solenoidal field sampled on the nodes of a 32-cubed box of periods (2 pi, 4, 3), resampled to cell centres of 16-cubed and 48x40x24 grids and to the face centres of 16x12x20; raw (big-endian, 100-byte header, z fastest, separate components), npy and npz containers. HOM02: AGARD-AR-345 case HOM02, A. A. Wray's 512-cubed decaying isotropic turbulence DNS, file CB128_9.bin (a 128-cubed sharp truncation at Re_lambda 104.5, 2 pi box, big-endian float32, 1536-byte header, x fastest, interleaved) imported onto a 64-cubed grid with nu = 3.5014006e-4, projection picurv_discrete, as Ucat and as Ucont; 3- and 5-step solves with the examples/decaying_isotropic_turbulence solver settings.",
+      "result": {
+        "measured": "Analytic: maximum error 4.7e-15 coarsening to 16-cubed and 1.3e-14 refining to 48x40x24, including the half-spacing node-to-centre shift; Ucont fluxes equal velocity at each face centre times its area to 3e-16; every container and layout gives the same field. Projection: centred-symbol divergence 0.051 -> 1.3e-16 (Ucat), cell net flux 8.7e-17 (Ucont). HOM02 at 64-cubed: without projection every shell k <= 31 equals the source's to 6.7e-16. Ucat with the centred projection removes 2.6% of the energy, concentrated near the cutoff (-0.4% at k = 16, -4% at k = 24, -21% at k = 32); the solver's step-1 kinetic energy 0.5566 against the predicted reconstruction 0.5569, divergence 3.1e-12. Ucont with the face-difference projection removes 0.075%; the solver's step-1 kinetic energy 0.6244 against the staged prediction 0.6249, divergence 3.5e-12; of the 0.718 the 64-cubed band holds, Ucont keeps 87% through the runtime's reconstruction and Ucat 78%.",
+        "threshold": "Round-off agreement wherever the result is exact (resolved modes, layouts, discrete divergence); solver step-1 energy within one step's decay of the provider's prediction.",
+        "verdict": "met"
+      },
+      "limitations": "Triply periodic uniform boxes only; wall-bounded sources are refused. No HDF5 file was read (h5py is not installed here); only the refusal message is tested. The field PICurv holds is the second-order reconstruction of what was staged, so shells above about half the grid cutoff differ from the source by representation, not by import error. An LES started from this field has not yet been compared with the HOM02 DNS; that is the campaign this provider was built for.",
+      "artifacts": []
     }
   ]
 }

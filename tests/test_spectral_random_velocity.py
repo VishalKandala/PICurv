@@ -23,6 +23,7 @@ def load(path, name):
 
 IC = load(ROOT / "generators" / "ic.gen", "picurv_spectral_random_velocity_tests")
 SPECTRA = load(ROOT / "generators" / "spectra.gen", "picurv_spectra_for_ic_tests")
+PS = load(ROOT / "generators" / "periodic_spectral.py", "picurv_periodic_spectral_for_ic_tests")
 CORE = load(ROOT / "picurv_cli" / "core.py", "picurv_core_spectral_random_velocity_tests")
 
 
@@ -169,7 +170,7 @@ def test_seeded_solenoidal_field_has_balanced_component_energy_and_cutoff():
     component_rms = np.sqrt(np.mean(physical**2, axis=(0, 1, 2)))
     assert np.max(component_rms)/np.min(component_rms) < 1.08
     coeff = np.fft.fftn(physical, axes=(0, 1, 2))
-    continuum, _, _ = IC.spectral_symbols(physical.shape[:3], (2*np.pi, 2*np.pi, 2*np.pi))
+    continuum, _, _ = PS.spectral_symbols(physical.shape[:3], (2*np.pi, 2*np.pi, 2*np.pi))
     kmag = np.sqrt(sum(symbol*symbol for symbol in continuum))
     assert np.max(np.abs(coeff[kmag > 8.0 + 1e-12])) < 2e-12
 

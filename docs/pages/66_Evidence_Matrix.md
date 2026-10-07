@@ -7,7 +7,7 @@
 What confidence this project claims for each capability in the families covered so far.
 
 The table is generated from the capability registry and now covers every public
-capability family the census recognises - 39 families, 129 canonical values.
+capability family the census recognises - 39 families, 130 canonical values.
 
 @warning **Coverage is not credibility.** A complete table means every capability has
 been *asked* what evidence stands behind it, not that the answers are strong. Many
@@ -78,8 +78,8 @@ Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
 - **Analytical facets rest on single recorded measurements, and none is `reference`.**
-  105 values cite `measurement:` records - 29 distinct ones, taken between 2026-09-18 and
-  2026-10-01 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
+  106 values cite `measurement:` records - 30 distinct ones, taken between 2026-09-18 and
+  2026-10-03 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
   pipe Poiseuille flow, the Poisson options, every initial-condition mode, every
   particle seeding and restart mode, both interpolation methods, the post-processing
   kernels, field statistics, shell, plane and line spectra, metric closure on every
@@ -87,7 +87,7 @@ likely to matter:
   initial-condition providers, plus Newton--Krylov production execution on a
   144-rank turbulent channel and the storage compression levels, offload policies, and retention
   components against a Google Drive remote, and the three study types run as
-  Slurm arrays.
+  Slurm arrays, and the import of an external periodic velocity field.
   Each record states what it does not establish, and none is gated in CI. Nine records
   are cited by no value: three `not-met` ones (the Q-criterion output placement and the
   generated inlet flux on `programmatic_c` grids, both since fixed and re-measured, and

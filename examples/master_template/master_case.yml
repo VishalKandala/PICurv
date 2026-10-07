@@ -78,7 +78,7 @@ properties:
   initial_conditions:
     # Built into the solver:  zero | constant | streamwise_constant | poiseuille
     # Python providers run by picurv before the solve (single block, staged grid):
-    #   ic_gen | spectral_random_velocity | channel_spectral_velocity | duct_spectral_velocity
+    #   ic_gen | spectral_random_velocity | resampled_velocity | channel_spectral_velocity | duct_spectral_velocity
     # Python providers need a grid picurv can read before launch: `file` or
     # `grid_gen`, or `programmatic_c` for ic_gen only. Their payload is always
     # written to <run.inputs>/initial_condition/; destination keys (output_file,
@@ -151,6 +151,30 @@ properties:
     #     k_cut: 20.0               # [1/m] Must not exceed the two-thirds resolution limit
     #   projection: { type: solenoidal, operator: picurv_discrete }  # or { type: none }
     #   normalization: { type: component_rms, target: 1.0 }          # [m/s]; or { type: none }
+    #   remove_mean: true
+
+    # --- Import an external periodic velocity field (resampled_velocity). ---
+    # Brings a field from another code or resolution onto this grid: Fourier resampling,
+    # optional filter, projection to PICurv's discrete divergence-free space. Periodic
+    # boxes only; box_length must equal the grid's periods. Import the file first:
+    #   picurv inputs import reference-field <file> --mode copy
+    # mode: generated
+    # generator: resampled_velocity
+    # params:
+    #   source_file: inputs/reference_fields/field.bin
+    #   format: raw                  # raw | npy | npz | hdf5 (hdf5 needs h5py)
+    #   cells: [128, 128, 128]       # source samples along x, y, z; required for raw
+    #   box_length: [6.283185307179586, 6.283185307179586, 6.283185307179586]  # [m]
+    #   sample_offset: 0.0           # 0: samples on nodes from the origin; 0.5: cell centres
+    #   layout:
+    #     fastest_axis: x            # x | z
+    #     components: interleaved    # interleaved (u,v,w per point) | separate
+    #     dtype: float32             # raw only: float32 | float64
+    #     byte_order: big           # raw only: little | big | native
+    #     header_bytes: 1536         # raw only
+    #   filter: {type: none}         # none | sharp {cutoff} | gaussian {width} | box {width}
+    #   projection: picurv_discrete  # picurv_discrete | continuum | none
+    #   field: Ucont                 # Ucont (default, staged fluxes) | Ucat
     #   remove_mean: true
 
     # --- Wall-bounded spectral seed: channel (one wall pair) or duct (two). ---

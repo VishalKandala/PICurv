@@ -100,6 +100,19 @@ written in, and staging rescales it to this case's:
 `velocity_scale` needs `length_scale` too for a `Ucont` payload, and `source_case` and the
 explicit scales are mutually exclusive.
 
+@subsection p33_file_or_import_ssec File, Or Import?
+
+Every Python provider ends in a `.dat` vector; what differs is who guarantees it fits the case.
+
+| | `mode: file` | `generator: resampled_velocity` |
+|---|---|---|
+| You supply | a vector already in PICurv's layout for this grid | a field from anywhere: another code, resolution, or layout |
+| PICurv does | reads it verbatim | resamples and filters it onto this grid, projects it, writes the vector |
+| Typical source | a field PICurv itself produced | a published DNS, an experiment, another code's snapshot |
+
+A `mode: file` vector sized for another grid is refused when it is staged, with a pointer to
+@ref p33_cap_gen_resampled_velocity.
+
 Repository generator:
 
 ```yaml
@@ -514,6 +527,65 @@ identical fields.
 `operator: picurv_discrete` when the solver's own divergence must vanish - and runtime
 reconstruction changes the energy from the staged value, which the summary predicts
 separately. A startup field, not developed turbulence.
+
+@subsection p33_cap_gen_resampled_velocity_sub resampled_velocity
+
+@anchor p33_cap_gen_resampled_velocity
+
+**Identity.** `properties.initial_conditions.generator: resampled_velocity` dispatches through
+`GENERATED_IC_PROVIDERS` into `generate_resampled_velocity()` in `generators/ic.gen`, then the
+file IC runtime path; the Fourier resampling is `fourier_resample` in
+`generators/periodic_spectral.py`.
+
+**What it does.** Brings an external triply periodic velocity field onto this case's grid. It
+reads the source, re-evaluates it at the target points from its Fourier series - truncating
+when the grid is coarser, zero-padding when it is finer - optionally filters it, projects it to
+be divergence-free under PICurv's discrete operator, and writes solver units. With `field: Ucont`
+(the default) it samples face centres and stages volume fluxes, the representation PICurv evolves;
+with `field: Ucat` it stages cell-centre velocities like the synthetic providers.
+
+**When to choose it.** When the starting field exists already: a published DNS or experiment
+field, a snapshot from another code, or a field at another resolution. `spectral_random_velocity`
+synthesizes a field from a spectrum instead, and suits decay-law and parametric studies where the
+initial spectrum is the variable. `mode: file` reads a vector already laid out for this grid,
+verbatim; see @ref p33_file_or_import_ssec.
+
+**Parameters it owns.** Required: `source_file` (a workspace input, normally a `reference-field`
+import), `format` (`raw`, `npy`, `npz`, or `hdf5`), and `box_length`, the source's three periods
+in physical length, which must equal the grid's. `cells` (samples along x, y, z) is required for
+`raw` and checked otherwise. `layout`: `fastest_axis` (`x`, default, or `z`) and `components`
+(`interleaved`, default, or `separate`); for `raw` also `dtype` (`float32` or `float64`),
+`byte_order` (`little`, `big`, `native`) and `header_bytes`; for `npz` and `hdf5`, `datasets` (one
+array name, or three for u, v, w). Optional: `sample_offset` (fraction of the source spacing at
+which samples sit, 0 for nodes on the box origin and 0.5 for cell centres; default 0), `filter`
+(`none`; `sharp` with `cutoff`, a wavenumber; `gaussian` or `box` with `width`, a length),
+`projection` (`picurv_discrete`, default; `continuum`; `none`), `remove_mean` (default true), and
+`field`. The source values are physical velocities, divided by `velocity_ref`.
+
+**Interactions.** Requires six geometric-periodic faces, one block, and a uniform Cartesian grid;
+wall-bounded sources are refused. Restart remains authoritative. The source file's checksum is part
+of the asset identity, so changing its bytes builds a new object. `hdf5` needs `h5py`, which PICurv
+does not install; without it the provider says how to add it.
+
+**Diagnostics.** The IC summary reports the source, resampled, and projected kinetic energies, the
+fraction the projection removed, the divergence before and after, and the energy, dissipation and
+`re_lambda` of the field the runtime will hold; for `Ucont` that is the velocity reconstructed from
+the staged fluxes (`measurement_state`). The shell spectrum is measured on that same field. A layout
+that does not fit the file is refused with the byte or shape count it expected; a `box_length`
+that differs from the grid is refused.
+
+**Evidence.** Unit verified - `tests/test_resampled_velocity.py` (`make test-python`).
+Analytically verified - `resampled-velocity-hom02-2026-10-03`: a band-limited field coarsened and
+refined to round-off (1e-14) at the target cell and face centres, every container and layout
+reading the same field, and the HOM02 DNS field (AGARD-AR-345) imported at 64-cubed with every shell
+below the cutoff equal to the source's to 7e-16 before projection; the solver's step-1 energy
+matched the provider's prediction within one step's decay, at divergence 3.5e-12.
+
+**Limitations.** Periodic boxes only. The projection changes the field near the grid cutoff: with
+`Ucat` it removed 2.6% of HOM02's energy at 64-cubed (21% of the k = 32 shell), with `Ucont` 0.075%.
+The runtime then holds a second-order reconstruction of what was staged - 87% of the band's energy
+for `Ucont` and 78% for `Ucat` on that field - so compare spectra only well below the cutoff.
+`projection: continuum` keeps the source's modes but leaves the staged field discretely divergent.
 
 @subsection p33_cap_gen_channel_spectral_velocity_sub channel_spectral_velocity
 

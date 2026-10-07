@@ -779,43 +779,19 @@ def validate_spectral_random_velocity_params(raw):
             "normalization": normalized_normalization, "remove_mean": remove_mean}
 
 
-def validate_spectral_grid(nodes, periodic_axes=(0, 1, 2)):
+def _periodic_spectral():
     """!
-    @brief Validate the uniform Cartesian grid required by FFT generation.
-    @param[in] nodes PICGRID node-coordinate array.
-    @param[in] periodic_axes Cartesian axes that must be uniformly spaced.
-    @return Cell counts in storage order and physical lengths in Cartesian order.
+    @brief Load the shared periodic-axis Fourier module beside the repository generators.
+    @details Imported when a spectral provider runs rather than when this file loads, so a
+             copy of this script used as a custom `ic_gen` expression generator elsewhere
+             keeps working without the module.
+    @return The `periodic_spectral` module.
     """
-    km, jm, im, _ = nodes.shape
-    cells = (km - 1, jm - 1, im - 1)
-    if min(cells) < 4:
-        raise ValueError(f"spectral_random_velocity requires at least four cells per axis; found {cells}.")
-    axes = (nodes[0, 0, :, 0], nodes[0, :, 0, 1], nodes[:, 0, 0, 2])
-    for axis, (physical_axis, values) in enumerate(zip("xyz", axes)):
-        delta = np.diff(values)
-        if not np.all(np.isfinite(delta)) or not np.all(delta > 0) or (axis in periodic_axes and not np.allclose(delta, delta[0], rtol=1e-10, atol=1e-12)):
-            raise ValueError(f"spectral_random_velocity requires uniform positive {physical_axis} spacing.")
-    if not (np.allclose(nodes[..., 0], axes[0][None, None, :]) and
-            np.allclose(nodes[..., 1], axes[1][None, :, None]) and
-            np.allclose(nodes[..., 2], axes[2][:, None, None])):
-        raise ValueError("spectral_random_velocity requires an axis-aligned Cartesian grid (x->i, y->j, z->k).")
-    return cells, tuple(float(values[-1] - values[0]) for values in axes)
-
-
-def spectral_symbols(cells_kji, lengths_xyz):
-    """!
-    @brief Build continuum and centered-discrete Fourier symbols.
-    @param[in] cells_kji Cell counts in storage order.
-    @param[in] lengths_xyz Physical box lengths in Cartesian order.
-    @return Continuum symbols, centered-discrete symbols, and Cartesian spacings.
-    """
-    nk, nj, ni = cells_kji
-    lx, ly, lz = lengths_xyz
-    dx, dy, dz = lx / ni, ly / nj, lz / nk
-    kz = 2*np.pi*np.fft.fftfreq(nk, d=dz)[:, None, None]
-    ky = 2*np.pi*np.fft.fftfreq(nj, d=dy)[None, :, None]
-    kx = 2*np.pi*np.fft.fftfreq(ni, d=dx)[None, None, :]
-    return (kx, ky, kz), (np.sin(kx*dx)/dx, np.sin(ky*dy)/dy, np.sin(kz*dz)/dz), (dx, dy, dz)
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import periodic_spectral
+    return periodic_spectral
 
 
 def project_coefficients(coeff, symbols):
@@ -856,17 +832,19 @@ def spectral_envelope(kmag, spectrum, fundamental):
     return np.where(active, shell_amplitude[shell], 0.0)
 
 
-def compute_spectral_random_velocity_diagnostics(field, params, lengths_xyz, kinematic_viscosity):
+def compute_periodic_velocity_diagnostics(field, lengths_xyz, kinematic_viscosity):
     """!
-    @brief Compute operator-aware, case-independent velocity diagnostics.
-    @param[in] field Physical-cell velocity field.
-    @param[in] params Normalized generator parameters.
+    @brief Compute operator-aware, case-independent diagnostics of a triply periodic velocity.
+    @details Shared by every provider that stages a periodic-box field, so their summaries
+             report divergence, energy, and Reynolds number the same way.
+    @param[in] field Physical-cell velocity field `[k, j, i, component]`.
     @param[in] lengths_xyz Physical box lengths in Cartesian order.
     @param[in] kinematic_viscosity Nondimensional kinematic viscosity.
-    @return Diagnostic summary mapping.
+    @return Diagnostic mapping; also the coefficients and wavenumber magnitude, under
+            private keys, for callers that add provider-specific audits.
     """
     cells = field.shape[:3]
-    continuum, discrete, spacing = spectral_symbols(cells, lengths_xyz)
+    continuum, discrete, spacing = _periodic_spectral().spectral_symbols(cells, lengths_xyz)
     coeff = np.fft.fftn(field, axes=(0, 1, 2))
     divergence = {}
     for label, symbols in (("continuum", continuum), ("picurv_discrete", discrete)):
@@ -899,17 +877,11 @@ def compute_spectral_random_velocity_diagnostics(field, params, lengths_xyz, kin
     re_lambda = fluctuation_rms*taylor/kinematic_viscosity if kinematic_viscosity > 0 else math.inf
     # Shell binning is not performed here. `spectra.gen` owns the spectrum, and the
     # conductor runs it against the staged field, so a measured spectrum has exactly
-    # one implementation. What remains below are generation audits, which need the
-    # requested parameters and therefore belong with the generator.
+    # one implementation.
     kmag = np.sqrt(sum(symbol*symbol for symbol in continuum))
     energy = 0.5*np.sum(np.abs(coeff/np.prod(cells))**2, axis=-1)
     zero_mode_energy = float(energy[(0, 0, 0)])
-    cutoff = params["spectrum"].get("k_cut")
-    energy_above_cutoff = float(np.sum(energy[kmag > cutoff])) if cutoff is not None else 0.0
-    result = {"generator": "spectral_random_velocity", "field": "Ucat", "seed": params["seed"],
-              "random": params["random"], "spectrum": params["spectrum"], "projection": params["projection"],
-              "normalization": params["normalization"], "remove_mean": params["remove_mean"],
-              "component_means": [float(x) for x in means],
+    result = {"component_means": [float(x) for x in means],
               "component_rms": [float(x) for x in np.sqrt(np.mean(field*field, axis=(0,1,2)))],
               "fluctuation_component_rms": fluctuation_rms,
               "resolved_kinetic_energy": 0.5*float(np.mean(np.sum(field*field, axis=-1))),
@@ -921,10 +893,43 @@ def compute_spectral_random_velocity_diagnostics(field, params, lengths_xyz, kin
               ),
               "kinematic_viscosity": kinematic_viscosity, "dissipation": epsilon,
               "taylor_microscale": taylor, "re_lambda": re_lambda,
-              "zero_mode_energy": zero_mode_energy, "energy_above_cutoff": energy_above_cutoff}
+              "zero_mode_energy": zero_mode_energy}
+    result.update(divergence)
+    result["_mode_energy"] = energy
+    result["_kmag"] = kmag
+    return result
+
+
+def _public_diagnostics(result):
+    """!
+    @brief Drop the private arrays `compute_periodic_velocity_diagnostics()` hands back.
+    @param[in] result Diagnostic mapping.
+    @return The JSON-serializable part.
+    """
+    return {key: value for key, value in result.items() if not key.startswith("_")}
+
+
+def compute_spectral_random_velocity_diagnostics(field, params, lengths_xyz, kinematic_viscosity):
+    """!
+    @brief Compute the random provider's diagnostics: the shared ones plus generation audits.
+    @param[in] field Physical-cell velocity field.
+    @param[in] params Normalized generator parameters.
+    @param[in] lengths_xyz Physical box lengths in Cartesian order.
+    @param[in] kinematic_viscosity Nondimensional kinematic viscosity.
+    @return Diagnostic summary mapping.
+    """
+    shared = compute_periodic_velocity_diagnostics(field, lengths_xyz, kinematic_viscosity)
+    # Generation audits need the requested parameters, so they belong with the generator.
+    cutoff = params["spectrum"].get("k_cut")
+    energy_above_cutoff = (float(np.sum(shared["_mode_energy"][shared["_kmag"] > cutoff]))
+                           if cutoff is not None else 0.0)
+    result = {"generator": "spectral_random_velocity", "field": "Ucat", "seed": params["seed"],
+              "random": params["random"], "spectrum": params["spectrum"], "projection": params["projection"],
+              "normalization": params["normalization"], "remove_mean": params["remove_mean"],
+              "energy_above_cutoff": energy_above_cutoff}
+    result.update(_public_diagnostics(shared))
     if params["normalization"]["type"] == "component_rms":
         result["target_u_rms"] = params["normalization"]["target"]
-    result.update(divergence)
     return result
 
 
@@ -937,8 +942,9 @@ def generate_spectral_random_velocity(nodes, raw_params, context=None):
     @return Full periodic-dummy field and diagnostic summary.
     """
     params = validate_spectral_random_velocity_params(raw_params)
-    cells, lengths_xyz = validate_spectral_grid(nodes)
-    continuum, discrete, spacing = spectral_symbols(cells, lengths_xyz)
+    spectral = _periodic_spectral()
+    cells, lengths_xyz = spectral.validate_spectral_grid(nodes, subject="spectral_random_velocity requires")
+    continuum, discrete, spacing = spectral.spectral_symbols(cells, lengths_xyz)
     kmag = np.sqrt(sum(symbol*symbol for symbol in continuum))
     cutoff = params["spectrum"].get("k_cut")
     limit = (2.0/3.0)*min(math.pi/value for value in spacing)
@@ -974,6 +980,243 @@ def generate_spectral_random_velocity(nodes, raw_params, context=None):
     kinematic_viscosity = _finite_number((context or {}).get("kinematic_viscosity", 0.0),
                                           "context.kinematic_viscosity", nonnegative=True)
     summary = compute_spectral_random_velocity_diagnostics(physical, params, lengths_xyz, kinematic_viscosity)
+    summary.update({"grid_cells_storage_kji": list(cells), "box_lengths_xyz": list(lengths_xyz),
+                    "vector_shape": list(full.shape), "scalar_count": int(full.size),
+                    "petsc_shape": list(full.shape), "petsc_scalar_count": int(full.size)})
+    return full, summary
+
+
+#: File containers `resampled_velocity` reads. Each holds the same declared layout.
+RESAMPLED_VELOCITY_FORMATS = ("raw", "npy", "npz", "hdf5")
+
+
+def _orient_source_array(array, layout):
+    """!
+    @brief Bring a source array to PICurv storage order `[k, j, i, component]`.
+    @param[in] array Array exactly as read: components on the last axis when interleaved,
+                     on the first when separate; spatial axes slowest-first.
+    @param[in] layout Normalized layout mapping.
+    @return Float64 array `[k, j, i, 3]`.
+    """
+    if layout["components"] == "separate":
+        array = np.moveaxis(array, 0, -1)
+    if array.ndim != 4 or array.shape[-1] != 3:
+        raise ValueError(f"source velocity must hold three components on three axes; read shape {array.shape}.")
+    if layout["fastest_axis"] == "z":
+        # Spatial axes are (x, y, z) slowest-first; storage order wants (z, y, x).
+        array = np.transpose(array, (2, 1, 0, 3))
+    return np.ascontiguousarray(array, dtype=np.float64)
+
+
+def read_source_velocity(params):
+    """!
+    @brief Read the external velocity field `resampled_velocity` resamples.
+    @param[in] params Normalized provider parameters, `source_file` absolute.
+    @return Physical-unit samples `[k, j, i, 3]` as stored in the source.
+    """
+    layout = params["layout"]
+    path = params["source_file"]
+    fmt = params["format"]
+    cells = params.get("cells")
+    spatial = None if cells is None else (cells[2], cells[1], cells[0]) if layout["fastest_axis"] == "x" \
+        else (cells[0], cells[1], cells[2])
+    if fmt == "raw":
+        dtype = np.dtype(layout["dtype"]).newbyteorder({"little": "<", "big": ">", "native": "="}[layout["byte_order"]])
+        count = int(np.prod(cells)) * 3
+        expected = layout["header_bytes"] + count * dtype.itemsize
+        size = os.path.getsize(path)
+        if size != expected:
+            raise ValueError(f"raw source {path} holds {size} bytes; the declared layout needs exactly "
+                             f"{expected} ({layout['header_bytes']} header + {count} {layout['dtype']} values).")
+        values = np.fromfile(path, dtype=dtype, count=count, offset=layout["header_bytes"])
+        shape = (*spatial, 3) if layout["components"] == "interleaved" else (3, *spatial)
+        array = values.reshape(shape)
+    elif fmt in ("npy", "npz", "hdf5"):
+        names = layout.get("datasets")
+        if fmt == "npy":
+            array = np.load(path, allow_pickle=False)
+        else:
+            if fmt == "npz":
+                store = np.load(path, allow_pickle=False)
+                fetch = lambda name: np.asarray(store[name])
+            else:
+                try:
+                    import h5py
+                except ImportError as exc:
+                    raise ValueError("format: hdf5 needs h5py, which is not installed; install it with "
+                                     "'<picurv python> -m pip install h5py' or convert the file to npz.") from exc
+                store = h5py.File(path, "r")
+                fetch = lambda name: np.asarray(store[name])
+            if not names:
+                raise ValueError(f"format: {fmt} needs layout.datasets: one array name, or three for u, v, w.")
+            if len(names) == 3:
+                array = np.stack([fetch(name) for name in names], axis=-1)
+                if layout["components"] == "separate":
+                    raise ValueError("layout.components must be interleaved when three datasets are named; "
+                                     "each dataset is one component already.")
+            else:
+                array = fetch(names[0])
+        if spatial is not None:
+            found = array.shape[:-1] if layout["components"] == "interleaved" or (names and len(names) == 3) \
+                else array.shape[1:]
+            if tuple(found) != tuple(spatial):
+                raise ValueError(f"source array has spatial shape {tuple(found)}; params.cells declares {tuple(spatial)}.")
+    else:
+        raise ValueError(f"format must be one of {RESAMPLED_VELOCITY_FORMATS}.")
+    return _orient_source_array(np.asarray(array), layout)
+
+
+def _staggered_fluxes(coeff, cells, lengths_xyz):
+    """!
+    @brief Sample cell-centre Fourier coefficients at face centres as PICurv volume fluxes.
+    @details Component `a` of cell `s` is evaluated on the cell's lower `a`-face, half a
+             spacing below its centre, and multiplied by the face area: the staggered
+             representation PICurv evolves.
+    @param[in] coeff Unnormalized `fftn` coefficients of the cell-centre field `[k, j, i, 3]`.
+    @param[in] cells Cell counts in storage order.
+    @param[in] lengths_xyz Box periods in Cartesian order.
+    @return Fluxes `[k, j, i, 3]`; entry `[.., s, a]` is the flux through the lower face of cell `s`.
+    """
+    continuum, _discrete, spacing = _periodic_spectral().spectral_symbols(cells, lengths_xyz)
+    fluxes = np.empty(coeff.shape, dtype=float)
+    for a in range(3):
+        area = spacing[(a + 1) % 3] * spacing[(a + 2) % 3]
+        shifted = coeff[..., a] * np.exp(-0.5j * continuum[a] * spacing[a])
+        fluxes[..., a] = np.fft.ifftn(shifted, axes=(0, 1, 2)).real * area
+    return fluxes
+
+
+def _flux_storage(fluxes, cells):
+    """!
+    @brief Place periodic face fluxes into PICurv's `Ucont` vector layout.
+    @details Matches `generate_ucont()`: the xi component of node plane `i` sits at
+             `[1:km, 1:jm, i]`, and likewise for eta and zeta. The periodic closing plane
+             repeats the first; dummy layers stay zero for the runtime to fill.
+    @param[in] fluxes Fluxes from `_staggered_fluxes()`.
+    @param[in] cells Cell counts in storage order.
+    @return Full `Ucont` array `[KM+1, JM+1, IM+1, 3]`.
+    """
+    nk, nj, ni = cells
+    full = np.zeros((nk + 2, nj + 2, ni + 2, 3), dtype=float)
+    full[1:nk + 1, 1:nj + 1, 0:ni, 0] = fluxes[..., 0]
+    full[1:nk + 1, 1:nj + 1, ni, 0] = fluxes[:, :, 0, 0]
+    full[1:nk + 1, 0:nj, 1:ni + 1, 1] = fluxes[..., 1]
+    full[1:nk + 1, nj, 1:ni + 1, 1] = fluxes[:, 0, :, 1]
+    full[0:nk, 1:nj + 1, 1:ni + 1, 2] = fluxes[..., 2]
+    full[nk, 1:nj + 1, 1:ni + 1, 2] = fluxes[0, :, :, 2]
+    return full
+
+
+def _runtime_ucat_from_fluxes(fluxes, cells, lengths_xyz):
+    """!
+    @brief The cell-centre velocity PICurv reconstructs from staged face fluxes.
+    @param[in] fluxes Fluxes from `_staggered_fluxes()`.
+    @param[in] cells Cell counts in storage order.
+    @param[in] lengths_xyz Box periods in Cartesian order.
+    @return Reconstructed `Ucat` `[k, j, i, 3]`: the mean of each cell's two face fluxes over the face area.
+    """
+    _continuum, _discrete, spacing = _periodic_spectral().spectral_symbols(cells, lengths_xyz)
+    ucat = np.empty(fluxes.shape, dtype=float)
+    for a in range(3):
+        area = spacing[(a + 1) % 3] * spacing[(a + 2) % 3]
+        upper = np.roll(fluxes[..., a], -1, axis=2 - a)
+        ucat[..., a] = 0.5 * (fluxes[..., a] + upper) / area
+    return ucat
+
+
+def generate_resampled_velocity(nodes, params, context=None):
+    """!
+    @brief Bring an external periodic velocity field onto the staged grid.
+    @details Reads the source, resamples it in Fourier space to the target grid (truncating or
+             zero-padding, then filtering), projects it to be divergence-free under PICurv's
+             discrete operator for the staged field, optionally removes the mean, and writes
+             solver units. `field: Ucont` samples the face centres and projects with the
+             face-difference symbol 2 sin(k dx/2)/dx, the staggered representation PICurv
+             evolves; `field: Ucat` samples the cell centres and projects with the centred
+             symbol sin(k dx)/dx. The source box must equal the target box: resampling changes
+             resolution, never the domain.
+    @param[in] nodes PICGRID node-coordinate array.
+    @param[in] params Parameters normalized and converted by the conductor; `source_file`
+                      absolute, lengths in solver units, `velocity_divisor` the case's
+                      reference velocity.
+    @param[in] context Conductor-derived diagnostic context; `runtime_ucat_output` names a
+                       file to receive the reconstructed velocity of a `Ucont` result.
+    @return Full field in the staged layout and diagnostic summary.
+    """
+    spectral = _periodic_spectral()
+    cells, lengths_xyz = spectral.validate_spectral_grid(nodes, subject="resampled_velocity requires")
+    box = params["box_length"]
+    for axis, (source_length, target_length) in enumerate(zip(box, lengths_xyz)):
+        if abs(source_length - target_length) > 1e-9 * max(abs(target_length), 1.0):
+            raise ValueError(f"params.box_length[{axis}] is {source_length:.12g} in solver units, but the grid's "
+                             f"{'xyz'[axis]} period is {target_length:.12g}; resampling changes resolution, "
+                             "not the domain.")
+    field_name = params.get("field", "Ucat")
+    source = read_source_velocity(params)
+    source_cells_kji = source.shape[:3]
+    source_energy = 0.5*float(np.mean(np.sum(source*source, axis=-1)))
+    offsets = params["sample_offset"]
+    source_first = [offsets[a] * lengths_xyz[a] / source_cells_kji[2 - a] for a in range(3)]
+    target_first = [0.5 * lengths_xyz[a] / cells[2 - a] for a in range(3)]
+    resampled = spectral.fourier_resample(source, cells, lengths_xyz, source_first, target_first, params["filter"])
+    resampled_energy = 0.5*float(np.mean(np.sum(resampled*resampled, axis=-1)))
+    continuum, discrete, spacing = spectral.spectral_symbols(cells, lengths_xyz)
+    face_difference = tuple(2.0*np.sin(0.5*k*h)/h for k, h in zip(continuum, spacing))
+    staged_symbols = face_difference if field_name == "Ucont" else discrete
+    before = compute_periodic_velocity_diagnostics(resampled, lengths_xyz, 0.0)
+    coeff = np.fft.fftn(resampled, axes=(0, 1, 2))
+    removed_mean = resampled.mean(axis=(0, 1, 2))
+    if params["remove_mean"]:
+        coeff[0, 0, 0, :] = 0.0
+    operator = params["projection"]
+    if operator != "none":
+        mean_mode = coeff[0, 0, 0, :].copy()
+        coeff = project_coefficients(coeff, staged_symbols if operator == "picurv_discrete" else continuum)
+        # The projector has no direction for the mean; keep it unless remove_mean took it.
+        coeff[0, 0, 0, :] = mean_mode
+    projected = np.fft.ifftn(coeff, axes=(0, 1, 2)).real
+    projected_energy = 0.5*float(np.mean(np.sum(projected*projected, axis=-1)))
+    divisor = params["velocity_divisor"]
+    kinematic_viscosity = _finite_number((context or {}).get("kinematic_viscosity", 0.0),
+                                         "context.kinematic_viscosity", nonnegative=True)
+    summary = {"generator": "resampled_velocity", "field": field_name,
+               "source_file": params["source_file"], "format": params["format"],
+               "source_cells_xyz": [int(source_cells_kji[2]), int(source_cells_kji[1]), int(source_cells_kji[0])],
+               "target_cells_xyz": [int(cells[2]), int(cells[1]), int(cells[0])],
+               "sample_offset": offsets, "filter": params["filter"], "projection": operator,
+               "remove_mean": params["remove_mean"], "velocity_divisor": divisor,
+               "source_kinetic_energy_physical": source_energy,
+               "resampled_kinetic_energy_physical": resampled_energy,
+               "projected_kinetic_energy_physical": projected_energy,
+               "projection_removed_energy_fraction": (resampled_energy - projected_energy) / resampled_energy
+               if resampled_energy > 0 else 0.0,
+               "source_mean_physical": [float(x) for x in removed_mean],
+               "pre_projection_picurv_discrete_divergence_normalized": before["picurv_discrete_divergence_normalized"],
+               "pre_projection_continuum_divergence_normalized": before["continuum_divergence_normalized"]}
+    if field_name == "Ucont":
+        fluxes = _staggered_fluxes(coeff, cells, lengths_xyz) / divisor
+        full = _flux_storage(fluxes, cells)
+        divergence = sum(np.roll(fluxes[..., a], -1, axis=2 - a) - fluxes[..., a] for a in range(3))
+        runtime_ucat = _runtime_ucat_from_fluxes(fluxes, cells, lengths_xyz)
+        shared = _public_diagnostics(compute_periodic_velocity_diagnostics(runtime_ucat, lengths_xyz,
+                                                                            kinematic_viscosity))
+        for key in [key for key in shared if key.startswith("picurv_reconstructed")]:
+            shared.pop(key)
+        summary.update(shared)
+        cell_volume = spacing[0] * spacing[1] * spacing[2]
+        summary.update({"measurement_state": "runtime_reconstructed_ucat_from_staged_fluxes",
+                        "flux_divergence_max_per_volume": float(np.max(np.abs(divergence))) / cell_volume})
+        target = (context or {}).get("runtime_ucat_output")
+        if target:
+            wrapped = tuple((np.arange(count + 2) - 1) % count for count in cells)
+            write_petsc_vec_binary(target, runtime_ucat[np.ix_(*wrapped)])
+    else:
+        physical = projected / divisor
+        wrapped = tuple((np.arange(count + 2) - 1) % count for count in cells)
+        full = physical[np.ix_(*wrapped)]
+        summary.update(_public_diagnostics(compute_periodic_velocity_diagnostics(physical, lengths_xyz,
+                                                                                 kinematic_viscosity)))
+        summary["measurement_state"] = "staged_ucat"
     summary.update({"grid_cells_storage_kji": list(cells), "box_lengths_xyz": list(lengths_xyz),
                     "vector_shape": list(full.shape), "scalar_count": int(full.size),
                     "petsc_shape": list(full.shape), "petsc_scalar_count": int(full.size)})
@@ -1056,7 +1299,7 @@ def generate_wall_spectral_velocity(nodes, raw_params, generator):
     params = validate_wall_spectral_params(raw_params, generator)
     walls = ["ijk".index(a) for a in params["wall_axes"]]
     periodic = [a for a in range(3) if a not in walls]
-    cells, lengths = validate_spectral_grid(nodes, periodic)
+    cells, lengths = _periodic_spectral().validate_spectral_grid(nodes, periodic, subject=f"{generator} requires")
     axes = (nodes[0, 0, :, 0], nodes[0, :, 0, 1], nodes[:, 0, 0, 2])
     widths = [np.diff(a) for a in axes]
     centers = [0.5*(a[:-1]+a[1:]) for a in axes]
@@ -1144,7 +1387,8 @@ def build_parser():
     @return Configured parser.
     """
     parser = argparse.ArgumentParser(description="Generate a PICurv initial-condition PETSc vector.")
-    parser.add_argument("--generator", choices=("expression", "spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"),
+    parser.add_argument("--generator", choices=("expression", "spectral_random_velocity", "resampled_velocity",
+                                                "channel_spectral_velocity", "duct_spectral_velocity"),
                         default="expression", help="Maintained IC generator implementation.")
     parser.add_argument("-c", "--config", help="Expression-generator INI configuration.")
     parser.add_argument("--params-json", help="JSON parameters for a built-in generator.")
@@ -1200,6 +1444,12 @@ def main(argv=None) -> int:
             if not args.params_json:
                 raise ValueError("spectral_random_velocity generation requires --params-json.")
             field, summary = generate_spectral_random_velocity(
+                nodes, json.loads(args.params_json), json.loads(args.context_json or "{}")
+            )
+        elif args.generator == "resampled_velocity":
+            if not args.params_json:
+                raise ValueError("resampled_velocity generation requires --params-json.")
+            field, summary = generate_resampled_velocity(
                 nodes, json.loads(args.params_json), json.loads(args.context_json or "{}")
             )
         elif args.generator in ("channel_spectral_velocity", "duct_spectral_velocity"):

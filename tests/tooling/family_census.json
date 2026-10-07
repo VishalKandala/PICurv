@@ -197,6 +197,11 @@
     "picurv_cli.storage::STORAGE_COMPRESSION_EXTENSIONS": {
       "classification": "not_public",
       "reason": "The archive suffix each resolved policy produces. Derived from the policy, never selected: the user chooses a compression policy and the extension follows."
+    },
+    "picurv_cli.core::RESAMPLED_VELOCITY_RAW_DTYPES": {
+      "classification": "parameter_of_entry",
+      "reason": "Value types a raw resampled_velocity source may hold. It describes the file being imported, inside the resampled_velocity entry, rather than selecting behaviour.",
+      "owner": "initial.file_generator"
     }
   }
 }

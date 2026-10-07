@@ -94,8 +94,12 @@ Some launcher behaviors depend on other config selections before values ever rea
 - `case.properties.initial_conditions.mode: generated` resolves `generator` and `params` into
   built-in C flags or a staged Python-generated PETSc vector. Channel/duct providers
   validate wall topology and measure selected initial spectra through `spectra.gen`.
+  `resampled_velocity` resolves its `source_file` against the workspace when it runs and
+  hands `ic.gen` the absolute path; a `Ucont` result is measured on the velocity the runtime
+  reconstructs from it.
 - `case.properties.initial_conditions.mode: file` validates and stages one `Ucat` or `Ucont`
-  PETSc vector in the existing @ref ReadFieldData naming layout.
+  PETSc vector in the existing @ref ReadFieldData naming layout. With a file-backed grid it
+  also refuses a vector sized for another grid.
 - `solver.operation_mode.eulerian_field_source` and `case.run_control.start_step` supersede IC
   materialization when load, analytical, or restart state has authority.
 - `solver.operation_mode.eulerian_field_source: analytical`
