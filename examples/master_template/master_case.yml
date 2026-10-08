@@ -446,13 +446,15 @@ models:
         #   werner  -> Werner-Wengle power law; explicit, no roughness, valid into the
         #              viscous sublayer, and free of the inner iteration that a
         #              matrix-free Jacobian amplifies
-        #   cabot   -> integrated mixing-length eddy viscosity. The pressure gradient
-        #              its non-equilibrium form needs is supplied as zero, so it
-        #              currently reduces to the equilibrium form.
+        #   cabot   -> integrated mixing-length eddy viscosity; its non-equilibrium
+        #              form takes the wall-parallel gradient of the resolved pressure
+        # The run stops if the mean first-cell y+ stays outside the law's range
+        # (log_law 30-300, werner <= 300, cabot <= 1000) for 10 consecutive steps.
         # [String] -> -wallfunction
         # model: "log_law"
 
-        # Wall roughness height. Used by log_law only; werner and cabot ignore it.
+        # Wall roughness height. log_law only: validation rejects this key for werner
+        # and cabot, so delete it when selecting either.
         # [Number] -> -wall_roughness
         roughness_height: 1.0e-16   # [m] Physical length, divided by length_ref.
   

@@ -1016,17 +1016,28 @@ rates are formed, so the closure and the momentum equation agree about the near-
 velocity rather than disagreeing within one timestep.
 
 **Diagnostics.** The startup banner reports whether wall functions are enabled and the
-configured roughness height.
+configured roughness height. Every timestep appends one row to
+`<run.analysis.metrics>/wall_model.csv` - the wall-face mean, spread, minimum and maximum
+of the friction velocity, the mean and maximum first-cell y+, the mean wall distance, and
+`nu_wall_over_nu_mean` - and logs the mean friction velocity and y+ to the console.
 
-**Evidence.** Implemented, with unit coverage of the velocity laws and their
-friction-velocity root-finds in `tests/c/test_runtime_kernels.c` - each is checked to
-invert its own law - and of the integration in `tests/c/test_boundaries.c`, which checks
-that the corrected first interior velocity is the modelled profile at that cell's wall
-distance, for the friction velocity the integration itself stored. No shipped example
-enables it and no reference-flow comparison has been run.
+The same row is checked against the range the selected law supports: mean first-cell y+
+from 30 to 300 for `log_law`, at most 300 for `werner`, and at most 1000 for `cabot`.
+Each step outside it logs a warning, and ten consecutive steps outside it stop the run;
+a step back in range resets the count, so a startup transient survives where a
+mis-sized first cell does not.
 
-**Limitations.** Validity depends on the first cell falling in the logarithmic region,
-which nothing checks for you.
+**Evidence.** Implemented, with unit coverage run by `make unit-runtime` and
+`make unit-boundaries`. `tests/c/test_runtime_kernels.c` covers the velocity laws and
+their friction-velocity root-finds, each checked to invert its own law;
+`tests/c/test_boundaries.c` covers the integration, checking that the corrected first
+interior velocity is the modelled profile at that cell's wall distance, for the friction
+velocity the integration itself stored. No shipped example enables it and no
+reference-flow comparison has been run.
+
+**Limitations.** Validity depends on the first cell falling in the logarithmic region.
+Only the wall-face mean y+ is checked, so individual cells outside the region, near a
+corner or a separation for instance, pass unremarked while the mean stays in range.
 
 @subsection p07_cap_wall_werner_sub werner
 
@@ -1057,8 +1068,8 @@ this model.
 **Diagnostics.** As for @ref p07_cap_wall_log_law "log_law"; the banner reports the
 selected model by name.
 
-**Evidence.** Implemented, with unit coverage in `tests/c/test_runtime_kernels.c`:
-`find_utau_Werner` inverts `u_Werner` exactly at y+ from 2 to 500, across the switch, and
+**Evidence.** Implemented, with unit coverage run by `make unit-runtime` and
+`make unit-boundaries`. In `tests/c/test_runtime_kernels.c`, `find_utau_Werner` inverts `u_Werner` exactly at y+ from 2 to 500, across the switch, and
 the wall function given a reference speed taken from the profile returns that profile's
 friction velocity and places the boundary cell on it. The integration that dispatches to
 it is covered in `tests/c/test_boundaries.c`. No reference-flow comparison has been run
@@ -1099,7 +1110,8 @@ projection's, the same lag every other explicit use of it carries.
 
 **Diagnostics.** As for @ref p07_cap_wall_log_law "log_law".
 
-**Evidence.** Implemented, with unit coverage of `find_utau_Cabot` and `u_Cabot` in
+**Evidence.** Implemented, with unit coverage run by `make unit-runtime` and
+`make unit-boundaries`: `find_utau_Cabot` and `u_Cabot` in
 `tests/c/test_runtime_kernels.c`. The integration that dispatches to it is covered in
 `tests/c/test_boundaries.c`. No reference-flow comparison has been run.
 

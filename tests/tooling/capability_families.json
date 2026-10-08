@@ -933,7 +933,14 @@
         "log_law": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "unit": [
+              "make:unit-runtime",
+              "file:tests/c/test_runtime_kernels.c",
+              "make:unit-boundaries",
+              "file:tests/c/test_boundaries.c"
+            ]
+          }
         },
         "loglaw": {
           "canonical": false,
@@ -942,7 +949,14 @@
         "werner": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "unit": [
+              "make:unit-runtime",
+              "file:tests/c/test_runtime_kernels.c",
+              "make:unit-boundaries",
+              "file:tests/c/test_boundaries.c"
+            ]
+          }
         },
         "werner_wengle": {
           "canonical": false,
@@ -951,7 +965,14 @@
         "cabot": {
           "status": "experimental",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "unit": [
+              "make:unit-runtime",
+              "file:tests/c/test_runtime_kernels.c",
+              "make:unit-boundaries",
+              "file:tests/c/test_boundaries.c"
+            ]
+          }
         }
       }
     },
