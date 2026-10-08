@@ -1295,17 +1295,29 @@ static PetscErrorCode TestWallModelVelocityHelpers(void)
     PetscCall(PicurvAssertRealNear(target_velocity, u_loglaw(wall_distance, utau_loglaw, roughness_length), 1.0e-12,
                                    "simple log-law inversion should reconstruct the target velocity"));
 
-    /* The retained iterative pair. It round-trips only in the viscous sublayer, which is
-       where this sample sits (y+ ~ 4.5); above y+ = 11.81 its branches invert different
-       relations. Kept as coverage of the helpers themselves, not of the solver path. */
     utau_werner = find_utau_Werner(kinematic_viscosity, target_velocity, wall_distance, 0.1);
     PetscCall(PicurvAssertBool((PetscBool)(utau_werner > 0.0), "Werner-Wengle friction velocity should remain positive"));
-    PetscCall(PicurvAssertRealNear(target_velocity, u_Werner(kinematic_viscosity, wall_distance, utau_werner), 1.0e-6,
+    PetscCall(PicurvAssertRealNear(target_velocity, u_Werner(kinematic_viscosity, wall_distance, utau_werner), 1.0e-12,
                                    "Werner-Wengle inversion should reconstruct the target velocity"));
 
-    /* The closed-form pair the solver actually uses. Round-tripping must hold on both
-       sides of the switch, because the defect this replaced was a mismatch that only
-       showed above it. */
+    /* The pointwise pair the solver uses must invert exactly on BOTH sides of
+       y+ = 11.81. The previous inverse round-tripped only in the sublayer, which is the
+       one range the sample above happens to sit in, and so passed over the mismatch. */
+    {
+        const PetscReal yplus[5] = {2.0, 11.0, 11.81, 30.0, 500.0};
+        const PetscReal u_tau = 0.05;
+        const PetscReal nu = kinematic_viscosity;
+
+        for (PetscInt i = 0; i < 5; ++i) {
+            const PetscReal y = yplus[i] * nu / u_tau;
+            const PetscReal u = u_Werner(nu, y, u_tau);
+            PetscCall(PicurvAssertRealNear(u_tau, find_utau_Werner(nu, u, y, 0.0), 1.0e-12 * u_tau,
+                                           "find_utau_Werner must invert u_Werner exactly on both branches"));
+        }
+    }
+
+    /* The cell-integral pair: correct for a cell-averaged input, not wired into the
+       solver. Its round trip must still hold on both sides of its own switch. */
     {
         const PetscReal A = 8.3, Bexp = 1.0 / 7.0;
         const PetscReal u_m = 0.5 * kinematic_viscosity / wall_distance *
@@ -1372,6 +1384,22 @@ static PetscErrorCode TestWallFunctionVectorWrappers(void)
     PetscCall(PicurvAssertRealNear(0.0, boundary_velocity.x, 1.0e-12, "Werner wall function should preserve zero normal velocity"));
     PetscCall(PicurvAssertBool((PetscBool)(boundary_velocity.y > 0.0 && boundary_velocity.y < 1.0), "Werner wall function should damp tangential velocity"));
     PetscCall(PicurvAssertBool((PetscBool)(friction_velocity > 0.0), "Werner wall function should compute positive friction velocity"));
+
+    /* A reference speed taken from the pointwise profile itself must return that
+       profile's friction velocity, and the boundary cell must land on the same profile.
+       The reference sits in the power-law branch (y+ = 20), the boundary cell in the
+       sublayer (y+ = 10), so both branches are exercised. The cell-integral relation
+       read this point value as a cell average and returned u_tau 14% high. */
+    {
+        const PetscReal nu = 1.0 / simCtx->ren, u_tau = 1.0;
+        Cmpnts profile_reference = {0.0, (PetscReal)u_Werner(nu, 2.0e-2, u_tau), 0.0};
+
+        wall_function(user, 2.0e-2, 1.0e-2, wall_velocity, profile_reference, &boundary_velocity, &friction_velocity, 1.0, 0.0, 0.0);
+        PetscCall(PicurvAssertRealNear(u_tau, friction_velocity, 1.0e-12,
+                                       "Werner wall function must return the friction velocity of the profile it is given"));
+        PetscCall(PicurvAssertRealNear(u_Werner(nu, 1.0e-2, u_tau), boundary_velocity.y, 1.0e-12,
+                                       "Werner wall function must put the boundary cell on the same pointwise profile"));
+    }
 
     wall_function_loglaw(user, 1.0e-4, 2.0e-2, 1.0e-2, wall_velocity, reference_velocity, &boundary_velocity, &friction_velocity, 1.0, 0.0, 0.0);
     PetscCall(PicurvAssertRealNear(0.0, boundary_velocity.x, 1.0e-12, "log-law wall function should preserve zero normal velocity"));

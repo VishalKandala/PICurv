@@ -1064,7 +1064,9 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
 PetscErrorCode PicurvAssertRealNear(PetscReal expected, PetscReal actual, PetscReal tol, const char *context)
 {
     PetscFunctionBeginUser;
-    if (PetscAbsReal(expected - actual) > tol) {
+    /* Written so that a NaN fails: every comparison with NaN is false, so the form
+       "difference > tol" let a NaN result pass silently. */
+    if (!(PetscAbsReal(expected - actual) <= tol)) {
         PetscCall(PetscPrintf(PETSC_COMM_WORLD,
                               "[FAIL] %s | expected=%0.12e actual=%0.12e tol=%0.12e\n",
                               context, (double)expected, (double)actual, (double)tol));

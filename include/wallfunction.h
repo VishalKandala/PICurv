@@ -338,7 +338,9 @@ void find_utau_Cabot(double kinematic_viscosity, double velocity, double wall_di
 /**
  * @brief Computes velocity using Werner-Wengle wall function
  *
- * Algebraic wall function that provides explicit relation:
+ * The pointwise Werner-Wengle profile, and the relation the solver uses: the wall
+ * function evaluates it at the boundary cell with the friction velocity that
+ * @ref find_utau_Werner() takes from the reference cell. Explicit relation:
  *   u+ = y+                    for y+ < 11.81 (viscous sublayer)
  *   u+ = A * (y+)^B            for y+ ≥ 11.81 (power law)
  * where A = 8.3, B = 1/7 are empirical constants.
@@ -362,12 +364,16 @@ double u_Werner(double kinematic_viscosity, double wall_distance,
 
 
 /**
- * @brief Wall shear stress from the explicit Werner-Wengle inversion.
+ * @brief Wall shear stress from the cell-integrated Werner-Wengle relation.
  *
- * This is the Werner-Wengle model proper: the power-law profile is assumed to hold
- * across the first cell and integrated, which inverts in closed form and is the whole
- * reason the model exists - it reaches the wall stress without an inner iteration, so
- * the residual it feeds stays smooth for a matrix-free Jacobian.
+ * @note Not wired into the solver. The profile is assumed to hold across a cell of height
+ *       `wall_distance` and integrated, so `velocity` must be the AVERAGE over
+ *       [0, wall_distance] - a finite-volume first-cell value with its full height. The
+ *       wall function's reference is instead a point value at the second cell's centre;
+ *       read as an average it over-predicts u_tau by about (1 + B)^(1/(1+B)), 12-14% on
+ *       a wall-modelled channel at Re_tau ~ 1000. The solver uses the pointwise pair
+ *       @ref find_utau_Werner() / @ref u_Werner(), which is also closed form. Kept, with
+ *       its inverse @ref u_Werner_explicit(), for a caller that does supply a cell average.
  *
  *   |u| <= u_m : tau_w = 2 nu |u| / y
  *   |u| >  u_m : tau_w = [ (1-B)/2 A^((1+B)/(1-B)) (nu/y)^(1+B)
@@ -409,54 +415,23 @@ double u_Werner_explicit(double kinematic_viscosity, double wall_distance,
 
 
 /**
- * @brief Residual function for Werner-Wengle iteration
+ * @brief Friction velocity from a point velocity, inverting @ref u_Werner() exactly.
  *
- * @note Not wired into the solver. The production path uses the closed-form
- *       @ref taw_Werner() / @ref u_Werner_explicit() pair instead; see the note on
- *       @ref find_utau_Werner() for why this residual is not used.
+ * The closed-form inverse of the pointwise Werner-Wengle profile, branch for branch, and
+ * the solver's path. Along that profile U y / nu = (y+)^2 in the sublayer, so the branch
+ * is chosen from the data alone - sublayer while U y / nu <= 11.81^2 - and each branch
+ * inverts explicitly:
  *
- * Computes residual: f(u_τ) = u_τ² - g(u, y, ν)
- * where g is derived from the velocity profile inversion.
+ *   sublayer   : u_tau = sqrt(nu |U| / y)
+ *   power law  : u_tau = ( |U| / (A (y/nu)^B) )^(1/(1+B)),   A = 8.3, B = 1/7
  *
- * @param[in] kinematic_viscosity Kinematic viscosity
- * @param[in] velocity            Known velocity
- * @param[in] wall_distance       Distance from wall
- * @param[in] friction_velocity   Guess for friction velocity
- * @return    Residual value
- */
-double f_Werner(double kinematic_viscosity, double velocity,
-                double wall_distance, double friction_velocity);
-				
-/**
- * @brief Numerical derivative for Werner-Wengle iteration
- *
- * @param kinematic_viscosity Fluid kinematic viscosity.
- * @param velocity Resolved velocity at the wall-model point.
- * @param wall_distance Normal distance from the wall.
- * @param friction_velocity Current friction-velocity iterate.
- * @return Derivative of the Werner--Wengle residual with respect to friction velocity.
- */
-double df_Werner(double kinematic_viscosity, double velocity,
-                 double wall_distance, double friction_velocity);
-				 
-/**
- * @brief Solves for friction velocity using Werner-Wengle wall function
- *
- * @note Retained but not wired into the solver, and kept for reference and for its unit
- *       coverage rather than for use. Two reasons it is not the production path. Its
- *       residual switches branches on a threshold that depends on the friction velocity
- *       being solved for, so it needs a Newton iteration that the Werner-Wengle model
- *       does not otherwise require - the model's defining property is that its inversion
- *       is closed form. And its two branches disagree about which relation they invert:
- *       the sublayer branch is the pointwise one while the power branch is the cell
- *       integral, which is why it round-trips against @ref u_Werner() only below
- *       y+ = 11.81. Use @ref taw_Werner() instead.
+ * No iteration, so the residual it feeds stays smooth for a matrix-free Jacobian.
  *
  * @param[in] kinematic_viscosity Kinematic viscosity
- * @param[in] velocity            Velocity at reference point
- * @param[in] wall_distance       Distance from wall
- * @param[in] initial_guess       Initial guess for u_τ
- * @return    Converged friction velocity
+ * @param[in] velocity            Wall-parallel speed at the reference point, sign ignored
+ * @param[in] wall_distance       Distance from the wall to that point
+ * @param[in] initial_guess       Unused; kept so existing callers need no change
+ * @return    Friction velocity
  */
 double find_utau_Werner(double kinematic_viscosity, double velocity,
                         double wall_distance, double initial_guess);

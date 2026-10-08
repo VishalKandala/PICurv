@@ -1036,11 +1036,12 @@ which nothing checks for you.
 spelling: `werner_wengle`.
 
 **What it does.** Applies the Werner-Wengle power-law wall model. The two-layer profile
-- linear below `y+ = 11.81`, `u+ = 8.3 (y+)^(1/7)` above - is assumed to hold across the
-first cell and integrated, which inverts in closed form: the wall stress comes straight
-from the resolved speed with no root-find at all, in either region. The corrected
-velocity is produced by the exact inverse of that same relation, so a cell nearer the
-wall is always assigned the slower speed.
+- linear below `y+ = 11.81`, `u+ = 8.3 (y+)^(1/7)` above - is evaluated pointwise. The
+wall stress comes from inverting it at the reference point, the centre of the second cell
+from the wall, where the resolved speed is a point value; the boundary cell's speed comes
+from the same profile at its own centre. Both directions are closed form, with no
+root-find in either region, and because one monotone profile is used both ways a cell
+nearer the wall is always assigned the slower speed.
 
 **When to choose it.** When the first cell may fall inside or near the viscous sublayer,
 where a pure log law has no valid branch. Its explicit form also avoids the inner
@@ -1056,10 +1057,19 @@ this model.
 **Diagnostics.** As for @ref p07_cap_wall_log_law "log_law"; the banner reports the
 selected model by name.
 
-**Evidence.** Implemented, with unit coverage of `find_utau_Werner` and `u_Werner` in
-`tests/c/test_runtime_kernels.c`, each checked to invert the other. The integration that
-dispatches to it is covered in `tests/c/test_boundaries.c`. No reference-flow comparison
-has been run.
+**Evidence.** Implemented, with unit coverage in `tests/c/test_runtime_kernels.c`:
+`find_utau_Werner` inverts `u_Werner` exactly at y+ from 2 to 500, across the switch, and
+the wall function given a reference speed taken from the profile returns that profile's
+friction velocity and places the boundary cell on it. The integration that dispatches to
+it is covered in `tests/c/test_boundaries.c`. No reference-flow comparison has been run
+with the pointwise form. The cell-integrated relation it replaced read the point
+reference speed as a first-cell average; on the wall-modelled Re_tau ~ 1000 channel
+(`driven_channel/les_wallmodel_retau1000`) it gave u_tau 13.5% above Lee & Moser (2015),
+which the pointwise relation, applied to that run's own mean reference speed, brings to
+-1% - an estimate from the mean profile, not yet a rerun. A 50-step A/B of that variant
+from the same initial field confirms only the wiring: the old build's u_tau is 1.1649
+times the new one's from the first step, the ratio the two relations predict at its
+reference speed.
 
 **Limitations.** No roughness. The power-law constants are fixed, and the model carries
 no pressure-gradient term, so it describes an equilibrium layer only - `cabot` is the
