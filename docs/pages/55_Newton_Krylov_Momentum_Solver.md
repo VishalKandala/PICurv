@@ -125,8 +125,8 @@ The solver builds a per-step `SNES` (@ref MomentumSolver_NewtonKrylov):
 - by default the preconditioning-matrix argument aliases the Jacobian operator
   and the inner **`KSPGMRES`** uses `PCNONE`;
 - optionally, a separately assembled AIJ preconditioning matrix contains the
-  provisional frozen-momentum point blocks; its validated internal PETSc
-  backend is `PCPBJACOBI`.
+  frozen-momentum point blocks; its validated internal PETSc backend is
+  `PCPBJACOBI`.
 
 Because the Jacobian action is a finite difference of the residual, the residual
 **must be a deterministic function of the trial vector** `X` (see
@@ -451,13 +451,16 @@ Production exercised - `turbulent-channel-nk-2026-09-29`, retained at
 **Diagnostics.** Krylov iteration counts before and after are the only meaningful diagnostic. `PCPBJACOBI` appears in PETSc output as the internal backend mapping; it is not a user-facing numerical model and should not be read as one.
 
 **Evidence.** Integration verified - `make unit-newton-krylov` covers model/backend/ownership wiring, exact constraint rows, matrix structure and reuse, and serial/MPI application.
+Production exercised - `humphrey-laminar-bend-nk-pointblock-2026-10-07`, retained at
+@ref p55_bend_evidence_sub: a three-grid curved-duct study on 48 ranks in which all
+13,500 steps converged and committed under this model.
 
-**Limitations.** Experimental, and **no performance claim is made**. It costs an extra assembled matrix in memory and an assembly per update, and the omitted terms mean it is a same-cell approximation rather than an approximate Jacobian in any global sense.
+**Limitations.** Supported for correct execution within the solver's declared scope; **no performance claim is made**, because no run compared it against `none` on the same case. It costs an extra assembled matrix in memory and an assembly per update, and the omitted terms make it a same-cell approximation rather than an approximate Jacobian in any global sense. Its quality falls as the discarded neighbour coupling grows relative to the mass term, so expect rising Krylov counts at large timesteps and on wall-resolved, high-Reynolds-number grids, where the near-wall diffusion number approaches one. The production evidence is laminar, steady, and low-Reynolds; that regime is untested with the current implementation.
 
 @section p55_validation_sec 10. Validation Coverage
 
-The Newton--Krylov path has two regression levels and the retained production
-measurement below:
+The Newton--Krylov path has two regression levels and the two retained production
+measurements below:
 
 - **Default suite** (`unit-newton-krylov`, part of `make check`): constraint-row
   Jacobian structure, matrix-free vs direct differencing, preconditioning-engine
@@ -477,7 +480,38 @@ Validated behavior on that case: convergence in about two Newton iterations from
 the true projected step-1 state, identical results with classical and modified
 Gram--Schmidt, and divergence-free projection, on both one and four ranks.
 
-@subsection p55_channel_evidence_sub 10.1 Retained turbulent-channel campaign (2026-09-29)
+@subsection p55_bend_evidence_sub 10.1 Retained laminar curved-duct campaign (2026-10-07)
+
+The repository owner approved promotion of `preconditioner.model:
+frozen_momentum_jacobian` on this campaign. `tests/tooling/measurement_records.json`,
+record `humphrey-laminar-bend-nk-pointblock-2026-10-07`, is the durable source for the
+configuration, measurements, acceptance criterion, provenance and limitations. Its
+verdict concerns successful production execution, under the same criterion applied
+to `none` in @ref p55_channel_evidence_sub.
+
+The case is the Humphrey, Taylor & Whitelaw (1977) square-duct bend: a 90-degree arc
+of radius 2.3 duct widths between a 5-width inlet and a 7-width outlet, Re = 790,
+fully developed `square_duct_poiseuille` inflow, central convection, the frozen
+point block with Eisenstat-Walker linear tolerances, and the `preonly` + `redundant`
+multigrid coarse solve. It ran on 32 x 32 x 256, 48 x 48 x 384 and 64 x 64 x 512
+cells at commit `0e70cf33bf97`, optimized PETSc 3.20.3, 48 ranks in a 2 x 2 x 12
+layout, each to steady state at physical time 60.
+
+Every one of the 13,500 steps converged and committed; Newton took 2 to 5 iterations
+and GMRES at most 25 per step, falling to 3 or 4 at steady state. The largest
+divergence over any step was 4.6e-10. The near-wall diffusion number was only about
+0.03 to 0.05, so the mass term dominated: this is the regime a same-cell block is
+built for. The one wall-resolved Re = 40,000 run that collapsed under this model was
+built before the transpose fix `d4f5944` and does not describe the present
+implementation.
+
+Against the digitised measurements of Humphrey, Taylor & Whitelaw, the 64-cell solution
+differs by 0.07 U_b RMS at the bend entry and 0.14 to 0.18 within the bend, while the
+48-to-64 refinement changes it by at most 0.013 RMS and a three-grid analysis gives
+apparent order 1.9 to 2.7 with a numerical uncertainty of at most 0.03 U_b on the
+symmetry plane. That comparison is exploratory and outside the verdict.
+
+@subsection p55_channel_evidence_sub 10.2 Retained turbulent-channel campaign (2026-09-29)
 
 The repository owner approved promotion of the solver and `preconditioner.model:
 none` after this campaign closed the previously recorded production-size gap.

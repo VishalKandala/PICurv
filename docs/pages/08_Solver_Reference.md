@@ -209,9 +209,11 @@ Production exercised - `turbulent-channel-nk-2026-09-29`: 96 x 96 x 256 cells on
 
 **Limitations and full treatment.** **@subpage 55_Newton_Krylov_Momentum_Solver**
 carries the scope limits, preconditioner findings, and tuning guidance. Supported
-within that scope; the production campaign used `preconditioner.model: none`.
-`frozen_momentum_jacobian` remains experimental. Quantitative turbulent-channel DNS
-agreement, refinement convergence, and parallel scaling remain unverified.
+within that scope. The turbulent-channel campaign used `preconditioner.model: none`;
+`frozen_momentum_jacobian` is supported on the laminar curved-duct campaign
+`humphrey-laminar-bend-nk-pointblock-2026-10-07` (@ref p55_bend_evidence_sub), which
+establishes correct execution, not a speed-up. Quantitative turbulent-channel DNS
+agreement and parallel scaling remain unverified.
 
 @subsection p08_cap_dual_time_picard_rk4_sub Dual Time Picard RK4 (deprecated)
 

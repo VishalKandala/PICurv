@@ -99,7 +99,8 @@ Momentum:
 orders at @ref p08_entries_sec. `Newton Krylov` is `supported` within its documented
 scope, with a 144-rank channel campaign using no preconditioner; its quantitative DNS
 discrepancy is recorded at @ref p55_channel_evidence_sub. The frozen-Jacobian
-preconditioner remains `experimental`. `Dual Time Picard Jameson RK` is the production default.
+preconditioner is `supported` on a three-grid laminar curved-duct campaign
+(@ref p55_bend_evidence_sub), with no performance claim. `Dual Time Picard Jameson RK` is the production default.
 
 Pressure:
 

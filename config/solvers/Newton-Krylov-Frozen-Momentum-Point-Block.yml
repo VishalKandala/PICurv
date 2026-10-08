@@ -1,5 +1,7 @@
-# Newton--Krylov profile using the provisional frozen-momentum point-block preconditioner.
-# Validated for the same periodic-flow scope as Newton-Krylov-Standard.yml.
+# Newton--Krylov profile using the frozen-momentum point-block preconditioner.
+# Supported on measured evidence (laminar curved duct, three grids); it pays off where the
+# mass term dominates, so compare Krylov counts against Newton-Krylov-Standard.yml on
+# your case. See docs/pages/55_Newton_Krylov_Momentum_Solver.md.
 operation_mode:
   eulerian_field_source: "solve"
 

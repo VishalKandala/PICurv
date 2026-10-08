@@ -78,14 +78,15 @@ Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
 - **Analytical facets rest on single recorded measurements, and none is `reference`.**
-  106 values cite `measurement:` records - 30 distinct ones, taken between 2026-09-18 and
-  2026-10-03 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
+  107 values cite `measurement:` records - 31 distinct ones, taken between 2026-09-18 and
+  2026-10-07 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
   pipe Poiseuille flow, the Poisson options, every initial-condition mode, every
   particle seeding and restart mode, both interpolation methods, the post-processing
   kernels, field statistics, shell, plane and line spectra, metric closure on every
   grid-generator feature, the workspace input import modes, and the four generated
   initial-condition providers, plus Newton--Krylov production execution on a
-  144-rank turbulent channel and the storage compression levels, offload policies, and retention
+  144-rank turbulent channel and, with the point-block preconditioner, on a three-grid
+  laminar curved duct, and the storage compression levels, offload policies, and retention
   components against a Google Drive remote, and the three study types run as
   Slurm arrays, and the import of an external periodic velocity field.
   Each record states what it does not establish, and none is gated in CI. Nine records
@@ -105,7 +106,9 @@ likely to matter:
 - **The grid generator's closure is metric consistency, not accuracy on every shape.**
   Every geometry, section, wall segment, path segment and transform closes a uniform
   flow to round-off in the solver's metrics, but solves have been run only on flat
-  boxes, the swept circle, and a mirrored hill channel. Metric quality at a resolved
+  boxes, the swept circle, a mirrored hill channel, and the swept-square 90-degree bend
+  of `humphrey-laminar-bend-nk-pointblock-2026-10-07`, whose comparison with the
+  Humphrey, Taylor & Whitelaw measurements is exploratory. Metric quality at a resolved
   step corner is reported by the generator and not validated against a solution.
 - **The turbulence closures carry no measured facet.** Every LES and wall-function
   value is experimental; at most they carry unit coverage and, for the dynamic model, a

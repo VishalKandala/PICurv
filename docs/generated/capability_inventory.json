@@ -915,7 +915,7 @@
     "public_values": {
       "frozen_momentum_jacobian": {
         "maps_to": "frozen_momentum_jacobian",
-        "status": "experimental"
+        "status": "supported"
       },
       "none": {
         "maps_to": "none",

@@ -137,7 +137,7 @@ momentum_solver:
   #       mode: "matrix_free"
   #   preconditioner:
   #     model: "none"
-  #     # To enable the provisional point-block approximation, use:
+  #     # To enable the frozen-momentum point-block preconditioner, use:
   #     # model: "frozen_momentum_jacobian"
   #     # structure:
   #     #   type: "point_block"
