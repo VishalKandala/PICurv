@@ -129,7 +129,10 @@ make review-packet CHANGED=working-tree
 
 The first five join registry identifiers to source symbols or watched files, pages,
 contracts, capability families, subsystem records, freshness state, and declared test
-evidence. Changed-set mode covers staged, unstaged, and untracked nonignored paths; an
+evidence. Changed-set mode covers staged, unstaged, and untracked nonignored paths. Each
+routed production path lists the make targets its narrowest owner declares as evidence:
+the capability families that name the path, else the subsystem its freshness surface
+names, else every routed subsystem. An
 unrouted production path returns advisory status 3 with a nearest-guide fallback and a
 targeted search. Status 0 means the join is complete over declared registry data, not
 that code behavior is correct. Unknown identifiers return 2; known but unresolved or

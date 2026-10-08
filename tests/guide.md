@@ -100,6 +100,7 @@ is a test-local routine.
   - page mode reports only the freshness surfaces that route review to that page
   - page-mode output does not depend on the order contracts are iterated
   - contract mode renders every registered contract and rejects unknown ids
+  - changed-set mode names each routed path's test targets from its narrowest owner
 - `test_storage.py`
   - rclone backend round trip, protect/offload/restore, and remote-only recovery
   - incomplete-checkpoint archival refusal and partial-restore markers

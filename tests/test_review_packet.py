@@ -300,6 +300,19 @@ def test_changed_path_classification_and_declared_routing():
     assert module.routes_for_path("src/not_declared_anywhere.c") == {}
 
 
+def test_changed_path_test_targets_come_from_the_narrowest_owner():
+    """!
+    @brief Verify a routed path names the make targets its owner declares, not every page neighbour's.
+    """
+    module = load_review_packet_module()
+    # Owned by a capability family directly.
+    assert "make unit-boundaries" in module.targets_for_routes(module.routes_for_path("src/Boundaries.c"))
+    # Owned through its freshness surface; the LES and grid subsystems share its pages only.
+    targets = module.targets_for_routes(module.routes_for_path("src/wallfunction.c"))
+    assert targets == ["make unit-boundaries", "make unit-runtime"]
+    assert module.targets_for_routes({}) == []
+
+
 def test_changed_mode_reports_coverage_before_changed_paths():
     """!
     @brief Verify working-tree routing is advisory, nonempty, and reports its route state first.

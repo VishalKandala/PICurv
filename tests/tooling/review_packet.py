@@ -916,6 +916,29 @@ def routes_for_path(path: str) -> dict[str, list[str]]:
     return {kind: values for kind, values in routes.items() if values}
 
 
+def targets_for_routes(routes: dict[str, list[str]]) -> list[str]:
+    """!
+    @brief Make targets declared as evidence by the narrowest owner a path routes to.
+    @details Page-sharing routes a source to every subsystem documented on the same
+             pages, which can be many. The owner is therefore taken narrowest first:
+             the capability families that list the path as a source; otherwise the
+             subsystems named like the path's freshness surfaces, which own it; and
+             only when neither exists, every routed subsystem.
+    @param[in] routes Routing categories from `routes_for_path()`.
+    @return Sorted verification commands, empty when no owner declares one.
+    """
+
+    families = {family["id"]: family for family in records(FAMILIES, "families")}
+    family_ids = list(routes.get("capability", []))
+    if not family_ids:
+        subsystems = {record["id"]: record for record in records(SUBSYSTEMS, "subsystems")}
+        owners = [sid for sid in routes.get("surface", []) if sid in subsystems]
+        owners = owners or [sid for sid in routes.get("subsystem", []) if sid in subsystems]
+        family_ids = [fid for sid in owners for fid in subsystems[sid].get("capability_families", [])]
+    evidence = {source for fid in family_ids if fid in families for source in evidence_sources(families[fid])}
+    return sorted(set(make_targets(sorted(evidence))))
+
+
 def guide_fallback(path: str) -> str:
     """!
     @brief Return the nearest existing directory guide for an unrouted production path.
@@ -971,6 +994,9 @@ def changed_mode(value: str) -> int:
         print(f"  [{categories[path]}] {path} ({states})")
         for kind, identifiers in routed.get(path, {}).items():
             print(f"      {kind}: {', '.join(identifiers)}")
+        if path in routed:
+            targets = targets_for_routes(routed[path])
+            print(f"      test targets: {', '.join(targets) if targets else '(none declared)'}")
         if categories[path] == "unrouted production":
             guide = guide_fallback(path)
             root = Path(path).parts[0]

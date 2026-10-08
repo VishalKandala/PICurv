@@ -286,8 +286,8 @@ review routing. Capability mode joins family to symbols, family page, contracts,
 freshness, subsystems, and evidence. Subsystem mode joins its families, obligation and
 concern pages, contracts, freshness, and evidence. Surface mode reverses a freshness
 record through watched paths and its related pages. Changed-set mode classifies staged,
-unstaged, and untracked nonignored paths and reports a production path not covered by a
-declared route.
+unstaged, and untracked nonignored paths, names the declared test targets of each routed
+production path's owner, and reports a production path not covered by a declared route.
 
 `ROUTE: complete over declared registry data (not over code behavior)` is deliberately
 narrow. A known identifier with an unresolved declaration, or a changed production path
