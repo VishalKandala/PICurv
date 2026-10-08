@@ -2,10 +2,10 @@
 #   Post-processing profile for the driven periodic validation cases
 # ==============================================================================
 # Produces nodal Ucat and P for visual inspection. The quantitative comparison
-# against DNS is done by tools/wall_normal_profile.py, which reads the
-# field_statistics window payloads directly rather than going through this
-# pipeline - there is no homogeneous-direction averaging task in the
-# postprocessor today.
+# against DNS needs the field_statistics window averaged along the one
+# homogeneous (streamwise) direction, and neither the postprocessor nor a
+# shipped tool does that today: driven_channel/tools/wall_normal_profile.py
+# averages over two homogeneous directions and so applies only to the channel.
 # ==============================================================================
 
 run_control:

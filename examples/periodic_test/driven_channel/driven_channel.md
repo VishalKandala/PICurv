@@ -195,4 +195,24 @@ resolution or from a precursor, carry it in with `mode: file`, and use
 `monitor.yml` accumulates first and second moments of `Ucat` over a stationary
 window. Turning those into `U+` vs `y+` needs an average over the two
 homogeneous directions, and the postprocessor has no homogeneous-averaging task,
-so that reduction is done outside it — see `tools/`.
+so that reduction is done outside it by `tools/wall_normal_profile.py`. It reads
+the window from one committed checkpoint bundle written after the window closed,
+folds the two walls together, and writes `U+`, the three RMS intensities, and
+`-<u'v'>+` against `y+`:
+
+```bash
+python3 examples/periodic_test/driven_channel/tools/wall_normal_profile.py \
+    --checkpoint <run>/output/checkpoints/step_<NNN> --window stationary \
+    --grid <run>/inputs/grid/grid.run --viscosity <1/Re> \
+    --wall-model-csv <run>/output/analysis/metrics/wall_model.csv \
+    --output profile.csv
+```
+
+The friction velocity sets every `+` quantity, so choose its source to suit the
+case. For `les_wallmodel_retau1000`, pass `--wall-model-csv`: the first cell sits
+in the log layer and no wall gradient is resolved, so the mean wall shear the
+model applied over the window is the only direct measure. For the wall-resolved
+variants, pass the converged body force with `--body-force`, which is the exact
+mean force balance. Without either, or `--u-tau`, the tool estimates the friction
+velocity from the first cell's gradient, which is only meaningful when that cell
+lies in the viscous sublayer.

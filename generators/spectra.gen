@@ -125,28 +125,30 @@ def read_petsc_vec_binary(path: str):
     return values.astype(float, copy=False)
 
 
-def extract_interior_cells(values, node_dims):
+def extract_interior_cells(values, node_dims, components=3):
     """!
-    @brief Reshape a Ucat payload to DMDA order and return the physical cell interior.
+    @brief Reshape a cell-centered payload to DMDA order and return the physical cell interior.
 
     PICurv sizes the cell-centered DMDA as `(IM+1, JM+1, KM+1)` for PICGRID node
     dimensions `(IM, JM, KM)`, so the stored vector carries one dummy layer below
     index 1 and one above index `IM-1` in each direction. Physical cell-centered
     values occupy `[1:KM, 1:JM, 1:IM]`, which is `(KM-1, JM-1, IM-1)` cells.
 
-    @param[in] values    Flat scalar array from `read_petsc_vec_binary()`.
-    @param[in] node_dims PICGRID node dimensions `(IM, JM, KM)`.
-    @return Interior cell-centered array shaped `(nk, nj, ni, 3)`.
+    @param[in] values     Flat scalar array from `read_petsc_vec_binary()`.
+    @param[in] node_dims  PICGRID node dimensions `(IM, JM, KM)`.
+    @param[in] components Interleaved components per cell: 3 for Ucat, 6 for a
+                          symmetric second-moment payload such as `Ucat_m2`.
+    @return Interior cell-centered array shaped `(nk, nj, ni, components)`.
     """
     im, jm, km = node_dims
-    expected = (im + 1) * (jm + 1) * (km + 1) * 3
+    expected = (im + 1) * (jm + 1) * (km + 1) * components
     if values.size != expected:
         raise ValueError(
             f"field vector length mismatch: expected {expected} scalars for PICGRID node "
-            f"dimensions {(im, jm, km)} (DMDA {(im + 1, jm + 1, km + 1)} with 3 Ucat "
+            f"dimensions {(im, jm, km)} (DMDA {(im + 1, jm + 1, km + 1)} with {components} "
             f"components), found {values.size}."
         )
-    full = values.reshape((km + 1, jm + 1, im + 1, 3))
+    full = values.reshape((km + 1, jm + 1, im + 1, components))
     return full[1:km, 1:jm, 1:im, :]
 
 
