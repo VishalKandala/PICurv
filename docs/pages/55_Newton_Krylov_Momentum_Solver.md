@@ -451,9 +451,9 @@ Production exercised - `turbulent-channel-nk-2026-09-29`, retained at
 **Diagnostics.** Krylov iteration counts before and after are the only meaningful diagnostic. `PCPBJACOBI` appears in PETSc output as the internal backend mapping; it is not a user-facing numerical model and should not be read as one.
 
 **Evidence.** Integration verified - `make unit-newton-krylov` covers model/backend/ownership wiring, exact constraint rows, matrix structure and reuse, and serial/MPI application.
-Production exercised - `humphrey-laminar-bend-nk-pointblock-2026-10-07`, retained at
-@ref p55_bend_evidence_sub: a three-grid curved-duct study on 48 ranks in which all
-13,500 steps converged and committed under this model.
+Production exercised - `humphrey-laminar-bend-nk-pointblock-2026-10-07`, a three-grid
+curved-duct study on 48 ranks in which all 13,500 steps converged and committed under
+this model, retained in @ref p55_bend_evidence_sub.
 
 **Limitations.** Supported for correct execution within the solver's declared scope; **no performance claim is made**, because no run compared it against `none` on the same case. It costs an extra assembled matrix in memory and an assembly per update, and the omitted terms make it a same-cell approximation rather than an approximate Jacobian in any global sense. Its quality falls as the discarded neighbour coupling grows relative to the mass term, so expect rising Krylov counts at large timesteps and on wall-resolved, high-Reynolds-number grids, where the near-wall diffusion number approaches one. The production evidence is laminar, steady, and low-Reynolds; that regime is untested with the current implementation.
 
