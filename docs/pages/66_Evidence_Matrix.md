@@ -112,7 +112,12 @@ likely to matter:
   step corner is reported by the generator and not validated against a solution.
 - **The turbulence closures carry no measured facet.** Every LES and wall-function
   value is experimental; at most they carry unit coverage and, for the dynamic model, a
-  production example. The LES models are detailed next.
+  production example. The three wall functions' unit coverage checks each law against
+  its own inverse and the boundary integration against the law, which says nothing about
+  whether the modelled wall stress is right: until 2026-10-08 `werner` passed those checks
+  while applying a cell-averaged relation to a point velocity and over-predicting the
+  friction velocity by 13.5% on the wall-modelled channel. The LES models are detailed
+  next.
 
 - **All four LES models are `experimental`.** All are implemented and carry unit
   coverage in `tests/c/test_les.c`, including an analytic check of the Germano model
