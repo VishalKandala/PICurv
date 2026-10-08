@@ -127,6 +127,11 @@ is a test-local routine.
   - solenoidal projection, component-energy balance, and directional isotropy
   - channel/duct discrete-curl seeds on stretched wall axes, flux and boundary consistency
   - PETSc axis mapping, Nyquist reality, and subordination to a restarted state
+- `test_driven_periodic_profile_tools.py`
+  - the channel and duct statistics reducers in `examples/periodic_test/*/tools/` on a
+    synthetic checkpoint bundle: covariance assembly, wall fold and shear-stress sign,
+    the duct's eight-image symmetry fold, and u_tau from the wall model or body force
+  - a copy inside an initialized case resolves the checkout through its origin record
 - `test_profile_field_slice.py`
   - cell-centered DMDA slice length, dummy layers never sampled, and each face
     reading its adjacent interior cell

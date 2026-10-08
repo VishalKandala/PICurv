@@ -60,11 +60,36 @@ import argparse
 import csv
 import importlib.machinery
 import importlib.util
+import json
 import math
 import os
 import sys
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+def find_repo_root():
+    """!
+    @brief Locate the PICurv checkout from the shipped example or from a case `picurv init` made.
+    @details In the repository this file sits four levels below the root. A copy inside an
+             initialized case does not, so the case's `.picurv-origin.json`, found by
+             walking up from this file, supplies the checkout it was made from.
+    @return Absolute path to the checkout.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    shipped = os.path.abspath(os.path.join(here, "..", "..", "..", ".."))
+    if os.path.isfile(os.path.join(shipped, "generators", "spectra.gen")):
+        return shipped
+    current = here
+    while True:
+        origin = os.path.join(current, ".picurv-origin.json")
+        if os.path.isfile(origin):
+            with open(origin, encoding="utf-8") as handle:
+                return json.load(handle).get("source_repo_root", shipped)
+        parent = os.path.dirname(current)
+        if parent == current:
+            return shipped
+        current = parent
+
+
+REPO_ROOT = find_repo_root()
 SPECTRA_GEN = os.path.join(REPO_ROOT, "generators", "spectra.gen")
 
 # Axis token -> index into the (k, j, i) array order the readers produce.
@@ -81,7 +106,8 @@ def load_spectra_helpers():
     @return The loaded module.
     """
     if not os.path.isfile(SPECTRA_GEN):
-        raise SystemExit(f"cannot find {SPECTRA_GEN}; run this from a PICurv checkout.")
+        raise SystemExit(f"cannot find {SPECTRA_GEN}; run this from a PICurv checkout "
+                         "or a case initialized from one.")
     loader = importlib.machinery.SourceFileLoader("picurv_spectra_gen", SPECTRA_GEN)
     spec = importlib.util.spec_from_loader("picurv_spectra_gen", loader)
     module = importlib.util.module_from_spec(spec)
@@ -119,6 +145,50 @@ def read_window(checkpoint_dir, window, block):
             dims = tuple(int(options[f"checkpoint_block_{block}_{axis}"]) for axis in ("im", "jm", "km"))
         return payload_dir, info, dims
     raise SystemExit(f"no statistics window named {window!r} in {metadata}; it holds {names}.")
+
+
+def homogeneous_statistics(checkpoint_dir, window_name, grid_path, block, homogeneous):
+    """!
+    @brief Reduce one statistics window's velocity moments over homogeneous directions.
+    @details The covariance over the homogeneous set is the mean of the per-cell
+             temporal covariance M2/W plus the spatial covariance of the per-cell time
+             means: <u_a' u_b'> = mean(M2_ab / W) + mean(U_a U_b) - mean(U_a) mean(U_b).
+    @param[in] checkpoint_dir Committed checkpoint bundle directory.
+    @param[in] window_name Statistics window name from monitor.yml.
+    @param[in] grid_path Canonical PICGRID path for the run.
+    @param[in] block Block index.
+    @param[in] homogeneous Axes to average over, as indices in (k, j, i) order.
+    @return Dict with `numpy`, `nodes` ((KM, JM, IM, 3) node coordinates), `window`
+            (its checkpoint.meta scalars), `mean` (remaining axes + (3,)) and
+            `covariance` (remaining axes + (6,), in M2_PAIRS order).
+    """
+    helpers = load_spectra_helpers()
+    numpy = helpers.require_numpy()
+    payload_dir, window, meta_dims = read_window(checkpoint_dir, window_name, block)
+    blocks = helpers.read_picgrid_blocks(grid_path)
+    if block >= len(blocks):
+        raise SystemExit(f"block {block} is out of range; the grid holds {len(blocks)}.")
+    node_dims = blocks[block]["dims"]
+    if meta_dims is not None and tuple(meta_dims) != tuple(node_dims):
+        raise SystemExit(f"grid dimensions {node_dims} do not match the checkpoint's {meta_dims}.")
+
+    def payload(name, components):
+        values = helpers.read_petsc_vec_binary(os.path.join(payload_dir, f"{name}.dat"))
+        return helpers.extract_interior_cells(values, node_dims, components)
+
+    mean = payload("Ucat_mean", 3)
+    m2 = payload("Ucat_m2", 6)
+    weight = payload("weight", 1)[..., 0]
+    if not numpy.all(weight > 0.0):
+        raise SystemExit(f"window {window_name!r} has cells with no accepted weight.")
+
+    reduced_mean = numpy.mean(mean, axis=homogeneous)
+    temporal = numpy.mean(m2 / weight[..., None], axis=homogeneous)
+    spatial = numpy.stack(
+        [numpy.mean(mean[..., a] * mean[..., b], axis=homogeneous)
+         - reduced_mean[..., a] * reduced_mean[..., b] for a, b in M2_PAIRS], axis=-1)
+    return {"numpy": numpy, "nodes": blocks[block]["coords"], "window": window,
+            "mean": reduced_mean, "covariance": temporal + spatial}
 
 
 def friction_velocity_from_wall_model(csv_path, start, end):
@@ -173,42 +243,18 @@ def main(argv=None):
     parser.add_argument("--output", required=True, help="Output CSV path.")
     args = parser.parse_args(argv)
 
-    helpers = load_spectra_helpers()
-    numpy = helpers.require_numpy()
-
-    payload_dir, window, meta_dims = read_window(args.checkpoint, args.window, args.block)
-    blocks = helpers.read_picgrid_blocks(args.grid)
-    if args.block >= len(blocks):
-        raise SystemExit(f"block {args.block} is out of range; the grid holds {len(blocks)}.")
-    node_dims = blocks[args.block]["dims"]
-    nodes = blocks[args.block]["coords"]
-    if meta_dims is not None and tuple(meta_dims) != tuple(node_dims):
-        raise SystemExit(f"grid dimensions {node_dims} do not match the checkpoint's {meta_dims}.")
-
     wall_kji = AXIS_TO_KJI[args.wall_axis]
     stream_c = AXIS_TO_COMPONENT[args.stream_axis]
     wall_c = AXIS_TO_COMPONENT[args.wall_axis]
     span_c = ({0, 1, 2} - {stream_c, wall_c}).pop()
     homogeneous = tuple(axis for axis in (0, 1, 2) if axis != wall_kji)
 
-    def payload(name, components):
-        values = helpers.read_petsc_vec_binary(os.path.join(payload_dir, f"{name}.dat"))
-        return helpers.extract_interior_cells(values, node_dims, components)
-
-    mean = payload("Ucat_mean", 3)
-    m2 = payload("Ucat_m2", 6)
-    weight = payload("weight", 1)[..., 0]
-    if not numpy.all(weight > 0.0):
-        raise SystemExit(f"window {args.window!r} has cells with no accepted weight.")
-
-    plane_mean = numpy.mean(mean, axis=homogeneous)
-    temporal = numpy.mean(m2 / weight[..., None], axis=homogeneous)
+    stats = homogeneous_statistics(args.checkpoint, args.window, args.grid, args.block, homogeneous)
+    numpy, nodes, window = stats["numpy"], stats["nodes"], stats["window"]
+    plane_mean = stats["mean"]
 
     def covariance(a, b):
-        pair = M2_PAIRS.index(tuple(sorted((a, b))))
-        spatial = numpy.mean(mean[..., a] * mean[..., b], axis=homogeneous) \
-            - plane_mean[:, a] * plane_mean[:, b]
-        return temporal[:, pair] + spatial
+        return stats["covariance"][:, M2_PAIRS.index(tuple(sorted((a, b))))]
 
     # Wall-normal cell-centre coordinates, taken from the node coordinates of the
     # wall-normal axis. nodes is (KM, JM, IM, 3) in the same (k, j, i) order.

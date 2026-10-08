@@ -75,6 +75,34 @@ The statistics window in `monitor.yml` is deliberately long. The secondary flow
 is a small residual of a long average; a short window will show noise where the
 cells should be.
 
+### 5.1 Extracting the comparison
+
+The postprocessor has no homogeneous-averaging task, so
+`tools/cross_section_profile.py` reduces the window outside it. It reads one
+committed checkpoint bundle written after the window closed and averages along the
+stream:
+
+```bash
+python3 examples/periodic_test/driven_duct/tools/cross_section_profile.py \
+    --checkpoint <run>/output/checkpoints/step_<NNN> --window stationary \
+    --grid <run>/inputs/grid/grid.run --viscosity 4.5351474e-04 \
+    --output-prefix duct
+```
+
+It writes one CSV per criterion: `duct_wall_bisector.csv` and
+`duct_corner_bisector.csv` in wall units (1), `duct_cross_section.csv` with every
+cell's mean velocity and covariance for contouring the secondary flow (2), and
+`duct_wall_shear.csv` around the perimeter, normalized by its mean (3). The header
+of each reports `U_b`, `Re_tau`, and the peak secondary speed over `U_b`.
+
+By default the cross-section is folded onto one octant, averaging its eight
+symmetry images, which is what makes a 1-3% secondary flow readable from a finite
+window. `--no-fold` keeps the raw field; its departure from symmetry is a direct
+estimate of the remaining sampling error, and a reason to lengthen the window if it
+rivals the secondary flow. The friction velocity defaults to the perimeter mean of
+the first cells' resolved gradient, which the shipped `y+ ~ 0.5` spacing supports;
+`--body-force` uses the exact force balance `u_tau = sqrt(f A / P)` instead.
+
 ## 6. Before you launch
 
 Neither blocker once listed here stands. The pseudo-time momentum stall on periodic
