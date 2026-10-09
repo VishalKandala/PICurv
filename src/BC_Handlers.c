@@ -2498,6 +2498,8 @@ static PetscErrorCode PreStep_PeriodicDrivenConstant(BoundaryCondition *self, BC
     if (globalBoundaryArea > 1.0e-12) {
         if (data->lastBulkCorrectionStep != simCtx->step) {
             simCtx->bulkVelocityCorrection = (data->targetVolumetricFlux - globalAveragePlanarVolumetricFlux) / globalBoundaryArea;
+            simCtx->drivenFluxMeasured = globalAveragePlanarVolumetricFlux;
+            simCtx->drivenFluxArea     = globalBoundaryArea;
             data->lastBulkCorrectionStep = simCtx->step;
         }
         simCtx->boundaryVelocityCorrection = (data->targetVolumetricFlux - globalCurrentBoundaryFlux) / globalBoundaryArea;

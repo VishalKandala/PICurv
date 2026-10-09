@@ -138,6 +138,15 @@ def test_channel_profile_reduces_folds_and_reads_the_wall_model(tmp_path):
                       "--wall-model-csv", str(csv_path), "--output", str(out)]) == 0
     assert out.read_text(encoding="utf-8").startswith("# u_tau = 5.0000000000e-01")   # sqrt(0.3^2 + 0.4^2)
 
+    driven = tmp_path / "driven_flow.csv"
+    driven.write_text("step,time,direction,target_flux,measured_flux,cross_section_area,bulk_velocity,"
+                      "bulk_velocity_correction,driving_acceleration,physical_time\n"
+                      "1,0.5,Z,2,2,2,1,0,5.0,0.5\n2,1.5,Z,2,2,2,1,0,0.08,1.5\n3,2.5,Z,2,2,2,1,0,0.10,2.5\n",
+                      encoding="utf-8")
+    assert tool.main(["--checkpoint", str(bundle), "--grid", str(grid), "--viscosity", "0.01",
+                      "--driven-flow-csv", str(driven), "--output", str(out)]) == 0
+    assert out.read_text(encoding="utf-8").startswith("# u_tau = 3.0000000000e-01")   # sqrt(<0.08, 0.10> * 1)
+
 
 def test_duct_cross_section_folds_onto_one_octant(tmp_path):
     """!
@@ -174,6 +183,15 @@ def test_duct_cross_section_folds_onto_one_octant(tmp_path):
     area = np.outer(dx, dx)
     bulk = float((mean[..., 2].mean(axis=0) * area).sum() / area.sum())
     assert f"U_b = {bulk:.10e}" in header
+
+    driven = tmp_path / "driven_flow.csv"
+    driven.write_text("step,time,direction,target_flux,measured_flux,cross_section_area,bulk_velocity,"
+                      "bulk_velocity_correction,driving_acceleration,physical_time\n"
+                      "1,2.0,Z,4,4,4,1,0,0.02,2.0\n", encoding="utf-8")
+    assert tool.main(["--checkpoint", str(bundle), "--grid", str(grid), "--viscosity", "0.01",
+                      "--driven-flow-csv", str(driven), "--output-prefix", str(prefix)]) == 0
+    assert Path(str(prefix) + "_wall_bisector.csv").read_text(encoding="utf-8").startswith(
+        "# u_tau = 1.0000000000e-01")                                      # sqrt(0.02 * 4 / 8)
 
     assert tool.main(["--checkpoint", str(bundle), "--grid", str(grid), "--viscosity", "0.01",
                       "--no-fold", "--output-prefix", str(prefix)]) == 0

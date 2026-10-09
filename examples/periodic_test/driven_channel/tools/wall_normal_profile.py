@@ -32,6 +32,8 @@ The friction velocity comes from one of:
 
 - `--body-force f`: u_tau = sqrt(f h), the exact mean force balance of a
   body-force-driven channel;
+- `--driven-flow-csv`: the same balance with f the driving acceleration from the run's
+  `driven_flow.csv`, averaged over the window's effective bounds;
 - `--wall-model-csv`: the run's `wall_model.csv`, as sqrt(<u_tau^2>) over the
   rows inside the window's effective bounds, which is the mean wall shear a
   wall-modelled run actually applies (a wall-modelled LES resolves no wall
@@ -212,6 +214,28 @@ def friction_velocity_from_wall_model(csv_path, start, end):
     return math.sqrt(total / rows), rows
 
 
+def mean_driving_acceleration(csv_path, start, end):
+    """!
+    @brief Time-averaged driving acceleration a driven-periodic controller applied.
+    @details In a statistically stationary driven flow the mean force balances the mean
+             wall stress: <a> h = u_tau^2 for a channel of half-height h, and <a> A = tau_w P
+             for a duct of cross-section area A and wetted perimeter P.
+    @param[in] csv_path Path to the run's driven_flow.csv.
+    @param[in] start Window effective start, in solver time.
+    @param[in] end Window effective end, in solver time.
+    @return Tuple of (mean driving acceleration, number of rows used).
+    """
+    total, rows = 0.0, 0
+    with open(csv_path, newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            if start <= float(row["time"]) <= end:
+                total += float(row["driving_acceleration"])
+                rows += 1
+    if rows == 0:
+        raise SystemExit(f"{csv_path} has no rows with time in the window [{start}, {end}].")
+    return total / rows, rows
+
+
 def main(argv=None):
     """!
     @brief Entry point.
@@ -239,6 +263,9 @@ def main(argv=None):
                              "force balance.")
     source.add_argument("--wall-model-csv",
                         help="The run's wall_model.csv; u_tau = sqrt(<u_tau^2>) over the window.")
+    source.add_argument("--driven-flow-csv",
+                        help="The run's driven_flow.csv; u_tau = sqrt(<a> h) from the driving "
+                             "acceleration averaged over the window.")
     source.add_argument("--u-tau", type=float, help="Friction velocity supplied directly.")
     parser.add_argument("--output", required=True, help="Output CSV path.")
     args = parser.parse_args(argv)
@@ -286,6 +313,11 @@ def main(argv=None):
     if args.body_force is not None:
         u_tau = math.sqrt(args.body_force * h)
         source_note = f"sqrt(f*h) with f={args.body_force:.8e}"
+    elif args.driven_flow_csv is not None:
+        start, end = float(window["effective_start"]), float(window["effective_end"])
+        accel, rows = mean_driving_acceleration(args.driven_flow_csv, start, end)
+        u_tau = math.sqrt(accel * h)
+        source_note = f"sqrt(<a>*h) with <a>={accel:.8e} over {rows} driven_flow.csv rows"
     elif args.wall_model_csv is not None:
         start, end = float(window["effective_start"]), float(window["effective_end"])
         u_tau, rows = friction_velocity_from_wall_model(args.wall_model_csv, start, end)

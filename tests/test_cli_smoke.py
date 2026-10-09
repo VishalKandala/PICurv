@@ -4958,6 +4958,34 @@ def test_summarize_exposes_les_coefficient_history_as_plot_series(tmp_path):
     assert points[0][0] < points[1][0]
 
 
+def test_summarize_exposes_driven_flow_history_as_plot_series(tmp_path):
+    """!
+    @brief Test the driven-flow controller log becomes a plottable summarize series.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = create_summary_run_dir(tmp_path)
+    (run_dir / picurv.CANONICAL_RUN_PATHS["metrics"] / "driven_flow.csv").write_text(
+        "step,time,direction,target_flux,measured_flux,cross_section_area,"
+        "bulk_velocity,bulk_velocity_correction,driving_acceleration,physical_time\n"
+        "1,5.0e-02,Z,2.0,2.0,2.0,1.0,-4.9e-14,0.0,5.0e-02\n"
+        "2,1.0e-01,Z,2.0,1.974,2.0,0.987,1.3e-02,3.0e-02,1.0e-01\n",
+        encoding="utf-8",
+    )
+
+    context = picurv._build_summary_context(str(run_dir))
+    records = picurv._collect_summary_plot_records(context)
+    driven = [record for record in records if record["source"] == "driven_flow"]
+
+    assert len(driven) == 2
+    # The force the flow received is what a driven channel's friction velocity follows from.
+    assert driven[1]["values"]["driving_acceleration"] == pytest.approx(0.03)
+    assert driven[1]["values"]["bulk_velocity"] == pytest.approx(0.987)
+    request = picurv._build_summary_plot_request(
+        context, records, "driven_flow.driving_acceleration", None, False, None)
+    assert [point[1] for point in request["lines"][0]["points"]] == pytest.approx([0.0, 0.03])
+
+
 def test_summarize_plot_request_uses_latest_continuation_segment_and_last_window(tmp_path):
     """!
     @brief Test plot requests use only the latest continuation segment and last-N records.

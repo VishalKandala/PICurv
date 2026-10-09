@@ -497,6 +497,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->FluxInSum = 0.0; simCtx->FluxOutSum = 0.0; simCtx->Fluxsum = 0.0;
     simCtx->drivingForceMagnitude = 0.0, simCtx->forceScalingFactor = 1.8;
     simCtx->drivingForceStep = -1;
+    simCtx->drivenFluxMeasured = 0.0; simCtx->drivenFluxArea = 0.0;
     simCtx->targetVolumetricFlux  = 0.0;
     simCtx->drivenFluxTargetLatched = PETSC_FALSE;
     simCtx->bulkVelocityCorrection = 0.0;

@@ -165,6 +165,8 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
            configured independently of LES and its last pass this step is the boundary
            pass, not the closure prologue. A no-op when no wall model is active. */
         ierr = LogWallModelDiagnostics(&user[bi]); CHKERRQ(ierr);
+        /* The force a driven-periodic controller applied this step. A no-op without one. */
+        ierr = LogDrivenFlowDiagnostics(&user[bi]); CHKERRQ(ierr);
         /*
         // --- Immersed Boundary Interpolation (Post-Correction) ---
         // This step would update the velocity values AT the IB nodes to match the

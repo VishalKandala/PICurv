@@ -96,7 +96,8 @@ axis is periodic). The shipped level counts assume a moderate decomposition; see
 
 ### 5.1 Laminar (`laminar/`) — exact verification
 
-For half-height `h`, viscosity `nu` and the converged body force `f`:
+For half-height `h`, viscosity `nu` and the converged body force `f` (`driving_acceleration`
+in `<run.analysis.metrics>/driven_flow.csv`, one row per step):
 
     u(y)  = (f / 2nu) (h^2 - (y - h)^2)
     U_b   = f h^2 / 3nu      ->   f = 3 nu U_b / h^2
@@ -213,7 +214,8 @@ The friction velocity sets every `+` quantity, so choose its source to suit the
 case. For `les_wallmodel_retau1000`, pass `--wall-model-csv`: the first cell sits
 in the log layer and no wall gradient is resolved, so the mean wall shear the
 model applied over the window is the only direct measure. For the wall-resolved
-variants, pass the converged body force with `--body-force`, which is the exact
-mean force balance. Without either, or `--u-tau`, the tool estimates the friction
+variants, pass `--driven-flow-csv` with the run's `driven_flow.csv`: it averages the
+applied force over the window, the exact mean force balance (`--body-force` takes a value
+directly). Without either, or `--u-tau`, the tool estimates the friction
 velocity from the first cell's gradient, which is only meaningful when that cell
 lies in the viscous sublayer.

@@ -416,8 +416,12 @@ segments takes effect - deliberately unlike `initial_flux`. `enforce_seam_flux`
 enables a second, local actuator at the seam plane; it is off by default because it
 can reintroduce divergence the pressure solve just removed.
 
-**Diagnostics.** The applied body force and the measured flux are logged each step.
-`Bcs.Uch` records the seam correction whether or not it is applied, so you can see
+**Diagnostics.** `<run.analysis.metrics>/driven_flow.csv` records one row per step: the
+target and measured volumetric flux, the cross-section area, the bulk velocity, the
+correction, and `driving_acceleration`, the force per unit mass the flow received that
+step (zero on a step whose correction was negligible). Its time average is the mean wall
+stress balance: `u_tau^2 / h` for a channel of half-height `h`. `picurv summarize --plot
+driven_flow.driving_acceleration` draws it. `Bcs.Uch` records the seam correction whether or not it is applied, so you can see
 whether you need it before enabling it.
 
 **Evidence.** Regression verified - `tests/smoke/run_driven_periodic_regression.sh`
@@ -460,7 +464,8 @@ and says so in the log.
 
 **Diagnostics.** The latched target is reported once when measured and again when
 restored from a checkpoint. A restart that re-measures instead of restoring is
-logged explicitly.
+logged explicitly. Each step writes the same `driven_flow.csv` row as
+@ref p44_cap_constant_flux "constant_flux", with the latched value as `target_flux`.
 
 **Evidence.** Regression verified - `make smoke-driven-periodic`. Production
 exercised in the driven-channel examples. Analytically verified - `periodic-channel-laminar-picard-2026-09-18`: gives the same

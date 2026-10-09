@@ -157,8 +157,9 @@ state that force balances the wall drag, so the realized bulk velocity falls sho
 target by `f * dt / 2.7`. For a laminar channel of half-height `h`, where
 `f = 3 nu U_b / h^2`, this gives `U_b = U_target / (1 + 3 nu dt / (2.7 h^2))`: 0.056% short
 for the shipped laminar case, and 10% short at `nu = 0.1, dt = 1`, where the measurement
-above confirmed the law to second order in the grid. Read the realized flux from the
-controller log rather than assuming the target; in turbulent runs at typical `dt` the
+above confirmed the law to second order in the grid. Read the realized flux and the
+applied force from `<run.analysis.metrics>/driven_flow.csv` (`bulk_velocity`,
+`driving_acceleration`) rather than assuming the target; in turbulent runs at typical `dt` the
 shortfall is far below the statistical noise.
 
 

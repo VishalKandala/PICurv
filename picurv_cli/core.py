@@ -22644,6 +22644,23 @@ def _collect_summary_plot_records(context: dict) -> list:
                 wall_path, segment,
             )
 
+    # The driven-flow controller history. driving_acceleration is the force per unit mass
+    # the flow received; in a stationary driven channel its time average is u_tau^2 / h.
+    driven_path = os.path.join(metrics_dir, "driven_flow.csv")
+    if os.path.isfile(driven_path):
+        for segment, row in _read_runtime_diagnostics_csv(driven_path):
+            _append_summary_plot_record(
+                records, "driven_flow", _parse_int_loose(row.get("step")), "controller",
+                {
+                    "target_flux": _parse_float_loose(row.get("target_flux")),
+                    "measured_flux": _parse_float_loose(row.get("measured_flux")),
+                    "bulk_velocity": _parse_float_loose(row.get("bulk_velocity")),
+                    "bulk_velocity_correction": _parse_float_loose(row.get("bulk_velocity_correction")),
+                    "driving_acceleration": _parse_float_loose(row.get("driving_acceleration")),
+                },
+                driven_path, segment,
+            )
+
     profiling_path = os.path.join(log_dir, context["profiling_cfg"].get("timestep_file", "Profiling_Timestep_Summary.csv"))
     if os.path.isfile(profiling_path):
         segment = 0

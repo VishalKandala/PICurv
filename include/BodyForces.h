@@ -73,4 +73,26 @@
  */
 PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct);
 
+/**
+ * @brief Appends one row of driven-flow controller state to `driven_flow.csv`.
+ *
+ * Active whenever a `constant_flux` or `initial_flux` handler drives the flow, in any
+ * geometry. Call once per physical step, after the momentum solve, so the row holds the
+ * force that step actually applied. Rank 0 writes; block 0 only, since the controller
+ * state lives in `SimCtx`.
+ *
+ * Columns: `target_flux` and `measured_flux` (the planar-average volumetric flux the
+ * correction was computed from this step), `cross_section_area`, `bulk_velocity` (their
+ * ratio), `bulk_velocity_correction`, and `driving_acceleration`, the momentum source per
+ * unit mass along the driven axis in solver units: the smoothed magnitude times
+ * `-driven_flow_scaling_factor`, or zero on a step where the correction was negligible and
+ * no source was added. In a statistically stationary driven channel its time average is
+ * the mean wall stress over the half-height, `u_tau^2 / h`; in a duct, the mean wall stress
+ * times the wetted perimeter over the cross-section area.
+ *
+ * @param[in] user Block context; only block 0 reports.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode LogDrivenFlowDiagnostics(UserCtx *user);
+
 #endif // BODYFORCES_H

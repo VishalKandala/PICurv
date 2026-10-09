@@ -211,7 +211,7 @@ stage_case constant_flux "${dest}" 0
 sed -i -e "s|^  verbosity: .*|  verbosity: DEBUG|" \
        -e "s|^  enabled_functions: .*|  enabled_functions: [\"ComputeDrivenChannelFlowSource\"]|" \
        "${dest}/monitor.yml"
-run_case "${dest}" "${force_nprocs}" > /dev/null
+force_run_dir="$(run_case "${dest}" "${force_nprocs}")"
 
 python3 - "${dest}/run.log" "${STEPS}" <<'PY' || exit 1
 import re, sys, itertools
@@ -242,6 +242,28 @@ if calls < 4 * len(groups):
              "residual evaluations per step to be meaningful.")
 print(f"applied force: {calls} evaluations over {steps} steps -> {len(groups)} contiguous runs "
       f"(lengths {[n for _, n in groups]}); constant within every timestep.")
+PY
+
+# --- 2b. driven_flow.csv reports the force the solver applied. ------------------
+# One row per step; the nonzero driving_acceleration values, in order, must be the
+# per-step smoothed magnitudes above times the default -driven_flow_scaling_factor
+# (1.8), and a step that applied nothing must read zero rather than a stale value.
+echo "--- driven_flow.csv matches the applied force ---"
+python3 - "${dest}/run.log" "${force_run_dir}/output/analysis/metrics/driven_flow.csv" "${STEPS}" <<'PY' || exit 1
+import csv, itertools, re, sys
+log, path, steps = sys.argv[1], sys.argv[2], int(sys.argv[3])
+smoothed = [float(k) for k, _ in itertools.groupby(
+    re.findall(r"New smoothed driving force:\s+(\S+)", open(log).read()))]
+rows = list(csv.DictReader(r for r in open(path) if not r.startswith("#")))
+if len(rows) != steps:
+    sys.exit(f"{path}: {len(rows)} rows for {steps} steps.")
+applied = [float(r["driving_acceleration"]) for r in rows if float(r["driving_acceleration"]) != 0.0]
+expected = [1.8 * f for f in smoothed]
+if len(applied) != len(expected) or any(abs(a - e) > 1e-5 * max(abs(e), 1e-12)
+                                        for a, e in zip(applied, expected)):
+    sys.exit(f"driven_flow.csv driving_acceleration {applied} does not match 1.8 x the applied "
+             f"smoothed force {expected}.")
+print(f"driven_flow.csv: {len(rows)} rows; {len(applied)} applied forces match the solver's to 1e-5.")
 PY
 
 # --- 3. initial_flux latch, and its survival across a restart. ----------------

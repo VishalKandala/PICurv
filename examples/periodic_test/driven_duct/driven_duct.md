@@ -101,7 +101,8 @@ window. `--no-fold` keeps the raw field; its departure from symmetry is a direct
 estimate of the remaining sampling error, and a reason to lengthen the window if it
 rivals the secondary flow. The friction velocity defaults to the perimeter mean of
 the first cells' resolved gradient, which the shipped `y+ ~ 0.5` spacing supports;
-`--body-force` uses the exact force balance `u_tau = sqrt(f A / P)` instead.
+`--driven-flow-csv` with the run's `driven_flow.csv` uses the exact force balance
+`u_tau = sqrt(<f> A / P)` instead, `f` averaged over the window.
 
 ## 6. Before you launch
 

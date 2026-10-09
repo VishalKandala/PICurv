@@ -980,6 +980,10 @@ typedef struct SimCtx {
     PetscBool drivenFluxTargetLatched;
     PetscReal bulkVelocityCorrection;
     PetscReal boundaryVelocityCorrection;
+    /* The planar-average volumetric flux and cross-section area the controller set
+     * `bulkVelocityCorrection` from this step. Kept so the driven-flow diagnostics can
+     * report them without repeating the controller's global reductions. */
+    PetscReal drivenFluxMeasured, drivenFluxArea;
     PetscReal  AreaInSum, AreaOutSum;
     PetscInt   ccc;
     PetscReal  ratio;

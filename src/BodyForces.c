@@ -1,9 +1,32 @@
 #include "BodyForces.h"
+#include "io.h"
 
 
 //////////////////////////////////////////////
 // DRIVEN CHANNEL FLOW FORCE(EQUIVALENT) TERM 
 /////////////////////////////////////////////
+
+/**
+ * @brief The axis a driven periodic handler drives, or ' ' when none is configured.
+ * @param[in] user Block whose boundary faces are inspected.
+ * @return 'X', 'Y', 'Z', or ' '.
+ */
+static char DrivenFlowDirection(const UserCtx *user)
+{
+    for (int i = 0; i < 6; i++) {
+        const BCHandlerType handler_type = user->boundary_faces[i].handler_type;
+        if (handler_type == BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX ||
+            handler_type == BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX) {
+            switch (user->boundary_faces[i].face_id) {
+                case BC_FACE_NEG_X: case BC_FACE_POS_X: return 'X';
+                case BC_FACE_NEG_Y: case BC_FACE_POS_Y: return 'Y';
+                case BC_FACE_NEG_Z: case BC_FACE_POS_Z: return 'Z';
+            }
+            return ' ';
+        }
+    }
+    return ' ';
+}
 
 #undef __FUNCT__
 #define __FUNCT__ "ComputeDrivenChannelFlowSource"
@@ -18,20 +41,7 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
     PetscFunctionBeginUser;
 
     // --- Step 1: Discover if and where a driven flow is active ---
-    char drivenDirection = ' '; // Use space as a null/not-found indicator
-    for (int i = 0; i < 6; i++) {
-        BCHandlerType handler_type = user->boundary_faces[i].handler_type;
-        if (handler_type == BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX ||
-            handler_type == BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX)
-        {
-            switch (user->boundary_faces[i].face_id) {
-                case BC_FACE_NEG_X: case BC_FACE_POS_X: drivenDirection = 'X'; break;
-                case BC_FACE_NEG_Y: case BC_FACE_POS_Y: drivenDirection = 'Y'; break;
-                case BC_FACE_NEG_Z: case BC_FACE_POS_Z: drivenDirection = 'Z'; break;
-            }
-            break; // Found it, no need to check other faces
-        }
-    }
+    const char drivenDirection = DrivenFlowDirection(user); // ' ' when none is configured
 
     // --- Step 2: Early exit if no driven flow is configured ---
     if (drivenDirection == ' ') {
@@ -151,5 +161,49 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
 
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "LogDrivenFlowDiagnostics"
+/**
+ * @brief Implementation of \ref LogDrivenFlowDiagnostics().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/BodyForces.h`.
+ */
+PetscErrorCode LogDrivenFlowDiagnostics(UserCtx *user)
+{
+    SimCtx    *simCtx = user->simCtx;
+    const char direction = DrivenFlowDirection(user);
+    FILE      *file = NULL;
+
+    PetscFunctionBeginUser;
+
+    /* The controller state is global: every rank holds the same values, set from the
+       controller's collective reductions, so rank 0 reports it once per step. */
+    if (direction == ' ' || user->_this != 0 || simCtx->rank != 0) PetscFunctionReturn(0);
+
+    /* What the momentum equation actually received this step. The source is resolved
+       once per step and skipped entirely when the correction is negligible, in which
+       case the smoothed magnitude is stale and nothing was applied. */
+    const PetscBool applied = (PetscBool)(simCtx->drivingForceStep == simCtx->step &&
+                                          PetscAbsReal(simCtx->bulkVelocityCorrection) >= 1.0e-12);
+    const PetscReal acceleration = applied ? simCtx->drivingForceMagnitude * simCtx->forceScalingFactor : 0.0;
+    const PetscReal area = simCtx->drivenFluxArea;
+    const PetscReal bulk_velocity = (area > 0.0) ? simCtx->drivenFluxMeasured / area : 0.0;
+    PetscReal physical_time = 0.0;
+
+    PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
+    PetscCall(PicurvOpenDiagnosticsCsv(simCtx, "driven_flow.csv",
+                                       "step,time,direction,target_flux,measured_flux,cross_section_area,"
+                                       "bulk_velocity,bulk_velocity_correction,driving_acceleration,physical_time",
+                                       &file));
+    fprintf(file, "%d,%.6e,%c,%.10e,%.10e,%.10e,%.10e,%.6e,%.10e,%.6e\n",
+            (int)simCtx->step, (double)simCtx->ti, direction,
+            (double)simCtx->targetVolumetricFlux, (double)simCtx->drivenFluxMeasured, (double)area,
+            (double)bulk_velocity, (double)simCtx->bulkVelocityCorrection, (double)acceleration,
+            (double)physical_time);
+    PetscCheck(fclose(file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+               "Unable to close the driven-flow diagnostics file.");
     PetscFunctionReturn(0);
 }

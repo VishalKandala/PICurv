@@ -29,7 +29,8 @@ flow readable; `--no-fold` keeps the raw cross-section, whose asymmetry is a
 measure of the remaining sampling error.
 
 The friction velocity is the perimeter mean of the wall shear: from `--body-force`
-as sqrt(f A / P), the exact mean force balance; from `--u-tau`; or by default from
+as sqrt(f A / P), the exact mean force balance, or the same with f averaged from the
+run's `driven_flow.csv` (`--driven-flow-csv`); from `--u-tau`; or by default from
 the first cells' resolved gradient, nu U / d, which is meaningful only when the
 first cells lie in the viscous sublayer.
 
@@ -107,6 +108,9 @@ def main(argv=None):
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--body-force", type=float,
                         help="Converged driving body force f; u_tau = sqrt(f*A/P).")
+    source.add_argument("--driven-flow-csv",
+                        help="The run's driven_flow.csv; u_tau = sqrt(<a> A / P) from the driving "
+                             "acceleration averaged over the window.")
     source.add_argument("--u-tau", type=float, help="Friction velocity supplied directly.")
     parser.add_argument("--no-fold", action="store_true",
                         help="Keep the raw cross-section instead of folding it onto one octant.")
@@ -201,6 +205,11 @@ def main(argv=None):
         cross_area = span[0] * span[1]
         u_tau = math.sqrt(args.body_force * cross_area / perimeter)
         source_note = f"sqrt(f*A/P) with f={args.body_force:.8e}"
+    elif args.driven_flow_csv is not None:
+        accel, rows = channel.mean_driving_acceleration(args.driven_flow_csv, float(window["effective_start"]),
+                                                        float(window["effective_end"]))
+        u_tau = math.sqrt(accel * span[0] * span[1] / perimeter)
+        source_note = f"sqrt(<a>*A/P) with <a>={accel:.8e} over {rows} driven_flow.csv rows"
     elif args.u_tau is not None:
         u_tau = args.u_tau
         source_note = "supplied with --u-tau"
