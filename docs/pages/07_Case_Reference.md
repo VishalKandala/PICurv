@@ -436,10 +436,10 @@ output.
 
 **Evidence.** Implemented, with unit coverage: `tests/c/test_les.c` case
 `constant-model-needs-no-coefficient-field` runs the model with no coefficient field
-allocated and checks the resulting `nu_t` against the closed form.
+allocated and checks the resulting `nu_t` against the closed form. Benchmark characterized - `hom02-les-execution-2026-10-09`: on AGARD HOM02 decaying isotropic turbulence started from Wray's 512^3 DNS field, the model at `constant_cs: 0.17` ran to the last DNS spectrum at 64^3, 32^3 and 64 x 64 x 32, and at 64^3 brought the cutoff-band energy from the unmodelled pile-up (mean log10 error +0.72 against the DNS) to +0.11.
 
 **Limitations.** The coefficient is constant in space and time, so it cannot adapt near
-walls and does not vanish in laminar regions the way a dynamic procedure does.
+walls and does not vanish in laminar regions the way a dynamic procedure does. On HOM02 at 64^3 (`hom02-les-accuracy-2026-10-09`, not met) the resolved energy runs up to 26% above the DNS during the first 1.5 time units and ends 14% below it; the low-band spectrum is within 0.093 RMS in log10.
 
 @subsection p07_cap_les_dynamic_smagorinsky_sub dynamic_smagorinsky
 
@@ -486,19 +486,13 @@ averaging reduction is checked to be decomposition-independent in
 model end to end; on a shortened 32^3 run of it the coefficient field comes out uniform
 to roundoff under `averaging.mode: homogeneous`, as averaging over a homogeneous set
 must, and `Cs` climbs monotonically from a random initial field. That is a trend check,
-not a validation - the run was not carried far enough for `Cs` to settle.
-
-@note **Status: experimental.** The formulation is correct and unit-tested, but the
-coefficient has not yet been validated against a reference flow. The check that would
-settle it is decaying isotropic turbulence with homogeneous averaging, where `Cs(t)`
-should settle near 0.16-0.17; until that run is recorded, treat the magnitude as
-uncharacterized.
+not a validation - the run was not carried far enough for `Cs` to settle. Benchmark characterized - `hom02-les-execution-2026-10-09`: on HOM02 at 64^3 the whole-domain `Cs` settles without drift at 0.193-0.196 with homogeneous averaging and 0.181-0.183 with local averaging, and the unmodelled cutoff-band pile-up (+0.72 in mean log10) falls to +0.012 (homogeneous) and +0.024 to +0.038 (local). Externally validated - `wmles-channel-retau1000-werner-2026-10-09`: with homogeneous averaging, `clamp`, `volume_weighted_box` and the Werner wall model, the wall-modelled Re_tau ~ 1000 channel matches Lee & Moser (2015) to 1.1% RMS in bulk-unit mean velocity and to 0.91-1.02 in outer-layer resolved Reynolds shear stress, with `Cs` 0.133. Production exercised - `humphrey-turbulent-bend-wmles-2026-10-09`: global averaging through a turbulent 90-degree duct bend, 17,000 steps over two inlet lengths.
 
 **Limitations.** The procedure needs a developed field to sample, so the coefficient is
 held at zero for the first two steps of a run started from rest. With
 `averaging.mode: local` the coefficient is noisy and the least-squares closure is
 formally inconsistent, since it assumes the coefficient is constant over the averaging
-set; prefer `homogeneous` wherever the flow has a homogeneous direction.
+set; prefer `homogeneous` wherever the flow has a homogeneous direction. On HOM02 the settled coefficient is 0.18-0.19, not Lilly's 0.16-0.17, and the resolved energy decay misses the 10% criterion of `hom02-les-accuracy-2026-10-09` during start-up: homogeneous averaging peaks 18% high and ends 10% low, local averaging peaks about 23% high and ends within 2%.
 
 @subsection p07_cap_les_vreman_sub vreman
 
@@ -546,13 +540,14 @@ coefficient.
 independent evaluation of the published formula, requires zero in pure shear and the
 same value when the flow and the cell rotate together, and recovers a turned cell's
 edges from its metrics. A three-step flat-channel run completes with the model selected.
-Not validated against a reference flow.
+Benchmark characterized - `hom02-les-execution-2026-10-09`: on HOM02 it ran to the last DNS spectrum at 64^3 and
+32^3 and at 64^3 brought the cutoff-band pile-up from +0.72 to +0.142 in mean log10.
 
 **Limitations.** The constant is an isotropic-turbulence calibration. The model is
 purely dissipative: it provides no backscatter. It responds to resolved velocity
 gradients, so in a laminar or transitional stretch it is small by design and does not
 by itself damp grid-scale oscillation that a non-dissipative convection scheme leaves
-behind.
+behind. It is the least accurate of the four models on HOM02 at 64^3 (`hom02-les-accuracy-2026-10-09`): its low-band spectrum error, 0.107 RMS in log10, misses the 0.1 criterion, and its resolved energy runs 29% high early and ends 16% low.
 
 @subsection p07_cap_les_wale_sub wale
 
@@ -589,11 +584,13 @@ its Smagorinsky coefficient columns written as `nan`.
 `tests/c/test_les.c` case `wale-and-vreman-kernels` checks the kernel against an
 independent evaluation of the published formula, requires zero in pure shear, and
 requires the same value when the flow rotates. A three-step flat-channel run completes
-with the model selected. Not validated against a reference flow.
+with the model selected. Benchmark characterized - `hom02-les-execution-2026-10-09`: on HOM02 it ran to the last
+DNS spectrum at 64^3 and 32^3, at 64^3 brought the cutoff-band pile-up from +0.72 to
++0.052 in mean log10, and held the low-band error to 0.077.
 
 **Limitations.** Unlike `vreman`, it does not vanish in solid-body rotation. The constant
 is an isotropic calibration, it is purely dissipative, and it is small in laminar flow by
-design, so it does not by itself damp grid-scale oscillation there.
+design, so it does not by itself damp grid-scale oscillation there. On HOM02 at 64^3 (`hom02-les-accuracy-2026-10-09`) the resolved energy runs 21% high early and ends 13% low.
 
 @section p07_les_width_sec 5.1 Grid Filter Width Entries
 
@@ -619,10 +616,10 @@ It applies to both LES models, since both scale the eddy viscosity by `Delta^2`.
 **Diagnostics.** No dedicated output; its effect appears in the eddy-viscosity level.
 
 **Evidence.** Implemented, covered by `tests/c/test_les.c` case
-`filter-width-models-separate-on-stretched-cell`.
+`filter-width-models-separate-on-stretched-cell`. Benchmark characterized - `hom02-les-execution-2026-10-09`: every isotropic HOM02 run, and the 64 x 64 x 32 width comparison (mean `nu_t/nu` 4.38, against 4.59 for `scotti` and 7.97 for `max_edge`). Externally validated - `wmles-channel-retau1000-werner-2026-10-09`. Production exercised - `humphrey-turbulent-bend-wmles-2026-10-09`.
 
 **Limitations.** Underestimates the width on a stretched cell, because a geometric mean
-is dominated by the short directions.
+is dominated by the short directions. On the 2:1 cells of the HOM02 width comparison, under the constant model, it leaves a cutoff-band excess of +0.108 in mean log10.
 
 @subsection p07_cap_width_geometric_mean_sub geometric_mean
 
@@ -669,13 +666,13 @@ hybrid treatment, or a deliberately over-dissipative start-up.
 
 **Diagnostics.** As above.
 
-**Evidence.** Implemented, covered by the same unit case.
+**Evidence.** Implemented, covered by the same unit case. Benchmark characterized - `hom02-les-execution-2026-10-09`: on 64 x 64 x 32 HOM02 cells (aspect ratio 2) under the constant model it gives the largest eddy viscosity of the three widths (mean `nu_t/nu` 7.97, against 4.38 and 4.59) and removes the cutoff-band excess entirely (-0.026 in mean log10).
 
 **Limitations.** The most dissipative of the three; on a near-isotropic grid it
 overestimates the width and adds subgrid dissipation the flow does not need. Unsuited to
 a wall-resolved LES: a wall-adjacent cell inherits the streamwise spacing as its width,
 so its eddy viscosity rises by the square of the cell aspect ratio, which can be several
-hundred, exactly where the resolved wall layer has to survive.
+hundred, exactly where the resolved wall layer has to survive. On that run it ends with the resolved energy 10% above the DNS, where the other two widths end 10-12% below it.
 
 @subsection p07_cap_width_scotti_sub scotti
 
@@ -711,8 +708,11 @@ banner names the resolved width model as `scotti`.
 **Evidence.** Implemented, with unit coverage run by `make unit-les`: `tests/c/test_les.c` case
 `scotti-filter-width-matches-closed-form` requires `f = 1` for a cube, the closed-form
 width for a 1 x 2 x 8 cell, and the same width after rotating it; the
-`filter-width-is-independent-of-cell-orientation` case covers the shared extents. Not
-validated against a reference flow.
+`filter-width-is-independent-of-cell-orientation` case covers the shared extents. Benchmark
+characterized - `hom02-les-execution-2026-10-09`: on 64 x 64 x 32 HOM02 cells (aspect ratio 2) its eddy viscosity
+sits between the other widths, as its correction factor predicts (mean `nu_t/nu` 4.59,
+against 4.38 for `cube_root_volume` and 7.97 for `max_edge`), and its energy decay tracks
+`cube_root_volume` within 0.02.
 
 **Limitations.** The derivation assumes the cut-off lies in the inertial range in every
 direction. Along the long side of a strongly stretched cell it reaches the
@@ -720,7 +720,7 @@ energy-containing scales instead, so the correction loses its basis as aspect ra
 grow. It is still a single width for a cell that is fine in some directions and coarse
 in another; a model that weights each direction by its own spacing, such as Vreman's,
 addresses that directly. A modest correction may also be too small to control
-grid-scale oscillation where the resolved flow supplies little strain.
+grid-scale oscillation where the resolved flow supplies little strain. Only a 2:1 aspect ratio has been exercised against a reference.
 
 @section p07_les_avg_sec 5.2 Coefficient Averaging Entries
 
@@ -751,7 +751,7 @@ set can be justified.
 noisy the field is.
 
 **Evidence.** Implemented, covered by `tests/c/test_les.c` case
-`average-ratio-local-is-pointwise`.
+`average-ratio-local-is-pointwise`. Benchmark characterized - `hom02-les-execution-2026-10-09`: on HOM02 at 64^3 it settles at whole-domain `Cs` 0.181-0.183 under all three clipping modes and ends closest to the DNS energy of any configuration (within 2% at t = 5.47).
 
 **Limitations.** The denominator collapses wherever the resolved strain is briefly
 small, so the coefficient is noisy, and the least-squares derivation is formally
@@ -785,7 +785,7 @@ regardless of mode, so it stays comparable across modes.
 
 **Evidence.** Implemented, covered by `tests/c/test_les.c` cases
 `homogeneous-averaging-derives-periodic-axes` and
-`average-ratio-retains-unaveraged-direction`.
+`average-ratio-retains-unaveraged-direction`. Benchmark characterized - `hom02-les-execution-2026-10-09`: whole-domain `Cs` 0.193-0.196 on HOM02 at 64^3, identical to `global` there. Externally validated - `wmles-channel-retau1000-werner-2026-10-09`, averaging over the channel's two periodic directions.
 
 **Limitations.** Averaging over a direction the flow is not homogeneous in smears real
 spatial variation into a single number.
@@ -812,7 +812,7 @@ answer without asserting anything the boundary conditions do not already say.
 **Evidence.** Implemented, covered by `tests/c/test_les.c` cases
 `average-ratio-divides-summed-fields` and
 `dynamic-procedure-global-average-is-uniform`, and by the decomposition-independence
-case in `tests/c/test_mpi_kernels.c`.
+case in `tests/c/test_mpi_kernels.c`. Benchmark characterized - `hom02-les-execution-2026-10-09`: identical to `homogeneous` to every printed digit on the triply periodic HOM02 box, as it must be. Production exercised - `humphrey-turbulent-bend-wmles-2026-10-09`: one coefficient for the whole turbulent 90-degree bend, `Cs` about 0.07.
 
 **Limitations.** Discards all spatial variation in the coefficient, which is wrong
 wherever the flow is inhomogeneous.
@@ -845,7 +845,7 @@ below.
 fraction the clip modified. A ceiling that is doing nothing reads near zero.
 
 **Evidence.** Implemented, covered by `tests/c/test_les.c` case
-`clip-model-coefficient-modes`.
+`clip-model-coefficient-modes`. Benchmark characterized - `hom02-les-execution-2026-10-09`, under homogeneous and local averaging. Externally validated - `wmles-channel-retau1000-werner-2026-10-09`. Production exercised - `humphrey-turbulent-bend-wmles-2026-10-09`.
 
 **Limitations.** Discarding the negative tail is not neutral: the positives that would
 have cancelled it survive, so the mean subgrid dissipation is biased upward.
@@ -867,7 +867,7 @@ coefficient you have reason to trust at large values.
 
 **Diagnostics.** As for `clamp`.
 
-**Evidence.** Implemented, covered by the same unit case.
+**Evidence.** Implemented, covered by the same unit case. Benchmark characterized - `hom02-les-execution-2026-10-09`: under local averaging on HOM02 at 64^3 it ran to the end, settled at whole-domain `Cs` 0.182, and differs from `clamp` by at most 0.01 in energy-decay error.
 
 **Limitations.** Carries the same upward bias in mean dissipation as `clamp`, without
 the divergence guard.
@@ -897,12 +897,12 @@ must expect negative values.
 fraction with a negative coefficient, which is exactly what the other two modes discard.
 
 **Evidence.** Implemented, covered by `tests/c/test_les.c` cases
-`clip-model-coefficient-modes` and `eddy-viscosity-floor-bounds-total-viscosity`.
+`clip-model-coefficient-modes` and `eddy-viscosity-floor-bounds-total-viscosity`. Benchmark characterized - `hom02-les-execution-2026-10-09`: under local averaging on HOM02 at 64^3, keeping the signed coefficient, the run stayed stable to the last DNS spectrum and ended within 1% of the DNS energy.
 
 **Limitations.** A locally averaged coefficient is negative at a large fraction of
 points in developed turbulence, so this mode leans hard on the viscosity floor. Pair it
 with `averaging.mode: homogeneous`, where the averaged coefficient is negative only when
-the whole homogeneous set is backscattering on balance.
+the whole homogeneous set is backscattering on balance. Stability has been shown for one decaying isotropic flow only.
 
 @section p07_wall_laws_sec 6. Test-Filter and Wall-Function Entries
 
@@ -931,7 +931,7 @@ kernel, and applies to either kernel.
 `<run.analysis.metrics>/les_coefficient.csv` through the coefficient.
 
 **Evidence.** Implemented, covered by `tests/c/test_solver_kernels.c`, which checks that
-it preserves a constant field and returns zero when the stencil is entirely solid.
+it preserves a constant field and returns zero when the stencil is entirely solid. Every dynamic run of three campaigns used it, at width ratio 2: benchmark characterized - `hom02-les-execution-2026-10-09`; externally validated - `wmles-channel-retau1000-werner-2026-10-09`; production exercised - `humphrey-turbulent-bend-wmles-2026-10-09`.
 
 **Limitations.** Less accurate than a Simpson stencil where one is admissible.
 
@@ -987,6 +987,15 @@ alone delivers a fraction `u+/y+` of the stress, which at `y+ = 267` is about a
 fourteenth of it. The wall model therefore installs its own effective eddy viscosity at
 its wall face, in place of the subgrid value, which is zero there in a wall-resolved run.
 `nu_wall_over_nu_mean` in `<run.analysis.metrics>/wall_model.csv` reports it.
+
+@anchor p07_wall_restart
+
+**Across a restart.** A wall model keeps no history. Its friction velocity is written to
+every checkpoint as `Utau`, for scoring and post-processing; the wall-face viscosity is
+derived state and is not. On restart the first boundary pass recomputes both from the
+restored velocity, so a restarted run continues with the same law without any carried
+state. The Re_tau ~ 1000 channel record cited under @ref p07_cap_wall_werner "werner" is
+a restart of this kind, from a checkpoint of a run built with the previous relation.
 
 @subsection p07_cap_wall_log_law_sub log_law
 
@@ -1072,19 +1081,18 @@ selected model by name.
 `make unit-boundaries`. In `tests/c/test_runtime_kernels.c`, `find_utau_Werner` inverts `u_Werner` exactly at y+ from 2 to 500, across the switch, and
 the wall function given a reference speed taken from the profile returns that profile's
 friction velocity and places the boundary cell on it. The integration that dispatches to
-it is covered in `tests/c/test_boundaries.c`. No reference-flow comparison has been run
-with the pointwise form. The cell-integrated relation it replaced read the point
-reference speed as a first-cell average; on the wall-modelled Re_tau ~ 1000 channel
-(`driven_channel/les_wallmodel_retau1000`) it gave u_tau 13.5% above Lee & Moser (2015),
-which the pointwise relation, applied to that run's own mean reference speed, brings to
--1% - an estimate from the mean profile, not yet a rerun. A 50-step A/B of that variant
-from the same initial field confirms only the wiring: the old build's u_tau is 1.1649
-times the new one's from the first step, the ratio the two relations predict at its
-reference speed.
+it is covered in `tests/c/test_boundaries.c`. Externally validated - `wmles-channel-retau1000-werner-2026-10-09`: the
+cell-integrated relation it replaced read the point reference speed as a first-cell
+average and put u_tau 14.5% above Lee & Moser (2015) on the wall-modelled Re_tau ~ 1000
+channel (`driven_channel/les_wallmodel_retau1000`); rerun with the pointwise relation,
+u_tau over the statistics window is 2.9% above, and the outer-layer resolved Reynolds
+shear stress falls from 1.27 to 0.91-1.02 of the reference. Production exercised -
+`humphrey-turbulent-bend-wmles-2026-10-09`: a turbulent 90-degree duct bend at Re_D = 40,000, where the low-shear inner wall
+takes individual cells into the linear branch while the run continues.
 
 **Limitations.** No roughness. The power-law constants are fixed, and the model carries
 no pressure-gradient term, so it describes an equilibrium layer only - `cabot` is the
-selection when the near-wall layer is not in equilibrium.
+selection when the near-wall layer is not in equilibrium. The validation is one grid of one channel. There, the stress the model applies sits about 2% above what the channel's own outer-layer stress balance implies, a gap the run cannot settle because the solver does not report the driving force.
 
 
 @subsection p07_cap_wall_cabot_sub cabot

@@ -275,11 +275,11 @@
       "constant": {
         "maps_to": 1,
         "spelling_of": "constant_smagorinsky",
-        "status": "experimental"
+        "status": "supported"
       },
       "constant_smagorinsky": {
         "maps_to": 1,
-        "status": "experimental"
+        "status": "supported"
       },
       "disabled": {
         "maps_to": 0,
@@ -289,11 +289,11 @@
       "dynamic": {
         "maps_to": 2,
         "spelling_of": "dynamic_smagorinsky",
-        "status": "experimental"
+        "status": "supported"
       },
       "dynamic_smagorinsky": {
         "maps_to": 2,
-        "status": "experimental"
+        "status": "supported"
       },
       "no_les": {
         "maps_to": 0,
@@ -312,15 +312,15 @@
       "smagorinsky": {
         "maps_to": 1,
         "spelling_of": "constant_smagorinsky",
-        "status": "experimental"
+        "status": "supported"
       },
       "vreman": {
         "maps_to": 3,
-        "status": "experimental"
+        "status": "supported"
       },
       "wale": {
         "maps_to": 4,
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "case.yml -> models.physics.turbulence.les.model",
@@ -443,7 +443,7 @@
       "box": {
         "maps_to": 0,
         "spelling_of": "volume_weighted_box",
-        "status": "experimental"
+        "status": "supported"
       },
       "simpson_ik": {
         "maps_to": 1,
@@ -451,7 +451,7 @@
       },
       "volume_weighted_box": {
         "maps_to": 0,
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "case.yml -> models.physics.turbulence.les.test_filter.kernel",
@@ -464,7 +464,7 @@
     "public_values": {
       "cube_root_volume": {
         "maps_to": 0,
-        "status": "experimental"
+        "status": "supported"
       },
       "geometric_mean": {
         "maps_to": 1,
@@ -472,11 +472,11 @@
       },
       "max_edge": {
         "maps_to": 2,
-        "status": "experimental"
+        "status": "supported"
       },
       "scotti": {
         "maps_to": 3,
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "case.yml -> models.physics.turbulence.les.filter_width",
@@ -489,15 +489,15 @@
     "public_values": {
       "global": {
         "maps_to": 2,
-        "status": "experimental"
+        "status": "supported"
       },
       "homogeneous": {
         "maps_to": 1,
-        "status": "experimental"
+        "status": "supported"
       },
       "local": {
         "maps_to": 0,
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "case.yml -> models.physics.turbulence.les.averaging.mode",
@@ -510,15 +510,15 @@
     "public_values": {
       "clamp": {
         "maps_to": 0,
-        "status": "experimental"
+        "status": "supported"
       },
       "clip_negative": {
         "maps_to": 1,
-        "status": "experimental"
+        "status": "supported"
       },
       "none": {
         "maps_to": 2,
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "case.yml -> models.physics.turbulence.les.clipping.mode",
@@ -565,12 +565,12 @@
       },
       "werner": {
         "maps_to": 2,
-        "status": "experimental"
+        "status": "supported"
       },
       "werner_wengle": {
         "maps_to": 2,
         "spelling_of": "werner",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "case.yml -> models.physics.turbulence.wall_function.model",

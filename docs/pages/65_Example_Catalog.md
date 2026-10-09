@@ -69,18 +69,19 @@ documentation work. That is why **@subpage 66_Evidence_Matrix** records no
 
 | Example | Kind | Demonstrates | Status |
 |---|---|---|---|
-| `decaying_isotropic_turbulence` | Benchmark | LES decay in a triply periodic box, 64³ cells | Selects an experimental model — see below |
+| `decaying_isotropic_turbulence` | Benchmark | LES decay in a triply periodic box, 64³ cells | Dynamic model characterized on HOM02 — see below |
 | `turbulent_channel` | Benchmark | Seeded wall-resolved channel startup at nominal `Re_tau ~ 180` | Experimental seed; developed turbulence not validated — see below |
 | `periodic_test/driven_channel` | Benchmark | Driven periodic channel; DNS and LES variants | See caveat below |
 | `periodic_test/driven_duct` | Benchmark | Square duct with secondary flow of the second kind | See caveat below |
 
-@note **The shipped LES configuration is experimental.**
-`decaying_isotropic_turbulence` selects `model: dynamic_smagorinsky` with
+@note `decaying_isotropic_turbulence` selects `model: dynamic_smagorinsky` with
 `averaging.mode: homogeneous`, which on a triply periodic box gives one coefficient
-for the whole domain and writes `Cs(t)` to `<run.analysis.metrics>/les_coefficient.csv`. The
-formulation is unit-tested but the coefficient magnitude has not been validated: this
-case is the run that would settle it, and `Cs(t)` is expected to settle near
-0.16-0.17. Until that is recorded, treat the magnitude as uncharacterized.
+for the whole domain and writes `Cs(t)` to `<run.analysis.metrics>/les_coefficient.csv`.
+Its random `k4_exponential` seed is not a reference flow. The model itself was
+characterized on the AGARD HOM02 benchmark, started from Wray's DNS field
+(`hom02-les-execution-2026-10-09`): at 64^3 `Cs` settles at 0.19 and the cutoff pile-up
+is removed, while the resolved energy decay runs up to 18% from the DNS during start-up
+(`hom02-les-accuracy-2026-10-09`, not met). See @ref p72_status_sec.
 
 `turbulent_channel` now uses `channel_spectral_velocity` for a seeded perturbation
 about a bulk-normalized parabolic mean, with LES and wall functions disabled. Its
@@ -99,7 +100,10 @@ The pseudo-time stall once recorded for these periodic wall-bounded cases was
 re-characterized on 2026-09-18 and does not reproduce; the laminar channel reproduces
 its exact parabola at second order (@ref p54_driven_limits_sub). Use the periodic
 boundary handlers documented at @ref p44_cap_geometric "geometric" and the driven
-handlers; note the LES caveat above applies to their LES variants.
+handlers. `periodic_test/driven_channel/les_wallmodel_retau1000` is the wall-modelled
+LES reference case: with the Werner wall model it reproduces Lee & Moser's
+Re_tau = 1000 channel within the criteria of `wmles-channel-retau1000-werner-2026-10-09`
+(friction velocity 2.9% high, bulk-unit mean velocity 1.1% RMS).
 
 @section p65_authoring_sec 5. Using an Example as a Starting Point
 

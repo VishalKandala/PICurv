@@ -453,9 +453,13 @@ Production exercised - `turbulent-channel-nk-2026-09-29`, retained at
 **Evidence.** Integration verified - `make unit-newton-krylov` covers model/backend/ownership wiring, exact constraint rows, matrix structure and reuse, and serial/MPI application.
 Production exercised - `humphrey-laminar-bend-nk-pointblock-2026-10-07`, a three-grid
 curved-duct study on 48 ranks in which all 13,500 steps converged and committed under
-this model, retained in @ref p55_bend_evidence_sub.
+this model, retained in @ref p55_bend_evidence_sub; and
+`humphrey-turbulent-bend-wmles-2026-10-09`, a wall-modelled LES of the same bend at
+Re_D = 40,000 (dynamic Smagorinsky, Werner wall model, dt 0.03) in which all 17,000 steps
+over two inlet lengths converged and committed with at most 5 Newton and 30 Krylov
+iterations per step, flat over each run.
 
-**Limitations.** Supported for correct execution within the solver's declared scope; **no performance claim is made**, because no run compared it against `none` on the same case. It costs an extra assembled matrix in memory and an assembly per update, and the omitted terms make it a same-cell approximation rather than an approximate Jacobian in any global sense. Its quality falls as the discarded neighbour coupling grows relative to the mass term, so expect rising Krylov counts at large timesteps and on wall-resolved, high-Reynolds-number grids, where the near-wall diffusion number approaches one. The production evidence is laminar, steady, and low-Reynolds; that regime is untested with the current implementation.
+**Limitations.** Supported for correct execution within the solver's declared scope; **no performance claim is made**, because no run compared it against `none` on the same case. It costs an extra assembled matrix in memory and an assembly per update, and the omitted terms make it a same-cell approximation rather than an approximate Jacobian in any global sense. Its quality falls as the discarded neighbour coupling grows relative to the mass term, so expect rising Krylov counts at large timesteps and on wall-resolved, high-Reynolds-number grids, where the near-wall diffusion number approaches one. The production evidence is a laminar, steady, low-Reynolds case and a wall-modelled LES at Re_D = 40,000 whose first cell sits at y+ ~ 36; a wall-resolved high-Reynolds grid, where the near-wall diffusion number reaches order one, remains untested with the current implementation.
 
 @section p55_validation_sec 10. Validation Coverage
 

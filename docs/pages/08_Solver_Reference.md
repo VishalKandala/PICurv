@@ -167,8 +167,11 @@ pseudo-time tolerance: the square duct at Re = 100 with `dt = 1` hit the iterati
 on every step and finished 18% off in pressure gradient, so read the per-step history
 before trusting a run. Only central differencing has been measured. The periodic
 wall-bounded stall once recorded at @ref p54_driven_limits_sub was re-characterized on
-2026-09-18 and does not reproduce; turbulent periodic channels at production resolution
-remain uncharacterized.
+2026-09-18 and does not reproduce. A wall-modelled LES channel at Re_tau ~ 1000 runs
+under this solver and reproduces Lee & Moser within the criteria of
+`wmles-channel-retau1000-werner-2026-10-09`; all 50,000 steps of its inspected segment
+were accepted with no rejected pseudo-iteration. Wall-resolved turbulent channels at
+production resolution remain uncharacterized under it.
 
 @subsection p08_cap_newton_krylov_sub Newton Krylov
 

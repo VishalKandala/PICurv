@@ -54,9 +54,8 @@ models:
     particles:
       count: 0
     turbulence:
-      # All four LES models are experimental: implemented and unit-tested, but with
-      # no validated coefficient magnitude. The constant model applies constant_cs from
-      # the first step and allocates no coefficient field.
+      # The constant model applies constant_cs from the first step and allocates no
+      # coefficient field; this variant has not been compared with a reference.
       #
       # The channel is periodic in xi and zeta, so dynamic_smagorinsky with
       # averaging.mode: homogeneous derives those directions from the boundary pairs

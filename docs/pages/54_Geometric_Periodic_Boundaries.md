@@ -303,7 +303,7 @@ not a velocity. For `initial_flux`, drop the `params` block entirely.
   `.../turbulent_retau395/` - DNS-resolution plane channels against Moser, Kim &
   Mansour (1999), Phys. Fluids 11, 943.
 - `examples/periodic_test/driven_channel/les_retau180/` - the coarse LES repeat.
-  @note Both LES models are **experimental**: implemented and unit-tested, but not yet validated against a reference flow. The channel is periodic in xi and zeta, so `averaging.mode: homogeneous` derives those two directions from the boundary pairs and produces a wall-normal coefficient profile. See @ref p07_les_sec and @ref 72_LES_Turbulence_Closure.
+  @note The LES models are supported (@ref p72_status_sec); `les_wallmodel_retau1000` is the variant validated against Lee & Moser, with dynamic Smagorinsky and the Werner wall model. The channel is periodic in xi and zeta, so `averaging.mode: homogeneous` derives those two directions from the boundary pairs and produces a wall-normal coefficient profile. See @ref p07_les_sec and @ref 72_LES_Turbulence_Closure.
 - `examples/periodic_test/driven_duct/` - square duct at `Re_b = 4410`, which
   sustains turbulence-driven secondary flow of the second kind that a plane
   channel does not. References: Gavrilakis (1992), JFM 244, 101; Huser &

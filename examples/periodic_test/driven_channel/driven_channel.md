@@ -136,9 +136,10 @@ The coarse repeat of the `Re_tau = 180` case, run **after** the DNS so the SGS
 contribution is assessed against an in-tree DNS rather than against literature
 alone.
 
-> **Experimental LES.** All four LES models (`constant_smagorinsky`,
-> `dynamic_smagorinsky`, `vreman`, `wale`) are implemented and unit-tested, but none
-> has a validated coefficient magnitude. This case selects `constant_smagorinsky`,
+> **LES models.** All four LES models (`constant_smagorinsky`,
+> `dynamic_smagorinsky`, `vreman`, `wale`) are supported; their accuracy in isotropic
+> turbulence is characterized rather than validated, and `les_wallmodel_retau1000` is the
+> variant validated against Lee & Moser. This case selects `constant_smagorinsky`,
 > which now applies its configured coefficient from the first step. The channel is
 > periodic in xi and zeta, so `dynamic_smagorinsky` with `averaging.mode: homogeneous`
 > is also available here and derives those two directions from the boundary pairs,

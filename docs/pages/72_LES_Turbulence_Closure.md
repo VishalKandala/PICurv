@@ -306,8 +306,11 @@ to `<run.analysis.metrics>/les_coefficient.csv`. Three groups of columns answer 
 
 **Is the coefficient right?** `cs_effective` is the whole-domain
 `sqrt(<L:M>/<M:M>)`, computed the same way regardless of averaging mode so it stays
-comparable across modes. For decaying isotropic turbulence it should settle near
-**0.16-0.17**. `cs_mean`, `coefficient_rms`, `coefficient_min`, and `coefficient_max`
+comparable across modes. Lilly's analysis puts it near **0.16-0.17** for decaying
+isotropic turbulence with the cutoff in an inertial range; on the HOM02 benchmark at
+64^3 with the box test filter it settles at 0.193-0.196 under homogeneous averaging and
+0.181-0.183 under local averaging (@ref p72_status_sec), so read a value in that range
+as the expected one on comparable grids. `cs_mean`, `coefficient_rms`, `coefficient_min`, and `coefficient_max`
 describe the spread; under global averaging the spread should be zero by construction.
 
 **How much is the model doing?** `nu_t_mean`, `nu_t_max`, and `nu_t_over_nu_mean` give
@@ -362,20 +365,57 @@ the Lagrangian machinery it needs is already in the tree. What it needs from her
 is @ref SubgridKineticEnergy. No accessor is provided in advance, because an interface
 with no caller is a guess.
 
-@section p72_status_sec 10. Status and What Would Change It
+@section p72_status_sec 10. Status and Evidence
 
-Both models are **experimental**. The formulation is implemented and unit-tested:
-`tests/c/test_les.c` checks the model tensor against its closed form on constant strain,
-pins the filtered product apart from the product of filtered factors, verifies the
-procedure returns exactly zero on uniform flow, and checks that global averaging gives
-one coefficient per block; `tests/c/test_mpi_kernels.c` checks that the averaging
-reduction is independent of the decomposition.
+All four models are **supported**, together with the `homogeneous`, `global` and
+`local` averaging modes, the `clamp`, `clip_negative` and `none` clipping modes, the
+`volume_weighted_box` test filter, and the `cube_root_volume`, `max_edge` and `scotti`
+widths. `simpson_ik` and `geometric_mean` remain experimental: neither has been run
+where it differs from the default. The unit coverage is unchanged: `tests/c/test_les.c`
+checks the model tensor against its closed form on constant strain, pins the filtered
+product apart from the product of filtered factors, verifies that the procedure returns
+exactly zero on uniform flow, and checks that global averaging gives one coefficient per
+block; `tests/c/test_mpi_kernels.c` checks that the averaging reduction does not depend
+on the decomposition.
 
-None of that validates the coefficient's **magnitude**. The run that would is
-`examples/decaying_isotropic_turbulence` with `averaging.mode: homogeneous`, where
-`cs_effective` should settle near 0.16-0.17 and the energy spectrum should show no
-pile-up at the grid cutoff. Until that is run and recorded, coefficient magnitudes from
-this tree are uncharacterized.
+Three measurements add to it.
+
+- **HOM02 decaying isotropic turbulence** (`hom02-les-execution-2026-10-09`): seventeen
+  runs from Wray's 512^3 DNS field at 64^3, 32^3 and 64 x 64 x 32. Every model removes
+  the energy pile-up that the unmodelled run builds at the grid cutoff (mean log10 error
+  +0.72), to between +0.01 (dynamic, homogeneous) and +0.14 (Vreman). The dynamic
+  coefficient settles without drift at 0.193-0.196 with homogeneous averaging and
+  0.181-0.183 with local averaging - above the 0.16-0.17 this section once anticipated,
+  which assumed a spectral cutoff. `global` equals `homogeneous` to every printed digit
+  in the periodic box, and on 2:1 cells the eddy viscosity orders with the width as the
+  definitions require.
+- **Accuracy on HOM02** (`hom02-les-accuracy-2026-10-09`, **not met**): against criteria
+  fixed before the runs, no model keeps the resolved energy decay within 10% of the DNS
+  at all times. Every model runs 18-29% high in the first 1.5 time units, which coincides
+  with starting from a truncated DNS field at its peak-dissipation instant with no
+  subgrid energy; by the end the constant, Vreman and WALE models are 13-16% low,
+  homogeneous dynamic 10% low, and local dynamic within 2%. Low-band spectra are within
+  0.1 RMS in log10 for every model except Vreman (0.107).
+- **Wall-modelled channel at Re_tau ~ 1000** (`wmles-channel-retau1000-werner-2026-10-09`):
+  dynamic Smagorinsky with homogeneous averaging and the Werner wall model reproduces
+  Lee & Moser (2015) within criteria fixed beforehand - bulk-unit mean velocity to 1.1%
+  RMS, outer-layer resolved Reynolds shear stress to 0.91-1.02 - with `Cs` 0.133.
+- **Turbulent duct bend** (`humphrey-turbulent-bend-wmles-2026-10-09`): global averaging
+  through a 90-degree bend at Re_D = 40,000, 17,000 steps without a failed step; its
+  comparison with measured profiles is exploratory.
+
+What would change this: a refined-grid rerun of the channel on the current build, a
+wall-resolved reference case, and a run where `simpson_ik` or `geometric_mean` differs
+from the default.
+
+@subsection p72_restart_ssec 10.1 Restart and Checkpointed State
+
+The eddy viscosity `Nu_t` and the dynamic coefficient `CS` are written with every
+checkpoint. The constant, Vreman and WALE models keep no other state and recompute
+`nu_t` from the restored velocity on the first step. The dynamic procedure recomputes its
+coefficient on its own cadence, so a restart continues from the checkpointed coefficient
+until the next update rather than from zero. The wall-modelled channel above was a
+restart of this kind, from step 50000 of an earlier run, with the statistics window reset.
 
 @section p72_references_sec 11. References
 

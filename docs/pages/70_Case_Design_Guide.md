@@ -105,8 +105,8 @@ before switching. `Newton Krylov` is the right escalation when pseudo-time stall
 
 **Turbulence model.** Use none unless the grid genuinely cannot resolve the flow.
 
-@note Both LES models are **experimental**: implemented and unit-tested, but with no
-validated coefficient magnitude. If you need a subgrid model, prefer
+@note The LES models are supported, with characterized rather than validated accuracy
+in isotropic turbulence (@ref p72_status_sec). If you need a subgrid model, prefer
 @ref p07_cap_les_dynamic_smagorinsky "dynamic_smagorinsky" with
 `averaging.mode: homogeneous` wherever the flow has a homogeneous direction, since the
 local coefficient is noisy and the least-squares closure it comes from assumes an

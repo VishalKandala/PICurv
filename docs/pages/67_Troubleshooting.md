@@ -151,9 +151,11 @@ started from rest, because the procedure has no developed field to sample. Beyon
 check that the model is `dynamic_smagorinsky`; the constant model reports the
 coefficient you configured, not a measured one.
 
-**`cs_effective` is far from 0.16-0.17 in isotropic turbulence.** Check the grid first,
-not the model. That value assumes the grid cutoff sits in an inertial range; at low
-`Re_lambda` a smaller coefficient is correct. Then check `limited_fraction` — if the
+**`cs_effective` is far from 0.18-0.19 in isotropic turbulence.** That is what the
+dynamic procedure measured on the HOM02 benchmark at 64^3 with the box test filter
+(0.193-0.196 homogeneous, 0.181-0.183 local; @ref p72_status_sec). Lilly's 0.16-0.17
+assumes a spectral cutoff in an inertial range. Check the grid first, not the model: at
+low `Re_lambda` a smaller coefficient is correct. Then check `limited_fraction` — if the
 clip is binding, the ceiling is setting the answer.
 
 **`cs_effective` is noisy or oscillating.** Almost always `averaging.mode: local`,
@@ -180,7 +182,34 @@ only and assumes xi and zeta are homogeneous. The check requires both declared
 More detail on every setting at **@subpage 07_Case_Reference**, and the reasoning at
 **@subpage 72_LES_Turbulence_Closure**.
 
-@section p67_related_sec 10. Related Documentation
+@section p67_wallmodel_sec 10. A Wall-Model Run Stops or Its Wall Stress Looks Wrong
+
+Read `<run.analysis.metrics>/wall_model.csv` first: one row per step with the wall-face
+mean, spread and extremes of the friction velocity, the mean and maximum first-cell
+`y+`, and `nu_wall_over_nu_mean`.
+
+**The run stopped with "first-cell y+ has been outside ...".** The runtime checks the
+wall-face mean `y+` every step against the selected law's range (`log_law` 30-300,
+`werner` up to 300, `cabot` up to 1000) and stops after ten consecutive steps outside it.
+A `log_law` run started from a plug or laminar field often sits below 30 at first;
+`werner` has a linear branch and no lower bound. Otherwise resize the first cell.
+
+**`u_tau_mean` collapses toward zero within a few steps**, with `nu_wall_over_nu_mean`
+falling to zero beside it. The flow has stopped, and the wall model is reporting it
+rather than causing it. Check that the inflow actually
+delivers flux: `constant_velocity` takes the face-normal speed from the component named
+after the face's own axis (`vz` on a `-Zeta` inlet), whatever the Cartesian direction of
+the inlet, and a speed given in another component is ignored.
+
+**`u_tau` disagrees with the stress the flow carries.** In a stationary channel the
+viscous, resolved and subgrid shear together must fall linearly from the wall stress. A
+wall model whose `u_tau^2` sits well above that line is delivering more stress than the
+law it reports, and the excess appears as Reynolds shear stress in the outer layer; that
+was the signature of the cell-integral Werner relation corrected on 2026-10-08
+(`wmles-channel-retau1000-werner-2026-10-09`). On the corrected channel the two agree to
+about 2%.
+
+@section p67_related_sec 11. Related Documentation
 
 - **@subpage 39_Common_Fatal_Errors** — organized by error message
 - **@subpage 66_Evidence_Matrix** — what is verified and what is not

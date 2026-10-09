@@ -22,9 +22,8 @@ guaranteed by this amplitude; monitor fluctuation energy and Reynolds shear stre
 
 ## Momentum solver
 
-This example starts from the matrix-free Newton-Krylov momentum solver
-(experimental) so that one shipped case shows it; the dual-time Picard solver
-(supported) runs the same case. To switch, set `strategy.momentum_solver:
+This example starts from the matrix-free Newton-Krylov momentum solver; the dual-time
+Picard solver runs the same case. To switch, set `strategy.momentum_solver:
 "Dual Time Picard Jameson RK"` in `<workspace>/config/solver.yml` and replace the
 `momentum_solver.newton_krylov` block with a `dual_time_picard_jameson_rk` block,
 for example the one in `examples/flat_channel/Imp-MG-Standard.yml`. Changing the

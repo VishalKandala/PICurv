@@ -425,9 +425,13 @@
           "spelling_of": "none"
         },
         "constant_smagorinsky": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "benchmark": [
+              "measurement:hom02-les-execution-2026-10-09"
+            ]
+          }
         },
         "constant": {
           "canonical": false,
@@ -438,31 +442,44 @@
           "spelling_of": "constant_smagorinsky"
         },
         "dynamic_smagorinsky": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "production": [
-              "example:examples/decaying_isotropic_turbulence"
+              "example:examples/decaying_isotropic_turbulence",
+              "measurement:humphrey-turbulent-bend-wmles-2026-10-09"
+            ],
+            "benchmark": [
+              "measurement:hom02-les-execution-2026-10-09"
+            ],
+            "reference": [
+              "measurement:wmles-channel-retau1000-werner-2026-10-09"
             ]
           }
         },
         "vreman": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "make:unit-les",
               "file:tests/c/test_les.c"
+            ],
+            "benchmark": [
+              "measurement:hom02-les-execution-2026-10-09"
             ]
           }
         },
         "wale": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "make:unit-les",
               "file:tests/c/test_les.c"
+            ],
+            "benchmark": [
+              "measurement:hom02-les-execution-2026-10-09"
             ]
           }
         },
@@ -745,9 +762,19 @@
       "coverage_enforced": true,
       "value_metadata": {
         "volume_weighted_box": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "benchmark": [
+              "measurement:hom02-les-execution-2026-10-09"
+            ],
+            "reference": [
+              "measurement:wmles-channel-retau1000-werner-2026-10-09"
+            ],
+            "production": [
+              "measurement:humphrey-turbulent-bend-wmles-2026-10-09"
+            ]
+          }
         },
         "box": {
           "canonical": false,
@@ -775,9 +802,19 @@
       "coverage_enforced": true,
       "value_metadata": {
         "cube_root_volume": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "benchmark": [
+              "measurement:hom02-les-execution-2026-10-09"
+            ],
+            "reference": [
+              "measurement:wmles-channel-retau1000-werner-2026-10-09"
+            ],
+            "production": [
+              "measurement:humphrey-turbulent-bend-wmles-2026-10-09"
+            ]
+          }
         },
         "geometric_mean": {
           "status": "experimental",
@@ -785,17 +822,24 @@
           "evidence": {}
         },
         "max_edge": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "benchmark": [
+              "measurement:hom02-les-execution-2026-10-09"
+            ]
+          }
         },
         "scotti": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "make:unit-les",
               "file:tests/c/test_les.c"
+            ],
+            "benchmark": [
+              "measurement:hom02-les-execution-2026-10-09"
             ]
           }
         }
@@ -816,19 +860,37 @@
       "coverage_enforced": true,
       "value_metadata": {
         "local": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "benchmark": [
+              "measurement:hom02-les-execution-2026-10-09"
+            ]
+          }
         },
         "homogeneous": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "benchmark": [
+              "measurement:hom02-les-execution-2026-10-09"
+            ],
+            "reference": [
+              "measurement:wmles-channel-retau1000-werner-2026-10-09"
+            ]
+          }
         },
         "global": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "benchmark": [
+              "measurement:hom02-les-execution-2026-10-09"
+            ],
+            "production": [
+              "measurement:humphrey-turbulent-bend-wmles-2026-10-09"
+            ]
+          }
         }
       }
     },
@@ -847,19 +909,37 @@
       "coverage_enforced": true,
       "value_metadata": {
         "clamp": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "benchmark": [
+              "measurement:hom02-les-execution-2026-10-09"
+            ],
+            "reference": [
+              "measurement:wmles-channel-retau1000-werner-2026-10-09"
+            ],
+            "production": [
+              "measurement:humphrey-turbulent-bend-wmles-2026-10-09"
+            ]
+          }
         },
         "clip_negative": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "benchmark": [
+              "measurement:hom02-les-execution-2026-10-09"
+            ]
+          }
         },
         "none": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "benchmark": [
+              "measurement:hom02-les-execution-2026-10-09"
+            ]
+          }
         }
       }
     },
@@ -947,7 +1027,7 @@
           "spelling_of": "log_law"
         },
         "werner": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -955,6 +1035,12 @@
               "file:tests/c/test_runtime_kernels.c",
               "make:unit-boundaries",
               "file:tests/c/test_boundaries.c"
+            ],
+            "reference": [
+              "measurement:wmles-channel-retau1000-werner-2026-10-09"
+            ],
+            "production": [
+              "measurement:humphrey-turbulent-bend-wmles-2026-10-09"
             ]
           }
         },
@@ -1821,7 +1907,8 @@
               "make:unit-newton-krylov"
             ],
             "production": [
-              "measurement:humphrey-laminar-bend-nk-pointblock-2026-10-07"
+              "measurement:humphrey-laminar-bend-nk-pointblock-2026-10-07",
+              "measurement:humphrey-turbulent-bend-wmles-2026-10-09"
             ]
           }
         }

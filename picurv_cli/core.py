@@ -22601,7 +22601,7 @@ def _collect_summary_plot_records(context: dict) -> list:
                     )
 
     # The LES coefficient history. cs_effective is the curve an LES run is judged on:
-    # for decaying isotropic turbulence it should settle near Lilly's 0.16-0.17.
+    # on the HOM02 benchmark at 64^3 it settles at 0.18-0.19 (page 72, section 10).
     les_path = os.path.join(metrics_dir, "les_coefficient.csv")
     if os.path.isfile(les_path):
         for segment, row in _read_runtime_diagnostics_csv(les_path):

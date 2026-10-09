@@ -564,8 +564,9 @@ Then read `<run.analysis.metrics>/les_coefficient.csv`, or plot it directly:
 
 What to look for:
 
-- `cs_effective` should settle, and for decaying isotropic turbulence it should settle
-  near **0.16-0.17**. A curve that drifts or oscillates is the signal to stop.
+- `cs_effective` should settle; for decaying isotropic turbulence at 64^3 with the box
+  test filter it settled at **0.18-0.19** on the HOM02 benchmark (Lilly's 0.16-0.17
+  assumes a spectral cutoff). A curve that drifts or oscillates is the signal to stop.
 - `limited_fraction` near zero means the `max_cs` ceiling is not shaping the result.
   A large value means the clip is doing the modelling.
 - `backscatter_fraction` is what the clipping modes discard. Under `local` averaging it

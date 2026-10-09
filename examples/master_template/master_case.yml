@@ -305,8 +305,8 @@ models:
       #   les: true        -> -les 1 (constant Smagorinsky)
       #   les: 1           -> constant Smagorinsky
       #   les: 2           -> dynamic Smagorinsky
-      # All four models are experimental: implemented and unit-tested, not yet
-      # validated against a reference flow. See docs/pages/07_Case_Reference.md.
+      # All four models are supported; see docs/pages/07_Case_Reference.md for each
+      # model's evidence and limits.
       # Each model's own parameters are refused under the others.
       les:
         # [Boolean] -> -les 0 when false

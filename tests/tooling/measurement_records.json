@@ -611,6 +611,66 @@
       },
       "limitations": "Triply periodic uniform boxes only; wall-bounded sources are refused. No HDF5 file was read (h5py is not installed here); only the refusal message is tested. The field PICurv holds is the second-order reconstruction of what was staged, so shells above about half the grid cutoff differ from the source by representation, not by import error. An LES started from this field has not yet been compared with the HOM02 DNS; that is the campaign this provider was built for.",
       "artifacts": []
+    },
+    {
+      "id": "wmles-channel-retau1000-werner-2026-10-09",
+      "question": "With the pointwise Werner-Wengle relation (01416a8), does the wall-modelled LES channel at Re_b = 40,000 reproduce Lee & Moser (2015) Re_tau = 1000 within criteria fixed before the run: friction velocity within 3%, window halves within 1%, bulk-unit mean velocity within 2% RMS, U+ in the log layer within 1, a linear total shear stress, and outer-layer resolved Reynolds shear stress within 15%?",
+      "date": "2026-10-09",
+      "commit": "4eedf256d5b1176744760b3a091e0eab4b334b58, checkpoint.meta picurv_dirty false.",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized, one node. Run case_constant_flux_20261008-154731, solver job 20060590, restarted from step 50000 of the pre-fix run case_constant_flux_20261008-003041 with --statistics-state reset. Checkpoint, statistics payloads, wall_model.csv, les_coefficient.csv, logs and configuration inspected as supplied by the owner.",
+      "configuration": "examples/periodic_test/driven_channel/les_wallmodel_retau1000: 32 x 20 x 48 cells over pi x 2 x 2 pi, uniform; constant_flux driven periodic streamwise, periodic spanwise; Re_b = U_b (2h) / nu = 40,000 (nu = 5e-5, h = 1). Dual Time Picard Jameson RK, central convection, dt = 0.02. LES dynamic_smagorinsky, volume_weighted_box test filter (width ratio 2), cube_root_volume width, homogeneous averaging over i and k, clamp at 0.3; wall_function werner. Statistics window t = 1200-2000 (3999 samples, represented time 799.8), the restart having started at t = 1000.",
+      "result": {
+        "measured": "u_tau = sqrt(<u_tau^2>) over the window from wall_model.csv: 0.05148, +2.87% against Lee & Moser's 0.05005 (window mean of the wall average 0.05108, +2.07%); halves 0.05139 / 0.05157 (0.35% apart); u_tau settled within 50 time units of the restart and stayed within 0.0509-0.0514. Mean velocity in bulk units against Lee & Moser: RMS 0.0110 U_b, maximum 0.0170, centreline 1.1126 against 1.1296. U+ with the window u_tau: within 0.79 of Lee & Moser over y+ 100-500 (first cell -0.22). Viscous plus resolved plus snapshot subgrid shear is 0.93-0.98 of tau_w (1 - y/h) through the outer layer, and an outer fit of it gives u_tau 0.05030 (+0.5%). Resolved -u'v' for y/h >= 0.25 is 0.91-1.02 of Lee & Moser (mean 0.986); u', v', w' outer-layer ratios 1.015 / 1.029 / 0.952. Pre-fix run on the same grid (window t = 200-1000): u_tau +14.5%, resolved -u'v' 1.27, u' 1.14. Dynamic coefficient over the window: cs_mean 0.133, nu_t/nu 3.56.",
+        "threshold": "Fixed 2026-10-08 before the run: u_tau within +-3%; halves within 1%; bulk-unit mean velocity RMS <= 2% U_b; |U+ - U+_LM| <= 1 for y+ 100-500 (first one or two cells recorded, not counted); total shear stress linear; resolved -u'v' within 15% for y/h >= 0.3.",
+        "verdict": "met"
+      },
+      "limitations": "One grid (32 x 20 x 48), one Reynolds number, one wall model, one subgrid configuration; no grid or time-step refinement on the corrected build (the refined run predates the fix). The u_tau criterion is met with +2.87% against a 3% bound. The subgrid shear in the stress budget comes from a single snapshot of nu_t times the mean gradient, so the 2.3% gap between the wall-model stress and the outer-layer fit is not resolved; the driving body force, which would settle it, is not written by the solver. log_law and cabot are not exercised. Wall-bounded LES quality near the wall is limited by about two cells per wall-model layer, and the first-cell U+ offset is a known wall-modelled-LES artefact rather than a tested property.",
+      "artifacts": []
+    },
+    {
+      "id": "hom02-les-execution-2026-10-09",
+      "question": "Do PICurv's four LES models and the dynamic procedure's averaging, clipping and filter-width options run AGARD HOM02 decaying isotropic turbulence from the DNS field to the last DNS spectrum without divergence, remove the grid-cutoff energy pile-up that the unmodelled run shows, and respond to their options as their definitions require?",
+      "date": "2026-10-09",
+      "commit": "Not recorded in the reduced output; the runs were staged on 2026-10-09 after origin/main reached 4eedf256d5b1176744760b3a091e0eab4b334b58 (inferred, not checked against run manifests).",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized, one node per run: 48 ranks (4 x 4 x 3) for 64^3 and 32^3, 32 ranks (4 x 4 x 2) for 64 x 64 x 32. Seventeen runs les_<variant>_20261009-0351xx staged by sandbox/hom02/les_matrix/les_matrix.py submit and reduced by its reduce subcommand (shell spectra from generators/spectra.gen); the reduced CSVs were inspected as supplied.",
+      "configuration": "Triply periodic 2 pi box; initial field resampled_velocity from CB128_9.bin, the 128^3 truncation of Wray's 512^3 DNS at t0 = 0.9614 (R_lambda 104.5, located in CB512.f_t; energy 0.823 against the DNS's 0.827 below k = 64); nu = 3.5014006e-4. Newton Krylov (no preconditioner), central convection, dt = 0.01, 452 steps to DNS time 5.48. Variants: 64^3 no model, constant_smagorinsky (Cs 0.17), dynamic_smagorinsky with homogeneous, global and local averaging and, under local, clamp, clip_negative and none, vreman, wale; 32^3 no model, constant, dynamic (homogeneous), vreman, wale; 64 x 64 x 32 constant_smagorinsky with cube_root_volume, max_edge and scotti widths. Dynamic variants use volume_weighted_box (width ratio 2).",
+      "result": {
+        "measured": "All 17 runs reached DNS time 5.48. Cutoff-band (k = kc/2..kc) mean log10(E_les/E_dns): no model +0.72 at 64^3 and +0.73 at 32^3; constant +0.110, dynamic homogeneous +0.012, dynamic local +0.035 / +0.024 / +0.038 (clamp / clip_negative / none), vreman +0.142, wale +0.052 at 64^3; widths on 64 x 64 x 32 +0.108 (cube_root_volume), +0.103 (scotti), -0.026 (max_edge). global and homogeneous averaging are identical to every printed digit. Mean nu_t/nu on 64 x 64 x 32 orders with the width, 4.38 (cube_root_volume) < 4.59 (scotti) < 7.97 (max_edge). The dynamic coefficient settles without drift: whole-domain Cs 0.193-0.196 (homogeneous), 0.181-0.183 (local, all three clipping modes). clipping.mode none under local averaging stayed stable to the end.",
+        "threshold": "Every run reaches the last DNS spectrum; every model brings the cutoff-band error from the no-model +0.72 to within +-0.15; global equals homogeneous in a periodic box; nu_t orders with the filter width.",
+        "verdict": "met"
+      },
+      "limitations": "Characterizes behaviour; accuracy against criteria fixed before the runs is recorded separately in hom02-les-accuracy-2026-10-09, whose verdict is not-met. One flow (decaying isotropic turbulence from one DNS state), uniform orthogonal grids only, so geometric_mean cannot be distinguished from cube_root_volume and is not exercised; simpson_ik is not exercised. The dynamic coefficient settles at 0.18-0.19, not the 0.16-0.17 the case README expected; that expectation assumed a spectral cutoff in an inertial range. Build commit inferred, not verified from manifests.",
+      "artifacts": []
+    },
+    {
+      "id": "hom02-les-accuracy-2026-10-09",
+      "question": "Do the LES models meet, at 64^3 on HOM02, the accuracy criteria fixed before the runs: resolved-band energy decay (normalized by its own initial value) within 10% of the DNS at all times, low-band spectrum RMS log10 error <= 0.1, cutoff-band mean log10 error within +-0.15 and closer to zero than no model?",
+      "date": "2026-10-09",
+      "commit": "As hom02-les-execution-2026-10-09 (inferred 4eedf256d5b1176744760b3a091e0eab4b334b58).",
+      "environment": "As hom02-les-execution-2026-10-09.",
+      "configuration": "As hom02-les-execution-2026-10-09; criteria in sandbox/hom02/les_matrix/README.md, written 2026-10-08 before submission.",
+      "result": {
+        "measured": "Maximum |decay error| over the run (final value): constant 0.262 (-0.144), dynamic homogeneous 0.181 (-0.100), dynamic local clamp 0.233 (-0.021), clip_negative 0.226 (-0.014), none 0.234 (-0.007), vreman 0.292 (-0.160), wale 0.210 (-0.130); no model 2.07. Every model overshoots by 12-29% between t = 1.2 and 2 and crosses zero near t = 3; later the constant, vreman and wale models over-dissipate to -13 to -16% and dynamic homogeneous to -10%, while local dynamic ends within 2%. Low-band spectrum RMS log10 error: constant 0.093, dynamic homogeneous 0.061, dynamic local 0.042-0.044, vreman 0.107, wale 0.077. Cutoff-band errors as in hom02-les-execution-2026-10-09. 32^3 decay errors reach 0.66-0.83.",
+        "threshold": "Decay error within +-10% at all times; low-band RMS log10 error <= 0.1; cutoff-band mean within +-0.15 and below the no-model value.",
+        "verdict": "not-met"
+      },
+      "limitations": "The decay criterion fails for every model during the first ~1.5 time units, which coincides with starting the LES from a truncated DNS field at its peak-dissipation instant with no subgrid energy present; the measurement does not separate that start-up effect from model error. The low-band and cutoff criteria are met by all models except vreman's low band (0.107). The criteria were the agent's proposal, accepted by the owner, not a published standard.",
+      "artifacts": []
+    },
+    {
+      "id": "humphrey-turbulent-bend-wmles-2026-10-09",
+      "question": "Does a wall-modelled LES of the Rc/D = 2.3 square-duct bend at Re_D = 40,000 - Werner wall model, dynamic Smagorinsky with global averaging, Newton-Krylov with the frozen_momentum_jacobian point-block preconditioner - run to completion with every step converged and committed, and how do its station profiles compare with Taylor, Whitelaw & Yianneskis (1981), NASA CR-3367, Table II?",
+      "date": "2026-10-09",
+      "commit": "4eedf256d5b1176744760b3a091e0eab4b334b58 for both runs, manifest software.dirty false.",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized, one 48-core node, 48 ranks (2 x 2 x 12). Runs humphrey_turbulent_wm_20261008-192117 (7 D inlet) and humphrey_turbulent_wm_20261009-032804 (15 D inlet, solver job 20068966). Logs, checkpoints, statistics payloads and manifests inspected as supplied.",
+      "configuration": "grid.gen sweep: unit square section 32 x 32 uniform (first cell y+ ~ 33-38), straight inlet 7 D or 15 D, arc radius 2.3 through 90 degrees, straight outlet 7 D; 336 or 496 streamwise cells. Plug inlet (constant_velocity, normal speed 1), noslip walls with wall_function werner, conservation outlet. LES dynamic_smagorinsky, volume_weighted_box, cube_root_volume, global averaging, clamp 0.3. Newton Krylov, matrix-free finite-difference Jacobian, frozen_momentum_jacobian point_block, central convection, dt 0.03 (CFL ~ 0.9). 8000 / 9000 steps; statistics windows t = 60-240 / 80-260 (1200 samples each).",
+      "result": {
+        "measured": "8000 / 8000 and 9000 / 9000 steps committed with no missing or duplicate step; Newton iterations at most 5; Krylov iterations per step median 26 / 27, maximum 28 / 30, flat over the run; maximum divergence 4.94e-11 / 4.89e-11. Wall model u_tau ~ 0.058, mean first-cell y+ ~ 36, maximum ~ 55. Exploratory comparison, not part of the verdict: side-wall boundary layer at XH = -0.25 0.09 D (7 D inlet) and 0.160-0.170 D (15 D inlet) against 0.158-0.181 D measured; RMS difference from CR-3367 over the six stations (XH -0.25; 30, 60, 77.5 degrees; XH +0.25, +2.5) for U 0.056-0.087 / 0.048-0.075 U_b and for V 0.016-0.056 / 0.013-0.053 U_b (7 D / 15 D inlet). The measured profiles themselves integrate to between 0.96 and 1.02 of PICurv's at the same points, a 2-4% station-to-station inconsistency in the reference.",
+        "threshold": "Production execution: every step converged and committed, divergence at round-off.",
+        "verdict": "met"
+      },
+      "limitations": "Production-execution evidence; the accuracy comparison is exploratory and has no pre-set criterion. One cross-section resolution (32 x 32) and one time step; no grid study. Boundary-layer u' is about twice the measured level at the inlet with about five cells across the layer, and the core at XH = -0.25 is about 6% fast with the 15 D inlet. The plug inlet carries no turbulence; the experiment's inlet layers were turbulent, reached here through inlet length. Table II was hand-transcribed from the scanned report and its rotated XH = +2.5 pages could not be cross-checked against the OCR text. No restart, no other rank layout; the 96-rank pilot reproduced the 48-rank pilot to round-off over 300 steps but is not part of this record.",
+      "artifacts": []
     }
   ]
 }

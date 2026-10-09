@@ -1,20 +1,19 @@
 # Decaying isotropic turbulence
 
 
-> **Experimental LES.** This case sets `model: dynamic_smagorinsky` with
+> **LES model.** This case sets `model: dynamic_smagorinsky` with
 > `averaging.mode: homogeneous`. The box is periodic in all three directions, so the
 > averaging directions are derived from the boundary pairs and the procedure produces
-> one coefficient for the whole domain each update. The formulation is unit-tested,
-> but the coefficient magnitude has not been validated against a reference: this case
-> is the run that would settle it. Treat results as uncharacterized until it has been
-> run and `Cs(t)` recorded.
+> one coefficient for the whole domain each update. The model is supported: it was
+> characterized on the AGARD HOM02 benchmark, started from Wray's DNS field rather than
+> this case's random seed (`hom02-les-execution-2026-10-09`; page 72, section 10).
 >
 > **What to check.** With `diagnostics.enabled` the solver appends a row per step to
 > `<run.analysis.metrics>/les_coefficient.csv`. The `cs_effective` column is the whole-domain
-> coefficient reported as `Cs`, and after the initial transient it is expected to
-> settle near **0.16-0.17**, Lilly's value for isotropic turbulence. A curve that
-> settles elsewhere, drifts, or oscillates is the signal to investigate before
-> trusting anything downstream of it. `backscatter_fraction` and `limited_fraction`
+> coefficient reported as `Cs`. On HOM02 at this resolution it settled at
+> **0.19** after the initial transient, somewhat above Lilly's 0.16-0.17, which assumes
+> a spectral cutoff. A curve that drifts or oscillates is the signal to investigate
+> before trusting anything downstream of it. `backscatter_fraction` and `limited_fraction`
 > in the same file show how much of the domain the clip is touching; with a
 > whole-domain average both should read near zero.
 
@@ -63,9 +62,8 @@ full 64-cubed case.
 
 ## Momentum solver
 
-This example starts from the matrix-free Newton-Krylov momentum solver
-(experimental) so that one shipped case shows it; the dual-time Picard solver
-(supported) runs the same case. To switch, set `strategy.momentum_solver:
+This example starts from the matrix-free Newton-Krylov momentum solver; the dual-time
+Picard solver runs the same case. To switch, set `strategy.momentum_solver:
 "Dual Time Picard Jameson RK"` in `<workspace>/config/solver.yml` and replace the
 `momentum_solver.newton_krylov` block with a `dual_time_picard_jameson_rk` block,
 for example the one in `examples/flat_channel/Imp-MG-Standard.yml`. Changing the

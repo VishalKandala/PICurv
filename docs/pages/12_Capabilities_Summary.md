@@ -62,17 +62,20 @@ field, test filter or averaging and vanish in pure shear; `vreman` resolves each
 direction by the cell's own spacing. Entries and full detail at
 @ref p07_les_sec; the formulation is derived in @ref 72_LES_Turbulence_Closure.
 
-@note All four models are **experimental**: they are implemented and unit-tested, but
-none has been validated against a reference flow. The check that would settle the
-dynamic model is decaying isotropic turbulence with homogeneous averaging, where
-`Cs(t)` should settle near 0.16-0.17. Until such a run is recorded, treat coefficient
-magnitudes as uncharacterized.
+@note All four models are **supported**. On the AGARD HOM02 benchmark, started from a
+DNS field, every one removes the energy pile-up an unmodelled run builds at the grid
+cutoff, and the dynamic coefficient settles at 0.18-0.19; none keeps the resolved energy
+decay within 10% of the DNS during start-up (@ref p72_status_sec). The dynamic model with
+homogeneous averaging and the Werner wall model reproduces Lee & Moser's Re_tau = 1000
+channel within criteria fixed beforehand. `simpson_ik` and `geometric_mean` remain
+experimental.
 
 There is no RANS closure. A `k_omega` selector existed until 2026-09-22, but nothing
 behind it was ever implemented, so it was removed and the subsystem returned to planned;
 `models.physics.turbulence.rans` is now refused at validation (@ref p57_rans_sec). Wall
 functions are configured separately from the LES closure, and offer three
-laws - `log_law`, `werner`, and `cabot`. The correction is applied inside the
+laws - `log_law`, `werner`, and `cabot`; `werner` is supported on that channel
+validation, and the other two are experimental with unit coverage only. The correction is applied inside the
 momentum solve and again before the LES strain rates are formed, so a
 wall-modelled large-eddy simulation is coupled in both directions, and the modelled
 stress reaches the momentum equation through an effective eddy viscosity installed at

@@ -83,9 +83,9 @@ reference for recipe-ID compatibility and particle/statistics reset behavior.
   `source.type: field_slice` when reusing an old `ufield` slice as a new inlet.
 - Promote stable custom profiles back into `<repo>/config/` for team-level reuse.
 - Every solving example runs under either momentum solver; the examples start
-  from one or the other to show both. Most ship the dual-time Picard solver
-  (supported); `decaying_isotropic_turbulence` and `turbulent_channel` start from
-  Newton-Krylov (experimental), and the driven-periodic laminar, `Re_tau = 180` and
+  from one or the other to show both. Most ship the dual-time Picard solver;
+  `decaying_isotropic_turbulence` and `turbulent_channel` start from
+  Newton-Krylov, and the driven-periodic laminar, `Re_tau = 180` and
   duct cases ship a `solver_newton_krylov.yml` beside their Picard file. To switch,
   change `strategy.momentum_solver` and replace the solver-specific
   `momentum_solver` block with the other solver's; a block that does not match the

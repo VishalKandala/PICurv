@@ -64,8 +64,8 @@ models:
     particles:
       count: 0
     turbulence:
-      # Experimental, like every LES model: implemented and unit-tested, not yet
-      # validated against a reference flow.
+      # This configuration, with the Werner wall model below, reproduces Lee & Moser's
+      # Re_tau = 1000 channel (measurement wmles-channel-retau1000-werner-2026-10-09).
       les:
         enabled: true
         model: "dynamic_smagorinsky"
