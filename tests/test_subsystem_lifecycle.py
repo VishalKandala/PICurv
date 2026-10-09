@@ -281,7 +281,7 @@ def test_defective_status_requires_a_peak(records, pages, families, published):
     # Built from a live record rather than taken from one, because the tree is not
     # guaranteed to hold a defective subsystem at any given time: fixing the last one
     # would otherwise delete this rule's coverage exactly when it stops being exercised.
-    defective = copy.deepcopy(next(r for r in records if r["status"] == "experimental"))
+    defective = copy.deepcopy(records[0])
     defective["status"] = "known-defective"
     defective.pop("peak_status", None)
     problems = _violations(defective, pages, families, published)
@@ -630,6 +630,22 @@ def test_a_value_cannot_name_an_owner_that_does_not_list_its_family(records, fam
     assert any("names subsystem 'turbulence.les', which does not list" in p for p in problems)
 
 
+def _with_status(records, subsystem_id, status):
+    """!
+    @brief Copy the registry with one subsystem at a chosen status.
+    @details The ceiling tests set the owner status themselves rather than borrow it from
+             the registry, so promoting or demoting a real subsystem never silently removes
+             their coverage.
+    @param[in] records Fixture.
+    @param[in] subsystem_id Subsystem whose status is replaced.
+    @param[in] status Status to give it.
+    @return A deep copy of `records` with that one status changed.
+    """
+    edited = copy.deepcopy(records)
+    next(r for r in edited if r["id"] == subsystem_id)["status"] = status
+    return edited
+
+
 def test_a_value_cannot_outrank_its_owner(records, families):
     """!
     @brief A supported value under an experimental subsystem is the drift this rule exists for.
@@ -639,40 +655,45 @@ def test_a_value_cannot_outrank_its_owner(records, families):
     """
     edited = copy.deepcopy(families)
     edited["turbulence.les_filter_width"]["value_metadata"]["max_edge"]["status"] = "supported"
-    problems = lifecycle.validate_value_ownership(records, edited)
+    problems = lifecycle.validate_value_ownership(_with_status(records, "turbulence.les", "experimental"),
+                                                  edited)
     assert any("'max_edge' claims 'supported' but its subsystem 'turbulence.les'" in p for p in problems)
 
 
 def test_only_the_off_switch_escapes_the_ceiling(records, families):
     """!
-    @brief `none` for LES is supported under an experimental owner only because it is the off switch.
+    @brief `none` may be supported under an experimental owner only because it is the off switch.
     @param[in] records Fixture.
     @param[in] families Fixture.
     @return None.
     """
+    experimental_owner = _with_status(records, "turbulence.les", "experimental")
     edited = copy.deepcopy(families)
+    for value in edited["turbulence.les_model"]["value_metadata"].values():
+        value["status"] = "experimental"
+    edited["turbulence.les_model"]["value_metadata"]["none"]["status"] = "supported"
+    assert not any(p.startswith("turbulence.les_model: 'none' claims")
+                   for p in lifecycle.validate_value_ownership(experimental_owner, edited))
     del edited["turbulence.les_model"]["value_metadata"]["none"]["off_switch"]
-    problems = lifecycle.validate_value_ownership(records, edited)
-    assert any("'none' claims 'supported' but its subsystem 'turbulence.les'" in p for p in problems)
+    problems = lifecycle.validate_value_ownership(experimental_owner, edited)
+    assert any(p.startswith("turbulence.les_model: 'none' claims 'supported' but its subsystem "
+                            "'turbulence.les'") for p in problems)
 
     edited["turbulence.les_model"]["value_metadata"]["none"]["off_switch"] = True
     edited["turbulence.les_model"]["value_metadata"]["wale"]["off_switch"] = True
-    problems = lifecycle.validate_value_ownership(records, edited)
+    problems = lifecycle.validate_value_ownership(experimental_owner, edited)
     assert any("a family has at most one value that disables" in p for p in problems)
 
 
 def test_a_value_under_a_defective_owner_shares_its_status(records, families):
     """!
     @brief Under a known-defective subsystem, a value cannot read as merely experimental.
-    @details No subsystem is off the ladder today - RANS was the last, and it returned to
-             planned when its unimplemented hooks were removed - so the owner status is
-             set here rather than borrowed from the registry.
     @param[in] records Fixture.
     @param[in] families Fixture.
     @return None.
     """
-    edited_records = copy.deepcopy(records)
-    owner = next(r for r in edited_records if r["id"] == "turbulence.les")
-    owner["status"] = "known-defective"
-    problems = lifecycle.validate_value_ownership(edited_records, families)
+    edited = copy.deepcopy(families)
+    edited["turbulence.les_model"]["value_metadata"]["vreman"]["status"] = "experimental"
+    problems = lifecycle.validate_value_ownership(
+        _with_status(records, "turbulence.les", "known-defective"), edited)
     assert any("'vreman' is 'experimental' under 'turbulence.les'" in p for p in problems)
