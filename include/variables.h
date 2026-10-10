@@ -640,7 +640,7 @@ typedef struct LESConfig {
     PetscReal           wale_coefficient;        ///< Model constant C_w for WALE (Nicoud & Ducros 1999).
     LESFilterWidthModel filter_width_model;      ///< How the grid filter width Delta is derived per cell.
     LESTestFilterKernel test_filter_kernel;      ///< Discrete test-filter stencil.
-    PetscReal           test_filter_width_ratio; ///< Test-to-grid width ratio; alpha is its square.
+    PetscReal           test_filter_width_ratio; ///< Test-to-grid ratio per filtered direction; alpha is its square for the box, ratio^(4/3) for Simpson.
     LESAveragingMode    averaging_mode;          ///< Averaging set for the Germano contractions.
     PetscBool           averaging_direction[3];  ///< Averaged-over logical directions (xi, eta, zeta).
     LESClipMode         clip_mode;               ///< Admissible range for the coefficient.

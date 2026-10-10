@@ -756,8 +756,17 @@ PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
     PetscCall(ResolveLESAveragingDirections(user, average_direction));
 
     // alpha is the squared ratio of the two filter widths and sets the relative weight
-    // of the test-scale and grid-scale terms in the model tensor.
-    alpha = config->test_filter_width_ratio * config->test_filter_width_ratio;
+    // of the test-scale and grid-scale terms in the model tensor. The widths are the
+    // cube roots of the three directional widths, and the configured ratio applies to
+    // each direction the kernel filters. The box filters all three, so alpha is the
+    // ratio squared. Simpson filters only i and k and leaves j at the grid width, so
+    // its widths differ by ratio^(2/3) and alpha is ratio^(4/3); squaring the ratio
+    // there halved the dynamic coefficient on HOM02 (0.091 against the box's 0.194).
+    if (config->test_filter_kernel == LES_TEST_FILTER_SIMPSON_IK) {
+        alpha = PetscPowReal(config->test_filter_width_ratio, 4.0 / 3.0);
+    } else {
+        alpha = config->test_filter_width_ratio * config->test_filter_width_ratio;
+    }
 
     PetscCall(VecDuplicate(user->lUcat, &lStrainDiag));
     PetscCall(VecDuplicate(user->lUcat, &lStrainOff));

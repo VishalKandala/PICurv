@@ -952,7 +952,10 @@ higher-order stencil is both admissible and more accurate.
 
 **Interactions.** The homogeneity assumption is now checked rather than trusted:
 selecting this kernel without declaring both xi and zeta `PERIODIC` is rejected during
-validation.
+validation. `test_filter.width_ratio` applies to the two directions the stencil filters
+and leaves eta at the grid width, so the dynamic procedure uses alpha = ratio^(4/3) here
+rather than the box filter's ratio^2. The default ratio 2 therefore gives a cube-root
+width ratio of 4^(1/3), about 1.59.
 
 **Diagnostics.** As above.
 

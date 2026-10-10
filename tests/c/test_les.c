@@ -1044,6 +1044,85 @@ static PetscErrorCode TestDynamicProcedureGlobalAverageIsUniform(void)
 }
 
 /**
+ * @brief Runs the dynamic procedure with the Simpson kernel on a linear field and returns
+ *        the raw coefficient at the block centre.
+ * @param[in]  width_ratio Configured test-to-grid width ratio.
+ * @param[out] coefficient The unclipped dynamic coefficient at cell (4, 4, 4).
+ */
+static PetscErrorCode SimpsonCoefficientOnLinearField(PetscReal width_ratio, PetscReal *coefficient)
+{
+    SimCtx      *simCtx = NULL;
+    UserCtx     *user = NULL;
+    Cmpnts    ***ucat = NULL;
+    PetscReal ***cs = NULL;
+    const PetscReal gamma = 0.1;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 8, 8));
+    simCtx->les = DYNAMIC_SMAGORINSKY;
+    simCtx->step = 5;
+    simCtx->StartStep = 0;
+    simCtx->les_config.test_filter_kernel = LES_TEST_FILTER_SIMPSON_IK;
+    simCtx->les_config.test_filter_width_ratio = width_ratio;
+    simCtx->les_config.averaging_mode = LES_AVERAGING_LOCAL;
+    simCtx->les_config.clip_mode = LES_CLIP_NONE;
+
+    PetscCall(DMCreateGlobalVector(user->da, &user->CS));
+    PetscCall(DMCreateLocalVector(user->da, &user->lCs));
+    PetscCall(VecSet(user->Aj, 1.0));
+    PetscCall(VecSet(user->lAj, 1.0));
+    PetscCall(VecSet(user->lNvert, 0.0));
+
+    /* A divergence-free linear strain: the strain and both filtered strain terms are
+       uniform, so the model tensor scales exactly with (alpha - 1), while the Leonard
+       stress is the stencil's second moment along i and does not depend on alpha. */
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k)
+    for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j)
+    for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
+        ucat[k][j][i].x = -gamma * (PetscReal)i;
+        ucat[k][j][i].y =  gamma * (PetscReal)j;
+        ucat[k][j][i].z =  0.0;
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
+
+    PetscCall(ComputeSmagorinskyConstant(user));
+
+    PetscCall(DMDAVecGetArrayRead(user->da, user->CS, &cs));
+    *coefficient = cs[4][4][4];
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->CS, &cs));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that the Simpson kernel's width ratio applies to the two directions it filters.
+ *
+ * Simpson filters i and k only, so the cube-root test-to-grid width ratio is
+ * ratio^(2/3) and alpha is ratio^(4/3), not ratio^2. On a linear field the coefficient
+ * is proportional to 1 / (alpha - 1), so two ratios fix the exponent without depending
+ * on any other convention in the procedure.
+ */
+static PetscErrorCode TestDynamicProcedureSimpsonRatioCountsFilteredDirections(void)
+{
+    PetscReal coefficient_2 = 0.0, coefficient_4 = 0.0;
+    const PetscReal alpha_2 = PetscPowReal(2.0, 4.0 / 3.0);
+    const PetscReal alpha_4 = PetscPowReal(4.0, 4.0 / 3.0);
+
+    PetscFunctionBeginUser;
+    PetscCall(SimpsonCoefficientOnLinearField(2.0, &coefficient_2));
+    PetscCall(SimpsonCoefficientOnLinearField(4.0, &coefficient_4));
+    PetscCall(PicurvAssertBool((PetscBool)(coefficient_2 > 0.0 && coefficient_4 > 0.0),
+                               "a linear strain should give a positive Simpson coefficient"));
+    PetscCall(PicurvAssertRealNear((alpha_4 - 1.0) / (alpha_2 - 1.0), coefficient_2 / coefficient_4,
+                                   1.0e-10,
+                                   "the Simpson coefficient should scale as 1/(ratio^(4/3) - 1)"));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Entry point for the LES closure suite.
  */
 int main(int argc, char **argv)
@@ -1072,6 +1151,7 @@ int main(int argc, char **argv)
         {"dynamic-procedure-rejects-constant-model", TestDynamicProcedureRejectsConstantModel},
         {"dynamic-procedure-vanishes-on-uniform-flow", TestDynamicProcedureVanishesOnUniformFlow},
         {"dynamic-procedure-global-average-is-uniform", TestDynamicProcedureGlobalAverageIsUniform},
+        {"dynamic-procedure-simpson-ratio-counts-filtered-directions", TestDynamicProcedureSimpsonRatioCountsFilteredDirections},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv LES closure tests");

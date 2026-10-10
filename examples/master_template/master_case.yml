@@ -362,8 +362,10 @@ models:
           # [String] -> -les_test_filter_kernel
           kernel: "volume_weighted_box"
 
-          # Test-to-grid filter width ratio. alpha is its square. Must exceed 1: a test
-          # filter no wider than the grid filter leaves nothing to measure.
+          # Test-to-grid filter width ratio in each direction the kernel filters. The box
+          # filters all three, so alpha is its square; simpson_ik filters only xi and
+          # zeta, so alpha is ratio^(4/3). Must exceed 1: a test filter no wider than the
+          # grid filter leaves nothing to measure.
           # [Number] -> -les_test_filter_width_ratio
           width_ratio: 2.0
 

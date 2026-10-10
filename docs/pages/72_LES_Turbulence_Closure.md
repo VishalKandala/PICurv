@@ -268,7 +268,11 @@ are measured along the cell's own grid directions, so an identical cell gets the
 width in a straight section and in a bend.
 
 The **test-to-grid ratio** `Delta^/Delta` sets `alpha` and defaults to 2.0, giving
-`alpha = 4`. The value is exposed because the effective width of the discrete
+`alpha = 4`. The configured value is the ratio in each direction the kernel filters, and
+`Delta` is the cube root of the three directional widths. The box filters all three, so
+`alpha` is the ratio squared. `simpson_ik` filters only xi and zeta and leaves eta at the
+grid width, so `alpha = ratio^(4/3)`, about 2.52 at the default. Squaring the ratio there,
+as the procedure once did, halved the dynamic coefficient on the HOM02 benchmark. The value is exposed because the effective width of the discrete
 three-point stencil is not exactly twice the grid spacing: matching second moments for a
 top-hat gives `sqrt(6) ~= 2.449`. Varying it is a standard sensitivity study, and the
 ingress rejects any value at or below 1, where the two filters coincide and the

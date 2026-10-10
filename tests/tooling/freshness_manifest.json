@@ -152,7 +152,7 @@
       "dependent_pages": [
         "21_Methods_Overview"
       ],
-      "attested_digest": "sha256:f14f067b551802250feb09d2bd4ec15d161f2cde9b73516da14cb1b4d0f9742d",
+      "attested_digest": "sha256:87974647a1195881fa2304a9450685599a3a77b168617e76ffe1cb86c3b9e42d",
       "note": "Four models, all experimental: the Germano-Lilly and constant-model defects recorded earlier were fixed on 2026-09-01, and Vreman and WALE were added. If this file or its header changes, re-check the model entries on 07 and the formulation on 72 first."
     },
     {
