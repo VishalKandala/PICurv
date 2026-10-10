@@ -772,6 +772,8 @@ static PetscErrorCode PoissonMultigrid_ShiftBlockFactors(KSP level_ksp)
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "PoissonMultigrid_Build"
 /**
  * @brief Builds the multigrid solver for block @p bi and stores it in the finest level.
  *
