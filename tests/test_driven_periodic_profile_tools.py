@@ -210,3 +210,29 @@ def test_tools_find_the_checkout_from_an_initialized_case(tmp_path):
                                               encoding="utf-8")
     copy = load_tool(case / "driven_channel" / "tools" / CHANNEL_TOOL.name, "wall_normal_profile_copy")
     assert Path(copy.REPO_ROOT) == REPO_ROOT
+
+
+def test_metrics_readers_handle_a_continued_run(tmp_path):
+    """!
+    @brief Test that the metrics readers skip continuation markers and repeated steps.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    tool = load_tool(CHANNEL_TOOL, "wall_normal_profile_continued")
+    driven = tmp_path / "driven_flow.csv"
+    driven.write_text(
+        "step,time,driving_acceleration\n"
+        "1,1.0,2.0\n2,2.0,2.0\n3,3.0,9.0\n"
+        "# Continuation from step 2\n"
+        "3,3.0,4.0\n4,4.0,4.0\n", encoding="utf-8")
+    accel, rows = tool.mean_driving_acceleration(str(driven), 1.0, 4.0)
+    assert rows == 4
+    assert accel == (2.0 + 2.0 + 4.0 + 4.0) / 4
+
+    wall = tmp_path / "wall_model.csv"
+    wall.write_text(
+        "step,time,u_tau_mean,u_tau_rms\n1,1.0,3.0,4.0\n"
+        "# Continuation from step 1\n2,2.0,3.0,4.0\n", encoding="utf-8")
+    u_tau, rows = tool.friction_velocity_from_wall_model(str(wall), 0.0, 5.0)
+    assert rows == 2
+    assert u_tau == 5.0
+

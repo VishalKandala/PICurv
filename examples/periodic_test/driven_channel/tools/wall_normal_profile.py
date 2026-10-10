@@ -193,6 +193,23 @@ def homogeneous_statistics(checkpoint_dir, window_name, grid_path, block, homoge
             "mean": reduced_mean, "covariance": temporal + spatial}
 
 
+def read_metrics_rows(csv_path):
+    """!
+    @brief Rows of a runtime metrics CSV, one per time, as a continued run leaves them.
+    @details A continued run writes a "# Continuation from step N" line into the file,
+             and one continued from an earlier checkpoint than the step it stopped at
+             writes the intervening steps a second time. Comment lines are skipped and,
+             for a repeated time, the later row - the one the continued run wrote - is kept.
+    @param[in] csv_path Path to the metrics CSV.
+    @return List of row dictionaries in time order.
+    """
+    rows = {}
+    with open(csv_path, newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(line for line in handle if not line.startswith("#")):
+            rows[float(row["time"])] = row
+    return [rows[t] for t in sorted(rows)]
+
+
 def friction_velocity_from_wall_model(csv_path, start, end):
     """!
     @brief Mean wall shear the wall model applied over a time interval, as a velocity.
@@ -204,11 +221,10 @@ def friction_velocity_from_wall_model(csv_path, start, end):
     @return Tuple of (sqrt(<u_tau^2>), number of rows used).
     """
     total, rows = 0.0, 0
-    with open(csv_path, newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
-            if start <= float(row["time"]) <= end:
-                total += float(row["u_tau_mean"]) ** 2 + float(row["u_tau_rms"]) ** 2
-                rows += 1
+    for row in read_metrics_rows(csv_path):
+        if start <= float(row["time"]) <= end:
+            total += float(row["u_tau_mean"]) ** 2 + float(row["u_tau_rms"]) ** 2
+            rows += 1
     if rows == 0:
         raise SystemExit(f"{csv_path} has no rows with time in the window [{start}, {end}].")
     return math.sqrt(total / rows), rows
@@ -226,11 +242,10 @@ def mean_driving_acceleration(csv_path, start, end):
     @return Tuple of (mean driving acceleration, number of rows used).
     """
     total, rows = 0.0, 0
-    with open(csv_path, newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
-            if start <= float(row["time"]) <= end:
-                total += float(row["driving_acceleration"])
-                rows += 1
+    for row in read_metrics_rows(csv_path):
+        if start <= float(row["time"]) <= end:
+            total += float(row["driving_acceleration"])
+            rows += 1
     if rows == 0:
         raise SystemExit(f"{csv_path} has no rows with time in the window [{start}, {end}].")
     return total / rows, rows
