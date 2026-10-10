@@ -780,7 +780,8 @@ case, `examples/flat_channel` among them. Analytically verified -
 `duct-poiseuille-picard-2026-09-18`: the analytic duct pressure gradient at second order;
 `poisson-options-2026-09-21`: every multigrid option reproduced this baseline;
 `poisson-persistent-solver-2026-10-10`: the solver kept for the run reproduced the previous
-one and the duct and bend evidence.
+one and the duct and bend evidence; `poisson-option-matrix-2026-10-10`: every Poisson
+setting, varied one at a time around this method, reproduced its solve.
 
 **Limitations.** Stores one vector per iteration up to the restart length, so memory
 grows with `gmres.restart`.
@@ -814,7 +815,9 @@ on.
 unpreconditioned norm type. Analytically verified - `poisson-options-2026-09-21`: on the
 duct it reproduced the `fgmres` velocity to 7e-15, and on the curved bent-channel grid it
 matched `fgmres` to 4.9e-15 in velocity and 4.9e-14 in pressure with the true residual at
-1e-12 or below every step.
+1e-12 or below every step. `poisson-option-matrix-2026-10-10`: with the rewritten solver it
+matched the `fgmres` baseline to 8.7e-10 on the duct, 1.1e-13 on the bent channel and
+3.0e-15 on a triply periodic box.
 
 **Limitations.** Measured on one duct and one curved grid, both small; its cost relative
 to `fgmres` was not characterized. On a grid or multigrid configuration the measurement

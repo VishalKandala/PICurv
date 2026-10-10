@@ -389,6 +389,21 @@ stalled near 1e-3, with left or right preconditioning; those methods are now ref
 @ref p25_config_sec), and the per-level `max_it`, `rtol` and `atol` keys, which were
 emitted without PETSc's `ksp_` prefix and silently ignored, now reach the level solvers.
 
+The rewritten solver was put through the same exercise on Grace by
+`poisson-option-matrix-2026-10-10`: 39 variants, each changing one setting from a
+baseline. On the laminar square duct (28 variants) these were both methods,
+`gmres.restart` 5 and 60, one to five levels, equal and unequal pre/post sweeps including
+an `-ps_mg_levels_N_up_` override, every semi-coarsening axis, Chebyshev, SOR, GMRES, ILU
+and capped smoothers, Krylov and LU coarse solves, the shipped tolerances, all four
+monitoring flags, and 1 and 48 ranks. Every variant gave the same pressure gradient to
+the printed digits and a velocity within 1.4e-9 of the baseline, with divergence at most
+5e-11 (8e-8 with the shipped tolerances). Both methods also ran on the curved bent channel,
+and eight settings on a triply periodic 32^3 decaying-turbulence box, a pure-Neumann
+problem with a nonzero source every step, agreed with their baselines to 3e-15. With the
+matrix's 1e-12 tolerances, 17 duct variants hit the 300-iteration cap near steady state
+without losing agreement, so its iteration counts do not measure cost at production
+tolerances.
+
 End to end, `make smoke-driven-periodic` asserts at 4 and 10 ranks that the multigrid
 coarse solve keeps tracked and true residuals within 1e-4 of each other until both fall
 below 1e-10 of the step's initial residual (below that the two drift apart in round-off
