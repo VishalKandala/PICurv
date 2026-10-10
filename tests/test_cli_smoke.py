@@ -5499,7 +5499,9 @@ def test_generate_solver_control_file_applies_top_level_da_processors_for_file_g
     solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
     monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
 
-    grid_file = write_canonical_picgrid(tmp_path / "grid.picgrid")
+    # Large enough that two ranks per axis still hold the stencil width at the coarsest
+    # of the fixture's three multigrid levels; a 3-node grid would abort in grid setup.
+    grid_file = write_canonical_picgrid(tmp_path / "grid.picgrid", dims=(9, 9, 9))
     case_cfg["grid"] = {
         "mode": "file",
         "source_file": str(grid_file),
@@ -6797,6 +6799,85 @@ def test_continue_rejects_physical_case_change(tmp_path):
         picurv.resolve_restart_source(
             args, requested_case, solver_cfg, monitor_cfg, str(run_dir)
         )
+
+
+def test_continue_accepts_a_changed_domain_decomposition(tmp_path):
+    """!
+    @brief The MPI layout is not physics: a run may continue on a different decomposition.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    saved_case = picurv.read_yaml_file(str(valid / "case.yml"))
+    saved_case["grid"].update(da_processors_x=1, da_processors_y=1, da_processors_z=2)
+    requested_case = json.loads(json.dumps(saved_case))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+    run_dir = tmp_path / "same_run"
+    (run_dir / "config").mkdir(parents=True)
+    picurv.write_yaml_file(str(run_dir / "config" / "case.yml"), saved_case)
+    write_eulerian_checkpoint(run_dir / "output", 10)
+
+    requested_case["run_control"]["start_step"] = 10
+    requested_case["grid"].update(da_processors_x=2, da_processors_y=2, da_processors_z=1)
+    args = SimpleNamespace(restart_from=None, continue_run=True, run_dir=str(run_dir))
+
+    _, continue_mode, _ = picurv.resolve_restart_source(
+        args, requested_case, solver_cfg, monitor_cfg, str(run_dir), materialize=False
+    )
+    assert continue_mode
+
+
+def test_da_layout_check_matches_the_coarsest_multigrid_widths():
+    """!
+    @brief The layout check reproduces grid setup's stencil-width abort, and nothing more.
+    @details The duct's 129 x 129 x 257 nodes coarsen to 10 x 10 x 18 DMDA points at five
+             levels and 18 x 18 x 34 at four. With a periodic face the stencil is 3 on every
+             axis, so 4 x 4 x 3 fails at five levels and passes at four, and 8 ranks on an
+             18-point axis fail - the three outcomes measured on the cluster.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    dims = [(129, 129, 257)]
+
+    def problems(layout, levels, periodic=True):
+        """!
+        @brief Run the layout check for one rank layout on the duct grid.
+        @param[in] layout Ranks per axis.
+        @param[in] levels Multigrid levels.
+        @param[in] periodic Whether a face is PERIODIC.
+        @return The check's problem messages.
+        """
+        grid = dict(zip(("da_processors_x", "da_processors_y", "da_processors_z"), layout))
+        solver = {"poisson_solver": {"multigrid": {"levels": levels}}}
+        return picurv.da_processor_layout_problems(
+            grid, layout[0] * layout[1] * layout[2], dims, solver, periodic)
+
+    five = problems((4, 4, 3), 5)
+    assert len(five) == 2 and all("stencil width 3" in p for p in five)
+    assert problems((4, 4, 3), 4) == []
+    assert problems((4, 4, 6), 4) == []
+    assert any("da_processors_x = 8" in p for p in problems((8, 4, 6), 4))
+    # Without a periodic face the stencil is 2, and 4 ranks fit on 10 points.
+    assert problems((4, 4, 3), 5, periodic=False) == []
+    # Semi-coarsening an axis keeps its full width at every level.
+    semi = {"poisson_solver": {"multigrid": {"levels": 5, "semi_coarsening": {"i": True, "j": True}}}}
+    grid = {"da_processors_x": 4, "da_processors_y": 4, "da_processors_z": 3}
+    assert picurv.da_processor_layout_problems(grid, 48, dims, semi, True) == []
+
+
+def test_grid_gen_dimensions_resolve_without_building_the_grid(tmp_path):
+    """!
+    @brief A grid.gen case's node counts come from grid.gen's own parameter precedence.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    case_path = tmp_path / "case.yml"
+    case_cfg = {"grid": {"mode": "grid_gen", "generator": {
+        "config_file": str(REPO_ROOT / "config" / "grids" / "square_duct_reb4410.cfg"),
+        "grid_type": "box", "cli_args": ["--ncells-k", "128"]}}}
+    assert picurv.resolve_grid_node_dims(case_cfg, str(case_path)) == [(129, 129, 129)]
+    assert not list(tmp_path.iterdir())
 
 
 def test_continue_mode_sets_continue_mode_flag(tmp_path):

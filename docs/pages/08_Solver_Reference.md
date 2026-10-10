@@ -738,8 +738,9 @@ Rules:
   the level-count sizing rule: @ref 25_Pressure_Poisson_GMRES_Multigrid.
 - `multigrid.levels` is bounded by the MPI decomposition, not chosen freely: every level must leave each rank
   at least `stencil_width` nodes per axis (3 when any axis is periodic, 2 otherwise). Exceeding it aborts during
-  DM creation with `Local x-width of domain ... is smaller than stencil width`, and `picurv validate` cannot
-  catch it because it does not see the rank layout. Formula and worked maxima:
+  DM creation with `Local x-width of domain ... is smaller than stencil width`. `picurv run`, including
+  `--dry-run`, refuses such a layout before launch when `grid.da_processors_x/y/z` is set; a layout left to
+  PETSc is only known at runtime. Formula and worked maxima:
   @ref 25_Pressure_Poisson_GMRES_Multigrid.
 - The outer Poisson preconditioner is multigrid-only in the current runtime.
 - The current PETSc binding applies one MG smoother count; when `pre_sweeps` and `post_sweeps` differ, PICurv uses the larger value and logs a warning.

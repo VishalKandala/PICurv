@@ -390,7 +390,8 @@ Before launching any restart or continuation:
 - do not edit bundle contents or generated control files by hand.
 
 `--continue` is for the same physical case. It permits changes to run-control
-time settings, solver parameters/type, monitoring, postprocessing, and resource
+time settings, the MPI domain decomposition (`grid.da_processors_x/y/z` and the
+rank count), solver parameters/type, monitoring, postprocessing, and resource
 settings. Other `case.yml` changes are rejected; use `--restart-from` to create
 a new branch. `--restart-from` may change case physics, but C still requires the
 same grid geometry/layout. A newly enabled optional subsystem such as particles
@@ -554,8 +555,9 @@ meaningless without complaining.
 @subsection p52_compat_inplace_sub 8.2 Continue In Place (`--continue`)
 
 Continuation guards **physical case identity**: `validate_continue_case_identity`
-compares a hash of `case.yml` with `run_control` and the particle `restart_mode`
-excluded. Everything else in `case.yml` is part of that identity.
+compares a hash of `case.yml` with `run_control`, the particle `restart_mode`, and
+`grid.da_processors_x/y/z` excluded. Everything else in `case.yml` is part of that
+identity.
 
 | Change | Accepted? | Advised? | Basis |
 |---|---|---|---|
@@ -570,7 +572,7 @@ excluded. Everything else in `case.yml` is part of that identity.
 | Turbulence model | **no** | — | enforced — part of the case identity |
 | Physical properties | **no** | — | enforced — part of the case identity |
 | Grid dimensions or geometry | **no** | — | enforced — part of the case identity |
-| MPI rank count | unknown | avoid | unknown — no test covers rank change under `--continue` |
+| MPI rank count or `da_processors` layout | yes | yes | enforced — the layout is excluded from the identity hash (`test_continue_accepts_a_changed_domain_decomposition`); a 25 x 25 x 97 channel continued from 2 ranks (1 x 1 x 2) to 2 ranks (2 x 1 x 1) and then to 4 (2 x 1 x 2) on 2026-10-09, with divergence at the 1e-8 level of the first segment |
 
 @note Anything reachable through `solver.yml`, `monitor.yml`, or `post.yml` is
 **accepted** during continuation by design; the guard is on the physical case only.

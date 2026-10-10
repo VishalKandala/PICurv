@@ -293,16 +293,23 @@ PETSC ERROR: Local x-width of domain x 2 is smaller than stencil width s 3
 ```
 
 With `levels: L` and `N` cells along an axis, the coarsest grid holds
-`N / 2^(L-1)` cells, hence `M = N / 2^(L-1) + 1` nodes. PETSc distributes those
-over `P` ranks so the smallest rank holds `floor(M / P)`. The constraint is:
+`N / 2^(L-1)` cells and one more node. Grid setup gives each `DMDA` one point more
+than its node count, so the coarsest `DMDA` holds `M = N / 2^(L-1) + 2` points
+(each level keeps `(nodes + 1) / 2` nodes, so this is exact when `N` divides by
+`2^(L-1)`). PETSc distributes those over `P` ranks so the smallest rank holds
+`floor(M / P)`. The constraint is:
 
-    floor( (N / 2^(L-1) + 1) / P ) >= stencil_width
+    floor( (N / 2^(L-1) + 2) / P ) >= stencil_width
+
+Both sides were checked on 2026-10-09 on a 25 x 25 x 97 wall-bounded channel at
+three levels: the coarsest axis holds 8 points, and 4 ranks on it ran while 5
+aborted with `Local x-width of domain x 1 is smaller than stencil width s 2`.
 
 Worked maxima for a triply periodic box (stencil width 3):
 
 | Cells per axis | Ranks per axis | Total ranks | Max `levels` |
 |---|---|---|---|
-| 64 | 2 | 8 | 4 |
+| 64 | 2 | 8 | 5 |
 | 64 | 4 | 64 | 3 |
 | 128 | 4 | 64 | 4 |
 | 128 | 8 | 512 | 3 |
@@ -313,8 +320,11 @@ Two consequences worth planning around:
 - Periodic cases are strictly more constrained than wall-bounded ones, because
   the stencil width is 3 rather than 2. A solver profile that runs for a channel
   can abort when reused for a fully periodic box at the same rank count.
-- `picurv validate` cannot catch this. It does not see the runtime MPI
-  decomposition, so the first evidence is the aborted job.
+- When the case sets `grid.da_processors_x/y/z`, `picurv run` checks this before
+  launch, including under `--dry-run`, for file, `grid_gen` and programmatic grids,
+  and names the largest rank count each axis can take. When the layout is left to
+  PETSc, the decomposition is not known until runtime, so the first evidence is
+  the aborted job. Set the layout explicitly for any run where it matters.
 
 Reducing `levels` is the usual fix; also delete the now-unused
 `level_solvers.level_N` entry for the level that no longer exists. Shallower

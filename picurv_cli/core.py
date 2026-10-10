@@ -28,10 +28,12 @@ import itertools
 import re
 import shlex
 import copy
+import contextlib
 import math
 import difflib
 import warnings
 from datetime import datetime
+from io import StringIO
 import time
 import filecmp
 import importlib.util
@@ -5874,14 +5876,23 @@ def resolve_run_restart_dir(run_dir: str, monitor_cfg: dict) -> str:
 def compute_physical_case_identity(case_cfg: dict) -> str:
     """!
     @brief Compute the hidden identity used to guard in-place continuation.
-    @details Run length/timestep controls and particle load-vs-init policy do
-             not define the physical case. All other case.yml content does.
+    @details Run length/timestep controls, the MPI domain decomposition, and particle
+             load-vs-init policy do not define the physical case. All other case.yml
+             content does. Checkpoints are decomposition-independent, so a run may
+             continue on a different rank layout.
     @param[in] case_cfg Parsed case configuration.
     @return Lowercase SHA-256 identity of normalized physical-case content.
     """
     normalized = copy.deepcopy(case_cfg)
     if isinstance(normalized, dict):
         normalized.pop("run_control", None)
+        grid = normalized.get("grid")
+        if isinstance(grid, dict):
+            for key in GRID_DA_PROCESSOR_KEYS:
+                grid.pop(key, None)
+            if isinstance(grid.get("programmatic_settings"), dict):
+                for key in GRID_DA_PROCESSOR_KEYS:
+                    grid["programmatic_settings"].pop(key, None)
         particles = (((normalized.get("models") or {}).get("physics") or {}).get("particles"))
         if isinstance(particles, dict):
             particles.pop("restart_mode", None)
@@ -5904,8 +5915,9 @@ def validate_continue_case_identity(run_dir: str, case_cfg: dict) -> None:
     saved_case = read_yaml_file(saved_case_path)
     if compute_physical_case_identity(saved_case) != compute_physical_case_identity(case_cfg):
         raise ValueError(
-            "--continue cannot change the physical case. Change only run_control, "
-            "solver.yml, monitor.yml, or post.yml; use --restart-from for a new case branch."
+            "--continue cannot change the physical case. Change only run_control, the "
+            "da_processors layout, solver.yml, monitor.yml, or post.yml; use --restart-from "
+            "for a new case branch."
         )
 
 
@@ -12712,12 +12724,143 @@ def resolve_grid_da_processor_layout(grid_cfg: dict) -> dict:
     return resolved
 
 
-def append_grid_da_processor_layout(control_lines: list, grid_cfg: dict, num_procs: int) -> None:
+def resolve_grid_node_dims(case_cfg: dict, case_path: str,
+                           staged_grid: "str | None" = None) -> "list | None":
+    """!
+    @brief Per-block (IM, JM, KM) node counts the solver will read, without building the grid.
+    @details A staged PICGRID, when one exists, is authoritative. Otherwise a file grid's
+             header is read, a programmatic grid's cell counts are converted to nodes,
+             and a `grid_gen` grid's cell counts are resolved by grid.gen's own
+             parameter precedence without generating any coordinates.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] case_path Path to case.yml, for case-relative paths.
+    @param[in] staged_grid Already staged `inputs/grid/grid.run`, if any.
+    @return List of node-count tuples, or None when the dimensions cannot be determined.
+    """
+    grid_cfg = case_cfg.get("grid") or {}
+    expected_nblk = int(((case_cfg.get("models") or {}).get("domain") or {}).get("blocks", 1))
+    case_dir = os.path.dirname(os.path.abspath(case_path))
+    mode = grid_cfg.get("mode")
+    try:
+        if staged_grid and os.path.isfile(staged_grid):
+            return read_picgrid_header_dimensions(staged_grid, expected_nblk)
+        if mode == "file":
+            return read_picgrid_header_dimensions(
+                _resolve_case_relative_path(grid_cfg["source_file"], case_dir), expected_nblk)
+        if mode == "programmatic_c":
+            settings = translate_programmatic_grid_settings(grid_cfg.get("programmatic_settings") or {})
+            return [(settings["im"], settings["jm"], settings["km"])]
+        if mode == "grid_gen":
+            generator = grid_cfg.get("generator") or {}
+            if generator.get("script"):
+                return None
+            tokens = ["-c", _resolve_case_relative_path(generator["config_file"], case_dir)]
+            if generator.get("grid_type"):
+                tokens.append(str(generator["grid_type"]))
+            tokens.extend(str(token) for token in (generator.get("cli_args") or []))
+            grid_gen = load_generator_module("grid.gen", "picurv_grid_generator")
+            with contextlib.redirect_stdout(StringIO()), contextlib.redirect_stderr(StringIO()):
+                _, params = grid_gen.resolve_grid_parameters(tokens)
+            return [(params.ncells_i + 1, params.ncells_j + 1, params.ncells_k + 1)]
+    except (SystemExit, Exception):
+        # Staging reports a malformed grid in its own terms; this check only adds to it.
+        return None
+    return None
+
+
+def case_declares_periodic_axis(case_cfg: dict) -> bool:
+    """!
+    @brief Whether any face of any block is PERIODIC, which sets the DMDA stencil width.
+    @param[in] case_cfg Parsed case configuration.
+    @return True when grid setup will use stencil width 3 on every axis.
+    """
+    try:
+        blocks = validate_and_prepare_boundary_conditions(case_cfg)
+    except ValueError:
+        return False
+    return any(entry.get("type") == "PERIODIC" for block in blocks for entry in block)
+
+
+def da_processor_layout_problems(grid_cfg: dict, num_procs: int,
+                                 block_dims: "list | None" = None, solver_cfg: "dict | None" = None,
+                                 any_periodic: bool = False) -> list:
+    """!
+    @brief Problems with a user-set DMDA layout that would abort grid setup.
+    @details Mirrors `InitializeAllGridDMs()` in src/grid.c: each coarser level holds
+             (IM + 1) / 2 nodes on an axis that is not semi-coarsened, the DMDA carries
+             IM + 1 points, and PETSc's default split gives the smallest rank
+             points // ranks of them. Grid setup requires that to reach the stencil
+             width, which is 3 on every axis when any face is periodic and 2 otherwise.
+             Only the coarsest level can fail, because every finer level is aligned to
+             twice its widths.
+    @param[in] grid_cfg The case's grid block.
+    @param[in] num_procs MPI processes the solve will launch.
+    @param[in] block_dims Per-block node counts, or None to skip the multigrid check.
+    @param[in] solver_cfg Parsed solver.yml, for the multigrid levels and semi-coarsening.
+    @param[in] any_periodic Whether any face is PERIODIC.
+    @return List of messages; empty when the layout is usable or not set.
+    """
+    layout = resolve_grid_da_processor_layout(grid_cfg)
+    if not layout or num_procs <= 1:
+        return []
+    problems = []
+    if all(layout.get(key) is not None for key in GRID_DA_PROCESSOR_KEYS):
+        total_layout = 1
+        for key in GRID_DA_PROCESSOR_KEYS:
+            total_layout *= layout[key]
+        if total_layout != num_procs:
+            printable = " x ".join(str(layout[key]) for key in GRID_DA_PROCESSOR_KEYS)
+            problems.append(
+                "DMDA processor layout mismatch: "
+                f"grid.da_processors_x/y/z is {printable} (product {total_layout}), "
+                f"but this run requests {num_procs} MPI processes. "
+                "Set da_processors_x/y/z to values whose product equals the requested "
+                "MPI process count, or remove all three settings to let PETSc choose "
+                "the layout automatically."
+            )
+    if not block_dims:
+        return problems
+    multigrid = (((solver_cfg or {}).get("poisson_solver") or {}).get("multigrid") or {})
+    levels = int(multigrid.get("levels", 3))
+    semi = multigrid.get("semi_coarsening") or {}
+    stencil = 3 if any_periodic else 2
+    for block, dims in enumerate(block_dims):
+        for axis, key, nodes in zip("ijk", GRID_DA_PROCESSOR_KEYS, dims):
+            ranks = layout.get(key)
+            if ranks is None:
+                continue
+            coarse = nodes
+            if str(semi.get(axis, False)).strip().lower() not in ("true", "1", "yes"):
+                for _ in range(levels - 1):
+                    coarse = (coarse + 1) // 2
+            points = coarse + 1
+            if points // ranks < stencil:
+                problems.append(
+                    f"grid.{key} = {ranks} is too many ranks for block {block}'s "
+                    f"{axis} axis at {levels} multigrid levels: the coarsest level has "
+                    f"{points} points there, so a rank gets {points // ranks}, below the "
+                    f"stencil width {stencil}"
+                    + (" (3 on every axis because a face is PERIODIC)" if any_periodic else "")
+                    + f". Grid setup would abort with 'Local width ... is smaller than "
+                    f"stencil width'. Use at most {max(points // stencil, 1)} rank(s) on "
+                    "this axis, or lower poisson_solver.multigrid.levels."
+                )
+    return problems
+
+
+def append_grid_da_processor_layout(control_lines: list, grid_cfg: dict, num_procs: int,
+                                    block_dims: "list | None" = None,
+                                    solver_cfg: "dict | None" = None,
+                                    any_periodic: bool = False) -> None:
     """!
     @brief Append optional global DMDA layout flags for any grid mode.
     @param[in] control_lines Argument passed to `append_grid_da_processor_layout()`.
     @param[in] grid_cfg Argument passed to `append_grid_da_processor_layout()`.
     @param[in] num_procs Argument passed to `append_grid_da_processor_layout()`.
+    @param[in] block_dims Per-block node counts, for the multigrid width check.
+    @param[in] solver_cfg Parsed solver.yml, for the multigrid width check.
+    @param[in] any_periodic Whether any face is PERIODIC.
+    @throws ValueError when the layout would abort grid setup.
     """
     layout = resolve_grid_da_processor_layout(grid_cfg)
     if not layout:
@@ -12729,20 +12872,10 @@ def append_grid_da_processor_layout(control_lines: list, grid_cfg: dict, num_pro
         print("[INFO] Serial run, ignoring da_processors layout.")
         return
 
+    problems = da_processor_layout_problems(grid_cfg, num_procs, block_dims, solver_cfg, any_periodic)
+    if problems:
+        raise ValueError(" ".join(problems))
     if all(layout.get(key) is not None for key in GRID_DA_PROCESSOR_KEYS):
-        total_layout = 1
-        for key in GRID_DA_PROCESSOR_KEYS:
-            total_layout *= layout[key]
-        if total_layout != num_procs:
-            printable = " x ".join(str(layout[key]) for key in GRID_DA_PROCESSOR_KEYS)
-            raise ValueError(
-                "DMDA processor layout mismatch: "
-                f"grid.da_processors_x/y/z is {printable} (product {total_layout}), "
-                f"but this run requests {num_procs} MPI processes. "
-                "Set da_processors_x/y/z to values whose product equals the requested "
-                "MPI process count, or remove all three settings to let PETSc choose "
-                "the layout automatically."
-            )
         print(f"[INFO] Applying user-defined processor layout for {num_procs} processes.")
     else:
         printable = " x ".join(str(layout.get(key, "PETSC_DECIDE")) for key in GRID_DA_PROCESSOR_KEYS)
@@ -13255,17 +13388,27 @@ def resolve_fluid_scaling(case_cfg: dict) -> dict:
     }
 
 
+def load_generator_module(script_name: str, module_name: str):
+    """!
+    @brief Load one of the extensionless scripts under `generators/` as a module.
+    @param[in] script_name File name under `generators/`, e.g. `ic.gen`.
+    @param[in] module_name Name to register the loaded module under.
+    @return Loaded module.
+    """
+    from importlib.machinery import SourceFileLoader
+    loader = SourceFileLoader(module_name, os.path.join(GENERATORS_PATH, script_name))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
 def load_ic_generator_module():
     """!
     @brief Load `generators/ic.gen`, which owns the expression language and the IC providers.
     @return Loaded module.
     """
-    from importlib.machinery import SourceFileLoader
-    loader = SourceFileLoader("picurv_ic_generator", os.path.join(GENERATORS_PATH, "ic.gen"))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
+    return load_generator_module("ic.gen", "picurv_ic_generator")
 
 
 #: Particle fields a case may give an initial value, with their component counts: the
@@ -15615,7 +15758,11 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         sys.exit(1)
     control_lines.append(f"-bcs_files \"{','.join(bcs_files)}\"")
 
-    append_grid_da_processor_layout(control_lines, grid_cfg, num_procs)
+    append_grid_da_processor_layout(
+        control_lines, grid_cfg, num_procs,
+        block_dims=resolve_grid_node_dims(
+            case_cfg, configs["case_path"], os.path.join(run_dir, "inputs", "grid", "grid.run")),
+        solver_cfg=solver_cfg, any_periodic=case_declares_periodic_axis(case_cfg))
     
     parse_and_add_model_flags(case_cfg, control_lines)
     
@@ -17142,6 +17289,18 @@ def build_run_dry_plan(args) -> dict:
 
         plan["run_id_preview"] = run_id
         plan["run_dir_preview"] = run_dir
+        # A layout the coarsest multigrid level cannot hold aborts grid setup on the
+        # cluster, after the queue wait; it is decidable here from the grid's size.
+        block_dims = resolve_grid_node_dims(
+            loaded_case_cfg, case_path,
+            os.path.join(run_dir, "inputs", "grid", "grid.run") if continue_mode else None)
+        plan.setdefault("blocking", []).extend(da_processor_layout_problems(
+            loaded_case_cfg.get("grid") or {}, solver_num_procs_effective, block_dims,
+            solver_cfg, case_declares_periodic_axis(loaded_case_cfg)))
+        if block_dims is None and resolve_grid_da_processor_layout(loaded_case_cfg.get("grid") or {}):
+            plan["warnings"].append(
+                "Could not determine the grid's dimensions without building it, so the "
+                "da_processors layout was not checked against the multigrid levels.")
         # A plan that omits what a real run would refuse is not a plan. The run
         # directory does not exist yet, but `realpath` still normalizes it, so the
         # run-root and ancestor verdicts are decidable here.

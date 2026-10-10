@@ -1714,9 +1714,14 @@ def export_grid_to_vts_manual(filename: str, X: np.ndarray, Y: np.ndarray, Z: np
     except IOError as e: print(f"Error: Could not write to file '{filename}'.\n{e}", file=sys.stderr)
 
 # --- Main Command-Line Interface ---
-def main() -> None:
+def resolve_grid_parameters(argv: Optional[List[str]] = None) -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     """!
-    @brief Parses arguments and config file, then runs the grid generator.
+    @brief Resolve the generator's parameters from the command line and config file.
+    @details Applies the documented precedence (command line, then config file, then
+             built-in defaults) without generating anything, so a caller can learn the
+             grid's size - `ncells_*` - before paying for the grid itself.
+    @param[in] argv Argument tokens; None reads `sys.argv`.
+    @return Tuple of (parser, resolved namespace including `grid_type`).
     """
     prog_description = """
 A command-line utility for generating high-quality, 3D, all-hexahedral structured
@@ -1918,7 +1923,7 @@ python3 generators/grid.gen box --config config/grids/plane_channel_retau180.cfg
                  "sweep into a nozzle, diffuser or sudden expansion.")
 
     # --- Parameter precedence logic (UNCHANGED) ---
-    cli_args = parser.parse_args()
+    cli_args = parser.parse_args(argv)
     grid_type = cli_args.grid_type
     config_params = {}
     if cli_args.config:
@@ -1981,8 +1986,15 @@ python3 generators/grid.gen box --config config/grids/plane_channel_retau180.cfg
     cli_only_args = {k: v for k, v in vars(cli_args).items() if v is not None}
     params.update(cli_only_args)
     params['grid_type'] = grid_type
-    args = argparse.Namespace(**params)
-    
+    return parser, argparse.Namespace(**params)
+
+
+def main() -> None:
+    """!
+    @brief Parses arguments and config file, then runs the grid generator.
+    """
+    parser, args = resolve_grid_parameters()
+
     # --- MODIFIED: Pass new stretch arguments and first cell arguments to generator functions ---
     try:
         reference = resolve_reference_quantities(
