@@ -744,13 +744,47 @@ static PetscErrorCode PoissonMultigrid_Restrict(Mat R, Vec X, Vec F)
 }
 
 /**
+ * @brief Gives each block factor of a block-Jacobi level solver a small diagonal shift, so
+ *        the factorization of a nearly singular Neumann block does not fail on a zero
+ *        pivot. Does nothing for any other preconditioner.
+ */
+static PetscErrorCode PoissonMultigrid_ShiftBlockFactors(KSP level_ksp)
+{
+    PC        level_pc;
+    PCType    level_pc_type;
+    PetscBool is_bjacobi = PETSC_FALSE;
+    KSP      *block_ksp;
+    PetscInt  nblocks;
+
+    PetscFunctionBeginUser;
+    PetscCall(KSPGetPC(level_ksp, &level_pc));
+    PetscCall(PCGetType(level_pc, &level_pc_type));
+    if (level_pc_type) PetscCall(PetscStrcmp(level_pc_type, PCBJACOBI, &is_bjacobi));
+    if (!is_bjacobi) PetscFunctionReturn(0);
+
+    PetscCall(KSPSetUp(level_ksp));
+    PetscCall(PCBJacobiGetSubKSP(level_pc, &nblocks, NULL, &block_ksp));
+    for (PetscInt b = 0; b < nblocks; b++) {
+        PC block_pc;
+        PetscCall(KSPGetPC(block_ksp[b], &block_pc));
+        PetscCall(PCFactorSetShiftAmount(block_pc, 1.e-10));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Builds the multigrid solver for block @p bi and stores it in the finest level.
  *
  * Assembles the operator on every level, then configures the outer `ps_` Krylov solver
  * with a multiplicative V-cycle `PCMG`: shell restriction and interpolation between
  * levels, block-Jacobi smoothers by default, a coarse solve limited to 40 iterations at
  * relative tolerance 1e-8, and the Neumann null space on every level. PETSc options
- * override these defaults. Everything built here depends only on the grid metrics, the
+ * override these defaults.
+ *
+ * Each smoother runs `pre_sweeps` iterations before the coarse correction and
+ * `post_sweeps` after it. When the two differ, the post-smoother is a separate solver
+ * that starts as a copy of the configured pre-smoother and reads further options under
+ * `ps_mg_levels_N_up_`. Everything built here depends only on the grid metrics, the
  * solid field, and the boundary types; calling it again after one of those changes
  * rebuilds the solver.
  */
@@ -785,12 +819,7 @@ static PetscErrorCode PoissonMultigrid_Build(UserMG *usermg, PetscInt bi)
     PetscCall(PCMGSetLevels(pc, levels, NULL));
     PetscCall(PCMGSetCycleType(pc, PC_MG_CYCLE_V));
     PetscCall(PCMGSetType(pc, PC_MG_MULTIPLICATIVE));
-    if (simCtx->mg_preItr != simCtx->mg_poItr) {
-        LOG(GLOBAL, LOG_WARNING,
-            "PETSc PCMG exposes one smoother count in this build; using max(pre_sweeps=%d, post_sweeps=%d).\n",
-            simCtx->mg_preItr, simCtx->mg_poItr);
-    }
-    PetscCall(PCMGSetNumberSmooth(pc, PetscMax(simCtx->mg_preItr, simCtx->mg_poItr)));
+    PetscCall(PCMGSetNumberSmooth(pc, simCtx->mg_preItr));
 
     for (PetscInt l = levels - 1; l > 0; l--) {
         UserCtx *fine = &mgctx[l].user[bi];
@@ -809,11 +838,9 @@ static PetscErrorCode PoissonMultigrid_Build(UserMG *usermg, PetscInt bi)
     }
 
     for (PetscInt l = levels - 1; l >= 0; l--) {
-        UserCtx  *level = &mgctx[l].user[bi];
-        KSP       level_ksp;
-        PC        level_pc;
-        PCType    level_pc_type;
-        PetscBool is_bjacobi = PETSC_FALSE;
+        UserCtx *level = &mgctx[l].user[bi];
+        KSP      level_ksp;
+        PC       level_pc;
 
         if (l > 0) {
             PetscCall(PCMGGetSmoother(pc, l, &level_ksp));
@@ -825,27 +852,27 @@ static PetscErrorCode PoissonMultigrid_Build(UserMG *usermg, PetscInt bi)
         PetscCall(KSPGetPC(level_ksp, &level_pc));
         PetscCall(PCSetType(level_pc, PCBJACOBI));
         PetscCall(KSPSetFromOptions(level_ksp));
-
-        PetscCall(PCGetType(level_pc, &level_pc_type));
-        if (level_pc_type) PetscCall(PetscStrcmp(level_pc_type, PCBJACOBI, &is_bjacobi));
-        if (is_bjacobi) {
-            KSP     *block_ksp;
-            PetscInt nblocks;
-
-            PetscCall(KSPSetUp(level_ksp));
-            PetscCall(PCBJacobiGetSubKSP(level_pc, &nblocks, NULL, &block_ksp));
-            for (PetscInt b = 0; b < nblocks; b++) {
-                PC block_pc;
-                PetscCall(KSPGetPC(block_ksp[b], &block_pc));
-                PetscCall(PCFactorSetShiftAmount(block_pc, 1.e-10));
-            }
-        }
+        PetscCall(PoissonMultigrid_ShiftBlockFactors(level_ksp));
 
         PetscCall(MatNullSpaceCreate(PETSC_COMM_WORLD, PETSC_TRUE, 0, NULL, &level->nullsp));
         PetscCall(MatNullSpaceSetFunction(level->nullsp, PoissonMultigrid_RemoveNullSpace, level));
         PetscCall(MatSetNullSpace(level->A, level->nullsp));
         PetscCall(PCMGSetResidual(pc, l, PCMGResidualDefault, level->A));
         PetscCall(KSPSetUp(level_ksp));
+
+        if (l > 0 && simCtx->mg_preItr != simCtx->mg_poItr) {
+            KSP post_smoother;
+
+            /* PETSc creates the post-smoother as a copy of the pre-smoother's type,
+               preconditioner and tolerances as configured so far. */
+            PetscCall(PCMGGetSmootherUp(pc, l, &post_smoother));
+            PetscCall(KSPAppendOptionsPrefix(post_smoother, "up_"));
+            PetscCall(KSPSetOperators(post_smoother, level->A, level->A));
+            PetscCall(KSPSetTolerances(post_smoother, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, simCtx->mg_poItr));
+            PetscCall(KSPSetFromOptions(post_smoother));
+            PetscCall(PoissonMultigrid_ShiftBlockFactors(post_smoother));
+            PetscCall(KSPSetUp(post_smoother));
+        }
 
         if (l < levels - 1) {
             PetscCall(MatCreateVecs(level->A, &level->R, NULL));

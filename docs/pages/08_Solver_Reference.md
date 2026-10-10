@@ -743,7 +743,7 @@ Rules:
   PETSc is only known at runtime. Formula and worked maxima:
   @ref 25_Pressure_Poisson_GMRES_Multigrid.
 - The outer Poisson preconditioner is multigrid-only in the current runtime.
-- The current PETSc binding applies one MG smoother count; when `pre_sweeps` and `post_sweeps` differ, PICurv uses the larger value and logs a warning.
+- `pre_sweeps` and `post_sweeps` are applied separately: smoothers run `pre_sweeps` iterations before the coarse-grid correction and `post_sweeps` after it. When they differ, the post-smoother copies the configured level solver and reads extra options under `-ps_mg_levels_N_up_`; see @ref 25_Pressure_Poisson_GMRES_Multigrid.
 - Advanced PETSc tuning remains available through `petsc_passthrough_options`; common examples include `-ps_mg_levels_N_pc_sor_omega` for SOR and `-ps_mg_levels_N_pc_factor_shift_amount` / `-ps_mg_levels_N_pc_factor_levels` for factor PCs.
 
 @subsection p08_cap_poisson_sec 7.1 Poisson Method Entries

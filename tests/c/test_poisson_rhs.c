@@ -770,6 +770,74 @@ static PetscErrorCode TestPoissonSolverMultigridReusesItsSolver(void)
 }
 
 /**
+ * @brief Tests that unequal pre- and post-smoothing counts give two distinct smoothers.
+ * @details With pre_sweeps 1 and post_sweeps 3 every smoothed level must run one sweep
+ *          before the coarse correction and three after it, the post-smoother must keep the
+ *          configured smoother type, and the solve must still remove the divergence. With
+ *          equal counts the shared smoother runs the configured sweeps.
+ */
+static PetscErrorCode TestPoissonSolverMultigridHonoursDistinctSweeps(void)
+{
+    const char *const configurations[2] = {
+        "-im 17\n-jm 17\n-km 17\n-mg_level 3\n-mg_pre_it 1\n-mg_post_it 3\n"
+        "-ps_mg_levels_1_ksp_type richardson\n-ps_mg_levels_2_ksp_type richardson\n"
+        "-ps_ksp_rtol 1.0e-12\n-ps_ksp_atol 1.0e-14\n-ps_ksp_max_it 200\n",
+        "-im 17\n-jm 17\n-km 17\n-mg_level 3\n-mg_pre_it 2\n-mg_post_it 2\n",
+    };
+
+    PetscFunctionBeginUser;
+    for (PetscInt c = 0; c < 2; c++) {
+        SimCtx   *simCtx = NULL;
+        UserCtx  *user = NULL;
+        char      tmpdir[PETSC_MAX_PATH_LEN];
+        PC        pc;
+        PetscReal before;
+
+        PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_FALSE, configurations[c],
+                                                           &simCtx, &user, tmpdir, sizeof(tmpdir)));
+        PetscCall(PerturbInteriorFaceFluxes(user, 0.2));
+        PetscCall(ComputeDivergence(user));
+        before = simCtx->MaxDiv;
+        PetscCall(PoissonSolver_Multigrid(&simCtx->usermg));
+        PetscCall(KSPGetPC(user->ksp, &pc));
+
+        for (PetscInt l = 1; l < simCtx->usermg.mglevels; l++) {
+            KSP       pre_smoother, post_smoother;
+            PetscInt  pre_its, post_its;
+            PetscBool is_richardson;
+
+            PetscCall(PCMGGetSmootherDown(pc, l, &pre_smoother));
+            PetscCall(KSPGetTolerances(pre_smoother, NULL, NULL, NULL, &pre_its));
+            if (c == 0) {
+                PetscCall(PCMGGetSmootherUp(pc, l, &post_smoother));
+                PetscCall(KSPGetTolerances(post_smoother, NULL, NULL, NULL, &post_its));
+                PetscCall(PicurvAssertBool((PetscBool)(pre_smoother != post_smoother), "unequal sweeps should give a separate post-smoother"));
+                PetscCall(PicurvAssertIntEqual(1, pre_its, "pre-smoothing should run pre_sweeps iterations"));
+                PetscCall(PicurvAssertIntEqual(3, post_its, "post-smoothing should run post_sweeps iterations"));
+                PetscCall(PetscObjectTypeCompare((PetscObject)post_smoother, KSPRICHARDSON, &is_richardson));
+                PetscCall(PicurvAssertBool(is_richardson, "the post-smoother should keep the configured smoother type"));
+            } else {
+                /* PCMGGetSmootherUp() would itself split a shared smoother, so only the
+                   shared one is inspected here. */
+                PetscCall(PicurvAssertIntEqual(2, pre_its, "the shared smoother should run the configured sweeps"));
+            }
+        }
+
+        if (c == 0) {
+            PetscCall(UpdatePressure(user));
+            PetscCall(ProjectVelocity(user));
+            PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCONT));
+            PetscCall(ComputeDivergence(user));
+            PetscCall(PicurvAssertBool((PetscBool)(simCtx->MaxDiv < 1.0e-9 * before),
+                                       "the solve with distinct sweeps should still remove the divergence"));
+        }
+        PetscCall(PicurvDestroyRuntimeContext(&simCtx));
+        PetscCall(PicurvRemoveTempDir(tmpdir));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests the null space attached to the operator.
  * @details Removing it from a constant must leave zero everywhere, and from a linear field
  *          must leave zero mean over the interior with zero dummy layers.
@@ -871,6 +939,7 @@ int main(int argc, char **argv)
         {"projection-linear-phi-corrects-velocity", TestProjectionLinearPhiCorrectsVelocity},
         {"poisson-solver-multigrid-projects-to-divergence-free", TestPoissonSolverMultigridProjectsToDivergenceFree},
         {"poisson-solver-multigrid-reuses-its-solver", TestPoissonSolverMultigridReusesItsSolver},
+        {"poisson-solver-multigrid-honours-distinct-sweeps", TestPoissonSolverMultigridHonoursDistinctSweeps},
         {"poisson-null-space-removes-the-interior-mean", TestPoissonNullSpaceRemovesTheInteriorMean},
         {"poisson-solver-multigrid-refuses-an-overcoarsened-hierarchy", TestPoissonSolverMultigridRefusesAnOvercoarsenedHierarchy},
     };

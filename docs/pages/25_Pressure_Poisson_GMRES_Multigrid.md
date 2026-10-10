@@ -78,9 +78,13 @@ Final option parsing happens in function @ref CreateSimulationContext during con
 
 MG level numbering follows PETSc/PICurv convention: `level_0` is the coarsest grid.
 Larger level numbers are progressively finer. The default MG level preconditioner
-is block Jacobi (`bjacobi`) when not specified. The current PETSc binding applies
-one MG smoother count; if `pre_sweeps` and `post_sweeps` differ, PICurv uses the
-larger value and logs a warning.
+is block Jacobi (`bjacobi`) when not specified. Each smoothed level runs
+`pre_sweeps` iterations before the coarse-grid correction and `post_sweeps` after it.
+When the two counts differ, the post-smoother is a separate PETSc solver: it starts as a
+copy of the configured pre-smoother (method, preconditioner, tolerances) and reads any
+further options under `-ps_mg_levels_N_up_`. A per-level `max_it` in `level_solvers` sets
+the pre-smoother's count only; the post-smoother keeps `post_sweeps` unless
+`-ps_mg_levels_N_up_ksp_max_it` is passed through. Equal counts keep one shared smoother.
 
 Common MG-level preconditioner notes:
 
