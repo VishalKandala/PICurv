@@ -22390,7 +22390,7 @@ _SUMMARY_PLOT_LOG_SCALE_FIELDS = {
 
 _SUMMARY_PLOT_FIELD_LABELS = {
     "max_divergence": "Maximum |divergence|",
-    "rhs_sum": "Continuity right-hand-side sum",
+    "rhs_sum": "Poisson source imbalance",
     "flux_in": "Inflow flux",
     "flux_out": "Outflow flux",
     "net_flux": "Net boundary flux",

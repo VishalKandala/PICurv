@@ -71,9 +71,9 @@ static PetscErrorCode TestPoissonRHSZeroDivergence(void)
     PetscCall(DMGlobalToLocalEnd(user->da, user->Aj, INSERT_VALUES, user->lAj));
 
     PetscCall(VecDuplicate(user->P, &B));
-    PetscCall(PoissonRHS(user, B));
+    PetscCall(ComputePoissonRHS(user, B));
     PetscCall(PicurvAssertVecConstant(B, 0.0, 1.0e-12, "zero velocity divergence should produce zero Poisson RHS"));
-    PetscCall(PicurvAssertRealNear(0.0, simCtx->summationRHS, 1.0e-12, "global Poisson RHS sum should be zero"));
+    PetscCall(PicurvAssertRealNear(0.0, simCtx->poissonSourceImbalance, 1.0e-12, "global Poisson RHS sum should be zero"));
 
     PetscCall(VecDestroy(&B));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
@@ -428,40 +428,9 @@ static PetscErrorCode TestComputeEulerianDiffusivityVerificationLinearX(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests that the Poisson null-space operator removes the mean from a constant field.
- */
-
-static PetscErrorCode TestPoissonNullSpaceFunctionRemovesMean(void)
-{
-    SimCtx *simCtx = NULL;
-    UserCtx *user = NULL;
-    Vec x = NULL;
-    PetscReal sum = 0.0;
-    PetscReal ***x_arr = NULL;
-
-    PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
-    PetscCall(VecDuplicate(user->P, &x));
-    PetscCall(VecSet(x, 3.0));
-    PetscCall(VecSet(user->Nvert, 0.0));
-    PetscCall(DMGlobalToLocalBegin(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
-    PetscCall(DMGlobalToLocalEnd(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
-
-    PetscCall(PoissonNullSpaceFunction(NULL, x, user));
-    PetscCall(VecSum(x, &sum));
-    PetscCall(PicurvAssertRealNear(0.0, sum, 1.0e-10, "PoissonNullSpaceFunction should remove the global mean"));
-    PetscCall(DMDAVecGetArrayRead(user->da, x, &x_arr));
-    PetscCall(PicurvAssertRealNear(0.0, x_arr[1][1][1], 1.0e-10, "PoissonNullSpaceFunction should zero a uniform interior field"));
-    PetscCall(DMDAVecRestoreArrayRead(user->da, x, &x_arr));
-
-    PetscCall(VecDestroy(&x));
-    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
-    PetscFunctionReturn(0);
-}
-/**
  * @brief Tests that Poisson matrix assembly produces a populated operator on a tiny Cartesian grid.
  */
-static PetscErrorCode TestPoissonLHSNewAssemblesOperator(void)
+static PetscErrorCode TestAssemblePoissonOperatorPopulatesRows(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
@@ -477,8 +446,8 @@ static PetscErrorCode TestPoissonLHSNewAssemblesOperator(void)
     PetscCall(DMGlobalToLocalBegin(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
     PetscCall(DMGlobalToLocalEnd(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
 
-    PetscCall(PoissonLHSNew(user));
-    PetscCall(PicurvAssertBool((PetscBool)(user->A != NULL), "PoissonLHSNew should allocate the Poisson operator"));
+    PetscCall(AssemblePoissonOperator(user));
+    PetscCall(PicurvAssertBool((PetscBool)(user->A != NULL), "AssemblePoissonOperator should allocate the Poisson operator"));
 
     PetscCall(MatGetSize(user->A, &rows, &cols));
     PetscCall(PicurvAssertIntEqual(user->info.mx * user->info.my * user->info.mz, rows, "Poisson operator row count should match the DA node count"));
@@ -490,6 +459,112 @@ static PetscErrorCode TestPoissonLHSNewAssemblesOperator(void)
     PetscCall(PicurvAssertBool((PetscBool)(values != NULL), "Interior Poisson row should expose non-null coefficients"));
     PetscCall(MatRestoreRow(user->A, interior_row, &ncols, &col_idx, &values));
 
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Fills every face metric and Jacobian of the minimal fixture with reproducible
+ *        random values, so each face gradient carries all of its cross terms.
+ */
+static PetscErrorCode RandomizeMinimalFaceMetrics(UserCtx *user)
+{
+    Vec         face_metrics[9] = {user->ICsi, user->IEta, user->IZet, user->JCsi, user->JEta,
+                                   user->JZet, user->KCsi, user->KEta, user->KZet};
+    Vec         local_metrics[9] = {user->lICsi, user->lIEta, user->lIZet, user->lJCsi, user->lJEta,
+                                    user->lJZet, user->lKCsi, user->lKEta, user->lKZet};
+    Vec         jacobians[4] = {user->Aj, user->IAj, user->JAj, user->KAj};
+    Vec         local_jac[4] = {user->lAj, user->lIAj, user->lJAj, user->lKAj};
+    PetscRandom rnd;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscRandomCreate(PETSC_COMM_WORLD, &rnd));
+    PetscCall(PetscRandomSetInterval(rnd, 0.5, 1.5));
+    PetscCall(PetscRandomSetSeed(rnd, 2026));
+    PetscCall(PetscRandomSeed(rnd));
+    for (PetscInt v = 0; v < 9; ++v) {
+        PetscCall(VecSetRandom(face_metrics[v], rnd));
+        PetscCall(DMGlobalToLocalBegin(user->fda, face_metrics[v], INSERT_VALUES, local_metrics[v]));
+        PetscCall(DMGlobalToLocalEnd(user->fda, face_metrics[v], INSERT_VALUES, local_metrics[v]));
+    }
+    for (PetscInt v = 0; v < 4; ++v) {
+        PetscCall(VecSetRandom(jacobians[v], rnd));
+        PetscCall(DMGlobalToLocalBegin(user->da, jacobians[v], INSERT_VALUES, local_jac[v]));
+        PetscCall(DMGlobalToLocalEnd(user->da, jacobians[v], INSERT_VALUES, local_jac[v]));
+    }
+    PetscCall(PetscRandomDestroy(&rnd));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that the operator is exactly the divergence of the projection's gradient.
+ * @details With random non-orthogonal metrics and one solid cell, projecting a zero flux
+ *          with a random Phi and forming the right-hand side of the result must reproduce
+ *          -A Phi on every fluid row. The identity holds for any metric values only if the
+ *          operator and the projection use the same face gradient, including its one-sided
+ *          forms beside walls and solid cells.
+ */
+static PetscErrorCode TestOperatorAndProjectionShareOneFaceGradient(void)
+{
+    SimCtx            *simCtx = NULL;
+    UserCtx           *user = NULL;
+    Vec                B = NULL, APhi = NULL;
+    PetscRandom        rnd;
+    PetscReal       ***nvert;
+    const PetscReal ***b, ***aphi;
+    PetscReal          worst = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 7, 7, 7));
+    PetscCall(EnsurePoissonAndRhsVectors(user));
+    simCtx->dt = 0.3;
+    PetscCall(RandomizeMinimalFaceMetrics(user));
+
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(DMDAVecGetArray(user->da, user->Nvert, &nvert));
+    if (user->info.xs <= 3 && 3 < user->info.xs + user->info.xm &&
+        user->info.ys <= 3 && 3 < user->info.ys + user->info.ym &&
+        user->info.zs <= 3 && 3 < user->info.zs + user->info.zm) nvert[3][3][3] = 1.0;
+    PetscCall(DMDAVecRestoreArray(user->da, user->Nvert, &nvert));
+    PetscCall(DMGlobalToLocalBegin(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
+    PetscCall(DMGlobalToLocalEnd(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
+
+    PetscCall(PetscRandomCreate(PETSC_COMM_WORLD, &rnd));
+    PetscCall(PetscRandomSetSeed(rnd, 7));
+    PetscCall(PetscRandomSeed(rnd));
+    PetscCall(VecSetRandom(user->Phi, rnd));
+    PetscCall(PetscRandomDestroy(&rnd));
+    PetscCall(DMGlobalToLocalBegin(user->da, user->Phi, INSERT_VALUES, user->lPhi));
+    PetscCall(DMGlobalToLocalEnd(user->da, user->Phi, INSERT_VALUES, user->lPhi));
+    PetscCall(VecSet(user->Ucont, 0.0));
+    PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucont, INSERT_VALUES, user->lUcont));
+    PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucont, INSERT_VALUES, user->lUcont));
+
+    PetscCall(AssemblePoissonOperator(user));
+    PetscCall(ProjectVelocity(user));
+    PetscCall(VecDuplicate(user->P, &B));
+    PetscCall(ComputePoissonRHS(user, B));
+    PetscCall(VecDuplicate(user->Phi, &APhi));
+    PetscCall(MatMult(user->A, user->Phi, APhi));
+
+    PetscCall(DMDAVecGetArrayRead(user->da, B, &b));
+    PetscCall(DMDAVecGetArrayRead(user->da, APhi, &aphi));
+    PetscCall(DMDAVecGetArray(user->da, user->Nvert, &nvert));
+    for (PetscInt k = PetscMax(user->info.zs, 1); k < PetscMin(user->info.zs + user->info.zm, user->info.mz - 1); k++) {
+        for (PetscInt j = PetscMax(user->info.ys, 1); j < PetscMin(user->info.ys + user->info.ym, user->info.my - 1); j++) {
+            for (PetscInt i = PetscMax(user->info.xs, 1); i < PetscMin(user->info.xs + user->info.xm, user->info.mx - 1); i++) {
+                if (nvert[k][j][i] > 0.1) continue;
+                worst = PetscMax(worst, PetscAbsReal(b[k][j][i] + aphi[k][j][i]) / (1.0 + PetscAbsReal(aphi[k][j][i])));
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->da, user->Nvert, &nvert));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, APhi, &aphi));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, B, &b));
+    PetscCall(PicurvAssertRealNear(0.0, worst, 1.0e-12,
+                                   "the right-hand side of the projected flux should equal -A Phi on every fluid row"));
+
+    PetscCall(VecDestroy(&APhi));
+    PetscCall(VecDestroy(&B));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -514,8 +589,8 @@ static PetscErrorCode TestProjectionZeroPhiLeavesVelocityUnchanged(void)
     PetscCall(DMGlobalToLocalBegin(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
     PetscCall(DMGlobalToLocalEnd(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
 
-    PetscCall(Projection(user));
-    PetscCall(PicurvAssertVecConstant(user->Ucont, 0.0, 1.0e-12, "Projection should leave a zero-velocity field unchanged when Phi is zero"));
+    PetscCall(ProjectVelocity(user));
+    PetscCall(PicurvAssertVecConstant(user->Ucont, 0.0, 1.0e-12, "ProjectVelocity should leave a zero-velocity field unchanged when Phi is zero"));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
@@ -551,12 +626,12 @@ static PetscErrorCode TestProjectionLinearPhiCorrectsVelocity(void)
     PetscCall(DMGlobalToLocalBegin(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
     PetscCall(DMGlobalToLocalEnd(user->da, user->Nvert, INSERT_VALUES, user->lNvert));
 
-    PetscCall(Projection(user));
+    PetscCall(ProjectVelocity(user));
 
     PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
-    PetscCall(PicurvAssertRealNear(-1.0, ucont[2][2][2].x, 1.0e-10, "Projection should subtract the x pressure gradient under identity metrics"));
-    PetscCall(PicurvAssertRealNear(0.0, ucont[2][2][2].y, 1.0e-10, "Projection should leave the y component unchanged for an x-only gradient"));
-    PetscCall(PicurvAssertRealNear(0.0, ucont[2][2][2].z, 1.0e-10, "Projection should leave the z component unchanged for an x-only gradient"));
+    PetscCall(PicurvAssertRealNear(-1.0, ucont[2][2][2].x, 1.0e-10, "ProjectVelocity should subtract the x pressure gradient under identity metrics"));
+    PetscCall(PicurvAssertRealNear(0.0, ucont[2][2][2].y, 1.0e-10, "ProjectVelocity should leave the y component unchanged for an x-only gradient"));
+    PetscCall(PicurvAssertRealNear(0.0, ucont[2][2][2].z, 1.0e-10, "ProjectVelocity should leave the z component unchanged for an x-only gradient"));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
@@ -590,11 +665,11 @@ static PetscErrorCode PerturbInteriorFaceFluxes(UserCtx *user, PetscReal amplitu
 
 /**
  * @brief Tests that the production multigrid Poisson solve and projection remove a divergence.
- * @details Runs PoissonSolver_MG through the real setup path with a three-level hierarchy,
- *          then the same UpdatePressure/Projection pair the time loop uses, and requires
+ * @details Runs PoissonSolver_Multigrid through the real setup path with a three-level hierarchy,
+ *          then the same UpdatePressure/ProjectVelocity pair the time loop uses, and requires
  *          the projected field to be divergence-free to the solve tolerance.
  */
-static PetscErrorCode TestPoissonSolverMGProjectsToDivergenceFree(void)
+static PetscErrorCode TestPoissonSolverMultigridProjectsToDivergenceFree(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
@@ -614,9 +689,9 @@ static PetscErrorCode TestPoissonSolverMGProjectsToDivergenceFree(void)
     before = simCtx->MaxDiv;
     PetscCall(PicurvAssertBool((PetscBool)(before > 1.0e-2), "perturbation should make the field divergent"));
 
-    PetscCall(PoissonSolver_MG(&simCtx->usermg));
+    PetscCall(PoissonSolver_Multigrid(&simCtx->usermg));
     PetscCall(UpdatePressure(user));
-    PetscCall(Projection(user));
+    PetscCall(ProjectVelocity(user));
     PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCONT));
     PetscCall(ComputeDivergence(user));
     PetscCall(PicurvAssertBool((PetscBool)(simCtx->MaxDiv < 1.0e-9 * before),
@@ -628,12 +703,124 @@ static PetscErrorCode TestPoissonSolverMGProjectsToDivergenceFree(void)
 }
 
 /**
+ * @brief Counts the occurrences of @p needle in a text file; a missing file counts zero.
+ */
+static PetscErrorCode CountFileOccurrences(const char *path, const char *needle, PetscInt *count)
+{
+    FILE *file;
+    char  line[1024];
+
+    PetscFunctionBeginUser;
+    *count = 0;
+    file = fopen(path, "r");
+    if (!file) PetscFunctionReturn(0);
+    while (fgets(line, sizeof(line), file)) {
+        if (strstr(line, needle)) (*count)++;
+    }
+    fclose(file);
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that the multigrid solver is built once and reused on later steps.
+ * @details Two consecutive solves must use the same Krylov solver and operator, both must
+ *          converge, and the convergence log must hold one header per step.
+ */
+static PetscErrorCode TestPoissonSolverMultigridReusesItsSolver(void)
+{
+    SimCtx            *simCtx = NULL;
+    UserCtx           *user = NULL;
+    char               tmpdir[PETSC_MAX_PATH_LEN], log_path[PETSC_MAX_PATH_LEN + 64];
+    KSP                first_ksp;
+    Mat                first_operator;
+    KSPConvergedReason reason;
+    PetscInt           headers = 0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(
+        NULL, PETSC_FALSE,
+        "-im 17\n-jm 17\n-km 17\n-mg_level 3\n"
+        "-ps_ksp_rtol 1.0e-12\n-ps_ksp_atol 1.0e-14\n-ps_ksp_max_it 200\n",
+        &simCtx, &user, tmpdir, sizeof(tmpdir)));
+
+    simCtx->step = simCtx->StartStep + 1;
+    PetscCall(PerturbInteriorFaceFluxes(user, 0.2));
+    PetscCall(PoissonSolver_Multigrid(&simCtx->usermg));
+    first_ksp = user->ksp;
+    first_operator = user->A;
+    PetscCall(PicurvAssertBool((PetscBool)(first_ksp != NULL), "the first solve should build and keep the solver"));
+    PetscCall(KSPGetConvergedReason(user->ksp, &reason));
+    PetscCall(PicurvAssertBool((PetscBool)(reason > 0), "the first solve should converge"));
+
+    simCtx->step++;
+    PetscCall(PerturbInteriorFaceFluxes(user, 0.1));
+    PetscCall(PoissonSolver_Multigrid(&simCtx->usermg));
+    PetscCall(PicurvAssertBool((PetscBool)(user->ksp == first_ksp), "the second solve should reuse the solver"));
+    PetscCall(PicurvAssertBool((PetscBool)(user->A == first_operator), "the second solve should reuse the operator"));
+    PetscCall(KSPGetConvergedReason(user->ksp, &reason));
+    PetscCall(PicurvAssertBool((PetscBool)(reason > 0), "the reused solver should converge"));
+
+    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/Poisson_Solver_Convergence_History_Block_0.log", simCtx->log_dir));
+    PetscCall(CountFileOccurrences(log_path, "--- Convergence for Timestep", &headers));
+    PetscCall(PicurvAssertIntEqual(2, headers, "the convergence log should hold one header per solve"));
+
+    PetscCall(PicurvDestroyRuntimeContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests the null space attached to the operator.
+ * @details Removing it from a constant must leave zero everywhere, and from a linear field
+ *          must leave zero mean over the interior with zero dummy layers.
+ */
+static PetscErrorCode TestPoissonNullSpaceRemovesTheInteriorMean(void)
+{
+    SimCtx       *simCtx = NULL;
+    UserCtx      *user = NULL;
+    char          tmpdir[PETSC_MAX_PATH_LEN];
+    MatNullSpace  nullsp = NULL;
+    Vec           x = NULL;
+    PetscReal  ***xa, norm, sum;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvBuildTinyRuntimeContextWithOptions(
+        NULL, PETSC_FALSE, "-im 9\n-jm 9\n-km 9\n-mg_level 2\n", &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(PoissonSolver_Multigrid(&simCtx->usermg));
+    PetscCall(MatGetNullSpace(user->A, &nullsp));
+    PetscCall(PicurvAssertBool((PetscBool)(nullsp != NULL), "the operator should carry the Neumann null space"));
+
+    PetscCall(VecDuplicate(user->Phi, &x));
+    PetscCall(VecSet(x, 3.0));
+    PetscCall(MatNullSpaceRemove(nullsp, x));
+    PetscCall(VecNorm(x, NORM_INFINITY, &norm));
+    PetscCall(PicurvAssertRealNear(0.0, norm, 1.0e-12, "removing the null space should annihilate a constant"));
+
+    PetscCall(DMDAVecGetArray(user->da, x, &xa));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; k++)
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; j++)
+            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; i++) xa[k][j][i] = (PetscReal)i;
+    PetscCall(DMDAVecRestoreArray(user->da, x, &xa));
+    PetscCall(MatNullSpaceRemove(nullsp, x));
+    PetscCall(VecSum(x, &sum));
+    PetscCall(PicurvAssertRealNear(0.0, sum, 1.0e-10, "the interior mean should vanish"));
+    PetscCall(DMDAVecGetArray(user->da, x, &xa));
+    if (user->info.xs == 0) PetscCall(PicurvAssertRealNear(0.0, xa[user->info.zs][user->info.ys][0], 1.0e-14, "dummy layers should be zero"));
+    PetscCall(DMDAVecRestoreArray(user->da, x, &xa));
+
+    PetscCall(VecDestroy(&x));
+    PetscCall(PicurvDestroyRuntimeContext(&simCtx));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests that an over-coarsened hierarchy stops the run at the Poisson solve.
  * @details Three levels on a 9-node grid leave a coarse operator the preconditioner cannot
  *          factor. The solve must return PETSC_ERR_NOT_CONVERGED rather than hand an
  *          unsolved Phi to the projection.
  */
-static PetscErrorCode TestPoissonSolverMGRefusesAnOvercoarsenedHierarchy(void)
+static PetscErrorCode TestPoissonSolverMultigridRefusesAnOvercoarsenedHierarchy(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
@@ -651,7 +838,7 @@ static PetscErrorCode TestPoissonSolverMGRefusesAnOvercoarsenedHierarchy(void)
     PetscCall(PerturbInteriorFaceFluxes(user, 0.2));
 
     PetscCall(PetscPushErrorHandler(PetscReturnErrorHandler, NULL));
-    solve_error = PoissonSolver_MG(&simCtx->usermg);
+    solve_error = PoissonSolver_Multigrid(&simCtx->usermg);
     PetscCall(PetscPopErrorHandler());
     PetscCall(PicurvAssertIntEqual(PETSC_ERR_NOT_CONVERGED, (PetscInt)solve_error,
                                    "an unfactorable coarse level should stop the solve, not reach the projection"));
@@ -678,12 +865,14 @@ int main(int argc, char **argv)
         {"compute-rhs-zero-field-no-forcing", TestComputeRHSZeroFieldNoForcing},
         {"compute-eulerian-diffusivity-gradient-constant-field", TestComputeEulerianDiffusivityGradientConstantField},
         {"compute-eulerian-diffusivity-verification-linear-x", TestComputeEulerianDiffusivityVerificationLinearX},
-        {"poisson-null-space-function-removes-mean", TestPoissonNullSpaceFunctionRemovesMean},
-        {"poisson-lhs-new-assembles-operator", TestPoissonLHSNewAssemblesOperator},
+        {"assemble-poisson-operator-populates-rows", TestAssemblePoissonOperatorPopulatesRows},
+        {"operator-and-projection-share-one-face-gradient", TestOperatorAndProjectionShareOneFaceGradient},
         {"projection-zero-phi-leaves-velocity-unchanged", TestProjectionZeroPhiLeavesVelocityUnchanged},
         {"projection-linear-phi-corrects-velocity", TestProjectionLinearPhiCorrectsVelocity},
-        {"poisson-solver-mg-projects-to-divergence-free", TestPoissonSolverMGProjectsToDivergenceFree},
-        {"poisson-solver-mg-refuses-an-overcoarsened-hierarchy", TestPoissonSolverMGRefusesAnOvercoarsenedHierarchy},
+        {"poisson-solver-multigrid-projects-to-divergence-free", TestPoissonSolverMultigridProjectsToDivergenceFree},
+        {"poisson-solver-multigrid-reuses-its-solver", TestPoissonSolverMultigridReusesItsSolver},
+        {"poisson-null-space-removes-the-interior-mean", TestPoissonNullSpaceRemovesTheInteriorMean},
+        {"poisson-solver-multigrid-refuses-an-overcoarsened-hierarchy", TestPoissonSolverMultigridRefusesAnOvercoarsenedHierarchy},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv Poisson/RHS tests");

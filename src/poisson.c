@@ -1,845 +1,408 @@
-// In src/poisson.c (or wherever PoissonSolver_MG is)
-#include "poisson.h" // The new header for this file
+/**
+ * @file poisson.c
+ * @brief Pressure-Poisson projection: operator, right-hand side, multigrid solve,
+ *        pressure update, and velocity correction.
+ *
+ * Grid layout. Cell-centred quantities live at DMDA indices 1..m-2 on each axis; indices 0
+ * and m-1 are dummy layers that carry no unknown. On a periodic axis the interior wraps
+ * from m-2 to 1. The contravariant flux `Ucont[k][j][i].x` sits on the face between cells
+ * i and i+1, and likewise for the other two components.
+ *
+ * Face gradient. The flux of grad(Phi) through the face between cell c and c + e_n is
+ *
+ *     sum_b g_nb D_b(Phi),   g_nb = (F_b . F_n) * aj_n,
+ *
+ * where F_b are the contravariant base vectors stored on the n-faces, aj_n is the inverse
+ * Jacobian there, D_n is the difference across the face, and D_b (b != n) is the transverse
+ * difference chosen by PoissonOperator_TransverseDifference(). The operator assembles the
+ * divergence of this flux, and the projection subtracts it from `Ucont`, so the two are
+ * consistent by construction.
+ */
+#include "poisson.h"
 #include "logging.h"
+#include "setup.h"
 
-#define GridInterpolation(i, j, k, ic, jc, kc, ia, ja, ka, user) \
-  if ((user->isc)) { \
-    ic = i; \
-    ia = 0; \
-  } \
-  else { \
-    ic = (i+1) / 2; \
-    ia = (i - 2 * (ic)) == 0 ? 1 : -1; \
-    if (i==1 || i==mx-2) ia = 0; \
-  }\
-  if ((user->jsc)) { \
-    jc = j; \
-    ja = 0; \
-  } \
-  else { \
-    jc = (j+1) / 2; \
-    ja = (j - 2 * (jc)) == 0 ? 1 : -1; \
-    if (j==1 || j==my-2) ja = 0; \
-  } \
-  if ((user->ksc)) { \
-    kc = k; \
-    ka = 0; \
-  } \
-  else { \
-    kc = (k+1) / 2; \
-    ka = (k - 2 * (kc)) == 0 ? 1 : -1; \
-    if (k==1 || k==mz-2) ka = 0; \
-  } \
-  if (ka==-1 && nvert_c[kc-1][jc][ic] > 0.1) ka = 0; \
-  else if (ka==1 && nvert_c[kc+1][jc][ic] > 0.1) ka = 0; \
-  if (ja==-1 && nvert_c[kc][jc-1][ic] > 0.1) ja = 0; \
-  else if (ja==1 && nvert_c[kc][jc+1][ic] > 0.1) ja = 0; \
-  if (ia==-1 && nvert_c[kc][jc][ic-1] > 0.1) ia = 0; \
-  else if (ia==1 && nvert_c[kc][jc][ic+1] > 0.1) ia = 0;
+/** Cells whose `nvert` exceeds this value are solid. */
+#define POISSON_SOLID_THRESHOLD 0.1
+
+/** Offsets of the 19 stencil points, in the column order used to insert each row. */
+static const PetscInt POISSON_STENCIL_OFFSETS[19][3] = {
+    { 0,  0,  0},                                              /* centre */
+    { 1,  0,  0}, {-1,  0,  0}, { 0,  1,  0}, { 0, -1,  0},    /* faces  */
+    { 0,  0,  1}, { 0,  0, -1},
+    { 1,  1,  0}, { 1, -1,  0}, {-1,  1,  0}, {-1, -1,  0},    /* edges  */
+    { 0,  1,  1}, { 0,  1, -1}, { 0, -1,  1}, { 0, -1, -1},
+    { 1,  0,  1}, { 1,  0, -1}, {-1,  0,  1}, {-1,  0, -1},
+};
 
 /**
- * @brief Convert local logical indices to the corresponding flattened global cell identifier.
+ * @brief Transverse difference used at one face.
+ *
+ * The difference is `weight * (sum of Phi on row hi - sum of Phi on row lo)`, where a row
+ * is the pair of cells on either side of the face, displaced by the given offset along the
+ * transverse axis.
  */
-static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
+typedef struct {
+    PetscInt  lo;      /**< Transverse offset of the subtracted row pair. */
+    PetscInt  hi;      /**< Transverse offset of the added row pair. */
+    PetscReal weight;  /**< 0.25 central, 0.5 one-sided, 0 when no fluid side remains. */
+} PoissonTransverseDifference;
 
+/** @brief Everything needed to evaluate the gradient flux through one face. */
+typedef struct {
+    PetscReal                   dot[3];   /**< F_b . F_n on the face, b = 0..2. */
+    PetscReal                   aj;       /**< Inverse Jacobian on the face. */
+    PoissonTransverseDifference diff[3];  /**< Transverse differences; diff[n] is unused. */
+} PoissonFaceGradient;
+
+/** @brief Read-only face metric arrays: `metric[n][b]` is F_b on the n-faces. */
+typedef struct {
+    const Cmpnts    ***metric[3][3];
+    const PetscReal ***aj[3];
+} PoissonFaceMetrics;
+
+/** @brief Field IDs of the face metric vectors, indexed as PoissonFaceMetrics. */
+static const FieldId POISSON_FACE_METRIC_FIELDS[3][3] = {
+    {FIELD_ID_ICSI, FIELD_ID_IETA, FIELD_ID_IZET},
+    {FIELD_ID_JCSI, FIELD_ID_JETA, FIELD_ID_JZET},
+    {FIELD_ID_KCSI, FIELD_ID_KETA, FIELD_ID_KZET},
+};
+static const FieldId POISSON_FACE_AJ_FIELDS[3] = {FIELD_ID_IAJ, FIELD_ID_JAJ, FIELD_ID_KAJ};
+
+/**
+ * @brief Maps the 19 stencil offsets to their slots; corners of the 3x3x3 block are -1.
+ */
+static PetscInt PoissonOperator_StencilSlot(const PetscInt d[3])
 {
-  PetscInt nidx;
-  DMDALocalInfo	info = user->info;
-
-  PetscInt	mx = info.mx, my = info.my;
-  
-  AO ao;
-  DMDAGetAO(user->da, &ao);
-  nidx=i+j*mx+k*mx*my;
-  
-  AOApplicationToPetsc(ao,1,&nidx);
-  
-  return (nidx);
+    for (PetscInt s = 0; s < 19; s++) {
+        if (POISSON_STENCIL_OFFSETS[s][0] == d[0] && POISSON_STENCIL_OFFSETS[s][1] == d[1] &&
+            POISSON_STENCIL_OFFSETS[s][2] == d[2]) return s;
+    }
+    return -1;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GridRestriction"
-
-/**
- * @brief Restrict a fine-grid scalar value onto its associated coarse-grid location.
- */
-static PetscErrorCode GridRestriction(PetscInt i, PetscInt j, PetscInt k,
-			       PetscInt *ih, PetscInt *jh, PetscInt *kh,
-			       UserCtx *user)
+/** @brief Value of a cell-centred array at cell @p c displaced by @p d. */
+static inline PetscReal PoissonOperator_At(const PetscReal ***field, const PetscInt c[3],
+                                          const PetscInt d[3])
 {
-  PetscFunctionBeginUser;
-  PROFILE_FUNCTION_BEGIN;
-  if ((user->isc)) {
-    *ih = i;
-  }
-  else {
-    *ih = 2 * i;
-  }
-
-  if ((user->jsc)) {
-    *jh = j;
-  }
-  else {
-    *jh = 2 * j;
-  }
-
-  if ((user->ksc)) {
-    *kh = k;
-  }
-  else {
-    *kh = 2 * k;
-  }
-
-  PROFILE_FUNCTION_END;
-  PetscFunctionReturn(0);
+    return field[c[2] + d[2]][c[1] + d[1]][c[0] + d[0]];
 }
 
-#include "solvers.h" // Or your main project header
-
-#undef __FUNCT__
-#define __FUNCT__ "CorrectChannelFluxProfile"
-/**
- * @brief Internal helper implementation: `CorrectChannelFluxProfile()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode CorrectChannelFluxProfile(UserCtx *user)
+/** @brief Records which axes are periodic, from the negative face of each axis. */
+static void PoissonOperator_PeriodicAxes(const UserCtx *user, PetscBool periodic[3])
 {
-    PetscErrorCode ierr;
-    SimCtx *simCtx = user->simCtx;
+    periodic[0] = (PetscBool)(user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC);
+    periodic[1] = (PetscBool)(user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC);
+    periodic[2] = (PetscBool)(user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC);
+}
 
-    PetscFunctionBeginUser;
+/**
+ * @brief Chooses the transverse difference along axis @p t at the face between cell
+ *        @p c and `c + e_n`.
+ *
+ * The central difference averages the two cells beside the face over rows -1 and +1.
+ * When the +1 row is a non-periodic boundary layer or touches a solid cell, the difference
+ * falls back to rows -1 and 0, and symmetrically to rows 0 and +1; with neither side
+ * available the transverse term vanishes.
+ */
+static PoissonTransverseDifference PoissonOperator_TransverseDifference(
+    const PetscReal ***nvert, const PetscInt c[3], PetscInt n, PetscInt t,
+    const PetscInt m[3], const PetscBool periodic[3])
+{
+    PoissonTransverseDifference diff = {0, 0, 0.0};
+    PetscInt plus[3] = {0, 0, 0}, plus_n[3] = {0, 0, 0};
+    PetscInt minus[3] = {0, 0, 0}, minus_n[3] = {0, 0, 0};
+    const PetscInt s = c[t];
 
-    // --- Step 1: Discover if and where a driven flow is active ---
-    char drivenDirection = ' ';
-    for (int i = 0; i < 6; i++) {
-        BCHandlerType handler_type = user->boundary_faces[i].handler_type;
-        if (handler_type == BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX ||
-            handler_type == BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX)
-        {
-            switch (user->boundary_faces[i].face_id) {
-                case BC_FACE_NEG_X: case BC_FACE_POS_X: drivenDirection = 'X'; break;
-                case BC_FACE_NEG_Y: case BC_FACE_POS_Y: drivenDirection = 'Y'; break;
-                case BC_FACE_NEG_Z: case BC_FACE_POS_Z: drivenDirection = 'Z'; break;
-            }
-            break;
+    plus[t] = 1;  plus_n[t] = 1;  plus_n[n] = 1;
+    minus[t] = -1; minus_n[t] = -1; minus_n[n] = 1;
+    const PetscReal solid_plus  = PoissonOperator_At(nvert, c, plus)  + PoissonOperator_At(nvert, c, plus_n);
+    const PetscReal solid_minus = PoissonOperator_At(nvert, c, minus) + PoissonOperator_At(nvert, c, minus_n);
+
+    if ((s == m[t] - 2 && !periodic[t]) || solid_plus > POISSON_SOLID_THRESHOLD) {
+        if (solid_minus < POISSON_SOLID_THRESHOLD && (s != 1 || periodic[t])) {
+            diff.lo = -1; diff.hi = 0; diff.weight = 0.5;
         }
-    }
-
-    // --- Step 2: Early exit if no driven flow is configured ---
-    if (drivenDirection == ' ') {
-        PetscFunctionReturn(0);
-    }
-
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: Starting channel flux profile correction in '%c' direction...\n",
-              simCtx->rank, user->_this, drivenDirection);
-
-    // --- Step 3: Setup and Get PETSc Array Pointers ---
-    DMDALocalInfo info = user->info;
-    PetscInt i, j, k;
-    PetscInt mx = info.mx, my = info.my, mz = info.mz;
-    PetscInt lxs = (info.xs == 0) ? 1 : info.xs;
-    PetscInt lys = (info.ys == 0) ? 1 : info.ys;
-    PetscInt lzs = (info.zs == 0) ? 1 : info.zs;
-    PetscInt lxe = (info.xs + info.xm == mx) ? mx - 1 : info.xs + info.xm;
-    PetscInt lye = (info.ys + info.ym == my) ? my - 1 : info.ys + info.ym;
-    PetscInt lze = (info.zs + info.zm == mz) ? mz - 1 : info.zs + info.zm;
-
-    Cmpnts ***ucont, ***csi, ***eta, ***zet;
-    PetscReal ***nvert;
-    ierr = DMDAVecGetArray(user->fda, user->lUcont, &ucont); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
-
-    // --- Step 4: Allocate Memory for Profile Arrays based on direction ---
-    PetscInt n_planes = 0;
-    switch (drivenDirection) {
-        case 'X': n_planes = mx - 1; break;
-        case 'Y': n_planes = my - 1; break;
-        case 'Z': n_planes = mz - 1; break;
-    }
-
-    PetscReal *localFluxProfile, *globalFluxProfile, *correctionProfile;
-    ierr = PetscMalloc1(n_planes, &localFluxProfile); CHKERRQ(ierr);
-    ierr = PetscMalloc1(n_planes, &globalFluxProfile); CHKERRQ(ierr);
-    ierr = PetscMalloc1(n_planes, &correctionProfile); CHKERRQ(ierr);
-    ierr = PetscMemzero(localFluxProfile, n_planes * sizeof(PetscReal)); CHKERRQ(ierr);
-
-    // --- Step 5: Calculate Total Cross-Sectional Area and Measure Flux Profile ---
-    PetscReal localArea = 0.0, globalArea = 0.0;
-    
-    switch (drivenDirection) {
-        case 'X':
-            if (info.xs == 0) { // Area is calculated by rank(s) on the negative face
-                i = 0;
-                for (k = lzs; k < lze; k++) for (j = lys; j < lye; j++) {
-                    if (nvert[k][j][i + 1] < 0.1)
-                        localArea += sqrt(csi[k][j][i].x*csi[k][j][i].x + csi[k][j][i].y*csi[k][j][i].y + csi[k][j][i].z*csi[k][j][i].z);
-                }
-            }
-            for (i = info.xs; i < lxe; i++) {
-                for (k = lzs; k < lze; k++) for (j = lys; j < lye; j++) {
-                    if (nvert[k][j][i + 1] < 0.1) localFluxProfile[i] += ucont[k][j][i].x;
-                }
-            }
-            break;
-        case 'Y':
-            if (info.ys == 0) {
-                j = 0;
-                for (k = lzs; k < lze; k++) for (i = lxs; i < lxe; i++) {
-                    if (nvert[k][j + 1][i] < 0.1)
-                        localArea += sqrt(eta[k][j][i].x*eta[k][j][i].x + eta[k][j][i].y*eta[k][j][i].y + eta[k][j][i].z*eta[k][j][i].z);
-                }
-            }
-            for (j = info.ys; j < lye; j++) {
-                for (k = lzs; k < lze; k++) for (i = lxs; i < lxe; i++) {
-                    if (nvert[k][j + 1][i] < 0.1) localFluxProfile[j] += ucont[k][j][i].y;
-                }
-            }
-            break;
-        case 'Z':
-            if (info.zs == 0) {
-                k = 0;
-                for (j = lys; j < lye; j++) for (i = lxs; i < lxe; i++) {
-                    if (nvert[k + 1][j][i] < 0.1)
-                        localArea += sqrt(zet[k][j][i].x*zet[k][j][i].x + zet[k][j][i].y*zet[k][j][i].y + zet[k][j][i].z*zet[k][j][i].z);
-                }
-            }
-            for (k = info.zs; k < lze; k++) {
-                for (j = lys; j < lye; j++) for (i = lxs; i < lxe; i++) {
-                    if (nvert[k + 1][j][i] < 0.1) localFluxProfile[k] += ucont[k][j][i].z;
-                }
-            }
-            break;
-    }
-
-    ierr = MPI_Allreduce(&localArea, &globalArea, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
-    ierr = MPI_Allreduce(localFluxProfile, globalFluxProfile, n_planes, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
-
-    // --- Step 6: Calculate Correction Profile ---
-    PetscReal targetFlux = simCtx->targetVolumetricFlux;
-    if (globalArea > 1.0e-12) {
-        for (i = 0; i < n_planes; i++) {
-            correctionProfile[i] = (targetFlux - globalFluxProfile[i]) / globalArea;
+    } else if ((s == 1 && !periodic[t]) || solid_minus > POISSON_SOLID_THRESHOLD) {
+        if (solid_plus < POISSON_SOLID_THRESHOLD) {
+            diff.lo = 0; diff.hi = 1; diff.weight = 0.5;
         }
     } else {
-        ierr = PetscMemzero(correctionProfile, n_planes * sizeof(PetscReal)); CHKERRQ(ierr);
+        diff.lo = -1; diff.hi = 1; diff.weight = 0.25;
     }
+    return diff;
+}
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Channel Flux Profile Corrector Update (Dir %c):\n", drivenDirection);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "  - Target Flux for all planes: %.6e\n", targetFlux);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "  - Measured Flux at plane 0:   %.6e (Correction Velocity: %.6e)\n", globalFluxProfile[0], correctionProfile[0]);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "  - Measured Flux at plane %d:  %.6e (Correction Velocity: %.6e)\n", (n_planes-1)/2, globalFluxProfile[(n_planes-1)/2], correctionProfile[(n_planes-1)/2]);
+/**
+ * @brief Gathers the metric coefficients and transverse differences of the gradient flux
+ *        through the face between cell @p c and `c + e_n`.
+ */
+static PoissonFaceGradient PoissonOperator_FaceGradientStencil(
+    const PoissonFaceMetrics *metrics, const PetscReal ***nvert, const PetscInt c[3],
+    PetscInt n, const PetscInt m[3], const PetscBool periodic[3])
+{
+    PoissonFaceGradient face;
+    const Cmpnts normal = metrics->metric[n][n][c[2]][c[1]][c[0]];
 
-    /*  TURNED OFF IN LEGACY 
-    // --- Step 7: Apply Correction to Velocity Profile ---
-    switch (drivenDirection) {
-        case 'X':
-            for (i = info.xs; i < info.xs + info.xm - 1; i++) {
-                if (PetscAbs(correctionProfile[i]) > 1e-12) {
-                    for (k = lzs; k < lze; k++) for (j = lys; j < lye; j++) {
-                        if (nvert[k][j][i] < 0.1) {
-                            PetscReal faceArea = sqrt(csi[k][j][i].x*csi[k][j][i].x + csi[k][j][i].y*csi[k][j][i].y + csi[k][j][i].z*csi[k][j][i].z);
-                            ucont[k][j][i].x += correctionProfile[i] * faceArea;
-                        }
-                    }
-                }
-            }
-            break;
-        case 'Y':
-            for (j = info.ys; j < info.ys + info.ym - 1; j++) {
-                if (PetscAbs(correctionProfile[j]) > 1e-12) {
-                    for (k = lzs; k < lze; k++) for (i = lxs; i < lxe; i++) {
-                        if (nvert[k][j][i] < 0.1) {
-                            PetscReal faceArea = sqrt(eta[k][j][i].x*eta[k][j][i].x + eta[k][j][i].y*eta[k][j][i].y + eta[k][j][i].z*eta[k][j][i].z);
-                            ucont[k][j][i].y += correctionProfile[j] * faceArea;
-                        }
-                    }
-                }
-            }
-            break;
-        case 'Z':
-            for (k = info.zs; k < info.zs + info.zm - 1; k++) {
-                if (PetscAbs(correctionProfile[k]) > 1e-12) {
-                    for (j = lys; j < lye; j++) for (i = lxs; i < lxe; i++) {
-                        if (nvert[k][j][i] < 0.1) {
-                            PetscReal faceArea = sqrt(zet[k][j][i].x*zet[k][j][i].x + zet[k][j][i].y*zet[k][j][i].y + zet[k][j][i].z*zet[k][j][i].z);
-                            ucont[k][j][i].z += correctionProfile[k] * faceArea;
-                        }
-                    }
-                }
-            }
-            break;
+    face.aj = metrics->aj[n][c[2]][c[1]][c[0]];
+    for (PetscInt b = 0; b < 3; b++) {
+        const Cmpnts base = metrics->metric[n][b][c[2]][c[1]][c[0]];
+        face.dot[b] = base.x * normal.x + base.y * normal.y + base.z * normal.z;
+        if (b == n) {
+            face.diff[b].lo = 0; face.diff[b].hi = 0; face.diff[b].weight = 0.0;
+        } else {
+            face.diff[b] = PoissonOperator_TransverseDifference(nvert, c, n, b, m, periodic);
+        }
     }
-    */
+    return face;
+}
 
-    // --- Step 8: Cleanup and Restore ---
-    ierr = PetscFree(localFluxProfile); CHKERRQ(ierr);
-    ierr = PetscFree(globalFluxProfile); CHKERRQ(ierr);
-    ierr = PetscFree(correctionProfile); CHKERRQ(ierr);
+/** @brief Borrows read access to the face metric arrays of @p user. */
+static PetscErrorCode PoissonOperator_GetFaceMetrics(UserCtx *user, PoissonFaceMetrics *metrics)
+{
+    FieldView view;
 
-    ierr = DMDAVecRestoreArray(user->fda, user->lUcont, &ucont); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
-
-    //LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: Channel flux profile correction complete.\n",
-    //          simCtx->rank, user->_this);
-              
+    PetscFunctionBeginUser;
+    for (PetscInt n = 0; n < 3; n++) {
+        for (PetscInt b = 0; b < 3; b++) {
+            PetscCall(FieldGetView(user, POISSON_FACE_METRIC_FIELDS[n][b], &view));
+            PetscCall(DMDAVecGetArrayRead(view.dm, view.local_vec, (void *)&metrics->metric[n][b]));
+        }
+        PetscCall(FieldGetView(user, POISSON_FACE_AJ_FIELDS[n], &view));
+        PetscCall(DMDAVecGetArrayRead(view.dm, view.local_vec, (void *)&metrics->aj[n]));
+    }
     PetscFunctionReturn(0);
 }
 
-//Cell Center
-#define CP  0 
-// Face Centers
-#define EP  1
-#define WP  2
-#define NP  3
-#define SP  4
-#define TP  5
-#define BP  6
+/** @brief Returns the arrays borrowed by PoissonOperator_GetFaceMetrics(). */
+static PetscErrorCode PoissonOperator_RestoreFaceMetrics(UserCtx *user, PoissonFaceMetrics *metrics)
+{
+    FieldView view;
 
-// Edge Centers
-#define NE  7
-#define SE  8
-#define NW  9
-#define SW  10
-#define TN  11
-#define BN  12
-#define TS  13
-#define BS  14
-#define TE  15
-#define BE  16
-#define TW  17
-#define BW  18
+    PetscFunctionBeginUser;
+    for (PetscInt n = 0; n < 3; n++) {
+        for (PetscInt b = 0; b < 3; b++) {
+            PetscCall(FieldGetView(user, POISSON_FACE_METRIC_FIELDS[n][b], &view));
+            PetscCall(DMDAVecRestoreArrayRead(view.dm, view.local_vec, (void *)&metrics->metric[n][b]));
+        }
+        PetscCall(FieldGetView(user, POISSON_FACE_AJ_FIELDS[n], &view));
+        PetscCall(DMDAVecRestoreArrayRead(view.dm, view.local_vec, (void *)&metrics->aj[n]));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Index of the neighbour at offset @p d (-1, 0, +1) from @p v on an axis of @p m
+ *        points, wrapping between the interior layers 1 and m-2 when periodic.
+ */
+static inline PetscInt PoissonOperator_NeighborIndex(PetscInt v, PetscInt d, PetscInt m, PetscBool periodic)
+{
+    if (periodic && d == 1 && v == m - 2) return 1;
+    if (periodic && d == -1 && v == 1) return m - 2;
+    return v + d;
+}
+
+/**
+ * @brief Adds the signed gradient flux through one face to a row's stencil coefficients.
+ *
+ * @param[in]     face  Face gradient from PoissonOperator_FaceGradientStencil().
+ * @param[in]     own   Offset of the face's lower cell from the row cell.
+ * @param[in]     n     Normal axis of the face.
+ * @param[in]     sign  +1 for the row's upper face on the axis, -1 for its lower face.
+ * @param[in,out] coefficients The row's 19 coefficients.
+ */
+static void PoissonOperator_AddFaceFlux(const PoissonFaceGradient *face, const PetscInt own[3],
+                                        PetscInt n, PetscReal sign, PetscScalar coefficients[19])
+{
+    for (PetscInt b = 0; b < 3; b++) {
+        const PetscReal g = face->dot[b] * face->aj;
+        PetscInt lower[3] = {own[0], own[1], own[2]};
+        PetscInt upper[3] = {own[0], own[1], own[2]};
+
+        upper[n] += 1;
+        if (b == n) {
+            coefficients[PoissonOperator_StencilSlot(lower)] += sign * (-g);
+            coefficients[PoissonOperator_StencilSlot(upper)] += sign * g;
+            continue;
+        }
+
+        const PoissonTransverseDifference diff = face->diff[b];
+        if (diff.weight == 0.0) continue;
+        const PetscReal term = g * diff.weight;
+        PetscInt hi_lower[3] = {lower[0], lower[1], lower[2]}, hi_upper[3] = {upper[0], upper[1], upper[2]};
+        PetscInt lo_lower[3] = {lower[0], lower[1], lower[2]}, lo_upper[3] = {upper[0], upper[1], upper[2]};
+        hi_lower[b] += diff.hi; hi_upper[b] += diff.hi;
+        lo_lower[b] += diff.lo; lo_upper[b] += diff.lo;
+        coefficients[PoissonOperator_StencilSlot(hi_lower)] += sign * term;
+        coefficients[PoissonOperator_StencilSlot(hi_upper)] += sign * term;
+        coefficients[PoissonOperator_StencilSlot(lo_lower)] += sign * (-term);
+        coefficients[PoissonOperator_StencilSlot(lo_upper)] += sign * (-term);
+    }
+}
 
 #undef __FUNCT__
-#define __FUNCT__ "Projection"
+#define __FUNCT__ "AssemblePoissonOperator"
 /**
- * @brief Implementation of \ref Projection().
+ * @brief Implementation of \ref AssemblePoissonOperator().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/poisson.h`.
- * @see Projection()
+ * @see AssemblePoissonOperator()
  */
-PetscErrorCode Projection(UserCtx *user)
+PetscErrorCode AssemblePoissonOperator(UserCtx *user)
 {
-  PetscErrorCode ierr;
+    const DMDALocalInfo info = user->info;
+    const PetscInt      m[3] = {info.mx, info.my, info.mz};
+    PetscBool           periodic[3];
+    PoissonFaceMetrics  metrics;
+    const PetscReal  ***nvert, ***aj;
+    AO                  ao;
 
-  PetscFunctionBeginUser;
-  PROFILE_FUNCTION_BEGIN;  
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Entering Projection step to correct velocity field.\n");
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
-  //================================================================================
-  // Section 1: Initialization and Data Acquisition
-  //================================================================================
-
-  // --- Get simulation and grid context ---
-  SimCtx *simCtx = user->simCtx;
-  DM da = user->da, fda = user->fda;
-  DMDALocalInfo info = user->info;
-
-  // --- Grid dimensions ---
-  PetscInt mx = info.mx, my = info.my, mz = info.mz;
-  PetscInt xs = info.xs, xe = info.xs + info.xm;
-  PetscInt ys = info.ys, ye = info.ys + info.ym;
-  PetscInt zs = info.zs, ze = info.zs + info.zm;
-
-  // --- Loop bounds (excluding outer ghost layers) ---
-  PetscInt lxs = (xs == 0) ? xs + 1 : xs;
-  PetscInt lxe = (xe == mx) ? xe - 1 : xe;
-  PetscInt lys = (ys == 0) ? ys + 1 : ys;
-  PetscInt lye = (ye == my) ? ye - 1 : ye;
-  PetscInt lzs = (zs == 0) ? zs + 1 : zs;
-  PetscInt lze = (ze == mz) ? ze - 1 : ze;
-
-  // --- Get direct pointer access to grid metric and field data ---
-  Cmpnts ***icsi, ***ieta, ***izet, ***jcsi, ***jeta, ***jzet, ***kcsi, ***keta, ***kzet;
-  PetscReal ***iaj, ***jaj, ***kaj, ***p, ***nvert;
-  Cmpnts ***ucont;
-  DMDAVecGetArray(fda, user->lICsi, &icsi); DMDAVecGetArray(fda, user->lIEta, &ieta); DMDAVecGetArray(fda, user->lIZet, &izet);
-  DMDAVecGetArray(fda, user->lJCsi, &jcsi); DMDAVecGetArray(fda, user->lJEta, &jeta); DMDAVecGetArray(fda, user->lJZet, &jzet);
-  DMDAVecGetArray(fda, user->lKCsi, &kcsi); DMDAVecGetArray(fda, user->lKEta, &keta); DMDAVecGetArray(fda, user->lKZet, &kzet);
-  DMDAVecGetArray(da, user->lIAj, &iaj); DMDAVecGetArray(da, user->lJAj, &jaj); DMDAVecGetArray(da, user->lKAj, &kaj);
-  DMDAVecGetArray(da, user->lNvert, &nvert);
-  DMDAVecGetArray(da, user->lPhi, &p); // Note: using lPhi, which is the pressure correction
-  //DMDAVecGetArray(da,user->lP,&p);
-  DMDAVecGetArray(fda, user->Ucont, &ucont);
-
-  // --- Constants for clarity ---
-  const PetscReal IBM_FLUID_THRESHOLD = 0.1;
-  const PetscReal scale = simCtx->dt * 1.0 / COEF_TIME_ACCURACY; // simCtx->st replaced by 1.0.
-
-  LOG_ALLOW(GLOBAL,LOG_DEBUG," Starting velocity correction: Scale = %le .\n",scale);
-
-  //================================================================================
-  // Section 2: Correct Velocity Components
-  //================================================================================
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Calculating pressure gradients and correcting velocity components.\n");
-  
-  // --- Main loop over interior domain points ---
-  for (PetscInt k = lzs; k < lze; k++) {
-    for (PetscInt j = lys; j < lye; j++) {
-      for (PetscInt i = lxs; i < lxe; i++) {
-
-        // --- Correct U_contravariant (x-component of velocity) ---
-        PetscInt i_end = (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC) ? mx - 1 : mx - 2;
-        if (i < i_end) {
-	  
-          if (!(nvert[k][j][i] > IBM_FLUID_THRESHOLD || nvert[k][j][i + 1] > IBM_FLUID_THRESHOLD)) {
-            // Compute pressure derivatives (dp/d_csi, dp/d_eta, dp/d_zet) at the i-face
-
-	    PetscReal dpdc = p[k][j][i + 1] - p[k][j][i];
-            PetscReal dpde = 0.0, dpdz = 0.0;
-
-            // Boundary-aware stencil for dp/d_eta
-	      if ((j==my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
-		if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
-		  dpde = (p[k][j][i] + p[k][j][i+1] -
-			  p[k][j-1][i] - p[k][j-1][i+1]) * 0.5;
-		}
-	      }
-
-	      else if ((j==my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
-		if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1) { dpde = (p[k][j][i] + p[k][j][i+1] - p[k][j-1][i] - p[k][j-1][i+1]) * 0.5; }
-	      }
-
-	      else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) || nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
-		if (nvert[k][j+1][i] + nvert[k][j+1][i+1] < 0.1) { dpde = (p[k][j+1][i] + p[k][j+1][i+1] - p[k][j][i] - p[k][j][i+1]) * 0.5; }
-	      }
-
-	      else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
-		if (nvert[k][j+1][i] + nvert[k][j+1][i+1] < 0.1) { dpde = (p[k][j+1][i] + p[k][j+1][i+1] - p[k][j][i] - p[k][j][i+1]) * 0.5; }
-	      }
-
-	      else { dpde = (p[k][j+1][i] + p[k][j+1][i+1] - p[k][j-1][i] - p[k][j-1][i+1]) * 0.25; }
-
-            // Boundary-aware stencil for dp/d_zet
-	      if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) || nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
-		if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) { dpdz = (p[k][j][i] + p[k][j][i+1] - p[k-1][j][i] - p[k-1][j][i+1]) * 0.5; }
-	      }
-
-	      else  if ((k == mz-2 || k==1) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
-		if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1) { dpdz = (p[k][j][i] + p[k][j][i+1] - p[k-1][j][i] - p[k-1][j][i+1]) * 0.5; }
-	      }
-
-	      else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
-		if (nvert[k+1][j][i] + nvert[k+1][j][i+1] < 0.1) { dpdz = (p[k+1][j][i] + p[k+1][j][i+1] - p[k][j][i] - p[k][j][i+1]) * 0.5; }
-	      }
-
-	      else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
-		if (nvert[k+1][j][i] + nvert[k+1][j][i+1] < 0.1) { dpdz = (p[k+1][j][i] + p[k+1][j][i+1] - p[k][j][i] - p[k][j][i+1]) * 0.5; }
-	      }
-
-	      else { dpdz = (p[k+1][j][i] + p[k+1][j][i+1] - p[k-1][j][i] - p[k-1][j][i+1]) * 0.25; }
-
-            // Apply the correction: U_new = U_old - dt * (g11*dpdc + g12*dpde + g13*dpdz)
-
-            
-	      
-            PetscReal grad_p_x = (dpdc * (icsi[k][j][i].x * icsi[k][j][i].x + icsi[k][j][i].y * icsi[k][j][i].y
-					  + icsi[k][j][i].z * icsi[k][j][i].z) * iaj[k][j][i] +
-                                dpde * (ieta[k][j][i].x * icsi[k][j][i].x + ieta[k][j][i].y * icsi[k][j][i].y
-					+ ieta[k][j][i].z * icsi[k][j][i].z) * iaj[k][j][i] +
-                                dpdz * (izet[k][j][i].x * icsi[k][j][i].x + izet[k][j][i].y * icsi[k][j][i].y
-					+ izet[k][j][i].z * icsi[k][j][i].z) * iaj[k][j][i]);
-
-	    PetscReal correction = grad_p_x*scale;
-	    //LOG_LOOP_ALLOW_EXACT(GLOBAL,LOG_DEBUG,k,5," Flux correction in Csi Direction: %le.\n",correction);
-	    ucont[k][j][i].x -= correction;
-
-          }
-        }
-
-        // --- Correct V_contravariant (y-component of velocity) ---
-        PetscInt j_end = (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC) ? my - 1 : my - 2;
-        if (j < j_end) {
-          if (!(nvert[k][j][i] > IBM_FLUID_THRESHOLD || nvert[k][j + 1][i] > IBM_FLUID_THRESHOLD)) {
-            PetscReal dpdc = 0.0, dpde = 0.0, dpdz = 0.0;
-            dpde = p[k][j + 1][i] - p[k][j][i];
-
-            // Boundary-aware stencil for dp/d_csi
-	      if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC) || nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
-		if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) { dpdc = (p[k][j][i] + p[k][j+1][i] - p[k][j][i-1] - p[k][j+1][i-1]) * 0.5; }
-	      } else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
-		if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1) { dpdc = (p[k][j][i] + p[k][j+1][i] - p[k][j][i-1] - p[k][j+1][i-1]) * 0.5; }
-	      } else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
-		if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) { dpdc = (p[k][j][i+1] + p[k][j+1][i+1] - p[k][j][i] - p[k][j+1][i]) * 0.5; }
-	      } else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
-		if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) { dpdc = (p[k][j][i+1] + p[k][j+1][i+1] - p[k][j][i] - p[k][j+1][i]) * 0.5; }
-	      } else { dpdc = (p[k][j][i+1] + p[k][j+1][i+1] - p[k][j][i-1] - p[k][j+1][i-1]) * 0.25; }
-
-            // Boundary-aware stencil for dp/d_zet
-	      if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
-		if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) { dpdz = (p[k][j][i] + p[k][j+1][i] - p[k-1][j][i] - p[k-1][j+1][i]) * 0.5; }
-	      } else if ((k == mz-2 || k==1 ) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
-		if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1) { dpdz = (p[k][j][i] + p[k][j+1][i] - p[k-1][j][i] - p[k-1][j+1][i]) * 0.5; }
-	      } else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
-		if (nvert[k+1][j][i] + nvert[k+1][j+1][i] < 0.1) { dpdz = (p[k+1][j][i] + p[k+1][j+1][i] - p[k][j][i] - p[k][j+1][i]) * 0.5; }
-	      } else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
-		if (nvert[k+1][j][i] + nvert[k+1][j+1][i] < 0.1) { dpdz = (p[k+1][j][i] + p[k+1][j+1][i] - p[k][j][i] - p[k][j+1][i]) * 0.5; }
-	      } else { dpdz = (p[k+1][j][i] + p[k+1][j+1][i] - p[k-1][j][i] - p[k-1][j+1][i]) * 0.25; }
-
-            PetscReal grad_p_y = (dpdc * (jcsi[k][j][i].x * jeta[k][j][i].x + jcsi[k][j][i].y * jeta[k][j][i].y + jcsi[k][j][i].z * jeta[k][j][i].z) * jaj[k][j][i] +
-                                dpde * (jeta[k][j][i].x * jeta[k][j][i].x + jeta[k][j][i].y * jeta[k][j][i].y + jeta[k][j][i].z * jeta[k][j][i].z) * jaj[k][j][i] +
-                                dpdz * (jzet[k][j][i].x * jeta[k][j][i].x + jzet[k][j][i].y * jeta[k][j][i].y + jzet[k][j][i].z * jeta[k][j][i].z) * jaj[k][j][i]);
-
-	    PetscReal correction = grad_p_y*scale;
-	    //LOG_LOOP_ALLOW_EXACT(GLOBAL,LOG_DEBUG,k,5," Flux correction in Eta Direction: %le.\n",correction);
-            ucont[k][j][i].y -= correction;
-          }
-        }
-        
-        // --- Correct W_contravariant (z-component of velocity) ---
-        PetscInt k_end = (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC) ? mz - 1 : mz - 2;
-        if (k < k_end) {
-          if (!(nvert[k][j][i] > IBM_FLUID_THRESHOLD || nvert[k + 1][j][i] > IBM_FLUID_THRESHOLD)) {
-            PetscReal dpdc = 0.0, dpde = 0.0, dpdz = 0.0;
-            dpdz = p[k + 1][j][i] - p[k][j][i];
-            
-            // Boundary-aware stencil for dp/d_csi
-	      if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
-		if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) { dpdc = (p[k][j][i] + p[k+1][j][i] - p[k][j][i-1] - p[k+1][j][i-1]) * 0.5; }
-	      } else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
-		if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1) { dpdc = (p[k][j][i] + p[k+1][j][i] - p[k][j][i-1] - p[k+1][j][i-1]) * 0.5; }
-	      } else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
-		if (nvert[k][j][i+1] + nvert[k+1][j][i+1] < 0.1) { dpdc = (p[k][j][i+1] + p[k+1][j][i+1] - p[k][j][i] - p[k+1][j][i]) * 0.5; }
-	      } else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
-		if (nvert[k][j][i+1] + nvert[k+1][j][i+1] < 0.1) { dpdc = (p[k][j][i+1] + p[k+1][j][i+1] - p[k][j][i] - p[k+1][j][i]) * 0.5; }
-	      } else { dpdc = (p[k][j][i+1] + p[k+1][j][i+1] - p[k][j][i-1] - p[k+1][j][i-1]) * 0.25; }
-
-            // Boundary-aware stencil for dp/d_eta
-	      if ((j == my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
-		if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) { dpde = (p[k][j][i] + p[k+1][j][i] - p[k][j-1][i] - p[k+1][j-1][i]) * 0.5; }
-	      } else  if ((j == my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
-		if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1) { dpde = (p[k][j][i] + p[k+1][j][i] - p[k][j-1][i] - p[k+1][j-1][i]) * 0.5; }
-	      } else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
-		if (nvert[k][j+1][i] + nvert[k+1][j+1][i] < 0.1) { dpde = (p[k][j+1][i] + p[k+1][j+1][i] - p[k][j][i] - p[k+1][j][i]) * 0.5; }
-	      } else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
-		if (nvert[k][j+1][i] + nvert[k+1][j+1][i] < 0.1) { dpde = (p[k][j+1][i] + p[k+1][j+1][i] - p[k][j][i] - p[k+1][j][i]) * 0.5; }
-	      } else { dpde = (p[k][j+1][i] + p[k+1][j+1][i] - p[k][j-1][i] - p[k+1][j-1][i]) * 0.25; }
-
-            PetscReal grad_p_z = (dpdc * (kcsi[k][j][i].x * kzet[k][j][i].x + kcsi[k][j][i].y * kzet[k][j][i].y + kcsi[k][j][i].z * kzet[k][j][i].z) * kaj[k][j][i] +
-                                dpde * (keta[k][j][i].x * kzet[k][j][i].x + keta[k][j][i].y * kzet[k][j][i].y + keta[k][j][i].z * kzet[k][j][i].z) * kaj[k][j][i] +
-                                dpdz * (kzet[k][j][i].x * kzet[k][j][i].x + kzet[k][j][i].y * kzet[k][j][i].y + kzet[k][j][i].z * kzet[k][j][i].z) * kaj[k][j][i]);
-
-	    // ========================= DEBUG PRINT  =========================
-	    LOG_LOOP_ALLOW_EXACT(GLOBAL, LOG_DEBUG, k, 5,
-				 "[k=%d, j=%d, i=%d] ---- Neighbor Pressures ----\n"
-				 "  Central Z-Neighbors: p[k+1][j][i] = %g | p[k][j][i] = %g\n"
-				 "  Eta-Stencil (Y-dir): p[k][j-1][i] = %g, p[k+1][j-1][i] = %g | p[k][j+1][i] = %g, p[k+1][j+1][i] = %g\n"
-				 "  Csi-Stencil (X-dir): p[k][j][i-1] = %g, p[k+1][j][i-1] = %g | p[k][j][i+1] = %g, p[k+1][j][i+1] = %g\n",
-				 k, j, i,
-				 p[k + 1][j][i], p[k][j][i],
-				 p[k][j - 1][i], p[k + 1][j - 1][i], p[k][j + 1][i], p[k + 1][j + 1][i],
-				 p[k][j][i - 1], p[k + 1][j][i - 1], p[k][j][i + 1], p[k + 1][j][i + 1]);
-	    // ======================= END DEBUG PRINT =======================
-
-	    LOG_LOOP_ALLOW_EXACT(GLOBAL,LOG_DEBUG,k,5," dpdc: %le | dpde: %le | dpdz: %le.\n",dpdc,dpde,dpdz);	    
-	    PetscReal correction = grad_p_z*scale;
-	    //LOG_LOOP_ALLOW_EXACT(GLOBAL,LOG_DEBUG,k,5," Flux correction in Zet Direction: %le.\n",correction);
-            ucont[k][j][i].z -= correction;
-          }
-        }
-      }
+    if (!user->A) {
+        PetscInt local_rows;
+        PetscCall(VecGetLocalSize(user->Phi, &local_rows));
+        PetscCall(MatCreateAIJ(PETSC_COMM_WORLD, local_rows, local_rows, m[0] * m[1] * m[2], m[0] * m[1] * m[2],
+                               19, NULL, 19, NULL, &user->A));
     }
-  }
+    PetscCall(MatZeroEntries(user->A));
 
-  // --- Explicit correction for periodic boundaries (if necessary) ---
-  // The main loop handles the interior, but this handles the first physical layer at periodic boundaries.
-  // Note: This logic is largely duplicated from the main loop and could be merged, but is preserved for fidelity.
-  if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) {
-    for (PetscInt k=lzs; k<lze; k++) {
-      for (PetscInt j=lys; j<lye; j++) {
-	PetscInt i=xs;
-	
-	PetscReal dpdc = p[k][j][i+1] - p[k][j][i];
-	
-	PetscReal dpde = 0.;
-	PetscReal dpdz = 0.;
-		
-	if ((j==my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
-	    dpde = (p[k][j  ][i] + p[k][j  ][i+1] -
-		    p[k][j-1][i] - p[k][j-1][i+1]) * 0.5;
-	  }
-	}
-	else if ((j==my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1) {
-	    dpde = (p[k][j  ][i] + p[k][j  ][i+1] -
-		    p[k][j-1][i] - p[k][j-1][i+1]) * 0.5;
-	  }
-	}
-	else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) || nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
-	  if (nvert[k][j+1][i] + nvert[k][j+1][i+1] < 0.1) {
-	    dpde = (p[k][j+1][i] + p[k][j+1][i+1] -
-		    p[k][j  ][i] - p[k][j  ][i+1]) * 0.5;
-	  }
-	}
-	else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
-	  if (nvert[k][j+1][i] + nvert[k][j+1][i+1] < 0.1) {
-	    dpde = (p[k][j+1][i] + p[k][j+1][i+1] -
-		    p[k][j  ][i] - p[k][j  ][i+1]) * 0.5;
-	  }
-	}
-	else {
-	  dpde = (p[k][j+1][i] + p[k][j+1][i+1] -
-		  p[k][j-1][i] - p[k][j-1][i+1]) * 0.25;
-	}
-	
-	if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) || nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) {
-	    dpdz = (p[k  ][j][i] + p[k  ][j][i+1] -
-		    p[k-1][j][i] - p[k-1][j][i+1]) * 0.5;
-	  }
-	}
-	else  if ((k == mz-2 || k==1) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1) {
-	    dpdz = (p[k  ][j][i] + p[k  ][j][i+1] -
-		    p[k-1][j][i] - p[k-1][j][i+1]) * 0.5;
-	  }
-	}
-	else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
-	  if (nvert[k+1][j][i] + nvert[k+1][j][i+1] < 0.1) {
-	    dpdz = (p[k+1][j][i] + p[k+1][j][i+1] -
-		    p[k  ][j][i] - p[k  ][j][i+1]) * 0.5;
-	  }
-	}
-	else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
-	  if (nvert[k+1][j][i] + nvert[k+1][j][i+1] < 0.1) {
-	    dpdz = (p[k+1][j][i] + p[k+1][j][i+1] -
-		    p[k  ][j][i] - p[k  ][j][i+1]) * 0.5;
-	  }
-	}
-	else {
-	  dpdz = (p[k+1][j][i] + p[k+1][j][i+1] -
-		  p[k-1][j][i] - p[k-1][j][i+1]) * 0.25;
-	}
-	
-	
-	
-	if (!(nvert[k][j][i] + nvert[k][j][i+1])) {
-	  ucont[k][j][i].x -=
-	    (dpdc * (icsi[k][j][i].x * icsi[k][j][i].x +
-		     icsi[k][j][i].y * icsi[k][j][i].y +
-		     icsi[k][j][i].z * icsi[k][j][i].z) * iaj[k][j][i] +
-	     dpde * (ieta[k][j][i].x * icsi[k][j][i].x +
-		     ieta[k][j][i].y * icsi[k][j][i].y +
-		     ieta[k][j][i].z * icsi[k][j][i].z) * iaj[k][j][i] +
-	     dpdz * (izet[k][j][i].x * icsi[k][j][i].x +
-		     izet[k][j][i].y * icsi[k][j][i].y +
-		     izet[k][j][i].z * icsi[k][j][i].z) * iaj[k][j][i])
-	    * scale;
-	  
-	}
-      }
-    } 
-  }
-  if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) {
+    PoissonOperator_PeriodicAxes(user, periodic);
+    PetscCall(DMDAGetAO(user->da, &ao));
+    PetscCall(PoissonOperator_GetFaceMetrics(user, &metrics));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, (void *)&aj));
 
-    for (PetscInt k=lzs; k<lze; k++) {
-      for (PetscInt i=lxs; i<lxe; i++) {
-	PetscInt j=ys;
-	
-	PetscReal dpdc = 0.;
-	PetscReal dpdz = 0.;
-	if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC) || nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
-	    dpdc = (p[k][j][i  ] + p[k][j+1][i  ] -
-		    p[k][j][i-1] - p[k][j+1][i-1]) * 0.5;
-	  }
-	}
-	else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1) {
-	    dpdc = (p[k][j][i  ] + p[k][j+1][i  ] -
-		    p[k][j][i-1] - p[k][j+1][i-1]) * 0.5;
-	  }
-	}
-	else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
-	  if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) {
-	    dpdc = (p[k][j][i+1] + p[k][j+1][i+1] -
-		    p[k][j][i  ] - p[k][j+1][i  ]) * 0.5;
-	  }
-	}
-	else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
-	  if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) {
-	    dpdc = (p[k][j][i+1] + p[k][j+1][i+1] -
-		    p[k][j][i  ] - p[k][j+1][i  ]) * 0.5;
-	  }
-	}
-	else {
-	  dpdc = (p[k][j][i+1] + p[k][j+1][i+1] -
-		  p[k][j][i-1] - p[k][j+1][i-1]) * 0.25;
-	}
-	
-	PetscReal dpde = p[k][j+1][i] - p[k][j][i];
-	
-	if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) {
-	    dpdz = (p[k  ][j][i] + p[k  ][j+1][i] -
-		    p[k-1][j][i] - p[k-1][j+1][i]) * 0.5;
-	  }
-	}
-	else if ((k == mz-2 || k==1 ) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1) {
-	    dpdz = (p[k  ][j][i] + p[k  ][j+1][i] -
-		    p[k-1][j][i] - p[k-1][j+1][i]) * 0.5;
-	  }
-	}
-	else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
-	  if (nvert[k+1][j][i] + nvert[k+1][j+1][i] < 0.1) {
-	    dpdz = (p[k+1][j][i] + p[k+1][j+1][i] -
-		    p[k  ][j][i] - p[k  ][j+1][i]) * 0.5;
-	  }
-	}
-	else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
-	  if (nvert[k+1][j][i] + nvert[k+1][j+1][i] < 0.1) {
-	    dpdz = (p[k+1][j][i] + p[k+1][j+1][i] -
-		    p[k  ][j][i] - p[k  ][j+1][i]) * 0.5;
-	  }
-	}
-	else {
-	  dpdz = (p[k+1][j][i] + p[k+1][j+1][i] -
-		  p[k-1][j][i] - p[k-1][j+1][i]) * 0.25;
-	}
-		
-	if (!(nvert[k][j][i] + nvert[k][j+1][i])) {
-	  ucont[k][j][i].y -=
-	    (dpdc * (jcsi[k][j][i].x * jeta[k][j][i].x +
-		     jcsi[k][j][i].y * jeta[k][j][i].y +
-		     jcsi[k][j][i].z * jeta[k][j][i].z) * jaj[k][j][i] +
-	     dpde * (jeta[k][j][i].x * jeta[k][j][i].x +
-		     jeta[k][j][i].y * jeta[k][j][i].y +
-		     jeta[k][j][i].z * jeta[k][j][i].z) * jaj[k][j][i] +
-	     dpdz * (jzet[k][j][i].x * jeta[k][j][i].x +
-		     jzet[k][j][i].y * jeta[k][j][i].y +
-		     jzet[k][j][i].z * jeta[k][j][i].z) * jaj[k][j][i])
-	    * scale;
-	}
-      }
+    for (PetscInt k = info.zs; k < info.zs + info.zm; k++) {
+        for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
+            for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
+                const PetscInt c[3] = {i, j, k};
+                PetscInt       row = i + j * m[0] + k * m[0] * m[1];
+                PetscInt       columns[19];
+                PetscScalar    coefficients[19] = {0.0};
+
+                PetscCall(AOApplicationToPetsc(ao, 1, &row));
+                if (i == 0 || i == m[0] - 1 || j == 0 || j == m[1] - 1 || k == 0 || k == m[2] - 1) {
+                    const PetscScalar one = 1.0;
+                    PetscCall(MatSetValues(user->A, 1, &row, 1, &row, &one, INSERT_VALUES));
+                    continue;
+                }
+
+                for (PetscInt s = 0; s < 19; s++) {
+                    const PetscInt *d = POISSON_STENCIL_OFFSETS[s];
+                    columns[s] = PoissonOperator_NeighborIndex(i, d[0], m[0], periodic[0]) +
+                                 PoissonOperator_NeighborIndex(j, d[1], m[1], periodic[1]) * m[0] +
+                                 PoissonOperator_NeighborIndex(k, d[2], m[2], periodic[2]) * m[0] * m[1];
+                }
+                PetscCall(AOApplicationToPetsc(ao, 19, columns));
+
+                if (nvert[k][j][i] > POISSON_SOLID_THRESHOLD) {
+                    /* Solid rows keep the fluid row's structure with zero couplings, so a
+                       solid field that changes during a run reassembles in place. */
+                    coefficients[0] = 1.0;
+                    PetscCall(MatSetValues(user->A, 1, &row, 19, columns, coefficients, INSERT_VALUES));
+                    continue;
+                }
+
+                /* Faces in the order east, west, north, south, top, bottom. Non-periodic
+                   boundary faces carry no flux (homogeneous Neumann). */
+                for (PetscInt n = 0; n < 3; n++) {
+                    const PetscInt first = periodic[n] ? 0 : 1;
+                    const PetscInt last  = periodic[n] ? m[n] - 1 : m[n] - 2;
+                    for (PetscInt side = 0; side < 2; side++) {
+                        PetscInt across[3] = {0, 0, 0}, own[3] = {0, 0, 0}, face_cell[3] = {i, j, k};
+                        const PetscBool upper = (PetscBool)(side == 0);
+
+                        across[n] = upper ? 1 : -1;
+                        if (PoissonOperator_At(nvert, c, across) >= POISSON_SOLID_THRESHOLD) continue;
+                        if (c[n] == (upper ? last : first)) continue;
+                        if (!upper) { own[n] = -1; face_cell[n] -= 1; }
+
+                        const PoissonFaceGradient face =
+                            PoissonOperator_FaceGradientStencil(&metrics, nvert, face_cell, n, m, periodic);
+                        PoissonOperator_AddFaceFlux(&face, own, n, upper ? 1.0 : -1.0, coefficients);
+                    }
+                }
+
+                for (PetscInt s = 0; s < 19; s++) coefficients[s] *= -aj[k][j][i];
+                PetscCall(MatSetValues(user->A, 1, &row, 19, columns, coefficients, INSERT_VALUES));
+            }
+        }
     }
-  }
 
-  if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) {
-    for (PetscInt j=lys; j<lye; j++) {
-      for (PetscInt i=lxs; i<lxe; i++) {
-	
-	PetscInt k=zs;
-	PetscReal dpdc = 0.;
-	PetscReal dpde = 0.;
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, (void *)&aj));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(PoissonOperator_RestoreFaceMetrics(user, &metrics));
+    PetscCall(MatAssemblyBegin(user->A, MAT_FINAL_ASSEMBLY));
+    PetscCall(MatAssemblyEnd(user->A, MAT_FINAL_ASSEMBLY));
 
-	if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
-	    dpdc = (p[k][j][i  ] + p[k+1][j][i  ] -
-		    p[k][j][i-1] - p[k+1][j][i-1]) * 0.5;
-	  }
-	}
-	else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1) {
-	    dpdc = (p[k][j][i  ] + p[k+1][j][i  ] -
-		    p[k][j][i-1] - p[k+1][j][i-1]) * 0.5;
-	  }
-	}
-	else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
-	  if (nvert[k][j][i+1] + nvert[k+1][j][i+1] < 0.1) {
-	    dpdc = (p[k][j][i+1] + p[k+1][j][i+1] -
-		    p[k][j][i  ] - p[k+1][j][i  ]) * 0.5;
-	  }
-	}
-	else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
-	  if (nvert[k][j][i+1] + nvert[k+1][j][i+1] < 0.1) {
-	    dpdc = (p[k][j][i+1] + p[k+1][j][i+1] -
-		    p[k][j][i  ] - p[k+1][j][i  ]) * 0.5;
-	  }
-	}
-	else {
-	  dpdc = (p[k][j][i+1] + p[k+1][j][i+1] -
-		  p[k][j][i-1] - p[k+1][j][i-1]) * 0.25;
-	}
-	
-	if ((j == my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
-	    dpde = (p[k][j  ][i] + p[k+1][j  ][i] -
-		    p[k][j-1][i] - p[k+1][j-1][i]) * 0.5;
-	  }
-	}
-	else  if ((j == my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1) {
-	    dpde = (p[k][j  ][i] + p[k+1][j  ][i] -
-		    p[k][j-1][i] - p[k+1][j-1][i]) * 0.5;
-	  }
-	}
-	else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
-	  if (nvert[k][j+1][i] + nvert[k+1][j+1][i] < 0.1) {
-	    dpde = (p[k][j+1][i] + p[k+1][j+1][i] -
-		    p[k][j  ][i] - p[k+1][j  ][i]) * 0.5;
-	  }
-	}
-	else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
-	  if (nvert[k][j+1][i] + nvert[k+1][j+1][i] < 0.1) {
-	    dpde = (p[k][j+1][i] + p[k+1][j+1][i] -
-		    p[k][j  ][i] - p[k+1][j  ][i]) * 0.5;
-	  }
-	}
-	else {
-	  dpde = (p[k][j+1][i] + p[k+1][j+1][i] -
-		  p[k][j-1][i] - p[k+1][j-1][i]) * 0.25;
-	}
-	
-	PetscReal dpdz = p[k+1][j][i] - p[k][j][i];
-	
-	if (!(nvert[k][j][i] + nvert[k+1][j][i])) {
-	  
-	  ucont[k][j][i].z -=
-	   (dpdc * (kcsi[k][j][i].x * kzet[k][j][i].x +
-	  		       kcsi[k][j][i].y * kzet[k][j][i].y +
-	  		       kcsi[k][j][i].z * kzet[k][j][i].z) * kaj[k][j][i] +
-	  	       dpde * (keta[k][j][i].x * kzet[k][j][i].x +
-	  		       keta[k][j][i].y * kzet[k][j][i].y +
-	  		       keta[k][j][i].z * kzet[k][j][i].z) * kaj[k][j][i] +
-	  	       dpdz * (kzet[k][j][i].x * kzet[k][j][i].x +
-	  		       kzet[k][j][i].y * kzet[k][j][i].y +
-	  		       kzet[k][j][i].z * kzet[k][j][i].z) * kaj[k][j][i])
-	                    * scale;
-	  
-	}
-      }
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Poisson operator assembled on level %d.\n", user->thislevel);
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputePoissonRHS"
+/**
+ * @brief Implementation of \ref ComputePoissonRHS().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/poisson.h`.
+ * @see ComputePoissonRHS()
+ */
+PetscErrorCode ComputePoissonRHS(UserCtx *user, Vec B)
+{
+    SimCtx            *simCtx = user->simCtx;
+    const DMDALocalInfo info = user->info;
+    const PetscInt     mx = info.mx, my = info.my, mz = info.mz;
+    const PetscReal    dt = simCtx->dt;
+    const Cmpnts    ***ucont;
+    const PetscReal ***nvert, ***aj;
+    PetscReal       ***rhs;
+    PetscReal          local_sum = 0.0, global_sum = 0.0;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(DMDAVecGetArray(user->da, B, &rhs));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lUcont, (void *)&ucont));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, (void *)&aj));
+
+    for (PetscInt k = info.zs; k < info.zs + info.zm; k++) {
+        for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
+            for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
+                if (i == 0 || i == mx - 1 || j == 0 || j == my - 1 || k == 0 || k == mz - 1 ||
+                    nvert[k][j][i] > POISSON_SOLID_THRESHOLD) {
+                    rhs[k][j][i] = 0.0;
+                } else {
+                    rhs[k][j][i] = -(ucont[k][j][i].x - ucont[k][j][i-1].x +
+                                     ucont[k][j][i].y - ucont[k][j-1][i].y +
+                                     ucont[k][j][i].z - ucont[k-1][j][i].z) / dt * aj[k][j][i] * COEF_TIME_ACCURACY;
+                }
+            }
+        }
     }
-  }
-  
-  // Corrects Flux Profile for Driven Flows if applicable.
-  CorrectChannelFluxProfile(user);
-  
-  //================================================================================
-  // Section 3: Finalization and Cleanup
-  //================================================================================
 
-  // --- Restore access to all PETSc vector arrays ---
-  DMDAVecRestoreArray(fda, user->Ucont, &ucont);
-  // DMDAVecRestoreArray(fda, user->lCsi, &csi); DMDAVecRestoreArray(fda, user->lEta, &eta); DMDAVecRestoreArray(fda, user->lZet, &zet);
-  //DMDAVecRestoreArray(da, user->lAj, &aj);
-  DMDAVecRestoreArray(fda, user->lICsi, &icsi); DMDAVecRestoreArray(fda, user->lIEta, &ieta); DMDAVecRestoreArray(fda, user->lIZet, &izet);
-  DMDAVecRestoreArray(fda, user->lJCsi, &jcsi); DMDAVecRestoreArray(fda, user->lJEta, &jeta); DMDAVecRestoreArray(fda, user->lJZet, &jzet);
-  DMDAVecRestoreArray(fda, user->lKCsi, &kcsi); DMDAVecRestoreArray(fda, user->lKEta, &keta); DMDAVecRestoreArray(fda, user->lKZet, &kzet);
-  DMDAVecRestoreArray(da, user->lIAj, &iaj); DMDAVecRestoreArray(da, user->lJAj, &jaj); DMDAVecRestoreArray(da, user->lKAj, &kaj);
-  DMDAVecRestoreArray(da, user->lPhi, &p);
-  DMDAVecRestoreArray(da, user->lNvert, &nvert);
- 
-  // --- Update ghost cells for the newly corrected velocity field ---
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Updating ghost cells for corrected velocity.\n");
-  const FieldId staggered_fields[] = {FIELD_ID_UCONT};
-  ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
+    /* The integral of the right-hand side is the net volume flux into the domain carried
+       by the uncorrected velocity. With Neumann pressure boundaries it must vanish for
+       the equation to have a solution. */
+    for (PetscInt k = info.zs; k < info.zs + info.zm; k++) {
+        for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
+            for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
+                local_sum += rhs[k][j][i] / aj[k][j][i] * dt / COEF_TIME_ACCURACY;
+            }
+        }
+    }
+    PetscCallMPI(MPI_Allreduce(&local_sum, &global_sum, 1, MPIU_REAL, MPI_SUM, PetscObjectComm((PetscObject)B)));
+    simCtx->poissonSourceImbalance = global_sum;
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Poisson source imbalance: %le\n", (double)global_sum);
 
-  // --- Convert velocity to Cartesian and update ghost nodes ---
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Converting velocity to Cartesian and finalizing ghost nodes.\n");
-  ierr = Contra2Cart(user); CHKERRQ(ierr);
-  ierr = FinalizePostProjectionCellFields(user); CHKERRQ(ierr);
-  //GhostNodeVelocity(user);
-
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Exiting Projection step.\n");
-  PROFILE_FUNCTION_END;
-  PetscFunctionReturn(0);
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, (void *)&aj));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcont, (void *)&ucont));
+    PetscCall(DMDAVecRestoreArray(user->da, B, &rhs));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__
@@ -852,2576 +415,553 @@ PetscErrorCode Projection(UserCtx *user)
  */
 PetscErrorCode UpdatePressure(UserCtx *user)
 {
-  PetscErrorCode ierr;
-
-  PetscFunctionBeginUser;
-  PROFILE_FUNCTION_BEGIN;
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Entering UpdatePressure.\n");
-
-  //================================================================================
-  // Section 1: Initialization and Data Acquisition
-  //================================================================================
-  DM da = user->da;
-  DMDALocalInfo info = user->info;
-
-  // Local grid extents for the main update loop
-  PetscInt xs = info.xs, xe = info.xs + info.xm;
-  PetscInt ys = info.ys, ye = info.ys + info.ym;
-  PetscInt zs = info.zs, ze = info.zs + info.zm;
-
-  // --- Get direct pointer access to PETSc vector data for performance ---
-  PetscReal ***p, ***phi;
-  DMDAVecGetArray(da, user->P, &p);
-  DMDAVecGetArray(da, user->Phi, &phi);
-
-  //================================================================================
-  // Section 2: Core Pressure Update
-  //================================================================================
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Performing core pressure update (P_new = P_old + Phi).\n");
-  for (PetscInt k = zs; k < ze; k++) {
-    for (PetscInt j = ys; j < ye; j++) {
-      for (PetscInt i = xs; i < xe; i++) {
-        // This is the fundamental pressure update in a projection method.
-        p[k][j][i] += phi[k][j][i];
-      }
-    }
-  }
-
-  // Restore arrays now that the core computation is done.
-  DMDAVecRestoreArray(da, user->Phi, &phi);
-  DMDAVecRestoreArray(da, user->P, &p);
-
-  
-  //================================================================================
-  // Section 3: Handle Periodic Boundary Condition Synchronization
-  //================================================================================
-  const FieldId periodic_fields[] = {FIELD_ID_P, FIELD_ID_PHI};
-  ierr = SynchronizePeriodicCellFields(user, 2, periodic_fields); CHKERRQ(ierr);
-  
-  //================================================================================
-  // Section 4: Final Cleanup (pointers already restored)
-  //================================================================================
-
-  ierr = UpdateLocalGhosts(user, FIELD_ID_P); CHKERRQ(ierr);
-  ierr = UpdateLocalGhosts(user, FIELD_ID_PHI); CHKERRQ(ierr);
-  
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Exiting UpdatePressure.\n");
-  PROFILE_FUNCTION_END;
-  PetscFunctionReturn(0);
-}
-#undef __FUNCT__
-#define __FUNCT__ "PoissonNullSpaceFunction"
-/**
- * @brief Implementation of \ref PoissonNullSpaceFunction().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/poisson.h`.
- * @see PoissonNullSpaceFunction()
- */
-
-PetscErrorCode PoissonNullSpaceFunction(MatNullSpace nullsp,Vec X, void *ctx)
-{
-  PetscErrorCode ierr;
-  UserCtx *user = (UserCtx*)ctx;
-  (void)nullsp;
-
-  DM da = user->da;
-
-  DMDALocalInfo	info = user->info;
-  PetscInt	xs = info.xs, xe = info.xs + info.xm;
-  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
-  PetscInt	zs = info.zs, ze = info.zs + info.zm;
-  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
-  PetscInt	lxs, lxe, lys, lye, lzs, lze;
-
-  PetscReal	***x, ***nvert;
-  PetscInt	i, j, k;
-
-/*   /\* First remove a constant from the Vec field X *\/ */
-
-
-  /* Then apply boundary conditions */
-  DMDAVecGetArray(da, X, &x);
-  DMDAVecGetArray(da, user->lNvert, &nvert);
-
-  lxs = xs; lxe = xe;
-  lys = ys; lye = ye;
-  lzs = zs; lze = ze;
-
-  if (xs==0) lxs = xs+1;
-  if (ys==0) lys = ys+1;
-  if (zs==0) lzs = zs+1;
-
-  if (xe==mx) lxe = xe-1;
-  if (ye==my) lye = ye-1;
-  if (ze==mz) lze = ze-1;
-
-  PetscReal lsum, sum;
-  PetscReal  lnum, num;
-
-  if (user->multinullspace) {
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Poisson solve is using the configured multi-nullspace.\n");
-  }
-  if (!user->multinullspace) {
-    lsum = 0;
-    lnum = 0;
-    for (k=lzs; k<lze; k++) {
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  if (nvert[k][j][i] < 0.1) {
-	    lsum += x[k][j][i];
-	    lnum ++;
-	  }
-	}
-      }
-    }
-
-    ierr = MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    ierr = MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
-   /*  PetscGlobalSum(&lsum, &sum, PETSC_COMM_WORLD); */
-/*     PetscGlobalSum(&lnum, &num, PETSC_COMM_WORLD); */
-    sum = sum / (-1.0 * num);
-
-    for (k=lzs; k<lze; k++) {
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  if (nvert[k][j][i] < 0.1) {
-	    x[k][j][i] +=sum;
-	  }
-	}
-      }
-    }
-  }
-  else {
-    lsum = 0;
-    lnum = 0;
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	for (k=lzs; k<lze; k++) {
-	  if (k<user->KSKE[2*(j*mx+i)] && nvert[k][j][i]<0.1) {
-	    lsum += x[k][j][i];
-	    lnum ++;
-	  }
-	}
-      }
-    }
-    ierr = MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    ierr = MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
-   /*  PetscGlobalSum(&lsum, &sum, PETSC_COMM_WORLD); */
-/*     PetscGlobalSum(&lnum, &num, PETSC_COMM_WORLD); */
-    sum /= -num;
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	for (k=lzs; k<lze; k++) {
-	  if (k<user->KSKE[2*(j*mx+i)] && nvert[k][j][i]<0.1) {
-	    x[k][j][i] += sum;
-	  }
-	}
-      }
-    }
-
-    lsum = 0;
-    lnum = 0;
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	for (k=lzs; k<lze; k++) {
-	  if (k>=user->KSKE[2*(j*mx+i)] && nvert[k][j][i]<0.1) {
-	    lsum += x[k][j][i];
-	    lnum ++;
-	  }
-	}
-      }
-    }
-    ierr = MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    ierr = MPI_Allreduce(&lnum,&num,1,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
-   /*  PetscGlobalSum(&lsum, &sum, PETSC_COMM_WORLD); */
-/*     PetscGlobalSum(&lnum, &num, PETSC_COMM_WORLD); */
-    sum /= -num;
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	for (k=lzs; k<lze; k++) {
-	  if (k>=user->KSKE[2*(j*mx+i)] && nvert[k][j][i]<0.1) {
-	    x[k][j][i] += sum;
-	  }
-	}
-      }
-    }
-			   
-  } //if multinullspace
-  if (zs == 0) {
-    k = 0;
-    for (j=ys; j<ye; j++) {
-      for (i=xs; i<xe; i++) {
-	x[k][j][i] = 0.;
-      }
-    }
-  }
-
-  if (ze == mz) {
-    k = mz-1;
-    for (j=ys; j<ye; j++) {
-      for (i=xs; i<xe; i++) {
-	x[k][j][i] = 0.;
-      }
-    }
-  }
-
-  if (ys == 0) {
-    j = 0;
-    for (k=zs; k<ze; k++) {
-      for (i=xs; i<xe; i++) {
-	x[k][j][i] = 0.;
-      }
-    }
-  }
-
-  if (ye == my) {
-    j = my-1;
-    for (k=zs; k<ze; k++) {
-      for (i=xs; i<xe; i++) {
-	x[k][j][i] = 0.;
-      }
-    }
-  }
-
-  if (xs == 0) {
-    i = 0;
-    for (k=zs; k<ze; k++) {
-      for (j=ys; j<ye; j++) {
-	x[k][j][i] = 0.;
-      }
-    }
-  }
-
-  if (xe == mx) {
-    i = mx-1;
-    for (k=zs; k<ze; k++) {
-      for (j=ys; j<ye; j++) {
-	x[k][j][i] = 0.;
-      }
-    }
-  }
-
-  for (k=zs; k<ze; k++) {
-    for (j=ys; j<ye; j++) {
-      for (i=xs; i<xe; i++) {
-	if (nvert[k][j][i] > 0.1)
-	  x[k][j][i] = 0.;
-      }
-    }
-  }
-  DMDAVecRestoreArray(da, X, &x);
-  DMDAVecRestoreArray(da, user->lNvert, &nvert);
-
-  return 0;
-}
-
-/**
- * @brief Implementation of \ref MyInterpolation().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/poisson.h`.
- * @see MyInterpolation()
- */
-
-PetscErrorCode MyInterpolation(Mat A, Vec X, Vec F)
-{
-  UserCtx *user;
-
-  MatShellGetContext(A, (void**)&user);
-
-  
-  
-  DM	da = user->da;
-
-  DM	da_c = *user->da_c;
-
-  DMDALocalInfo	info = user->info;
-  PetscInt	xs = info.xs, xe = info.xs + info.xm;
-  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
-  PetscInt	zs = info.zs, ze = info.zs + info.zm;
-  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
-  PetscInt	lxs, lxe, lys, lye, lzs, lze;
-  
-  PetscReal ***f, ***x, ***nvert, ***nvert_c;
-  PetscInt i, j, k, ic, jc, kc, ia, ja, ka;
-
-  lxs = xs; lxe = xe;
-  lys = ys; lye = ye;
-  lzs = zs; lze = ze;
-
-  if (xs==0) lxs = xs+1;
-  if (ys==0) lys = ys+1;
-  if (zs==0) lzs = zs+1;
-
-  if (xe==mx) lxe = xe-1;
-  if (ye==my) lye = ye-1;
-  if (ze==mz) lze = ze-1;
-
-
-  DMDAVecGetArray(da,   F, &f);
-
-
-  Vec lX;
-  DMCreateLocalVector(da_c, &lX);
- 
-  DMGlobalToLocalBegin(da_c, X, INSERT_VALUES, lX);
-  DMGlobalToLocalEnd(da_c, X, INSERT_VALUES, lX);  
-  DMDAVecGetArray(da_c, lX, &x);
-
-  DMDAVecGetArray(da, user->lNvert, &nvert);
-  DMDAVecGetArray(da_c, *(user->lNvert_c), &nvert_c);
-  for (k=lzs; k<lze; k++) {
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-
-	GridInterpolation(i, j, k, ic, jc, kc, ia, ja, ka, user);
-
-	  f[k][j][i] = (x[kc   ][jc   ][ic   ] * 9 +
-			x[kc   ][jc+ja][ic   ] * 3 +
-			x[kc   ][jc   ][ic+ia] * 3 +
-			x[kc   ][jc+ja][ic+ia]) * 3./64. +
-	    (x[kc+ka][jc   ][ic   ] * 9 +
-	     x[kc+ka][jc+ja][ic   ] * 3 +
-	     x[kc+ka][jc   ][ic+ia] * 3 +
-	     x[kc+ka][jc+ja][ic+ia]) /64.;
-      }
-    }
-  }
-
-  for (k=zs; k<ze; k++) {
-    for (j=ys; j<ye; j++) {
-      for (i=xs; i<xe; i++) {
-
-	if (i==0) {
-	  f[k][j][i] = 0.;//-f[k][j][i+1];
-	}
-	else if (i==mx-1) {
-	  f[k][j][i] = 0.;//-f[k][j][i-1];
-	}
-	else if (j==0) {
-	  f[k][j][i] = 0.;//-f[k][j+1][i];
-	}
-	else if (j==my-1) {
-	  f[k][j][i] = 0.;//-f[k][j-1][i];
-	}
-	else if (k==0) {
-	  f[k][j][i] = 0.;//-f[k+1][j][i];
-	}
-	else if (k==mz-1) {
-	  f[k][j][i] = 0.;//-f[k-1][j][i];
-	}
-	if (nvert[k][j][i] > 0.1) f[k][j][i] = 0.;
-
-      }
-    }
-  }
-
-  DMDAVecRestoreArray(da, user->lNvert, &nvert);
-  DMDAVecRestoreArray(da_c, *(user->lNvert_c), &nvert_c);
-
-  DMDAVecRestoreArray(da_c, lX, &x);
- 
-  VecDestroy(&lX);
-  DMDAVecRestoreArray(da,   F,  &f);
-
-
-
-  return 0;
- 
-}
-
-/**
- * @brief Restrict residuals while accounting for solid-cell occupancy in the stencil.
- */
-static PetscErrorCode RestrictResidual_SolidAware(Mat A, Vec X, Vec F)
-{
-  UserCtx *user;
-  MatShellGetContext(A, (void**)&user);
-  
-  DM	da = user->da;
-  DM	da_f = *user->da_f;
-
-  DMDALocalInfo	info;
-  DMDAGetLocalInfo(da, &info);
-  PetscInt	xs = info.xs, xe = info.xs + info.xm;
-  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
-  PetscInt	zs = info.zs, ze = info.zs + info.zm;
-  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
-  
-  PetscReal ***f, ***x, ***nvert;
-  PetscInt i, j, k, ih, jh, kh, ia, ja, ka;
-
-  DMDAVecGetArray(da,   F, &f);
-
-  Vec lX;
-  DMCreateLocalVector(da_f, &lX);
-  DMGlobalToLocalBegin(da_f, X, INSERT_VALUES, lX);
-  DMGlobalToLocalEnd(da_f, X, INSERT_VALUES, lX);  
-  DMDAVecGetArray(da_f, lX, &x);
-
-  DMDAVecGetArray(da, user->lNvert, &nvert);
-
-  PetscReal ***nvert_f;
-  DMDAVecGetArray(da_f, user->user_f->lNvert, &nvert_f);
-
-  if ((user->isc)) ia = 0;
-  else ia = 1;
-
-  if ((user->jsc)) ja = 0;
-  else ja = 1;
-
-  if ((user->ksc)) ka = 0;
-  else ka = 1;
-
-  for (k=zs; k<ze; k++) {
-    for (j=ys; j<ye; j++) {
-      for (i=xs; i<xe; i++) {
-        // --- CORRECTED LOGIC ---
-        // First, check if the current point is a boundary point.
-        // If it is, it does not contribute to the coarse grid residual.
-        if (i==0 || i==mx-1 || j==0 || j==my-1 || k==0 || k==mz-1 || nvert[k][j][i] > 0.1) {
-            f[k][j][i] = 0.0;
-        } 
-        // Only if it's a true interior fluid point, perform the restriction.
-        else {
-            GridRestriction(i, j, k, &ih, &jh, &kh, user);
-            f[k][j][i] = 0.125 *
-              (x[kh   ][jh   ][ih   ] * PetscMax(0., 1 - nvert_f[kh   ][jh   ][ih   ]) +
-               x[kh   ][jh   ][ih-ia] * PetscMax(0., 1 - nvert_f[kh   ][jh   ][ih-ia]) +
-               x[kh   ][jh-ja][ih   ] * PetscMax(0., 1 - nvert_f[kh   ][jh-ja][ih   ]) +
-               x[kh-ka][jh   ][ih   ] * PetscMax(0., 1 - nvert_f[kh-ka][jh   ][ih   ]) +
-               x[kh   ][jh-ja][ih-ia] * PetscMax(0., 1 - nvert_f[kh   ][jh-ja][ih-ia]) +
-               x[kh-ka][jh-ja][ih   ] * PetscMax(0., 1 - nvert_f[kh-ka][jh-ja][ih   ]) +
-               x[kh-ka][jh   ][ih-ia] * PetscMax(0., 1 - nvert_f[kh-ka][jh   ][ih-ia]) +
-               x[kh-ka][jh-ja][ih-ia] * PetscMax(0., 1 - nvert_f[kh-ka][jh-ja][ih-ia]));
-        }
-      }
-    }
-  }
-
-  DMDAVecRestoreArray(da_f, user->user_f->lNvert, &nvert_f);
-  DMDAVecRestoreArray(da_f, lX, &x);
-  VecDestroy(&lX);
-  DMDAVecRestoreArray(da,   F,  &f);
-  DMDAVecRestoreArray(da, user->lNvert, &nvert);
-
-  return 0;
-}
-
-/**
- * @brief Implementation of \ref MyRestriction().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/poisson.h`.
- * @see MyRestriction()
- */
-
-PetscErrorCode MyRestriction(Mat A, Vec X, Vec F)
-{
-  UserCtx *user;
-
-  MatShellGetContext(A, (void**)&user);
-
-  
-  DM	da = user->da;
-
-  DM	da_f = *user->da_f;
-
-  DMDALocalInfo	info;
-  DMDAGetLocalInfo(da, &info);
-  PetscInt	xs = info.xs, xe = info.xs + info.xm;
-  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
-  PetscInt	zs = info.zs, ze = info.zs + info.zm;
-  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
-  //  PetscInt	lxs, lxe, lys, lye, lzs, lze;
-  
-  PetscReal ***f, ***x, ***nvert;
-  PetscInt i, j, k, ih, jh, kh, ia, ja, ka;
-
-  DMDAVecGetArray(da,   F, &f);
-
-  Vec lX;
- 
-  DMCreateLocalVector(da_f, &lX);
-  DMGlobalToLocalBegin(da_f, X, INSERT_VALUES, lX);
-  DMGlobalToLocalEnd(da_f, X, INSERT_VALUES, lX);  
-  DMDAVecGetArray(da_f, lX, &x);
-
-  DMDAVecGetArray(da, user->lNvert, &nvert);
-
-  PetscReal ***nvert_f;
-  DMDAVecGetArray(da_f, user->user_f->lNvert, &nvert_f);
-
-  if ((user->isc)) ia = 0;
-  else ia = 1;
-
-  if ((user->jsc)) ja = 0;
-  else ja = 1;
-
-  if ((user->ksc)) ka = 0;
-  else ka = 1;
-
-  for (k=zs; k<ze; k++) {
-    for (j=ys; j<ye; j++) {
-      for (i=xs; i<xe; i++) {
-	if (k==0) {
-	  f[k][j][i] = 0.;
-	}
-	else if (k==mz-1) {
-	  f[k][j][i] = 0.;
-	}
-	else if (j==0) {
-	  f[k][j][i] = 0.;
-	}
-	else if (j==my-1) {
-	  f[k][j][i] = 0.;
-	}
-	else if (i==0) {
-	  f[k][j][i] = 0.;
-	}
-	else if (i==mx-1) {
-	  f[k][j][i] = 0.;
-	}
-	else {
-	  GridRestriction(i, j, k, &ih, &jh, &kh, user);
-	  f[k][j][i] = 0.125 *
-	    (x[kh   ][jh   ][ih   ] * PetscMax(0., 1 - nvert_f[kh   ][jh   ][ih   ]) +
-	     x[kh   ][jh   ][ih-ia] * PetscMax(0., 1 - nvert_f[kh   ][jh   ][ih-ia]) +
-	     x[kh   ][jh-ja][ih   ] * PetscMax(0., 1 - nvert_f[kh   ][jh-ja][ih   ]) +
-	     x[kh-ka][jh   ][ih   ] * PetscMax(0., 1 - nvert_f[kh-ka][jh   ][ih   ]) +
-	     x[kh   ][jh-ja][ih-ia] * PetscMax(0., 1 - nvert_f[kh   ][jh-ja][ih-ia]) +
-	     x[kh-ka][jh-ja][ih   ] * PetscMax(0., 1 - nvert_f[kh-ka][jh-ja][ih   ]) +
-	     x[kh-ka][jh   ][ih-ia] * PetscMax(0., 1 - nvert_f[kh-ka][jh   ][ih-ia]) +
-	     x[kh-ka][jh-ja][ih-ia] * PetscMax(0., 1 - nvert_f[kh-ka][jh-ja][ih-ia]));
-
-
-
-	  if (nvert[k][j][i] > 0.1) f[k][j][i] = 0.;
-	}
-      }
-    }
-  }
-
-
-  DMDAVecRestoreArray(da_f, user->user_f->lNvert, &nvert_f);
-
-  DMDAVecRestoreArray(da_f, lX, &x);
-  VecDestroy(&lX);
- 
-  DMDAVecRestoreArray(da,   F,  &f);
-  DMDAVecRestoreArray(da, user->lNvert, &nvert);
-
-
-  return 0;
+    const FieldId periodic_fields[] = {FIELD_ID_P, FIELD_ID_PHI};
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(VecAXPY(user->P, 1.0, user->Phi));
+    PetscCall(SynchronizePeriodicCellFields(user, 2, periodic_fields));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_P));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_PHI));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "PoissonLHSNew"
-
+#define __FUNCT__ "ProjectVelocity"
 /**
- * @brief Internal helper implementation: `PoissonLHSNew()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode PoissonLHSNew(UserCtx *user)
-{
-  PetscFunctionBeginUser;
-  PROFILE_FUNCTION_BEGIN;
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Entering PoissonLHSNew to assemble Laplacian matrix.\n");
-  PetscErrorCode ierr;
-  //================================================================================
-  // Section 1: Initialization and Data Acquisition
-  //================================================================================
-
-  
-  // --- Get simulation and grid context ---
-  DM da = user->da, fda = user->fda;
-  DMDALocalInfo info = user->info;
-  PetscInt IM = user->IM, JM = user->JM, KM = user->KM;
-  PetscInt i,j,k;
-
-  // --- Grid dimensions ---
-  PetscInt mx = info.mx, my = info.my, mz = info.mz;
-  PetscInt xs = info.xs, xe = info.xs + info.xm;
-  PetscInt ys = info.ys, ye = info.ys + info.ym;
-  PetscInt zs = info.zs, ze = info.zs + info.zm;
-  PetscInt gxs = info.gxs, gxe = gxs + info.gxm;
-  PetscInt gys = info.gys, gye = gys + info.gym;
-  PetscInt gzs = info.gzs, gze = gzs + info.gzm;
-
-  // --- Define constants for clarity ---
-  const PetscReal IBM_FLUID_THRESHOLD = 0.1;
-
-  // --- Allocate the LHS matrix A on the first call ---
-  if (!user->assignedA) {
-    LOG_ALLOW(GLOBAL, LOG_INFO, "First call: Creating LHS matrix 'A' with 19-point stencil preallocation.\n");
-    PetscInt N = mx * my * mz; // Total size
-    PetscInt M;                // Local size
-    VecGetLocalSize(user->Phi, &M);
-    // Create a sparse AIJ matrix, preallocating for 19 non-zeros per row (d=diagonal, o=off-diagonal)
-    MatCreateAIJ(PETSC_COMM_WORLD, M, M, N, N, 19, PETSC_NULLPTR, 19, PETSC_NULLPTR, &(user->A));
-    user->assignedA = PETSC_TRUE;
-  }
-
-  // Zero out matrix entries from the previous solve
-  MatZeroEntries(user->A);
-
-  // --- Get direct pointer access to grid metric data ---
-  Cmpnts ***csi, ***eta, ***zet, ***icsi, ***ieta, ***izet, ***jcsi, ***jeta, ***jzet, ***kcsi, ***keta, ***kzet;
-  PetscReal ***aj, ***iaj, ***jaj, ***kaj, ***nvert;
-  DMDAVecGetArray(fda, user->lCsi, &csi); DMDAVecGetArray(fda, user->lEta, &eta); DMDAVecGetArray(fda, user->lZet, &zet);
-  DMDAVecGetArray(fda, user->lICsi, &icsi); DMDAVecGetArray(fda, user->lIEta, &ieta); DMDAVecGetArray(fda, user->lIZet, &izet);
-  DMDAVecGetArray(fda, user->lJCsi, &jcsi); DMDAVecGetArray(fda, user->lJEta, &jeta); DMDAVecGetArray(fda, user->lJZet, &jzet);
-  DMDAVecGetArray(fda, user->lKCsi, &kcsi); DMDAVecGetArray(fda, user->lKEta, &keta); DMDAVecGetArray(fda, user->lKZet, &kzet);
-  DMDAVecGetArray(da, user->lAj, &aj); DMDAVecGetArray(da, user->lIAj, &iaj); DMDAVecGetArray(da, user->lJAj, &jaj); DMDAVecGetArray(da, user->lKAj, &kaj);
-  DMDAVecGetArray(da, user->lNvert, &nvert);
-
-  // --- Create temporary vectors for the metric tensor components G_ij ---
-  Vec G11, G12, G13, G21, G22, G23, G31, G32, G33;
-  PetscReal ***g11, ***g12, ***g13, ***g21, ***g22, ***g23, ***g31, ***g32, ***g33;
-  VecDuplicate(user->lAj, &G11); VecDuplicate(user->lAj, &G12); VecDuplicate(user->lAj, &G13);
-  VecDuplicate(user->lAj, &G21); VecDuplicate(user->lAj, &G22); VecDuplicate(user->lAj, &G23);
-  VecDuplicate(user->lAj, &G31); VecDuplicate(user->lAj, &G32); VecDuplicate(user->lAj, &G33);
-  DMDAVecGetArray(da, G11, &g11); DMDAVecGetArray(da, G12, &g12); DMDAVecGetArray(da, G13, &g13);
-  DMDAVecGetArray(da, G21, &g21); DMDAVecGetArray(da, G22, &g22); DMDAVecGetArray(da, G23, &g23);
-  DMDAVecGetArray(da, G31, &g31); DMDAVecGetArray(da, G32, &g32); DMDAVecGetArray(da, G33, &g33);
-
-  //================================================================================
-  // Section 2: Pre-compute Metric Tensor Coefficients (g_ij)
-  //================================================================================
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Pre-computing metric tensor components (g_ij).\n");
-  for (k = gzs; k < gze; k++) {
-    for (j = gys; j < gye; j++) {
-      for (i = gxs; i < gxe; i++) {
-        // These coefficients represent the dot products of the grid's contravariant base vectors,
-        // scaled by face area. They are the core of the Laplacian operator on a curvilinear grid.
-        if(i>-1 && j>-1 && k>-1 && i<IM+1 && j<JM+1 && k<KM+1){
-            g11[k][j][i] = (icsi[k][j][i].x * icsi[k][j][i].x + icsi[k][j][i].y * icsi[k][j][i].y + icsi[k][j][i].z * icsi[k][j][i].z) * iaj[k][j][i];
-            g12[k][j][i] = (ieta[k][j][i].x * icsi[k][j][i].x + ieta[k][j][i].y * icsi[k][j][i].y + ieta[k][j][i].z * icsi[k][j][i].z) * iaj[k][j][i];
-            g13[k][j][i] = (izet[k][j][i].x * icsi[k][j][i].x + izet[k][j][i].y * icsi[k][j][i].y + izet[k][j][i].z * icsi[k][j][i].z) * iaj[k][j][i];
-            g21[k][j][i] = (jcsi[k][j][i].x * jeta[k][j][i].x + jcsi[k][j][i].y * jeta[k][j][i].y + jcsi[k][j][i].z * jeta[k][j][i].z) * jaj[k][j][i];
-            g22[k][j][i] = (jeta[k][j][i].x * jeta[k][j][i].x + jeta[k][j][i].y * jeta[k][j][i].y + jeta[k][j][i].z * jeta[k][j][i].z) * jaj[k][j][i];
-            g23[k][j][i] = (jzet[k][j][i].x * jeta[k][j][i].x + jzet[k][j][i].y * jeta[k][j][i].y + jzet[k][j][i].z * jeta[k][j][i].z) * jaj[k][j][i];
-            g31[k][j][i] = (kcsi[k][j][i].x * kzet[k][j][i].x + kcsi[k][j][i].y * kzet[k][j][i].y + kcsi[k][j][i].z * kzet[k][j][i].z) * kaj[k][j][i];
-            g32[k][j][i] = (keta[k][j][i].x * kzet[k][j][i].x + keta[k][j][i].y * kzet[k][j][i].y + keta[k][j][i].z * kzet[k][j][i].z) * kaj[k][j][i];
-            g33[k][j][i] = (kzet[k][j][i].x * kzet[k][j][i].x + kzet[k][j][i].y * kzet[k][j][i].y + kzet[k][j][i].z * kzet[k][j][i].z) * kaj[k][j][i];
-        }
-      }
-    }
-  }
-
-  //================================================================================
-  // Section 3: Assemble the LHS Matrix A
-  //================================================================================
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Assembling the LHS matrix A using a 19-point stencil.\n");
-
-  // --- Define domain boundaries for stencil logic, accounting for periodic BCs ---
-  PetscInt x_str, x_end, y_str, y_end, z_str, z_end;
-  if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC) { x_end = mx - 1; x_str = 0; }
-  else { x_end = mx - 2; x_str = 1; }
-  if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC) { y_end = my - 1; y_str = 0; }
-  else { y_end = my - 2; y_str = 1; }
-  if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC) { z_end = mz - 1; z_str = 0; }
-  else { z_end = mz - 2; z_str = 1; }
-
-  // --- Main assembly loop over all local grid points ---
-  for (k = zs; k < ze; k++) {
-    for (j = ys; j < ye; j++) {
-      for (i = xs; i < xe; i++) {
-        PetscScalar vol[19]; // Holds the 19 stencil coefficient values for the current row
-        PetscInt idx[19];    // Holds the 19 global column indices for the current row
-        PetscInt row = Gidx(i, j, k, user); // Global index for the current row
-
-        // --- Handle Domain Boundary and Immersed Solid Points ---
-        // For these points, we don't solve the Poisson equation. We set an identity
-        // row (A_ii = 1) to effectively fix the pressure value (usually to 0).
-        if (i == 0 || i == mx - 1 || j == 0 || j == my - 1 || k == 0 || k == mz - 1 || nvert[k][j][i] > IBM_FLUID_THRESHOLD) {
-          vol[CP] = 1.0;
-          idx[CP] = row;
-          MatSetValues(user->A, 1, &row, 1, &idx[CP], &vol[CP], INSERT_VALUES);
-        }
-        // --- Handle Fluid Points ---
-        else {
-          for (PetscInt m = 0; m < 19; m++) {
-            vol[m] = 0.0;
-          }
-
-          /************************************************************************
-           * EAST FACE CONTRIBUTION (between i and i+1)
-           ************************************************************************/
-          if (nvert[k][j][i + 1] < IBM_FLUID_THRESHOLD && i != x_end) { // East neighbor is fluid
-            // Primary derivative term: d/d_csi (g11 * dP/d_csi)
-            vol[CP] -= g11[k][j][i];
-            vol[EP] += g11[k][j][i];
-
-            // Cross-derivative term: d/d_csi (g12 * dP/d_eta).
-            // This requires an average of dP/d_eta. If a neighbor is solid, the stencil
-            // dynamically switches to a one-sided difference to avoid using solid points.
-	      if ((j == my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) || nvert[k][j+1][i] + nvert[k][j+1][i+1] > 0.1) {
-		if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
-		  vol[CP] += g12[k][j][i] * 0.5; vol[EP] += g12[k][j][i] * 0.5;
-		  vol[SP] -= g12[k][j][i] * 0.5; vol[SE] -= g12[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((j == my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i] + nvert[k][j+1][i+1] > 0.1) {
-		if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1) {
-		  vol[CP] += g12[k][j][i] * 0.5; vol[EP] += g12[k][j][i] * 0.5;
-		  vol[SP] -= g12[k][j][i] * 0.5; vol[SE] -= g12[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) || nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
-		if (nvert[k][j+1][i] + nvert[k][j+1][i+1] < 0.1) {
-		  vol[NP] += g12[k][j][i] * 0.5; vol[NE] += g12[k][j][i] * 0.5;
-		  vol[CP] -= g12[k][j][i] * 0.5; vol[EP] -= g12[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
-		if (nvert[k][j+1][i] + nvert[k][j+1][i+1] < 0.1) {
-		  vol[NP] += g12[k][j][i] * 0.5; vol[NE] += g12[k][j][i] * 0.5;
-		  vol[CP] -= g12[k][j][i] * 0.5; vol[EP] -= g12[k][j][i] * 0.5;
-		}
-	      }
-	      else { // Centered difference
-		vol[NP] += g12[k][j][i] * 0.25; vol[NE] += g12[k][j][i] * 0.25;
-		vol[SP] -= g12[k][j][i] * 0.25; vol[SE] -= g12[k][j][i] * 0.25;
-	      }
-            
-            // Cross-derivative term: d/d_csi (g13 * dP/d_zet)
-	      if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) || nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
-		if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) {
-		  vol[CP] += g13[k][j][i] * 0.5; vol[EP] += g13[k][j][i] * 0.5;
-		  vol[BP] -= g13[k][j][i] * 0.5; vol[BE] -= g13[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((k == mz-2 || k==1) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
-		if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1) {
-		  vol[CP] += g13[k][j][i] * 0.5; vol[EP] += g13[k][j][i] * 0.5;
-		  vol[BP] -= g13[k][j][i] * 0.5; vol[BE] -= g13[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) || nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
-		if (nvert[k+1][j][i] + nvert[k+1][j][i+1] < 0.1) {
-		  vol[TP] += g13[k][j][i] * 0.5; vol[TE] += g13[k][j][i] * 0.5;
-		  vol[CP] -= g13[k][j][i] * 0.5; vol[EP] -= g13[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
-		if (nvert[k+1][j][i] + nvert[k+1][j][i+1] < 0.1) {
-		  vol[TP] += g13[k][j][i] * 0.5; vol[TE] += g13[k][j][i] * 0.5;
-		  vol[CP] -= g13[k][j][i] * 0.5; vol[EP] -= g13[k][j][i] * 0.5;
-		}
-	      }
-	      else { // Centered difference
-		vol[TP] += g13[k][j][i] * 0.25; vol[TE] += g13[k][j][i] * 0.25;
-		vol[BP] -= g13[k][j][i] * 0.25; vol[BE] -= g13[k][j][i] * 0.25;
-	      }
-          }
-
-          /************************************************************************
-           * WEST FACE CONTRIBUTION (between i-1 and i)
-           ************************************************************************/
-          if (nvert[k][j][i-1] < IBM_FLUID_THRESHOLD && i != x_str) {
-	      vol[CP] -= g11[k][j][i-1];
-	      vol[WP] += g11[k][j][i-1];
-
-	      if ((j == my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) || nvert[k][j+1][i] + nvert[k][j+1][i-1] > 0.1) {
-		if (nvert[k][j-1][i] + nvert[k][j-1][i-1] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
-		  vol[CP] -= g12[k][j][i-1] * 0.5; vol[WP] -= g12[k][j][i-1] * 0.5;
-		  vol[SP] += g12[k][j][i-1] * 0.5; vol[SW] += g12[k][j][i-1] * 0.5;
-		}
-	      }
-	      else if ((j == my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i] + nvert[k][j+1][i-1] > 0.1) {
-		if (nvert[k][j-1][i] + nvert[k][j-1][i-1] < 0.1) {
-		  vol[CP] -= g12[k][j][i-1] * 0.5; vol[WP] -= g12[k][j][i-1] * 0.5;
-		  vol[SP] += g12[k][j][i-1] * 0.5; vol[SW] += g12[k][j][i-1] * 0.5;
-		}
-	      }
-	      else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j-1][i] + nvert[k][j-1][i-1] > 0.1) {
-		if (nvert[k][j+1][i] + nvert[k][j+1][i-1] < 0.1) {
-		  vol[NP] -= g12[k][j][i-1] * 0.5; vol[NW] -= g12[k][j][i-1] * 0.5;
-		  vol[CP] += g12[k][j][i-1] * 0.5; vol[WP] += g12[k][j][i-1] * 0.5;
-		}
-	      }
-	      else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k][j-1][i-1] > 0.1) {
-		if (nvert[k][j+1][i] + nvert[k][j+1][i-1] < 0.1) {
-		  vol[NP] -= g12[k][j][i-1] * 0.5; vol[NW] -= g12[k][j][i-1] * 0.5;
-		  vol[CP] += g12[k][j][i-1] * 0.5; vol[WP] += g12[k][j][i-1] * 0.5;
-		}
-	      }
-	      else {
-		vol[NP] -= g12[k][j][i-1] * 0.25; vol[NW] -= g12[k][j][i-1] * 0.25;
-		vol[SP] += g12[k][j][i-1] * 0.25; vol[SW] += g12[k][j][i-1] * 0.25;
-	      }
-
-	      if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) || nvert[k+1][j][i] + nvert[k+1][j][i-1] > 0.1) {
-		if (nvert[k-1][j][i] + nvert[k-1][j][i-1] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) {
-		  vol[CP] -= g13[k][j][i-1] * 0.5; vol[WP] -= g13[k][j][i-1] * 0.5;
-		  vol[BP] += g13[k][j][i-1] * 0.5; vol[BW] += g13[k][j][i-1] * 0.5;
-		}
-	      }
-	      else if ((k == mz-2 || k==1) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j][i-1] > 0.1) {
-		if (nvert[k-1][j][i] + nvert[k-1][j][i-1] < 0.1) {
-		  vol[CP] -= g13[k][j][i-1] * 0.5; vol[WP] -= g13[k][j][i-1] * 0.5;
-		  vol[BP] += g13[k][j][i-1] * 0.5; vol[BW] += g13[k][j][i-1] * 0.5;
-		}
-	      }
-	      else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) || nvert[k-1][j][i] + nvert[k-1][j][i-1] > 0.1) {
-		if (nvert[k+1][j][i] + nvert[k+1][j][i-1] < 0.1) {
-		  vol[TP] -= g13[k][j][i-1] * 0.5; vol[TW] -= g13[k][j][i-1] * 0.5;
-		  vol[CP] += g13[k][j][i-1] * 0.5; vol[WP] += g13[k][j][i-1] * 0.5;
-		}
-	      }
-	      else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j][i-1] > 0.1) {
-		if (nvert[k+1][j][i] + nvert[k+1][j][i-1] < 0.1) {
-		  vol[TP] -= g13[k][j][i-1] * 0.5; vol[TW] -= g13[k][j][i-1] * 0.5;
-		  vol[CP] += g13[k][j][i-1] * 0.5; vol[WP] += g13[k][j][i-1] * 0.5;
-		}
-	      }
-	      else {
-		vol[TP] -= g13[k][j][i-1] * 0.25; vol[TW] -= g13[k][j][i-1] * 0.25;
-		vol[BP] += g13[k][j][i-1] * 0.25; vol[BW] += g13[k][j][i-1] * 0.25;
-	      }
-          }
-
-          /************************************************************************
-           * NORTH FACE CONTRIBUTION (between j and j+1)
-           ************************************************************************/
-          if (nvert[k][j+1][i] < IBM_FLUID_THRESHOLD && j != y_end) {
-	      if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
-		if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
-		  vol[CP] += g21[k][j][i] * 0.5; vol[NP] += g21[k][j][i] * 0.5;
-		  vol[WP] -= g21[k][j][i] * 0.5; vol[NW] -= g21[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
-		if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1) {
-		  vol[CP] += g21[k][j][i] * 0.5; vol[NP] += g21[k][j][i] * 0.5;
-		  vol[WP] -= g21[k][j][i] * 0.5; vol[NW] -= g21[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC) || nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
-		if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) {
-		  vol[EP] += g21[k][j][i] * 0.5; vol[NE] += g21[k][j][i] * 0.5;
-		  vol[CP] -= g21[k][j][i] * 0.5; vol[NP] -= g21[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC &&  nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
-		if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) {
-		  vol[EP] += g21[k][j][i] * 0.5; vol[NE] += g21[k][j][i] * 0.5;
-		  vol[CP] -= g21[k][j][i] * 0.5; vol[NP] -= g21[k][j][i] * 0.5;
-		}
-	      }
-	      else {
-		vol[EP] += g21[k][j][i] * 0.25; vol[NE] += g21[k][j][i] * 0.25;
-		vol[WP] -= g21[k][j][i] * 0.25; vol[NW] -= g21[k][j][i] * 0.25;
-	      }
-
-	      vol[CP] -= g22[k][j][i];
-	      vol[NP] += g22[k][j][i];
-
-	      if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
-		if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) {
-		  vol[CP] += g23[k][j][i] * 0.5; vol[NP] += g23[k][j][i] * 0.5;
-		  vol[BP] -= g23[k][j][i] * 0.5; vol[BN] -= g23[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((k == mz-2 || k==1 ) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
-		if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1) {
-		  vol[CP] += g23[k][j][i] * 0.5; vol[NP] += g23[k][j][i] * 0.5;
-		  vol[BP] -= g23[k][j][i] * 0.5; vol[BN] -= g23[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
-		if (nvert[k+1][j][i] + nvert[k+1][j+1][i] < 0.1) {
-		  vol[TP] += g23[k][j][i] * 0.5; vol[TN] += g23[k][j][i] * 0.5;
-		  vol[CP] -= g23[k][j][i] * 0.5; vol[NP] -= g23[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((k == 1 || k==mz-2 ) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
-		if (nvert[k+1][j][i] + nvert[k+1][j+1][i] < 0.1) {
-		  vol[TP] += g23[k][j][i] * 0.5; vol[TN] += g23[k][j][i] * 0.5;
-		  vol[CP] -= g23[k][j][i] * 0.5; vol[NP] -= g23[k][j][i] * 0.5;
-		}
-	      }
-	      else {
-		vol[TP] += g23[k][j][i] * 0.25; vol[TN] += g23[k][j][i] * 0.25;
-		vol[BP] -= g23[k][j][i] * 0.25; vol[BN] -= g23[k][j][i] * 0.25;
-	      }
-          }
-
-          /************************************************************************
-           * SOUTH FACE CONTRIBUTION (between j-1 and j)
-           ************************************************************************/
-          if (nvert[k][j-1][i] < IBM_FLUID_THRESHOLD && j != y_str) {
-	      if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC) || nvert[k][j][i+1] + nvert[k][j-1][i+1] > 0.1) {
-		if (nvert[k][j][i-1] + nvert[k][j-1][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
-		  vol[CP] -= g21[k][j-1][i] * 0.5; vol[SP] -= g21[k][j-1][i] * 0.5;
-		  vol[WP] += g21[k][j-1][i] * 0.5; vol[SW] += g21[k][j-1][i] * 0.5;
-		}
-	      }
-	      else  if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k][j-1][i+1] > 0.1) {
-		if (nvert[k][j][i-1] + nvert[k][j-1][i-1] < 0.1) {
-		  vol[CP] -= g21[k][j-1][i] * 0.5; vol[SP] -= g21[k][j-1][i] * 0.5;
-		  vol[WP] += g21[k][j-1][i] * 0.5; vol[SW] += g21[k][j-1][i] * 0.5;
-		}
-	      }
-	      else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k][j-1][i-1] > 0.1) {
-		if (nvert[k][j][i+1] + nvert[k][j-1][i+1] < 0.1) {
-		  vol[EP] -= g21[k][j-1][i] * 0.5; vol[SE] -= g21[k][j-1][i] * 0.5;
-		  vol[CP] += g21[k][j-1][i] * 0.5; vol[SP] += g21[k][j-1][i] * 0.5;
-		}
-	      }
-	      else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k][j-1][i-1] > 0.1) {
-		if (nvert[k][j][i+1] + nvert[k][j-1][i+1] < 0.1) {
-		  vol[EP] -= g21[k][j-1][i] * 0.5; vol[SE] -= g21[k][j-1][i] * 0.5;
-		  vol[CP] += g21[k][j-1][i] * 0.5; vol[SP] += g21[k][j-1][i] * 0.5;
-		}
-	      }
-	      else {
-		vol[EP] -= g21[k][j-1][i] * 0.25; vol[SE] -= g21[k][j-1][i] * 0.25;
-		vol[WP] += g21[k][j-1][i] * 0.25; vol[SW] += g21[k][j-1][i] * 0.25;
-	      }
-
-	      vol[CP] -= g22[k][j-1][i];
-	      vol[SP] += g22[k][j-1][i];
-
-	      if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k+1][j][i] + nvert[k+1][j-1][i] > 0.1) {
-		if (nvert[k-1][j][i] + nvert[k-1][j-1][i] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) {
-		  vol[CP] -= g23[k][j-1][i] * 0.5; vol[SP] -= g23[k][j-1][i] * 0.5;
-		  vol[BP] += g23[k][j-1][i] * 0.5; vol[BS] += g23[k][j-1][i] * 0.5;
-		}
-	      }
-	      else if ((k == mz-2 || k==1) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j-1][i] > 0.1) {
-		if (nvert[k-1][j][i] + nvert[k-1][j-1][i] < 0.1 ) {
-		  vol[CP] -= g23[k][j-1][i] * 0.5; vol[SP] -= g23[k][j-1][i] * 0.5;
-		  vol[BP] += g23[k][j-1][i] * 0.5; vol[BS] += g23[k][j-1][i] * 0.5;
-		}
-	      }
-	      else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k-1][j][i] + nvert[k-1][j-1][i] > 0.1) {
-		if (nvert[k+1][j][i] + nvert[k+1][j-1][i] < 0.1) {
-		  vol[TP] -= g23[k][j-1][i] * 0.5; vol[TS] -= g23[k][j-1][i] * 0.5;
-		  vol[CP] += g23[k][j-1][i] * 0.5; vol[SP] += g23[k][j-1][i] * 0.5;
-		}
-	      }
-	      else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j-1][i] > 0.1) {
-		if (nvert[k+1][j][i] + nvert[k+1][j-1][i] < 0.1) {
-		  vol[TP] -= g23[k][j-1][i] * 0.5; vol[TS] -= g23[k][j-1][i] * 0.5;
-		  vol[CP] += g23[k][j-1][i] * 0.5; vol[SP] += g23[k][j-1][i] * 0.5;
-		}
-	      }
-	      else {
-		vol[TP] -= g23[k][j-1][i] * 0.25; vol[TS] -= g23[k][j-1][i] * 0.25;
-		vol[BP] += g23[k][j-1][i] * 0.25; vol[BS] += g23[k][j-1][i] * 0.25;
-	      }
-          }
-
-          /************************************************************************
-           * TOP FACE CONTRIBUTION (between k and k+1)
-           ************************************************************************/
-          if (nvert[k+1][j][i] < IBM_FLUID_THRESHOLD && k != z_end) {
-	      if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
-		if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
-		  vol[CP] += g31[k][j][i] * 0.5; vol[TP] += g31[k][j][i] * 0.5;
-		  vol[WP] -= g31[k][j][i] * 0.5; vol[TW] -= g31[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
-		if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1) {
-		  vol[CP] += g31[k][j][i] * 0.5; vol[TP] += g31[k][j][i] * 0.5;
-		  vol[WP] -= g31[k][j][i] * 0.5; vol[TW] -= g31[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
-		if (nvert[k][j][i+1] + nvert[k+1][j][i+1] < 0.1) {
-		  vol[EP] += g31[k][j][i] * 0.5; vol[TE] += g31[k][j][i] * 0.5;
-		  vol[CP] -= g31[k][j][i] * 0.5; vol[TP] -= g31[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
-		if (nvert[k][j][i+1] + nvert[k+1][j][i+1] < 0.1) {
-		  vol[EP] += g31[k][j][i] * 0.5; vol[TE] += g31[k][j][i] * 0.5;
-		  vol[CP] -= g31[k][j][i] * 0.5; vol[TP] -= g31[k][j][i] * 0.5;
-		}
-	      }
-	      else {
-		vol[EP] += g31[k][j][i] * 0.25; vol[TE] += g31[k][j][i] * 0.25;
-		vol[WP] -= g31[k][j][i] * 0.25; vol[TW] -= g31[k][j][i] * 0.25;
-	      }
-
-	      if ((j == my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
-		if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
-		  vol[CP] += g32[k][j][i] * 0.5; vol[TP] += g32[k][j][i] * 0.5;
-		  vol[SP] -= g32[k][j][i] * 0.5; vol[TS] -= g32[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((j == my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
-		if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1) {
-		  vol[CP] += g32[k][j][i] * 0.5; vol[TP] += g32[k][j][i] * 0.5;
-		  vol[SP] -= g32[k][j][i] * 0.5; vol[TS] -= g32[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
-		if (nvert[k][j+1][i] + nvert[k+1][j+1][i] < 0.1) {
-		  vol[NP] += g32[k][j][i] * 0.5; vol[TN] += g32[k][j][i] * 0.5;
-		  vol[CP] -= g32[k][j][i] * 0.5; vol[TP] -= g32[k][j][i] * 0.5;
-		}
-	      }
-	      else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
-		if (nvert[k][j+1][i] + nvert[k+1][j+1][i] < 0.1) {
-		  vol[NP] += g32[k][j][i] * 0.5; vol[TN] += g32[k][j][i] * 0.5;
-		  vol[CP] -= g32[k][j][i] * 0.5; vol[TP] -= g32[k][j][i] * 0.5;
-		}
-	      }
-	      else {
-		vol[NP] += g32[k][j][i] * 0.25; vol[TN] += g32[k][j][i] * 0.25;
-		vol[SP] -= g32[k][j][i] * 0.25; vol[TS] -= g32[k][j][i] * 0.25;
-	      }
-
-	      vol[CP] -= g33[k][j][i];
-	      vol[TP] += g33[k][j][i];
-          }
-
-          /************************************************************************
-           * BOTTOM FACE CONTRIBUTION (between k-1 and k)
-           ************************************************************************/
-          if (nvert[k-1][j][i] < IBM_FLUID_THRESHOLD && k != z_str) {
-	      if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i+1] + nvert[k-1][j][i+1] > 0.1) {
-		if (nvert[k][j][i-1] + nvert[k-1][j][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
-		  vol[CP] -= g31[k-1][j][i] * 0.5; vol[BP] -= g31[k-1][j][i] * 0.5;
-		  vol[WP] += g31[k-1][j][i] * 0.5; vol[BW] += g31[k-1][j][i] * 0.5;
-		}
-	      }
-	      else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k-1][j][i+1] > 0.1) {
-		if (nvert[k][j][i-1] + nvert[k-1][j][i-1] < 0.1) {
-		  vol[CP] -= g31[k-1][j][i] * 0.5; vol[BP] -= g31[k-1][j][i] * 0.5;
-		  vol[WP] += g31[k-1][j][i] * 0.5; vol[BW] += g31[k-1][j][i] * 0.5;
-		}
-	      }
-	      else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k-1][j][i-1] > 0.1) {
-		if (nvert[k][j][i+1] + nvert[k-1][j][i+1] < 0.1) {
-		  vol[EP] -= g31[k-1][j][i] * 0.5; vol[BE] -= g31[k-1][j][i] * 0.5;
-		  vol[CP] += g31[k-1][j][i] * 0.5; vol[BP] += g31[k-1][j][i] * 0.5;
-		}
-	      }
-	      else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k-1][j][i-1] > 0.1) {
-		if (nvert[k][j][i+1] + nvert[k-1][j][i+1] < 0.1) {
-		  vol[EP] -= g31[k-1][j][i] * 0.5; vol[BE] -= g31[k-1][j][i] * 0.5;
-		  vol[CP] += g31[k-1][j][i] * 0.5; vol[BP] += g31[k-1][j][i] * 0.5;
-		}
-	      }
-	      else {
-		vol[EP] -= g31[k-1][j][i] * 0.25; vol[BE] -= g31[k-1][j][i] * 0.25;
-		vol[WP] += g31[k-1][j][i] * 0.25; vol[BW] += g31[k-1][j][i] * 0.25;
-	      }
-
-	      if ((j == my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i] + nvert[k-1][j+1][i] > 0.1) {
-		if (nvert[k][j-1][i] + nvert[k-1][j-1][i] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
-		  vol[CP] -= g32[k-1][j][i] * 0.5; vol[BP] -= g32[k-1][j][i] * 0.5;
-		  vol[SP] += g32[k-1][j][i] * 0.5; vol[BS] += g32[k-1][j][i] * 0.5;
-		}
-	      }
-	      else if ((j == my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i] + nvert[k-1][j+1][i] > 0.1) {
-		if (nvert[k][j-1][i] + nvert[k-1][j-1][i] < 0.1) {
-		  vol[CP] -= g32[k-1][j][i] * 0.5; vol[BP] -= g32[k-1][j][i] * 0.5;
-		  vol[SP] += g32[k-1][j][i] * 0.5; vol[BS] += g32[k-1][j][i] * 0.5;
-		}
-	      }
-	      else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j-1][i] + nvert[k-1][j-1][i] > 0.1) {
-		if (nvert[k][j+1][i] + nvert[k-1][j+1][i] < 0.1) {
-		  vol[NP] -= g32[k-1][j][i] * 0.5; vol[BN] -= g32[k-1][j][i] * 0.5;
-		  vol[CP] += g32[k-1][j][i] * 0.5; vol[BP] += g32[k-1][j][i] * 0.5;
-		}
-	      }
-	      else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k-1][j-1][i] > 0.1) {
-		if (nvert[k][j+1][i] + nvert[k-1][j+1][i] < 0.1) {
-		  vol[NP] -= g32[k-1][j][i] * 0.5; vol[BN] -= g32[k-1][j][i] * 0.5;
-		  vol[CP] += g32[k-1][j][i] * 0.5; vol[BP] += g32[k-1][j][i] * 0.5;
-		}
-	      }
-	      else {
-		vol[NP] -= g32[k-1][j][i] * 0.25; vol[BN] -= g32[k-1][j][i] * 0.25;
-		vol[SP] += g32[k-1][j][i] * 0.25; vol[BS] += g32[k-1][j][i] * 0.25;
-	      }
-
-	      vol[CP] -= g33[k-1][j][i];
-	      vol[BP] += g33[k-1][j][i];
-          }
-
-          // --- Final scaling and insertion into the matrix ---
-
-          // Scale all stencil coefficients by the negative cell volume (-aj).
-          for (PetscInt m = 0; m < 19; m++) {
-            vol[m] *= -aj[k][j][i];
-          }
-
-          // Set the global column indices for the 19 stencil points, handling periodic BCs.
-          idx[CP] = Gidx(i, j, k, user);
-          if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && i==mx-2) idx[EP] = Gidx(1, j, k, user); else idx[EP] = Gidx(i+1, j, k, user);
-          if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && i==1) idx[WP] = Gidx(mx-2, j, k, user); else idx[WP] = Gidx(i-1, j, k, user);
-          if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && j==my-2) idx[NP] = Gidx(i, 1, k, user); else idx[NP] = Gidx(i, j+1, k, user);
-          if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && j==1) idx[SP] = Gidx(i, my-2, k, user); else idx[SP] = Gidx(i, j-1, k, user);
-          if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && k==mz-2) idx[TP] = Gidx(i, j, 1, user); else idx[TP] = Gidx(i, j, k+1, user);
-          if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && k==1) idx[BP] = Gidx(i, j, mz-2, user); else idx[BP] = Gidx(i, j, k-1, user);
-          if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && i==mx-2 && j==my-2) idx[NE] = Gidx(1, 1, k, user); else if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && i==mx-2) idx[NE] = Gidx(1, j+1, k, user); else if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && j==my-2) idx[NE] = Gidx(i+1, 1, k, user); else idx[NE] = Gidx(i+1, j+1, k, user);
-          if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && i==mx-2 && j==1) idx[SE] = Gidx(1, my-2, k, user); else if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && i==mx-2) idx[SE] = Gidx(1, j-1, k, user); else if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && j==1) idx[SE] = Gidx(i+1, my-2, k, user); else idx[SE] = Gidx(i+1, j-1, k, user);
-          if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && i==1 && j==my-2) idx[NW] = Gidx(mx-2, 1, k, user); else if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && i==1) idx[NW] = Gidx(mx-2, j+1, k, user); else if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && j==my-2) idx[NW] = Gidx(i-1, 1, k, user); else idx[NW] = Gidx(i-1, j+1, k, user);
-          if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && i==1 && j==1) idx[SW] = Gidx(mx-2, my-2, k, user); else if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && i==1) idx[SW] = Gidx(mx-2, j-1, k, user); else if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && j==1) idx[SW] = Gidx(i-1, my-2, k, user); else idx[SW] = Gidx(i-1, j-1, k, user);
-          if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && j==my-2 && k==mz-2) idx[TN] = Gidx(i, 1, 1, user); else if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && j==my-2) idx[TN] = Gidx(i, 1, k+1, user); else if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && k==mz-2) idx[TN] = Gidx(i, j+1, 1, user); else idx[TN] = Gidx(i, j+1, k+1, user);
-          if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && j==my-2 && k==1) idx[BN] = Gidx(i, 1, mz-2, user); else if(user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && j==my-2) idx[BN] = Gidx(i, 1, k-1, user); else if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && k==1) idx[BN] = Gidx(i, j+1, mz-2, user); else idx[BN] = Gidx(i, j+1, k-1, user);
-          if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && j==1 && k==mz-2) idx[TS] = Gidx(i, my-2, 1, user); else if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && j==1) idx[TS] = Gidx(i, my-2, k+1, user); else if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && k==mz-2) idx[TS] = Gidx(i, j-1, 1, user); else idx[TS] = Gidx(i, j-1, k+1, user);
-          if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && j==1 && k==1) idx[BS] = Gidx(i, my-2, mz-2, user); else if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && j==1) idx[BS] = Gidx(i, my-2, k-1, user); else if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && k==1) idx[BS] = Gidx(i, j-1, mz-2, user); else idx[BS] = Gidx(i, j-1, k-1, user);
-          if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && i==mx-2 && k==mz-2) idx[TE] = Gidx(1, j, 1, user); else if(user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && i==mx-2) idx[TE] = Gidx(1, j, k+1, user); else if(user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && k==mz-2) idx[TE] = Gidx(i+1, j, 1, user); else idx[TE] = Gidx(i+1, j, k+1, user);
-          if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && i==mx-2 && k==1) idx[BE] = Gidx(1, j, mz-2, user); else if(user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && i==mx-2) idx[BE] = Gidx(1, j, k-1, user); else if(user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && k==1) idx[BE] = Gidx(i+1, j, mz-2, user); else idx[BE] = Gidx(i+1, j, k-1, user);
-          if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && i==1 && k==mz-2) idx[TW] = Gidx(mx-2, j, 1, user); else if(user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && i==1) idx[TW] = Gidx(mx-2, j, k+1, user); else if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && k==mz-2) idx[TW] = Gidx(i-1, j, 1, user); else idx[TW] = Gidx(i-1, j, k+1, user);
-          if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && i==1 && k==1) idx[BW] = Gidx(mx-2, j, mz-2, user); else if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && i==1) idx[BW] = Gidx(mx-2, j, k-1, user); else if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && k==1) idx[BW] = Gidx(i-1, j, mz-2, user); else idx[BW] = Gidx(i-1, j, k-1, user);
-
-          // Insert the computed row into the matrix A.
-          MatSetValues(user->A, 1, &row, 19, idx, vol, INSERT_VALUES);
-        }
-      }
-    }
-  }
-
-  //================================================================================
-  // Section 4: Finalize Matrix and Cleanup
-  //================================================================================
-  
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Finalizing matrix assembly.\n");
-  MatAssemblyBegin(user->A, MAT_FINAL_ASSEMBLY);
-  MatAssemblyEnd(user->A, MAT_FINAL_ASSEMBLY);
-
-  PetscReal max_A;
-
-  ierr = MatNorm(user->A,NORM_INFINITY,&max_A);CHKERRQ(ierr);
-
-  LOG_ALLOW(GLOBAL,LOG_DEBUG," Max value in A matrix for level %d =  %le.\n",user->thislevel,max_A);
-
-  // if (get_log_level() >= LOG_DEBUG) {
-  //  ierr = MatView(user->A,PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
-  // }
-  
-  // --- Restore access to all PETSc vectors and destroy temporary ones ---
-  DMDAVecRestoreArray(da, G11, &g11); DMDAVecRestoreArray(da, G12, &g12); DMDAVecRestoreArray(da, G13, &g13);
-  DMDAVecRestoreArray(da, G21, &g21); DMDAVecRestoreArray(da, G22, &g22); DMDAVecRestoreArray(da, G23, &g23);
-  DMDAVecRestoreArray(da, G31, &g31); DMDAVecRestoreArray(da, G32, &g32); DMDAVecRestoreArray(da, G33, &g33);
-  
-  VecDestroy(&G11); VecDestroy(&G12); VecDestroy(&G13);
-  VecDestroy(&G21); VecDestroy(&G22); VecDestroy(&G23);
-  VecDestroy(&G31); VecDestroy(&G32); VecDestroy(&G33);
-
-  DMDAVecRestoreArray(fda, user->lCsi, &csi); DMDAVecRestoreArray(fda, user->lEta, &eta); DMDAVecRestoreArray(fda, user->lZet, &zet);
-  DMDAVecRestoreArray(fda, user->lICsi, &icsi); DMDAVecRestoreArray(fda, user->lIEta, &ieta); DMDAVecRestoreArray(fda, user->lIZet, &izet);
-  DMDAVecRestoreArray(fda, user->lJCsi, &jcsi); DMDAVecRestoreArray(fda, user->lJEta, &jeta); DMDAVecRestoreArray(fda, user->lJZet, &jzet);
-  DMDAVecRestoreArray(fda, user->lKCsi, &kcsi); DMDAVecRestoreArray(fda, user->lKEta, &keta); DMDAVecRestoreArray(fda, user->lKZet, &kzet);
-  DMDAVecRestoreArray(da, user->lAj, &aj); DMDAVecRestoreArray(da, user->lIAj, &iaj); DMDAVecRestoreArray(da, user->lJAj, &jaj); DMDAVecRestoreArray(da, user->lKAj, &kaj);
-  DMDAVecRestoreArray(da, user->lNvert, &nvert);
-  
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Exiting PoissonLHSNew.\n");
-  PROFILE_FUNCTION_END;
-  PetscFunctionReturn(0);
-}
-
-
-#undef __FUNCT__
-#define __FUNCT__ "PoissonRHS"
-
-/**
- * @brief Implementation of \ref PoissonRHS().
+ * @brief Implementation of \ref ProjectVelocity().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/poisson.h`.
- * @see PoissonRHS()
+ * @see ProjectVelocity()
  */
-
-PetscErrorCode PoissonRHS(UserCtx *user, Vec B)
+PetscErrorCode ProjectVelocity(UserCtx *user)
 {
-  PetscErrorCode ierr;
-  DMDALocalInfo info = user->info;
-  PetscInt	xs = info.xs, xe = info.xs + info.xm;
-  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
-  PetscInt	zs = info.zs, ze = info.zs + info.zm;
-  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
- 
-  PetscInt      i, j, k;
-  PetscReal	***nvert, ***aj, ***rb, dt = user->simCtx->dt;
-  struct Components{
-    PetscReal x;
-    PetscReal y;
-    PetscReal z;
-  } *** ucont;
+    SimCtx             *simCtx = user->simCtx;
+    const DMDALocalInfo info = user->info;
+    const PetscInt      m[3] = {info.mx, info.my, info.mz};
+    const PetscInt      start[3] = {info.xs, info.ys, info.zs};
+    const PetscInt      end[3] = {info.xs + info.xm, info.ys + info.ym, info.zs + info.zm};
+    const PetscReal     scale = simCtx->dt / COEF_TIME_ACCURACY;
+    const FieldId       staggered_fields[] = {FIELD_ID_UCONT};
+    PetscBool           periodic[3];
+    PetscInt            interior_start[3], interior_end[3];
+    PoissonFaceMetrics  metrics;
+    const PetscReal  ***nvert, ***phi;
+    Cmpnts           ***ucont;
 
-  PROFILE_FUNCTION_BEGIN;
-
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Entering PoissonRHS to compute pressure equation RHS.\n");
-
-  DMDAVecGetArray(user->da, B, &rb);
-  DMDAVecGetArray(user->fda, user->lUcont, &ucont);
-  DMDAVecGetArray(user->da, user->lNvert, &nvert);
-  DMDAVecGetArray(user->da, user->lAj, &aj);
-
-
-   LOG_ALLOW(GLOBAL, LOG_DEBUG, "Computing RHS values for each cell.\n");
-  
-  for (k=zs; k<ze; k++) { 
-    for (j=ys; j<ye; j++) {
-      for (i=xs; i<xe; i++) {
-
-	if (i==0 || i==mx-1 || j==0 || j==my-1 ||  k==0 || k==mz-1) {
-	  rb[k][j][i] = 0.;
-	}
-	else if (nvert[k][j][i] > 0.1) {
-	  rb[k][j][i] = 0;
-	}
-	else {
-	  rb[k][j][i] = -(ucont[k][j][i].x - ucont[k][j][i-1].x +
-			  ucont[k][j][i].y - ucont[k][j-1][i].y +
-			  ucont[k][j][i].z - ucont[k-1][j][i].z) / dt
- 	    * aj[k][j][i] / 1.0 * COEF_TIME_ACCURACY;     // user->simCtx->st replaced by 1.0.
-	 
-	}
-      }
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PoissonOperator_PeriodicAxes(user, periodic);
+    for (PetscInt a = 0; a < 3; a++) {
+        interior_start[a] = (start[a] == 0) ? 1 : start[a];
+        interior_end[a]   = (end[a] == m[a]) ? m[a] - 1 : end[a];
     }
-  }
 
+    PetscCall(PoissonOperator_GetFaceMetrics(user, &metrics));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lPhi, (void *)&phi));
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucont, &ucont));
 
-  // --- Check the solvability condition for the Poisson equation ---
-  // The global sum of the RHS (proportional to the total divergence) must be zero.
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Verifying solvability condition (sum of RHS terms).\n");
-  PetscReal lsum=0., sum=0.;
+    /* One pass per face orientation. Faces between two interior cells are corrected on
+       every axis; a periodic axis also corrects its seam face at index 0. */
+    for (PetscInt n = 0; n < 3; n++) {
+        PetscInt lo[3], hi[3];
+        for (PetscInt a = 0; a < 3; a++) { lo[a] = interior_start[a]; hi[a] = interior_end[a]; }
+        if (periodic[n] && start[n] == 0) lo[n] = 0;
+        hi[n] = PetscMin(hi[n], periodic[n] ? m[n] - 1 : m[n] - 2);
 
-  for (k=zs; k<ze; k++) {
-    for (j=ys; j<ye; j++) {
-      for (i=xs; i<xe; i++) {
-	
-	lsum += rb[k][j][i] / aj[k][j][i]* dt/COEF_TIME_ACCURACY;
+        for (PetscInt k = lo[2]; k < hi[2]; k++) {
+            for (PetscInt j = lo[1]; j < hi[1]; j++) {
+                for (PetscInt i = lo[0]; i < hi[0]; i++) {
+                    const PetscInt c[3] = {i, j, k};
+                    PetscInt       across[3] = {0, 0, 0};
+                    PetscReal      difference[3];
 
-      }
+                    across[n] = 1;
+                    if (nvert[k][j][i] > POISSON_SOLID_THRESHOLD ||
+                        PoissonOperator_At(nvert, c, across) > POISSON_SOLID_THRESHOLD) continue;
+
+                    const PoissonFaceGradient face =
+                        PoissonOperator_FaceGradientStencil(&metrics, nvert, c, n, m, periodic);
+                    for (PetscInt b = 0; b < 3; b++) {
+                        if (b == n) {
+                            difference[b] = PoissonOperator_At(phi, c, across) - phi[k][j][i];
+                            continue;
+                        }
+                        const PoissonTransverseDifference diff = face.diff[b];
+                        PetscInt hi_lower[3] = {0, 0, 0}, hi_upper[3] = {0, 0, 0};
+                        PetscInt lo_lower[3] = {0, 0, 0}, lo_upper[3] = {0, 0, 0};
+                        hi_lower[b] = diff.hi; hi_upper[b] = diff.hi; hi_upper[n] = 1;
+                        lo_lower[b] = diff.lo; lo_upper[b] = diff.lo; lo_upper[n] = 1;
+                        difference[b] = (diff.weight == 0.0) ? 0.0 :
+                            (PoissonOperator_At(phi, c, hi_lower) + PoissonOperator_At(phi, c, hi_upper) -
+                             PoissonOperator_At(phi, c, lo_lower) - PoissonOperator_At(phi, c, lo_upper)) * diff.weight;
+                    }
+
+                    const PetscReal flux = difference[0] * face.dot[0] * face.aj +
+                                           difference[1] * face.dot[1] * face.aj +
+                                           difference[2] * face.dot[2] * face.aj;
+                    const PetscReal correction = flux * scale;
+                    if (n == 0)      ucont[k][j][i].x -= correction;
+                    else if (n == 1) ucont[k][j][i].y -= correction;
+                    else             ucont[k][j][i].z -= correction;
+                }
+            }
+        }
     }
-  }
-  
-  ierr = MPI_Allreduce(&lsum,&sum,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
 
-  LOG_ALLOW(GLOBAL, LOG_INFO, "Global Sum of RHS (Divergence Check): %le\n", sum);
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucont, &ucont));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lPhi, (void *)&phi));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(PoissonOperator_RestoreFaceMetrics(user, &metrics));
 
-  user->simCtx->summationRHS = sum;
-	
-  DMDAVecRestoreArray(user->fda, user->lUcont, &ucont);
-  DMDAVecRestoreArray(user->da, user->lNvert, &nvert);
-  DMDAVecRestoreArray(user->da, user->lAj, &aj);
-  DMDAVecRestoreArray(user->da, B, &rb);
- 
-
-  PROFILE_FUNCTION_END;
-  return 0;
+    PetscCall(SynchronizePeriodicStaggeredFields(user, 1, staggered_fields));
+    PetscCall(Contra2Cart(user));
+    PetscCall(FinalizePostProjectionCellFields(user));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
 }
 
 /**
- * @brief Implementation of \ref VolumeFlux_rev().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/poisson.h`.
- * @see VolumeFlux_rev()
+ * @brief Removes the null space of the Neumann pressure problem from a level vector.
+ *
+ * PETSc first removes the global constant. This callback then subtracts the mean over
+ * the interior fluid cells and zeroes the dummy layers and solid cells, which carry no
+ * unknown.
  */
-
-PetscErrorCode VolumeFlux_rev(UserCtx *user, PetscReal *ibm_Flux, 
-			      PetscReal *ibm_Area, PetscInt flg)
+static PetscErrorCode PoissonMultigrid_RemoveNullSpace(MatNullSpace nullsp, Vec X, void *ctx)
 {
-  PetscErrorCode ierr;
+    UserCtx            *user = (UserCtx *)ctx;
+    const DMDALocalInfo info = user->info;
+    const PetscInt      mx = info.mx, my = info.my, mz = info.mz;
+    const PetscInt      xs = info.xs, xe = info.xs + info.xm;
+    const PetscInt      ys = info.ys, ye = info.ys + info.ym;
+    const PetscInt      zs = info.zs, ze = info.zs + info.zm;
+    const PetscInt      lxs = (xs == 0) ? 1 : xs, lxe = (xe == mx) ? mx - 1 : xe;
+    const PetscInt      lys = (ys == 0) ? 1 : ys, lye = (ye == my) ? my - 1 : ye;
+    const PetscInt      lzs = (zs == 0) ? 1 : zs, lze = (ze == mz) ? mz - 1 : ze;
+    const PetscReal  ***nvert;
+    PetscReal        ***x;
+    PetscReal           local[2] = {0.0, 0.0}, global[2];
+    MPI_Comm            comm = PetscObjectComm((PetscObject)X);
 
-  DM	da = user->da, fda = user->fda;
+    PetscFunctionBeginUser;
+    (void)nullsp;
+    PetscCall(DMDAVecGetArray(user->da, X, &x));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
 
-  DMDALocalInfo	info = user->info;
-
-  PetscInt	xs = info.xs, xe = info.xs + info.xm;
-  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
-  PetscInt	zs = info.zs, ze = info.zs + info.zm;
-  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
-
-  PetscInt i, j, k;
-  PetscInt	lxs, lys, lzs, lxe, lye, lze;
-
-  lxs = xs; lxe = xe;
-  lys = ys; lye = ye;
-  lzs = zs; lze = ze;
-
-  if (xs==0) lxs = xs+1;
-  if (ys==0) lys = ys+1;
-  if (zs==0) lzs = zs+1;
-
-  if (xe==mx) lxe = xe-1;
-  if (ye==my) lye = ye-1;
-  if (ze==mz) lze = ze-1;
-
-  PetscReal ***nvert, ibmval=1.5;
-  Cmpnts ***ucor, ***csi, ***eta, ***zet;
-  DMDAVecGetArray(fda, user->Ucont, &ucor);
-  DMDAVecGetArray(fda, user->lCsi, &csi);
-  DMDAVecGetArray(fda, user->lEta, &eta);
-  DMDAVecGetArray(fda, user->lZet, &zet);
-  DMDAVecGetArray(da, user->lNvert, &nvert);
-
-  PetscReal libm_Flux, libm_area;
-  libm_Flux = 0;
-  libm_area = 0;
-  for (k=lzs; k<lze; k++) {
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	if (nvert[k][j][i] < 0.1) {
-	  if (nvert[k][j][i+1] > ibmval-0.4 && nvert[k][j][i+1] < ibmval && i < mx-2) {
-	    libm_Flux += ucor[k][j][i].x;
-	    libm_area += sqrt(csi[k][j][i].x * csi[k][j][i].x +
-			  csi[k][j][i].y * csi[k][j][i].y +
-			  csi[k][j][i].z * csi[k][j][i].z);
-			  
-	  }
-	  if (nvert[k][j+1][i] > ibmval-0.4 && nvert[k][j+1][i] < ibmval && j < my-2) {
-	    libm_Flux += ucor[k][j][i].y;
-	    libm_area += sqrt(eta[k][j][i].x * eta[k][j][i].x +
-			  eta[k][j][i].y * eta[k][j][i].y +
-			  eta[k][j][i].z * eta[k][j][i].z);
-	  }
-	  if (nvert[k+1][j][i] > ibmval-0.4 && nvert[k+1][j][i] < ibmval && k < mz-2) {
-	    libm_Flux += ucor[k][j][i].z;
-	    libm_area += sqrt(zet[k][j][i].x * zet[k][j][i].x +
-			  zet[k][j][i].y * zet[k][j][i].y +
-			  zet[k][j][i].z * zet[k][j][i].z);
-	  }
-	}
-
-	if (nvert[k][j][i] > ibmval-0.4 && nvert[k][j][i] < ibmval) {
-	  if (nvert[k][j][i+1] < 0.1 && i < mx-2) {
-	    libm_Flux -= ucor[k][j][i].x;
-	    libm_area += sqrt(csi[k][j][i].x * csi[k][j][i].x +
-			  csi[k][j][i].y * csi[k][j][i].y +
-			  csi[k][j][i].z * csi[k][j][i].z);
-			  
-	  }
-	  if (nvert[k][j+1][i] < 0.1 && j < my-2) {
-	    libm_Flux -= ucor[k][j][i].y;
-	    libm_area += sqrt(eta[k][j][i].x * eta[k][j][i].x +
-			  eta[k][j][i].y * eta[k][j][i].y +
-			  eta[k][j][i].z * eta[k][j][i].z);
-	  }
-	  if (nvert[k+1][j][i] < 0.1 && k < mz-2) {
-	    libm_Flux -= ucor[k][j][i].z;
-	    libm_area += sqrt(zet[k][j][i].x * zet[k][j][i].x +
-			  zet[k][j][i].y * zet[k][j][i].y +
-			  zet[k][j][i].z * zet[k][j][i].z);
-	  }
-	}
-
-      }
+    for (PetscInt k = lzs; k < lze; k++) {
+        for (PetscInt j = lys; j < lye; j++) {
+            for (PetscInt i = lxs; i < lxe; i++) {
+                if (nvert[k][j][i] < POISSON_SOLID_THRESHOLD) {
+                    local[0] += x[k][j][i];
+                    local[1] += 1.0;
+                }
+            }
+        }
     }
-  }
-
-  ierr = MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-  ierr = MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-
- /*  PetscGlobalSum(&libm_Flux, ibm_Flux, PETSC_COMM_WORLD); */
-/*   PetscGlobalSum(&libm_area, ibm_Area, PETSC_COMM_WORLD); */
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "IBM flux correction: flux=%le, area=%le\n", *ibm_Flux, *ibm_Area);
-
-  PetscReal correction;
-
-  if (*ibm_Area > 1.e-15) {
-    if (flg)
-      correction = (*ibm_Flux + user->FluxIntpSum) / *ibm_Area;
-    else
-      correction = *ibm_Flux / *ibm_Area;
-  }
-  else {
-    correction = 0;
-  }
-
-  for (k=lzs; k<lze; k++) {
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	if (nvert[k][j][i] < 0.1) {
-	  if (nvert[k][j][i+1] > ibmval-0.4 && nvert[k][j][i+1] < ibmval && i < mx-2) {
-	    ucor[k][j][i].x -= sqrt(csi[k][j][i].x * csi[k][j][i].x +
-				    csi[k][j][i].y * csi[k][j][i].y +
-				    csi[k][j][i].z * csi[k][j][i].z) *
-				    correction;
-			  
-	  }
-	  if (nvert[k][j+1][i] > ibmval-0.4 && nvert[k][j+1][i] < ibmval && j < my-2) {
-	    ucor[k][j][i].y -= sqrt(eta[k][j][i].x * eta[k][j][i].x + 
-				    eta[k][j][i].y * eta[k][j][i].y +
-				    eta[k][j][i].z * eta[k][j][i].z) *
-				    correction;
-	  }
-	  if (nvert[k+1][j][i] > ibmval-0.4 && nvert[k+1][j][i] < ibmval && k < mz-2) {
-	    ucor[k][j][i].z -= sqrt(zet[k][j][i].x * zet[k][j][i].x +
-				    zet[k][j][i].y * zet[k][j][i].y +
-				    zet[k][j][i].z * zet[k][j][i].z) *
-				    correction;
-	  }
-	}
-
-	if (nvert[k][j][i] > ibmval-0.4 && nvert[k][j][i] < ibmval) {
-	  if (nvert[k][j][i+1] < 0.1 && i < mx-2) {
-	    ucor[k][j][i].x += sqrt(csi[k][j][i].x * csi[k][j][i].x +
-				    csi[k][j][i].y * csi[k][j][i].y +
-				    csi[k][j][i].z * csi[k][j][i].z) *
-				    correction;
-			  
-	  }
-	  if (nvert[k][j+1][i] < 0.1 && j < my-2) {
-	    ucor[k][j][i].y += sqrt(eta[k][j][i].x * eta[k][j][i].x +
-				    eta[k][j][i].y * eta[k][j][i].y +
-				    eta[k][j][i].z * eta[k][j][i].z) *
-				    correction;
-	  }
-	  if (nvert[k+1][j][i] < 0.1 && k < mz-2) {
-	    ucor[k][j][i].z += sqrt(zet[k][j][i].x * zet[k][j][i].x +
-				    zet[k][j][i].y * zet[k][j][i].y +
-				    zet[k][j][i].z * zet[k][j][i].z) *
-				    correction;
-	  }
-	}
-
-      }
+    PetscCallMPI(MPI_Allreduce(&local[0], &global[0], 1, MPIU_REAL, MPI_SUM, comm));
+    PetscCallMPI(MPI_Allreduce(&local[1], &global[1], 1, MPIU_REAL, MPI_SUM, comm));
+    const PetscReal shift = global[0] / (-1.0 * global[1]);
+    for (PetscInt k = lzs; k < lze; k++) {
+        for (PetscInt j = lys; j < lye; j++) {
+            for (PetscInt i = lxs; i < lxe; i++) {
+                if (nvert[k][j][i] < POISSON_SOLID_THRESHOLD) x[k][j][i] += shift;
+            }
+        }
     }
-  }
-  
 
-
-  libm_Flux = 0;
-  libm_area = 0;
-  for (k=lzs; k<lze; k++) {
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	if (nvert[k][j][i] < 0.1) {
-	  if (nvert[k][j][i+1] > ibmval-0.4 && nvert[k][j][i+1] < ibmval && i < mx-2) {
-	    libm_Flux += ucor[k][j][i].x;
-	    libm_area += sqrt(csi[k][j][i].x * csi[k][j][i].x +
-			  csi[k][j][i].y * csi[k][j][i].y +
-			  csi[k][j][i].z * csi[k][j][i].z);
-			  
-	  }
-	  if (nvert[k][j+1][i] > ibmval-0.4 && nvert[k][j+1][i] < ibmval && j < my-2) {
-	    libm_Flux += ucor[k][j][i].y;
-	    libm_area += sqrt(eta[k][j][i].x * eta[k][j][i].x +
-			  eta[k][j][i].y * eta[k][j][i].y +
-			  eta[k][j][i].z * eta[k][j][i].z);
-	  }
-	  if (nvert[k+1][j][i] > ibmval-0.4 && nvert[k+1][j][i] < ibmval && k < mz-2) {
-	    libm_Flux += ucor[k][j][i].z;
-	    libm_area += sqrt(zet[k][j][i].x * zet[k][j][i].x +
-			  zet[k][j][i].y * zet[k][j][i].y +
-			  zet[k][j][i].z * zet[k][j][i].z);
-	  }
-	}
-
-	if (nvert[k][j][i] > ibmval-0.4 && nvert[k][j][i] < ibmval) {
-	  if (nvert[k][j][i+1] < 0.1 && i < mx-2) {
-	    libm_Flux -= ucor[k][j][i].x;
-	    libm_area += sqrt(csi[k][j][i].x * csi[k][j][i].x +
-			  csi[k][j][i].y * csi[k][j][i].y +
-			  csi[k][j][i].z * csi[k][j][i].z);
-			  
-	  }
-	  if (nvert[k][j+1][i] < 0.1 && j < my-2) {
-	    libm_Flux -= ucor[k][j][i].y;
-	    libm_area += sqrt(eta[k][j][i].x * eta[k][j][i].x +
-			  eta[k][j][i].y * eta[k][j][i].y +
-			  eta[k][j][i].z * eta[k][j][i].z);
-	  }
-	  if (nvert[k+1][j][i] < 0.1 && k < mz-2) {
-	    libm_Flux -= ucor[k][j][i].z;
-	    libm_area += sqrt(zet[k][j][i].x * zet[k][j][i].x +
-			  zet[k][j][i].y * zet[k][j][i].y +
-			  zet[k][j][i].z * zet[k][j][i].z);
-	  }
-	}
-
-      }
+    for (PetscInt k = zs; k < ze; k++) {
+        for (PetscInt j = ys; j < ye; j++) {
+            for (PetscInt i = xs; i < xe; i++) {
+                if (i == 0 || i == mx - 1 || j == 0 || j == my - 1 || k == 0 || k == mz - 1 ||
+                    nvert[k][j][i] > POISSON_SOLID_THRESHOLD) x[k][j][i] = 0.0;
+            }
+        }
     }
-  }
 
-  ierr = MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-  ierr = MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-
- /*  PetscGlobalSum(&libm_Flux, ibm_Flux, PETSC_COMM_WORLD); */
-/*   PetscGlobalSum(&libm_area, ibm_Area, PETSC_COMM_WORLD); */
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "IBM flux measurement: flux=%le, area=%le\n", *ibm_Flux, *ibm_Area);
-
-  DMDAVecRestoreArray(da, user->lNvert, &nvert);
-  DMDAVecRestoreArray(fda, user->lCsi, &csi);
-  DMDAVecRestoreArray(fda, user->lEta, &eta);
-  DMDAVecRestoreArray(fda, user->lZet, &zet);
-  DMDAVecRestoreArray(fda, user->Ucont, &ucor);
-
-  const FieldId staggered_fields[] = {FIELD_ID_UCONT};
-  ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
-  return 0;
-}
-
-
-/**
- * @brief Implementation of \ref VolumeFlux().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/poisson.h`.
- * @see VolumeFlux()
- */
-
-PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Area, PetscInt flg)
-{
-  PetscErrorCode ierr;
-  // --- CONTEXT ACQUISITION BLOCK ---
-  // Get the master simulation context from the UserCtx.
-  SimCtx *simCtx = user->simCtx;
-
-  // Create local variables to mirror the legacy globals for minimal code changes.
-  const PetscInt NumberOfBodies = simCtx->NumberOfBodies;
-  // --- END CONTEXT ACQUISITION BLOCK ---
-
-  DM	da = user->da, fda = user->fda;
-
-  DMDALocalInfo	info = user->info;
-
-  PetscInt	xs = info.xs, xe = info.xs + info.xm;
-  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
-  PetscInt	zs = info.zs, ze = info.zs + info.zm;
-  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
-
-  PetscInt i, j, k,ibi;
-  PetscInt	lxs, lys, lzs, lxe, lye, lze;
-
-  lxs = xs; lxe = xe;
-  lys = ys; lye = ye;
-  lzs = zs; lze = ze;
-
-  if (xs==0) lxs = xs+1;
-  if (ys==0) lys = ys+1;
-  if (zs==0) lzs = zs+1;
-
-  if (xe==mx) lxe = xe-1;
-  if (ye==my) lye = ye-1;
-  if (ze==mz) lze = ze-1;
-  
-  PetscReal epsilon=1.e-8;
-  PetscReal ***nvert, ibmval=1.9999;
-  
-  struct Components {
-    PetscReal x;
-    PetscReal y;
-    PetscReal z;
-  }***ucor, ***csi, ***eta, ***zet;
- 
-
-  PetscInt xend=mx-2 ,yend=my-2,zend=mz-2;
-
-  if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC) xend=mx-1;
-  if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC) yend=my-1;
-  if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC) zend=mz-1;
-
-  DMDAVecGetArray(fda, user->Ucont, &ucor);
-  DMDAVecGetArray(fda, user->lCsi, &csi);
-  DMDAVecGetArray(fda, user->lEta, &eta);
-  DMDAVecGetArray(fda, user->lZet, &zet);
-  DMDAVecGetArray(da, user->lNvert, &nvert);
-
-  PetscReal libm_Flux, libm_area, libm_Flux_abs=0., ibm_Flux_abs;
-  libm_Flux = 0;
-  libm_area = 0;
-
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Entering VolumeFlux to enforce no-penetration condition.\n");
-
-  //Mohsen March 2017
-  PetscReal *lIB_Flux = NULL, *lIB_area = NULL, *IB_Flux = NULL, *IB_Area = NULL;
-  if (NumberOfBodies > 1) { 
-  
-    lIB_Flux=(PetscReal *)calloc(NumberOfBodies,sizeof(PetscReal));
-    lIB_area=(PetscReal *)calloc(NumberOfBodies,sizeof(PetscReal));
-    IB_Flux=(PetscReal *)calloc(NumberOfBodies,sizeof(PetscReal));
-    IB_Area=(PetscReal *)calloc(NumberOfBodies,sizeof(PetscReal));
-  
-
-    for (ibi=0; ibi<NumberOfBodies; ibi++) {
-      lIB_Flux[ibi]=0.0;
-      lIB_area[ibi]=0.0;
-      IB_Flux[ibi]=0.0;
-      IB_Area[ibi]=0.0;
-    }
-  }
-
-
-  //================================================================================
-  // PASS 1: Calculate Uncorrected Flux and Area
-  // This pass measures the total fluid "leakage" across the immersed boundary.
-  //================================================================================
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Pass 1: Measuring uncorrected flux and area.\n");
-  
-  for (k=lzs; k<lze; k++) {
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	if (nvert[k][j][i] < 0.1) {
-	  if (nvert[k][j][i+1] > 0.1 && nvert[k][j][i+1] < ibmval && i < xend) {
-	    
-	    if (fabs(ucor[k][j][i].x)>epsilon) {
-	      libm_Flux += ucor[k][j][i].x;
-	      if (flg==3)
-		libm_Flux_abs += fabs(ucor[k][j][i].x)/sqrt(csi[k][j][i].x * csi[k][j][i].x +
-							    csi[k][j][i].y * csi[k][j][i].y +
-							    csi[k][j][i].z * csi[k][j][i].z);
-	      else
-		libm_Flux_abs += fabs(ucor[k][j][i].x);
-	      
-	      libm_area += sqrt(csi[k][j][i].x * csi[k][j][i].x +
-				csi[k][j][i].y * csi[k][j][i].y +
-				csi[k][j][i].z * csi[k][j][i].z);
-	      
-	      if (NumberOfBodies > 1) {
-		
-		ibi=(int)((nvert[k][j][i+1]-1.0)*1001);
-		lIB_Flux[ibi] += ucor[k][j][i].x;
-		lIB_area[ibi] += sqrt(csi[k][j][i].x * csi[k][j][i].x +
-				      csi[k][j][i].y * csi[k][j][i].y +
-				      csi[k][j][i].z * csi[k][j][i].z);
-	      }
-	    } else
-	      ucor[k][j][i].x=0.;
-	    
-	  }
-	  if (nvert[k][j+1][i] > 0.1 && nvert[k][j+1][i] < ibmval && j < yend) {
-	    
-	    if (fabs(ucor[k][j][i].y)>epsilon) {
-	      libm_Flux += ucor[k][j][i].y;
-	      if (flg==3)
-		libm_Flux_abs += fabs(ucor[k][j][i].y)/sqrt(eta[k][j][i].x * eta[k][j][i].x +
-							    eta[k][j][i].y * eta[k][j][i].y +
-							    eta[k][j][i].z * eta[k][j][i].z);
-	      else
-		libm_Flux_abs += fabs(ucor[k][j][i].y);
-	      libm_area += sqrt(eta[k][j][i].x * eta[k][j][i].x +
-				eta[k][j][i].y * eta[k][j][i].y +
-				eta[k][j][i].z * eta[k][j][i].z);
-	      if (NumberOfBodies > 1) {
-		
-		ibi=(int)((nvert[k][j+1][i]-1.0)*1001);	
-
-		lIB_Flux[ibi] += ucor[k][j][i].y;
-		lIB_area[ibi] += sqrt(eta[k][j][i].x * eta[k][j][i].x +
-				      eta[k][j][i].y * eta[k][j][i].y +
-				      eta[k][j][i].z * eta[k][j][i].z);
-	      }
-	    } else
-	      ucor[k][j][i].y=0.;
-	  }
-	  if (nvert[k+1][j][i] > 0.1 && nvert[k+1][j][i] < ibmval && k < zend) {
-	    
-	    if (fabs(ucor[k][j][i].z)>epsilon) {
-	      libm_Flux += ucor[k][j][i].z;
-	      if (flg==3)
-		libm_Flux_abs += fabs(ucor[k][j][i].z)/sqrt(zet[k][j][i].x * zet[k][j][i].x +
-							    zet[k][j][i].y * zet[k][j][i].y +
-							    zet[k][j][i].z * zet[k][j][i].z);
-	      else
-		libm_Flux_abs += fabs(ucor[k][j][i].z);
-	      libm_area += sqrt(zet[k][j][i].x * zet[k][j][i].x +
-				zet[k][j][i].y * zet[k][j][i].y +
-				zet[k][j][i].z * zet[k][j][i].z);
-	      
-	      if (NumberOfBodies > 1) {
-		
-		ibi=(int)((nvert[k+1][j][i]-1.0)*1001);
-		lIB_Flux[ibi] += ucor[k][j][i].z;
-		lIB_area[ibi] += sqrt(zet[k][j][i].x * zet[k][j][i].x +
-				      zet[k][j][i].y * zet[k][j][i].y +
-				      zet[k][j][i].z * zet[k][j][i].z);
-	      }
-	    }else
-	      ucor[k][j][i].z=0.;
-	  }
-	}
-
-	if (nvert[k][j][i] > 0.1 && nvert[k][j][i] < ibmval) {
-	  
-	  if (nvert[k][j][i+1] < 0.1 && i < xend) {
-	    if (fabs(ucor[k][j][i].x)>epsilon) {
-	      libm_Flux -= ucor[k][j][i].x;
-	      if (flg==3)
-		libm_Flux_abs += fabs(ucor[k][j][i].x)/sqrt(csi[k][j][i].x * csi[k][j][i].x +
-							    csi[k][j][i].y * csi[k][j][i].y +
-							    csi[k][j][i].z * csi[k][j][i].z);
-	      else
-		libm_Flux_abs += fabs(ucor[k][j][i].x);
-	      libm_area += sqrt(csi[k][j][i].x * csi[k][j][i].x +
-				csi[k][j][i].y * csi[k][j][i].y +
-				csi[k][j][i].z * csi[k][j][i].z);
-	      if (NumberOfBodies > 1) {
-		
-		ibi=(int)((nvert[k][j][i]-1.0)*1001);
-		lIB_Flux[ibi] -= ucor[k][j][i].x;
-		lIB_area[ibi] += sqrt(csi[k][j][i].x * csi[k][j][i].x +
-				      csi[k][j][i].y * csi[k][j][i].y +
-				      csi[k][j][i].z * csi[k][j][i].z);
-	      }
-			  
-	    }else
-	      ucor[k][j][i].x=0.;
-	  }
-	  if (nvert[k][j+1][i] < 0.1 && j < yend) {
-	    if (fabs(ucor[k][j][i].y)>epsilon) {
-	      libm_Flux -= ucor[k][j][i].y;
-	      if (flg==3)
-		libm_Flux_abs += fabs(ucor[k][j][i].y)/ sqrt(eta[k][j][i].x * eta[k][j][i].x +
-							     eta[k][j][i].y * eta[k][j][i].y +
-							     eta[k][j][i].z * eta[k][j][i].z);
-	      else
-		libm_Flux_abs += fabs(ucor[k][j][i].y);
-	      libm_area += sqrt(eta[k][j][i].x * eta[k][j][i].x +
-				eta[k][j][i].y * eta[k][j][i].y +
-				eta[k][j][i].z * eta[k][j][i].z);
-	      if (NumberOfBodies > 1) {
-
-		ibi=(int)((nvert[k][j][i]-1.0)*1001);
-		lIB_Flux[ibi] -= ucor[k][j][i].y;
-		lIB_area[ibi] += sqrt(eta[k][j][i].x * eta[k][j][i].x +
-				      eta[k][j][i].y * eta[k][j][i].y +
-				      eta[k][j][i].z * eta[k][j][i].z);
-	      }
-	    }else
-	      ucor[k][j][i].y=0.;
-	  }
-	  if (nvert[k+1][j][i] < 0.1 && k < zend) {
-	    if (fabs(ucor[k][j][i].z)>epsilon) {
-	      libm_Flux -= ucor[k][j][i].z;
-	      if (flg==3)
-		libm_Flux_abs += fabs(ucor[k][j][i].z)/sqrt(zet[k][j][i].x * zet[k][j][i].x +
-							    zet[k][j][i].y * zet[k][j][i].y +
-							    zet[k][j][i].z * zet[k][j][i].z);
-	      else
-		libm_Flux_abs += fabs(ucor[k][j][i].z);
-	      libm_area += sqrt(zet[k][j][i].x * zet[k][j][i].x +
-				zet[k][j][i].y * zet[k][j][i].y +
-				zet[k][j][i].z * zet[k][j][i].z);
-	      if (NumberOfBodies > 1) {
-		
-		ibi=(int)((nvert[k][j][i]-1.0)*1001);
-		lIB_Flux[ibi] -= ucor[k][j][i].z;
-		lIB_area[ibi] += sqrt(zet[k][j][i].x * zet[k][j][i].x +
-				      zet[k][j][i].y * zet[k][j][i].y +
-				      zet[k][j][i].z * zet[k][j][i].z);
-	      }
-	    }else
-	      ucor[k][j][i].z=0.;
-	  }
-	}
-	
-      }
-    }
-  }
-  
-  ierr = MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-  ierr = MPI_Allreduce(&libm_Flux_abs, &ibm_Flux_abs,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-  ierr = MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-
-  if (NumberOfBodies > 1) { 
-    ierr = MPI_Allreduce(lIB_Flux,IB_Flux,NumberOfBodies,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    ierr = MPI_Allreduce(lIB_area,IB_Area,NumberOfBodies,MPI_DOUBLE,MPI_SUM,PETSC_COMM_WORLD); CHKERRMPI(ierr);
-  }
-
-  PetscReal correction;
-
-  PetscReal *Correction = NULL;
-  if (NumberOfBodies > 1) {
-      Correction=(PetscReal *)calloc(NumberOfBodies,sizeof(PetscReal));
-      for (ibi=0; ibi<NumberOfBodies; ibi++) Correction[ibi]=0.0;
-  }
-
-  if (*ibm_Area > 1.e-15) {
-    if (flg>1) 
-      correction = (*ibm_Flux + user->FluxIntpSum)/ ibm_Flux_abs;
-    else if (flg)
-      correction = (*ibm_Flux + user->FluxIntpSum) / *ibm_Area;
-    else
-      correction = *ibm_Flux / *ibm_Area;
-    if (NumberOfBodies > 1) 
-      for (ibi=0; ibi<NumberOfBodies; ibi++) if (IB_Area[ibi]>1.e-15) Correction[ibi] = IB_Flux[ibi] / IB_Area[ibi];
-  }
-  else {
-    correction = 0;
-  }
-  // --- Log the uncorrected results and calculated correction ---
-  LOG_ALLOW(GLOBAL, LOG_INFO, "IBM Uncorrected Flux: %g, Area: %g, Correction: %g\n", *ibm_Flux, *ibm_Area, correction);
-  if  (NumberOfBodies>1){
-    for (ibi=0; ibi<NumberOfBodies; ibi++)   LOG_ALLOW(GLOBAL, LOG_INFO, "  [Body %d] Uncorrected Flux: %g, Area: %g, Correction: %g\n", ibi, IB_Flux[ibi], IB_Area[ibi], Correction[ibi]);
-  }
-
-  //================================================================================
-  // PASS 2: Apply Correction to Velocity Field
-  // This pass modifies the velocity at the boundary to enforce zero net flux.
-  //================================================================================
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Pass 2: Applying velocity corrections at the boundary.\n");
-  
-  for (k=lzs; k<lze; k++) {
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	if (nvert[k][j][i] < 0.1) {
-	  if (nvert[k][j][i+1] > 0.1 && nvert[k][j][i+1] <ibmval && i < xend) {
-	    if (fabs(ucor[k][j][i].x)>epsilon){
-	      if (flg==3) 
-		ucor[k][j][i].x -=correction*fabs(ucor[k][j][i].x)/
-		  sqrt(csi[k][j][i].x * csi[k][j][i].x +
-		       csi[k][j][i].y * csi[k][j][i].y +
-		       csi[k][j][i].z * csi[k][j][i].z);
-	      else if (flg==2) 
-		ucor[k][j][i].x -=correction*fabs(ucor[k][j][i].x);
-	      else if (NumberOfBodies > 1) {
-		ibi=(int)((nvert[k][j][i+1]-1.0)*1001);
-		ucor[k][j][i].x -= sqrt(csi[k][j][i].x * csi[k][j][i].x +
-					csi[k][j][i].y * csi[k][j][i].y +
-					csi[k][j][i].z * csi[k][j][i].z) *
-		  Correction[ibi];
-	      }
-	      else
-		ucor[k][j][i].x -= sqrt(csi[k][j][i].x * csi[k][j][i].x +
-					csi[k][j][i].y * csi[k][j][i].y +
-					csi[k][j][i].z * csi[k][j][i].z) *
-		  correction;
-	    }
-	  }
-	  if (nvert[k][j+1][i] > 0.1 && nvert[k][j+1][i] < ibmval && j < yend) {
-	    if (fabs(ucor[k][j][i].y)>epsilon) {
-	      if (flg==3) 
-		ucor[k][j][i].y -=correction*fabs(ucor[k][j][i].y)/
-		  sqrt(eta[k][j][i].x * eta[k][j][i].x + 
-		       eta[k][j][i].y * eta[k][j][i].y +
-		       eta[k][j][i].z * eta[k][j][i].z);
-	      else if (flg==2) 
-		ucor[k][j][i].y -=correction*fabs(ucor[k][j][i].y);
-	      else if (NumberOfBodies > 1) {
-		ibi=(int)((nvert[k][j+1][i]-1.0)*1001);
-		ucor[k][j][i].y -= sqrt(eta[k][j][i].x * eta[k][j][i].x +
-					eta[k][j][i].y * eta[k][j][i].y +
-					eta[k][j][i].z * eta[k][j][i].z) *
-		  Correction[ibi];
-	      }
-	      else
-		ucor[k][j][i].y -= sqrt(eta[k][j][i].x * eta[k][j][i].x + 
-					eta[k][j][i].y * eta[k][j][i].y +
-					eta[k][j][i].z * eta[k][j][i].z) *
-		  correction;
-	    }
-	  }
-	  if (nvert[k+1][j][i] > 0.1 && nvert[k+1][j][i] < ibmval && k < zend) {
-	    if (fabs(ucor[k][j][i].z)>epsilon) {
-	      if (flg==3) 
-		ucor[k][j][i].z -= correction*fabs(ucor[k][j][i].z)/
-		  sqrt(zet[k][j][i].x * zet[k][j][i].x +
-		       zet[k][j][i].y * zet[k][j][i].y +
-		       zet[k][j][i].z * zet[k][j][i].z);
-	      else if (flg==2) 
-		ucor[k][j][i].z -= correction*fabs(ucor[k][j][i].z);
-	      else if (NumberOfBodies > 1) {
-		ibi=(int)((nvert[k+1][j][i]-1.0)*1001);
-		ucor[k][j][i].z -= sqrt(zet[k][j][i].x * zet[k][j][i].x +
-					zet[k][j][i].y * zet[k][j][i].y +
-					zet[k][j][i].z * zet[k][j][i].z) *
-		  Correction[ibi];
-	      }
-	      else
-		ucor[k][j][i].z -= sqrt(zet[k][j][i].x * zet[k][j][i].x +
-					zet[k][j][i].y * zet[k][j][i].y +
-					zet[k][j][i].z * zet[k][j][i].z) *
-		  correction;
-	    }
-	  }
-	}
-
-	if (nvert[k][j][i] > 0.1 && nvert[k][j][i] < ibmval) {
-	  if (nvert[k][j][i+1] < 0.1 && i < xend) {
-	    if (fabs(ucor[k][j][i].x)>epsilon) {
-	      if (flg==3) 
-		ucor[k][j][i].x += correction*fabs(ucor[k][j][i].x)/
-		  sqrt(csi[k][j][i].x * csi[k][j][i].x +
-		       csi[k][j][i].y * csi[k][j][i].y +
-		       csi[k][j][i].z * csi[k][j][i].z);
-	      else if (flg==2) 
-		ucor[k][j][i].x += correction*fabs(ucor[k][j][i].x);
-	      else if (NumberOfBodies > 1) {
-		ibi=(int)((nvert[k][j][i]-1.0)*1001);
-		ucor[k][j][i].x += sqrt(csi[k][j][i].x * csi[k][j][i].x +
-					csi[k][j][i].y * csi[k][j][i].y +
-					csi[k][j][i].z * csi[k][j][i].z) *
-		  Correction[ibi];
-	      }
-	      else
-		ucor[k][j][i].x += sqrt(csi[k][j][i].x * csi[k][j][i].x +
-					csi[k][j][i].y * csi[k][j][i].y +
-					csi[k][j][i].z * csi[k][j][i].z) *
-		  correction;
-	    }
-	  }
-	  if (nvert[k][j+1][i] < 0.1 && j < yend) {
-	    if (fabs(ucor[k][j][i].y)>epsilon) {
-	    if (flg==3) 
-	      ucor[k][j][i].y +=correction*fabs(ucor[k][j][i].y)/
-		sqrt(eta[k][j][i].x * eta[k][j][i].x +
-		     eta[k][j][i].y * eta[k][j][i].y +
-		     eta[k][j][i].z * eta[k][j][i].z);
-	    else if (flg==2) 
-	      ucor[k][j][i].y +=correction*fabs(ucor[k][j][i].y);
-	    else if (NumberOfBodies > 1) {
-	      ibi=(int)((nvert[k][j][i]-1.0)*1001);
-	      ucor[k][j][i].y += sqrt(eta[k][j][i].x * eta[k][j][i].x +
-				      eta[k][j][i].y * eta[k][j][i].y +
-				      eta[k][j][i].z * eta[k][j][i].z) *
-		Correction[ibi];
-	    }
-	    else
-	    ucor[k][j][i].y += sqrt(eta[k][j][i].x * eta[k][j][i].x +
-				    eta[k][j][i].y * eta[k][j][i].y +
-				    eta[k][j][i].z * eta[k][j][i].z) *
-				    correction;
-	    }
-	  }
-	  if (nvert[k+1][j][i] < 0.1 && k < zend) {
-	    if (fabs(ucor[k][j][i].z)>epsilon) {
-	    if (flg==3) 
-	      ucor[k][j][i].z += correction*fabs(ucor[k][j][i].z)/
-		sqrt(zet[k][j][i].x * zet[k][j][i].x +
-		     zet[k][j][i].y * zet[k][j][i].y +
-		     zet[k][j][i].z * zet[k][j][i].z);
-	    else if (flg==2) 
-	      ucor[k][j][i].z += correction*fabs(ucor[k][j][i].z);
-	    else if (NumberOfBodies > 1) {
-	      ibi=(int)((nvert[k][j][i]-1.0)*1001);
-	      ucor[k][j][i].z += sqrt(zet[k][j][i].x * zet[k][j][i].x +
-				      zet[k][j][i].y * zet[k][j][i].y +
-				      zet[k][j][i].z * zet[k][j][i].z) *
-		Correction[ibi];
-	    }
-	    else
-	      ucor[k][j][i].z += sqrt(zet[k][j][i].x * zet[k][j][i].x +
-				      zet[k][j][i].y * zet[k][j][i].y +
-				      zet[k][j][i].z * zet[k][j][i].z) *
-		correction;
-	    }
-	  }
-	}
-	
-      }
-    }
-  }
-  
-  //================================================================================
-  // PASS 3: Verification
-  // This optional pass recalculates the flux to confirm the correction was successful.
-  //================================================================================
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Pass 3: Verifying corrected flux.\n");
-  
-  libm_Flux = 0;
-  libm_area = 0;
-  for (k=lzs; k<lze; k++) {
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	if (nvert[k][j][i] < 0.1) {
-	  if (nvert[k][j][i+1] > 0.1 && nvert[k][j][i+1] < ibmval && i < xend) {
-	    libm_Flux += ucor[k][j][i].x;
-	    libm_area += sqrt(csi[k][j][i].x * csi[k][j][i].x +
-			  csi[k][j][i].y * csi[k][j][i].y +
-			  csi[k][j][i].z * csi[k][j][i].z);
-			  
-	  }
-	  if (nvert[k][j+1][i] > 0.1 && nvert[k][j+1][i] < ibmval && j < yend) {
-	    libm_Flux += ucor[k][j][i].y;
-	    libm_area += sqrt(eta[k][j][i].x * eta[k][j][i].x +
-			  eta[k][j][i].y * eta[k][j][i].y +
-			  eta[k][j][i].z * eta[k][j][i].z);
-	  }
-	  if (nvert[k+1][j][i] > 0.1 && nvert[k+1][j][i] < ibmval && k < zend) {
-	    libm_Flux += ucor[k][j][i].z;
-	    libm_area += sqrt(zet[k][j][i].x * zet[k][j][i].x +
-			  zet[k][j][i].y * zet[k][j][i].y +
-			  zet[k][j][i].z * zet[k][j][i].z);
-	  }
-	}
-
-	if (nvert[k][j][i] > 0.1 && nvert[k][j][i] < ibmval) {
-	  if (nvert[k][j][i+1] < 0.1 && i < xend) {
-	    libm_Flux -= ucor[k][j][i].x;
-	    libm_area += sqrt(csi[k][j][i].x * csi[k][j][i].x +
-			  csi[k][j][i].y * csi[k][j][i].y +
-			  csi[k][j][i].z * csi[k][j][i].z);
-			  
-	  }
-	  if (nvert[k][j+1][i] < 0.1 && j < yend) {
-	    libm_Flux -= ucor[k][j][i].y;
-	    libm_area += sqrt(eta[k][j][i].x * eta[k][j][i].x +
-			  eta[k][j][i].y * eta[k][j][i].y +
-			  eta[k][j][i].z * eta[k][j][i].z);
-	  }
-	  if (nvert[k+1][j][i] < 0.1 && k < zend) {
-	    libm_Flux -= ucor[k][j][i].z;
-	    libm_area += sqrt(zet[k][j][i].x * zet[k][j][i].x +
-			  zet[k][j][i].y * zet[k][j][i].y +
-			  zet[k][j][i].z * zet[k][j][i].z);
-	  }
-	}
-
-      }
-    }
-  }
-
-  ierr = MPI_Allreduce(&libm_Flux, ibm_Flux,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-  ierr = MPI_Allreduce(&libm_area, ibm_Area,1,MPI_DOUBLE,MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-
- /*  PetscGlobalSum(&libm_Flux, ibm_Flux, PETSC_COMM_WORLD); */
-/*   PetscGlobalSum(&libm_area, ibm_Area, PETSC_COMM_WORLD); */
-    LOG_ALLOW(GLOBAL, LOG_INFO, "IBM Corrected (Verified) Flux: %g, Area: %g\n", *ibm_Flux, *ibm_Area);
-
-
-  if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC){
-    if (xe==mx){
-      i=mx-2;
-      for (k=lzs; k<lze; k++) {
-	for (j=lys; j<lye; j++) {
-	  // if(j>0 && k>0 && j<user->JM && k<user->KM){
-	    if ((nvert[k][j][i]>ibmval && nvert[k][j][i+1]<0.1) || (nvert[k][j][i]<0.1 && nvert[k][j][i+1]>ibmval)) ucor[k][j][i].x=0.0;
-	    
-	    // }
-	}
-      }
-    }
-  }
-
-  if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC){
-    if (ye==my){
-      j=my-2;
-      for (k=lzs; k<lze; k++) {
-	for (i=lxs; i<lxe; i++) {
-	  // if(i>0 && k>0 && i<user->IM && k<user->KM){
-	    if ((nvert[k][j][i]>ibmval && nvert[k][j+1][i]<0.1) || (nvert[k][j][i]<0.1 && nvert[k][j+1][i]>ibmval)) ucor[k][j][i].y=0.0;
-	    // }
-	}
-      }
-    }
-  }
-
-  if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC || user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC){
-    if (ze==mz){
-      k=mz-2;
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  // if(i>0 && j>0 && i<user->IM && j<user->JM){
-	    if ((nvert[k][j][i]>ibmval && nvert[k+1][j][i]<0.1) || (nvert[k][j][i]<0.1 && nvert[k+1][j][i]>ibmval)) ucor[k][j][i].z=0.0;
-	    // }
-	}
-      }
-    }
-  }
-
-
-  DMDAVecRestoreArray(da, user->lNvert, &nvert);
-  DMDAVecRestoreArray(fda, user->lCsi, &csi);
-  DMDAVecRestoreArray(fda, user->lEta, &eta);
-  DMDAVecRestoreArray(fda, user->lZet, &zet);
-  DMDAVecRestoreArray(fda, user->Ucont, &ucor);
-
-  const FieldId staggered_fields[] = {FIELD_ID_UCONT};
-  ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
-
-  if (NumberOfBodies > 1) {
-    free(lIB_Flux);
-    free(lIB_area);
-    free(IB_Flux);
-    free(IB_Area);
-    free(Correction);
-  }
-
- LOG_ALLOW(GLOBAL, LOG_DEBUG, "Exiting VolumeFlux.\n");
-  
-  return 0;
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecRestoreArray(user->da, X, &x));
+    PetscFunctionReturn(0);
 }
 
 /**
- * @brief Report whether a coarse-grid cell is completely blocked by solid fine-grid cells.
+ * @brief Coarse cell and interpolation direction along one axis for fine index @p f.
+ *
+ * Each fine cell takes 3/4 of its parent coarse cell and 1/4 of the coarse neighbour on
+ * the side it lies towards. The first and last interior cells and semi-coarsened axes use
+ * the parent only, as does a neighbour that is solid on the coarse grid.
  */
-static PetscErrorCode FullyBlocked(UserCtx *user)
+static void PoissonMultigrid_InterpolationParent(PetscInt f, PetscInt m, PetscInt semi,
+                                                 PetscInt *coarse, PetscInt *direction)
 {
-  PetscErrorCode ierr;
-  DM da = user->da;
-  Vec nNvert;
-  DMDALocalInfo info = user->info;
-
-  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
-
-  PetscInt i, j, k;
-
-  PetscInt *KSKE = user->KSKE;
-  PetscReal ***nvert;
-  PetscBool *Blocked;
-
-  DMDACreateNaturalVector(da, &nNvert);
-  DMDAGlobalToNaturalBegin(da, user->Nvert, INSERT_VALUES, nNvert);
-  DMDAGlobalToNaturalEnd(da, user->Nvert, INSERT_VALUES, nNvert);
-
-  VecScatter ctx;
-  Vec Zvert;
-  VecScatterCreateToZero(nNvert, &ctx, &Zvert);
-
-  VecScatterBegin(ctx, nNvert, Zvert, INSERT_VALUES, SCATTER_FORWARD);
-  VecScatterEnd(ctx, nNvert, Zvert, INSERT_VALUES, SCATTER_FORWARD);
-
-  VecScatterDestroy(&ctx);
-  VecDestroy(&nNvert);
-
-  PetscInt rank;
-  ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRMPI(ierr);
-
-  if (!rank) {
-
-    VecGetArray3d(Zvert, mz, my, mx, 0, 0, 0, &nvert);
-    PetscMalloc(mx*my*sizeof(PetscBool), &Blocked);
-    for (j=1; j<my-1; j++) {
-      for (i=1; i<mx-1; i++) {
-	Blocked[j*mx+i] = PETSC_FALSE;
-	for (k=0; k<mz; k++) {
-	  if (nvert[k][j][i] > 0.1) {
-	    if (!Blocked[j*mx+i]) {
-	      KSKE[2*(j*mx+i)] = k;
-	      Blocked[j*mx+i] = PETSC_TRUE;
-	    }
-	    else {
-	      KSKE[2*(j*mx+i)] = PetscMin(KSKE[2*(j*mx+i)], k);
-	    }
-	  }
-	}
-      }
+    if (semi) {
+        *coarse = f;
+        *direction = 0;
+        return;
     }
-
-
-    user->multinullspace = PETSC_TRUE;
-    for (j=1; j<my-1; j++) {
-      for (i=1; i<mx-1; i++) {
-	if (!Blocked[j*mx+i]) {
-	  user->multinullspace = PETSC_FALSE;
-	  break;
-	}
-      }
-    }
-    PetscFree(Blocked);
-    VecRestoreArray3d(Zvert, mz, my, mx, 0, 0, 0, &nvert);
-    ierr = MPI_Bcast(&user->multinullspace, 1, MPI_INT, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    if (user->multinullspace) {
-      ierr = MPI_Bcast(user->KSKE, 2*mx*my, MPI_INT, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-
-    }
-  }
-  else {
-    ierr = MPI_Bcast(&user->multinullspace, 1, MPI_INT, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    if (user->multinullspace) {
-      ierr = MPI_Bcast(user->KSKE, 2*mx*my, MPI_INT, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    }
-  }
-
-
-
-  VecDestroy(&Zvert);
-  return 0;
+    *coarse = (f + 1) / 2;
+    *direction = (f - 2 * (*coarse)) == 0 ? 1 : -1;
+    if (f == 1 || f == m - 2) *direction = 0;
 }
 
 /**
- * @brief Restrict solid-volume fractions from fine cells to one coarse cell.
+ * @brief Prolongs a coarse-level correction to the next finer level (MatShell multiply).
+ * @details The shell context is the fine-level UserCtx.
  */
-static PetscErrorCode MyNvertRestriction(UserCtx *user_h, UserCtx *user_c)
+static PetscErrorCode PoissonMultigrid_Interpolate(Mat P, Vec X, Vec F)
 {
-  PetscErrorCode ierr;
-  //  DA		da = user_c->da, fda = user_c->fda;
+    UserCtx            *user, *coarse;
+    DMDALocalInfo       info;
+    Vec                 lX;
+    const PetscReal  ***x, ***nvert, ***nvert_c;
+    PetscReal        ***f;
 
+    PetscFunctionBeginUser;
+    PetscCall(MatShellGetContext(P, &user));
+    coarse = user->user_c;
+    info = user->info;
+    const PetscInt mx = info.mx, my = info.my, mz = info.mz;
+    const PetscInt xs = info.xs, xe = info.xs + info.xm;
+    const PetscInt ys = info.ys, ye = info.ys + info.ym;
+    const PetscInt zs = info.zs, ze = info.zs + info.zm;
+    const PetscInt lxs = (xs == 0) ? 1 : xs, lxe = (xe == mx) ? mx - 1 : xe;
+    const PetscInt lys = (ys == 0) ? 1 : ys, lye = (ye == my) ? my - 1 : ye;
+    const PetscInt lzs = (zs == 0) ? 1 : zs, lze = (ze == mz) ? mz - 1 : ze;
 
+    PetscCall(DMGetLocalVector(coarse->da, &lX));
+    PetscCall(DMGlobalToLocalBegin(coarse->da, X, INSERT_VALUES, lX));
+    PetscCall(DMGlobalToLocalEnd(coarse->da, X, INSERT_VALUES, lX));
+    PetscCall(DMDAVecGetArrayRead(coarse->da, lX, (void *)&x));
+    PetscCall(DMDAVecGetArrayRead(coarse->da, coarse->lNvert, (void *)&nvert_c));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecGetArray(user->da, F, &f));
 
-  DMDALocalInfo	info = user_c->info;
-  PetscInt	xs = info.xs, xe = info.xs + info.xm;
-  PetscInt  	ys = info.ys, ye = info.ys + info.ym;
-  PetscInt	zs = info.zs, ze = info.zs + info.zm;
-  PetscInt	mx = info.mx, my = info.my, mz = info.mz;
+    for (PetscInt k = lzs; k < lze; k++) {
+        for (PetscInt j = lys; j < lye; j++) {
+            for (PetscInt i = lxs; i < lxe; i++) {
+                PetscInt ic, jc, kc, ia, ja, ka;
 
-  PetscInt i,j,k;
-  PetscInt ih, jh, kh, ia, ja, ka;
-  PetscInt	lxs, lxe, lys, lye, lzs, lze;
+                PoissonMultigrid_InterpolationParent(i, mx, user->isc, &ic, &ia);
+                PoissonMultigrid_InterpolationParent(j, my, user->jsc, &jc, &ja);
+                PoissonMultigrid_InterpolationParent(k, mz, user->ksc, &kc, &ka);
+                if (ka == -1 && nvert_c[kc-1][jc][ic] > POISSON_SOLID_THRESHOLD) ka = 0;
+                else if (ka == 1 && nvert_c[kc+1][jc][ic] > POISSON_SOLID_THRESHOLD) ka = 0;
+                if (ja == -1 && nvert_c[kc][jc-1][ic] > POISSON_SOLID_THRESHOLD) ja = 0;
+                else if (ja == 1 && nvert_c[kc][jc+1][ic] > POISSON_SOLID_THRESHOLD) ja = 0;
+                if (ia == -1 && nvert_c[kc][jc][ic-1] > POISSON_SOLID_THRESHOLD) ia = 0;
+                else if (ia == 1 && nvert_c[kc][jc][ic+1] > POISSON_SOLID_THRESHOLD) ia = 0;
 
-  PetscReal ***nvert, ***nvert_h;
-
-  DMDAVecGetArray(user_h->da, user_h->lNvert, &nvert_h);
-  DMDAVecGetArray(user_c->da, user_c->Nvert, &nvert);
-
-  lxs = xs; lxe = xe;
-  lys = ys; lye = ye;
-  lzs = zs; lze = ze;
-
-  if (xs==0) lxs = xs+1;
-  if (ys==0) lys = ys+1;
-  if (zs==0) lzs = zs+1;
-
-  if (xe==mx) lxe = xe-1;
-  if (ye==my) lye = ye-1;
-  if (ze==mz) lze = ze-1;
-
-  if ((user_c->isc)) ia = 0;
-  else ia = 1;
-
-  if ((user_c->jsc)) ja = 0;
-  else ja = 1;
-
-  if ((user_c->ksc)) ka = 0;
-  else ka = 1;
-
-  VecSet(user_c->Nvert, 0.);
-  if (user_c->thislevel > 0) {
-    for (k=lzs; k<lze; k++) {
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  GridRestriction(i, j, k, &ih, &jh, &kh, user_c);
-	  if (nvert_h[kh   ][jh   ][ih   ] *
-	      nvert_h[kh   ][jh   ][ih-ia] *
-	      nvert_h[kh   ][jh-ja][ih   ] *
-	      nvert_h[kh-ka][jh   ][ih   ] *
-	      nvert_h[kh   ][jh-ja][ih-ia] *
-	      nvert_h[kh-ka][jh   ][ih-ia] *
-	      nvert_h[kh-ka][jh-ja][ih   ] *
-	      nvert_h[kh-ka][jh-ja][ih-ia] > 0.1) {
-	    nvert[k][j][i] = PetscMax(1., nvert[k][j][i]);
-	  }
-	}
-      }
+                f[k][j][i] = (x[kc   ][jc   ][ic   ] * 9 +
+                              x[kc   ][jc+ja][ic   ] * 3 +
+                              x[kc   ][jc   ][ic+ia] * 3 +
+                              x[kc   ][jc+ja][ic+ia]) * 3./64. +
+                             (x[kc+ka][jc   ][ic   ] * 9 +
+                              x[kc+ka][jc+ja][ic   ] * 3 +
+                              x[kc+ka][jc   ][ic+ia] * 3 +
+                              x[kc+ka][jc+ja][ic+ia]) / 64.;
+            }
+        }
     }
-  }
-  else {
-    for (k=lzs; k<lze; k++) {
-      for (j=lys; j<lye; j++) {
-	for (i=lxs; i<lxe; i++) {
-	  GridRestriction(i, j, k, &ih, &jh, &kh, user_c);
-	  if (nvert_h[kh   ][jh   ][ih   ] *
-	      nvert_h[kh   ][jh   ][ih-ia] *
-	      nvert_h[kh   ][jh-ja][ih   ] *
-	      nvert_h[kh-ka][jh   ][ih   ] *
-	      nvert_h[kh   ][jh-ja][ih-ia] *
-	      nvert_h[kh-ka][jh   ][ih-ia] *
-	      nvert_h[kh-ka][jh-ja][ih   ] *
-	      nvert_h[kh-ka][jh-ja][ih-ia] > 0.1) {
-	    nvert[k][j][i] = PetscMax(1., nvert[k][j][i]);
-	  }
-	}
-      }
+    for (PetscInt k = zs; k < ze; k++) {
+        for (PetscInt j = ys; j < ye; j++) {
+            for (PetscInt i = xs; i < xe; i++) {
+                if (i == 0 || i == mx - 1 || j == 0 || j == my - 1 || k == 0 || k == mz - 1 ||
+                    nvert[k][j][i] > POISSON_SOLID_THRESHOLD) f[k][j][i] = 0.0;
+            }
+        }
     }
-  }
-  DMDAVecRestoreArray(user_h->da, user_h->lNvert, &nvert_h);
-  DMDAVecRestoreArray(user_c->da, user_c->Nvert, &nvert);
 
-  ierr = UpdateLocalGhosts(user_c, FIELD_ID_NVERT); CHKERRQ(ierr);
-  //Mohsen Dec 2015
-  DMDAVecGetArray(user_c->da, user_c->lNvert, &nvert);
-  DMDAVecGetArray(user_c->da, user_c->Nvert, &nvert_h);
+    PetscCall(DMDAVecRestoreArray(user->da, F, &f));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecRestoreArrayRead(coarse->da, coarse->lNvert, (void *)&nvert_c));
+    PetscCall(DMDAVecRestoreArrayRead(coarse->da, lX, (void *)&x));
+    PetscCall(DMRestoreLocalVector(coarse->da, &lX));
+    PetscFunctionReturn(0);
+}
 
-  for (k=lzs; k<lze; k++) {
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	if (nvert_h[k][j][i] < 0.1) {
-	  if (nvert[k][j][i+1] + nvert[k][j][i-1] > 1.1 &&
-	      nvert[k][j+1][i] + nvert[k][j-1][i] > 1.1 &&
-	      nvert[k+1][j][i] + nvert[k-1][j][i] > 1.1) {
-	    nvert_h[k][j][i] = 1.;
-	  }
-	}
-      }
+/**
+ * @brief Restricts a fine-level residual to the next coarser level (MatShell multiply).
+ *
+ * Each coarse cell averages the eight fine cells it covers, weighting each by its fluid
+ * fraction; coarse dummy and solid cells receive zero. The shell context is the
+ * coarse-level UserCtx.
+ */
+static PetscErrorCode PoissonMultigrid_Restrict(Mat R, Vec X, Vec F)
+{
+    UserCtx            *user, *fine;
+    DMDALocalInfo       info;
+    Vec                 lX;
+    const PetscReal  ***x, ***nvert, ***nvert_f;
+    PetscReal        ***f;
+
+    PetscFunctionBeginUser;
+    PetscCall(MatShellGetContext(R, &user));
+    fine = user->user_f;
+    info = user->info;
+    const PetscInt mx = info.mx, my = info.my, mz = info.mz;
+    const PetscInt ia = user->isc ? 0 : 1, ja = user->jsc ? 0 : 1, ka = user->ksc ? 0 : 1;
+
+    PetscCall(DMGetLocalVector(fine->da, &lX));
+    PetscCall(DMGlobalToLocalBegin(fine->da, X, INSERT_VALUES, lX));
+    PetscCall(DMGlobalToLocalEnd(fine->da, X, INSERT_VALUES, lX));
+    PetscCall(DMDAVecGetArrayRead(fine->da, lX, (void *)&x));
+    PetscCall(DMDAVecGetArrayRead(fine->da, fine->lNvert, (void *)&nvert_f));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecGetArray(user->da, F, &f));
+
+    for (PetscInt k = info.zs; k < info.zs + info.zm; k++) {
+        for (PetscInt j = info.ys; j < info.ys + info.ym; j++) {
+            for (PetscInt i = info.xs; i < info.xs + info.xm; i++) {
+                if (i == 0 || i == mx - 1 || j == 0 || j == my - 1 || k == 0 || k == mz - 1 ||
+                    nvert[k][j][i] > POISSON_SOLID_THRESHOLD) {
+                    f[k][j][i] = 0.0;
+                    continue;
+                }
+                const PetscInt ih = user->isc ? i : 2 * i;
+                const PetscInt jh = user->jsc ? j : 2 * j;
+                const PetscInt kh = user->ksc ? k : 2 * k;
+                f[k][j][i] = 0.125 *
+                    (x[kh   ][jh   ][ih   ] * PetscMax(0., 1 - nvert_f[kh   ][jh   ][ih   ]) +
+                     x[kh   ][jh   ][ih-ia] * PetscMax(0., 1 - nvert_f[kh   ][jh   ][ih-ia]) +
+                     x[kh   ][jh-ja][ih   ] * PetscMax(0., 1 - nvert_f[kh   ][jh-ja][ih   ]) +
+                     x[kh-ka][jh   ][ih   ] * PetscMax(0., 1 - nvert_f[kh-ka][jh   ][ih   ]) +
+                     x[kh   ][jh-ja][ih-ia] * PetscMax(0., 1 - nvert_f[kh   ][jh-ja][ih-ia]) +
+                     x[kh-ka][jh-ja][ih   ] * PetscMax(0., 1 - nvert_f[kh-ka][jh-ja][ih   ]) +
+                     x[kh-ka][jh   ][ih-ia] * PetscMax(0., 1 - nvert_f[kh-ka][jh   ][ih-ia]) +
+                     x[kh-ka][jh-ja][ih-ia] * PetscMax(0., 1 - nvert_f[kh-ka][jh-ja][ih-ia]));
+            }
+        }
     }
-  }
 
-  DMDAVecRestoreArray(user_c->da, user_c->lNvert, &nvert);
-  DMDAVecRestoreArray(user_c->da, user_c->Nvert, &nvert_h);
-  ierr = UpdateLocalGhosts(user_c, FIELD_ID_NVERT); CHKERRQ(ierr);
- /*  DMLocalToGlobalBegin(user_c->da, user_c->lNvert, INSERT_VALUES, user_c->Nvert); */
-/*   DMLocalToGlobalEnd(user_c->da, user_c->lNvert, INSERT_VALUES, user_c->Nvert); */
-  return 0;
+    PetscCall(DMDAVecRestoreArray(user->da, F, &f));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecRestoreArrayRead(fine->da, fine->lNvert, (void *)&nvert_f));
+    PetscCall(DMDAVecRestoreArrayRead(fine->da, lX, (void *)&x));
+    PetscCall(DMRestoreLocalVector(fine->da, &lX));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Builds the multigrid solver for block @p bi and stores it in the finest level.
+ *
+ * Assembles the operator on every level, then configures the outer `ps_` Krylov solver
+ * with a multiplicative V-cycle `PCMG`: shell restriction and interpolation between
+ * levels, block-Jacobi smoothers by default, a coarse solve limited to 40 iterations at
+ * relative tolerance 1e-8, and the Neumann null space on every level. PETSc options
+ * override these defaults. Everything built here depends only on the grid metrics, the
+ * solid field, and the boundary types; calling it again after one of those changes
+ * rebuilds the solver.
+ */
+static PetscErrorCode PoissonMultigrid_Build(UserMG *usermg, PetscInt bi)
+{
+    MGCtx          *mgctx = usermg->mgctx;
+    const PetscInt  levels = usermg->mglevels;
+    UserCtx        *finest = &mgctx[levels - 1].user[bi];
+    SimCtx         *simCtx = finest->simCtx;
+    DualMonitorCtx *monitor;
+    KSP             ksp;
+    PC              pc;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Block %d: building the multigrid Poisson solver on %d levels.\n", bi, levels);
+
+    for (PetscInt l = levels - 1; l >= 0; l--) PetscCall(AssemblePoissonOperator(&mgctx[l].user[bi]));
+
+    PetscCall(KSPCreate(PETSC_COMM_WORLD, &ksp));
+    PetscCall(KSPAppendOptionsPrefix(ksp, "ps_"));
+
+    /* The convergence log is opened and closed around every solve; see
+       PoissonMultigrid_OpenConvergenceLog(). The monitor owns its context. */
+    PetscCall(PetscNew(&monitor));
+    monitor->block_id = bi;
+    monitor->file_handle = NULL;
+    PetscCall(KSPMonitorSet(ksp, DualKSPMonitor, monitor, DualMonitorDestroy));
+
+    PetscCall(KSPGetPC(ksp, &pc));
+    PetscCall(PCSetType(pc, PCMG));
+    PetscCall(PCMGSetLevels(pc, levels, NULL));
+    PetscCall(PCMGSetCycleType(pc, PC_MG_CYCLE_V));
+    PetscCall(PCMGSetType(pc, PC_MG_MULTIPLICATIVE));
+    if (simCtx->mg_preItr != simCtx->mg_poItr) {
+        LOG(GLOBAL, LOG_WARNING,
+            "PETSc PCMG exposes one smoother count in this build; using max(pre_sweeps=%d, post_sweeps=%d).\n",
+            simCtx->mg_preItr, simCtx->mg_poItr);
+    }
+    PetscCall(PCMGSetNumberSmooth(pc, PetscMax(simCtx->mg_preItr, simCtx->mg_poItr)));
+
+    for (PetscInt l = levels - 1; l > 0; l--) {
+        UserCtx *fine = &mgctx[l].user[bi];
+        UserCtx *coarse = &mgctx[l - 1].user[bi];
+        const PetscInt m_c = coarse->info.xm * coarse->info.ym * coarse->info.zm;
+        const PetscInt m_f = fine->info.xm * fine->info.ym * fine->info.zm;
+        const PetscInt M_c = coarse->info.mx * coarse->info.my * coarse->info.mz;
+        const PetscInt M_f = fine->info.mx * fine->info.my * fine->info.mz;
+
+        PetscCall(MatCreateShell(PETSC_COMM_WORLD, m_c, m_f, M_c, M_f, coarse, &fine->MR));
+        PetscCall(MatCreateShell(PETSC_COMM_WORLD, m_f, m_c, M_f, M_c, fine, &fine->MP));
+        PetscCall(MatShellSetOperation(fine->MR, MATOP_MULT, (void (*)(void))PoissonMultigrid_Restrict));
+        PetscCall(MatShellSetOperation(fine->MP, MATOP_MULT, (void (*)(void))PoissonMultigrid_Interpolate));
+        PetscCall(PCMGSetRestriction(pc, l, fine->MR));
+        PetscCall(PCMGSetInterpolation(pc, l, fine->MP));
+    }
+
+    for (PetscInt l = levels - 1; l >= 0; l--) {
+        UserCtx  *level = &mgctx[l].user[bi];
+        KSP       level_ksp;
+        PC        level_pc;
+        PCType    level_pc_type;
+        PetscBool is_bjacobi = PETSC_FALSE;
+
+        if (l > 0) {
+            PetscCall(PCMGGetSmoother(pc, l, &level_ksp));
+        } else {
+            PetscCall(PCMGGetCoarseSolve(pc, &level_ksp));
+            PetscCall(KSPSetTolerances(level_ksp, 1.e-8, PETSC_DEFAULT, PETSC_DEFAULT, 40));
+        }
+        PetscCall(KSPSetOperators(level_ksp, level->A, level->A));
+        PetscCall(KSPGetPC(level_ksp, &level_pc));
+        PetscCall(PCSetType(level_pc, PCBJACOBI));
+        PetscCall(KSPSetFromOptions(level_ksp));
+
+        PetscCall(PCGetType(level_pc, &level_pc_type));
+        if (level_pc_type) PetscCall(PetscStrcmp(level_pc_type, PCBJACOBI, &is_bjacobi));
+        if (is_bjacobi) {
+            KSP     *block_ksp;
+            PetscInt nblocks;
+
+            PetscCall(KSPSetUp(level_ksp));
+            PetscCall(PCBJacobiGetSubKSP(level_pc, &nblocks, NULL, &block_ksp));
+            for (PetscInt b = 0; b < nblocks; b++) {
+                PC block_pc;
+                PetscCall(KSPGetPC(block_ksp[b], &block_pc));
+                PetscCall(PCFactorSetShiftAmount(block_pc, 1.e-10));
+            }
+        }
+
+        PetscCall(MatNullSpaceCreate(PETSC_COMM_WORLD, PETSC_TRUE, 0, NULL, &level->nullsp));
+        PetscCall(MatNullSpaceSetFunction(level->nullsp, PoissonMultigrid_RemoveNullSpace, level));
+        PetscCall(MatSetNullSpace(level->A, level->nullsp));
+        PetscCall(PCMGSetResidual(pc, l, PCMGResidualDefault, level->A));
+        PetscCall(KSPSetUp(level_ksp));
+
+        if (l < levels - 1) {
+            PetscCall(MatCreateVecs(level->A, &level->R, NULL));
+            PetscCall(PCMGSetRhs(pc, l, level->R));
+        }
+    }
+
+    PetscCall(KSPSetOperators(ksp, finest->A, finest->A));
+    PetscCall(MatSetNullSpace(finest->A, finest->nullsp));
+    PetscCall(KSPSetFromOptions(ksp));
+    PetscCall(KSPSetUp(ksp));
+    PetscCall(VecDuplicate(finest->P, &finest->B));
+    finest->ksp = ksp;
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Prepares the convergence monitor for one solve and opens its log file on rank 0.
+ *
+ * The first step of a fresh run truncates the log; every other step appends, and the
+ * first step of a continued run records where it resumed.
+ */
+static PetscErrorCode PoissonMultigrid_OpenConvergenceLog(KSP ksp, SimCtx *simCtx, PetscInt bi)
+{
+    DualMonitorCtx *monitor = NULL;
+    const PetscBool first_step = (PetscBool)(simCtx->step == simCtx->StartStep + 1);
+
+    PetscFunctionBeginUser;
+    PetscCall(KSPGetMonitorContext(ksp, &monitor));
+    monitor->step = simCtx->step;
+    monitor->log_to_console = simCtx->ps_ksp_pic_monitor_true_residual;
+    monitor->file_handle = NULL;
+    if (simCtx->rank == 0) {
+        char filename[PETSC_MAX_PATH_LEN + 128];
+
+        PetscCall(PetscSNPrintf(filename, sizeof(filename),
+                                "%s/Poisson_Solver_Convergence_History_Block_%d.log", simCtx->log_dir, bi));
+        monitor->file_handle = fopen(filename, (first_step && !simCtx->continueMode) ? "w" : "a");
+        PetscCheck(monitor->file_handle, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
+                   "Could not open KSP monitor log file: %s", filename);
+        if (simCtx->continueMode && first_step) {
+            PetscCall(PetscFPrintf(PETSC_COMM_SELF, monitor->file_handle,
+                                   "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep));
+        }
+        PetscCall(PetscFPrintf(PETSC_COMM_SELF, monitor->file_handle,
+                               "--- Convergence for Timestep %d, Block %d ---\n", (int)simCtx->step, bi));
+    }
+    PetscFunctionReturn(0);
+}
+
+/** @brief Closes the log file opened by PoissonMultigrid_OpenConvergenceLog(). */
+static PetscErrorCode PoissonMultigrid_CloseConvergenceLog(KSP ksp)
+{
+    DualMonitorCtx *monitor = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(KSPGetMonitorContext(ksp, &monitor));
+    if (monitor->file_handle) {
+        fclose(monitor->file_handle);
+        monitor->file_handle = NULL;
+    }
+    PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "PoissonSolver_MG"
+#define __FUNCT__ "PoissonSolver_Multigrid"
 /**
- * @brief Implementation of \ref PoissonSolver_MG().
+ * @brief Implementation of \ref PoissonSolver_Multigrid().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/poisson.h`.
- * @see PoissonSolver_MG()
+ * @see PoissonSolver_Multigrid()
  */
-
-PetscErrorCode PoissonSolver_MG(UserMG *usermg)
+PetscErrorCode PoissonSolver_Multigrid(UserMG *usermg)
 {
-    // --- CONTEXT ACQUISITION BLOCK ---
-    // Get the master simulation context from the first block's UserCtx on the finest level.
-    // This provides access to all former global variables.
-    SimCtx *simCtx = usermg->mgctx[0].user[0].simCtx;
+    SimCtx       *simCtx = usermg->mgctx[0].user[0].simCtx;
+    const FieldId staggered_fields[] = {FIELD_ID_UCONT};
 
-    // Create local variables to mirror the legacy globals for minimal code changes.
-    const PetscInt block_number = simCtx->block_number;
-    const PetscInt immersed = simCtx->immersed;
-    const PetscInt MHV = simCtx->MHV;
-    const PetscInt LV = simCtx->LV;
-    PetscMPIInt rank = simCtx->rank;
-    // --- END CONTEXT ACQUISITION BLOCK ---
-
-    PetscErrorCode ierr;
-    PetscInt l, bi;
-    MGCtx *mgctx = usermg->mgctx;
-    KSP mgksp, subksp;
-    PC mgpc, subpc;
-    UserCtx *user;
-
-    PetscFunctionBeginUser; // Moved to after variable declarations
+    PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting Multigrid Poisson Solve...\n");
 
-    for (bi = 0; bi < block_number; bi++) {
-        
-        // ====================================================================
-        //   SECTION: Immersed Boundary Specific Setup (Conditional)
-        // ====================================================================
-        if (immersed) {
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "Block %d: Performing IBM pre-solve setup (Nvert restriction, etc.).\n", bi);
-            for (l = usermg->mglevels - 1; l > 0; l--) {
-                mgctx[l].user[bi].multinullspace = PETSC_FALSE;
-                MyNvertRestriction(&mgctx[l].user[bi], &mgctx[l-1].user[bi]);
-            }
-            // Coarsest level check for disconnected domains due to IBM
-            l = 0;
-            user = mgctx[l].user;
-            /* KSKE is allocated once by CreateAndInitializeAllVectors; FullyBlocked
-             * rewrites every entry it reads, so no per-solve reallocation is needed. */
-            FullyBlocked(&user[bi]);
+    for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+        UserCtx           *user = &usermg->mgctx[usermg->mglevels - 1].user[bi];
+        KSPConvergedReason reason;
+
+        if (!user->ksp) PetscCall(PoissonMultigrid_Build(usermg, bi));
+
+        PetscCall(SynchronizePeriodicStaggeredFields(user, 1, staggered_fields));
+        PetscCall(ComputePoissonRHS(user, user->B));
+
+        PetscCall(PoissonMultigrid_OpenConvergenceLog(user->ksp, simCtx, bi));
+        PetscCall(KSPSolve(user->ksp, user->B, user->Phi));
+        PetscCall(PoissonMultigrid_CloseConvergenceLog(user->ksp));
+
+        /* A non-finite residual or a preconditioner that could not be built leaves Phi
+           meaningless, and the projection would carry it into the next momentum step,
+           where it surfaces as a failure of the wrong solver. Stopping at max_it is this
+           solve's normal mode and stays silent; any other divergence is reported, because
+           the projection proceeds on that Phi. */
+        PetscCall(KSPGetConvergedReason(user->ksp, &reason));
+        PetscCheck(reason != KSP_DIVERGED_NANORINF && reason != KSP_DIVERGED_PC_FAILED,
+                   PETSC_COMM_WORLD, PETSC_ERR_NOT_CONVERGED,
+                   "Pressure Poisson solve on block %" PetscInt_FMT " failed at step %" PetscInt_FMT
+                   " (KSP reason %s). Known causes: a multigrid hierarchy coarsened too far "
+                   "(reduce poisson_solver.multigrid.levels or refine the grid), or a momentum "
+                   "field that has already diverged, such as an explicit time step beyond its "
+                   "stability limit.",
+                   bi, simCtx->step, KSPConvergedReasons[reason]);
+        if (reason < 0 && reason != KSP_DIVERGED_ITS) {
+            LOG(GLOBAL, LOG_WARNING, "Pressure Poisson solve on block %" PetscInt_FMT
+                " diverged at step %" PetscInt_FMT " (KSP reason %s); the projection uses the last iterate.\n",
+                bi, simCtx->step, KSPConvergedReasons[reason]);
         }
-        
-
-        l = usermg->mglevels - 1;
-        user = mgctx[l].user;
-        
-        // We are solving the  linear system AX=B where A = Laplacian Operator Matrix; X = Unknown Phi (Pressure Correction) and B = RHS (Flux Divergence based)
-
-        // --- 1. Compute RHS of the Poisson Equation ---
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "Block %d: Computing Poisson RHS...\n", bi);
-        ierr = VecDuplicate(user[bi].P, &user[bi].B); CHKERRQ(ierr);
-        
-        PetscReal ibm_Flux, ibm_Area;
-        PetscInt flg = immersed - 1;
-
-        // Calculate volume flux source terms (often from IBM)
-        VolumeFlux(&user[bi], &ibm_Flux, &ibm_Area, flg);
-        if (MHV || LV) {
-            flg = ((MHV > 1 || LV) && bi == 0) ? 1 : 0;
-            VolumeFlux_rev(&user[bi], &ibm_Flux, &ibm_Area, flg);
-        }
-        // Calculate the main flux divergence term B.
-        PoissonRHS(&user[bi], user[bi].B);
-        
-        // --- 2. Assemble LHS Matrix (Laplacian) on all MG levels ---
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "Block %d: Assembling Poisson LHS on all levels...\n", bi);
-        for (l = usermg->mglevels - 1; l >= 0; l--) {
-            user = mgctx[l].user;
-	    LOG_ALLOW(GLOBAL,LOG_DEBUG," Calculating LHS for Level %d.\n",l);
-            PoissonLHSNew(&user[bi]);
-        }
-
-        // --- 3. Setup PETSc KSP and PCMG (Multigrid Preconditioner) ---
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "Block %d: Configuring KSP and PCMG...\n", bi);
-
-	ierr = KSPCreate(PETSC_COMM_WORLD, &mgksp); CHKERRQ(ierr);
-        ierr = KSPAppendOptionsPrefix(mgksp, "ps_"); CHKERRQ(ierr);
-
-	// =======================================================================
-        DualMonitorCtx *monctx;
-        char           filen[PETSC_MAX_PATH_LEN + 128];
-
-        // 1. Allocate the context and set it up.
-        ierr = PetscNew(&monctx); CHKERRQ(ierr);
-
-	monctx->step = simCtx->step;
-	monctx->block_id = bi;
-	monctx->file_handle = NULL;
-
-	// Only rank 0 handles the file.
-        if (!rank) {
-          ierr = PetscSNPrintf(filen, sizeof(filen), "%s/Poisson_Solver_Convergence_History_Block_%d.log", simCtx->log_dir, bi); CHKERRQ(ierr);
-	  // On the very first step of a fresh run, TRUNCATE the file.
-	  // In continue mode, always APPEND to preserve existing data.
-	  if (simCtx->step == simCtx->StartStep + 1 && !simCtx->continueMode) {
-	    monctx->file_handle = fopen(filen, "w");
-	  } else { // For all subsequent steps (or continue mode), APPEND.
-	    monctx->file_handle = fopen(filen, "a");
-	  }
- 
-            if (monctx->file_handle) {
-                if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
-                    PetscFPrintf(PETSC_COMM_SELF, monctx->file_handle,
-                                 "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
-                }
-                PetscFPrintf(PETSC_COMM_SELF, monctx->file_handle, "--- Convergence for Timestep %d, Block %d ---\n", (int)simCtx->step, bi);
-            } else {
-                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Could not open KSP monitor log file: %s", filen);
-            }
-        }
-
-        monctx->log_to_console = simCtx->ps_ksp_pic_monitor_true_residual;
-
-        ierr = KSPMonitorSet(mgksp, DualKSPMonitor, monctx, DualMonitorDestroy); CHKERRQ(ierr);
-        // =======================================================================
-	
-        ierr = KSPGetPC(mgksp, &mgpc); CHKERRQ(ierr);
-        ierr = PCSetType(mgpc, PCMG); CHKERRQ(ierr);
-
-        ierr = PCMGSetLevels(mgpc, usermg->mglevels, PETSC_NULLPTR); CHKERRQ(ierr);
-        ierr = PCMGSetCycleType(mgpc, PC_MG_CYCLE_V); CHKERRQ(ierr);
-        ierr = PCMGSetType(mgpc, PC_MG_MULTIPLICATIVE); CHKERRQ(ierr);
-        if (simCtx->mg_preItr != simCtx->mg_poItr) {
-            LOG(GLOBAL, LOG_WARNING,
-                "PETSc PCMG exposes one smoother count in this build; using max(pre_sweeps=%d, post_sweeps=%d).\n",
-                simCtx->mg_preItr, simCtx->mg_poItr);
-        }
-        PetscInt mg_smooths = simCtx->mg_preItr > simCtx->mg_poItr ? simCtx->mg_preItr : simCtx->mg_poItr;
-        ierr = PCMGSetNumberSmooth(mgpc, mg_smooths); CHKERRQ(ierr);
-
-        // --- 4. Define Restriction and Interpolation Operators for MG ---
-        for (l = usermg->mglevels - 1; l > 0; l--) {
-
-         // Get stable pointers directly from the main mgctx array.
-         // These pointers point to memory that will persist.
-	  UserCtx *fine_user_ctx   = &mgctx[l].user[bi];
-	  UserCtx *coarse_user_ctx = &mgctx[l-1].user[bi];
-
-	  // --- Configure the context pointers ---
-	  // The coarse UserCtx needs to know about the fine grid for restriction.
-	  coarse_user_ctx->da_f     = &(fine_user_ctx->da);
-	  coarse_user_ctx->user_f   = fine_user_ctx;
-
-	  // The fine UserCtx needs to know about the coarse grid for interpolation.
-	  fine_user_ctx->da_c       = &(coarse_user_ctx->da);
-	  fine_user_ctx->user_c     = coarse_user_ctx;
-	  fine_user_ctx->lNvert_c   = &(coarse_user_ctx->lNvert);
-
-	  // --- Get matrix dimensions ---
-	  PetscInt m_c = (coarse_user_ctx->info.xm * coarse_user_ctx->info.ym * coarse_user_ctx->info.zm);
-	  PetscInt m_f = (fine_user_ctx->info.xm * fine_user_ctx->info.ym * fine_user_ctx->info.zm);
-	  PetscInt M_c = (coarse_user_ctx->info.mx * coarse_user_ctx->info.my * coarse_user_ctx->info.mz);
-	  PetscInt M_f = (fine_user_ctx->info.mx * fine_user_ctx->info.my * fine_user_ctx->info.mz);
-
-	  LOG_ALLOW(GLOBAL,LOG_DEBUG,"level = %d; m_c = %d; m_f = %d; M_c = %d; M_f = %d.\n",l,m_c,m_f,M_c,M_f);
-	  // --- Create the MatShell objects ---
-	  // Pass the STABLE pointer coarse_user_ctx as the context for restriction.
-	  ierr = MatCreateShell(PETSC_COMM_WORLD, m_c, m_f, M_c, M_f, (void*)coarse_user_ctx, &fine_user_ctx->MR); CHKERRQ(ierr);
-    
-	  // Pass the STABLE pointer fine_user_ctx as the context for interpolation.
-	  ierr = MatCreateShell(PETSC_COMM_WORLD, m_f, m_c, M_f, M_c, (void*)fine_user_ctx, &fine_user_ctx->MP); CHKERRQ(ierr);
-    
-	  // --- Set the operations for the MatShells ---
-	  ierr = MatShellSetOperation(fine_user_ctx->MR, MATOP_MULT, (void(*)(void))RestrictResidual_SolidAware); CHKERRQ(ierr);
-	  ierr = MatShellSetOperation(fine_user_ctx->MP, MATOP_MULT, (void(*)(void))MyInterpolation); CHKERRQ(ierr);
-    
-	  // --- Register the operators with PCMG ---
-	  ierr = PCMGSetRestriction(mgpc, l, fine_user_ctx->MR); CHKERRQ(ierr);
-	  ierr = PCMGSetInterpolation(mgpc, l, fine_user_ctx->MP); CHKERRQ(ierr);
-	  
-        }
-        
-        // --- 5. Configure Solvers on Each MG Level ---
-        for (l = usermg->mglevels - 1; l >= 0; l--) {
-            user = mgctx[l].user;
-            if (l > 0) { // Smoother for fine levels
-                ierr = PCMGGetSmoother(mgpc, l, &subksp); CHKERRQ(ierr);
-            } else { // Direct or iterative solver for the coarsest level
-                ierr = PCMGGetCoarseSolve(mgpc, &subksp); CHKERRQ(ierr);
-                ierr = KSPSetTolerances(subksp, 1.e-8, PETSC_DEFAULT, PETSC_DEFAULT, 40); CHKERRQ(ierr);
-            } 
-            
-            ierr = KSPSetOperators(subksp, user[bi].A, user[bi].A); CHKERRQ(ierr);
-            ierr = KSPGetPC(subksp, &subpc); CHKERRQ(ierr);
-	    ierr = PCSetType(subpc, PCBJACOBI); CHKERRQ(ierr);
-	    ierr = KSPSetFromOptions(subksp); CHKERRQ(ierr);
-	    
-	    PCType subpc_type;
-	    PetscBool is_bjacobi = PETSC_FALSE;
-	    ierr = PCGetType(subpc, &subpc_type); CHKERRQ(ierr);
-	    if (subpc_type) {
-	      ierr = PetscStrcmp(subpc_type, PCBJACOBI, &is_bjacobi); CHKERRQ(ierr);
-	    }
-
-	    if (is_bjacobi) {
-	      KSP *subsubksp;
-	      PC subsubpc;
-	      PetscInt nlocal;
-
-	      ierr = KSPSetUp(subksp); CHKERRQ(ierr); // Set up KSP to allow access to sub-KSPs
-	      ierr = PCBJacobiGetSubKSP(subpc, &nlocal, NULL, &subsubksp); CHKERRQ(ierr);
-
-	      for (PetscInt abi = 0; abi < nlocal; abi++) {
-	        ierr = KSPGetPC(subsubksp[abi], &subsubpc); CHKERRQ(ierr);
-	        // Add the critical shift amount for the nested block-Jacobi factor PC.
-	        ierr = PCFactorSetShiftAmount(subsubpc, 1.e-10); CHKERRQ(ierr);
-	      }
-	    }
-	    
-            ierr = MatNullSpaceCreate(PETSC_COMM_WORLD, PETSC_TRUE, 0, PETSC_NULLPTR, &user[bi].nullsp); CHKERRQ(ierr);
-            ierr = MatNullSpaceSetFunction(user[bi].nullsp, PoissonNullSpaceFunction, &user[bi]); CHKERRQ(ierr);
-            ierr = MatSetNullSpace(user[bi].A, user[bi].nullsp); CHKERRQ(ierr);
-            
-            ierr = PCMGSetResidual(mgpc, l, PCMGResidualDefault, user[bi].A); CHKERRQ(ierr);
-            ierr = KSPSetUp(subksp); CHKERRQ(ierr);
-
-            if (l < usermg->mglevels - 1) {
-                ierr = MatCreateVecs(user[bi].A, &user[bi].R, PETSC_NULLPTR); CHKERRQ(ierr);
-                ierr = PCMGSetRhs(mgpc, l, user[bi].R); CHKERRQ(ierr);
-            }
-        }
-
-        // --- 6. Set Final KSP Operators and Solve ---
-        l = usermg->mglevels - 1;
-        user = mgctx[l].user;
-        
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "Block %d: Setting KSP operators and solving...\n", bi);
-        ierr = KSPSetOperators(mgksp, user[bi].A, user[bi].A); CHKERRQ(ierr);
-        ierr = MatSetNullSpace(user[bi].A, user[bi].nullsp); CHKERRQ(ierr);
-        ierr = KSPSetFromOptions(mgksp); CHKERRQ(ierr);
-        ierr = KSPSetUp(mgksp); CHKERRQ(ierr);
-        ierr = KSPSolve(mgksp, user[bi].B, user[bi].Phi); CHKERRQ(ierr);
-
-        /* A failed pressure solve used to pass unnoticed: the projection ran on an
-           unsolved Phi, and the next momentum step failed with "non-finite trial at
-           minimum pseudo-CFL", pointing at the wrong solver. A non-finite residual or a
-           preconditioner that could not be built leaves Phi meaningless, so both are
-           fatal. Stopping at max_it is this solve's normal mode and stays silent; any
-           other divergence is reported, because the projection proceeds on that Phi. */
-        {
-            KSPConvergedReason reason;
-            ierr = KSPGetConvergedReason(mgksp, &reason); CHKERRQ(ierr);
-            PetscCheck(reason != KSP_DIVERGED_NANORINF && reason != KSP_DIVERGED_PC_FAILED,
-                       PETSC_COMM_WORLD, PETSC_ERR_NOT_CONVERGED,
-                       "Pressure Poisson solve on block %" PetscInt_FMT " failed at step %" PetscInt_FMT
-                       " (KSP reason %s). Known causes: a multigrid hierarchy coarsened too far "
-                       "(reduce poisson_solver.multigrid.levels or refine the grid), or a momentum "
-                       "field that has already diverged, such as an explicit time step beyond its "
-                       "stability limit.",
-                       bi, simCtx->step, KSPConvergedReasons[reason]);
-            if (reason < 0 && reason != KSP_DIVERGED_ITS) {
-                LOG(GLOBAL, LOG_WARNING, "Pressure Poisson solve on block %" PetscInt_FMT
-                    " diverged at step %" PetscInt_FMT " (KSP reason %s); the projection uses the last iterate.\n",
-                    bi, simCtx->step, KSPConvergedReasons[reason]);
-            }
-        }
-
-        // --- 7. Cleanup for this block ---
-        for (l = usermg->mglevels - 1; l >= 0; l--) {
-            user = mgctx[l].user;
-            MatNullSpaceDestroy(&user[bi].nullsp);
-            MatDestroy(&user[bi].A);
-            user[bi].assignedA = PETSC_FALSE;
-            if (l > 0) {
-                MatDestroy(&user[bi].MR);
-                MatDestroy(&user[bi].MP);
-            }
-            if (l < usermg->mglevels - 1) {
-                VecDestroy(&user[bi].R);
-            }
-        }
-        
-        KSPDestroy(&mgksp);
-        VecDestroy(&mgctx[usermg->mglevels-1].user[bi].B);
-        
-    } // End of loop over blocks
+    }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Multigrid Poisson Solve complete.\n");
     PROFILE_FUNCTION_END;

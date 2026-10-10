@@ -475,7 +475,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->verificationDiffusivity.slope_x = 0.0;
 
     // --- Group 6: Physical & Geometric Parameters ---
-    simCtx->NumberOfBodies = 1; simCtx->Flux_in = 1.0; simCtx->angle = 0.0;
+    simCtx->Flux_in = 1.0; simCtx->angle = 0.0;
     simCtx->max_angle = -54. * 3.1415926 / 180.;
     simCtx->CMx_c=0.0; simCtx->CMy_c=0.0; simCtx->CMz_c=0.0;
     simCtx->wall_roughness_height = 1e-16;
@@ -552,7 +552,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->allowedFuncs = NULL;
     simCtx->nAllowed = 0;
     simCtx->LoggingFrequency = 10;
-    simCtx->summationRHS = 0.0;
+    simCtx->poissonSourceImbalance = 0.0;
     simCtx->MaxDiv = 0.0;
     simCtx->MaxDivFlatArg = 0; simCtx->MaxDivx = 0; simCtx->MaxDivy = 0; simCtx->MaxDivz = 0;
     strcpy(simCtx->profilingSelectedFuncsFile, "config/profile.run");
@@ -1963,14 +1963,13 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
             currentUser->jsc = jsc[bi];
             currentUser->ksc = ksc[bi];
 
-            // Link to finer/coarser contexts for multigrid operations
+            // Link to finer/coarser contexts for multigrid operations. Levels are
+            // allocated coarsest first, so the finer array does not exist yet when a
+            // level is created; each level links itself into the coarser one instead.
             if (level > 0) {
                 currentUser->user_c = &mgctx[level-1].user[bi];
-		LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d:     -> Linked to coarser context (user_c).\n", simCtx->rank);
-            }
-            if (level < usermg->mglevels - 1) {
-                currentUser->user_f = &mgctx[level+1].user[bi];
-		LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d:     -> Linked to finer context (user_f).\n", simCtx->rank);
+                mgctx[level-1].user[bi].user_f = currentUser;
+		LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d:     -> Linked to coarser context (user_c) and back (user_f).\n", simCtx->rank);
             }
         }
     }
@@ -1989,35 +1988,6 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Context hierarchy allocation complete.\n");
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
-}
-
-#undef __FUNCT__
-#define __FUNCT__ "SetupSolverParameters"
-/**
- * @brief Configure solver tolerances, operators, and time-integration controls from the context.
- */
-static PetscErrorCode SetupSolverParameters(SimCtx *simCtx){
-  
-  PetscFunctionBeginUser;
-  PROFILE_FUNCTION_BEGIN;
-
-  LOG_ALLOW(GLOBAL,LOG_INFO, " -- Setting up solver parameters -- .\n");
-
-  UserMG         *usermg = &simCtx->usermg;
-  MGCtx          *mgctx = usermg->mgctx;
-  PetscInt       nblk = simCtx->block_number;
-
-  for (PetscInt level  = usermg->mglevels-1; level >=0; level--) {
-    for (PetscInt bi = 0; bi < nblk; bi++) {
-      UserCtx *user = &mgctx[level].user[bi];
-      LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Setting up parameters for level %d, block %d\n", simCtx->rank, level, bi);
-
-      user->assignedA = PETSC_FALSE;
-      user->multinullspace = PETSC_FALSE;
-    }
-  }
-  PROFILE_FUNCTION_END;
-  PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__
@@ -2044,7 +2014,6 @@ PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
     ierr = InitializeAllGridDMs(simCtx); CHKERRQ(ierr);
     ierr = AssignAllGridCoordinates(simCtx); CHKERRQ(ierr);
     ierr = CreateAndInitializeAllVectors(simCtx); CHKERRQ(ierr);
-    ierr = SetupSolverParameters(simCtx); CHKERRQ(ierr);
 
     // NOTE: CalculateAllGridMetrics is now called inside SetupBoundaryConditions (not here) to ensure:
     // 1. Boundary condition configuration data (boundary_faces) is available for periodic BC corrections
@@ -2233,16 +2202,6 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 	    ierr = DMCreateGlobalVector(user->fda, &user->Bcs.Uch); CHKERRQ(ierr);
 	    ierr = VecSet(user->Bcs.Uch, 0.0); CHKERRQ(ierr);
 	    
-	    // --- Group J: Coarsest-Level Immersed-Boundary Workspace ---
-	    // Sized from the coarsest-level DMDA, which is fixed once the DMs exist,
-	    // so this is allocated once here rather than on every Poisson solve.
-	    // FullyBlocked() guards every read with its own Blocked[] flag, so the
-	    // buffer carries no state between solves.
-	    if (level == 0 && simCtx->immersed) {
-	        ierr = PetscCalloc1((size_t)(user->info.mx * user->info.my * 2), &user->KSKE); CHKERRQ(ierr);
-	        LOG_ALLOW(LOCAL, LOG_DEBUG, "Coarsest-level KSKE workspace allocated for immersed boundaries.\n");
-	    }
-
 	    // --- Group L: Field-Statistics Accumulators (Finest Level Only) ---
 	    // Config-counted, like the convergence-state reference fields: the window
 	    // count is resolved before this factory runs, and each accumulator is
@@ -4303,7 +4262,7 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->dUcont) { ierr = VecDestroy(&user->dUcont); CHKERRQ(ierr); }
     if (user->pUcont) { ierr = VecDestroy(&user->pUcont); CHKERRQ(ierr); }
 
-    // --- Group M: Poisson Solver Vectors (Destroyed after solve, but check anyway) ---
+    // --- Group M: Poisson Solver Vectors (kept for the run by PoissonSolver_Multigrid) ---
     if (user->B) { ierr = VecDestroy(&user->B); CHKERRQ(ierr); }
     if (user->R) { ierr = VecDestroy(&user->R); CHKERRQ(ierr); }
 
@@ -4343,10 +4302,6 @@ PetscErrorCode DestroyUserContext(UserCtx *user)
     if (user->A) {
         ierr = MatDestroy(&user->A); CHKERRQ(ierr);
         LOG_ALLOW(LOCAL, LOG_DEBUG, "  Matrix A destroyed.\n");
-    }
-    if (user->C) {
-        ierr = MatDestroy(&user->C); CHKERRQ(ierr);
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "  Matrix C destroyed.\n");
     }
     if (user->MR) {
         ierr = MatDestroy(&user->MR); CHKERRQ(ierr);
@@ -4396,11 +4351,6 @@ PetscErrorCode DestroyUserContext(UserCtx *user)
         ierr = PetscFree(user->RankCellInfoMap); CHKERRQ(ierr);
         user->RankCellInfoMap = NULL;
         LOG_ALLOW(LOCAL, LOG_DEBUG, "  RankCellInfoMap freed.\n");
-    }
-    if (user->KSKE) {
-        ierr = PetscFree(user->KSKE); CHKERRQ(ierr);
-        user->KSKE = NULL;
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "  KSKE array freed.\n");
     }
 
     LOG_ALLOW(LOCAL, LOG_INFO, "UserCtx at level %d fully destroyed.\n", user->thislevel);

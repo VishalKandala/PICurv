@@ -119,7 +119,7 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
  LOG_ALLOW(GLOBAL, LOG_INFO, "Beginning pressure-Poisson solve (Poisson Flag = %d)...\n", simCtx->poisson);
     
  if (simCtx->poisson == 0) {
-   ierr = PoissonSolver_MG(usermg); CHKERRQ(ierr);
+   ierr = PoissonSolver_Multigrid(usermg); CHKERRQ(ierr);
  } else {
    SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
            "Unsupported Poisson solver type %d. The current runtime supports only the multigrid path (poisson = 0).",
@@ -137,7 +137,7 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
         ierr = UpdatePressure(&user[bi]); CHKERRQ(ierr);
 	LOG_ALLOW(GLOBAL,LOG_INFO," Pressure Updated for Block %d.\n",bi);
 	
-        ierr = Projection(&user[bi]); CHKERRQ(ierr);
+        ierr = ProjectVelocity(&user[bi]); CHKERRQ(ierr);
 	
         LOG_ALLOW(GLOBAL,LOG_INFO," Velocity corrected for Block %d.\n",bi);
 

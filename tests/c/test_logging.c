@@ -894,14 +894,14 @@ static PetscErrorCode TestLoggingContinuityAndFieldDiagnostics(void)
     simCtx->MaxDivy = 2;
     simCtx->MaxDivz = 3;
     simCtx->MaxDivFlatArg = 17;
-    simCtx->summationRHS = 8.5;
+    simCtx->poissonSourceImbalance = 8.5;
     simCtx->FluxInSum = 5.0;
     simCtx->FluxOutSum = 3.25;
     PetscCall(LOG_CONTINUITY_METRICS(user));
 
     simCtx->step = 2;
     simCtx->MaxDiv = 0.75;
-    simCtx->summationRHS = 4.5;
+    simCtx->poissonSourceImbalance = 4.5;
     simCtx->FluxInSum = 2.5;
     simCtx->FluxOutSum = 1.0;
     PetscCall(LOG_CONTINUITY_METRICS(user));

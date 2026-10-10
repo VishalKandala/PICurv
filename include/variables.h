@@ -900,7 +900,7 @@ typedef struct SimCtx {
     char AnalyticalSolutionType[PETSC_MAX_PATH_LEN];
   
     //================ Group 4: Immersed-Body Flux Corrections ================
-    PetscInt  MHV, LV;                         ///< Refused at setup; read only by the dormant immersed Poisson branch.
+    PetscInt  MHV, LV;                         ///< Heart-valve flux corrections for immersed bodies; refused at setup.
 
     //================ Group 5: Solver & Numerics Parameters ================
     MomentumSolverType mom_solver_type;
@@ -947,7 +947,6 @@ typedef struct SimCtx {
     VerificationScalarConfig verificationScalar;
     
     //================ Group 6: Physical & Geometric Parameters ================
-    PetscInt  NumberOfBodies;                  ///< Always 1: read only by the dormant immersed-body flux routine.
     PetscReal Flux_in, angle,max_angle;
     PetscReal CMx_c, CMy_c, CMz_c;
     PetscReal psrc_x, psrc_y, psrc_z;  /**< Point source location for PARTICLE_INIT_POINT_SOURCE */
@@ -1026,7 +1025,12 @@ typedef struct SimCtx {
     char      **allowedFuncs;
     PetscInt  nAllowed;
     PetscInt  LoggingFrequency;
-    PetscReal summationRHS;
+    /* Net volume flux into the domain carried by the momentum step's velocity before the
+     * pressure correction (inflow minus outflow, through every boundary face): the domain
+     * integral of the pressure equation's source. With Neumann pressure boundaries it must
+     * be near zero for that equation to have a solution. Unlike the continuity log's
+     * Net Flux, which sums only the inlet and outlet faces, it covers all boundaries. */
+    PetscReal poissonSourceImbalance;
     PetscReal MaxDiv;
     PetscInt  MaxDivFlatArg, MaxDivx,MaxDivy,MaxDivz;
     // Profiling 
@@ -1111,7 +1115,6 @@ typedef struct UserCtx {
        flux to deliver the stress the model computed. Derived, rebuilt by every wall
        pass, and never restored from a checkpoint. */
     Vec       Nu_Wall, lNu_Wall;
-    PetscReal FluxIntpSum,FluxIntfcSum;
 
     // --- Primary Flow Fields (Global & Local Views) ---
     Vec Ucont, lUcont, Ucat, lUcat, P, lP, Phi, lPhi, Nvert, lNvert;
@@ -1140,12 +1143,12 @@ typedef struct UserCtx {
     struct PicurvWindowStorage *fieldStatisticsStorage;
 
     // --- Pressure-Poisson System ---
-    Mat A, C; KSP ksp; MatNullSpace nullsp;
-    PetscInt *KSKE;
-    PetscBool multinullspace;
+    /* Built once by PoissonSolver_Multigrid() and kept for the run. A, nullsp and R live
+       on every level (R below the finest); MR and MP are the transfers between this level
+       and the next coarser one; ksp and B are held on the finest level only. */
+    Mat A; KSP ksp; MatNullSpace nullsp;
     Vec B,R;
     Mat MR, MP;
-    PetscBool assignedA;
   
   
     // --- Grid Metrics (Global and Local) ---
@@ -1168,8 +1171,6 @@ typedef struct UserCtx {
   // --- Multigrid Hierarchy ---
   PetscInt thislevel, mglevels;
   UserCtx *user_f, *user_c;
-  DM *da_f, *da_c;
-  Vec *lNvert_c;
 
   // --- Particle System ---
   DM swarm;

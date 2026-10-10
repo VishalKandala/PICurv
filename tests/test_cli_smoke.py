@@ -1348,7 +1348,7 @@ def create_summary_run_dir(
         (logs_dir / "Continuity_Metrics.log").write_text(
             "\n".join(
                 [
-                    "Timestep   | Block  | Max Divergence     | Max Divergence Location ([k][j][i]=idx) | Sum(RHS)           | Total Flux In      | Total Flux Out     | Net Flux",
+                    "Timestep   | Block  | Max Divergence     | Max Divergence Location ([k][j][i]=idx) | Poisson Source Imbalance | Total Flux In      | Total Flux Out     | Net Flux",
                     "------------------------------------------------------------------------------------------------------------------------------------------",
                     "10         | 0      | 1.0000000000e-03   | ([0][0][0] = 0)                         | 2.0000000000e-04   | 1.0000000000e+00   | 9.9000000000e-01   | 1.0000000000e-02",
                     "10         | 1      | -2.5000000000e-03  | ([1][0][1] = 9)                         | 1.5000000000e-04   | 1.0000000000e+00   | 9.8500000000e-01   | 1.5000000000e-02",
@@ -1433,7 +1433,7 @@ def create_summary_continue_append_run_dir(tmp_path: Path, include_continuity: b
         (logs_dir / "Continuity_Metrics.log").write_text(
             "\n".join(
                 [
-                    "Timestep   | Block  | Max Divergence     | Max Divergence Location ([k][j][i]=idx) | Sum(RHS)           | Total Flux In      | Total Flux Out     | Net Flux",
+                    "Timestep   | Block  | Max Divergence     | Max Divergence Location ([k][j][i]=idx) | Poisson Source Imbalance | Total Flux In      | Total Flux Out     | Net Flux",
                     "------------------------------------------------------------------------------------------------------------------------------------------",
                     "2055       | 0      | 9.0000000000e-01   | ([0][0][0] = 1)                         | 1.0000000000e-01   | 1.0000000000e+00   | 9.0000000000e-01   | 1.0000000000e-01",
                     "2422       | 0      | 8.0000000000e-01   | ([0][0][0] = 2)                         | 2.0000000000e-01   | 1.0000000000e+00   | 8.0000000000e-01   | 2.0000000000e-01",

@@ -2421,8 +2421,8 @@ static PetscErrorCode Initialize_PeriodicDrivenConstant(BoundaryCondition *self,
         LOG_ALLOW(GLOBAL, LOG_INFO, "Driven Flow (Dir %c): Constant target volumetric flux set to %le.\n",
                   data->direction, data->targetVolumetricFlux);
 
-        // Store the target flux in the UserCtx. This makes it globally accessible
-        // to other parts of the solver, such as the `CorrectChannelFluxProfile` enforcer function.
+        // Store the target flux in the simulation context, where the driven-flow
+        // controller and its diagnostics read it.
         user->simCtx->targetVolumetricFlux = data->targetVolumetricFlux;
         // The target is fixed for the run from here on; see the flag's comment in
         // variables.h for how initial_flux uses the same latch.

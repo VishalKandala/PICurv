@@ -38,7 +38,7 @@
 /* ======================================================================== */
 
 #define FP_FIELD_COUNT 16
-#define FP_SCALAR_COUNT 10
+#define FP_SCALAR_COUNT 9
 
 typedef struct {
     Vec value[FP_FIELD_COUNT];
@@ -67,7 +67,7 @@ static void FpGetScalars(UserCtx *user, PetscReal scalar[FP_SCALAR_COUNT])
     scalar[2] = s->FarFluxInSum; scalar[3] = s->FarFluxOutSum;
     scalar[4] = s->Fluxsum; scalar[5] = s->AreaInSum;
     scalar[6] = s->AreaOutSum; scalar[7] = s->bulkVelocityCorrection;
-    scalar[8] = s->boundaryVelocityCorrection; scalar[9] = user->FluxIntpSum;
+    scalar[8] = s->boundaryVelocityCorrection;
 }
 
 /** @brief Deep-copies the audited persistent state into a test-owned snapshot. */
@@ -100,7 +100,7 @@ static PetscErrorCode FpRestore(UserCtx *user, const FpSnapshot *snap)
     s->FarFluxInSum = snap->scalar[2]; s->FarFluxOutSum = snap->scalar[3];
     s->Fluxsum = snap->scalar[4]; s->AreaInSum = snap->scalar[5];
     s->AreaOutSum = snap->scalar[6]; s->bulkVelocityCorrection = snap->scalar[7];
-    s->boundaryVelocityCorrection = snap->scalar[8]; user->FluxIntpSum = snap->scalar[9];
+    s->boundaryVelocityCorrection = snap->scalar[8];
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -491,15 +491,15 @@ static PetscErrorCode TestNewtonKrylovProductionRegression(void)
     PetscCall(SynchronizePeriodicCellFields(user, 1, cell));
     PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
     PetscCall(ApplyBoundaryConditions(user));
-    PetscCall(PoissonSolver_MG(&simCtx->usermg));
+    PetscCall(PoissonSolver_Multigrid(&simCtx->usermg));
     PetscCall(UpdatePressure(user));
-    PetscCall(Projection(user));
+    PetscCall(ProjectVelocity(user));
     PetscCall(UpdateLocalGhosts(user, FIELD_ID_P));
     PetscCall(ComputeDivergence(user));
     max_div = simCtx->MaxDiv;
     PetscCall(PetscPrintf(PETSC_COMM_WORLD,
         "PROJECTION max_divergence=% .6e net_divergence_sum=% .6e (tol %.0e)\n",
-        (double)max_div, (double)simCtx->summationRHS, (double)div_tol));
+        (double)max_div, (double)simCtx->poissonSourceImbalance, (double)div_tol));
 
     /* -------- consolidated verdicts (printed before assertions) -------- */
     PetscCall(PetscPrintf(PETSC_COMM_WORLD, "\nREGRESSION_VERDICTS (ranks=%d)\n", (int)world));

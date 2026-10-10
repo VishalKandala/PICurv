@@ -1017,7 +1017,6 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
         PetscCall(DestroyVecIfSet(&user->Bcs.Ubcs));
         PetscCall(DestroyVecIfSet(&user->Bcs.Uch));
         PetscCall(DestroyMatIfSet(&user->A));
-        PetscCall(DestroyMatIfSet(&user->C));
         PetscCall(DestroyKSPIfSet(&user->ksp));
         PetscCall(DestroyNullSpaceIfSet(&user->nullsp));
         PetscCall(PetscFree(user->RankCellInfoMap));

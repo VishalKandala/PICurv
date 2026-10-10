@@ -1915,8 +1915,8 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
         // Write a header only when the file is empty and it's the first block (bi=0).
         // Using ftell() instead of step comparison ensures correctness across continuations.
         if (ftell(f) == 0 && bi == 0) {
-            PetscFPrintf(PETSC_COMM_SELF, f, "%-10s | %-6s | %-18s | %-30s | %-18s | %-18s | %-18s | %-18s\n",
-                         "Timestep", "Block", "Max Divergence", "Max Divergence Location ([k][j][i]=idx)", "Sum(RHS)","Total Flux In", "Total Flux Out", "Net Flux");
+            PetscFPrintf(PETSC_COMM_SELF, f, "%-10s | %-6s | %-18s | %-30s | %-24s | %-18s | %-18s | %-18s\n",
+                         "Timestep", "Block", "Max Divergence", "Max Divergence Location ([k][j][i]=idx)", "Poisson Source Imbalance","Total Flux In", "Total Flux Out", "Net Flux");
             PetscFPrintf(PETSC_COMM_SELF, f, "------------------------------------------------------------------------------------------------------------------------------------------\n");
         }
         if (simCtx->continueMode && ti == simCtx->StartStep + 1 && bi == 0) {
@@ -1929,12 +1929,12 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
         sprintf(location_str, "([%d][%d][%d] = %d)", (int)simCtx->MaxDivz, (int)simCtx->MaxDivy, (int)simCtx->MaxDivx, (int)simCtx->MaxDivFlatArg);
 
         // Write the formatted line for the current block.
-        PetscFPrintf(PETSC_COMM_SELF, f, "%-10d | %-6d | %-18.10e | %-39s | %-18.10e | %-18.10e | %-18.10e | %-18.10e\n",
+        PetscFPrintf(PETSC_COMM_SELF, f, "%-10d | %-6d | %-18.10e | %-39s | %-24.10e | %-18.10e | %-18.10e | %-18.10e\n",
                      (int)ti,
                      (int)bi,
                      (double)simCtx->MaxDiv,
                      location_str,
-                     (double)simCtx->summationRHS,
+                     (double)simCtx->poissonSourceImbalance,
 		     (double)simCtx->FluxInSum,
                      (double)simCtx->FluxOutSum,
                      (double)net_flux);

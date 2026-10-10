@@ -87,7 +87,7 @@ through a PETSc passthrough, where they now surface as PETSc "unused option" war
 | `-U_bc` | `U_bc` | legacy boundary velocity |
 | `-read_fields` | `readFields` | legacy field-read switch; `-euler_field_source load` owns this |
 | `-rs_fsi`, `-duplicate` | `rstart_fsi`, `duplicate` | legacy FSI restart switches |
-| `-no_of_bodies` | read removed; `NumberOfBodies` kept at 1 | the dormant immersed-body flux routine in `poisson.c` still reads the field |
+| `-no_of_bodies` | `NumberOfBodies` | removed with the legacy immersed-body flux routine of `poisson.c`, its only reader |
 | `-poisson_tol` | `poisson_tol` | a Poisson tolerance nothing read; removed with the `poisson_solver.tolerance` YAML key, which validation now refuses in favour of `absolute_tolerance`/`relative_tolerance`, and the conductor no longer emits it beside `-ps_ksp_atol` |
 
 Recover any of them from history (the parent of the commit that removes this table's

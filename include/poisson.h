@@ -1,174 +1,89 @@
 #ifndef POISSON_H
 #define POISSON_H
 
-#include "variables.h" // Provides definitions for UserCtx, UserMG, Vec, Mat, etc.
-#include "Metric.h"       // Provides some primitives necessary.
+#include "variables.h"
 #include "Boundaries.h"
-/*================================================================================*
- *                     HIGH-LEVEL POISSON SOLVER                                  *
- *================================================================================*/
 
 /**
- * @brief Solves the pressure-Poisson equation using a geometric multigrid method.
+ * @file poisson.h
+ * @brief Pressure-Poisson projection: the multigrid pressure-correction solve, the
+ *        pressure update, and the velocity correction that makes `Ucont` divergence-free.
  *
- * This function orchestrates the entire multigrid V-cycle for the pressure
- * correction equation. It assembles the Laplacian matrix on all grid levels,
- * sets up the KSP solvers, smoothers, restriction/interpolation operators,
- * and executes the solve.
+ * The discrete operator, the right-hand side, and the projection gradient are built from
+ * one face-gradient definition, so the Laplacian the solver inverts is exactly the
+ * divergence of the gradient the projection applies.
  *
- * @param usermg The UserMG context containing the entire multigrid hierarchy.
- * @return PetscErrorCode 0 on success.
- *
- * @note Testing status:
- *       This routine is exercised in runtime smoke, but still needs deeper
- *       direct bespoke coverage for debugging and branch isolation.
+ * Every masked operation reads the solid field from the `UserCtx` of the level it acts
+ * on (`lNvert`). Solid cells are excluded from the operator, the right-hand side, the
+ * projection, and the multigrid transfers; cells next to a solid face use one-sided
+ * transverse differences.
  */
-extern PetscErrorCode PoissonSolver_MG(UserMG *usermg);
-
-
-/*================================================================================*
- *                  CORE COMPONENTS OF THE POISSON SOLVER                         *
- *================================================================================*/
 
 /**
- * @brief Assembles the Left-Hand-Side (LHS) matrix (Laplacian operator) for the
- *        Poisson equation on a single grid level.
+ * @brief Solves the pressure-correction equation for every block with geometric multigrid.
  *
- * @param user The UserCtx for the grid level on which to assemble the matrix.
- * @return PetscErrorCode 0 on success.
+ * On the first call for a block, assembles the operator on every multigrid level and
+ * builds the outer Krylov solver with its `PCMG` preconditioner, grid transfers, level
+ * smoothers, coarse solve, and null space. The solver is kept in the finest level's
+ * `UserCtx::ksp` and reused on every later call; it is destroyed with the context.
  *
- * @note Testing status:
- *       Direct unit coverage exists for core operator assembly, but periodic and
- *       immersed-boundary stencil branches remain thinner than the Cartesian baseline.
+ * Each call refreshes the ghosted contravariant flux, forms the right-hand side, solves
+ * for `Phi` on the finest level, and appends the iteration history to
+ * `Poisson_Solver_Convergence_History_Block_<bi>.log` in the run's log directory.
+ *
+ * Solver controls are read from PETSc options under the `ps_` prefix
+ * (`-ps_ksp_*`, `-ps_mg_levels_N_*`, `-ps_mg_coarse_*`) when the solver is built.
+ *
+ * @param[in,out] usermg Multigrid hierarchy; the finest level's `Phi` receives the solution.
+ * @return PETSc error code. A non-finite residual or a preconditioner that could not be
+ *         built stops the run with PETSC_ERR_NOT_CONVERGED.
  */
-extern PetscErrorCode PoissonLHSNew(UserCtx *user);
+extern PetscErrorCode PoissonSolver_Multigrid(UserMG *usermg);
 
 /**
- * @brief Computes the Right-Hand-Side (RHS) of the Poisson equation, which is
- *        the divergence of the intermediate velocity field.
+ * @brief Assembles the pressure-correction operator on one multigrid level.
  *
- * @param user The UserCtx for the grid level.
- * @param B    The PETSc Vec where the RHS result will be stored.
- * @return PetscErrorCode 0 on success.
+ * Allocates `user->A` on the first call and reassembles its entries on later calls into
+ * the same nonzero structure. Fluid rows carry the 19-point curvilinear Laplacian;
+ * dummy rows on the domain boundary and solid rows are identities. Non-periodic faces
+ * are homogeneous Neumann; periodic faces wrap to the opposite interior layer.
+ *
+ * @param[in,out] user Level context supplying metrics, `lNvert`, and boundary types.
+ * @return PETSc error code.
  */
-extern PetscErrorCode PoissonRHS(UserCtx *user, Vec B);
+extern PetscErrorCode AssemblePoissonOperator(UserCtx *user);
 
 /**
- * @brief Updates the pressure field `P` with the pressure correction `Phi`
- *        computed by the Poisson solver. (P = P + Phi)
+ * @brief Forms the right-hand side of the pressure-correction equation.
  *
- * @param user The UserCtx containing the P and Phi vectors.
- * @return PetscErrorCode 0 on success.
+ * Writes the scaled divergence of the ghosted contravariant flux `lUcont` into @p B,
+ * zero on dummy and solid cells, and stores its domain integral in
+ * `SimCtx::poissonSourceImbalance`.
+ *
+ * @param[in]  user Finest-level context.
+ * @param[out] B    Right-hand-side vector on `user->da`.
+ * @return PETSc error code.
+ */
+extern PetscErrorCode ComputePoissonRHS(UserCtx *user, Vec B);
+
+/**
+ * @brief Adds the pressure correction to the pressure, `P += Phi`, and refreshes both
+ *        fields' periodic images and ghosts.
+ * @param[in,out] user Block context holding `P` and `Phi`.
+ * @return PETSc error code.
  */
 extern PetscErrorCode UpdatePressure(UserCtx *user);
 
 /**
- * @brief Enforces a constant volumetric flux profile along the entire length of a driven periodic channel.
+ * @brief Corrects the contravariant flux with the gradient of `Phi`.
  *
- * This function is a "hard" corrector, called at the end of the projection step.
- * The projection ensures the velocity field is divergence-free (3D continuity), but this
- * function enforces a stricter 1D continuity condition (`Flux(plane) = constant`)
- * required for physically realistic, fully-developed periodic channel/pipe flow.
+ * Subtracts `dt / COEF_TIME_ACCURACY` times the face pressure-gradient flux from every
+ * fluid face of `Ucont`, then refreshes the periodic images, reconstructs the Cartesian
+ * velocity, and finalizes the cell fields that depend on it.
  *
- * The process is as follows:
- * 1.  Introspects the boundary condition handlers to detect if a `DRIVEN_` flow is active
- *     and in which direction ('X', 'Y', or 'Z'). If none is found, it exits.
- * 2.  Measures the current volumetric flux through *every single cross-sectional plane*
- *     in the driven direction.
- * 3.  For each plane, it calculates the velocity correction required to make its flux
- *     match the global `targetVolumetricFlux` (which was set by the controller).
- * 4.  It applies this spatially-uniform (but plane-dependent) velocity correction directly
- *     to the `ucont` field, ensuring `Flux(plane) = TargetFlux` for all planes.
- *
- * @param user The UserCtx containing the simulation state for a single block.
- * @return PetscErrorCode 0 on success.
+ * @param[in,out] user Block context; reads the ghosted `lPhi`.
+ * @return PETSc error code.
  */
-PetscErrorCode CorrectChannelFluxProfile(UserCtx *user);
+extern PetscErrorCode ProjectVelocity(UserCtx *user);
 
-/**
- * @brief Corrects the contravariant velocity field `Ucont` to be divergence-free
- *        using the gradient of the pressure correction field `Phi`.
- *
- * @param user The UserCtx containing the Ucont and Phi vectors.
- * @return PetscErrorCode 0 on success.
- *
- * @note Testing status:
- *       Direct unit coverage exists for basic projection invariants; periodic
- *       and immersed-boundary correction branches remain part of the next-gap backlog.
- */
-extern PetscErrorCode Projection(UserCtx *user);
-
-
-/*================================================================================*
- *                    MULTIGRID & NULL SPACE HELPERS                              *
- *================================================================================*/
-
-/**
- * @brief The callback function for PETSc's MatNullSpace object.
- *
- * This function removes the null space from the Poisson solution vector by
- * ensuring the average pressure is zero, which is necessary for problems with
- * pure Neumann boundary conditions.
- *
- * @param nullsp The MatNullSpace context.
- * @param X      The vector to be corrected.
- * @param ctx    A void pointer to the UserCtx.
- * @return PetscErrorCode 0 on success.
- */
-extern PetscErrorCode PoissonNullSpaceFunction(MatNullSpace nullsp, Vec X, void *ctx);
-
-/**
- * @brief The callback function for the multigrid restriction operator (MatShell).
- *
- * Defines the fine-to-coarse grid transfer for the Poisson residual.
- *
- * @param A The shell matrix context.
- * @param X The fine-grid source vector.
- * @param F The coarse-grid destination vector.
- * @return PetscErrorCode 0 on success.
- */
-extern PetscErrorCode MyRestriction(Mat A, Vec X, Vec F);
-
-/**
- * @brief The callback function for the multigrid interpolation operator (MatShell).
- *
- * Defines the coarse-to-fine grid transfer for the pressure correction.
- *
- * @param A The shell matrix context.
- * @param X The coarse-grid source vector.
- * @param F The fine-grid destination vector.
- * @return PetscErrorCode 0 on success.
- */
-extern PetscErrorCode MyInterpolation(Mat A, Vec X, Vec F);
-
-
-/*================================================================================*
- *                 IMMERSED BOUNDARY RELATED HELPERS (Optional)                   *
- *================================================================================*/
-
-// These functions are called by the Poisson solver but are specific to the
-// immersed boundary method. It is good practice to declare them here as they
-// are part of the Poisson module's dependencies.
-
-/**
- * @brief Calculates the net flux across the immersed boundary surface.
- * @param user      The UserCtx for the grid level.
- * @param ibm_Flux  (Output) The calculated net flux.
- * @param ibm_Area  (Output) The total surface area of the IB.
- * @param flg       A flag controlling the correction behavior.
- * @return PetscErrorCode 0 on success.
- */
-extern PetscErrorCode VolumeFlux(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Area, PetscInt flg);
-
-/**
- * @brief A specialized version of VolumeFlux, likely for reversed normals.
- * @param user      The UserCtx for the grid level.
- * @param ibm_Flux  (Output) The calculated net flux.
- * @param ibm_Area  (Output) The total surface area of the IB.
- * @param flg       A flag controlling the correction behavior.
- * @return PetscErrorCode 0 on success.
- */
-extern PetscErrorCode VolumeFlux_rev(UserCtx *user, PetscReal *ibm_Flux, PetscReal *ibm_Area, PetscInt flg);
-
-
-#endif // POISSON_H
+#endif /* POISSON_H */

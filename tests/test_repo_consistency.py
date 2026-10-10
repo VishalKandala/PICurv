@@ -326,9 +326,9 @@ def test_petsc_array_restore_regressions_stay_fixed():
     rhs_source = _read_text(REPO_ROOT / "src" / "rhs.c")
     poisson_source = _read_text(REPO_ROOT / "src" / "poisson.c")
     compute_rhs_start = rhs_source.index("PetscErrorCode ComputeRHS")
-    projection_start = poisson_source.index("PetscErrorCode Projection")
+    projection_start = poisson_source.index("PetscErrorCode ProjectVelocity(UserCtx *user)\n{")
     compute_rhs_end = rhs_source.index("#undef __FUNCT__", compute_rhs_start)
-    projection_end = poisson_source.index("#undef __FUNCT__", projection_start)
+    projection_end = poisson_source.index("\n}\n", projection_start)
     compute_rhs = rhs_source[compute_rhs_start:compute_rhs_end]
     projection = poisson_source[projection_start:projection_end]
 
@@ -356,5 +356,12 @@ def test_petsc_array_restore_regressions_stay_fixed():
     for restore_call in leaked_rhs_restores:
         assert restore_call not in compute_rhs
 
-    assert "DMDAVecRestoreArray(da, user->lPhi, &p)" in projection
-    assert "DMDAVecRestoreArray(da, user->lP, &p)" not in projection
+    # The projection once borrowed lPhi and restored lP. Every array it borrows must be
+    # returned to the vector it came from.
+    borrowed = re.findall(r"DMDAVecGetArray(Read)?\(([^,]+), ([^,]+), (?:\(void \*\))?&(\w+)\)", projection)
+    assert any(vec.strip() == "user->lPhi" for _, _, vec, _ in borrowed)
+    for read, dm, vec, name in borrowed:
+        restore = re.compile(
+            r"DMDAVecRestoreArray%s\(%s, %s, (?:\(void \*\))?&%s\)" % (read, re.escape(dm), re.escape(vec), name)
+        )
+        assert restore.search(projection), (dm, vec, name)

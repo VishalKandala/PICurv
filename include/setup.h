@@ -627,10 +627,10 @@ PetscErrorCode DestroyUserVectors(UserCtx *user);
  * in the proper dependency order:
  *   1. Boundary conditions (handlers and their data)
  *   2. All PETSc vectors (via DestroyUserVectors)
- *   3. Matrix and solver objects (A, C, MR, MP, ksp, nullsp)
+ *   3. Matrix and solver objects (A, MR, MP, ksp, nullsp)
  *   4. Application ordering (AO)
  *   5. Distributed mesh objects (DMs) - most derived first
- *   6. Raw PetscMalloc'd arrays (RankCellInfoMap, KSKE)
+ *   6. Raw PetscMalloc'd arrays (RankCellInfoMap)
  *
  * This function should be called for each UserCtx in the multigrid hierarchy.
  *
