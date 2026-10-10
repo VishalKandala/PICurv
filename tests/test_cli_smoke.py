@@ -9950,3 +9950,35 @@ def test_post_refuses_cell_centred_qcrit_output(tmp_path, capsys):
         {"task": "nodal_average", "input_field": "Qcrit", "output_field": "Qcrit_nodal"})
     post_cfg["io"]["eulerian_fields"] = ["Qcrit_nodal"]
     picurv.validate_post_config(post_cfg, str(tmp_path / "post.yml"), _monitor_with_output_cadence(100))
+
+
+def test_monitor_function_lists_translate_renamed_poisson_functions(tmp_path, capsys):
+    """!
+    @brief Test that monitor.yml function lists follow the Poisson rewrite's renames.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @param[in] capsys Pytest capture fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    monitor_cfg = {
+        "logging": {"verbosity": "INFO", "enabled_functions": ["FlowSolver", "Projection", "VolumeFlux"]},
+        "profiling": {"timestep_output": {"mode": "selected",
+                                          "functions": ["PoissonSolver_MG", "PoissonSolver_Multigrid", "ComputeRHS"]}},
+    }
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+    picurv.prepare_monitor_files(str(run_dir), "demo", monitor_cfg, {"Monitor": "monitor.yml"})
+
+    whitelist, profile = (
+        [line for line in (run_dir / "config" / name).read_text(encoding="utf-8").splitlines()
+         if line and not line.startswith("#")]
+        for name in ("whitelist.run", "profile.run")
+    )
+    assert whitelist == ["FlowSolver", "ProjectVelocity"]
+    assert profile == ["PoissonSolver_Multigrid", "ComputeRHS"]
+    err = capsys.readouterr().err
+    assert "'Projection' was renamed to 'ProjectVelocity'" in err
+    assert "'VolumeFlux' no longer exists" in err
+
+    with pytest.raises(ValueError, match="no longer exist"):
+        picurv.resolve_profiling_config(
+            {"profiling": {"timestep_output": {"mode": "selected", "functions": ["FullyBlocked"]}}})

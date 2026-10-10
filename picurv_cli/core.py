@@ -3440,6 +3440,22 @@ STUDY_PLOT_FORMATS = ("png", "pdf", "svg")
 #: How much per-timestep profiling output the monitor emits.
 PROFILING_TIMESTEP_MODES = ("off", "selected", "all")
 
+#: Solver functions renamed by the Poisson rewrite (0d34592). Function lists in monitor.yml
+#: match names exactly, so an old name would select nothing; it is translated instead.
+RENAMED_MONITOR_FUNCTIONS = {
+    "PoissonSolver_MG": "PoissonSolver_Multigrid",
+    "Projection": "ProjectVelocity",
+    "PoissonLHSNew": "AssemblePoissonOperator",
+    "PoissonRHS": "ComputePoissonRHS",
+}
+
+#: Solver functions the Poisson rewrite removed; nothing logs or profiles under these names.
+REMOVED_MONITOR_FUNCTIONS = (
+    "CorrectChannelFluxProfile", "VolumeFlux", "VolumeFlux_rev", "FullyBlocked",
+    "MyNvertRestriction", "MyRestriction", "MyInterpolation", "PoissonNullSpaceFunction",
+    "GridRestriction", "SetupSolverParameters",
+)
+
 #: Krylov methods for which a `gmres.restart` parameter is meaningful.
 GMRES_RESTART_METHODS = ("gmres", "fgmres", "lgmres")
 
@@ -11657,6 +11673,32 @@ def generate_simple_list_file(run_dir: str, run_id: str, cfg: dict, section: str
     return os.path.abspath(file_path)
 
 
+def normalize_monitor_function_names(names: list, field_name: str) -> list:
+    """!
+    @brief Translate renamed solver functions in a monitor.yml function list.
+    @param[in] names Function names as written in monitor.yml.
+    @param[in] field_name YAML path of the list, used in warnings.
+    @return The list with renamed functions replaced and removed ones dropped.
+    @details Logging and profiling select functions by exact name, so a stale name
+             silently selects nothing. Renamed functions are mapped to their current
+             names and removed ones dropped, each with a warning.
+    """
+    normalized = []
+    for name in names or []:
+        if name in RENAMED_MONITOR_FUNCTIONS:
+            current = RENAMED_MONITOR_FUNCTIONS[name]
+            print(f"[WARNING] {field_name}: '{name}' was renamed to '{current}'; using '{current}'.",
+                  file=sys.stderr)
+            name = current
+        elif name in REMOVED_MONITOR_FUNCTIONS:
+            print(f"[WARNING] {field_name}: '{name}' no longer exists (removed by the Poisson "
+                  "rewrite, 0d34592); dropping it.", file=sys.stderr)
+            continue
+        if name not in normalized:
+            normalized.append(name)
+    return normalized
+
+
 def has_explicit_monitor_whitelist(monitor_cfg: dict) -> bool:
     """!
     @brief Return True when logging.enabled_functions contains at least one entry.
@@ -11700,6 +11742,9 @@ def resolve_profiling_config(monitor_cfg: dict) -> dict:
         raise ValueError("monitor.profiling.timestep_output.functions must be non-empty when mode is 'selected'.")
     if mode != "selected" and functions:
         raise ValueError("monitor.profiling.timestep_output.functions is only valid when mode is 'selected'.")
+    functions = normalize_monitor_function_names(functions, "monitor.profiling.timestep_output.functions")
+    if mode == "selected" and not functions:
+        raise ValueError("monitor.profiling.timestep_output.functions lists only functions that no longer exist.")
     if not timestep_file:
         raise ValueError("monitor.profiling.timestep_output.file must be a non-empty string.")
 
@@ -12329,9 +12374,11 @@ def prepare_monitor_files(run_dir: str, run_id: str, monitor_cfg: dict, source_f
 
     whitelist_path = None
     if has_explicit_monitor_whitelist(monitor_cfg):
+        enabled = normalize_monitor_function_names(
+            monitor_cfg["logging"]["enabled_functions"], "monitor.logging.enabled_functions")
         whitelist_path = generate_simple_list_file(
-            run_dir, run_id, monitor_cfg, "logging", "enabled_functions", "whitelist.run", source_files,
-            config_dir=config_dir,
+            run_dir, run_id, {"logging": {"enabled_functions": enabled}}, "logging", "enabled_functions",
+            "whitelist.run", source_files, config_dir=config_dir,
         )
     else:
         print("[INFO] logging.enabled_functions is empty; omitting whitelist.run so the C runtime uses its default allow-list.")

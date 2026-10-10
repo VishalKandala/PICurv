@@ -297,6 +297,11 @@ Rules:
   as `FlowSolver`, `MomentumSolver_DualTime_Picard_JamesonRK`, `PoissonSolver_Multigrid` and
   `ComputeRHS`. A name that is not instrumented records nothing; the run warns about it
   after the first step, and a list with no instrumented names writes no file.
+- Names the Poisson rewrite changed are translated with a warning, in this list and in
+  `logging.enabled_functions`: `PoissonSolver_MG` becomes `PoissonSolver_Multigrid`,
+  `Projection` becomes `ProjectVelocity`, `PoissonLHSNew` becomes `AssemblePoissonOperator`,
+  and `PoissonRHS` becomes `ComputePoissonRHS`. Names of functions it removed are dropped
+  with a warning.
 - `timestep_output.file` sets the filename written under `<run.runtime_logs>/`
 - `final_summary.enabled` controls the end-of-run `ProfilingSummary_*.log` file
 
