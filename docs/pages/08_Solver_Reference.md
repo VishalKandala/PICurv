@@ -781,7 +781,9 @@ case, `examples/flat_channel` among them. Analytically verified -
 `poisson-options-2026-09-21`: every multigrid option reproduced this baseline;
 `poisson-persistent-solver-2026-10-10`: the solver kept for the run reproduced the previous
 one and the duct and bend evidence; `poisson-option-matrix-2026-10-10`: every Poisson
-setting, varied one at a time around this method, reproduced its solve.
+setting, varied one at a time around this method, reproduced its solve;
+`hom02-poisson-rewrite-2026-10-10`: the HOM02 decaying-turbulence comparison with Wray's DNS
+reproduced to the printed digits.
 
 **Limitations.** Stores one vector per iteration up to the restart length, so memory
 grows with `gmres.restart`.

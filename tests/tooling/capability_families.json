@@ -369,7 +369,8 @@
               "measurement:duct-poiseuille-picard-2026-09-18",
               "measurement:poisson-options-2026-09-21",
               "measurement:poisson-persistent-solver-2026-10-10",
-              "measurement:poisson-option-matrix-2026-10-10"
+              "measurement:poisson-option-matrix-2026-10-10",
+              "measurement:hom02-poisson-rewrite-2026-10-10"
             ]
           }
         },

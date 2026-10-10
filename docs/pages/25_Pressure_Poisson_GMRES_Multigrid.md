@@ -404,6 +404,12 @@ matrix's 1e-12 tolerances, 17 duct variants hit the 300-iteration cap near stead
 without losing agreement, so its iteration counts do not measure cost at production
 tolerances.
 
+On a turbulent case, `hom02-poisson-rewrite-2026-10-10` reran two of the HOM02 decaying
+isotropic turbulence variants (no model and constant Smagorinsky, 64^3, 452 steps) with
+the rewritten solver: every decay and spectrum metric against Wray's 512^3 DNS matched the
+earlier runs to the printed digits, the Poisson solve fell from 1.89 to 0.16 s per step,
+and each step took 2.4-2.6x less time.
+
 End to end, `make smoke-driven-periodic` asserts at 4 and 10 ranks that the multigrid
 coarse solve keeps tracked and true residuals within 1e-4 of each other until both fall
 below 1e-10 of the step's initial residual (below that the two drift apart in round-off

@@ -791,6 +791,21 @@
       },
       "limitations": "With the 1e-12 tolerances, 17 of the 28 duct variants stopped at the 300-iteration cap on some steps once the flow was near steady (most for levels 4 and 5, serial ILU and 1 rank: 71 to 88 of 120 steps), with final relative norms of 7e-12 to 5e-7; the fields still agreed with the baseline to 1.4e-9, so these are tolerances at round-off rather than failed solves, and iteration counts here do not measure cost at production tolerances. The first run's periodic plane channel and uniform triply periodic box had an identically zero Poisson source and tested no option; they were replaced by the box and are not counted. The box and bend carry no analytic reference and are judged against their own baselines; the box runs only 20 steps. Single block; static geometry; serial-only LU and ILU were run on 1 rank only. The timing of the variants was not compared.",
       "artifacts": []
+    },
+    {
+      "id": "hom02-poisson-rewrite-2026-10-10",
+      "question": "Does the rewritten pressure-Poisson solver reproduce the HOM02 decaying-turbulence comparison with Wray's DNS, and what does it save per step on that case?",
+      "date": "2026-10-10",
+      "commit": "0841f7d (no runtime source changed through 3242f6c)",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized, one node and 48 ranks (4 x 4 x 3) per run; jobs 20085299 and 20085308, staged by the HOM02 les_matrix.py with --pin-executables and reduced by its reduce subcommand into results_0841f7d beside the 2026-10-09 results.",
+      "configuration": "The nomodel_64 and const017_64 variants of hom02-les-execution-2026-10-09, unchanged: 64^3, initial field CB128_9 at DNS time 0.9614, Newton-Krylov momentum, 452 steps of dt 0.01 to DNS time 5.48, compared with the AGARD AR-345 HOM02 512^3 DNS spectra and decay.",
+      "result": {
+        "measured": "Every reduced metric equal to the 2026-10-09 runs at the printed precision: no model decay error final +2.0607 (max 2.0674), low-band RMS log10 0.2651, cutoff-band mean log10 +0.7245; constant Smagorinsky decay error final -0.1437 (max 0.2615), low band 0.0925, cutoff band +0.1098, nu_t/nu 3.088; initial band-energy ratio 0.8978 in both. All 452 steps ran, maximum divergence 4.53e-11 and 4.44e-11, as before. Velocity against the old runs: 9.3e-15 and 1.0e-11 at step 25, growing to 4.5e-9 and 1.4e-10 (3e-9 and 2e-10 of the maximum velocity) by step 452. Elapsed 9:46 and 8:55 against 22:46 and 21:58; time per step 2.90 to 1.19 s and 2.81 to 1.07 s (2.4x and 2.6x); the Poisson solve 1.89 to 0.16 s per step (12x), plus a one-time build of 1.7 to 1.8 s.",
+        "threshold": "The DNS comparison metrics unchanged by the solver rewrite.",
+        "verdict": "met"
+      },
+      "limitations": "This re-establishes an existing comparison rather than adding one: the accuracy verdict of hom02-les-accuracy-2026-10-09 (not met for the decay bound) stands unchanged. Two of the seventeen matrix variants were rerun. The old and new runs differ by growing round-off as the decay proceeds; the comparison holds the statistics, not the instantaneous fields, to agreement.",
+      "artifacts": []
     }
   ]
 }
