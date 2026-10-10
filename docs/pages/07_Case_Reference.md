@@ -640,12 +640,19 @@ orthogonal cell the product of the extents is the volume, so this equals
 
 **Diagnostics.** As above.
 
-**Evidence.** Implemented, covered by the same unit case and by
+**Evidence.** Unit verified - the same unit case and
 `filter-width-is-independent-of-cell-orientation`, which requires the same width for a
-stretched cell before and after rotating it.
+stretched cell before and after rotating it. Benchmark characterized -
+`hom02-geometric-mean-equivalence-2026-10-09`: on the 2:1 cells of the HOM02 width
+comparison it reproduced `cube_root_volume` in every reduced quantity, and the velocity
+fields differed by at most 1.3e-10 relative. The difference comes only from the two
+formulas' floating-point paths, because two identical runs on different nodes were
+bitwise equal.
 
 **Limitations.** Still a geometric mean, so it shares the cube-root model's optimism on
-strongly stretched cells.
+strongly stretched cells. Measured only on orthogonal cells, where it equals
+`cube_root_volume` by construction. Its behaviour on skewed cells, the one place it
+differs, has not been run.
 
 @subsection p07_cap_width_max_edge_sub max_edge
 
@@ -959,12 +966,26 @@ width ratio of 4^(1/3), about 1.59.
 
 **Diagnostics.** As above.
 
-**Evidence.** Implemented, covered by `tests/c/test_solver_kernels.c` alongside the box
-filter.
+**Evidence.** Unit verified - `make unit-les`: `tests/c/test_solver_kernels.c` checks the
+stencil alongside the box filter, and `tests/c/test_les.c`
+(`dynamic-procedure-simpson-ratio-counts-filtered-directions`) runs the dynamic procedure
+on a linear field and requires the coefficient to scale as 1/(ratio^(4/3) - 1), which the
+former squared-ratio weighting fails. Benchmark characterized - `hom02-simpson-ik-2026-10-09`:
+on HOM02 the former weighting halved the dynamic coefficient against the box filter (0.091
+against 0.194) and left a +0.39 cutoff-band pile-up; weighted as a two-direction filter it
+gives 0.168 and +0.12, and runs to the last DNS spectrum. Externally validated -
+`wmles-channel-retau1000-simpson-2026-10-09`: on the wall-modelled Re_tau ~ 1000 channel, with
+the corrected weighting, u_tau is 2.5% above Lee & Moser, the bulk-unit mean velocity is
+within 0.8% RMS, and the outer-layer resolved shear stress is 0.97-1.01 of the reference;
+the outer u' excess falls from 16% under the former weighting to 6%.
 
 **Limitations.** Averages over only the central eta-plane, so it ignores variation in
 the wall-normal direction entirely; that is the point on a channel and wrong anywhere
-else.
+else. Even corrected, it is less dissipative than the box filter: on the channel it carries
+about 20% less eddy viscosity and 6% more outer u', and on isotropic turbulence ten times
+the box filter's cutoff pile-up. The channel criteria do not discriminate test filters,
+because the wall model sets the friction velocity; the corrected default was represented
+there by a width ratio equal to it within 1.6e-6 in alpha, not run on the corrected build.
 
 @htmlinclude generated/capability_inventory_turbulence_wall_function.html
 
@@ -1044,12 +1065,20 @@ mis-sized first cell does not.
 their friction-velocity root-finds, each checked to invert its own law;
 `tests/c/test_boundaries.c` covers the integration, checking that the corrected first
 interior velocity is the modelled profile at that cell's wall distance, for the friction
-velocity the integration itself stored. No shipped example enables it and no
-reference-flow comparison has been run.
+velocity the integration itself stored. Externally validated -
+`wmles-channel-retau1000-loglaw-2026-10-09`: on the wall-modelled Re_tau ~ 1000 channel
+(`driven_channel/les_wallmodel_retau1000`, restarted from the werner run), u_tau over the
+statistics window is 0.3% below Lee & Moser (2015), the driving-force balance agrees to
+0.2%, U+ stays within 0.08 of the reference over y+ 100-500, and the outer-layer resolved
+Reynolds shear stress is 0.92-0.97 of it - every criterion the werner model was held to,
+with the widest margins of the three wall functions.
 
 **Limitations.** Validity depends on the first cell falling in the logarithmic region.
 Only the wall-face mean y+ is checked, so individual cells outside the region, near a
-corner or a separation for instance, pass unremarked while the mean stays in range.
+corner or a separation for instance, pass unremarked while the mean stays in range. The
+validation is one smooth-wall channel on one grid; `roughness_height` is not exercised, and
+the run adapted for 200 time units from a werner-developed state rather than developing
+under this law from rest.
 
 @subsection p07_cap_wall_werner_sub werner
 
@@ -1094,8 +1123,13 @@ shear stress falls from 1.27 to 0.91-1.02 of the reference. Production exercised
 takes individual cells into the linear branch while the run continues.
 
 **Limitations.** No roughness. The power-law constants are fixed, and the model carries
-no pressure-gradient term, so it describes an equilibrium layer only - `cabot` is the
-selection when the near-wall layer is not in equilibrium. The validation is one grid of one channel. There, the stress the model applies sits about 2% above what the channel's own outer-layer stress balance implies, a gap the run cannot settle because the solver does not report the driving force.
+no pressure-gradient term, so it describes an equilibrium layer only; no implemented
+model handles a non-equilibrium layer correctly (see `cabot`). The validation is one grid of
+one channel, and its friction velocity is biased about +3%: a later window of the same
+flow, `wmles-channel-retau1000-werner-window2-2026-10-09`, gave +3.2% and so missed the 3%
+criterion by 0.2 points while passing every other one. The driving force, now logged,
+agrees with the wall model's stress to 0.2%, so the 2% gap an outer-layer stress fit once
+suggested came from that fit's single-snapshot subgrid estimate, not from the model.
 
 
 @subsection p07_cap_wall_cabot_sub cabot
@@ -1107,8 +1141,9 @@ selection when the near-wall layer is not in equilibrium. The validation is one 
 **What it does.** Applies Cabot's wall model, which integrates a mixing-length eddy
 viscosity across the wall layer rather than assuming a profile shape.
 
-**When to choose it.** When the near-wall flow departs from equilibrium enough that a
-fixed profile is a poor fit, and you are prepared to pay for the integration.
+**When to choose it.** Not for results yet. It is meant for near-wall flow that departs
+from equilibrium, but as implemented its pressure-gradient term makes the wall stress
+unreliable (see Limitations); use `werner` or `log_law`.
 
 **Parameters it owns.** None currently.
 
@@ -1124,10 +1159,19 @@ projection's, the same lag every other explicit use of it carries.
 **Evidence.** Implemented, with unit coverage run by `make unit-runtime` and
 `make unit-boundaries`: `find_utau_Cabot` and `u_Cabot` in
 `tests/c/test_runtime_kernels.c`. The integration that dispatches to it is covered in
-`tests/c/test_boundaries.c`. No reference-flow comparison has been run.
+`tests/c/test_boundaries.c`. The one reference-flow comparison failed:
+`wmles-channel-retau1000-cabot-2026-10-09`. Restarted on the wall-modelled Re_tau ~ 1000
+channel from a state werner held at u_tau 0.0514, it gave 0.039 from the first step, with
+3.4 times werner's cell-to-cell scatter, and it was cancelled before its statistics window.
 
-**Limitations.** No roughness formulation, so `roughness_height` is rejected rather than
-accepted and ignored. The mixing-length constant is fixed.
+**Limitations.** Not usable as implemented. The pressure-gradient term integrates the
+instantaneous resolved gradient across the layer up to the reference cell, without the
+convective terms that balance it in the full boundary-layer equations; on the channel it
+was +-38% of the reference velocity, gave a negative stress in a third of wall cells, and
+the friction-velocity solve takes the magnitude of that stress. Evaluated offline on the
+same state, the relation without its pressure term gives -2.6%. No roughness formulation,
+so `roughness_height` is rejected rather than accepted and ignored. The mixing-length
+constant is fixed.
 
 @section p07_bc_sec 7. boundary_conditions
 

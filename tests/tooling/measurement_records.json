@@ -671,6 +671,96 @@
       },
       "limitations": "Production-execution evidence; the accuracy comparison is exploratory and has no pre-set criterion. One cross-section resolution (32 x 32) and one time step; no grid study. Boundary-layer u' is about twice the measured level at the inlet with about five cells across the layer, and the core at XH = -0.25 is about 6% fast with the 15 D inlet. The plug inlet carries no turbulence; the experiment's inlet layers were turbulent, reached here through inlet length. Table II was hand-transcribed from the scanned report and its rotated XH = +2.5 pages could not be cross-checked against the OCR text. No restart, no other rank layout; the 96-rank pilot reproduced the 48-rank pilot to round-off over 300 steps but is not part of this record.",
       "artifacts": []
+    },
+    {
+      "id": "hom02-geometric-mean-equivalence-2026-10-09",
+      "question": "On the uniform orthogonal cells of the HOM02 anisotropic box, does the geometric_mean filter width reproduce cube_root_volume, to which it is algebraically equal there, with every difference attributable to floating-point round-off rather than to a defect in the directional-extent path?",
+      "date": "2026-10-09",
+      "commit": "b85f5a07bb7bd8ed7241d1ce09ca75d98bbf1568 for const017_geomean_aniso and both cube_root_volume reruns; 4eedf256d5b1176744760b3a091e0eab4b334b58 for the original const017_cube_aniso. Both read from each run's checkpoint.meta and reported by the owner's cluster session.",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized, one node per run, 32 ranks (4 x 4 x 2). Runs les_const017_geomean_aniso_20261009-150914 (job 20075142, node c641), les_const017_cube_aniso_rerun_20261009-153903 (20075505, c276), les_const017_cube_aniso_rerun2 (20075583, c179), and the matrix's les_const017_cube_aniso_20261009-035302. Staged by the HOM02 les_matrix.py with --pin-executables; the Ucat comparisons were computed on the cluster from read_petsc_vec_binary and reported as numbers.",
+      "configuration": "HOM02 decaying isotropic turbulence on the 64 x 64 x 32 box (cells 2:1), the same setup as hom02-les-execution-2026-10-09: initial field from CB128_9.bin at t0 = 0.9614, Newton Krylov, dt = 0.01, 452 steps, constant_smagorinsky with Cs 0.17, differing only in les.filter_width (geometric_mean against cube_root_volume). Ucat compared at all 20 common committed checkpoints.",
+      "result": {
+        "measured": "Two cube_root_volume runs at the same build on different nodes are bitwise identical at every checkpoint (max |dUcat| = 0). So the computation is deterministic across nodes at this rank count, and any difference between widths at the same build is the width path's own. geometric_mean against cube_root_volume at the same build: identical at step 0 and 5.8e-12 relative (max |dU| / max |U|) at step 25, then a slow climb to 1.27e-10 at the end. The same option at different builds differs by the same amount (9.3e-11), and two different builds start 7e-16 apart. Every reduced quantity (band-energy decay, low-band and cutoff-band spectral error, mean nu_t/nu 4.382) is identical at the printed precision.",
+        "threshold": "No reduced quantity distinguishes the two widths; the field difference is no larger than what a round-off-level perturbation produces in the same flow (here the cross-build difference). The originally proposed bound of 1e-12 relative was set without a measured floor and is superseded by that floor.",
+        "verdict": "met"
+      },
+      "limitations": "Establishes equivalence only on orthogonal cells, where the two widths are equal by construction; the option's distinct behaviour on skewed cells, the only place it differs from cube_root_volume, is not measured. No grid in the current evidence set is skewed, and the HOM02 initial-condition import and spectral reduction accept Cartesian grids only. The 1e-10 field difference is attributed to the two widths' different floating-point paths by elimination (determinism shown, configuration otherwise identical); the per-cell width values themselves were not compared. One flow, one rank layout.",
+      "artifacts": []
+    },
+    {
+      "id": "wmles-channel-retau1000-loglaw-2026-10-09",
+      "question": "Does the log_law wall function reproduce Lee & Moser's Re_tau = 1000 channel in the wall-modelled LES within the criteria the werner model was held to?",
+      "date": "2026-10-09",
+      "commit": "b85f5a07bb7bd8ed7241d1ce09ca75d98bbf1568 (pinned executables; job 20075144).",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized, one node, 24 ranks (3 x 2 x 4), executables pinned at b85f5a0. Each variant restarted with --restart-from from step 100000 (t = 2000) of case_constant_flux_20261008-154731, the run behind wmles-channel-retau1000-werner-2026-10-09, with --statistics-state reset, and ran 40000 steps to t = 2800. Staged and reduced on the cluster by the case's wm_matrix/wm_matrix.py; its reducer reproduced the parent's published werner numbers to rounding before use. summary.csv and profiles.csv inspected as supplied.",
+      "configuration": "examples/periodic_test/driven_channel/les_wallmodel_retau1000 at the parent's settings: 32 x 20 x 48 uniform cells over pi x 2 x 2 pi, constant_flux driven, Re_b = 40,000, Dual Time Picard Jameson RK, dt = 0.02, dynamic_smagorinsky with homogeneous averaging over i and k, clamp 0.3, cube_root_volume width. Statistics window t = 2200-2800 (halves split at 2500). Each variant changes one key from the parent: wall_function.model log_law, smooth wall (no roughness_height). A werner control (job 20075143) ran alongside from the same state.",
+      "result": {
+        "measured": "u_tau = 0.049874, -0.34% against Lee & Moser; halves 0.049898 / 0.049851 (0.10% apart); u_tau from the driving force 0.049975 (-0.14%), ratio 0.998. Bulk-unit mean velocity RMS 0.0133 U_b (max 0.0213); U+ within 0.080 of Lee & Moser over y+ 100-500 (first cell +0.43 at y+ 49.9); resolved -u'v' 0.915-0.966 of Lee & Moser for 0.3 <= y/h <= 0.85; outer u', v', w' ratios 0.984 / 0.975 / 0.926. Dynamic coefficient over the window cs_effective 0.035, nu_t/nu 3.48. The werner control from the same restart: u_tau +3.23% (wmles-channel-retau1000-werner-window2-2026-10-09).",
+        "threshold": "Fixed 2026-10-09 before the runs, the werner record's criteria plus a force balance: sqrt(<u_tau^2>) from wall_model.csv within +-3% of Lee & Moser (0.050046); window halves within 1%; bulk-unit mean velocity RMS <= 0.02 U_b; |U+ - U+_LM| <= 1 for y+ 100-500, first cell excluded; resolved -u'v' within 0.85-1.15 of Lee & Moser for 0.3 <= y/h <= 0.85; wall-model u_tau within 1% of sqrt(<f> h) from driven_flow.csv.",
+        "verdict": "met"
+      },
+      "limitations": "One grid, one Reynolds number, smooth wall only; the roughness term is not exercised. The log law's constants are the implementation's own and are not varied. Restarted from a werner-developed state rather than developed from rest under log_law; the 200 time units before the window are its only adaptation. Outer-layer resolved shear stress sits 3-9% below Lee & Moser, inside the criterion but on the low side.",
+      "artifacts": []
+    },
+    {
+      "id": "wmles-channel-retau1000-werner-window2-2026-10-09",
+      "question": "Does the werner result of wmles-channel-retau1000-werner-2026-10-09 hold over a later window of the same flow, restarted through the current build?",
+      "date": "2026-10-09",
+      "commit": "b85f5a07bb7bd8ed7241d1ce09ca75d98bbf1568 (pinned executables; job 20075143).",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized, one node, 24 ranks (3 x 2 x 4), executables pinned at b85f5a0. Each variant restarted with --restart-from from step 100000 (t = 2000) of case_constant_flux_20261008-154731, the run behind wmles-channel-retau1000-werner-2026-10-09, with --statistics-state reset, and ran 40000 steps to t = 2800. Staged and reduced on the cluster by the case's wm_matrix/wm_matrix.py; its reducer reproduced the parent's published werner numbers to rounding before use. summary.csv and profiles.csv inspected as supplied.",
+      "configuration": "examples/periodic_test/driven_channel/les_wallmodel_retau1000 at the parent's settings: 32 x 20 x 48 uniform cells over pi x 2 x 2 pi, constant_flux driven, Re_b = 40,000, Dual Time Picard Jameson RK, dt = 0.02, dynamic_smagorinsky with homogeneous averaging over i and k, clamp 0.3, cube_root_volume width. Statistics window t = 2200-2800 (halves split at 2500). Each variant changes one key from the parent: none: this is the control, wall_function.model werner, volume_weighted_box test filter.",
+      "result": {
+        "measured": "u_tau = 0.051661, +3.23% against Lee & Moser (halves 0.051782 / 0.051539, 0.47% apart); from the driving force 0.051555 (+3.02%), ratio 1.002. Bulk-unit mean velocity RMS 0.0104 U_b; U+ within 0.88 over y+ 100-500 (first cell -0.34); resolved -u'v' 0.970-1.022 for 0.3 <= y/h <= 0.85; outer u', v', w' 1.017 / 1.009 / 0.954; cs_effective 0.037, nu_t/nu 3.63. The earlier window t = 1200-2000 gave +2.87%.",
+        "threshold": "Fixed 2026-10-09 before the runs, the werner record's criteria plus a force balance: sqrt(<u_tau^2>) from wall_model.csv within +-3% of Lee & Moser (0.050046); window halves within 1%; bulk-unit mean velocity RMS <= 0.02 U_b; |U+ - U+_LM| <= 1 for y+ 100-500, first cell excluded; resolved -u'v' within 0.85-1.15 of Lee & Moser for 0.3 <= y/h <= 0.85; wall-model u_tau within 1% of sqrt(<f> h) from driven_flow.csv.",
+        "verdict": "not-met"
+      },
+      "limitations": "Fails only the friction-velocity bound, by 0.23 points; every other criterion passes with margin. Read with the earlier window, werner's friction velocity is biased about +3% (2.9-3.2% over two windows), straddling the bound rather than a regression. The driving-force balance agrees with the wall model to 0.2%, so the bias is the model's, not the diagnostic's, and the 2.3% gap the earlier record left open came from its single-snapshot subgrid estimate.",
+      "artifacts": []
+    },
+    {
+      "id": "wmles-channel-retau1000-simpson-2026-10-09",
+      "question": "Does the simpson_ik test filter, with the dynamic procedure weighting it as a two-direction filter, run the wall-modelled channel within the werner criteria, and does it correct the outer-layer excess its former weighting produced?",
+      "date": "2026-10-09",
+      "commit": "b85f5a07bb7bd8ed7241d1ce09ca75d98bbf1568 (pinned executables; jobs 20075146 and 20075738).",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized, one node, 24 ranks (3 x 2 x 4), executables pinned at b85f5a0. Each variant restarted with --restart-from from step 100000 (t = 2000) of case_constant_flux_20261008-154731, the run behind wmles-channel-retau1000-werner-2026-10-09, with --statistics-state reset, and ran 40000 steps to t = 2800. Staged and reduced on the cluster by the case's wm_matrix/wm_matrix.py; its reducer reproduced the parent's published werner numbers to rounding before use. summary.csv and profiles.csv inspected as supplied.",
+      "configuration": "examples/periodic_test/driven_channel/les_wallmodel_retau1000 at the parent's settings: 32 x 20 x 48 uniform cells over pi x 2 x 2 pi, constant_flux driven, Re_b = 40,000, Dual Time Picard Jameson RK, dt = 0.02, dynamic_smagorinsky with homogeneous averaging over i and k, clamp 0.3, cube_root_volume width. Statistics window t = 2200-2800 (halves split at 2500). Each variant changes one key from the parent: les.test_filter.kernel simpson_ik with werner. Two runs: width_ratio 2.0 under the build's former alpha = ratio^2 = 4, and width_ratio 1.5874, whose alpha = 1.5874^2 = 2.519838 equals the corrected alpha = 2^(4/3) = 2.519842 to 1.6e-6 relative, so it stands for the corrected default.",
+      "result": {
+        "measured": "Corrected weighting: u_tau 0.051304 (+2.51%), halves 0.03% apart, force ratio 1.003; bulk RMS 0.0080 U_b; U+ within 0.74 (first cell -0.47); resolved -u'v' 0.972-1.007; outer u', v', w' 1.063 / 1.015 / 0.957; nu_t/nu 2.91, cs_effective 0.015. Former weighting: u_tau +2.52%, bulk RMS 0.0108, U+ 0.92, -u'v' 1.004-1.037 - also within every criterion - but outer u' 1.162 and nu_t/nu 1.59. The werner control with the box filter: u' 1.017, nu_t/nu 3.63.",
+        "threshold": "Fixed 2026-10-09 before the runs, the werner record's criteria plus a force balance: sqrt(<u_tau^2>) from wall_model.csv within +-3% of Lee & Moser (0.050046); window halves within 1%; bulk-unit mean velocity RMS <= 0.02 U_b; |U+ - U+_LM| <= 1 for y+ 100-500, first cell excluded; resolved -u'v' within 0.85-1.15 of Lee & Moser for 0.3 <= y/h <= 0.85; wall-model u_tau within 1% of sqrt(<f> h) from driven_flow.csv.",
+        "verdict": "met"
+      },
+      "limitations": "The criteria do not discriminate the test filter here: the wall model fixes the friction velocity, and even the former, under-dissipative weighting met them. The discriminating quantities are the outer-layer u' (1.16 -> 1.06) and nu_t, which are reported but were not criteria; the corrected filter still carries 6% more outer u' and 20% less nu_t than the box filter. The corrected default was represented by width_ratio 1.5874 on the former build, equal to 1.6e-6 in alpha, not run on the corrected build. One grid, one Reynolds number.",
+      "artifacts": []
+    },
+    {
+      "id": "hom02-simpson-ik-2026-10-09",
+      "question": "On the HOM02 benchmark, how does the dynamic procedure with the simpson_ik test filter behave, and does weighting it as a two-direction filter correct it?",
+      "date": "2026-10-09",
+      "commit": "b85f5a07bb7bd8ed7241d1ce09ca75d98bbf1568 (checkpoint.meta, as reported by the owner's cluster session).",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized, one node, 48 ranks (4 x 4 x 3). Runs les_dyn_homog_simpson_64_20261009-150850 (job 20075140) and les_dyn_homog_simpson_r1587_64_20261009-153918 (20075506), reduced with the matrix of hom02-les-execution-2026-10-09 by the HOM02 les_matrix.py.",
+      "configuration": "As hom02-les-execution-2026-10-09 at 64^3: dynamic_smagorinsky, homogeneous averaging, clamp 0.3, cube_root_volume, test_filter simpson_ik; width_ratio 2.0 under the former alpha = 4, and width_ratio 1.5874 standing for the corrected alpha = 2^(4/3) (equal to 1.6e-6).",
+      "result": {
+        "measured": "Former weighting: whole-domain Cs 0.091 against the box filter's 0.194; nu_t/nu 1.36 against 3.69; cutoff-band mean log10 error +0.385 against +0.012 (no model +0.72); decay error up to 0.50 against 0.18; low-band RMS log10 0.184. Corrected weighting: Cs 0.168, nu_t/nu 3.05, cutoff band +0.116, decay error up to 0.26, low band 0.095. Both ran to the last DNS spectrum. tests/c/test_les.c dynamic-procedure-simpson-ratio-counts-filtered-directions fails on the former weighting and passes on the corrected one.",
+        "threshold": "Characterization in the terms of hom02-les-execution-2026-10-09: runs to the last DNS spectrum and brings the cutoff band from the no-model +0.72 to within +-0.15.",
+        "verdict": "met"
+      },
+      "limitations": "Characterizes rather than validates: like every model in hom02-les-accuracy-2026-10-09, the corrected run does not keep decay within 10% of the DNS. A test filter that ignores one direction is a poor fit to isotropic turbulence; even corrected it leaves 10x the box filter's cutoff pile-up. Its intended use is planes homogeneous in i and k, which wmles-channel-retau1000-simpson-2026-10-09 covers.",
+      "artifacts": []
+    },
+    {
+      "id": "wmles-channel-retau1000-cabot-2026-10-09",
+      "question": "Does the cabot wall function run the wall-modelled channel within the werner criteria?",
+      "date": "2026-10-09",
+      "commit": "b85f5a07bb7bd8ed7241d1ce09ca75d98bbf1568 (pinned executables; job 20075145).",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized, one node, 24 ranks (3 x 2 x 4), executables pinned at b85f5a0. Each variant restarted with --restart-from from step 100000 (t = 2000) of case_constant_flux_20261008-154731, the run behind wmles-channel-retau1000-werner-2026-10-09, with --statistics-state reset, and was cancelled at step 101154 (t = 2023.08) on the owner's instruction. Staged and reduced on the cluster by the case's wm_matrix/wm_matrix.py; its reducer reproduced the parent's published werner numbers to rounding before use. summary.csv and profiles.csv inspected as supplied.",
+      "configuration": "examples/periodic_test/driven_channel/les_wallmodel_retau1000 at the parent's settings: 32 x 20 x 48 uniform cells over pi x 2 x 2 pi, constant_flux driven, Re_b = 40,000, Dual Time Picard Jameson RK, dt = 0.02, dynamic_smagorinsky with homogeneous averaging over i and k, clamp 0.3, cube_root_volume width. Statistics window t = 2200-2800 (halves split at 2500). Each variant changes one key from the parent: wall_function.model cabot. The pressure gradient enters from the resolved pressure at the first interior cell; the reference velocity is the second cell's (y = 0.15).",
+      "result": {
+        "measured": "From the first step after restart, on the state werner had just held at u_tau 0.0514: u_tau mean 0.0391, rms 0.0215 (3.4x the other models), minimum 0.003; mean over 1154 steps 0.0389. 46 momentum steps hit the attempt cap; 1.65 s/step against 0.32 for werner. Reproduced offline on the restart checkpoint by solving the implemented relation cell by cell: 0.03902 mean, 0.02147 rms; 36% of wall cells give a negative stress, which the solve folds positive. The same relation without its pressure-gradient term gives 0.0487 (-2.6%); with the driving force added to the gradient 0.0458; with the gradient smoothed over 5 x 5 cells 0.0427.",
+        "threshold": "As the werner record; no window was reached, so only the friction-velocity criterion can be judged, and it fails by -22%.",
+        "verdict": "not-met"
+      },
+      "limitations": "Cancelled before its statistics window; the profile criteria were not evaluated. The cause is the formulation as implemented: the instantaneous resolved pressure gradient integrated across two cells is +-38% of the reference velocity, without the convective terms that balance it in the full boundary-layer equations, and the u_tau solve takes sqrt(|tau|). That diagnosis is offline on one state; a corrected cabot is unbuilt.",
+      "artifacts": []
     }
   ]
 }

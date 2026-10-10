@@ -373,16 +373,19 @@ with no caller is a guess.
 
 All four models are **supported**, together with the `homogeneous`, `global` and
 `local` averaging modes, the `clamp`, `clip_negative` and `none` clipping modes, the
-`volume_weighted_box` test filter, and the `cube_root_volume`, `max_edge` and `scotti`
-widths. `simpson_ik` and `geometric_mean` remain experimental: neither has been run
-where it differs from the default. The unit coverage is unchanged: `tests/c/test_les.c`
+`volume_weighted_box` test filter, and all four widths. `geometric_mean` rests on
+`hom02-geometric-mean-equivalence-2026-10-09`, which shows it reproduces `cube_root_volume`
+on orthogonal cells; it has not been run on skewed cells, where it differs.
+`simpson_ik` is supported for planes homogeneous in xi and zeta; the dynamic procedure
+weights it as a two-direction filter (section 6), after the squared ratio it once used
+halved the coefficient. The unit coverage: `tests/c/test_les.c`
 checks the model tensor against its closed form on constant strain, pins the filtered
 product apart from the product of filtered factors, verifies that the procedure returns
-exactly zero on uniform flow, and checks that global averaging gives one coefficient per
-block; `tests/c/test_mpi_kernels.c` checks that the averaging reduction does not depend
+exactly zero on uniform flow, checks that global averaging gives one coefficient per
+block, and requires the Simpson coefficient to scale as 1/(ratio^(4/3) - 1); `tests/c/test_mpi_kernels.c` checks that the averaging reduction does not depend
 on the decomposition.
 
-Three measurements add to it.
+Five measurements add to it.
 
 - **HOM02 decaying isotropic turbulence** (`hom02-les-execution-2026-10-09`): seventeen
   runs from Wray's 512^3 DNS field at 64^3, 32^3 and 64 x 64 x 32. Every model removes
@@ -404,13 +407,21 @@ Three measurements add to it.
   dynamic Smagorinsky with homogeneous averaging and the Werner wall model reproduces
   Lee & Moser (2015) within criteria fixed beforehand - bulk-unit mean velocity to 1.1%
   RMS, outer-layer resolved Reynolds shear stress to 0.91-1.02 - with `Cs` 0.133.
+- **The Simpson test filter** (`hom02-simpson-ik-2026-10-09`,
+  `wmles-channel-retau1000-simpson-2026-10-09`): on HOM02 its former weighting gave `Cs`
+  0.091 against the box filter's 0.194 and a +0.39 cutoff pile-up; corrected, 0.168 and
+  +0.12. On the channel the corrected filter meets every criterion, with outer u' 6% above
+  Lee & Moser against 16% before, and 20% less eddy viscosity than the box filter.
+- **A second window of the channel** (`wmles-channel-retau1000-werner-window2-2026-10-09`):
+  the same flow over t = 2200-2800 reproduces every profile criterion, with u_tau 3.2%
+  high, just outside the 3% bound.
 - **Turbulent duct bend** (`humphrey-turbulent-bend-wmles-2026-10-09`): global averaging
   through a 90-degree bend at Re_D = 40,000, 17,000 steps without a failed step; its
   comparison with measured profiles is exploratory.
 
 What would change this: a refined-grid rerun of the channel on the current build, a
-wall-resolved reference case, and a run where `simpson_ik` or `geometric_mean` differs
-from the default.
+wall-resolved reference case, and a run on skewed cells, where `geometric_mean` differs
+from `cube_root_volume`.
 
 @subsection p72_restart_ssec 10.1 Restart and Checkpointed State
 

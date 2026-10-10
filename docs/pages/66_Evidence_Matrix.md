@@ -77,8 +77,8 @@ indexing properties. See @ref p10_io_sec for the implementation's current contra
 Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
-- **Most facets rest on single recorded measurements, and one record is `reference`.**
-  122 values cite `measurement:` records - 34 distinct ones, taken between 2026-09-18 and
+- **Most facets rest on single recorded measurements, and three records are `reference`.**
+  125 values cite `measurement:` records - 38 distinct ones, taken between 2026-09-18 and
   2026-10-09 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
   pipe Poiseuille flow, the Poisson options, every initial-condition mode, every
   particle seeding and restart mode, both interpolation methods, the post-processing
@@ -90,20 +90,22 @@ likely to matter:
   levels, offload policies, and retention components against a Google Drive remote, the
   three study types run as Slurm arrays, the import of an external periodic velocity
   field, and the LES models and options against the HOM02 benchmark.
-  Each record states what it does not establish, and none is gated in CI. Ten records
-  are cited by no value: four `not-met` ones (the Q-criterion output placement and the
+  Each record states what it does not establish, and none is gated in CI. Twelve records
+  are cited by no value: six `not-met` ones (the Q-criterion output placement and the
   generated inlet flux on `programmatic_c` grids, both since fixed and re-measured,
   asset reuse for identical inputs, fixed and since confirmed on the cluster by
-  `asset-lifecycle-grace-2026-10-01`, and `hom02-les-accuracy-2026-10-09`, cited in the
-  LES entries' limitations), the
+  `asset-lifecycle-grace-2026-10-01`, `hom02-les-accuracy-2026-10-09`, cited in the
+  LES entries' limitations, and the `cabot` channel run and the second `werner` window,
+  cited in those wall functions' entries), the
   superseded `inconclusive` drift measurement, the 2026-09-22 wall-seed measurement
   taken on the former `sin(pi t)^4` envelope (superseded by
   `wall-spectral-ic-2026-09-24`), and the paired drift, scalar-scatter, pending-job cancellation, and IEM
   variance-decay measurements, which verify subsystems with no selector value to cite them.
-  The single `reference` record is `wmles-channel-retau1000-werner-2026-10-09`: the
-  wall-modelled Re_tau = 1000 channel against Lee & Moser (2015), judged against criteria
-  fixed before the run, on one grid. It backs `werner` and the dynamic-Smagorinsky path
-  that run used. The earlier Lee--Moser comparison in `turbulent-channel-nk-2026-09-29`
+  The three `reference` records are all the wall-modelled Re_tau = 1000 channel against
+  Lee & Moser (2015), judged against criteria fixed before the runs, on one grid:
+  `wmles-channel-retau1000-werner-2026-10-09` backs `werner` and the dynamic-Smagorinsky
+  path, `wmles-channel-retau1000-loglaw-2026-10-09` backs `log_law`, and
+  `wmles-channel-retau1000-simpson-2026-10-09` backs `simpson_ik`. The earlier Lee--Moser comparison in `turbulent-channel-nk-2026-09-29`
   retains an 11.4% friction-Reynolds-number discrepancy and 29.3% excess skin friction;
   its `met` verdict concerns converged production execution, so it contributes a
   `production` facet rather than a `reference` facet. See @ref p55_channel_evidence_sub.
@@ -123,13 +125,18 @@ likely to matter:
   coefficient settled at 0.18-0.19. The accuracy criteria fixed before those runs were
   not met (`hom02-les-accuracy-2026-10-09`): every model ran 18-29% above the DNS energy
   during start-up from the DNS field, and Vreman missed the low-band spectrum criterion.
-  `simpson_ik` and `geometric_mean` remain experimental, never having run where they
-  differ from the default.
-- **Two of three wall functions are unit-tested only.** `werner` carries the channel
-  validation and a production bend; `log_law` and `cabot` have unit coverage of each law
-  against its own inverse and of the boundary integration against the law. That coverage
-  says nothing about whether the modelled wall stress is right: until 2026-10-08 `werner`
-  passed the same checks while applying a cell-averaged relation to a point velocity and
+  `geometric_mean` is supported on `hom02-geometric-mean-equivalence-2026-10-09`, which
+  shows it equal to `cube_root_volume` on orthogonal cells, the only cells run.
+  `simpson_ik` rests on `hom02-simpson-ik-2026-10-09` and the channel record below; both
+  showed its former weighting under-dissipative, and its validation is of the corrected one.
+- **The wall functions rest on one channel.** `werner` and `log_law` are validated on the
+  wall-modelled Re_tau ~ 1000 channel (`wmles-channel-retau1000-werner-2026-10-09`,
+  `wmles-channel-retau1000-loglaw-2026-10-09`), and `werner` also runs a production bend.
+  A second window of `werner` (`wmles-channel-retau1000-werner-window2-2026-10-09`, not met)
+  put its friction velocity 3.2% high against the 3% bound, so its bias straddles the
+  criterion. `cabot` failed the same channel (`wmles-channel-retau1000-cabot-2026-10-09`) and
+  stays experimental. Unit coverage alone said nothing about any of this: until 2026-10-08
+  `werner` passed it while applying a cell-averaged relation to a point velocity and
   over-predicting the channel's friction velocity by 14.5%.
 
 @section p66_updating_sec 4. Keeping It Current

@@ -449,7 +449,9 @@ models:
         #              viscous sublayer, and free of the inner iteration that a
         #              matrix-free Jacobian amplifies
         #   cabot   -> integrated mixing-length eddy viscosity; its non-equilibrium
-        #              form takes the wall-parallel gradient of the resolved pressure
+        #              form takes the wall-parallel gradient of the resolved pressure.
+        #              Experimental: on the Re_tau ~ 1000 channel that term put u_tau
+        #              22% low, so prefer werner or log_law for results.
         # The run stops if the mean first-cell y+ stays outside the law's range
         # (log_law 30-300, werner <= 300, cabot <= 1000) for 10 consecutive steps.
         # [String] -> -wallfunction

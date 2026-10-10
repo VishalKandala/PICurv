@@ -67,15 +67,17 @@ DNS field, every one removes the energy pile-up an unmodelled run builds at the 
 cutoff, and the dynamic coefficient settles at 0.18-0.19; none keeps the resolved energy
 decay within 10% of the DNS during start-up (@ref p72_status_sec). The dynamic model with
 homogeneous averaging and the Werner wall model reproduces Lee & Moser's Re_tau = 1000
-channel within criteria fixed beforehand. `simpson_ik` and `geometric_mean` remain
-experimental.
+channel within criteria fixed beforehand. The `geometric_mean` width is supported on
+orthogonal cells, where it reproduces `cube_root_volume`. The `simpson_ik` test filter is
+supported for planes homogeneous in xi and zeta, after a fix to its dynamic-procedure weighting.
 
 There is no RANS closure. A `k_omega` selector existed until 2026-09-22, but nothing
 behind it was ever implemented, so it was removed and the subsystem returned to planned;
 `models.physics.turbulence.rans` is now refused at validation (@ref p57_rans_sec). Wall
 functions are configured separately from the LES closure, and offer three
-laws - `log_law`, `werner`, and `cabot`; `werner` is supported on that channel
-validation, and the other two are experimental with unit coverage only. The correction is applied inside the
+laws - `log_law`, `werner`, and `cabot`; `log_law` and `werner` are supported on that
+channel validation, and `cabot` is experimental: on the same channel its pressure-gradient
+term put the friction velocity 22% low. The correction is applied inside the
 momentum solve and again before the LES strain rates are formed, so a
 wall-modelled large-eddy simulation is coupled in both directions, and the modelled
 stress reaches the momentum equation through an effective eddy viscosity installed at

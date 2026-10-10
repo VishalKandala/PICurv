@@ -447,7 +447,7 @@
       },
       "simpson_ik": {
         "maps_to": 1,
-        "status": "experimental"
+        "status": "supported"
       },
       "volume_weighted_box": {
         "maps_to": 0,
@@ -468,7 +468,7 @@
       },
       "geometric_mean": {
         "maps_to": 1,
-        "status": "experimental"
+        "status": "supported"
       },
       "max_edge": {
         "maps_to": 2,
@@ -556,12 +556,12 @@
       },
       "log_law": {
         "maps_to": 1,
-        "status": "experimental"
+        "status": "supported"
       },
       "loglaw": {
         "maps_to": 1,
         "spelling_of": "log_law",
-        "status": "experimental"
+        "status": "supported"
       },
       "werner": {
         "maps_to": 2,

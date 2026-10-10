@@ -781,9 +781,20 @@
           "spelling_of": "volume_weighted_box"
         },
         "simpson_ik": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "unit": [
+              "make:unit-les",
+              "file:tests/c/test_les.c"
+            ],
+            "benchmark": [
+              "measurement:hom02-simpson-ik-2026-10-09"
+            ],
+            "reference": [
+              "measurement:wmles-channel-retau1000-simpson-2026-10-09"
+            ]
+          }
         }
       }
     },
@@ -817,9 +828,13 @@
           }
         },
         "geometric_mean": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
-          "evidence": {}
+          "evidence": {
+            "benchmark": [
+              "measurement:hom02-geometric-mean-equivalence-2026-10-09"
+            ]
+          }
         },
         "max_edge": {
           "status": "supported",
@@ -1011,7 +1026,7 @@
       "coverage_enforced": true,
       "value_metadata": {
         "log_law": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1019,6 +1034,9 @@
               "file:tests/c/test_runtime_kernels.c",
               "make:unit-boundaries",
               "file:tests/c/test_boundaries.c"
+            ],
+            "reference": [
+              "measurement:wmles-channel-retau1000-loglaw-2026-10-09"
             ]
           }
         },

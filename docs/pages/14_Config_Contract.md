@@ -159,8 +159,8 @@ For each run, `picurv` generates:
   case declares both xi and zeta `PERIODIC`, since that stencil assumes they are
   homogeneous.
 
-@note The four LES models are supported; `test_filter.kernel: simpson_ik` and
-`filter_width: geometric_mean` remain experimental. Evidence and limits per value are at
+@note The four LES models, all four filter widths and both test-filter kernels are
+supported. Evidence and limits per value are at
 @ref p07_les_sec.
 
 Analytical-mode compatibility rule:
