@@ -202,6 +202,10 @@
       "classification": "parameter_of_entry",
       "reason": "Value types a raw resampled_velocity source may hold. It describes the file being imported, inside the resampled_velocity entry, rather than selecting behaviour.",
       "owner": "initial.file_generator"
+    },
+    "picurv_cli.core::normalize_monitor_function_names": {
+      "classification": "not_public",
+      "reason": "Translates C function names renamed or removed by the Poisson rewrite in monitor.yml logging and profiling lists. Those lists hold arbitrary instrumented function names, not values from a closed set, so there is no value inventory to document; 09_Monitor_Reference describes the translation."
     }
   }
 }
