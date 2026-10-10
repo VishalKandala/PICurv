@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:ebf5817953028ef0c480bcc27b0607caecf1ec23710c0de09e5ab4028c08c497",
+      "attested_digest": "sha256:0aaf8bdeb7fed6f6efcd2063192fc3b764d755679524f1b0acd14dd0bffd3f27",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
@@ -188,7 +188,7 @@
         "13_Code_Architecture",
         "72_LES_Turbulence_Closure"
       ],
-      "attested_digest": "sha256:8515371db9c4bb6c7cad03a675763667d552e9dc6ffa90821e46e57a77e85158",
+      "attested_digest": "sha256:b8f3f5afcab64d29d04a3e04f15c9bf07e469de840c4b5136ebd6ab85eb19e9f",
       "note": "Face metrics, the Jacobian inverse, and the per-cell extent and edge helpers the LES filter widths and the Vreman model are built from. Those helpers must stay independent of the grid's orientation; a Cartesian projection here once gave a rotated cell nine times the eddy viscosity of an identical straight one."
     },
     {
@@ -205,7 +205,7 @@
         "08_Solver_Reference",
         "31_Momentum_Solvers"
       ],
-      "attested_digest": "sha256:f51a03d97d7caebb45103d5e48910aead2d381fb2f555e0279125feda54656ff"
+      "attested_digest": "sha256:bdb91c65e46b6016e827d60c2073505e293599d08cddc15ca314cf4fd8f8c342"
     },
     {
       "id": "momentum.picard",
@@ -369,7 +369,7 @@
       "dependent_pages": [
         "08_Solver_Reference"
       ],
-      "attested_digest": "sha256:a0e5371c24d6aa59bc04283fcf08411610e7c4c04d5e5c850cd3e8721227efe7"
+      "attested_digest": "sha256:d6dc05e3356115c83cf105f3642f506fb59d4ae305fa9963c24bdb5bfc2bbf76"
     },
     {
       "id": "initial.conditions",
@@ -438,7 +438,7 @@
       "dependent_pages": [
         "07_Case_Reference"
       ],
-      "attested_digest": "sha256:65bfb6ef5d6a32684ba396afac86fa696cddb5d2458381973f1ba5607b03e9b5",
+      "attested_digest": "sha256:46be6aa13785f7cf03e662e5abccd29dc0f913c3578e35940f6d1d8a31043805",
       "note": "Page 48 enumerates the geometries, their options and the quality report. Nothing watched this file before, so the page describing it could never be flagged stale no matter how far the generator moved."
     }
   ]
