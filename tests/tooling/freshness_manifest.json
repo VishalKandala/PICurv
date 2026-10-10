@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:85bb6c83deb98bcb96d23ecb68ca58cbec0b393a7eb183c1097863ea057e5e30"
+      "attested_digest": "sha256:0fe8f0292fc85396b2bb57f857ad1212ade1060d33ea9b24b7c6ead76f0a4e16"
     },
     {
       "id": "artifact.topology",
@@ -87,7 +87,7 @@
       "dependent_pages": [
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:3fbb8a4f357cbaae17c917b03dadd714a84d88c00a2bff5de0ef4a85eccc242f"
+      "attested_digest": "sha256:5ce10cbd5ef46923bf55a2aef83a79adec668f08c229adb773533609c95d8ded"
     },
     {
       "id": "docs.page_types",

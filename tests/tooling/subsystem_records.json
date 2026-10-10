@@ -1897,7 +1897,7 @@
           "anchor": "p25_testing_sec"
         },
         "lifecycle_and_restart": {
-          "not_applicable": "The pressure solve keeps no state of its own across a restart: P is part of the committed checkpoint bundle the run lifecycle owns, and the correction Phi and every multigrid operator are rebuilt each step from the current grid and velocity."
+          "not_applicable": "The pressure solve keeps no state across a restart: P is part of the committed checkpoint bundle the run lifecycle owns, and the multigrid solver is built on the first step of every process from the grid, the solid field and the boundary types, so --continue and --restart-from at a different rank count build it for the new layout. The correction Phi is solved afresh every step."
         },
         "operations": {
           "page": "25_Pressure_Poisson_GMRES_Multigrid",
@@ -1930,7 +1930,7 @@
           "anchor": "p25_testing_sec"
         }
       },
-      "note": "Promoted 2026-09-21. PoissonSolver_MG has direct coverage in unit-poisson-rhs: projection to a divergence-free field on a three-level hierarchy, and a fatal stop on an over-coarsened one. Every user-selectable option reproduced the baseline solution (poisson-options-2026-09-21). That measurement found gmres, lgmres and bcgs losing the true residual under the multigrid preconditioner (now refused), per-level max_it, rtol and atol emitted without PETSc's ksp_ prefix (now mapped), and a tolerance key nothing read (removed). The immersed pre-solve branch is dormant and belongs to the planned immersed_boundary record."
+      "note": "Promoted 2026-09-21. Rewritten in 0d34592: PoissonSolver_Multigrid builds the operator, transfers and KSP/PCMG solver once per process and reuses them, and the operator and ProjectVelocity share one face-gradient stencil. poisson-persistent-solver-2026-10-10 shows the rewrite bitwise identical to the previous solver on unoptimized builds, reproduces the duct Poiseuille and Humphrey bend evidence, and runs the 0.52M-cell LES pilot 3.0x faster per step. unit-poisson-rhs covers projection to a divergence-free field, operator/projection consistency on random metrics, solver reuse, separate pre/post sweeps, the null space, and a fatal stop on an over-coarsened hierarchy. poisson-options-2026-09-21 found gmres, lgmres and bcgs losing the true residual under the multigrid preconditioner (now refused) and fixed the per-level option mapping. The previous implementation, with its dormant immersed-boundary routines, is at 53ba654 and earlier."
     },
     {
       "id": "boundary.conditions",

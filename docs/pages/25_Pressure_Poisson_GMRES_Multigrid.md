@@ -399,6 +399,16 @@ configuration rather than detecting that defect. The recorded measurement `duct-
 (see @ref 66_Evidence_Matrix) reproduced the analytic axial pressure gradient of laminar
 square-duct flow at second order on three grids, with divergence at most 5.5e-8.
 
+The rewrite that builds the solver once per run is covered by
+`poisson-persistent-solver-2026-10-10`. On unoptimized builds it gave checkpoints and
+convergence logs bitwise identical to the previous solver, including through `--continue`
+at a different rank count and `--restart-from`. It reproduced the duct measurement above
+and the Humphrey bend comparison to their printed digits, and it ran the 0.52M-cell
+wall-resolved LES duct 3.0x faster per step, the Poisson solve 7.0x faster, with the coarse
+factorization done three times in a 200-step run instead of 600. On the optimized cluster
+build the two solvers agree to 1e-12 in velocity and a constant pressure offset rather
+than bitwise.
+
 @section p25_refs_sec 6. Related Pages
 
 - **@subpage 23_Fractional_Step_Method**

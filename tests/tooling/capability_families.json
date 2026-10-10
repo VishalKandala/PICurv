@@ -367,7 +367,8 @@
             ],
             "analytical": [
               "measurement:duct-poiseuille-picard-2026-09-18",
-              "measurement:poisson-options-2026-09-21"
+              "measurement:poisson-options-2026-09-21",
+              "measurement:poisson-persistent-solver-2026-10-10"
             ]
           }
         },

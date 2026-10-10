@@ -78,9 +78,9 @@ Four gaps in the current table are worth naming, because they are the ones most
 likely to matter:
 
 - **Most facets rest on single recorded measurements, and three records are `reference`.**
-  125 values cite `measurement:` records - 38 distinct ones, taken between 2026-09-18 and
-  2026-10-09 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
-  pipe Poiseuille flow, the Poisson options, every initial-condition mode, every
+  125 values cite `measurement:` records - 39 distinct ones, taken between 2026-09-18 and
+  2026-10-10 - covering the Picard and Explicit RK4 solvers' orders, duct, channel and
+  pipe Poiseuille flow, the Poisson options and the rewritten Poisson solver, every initial-condition mode, every
   particle seeding and restart mode, both interpolation methods, the post-processing
   kernels, field statistics, shell, plane and line spectra, metric closure on every
   grid-generator feature, the workspace input import modes, and the four generated

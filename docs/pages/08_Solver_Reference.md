@@ -778,7 +778,9 @@ three-level hierarchy. Integration verified - `make smoke-driven-periodic` asser
 tracked and true residuals agree within 1e-4. Production exercised - every shipped flow
 case, `examples/flat_channel` among them. Analytically verified -
 `duct-poiseuille-picard-2026-09-18`: the analytic duct pressure gradient at second order;
-`poisson-options-2026-09-21`: every multigrid option reproduced this baseline.
+`poisson-options-2026-09-21`: every multigrid option reproduced this baseline;
+`poisson-persistent-solver-2026-10-10`: the solver kept for the run reproduced the previous
+one and the duct and bend evidence.
 
 **Limitations.** Stores one vector per iteration up to the restart length, so memory
 grows with `gmres.restart`.
