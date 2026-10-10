@@ -17,7 +17,7 @@ This directory contains the C implementation for the solver, postprocessor, and 
   - APIs: `AdvanceSimulation`, `FlowSolver`, `UpdateSolverHistoryVectors`
 - momentum/rhs/pressure:
   - files: `momentumsolvers.c`, `momentum_newton_krylov.c`, `rhs.c`, `poisson.c`, `BodyForces.c`, `Filter.c`, `les.c`
-  - APIs: `MomentumSolver_DualTime_Picard_JamesonRK`, `MomentumSolver_NewtonKrylov`, `ComputeRHS`, `PoissonSolver_MG`, `Projection`, `ComputeSmagorinskyConstant`
+  - APIs: `MomentumSolver_DualTime_Picard_JamesonRK`, `MomentumSolver_NewtonKrylov`, `ComputeRHS`, `PoissonSolver_Multigrid`, `ProjectVelocity`, `ComputeSmagorinskyConstant`
 - grid/metrics:
   - files: `grid.c`, `Metric.c`
   - APIs: `DefineAllGridDimensions`, `InitializeAllGridDMs`, `AssignAllGridCoordinates`, `CalculateAllGridMetrics`
@@ -136,7 +136,7 @@ Current next-gap priorities:
 
 - direct walking-search branch coverage for locate/migrate edge cases
 - unit-level single-step momentum harnesses: Explicit RK4 and Picard are gated end to end by `make smoke` (RK4's stable step and stability-limit stop) and measured for order, but no unit test drives one step on a fixture
-- periodic Poisson/multigrid stencil branches (`PoissonSolver_MG` itself is covered by `make unit-poisson-rhs`)
+- periodic Poisson/multigrid stencil branches (`PoissonSolver_Multigrid` itself is covered by `make unit-poisson-rhs`)
 - non-restart MPI migration and multi-pass particle handoff coverage
 - richer-runtime fixture variants beyond the tiny Cartesian baseline
 

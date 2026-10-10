@@ -50,7 +50,7 @@ profiling:
     mode: "off"
     # functions:            # instrumented names, as listed by mode "all" or the final summary
     #   - FlowSolver
-    #   - PoissonSolver_MG
+    #   - PoissonSolver_Multigrid
     file: "Profiling_Timestep_Summary.csv"
 
   # --- Final Profiling Summary ---

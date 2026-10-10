@@ -369,7 +369,7 @@
       "dependent_pages": [
         "08_Solver_Reference"
       ],
-      "attested_digest": "unattested"
+      "attested_digest": "sha256:a0e5371c24d6aa59bc04283fcf08411610e7c4c04d5e5c850cd3e8721227efe7"
     },
     {
       "id": "initial.conditions",

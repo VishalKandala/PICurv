@@ -281,7 +281,7 @@ profiling:
     mode: "selected"
     functions:
       - FlowSolver
-      - PoissonSolver_MG
+      - PoissonSolver_Multigrid
     file: "Profiling_Timestep_Summary.csv"
   final_summary:
     enabled: true
@@ -294,7 +294,7 @@ Rules:
   - `all`: write all instrumented functions seen in a timestep
 - `timestep_output.functions` is required only when `mode: selected`. Names must be
   instrumented functions - the ones the `mode: all` file and the final summary list, such
-  as `FlowSolver`, `MomentumSolver_DualTime_Picard_JamesonRK`, `PoissonSolver_MG` and
+  as `FlowSolver`, `MomentumSolver_DualTime_Picard_JamesonRK`, `PoissonSolver_Multigrid` and
   `ComputeRHS`. A name that is not instrumented records nothing; the run warns about it
   after the first step, and a list with no instrumented names writes no file.
 - `timestep_output.file` sets the filename written under `<run.runtime_logs>/`

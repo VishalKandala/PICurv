@@ -35,11 +35,11 @@ In curvilinear form, gradient components use metric terms (`ICsi/IEta/IZet`, etc
 
 - stage orchestrator: @ref FlowSolver
 - momentum residual assembly: @ref ComputeRHS
-- pressure solve (MG/KSP): @ref PoissonSolver_MG
+- pressure solve (MG/KSP): @ref PoissonSolver_Multigrid
 - pressure update: @ref UpdatePressure
-- velocity projection: @ref Projection
+- velocity projection: @ref ProjectVelocity
 
-`@ref Projection` explicitly uses boundary-aware stencils and periodic-edge correction logic before final ghost updates and `Contra2Cart` conversion.
+@ref ProjectVelocity applies the same boundary-aware face-gradient stencil as the pressure operator, corrects the periodic seam faces, and then refreshes ghosts and reconstructs the Cartesian velocity with `Contra2Cart`.
 
 @section p23_boundary_sec 3. Boundary and Geometry Handling
 

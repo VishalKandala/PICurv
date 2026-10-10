@@ -22,26 +22,47 @@ The correction solve enforces incompressibility through:
 
 In code terms:
 
-- RHS assembly: divergence source in @ref PoissonRHS
-- LHS assembly: metric-aware operator in @ref PoissonLHSNew
-- solve orchestration: @ref PoissonSolver_MG
+- right-hand side: the scaled divergence of the contravariant flux, in @ref ComputePoissonRHS
+- operator: the 19-point curvilinear Laplacian on one multigrid level, in @ref AssemblePoissonOperator
+- solve: @ref PoissonSolver_Multigrid
 
-Null-space handling is explicitly configured for Neumann-like pressure systems via function @ref PoissonNullSpaceFunction in the Poisson module.
+The operator and the projection evaluate the gradient flux through each face with the
+same stencil, including its one-sided forms beside non-periodic boundaries and solid
+cells, so the Laplacian the solver inverts is exactly the divergence of the gradient the
+projection subtracts. Non-periodic faces are homogeneous Neumann. The constant null space
+of that problem is removed on every level by a callback attached to each level's operator.
+
+The integral of the right-hand side is reported as `Poisson Source Imbalance` in
+`Continuity_Metrics.log`. It is the net volume flux into the domain carried by the
+momentum step's velocity before the correction, and must stay near zero for the
+all-Neumann equation to have a solution. It covers every boundary face, unlike that log's
+`Net Flux` column, which sums only the inlet and outlet faces.
 
 @section p25_mg_sec 2. Multigrid/KSP Stack In Code
 
-@ref PoissonSolver_MG currently:
+On its first call for a block, @ref PoissonSolver_Multigrid does the following:
 
-1. assembles per-level operators,
-2. configures `KSP` + `PCMG`,
-3. sets restriction/interpolation operators (@ref MyRestriction and @ref MyInterpolation),
-4. applies level smoothers/coarse solve,
-5. solves finest-level system for `Phi`.
+1. assembles the operator on every level,
+2. creates the outer `KSP` (options prefix `ps_`) with a multiplicative V-cycle `PCMG`,
+3. registers shell restriction and interpolation operators between levels, both of which
+   skip solid cells,
+4. configures the level smoothers and the coarse solve and attaches the null space,
 
-After Poisson solve:
+and stores the result in the finest level's context. Every later step reuses it: only the
+right-hand side is formed and the finest-level system solved for `Phi`. The operator
+depends only on the grid metrics, the solid field and the boundary types, all fixed for a
+run. Rebuilding the coarse factorization every step had cost 60-65% of each step on a
+0.52M-cell wall-resolved LES duct before the solver was kept. The solver is created at
+the first step of every process, so `--continue` and `--restart-from` with a different
+rank count build it for the new layout.
+
+After the Poisson solve:
 
 - pressure is updated by @ref UpdatePressure
-- velocity is projected by @ref Projection
+- velocity is projected by @ref ProjectVelocity
+
+The implementation that rebuilt the solver every step, with its dormant immersed-boundary
+flux corrections and multi-region null space, is available at commit `53ba654` and earlier.
 
 @section p25_config_sec 3. YAML Mapping and PETSc Options
 
@@ -338,20 +359,26 @@ sharply, prefer lowering the rank count and restoring the deeper hierarchy.
 
 @section p25_testing_sec 5. Current test status
 
-Current direct tests are strongest for helper and invariant behavior:
+`make unit-poisson-rhs` covers the module directly:
 
-- `PoissonLHSNew`
-- `Projection`
-- `PoissonNullSpaceFunction`
-- RHS-related helpers used by `ComputeRHS`
+- `operator-and-projection-share-one-face-gradient` fills every face metric with random,
+  non-orthogonal values, places a solid cell, projects a zero flux with a random `Phi`, and
+  requires the right-hand side of the result to equal `-A Phi` on every fluid row to 1e-12.
+  That identity holds for arbitrary metrics only if the operator and the projection use the
+  same face gradient, including its one-sided forms.
+- `poisson-solver-multigrid-projects-to-divergence-free` perturbs interior face fluxes on a
+  17-cubed three-level hierarchy, solves and projects, and checks the result is
+  divergence-free.
+- `poisson-solver-multigrid-reuses-its-solver` checks that a second step reuses the same
+  solver and operator, converges, and adds one header to the convergence log.
+- `poisson-solver-multigrid-honours-distinct-sweeps` checks the separate pre- and
+  post-smoothing counts.
+- `poisson-null-space-removes-the-interior-mean` exercises the attached null space.
+- `poisson-solver-multigrid-refuses-an-overcoarsened-hierarchy` checks that a hierarchy
+  coarsened past what a 9-cubed grid supports stops with the fatal Poisson error rather
+  than projecting on an unsolved `Phi`.
 
-`PoissonSolver_MG` has direct coverage in `make unit-poisson-rhs`:
-`poisson-solver-mg-projects-to-divergence-free` perturbs interior face fluxes on a
-17-cubed three-level hierarchy, solves and projects, and checks the result is
-divergence-free; `poisson-solver-mg-refuses-an-overcoarsened-hierarchy` checks that a
-hierarchy coarsened past what a 9-cubed grid supports stops with the fatal Poisson error
-rather than projecting on an unsolved `Phi`. Periodic stencil branches remain thinner than
-the core Cartesian helper surface.
+The periodic stencil branches are exercised end to end rather than by a unit test.
 
 Every user-selectable option was run end to end by `poisson-options-2026-09-21`: one and
 two levels, full coarsening, one and three sweeps, Chebyshev and Jacobi smoothers, a

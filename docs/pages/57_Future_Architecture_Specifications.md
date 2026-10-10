@@ -180,8 +180,8 @@ alternative for the same engineering questions, and the wall functions already e
 non-periodic face - wall, inlet, and the `conservation` outlet - prescribes the normal
 velocity, and the pressure solve treats all of them as zero normal gradient by leaving
 the face out rather than by any stored value: the Poisson operator drops each boundary
-face's term (`PoissonLHSNew()` in `src/poisson.c`), the dummy rows are identities with a
-zero right-hand side, the projection corrects interior faces only (`Projection()`), and
+face's term (`AssemblePoissonOperator()` in `src/poisson.c`), the dummy rows are identities with a
+zero right-hand side, the projection corrects interior faces only (`ProjectVelocity()`), and
 the constant null space is removed, so the pressure level is free. The `conservation`
 outlet's flux rescaling is what keeps that all-Neumann problem solvable.
 

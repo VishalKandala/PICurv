@@ -755,7 +755,7 @@ Rules:
 @anchor p08_cap_poisson_fgmres
 
 **Identity.** `poisson_solver.method: fgmres` (the default) -> `-ps_ksp_type fgmres` ->
-the outer `KSP` of @ref PoissonSolver_MG.
+the outer `KSP` of @ref PoissonSolver_Multigrid.
 
 **What it does.** Flexible GMRES around the multigrid preconditioner. Flexibility lets the
 preconditioner change from one iteration to the next, which is what a multigrid cycle
