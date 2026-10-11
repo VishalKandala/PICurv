@@ -910,7 +910,7 @@ static PetscErrorCode TestPeriodicOperatorHasNoZeroRows(void)
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-/** @brief Exercises a converged solve, forced rollback, and per-call cleanup. */
+/** @brief Exercises a converged solve, a committed unconverged solve, a non-finite rollback, and cleanup. */
 static PetscErrorCode TestSmallSolveAndRollback(void)
 {
     SimCtx *simCtx = NULL;
@@ -954,19 +954,39 @@ static PetscErrorCode TestSmallSolveAndRollback(void)
     PetscCall(VecDuplicate(user->Ucont, &delta));
     PetscCall(VecCopy(user->Ucont, entry));
     PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_snes_max_it", "0"));
+    solve_ierr = MomentumSolver_NewtonKrylov(user, NULL, NULL);
+    PetscCall(PicurvAssertIntEqual(0, solve_ierr,
+                                   "a finite residual no larger than at entry must commit the step"));
+    PetscCall(PicurvAssertBool((PetscBool)!simCtx->mom_last_converged,
+                               "a committed SNES failure must be reported as not converged"));
+    PetscCall(VecWAXPY(delta, -1.0, entry, user->Ucont));
+    PetscCall(VecNorm(delta, NORM_INFINITY, &norm));
+    PetscCall(PicurvAssertRealNear(0.0, norm, 1.0e-12,
+                                   "a zero-iteration failure must commit the unchanged entry state"));
+    PetscCall(PicurvAssertBool((PetscBool)(user->Rhs == NULL), "unconverged solve must release Rhs"));
+    PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path),
+                            "%s/Momentum_Solver_Newton_Krylov_Summary_Block_0.log", simCtx->log_dir));
+    PetscCall(AssertNewtonLog(summary_path, 1, "reason_code: -", "state: committed_unconverged"));
+
+    /* A non-finite residual is the one failure that must still roll back and stop the run. */
+    PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_snes_max_it", "20"));
+    PetscCall(VecSet(user->Ucont, PETSC_MAX_REAL));
+    PetscCall(SynchronizePeriodicStaggeredFields(user, 1, fields));
+    PetscCall(ApplyBoundaryConditions(user));
+    PetscCall(VecCopy(user->Ucont, entry));
     PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
     solve_ierr = MomentumSolver_NewtonKrylov(user, NULL, NULL);
     PetscCall(PetscPopErrorHandler());
     PetscCall(PicurvAssertIntEqual(PETSC_ERR_CONV_FAILED, solve_ierr,
-                                   "forced nonconvergence must report PETSC_ERR_CONV_FAILED"));
+                                   "a non-finite residual must report PETSC_ERR_CONV_FAILED"));
+    PetscCall(PicurvAssertBool((PetscBool)!simCtx->mom_last_converged,
+                               "a rolled-back solve must be reported as not converged"));
     PetscCall(VecWAXPY(delta, -1.0, entry, user->Ucont));
     PetscCall(VecNorm(delta, NORM_INFINITY, &norm));
     PetscCall(PicurvAssertRealNear(0.0, norm, 1.0e-12,
                                    "failed Newton solve must restore the canonical entry state"));
     PetscCall(PicurvAssertBool((PetscBool)(user->Rhs == NULL), "failed solve must release Rhs"));
-    PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path),
-                            "%s/Momentum_Solver_Newton_Krylov_Summary_Block_0.log", simCtx->log_dir));
-    PetscCall(AssertNewtonLog(summary_path, 1, "reason_code: -", "state: rolled_back"));
+    PetscCall(AssertNewtonLog(summary_path, 2, "reason_code: -", "state: rolled_back"));
 
     PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_snes_rtol"));
     PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_snes_max_it"));

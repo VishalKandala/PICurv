@@ -109,6 +109,32 @@ maximum convective spectral radius of the current velocity field. This makes `ps
 of `dt`, grid size, and flow speed. The stable range for the 4-stage Jameson RK smoother is
 `pseudo_cfl ≈ 0–2.83`; the shipped defaults are `initial: 0.5`, `maximum: 2.0`.
 
+@section p31_nonconvergence_sec 3a. When a Momentum Solve Does Not Converge
+
+The two iterative families share one policy for a physical step whose momentum solve ends
+without meeting its convergence test. Explicit RK4 takes no iterations and is not covered.
+
+| Outcome of the step | Dual-Time Picard--Jameson | Newton--Krylov |
+| --- | --- | --- |
+| Convergence test met | commit, converged | commit, converged (`SNES` reason > 0, or a failed `SNES` whose iterate meets `|R|_inf <= residual_absolute_tol · a0 |U|_inf / dt`) |
+| Finite residual, test not met | commit the last accepted pseudo-state, warn, continue | commit the `SNES` iterate when its `|R|_2` is no larger than at entry, warn, continue |
+| No progress | no trial accepted: keep the entry state, warn, continue | `|R|_2` grew: restore the entry state and stop the run (`PETSC_ERR_CONV_FAILED`) |
+| Non-finite residual | retry at lower pseudo-CFL; stop the run (`PETSC_ERR_CONV_FAILED`) only when that cannot recover it | restore the entry state and stop the run |
+
+In both families an unconverged but committed step sets `simCtx->mom_last_converged` false
+and the run continues to the pressure projection. Newton--Krylov records it as
+`state: committed_unconverged` in its summary log; Picard--Jameson prints a `[WARNING]` line
+and logs `converged=no`. One difference remains: a finite Newton step whose residual grew
+stops the run, where Picard--Jameson continues from the entry state, because a grown
+Newton residual means the line search accepted no decrease and nothing in the step can be
+trusted.
+
+A run of consecutive unconverged steps is the signal to act on. An isolated one at a steady
+or slowly varying state usually means the residual has reached the round-off floor of its
+own evaluation, which on fine or strongly non-orthogonal grids can lie above the configured
+dimensionless tolerance. See @ref p24_convergence_sec and @ref p55_reasons_sec for each
+family's diagnostics.
+
 @section p31_testing_sec 4. Current test status
 
 Current testing by solver path:

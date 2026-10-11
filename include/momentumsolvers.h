@@ -43,7 +43,10 @@ extern PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNode
  * @param user Single-block momentum context.
  * @param ibm  Must be NULL; immersed boundaries are not supported in version one.
  * @param fsi  Must be NULL; moving-body coupling is not supported in version one.
- * @return 0 on convergence, PETSC_ERR_CONV_FAILED after rollback on nonconvergence.
+ * @return 0 when the step is committed: on SNES convergence, or when SNES fails but the
+ *         residual at its iterate is finite and no larger than at entry (then
+ *         `simCtx->mom_last_converged` is false). PETSC_ERR_CONV_FAILED after rollback
+ *         when that residual is non-finite or grew.
  */
 PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo *fsi);
 

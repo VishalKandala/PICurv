@@ -135,9 +135,13 @@ orthogonalization; modified Gram--Schmidt is **not** required and is not enabled
 
 The Newton loop is: evaluate `F(X)` → form Krylov solve of `J dX = -F` → line
 search along `dX` → repeat until an `SNES` convergence test fires. On convergence
-the solution is committed into `Ucont`; on failure the entry state is restored
-(rollback) and the physical step is reported as not converged
-(`simCtx->mom_last_converged`).
+the solution is committed into `Ucont`. When `SNES` fails, the residual is recomputed at
+the iterate it holds. That iterate is still committed if it meets the dual-time
+solver's dimensionless test (step converged), or if its `|R|_2` is finite and no
+larger than at entry (step not converged, `simCtx->mom_last_converged` false, run
+continues with a warning). Otherwise the entry state is restored (rollback) and the
+solve returns `PETSC_ERR_CONV_FAILED`, which stops the run. This is the policy shared
+with the dual-time solver; see @ref p31_nonconvergence_sec.
 
 @section p55_residual_sec 4. Residual Evaluation and Boundary Application
 
@@ -322,7 +326,7 @@ Independently of PETSc monitors, the solver writes structured rank-zero logs int
 - `Momentum_Solver_Newton_Krylov_Summary_Block_<b>.log`: one row per physical step
   (the mathematical Jacobian and preconditioner selections, `SNES reason`,
   Newton iterations, residual evaluations, Krylov iterations, initial/final
-  norm, and whether the result was committed or rolled back).
+  norm, and `state`: `committed`, `committed_unconverged`, or `rolled_back`).
 
 A healthy solve on the validated duct case shows the nonlinear norm dropping by
 several orders of magnitude in about two Newton iterations with accepted line
@@ -342,9 +346,14 @@ failure class:
   `ksp_converged_reason`; raise `linear_solver.max_iterations` or `gmres.restart`,
   or loosen `linear_solver.relative_tolerance`.
 - **`DIVERGED_LINE_SEARCH`**: the backtracking line search could not find a
-  sufficient decrease — typically a poor Newton direction. In this solver that
-  most often means the residual was **not deterministic** (a broken Cartesian
-  seed, Section 5); it should not occur with the shipped residual.
+  sufficient decrease. Two causes are known. At a steady or slowly varying state
+  the residual can already sit at the round-off floor of its own evaluation, so no
+  step decreases it; the iterate is then committed as not converged (Section 3)
+  and the run continues. Observed on a 33² swept-circle laminar pipe at `dt = 0.5`,
+  steady to 1e-10 per step: `|R|_inf = 2.7e-9`, or 1.4e-7 of `a0 |U|_inf / dt`.
+  A failure away from a steady state, or with non-repeatable nonlinear norms,
+  instead points to a residual that is **not deterministic** (a broken Cartesian
+  seed, Section 5).
 - **GMRES breakdown / slow Krylov convergence**: a stagnating or breaking-down
   inner solve. With a pure residual the default classical Gram--Schmidt is
   sufficient; enabling modified Gram--Schmidt is **not** the intended remedy.
@@ -601,6 +610,7 @@ or fully converged DNS validation is claimed.
 | Main controls | SNES/KSP tolerances, GMRES restart | pseudo-CFL, pseudo-iterations |
 | Maturity | newer, narrow validated scope (Section 1) | established, broadly exercised |
 | Failure surface | SNES/KSP convergence reasons | pseudo-CFL rollback / rejection |
+| Unconverged step | commit if residual fell, else stop (@ref p31_nonconvergence_sec) | commit last accepted state (@ref p31_nonconvergence_sec) |
 
 See @ref 24_Dual_Time_Picard_Jameson_RK for the Picard--Jameson solver and
 @ref 31_Momentum_Solvers for selection guidance.

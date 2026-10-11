@@ -232,7 +232,8 @@ static void MomentumNewtonKrylov_WriteSummary(const MomentumNewtonKrylovContext 
     if (ctx->have_initial_norm) (void)fprintf(file, "%.16e", (double)ctx->initial_norm);
     else                        (void)fprintf(file, "unavailable");
     (void)fprintf(file, " | final: %.16e | state: %s\n", (double)final_norm,
-                  committed ? "committed" : "rolled_back");
+                  !committed ? "rolled_back" :
+                  simCtx->mom_last_converged ? "committed" : "committed_unconverged");
     (void)fclose(file);
 }
 
@@ -1185,6 +1186,45 @@ static PetscErrorCode MomentumNewtonKrylov_FormResidual(SNES snes, Vec X, Vec F,
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+/**
+ * @brief Measure the residual at the iterate a failed SNES solve holds, for the
+ *        failure policy in MomentumSolver_NewtonKrylov().
+ *
+ * SNES judges the residual by absolute and relative tolerances that do not scale with the
+ * grid or the flow. Near a steady state the residual can reach the round-off floor of its
+ * own evaluation; the line search then cannot decrease it and SNES reports divergence for
+ * a state that is as converged as the discretization allows. The caller therefore judges
+ * the held iterate itself: by the dual-time solver's dimensionless test,
+ * `|R|_inf <= mom_resid_atol * a0 |U|_inf / dt`, and by whether its residual is finite and
+ * no larger than the residual the step started from.
+ *
+ * @param[in]  ctx        Solve context; its SNES supplies the residual function and vector.
+ * @param[in]  solution   Iterate to test; it is left unchanged.
+ * @param[out] residual   `|R|_inf` at @p solution.
+ * @param[out] residual_2 `|R|_2` at @p solution, the norm SNES reports as its initial norm.
+ * @param[out] reference  `a0 |U|_inf / dt` at @p solution.
+ * @param[out] satisfied  True when `mom_resid_atol > 0` and the dimensionless test holds.
+ */
+static PetscErrorCode MomentumNewtonKrylov_AssessIterate(MomentumNewtonKrylovContext *ctx, Vec solution,
+                                                         PetscReal *residual, PetscReal *residual_2,
+                                                         PetscReal *reference, PetscBool *satisfied)
+{
+    SimCtx   *simCtx = ctx->user->simCtx;
+    Vec       F = NULL;
+    PetscReal ucont_inf;
+
+    PetscFunctionBeginUser;
+    PetscCall(SNESGetFunction(ctx->snes, &F, NULL, NULL));
+    PetscCall(SNESComputeFunction(ctx->snes, solution, F));
+    PetscCall(VecNorm(F, NORM_INFINITY, residual));
+    PetscCall(VecNorm(F, NORM_2, residual_2));
+    PetscCall(VecNorm(solution, NORM_INFINITY, &ucont_inf));
+    *reference = MomentumBDFCoefficient(simCtx) * ucont_inf / simCtx->dt;
+    *satisfied = (PetscBool)(simCtx->mom_resid_atol > 0.0 && *reference > 0.0 &&
+                             *residual <= simCtx->mom_resid_atol * *reference);
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 #undef __FUNCT__
 #define __FUNCT__ "MomentumSolver_NewtonKrylov"
 /*
@@ -1205,6 +1245,7 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
     PetscBool      rhs_created = PETSC_FALSE;
     PetscBool      solve_started = PETSC_FALSE;
     PetscBool      committed = PETSC_FALSE;
+    PetscBool      converged = PETSC_FALSE;
     SNESConvergedReason reason = SNES_CONVERGED_ITERATING;
     PetscInt       nonlinear_its = 0, function_evals = 0, linear_its = 0;
     PetscReal      final_norm = PETSC_MAX_REAL;
@@ -1272,23 +1313,62 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
     ierr = SNESGetLinearSolveIterations(snes, &linear_its); if (ierr) goto cleanup;
     ierr = SNESGetFunctionNorm(snes, &final_norm); if (ierr) goto cleanup;
 
+    /* Failure policy, shared with the dual-time solver: a solve SNES did not declare
+       converged still commits its iterate when the residual there is finite and no larger
+       than at entry, and the step is reported as not converged. Only a non-finite or
+       grown residual rolls the step back and stops the run. */
     if (reason > 0) {
-        ierr = VecCopy(solution, user->Ucont); if (ierr) goto cleanup;
-        simCtx->mom_last_converged = PETSC_TRUE;
+        committed = PETSC_TRUE;
+        converged = PETSC_TRUE;
     } else {
-        ierr = VecCopy(entry_backup, user->Ucont); if (ierr) goto cleanup;
-        simCtx->mom_last_converged = PETSC_FALSE;
+        PetscReal held_residual = 0.0, held_residual_2 = 0.0, held_reference = 0.0;
+        ierr = MomentumNewtonKrylov_AssessIterate(&ctx, solution, &held_residual, &held_residual_2,
+                                                  &held_reference, &converged); if (ierr) goto cleanup;
+        committed = (PetscBool)(!PetscIsInfOrNanReal(held_residual_2) && ctx.have_initial_norm &&
+                                held_residual_2 <= ctx.initial_norm);
+        if (!committed) converged = PETSC_FALSE;
+        if (converged) {
+            LOG(GLOBAL, LOG_WARNING,
+                "Newton Krylov step %" PetscInt_FMT ": SNES reported %s, but |R|_inf = %.3e is within "
+                "residual_absolute_tol (%.1e) x a0|U|/dt = %.3e; the step is committed as converged.\n",
+                simCtx->step, SNESConvergedReasons[reason], (double)held_residual,
+                (double)simCtx->mom_resid_atol, (double)held_reference);
+        } else if (committed) {
+            LOG(GLOBAL, LOG_WARNING,
+                "Newton Krylov step %" PetscInt_FMT ": SNES reported %s with |R|_inf = %.3e, above "
+                "residual_absolute_tol (%.1e) x a0|U|/dt = %.3e; |R|_2 = %.3e is no larger than %.3e at "
+                "entry, so the step continues from the SNES iterate, not converged.\n",
+                simCtx->step, SNESConvergedReasons[reason], (double)held_residual,
+                (double)simCtx->mom_resid_atol, (double)held_reference,
+                (double)held_residual_2, (double)ctx.initial_norm);
+        } else {
+            if (ctx.have_initial_norm) {
+                LOG(GLOBAL, LOG_ERROR,
+                    "Newton Krylov step %" PetscInt_FMT ": SNES reported %s and |R|_2 at its iterate is "
+                    "%.3e against %.3e at entry; the step is rolled back.\n",
+                    simCtx->step, SNESConvergedReasons[reason], (double)held_residual_2,
+                    (double)ctx.initial_norm);
+            } else {
+                LOG(GLOBAL, LOG_ERROR,
+                    "Newton Krylov step %" PetscInt_FMT ": SNES reported %s before an entry residual norm "
+                    "was available (|R|_2 at its iterate is %.3e); the step is rolled back.\n",
+                    simCtx->step, SNESConvergedReasons[reason], (double)held_residual_2);
+            }
+        }
     }
+
+    ierr = VecCopy(committed ? solution : entry_backup, user->Ucont); if (ierr) goto cleanup;
+    simCtx->mom_last_converged = converged;
     ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); if (ierr) goto cleanup;
     ierr = ApplyBoundaryConditions(user); if (ierr) goto cleanup;
     restore_entry = PETSC_FALSE;
-    committed = (PetscBool)(reason > 0);
 
     LOG_ALLOW(GLOBAL, LOG_INFO,
               "Newton Krylov momentum solve: reason=%s (%d), Newton iterations=%d, residual evaluations=%d, Krylov iterations=%d, final norm=%.6e, state=%s.\n",
               SNESConvergedReasons[reason], (PetscInt)reason, nonlinear_its, function_evals,
-              linear_its, (double)final_norm, reason > 0 ? "committed" : "rolled back");
-    if (reason <= 0) ierr = PETSC_ERR_CONV_FAILED;
+              linear_its, (double)final_norm,
+              !committed ? "rolled back" : converged ? "committed" : "committed, not converged");
+    if (!committed) ierr = PETSC_ERR_CONV_FAILED;
 
 cleanup:
     /* A PETSc solve error can bypass the normal statistics path. Query whatever

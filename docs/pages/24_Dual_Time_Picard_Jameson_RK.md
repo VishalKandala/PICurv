@@ -99,7 +99,7 @@ scheme is a smoother and smoothers damp worst near their limit. A stability-trig
 cannot find that optimum — on the LES reτ180 case, which rejects nothing either before or
 after, the controller is unaffected.
 
-Acceptance and rollback are global across blocks and MPI ranks. The `max_iterations` parameter bounds **accepted** pseudo-iterations. A separate hard cap of `3 × max_iterations` bounds total attempts (accepted plus rejected) to prevent infinite rejection loops. A finite solve that exhausts its accepted-iteration budget exits with the last accepted finite state.
+Acceptance and rollback are global across blocks and MPI ranks. The `max_iterations` parameter bounds **accepted** pseudo-iterations. A separate hard cap of `3 × max_iterations` bounds total attempts (accepted plus rejected) to prevent infinite rejection loops. A finite solve that exhausts its accepted-iteration budget exits with the last accepted finite state; a solve that accepts no trial keeps the physical-step entry state. Either way the step is committed as not converged and the run continues; only a non-finite trial that cannot be recovered stops it. Newton--Krylov follows the same policy, see @ref p31_nonconvergence_sec.
 
 Pseudo-CFL is adaptively ramped on successful trials (ratio < 0.90: immediate growth; 0.90–1.0: growth after 3 consecutive clean trials), reduced on noisy accepted trials or rejection, and clamped by configured min/max bounds. The controller-selected next CFL carries directly into the next physical timestep.
 
