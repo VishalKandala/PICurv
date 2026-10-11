@@ -821,6 +821,276 @@
       },
       "limitations": "This re-establishes an existing comparison rather than adding one: the accuracy verdict of hom02-les-accuracy-2026-10-09 (not met for the decay bound) stands unchanged. Two of the seventeen matrix variants were rerun. The old and new runs differ by growing round-off as the decay proceeds; the comparison holds the statistics, not the instantaneous fields, to agreement.",
       "artifacts": []
+    },
+    {
+      "id": "defense-t1-a1-2026-10-11",
+      "question": "Do Trilinear and CornerAveraged particle interpolation converge at their expected orders on an interior-warped curvilinear grid as well as on a Cartesian one?",
+      "date": "2026-10-11",
+      "commit": "dcf6e70 (main 246dae4 plus 09de63f, the TGV3D file-grid gate), clean build, executables pinned per run",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; 1/2/4/8/16 ranks for N = 8/16/32/64/128, one node per job; 60 sweep jobs plus 6 resubmissions (ids in work/logs/jobids_a1.txt). Derived data (data.csv, meta.json) at $CASES/defense_t1/A1/ on Grace scratch and Google Drive defense_t1/A1/; not committed.",
+      "configuration": "examples/interpolation_test, analytical TGV3D at Re 100 on [0,2pi]^2 x [0,0.2pi], N x N x N cells (Nz = N keeps the example's dx/dz = 10), walls on all faces. Cartesian: programmatic_c. Curvilinear: grid.gen box over the same bounds with --amp-A 0.05 at every N, ingested as grid.mode: file (made possible by 09de63f); max non-orthogonality 65-69 deg, max aspect ratio 11.5-11.7. 8 particles per cell, Volume init, seeds 1-3, one step of dt 1e-3, Sc 1e12; error from interpolation_error.csv at step 1, L2_rel = L2_error/L2_analytical and Linf_rel = Linf_error/max|ref| over particles.",
+      "result": {
+        "measured": "Mean over 3 seeds, N = 8 to 64 (Cartesian also 128): Trilinear L2_rel 0.101 to 0.00168 (4.2e-4 at 128) Cartesian and 0.105 to 0.00173 curvilinear, observed L2 order 1.98 and 1.97, Linf order 1.90 and 1.95. CornerAveraged L2_rel 0.248 to 0.0081 and 0.252 to 0.0082, L2 order 1.64 and 1.65, Linf order 0.95 and 0.91. Warped-grid errors within about 10% of Cartesian for both methods. Norms recomputed from saved particle files agree with the CSV to 5e-7.",
+        "threshold": "Trilinear observed order of at least 1.8 in L2 on both grid types (retrospective, from the request's expectation of about 2).",
+        "verdict": "met"
+      },
+      "limitations": "Curvilinear N = 128 did not complete: it hung in setup and initial particle location in two attempts (30 min and 2 h), so the warped-grid orders cover N = 8-64 only. The expected extra degradation of CornerAveraged on the curvilinear grid was not observed on this warp. About 0.03-0.3% of particles are removed in the single step on the warped grid (Cartesian Trilinear none), mostly interior particles whose step-0 interpolated velocity was grossly wrong; they are excluded from the norms and the mechanism is not established. One field (TGV3D), one warp family, one step.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-a2-2026-10-11",
+      "question": "Does particle-to-grid scatter of a prescribed scalar converge at first order at fixed particles per cell on a curvilinear grid as on a Cartesian one, and how well is the scattered total conserved?",
+      "date": "2026-10-11",
+      "commit": "dcf6e70 (main 246dae4 plus 09de63f, the TGV3D file-grid gate), clean build, executables pinned per run",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; 1 rank per task; picurv sweep arrays 20094342 (curvilinear, 20 tasks) and 20094343 (Cartesian, 20 tasks). Derived data (data.csv, meta.json) at $CASES/defense_t1/A2/ on Grace scratch and Google Drive defense_t1/A2/; not committed.",
+      "configuration": "examples/scatter_verification: ZERO_FLOW carrier, SIN_PRODUCT scalar, zero steps, Volume seeding at 16 particles per cell, random_seed 1000-5000 (the code offsets the i/j/k streams by 1 per seed, so consecutive seeds would share streams), N = 8, 16, 32, 64. Curvilinear: grid.gen box with --amp-A 0.1 as grid.mode: file; Cartesian: programmatic_c. L2_rel unweighted over cells, from Psi.dat and ParticleCount.dat; Linf_rel = max|e|/max|ref|; conservation_rel_error = conservation_error_abs/|particle_integral|.",
+      "result": {
+        "measured": "Mean of 5 seeds, N = 8 to 64: L2_rel 5.64e-2, 2.62e-2, 1.31e-2, 6.54e-3 curvilinear (orders 1.10, 1.00, 1.01) and 5.52e-2, 2.57e-2, 1.28e-2, 6.36e-3 Cartesian (orders 1.11, 1.01, 1.01), reproducing scalar-scatter-verification-2026-09-21; Linf_rel 8.0e-2 to 1.9e-2 and 7.7e-2 to 1.6e-2. Conservation error 8e-3 to 2.7e-4 Cartesian, about 4.5% at every N curvilinear.",
+        "threshold": "Observed L2 order about 1 (between 0.8 and 1.2) on both grid types, as expected for random sampling at fixed particles per cell.",
+        "verdict": "met"
+      },
+      "limitations": "The curvilinear conservation error does not measure scatter: Volume seeding chooses cells uniformly by index, so particle density is non-uniform in physical space on the warped grid, and an estimate attributes 4.0-4.4% of the 4.5% to seeding alone. 0.05-0.5% of particles seeded inside the warped domain end LOST with CellID -1 (none on Cartesian), mechanism not established. Unweighted L2 differs from the solver's volume-weighted relative L2 by up to 1.3% on the warped grid. Zero flow, zero steps.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-a3-2026-10-11",
+      "question": "How do cell occupancy and the occupied-cell scatter error depend on the mean number of particles per cell?",
+      "date": "2026-10-11",
+      "commit": "dcf6e70 (main 246dae4 plus 09de63f, the TGV3D file-grid gate), clean build, executables pinned per run",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; 1 rank per task; picurv sweep array 20094438 (45 tasks). Derived data (data.csv, meta.json) at $CASES/defense_t1/A3/ on Grace scratch and Google Drive defense_t1/A3/; not committed.",
+      "configuration": "As A2 on the curvilinear warped grid (--amp-A 0.1) at N = 32: lambda = 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64 particles per cell (count = lambda x cells), Volume seeding, 5 seeds; occupancy from scatter_metrics; L2_rel_occupied computed over occupied cells from the output fields.",
+      "result": {
+        "measured": "Occupied fraction matches 1 - exp(-lambda) to within 0.0018 (e.g. 0.6305 against 0.6321 at lambda 1, 0.2209 against 0.2212 at 0.25). L2_rel_occupied falls from 4.9e-2 at lambda 0.25 to 6.50e-3 at lambda 64, scaling as lambda^-1/2 for lambda >= 8 (ratio 1.41-1.47 per doubling) and levelling near 4.4-4.9e-2 for lambda <= 1. The lambda = 16 runs reproduce A2's curvilinear N = 32 exactly.",
+        "threshold": "Occupancy within 0.01 of 1 - exp(-lambda), and the occupied-cell error following lambda^-1/2 at large lambda (from the request's expectation).",
+        "verdict": "met"
+      },
+      "limitations": "One grid (N = 32, one warp); seeding is multinomial, so lambda_actual equals the target only on average; the warped-grid seeding non-uniformity and particle losses noted in the A2 record apply. Zero flow, zero steps.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-a4-2026-10-11",
+      "question": "Does the walking search with MPI hand-off ever lose an in-domain particle under deterministic migration from 1 to 16 ranks at particle CFL 0.1 to 2, on Cartesian and curvilinear grids?",
+      "date": "2026-10-11",
+      "commit": "dcf6e70 (main 246dae4 plus 09de63f, the TGV3D file-grid gate), clean build, executables pinned per run",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; 1 node per job; jobs 20094026-20094077 (30 runs), pilots 20093831/20093833 on an earlier dirty build (not reported). Derived data (data.csv, meta.json) at $CASES/defense_t1/A4/ on Grace scratch and Google Drive defense_t1/A4/; not committed.",
+      "configuration": "examples/search_robustness: UNIFORM_FLOW u = 0.5, Sc 1e12, 20,000 Volume-seeded particles; Cartesian 32^3 unit box and curvilinear bent_channel_coarse; ranks split along the flow (1, 4, 16); particle CFL 0.1, 0.25, 0.5, 1, 2 set through dt against the smallest streamwise cell (1/32 Cartesian, 0.09894 curvilinear); n_steps = 20/CFL so every run moves particles 20 reference cells; Poisson multigrid levels 1 (analytical mode, no Poisson solve).",
+      "result": {
+        "measured": "0 search failures in 30 of 30 runs: every removed particle (12,471-12,501 Cartesian, 13,805-13,878 curvilinear) matches a predicted domain exit, and every survivor sits at x0 + u t to 6.4e-14. Mean rank-migration fraction up to 0.90 (Cartesian, 16 ranks, CFL 2) and 0.149 (curvilinear); traversal steps per located particle 1.1-3.4 on 1 rank and up to 5.6 (Cartesian) and 7.6 (curvilinear) on several ranks at CFL 2; maximum 23; no search reached the traversal limit and no tie-break was applied.",
+        "threshold": "particles_lost (search failures) = 0 in every run (from the request).",
+        "verdict": "met"
+      },
+      "limitations": "Runs are 10-200 steps, not 1e4: particles are neither wrapped nor reinjected, so uniform flow empties a bounded domain in 20-40 steps at CFL 2. search_lost_count counts each removed particle once per settlement pass (up to about 3x on several ranks) because LocateAllParticlesInGrid re-searches particles already LOST, so the documented located + lost invariant fails and the search-step means include those repeats. mean_cell_change_frac and search_steps_p95 are not logged and were dropped. Deterministic uniform flow only; the curvilinear particle losses seen in A1, A2 and V4 are not exercised here.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-a5-2026-10-11",
+      "question": "Does the Euler-Maruyama particle update reproduce MSD = 2 d D t across independent seeds?",
+      "date": "2026-10-11",
+      "commit": "dcf6e70 (main 246dae4 plus 09de63f, the TGV3D file-grid gate), clean build, executables pinned per run",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; 4 ranks; solver/post jobs 20094080/82, 20094087/88, 20094091/92. Derived data (data.csv, meta.json) at $CASES/defense_t1/A5/ on Grace scratch and Google Drive defense_t1/A5/; not committed.",
+      "configuration": "examples/brownian_motion reduced to the brownian-msd-2026-09-18 configuration: 10,000 point-source particles, 500 steps of dt 1e-3, ZERO_FLOW on a 32^3 box with walls, Re 1000, Sc 1, LES off, so D = Gamma = nu/Sc = 1e-3 and d = 3; seeds 1, 2, 3; MSD from the post statistics task msd every 10 steps.",
+      "result": {
+        "measured": "Least-squares slope through the origin over 50 points gives D_fit/D_input = 0.99505, 0.99561, 0.99831 (mean 0.99632, sample SD 0.0017), against an estimated per-seed sampling SD of 0.71%; per-axis ratios 0.986-1.004; no particle lost.",
+        "threshold": "D_fit/D_input within two estimated sampling standard deviations of 1.",
+        "verdict": "met"
+      },
+      "limitations": "One diffusivity, a uniform Cartesian grid, zero carrier flow, 500 steps; MSD is measured from the point source. The record's earlier build seeded differently, so its digits are not reproduced, only its result.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-a6-2026-10-11",
+      "question": "How do the particle phase and the full step scale with rank count under strong and weak scaling, for a case with momentum and Poisson solves and particle transport?",
+      "date": "2026-10-11",
+      "commit": "dcf6e70 (main 246dae4 plus 09de63f, the TGV3D file-grid gate), clean build, executables pinned per run",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; exclusive nodes, 1-32 ranks on one node and 64 ranks as 2 x 32; jobs 20094554-20094582 (14 runs). Derived data (data.csv, meta.json) at $CASES/defense_t1/A6/ on Grace scratch and Google Drive defense_t1/A6/; not committed.",
+      "configuration": "flat_channel solver profile (dual-time Picard and Poisson multigrid with full coarsening) on a closed no-slip box with a divergence-free cellular initial flow (ic_gen), Re 200, Sc 1000, dt 0.002, 2 particles per cell; strong scaling 64^3 cells and 524,288 particles; weak scaling 32^3 cells and 65,536 particles per rank; ranks 1-64; 30 steps, steps 4-30 averaged; per-step rank-0 inclusive profiler timers (no MPI reduction, profiling overhead included); particle step = sum of the seven top-level particle calls.",
+      "result": {
+        "measured": "Strong scaling: particle step 18.31 s (1 rank), 3.02 s (8), 1.58 s (64), a speed-up of 11.6x; full step 22.52, 3.79, 1.88 s; FlowSolver 4.21 to 0.29 s. Weak scaling: particle step 2.14 s (1 rank), 3.00 s (8), 26.31 s (64); full step 2.63, 3.77, 28.22 s; the growth past 8 ranks is LocateAllParticlesInGrid (0.96 to 23.1 s), with migration about 8.6 s per step at 64 ranks (estimate from run totals). The particle phase is about 80% of the step throughout.",
+        "threshold": "Weak-scaling particle-step time at 64 ranks within 2x of the 1-rank value (stated after the runs; no threshold was requested).",
+        "verdict": "not-met"
+      },
+      "limitations": "Rank-0 inclusive timers without reduction. Closed box rather than a flow-through channel (in channel pilots, removing lost particles cost about 20 ms each and dominated). 524,288 particles and 30 steps rather than 1e6 and 50. One case; the cause of the weak-scaling growth in location and migration is not established. `--dry-run` refuses ic_gen on a programmatic grid that the real submission builds (a tooling mismatch).",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-f1-2026-10-11",
+      "question": "What is the observed spatial order of the velocity error across the duct, 2D Taylor-Green, curvilinear pipe and periodic laminar channel verification cases, in both relative L2 and relative max norms?",
+      "date": "2026-10-11",
+      "commit": "Extracted from the source records' commits (d6fff0f duct and tgv2d, 46eaa7f and 6896ee4 pipe); channel rerun at dcf6e70",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; extraction; pipe norms recomputed from the Grace runs in $CASES/pipe_poiseuille; channel rerun on 1 rank, jobs 20094094-20094099. Derived data (data.csv, meta.json) at $CASES/defense_t1/F1/ on Grace scratch and Google Drive defense_t1/F1/; not committed.",
+      "configuration": "duct-poiseuille-picard-2026-09-18 (N 8, 16, 24), tgv2d-picard-order-2026-09-18 (16, 32, 64), pipe-poiseuille-nk-three-grid-2026-10-10 (9, 17, 33; n33 at step 60), periodic-channel-laminar-picard-2026-09-18 rerun (9 x {9, 17, 33} x 9, Re 10, dt 1, 150 steps, constant_flux and initial_flux) with L2_rel and Linf_rel = max|e|/max|ref| against 1.5 U_b (1 - (y - 1)^2) using the realized U_b.",
+      "result": {
+        "measured": "Duct L2_rel 3.49e-2, 9.67e-3, 4.39e-3 and Linf_rel 4.00e-2, 1.09e-2, 4.93e-3 (orders 1.85, 1.95 and 1.88, 1.96). TGV2D relative RMS 3.66e-2, 9.29e-3, 2.40e-3 (1.98, 1.96). Pipe area-weighted relative RMS 1.813e-2, 5.082e-3, 1.311e-3 (2.00, 2.04) and Linf_rel 2.083e-2, 5.754e-3, 1.473e-3 (2.02, 2.05). Channel rerun reproduces the record (max|e|/U_b 1.807e-2, 5.155e-3, 1.375e-3; U_b 0.90217, 0.90062, 0.90017) with L2_rel 1.107e-2, 3.199e-3, 8.563e-4 and Linf_rel 1.205e-2, 3.436e-3, 9.166e-4 (1.95, 1.99 and 1.97, 1.99); both flux handlers identical.",
+        "threshold": "Observed order of at least 1.8 in every available norm.",
+        "verdict": "met"
+      },
+      "limitations": "TGV2D has no max-norm error in its record and was not rerun, so its Linf cell is blank. The pipe Linf normalisation (max|e|/max|ref|) and the duct's ('relative max error' as recorded) are not re-derived for the duct. Channel startup steps up to about 64 hit the 50-iteration pseudo-time cap before converging. Steady laminar cases on uniform or mildly curvilinear grids only.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-f2-2026-10-11",
+      "question": "Does the BDF1-started BDF2 momentum discretisation reach second order in time at 128^2 for both the dual-time Picard and the Newton-Krylov solvers?",
+      "date": "2026-10-11",
+      "commit": "dcf6e70 (main 246dae4 plus 09de63f, the TGV3D file-grid gate), clean build, executables pinned per run",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; 16 ranks; Picard jobs 20094019-20094025, Newton-Krylov jobs 20094027-20094035 (pilots 20093761/62 on an earlier dirty build, not reported). Derived data (data.csv, meta.json) at $CASES/defense_t1/F2/ on Grace scratch and Google Drive defense_t1/F2/; not committed.",
+      "configuration": "2D Taylor-Green u = sin x cos y, v = -cos x sin y from ic_gen in a triply periodic 128 x 128 x 4 box on [0,2pi]^2 x [0,2pi/32], nu 0.05, central convection, t_final 1, dt 0.1, 0.05, 0.025, 0.0125, 0.00625. Picard: residual ratio 1e-9, up to 300 pseudo-iterations, absolute tolerance 1e-14. Newton-Krylov: Standard profile (no preconditioner), SNES rtol 1e-10, atol 1e-12, stol 1e-14, GMRES rtol 1e-8, atol 1e-14. Shared Poisson FGMRES rtol 1e-13 with 4-level multigrid. Error: successive differences ||u_dt - u_dt/2||/||u_dt/2||.",
+      "result": {
+        "measured": "Successive-difference relative L2 6.33e-3, 1.63e-3, 4.13e-4, 1.04e-4, observed orders 1.955, 1.983, 1.993 (Linf 1.934, 1.979, 1.993), identical to three decimals for both solvers; the two solvers' final fields agree to 9.8e-11. Every Picard step met the 1e-9 test with no cap hit; every Newton-Krylov step converged. Spatial floor against the exact solution 5.73e-4 (L2). Cost at 16 ranks: Picard 102 to 25 pseudo-iterations and 23.5 to 10.2 s per step; Newton-Krylov 3 to 2 Newton and 129 to 19 Krylov iterations and 6.2 to 2.1 s per step.",
+        "threshold": "Observed temporal order about 2 (at least 1.9) for both solvers.",
+        "verdict": "met"
+      },
+      "limitations": "Error against the exact solution resolves the order only at dt 0.1 and 0.05 because of the spatial floor; the decision metric is the successive difference. The Poisson rtol of 1e-13 stalls near 1e-11 at 128^2, so some solves at the two smallest dt stopped at the 200-iteration limit, four orders below the smallest measured difference. The first step is BDF1. One flow, one grid, laminar.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-f3-2026-10-11",
+      "question": "Does discrete mass conservation hold, per cell and globally, over long integrations on a Cartesian periodic grid and on a curvilinear grid with inflow and outflow?",
+      "date": "2026-10-11",
+      "commit": "e37e868 and ede7273 (channel segments, extraction); 0e70cf3 (Humphrey steps 1-3000) and dcf6e70 (Humphrey continuation)",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; channel extracted from six segments of turbulent-channel-nk-2026-09-29 (96-384 ranks); Humphrey continuation job 20094079 on 48 ranks (2 x 2 x 12), 19:40. Derived data (data.csv, meta.json) at $CASES/defense_t1/F3/ on Grace scratch and Google Drive defense_t1/F3/; not committed.",
+      "configuration": "Turbulent periodic channel Re_tau 180 (achieved 202.9), 96 x 96 x 256, Newton-Krylov, dt 0.005, steps 1-20000 stitched (later segment wins on overlap); laminar Humphrey bend 32 x 32 x 256, Re 790, Newton-Krylov point-block, dt 0.02, steps 1-3000 from humphrey_laminar_20261007-180505 plus 3001-10000 branched from its step 3000. Every step from Continuity_Metrics.log and the Poisson history; normalised divergence = max|D| x V_c / (U_b A_s,c) at the worst cell.",
+      "result": {
+        "measured": "Normalised maximum divergence: channel at most 1.04e-11 (step 630, transition) and about 1e-12 after step 2000; Humphrey 2.81e-11 at step 2 (impulsive start) and at most 1.9e-14 over steps 3001-10000, with no jump at the build change. Poisson source imbalance at most 1.0e-15 and net boundary flux at most 1.6e-15 at every step. Poisson iterations steady at 11 (channel) and 5 (Humphrey).",
+        "threshold": "Normalised maximum divergence below 1e-9 at every step, and net boundary flux at round-off.",
+        "verdict": "met"
+      },
+      "limitations": "The cell location printed in Continuity_Metrics.log is mostly stale (set only by the owning rank, printed by rank 0); locations were recovered from the logged flat index and checked. Poisson iteration counts are not comparable between the cases (different tolerances). l2 divergence is not logged. The channel segments span two builds.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-f4-2026-10-11",
+      "question": "Do the dual-time Picard solver's accuracy and convergence hold as two-sided wall-normal stretching raises the maximum cell aspect ratio from 1 to 20 on the periodic laminar channel?",
+      "date": "2026-10-11",
+      "commit": "dcf6e70 (main 246dae4 plus 09de63f, the TGV3D file-grid gate), clean build, executables pinned per run",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; 1 rank; jobs 20094114/15 (AR 1, 2; 150 steps) and 20094408/11/14 (AR 5, 10, 20; 2000 steps). Derived data (data.csv, meta.json) at $CASES/defense_t1/F4/ on Grace scratch and Google Drive defense_t1/F4/; not committed.",
+      "configuration": "examples/periodic_test/driven_channel/laminar at Re 10, 8 x 32 x 8 cells on 0.5 x 2 x 0.5 (uniform spacing 1/16 gives AR 1), symmetric tanh stretching in j by grid.gen box first_cell_j tuned to achieved max AR 1.0000, 1.9986, 4.9922, 10.0069, 19.9803; constant_flux; the record's solver settings, dt 1.",
+      "result": {
+        "measured": "L2_rel_u 9.10e-4, 6.38e-4, 1.17e-3, 1.82e-3, 2.58e-3 and Linf_rel_u 9.74e-4, 5.59e-4, 9.96e-4, 1.55e-3, 2.18e-3 for AR 1, 2, 5, 10, 20. At 150 steps AR 5, 10 and 20 were not steady (change 9.4e-6, 2.4e-2, 6.0e-2): the pseudo-time controller cut the pseudo-CFL to 0.027, 0.0076 and 0.0018 and every step hit the 50-iteration cap; at 2000 steps AR 20 still hit the cap on every step, steady only to about 1e-7. Divergence and pressure are exactly zero in every run.",
+        "threshold": "Every aspect ratio reaches steady state within the record's 150 steps with error within 3x of AR 1 (stated after the runs).",
+        "verdict": "not-met"
+      },
+      "limitations": "The body-force-driven periodic channel has exactly one-directional flow and an identically zero pressure field, so the divergence and odd-even pressure checks test nothing here; F4b repeats the test on a duct with a real pressure field. AR 5-20 needed 2000 steps. Uniform streamwise and spanwise spacing; one Reynolds number.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-f4b-2026-10-11",
+      "question": "Do the dual-time Picard solver and multigrid projection stay accurate, divergence-free and free of pressure odd-even modes on the laminar square duct as two-sided cross-stream stretching raises the maximum aspect ratio from 1 to 20?",
+      "date": "2026-10-11",
+      "commit": "dcf6e70 (main 246dae4 plus 09de63f, the TGV3D file-grid gate), clean build, executables pinned per run",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; 16 ranks; jobs 20094731/32 (AR 1, 2) and 20094760/61 (240-step reruns); AR 5, 10, 20 jobs 20094733-35 and the 1-rank diagnostic 20094746 failed. Derived data (data.csv, meta.json) at $CASES/defense_t1/F4b/ on Grace scratch and Google Drive defense_t1/F4b/; not committed.",
+      "configuration": "Square duct, unit side, length 2, Re 10 (density 10, viscosity 1), series inlet (bulk 1), conservation outlet, plug start, dt 0.05, 120 steps, flat_channel Picard controls, Poisson tolerances 1e-12 / 300 iterations; 32 x 32 x 64 cells, identical tanh stretching in i and j tuned to max AR 1.0000, 1.9986, 4.9961, 9.9878, 20.0273.",
+      "result": {
+        "measured": "AR 1: L2_rel_u 2.487e-3, Linf_rel_u 2.790e-3, max divergence 3.7e-12, dp/dz error 3.90e-3 (reproduces poisson-option-matrix duct_baseline); AR 2: 1.753e-3, 2.096e-3, 6.7e-12, 2.50e-3; 240-step reruns agree to 6 digits. No odd-even mode: the (-1)^j amplitude after a quadratic fit is 3.0e-8 and 5.8e-9 of the pressure drop over one length. AR 5, 10 and 20 abort in physical step 1 with 'Momentum solver produced a non-finite trial at minimum pseudo-CFL'.",
+        "threshold": "All five aspect ratios complete with velocity error within 3x of AR 1, divergence below 1e-9 and no odd-even mode (stated after the runs).",
+        "verdict": "not-met"
+      },
+      "limitations": "Diagnosis, not verified beyond the logs: the first pseudo-step comes from ComputeGlobalSpectralRadiusEstimate, a convection-only estimate that omits viscous stiffness, so it is the same about 7.5e-3 at every AR and diverges on stretched cells; after rollback, state that survives produces NaN residuals at a point that depends on the rank layout. Not retuned. 12 and 24 of 120 steps hit the pseudo-iteration cap at AR 1 and 2. defense-t1-f4b-nk-2026-10-11 runs the same grids with Newton-Krylov.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-f4b-nk-2026-10-11",
+      "question": "With the F4b setup otherwise unchanged, does the frozen-momentum point-block Newton-Krylov solver run the square duct on the AR 1-20 grids where Picard failed, with the same accuracy, divergence and pressure quality?",
+      "date": "2026-10-11",
+      "commit": "dcf6e70 (main 246dae4 plus 09de63f, the TGV3D file-grid gate), clean build, executables pinned per run",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; 16 ranks; jobs 20094845-20094859 (120 steps) and 20094878-20094882 (240 steps). Derived data (data.csv, meta.json) at $CASES/defense_t1/F4b_NK/ on Grace scratch and Google Drive defense_t1/F4b_NK/; not committed.",
+      "configuration": "F4b's case, grids and Poisson block verbatim; momentum solver from Newton-Krylov-Frozen-Momentum-Point-Block.yml without central_diff (F4b uses the default convection scheme); dt 0.05, 120 steps, 240-step reruns for steadiness.",
+      "result": {
+        "measured": "All five aspect ratios completed with every step committed and converged (0 unconverged, rolled back or diverged). L2_rel_u 2.487e-3, 1.753e-3, 1.724e-3, 2.121e-3, 2.742e-3; dp/dz error 3.899e-3, 2.503e-3, 2.302e-3, 2.828e-3, 3.701e-3; max divergence at most 4.4e-11; odd-even amplitude at most 1.2e-7 of the length pressure drop at step 120 (9.3e-9 at AR 20 by step 240). Newton 1.3-1.7 per step; Krylov per step 27 to 82 from AR 1 to 20; 0.23-0.50 s per step. At AR 1-2 the result matches Picard to 5e-8 relative.",
+        "threshold": "All five aspect ratios complete with velocity error within 3x of AR 1, divergence below 1e-9 and no odd-even mode (the F4b threshold).",
+        "verdict": "met"
+      },
+      "limitations": "Shows only that Newton-Krylov runs these grids; why Picard fails is diagnosed in the F4b record, not here. The AR 1 Poisson solve hit its 300-iteration cap on 6 near-steady steps (tight 1e-12 tolerance). Timings are single samples on shared nodes. One Reynolds number, laminar.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-f5-2026-10-11",
+      "question": "At equal dt and at the largest dt meeting a no-capped-steps criterion, how do the Newton-Krylov point-block and dual-time Picard momentum solvers compare in cost on the laminar Humphrey bend, relative to the explicit RK4 limit?",
+      "date": "2026-10-11",
+      "commit": "dcf6e70 (main 246dae4 plus 09de63f, the TGV3D file-grid gate), clean build, executables pinned per run",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; 48 ranks (2 x 2 x 12), one node per job; jobs 20094078-20094501 (14 runs). Derived data (data.csv, meta.json) at $CASES/defense_t1/F5/ on Grace scratch and Google Drive defense_t1/F5/; not committed.",
+      "configuration": "Each run branches from step 3000 of humphrey_laminar_20261007-180505 (32 x 32 x 256, Re 790, converged) for 200 steps; dt 0.02 to 1.28 doubling; Picard from Imp-MG-Standard.yml with central_diff and the Newton-Krylov run's Poisson block; stable = 200 steps, no NaN, no capped steps. Explicit limit estimate: viscous 2.8/(4 nu sum 1/h^2) = 0.2230, convective 2.8/max(sum_d |u.e_d|/|e_d|^2) = 0.0523 from the step-3000 field.",
+      "result": {
+        "measured": "Both solvers meet the criterion up to dt 0.16 (3.06 x the explicit estimate 0.0523) and fail it from 0.32. dt 0.02: Picard 0.079 s per step (1.0 pseudo-iteration), Newton-Krylov 0.150 s (2 Newton, 3.5 Krylov). dt 0.16: Picard 0.170 s (3.4), Newton-Krylov 3.40 s (3 Newton, 335.7 Krylov).",
+        "threshold": "Both implicit solvers meet the criterion at a dt above the explicit RK4 estimate.",
+        "verdict": "met"
+      },
+      "limitations": "The failures above dt 0.16 are convergence caps on a residual at round-off (the start is steady), not divergence: fields stay bounded to 1e-9 per step, so this is not a dynamic stability limit, which would need a transient start. Newton-Krylov steps committed as not converged under the 46eaa7f policy were counted as capped. The explicit limit is an estimate; no explicit run was made. Single timing samples per configuration.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-f6-2026-10-11",
+      "question": "Do the tracked and true Poisson residuals agree for the accepted outer Krylov methods, and what does the persistent Poisson solver save per step?",
+      "date": "2026-10-11",
+      "commit": "Extracted: 0841f7d (poisson matrix), b85f5a0 / 53ba654 / 0e70cf3 (rebuild runs) and 3709375 / 0841f7d (persistent runs)",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; extraction from Grace logs. Derived data (data.csv, meta.json) at $CASES/defense_t1/F6/ on Grace scratch and Google Drive defense_t1/F6/; not committed.",
+      "configuration": "Final iteration of the last step in the poisson_matrix duct, bend and box runs for fgmres and cg (tight tolerances 1e-12), plus the page-25 coarse-solver table; ProfilingSummary_Solver.log of rebuild and persistent pairs: LES duct pilot (96 ranks), HOM02 nomodel and const017 64^3 (48 ranks), Humphrey 48 x 48 x 384 (48 ranks).",
+      "result": {
+        "measured": "Tracked (unpreconditioned) and true residual agree to 6 digits in 5 of 6 runs (bend fgmres 3.45e-12 against 4.74e-12), with maximum divergence at most 6.5e-12. Step time rebuild to persistent: LES 4.454 to 1.482 s (Poisson share 0.773 to 0.332), HOM02 2.900 to 1.192 and 2.811 to 1.072 s (0.651/0.676 to 0.133/0.147), Humphrey 0.848 to 0.621 s (0.306 to 0.204).",
+        "threshold": "Tracked and true residual within a factor 2 for the accepted methods, and the persistent solver no slower per step on every case.",
+        "verdict": "met"
+      },
+      "limitations": "The 'preconditioned' column of the request holds PETSc's tracked unpreconditioned norm (the CLI sets -ps_ksp_norm_type unpreconditioned); a true preconditioned residual is not logged. Each rebuild/persistent pair compares two builds, so non-Poisson code also changed (Humphrey's non-Poisson time also fell). Channel and box3p runs are excluded (zero Poisson source).",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-v1-2026-10-11",
+      "question": "How much do the mid-height radial streamwise-velocity profiles at 0, 45 and 90 degrees in the Humphrey bend at Re 790 change across the three Newton-Krylov grids?",
+      "date": "2026-10-11",
+      "commit": "0e70cf3 (source runs); extracted at 246dae4",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; extraction from the final-step .vts of humphrey_laminar_20261007-180505, -210855 and -211413. Derived data (data.csv, meta.json) at $CASES/defense_t1/V1/ on Grace scratch and Google Drive defense_t1/V1/; not committed.",
+      "configuration": "Grids 32 x 32 x 256, 48 x 48 x 384, 64 x 64 x 512; the k-plane nearest each nominal angle (within 0.85 deg); line j = JM/2 at z = 1; u_s the arc-tangent velocity component; r_norm = (r - 1.8)/1.0 with r about the centre of curvature (10, 3.3).",
+      "result": {
+        "measured": "48 against 64 RMS difference 0.0031, 0.0083, 0.0120 U_b and 32 against 64 0.0083, 0.0363, 0.0246 U_b at 0, 45, 90 deg; centre value at 0 deg 2.0897, 2.0937, 2.0951 from coarsest to finest; plane-integrated bulk velocity 0.978-0.998, approaching 1 with refinement.",
+        "threshold": "48 against 64 RMS change within the 0.001-0.013 U_b recorded in humphrey-laminar-bend-nk-pointblock-2026-10-07.",
+        "verdict": "met"
+      },
+      "limitations": "No comparison with experiment: digitized Humphrey, Taylor and Whitelaw (1977) Fig. 2 data is not on Grace (to be supplied). The postprocessor's nodal velocity is non-zero at the four duct corner nodes of every plane (up to 0.10 on the 32 grid), not on the extracted line; not investigated. Station planes differ from nominal by up to 0.85 deg.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-v2-2026-10-11",
+      "question": "Does the wall-modelled LES channel at Re_b 40000 reproduce the Lee and Moser Re_tau 1000 mean profile and friction velocity?",
+      "date": "2026-10-11",
+      "commit": "4eedf25 (source run); reduced at 246dae4",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; extraction from case_constant_flux_20261008-154731 (24 ranks) with the unmodified wm_matrix.py --parent-check. Derived data (data.csv, meta.json) at $CASES/defense_t1/V2/ on Grace scratch and Google Drive defense_t1/V2/; not committed.",
+      "configuration": "Window 'stationary' t = 1200-2000 (3999 samples) at step 100000; 32 x 20 x 48 cells over pi x 2 x 2pi; dynamic Smagorinsky with the Werner wall model; nu 5e-5; u_tau from the wall model, sqrt(<u_tau^2>) over the window; Lee and Moser LM_Channel_1000 files downloaded.",
+      "result": {
+        "measured": "u_tau 0.0514826, Re_tau 1029.65; +2.87% against UT_LM 0.050046 used by the record (+2.91% against the file header's 0.0500256); window halves 0.35% apart; U+ at 10 folded cells, y+ 51-978.",
+        "threshold": "|u_tau error| within 3% (the werner record's criterion).",
+        "verdict": "met"
+      },
+      "limitations": "No force-balance u_tau (the run predates driven_flow.csv). The record's UT_LM 0.050046 differs from the LM file header value; the source of 0.050046 is not traced. Ten wall-normal points only.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-v3-2026-10-11",
+      "question": "How do the wall-resolved, no-SGS channel's mean and Reynolds-stress profiles in wall units compare with Lee and Moser Re_tau 180?",
+      "date": "2026-10-11",
+      "commit": "e37e868 (source run); reduced at 246dae4",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; extraction from case_20260925-104529 (144 ranks) with wall_normal_profile.py. Derived data (data.csv, meta.json) at $CASES/defense_t1/V3/ on Grace scratch and Google Drive defense_t1/V3/; not committed.",
+      "configuration": "Step 20000, window 'developed' t = 50-100 (1999 samples; 3.62 eddy turnovers h/u_tau, 3.98 flow-throughs); 96 x 96 x 256 cells on 2pi x 2 x 4pi; nu 1/2800; no LES; u_tau from a quadratic no-slip fit through the first two cell means (as turbulent-channel-nk-2026-09-29); Lee and Moser LM_Channel_0180 files with SHA256 matching that record.",
+      "result": {
+        "measured": "u_tau 0.0724557, Re_tau 202.876 (LM 182.088); peak -u'v'+ 0.7477 at y+ 27.8; peak rms/U_b 0.1733, 0.0606, 0.0725; U_b from the profile 0.9999903; profiles at 48 folded cells. All reproduce turbulent-channel-nk-2026-09-29.",
+        "threshold": "Reproduce the source record's Re_tau, peak stresses and U_b to its printed digits.",
+        "verdict": "met"
+      },
+      "limitations": "Re_tau is 202.9, not 180 (+11.4%), so the comparison with LM 180 is at mismatched Re_tau; the window is 3.6 eddy turnovers. No SGS model. Reproduction of the record, not a new physical result.",
+      "artifacts": []
+    },
+    {
+      "id": "defense-t1-v4-2026-10-11",
+      "question": "Do massless tracers released on the inlet of the converged Re 790 laminar Humphrey bend pass theta = 90 deg and leave through the outlet without search losses?",
+      "date": "2026-10-11",
+      "commit": "dcf6e70 (main 246dae4 plus 09de63f, the TGV3D file-grid gate), clean build, executables pinned per run",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized; 12 ranks (1 x 1 x 12); job 20094105 (8:59), pilot 20094068. Derived data (data.csv, meta.json) at $CASES/defense_t1/V4/ on Grace scratch and Google Drive defense_t1/V4/; not committed.",
+      "configuration": "Branch of humphrey_laminar_20261007-180505 at step 3000 (32 x 32 x 256, Newton-Krylov solve continued), Trilinear interpolation, Sc 1e12; 10,100 particles placed randomly on the inlet face (seed 12345; pid 0-99 tracked); 1500 steps of dt 0.02 (t = 30), sampled every 10 steps; outlet exit when the last sample is in the outlet straight within reach of y = 10.3, otherwise search loss.",
+      "result": {
+        "measured": "At t = 30: 8125 outlet exits, 44 search losses, 1931 remaining (slow near-wall and corner particles); search_metrics lost_cumulative 8169 = 8125 + 44. All 44 losses within 0.0018 D of a wall (39 within 1e-4 D), 38 in the inlet straight and 6 in the bend; none tracked. 8663 crossings of theta = 90 deg (first t 4.57, median 8.25). Tracked 100: 74 exits, 0 losses, 26 remaining.",
+        "threshold": "particles lost to search = 0 (the request's expectation).",
+        "verdict": "not-met"
+      },
+      "limitations": "The cause of the near-wall losses is not established. 1 x 1 x 12 layout because Surface seeding on ranks that do not own the inlet face places particles at the inlet centre (about 92% would land in one quadrant on 2 x 2 x 12, an estimate). search_lost_count is twice lost (the counting defect noted in the A4 record). Section crossings interpolate linearly between samples 0.2 apart.",
+      "artifacts": []
     }
   ]
 }
