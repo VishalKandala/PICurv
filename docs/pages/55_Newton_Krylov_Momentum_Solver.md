@@ -472,8 +472,8 @@ iterations per step, flat over each run.
 
 @section p55_validation_sec 10. Validation Coverage
 
-The Newton--Krylov path has two regression levels and the two retained production
-measurements below:
+The Newton--Krylov path has two regression levels, the two retained production
+measurements, and the analytical refinement study below:
 
 - **Default suite** (`unit-newton-krylov`, part of `make check`): constraint-row
   Jacobian structure, matrix-free vs direct differencing, preconditioning-engine
@@ -600,6 +600,22 @@ operation was invoked. The frozen-Jacobian preconditioner, LES, wall functions,
 storage operations, and parameter sweeps were not exercised by this campaign.
 No refinement study, solver-strategy comparison, parallel scaling measurement,
 or fully converged DNS validation is claimed.
+
+@subsection p55_pipe_evidence_sub 10.3 Hagen-Poiseuille refinement on the swept circle (2026-10-10)
+
+`tests/tooling/measurement_records.json`, record `pipe-poiseuille-nk-three-grid-2026-10-10`,
+is the durable source. Laminar flow at `nu = 0.1` through the square-to-disc circle
+section, 9, 17 and 33 cells across, periodic `initial_flux` along a straight path,
+`dt = 0.5` for 120 steps, with the frozen point-block preconditioner, ran at commit
+`46eaa7f`. Against the exact profile `2 U_b (1 - r^2)` the area-weighted relative RMS
+error was 1.81e-2, 5.08e-3 and 1.31e-3, observed order 2.00 then 2.04. The worst
+non-orthogonality of this section is about 80 degrees.
+
+The 33-cell run is also the case that exposed the failure policy in Section 3: at step
+69, steady to 1e-10 per step, the line search failed at a residual of 1.4e-7 of
+`a0 |U|_inf / dt`. That step is now committed as not converged, and the other 119
+converged. The dual-time solver did not converge at 33 cells and this `dt`; see
+@ref p24_limits_sec.
 
 @section p55_vs_jameson_sec 11. Differences from Dual-Time Picard--Jameson
 

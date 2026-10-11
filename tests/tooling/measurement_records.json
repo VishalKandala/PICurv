@@ -253,6 +253,21 @@
       "artifacts": []
     },
     {
+      "id": "pipe-poiseuille-nk-three-grid-2026-10-10",
+      "question": "Does the Newton-Krylov momentum solver reproduce Hagen-Poiseuille flow at second order on the swept-circle grid through three refinements, including the 33-cell section the Picard record could not reach?",
+      "date": "2026-10-10",
+      "commit": "46eaa7f691c6 (simulator and postprocessor version lines of all three runs)",
+      "environment": "Local WSL2 workstation, 12 cores, 7 GB RAM; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler; 1 rank for 9 and 17 cells, 4 ranks in a 2 x 2 x 1 layout for 33",
+      "configuration": "As pipe-poiseuille-curvilinear-2026-09-18 with the momentum solver changed: grid.gen sweep, circle cross-section of diameter 2 with 9, 17 and 33 cells across and 5 along a straight periodic path of length 1; noslip on the four section faces, PERIODIC initial_flux on the path ends; nu = 0.1, plug initial field of 1, dt = 0.5 for 120 steps; central differencing. Newton Krylov with the matrix-free finite-difference Jacobian, frozen_momentum_jacobian point_block preconditioner, newtonls with bt line search (absolute 1e-10, relative 1e-8, step 1e-12, 25 iterations), GMRES restart 80 (relative 1e-6); residual_absolute_tol 1e-8. Pressure: FGMRES with two-level multigrid, k semi-coarsening. The streamwise velocity of the final checkpoint was compared with 2 U_b (1 - r^2), U_b the area-weighted mean over the true cell areas, on the middle path plane.",
+      "result": {
+        "measured": "Area-weighted relative RMS error 1.813e-2, 5.082e-3, 1.311e-3 (observed order 2.00, 2.04); maximum error relative to U_b 4.167e-2, 1.151e-2, 2.947e-3 (2.02, 2.05). Realized U_b 0.8742, 0.8718, 0.8712. Cross-section velocity at most 3.5e-11 and variation along the path at most 2.2e-11. The 9- and 17-cell values equal the Picard record's. Every step converged on 9 and 17 cells; on 33 cells 119 of 120 converged and step 69 ended DIVERGED_LINE_SEARCH with |R|_inf 2.7e-9, 1.4e-7 of a0 |U|_inf / dt and so above the 1e-8 tolerance, at a state steady to 1e-10 per step. It was committed as not converged under db983d0; before that commit the same step stopped the run. Newton iterations per step were 0 to 2. The 33-cell error equals an earlier run's step-60 checkpoint to the four digits reported.",
+        "threshold": "Observed order at least 1.8 between each grid pair, on a grid whose worst non-orthogonality reaches about 80 degrees.",
+        "verdict": "met"
+      },
+      "limitations": "Laminar, steady, and on one geometry; the transient was not compared. The cross-section is a polygonal approximation of the circle, whose geometric error enters at the same order. Picard does not reproduce the third grid at this time step: on Grace the same day, the 33-cell Picard run hit its 50-iteration pseudo-time cap on all 120 steps, was still drifting at the end (relative velocity change 4.5e-4 per step) and finished with relative RMS error 1.49e-2, so the Picard order remains the two-grid estimate of pipe-poiseuille-curvilinear-2026-09-18. Only one rank layout per grid was run.",
+      "artifacts": []
+    },
+    {
       "id": "diffusivity-gradient-drift-paired-2026-09-18",
       "question": "With the particle generator now seeded from configuration, do paired runs resolve the drift a linear diffusivity gradient adds to the position update?",
       "date": "2026-09-18",

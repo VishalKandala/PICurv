@@ -327,6 +327,9 @@
             ],
             "production": [
               "measurement:turbulent-channel-nk-2026-09-29"
+            ],
+            "analytical": [
+              "measurement:pipe-poiseuille-nk-three-grid-2026-10-10"
             ]
           }
         },
@@ -1287,6 +1290,7 @@
             ],
             "analytical": [
               "measurement:pipe-poiseuille-curvilinear-2026-09-18",
+              "measurement:pipe-poiseuille-nk-three-grid-2026-10-10",
               "measurement:grid-generator-closure-2026-09-21"
             ]
           }
@@ -1327,7 +1331,8 @@
               "make:test-python"
             ],
             "analytical": [
-              "measurement:pipe-poiseuille-curvilinear-2026-09-18"
+              "measurement:pipe-poiseuille-curvilinear-2026-09-18",
+              "measurement:pipe-poiseuille-nk-three-grid-2026-10-10"
             ]
           }
         }

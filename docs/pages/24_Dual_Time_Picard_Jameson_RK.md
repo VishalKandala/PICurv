@@ -291,7 +291,10 @@ space (1.98 then 1.96), with every step converged
 (`tgv2d-picard-order-2026-09-18`). Hagen-Poiseuille flow on the swept circle - maximum
 non-orthogonality near 80 degrees - converges at second order in space
 (`pipe-poiseuille-curvilinear-2026-09-18`). Only central differencing was measured for
-order, and only on laminar flows.
+order, and only on laminar flows. That pipe result has two grids: at 33 cells across and
+the same `dt = 0.5`, every step hit the pseudo-iteration cap, the flow was still drifting
+after 120 steps, and the error, 1.49e-2, was about three times the 17-cell value. The Newton--Krylov
+solver reached second order on all three grids (`pipe-poiseuille-nk-three-grid-2026-10-10`).
 
 **The streamwise-periodic wall-bounded stall did not reproduce.** Re-characterized on
 2026-09-18 at current code, every step of the shipped laminar driven channel converged in

@@ -209,6 +209,8 @@ configuration error.
 Production exercised - `turbulent-channel-nk-2026-09-29`: 96 x 96 x 256 cells on
 144 ranks, all 10,000 inspected steps converged and committed; see
 @ref p55_channel_evidence_sub for the retained measurements and DNS discrepancy.
+Analytically verified - `pipe-poiseuille-nk-three-grid-2026-10-10`: Hagen-Poiseuille
+flow on the swept circle with 9, 17 and 33 cells across, observed order 2.00 then 2.04.
 
 **Limitations and full treatment.** **@subpage 55_Newton_Krylov_Momentum_Solver**
 carries the scope limits, preconditioner findings, and tuning guidance. Supported
