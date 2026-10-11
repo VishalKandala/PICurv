@@ -2765,9 +2765,9 @@ def test_validate_poiseuille_flow_direction_mismatch_with_inlet_fails(tmp_path):
     assert "flow_direction" in result.stderr
 
 
-def test_validate_analytical_mode_requires_programmatic_grid(tmp_path):
+def test_validate_analytical_tgv3d_accepts_file_grid(tmp_path):
     """!
-    @brief Test that validate analytical mode requires programmatic grid.
+    @brief Test that analytical TGV3D accepts a file-backed grid (field evaluated on that grid).
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
@@ -2778,6 +2778,41 @@ def test_validate_analytical_mode_requires_programmatic_grid(tmp_path):
     case_cfg["grid"] = {
         "mode": "file",
         "source_file": str(valid / "case.yml"),
+    }
+    case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
+
+    solver_cfg = yaml.safe_load((valid / "solver.yml").read_text(encoding="utf-8"))
+    solver_cfg["operation_mode"]["eulerian_field_source"] = "analytical"
+    solver_path.write_text(yaml.safe_dump(solver_cfg, sort_keys=False), encoding="utf-8")
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(case_path),
+            "--solver",
+            str(solver_path),
+            "--monitor",
+            str(valid / "monitor.yml"),
+        ]
+    )
+
+    assert "requires grid.mode" not in result.stderr
+
+
+def test_validate_analytical_mode_rejects_grid_gen(tmp_path):
+    """!
+    @brief Test that analytical TGV3D still rejects grid.mode grid_gen.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_path = tmp_path / "case_grid_gen.yml"
+    solver_path = tmp_path / "solver_analytical.yml"
+
+    case_cfg = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    case_cfg["grid"] = {
+        "mode": "grid_gen",
+        "generator": {"config_file": str(valid / "case.yml"), "grid_type": "box"},
     }
     case_path.write_text(yaml.safe_dump(case_cfg, sort_keys=False), encoding="utf-8")
 

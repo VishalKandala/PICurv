@@ -101,7 +101,7 @@ Supported modes:
 Mode compatibility note:
 
 - for normal `solve` and `load` workflows, all three grid modes are supported.
-- for `solver.yml -> operation_mode.eulerian_field_source: analytical`, `TGV3D` requires `grid.mode: programmatic_c`.
+- for `solver.yml -> operation_mode.eulerian_field_source: analytical`, `TGV3D` supports `grid.mode: programmatic_c` (the solver assigns the [0, 2π]² × [0, 0.2π] TGV domain) and `grid.mode: file` (the given grid is kept and the field is evaluated at its cell centres, e.g. a warped `grid.gen box --amp-A` grid spanning the same domain).
 - `ZERO_FLOW` and `UNIFORM_FLOW` support `grid.mode: programmatic_c` and `grid.mode: file`.
 
 Optional global DMDA layout hints apply to all grid modes:

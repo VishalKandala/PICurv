@@ -19,8 +19,7 @@ static PetscErrorCode ParseAndSetGridInputs(UserCtx *user)
     PetscFunctionBeginUser;
 
     PROFILE_FUNCTION_BEGIN;
-    if(strcmp(simCtx->eulerianSource,"analytical")==0 &&
-       AnalyticalTypeRequiresCustomGeometry(simCtx->AnalyticalSolutionType)){
+    if (AnalyticalRunUsesCustomGeometry(simCtx)) {
         ierr = SetAnalyticalGridInfo(user); CHKERRQ(ierr);
     } else if (simCtx->generate_grid) {
         if (strcmp(simCtx->eulerianSource, "analytical") == 0) {
@@ -71,8 +70,7 @@ PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
     finest_users = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Defining grid dimensions for %d blocks...\n", nblk);
-    if (strcmp(simCtx->eulerianSource, "analytical") == 0 &&
-        AnalyticalTypeRequiresCustomGeometry(simCtx->AnalyticalSolutionType)) {
+    if (AnalyticalRunUsesCustomGeometry(simCtx)) {
         LOG_ALLOW(GLOBAL, LOG_INFO,
                   "Analytical type '%s' requires custom geometry; preloading finest-grid IM/JM/KM once.\n",
                   simCtx->AnalyticalSolutionType);

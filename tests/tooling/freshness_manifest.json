@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:0aaf8bdeb7fed6f6efcd2063192fc3b764d755679524f1b0acd14dd0bffd3f27",
+      "attested_digest": "sha256:a58b15abd8abfcffe8de90a5b903f385cc430664d95c4f6e40565f7bb045bf9b",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
@@ -188,7 +188,7 @@
         "13_Code_Architecture",
         "72_LES_Turbulence_Closure"
       ],
-      "attested_digest": "sha256:b8f3f5afcab64d29d04a3e04f15c9bf07e469de840c4b5136ebd6ab85eb19e9f",
+      "attested_digest": "sha256:3a20d3d8d43fe24fcb808eb4abf6cf23f7ec8174653fb59d19f9e132bbf4a5ee",
       "note": "Face metrics, the Jacobian inverse, and the per-cell extent and edge helpers the LES filter widths and the Vreman model are built from. Those helpers must stay independent of the grid's orientation; a Cartesian projection here once gave a rotated cell nine times the eddy viscosity of an identical straight one."
     },
     {

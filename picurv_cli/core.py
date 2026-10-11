@@ -9909,13 +9909,15 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             if eulerian_source_mode == "analytical":
                 effective_analytical_type = normalized_analytical_type or "TGV3D"
                 if effective_analytical_type == "TGV3D":
-                    if grid_mode != 'programmatic_c':
+                    # programmatic_c: the solver assigns the [0, 2*pi] TGV domain itself.
+                    # file: the given grid is kept and the field is evaluated at its cell centres.
+                    if grid_mode not in (GRID_MODES[1], GRID_MODES[0]):
                         errors.append(
                             f"  {case_path}: analytical type '{effective_analytical_type}' requires grid.mode "
-                            "'programmatic_c'. File-backed analytical ingestion is only supported for "
-                            "ZERO_FLOW and UNIFORM_FLOW."
+                            "'programmatic_c' (solver-assigned TGV domain) or 'file' (a grid file the field "
+                            "is evaluated on)."
                         )
-                    elif isinstance(grid_cfg.get('programmatic_settings'), dict):
+                    elif grid_mode == 'programmatic_c' and isinstance(grid_cfg.get('programmatic_settings'), dict):
                         missing_dims = [key for key in ('im', 'jm', 'km') if key not in grid_cfg['programmatic_settings']]
                         if missing_dims:
                             errors.append(

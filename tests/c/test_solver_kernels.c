@@ -65,6 +65,21 @@ static PetscErrorCode TestAnalyticalGeometrySelection(void)
     PetscCall(PicurvAssertBool((PetscBool)!AnalyticalTypeRequiresCustomGeometry("ZERO_FLOW"),
                                "ZERO_FLOW should not require custom geometry"));
 
+    /* TGV3D assigns its own domain only on a programmatic grid; a file grid keeps its geometry. */
+    PetscCall(PetscStrncpy(simCtx->eulerianSource, "analytical", sizeof(simCtx->eulerianSource)));
+    PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "TGV3D", sizeof(simCtx->AnalyticalSolutionType)));
+    simCtx->generate_grid = PETSC_TRUE;
+    PetscCall(PicurvAssertBool(AnalyticalRunUsesCustomGeometry(simCtx),
+                               "TGV3D on a programmatic grid should use the analytical geometry"));
+    simCtx->generate_grid = PETSC_FALSE;
+    PetscCall(PicurvAssertBool((PetscBool)!AnalyticalRunUsesCustomGeometry(simCtx),
+                               "TGV3D on a file grid should keep the file geometry"));
+    simCtx->generate_grid = PETSC_TRUE;
+    PetscCall(PetscStrncpy(simCtx->eulerianSource, "solve", sizeof(simCtx->eulerianSource)));
+    PetscCall(PicurvAssertBool((PetscBool)!AnalyticalRunUsesCustomGeometry(simCtx),
+                               "solve mode should never use the analytical geometry"));
+    PetscCall(PetscStrncpy(simCtx->eulerianSource, "analytical", sizeof(simCtx->eulerianSource)));
+
     PetscCall(PetscStrncpy(simCtx->AnalyticalSolutionType, "ZERO_FLOW", sizeof(simCtx->AnalyticalSolutionType)));
     PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
     ierr_grid = SetAnalyticalGridInfo(user);

@@ -67,6 +67,19 @@ PetscBool AnalyticalTypeRequiresCustomGeometry(const char *analytical_type)
 }
 
 /**
+ * @brief Implementation of \ref AnalyticalRunUsesCustomGeometry().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/AnalyticalSolutions.h`.
+ * @see AnalyticalRunUsesCustomGeometry()
+ */
+PetscBool AnalyticalRunUsesCustomGeometry(const SimCtx *simCtx)
+{
+    if (!simCtx || strcmp(simCtx->eulerianSource, "analytical") != 0) return PETSC_FALSE;
+    if (!AnalyticalTypeRequiresCustomGeometry(simCtx->AnalyticalSolutionType)) return PETSC_FALSE;
+    return simCtx->generate_grid;
+}
+
+/**
  * @brief Implementation of \ref AnalyticalTypeSupportsInterpolationError().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/AnalyticalSolutions.h`.

@@ -58,6 +58,16 @@ PetscErrorCode SetAnalyticalGridInfo(UserCtx *user);
 PetscBool AnalyticalTypeRequiresCustomGeometry(const char *analytical_type);
 
 /**
+ * @brief Reports whether this run assigns the analytical type's own geometry.
+ * @details True only in analytical mode, for a type that requires custom geometry, on a
+ *          programmatic grid (`-grid`). A file-backed grid (`grid.mode: file`) keeps the
+ *          geometry it was given, and the analytical field is evaluated at its cell centres.
+ * @param simCtx Simulation context (reads eulerianSource, AnalyticalSolutionType, generate_grid).
+ * @return PETSC_TRUE if SetAnalyticalGridInfo() defines the grid, PETSC_FALSE otherwise.
+ */
+PetscBool AnalyticalRunUsesCustomGeometry(const SimCtx *simCtx);
+
+/**
  * @brief Reports whether an analytical type has a non-trivial velocity field
  *        for which interpolation error measurement is meaningful.
  *

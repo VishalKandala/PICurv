@@ -139,6 +139,9 @@ Geometry behavior for `TGV3D` in function @ref SetAnalyticalGridInfo follows:
 - the whole domain is assigned to the single block,
 - the analytical geometry logic assigns the domain itself; the launcher-side programmatic grid inputs primarily provide resolution (`im/jm/km`)
 
+That assignment applies only on a programmatic grid (`grid.mode: programmatic_c`; see @ref AnalyticalRunUsesCustomGeometry).
+With `grid.mode: file` the given grid is kept and the TGV3D field is evaluated at its cell and face centres, which is how a curvilinear (e.g. interior-warped) grid spanning the TGV domain is used for interpolation verification. The field assumes wavenumber 1, so the grid should span the [0, 2π]² × [0, 0.2π] box for the solution to be periodic.
+
 @section p32_zero_sec 6. ZERO_FLOW Details
 
 `ZERO_FLOW` sets a quiescent background state while preserving the same analytical-mode control path.
