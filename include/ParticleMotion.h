@@ -69,10 +69,8 @@ PetscErrorCode UpdateParticlePosition(UserCtx *user, Particle *particle);
  * It checks if a particle's position (x, y, or z) is outside the specified
  * physical domain boundaries [xMin, xMax], [yMin, yMax], [zMin, zMax].
  *
- * If a particle is found out of bounds, it is removed using DMSwarmRemovePointAtIndex.
- * NOTE: Removing points changes the indices of subsequent points in the iteration.
- *       Therefore, it's crucial to iterate BACKWARDS or carefully manage indices
- *       after a removal. Iterating backwards is generally safer.
+ * Particles found out of bounds are flagged in a backward scan and removed together
+ * by `RemoveFlaggedParticles`.
  *
  * @param user    Pointer to the UserCtx structure.
  * @param[out] removedCountLocal Pointer to store the number of particles removed *on this rank*.
@@ -95,8 +93,8 @@ PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
  * has been definitively determined.
  *
  * It iterates through all locally owned particles and checks their `DMSwarm_location_status`
- * field. If a particle's status is `LOST`, it is permanently removed from the simulation
- * using `DMSwarmRemovePointAtIndex`.
+ * field. Particles whose status is `LOST` are flagged in a backward scan and permanently
+ * removed together by `RemoveFlaggedParticles`.
  *
  * This approach centralizes the removal logic, making the `DMSwarm_location_status`
  * the single source of truth for a particle's validity, which is more robust than
@@ -185,13 +183,34 @@ PetscErrorCode SetMigrationRanks(UserCtx* user, const MigrationInfo *migrationLi
  * @brief Performs particle migration based on the pre-populated DMSwarmPICField_rank field.
  *
  * Assumes SetMigrationRanks has already been called to mark particles with their target ranks.
- * Calls DMSwarmMigrate to execute the communication and removal of un-migrated particles.
+ * Calls DMSwarmMigrate to execute the communication while keeping the sent particles, then
+ * removes them in one pass with `RemoveFlaggedParticles`. The resulting local order is the
+ * one DMSwarmMigrate's own removal produces.
  *
  * @param user Pointer to the UserCtx structure containing the swarm.
  *
  * @return PetscErrorCode 0 on success, non-zero on failure.
  */
 PetscErrorCode PerformMigration(UserCtx *user);
+
+/**
+ * @brief Removes flagged swarm points in one pass, preserving the one-at-a-time removal order.
+ *
+ * Each flagged slot in `[0, n_scan)` is filled with the last kept point of that range,
+ * exactly as `DMSwarmRemovePointAtIndex` would when the points are removed in scan order,
+ * so the survivors end in the same order. Points after `n_scan` are kept and moved down
+ * behind the survivors. The swarm is resized once, instead of once per removed point,
+ * since each resize re-zeroes the whole swarm buffer.
+ *
+ * @param[in,out] swarm         The DMSwarm. No field may be held (DMSwarmGetField) on entry.
+ * @param[in]     n_scan        Number of leading local points the flags cover.
+ * @param[in,out] remove        Flags for points `[0, n_scan)`; overwritten as points move.
+ * @param[in]     scan_backward PETSC_TRUE for removal in descending index order,
+ *                              PETSC_FALSE for ascending order (DMSwarmMigrate's order).
+ *
+ * @return PetscErrorCode 0 on success, non-zero on failure.
+ */
+PetscErrorCode RemoveFlaggedParticles(DM swarm, PetscInt n_scan, PetscBool remove[], PetscBool scan_backward);
 
 /**
  * @brief Counts particles in each cell of the DMDA 'da' and stores the result in user->ParticleCount.
