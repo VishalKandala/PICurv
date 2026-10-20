@@ -1244,6 +1244,52 @@ static PetscErrorCode TestLocateParticleOrFindMigrationTargetCountsReSearch(void
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests that a particle beyond a reflecting -Xi face is mirrored back and located, including after a tangential walk.
+ */
+static PetscErrorCode TestLocateParticleOrFindMigrationTargetReflectsAtWall(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Particle particle;
+    ParticleLocationStatus status = NEEDS_LOCATION;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PetscMalloc1(simCtx->size, &user->RankCellInfoMap));
+    PetscCall(GetOwnedCellRange(&user->info, 0, &user->RankCellInfoMap[0].xs_cell, &user->RankCellInfoMap[0].xm_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 1, &user->RankCellInfoMap[0].ys_cell, &user->RankCellInfoMap[0].ym_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 2, &user->RankCellInfoMap[0].zs_cell, &user->RankCellInfoMap[0].zm_cell));
+    user->boundary_faces[BC_FACE_NEG_X].particle_policy = PARTICLE_BOUNDARY_REFLECT;
+    simCtx->searchMetrics.currentSettlementPass = 1;
+
+    /* Straight crossing of -Xi out of its previous cell (0,1,1). */
+    PetscCall(PetscMemzero(&particle, sizeof(particle)));
+    particle.PID = 41;
+    particle.cell[0] = 0; particle.cell[1] = 1; particle.cell[2] = 1;
+    particle.loc.x = -0.05; particle.loc.y = 0.375; particle.loc.z = 0.375;
+    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a reflected particle should be located"));
+    PetscCall(PicurvAssertRealNear(0.05, particle.loc.x, 1.0e-14, "x should mirror about the -Xi plane"));
+    PetscCall(PicurvAssertIntEqual(0, particle.cell[0], "the particle stays in the boundary cell column"));
+    PetscCall(PicurvAssertIntEqual(1, particle.cell[1], "a straight crossing keeps its j cell"));
+    PetscCall(PicurvAssertIntEqual(1, (PetscInt)simCtx->searchMetrics.reflectionCount, "one reflection"));
+
+    /* Crossing -Xi while also moving one cell in +j: the walk moves along the wall first. */
+    PetscCall(PetscMemzero(&particle, sizeof(particle)));
+    particle.PID = 42;
+    particle.cell[0] = 0; particle.cell[1] = 1; particle.cell[2] = 1;
+    particle.loc.x = -0.05; particle.loc.y = 0.625; particle.loc.z = 0.375;
+    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a tangential crossing should also be located"));
+    PetscCall(PicurvAssertRealNear(0.05, particle.loc.x, 1.0e-14, "x should mirror about the -Xi plane"));
+    PetscCall(PicurvAssertIntEqual(2, particle.cell[1], "the reflection happens in the boundary cell that holds the particle tangentially"));
+    PetscCall(PicurvAssertIntEqual(2, (PetscInt)simCtx->searchMetrics.reflectionCount, "one reflection per particle"));
+    PetscCall(PicurvAssertIntEqual(0, (PetscInt)simCtx->searchMetrics.reflectionFallbackCount, "no particle reached the cap"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests no-slip and free-slip wall helper kernels.
  */
 
@@ -1709,6 +1755,7 @@ int main(int argc, char **argv)
         {"check-and-remove-lost-particles-removes-lost-entries", TestCheckAndRemoveLostParticlesRemovesLostEntries},
         {"calculate-brownian-displacement-deterministic-seed", TestCalculateBrownianDisplacementDeterministicSeed},
         {"update-all-particle-positions-moves-swarm-entries", TestUpdateAllParticlePositionsMovesSwarmEntries},
+        {"locate-particle-or-find-migration-target-reflects-at-wall", TestLocateParticleOrFindMigrationTargetReflectsAtWall},
         {"locate-all-particles-in-grid-prior-cell-fast-path", TestLocateAllParticlesInGridPriorCellFastPath},
         {"locate-all-particles-in-grid-guess-path-resolves-local-particle", TestLocateAllParticlesInGridGuessPathResolvesLocalParticle},
         {"locate-particle-or-find-migration-target-counts-research", TestLocateParticleOrFindMigrationTargetCountsReSearch},

@@ -1601,6 +1601,44 @@
       }
     },
     {
+      "id": "particle.boundary_policy",
+      "title": "Particle Boundary Policies",
+      "selector": "case.yml -> boundary_conditions[].particle_policy",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "PARTICLE_BOUNDARY_POLICIES"
+      },
+      "parity_sources": [],
+      "family_page": "44_Boundary_Conditions_Guide",
+      "entry_anchor_prefix": "p44_cap_ppol_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "reflect": {
+          "status": "experimental",
+          "canonical": true,
+          "subsystem": "particles.transport",
+          "evidence": {
+            "unit": [
+              "make:unit-particles",
+              "make:unit-runtime"
+            ]
+          }
+        },
+        "remove": {
+          "status": "experimental",
+          "canonical": true,
+          "subsystem": "particles.transport",
+          "evidence": {
+            "unit": [
+              "make:unit-mpi",
+              "make:unit-runtime"
+            ]
+          }
+        }
+      }
+    },
+    {
       "id": "post.eulerian_task",
       "title": "Eulerian Post-Processing Kernels",
       "selector": "post.yml -> eulerian_pipeline[].task",

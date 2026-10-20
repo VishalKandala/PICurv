@@ -477,7 +477,93 @@ flow with it on a curvilinear pipe.
 **Limitations and full treatment.** Shares `constant_flux`'s controller and its
 shortfall below target (@ref p44_cap_constant_flux). See @ref p54_driven_sec.
 
-@section p44_nondim_sec 5. Non-Dimensionalization Before C Input
+@section p44_ppol_sec 5. Particle Boundary Policies
+
+`boundary_conditions[].particle_policy` says what a particle becomes when its walk ends
+beyond that face. It is independent of the flow handler: every handler states a default
+(`noslip` reflects; the inlet and outlet handlers remove), and a BC entry may override it.
+It cannot be set on a `periodic` face, where particles do not wrap yet and are removed.
+The startup banner prints the resolved policy of all six faces on its
+`Particle Boundary Policy` line.
+
+@htmlinclude generated/capability_inventory_particle_boundary_policy.html
+
+A face lies on the domain boundary when the walk's cell index is at that axis' extreme,
+the same test the handlers use. The walk applies a policy only when every face the
+particle is outside of lies on the domain boundary; outside an interior face it keeps
+walking along the boundary first. A pass-1 walk from the particle's previous cell that ends
+more than three cell sizes beyond the face is treated as blocked by a curved boundary and
+searched again from scratch in the same pass, before any policy applies
+(see @ref 26_Walking_Search_Method).
+
+@subsection p44_cap_ppol_reflect_sub reflect
+
+@anchor p44_cap_ppol_reflect
+
+**Identity.** `particle_policy: reflect` -> `particle_policy=reflect` in `bcs.run` ->
+`PARTICLE_BOUNDARY_REFLECT` -> @ref ReflectParticleAcrossCellFace.
+
+**What it does.** Mirrors the particle about the plane of the crossed face of its boundary
+cell, p' = p + 2 d n, and continues the search. Psi, weight and particle ID are unchanged,
+so the particle count and the carried scalar are conserved at the face. An edge or corner
+crossing reflects about the most-crossed face first and the next one on the following walk
+step. After four reflections in one search the particle is placed just inside the boundary
+cell along the segment to its centroid (@ref PlaceParticleInsideCell) instead of being lost.
+
+**When to choose it.** An impermeable face with zero scalar flux, which is every solid wall:
+deleting particles there is a sink the physics does not have. Choose `remove` instead for a
+face particles genuinely leave through.
+
+**Parameters it owns.** None.
+
+**Interactions.** Only meaningful where the particle can reach the face; the policy is
+ignored on faces nothing crosses. Not allowed on `periodic` faces. Analytical flows that
+drive particles through a reflecting face pile them up in the last cell layer.
+
+**Diagnostics.** `search_metrics.csv` reports `reflections` and `reflection_fallbacks` per
+step; the console prints one INFO line per step with reflections and one WARNING line when
+any particle reached the cap. A nonzero `reflection_fallbacks` points at strongly warped
+boundary cells or very large steps.
+
+**Evidence.** Unit verified - `make unit-particles` mirrors a point about a flat face, a
+sheared face and a two-face corner, and checks the cap fallback; `make unit-runtime` reflects
+a particle through the walking search, including after a tangential walk along the wall.
+
+**Limitations.** The face is the planar approximation the search uses, so on curved walls a
+mirrored point can land outside a neighbouring cell's plane and need another reflection.
+Particle velocity is not reset at the wall. Immersed boundaries are not seen by particles.
+
+@subsection p44_cap_ppol_remove_sub remove
+
+@anchor p44_cap_ppol_remove
+
+**Identity.** `particle_policy: remove` -> `particle_policy=remove` in `bcs.run` ->
+`PARTICLE_BOUNDARY_REMOVE` -> @ref LocateParticleOrFindMigrationTarget.
+
+**What it does.** Ends the particle's search as `EXITED`; `CheckAndRemoveLostParticles`
+removes it after settlement and adds its Psi to the step's exited total. The particle is
+classified once and is not searched again in later settlement passes.
+
+**When to choose it.** A face particles leave through: an outlet, an inlet when particles
+diffuse upstream, or a wall you deliberately treat as absorbing.
+
+**Parameters it owns.** None.
+
+**Interactions.** The default for the inlet and outlet handlers and for `periodic` faces,
+and what a `bcs.run` without a `particle_policy` token means. A corner where one crossed face
+removes and another reflects removes the particle.
+
+**Diagnostics.** `search_metrics.csv` and `Particle_Metrics.log` report `exited`,
+`exited_cumulative` and `exited_psi_sum`; `lost` counts only search failures, so a nonzero
+`lost` is a defect signal rather than outflow.
+
+**Evidence.** Unit verified - `make unit-mpi` pins one exit across a migration pass on two
+ranks and checks it is counted once; `make unit-runtime` checks that removal tallies exits
+and failures separately and keeps the survivor order.
+
+**Limitations.** A particle that leaves is gone; nothing re-injects it.
+
+@section p44_nondim_sec 6. Non-Dimensionalization Before C Input
 
 `picurv` converts physical BC values to solver-scale values before writing `bcs.run`:
 
@@ -493,7 +579,7 @@ Specifically:
   while staging the solver-side `.picslice`,
 - `target_flux` is divided by `velocity_ref * length_ref^2`.
 
-@subsection p44_picslice_ssec 5.1 Prescribed Inlet Profile Files
+@subsection p44_picslice_ssec 6.1 Prescribed Inlet Profile Files
 
 `prescribed_flow` uses a face-scoped canonical `PICSLICE` file. It can be
 supplied directly with `source.type: file`, generated analytically with
@@ -613,7 +699,7 @@ other; use `orientation: same` only when both outward normals should align. The
 extractor fails if normal compatibility or flow sign checks fail. V1 requires
 exact source/target slice dimension matches and does not interpolate.
 
-@section p44_periodic_rules_sec 6. Periodicity Consistency Rules
+@section p44_periodic_rules_sec 7. Periodicity Consistency Rules
 
 Validator checks:
 
@@ -638,7 +724,7 @@ coordinate images and synchronizes cell-centered, face-family, and
 component-staggered Eulerian fields. Particle periodic wrapping is not
 implemented.
 
-@section p44_c_pipeline_sec 7. C-Side Parsing and Dispatch
+@section p44_c_pipeline_sec 8. C-Side Parsing and Dispatch
 
 Generated `bcs.run` lines use:
 
@@ -675,7 +761,7 @@ Current factory-wired handlers include:
 - periodic driven constant flux,
 - periodic driven initial flux.
 
-@section p44_c_gap_sec 8. Exposed vs Latent Options
+@section p44_c_gap_sec 9. Exposed vs Latent Options
 
 Important contributor note:
 
@@ -690,7 +776,7 @@ If you add a new BC mode, update all three layers in one change:
 2. C parser/factory/handler implementation,
 3. docs and tests (fixtures + smoke checks).
 
-@section p44_examples_sec 9. Authoring Examples
+@section p44_examples_sec 10. Authoring Examples
 
 Constant-velocity inlet + outlet conservation:
 
@@ -743,7 +829,7 @@ boundary_conditions:
     handler: noslip
 ```
 
-@section p44_troubleshoot_sec 10. Common Failure Modes
+@section p44_troubleshoot_sec 11. Common Failure Modes
 
 - `missing required key 'face'/'type'/'handler'`: malformed BC entry object.
 - `Duplicate face`: same face declared twice in one block.
@@ -753,7 +839,7 @@ boundary_conditions:
   constant nonzero translation, or the periodic axis is too short.
 - `Unknown params`: extra keys not allowed for selected handler.
 
-@section p44_refs_sec 11. Related Pages
+@section p44_refs_sec 12. Related Pages
 
 - **@subpage 07_Case_Reference**
 - **@subpage 33_Initial_Conditions**

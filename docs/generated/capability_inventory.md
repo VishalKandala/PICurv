@@ -281,6 +281,15 @@ Selector: `case.yml -> models.physics.particles.restart_mode`
 | `init` | `init` |
 | `load` | `load` |
 
+### Particle Boundary Policies
+
+Selector: `case.yml -> boundary_conditions[].particle_policy`
+
+| Value | Maps to |
+|---|---|
+| `reflect` | `reflect` |
+| `remove` | `remove` |
+
 ### Eulerian Post-Processing Kernels
 
 Selector: `post.yml -> eulerian_pipeline[].task`

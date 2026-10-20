@@ -13,6 +13,12 @@
 // A walk from the previous-step cell that ends this many cell sizes beyond a domain-boundary
 // face was most likely blocked by a non-convex boundary rather than crossing it.
 #define BLOCKED_WALK_GUARD_CELLS 3.0
+// Reflections allowed per particle per search before it is placed just inside its boundary cell.
+#define REFLECTION_CAP 4
+
+// Domain face that each cell face (LEFT, RIGHT, BOTTOM, TOP, FRONT, BACK) lies on at the axis extreme.
+static const BCFace kCellFaceDomainFace[NUM_FACES] = {BC_FACE_NEG_X, BC_FACE_POS_X, BC_FACE_NEG_Y,
+                                                      BC_FACE_POS_Y, BC_FACE_POS_Z, BC_FACE_NEG_Z};
 
 #undef __FUNCT__
 #define __FUNCT__ "GetCellCharacteristicSize"
@@ -70,7 +76,7 @@ PetscErrorCode GetCellCharacteristicSize(const Cell *cell, PetscReal *cellSize)
  */
 PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, const Cmpnts v3, const Cmpnts v4,
                                             const Cmpnts cell_centroid,const Cmpnts p_target,
-					    PetscReal *d_signed, const PetscReal threshold)
+					    PetscReal *d_signed, const PetscReal threshold, Cmpnts *normal_out)
 {
     PetscErrorCode ierr = 0;
     PetscMPIInt rank;
@@ -170,6 +176,11 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
     normal_x /= normal_magnitude;
     normal_y /= normal_magnitude;
     normal_z /= normal_magnitude;
+    if (normal_out) {
+        normal_out->x = normal_x;
+        normal_out->y = normal_y;
+        normal_out->z = normal_z;
+    }
     LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Normalized Outward Normal: (%.6f, %.6f, %.6f)\n", normal_x, normal_y, normal_z);
 
 
@@ -206,7 +217,7 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
  *          the header declaration in `include/walkingsearch.h`.
  * @see CalculateDistancesToCellFaces()
  */
-PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, PetscReal *d, const PetscReal threshold)
+PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, PetscReal *d, const PetscReal threshold, Cmpnts *normals)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
@@ -249,7 +260,8 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
 	cell_centroid,     // Cell centroid 
         p,                  // Target point
         &d[BACK],           // Storage location for the BACK face distance
-        threshold           // Threshold for zero distance
+        threshold,          // Threshold for zero distance
+        normals ? &normals[BACK] : NULL // Optional unit outward normal
     );  CHKERRQ(ierr);
 
     // Compute the signed distance from point 'p' to the FRONT face of the cell.
@@ -262,7 +274,8 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
 	cell_centroid,     // Cell centroid 
         p,                  // Target point
         &d[FRONT],          // Storage location for the FRONT face distance
-        threshold           // Threshold for zero distance
+        threshold,          // Threshold for zero distance
+        normals ? &normals[FRONT] : NULL // Optional unit outward normal
     );  CHKERRQ(ierr);
 
     // Compute the signed distance from point 'p' to the BOTTOM face of the cell.
@@ -275,7 +288,8 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
 	cell_centroid,     // Cell centroid 
         p,                  // Target point
         &d[BOTTOM],         // Storage location for the BOTTOM face distance
-        threshold           // Threshold for zero distance
+        threshold,          // Threshold for zero distance
+        normals ? &normals[BOTTOM] : NULL // Optional unit outward normal
     );  CHKERRQ(ierr);
 
     // Compute the signed distance from point 'p' to the TOP face of the cell.
@@ -288,7 +302,8 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
 	cell_centroid,     // Cell centroid 
 	p,                  // Target point
         &d[TOP],            // Storage location for the TOP face distance
-        threshold           // Threshold for zero distance
+        threshold,          // Threshold for zero distance
+        normals ? &normals[TOP] : NULL // Optional unit outward normal
     );  CHKERRQ(ierr);
 
     // Compute the signed distance from point 'p' to the LEFT face of the cell.
@@ -301,7 +316,8 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
 	cell_centroid,     // Cell centroid 
 	p,                  // Target point
         &d[LEFT],           // Storage location for the LEFT face distance
-        threshold           // Threshold for zero distance
+        threshold,          // Threshold for zero distance
+        normals ? &normals[LEFT] : NULL // Optional unit outward normal
     );  CHKERRQ(ierr);
 
     // Compute the signed distance from point 'p' to the RIGHT face of the cell.
@@ -314,7 +330,8 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
 	cell_centroid,     // Cell centroid 
         p,                  // Target point
         &d[RIGHT],          // Storage location for the RIGHT face distance
-        threshold           // Threshold for zero distance
+        threshold,          // Threshold for zero distance
+        normals ? &normals[RIGHT] : NULL // Optional unit outward normal
     );  CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Populated d: "
@@ -738,7 +755,7 @@ PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cm
 
     // Invoke the function to calculate signed distances from the particle to each face of the cell.
     // The distances are stored in the array pointed to by 'd'.
-    ierr = CalculateDistancesToCellFaces(p, cell, d, cellThreshold); CHKERRQ(ierr);
+    ierr = CalculateDistancesToCellFaces(p, cell, d, cellThreshold, NULL); CHKERRQ(ierr);
     CHKERRQ(ierr); // Check for errors in distance calculation.
 
 
@@ -950,6 +967,85 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "ReflectParticleAcrossCellFace"
+/**
+ * @brief Implementation of \ref ReflectParticleAcrossCellFace().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see ReflectParticleAcrossCellFace()
+ */
+PetscErrorCode ReflectParticleAcrossCellFace(const Cell *cell, PetscInt face, Cmpnts *p)
+{
+    PetscErrorCode ierr;
+    PetscReal      d[NUM_FACES];
+    Cmpnts         n[NUM_FACES];
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    if (!cell || !p) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Cell and point must not be NULL.");
+    if (face < 0 || face >= NUM_FACES) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Face %d is not a cell face.", face);
+
+    // Mirror about the face plane: d < 0 outside and n points outward, so p + 2 d n is the image.
+    ierr = CalculateDistancesToCellFaces(*p, cell, d, 0.0, n); CHKERRQ(ierr);
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "Mirror about face %d: d = %.6e, n = (%.6e, %.6e, %.6e).\n", face, d[face], n[face].x, n[face].y, n[face].z);
+    p->x += 2.0 * d[face] * n[face].x;
+    p->y += 2.0 * d[face] * n[face].y;
+    p->z += 2.0 * d[face] * n[face].z;
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "PlaceParticleInsideCell"
+/**
+ * @brief Implementation of \ref PlaceParticleInsideCell().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see PlaceParticleInsideCell()
+ */
+PetscErrorCode PlaceParticleInsideCell(const Cell *cell, Cmpnts *p, PetscBool *placed)
+{
+    PetscErrorCode ierr;
+    PetscReal      dp[NUM_FACES], dc[NUM_FACES];
+    Cmpnts         c = {0.0, 0.0, 0.0};
+    PetscReal      t = 0.0;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    if (!cell || !p || !placed) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Cell, point and output flag must not be NULL.");
+    *placed = PETSC_FALSE;
+    for (int v = 0; v < 8; ++v) {
+        c.x += cell->vertices[v].x / 8.0;
+        c.y += cell->vertices[v].y / 8.0;
+        c.z += cell->vertices[v].z / 8.0;
+    }
+    ierr = CalculateDistancesToCellFaces(*p, cell, dp, 0.0, NULL); CHKERRQ(ierr);
+    ierr = CalculateDistancesToCellFaces(c, cell, dc, 0.0, NULL); CHKERRQ(ierr);
+
+    // Plane distance is linear along p + s (c - p); the segment enters the cell at the largest
+    // crossing parameter over the faces p is outside of. It needs the centroid inside every plane.
+    for (PetscInt f = 0; f < NUM_FACES; ++f) {
+        if (dp[f] >= 0.0) continue;
+        if (dc[f] <= 0.0) {
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Cell centroid is not inside face %d's plane (d = %.3e); cannot place the particle.\n", f, dc[f]);
+            PROFILE_FUNCTION_END;
+            PetscFunctionReturn(0);
+        }
+        t = PetscMax(t, dp[f] / (dp[f] - dc[f]));
+    }
+    t += 1.0e-6 * (1.0 - t); // Just inside, not on, the entry face
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "Placing particle at segment parameter %.6e toward the cell centroid.\n", t);
+    p->x += t * (c.x - p->x);
+    p->y += t * (c.y - p->y);
+    p->z += t * (c.z - p->z);
+    *placed = PETSC_TRUE;
+
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
 #undef  __FUNCT__
 #define __FUNCT__ "LocateParticleOrFindMigrationTarget"
 
@@ -977,6 +1073,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
     PetscInt  repeatedIndexCount = 0;
     PetscInt  prevIdx = PETSC_MIN_INT, prevIdy = PETSC_MIN_INT, prevIdz = PETSC_MIN_INT;
     PetscInt  last_position_result = -999;
+    PetscInt  reflections = 0;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -1132,17 +1229,43 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                 ierr = UpdateCellIndicesBasedOnDistances(distances, &idx, &idy, &idz); CHKERRQ(ierr);
             } else {
                 PetscReal cell_size;
+                PetscBool reflect = PETSC_TRUE; // Every crossed face reflects particles
+                for (PetscInt f = 0; f < NUM_FACES; ++f) {
+                    if (distances[f] < 0.0 && user->boundary_faces[kCellFaceDomainFace[f]].particle_policy != PARTICLE_BOUNDARY_REFLECT) reflect = PETSC_FALSE;
+                }
                 ierr = GetCellCharacteristicSize(&current_cell, &cell_size); CHKERRQ(ierr);
                 if (guard_blocked_walk && -distances[crossed] > BLOCKED_WALK_GUARD_CELLS * cell_size) {
                     blocked = PETSC_TRUE;
+                    search_concluded = PETSC_TRUE;
                     LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: %.3e beyond boundary face %d of cell (%d,%d,%d), above the %.1f-cell guard. Walk treated as blocked.\n",
                               (long long)particle->PID, -distances[crossed], crossed, idx, idy, idz, BLOCKED_WALK_GUARD_CELLS);
-                } else {
+                } else if (!reflect) {
                     exited = PETSC_TRUE;
+                    search_concluded = PETSC_TRUE;
                     LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Left the domain through boundary face %d of cell (%d,%d,%d), %.3e beyond it.\n",
                               (long long)particle->PID, crossed, idx, idy, idz, -distances[crossed]);
+                } else if (reflections < REFLECTION_CAP) {
+                    // Mirror about the most-crossed face and evaluate this cell again; an edge or
+                    // corner crossing reflects about the next face on the following iteration.
+                    ierr = ReflectParticleAcrossCellFace(&current_cell, crossed, &particle->loc); CHKERRQ(ierr);
+                    reflections++;
+                    user->simCtx->searchMetrics.reflectionCount++;
+                    repeatedIndexCount = 0; prevIdx = PETSC_MIN_INT; prevIdy = PETSC_MIN_INT; prevIdz = PETSC_MIN_INT;
+                    LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Reflected about boundary face %d of cell (%d,%d,%d) to (%.6e, %.6e, %.6e).\n",
+                              (long long)particle->PID, crossed, idx, idy, idz, particle->loc.x, particle->loc.y, particle->loc.z);
+                } else {
+                    PetscBool placed;
+                    ierr = PlaceParticleInsideCell(&current_cell, &particle->loc, &placed); CHKERRQ(ierr);
+                    if (placed) {
+                        user->simCtx->searchMetrics.reflectionFallbackCount++;
+                        repeatedIndexCount = 0; prevIdx = PETSC_MIN_INT; prevIdy = PETSC_MIN_INT; prevIdz = PETSC_MIN_INT;
+                        LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Reflection cap %d reached; placed just inside cell (%d,%d,%d).\n",
+                                  (long long)particle->PID, REFLECTION_CAP, idx, idy, idz);
+                    } else {
+                        idx = -1; // Search failure: the cell cannot hold the fallback (warped beyond its centroid)
+                        search_concluded = PETSC_TRUE;
+                    }
                 }
-                search_concluded = PETSC_TRUE;
             }
         }
     }

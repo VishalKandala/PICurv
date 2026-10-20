@@ -787,6 +787,23 @@
     "title": "Particle Restart Modes"
   },
   {
+    "family_page": "44_Boundary_Conditions_Guide",
+    "id": "particle.boundary_policy",
+    "parity": [],
+    "public_values": {
+      "reflect": {
+        "maps_to": "reflect",
+        "status": "experimental"
+      },
+      "remove": {
+        "maps_to": "remove",
+        "status": "experimental"
+      }
+    },
+    "selector": "case.yml -> boundary_conditions[].particle_policy",
+    "title": "Particle Boundary Policies"
+  },
+  {
     "family_page": "10_Post_Processing_Reference",
     "id": "post.eulerian_task",
     "parity": [],

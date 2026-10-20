@@ -913,6 +913,25 @@ PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename
     // Step 1.1: Validate the parsed configuration to ensure there are no Boundary Condition conflicts
     ierr = BoundarySystem_Validate(user); CHKERRQ(ierr);
 
+    // Step 1.2: Resolve each face's particle policy from its particle_policy parameter (remove when absent).
+    for (int i = 0; i < 6; i++) {
+        BoundaryFaceConfig *face_cfg = &user->boundary_faces[i];
+        const char *policy = NULL;
+        PetscBool   found;
+        ierr = GetBCParamString(face_cfg->params, "particle_policy", &policy, &found); CHKERRQ(ierr);
+        if (!found || strcasecmp(policy, "remove") == 0) {
+            face_cfg->particle_policy = PARTICLE_BOUNDARY_REMOVE;
+        } else if (strcasecmp(policy, "reflect") == 0 && face_cfg->mathematical_type != PERIODIC) {
+            face_cfg->particle_policy = PARTICLE_BOUNDARY_REFLECT;
+        } else {
+            SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Face %s (%s): particle_policy '%s' is not supported; use 'remove'%s.",
+                    BCFaceToString((BCFace)i), BCTypeToString(face_cfg->mathematical_type), policy,
+                    (face_cfg->mathematical_type == PERIODIC) ? "" : " or 'reflect'");
+        }
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Face %s particle policy: %s.\n", BCFaceToString((BCFace)i),
+                  ParticleBoundaryPolicyToString(face_cfg->particle_policy));
+    }
+
     // Step 2: Create and Initialize the handler object for each of the 6 faces.
     for (int i = 0; i < 6; i++) {
         BoundaryFaceConfig *face_cfg = &user->boundary_faces[i];
@@ -994,6 +1013,7 @@ PetscErrorCode PropagateBoundaryConfigToCoarserLevels(SimCtx *simCtx)
                 user_coarse->boundary_faces[face_i].face_id = user_fine->boundary_faces[face_i].face_id;
                 user_coarse->boundary_faces[face_i].mathematical_type = user_fine->boundary_faces[face_i].mathematical_type;
                 user_coarse->boundary_faces[face_i].handler_type = user_fine->boundary_faces[face_i].handler_type;
+                user_coarse->boundary_faces[face_i].particle_policy = user_fine->boundary_faces[face_i].particle_policy;
                 
                 // Copy parameter list (deep copy)
                 FreeBC_ParamList(user_coarse->boundary_faces[face_i].params); // Clear any existing

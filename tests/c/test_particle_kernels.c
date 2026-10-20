@@ -87,6 +87,75 @@ static PetscErrorCode TestRetrieveCurrentCell(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/**
+ * @brief Fills a cell with the unit cube's vertices in walking-search order, x sheared by `shear * z`.
+ */
+static void BuildShearedUnitCell(PetscReal shear, Cell *cell)
+{
+    const PetscReal corner[8][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
+                                    {0, 1, 1}, {1, 1, 1}, {1, 0, 1}, {0, 0, 1}};
+    for (int v = 0; v < 8; ++v) {
+        cell->vertices[v].x = corner[v][0] + shear * corner[v][2];
+        cell->vertices[v].y = corner[v][1];
+        cell->vertices[v].z = corner[v][2];
+    }
+}
+
+/**
+ * @brief Tests the face mirror on a flat face, a sheared face, and a two-face corner.
+ */
+static PetscErrorCode TestReflectParticleAcrossCellFace(void)
+{
+    Cell   cell;
+    Cmpnts p;
+
+    PetscFunctionBeginUser;
+    BuildShearedUnitCell(0.0, &cell);
+    p.x = -0.2; p.y = 0.5; p.z = 0.5;
+    PetscCall(ReflectParticleAcrossCellFace(&cell, LEFT, &p));
+    PetscCall(PicurvAssertRealNear(0.2, p.x, 1.0e-14, "flat face: x mirrors about x = 0"));
+    PetscCall(PicurvAssertRealNear(0.5, p.y, 1.0e-14, "flat face: y is unchanged"));
+    PetscCall(PicurvAssertRealNear(0.5, p.z, 1.0e-14, "flat face: z is unchanged"));
+
+    /* LEFT face of the sheared cell is the plane x = 0.5 z; (-0.3, 0.5, 0.4) mirrors to (0.5, 0.5, 0). */
+    BuildShearedUnitCell(0.5, &cell);
+    p.x = -0.3; p.y = 0.5; p.z = 0.4;
+    PetscCall(ReflectParticleAcrossCellFace(&cell, LEFT, &p));
+    PetscCall(PicurvAssertRealNear(0.5, p.x, 1.0e-14, "sheared face: mirrored x"));
+    PetscCall(PicurvAssertRealNear(0.5, p.y, 1.0e-14, "sheared face: y is unchanged"));
+    PetscCall(PicurvAssertRealNear(0.0, p.z, 1.0e-14, "sheared face: mirrored z"));
+
+    /* Corner: reflecting about LEFT and then BOTTOM mirrors both coordinates. */
+    BuildShearedUnitCell(0.0, &cell);
+    p.x = -0.1; p.y = -0.2; p.z = 0.5;
+    PetscCall(ReflectParticleAcrossCellFace(&cell, LEFT, &p));
+    PetscCall(ReflectParticleAcrossCellFace(&cell, BOTTOM, &p));
+    PetscCall(PicurvAssertRealNear(0.1, p.x, 1.0e-14, "corner: x mirrored"));
+    PetscCall(PicurvAssertRealNear(0.2, p.y, 1.0e-14, "corner: y mirrored"));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that the reflection-cap fallback places a far-outside point just inside the cell.
+ */
+static PetscErrorCode TestPlaceParticleInsideCell(void)
+{
+    Cell      cell;
+    Cmpnts    p;
+    PetscBool placed = PETSC_FALSE;
+    PetscReal d[NUM_FACES];
+    PetscInt  position = -1;
+
+    PetscFunctionBeginUser;
+    BuildShearedUnitCell(0.0, &cell);
+    p.x = -1.0; p.y = 0.5; p.z = 0.5;
+    PetscCall(PlaceParticleInsideCell(&cell, &p, &placed));
+    PetscCall(PicurvAssertBool(placed, "a point outside one face of a box cell can be placed"));
+    PetscCall(PicurvAssertBool((PetscBool)(p.x > 0.0 && p.x < 1.0e-5), "placed just inside the crossed face"));
+    PetscCall(EvaluateParticlePosition(&cell, d, p, &position, 1.0e-11));
+    PetscCall(PicurvAssertBool((PetscBool)(position >= 0), "the placed point evaluates inside the cell"));
+    PetscFunctionReturn(0);
+}
 static const char *const kConformanceNames[] = {"x", "y", "z"};
 
 /**
@@ -223,6 +292,8 @@ int main(int argc, char **argv)
         {"check-cell-within-local-grid", TestCheckCellWithinLocalGrid},
         {"initialize-traversal-parameters", TestInitializeTraversalParameters},
         {"retrieve-current-cell", TestRetrieveCurrentCell},
+        {"reflect-particle-across-cell-face", TestReflectParticleAcrossCellFace},
+        {"place-particle-inside-cell", TestPlaceParticleInsideCell},
         {"expression-conformance", TestExpressionConformance},
         {"expression-rejects-outside-language", TestExpressionRejectsOutsideLanguage},
         {"expression-draws-are-pure-and-keyed", TestExpressionDrawsArePureAndKeyed},

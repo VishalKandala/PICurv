@@ -3029,6 +3029,12 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                 ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Restart Mode      : %s\n", simCtx->particleRestartMode); CHKERRQ(ierr);
             }
             ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Initialization Mode: %s\n", particle_init_str); CHKERRQ(ierr);
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Boundary Policy   :"); CHKERRQ(ierr);
+            for (PetscInt i_face = 0; i_face < 6; ++i_face) {
+                ierr = PetscPrintf(PETSC_COMM_SELF, " %s=%s", BCFaceToString((BCFace)i_face),
+                                   ParticleBoundaryPolicyToString(user->boundary_faces[i_face].particle_policy)); CHKERRQ(ierr);
+            }
+            ierr = PetscPrintf(PETSC_COMM_SELF, "\n"); CHKERRQ(ierr);
             ierr = PetscPrintf(PETSC_COMM_SELF, " Interpolation Method       : %s\n",
                 simCtx->interpolationMethod == INTERP_TRILINEAR ? "Trilinear (direct cell-center)" : "CornerAveraged (legacy)"); CHKERRQ(ierr);
             if (simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM ||

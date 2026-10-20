@@ -278,6 +278,8 @@ typedef struct SearchMetricsState {
     PetscInt64 maxParticlePassDepth;
     PetscInt64 searchExitedCount;
     PetscInt64 blockedWalkRetryCount;
+    PetscInt64 reflectionCount;
+    PetscInt64 reflectionFallbackCount;
     PetscInt   currentSettlementPass;
 } SearchMetricsState;
 
@@ -327,6 +329,12 @@ typedef enum {
     RHEOLOGY           = 13,
     // Note:  Legacy 14 can be a JUNCTION with a specific handler.
 } BCType;
+
+/** @brief What happens to a particle that crosses a domain-boundary face. */
+typedef enum {
+    PARTICLE_BOUNDARY_REMOVE  = 0, ///< The particle leaves the domain (EXITED) and is removed.
+    PARTICLE_BOUNDARY_REFLECT = 1  ///< The particle is mirrored about the face plane and stays.
+} ParticleBoundaryPolicy;
 
 /** @brief Defines the specific computational "strategy" for a boundary handler. */
 typedef enum {
@@ -394,6 +402,7 @@ typedef struct BoundaryFaceConfig {
     BCFace             face_id;
     BCType             mathematical_type;
     BCHandlerType      handler_type;
+    ParticleBoundaryPolicy particle_policy; ///< What a particle crossing this face becomes (BC param particle_policy).
     BC_Param           *params;
     BoundaryCondition *handler;
 } BoundaryFaceConfig;

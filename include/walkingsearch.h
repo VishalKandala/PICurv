@@ -65,6 +65,7 @@
  * @param[in]  p_target      The point from which the distance to the plane is calculated.
  * @param[out] d_signed      Pointer to store the computed signed distance.
  * @param[in]  threshold     The threshold below which the absolute distance is considered zero.
+ * @param[out] normal_out    Optional, may be NULL: receives the unit outward normal of the face plane.
  *
  * @note
  * - The order of vertices `v1, v2, v3, v4` is used for calculating the face centroid.
@@ -76,7 +77,7 @@
  */
 PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, const Cmpnts v3, const Cmpnts v4,
                                             const Cmpnts cell_centroid,const Cmpnts p_target,
-					    PetscReal *d_signed, const PetscReal threshold);
+					    PetscReal *d_signed, const PetscReal threshold, Cmpnts *normal_out);
 
 /**
  * @brief Computes the signed distances from a point to each face of a cubic cell.
@@ -89,10 +90,11 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
  * @param[in]  cell      Pointer to a `Cell` structure that defines the cubic cell via its vertices.
  * @param[out] d         A pointer to an array of six `PetscReal` values where the computed signed distances will be stored.
  * @param[in]  threshold A `PetscReal` value that specifies the minimum distance below which a computed distance is considered to be zero.
+ * @param[out] normals   Optional, may be NULL: an array of six `Cmpnts` receiving each face plane's unit outward normal, in the same order as `d`.
  *
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, PetscReal *d, const PetscReal threshold);
+PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, PetscReal *d, const PetscReal threshold, Cmpnts *normals);
 
 /**
  * @brief Classifies a point based on precomputed face distances.
@@ -304,6 +306,37 @@ PetscErrorCode FinalizeTraversal(UserCtx *user, Particle *particle, PetscInt tra
 PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, PetscMPIInt *owner_rank);
 
 /**
+ * @brief Mirrors a point about the plane of one face of a cell.
+ *
+ * The plane is the one the walking search uses for that face (unit outward normal from
+ * `CalculateDistancesToCellFaces`), so a point outside the face by |d| ends inside it by |d|:
+ * p' = p + 2 d n, with d < 0 outside. Only the position changes.
+ *
+ * @param[in]     cell The cell whose face plane is used.
+ * @param[in]     face The face index (LEFT, RIGHT, BOTTOM, TOP, FRONT or BACK).
+ * @param[in,out] p    The point to mirror.
+ *
+ * @return PetscErrorCode 0 on success, or a non-zero PETSc error code (including a degenerate face).
+ */
+PetscErrorCode ReflectParticleAcrossCellFace(const Cell *cell, PetscInt face, Cmpnts *p);
+
+/**
+ * @brief Moves a point to just inside a cell along the segment toward the cell centroid.
+ *
+ * The terminal action when reflections reach their cap. Plane distances are linear along the
+ * segment, so the entry parameter is the largest d_p / (d_p - d_c) over the faces the point is
+ * outside of; the point is placed a relative 1e-6 of the remaining segment beyond it.
+ *
+ * @param[in]     cell   The cell to place the point in.
+ * @param[in,out] p      The point; unchanged when it cannot be placed.
+ * @param[out]    placed PETSC_FALSE when the centroid is not inside every face plane the point
+ *                       is outside of (a cell warped that far), in which case `p` is unchanged.
+ *
+ * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
+ */
+PetscErrorCode PlaceParticleInsideCell(const Cell *cell, Cmpnts *p, PetscBool *placed);
+
+/**
  * @brief Locates a particle's host cell or identifies its migration target using a robust walk search.
  * @ingroup ParticleLocation
  *
@@ -312,7 +345,10 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
  * - `ACTIVE_AND_LOCATED`: The particle was found in a cell on the current rank.
  * - `MIGRATING_OUT`: The particle was found to belong to another rank. `particle->destination_rank` is set.
  * - `EXITED`: The particle lies beyond a domain-boundary face of the boundary cell the walk reached,
- *   with every face it is outside of on the domain boundary.
+ *   with every face it is outside of on the domain boundary and at least one of them using the
+ *   `remove` particle policy. When all of them use `reflect`, the particle is instead mirrored
+ *   about the most-crossed face (`ReflectParticleAcrossCellFace`) and the search continues; after
+ *   `REFLECTION_CAP` reflections it is placed just inside the cell (`PlaceParticleInsideCell`).
  * - `NEEDS_LOCATION` (with `cell` reset to -1): a pass-1 walk from the previous-step cell ended more
  *   than `BLOCKED_WALK_GUARD_CELLS` cell sizes beyond the boundary, so the walk was most likely blocked
  *   by a non-convex boundary; the caller searches the particle again from scratch.
