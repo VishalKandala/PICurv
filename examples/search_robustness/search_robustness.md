@@ -21,8 +21,8 @@ Brownian baselines:
 
 Deterministic migration stress cases:
 
-- `search_robustness_cartesian_uniform.yml`: Cartesian analytical `UNIFORM_FLOW` transport/search stress case with repeatable advection-driven search work
-- `search_robustness_curvilinear_uniform.yml`: curvilinear analytical `UNIFORM_FLOW` transport/search stress case on the bundled file grid
+- `search_robustness_cartesian_uniform.yml`: Cartesian analytical `UNIFORM_FLOW` transport/search stress case with repeatable advection-driven search work; the flow runs from an inlet at `-Xi` to an outlet at `+Xi`, so particles that reach `+Xi` are counted as `exited`, not `lost`
+- `search_robustness_curvilinear_uniform.yml`: curvilinear analytical `UNIFORM_FLOW` transport/search stress case on the bundled file grid; the uniform flow crosses the curved walls, which reflect particles (`reflections` in `search_metrics.csv`)
 
 Shared assets:
 

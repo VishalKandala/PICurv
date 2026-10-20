@@ -57,13 +57,16 @@ models:
         y: 0.5
         z: 0.5
 
+# The analytical flow runs along +x, so particles enter at -Xi and leave through +Xi;
+# the remaining walls are tangential to it and reflect any particle that reaches them.
 boundary_conditions:
   - face: "-Xi"
-    type: WALL
-    handler: noslip
+    type: INLET
+    handler: constant_velocity
+    params: {vx: 0.5, vy: 0.0, vz: 0.0}
   - face: "+Xi"
-    type: WALL
-    handler: noslip
+    type: OUTLET
+    handler: conservation
   - face: "-Eta"
     type: WALL
     handler: noslip
