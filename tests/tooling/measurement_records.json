@@ -821,6 +821,21 @@
       },
       "limitations": "This re-establishes an existing comparison rather than adding one: the accuracy verdict of hom02-les-accuracy-2026-10-09 (not met for the decay bound) stands unchanged. Two of the seventeen matrix variants were rerun. The old and new runs differ by growing round-off as the decay proceeds; the comparison holds the statistics, not the instantaneous fields, to agreement.",
       "artifacts": []
+    },
+    {
+      "id": "swarm-one-pass-removal-2026-10-20",
+      "question": "Does removing migrated and lost particles in one pass, with a swarm buffer of 10% of the local count instead of the global count, leave results unchanged and remove the migration cost that grew with the global particle count?",
+      "date": "2026-10-20",
+      "commit": "e85f6d2 (code 71abdd9) against dcf6e70 (no particle-removal source difference from 246dae4)",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized, OpenMPI 4.1.5 with UCX; exclusive short-partition nodes, 48 ranks per node; both builds on the same night (2026-10-20 01:39-03:43 CDT), each pinned. Old jobs 20206759, 20206917-20206923; new 20206762, 20206926-20206931.",
+      "configuration": "The A6 defense scaling cases (closed no-slip box, cellular initial flow, Picard and multigrid, dt 0.002, 30 steps): weak scaling 32^3 cells and 65,536 particles per rank at 16, 32 and 64 ranks (64 on two nodes), strong scaling 64^3 cells and 524,288 particles at 8 and 64 ranks. Job B g64 c4 (analytic TGV3D, 64 x 64 x 2 cells, 48 ranks, 1,048,576 particles, dt 0.01) truncated to 200 steps. PETSc -log_view on every run; PICurv per-step timers for PerformMigration, RemoveFlaggedParticles and the settlement loop.",
+      "result": {
+        "measured": "Bit-identity: every step-30 particle and Eulerian checkpoint file and search_metrics.csv of A6 weak 64, and every step-200 file and search_metrics.csv of Job B, have equal md5 under both builds; migrated, passes and lost per step are equal in every run. Rank-0 time per step old to new: weak 16/32/64 6.92/12.53/29.06 to 4.03/5.15/6.38 s; strong 8/64 3.92/1.96 to 3.16/0.85 s; Job B 10.93 to 1.33 s. PerformMigration fell from 1.54/4.03/8.97 s (weak) and 8.41 s (Job B) to 0.0012-0.0028 s; -log_view DMSwarmMigrate max over ranks fell from 66.7/191.6/632.8 s (weak, 30 calls) and 1878.6 s (Job B) to 0.037/0.058/0.084 and 0.568 s. The walk time and the MPI reduction counts are unchanged. Peak per-rank memory fell from 391/601/956 MB (weak) and 246 MB (Job B) to 254/307/394 and 107 MB.",
+        "threshold": "Checkpoints and search metrics byte-identical; migration cost no longer growing with the global particle count.",
+        "verdict": "met"
+      },
+      "limitations": "One sample per configuration, and PICurv's timers are rank 0 only (the -log_view figures give the max over ranks). Two rank layouts for bit-identity, both with Cartesian or TGV grids; curvilinear cases were checked only locally on 3 ranks. The largest case is 4.2M particles; the 10^8-10^9 regime the change targets was not run. The 10% buffer was chosen, not tuned: a rank whose arrivals exceed it reallocates, which was not separately timed. It establishes nothing about the walking search itself, whose cost is unchanged.",
+      "artifacts": []
     }
   ]
 }
