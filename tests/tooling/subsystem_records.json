@@ -559,7 +559,8 @@
       "capability_families": [
         "particle.init_mode",
         "particle.interpolation",
-        "particle.restart_mode"
+        "particle.restart_mode",
+        "particle.boundary_policy"
       ],
       "obligations": {
         "purpose": {
