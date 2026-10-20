@@ -185,9 +185,13 @@ mixing, or any case where waiting for particles to arrive from a boundary wastes
 
 **Parameters it owns.** The particle count.
 
-**Interactions.** Particle density follows the cell distribution, so a graded grid gives a
-non-uniform physical density. Across ranks, each rank seeds a share proportional to the
-cells it owns, so the density does not depend on the decomposition.
+**Interactions.** Particle density is uniform per unit physical volume on any grid: a cell
+is chosen in proportion to its volume (the trilinear map's Jacobian integrated exactly), and
+the point inside it is drawn uniform in volume by rejection against the cell's largest
+Jacobian determinant. Across ranks, each rank seeds a share proportional to the volume it
+owns, so the density does not depend on the decomposition either. Before 2026-10-20 the
+density followed the cell count instead, so stretched and curvilinear grids over-filled their
+small cells.
 
 **Diagnostics.** Per-step particle count and the lost-particle counter.
 

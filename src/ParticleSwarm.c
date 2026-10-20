@@ -81,20 +81,95 @@ PetscErrorCode RegisterParticleFields(DM swarm)
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "BuildOwnedCellVolumeTable"
+/**
+ * @brief Tabulate the volumes of this rank's owned cells for volume-uniform seeding.
+ * @details Cells are visited in i-fastest order from `(xs, ys, zs)`, the cell origins the
+ *          volumetric seeding uses. `cumulative[c]` is the summed volume of cells `0..c`, so a
+ *          uniform draw on `[0, cumulative[n-1])` picks a cell in proportion to its volume.
+ *          A cell's volume integrates the trilinear map's Jacobian determinant with 2x2x2 Gauss
+ *          points, which is exact because the determinant has degree 2 in each coordinate.
+ *          `bound[c]` is the largest determinant on a 3x3x3 lattice of the cell, the envelope
+ *          used to sample a uniform point inside it.
+ * @param[in]  user        Grid context.
+ * @param[in]  coor        Ghosted node-coordinate array.
+ * @param[in]  xs,ys,zs    Origin node indices of the rank's first owned cell.
+ * @param[out] cumulative  Allocated array of cumulative volumes (caller frees), or NULL when not wanted.
+ * @param[out] bound       Allocated array of per-cell determinant bounds (caller frees), or NULL when not wanted.
+ * @param[out] n_cells     Number of owned cells.
+ * @param[out] volume      Total owned volume.
+ * @return PetscErrorCode 0 on success; an error for a cell whose volume is not positive.
+ */
+static PetscErrorCode BuildOwnedCellVolumeTable(UserCtx *user, const Cmpnts ***coor,
+                                                PetscInt xs, PetscInt ys, PetscInt zs,
+                                                PetscReal **cumulative, PetscReal **bound,
+                                                PetscInt *n_cells, PetscReal *volume)
+{
+    const PetscReal gauss[2] = {0.5 - 0.5 / PetscSqrtReal(3.0), 0.5 + 0.5 / PetscSqrtReal(3.0)};
+    PetscReal       J[3][3], detJ, sum = 0.0;
+    PetscInt        start, ni, nj, nk, c = 0;
+    PetscReal      *cum = NULL, *bnd = NULL;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(GetOwnedCellRange(&user->info, 0, &start, &ni));
+    PetscCall(GetOwnedCellRange(&user->info, 1, &start, &nj));
+    PetscCall(GetOwnedCellRange(&user->info, 2, &start, &nk));
+    *n_cells = ni * nj * nk;
+    if (cumulative) PetscCall(PetscMalloc1(*n_cells, &cum));
+    if (bound) PetscCall(PetscMalloc1(*n_cells, &bnd));
+    for (PetscInt lk = 0; lk < nk; ++lk) {
+        for (PetscInt lj = 0; lj < nj; ++lj) {
+            for (PetscInt li = 0; li < ni; ++li, ++c) {
+                PetscReal cell_volume = 0.0, cell_bound = 0.0;
+                for (PetscInt g = 0; g < 8; ++g) {
+                    PetscCall(MetricJacobian(user, coor, xs + li, ys + lj, zs + lk,
+                                             gauss[g & 1], gauss[(g >> 1) & 1], gauss[(g >> 2) & 1], J, &detJ));
+                    cell_volume += 0.125 * detJ;
+                }
+                PetscCheck(cell_volume > 0.0, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+                           "Cell with origin node (%d,%d,%d) has volume %g; volumetric seeding needs positive volumes.",
+                           (int)(xs + li), (int)(ys + lj), (int)(zs + lk), (double)cell_volume);
+                if (bnd) {
+                    for (PetscInt q = 0; q < 27; ++q) {
+                        PetscCall(MetricJacobian(user, coor, xs + li, ys + lj, zs + lk,
+                                                 0.5 * (q % 3), 0.5 * ((q / 3) % 3), 0.5 * (q / 9), J, &detJ));
+                        cell_bound = PetscMax(cell_bound, detJ);
+                    }
+                    bnd[c] = cell_bound;
+                }
+                sum += cell_volume;
+                if (cum) cum[c] = sum;
+            }
+        }
+    }
+    *volume = sum;
+    if (cumulative) *cumulative = cum;
+    if (bound) *bound = bnd;
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "DetermineVolumetricInitializationParameters"
 /**
- * @brief Derive particle counts and spacing for volumetric swarm initialization.
+ * @brief Draw one volume-uniform seeding point in this rank's owned cells.
+ * @details The cell is drawn in proportion to its volume from `cell_cdf`
+ *          (see BuildOwnedCellVolumeTable); the point inside it is drawn uniform in physical
+ *          volume by accepting uniform logical coordinates with probability detJ / `cell_bound`.
+ *          On a grid of equal parallelepiped cells this is the uniform-per-cell placement it
+ *          replaces, which over-filled small cells on stretched or curvilinear grids.
  */
 static PetscErrorCode DetermineVolumetricInitializationParameters(
-    UserCtx *user, DMDALocalInfo *info,
+    UserCtx *user, DMDALocalInfo *info, const Cmpnts ***coor,
     PetscInt xs_gnode, PetscInt ys_gnode, PetscInt zs_gnode,
+    const PetscReal *cell_cdf, const PetscReal *cell_bound,
     PetscRandom *rand_logic_i_ptr, PetscRandom *rand_logic_j_ptr, PetscRandom *rand_logic_k_ptr, /* Pointers to RNGs */
     PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out,
     PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out,
     PetscBool *can_place_in_volume_out)
 {
     PetscErrorCode ierr = 0;
-    (void)user;
     PetscReal      r_val; // Temporary for random numbers from [0,1) RNGs
     PetscInt       local_owned_cell_idx_i, local_owned_cell_idx_j, local_owned_cell_idx_k;
     PetscMPIInt    rank_for_logging; // For logging if needed
@@ -124,26 +199,20 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
     if (num_owned_cells_on_rank_i > 0 && num_owned_cells_on_rank_j > 0 && num_owned_cells_on_rank_k > 0) { // If rank owns any 3D cells
         *can_place_in_volume_out = PETSC_TRUE;
 
-        // --- 1. Select a Random Owned Cell ---
-        // The selected index will be a 0-based index relative to the start of this rank's owned cells.
-
-        // Select random local owned cell index in I-direction
-        ierr = PetscRandomGetValueReal(*rand_logic_i_ptr, &r_val); CHKERRQ(ierr); // Dereference RNG pointer
-        local_owned_cell_idx_i = (PetscInt)(r_val * num_owned_cells_on_rank_i);
-        // Clamp to be safe: local_owned_cell_idx_i should be in [0, num_owned_cells_on_rank_i - 1]
-        local_owned_cell_idx_i = PetscMin(PetscMax(0, local_owned_cell_idx_i), num_owned_cells_on_rank_i - 1);
+        // --- 1. Select an Owned Cell in Proportion to Its Volume ---
+        const PetscInt n_cells = num_owned_cells_on_rank_i * num_owned_cells_on_rank_j * num_owned_cells_on_rank_k;
+        PetscInt lo = 0, hi = n_cells - 1;
+        ierr = PetscRandomGetValueReal(*rand_logic_i_ptr, &r_val); CHKERRQ(ierr);
+        r_val *= cell_cdf[n_cells - 1];
+        while (lo < hi) { // First cell whose cumulative volume exceeds the draw
+            const PetscInt mid = lo + (hi - lo) / 2;
+            if (cell_cdf[mid] > r_val) hi = mid; else lo = mid + 1;
+        }
+        local_owned_cell_idx_i = lo % num_owned_cells_on_rank_i;
+        local_owned_cell_idx_j = (lo / num_owned_cells_on_rank_i) % num_owned_cells_on_rank_j;
+        local_owned_cell_idx_k = lo / (num_owned_cells_on_rank_i * num_owned_cells_on_rank_j);
         *ci_metric_lnode_out = xs_gnode + local_owned_cell_idx_i; // Convert to local node index for cell origin
-
-        // Select random local owned cell index in J-direction
-        ierr = PetscRandomGetValueReal(*rand_logic_j_ptr, &r_val); CHKERRQ(ierr); // Dereference RNG pointer
-        local_owned_cell_idx_j = (PetscInt)(r_val * num_owned_cells_on_rank_j);
-        local_owned_cell_idx_j = PetscMin(PetscMax(0, local_owned_cell_idx_j), num_owned_cells_on_rank_j - 1);
         *cj_metric_lnode_out = ys_gnode + local_owned_cell_idx_j;
-
-        // Select random local owned cell index in K-direction
-        ierr = PetscRandomGetValueReal(*rand_logic_k_ptr, &r_val); CHKERRQ(ierr); // Dereference RNG pointer
-        local_owned_cell_idx_k = (PetscInt)(r_val * num_owned_cells_on_rank_k);
-        local_owned_cell_idx_k = PetscMin(PetscMax(0, local_owned_cell_idx_k), num_owned_cells_on_rank_k - 1);
         *ck_metric_lnode_out = zs_gnode + local_owned_cell_idx_k;
 
         LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Selected Cell (Owned Idx: %d,%d,%d -> LNodeStart: %d,%d,%d). OwnedCells(i,j,k): (%d,%d,%d). GhostNodeStarts(xs,ys,zs): (%d,%d,%d) \n",
@@ -152,20 +221,27 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
                 num_owned_cells_on_rank_i, num_owned_cells_on_rank_j, num_owned_cells_on_rank_k,
                 xs_gnode, ys_gnode, zs_gnode);
 
-
-        // --- 2. Generate Random Intra-Cell Logical Coordinates [0,1) for MetricLogicalToPhysical ---
-        ierr = PetscRandomGetValueReal(*rand_logic_i_ptr, xi_metric_logic_out);  CHKERRQ(ierr); // Re-use RNGs
-        ierr = PetscRandomGetValueReal(*rand_logic_j_ptr, eta_metric_logic_out); CHKERRQ(ierr);
-        ierr = PetscRandomGetValueReal(*rand_logic_k_ptr, zta_metric_logic_out); CHKERRQ(ierr);
-
-        // Ensure logical coordinates are strictly within [0,1) for robustness with MetricLogicalToPhysical
-        *xi_metric_logic_out  = PetscMin(*xi_metric_logic_out,  1.0 - 1.0e-7);
-        *eta_metric_logic_out = PetscMin(*eta_metric_logic_out, 1.0 - 1.0e-7);
-        *zta_metric_logic_out = PetscMin(*zta_metric_logic_out, 1.0 - 1.0e-7);
-        // Ensure they are not negative either (though [0,1) RNGs shouldn't produce this)
-        *xi_metric_logic_out  = PetscMax(*xi_metric_logic_out,  0.0);
-        *eta_metric_logic_out = PetscMax(*eta_metric_logic_out, 0.0);
-        *zta_metric_logic_out = PetscMax(*zta_metric_logic_out, 0.0);
+        // --- 2. Draw Intra-Cell Logical Coordinates Uniform in Physical Volume ---
+        // Accept uniform logicals with probability detJ / bound; a cell whose determinant varies
+        // little accepts almost every draw. The cap only guards a degenerate envelope.
+        for (PetscInt attempt = 0; attempt < 1000; ++attempt) {
+            PetscReal J[3][3], detJ, u;
+            ierr = PetscRandomGetValueReal(*rand_logic_i_ptr, xi_metric_logic_out);  CHKERRQ(ierr); // Re-use RNGs
+            ierr = PetscRandomGetValueReal(*rand_logic_j_ptr, eta_metric_logic_out); CHKERRQ(ierr);
+            ierr = PetscRandomGetValueReal(*rand_logic_k_ptr, zta_metric_logic_out); CHKERRQ(ierr);
+            // Ensure logical coordinates are strictly within [0,1) for robustness with MetricLogicalToPhysical
+            *xi_metric_logic_out  = PetscMax(PetscMin(*xi_metric_logic_out,  1.0 - 1.0e-7), 0.0);
+            *eta_metric_logic_out = PetscMax(PetscMin(*eta_metric_logic_out, 1.0 - 1.0e-7), 0.0);
+            *zta_metric_logic_out = PetscMax(PetscMin(*zta_metric_logic_out, 1.0 - 1.0e-7), 0.0);
+            ierr = MetricJacobian(user, coor, *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out,
+                                  *xi_metric_logic_out, *eta_metric_logic_out, *zta_metric_logic_out, J, &detJ); CHKERRQ(ierr);
+            ierr = PetscRandomGetValueReal(*rand_logic_j_ptr, &u); CHKERRQ(ierr);
+            if (u * cell_bound[lo] <= detJ) break;
+            if (attempt == 999) {
+                LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: 1000 rejected draws in cell (%d,%d,%d); accepting the last one.\n",
+                          rank_for_logging, *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out);
+            }
+        }
 
     } else {
         // This rank does not own any 3D cells (e.g., in a 1D or 2D decomposition,
@@ -208,6 +284,8 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
 
     // Variables for surface initialization (Mode 0)
     PetscBool      can_this_rank_service_inlet = PETSC_FALSE;
+    // Owned-cell volume table for volumetric initialization
+    PetscReal      *cell_cdf = NULL, *cell_bound = NULL;
 
     PetscFunctionBeginUser;
 
@@ -251,6 +329,16 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
         }
     }
 
+    // --- 2b. Volume Table for Volumetric Initialization ---
+    if (simCtx->ParticleInitialization == PARTICLE_INIT_VOLUME && particlesPerProcess > 0) {
+        PetscInt  n_cells;
+        PetscReal owned_volume;
+        ierr = BuildOwnedCellVolumeTable(user, coor_nodes_local_array, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
+                                         &cell_cdf, &cell_bound, &n_cells, &owned_volume); CHKERRQ(ierr);
+        LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Seeding %d particles uniformly over %d owned cells of total volume %.6e.\n",
+                  rank, particlesPerProcess, n_cells, (double)owned_volume);
+    }
+
     // --- 3. Get Access to Swarm Fields ---
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr);
@@ -260,7 +348,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     // --- 4. Determine Starting Global PID for this Rank ---
     // PIDs are consecutive across ranks in rank order, so each rank starts where the ranks
     // before it end. Taking that from the actual local counts keeps it right however the
-    // particles were split (evenly, or by owned cells for volumetric seeding).
+    // particles were split (evenly, or by owned volume for volumetric seeding).
     PetscInt base_pid_for_rank = 0;
     {
         PetscInt local_count = particlesPerProcess;
@@ -324,7 +412,9 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
             }
         }else if(simCtx->ParticleInitialization == PARTICLE_INIT_VOLUME){ // --- 5.b. Volumetric Initialization ---
             PetscBool can_place_volumetrically = PETSC_FALSE;
-            ierr = DetermineVolumetricInitializationParameters(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
+            ierr = DetermineVolumetricInitializationParameters(user, &info, coor_nodes_local_array,
+                                                            xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
+                                                            cell_cdf, cell_bound,
                                                             rand_logic_i, rand_logic_j, rand_logic_k,
                                                             &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
                                                             &xi_metric_logic, &eta_metric_logic, &zta_metric_logic,
@@ -383,6 +473,8 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs_petsc);  CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status_field); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, Coor_local, (void*)&coor_nodes_local_array); CHKERRQ(ierr);
+    ierr = PetscFree(cell_cdf); CHKERRQ(ierr);
+    ierr = PetscFree(cell_bound); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Completed processing for %d particles.\n",
             rank, particlesPerProcess);
@@ -625,39 +717,44 @@ PetscErrorCode FinalizeSwarmSetup(PetscRandom *randx, PetscRandom *randy, PetscR
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "DistributeParticlesByOwnedCells"
+#define __FUNCT__ "DistributeParticlesByOwnedVolume"
 /**
- * @brief Split particles across ranks in proportion to the cells each rank owns.
- * @details Volumetric seeding places each rank's particles uniformly in its own cells, so an
- *          even split gives a density that jumps wherever the decomposition gives ranks
- *          unequal cell counts. Largest-remainder rounding keeps the total exact, and every
- *          rank computes the same answer from the gathered counts.
+ * @brief Split particles across ranks in proportion to the volume each rank owns.
+ * @details Volumetric seeding places each rank's particles uniformly in its own volume, so the
+ *          split must follow volume for the density to be uniform across rank boundaries;
+ *          splitting by cell count over-fills ranks of small cells on stretched or curvilinear
+ *          grids. Largest-remainder rounding keeps the total exact, and every rank computes the
+ *          same answer from the gathered volumes.
  * @param[in]  user          Finest-level context whose DMDA ownership defines the split.
  * @param[in]  numParticles  Global particle count.
  * @param[out] localCount    Particles this rank seeds.
  * @return PetscErrorCode 0 on success.
  */
-static PetscErrorCode DistributeParticlesByOwnedCells(UserCtx *user, PetscInt numParticles, PetscInt *localCount)
+static PetscErrorCode DistributeParticlesByOwnedVolume(UserCtx *user, PetscInt numParticles, PetscInt *localCount)
 {
-    PetscMPIInt rank, size;
-    PetscInt    start, ni, nj, nk, owned, total = 0, assigned = 0;
-    PetscInt   *cells = NULL, *count = NULL;
-    PetscReal  *frac = NULL;
+    PetscMPIInt     rank, size;
+    PetscInt        xs, ys, zs, n_cells, assigned = 0;
+    PetscInt       *count = NULL;
+    PetscReal       owned, total = 0.0;
+    PetscReal      *volumes = NULL, *frac = NULL;
+    Vec             coor_local;
+    const Cmpnts ***coor = NULL;
 
     PetscFunctionBeginUser;
     PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
     PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
-    PetscCall(GetOwnedCellRange(&user->info, 0, &start, &ni));
-    PetscCall(GetOwnedCellRange(&user->info, 1, &start, &nj));
-    PetscCall(GetOwnedCellRange(&user->info, 2, &start, &nk));
-    owned = ni * nj * nk;
-    PetscCall(PetscMalloc3(size, &cells, size, &count, size, &frac));
-    PetscCallMPI(MPI_Allgather(&owned, 1, MPIU_INT, cells, 1, MPIU_INT, PETSC_COMM_WORLD));
-    for (PetscMPIInt r = 0; r < size; ++r) total += cells[r];
-    PetscCheck(total > 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
-               "Volumetric particle seeding found no owned cells on any rank.");
+    PetscCall(DMGetCoordinatesLocal(user->da, &coor_local));
+    PetscCall(DMDAVecGetArrayRead(user->fda, coor_local, (void *)&coor));
+    PetscCall(DMDAGetCorners(user->da, &xs, &ys, &zs, NULL, NULL, NULL));
+    PetscCall(BuildOwnedCellVolumeTable(user, coor, xs, ys, zs, NULL, NULL, &n_cells, &owned));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, coor_local, (void *)&coor));
+    PetscCall(PetscMalloc3(size, &volumes, size, &count, size, &frac));
+    PetscCallMPI(MPI_Allgather(&owned, 1, MPIU_REAL, volumes, 1, MPIU_REAL, PETSC_COMM_WORLD));
+    for (PetscMPIInt r = 0; r < size; ++r) total += volumes[r];
+    PetscCheck(total > 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+               "Volumetric particle seeding found no owned volume on any rank.");
     for (PetscMPIInt r = 0; r < size; ++r) {
-        const PetscReal share = (PetscReal)numParticles * (PetscReal)cells[r] / (PetscReal)total;
+        const PetscReal share = (PetscReal)numParticles * volumes[r] / total;
         count[r] = (PetscInt)PetscFloorReal(share);
         frac[r]  = share - (PetscReal)count[r];
         assigned += count[r];
@@ -669,7 +766,7 @@ static PetscErrorCode DistributeParticlesByOwnedCells(UserCtx *user, PetscInt nu
         frac[best] = -1.0;
     }
     *localCount = count[rank];
-    PetscCall(PetscFree3(cells, count, frac));
+    PetscCall(PetscFree3(volumes, count, frac));
     PetscFunctionReturn(0);
 }
 
@@ -705,7 +802,7 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
         user->bbox.min_coords.z,user->bbox.max_coords.z);
     // Distribute particles among MPI processes
     if (user->simCtx->ParticleInitialization == PARTICLE_INIT_VOLUME) {
-        ierr = DistributeParticlesByOwnedCells(user, numParticles, particlesPerProcess); CHKERRQ(ierr);
+        ierr = DistributeParticlesByOwnedVolume(user, numParticles, particlesPerProcess); CHKERRQ(ierr);
     } else {
         ierr = DistributeParticles(numParticles, rank, size, particlesPerProcess, &remainder); CHKERRQ(ierr);
     }

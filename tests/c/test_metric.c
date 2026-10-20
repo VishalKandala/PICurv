@@ -143,6 +143,34 @@ static PetscErrorCode TestComputeCellCharacteristicLengthScaleWallResolvedCell(v
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests that MetricJacobian returns the physical Jacobian of a sheared, scaled cell, whose determinant is its volume.
+ */
+static PetscErrorCode TestMetricJacobianIsCellVolumeForParallelepiped(void)
+{
+    const PetscReal a = 0.5, b = 2.0, c = 3.0, shear = 0.7;
+    Cmpnts          nodes[2][2][2], *rows[2][2], **planes[2];
+    PetscReal       J[3][3], detJ;
+
+    PetscFunctionBeginUser;
+    for (PetscInt k = 0; k < 2; ++k) {
+        for (PetscInt j = 0; j < 2; ++j) {
+            for (PetscInt i = 0; i < 2; ++i) {
+                nodes[k][j][i].x = a * i + shear * k;
+                nodes[k][j][i].y = b * j;
+                nodes[k][j][i].z = c * k;
+            }
+            rows[k][j] = nodes[k][j];
+        }
+        planes[k] = rows[k];
+    }
+    PetscCall(MetricJacobian(NULL, (const Cmpnts ***)planes, 0, 0, 0, 0.3, 0.6, 0.9, J, &detJ));
+    PetscCall(PicurvAssertRealNear(a * b * c, detJ, 1.0e-14, "detJ of a parallelepiped is its volume"));
+    PetscCall(PicurvAssertRealNear(a, J[0][0], 1.0e-14, "dx/dxi is the i edge length"));
+    PetscCall(PicurvAssertRealNear(shear, J[0][2], 1.0e-14, "dx/dzta is the shear of the k edge"));
+    PetscCall(PicurvAssertRealNear(c, J[2][2], 1.0e-14, "dz/dzta is the k edge length"));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests that a degenerate cell is still refused, and that the refusal propagates.
  */
 
@@ -177,6 +205,7 @@ int main(int argc, char **argv)
         {"characteristic-length-scale-axis-aligned", TestComputeCellCharacteristicLengthScaleAxisAligned},
         {"characteristic-length-scale-wall-resolved-cell", TestComputeCellCharacteristicLengthScaleWallResolvedCell},
         {"degenerate-cell-is-refused", TestDegenerateCellIsRefused},
+        {"metric-jacobian-is-cell-volume-for-parallelepiped", TestMetricJacobianIsCellVolumeForParallelepiped},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv metric tests");

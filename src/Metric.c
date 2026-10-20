@@ -116,15 +116,15 @@ PetscErrorCode MetricJacobian(UserCtx *user,
 
   ierr = MetricGetCellVertices(user,X,i,j,k,V); CHKERRQ(ierr);
 
-  /* derivatives of trilinear shape functions */
+  /* derivatives of the [0,1] trilinear shape functions TrilinearBlend uses */
   PetscReal dN_dXi[8], dN_dEta[8], dN_dZta[8];
   for (PetscInt c=0;c<8;++c) {
     PetscReal sx = (c & 1) ?  1.0 : -1.0;
     PetscReal sy = (c & 2) ?  1.0 : -1.0;
     PetscReal sz = (c & 4) ?  1.0 : -1.0;
-    dN_dXi [c] = 0.125 * sx * ( (c&2?eta:1-eta) ) * ( (c&4?zta:1-zta) );
-    dN_dEta[c] = 0.125 * sy * ( (c&1?xi :1-xi ) ) * ( (c&4?zta:1-zta) );
-    dN_dZta[c] = 0.125 * sz * ( (c&1?xi :1-xi ) ) * ( (c&2?eta:1-eta) );
+    dN_dXi [c] = sx * ( (c&2?eta:1-eta) ) * ( (c&4?zta:1-zta) );
+    dN_dEta[c] = sy * ( (c&1?xi :1-xi ) ) * ( (c&4?zta:1-zta) );
+    dN_dZta[c] = sz * ( (c&1?xi :1-xi ) ) * ( (c&2?eta:1-eta) );
   }
 
   /* assemble Jacobian */
