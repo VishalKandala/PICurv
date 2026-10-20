@@ -47,7 +47,8 @@ Particle controls include:
 - initialization modes (`Surface`, `Volume`, `PointSource`, `SurfaceEdges`),
 - restart modes (`init`, `load`),
 - grid-to-particle interpolation method (`Trilinear` direct cell-center or `CornerAveraged` legacy),
-- scalar micromixing update path (IEM-style `Psi` model).
+- scalar micromixing update path (IEM-style `Psi` model),
+- per-face particle boundary policy (`reflect` at walls, `remove` at inlets and outlets; experimental).
 
 Particle positions are not currently wrapped across periodic boundaries.
 
