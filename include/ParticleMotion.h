@@ -86,33 +86,38 @@ PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
 					      const BoundingBox *bboxlist);
 
 /**
- * @brief Removes particles that have been definitively flagged as LOST by the location algorithm.
+ * @brief Removes particles that the location algorithm flagged as LOST or EXITED.
  *
  * This function is the designated cleanup utility. It should be called after the
  * `LocateAllParticlesInGrid` orchestrator has run and every particle's status
  * has been definitively determined.
  *
  * It iterates through all locally owned particles and checks their `DMSwarm_location_status`
- * field. Particles whose status is `LOST` are flagged in a backward scan and permanently
- * removed together by `RemoveFlaggedParticles`.
+ * field. Particles whose status is `LOST` (the search failed) or `EXITED` (the particle left
+ * through a removing boundary face) are flagged in a backward scan and permanently removed
+ * together by `RemoveFlaggedParticles`. The two kinds are counted and summed separately.
  *
  * This approach centralizes the removal logic, making the `DMSwarm_location_status`
  * the single source of truth for a particle's validity, which is more robust than
  * relying on secondary geometric checks (like bounding boxes).
  *
  * @param[in,out]  user              Pointer to the UserCtx structure containing the swarm.
- * @param[out]     removedCountLocal Pointer to store the number of particles removed on this rank.
- * @param[out]     removedCountGlobal Pointer to store the total number of particles removed across all ranks.
+ * @param[out]     removedCountLocal Pointer to store the number of LOST particles removed on this rank.
+ * @param[out]     removedCountGlobal Optional, may be NULL: the number of LOST particles removed across all ranks.
  * @param[out]     removedScalarSumGlobal Optional, may be NULL: the sum of `Psi` over every
- *                 particle removed on any rank. With a 0/1 label and micromixing off, it
+ *                 LOST particle removed on any rank. With a 0/1 label and micromixing off, it
  *                 counts the removed particles that carried the label.
+ * @param[out]     exitedCountGlobal Optional, may be NULL: the number of EXITED particles removed across all ranks.
+ * @param[out]     exitedScalarSumGlobal Optional, may be NULL: the sum of `Psi` over every EXITED particle removed.
  *
  * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
  */
 PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
                                            PetscInt *removedCountLocal,
                                            PetscInt *removedCountGlobal,
-                                           PetscReal *removedScalarSumGlobal);
+                                           PetscReal *removedScalarSumGlobal,
+                                           PetscInt *exitedCountGlobal,
+                                           PetscReal *exitedScalarSumGlobal);
 
 /**
  * @brief Defines the basic migration pattern for particles within the swarm.
@@ -435,7 +440,10 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user);
  *     it first attempts a fast, bounding-box-based guess to find a potential new owner rank.
  * 3.  **"Verify" (Robust Walk):** For all other particles, or if the guess fails,
  *     it uses a robust cell-walking algorithm (`LocateParticleOrFindMigrationTarget`)
- *     that determines the particle's status: located locally, needs migration, or is lost.
+ *     that determines the particle's status: located locally, needs migration, exited the
+ *     domain, or lost. A walk from the prior cell that the domain boundary blocked is retried
+ *     through the guess path in the same pass.
+ *     `LOST` and `EXITED` are final within one call: only pass 1 searches them.
  * 4.  **Migration:** After identifying all migrating particles on a pass, it performs the
  *     MPI communication using the `SetMigrationRanks` and `PerformMigration` helpers.
  * 5.  **Newcomer Flagging:** After migration, it uses the PID snapshot from step 1 to
@@ -450,10 +458,10 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user);
  * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
  *
  * @note Testing status:
- *       Direct unit coverage currently pins the prior-cell fast path and the
- *       local guess-then-verify path. Multi-pass migration, newcomer flagging,
- *       and several lost/migration edge cases are still targeted for future
- *       bespoke tests.
+ *       Direct unit coverage currently pins the prior-cell fast path, the
+ *       local guess-then-verify path, and (two ranks) an exit that stays
+ *       classified once across a migration pass. Newcomer flagging and several
+ *       lost/migration edge cases are still targeted for future bespoke tests.
  */
 PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist);
 

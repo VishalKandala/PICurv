@@ -7461,46 +7461,59 @@ BC_TYPE_MAP = {
     "periodic": "PERIODIC",
 }
 
+# What a particle crossing a boundary face becomes: mirrored back about the face plane, or
+# removed as having left the domain. Each handler states its default; a BC entry may override
+# it with `particle_policy`, except on PERIODIC faces, where particles do not wrap yet.
+PARTICLE_BOUNDARY_POLICIES = ("reflect", "remove")
+
 BC_HANDLER_SPECS = {
     # Only handlers that are implemented end-to-end in current C path are allowed.
     "noslip": {
         "types": {"WALL"},
+        "particle_policy": "reflect",
         "required_params": set(),
         "optional_params": set(),
     },
     "constant_velocity": {
         "types": {"INLET"},
+        "particle_policy": "remove",
         "required_params": {"vx", "vy", "vz"},
         "optional_params": set(),
     },
     "conservation": {
         "types": {"OUTLET"},
+        "particle_policy": "remove",
         "required_params": set(),
         "optional_params": set(),
     },
     "parabolic": {
         "types": {"INLET"},
+        "particle_policy": "remove",
         "required_params": {"v_max"},
         "optional_params": set(),
     },
     "prescribed_flow": {
         "types": {"INLET"},
+        "particle_policy": "remove",
         "required_params": {"source"},
         "optional_params": set(),
     },
     "geometric": {
         "types": {"PERIODIC"},
+        "particle_policy": "remove",
         "required_params": set(),
         "optional_params": set(),
     },
     "constant_flux": {
         "types": {"PERIODIC"},
+        "particle_policy": "remove",
         "required_params": {"target_flux"},
         "optional_params": {"enforce_seam_flux", "apply_trim"},
     },
     # Derives its own target from the initial condition, so it takes no target_flux.
     "initial_flux": {
         "types": {"PERIODIC"},
+        "particle_policy": "remove",
         "required_params": set(),
         "optional_params": {"enforce_seam_flux", "apply_trim"},
     },
@@ -8217,6 +8230,19 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                     # Defensive fallback; should not happen due unknown-key gate above.
                     converted_params[key] = value
 
+            if "particle_policy" in bc and bc_type == "PERIODIC":
+                raise ValueError(
+                    f"boundary_conditions[{bi}][{idx}].particle_policy cannot be set on a PERIODIC face: "
+                    "particles do not wrap across periodic faces yet, so they are removed there."
+                )
+            policy = str(bc.get("particle_policy", handler_spec["particle_policy"])).strip().lower()
+            if policy not in PARTICLE_BOUNDARY_POLICIES:
+                raise ValueError(
+                    f"Unsupported particle_policy '{bc.get('particle_policy')}' for face {face} in block {bi}. "
+                    f"Supported: {list(PARTICLE_BOUNDARY_POLICIES)}."
+                )
+            converted_params["particle_policy"] = policy
+
             prepared_block.append({
                 "face": face,
                 "type": bc_type,
@@ -8399,8 +8425,8 @@ _CASE_SCHEMA = {
     },
     ("models", "physics", "turbulence", "rans"): {"enabled", "model"},
     ("models", "physics", "turbulence", "wall_function"): {"enabled", "model", "roughness_height"},
-    ("boundary_conditions", "[]"): {"face", "type", "handler", "params"},
-    ("boundary_conditions", "[]", "[]"): {"face", "type", "handler", "params"},
+    ("boundary_conditions", "[]"): {"face", "type", "handler", "params", "particle_policy"},
+    ("boundary_conditions", "[]", "[]"): {"face", "type", "handler", "params", "particle_policy"},
     ("boundary_conditions", "[]", "params"): None,
     ("boundary_conditions", "[]", "[]", "params"): None,
     ("solver_parameters",): None,
@@ -8751,9 +8777,11 @@ INPUT_QUANTITIES = {
     ("case", "boundary_conditions", "[]", "face"): NOT_A_QUANTITY,
     ("case", "boundary_conditions", "[]", "type"): NOT_A_QUANTITY,
     ("case", "boundary_conditions", "[]", "handler"): NOT_A_QUANTITY,
+    ("case", "boundary_conditions", "[]", "particle_policy"): NOT_A_QUANTITY,
     ("case", "boundary_conditions", "[]", "[]", "face"): NOT_A_QUANTITY,
     ("case", "boundary_conditions", "[]", "[]", "type"): NOT_A_QUANTITY,
     ("case", "boundary_conditions", "[]", "[]", "handler"): NOT_A_QUANTITY,
+    ("case", "boundary_conditions", "[]", "[]", "particle_policy"): NOT_A_QUANTITY,
     ("case", "solver_parameters"): (None, "passthrough"),
     # ----- solver.yml -----
     ("solver", "operation_mode", "eulerian_field_source"): NOT_A_QUANTITY,
@@ -20884,6 +20912,8 @@ def _parse_particle_metrics_log(filepath: str) -> "tuple[dict, list[int]]":
                 "occupied_cells": None,
                 "load_imbalance": None,
                 "migration_passes": None,
+                "exited_particles": None,
+                "exited_particles_cumulative": None,
             }
             if len(parts) >= 9:
                 row.update(
@@ -20902,6 +20932,13 @@ def _parse_particle_metrics_log(filepath: str) -> "tuple[dict, list[int]]":
                         "occupied_cells": _parse_int_loose(parts[5]),
                         "load_imbalance": _parse_float_loose(parts[6]),
                         "migration_passes": _parse_int_loose(parts[7]),
+                    }
+                )
+            if len(parts) >= 11:
+                row.update(
+                    {
+                        "exited_particles": _parse_int_loose(parts[9]),
+                        "exited_particles_cumulative": _parse_int_loose(parts[10]),
                     }
                 )
             rows_by_step[step] = row
@@ -21996,6 +22033,11 @@ def render_run_summary(payload: dict, output_format: str = "text"):
                 f"lost(step/total)={particles.get('lost_particles')}/"
                 f"{particles.get('lost_particles_cumulative')}"
             )
+        if particles.get("exited_particles_cumulative") is not None:
+            loss_summary += (
+                f" exited(step/total)={particles.get('exited_particles')}/"
+                f"{particles.get('exited_particles_cumulative')}"
+            )
         print(
             "    "
             f"total={particles.get('total_particles')} {loss_summary} "
@@ -22444,8 +22486,10 @@ _SUMMARY_PLOT_FIELD_LABELS = {
     "flux_out": "Outflow flux",
     "net_flux": "Net boundary flux",
     "total_particles": "Particle count",
-    "lost_particles": "Particles lost per step",
-    "lost_particles_cumulative": "Cumulative particles lost",
+    "lost_particles": "Particles lost per step (search failures)",
+    "lost_particles_cumulative": "Cumulative particles lost (search failures)",
+    "exited_particles": "Particles that left the domain per step",
+    "exited_particles_cumulative": "Cumulative particles that left the domain",
     "migrated_particles": "Migrated particles",
     "occupied_cells": "Occupied cells",
     "load_imbalance": "Particle load imbalance",
@@ -22531,7 +22575,7 @@ _SUMMARY_ITERATION_HISTORY_FIELDS = {
 
 _SUMMARY_COUNT_FIELDS = {
     "total_particles", "lost_particles", "lost_particles_cumulative",
-    "migrated_particles", "occupied_cells", "migration_passes", "calls",
+    "exited_particles", "exited_particles_cumulative", "migrated_particles", "occupied_cells", "migration_passes", "calls",
     "pseudo_iterations", "newton_iterations", "iterations",
 }
 
@@ -22708,6 +22752,8 @@ def _collect_summary_plot_records(context: dict) -> list:
                         "occupied_cells": _parse_int_loose(parts[5 + offset]),
                         "load_imbalance": _parse_float_loose(parts[6 + offset]),
                         "migration_passes": _parse_int_loose(parts[7 + offset]),
+                        "exited_particles": _parse_int_loose(parts[9]) if len(parts) >= 11 else None,
+                        "exited_particles_cumulative": _parse_int_loose(parts[10]) if len(parts) >= 11 else None,
                     },
                     particle_path, segment,
                 )

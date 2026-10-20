@@ -933,7 +933,7 @@ static PetscErrorCode TestCheckAndRemoveOutOfBoundsParticlesRemovesEscapedPartic
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests removal of LOST particles and that survivors keep the one-at-a-time removal order.
+ * @brief Tests removal of LOST and EXITED particles, their separate tallies, and that survivors keep the one-at-a-time removal order.
  */
 
 static PetscErrorCode TestCheckAndRemoveLostParticlesRemovesLostEntries(void)
@@ -946,6 +946,8 @@ static PetscErrorCode TestCheckAndRemoveLostParticlesRemovesLostEntries(void)
     PetscInt nlocal = 0;
     PetscReal *psi = NULL;
     PetscReal removed_psi = 0.0;
+    PetscInt exited_global = 0;
+    PetscReal exited_psi = 0.0;
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
@@ -961,17 +963,19 @@ static PetscErrorCode TestCheckAndRemoveLostParticlesRemovesLostEntries(void)
     PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
     status[0] = ACTIVE_AND_LOCATED;
     status[1] = LOST;
-    status[2] = LOST;
+    status[2] = EXITED;
     status[3] = ACTIVE_AND_LOCATED;
     status[4] = ACTIVE_AND_LOCATED;
     PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
 
-    PetscCall(CheckAndRemoveLostParticles(user, &removed_local, &removed_global, &removed_psi));
+    PetscCall(CheckAndRemoveLostParticles(user, &removed_local, &removed_global, &removed_psi, &exited_global, &exited_psi));
     PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
-    PetscCall(PicurvAssertRealNear(5.0, removed_psi, 0.0, "the removed particles carried Psi 2 and 3"));
-    PetscCall(PicurvAssertIntEqual(2, removed_local, "Two LOST particles should be removed locally"));
-    PetscCall(PicurvAssertIntEqual(2, removed_global, "Global LOST-particle removal count should match the local single-rank result"));
-    PetscCall(PicurvAssertIntEqual(3, nlocal, "Three non-LOST particles should remain"));
+    PetscCall(PicurvAssertRealNear(2.0, removed_psi, 0.0, "the LOST particle carried Psi 2"));
+    PetscCall(PicurvAssertRealNear(3.0, exited_psi, 0.0, "the EXITED particle carried Psi 3"));
+    PetscCall(PicurvAssertIntEqual(1, removed_local, "One LOST particle should be removed locally"));
+    PetscCall(PicurvAssertIntEqual(1, removed_global, "Global LOST-particle removal count should match the local single-rank result"));
+    PetscCall(PicurvAssertIntEqual(1, exited_global, "One EXITED particle should be removed"));
+    PetscCall(PicurvAssertIntEqual(3, nlocal, "Three located particles should remain"));
 
     /* Backward one-at-a-time removal moves the last particle into slot 2, then the new
      * last into slot 1: survivors end as Psi 0.5, 7, 11 (a forward scan would give 0.5, 11, 7). */
@@ -1235,6 +1239,52 @@ static PetscErrorCode TestLocateParticleOrFindMigrationTargetCountsReSearch(void
     PetscCall(PicurvAssertIntEqual(1, (PetscInt)simCtx->searchMetrics.searchAttempts, "direct re-search test should record one robust walk"));
     PetscCall(PicurvAssertIntEqual(1, (PetscInt)simCtx->searchMetrics.reSearchCount, "direct re-search test should increment re_search_count on later passes"));
     PetscCall(PicurvAssertIntEqual(0, (PetscInt)simCtx->searchMetrics.maxTraversalFailCount, "direct re-search test should not hit MAX_TRAVERSAL"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests that a particle beyond a reflecting -Xi face is mirrored back and located, including after a tangential walk.
+ */
+static PetscErrorCode TestLocateParticleOrFindMigrationTargetReflectsAtWall(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Particle particle;
+    ParticleLocationStatus status = NEEDS_LOCATION;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PetscMalloc1(simCtx->size, &user->RankCellInfoMap));
+    PetscCall(GetOwnedCellRange(&user->info, 0, &user->RankCellInfoMap[0].xs_cell, &user->RankCellInfoMap[0].xm_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 1, &user->RankCellInfoMap[0].ys_cell, &user->RankCellInfoMap[0].ym_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 2, &user->RankCellInfoMap[0].zs_cell, &user->RankCellInfoMap[0].zm_cell));
+    user->boundary_faces[BC_FACE_NEG_X].particle_policy = PARTICLE_BOUNDARY_REFLECT;
+    simCtx->searchMetrics.currentSettlementPass = 1;
+
+    /* Straight crossing of -Xi out of its previous cell (0,1,1). */
+    PetscCall(PetscMemzero(&particle, sizeof(particle)));
+    particle.PID = 41;
+    particle.cell[0] = 0; particle.cell[1] = 1; particle.cell[2] = 1;
+    particle.loc.x = -0.05; particle.loc.y = 0.375; particle.loc.z = 0.375;
+    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a reflected particle should be located"));
+    PetscCall(PicurvAssertRealNear(0.05, particle.loc.x, 1.0e-14, "x should mirror about the -Xi plane"));
+    PetscCall(PicurvAssertIntEqual(0, particle.cell[0], "the particle stays in the boundary cell column"));
+    PetscCall(PicurvAssertIntEqual(1, particle.cell[1], "a straight crossing keeps its j cell"));
+    PetscCall(PicurvAssertIntEqual(1, (PetscInt)simCtx->searchMetrics.reflectionCount, "one reflection"));
+
+    /* Crossing -Xi while also moving one cell in +j: the walk moves along the wall first. */
+    PetscCall(PetscMemzero(&particle, sizeof(particle)));
+    particle.PID = 42;
+    particle.cell[0] = 0; particle.cell[1] = 1; particle.cell[2] = 1;
+    particle.loc.x = -0.05; particle.loc.y = 0.625; particle.loc.z = 0.375;
+    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a tangential crossing should also be located"));
+    PetscCall(PicurvAssertRealNear(0.05, particle.loc.x, 1.0e-14, "x should mirror about the -Xi plane"));
+    PetscCall(PicurvAssertIntEqual(2, particle.cell[1], "the reflection happens in the boundary cell that holds the particle tangentially"));
+    PetscCall(PicurvAssertIntEqual(2, (PetscInt)simCtx->searchMetrics.reflectionCount, "one reflection per particle"));
+    PetscCall(PicurvAssertIntEqual(0, (PetscInt)simCtx->searchMetrics.reflectionFallbackCount, "no particle reached the cap"));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
@@ -1705,6 +1755,7 @@ int main(int argc, char **argv)
         {"check-and-remove-lost-particles-removes-lost-entries", TestCheckAndRemoveLostParticlesRemovesLostEntries},
         {"calculate-brownian-displacement-deterministic-seed", TestCalculateBrownianDisplacementDeterministicSeed},
         {"update-all-particle-positions-moves-swarm-entries", TestUpdateAllParticlePositionsMovesSwarmEntries},
+        {"locate-particle-or-find-migration-target-reflects-at-wall", TestLocateParticleOrFindMigrationTargetReflectsAtWall},
         {"locate-all-particles-in-grid-prior-cell-fast-path", TestLocateAllParticlesInGridPriorCellFastPath},
         {"locate-all-particles-in-grid-guess-path-resolves-local-particle", TestLocateAllParticlesInGridGuessPathResolvesLocalParticle},
         {"locate-particle-or-find-migration-target-counts-research", TestLocateParticleOrFindMigrationTargetCountsReSearch},

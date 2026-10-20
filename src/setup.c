@@ -522,6 +522,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->particlesLostLastStep = 0;
     simCtx->particlesLostCumulative = 0;
     simCtx->particlesLostScalarLastStep = 0.0;
+    simCtx->particlesExitedLastStep = 0;
+    simCtx->particlesExitedCumulative = 0;
+    simCtx->particlesExitedScalarLastStep = 0.0;
     simCtx->particlesMigratedLastStep = 0;
     simCtx->occupiedCellCount = 0;
     simCtx->particleLoadImbalance = 0.0;

@@ -87,8 +87,8 @@ static PetscErrorCode TestSignedDistanceAndClassification(void)
     PetscInt result = -99;
 
     PetscFunctionBeginUser;
-    PetscCall(ComputeSignedDistanceToPlane(v1, v2, v3, v4, centroid, inside_point, &d_inside, 1.0e-12));
-    PetscCall(ComputeSignedDistanceToPlane(v1, v2, v3, v4, centroid, outside_point, &d_outside, 1.0e-12));
+    PetscCall(ComputeSignedDistanceToPlane(v1, v2, v3, v4, centroid, inside_point, &d_inside, 1.0e-12, NULL));
+    PetscCall(ComputeSignedDistanceToPlane(v1, v2, v3, v4, centroid, outside_point, &d_outside, 1.0e-12, NULL));
     PetscCall(PicurvAssertBool((PetscBool)(d_inside > 0.0), "inside point should yield positive signed distance"));
     PetscCall(PicurvAssertBool((PetscBool)(d_outside < 0.0), "outside point should yield negative signed distance"));
 

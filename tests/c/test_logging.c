@@ -671,6 +671,8 @@ static PetscErrorCode TestStringConversionHelpers(void)
                                "BCHandlerTypeToString should report the driven periodic handler"));
     PetscCall(PicurvAssertBool(strcmp(ParticleLocationStatusToString(LOST), "LOST") == 0,
                                "ParticleLocationStatusToString should report LOST state"));
+    PetscCall(PicurvAssertBool(strcmp(ParticleLocationStatusToString(EXITED), "EXITED") == 0,
+                               "ParticleLocationStatusToString should report EXITED state"));
     PetscFunctionReturn(0);
 }
 /**

@@ -164,8 +164,9 @@ typedef enum {
     NEEDS_LOCATION,
     ACTIVE_AND_LOCATED,
     MIGRATING_OUT,
-    LOST,
-    UNINITIALIZED
+    LOST,             /**< The search failed for a particle believed to be inside the domain. */
+    UNINITIALIZED,
+    EXITED            /**< The particle crossed a domain-boundary face whose particle policy removes it. */
 } ParticleLocationStatus;
 
 /** @brief Enumerates the six faces of a cubic cell for distance calculations. */
@@ -275,6 +276,10 @@ typedef struct SearchMetricsState {
     PetscInt64 bboxGuessSuccessCount;
     PetscInt64 bboxGuessFallbackCount;
     PetscInt64 maxParticlePassDepth;
+    PetscInt64 searchExitedCount;
+    PetscInt64 blockedWalkRetryCount;
+    PetscInt64 reflectionCount;
+    PetscInt64 reflectionFallbackCount;
     PetscInt   currentSettlementPass;
 } SearchMetricsState;
 
@@ -324,6 +329,12 @@ typedef enum {
     RHEOLOGY           = 13,
     // Note:  Legacy 14 can be a JUNCTION with a specific handler.
 } BCType;
+
+/** @brief What happens to a particle that crosses a domain-boundary face. */
+typedef enum {
+    PARTICLE_BOUNDARY_REMOVE  = 0, ///< The particle leaves the domain (EXITED) and is removed.
+    PARTICLE_BOUNDARY_REFLECT = 1  ///< The particle is mirrored about the face plane and stays.
+} ParticleBoundaryPolicy;
 
 /** @brief Defines the specific computational "strategy" for a boundary handler. */
 typedef enum {
@@ -391,6 +402,7 @@ typedef struct BoundaryFaceConfig {
     BCFace             face_id;
     BCType             mathematical_type;
     BCHandlerType      handler_type;
+    ParticleBoundaryPolicy particle_policy; ///< What a particle crossing this face becomes (BC param particle_policy).
     BC_Param           *params;
     BoundaryCondition *handler;
 } BoundaryFaceConfig;
@@ -994,9 +1006,12 @@ typedef struct SimCtx {
     ParticleInitializationType ParticleInitialization;
     InterpolationMethod interpolationMethod;
     char particleRestartMode[16];
-    PetscInt particlesLostLastStep;
-    PetscInt particlesLostCumulative;
-    PetscReal particlesLostScalarLastStep; /**< Sum of Psi over the particles removed this step. */
+    PetscInt particlesLostLastStep;     /**< Particles removed this step because their search failed. */
+    PetscInt64 particlesLostCumulative;
+    PetscReal particlesLostScalarLastStep; /**< Sum of Psi over the particles removed this step as LOST. */
+    PetscInt particlesExitedLastStep;   /**< Particles removed this step because they left the domain. */
+    PetscInt64 particlesExitedCumulative;
+    PetscReal particlesExitedScalarLastStep; /**< Sum of Psi over the particles that left the domain this step. */
     struct ParticleFieldPlan *particleFieldPlan; /**< Configured initial particle-field values, or NULL. */
     PetscInt migrationPassesLastStep;
     PetscInt particlesMigratedLastStep;

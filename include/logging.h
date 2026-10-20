@@ -691,6 +691,13 @@ const char* MomentumSolverTypeToString(MomentumSolverType SolverFlag);
 const char* BCTypeToString(BCType type);
 
 /**
+ * @brief Returns the configuration token for a particle boundary policy.
+ * @param[in] policy The ParticleBoundaryPolicy enum value.
+ * @return Pointer to a constant string: "remove" or "reflect".
+ */
+const char* ParticleBoundaryPolicyToString(ParticleBoundaryPolicy policy);
+
+/**
  * @brief Converts a BCHandlerType enum to its string representation.
  *
  * Provides a descriptive string for a specific boundary condition implementation strategy.

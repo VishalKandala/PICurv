@@ -30,7 +30,7 @@ These statuses drive the iterative migration passes in the orchestrator.
 - single-particle walking search: @ref LocateParticleInGrid
 - robust locate-or-migrate decision: `LocateParticleOrFindMigrationTarget` (walking-search module)
 - global orchestrator: @ref LocateAllParticlesInGrid
-- rank migration communication: @ref PerformMigration
+- rank migration communication: @ref PerformMigration (sent particles are removed afterwards in one pass by @ref RemoveFlaggedParticles, keeping the one-at-a-time survivor order; measurement `swarm-one-pass-removal-2026-10-20`)
 - per-particle migration cycle helper: @ref PerformSingleParticleMigrationCycle
 - restart fast-path migration: @ref MigrateRestartParticlesUsingCellID
 

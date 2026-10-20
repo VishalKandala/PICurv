@@ -310,7 +310,9 @@ PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
 PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
                                            PetscInt *removedCountLocal,
                                            PetscInt *removedCountGlobal,
-                                           PetscReal *removedScalarSumGlobal)
+                                           PetscReal *removedScalarSumGlobal,
+                                           PetscInt *exitedCountGlobal,
+                                           PetscReal *exitedScalarSumGlobal)
 {
     PetscErrorCode ierr;
     DM             swarm = user->swarm;
@@ -320,20 +322,23 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
     PetscReal      *pos_p = NULL; // For better logging
     PetscReal      *psi_p = NULL;
     PetscBool      *remove = NULL;
-    PetscReal      local_removed_psi = 0.0;
-    PetscInt       local_removed_count = 0;
-    PetscMPIInt    global_removed_count_mpi = 0;
+    PetscReal      local_psi[2] = {0.0, 0.0};   // Psi carried out by LOST and by EXITED particles
+    PetscReal      global_psi[2] = {0.0, 0.0};
+    PetscInt       local_count[2] = {0, 0};     // LOST and EXITED particles removed on this rank
+    PetscInt       global_count[2] = {0, 0};
     PetscMPIInt    rank;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Checking for and removing LOST particles...\n", rank);
+    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Checking for and removing LOST and EXITED particles...\n", rank);
 
     // Initialize output parameters to ensure clean state
     *removedCountLocal = 0;
     if (removedCountGlobal) *removedCountGlobal = 0;
     if (removedScalarSumGlobal) *removedScalarSumGlobal = 0.0;
+    if (exitedCountGlobal) *exitedCountGlobal = 0;
+    if (exitedScalarSumGlobal) *exitedScalarSumGlobal = 0.0;
 
     ierr = DMSwarmGetLocalSize(swarm, &nLocalInitial); CHKERRQ(ierr);
 
@@ -347,15 +352,17 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
         ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI),                     NULL, NULL, (void **)&psi_p);    CHKERRQ(ierr);
         ierr = PetscMalloc1(nLocalInitial, &remove); CHKERRQ(ierr);
 
-        // --- Flag LOST particles BACKWARDS, the order the removal below fills their slots in ---
+        // --- Flag LOST and EXITED particles BACKWARDS, the order the removal below fills their slots in ---
         for (PetscInt p = nLocalInitial - 1; p >= 0; p--) {
-            remove[p] = (PetscBool)(status_p[p] == LOST);
+            remove[p] = (PetscBool)(status_p[p] == LOST || status_p[p] == EXITED);
             if (remove[p]) {
-                LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Removing LOST particle [PID %lld] at local index %d. Position: (%.4f, %.4f, %.4f).\n",
-                          rank, (long long)pid_p[p], p, pos_p[3*p], pos_p[3*p+1], pos_p[3*p+2]);
+                const PetscInt kind = (status_p[p] == LOST) ? 0 : 1;
+                LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Removing %s particle [PID %lld] at local index %d. Position: (%.4f, %.4f, %.4f).\n",
+                          rank, ParticleLocationStatusToString((ParticleLocationStatus)status_p[p]), (long long)pid_p[p], p,
+                          pos_p[3*p], pos_p[3*p+1], pos_p[3*p+2]);
                 // The scalar a removed particle carries leaves the domain with it.
-                local_removed_psi += psi_p[p];
-                local_removed_count++;
+                local_psi[kind] += psi_p[p];
+                local_count[kind]++;
             }
         }
 
@@ -369,19 +376,23 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
 
     PetscInt nLocalFinal;
     ierr = DMSwarmGetLocalSize(swarm, &nLocalFinal); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Finished removing %d LOST particles. Final local size: %d.\n", rank, local_removed_count, nLocalFinal);
+    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Finished removing %d LOST and %d EXITED particles. Final local size: %d.\n",
+              rank, local_count[0], local_count[1], nLocalFinal);
 
-    // --- Synchronize counts across all ranks ---
-    *removedCountLocal = local_removed_count;
-    if (removedCountGlobal) {
-        ierr = MPI_Allreduce(&local_removed_count, &global_removed_count_mpi, 1, MPI_INT, MPI_SUM, PetscObjectComm((PetscObject)swarm)); CHKERRQ(ierr);
-        *removedCountGlobal = global_removed_count_mpi;
+    // --- Synchronize counts across all ranks (one reduction for both kinds) ---
+    *removedCountLocal = local_count[0];
+    if (removedCountGlobal || exitedCountGlobal) {
+        ierr = MPI_Allreduce(local_count, global_count, 2, MPIU_INT, MPI_SUM, PetscObjectComm((PetscObject)swarm)); CHKERRMPI(ierr);
+        if (removedCountGlobal) *removedCountGlobal = global_count[0];
+        if (exitedCountGlobal) *exitedCountGlobal = global_count[1];
         // Use a synchronized log message so only one rank prints the global total.
-        LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "[Rank %d] Removed %d LOST particles globally.\n", rank, *removedCountGlobal);
+        LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "[Rank %d] Removed %d LOST and %d EXITED particles globally.\n", rank, global_count[0], global_count[1]);
     }
-    if (removedScalarSumGlobal) {
-        ierr = MPI_Allreduce(&local_removed_psi, removedScalarSumGlobal, 1, MPIU_REAL, MPI_SUM,
+    if (removedScalarSumGlobal || exitedScalarSumGlobal) {
+        ierr = MPI_Allreduce(local_psi, global_psi, 2, MPIU_REAL, MPI_SUM,
                              PetscObjectComm((PetscObject)swarm)); CHKERRMPI(ierr);
+        if (removedScalarSumGlobal) *removedScalarSumGlobal = global_psi[0];
+        if (exitedScalarSumGlobal) *exitedScalarSumGlobal = global_psi[1];
     }
     
     PROFILE_FUNCTION_END;
@@ -1458,8 +1469,12 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 			cell_p[3*p_idx+1],
 			cell_p[3*p_idx+2]);
 
-                if (status_p[p_idx] == ACTIVE_AND_LOCATED) {
-		  LOG_ALLOW(LOCAL,LOG_VERBOSE," [rank %d][PID %ld] skipped in pass %d as it is already located at (%d,%d,%d).\n",rank,pid_p[p_idx],passes,cell_p[3*p_idx],cell_p[3*p_idx + 1],cell_p[3*p_idx + 2]);
+                // LOST and EXITED are final within one settlement: only pass 1 searches them, so a
+                // particle beyond the boundary is never re-walked and re-migrated pass after pass.
+                if (status_p[p_idx] == ACTIVE_AND_LOCATED ||
+                    (passes > 1 && (status_p[p_idx] == LOST || status_p[p_idx] == EXITED))) {
+		  LOG_ALLOW(LOCAL,LOG_VERBOSE," [rank %d][PID %ld] skipped in pass %d with status %s at (%d,%d,%d).\n",rank,pid_p[p_idx],passes,
+                    ParticleLocationStatusToString((ParticleLocationStatus)status_p[p_idx]),cell_p[3*p_idx],cell_p[3*p_idx + 1],cell_p[3*p_idx + 2]);
                     continue;
                 }
 
@@ -1473,11 +1488,12 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 		    //		LOG_ALLOW(LOCAL,LOG_DEBUG,"unpacked p_idx=%d → cell[0]=%d, status=%s\n",p_idx, current_particle.cell[0], ParticleLocationStatusToString((ParticleLocationStatus)current_particle.location_status));
 
 		    ParticleLocationStatus final_status = (ParticleLocationStatus)status_p[p_idx];
+		    const PetscBool walk_from_prior_cell = (PetscBool)(current_particle.cell[0] >= 0);
 
 
 		    // CASE 1: Particle has a valid prior cell index.
                 // It has moved, so we only need to run the robust walk from its last known location.
-                if (current_particle.cell[0] >= 0) {
+                if (walk_from_prior_cell) {
 		            LOG_ALLOW(LOCAL, LOG_VERBOSE, "[PID %ld] has valid prior cell. Strategy: Robust Walk from previous cell.\n", current_particle.PID);
 		            ierr = LocateParticleOrFindMigrationTarget(user, &current_particle, &final_status); CHKERRQ(ierr);
                 } 
@@ -1516,8 +1532,9 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
                      ierr = UpdateSwarmFields(p_idx, &current_particle, pos_p, vel_p, weights_p, cell_p, status_p,NULL,NULL,NULL); CHKERRQ(ierr);
                 }
 		*/
-                // CASE 2: Particle is "lost" (cell = -1). Strategy: Guess -> Verify.
-                else {
+                // CASE 2: Particle has no valid cell (cell = -1), or its walk from the prior cell was
+                // blocked by the domain boundary and is retried here, in the same pass. Strategy: Guess -> Verify.
+                if (!walk_from_prior_cell || final_status == NEEDS_LOCATION) {
 		  LOG_ALLOW(LOCAL, LOG_VERBOSE, "[PID %ld] has invalid cell. Strategy: Guess Owner -> Find Cell.\n",current_particle.PID);
                     
 		  PetscMPIInt guessed_owner_rank = MPI_PROC_NULL;
@@ -1554,6 +1571,8 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
                 } else if (final_status == LOST) {
 		  local_lost_count++;
                   user->simCtx->searchMetrics.searchLostCount++;
+                } else if (final_status == EXITED) {
+                  user->simCtx->searchMetrics.searchExitedCount++;
                 } else if (final_status == ACTIVE_AND_LOCATED) {
                   user->simCtx->searchMetrics.searchLocatedCount++;
                 }

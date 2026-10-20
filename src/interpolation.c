@@ -973,7 +973,7 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
 
         /* Step 6: Compute face distances from particle to dual cell faces */
         PetscReal d[NUM_FACES];
-        ierr = CalculateDistancesToCellFaces(particle.loc, &dual_cell, d, 1e-11); CHKERRQ(ierr);
+        ierr = CalculateDistancesToCellFaces(particle.loc, &dual_cell, d, 1e-11, NULL); CHKERRQ(ierr);
 
         /* Step 7: Compute trilinear parametric coordinates from face distances */
         PetscReal a1_new = d[LEFT]   / (d[LEFT]   + d[RIGHT]);
