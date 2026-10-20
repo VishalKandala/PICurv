@@ -152,7 +152,7 @@ evaluated at their corresponding geometric face centers. Expressions may use
 documented numerical functions. The language is shared with particle `fields` values
 (@ref p45_particle_values_sec): `+ - * / % **`, comparisons including chains such as
 `0.2 < x < 0.5`, `and or not` (a comparison or logical expression is 1 or 0), decimal
-literals, and `abs sin cos tan exp sqrt minimum maximum where`; per-particle draws are
+literals, and `abs sin cos tan tanh exp erf sqrt minimum maximum where`; per-particle draws are
 particle-only. Expressions are physical: `x/y/z` are the grid's
 physical coordinates (the staged grid times `length_ref`), and each value is a physical
 velocity for `Ucat` or a physical volume flux for `Ucont`; `scale`, `zero_tolerance`, and

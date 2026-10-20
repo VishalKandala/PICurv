@@ -27,7 +27,7 @@ typedef enum {
     OP_CONST = 0, OP_VAR, OP_NEG, OP_POS, OP_NOT,
     OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_POW,
     OP_EQ, OP_NE, OP_LT, OP_LE, OP_GT, OP_GE, OP_AND, OP_OR,
-    OP_ABS, OP_COS, OP_EXP, OP_SIN, OP_SQRT, OP_TAN, OP_MAXIMUM, OP_MINIMUM, OP_WHERE,
+    OP_ABS, OP_COS, OP_ERF, OP_EXP, OP_SIN, OP_SQRT, OP_TAN, OP_TANH, OP_MAXIMUM, OP_MINIMUM, OP_WHERE,
     OP_UNIFORM, OP_NORMAL
 } ExpressionOp;
 
@@ -42,6 +42,7 @@ static const struct {
     {"abs", 1, 1, OP_ABS, PETSC_FALSE},         {"cos", 1, 1, OP_COS, PETSC_FALSE},
     {"exp", 1, 1, OP_EXP, PETSC_FALSE},         {"sin", 1, 1, OP_SIN, PETSC_FALSE},
     {"sqrt", 1, 1, OP_SQRT, PETSC_FALSE},       {"tan", 1, 1, OP_TAN, PETSC_FALSE},
+    {"erf", 1, 1, OP_ERF, PETSC_FALSE},         {"tanh", 1, 1, OP_TANH, PETSC_FALSE},
     {"maximum", 2, 2, OP_MAXIMUM, PETSC_FALSE}, {"minimum", 2, 2, OP_MINIMUM, PETSC_FALSE},
     {"where", 3, 3, OP_WHERE, PETSC_FALSE},
     {"uniform", 0, 1, OP_UNIFORM, PETSC_TRUE},  {"normal", 0, 1, OP_NORMAL, PETSC_TRUE},
@@ -487,6 +488,8 @@ PetscErrorCode PicurvExpressionEvaluate(const PicurvExpression *expression, cons
         case OP_SIN: stack[top - 1] = PetscSinReal(stack[top - 1]); break;
         case OP_SQRT: stack[top - 1] = PetscSqrtReal(stack[top - 1]); break;
         case OP_TAN: stack[top - 1] = PetscTanReal(stack[top - 1]); break;
+        case OP_ERF: stack[top - 1] = (PetscReal)erf((double)stack[top - 1]); break;
+        case OP_TANH: stack[top - 1] = PetscTanhReal(stack[top - 1]); break;
         case OP_WHERE:
             c = stack[--top]; b = stack[--top]; a = stack[top - 1];
             stack[top - 1] = (a != 0.0) ? b : c;
