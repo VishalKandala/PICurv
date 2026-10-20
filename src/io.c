@@ -807,6 +807,31 @@ PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *valu
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "GetBCParamString"
+/**
+ * @brief Implementation of \ref GetBCParamString().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/io.h`.
+ * @see GetBCParamString()
+ */
+PetscErrorCode GetBCParamString(BC_Param *params, const char *key, const char **value_out, PetscBool *found)
+{
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    *found = PETSC_FALSE;
+    *value_out = NULL;
+    for (BC_Param *param = params; param; param = param->next) {
+        if (strcasecmp(param->key, key) == 0) {
+            *value_out = param->value;
+            *found = PETSC_TRUE;
+            break;
+        }
+    }
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "GetDrivenSeamFluxFlag"
 /**
  * @brief Implementation of \ref GetDrivenSeamFluxFlag().
@@ -2917,13 +2942,10 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                         ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - v_max=%.4f\n",
                         face_name_width, face_str, bc_type_str, bc_handler_type_str, v_max); CHKERRQ(ierr);
                         } else if(user->boundary_faces[current_face].handler_type == BC_HANDLER_INLET_PROFILE_FROM_FILE){
-                        const char *source_file = "(missing)";
-                        for (BC_Param *param = user->boundary_faces[current_face].params; param; param = param->next) {
-                            if (strcasecmp(param->key, "source_file") == 0 && param->value) {
-                                source_file = param->value;
-                                break;
-                            }
-                        }
+                        const char *source_file = NULL;
+                        PetscBool found;
+                        ierr = GetBCParamString(user->boundary_faces[current_face].params,"source_file",&source_file,&found); CHKERRQ(ierr);
+                        if (!source_file) source_file = "(missing)";
                         ierr = PetscPrintf(PETSC_COMM_SELF, " Face %-*s : %s - %s - source_file=%s\n",
                         face_name_width, face_str, bc_type_str, bc_handler_type_str, source_file); CHKERRQ(ierr);
                         }

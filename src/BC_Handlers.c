@@ -829,31 +829,6 @@ typedef struct {
 } InletProfileFileData;
 
 /**
- * @brief Looks up a string-valued boundary-condition parameter in a BC_Param list.
- *
- * @param params Head of the boundary-condition parameter linked list.
- * @param key Case-insensitive key to search for.
- * @param[out] value_out Borrowed pointer to the matching value string, or NULL if absent.
- * @param[out] found PETSC_TRUE when the key is present, PETSC_FALSE otherwise.
- * @return PetscErrorCode 0 on success.
- */
-static PetscErrorCode GetBCParamStringLocal(BC_Param *params, const char *key,
-                                            const char **value_out, PetscBool *found)
-{
-    PetscFunctionBeginUser;
-    *found = PETSC_FALSE;
-    *value_out = NULL;
-    for (BC_Param *param = params; param; param = param->next) {
-        if (strcasecmp(param->key, key) == 0) {
-            *value_out = param->value;
-            *found = PETSC_TRUE;
-            PetscFunctionReturn(0);
-        }
-    }
-    PetscFunctionReturn(0);
-}
-
-/**
  * @brief Computes the expected PICSLICE dimensions for an inlet face.
  *
  * @param user User context containing global grid node counts.
@@ -1236,8 +1211,8 @@ static PetscErrorCode Initialize_InletProfileFromFile(BoundaryCondition *self, B
     PetscInt expected_n1 = 0, expected_n2 = 0;
 
     PetscFunctionBeginUser;
-    ierr = GetBCParamStringLocal(user->boundary_faces[face_id].params, "source_file",
-                                 &source_file, &found); CHKERRQ(ierr);
+    ierr = GetBCParamString(user->boundary_faces[face_id].params, "source_file",
+                            &source_file, &found); CHKERRQ(ierr);
     if (!found || !source_file || source_file[0] == '\0') {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
                 "InletProfileFromFile requires source_file parameter for face %d.", face_id);

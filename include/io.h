@@ -475,6 +475,16 @@ PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *valu
 PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *value_out, PetscBool *found);
 
 /**
+ * @brief Searches a BC_Param linked list for a key and returns its value as a string.
+ * @param params The head of the BC_Param linked list.
+ * @param key The key to search for (case-insensitive).
+ * @param[out] value_out Borrowed pointer to the matching value string, or NULL if absent.
+ * @param[out] found Set to PETSC_TRUE if the key was found, PETSC_FALSE otherwise.
+ * @return 0 on success.
+ */
+PetscErrorCode GetBCParamString(BC_Param *params, const char *key, const char **value_out, PetscBool *found);
+
+/**
  * @brief Read the driven-flow seam-flux flag, accepting its deprecated `apply_trim` spelling.
  * @param[in]  params    Parameter list for the face.
  * @param[out] value_out Resolved flag value.
