@@ -1,5 +1,7 @@
 #include "ParticlePhysics.h"
 #include "verification_sources.h"
+#include "ParticleMotion.h"
+#include "interpolation.h"
 
 #ifndef ERROR_MSG_BUFFER_SIZE
 #define ERROR_MSG_BUFFER_SIZE 256
@@ -72,6 +74,14 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
                "Particle field '%s' has no registered model-update kernel.",
                descriptor->canonical_name);
     fieldName = descriptor->canonical_name;
+
+    // Relax toward the mean of the particles where they are now. The Eulerian Psi otherwise
+    // holds the previous step's scatter, taken before the particles moved and migrated.
+    // Collective, so it comes before the early return of ranks with no particles.
+    if (field_id == PARTICLE_FIELD_ID_PSI) {
+        ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
+        ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
+    }
 
     ierr = DMSwarmGetLocalSize(swarm, &n_local); CHKERRQ(ierr);
     if (n_local == 0) {

@@ -449,9 +449,11 @@ static PetscErrorCode TestConfiguredParticleInitialValue(void)
 
 /**
  * @brief Checks configured IEM relaxation through the production swarm update.
- * @details A zero constant switches micromixing off, and must leave Psi bit-identical:
- *          Psi = 0.1 against a mean of 3 would not survive `3 + (0.1 - 3) * 1` exactly,
- *          so the exact comparison shows the update is skipped, not run at a zero rate.
+ * @details Each particle must relax toward the mean of the particles now in its cell, at the
+ *          configured rate. A zero constant switches micromixing off, and must leave Psi
+ *          bit-identical: alternating values 0.1 and 0.7 do not survive `m + (0.1 - m) * 1`
+ *          exactly in mixed cells, so the exact comparison shows the update is skipped, not
+ *          run at a zero rate.
  */
 static PetscErrorCode TestConfiguredIEMUpdatesSwarm(void)
 {
@@ -464,9 +466,11 @@ static PetscErrorCode TestConfiguredIEMUpdatesSwarm(void)
         UserCtx *user = NULL;
         char tmpdir[PETSC_MAX_PATH_LEN];
         PetscInt nlocal;
-        PetscReal *psi = NULL, *diffusivity = NULL;
+        PetscReal *psi = NULL, *diffusivity = NULL, *psi_initial = NULL, *cell_mean = NULL;
+        PetscInt *cell = NULL;
         const char *psi_name = ParticleFieldName(PARTICLE_FIELD_ID_PSI);
         const char *diff_name = ParticleFieldName(PARTICLE_FIELD_ID_DIFFUSIVITY);
+        const char *cell_name = ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID);
 
         PetscCall(PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_TRUE, options[n],
                     &simCtx, &user, tmpdir, sizeof(tmpdir)));
@@ -474,32 +478,46 @@ static PetscErrorCode TestConfiguredIEMUpdatesSwarm(void)
         PetscCall(InitializeParticleSwarm(simCtx));
         PetscCall(PerformInitializedParticleSetup(simCtx));
         simCtx->dt = 0.5;
-        /* Controlled nonzero test data; no public scalar initializer is implied. */
-        PetscCall(VecSet(user->lPsi, 3.0));
+        /* Controlled nonzero test data; no public scalar initializer is implied. A unit
+         * Jacobian makes the mixing length 1, and alternating particle values give every
+         * cell with two or more particles a mean the particles must relax toward. */
         PetscCall(VecSet(user->lAj, 1.0));
         PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
         PetscCall(PicurvAssertBool((PetscBool)(nlocal > 0), "IEM fixture must contain particles"));
         PetscCall(DMSwarmGetField(user->swarm, psi_name, NULL, NULL, (void **)&psi));
         PetscCall(DMSwarmGetField(user->swarm, diff_name, NULL, NULL, (void **)&diffusivity));
-        const PetscReal psi_initial = (constants[n] == 0.0) ? 0.1 : 1.0;
+        PetscCall(DMSwarmGetField(user->swarm, cell_name, NULL, NULL, (void **)&cell));
+        PetscCall(PetscMalloc2(nlocal, &psi_initial, nlocal, &cell_mean));
         for (PetscInt p = 0; p < nlocal; ++p) {
-            psi[p] = psi_initial;
+            psi[p] = psi_initial[p] = (p % 2) ? 0.7 : 0.1;
             diffusivity[p] = 0.2;
         }
+        /* Each particle's own-cell mean, from the particles where they are now. */
+        for (PetscInt p = 0; p < nlocal; ++p) {
+            PetscReal sum = 0.0, count = 0.0;
+            for (PetscInt q = 0; q < nlocal; ++q) {
+                if (cell[3*q] == cell[3*p] && cell[3*q+1] == cell[3*p+1] && cell[3*q+2] == cell[3*p+2]) {
+                    sum += psi_initial[q]; count += 1.0;
+                }
+            }
+            cell_mean[p] = sum / count;
+        }
+        PetscCall(DMSwarmRestoreField(user->swarm, cell_name, NULL, NULL, (void **)&cell));
         PetscCall(DMSwarmRestoreField(user->swarm, diff_name, NULL, NULL, (void **)&diffusivity));
         PetscCall(DMSwarmRestoreField(user->swarm, psi_name, NULL, NULL, (void **)&psi));
         PetscCall(UpdateAllParticleFields(user));
         PetscCall(DMSwarmGetField(user->swarm, psi_name, NULL, NULL, (void **)&psi));
         for (PetscInt p = 0; p < nlocal; ++p) {
             if (constants[n] == 0.0) {
-                PetscCall(PicurvAssertBool((PetscBool)(psi[p] == psi_initial),
+                PetscCall(PicurvAssertBool((PetscBool)(psi[p] == psi_initial[p]),
                             "a zero IEM constant must leave Psi bit-identical"));
             } else {
-                PetscCall(PicurvAssertRealNear(3.0 - 2.0 * PetscExpReal(-constants[n] * 0.2 * 0.5),
-                            psi[p], 1.e-12, "configured IEM constant must control swarm relaxation"));
+                PetscCall(PicurvAssertRealNear(cell_mean[p] + (psi_initial[p] - cell_mean[p]) * PetscExpReal(-constants[n] * 0.2 * 0.5),
+                            psi[p], 1.e-12, "configured IEM constant must relax each particle toward its cell's current mean"));
             }
         }
         PetscCall(DMSwarmRestoreField(user->swarm, psi_name, NULL, NULL, (void **)&psi));
+        PetscCall(PetscFree2(psi_initial, cell_mean));
         PetscCall(FreeLifecycleContext(&simCtx));
         PetscCall(PicurvRemoveTempDir(tmpdir));
     }
