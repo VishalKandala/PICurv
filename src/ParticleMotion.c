@@ -952,9 +952,10 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
         if(particle_was_placed){
         particles_actually_reinitialized_count++;
 
-        cell_ID_field[3*p+0] = -1;
-        cell_ID_field[3*p+1] = -1;
-        cell_ID_field[3*p+2] = -1;
+        // The settlement that follows starts its walk in the face cell the particle was placed in.
+        cell_ID_field[3*p+0] = ci_metric_lnode;
+        cell_ID_field[3*p+1] = cj_metric_lnode;
+        cell_ID_field[3*p+2] = ck_metric_lnode;
 
         LOG_LOOP_ALLOW(LOCAL, LOG_VERBOSE, p, (nlocal_current > 20 ? nlocal_current/10 : 1), // Sampled logging
             "Rank %d: PID %ld (idx %ld) RE-PLACED. CellOriginNode(locDAIdx):(%d,%d,%d). LogicCoords: (%.2e,%.2f,%.2f). PhysCoords: (%.6f,%.6f,%.6f).\n",

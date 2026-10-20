@@ -379,7 +379,10 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     }
 
     // --- 1. Initial Particle Settlement (Location and Migration) ---
+    // Seeding records each particle's cell where it knows it; particles whose cell another rank
+    // owns (a point source) go straight to that owner first, as restarted particles do.
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Initial Settlement: Locating and migrating all particles...\n", simCtx->ti, simCtx->step);
+    ierr = MigrateRestartParticlesUsingCellID(user); CHKERRQ(ierr);
     ierr = LocateAllParticlesInGrid(user, bboxlist); CHKERRQ(ierr);
 
     if(get_log_level() >= LOG_DEBUG && is_function_allowed(__FUNCT__)==true){

@@ -396,10 +396,12 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm,
 /**
  * @brief Fast-path migration for restart particles using preloaded Cell IDs.
  *
- * This function provides an optimized migration path specifically for particles
- * loaded from restart files. Unlike the standard `LocateAllParticlesInGrid()`
- * which performs expensive walking searches, this function leverages the fact that
- * restart particles already have valid global Cell IDs loaded from disk.
+ * This function provides an optimized migration path for particles whose Cell ID is
+ * already known: particles loaded from restart files, and freshly seeded particles,
+ * whose seeding records the cell it placed them in (a point source's cell may belong to
+ * another rank). Unlike the standard `LocateAllParticlesInGrid()`, which performs
+ * walking searches, this function sends each such particle straight to its cell's owner.
+ * Particles without a Cell ID (-1) are left for `LocateAllParticlesInGrid()`.
  *
  * **How It Works:**
  * 1. Iterates through all local particles.

@@ -356,6 +356,32 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
         if (rank == 0) base_pid_for_rank = 0; /* MPI_Exscan leaves rank 0's result undefined */
     }
 
+    // --- 4b. Locate the Point Source Once ---
+    // Every rank places its share at the same point, so its cell is found by one search per rank;
+    // the lowest rank that holds it shares the cell, and settlement then routes the particles there.
+    PetscInt point_cell[3] = {-1, -1, -1};
+    if (simCtx->ParticleInitialization == PARTICLE_INIT_POINT_SOURCE) {
+        Particle               probe;
+        ParticleLocationStatus probe_status = NEEDS_LOCATION;
+        PetscMPIInt            candidate, owner = size;
+        ierr = PetscMemzero(&probe, sizeof(probe)); CHKERRQ(ierr);
+        probe.PID = -1;
+        probe.cell[0] = -1; probe.cell[1] = -1; probe.cell[2] = -1;
+        probe.loc.x = simCtx->psrc_x; probe.loc.y = simCtx->psrc_y; probe.loc.z = simCtx->psrc_z;
+        ierr = LocateParticleOrFindMigrationTarget(user, &probe, &probe_status); CHKERRQ(ierr);
+        candidate = (probe_status == ACTIVE_AND_LOCATED) ? rank : size;
+        ierr = MPI_Allreduce(&candidate, &owner, 1, MPI_INT, MPI_MIN, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+        if (owner < size) {
+            if (rank == owner) { point_cell[0] = probe.cell[0]; point_cell[1] = probe.cell[1]; point_cell[2] = probe.cell[2]; }
+            ierr = MPI_Bcast(point_cell, 3, MPIU_INT, owner, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Point source (%.6e, %.6e, %.6e) lies in cell (%d,%d,%d) on rank %d.\n",
+                      simCtx->psrc_x, simCtx->psrc_y, simCtx->psrc_z, point_cell[0], point_cell[1], point_cell[2], owner);
+        } else {
+            LOG_ALLOW(GLOBAL, LOG_WARNING, "Point source (%.6e, %.6e, %.6e) was not located on any rank; its particles will be searched for.\n",
+                      simCtx->psrc_x, simCtx->psrc_y, simCtx->psrc_z);
+        }
+    }
+
     // --- 5. Loop Over Particles to Initialize ---
     for (PetscInt p = 0; p < particlesPerProcess; p++) {
         PetscInt idx = p; 
@@ -436,7 +462,8 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
             phys_coords.x = simCtx->psrc_x;
             phys_coords.y = simCtx->psrc_y;
             phys_coords.z = simCtx->psrc_z;
-            particle_placed_by_this_rank = PETSC_TRUE;
+            ci_metric_lnode = point_cell[0]; cj_metric_lnode = point_cell[1]; ck_metric_lnode = point_cell[2];
+            particle_placed_by_this_rank = (PetscBool)(point_cell[0] >= 0);
         }else {
             SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Unknown ParticleInitialization mode %d.", simCtx->ParticleInitialization);
         }
@@ -447,7 +474,13 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
         positions_field[3*p+2] = phys_coords.z;
 
         particleIDs[p]         = (PetscInt64)base_pid_for_rank + p; 
-        cellIDs_petsc[3*p+0]   = -1; cellIDs_petsc[3*p+1] = -1; cellIDs_petsc[3*p+2] = -1;
+        // Start the first settlement's walk in the cell the particle was placed in; a particle
+        // parked at the inlet centre for migration has no cell and is located by search.
+        if (particle_placed_by_this_rank) {
+            cellIDs_petsc[3*p+0] = ci_metric_lnode; cellIDs_petsc[3*p+1] = cj_metric_lnode; cellIDs_petsc[3*p+2] = ck_metric_lnode;
+        } else {
+            cellIDs_petsc[3*p+0] = -1; cellIDs_petsc[3*p+1] = -1; cellIDs_petsc[3*p+2] = -1;
+        }
         status_field[p]        = UNINITIALIZED;
 
         // --- 5.d. Logging for this particle ---
