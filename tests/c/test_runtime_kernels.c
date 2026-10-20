@@ -933,7 +933,7 @@ static PetscErrorCode TestCheckAndRemoveOutOfBoundsParticlesRemovesEscapedPartic
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests direct removal of particles already marked LOST by the location workflow.
+ * @brief Tests removal of LOST particles and that survivors keep the one-at-a-time removal order.
  */
 
 static PetscErrorCode TestCheckAndRemoveLostParticlesRemovesLostEntries(void)
@@ -949,17 +949,21 @@ static PetscErrorCode TestCheckAndRemoveLostParticlesRemovesLostEntries(void)
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
-    PetscCall(PicurvCreateSwarmPair(user, 3, "ske"));
+    PetscCall(PicurvCreateSwarmPair(user, 5, "ske"));
     PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
     psi[0] = 0.5;
     psi[1] = 2.0;
     psi[2] = 3.0;
+    psi[3] = 7.0;
+    psi[4] = 11.0;
     PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
 
     PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
     status[0] = ACTIVE_AND_LOCATED;
     status[1] = LOST;
     status[2] = LOST;
+    status[3] = ACTIVE_AND_LOCATED;
+    status[4] = ACTIVE_AND_LOCATED;
     PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
 
     PetscCall(CheckAndRemoveLostParticles(user, &removed_local, &removed_global, &removed_psi));
@@ -967,7 +971,15 @@ static PetscErrorCode TestCheckAndRemoveLostParticlesRemovesLostEntries(void)
     PetscCall(PicurvAssertRealNear(5.0, removed_psi, 0.0, "the removed particles carried Psi 2 and 3"));
     PetscCall(PicurvAssertIntEqual(2, removed_local, "Two LOST particles should be removed locally"));
     PetscCall(PicurvAssertIntEqual(2, removed_global, "Global LOST-particle removal count should match the local single-rank result"));
-    PetscCall(PicurvAssertIntEqual(1, nlocal, "One non-LOST particle should remain"));
+    PetscCall(PicurvAssertIntEqual(3, nlocal, "Three non-LOST particles should remain"));
+
+    /* Backward one-at-a-time removal moves the last particle into slot 2, then the new
+     * last into slot 1: survivors end as Psi 0.5, 7, 11 (a forward scan would give 0.5, 11, 7). */
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(PicurvAssertRealNear(0.5, psi[0], 0.0, "survivor order must match one-at-a-time removal (slot 0)"));
+    PetscCall(PicurvAssertRealNear(7.0, psi[1], 0.0, "survivor order must match one-at-a-time removal (slot 1)"));
+    PetscCall(PicurvAssertRealNear(11.0, psi[2], 0.0, "survivor order must match one-at-a-time removal (slot 2)"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);

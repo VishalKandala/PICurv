@@ -725,8 +725,10 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
     // Register particle fields (position, velocity, CellID, weight, etc.)
     ierr = RegisterParticleFields(user->swarm); CHKERRQ(ierr);
 
-    // Set the local number of particles for this rank and additional buffer for particle migration
-    ierr = DMSwarmSetLocalSizes(user->swarm, *particlesPerProcess, numParticles); CHKERRQ(ierr);
+    // Set the local number of particles for this rank and spare capacity for arrivals (10% of the
+    // local count; PETSc reallocates beyond it). Every resize zeroes the whole spare region, so a
+    // buffer sized to the global count would cost each rank memory and work of order numParticles.
+    ierr = DMSwarmSetLocalSizes(user->swarm, *particlesPerProcess, *particlesPerProcess / 10); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_INFO, "Set local swarm size: %d particles.\n", *particlesPerProcess);
 
     // Optionally, LOG_ALLOW detailed DM info in debug mode
