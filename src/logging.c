@@ -42,6 +42,8 @@ enum {
     SEARCH_METRIC_SUM_BBOX_GUESS_SUCCESS,
     SEARCH_METRIC_SUM_BBOX_GUESS_FALLBACK,
     SEARCH_METRIC_SUM_MAX_TRAVERSAL_FAILS,
+    SEARCH_METRIC_SUM_SEARCH_EXITED,
+    SEARCH_METRIC_SUM_BLOCKED_RETRY,
     SEARCH_METRIC_MAX_TRAVERSAL_STEPS,
     SEARCH_METRIC_MAX_PASS_DEPTH,
     SEARCH_METRIC_REDUCTION_LEN
@@ -69,6 +71,8 @@ static void SearchMetricsReduceOp(void *invec, void *inoutvec, int *len, MPI_Dat
         inout[idx + SEARCH_METRIC_SUM_BBOX_GUESS_SUCCESS] += in[idx + SEARCH_METRIC_SUM_BBOX_GUESS_SUCCESS];
         inout[idx + SEARCH_METRIC_SUM_BBOX_GUESS_FALLBACK] += in[idx + SEARCH_METRIC_SUM_BBOX_GUESS_FALLBACK];
         inout[idx + SEARCH_METRIC_SUM_MAX_TRAVERSAL_FAILS] += in[idx + SEARCH_METRIC_SUM_MAX_TRAVERSAL_FAILS];
+        inout[idx + SEARCH_METRIC_SUM_SEARCH_EXITED] += in[idx + SEARCH_METRIC_SUM_SEARCH_EXITED];
+        inout[idx + SEARCH_METRIC_SUM_BLOCKED_RETRY] += in[idx + SEARCH_METRIC_SUM_BLOCKED_RETRY];
         inout[idx + SEARCH_METRIC_MAX_TRAVERSAL_STEPS] = PetscMax(inout[idx + SEARCH_METRIC_MAX_TRAVERSAL_STEPS],
                                                                    in[idx + SEARCH_METRIC_MAX_TRAVERSAL_STEPS]);
         inout[idx + SEARCH_METRIC_MAX_PASS_DEPTH] = PetscMax(inout[idx + SEARCH_METRIC_MAX_PASS_DEPTH],
@@ -1958,6 +1962,7 @@ const char* ParticleLocationStatusToString(ParticleLocationStatus level)
         case MIGRATING_OUT:     return "MIGRATING_OUT";
         case LOST:               return "LOST";
         case UNINITIALIZED:      return "UNINITIALIZED";
+        case EXITED:             return "EXITED";
         default:            return "UNKNOWN_LEVEL";
     }
 }
@@ -3229,6 +3234,8 @@ PetscErrorCode ResetSearchMetrics(SimCtx *simCtx)
     simCtx->searchMetrics.bboxGuessSuccessCount = 0;
     simCtx->searchMetrics.bboxGuessFallbackCount = 0;
     simCtx->searchMetrics.maxParticlePassDepth = 0;
+    simCtx->searchMetrics.searchExitedCount = 0;
+    simCtx->searchMetrics.blockedWalkRetryCount = 0;
     simCtx->searchMetrics.currentSettlementPass = 0;
 
     PetscFunctionReturn(0);
@@ -3266,6 +3273,8 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
     long long      maxTraversalFailCount = 0;
     long long      maxTraversalSteps = 0;
     long long      maxPassDepth = 0;
+    long long      searchExitedCount = 0;
+    long long      blockedWalkRetryCount = 0;
     MPI_Op         reduction_op = MPI_OP_NULL;
 
     PetscFunctionBeginUser;
@@ -3291,6 +3300,8 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
     local_metrics[SEARCH_METRIC_SUM_BBOX_GUESS_SUCCESS] = (PetscReal)simCtx->searchMetrics.bboxGuessSuccessCount;
     local_metrics[SEARCH_METRIC_SUM_BBOX_GUESS_FALLBACK] = (PetscReal)simCtx->searchMetrics.bboxGuessFallbackCount;
     local_metrics[SEARCH_METRIC_SUM_MAX_TRAVERSAL_FAILS] = (PetscReal)simCtx->searchMetrics.maxTraversalFailCount;
+    local_metrics[SEARCH_METRIC_SUM_SEARCH_EXITED] = (PetscReal)simCtx->searchMetrics.searchExitedCount;
+    local_metrics[SEARCH_METRIC_SUM_BLOCKED_RETRY] = (PetscReal)simCtx->searchMetrics.blockedWalkRetryCount;
     local_metrics[SEARCH_METRIC_MAX_TRAVERSAL_STEPS] = (PetscReal)simCtx->searchMetrics.maxTraversalSteps;
     local_metrics[SEARCH_METRIC_MAX_PASS_DEPTH] = (PetscReal)simCtx->searchMetrics.maxParticlePassDepth;
 
@@ -3312,6 +3323,8 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
     maxTraversalFailCount = (long long)PetscFloorReal(global_metrics[SEARCH_METRIC_SUM_MAX_TRAVERSAL_FAILS] + 0.5);
     maxTraversalSteps = (long long)PetscFloorReal(global_metrics[SEARCH_METRIC_MAX_TRAVERSAL_STEPS] + 0.5);
     maxPassDepth = (long long)PetscFloorReal(global_metrics[SEARCH_METRIC_MAX_PASS_DEPTH] + 0.5);
+    searchExitedCount = (long long)PetscFloorReal(global_metrics[SEARCH_METRIC_SUM_SEARCH_EXITED] + 0.5);
+    blockedWalkRetryCount = (long long)PetscFloorReal(global_metrics[SEARCH_METRIC_SUM_BLOCKED_RETRY] + 0.5);
 
     if (searchAttempts > 0) {
         meanTraversalSteps = (PetscReal)traversalStepsSum / (PetscReal)searchAttempts;
@@ -3340,18 +3353,20 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
                         "bbox_guess_success_count,bbox_guess_fallback_count,max_particle_pass_depth,load_imbalance,"
                         "search_population,search_located_count,search_lost_count,traversal_steps_sum,re_search_count,"
                         "max_traversal_fail_count,search_failure_fraction,search_work_index,re_search_fraction,"
-                        "physical_time,lost_psi_sum\n");
+                        "physical_time,lost_psi_sum,exited,exited_cumulative,exited_psi_sum,search_exited_count,"
+                        "blocked_walk_retry_count\n");
             }
             if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
                 fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
             }
             fprintf(f,
-                    "%d,%.6e,%d,%d,%d,%d,%d,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%.6e,%.6e,%.6e,%.10e\n",
+                    "%d,%.6e,%d,%d,%lld,%d,%d,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%.6e,%.6e,%.6e,%.10e,"
+                    "%d,%lld,%.10e,%lld,%lld\n",
                     (int)simCtx->step,
                     (double)simCtx->ti,
                     (int)totalParticles,
                     (int)simCtx->particlesLostLastStep,
-                    (int)simCtx->particlesLostCumulative,
+                    (long long)simCtx->particlesLostCumulative,
                     (int)simCtx->particlesMigratedLastStep,
                     (int)simCtx->migrationPassesLastStep,
                     searchAttempts,
@@ -3373,18 +3388,26 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
                     (double)searchWorkIndex,
                     (double)reSearchFraction,
                     (double)searchPhysicalTime,
-                    (double)simCtx->particlesLostScalarLastStep);
+                    (double)simCtx->particlesLostScalarLastStep,
+                    (int)simCtx->particlesExitedLastStep,
+                    (long long)simCtx->particlesExitedCumulative,
+                    (double)simCtx->particlesExitedScalarLastStep,
+                    searchExitedCount,
+                    blockedWalkRetryCount);
             fclose(f);
         }
     }
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG,
-              "Search metrics: sff=%.3e swi=%.3e re_search=%.3e lost(step/total)=%d/%d migrated=%d passes=%d traversal(mean/max)=%.2f/%lld tie_breaks=%lld max_pass_depth=%lld\n",
+              "Search metrics: sff=%.3e swi=%.3e re_search=%.3e lost(step/total)=%d/%lld exited(step/total)=%d/%lld blocked_retries=%lld migrated=%d passes=%d traversal(mean/max)=%.2f/%lld tie_breaks=%lld max_pass_depth=%lld\n",
               (double)searchFailureFraction,
               (double)searchWorkIndex,
               (double)reSearchFraction,
               (int)simCtx->particlesLostLastStep,
-              (int)simCtx->particlesLostCumulative,
+              (long long)simCtx->particlesLostCumulative,
+              (int)simCtx->particlesExitedLastStep,
+              (long long)simCtx->particlesExitedCumulative,
+              blockedWalkRetryCount,
               (int)simCtx->particlesMigratedLastStep,
               (int)simCtx->migrationPassesLastStep,
               (double)meanTraversalSteps,
@@ -3476,18 +3499,20 @@ PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName)
         if (!f) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open particle log file: %s", filen);
 
         if (ftell(f) == 0) {
-            PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10s | %-12s | %-10s | %-10s | %-10s | %-15s | %-10s | %-10s\n",
-                            "Stage", "Timestep", "Total Ptls", "Lost", "Lost Total", "Migrated", "Occupied Cells", "Imbalance", "Mig Passes");
+            PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10s | %-12s | %-10s | %-10s | %-10s | %-15s | %-10s | %-10s | %-10s | %-12s\n",
+                            "Stage", "Timestep", "Total Ptls", "Lost", "Lost Total", "Migrated", "Occupied Cells", "Imbalance", "Mig Passes",
+                            "Exited", "Exited Total");
             PetscFPrintf(PETSC_COMM_SELF, f, "-------------------------------------------------------------------------------------------------------------------------------------------\n");
         }
         if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
             PetscFPrintf(PETSC_COMM_SELF, f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
         }
 
-        PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10d | %-12d | %-10d | %-10d | %-10d | %-15d | %-10.2f | %-10d\n",
+        PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10d | %-12d | %-10d | %-10lld | %-10d | %-15d | %-10.2f | %-10d | %-10d | %-12lld\n",
                         stage_label, (int)simCtx->step, (int)totalParticles, (int)simCtx->particlesLostLastStep,
-                        (int)simCtx->particlesLostCumulative, (int)simCtx->particlesMigratedLastStep, (int)simCtx->occupiedCellCount,
-                        (double)simCtx->particleLoadImbalance, (int)simCtx->migrationPassesLastStep);
+                        (long long)simCtx->particlesLostCumulative, (int)simCtx->particlesMigratedLastStep, (int)simCtx->occupiedCellCount,
+                        (double)simCtx->particleLoadImbalance, (int)simCtx->migrationPassesLastStep,
+                        (int)simCtx->particlesExitedLastStep, (long long)simCtx->particlesExitedCumulative);
         fclose(f);
     }
     PetscFunctionReturn(0);

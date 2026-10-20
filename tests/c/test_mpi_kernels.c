@@ -480,6 +480,78 @@ static PetscErrorCode TestRestartCellIdMigrationMovesParticleToOwner(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief A particle that left the domain is classified once and never re-searched in later passes.
+ *
+ * Rank 0 holds one particle beyond the -Xi face and one that has moved into rank 1, so the
+ * settlement needs a second pass. The leaving particle must end EXITED after pass 1 and be
+ * skipped afterwards: re-searching it is what used to count it as lost once per pass and, on
+ * curved boundaries, migrate it between ranks until the pass limit aborted the run.
+ */
+static PetscErrorCode TestSettlementClassifiesExitOnceAcrossPasses(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    RankCellInfo my_cell_info;
+    PetscMPIInt rank = 0, size = 1;
+    PetscInt *cell_ids = NULL, *status = NULL;
+    PetscReal *positions = NULL;
+    PetscInt nlocal = 0;
+    PetscInt64 local_counts[2], global_counts[2];
+
+    PetscFunctionBeginUser;
+    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
+    PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
+    PetscCall(PicurvAssertIntEqual(2, size, "settlement exit test expects exactly two MPI ranks"));
+
+    PetscCall(PetscMemzero(&my_cell_info, sizeof(my_cell_info)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 4, 4));
+    PetscCall(PicurvCreateSwarmPair(user, (rank == 0) ? 2 : 0, "ske"));
+    PetscCall(GetOwnedCellRange(&user->info, 0, &my_cell_info.xs_cell, &my_cell_info.xm_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 1, &my_cell_info.ys_cell, &my_cell_info.ym_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 2, &my_cell_info.zs_cell, &my_cell_info.zm_cell));
+    PetscCall(PetscMalloc1(size, &user->RankCellInfoMap));
+    PetscCallMPI(MPI_Allgather(&my_cell_info, sizeof(RankCellInfo), MPI_BYTE,
+                               user->RankCellInfoMap, sizeof(RankCellInfo), MPI_BYTE,
+                               PETSC_COMM_WORLD));
+
+    if (rank == 0) {
+        PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+        PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
+        PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+        /* Particle 0 left through -Xi from boundary cell (0,1,1), well inside the blocked-walk guard. */
+        cell_ids[0] = 0; cell_ids[1] = 1; cell_ids[2] = 1;
+        positions[0] = -0.05; positions[1] = 0.5; positions[2] = 0.5;
+        /* Particle 1 moved from rank 0's last owned cell into rank 1's subdomain. */
+        cell_ids[3] = my_cell_info.xs_cell + my_cell_info.xm_cell - 1; cell_ids[4] = 1; cell_ids[5] = 1;
+        positions[3] = 0.875; positions[4] = 0.5; positions[5] = 0.5;
+        status[0] = NEEDS_LOCATION;
+        status[1] = NEEDS_LOCATION;
+        PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+        PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&positions));
+        PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
+    }
+
+    PetscCall(LocateAllParticlesInGrid(user, simCtx->bboxlist));
+
+    PetscCall(PicurvAssertIntEqual(2, simCtx->migrationPassesLastStep,
+                                   "one migration and one confirming pass should settle both particles"));
+    PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+    PetscCall(PicurvAssertIntEqual(1, nlocal, "each rank should hold one particle after settlement"));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(PicurvAssertIntEqual((rank == 0) ? EXITED : ACTIVE_AND_LOCATED, status[0],
+                                   "the leaving particle should be EXITED and the migrated one located"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+
+    local_counts[0] = simCtx->searchMetrics.searchExitedCount;
+    local_counts[1] = simCtx->searchMetrics.searchLostCount;
+    PetscCallMPI(MPI_Allreduce(local_counts, global_counts, 2, MPIU_INT64, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCall(PicurvAssertIntEqual(1, (PetscInt)global_counts[0], "the exit should be counted once, not once per pass"));
+    PetscCall(PicurvAssertIntEqual(0, (PetscInt)global_counts[1], "no search failed"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Spatial target domains must not depend on how ranks divide the block.
  *
  * The global point count is a function of layout, global dimensions, and
@@ -770,6 +842,7 @@ int main(int argc, char **argv)
         {"statistics-checkpoint-round-trip-multi-rank", TestStatisticsCheckpointRoundTripMultiRank},
         {"les-averaging-decomposition-independent", TestLESAveragingIsDecompositionIndependent},
         {"restart-cellid-migration-moves-particle-to-owner", TestRestartCellIdMigrationMovesParticleToOwner},
+        {"settlement-classifies-exit-once-across-passes", TestSettlementClassifiesExitOnceAcrossPasses},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv MPI-focused runtime tests");

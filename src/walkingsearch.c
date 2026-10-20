@@ -10,6 +10,9 @@
 #define MAX_TRAVERSAL 1000
 #define DISTANCE_THRESHOLD 1e-11
 #define REPEAT_COUNT_THRESHOLD 5
+// A walk from the previous-step cell that ends this many cell sizes beyond a domain-boundary
+// face was most likely blocked by a non-convex boundary rather than crossing it.
+#define BLOCKED_WALK_GUARD_CELLS 3.0
 
 #undef __FUNCT__
 #define __FUNCT__ "GetCellCharacteristicSize"
@@ -967,6 +970,8 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
     PetscInt  idx, idy, idz;           // Current search cell global indices
     PetscInt  traversal_steps;         // Counter to prevent infinite loops
     PetscBool search_concluded = PETSC_FALSE; // Flag to terminate the main while loop
+    PetscBool exited = PETSC_FALSE;           // Concluded beyond a domain-boundary face
+    PetscBool blocked = PETSC_FALSE;          // Concluded beyond the guard: retry from scratch
 
     // --- Oscillation/Stuck Loop Detection Variables ---
     PetscInt  repeatedIndexCount = 0;
@@ -982,6 +987,10 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
             user->simCtx->searchMetrics.reSearchCount++;
         }
     }
+
+    // Only a pass-1 walk from the previous-step cell relies on the particle having moved a short
+    // distance; that is the walk a non-convex boundary can block. Every other walk is final.
+    const PetscBool guard_blocked_walk = (PetscBool)(particle->cell[0] >= 0 && user->simCtx->searchMetrics.currentSettlementPass <= 1);
 
     // --- 1. Initialize the Search ---
     ierr = InitializeTraversalParameters(user, particle, &idx, &idy, &idz, &traversal_steps); CHKERRQ(ierr);
@@ -1109,7 +1118,32 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
             search_concluded = PETSC_TRUE;
             ierr = UpdateParticleWeights(distances, particle); CHKERRQ(ierr);
         } else { // Particle is OUTSIDE
-            ierr = UpdateCellIndicesBasedOnDistances(distances, &idx, &idy, &idz); CHKERRQ(ierr);
+            // Faces of this cell that lie on the domain boundary, in LEFT, RIGHT, BOTTOM, TOP, FRONT, BACK order.
+            const PetscBool on_domain_face[NUM_FACES] = {idx == 0, idx == user->IM - 2, idy == 0, idy == user->JM - 2,
+                                                         idz == user->KM - 2, idz == 0};
+            PetscInt crossed = -1; // Most negative face, when every negative face lies on the domain boundary
+            for (PetscInt f = 0; f < NUM_FACES; ++f) {
+                if (distances[f] >= 0.0) continue;
+                if (!on_domain_face[f]) { crossed = -1; break; }
+                if (crossed < 0 || distances[f] < distances[crossed]) crossed = f;
+            }
+
+            if (crossed < 0) { // Outside an interior face: keep walking (along the boundary if clamped).
+                ierr = UpdateCellIndicesBasedOnDistances(distances, &idx, &idy, &idz); CHKERRQ(ierr);
+            } else {
+                PetscReal cell_size;
+                ierr = GetCellCharacteristicSize(&current_cell, &cell_size); CHKERRQ(ierr);
+                if (guard_blocked_walk && -distances[crossed] > BLOCKED_WALK_GUARD_CELLS * cell_size) {
+                    blocked = PETSC_TRUE;
+                    LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: %.3e beyond boundary face %d of cell (%d,%d,%d), above the %.1f-cell guard. Walk treated as blocked.\n",
+                              (long long)particle->PID, -distances[crossed], crossed, idx, idy, idz, BLOCKED_WALK_GUARD_CELLS);
+                } else {
+                    exited = PETSC_TRUE;
+                    LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Left the domain through boundary face %d of cell (%d,%d,%d), %.3e beyond it.\n",
+                              (long long)particle->PID, crossed, idx, idy, idz, -distances[crossed]);
+                }
+                search_concluded = PETSC_TRUE;
+            }
         }
     }
 
@@ -1118,7 +1152,15 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                                                              traversal_steps);
 
     // --- 3. Finalize and Determine Actionable Status ---
-    if (idx == -1 || (!search_concluded && traversal_steps >= MAX_TRAVERSAL)) {
+    if (blocked) {
+        // Hand the particle back as unlocated; the orchestrator searches it again from scratch.
+        user->simCtx->searchMetrics.blockedWalkRetryCount++;
+        *status_out = NEEDS_LOCATION;
+        particle->cell[0] = -1; particle->cell[1] = -1; particle->cell[2] = -1;
+    } else if (exited) {
+        *status_out = EXITED;
+        particle->cell[0] = -1; particle->cell[1] = -1; particle->cell[2] = -1;
+    } else if (idx == -1 || (!search_concluded && traversal_steps >= MAX_TRAVERSAL)) {
         if (idx != -1) {
             user->simCtx->searchMetrics.maxTraversalFailCount++;
             LOG_ALLOW(LOCAL, LOG_ERROR, "[PID %lld]: Search FAILED, exceeded MAX_TRAVERSAL limit of %d.\n",
@@ -1183,6 +1225,14 @@ PetscErrorCode ReportSearchOutcome(const Particle *particle,
             break;
         case LOST:
             LOG_ALLOW(LOCAL, LOG_WARNING, "Search FAILED [PID %lld]: Particle is LOST after %d steps.\n",
+                      (long long)particle->PID, traversal_steps);
+            break;
+        case EXITED:
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Search ended [PID %lld]: Particle left the domain after %d steps.\n",
+                      (long long)particle->PID, traversal_steps);
+            break;
+        case NEEDS_LOCATION:
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Search ended [PID %lld]: Walk blocked after %d steps; searching again from scratch.\n",
                       (long long)particle->PID, traversal_steps);
             break;
         default:

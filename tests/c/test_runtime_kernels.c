@@ -933,7 +933,7 @@ static PetscErrorCode TestCheckAndRemoveOutOfBoundsParticlesRemovesEscapedPartic
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests removal of LOST particles and that survivors keep the one-at-a-time removal order.
+ * @brief Tests removal of LOST and EXITED particles, their separate tallies, and that survivors keep the one-at-a-time removal order.
  */
 
 static PetscErrorCode TestCheckAndRemoveLostParticlesRemovesLostEntries(void)
@@ -946,6 +946,8 @@ static PetscErrorCode TestCheckAndRemoveLostParticlesRemovesLostEntries(void)
     PetscInt nlocal = 0;
     PetscReal *psi = NULL;
     PetscReal removed_psi = 0.0;
+    PetscInt exited_global = 0;
+    PetscReal exited_psi = 0.0;
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
@@ -961,17 +963,19 @@ static PetscErrorCode TestCheckAndRemoveLostParticlesRemovesLostEntries(void)
     PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
     status[0] = ACTIVE_AND_LOCATED;
     status[1] = LOST;
-    status[2] = LOST;
+    status[2] = EXITED;
     status[3] = ACTIVE_AND_LOCATED;
     status[4] = ACTIVE_AND_LOCATED;
     PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
 
-    PetscCall(CheckAndRemoveLostParticles(user, &removed_local, &removed_global, &removed_psi));
+    PetscCall(CheckAndRemoveLostParticles(user, &removed_local, &removed_global, &removed_psi, &exited_global, &exited_psi));
     PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
-    PetscCall(PicurvAssertRealNear(5.0, removed_psi, 0.0, "the removed particles carried Psi 2 and 3"));
-    PetscCall(PicurvAssertIntEqual(2, removed_local, "Two LOST particles should be removed locally"));
-    PetscCall(PicurvAssertIntEqual(2, removed_global, "Global LOST-particle removal count should match the local single-rank result"));
-    PetscCall(PicurvAssertIntEqual(3, nlocal, "Three non-LOST particles should remain"));
+    PetscCall(PicurvAssertRealNear(2.0, removed_psi, 0.0, "the LOST particle carried Psi 2"));
+    PetscCall(PicurvAssertRealNear(3.0, exited_psi, 0.0, "the EXITED particle carried Psi 3"));
+    PetscCall(PicurvAssertIntEqual(1, removed_local, "One LOST particle should be removed locally"));
+    PetscCall(PicurvAssertIntEqual(1, removed_global, "Global LOST-particle removal count should match the local single-rank result"));
+    PetscCall(PicurvAssertIntEqual(1, exited_global, "One EXITED particle should be removed"));
+    PetscCall(PicurvAssertIntEqual(3, nlocal, "Three located particles should remain"));
 
     /* Backward one-at-a-time removal moves the last particle into slot 2, then the new
      * last into slot 1: survivors end as Psi 0.5, 7, 11 (a forward scan would give 0.5, 11, 7). */

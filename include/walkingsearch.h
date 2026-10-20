@@ -311,11 +311,17 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
  * the grid. It returns a definitive, actionable status indicating the outcome:
  * - `ACTIVE_AND_LOCATED`: The particle was found in a cell on the current rank.
  * - `MIGRATING_OUT`: The particle was found to belong to another rank. `particle->destination_rank` is set.
- * - `LOST`: The search failed to find the particle within the global domain.
+ * - `EXITED`: The particle lies beyond a domain-boundary face of the boundary cell the walk reached,
+ *   with every face it is outside of on the domain boundary.
+ * - `NEEDS_LOCATION` (with `cell` reset to -1): a pass-1 walk from the previous-step cell ended more
+ *   than `BLOCKED_WALK_GUARD_CELLS` cell sizes beyond the boundary, so the walk was most likely blocked
+ *   by a non-convex boundary; the caller searches the particle again from scratch.
+ * - `LOST`: The search failed for a particle believed to be inside the domain.
  *
  * This function is globally aware and can walk across MPI rank boundaries. It contains
  * robust checks for global domain boundaries and a tie-breaker for numerically "stuck"
- * particles on cell faces.
+ * particles on cell faces. A face lies on the domain boundary when the cell index is at the
+ * extreme of that axis, the same test the boundary-condition handlers use.
  *
  * @param[in]     user         Pointer to the UserCtx containing all grid and domain info.
  * @param[in,out] particle     Pointer to the Particle struct. Its fields are updated based

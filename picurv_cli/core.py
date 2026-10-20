@@ -20882,6 +20882,8 @@ def _parse_particle_metrics_log(filepath: str) -> "tuple[dict, list[int]]":
                 "occupied_cells": None,
                 "load_imbalance": None,
                 "migration_passes": None,
+                "exited_particles": None,
+                "exited_particles_cumulative": None,
             }
             if len(parts) >= 9:
                 row.update(
@@ -20900,6 +20902,13 @@ def _parse_particle_metrics_log(filepath: str) -> "tuple[dict, list[int]]":
                         "occupied_cells": _parse_int_loose(parts[5]),
                         "load_imbalance": _parse_float_loose(parts[6]),
                         "migration_passes": _parse_int_loose(parts[7]),
+                    }
+                )
+            if len(parts) >= 11:
+                row.update(
+                    {
+                        "exited_particles": _parse_int_loose(parts[9]),
+                        "exited_particles_cumulative": _parse_int_loose(parts[10]),
                     }
                 )
             rows_by_step[step] = row
@@ -21994,6 +22003,11 @@ def render_run_summary(payload: dict, output_format: str = "text"):
                 f"lost(step/total)={particles.get('lost_particles')}/"
                 f"{particles.get('lost_particles_cumulative')}"
             )
+        if particles.get("exited_particles_cumulative") is not None:
+            loss_summary += (
+                f" exited(step/total)={particles.get('exited_particles')}/"
+                f"{particles.get('exited_particles_cumulative')}"
+            )
         print(
             "    "
             f"total={particles.get('total_particles')} {loss_summary} "
@@ -22442,8 +22456,10 @@ _SUMMARY_PLOT_FIELD_LABELS = {
     "flux_out": "Outflow flux",
     "net_flux": "Net boundary flux",
     "total_particles": "Particle count",
-    "lost_particles": "Particles lost per step",
-    "lost_particles_cumulative": "Cumulative particles lost",
+    "lost_particles": "Particles lost per step (search failures)",
+    "lost_particles_cumulative": "Cumulative particles lost (search failures)",
+    "exited_particles": "Particles that left the domain per step",
+    "exited_particles_cumulative": "Cumulative particles that left the domain",
     "migrated_particles": "Migrated particles",
     "occupied_cells": "Occupied cells",
     "load_imbalance": "Particle load imbalance",
@@ -22529,7 +22545,7 @@ _SUMMARY_ITERATION_HISTORY_FIELDS = {
 
 _SUMMARY_COUNT_FIELDS = {
     "total_particles", "lost_particles", "lost_particles_cumulative",
-    "migrated_particles", "occupied_cells", "migration_passes", "calls",
+    "exited_particles", "exited_particles_cumulative", "migrated_particles", "occupied_cells", "migration_passes", "calls",
     "pseudo_iterations", "newton_iterations", "iterations",
 }
 
@@ -22706,6 +22722,8 @@ def _collect_summary_plot_records(context: dict) -> list:
                         "occupied_cells": _parse_int_loose(parts[5 + offset]),
                         "load_imbalance": _parse_float_loose(parts[6 + offset]),
                         "migration_passes": _parse_int_loose(parts[7 + offset]),
+                        "exited_particles": _parse_int_loose(parts[9]) if len(parts) >= 11 else None,
+                        "exited_particles_cumulative": _parse_int_loose(parts[10]) if len(parts) >= 11 else None,
                     },
                     particle_path, segment,
                 )

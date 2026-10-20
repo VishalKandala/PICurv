@@ -662,6 +662,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Lagrangian particle system...\n");
             simCtx->particlesLostLastStep = 0;
             simCtx->particlesLostScalarLastStep = 0.0;
+            simCtx->particlesExitedLastStep = 0;
+            simCtx->particlesExitedScalarLastStep = 0.0;
 
             // a. Update Eulerian Transport Properties:
             // Optimization: Only recalculate if turbulence is active (Nu_t changes).
@@ -688,15 +690,20 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             // c. Settle all particles: find their new host cells and migrate them across ranks.
             ierr = LocateAllParticlesInGrid(user, simCtx->bboxlist); CHKERRQ(ierr);
  
-            // d. Remove any particles that are now lost or out of the global domain.
+            // d. Remove the particles whose search failed (LOST) or that left the domain (EXITED).
             ierr = CheckAndRemoveLostParticles(user, &removed_local_lost, &removed_global_lost,
-                                               &removed_scalar_lost); CHKERRQ(ierr);
+                                               &removed_scalar_lost, &simCtx->particlesExitedLastStep,
+                                               &simCtx->particlesExitedScalarLastStep); CHKERRQ(ierr);
             //ierr = CheckAndRemoveOutOfBoundsParticles(user, &removed_local_ob, &removed_global_ob, simCtx->bboxlist); CHKERRQ(ierr);
             simCtx->particlesLostLastStep = removed_global_lost;
             simCtx->particlesLostScalarLastStep = removed_scalar_lost;
             simCtx->particlesLostCumulative += removed_global_lost;
-            if (removed_global_lost> 0) { // if(removed_global_lost + removed_global_ob > 0){
-                LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %d particles globally this step.\n", removed_global_lost); // removed_global_lost + removed_global_ob;
+            simCtx->particlesExitedCumulative += simCtx->particlesExitedLastStep;
+            if (removed_global_lost > 0) {
+                LOG_ALLOW(GLOBAL, LOG_WARNING, "Removed %d particles whose search failed (LOST) this step.\n", removed_global_lost);
+            }
+            if (simCtx->particlesExitedLastStep > 0) {
+                LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %d particles that left the domain this step.\n", simCtx->particlesExitedLastStep);
             }
 
             // e. Interpolate the NEW fluid velocity (just computed by FlowSolver) onto the
