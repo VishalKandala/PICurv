@@ -60,7 +60,7 @@ Stretching, on every axis:
 Validation, on every geometry:
 
 - `--mg-levels N` - refuse node counts the multigrid hierarchy cannot coarsen N times
-- `--periodic AXIS...` - refuse a seam joining unequal cells, and refuse a rotation
+- `--periodic AXIS...` - refuse a seam joining unequal cells
 
 Reference scales, reporting only (see @ref p48_units_sec):
 
@@ -258,8 +258,9 @@ Use `grid_gen` when:
 
 For a generated grid used with geometric-periodic BCs, each opposite periodic
 surface must be a pointwise translated copy of its partner. The translation
-must be nonzero and constant over the entire surface; rotating, shearing, and
-nonmatching surface pairs are rejected at runtime.
+must be nonzero and constant over the entire surface, but may point in any
+direction, so a rigidly rotated periodic grid is valid. Surface pairs related by a
+rotation (a periodic axis that curves), a shear, or no rigid map are rejected at runtime.
 
 @section p48_cap_geom_sec 7.1 Grid Generator Geometry Entries
 
@@ -618,13 +619,13 @@ Transforms apply after the geometry map, in the order given, and compose on top 
 
 **Parameters it owns.** `axis`, `deg`, and optionally `about`.
 
-**Interactions.** Mutually exclusive with `--periodic`. Compose with `translate` to rotate about a point that is not one of the named references.
+**Interactions.** Allowed with `--periodic`: a rigid rotation turns each seam translation into the rotated vector, which the runtime validates and applies in full. Compose with `translate` to rotate about a point that is not one of the named references.
 
 **Diagnostics.** `Jacobian_Sign_Consistent` and `Right_Handed` both stay true: a rotation is orientation-preserving.
 
-**Evidence.** Unit verified - `make test-python` covers the periodic refusal. Analytically verified - `grid-generator-closure-2026-09-21`: a rotated hill box closes a uniform flow to round-off.
+**Evidence.** Unit verified - `make test-python` accepts it on a periodic grid, and `make unit-periodic` validates the rotated translation of a grid turned 30 degrees and wraps a particle by it. Analytically verified - `grid-generator-closure-2026-09-21`: a rotated hill box closes a uniform flow to round-off.
 
-**Limitations.** Refused on any grid with a declared periodic axis. The runtime's periodic reconstruction offsets only the matching Cartesian component across the seam and copies the other two, so it assumes an axis-aligned seam; whether an arbitrarily oriented periodic grid is handled correctly is unverified, and this refuses rather than producing one quietly.
+**Limitations.** A rotation keeps translational periodicity; it does not create rotational periodicity, which the runtime does not support. Tools that Fourier-transform along the grid axes - spectra and the `spectral_random_velocity`, `resampled_velocity` and wall-spectral initial conditions - need an axis-aligned Cartesian grid and refuse a rotated one.
 
 @subsection p48_cap_xform_mirror_sub mirror
 

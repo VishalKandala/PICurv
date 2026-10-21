@@ -1518,7 +1518,8 @@
               "measurement:grid-generator-closure-2026-09-21"
             ],
             "unit": [
-              "make:test-python"
+              "make:test-python",
+              "make:unit-periodic"
             ]
           }
         },

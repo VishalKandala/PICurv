@@ -280,20 +280,16 @@ def check_multigrid_levels(dimensions: Dict[str, int], levels: int) -> None:
         )
 
 
-def check_periodic_axes(periodic: List[str], axis_values: Dict[str, np.ndarray],
-                        transforms: Optional[List[str]]) -> None:
+def check_periodic_axes(periodic: List[str], axis_values: Dict[str, np.ndarray]) -> None:
     """!
     @brief Refuse grids whose periodic axes the runtime cannot treat correctly.
-    @details Two independent constraints. A periodic seam must join cells of matching
-             width, so one-sided stretching on such an axis puts a discontinuity exactly
-             where the wrap happens. And the runtime's periodic reconstruction offsets
-             only the matching Cartesian component and copies the other two, so it assumes
-             the seam displacement is axis-aligned; rotating such a grid produces a wrong
-             metric at the seam. Whether an arbitrarily oriented periodic grid could be
-             handled is unverified, so this refuses rather than guesses.
+    @details A periodic seam must join cells of matching width, so one-sided stretching on
+             such an axis puts a discontinuity exactly where the wrap happens. The seam
+             displacement itself may point anywhere: the runtime validates it as one constant
+             vector and translates every seam image by that vector, so a rigid transform
+             (including 'rotate') keeps a periodic grid valid.
     @param[in] periodic Logical axes declared periodic.
     @param[in] axis_values Axis node positions keyed by logical axis.
-    @param[in] transforms Transform tokens that will be applied, if any.
     @throws ValueError when a declared periodic axis cannot be honoured.
     """
     for axis in periodic:
@@ -309,17 +305,6 @@ def check_periodic_axes(periodic: List[str], axis_values: Dict[str, np.ndarray],
                 f"({widths[0]:.6g} vs {widths[-1]:.6g}). The seam would join cells of "
                 f"different width. Use symmetric stretching on a periodic axis, or none."
             )
-    if periodic and transforms:
-        for token in transforms:
-            kind, _ = parse_transform_token(token)
-            if kind == 'rotate':
-                raise ValueError(
-                    "a periodic axis cannot be combined with 'rotate': the runtime's "
-                    "periodic reconstruction offsets only the matching Cartesian "
-                    "component and copies the other two, so it assumes an axis-aligned "
-                    "seam. Rotating a periodic grid is not verified to be handled "
-                    "correctly, so it is refused rather than silently produced."
-                )
 
 
 def _announce_axis(axis: str, stretch: float, first_start, first_end, note: str = "") -> None:
@@ -1054,7 +1039,7 @@ def sweep_grid(
     u_vals, v_vals, zeta_vals = axes['i'], axes['j'], axes['k']
     if mg_levels:
         check_multigrid_levels({'i': IM, 'j': JM, 'k': KM}, mg_levels)
-    check_periodic_axes(periodic or [], axes, transforms)
+    check_periodic_axes(periodic or [], axes)
 
     # One pass to learn the path length, a second to sample it where zeta asks.
     _, _, _, total_length = build_centerline(path, np.array([0.0]), 'path')
@@ -1161,7 +1146,7 @@ def box_grid(
     xi, eta, zeta = axes['i'], axes['j'], axes['k']
     if mg_levels:
         check_multigrid_levels({'i': IM, 'j': JM, 'k': KM}, mg_levels)
-    check_periodic_axes(periodic or [], axes, transforms)
+    check_periodic_axes(periodic or [], axes)
 
     XI, ETA, ZETA = np.meshgrid(xi, eta, zeta, indexing='ij')
     A, B, C = amp_A, amp_B, amp_C

@@ -455,26 +455,23 @@ def test_a_periodic_axis_refuses_one_sided_stretching():
     """! @brief The seam would join cells of different width. """
     axes = {'i': np.array([0.0, 0.01, 0.05, 0.2, 0.6, 1.0])}
     with pytest.raises(ValueError, match="first and last cells differ"):
-        GRID.check_periodic_axes(['i'], axes, None)
+        GRID.check_periodic_axes(['i'], axes)
 
 
 def test_a_periodic_axis_accepts_symmetric_stretching():
     """! @brief Matching end cells make a seam the runtime can join. """
     axes = {'i': np.array([0.0, 0.1, 0.35, 0.65, 0.9, 1.0])}
-    GRID.check_periodic_axes(['i'], axes, None)
+    GRID.check_periodic_axes(['i'], axes)
 
 
-def test_rotating_a_periodic_grid_is_refused():
-    """! @brief The runtime's periodic reconstruction assumes an axis-aligned seam.
+def test_rotating_a_periodic_grid_is_accepted():
+    """! @brief A rigid rotation keeps the seam one constant translation, which the runtime handles.
 
-    @details Metric.c offsets only the matching Cartesian component across the seam and
-             copies the other two. Whether an arbitrarily oriented periodic grid is
-             handled is unverified, so this refuses rather than producing one quietly.
+    @details The runtime validates the seam displacement as a full vector and translates every
+             seam image by it, so only unequal end cells are refused on a periodic axis.
     """
     axes = {'k': np.linspace(0.0, 1.0, 9)}
-    with pytest.raises(ValueError, match="cannot be combined with 'rotate'"):
-        GRID.check_periodic_axes(['k'], axes, ["rotate:axis=z,deg=30"])
-    GRID.check_periodic_axes(['k'], axes, ["translate:dx=1"])
+    GRID.check_periodic_axes(['k'], axes)
 
 
 # --- the generator and the launcher must agree on the choice sets ------------

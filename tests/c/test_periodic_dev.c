@@ -196,6 +196,76 @@ static PetscErrorCode TestLocateParticleWrapsThroughPeriodicFace(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief An off-axis seam: a rotated x-periodic grid validates the rotated translation and wraps by it.
+ *
+ * Rotates the grid 30 degrees about z, so the x seam translation gains a y component, then checks
+ * that the validated translation is the rotated one and that a particle beyond -Xi re-enters at the
+ * +Xi end shifted by it.
+ */
+static PetscErrorCode TestLocateParticleWrapsThroughOffAxisSeam(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Particle particle;
+    ParticleLocationStatus status = NEEDS_LOCATION;
+    Vec gcoor = NULL;
+    Cmpnts ***coor = NULL;
+    const Cmpnts ***lcoor = NULL;
+    const PetscReal c = PetscCosReal(PETSC_PI / 6.0), s = PetscSinReal(PETSC_PI / 6.0);
+    PetscReal T0, x0, yc, zc;
+    Cmpnts p0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 4, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    MarkXPeriodic(user);
+    PetscCall(ValidatePeriodicGeometry(user));
+    T0 = user->periodic_translation[0].x;
+
+    /* Seam origin and the centre of the (., 1, 1) row, before rotation. */
+    PetscCall(DMGetCoordinatesLocal(user->da, &gcoor));
+    PetscCall(DMDAVecGetArrayRead(user->fda, gcoor, &lcoor));
+    x0 = lcoor[0][0][0].x;
+    yc = 0.5 * (lcoor[1][1][0].y + lcoor[1][2][0].y);
+    zc = 0.5 * (lcoor[1][1][0].z + lcoor[2][1][0].z);
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, gcoor, &lcoor));
+
+    /* Rotate every node about the z axis through the origin. */
+    PetscCall(DMGetCoordinates(user->da, &gcoor));
+    PetscCall(DMDAVecGetArray(user->fda, gcoor, &coor));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; k++)
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; j++)
+            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; i++) {
+                const Cmpnts q = coor[k][j][i];
+                coor[k][j][i].x = c * q.x - s * q.y;
+                coor[k][j][i].y = s * q.x + c * q.y;
+            }
+    PetscCall(DMDAVecRestoreArray(user->fda, gcoor, &coor));
+    PetscCall(DMSetCoordinates(user->da, gcoor));
+    PetscCall(ValidatePeriodicGeometry(user));
+    PetscCall(PicurvAssertRealNear(c * T0, user->periodic_translation[0].x, 1.0e-12, "translation x is rotated"));
+    PetscCall(PicurvAssertRealNear(s * T0, user->periodic_translation[0].y, 1.0e-12, "translation gains a y component"));
+
+    user->boundary_faces[BC_FACE_NEG_X].particle_policy = PARTICLE_BOUNDARY_WRAP;
+    user->boundary_faces[BC_FACE_POS_X].particle_policy = PARTICLE_BOUNDARY_WRAP;
+    PetscCall(SetupDomainCellDecompositionMap(user));
+    simCtx->searchMetrics.currentSettlementPass = 1;
+
+    /* Beyond -Xi out of cell 0: re-enters at the +Xi end, shifted along the rotated translation. */
+    PetscCall(PetscMemzero(&particle, sizeof(particle)));
+    particle.PID = 54;
+    particle.cell[0] = 0; particle.cell[1] = 1; particle.cell[2] = 1;
+    p0.x = x0 - 0.01 * T0; p0.y = yc; p0.z = zc;
+    particle.loc.x = c * p0.x - s * p0.y; particle.loc.y = s * p0.x + c * p0.y; particle.loc.z = p0.z;
+    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a particle wrapped through an off-axis seam should be located"));
+    PetscCall(PicurvAssertRealNear(c * (p0.x + T0) - s * p0.y, particle.loc.x, 1.0e-12, "x shifts along the rotated translation"));
+    PetscCall(PicurvAssertRealNear(s * (p0.x + T0) + c * p0.y, particle.loc.y, 1.0e-12, "y shifts along the rotated translation"));
+    PetscCall(PicurvAssertIntEqual(user->IM - 2, particle.cell[0], "the particle lands in the last cell"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests mixed periodic directions are validated and stored independently.
  */
 static PetscErrorCode TestPeriodicGeometryStoresMixedTranslations(void)
@@ -722,6 +792,7 @@ int main(int argc, char **argv)
         {"periodic-geometry-stores-translation", TestPeriodicGeometryStoresTranslation},
         {"periodic-geometry-stores-mixed-translations", TestPeriodicGeometryStoresMixedTranslations},
         {"locate-particle-wraps-through-periodic-face", TestLocateParticleWrapsThroughPeriodicFace},
+        {"locate-particle-wraps-through-off-axis-seam", TestLocateParticleWrapsThroughOffAxisSeam},
         {"periodic-geometry-rejects-varying-translation", TestPeriodicGeometryRejectsVaryingTranslation},
         {"periodic-face-center-coordinate-synchronization", TestPeriodicFaceCenterCoordinateSynchronization},
         {"periodic-quick-stencil-preparation", TestPeriodicQuickStencilPreparation},
