@@ -1068,8 +1068,8 @@ static PetscErrorCode TestDisplayBannerTracksConditionalStartupFields(void)
                                      "DisplayBanner should include the active particle count"));
     PetscCall(AssertCapturedContains(captured, "Periodic I Translation",
                                      "DisplayBanner should include validated periodic translation"));
-    PetscCall(AssertCapturedContains(captured, "Particle Periodic Wrapping  : UNSUPPORTED",
-                                     "DisplayBanner should distinguish Eulerian periodicity from particle wrapping"));
+    PetscCall(AssertCapturedOmits(captured, "Particle Periodic Wrapping",
+                                  "DisplayBanner should not report particle wrapping as unsupported"));
     PetscCall(AssertCapturedContains(captured, "Particle Console Cadence   : DISABLED",
                                      "DisplayBanner should show disabled particle console cadence when particles are configured"));
     PetscCall(AssertCapturedContains(captured, "Particle Log Row Sampling  : every 4 particle(s)",
