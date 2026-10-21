@@ -1185,6 +1185,7 @@ typedef struct UserCtx {
   // --- Particle System ---
   DM swarm;
   RankCellInfo *RankCellInfoMap;
+  PetscInt RankCellInfoProcs[3]; ///< DMDA process grid (m, n, p) of RankCellInfoMap: rank i + m (j + n k).
   Vec ParticleCount, lParticleCount;
   Vec Psi, lPsi; //scalar dummy to demonstrate scatter.
   

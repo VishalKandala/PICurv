@@ -1102,10 +1102,7 @@ static PetscErrorCode TestLocateAllParticlesInGridPriorCellFastPath(void)
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
-    PetscCall(PetscMalloc1(simCtx->size, &user->RankCellInfoMap));
-    PetscCall(GetOwnedCellRange(&user->info, 0, &user->RankCellInfoMap[0].xs_cell, &user->RankCellInfoMap[0].xm_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 1, &user->RankCellInfoMap[0].ys_cell, &user->RankCellInfoMap[0].ym_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 2, &user->RankCellInfoMap[0].zs_cell, &user->RankCellInfoMap[0].zm_cell));
+    PetscCall(SetupDomainCellDecompositionMap(user));
     PetscCall(PicurvCreateSwarmPair(user, 1, "ske"));
 
     PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
@@ -1160,10 +1157,7 @@ static PetscErrorCode TestLocateAllParticlesInGridGuessPathResolvesLocalParticle
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
-    PetscCall(PetscMalloc1(simCtx->size, &user->RankCellInfoMap));
-    PetscCall(GetOwnedCellRange(&user->info, 0, &user->RankCellInfoMap[0].xs_cell, &user->RankCellInfoMap[0].xm_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 1, &user->RankCellInfoMap[0].ys_cell, &user->RankCellInfoMap[0].ym_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 2, &user->RankCellInfoMap[0].zs_cell, &user->RankCellInfoMap[0].zm_cell));
+    PetscCall(SetupDomainCellDecompositionMap(user));
     PetscCall(PicurvCreateSwarmPair(user, 1, "ske"));
 
     PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
@@ -1216,10 +1210,7 @@ static PetscErrorCode TestLocateParticleOrFindMigrationTargetCountsReSearch(void
     PetscFunctionBeginUser;
     PetscCall(PetscMemzero(&particle, sizeof(particle)));
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
-    PetscCall(PetscMalloc1(simCtx->size, &user->RankCellInfoMap));
-    PetscCall(GetOwnedCellRange(&user->info, 0, &user->RankCellInfoMap[0].xs_cell, &user->RankCellInfoMap[0].xm_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 1, &user->RankCellInfoMap[0].ys_cell, &user->RankCellInfoMap[0].ym_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 2, &user->RankCellInfoMap[0].zs_cell, &user->RankCellInfoMap[0].zm_cell));
+    PetscCall(SetupDomainCellDecompositionMap(user));
 
     simCtx->searchMetrics.currentSettlementPass = 2;
     particle.PID = 33;
@@ -1255,10 +1246,7 @@ static PetscErrorCode TestLocateParticleOrFindMigrationTargetReflectsAtWall(void
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
-    PetscCall(PetscMalloc1(simCtx->size, &user->RankCellInfoMap));
-    PetscCall(GetOwnedCellRange(&user->info, 0, &user->RankCellInfoMap[0].xs_cell, &user->RankCellInfoMap[0].xm_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 1, &user->RankCellInfoMap[0].ys_cell, &user->RankCellInfoMap[0].ym_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 2, &user->RankCellInfoMap[0].zs_cell, &user->RankCellInfoMap[0].zm_cell));
+    PetscCall(SetupDomainCellDecompositionMap(user));
     user->boundary_faces[BC_FACE_NEG_X].particle_policy = PARTICLE_BOUNDARY_REFLECT;
     simCtx->searchMetrics.currentSettlementPass = 1;
 

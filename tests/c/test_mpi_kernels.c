@@ -9,6 +9,7 @@
 #include "ParticleSwarm.h"
 #include "Boundaries.h"
 #include "grid.h"
+#include "setup.h"
 #include "statistics_target.h"
 #include "statistics_accumulator.h"
 #include "statistics_window.h"
@@ -430,20 +431,12 @@ static PetscErrorCode TestFindOwnerOfCellMatchesRankRanges(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
-    RankCellInfo my_cell_info;
     PetscMPIInt size = 1;
 
     PetscFunctionBeginUser;
     PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
-    PetscCall(PetscMemzero(&my_cell_info, sizeof(my_cell_info)));
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 6, 4));
-    PetscCall(GetOwnedCellRange(&user->info, 0, &my_cell_info.xs_cell, &my_cell_info.xm_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 1, &my_cell_info.ys_cell, &my_cell_info.ym_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 2, &my_cell_info.zs_cell, &my_cell_info.zm_cell));
-    PetscCall(PetscMalloc1(size, &user->RankCellInfoMap));
-    PetscCallMPI(MPI_Allgather(&my_cell_info, sizeof(RankCellInfo), MPI_BYTE,
-                               user->RankCellInfoMap, sizeof(RankCellInfo), MPI_BYTE,
-                               PETSC_COMM_WORLD));
+    PetscCall(SetupDomainCellDecompositionMap(user));
 
     for (PetscInt k = -1; k <= user->KM - 1; ++k) {
         for (PetscInt j = -1; j <= user->JM - 1; ++j) {
@@ -472,7 +465,6 @@ static PetscErrorCode TestRestartCellIdMigrationMovesParticleToOwner(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
-    RankCellInfo my_cell_info;
     PetscMPIInt rank = 0, size = 1;
     PetscInt *cell_ids = NULL;
     PetscReal *positions = NULL;
@@ -483,16 +475,9 @@ static PetscErrorCode TestRestartCellIdMigrationMovesParticleToOwner(void)
     PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
     PetscCall(PicurvAssertIntEqual(2, size, "restart migration unit test expects exactly two MPI ranks"));
 
-    PetscCall(PetscMemzero(&my_cell_info, sizeof(my_cell_info)));
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 4, 4));
     PetscCall(PicurvCreateSwarmPair(user, 1, "ske"));
-    PetscCall(GetOwnedCellRange(&user->info, 0, &my_cell_info.xs_cell, &my_cell_info.xm_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 1, &my_cell_info.ys_cell, &my_cell_info.ym_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 2, &my_cell_info.zs_cell, &my_cell_info.zm_cell));
-    PetscCall(PetscMalloc1(size, &user->RankCellInfoMap));
-    PetscCallMPI(MPI_Allgather(&my_cell_info, sizeof(RankCellInfo), MPI_BYTE,
-                               user->RankCellInfoMap, sizeof(RankCellInfo), MPI_BYTE,
-                               PETSC_COMM_WORLD));
+    PetscCall(SetupDomainCellDecompositionMap(user));
 
     PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
     PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&positions));
@@ -534,7 +519,6 @@ static PetscErrorCode TestSettlementClassifiesExitOnceAcrossPasses(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
-    RankCellInfo my_cell_info;
     PetscMPIInt rank = 0, size = 1;
     PetscInt *cell_ids = NULL, *status = NULL;
     PetscReal *positions = NULL;
@@ -546,16 +530,9 @@ static PetscErrorCode TestSettlementClassifiesExitOnceAcrossPasses(void)
     PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
     PetscCall(PicurvAssertIntEqual(2, size, "settlement exit test expects exactly two MPI ranks"));
 
-    PetscCall(PetscMemzero(&my_cell_info, sizeof(my_cell_info)));
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 4, 4));
     PetscCall(PicurvCreateSwarmPair(user, (rank == 0) ? 2 : 0, "ske"));
-    PetscCall(GetOwnedCellRange(&user->info, 0, &my_cell_info.xs_cell, &my_cell_info.xm_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 1, &my_cell_info.ys_cell, &my_cell_info.ym_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 2, &my_cell_info.zs_cell, &my_cell_info.zm_cell));
-    PetscCall(PetscMalloc1(size, &user->RankCellInfoMap));
-    PetscCallMPI(MPI_Allgather(&my_cell_info, sizeof(RankCellInfo), MPI_BYTE,
-                               user->RankCellInfoMap, sizeof(RankCellInfo), MPI_BYTE,
-                               PETSC_COMM_WORLD));
+    PetscCall(SetupDomainCellDecompositionMap(user));
 
     if (rank == 0) {
         PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell_ids));
@@ -565,7 +542,7 @@ static PetscErrorCode TestSettlementClassifiesExitOnceAcrossPasses(void)
         cell_ids[0] = 0; cell_ids[1] = 1; cell_ids[2] = 1;
         positions[0] = -0.05; positions[1] = 0.5; positions[2] = 0.5;
         /* Particle 1 moved from rank 0's last owned cell into rank 1's subdomain. */
-        cell_ids[3] = my_cell_info.xs_cell + my_cell_info.xm_cell - 1; cell_ids[4] = 1; cell_ids[5] = 1;
+        cell_ids[3] = user->RankCellInfoMap[rank].xs_cell + user->RankCellInfoMap[rank].xm_cell - 1; cell_ids[4] = 1; cell_ids[5] = 1;
         positions[3] = 0.875; positions[4] = 0.5; positions[5] = 0.5;
         status[0] = NEEDS_LOCATION;
         status[1] = NEEDS_LOCATION;

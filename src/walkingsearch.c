@@ -919,9 +919,6 @@ PetscErrorCode FinalizeTraversal(UserCtx *user, Particle *particle, PetscInt tra
  */
 PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, PetscMPIInt *owner_rank)
 {
-    PetscErrorCode ierr;
-    PetscInt       procs[3];
-
     PetscFunctionBeginUser;
 
     PROFILE_FUNCTION_BEGIN;
@@ -937,8 +934,7 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
     // --- 2. Binary Search of the Range Starts Along Each Axis ---
     // Rank i + m (j + n k) owns process-grid slot (i, j, k); the axis-a starts are those of the
     // ranks one stride apart from rank 0. Starts are node starts and strictly increase.
-    ierr = DMDAGetInfo(user->da, NULL, NULL, NULL, NULL, &procs[0], &procs[1], &procs[2],
-                       NULL, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
+    const PetscInt     *procs     = user->RankCellInfoProcs;
     const PetscInt      cell[3]   = {i, j, k};
     const PetscInt      stride[3] = {1, procs[0], procs[0] * procs[1]};
     const RankCellInfo *map       = user->RankCellInfoMap;

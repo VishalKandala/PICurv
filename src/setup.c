@@ -3601,6 +3601,8 @@ PetscErrorCode SetupDomainCellDecompositionMap(UserCtx *user)
     ierr = MPI_Allgather(&my_cell_info, sizeof(RankCellInfo), MPI_BYTE,
                          user->RankCellInfoMap, sizeof(RankCellInfo), MPI_BYTE,
                          PETSC_COMM_WORLD); CHKERRQ(ierr);
+    ierr = DMDAGetInfo(user->da, NULL, NULL, NULL, NULL, &user->RankCellInfoProcs[0], &user->RankCellInfoProcs[1],
+                       &user->RankCellInfoProcs[2], NULL, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Domain cell decomposition map created and distributed successfully.\n");
 

@@ -7,6 +7,7 @@
 
 #include "Boundaries.h"
 #include "walkingsearch.h"
+#include "setup.h"
 
 /**
  * @brief Appends one key/value pair to a linked list of boundary-condition parameters.
@@ -144,10 +145,7 @@ static PetscErrorCode TestLocateParticleWrapsThroughPeriodicFace(void)
     user->boundary_faces[BC_FACE_POS_X].particle_policy = PARTICLE_BOUNDARY_WRAP;
     user->boundary_faces[BC_FACE_NEG_Y].particle_policy = PARTICLE_BOUNDARY_WRAP;
     user->boundary_faces[BC_FACE_POS_Y].particle_policy = PARTICLE_BOUNDARY_WRAP;
-    PetscCall(PetscMalloc1(simCtx->size, &user->RankCellInfoMap));
-    PetscCall(GetOwnedCellRange(&user->info, 0, &user->RankCellInfoMap[0].xs_cell, &user->RankCellInfoMap[0].xm_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 1, &user->RankCellInfoMap[0].ys_cell, &user->RankCellInfoMap[0].ym_cell));
-    PetscCall(GetOwnedCellRange(&user->info, 2, &user->RankCellInfoMap[0].zs_cell, &user->RankCellInfoMap[0].zm_cell));
+    PetscCall(SetupDomainCellDecompositionMap(user));
     simCtx->searchMetrics.currentSettlementPass = 1;
 
     /* Seam origin, translation, and the centre of the (., 1, 1) cell row in y and z. */
