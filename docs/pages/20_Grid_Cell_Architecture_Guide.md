@@ -100,6 +100,25 @@ ucat[0]                                            <-- Ghost Value for Cell 0
                                    ucat[IM]  <-- Ghost Value for Cell IM-2
 ```
 
+### 4.2. Where in the Cell `ucat` Lives
+
+@ref Contra2Cart evaluates the Cartesian velocity at the cell's computational midpoint,
+grid coordinates (1/2, 1/2, 1/2), by solving `S_i . u = U^i` with each face family's flux and
+face-area vector averaged between its two faces. Under the cell's trilinear map that point is
+the average of the eight corner nodes, which is how `Cent` is defined, so `ucat` and `Cent`
+agree. On a warped cell it is not the volume centroid; the two differ only by the cell's
+non-affine distortion.
+
+The solve itself is @ref ContravariantToCartesianInCell, which takes any in-cell position;
+`FaceFlux` particle interpolation uses it that way. That does not make the collocation point
+selectable for the Eulerian solver: the momentum right-hand side differences `ucat` between
+centres with centre-located metrics, the wall dummy-cell rule `2 u_wall - u_first` mirrors the
+first centre across the wall, wall functions use the first centre's wall distance, and LES,
+statistics, output coordinates and Trilinear particle interpolation all place `ucat` at
+`Cent`. Moving it would mean revisiting each of those. The face-area vectors are also only
+interpolated across the cell, which is exact on rectilinear cells and approximate on warped
+ones.
+
 ---
 
 ## 5. Effective Computational Domain and Resolution
