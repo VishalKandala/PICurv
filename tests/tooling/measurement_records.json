@@ -1106,6 +1106,81 @@
       },
       "limitations": "One sample per configuration, and PICurv's timers are rank 0 only (the -log_view figures give the max over ranks). Two rank layouts for bit-identity, both with Cartesian or TGV grids; curvilinear cases were checked only locally on 3 ranks. The largest case is 4.2M particles; the 10^8-10^9 regime the change targets was not run. The 10% buffer was chosen, not tuned: a rank whose arrivals exceed it reallocates, which was not separately timed. It establishes nothing about the walking search itself, whose cost is unchanged.",
       "artifacts": []
+    },
+    {
+      "id": "particle-wall-reflection-2026-10-20",
+      "question": "Do particles crossing reflect faces stay in the domain with the correct statistics, across ranks, curvilinear walls and large steps, without fallbacks or losses?",
+      "date": "2026-10-20",
+      "commit": "3b61c56",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized, OpenMPI 4.1.5 with UCX; exclusive or shared short-partition nodes, 48 cores per node; every run pinned (--pin-executables). 19 production runs on 1-16 ranks; 61.8 core-hours (1.29 node-hours) including pilots.",
+      "configuration": "T2: Brownian particles in a 16^3 reflecting box (32768 particles) on 1, 2 and 4 ranks (T7). T3: box with diffusivity 1e-3 (1+x) and the drift term, 65536 particles, dt 0.01 and 0.04. T4: 200k PointSource particles near a wall, 32^3, dt 0.025, 9000 steps, against the image-series solution. T5a: bent channel 20x20x144, 4 ranks, constant and LINEAR_X diffusivity, dt, dt/2, dt/4. T5b: 17-cell circular section. T5c: UNIFORM_FLOW into walls at CFL 1, 2, 4. T6: IEM within-cell variance with reflections against an 8-seed emulation.",
+      "result": {
+        "measured": "Every run, every step: particle count constant, reflection_fallbacks, blocked_walk_retry_count, lost and exited 0, at most 2 migration passes, Psi sum bitwise unchanged. T2 reflections 351.17/step (std 18.59) against the analytic wall flux N 6 sigma/sqrt(2 pi) = 351; final x variance 0.08365 +- 0.00041 against 1/12. T3 per-cell chi2 p 0.045-0.953 over 11 checkpoints, density slope within 1 SE of 0. T4 KS p 0.0124, 0.386, 0.806, 0.612 at t = 1.25, 5, 20, 45; tail fractions match the image series. T5c at CFL 4 (4 cells per step) 826,397 reflections, no fallback or blocked walk. T6 variance ratio within 0.3-1.2% of the emulation at C_IEM 2 and 20. T7 reflections 349.99/349.98/351.17 per step on 1/2/4 ranks, counts identical.",
+        "threshold": "All counters conserved and zero failures; reflection flux and distributions consistent with their analytic or emulated references.",
+        "verdict": "met"
+      },
+      "limitations": "The curvilinear well-mixed tests (T5a, T5b) were confounded by the then uniform-per-cell Volume seeding and are re-established by volume-seeding-fix-2026-10-20. T4 at t = 1.25 is marginal (p 0.012, about a 5% event over four tests). Particle velocity is not reset at walls and immersed boundaries are not seen; neither was tested. Largest run 200k particles on 16 ranks.",
+      "artifacts": []
+    },
+    {
+      "id": "volume-seeding-fix-2026-10-20",
+      "question": "Does volume-weighted seeding (cell CDF by exact volume, detJ rejection, rank split by owned volume) seed curvilinear domains well mixed from step 0, and does it remove the suspected near-wall deficit?",
+      "date": "2026-10-20",
+      "commit": "8c54198",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized, OpenMPI 4.1.5 with UCX; exclusive or shared short-partition nodes, 48 cores per node; every run pinned (--pin-executables). 7 jobs, 1-36 ranks; 63.4 core-hours (1.32 node-hours).",
+      "configuration": "T5a bent channel 20x20x144 with reflecting walls: constant diffusivity 1.5e-3 (32768 particles) and LINEAR_X 1.5e-3 to 3e-3 (65536, and 262144 for x4), each at dt and dt/4. T5b 17-cell circular section, 5 cells along the path. Chi-square over 4x4x36 volume-weighted bins (575 dof) for T5a and per cell (1444 dof) for T5b; first-cell-layer density by volume.",
+      "result": {
+        "measured": "Step-0 chi2: T5a 629.9 (p 0.056) and 601.7 (p 0.213), against 706.4 (p 1.4e-4) and 740.3 (p 3.5e-6) before the fix; T5b 1403.5 (p 0.773) against 26174. Later checkpoints p 0.044-0.98 throughout. x4 particles: first-layer density 1.0011 (dt) and 0.9995 (dt/4), SE 0.0045, no dt trend; the earlier 1% deficit does not reproduce. All counters zero as in particle-wall-reflection-2026-10-20.",
+        "threshold": "Well-mixed from step 0 by volume-weighted chi-square; first-layer density within 2 SE of 1.",
+        "verdict": "met"
+      },
+      "limitations": "Grids with first cells comparable to the interior; a DNS channel with a first cell at y+ 1.1 seeded 0.974 +- 0.009 in its first layer (one realisation, under investigation), so thin wall cells are not covered by this record. Largest seeding 262k particles.",
+      "artifacts": []
+    },
+    {
+      "id": "periodic-particle-wrap-2026-10-20",
+      "question": "Do particles crossing periodic faces re-enter through the paired face with exact conservation and the analytic wrap flux, across rank layouts, diffusion, wall-bounded and curvilinear periodic cases?",
+      "date": "2026-10-20",
+      "commit": "6df6c48 (comparison 83bddaa)",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized, OpenMPI 4.1.5 with UCX; exclusive or shared short-partition nodes, 48 cores per node; every run pinned (--pin-executables). 8 to 144 ranks; 5.05 node-hours including pilots.",
+      "configuration": "W1: 64^3 fully periodic box, UNIFORM_FLOW u = (0.7, 0.45, 0.3), 2,097,152 Volume particles, dt 0.01, 400 steps, DMDA split along every axis (2^3, 3^3, 4^3). W2: W1 with Gamma 1e-3 at 27 ranks. W3: Re_tau 180 DNS channel, 96x96x256, 144 ranks, 2,097,152 tracers, 600 steps. W4: circular pipe 17x17x40, periodic along the path with translation (4, 0, 0), walls on the section, 200,000 particles, 1000 steps.",
+      "result": {
+        "measured": "Every run and step: particle count constant; exited, lost, fallbacks, blocked walks 0; Psi sum unchanged. W1 wraps per step / analytic 30408.7: 1.000032, 0.999957, 1.000034 at 8, 27, 64 ranks; final per-cell chi2 p 0.939, 0.451, 0.918; same final count at every rank count. W2 1.00012 of the diffusive reference, p 0.397. W4 515.8 wraps/step against about 515, per-cell p 0.19-0.99, first wall layer 0.9865-1.0095. W3 conserved with 1357 wraps and 1607 reflections per step.",
+        "threshold": "Exact conservation, zero failures, wrap flux within statistical error of the analytic flux, uniformity preserved.",
+        "verdict": "met"
+      },
+      "limitations": "No off-axis seam translation was run on the cluster (grid.gen refused rotate with periodic axes then; rotated periodic grids were later checked locally to round-off). Rotational periodicity is unsupported. W3's near-wall tracer clustering is an interpolation effect resolved by faceflux-uniform-tracers-2026-10-21, not a wrap defect.",
+      "artifacts": []
+    },
+    {
+      "id": "wrap-one-handoff-owner-lookup-2026-10-21",
+      "question": "Do wrapping every crossed periodic face before the handoff and the per-axis owner lookup leave results unchanged while removing the extra settlement passes?",
+      "date": "2026-10-21",
+      "commit": "7ca7e70 against 6df6c48 and 83bddaa",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized, OpenMPI 4.1.5 with UCX; exclusive or shared short-partition nodes, 48 cores per node; every run pinned (--pin-executables). One exclusive allocation per layout, the three builds back to back; 4.26 node-hours.",
+      "configuration": "W1 box (64^3, 2,097,152 particles, 400 steps) at 27 and 64 ranks; 96^3 box with 7,077,888 particles, 100 steps, at 216 ranks (6^3).",
+      "result": {
+        "measured": "Bit-identical across the three builds at each layout: wrap totals, final count, chi-square, md5 of the per-step wraps series and of the final particle state. Passes per step: 3-4 on 83bddaa, 2 on every step after. AdvanceSimulation 1623/1579/1573 s (27 ranks), 936/913/909 s (64), 287/272/275 s (216). FindOwnerOfCell on rank 0: 29.3/46.5/36.3 ns per call at 27 ranks; under 0.1% of run time in every build.",
+        "threshold": "Identical results; passes no longer above 2.",
+        "verdict": "met"
+      },
+      "limitations": "Profiling then covered rank 0 only, where the old linear scan stops at its first range; a standalone microbenchmark (not this record) shows the last rank's linear lookup at 263 ns at 216 ranks and 4.8 us at 4096 against 20-25 ns per-axis. No run above 216 ranks.",
+      "artifacts": []
+    },
+    {
+      "id": "faceflux-uniform-tracers-2026-10-21",
+      "question": "Is the near-wall tracer excess in a DNS channel caused by the divergence of the interpolated velocity, and does FaceFlux interpolation remove it without changing the Eulerian solve?",
+      "date": "2026-10-21",
+      "commit": "93159d9 (Contra2Cart comparison against 303a8d6)",
+      "environment": "TAMU Grace, PETSc 3.20.3 optimized, OpenMPI 4.1.5 with UCX; exclusive or shared short-partition nodes, 48 cores per node; every run pinned (--pin-executables). 144 ranks (4x4x9) on 3 exclusive nodes; D1 4.12, FaceFlux 2.15 and the Contra2Cart comparison 1.06 node-hours; W3 is the run of periodic-particle-wrap-2026-10-20.",
+      "configuration": "Re_tau 202 (nominal 180) DNS channel, 96x96x256 cells, first cell y+ 1.1, branched at step 20000 of a statistically steady run; 2,097,152 tracers, Gamma = nu, dt 0.005, 600 steps. W3 Trilinear (6df6c48), D1 Trilinear at dt/2 for 1200 steps, and FaceFlux (93159d9), same seed. D3 offline analysis of the interpolant from checkpoints. Contra2Cart: 200 solved steps without particles on both builds back to back.",
+      "result": {
+        "measured": "Trilinear: folded density - 1 at y+ 0.6-3 of +0.030 and +0.033 at t - t0 = 2 and 3 (SE 0.005), depletion -0.011 at y+ 12-37, per-cell chi2 p 0 from t - t0 = 2; D1 at dt/2 the same within error, so not the time step; D3 plane-mean divergence 0 but <v_n div> > 0 near the wall. FaceFlux: every band within 1.6 SE of 0 at every time with no consistent sign, chi2 p 0.31, 0.21, 0.88; first layer 1.010 against 1.028; count conserved, 0 lost, exited, fallbacks, warnings. Contra2Cart refactor: Ucat, Ucont and P md5 identical after 200 steps; Contra2Cart max/mean time 17.33/10.77 s against 17.39/10.59 s, AdvanceSimulation +0.6%, within noise.",
+        "threshold": "FaceFlux bands within 2 SE of 0 and chi-square uniform; Eulerian fields bit-identical and Contra2Cart cost unchanged.",
+        "verdict": "met"
+      },
+      "limitations": "One realisation per configuration. The grid is rectilinear, where FaceFlux is exactly divergence-free; warped curvilinear cells leave a residual, not measured here. FaceFlux velocity accuracy (first order) was not measured. The shared seeding starts the first layer at 0.974 +- 0.009, under separate investigation, so a residual near-wall effect below about 1% is not excluded.",
+      "artifacts": []
     }
   ]
 }

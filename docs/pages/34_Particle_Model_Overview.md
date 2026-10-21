@@ -108,11 +108,14 @@ interpreting that artifact.
 
 @section p34_limits_sec 5. Limitations
 
-- **Boundary behaviour is per face and experimental.** Each face's
-  `particle_policy` (@ref p44_ppol_sec) reflects the particle (walls), removes it as
-  having left the domain (inlets and outlets, counted as `exited`), or wraps it to the
-  paired face (periodic faces). Particle velocity is not reset at walls, and immersed
-  boundaries are not seen by particles.
+- **Boundary behaviour is per face.** Each face's `particle_policy` (@ref p44_ppol_sec)
+  reflects the particle (walls), removes it as having left the domain (inlets and outlets,
+  counted as `exited`; still experimental), or wraps it to the paired face (periodic faces).
+  Particle velocity is not reset at walls, and immersed boundaries are not seen by particles.
+- **Trilinear velocity drifts tracers in strongly inhomogeneous flow.** It is not
+  divergence-free, which builds a few-percent excess near no-slip walls in a resolved
+  channel; `interpolation.method: FaceFlux` keeps the density uniform at first-order
+  velocity accuracy (@ref p08_cap_interp_faceflux).
 - **`lost` counts search failures only.** A particle that leaves through a removing face
   is `exited`; a nonzero `lost` means the search failed for a particle believed inside the
   domain and should be investigated.

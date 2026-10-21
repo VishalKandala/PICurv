@@ -529,6 +529,10 @@ boundary cells or very large steps.
 **Evidence.** Unit verified - `make unit-particles` mirrors a point about a flat face, a
 sheared face and a two-face corner, and checks the cap fallback; `make unit-runtime` reflects
 a particle through the walking search, including after a tangential walk along the wall.
+Analytically verified - `particle-wall-reflection-2026-10-20`: wall flux 351.2 reflections per
+step against the analytic 351, box and near-wall distributions against their analytic
+references, identical counts on 1, 2 and 4 ranks, and no fallback or loss up to CFL 4;
+`volume-seeding-fix-2026-10-20`: curvilinear walls stay well mixed with no near-wall deficit.
 
 **Limitations.** The face is the planar approximation the search uses, so on curved walls a
 mirrored point can land outside a neighbouring cell's plane and need another reflection.
@@ -595,6 +599,10 @@ flux through the seam.
 
 **Evidence.** Unit verified - `make unit-periodic` wraps a particle through each x-periodic
 face and through an x-y periodic corner, and checks the shifted position and landing cell.
+Analytically verified - `periodic-particle-wrap-2026-10-20`: exact conservation and wrap flux
+within 5e-5 of analytic on 8 to 64 ranks split along every axis, with diffusion, in a DNS
+channel and in a curvilinear pipe; `wrap-one-handoff-owner-lookup-2026-10-21`: one handoff per
+corner crossing, bit-identical results, at most 2 settlement passes up to 216 ranks.
 
 **Limitations.** Only translational periodicity; rotational periods are not supported by the
 grid contract either.

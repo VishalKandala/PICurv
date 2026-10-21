@@ -701,11 +701,14 @@
           }
         },
         "FaceFlux": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "make:unit-runtime"
+            ],
+            "analytical": [
+              "measurement:faceflux-uniform-tracers-2026-10-21"
             ]
           }
         }
@@ -1625,13 +1628,17 @@
       "coverage_enforced": true,
       "value_metadata": {
         "reflect": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "particles.transport",
           "evidence": {
             "unit": [
               "make:unit-particles",
               "make:unit-runtime"
+            ],
+            "analytical": [
+              "measurement:particle-wall-reflection-2026-10-20",
+              "measurement:volume-seeding-fix-2026-10-20"
             ]
           }
         },
@@ -1647,12 +1654,16 @@
           }
         },
         "wrap": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "particles.transport",
           "evidence": {
             "unit": [
               "make:unit-periodic"
+            ],
+            "analytical": [
+              "measurement:periodic-particle-wrap-2026-10-20",
+              "measurement:wrap-one-handoff-owner-lookup-2026-10-21"
             ]
           }
         }

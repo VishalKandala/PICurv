@@ -54,10 +54,18 @@ Raw per-timestep counters written directly by the runtime:
 - `lost`
 - `lost_cumulative`
 - `load_imbalance`
+- `search_exited_count`
+- `exited`
+- `exited_cumulative`
+- `blocked_walk_retry_count`
+- `reflections`
+- `reflection_fallbacks`
+- `wraps`
 
-Each row is indexed by `step`, `time` (solver time), and `physical_time` (seconds). The last
-column, `lost_psi_sum`, is the sum of `Psi` over the particles removed that step: with a 0/1
-label and `iem_constant: 0`, the number of labelled particles that left the domain.
+Each row is indexed by `step`, `time` (solver time), and `physical_time` (seconds).
+`lost_psi_sum` and `exited_psi_sum` are the sums of `Psi` over the lost and the exited
+particles removed that step: with a 0/1 label and `iem_constant: 0`, `exited_psi_sum` is the
+number of labelled particles that left the domain.
 
 These are cheap, always-on aggregate counters. They are the authoritative source
 for later derived signals and study reductions.
@@ -87,8 +95,9 @@ run and are intended for comparison across parameter sweeps or example classes.
 
 Important distinctions:
 
-- `lost` is per-step cleanup loss.
-- `lost_cumulative` is the run-local cumulative loss over the current run only; it is intentionally not restored from checkpoint state.
+- `lost` counts search failures removed in cleanup: particles believed inside the domain that the search could not place. It is a failure signal; a nonzero value should be investigated.
+- `exited` counts particles that left through a face whose `particle_policy` is `remove` (@ref p44_ppol_sec). Leaving is physics, not failure.
+- `lost_cumulative` and `exited_cumulative` are run-local cumulative counts over the current run only; they are intentionally not restored from checkpoint state.
 - `migrated` measures handoff exposure and stress. It is not a failure metric by itself.
 - `search_attempts` counts robust walking searches, not every search-related operation.
 - `mean_traversal_steps` measures average cost per robust walk.
@@ -96,11 +105,13 @@ Important distinctions:
 
 Nominal invariant after settlement convergence:
 
-- `search_population = search_located_count + search_lost_count`
+- `search_population = search_located_count + search_lost_count + search_exited_count`
 
 That invariant is important because it separates particles that entered search on
 pass 1 from later re-search activity. Migrating particles may trigger extra
-search work, but they should still end the timestep as either located or lost.
+search work, but they should still end the timestep located, lost or exited. A lost or
+exited particle is final within one settlement: only pass 1 searches it, so it is never
+re-walked or re-migrated on later passes.
 
 @section p53_definitions_sec 4. Detailed Metric Definitions
 
@@ -165,17 +176,34 @@ The bbox-guess counters are useful for diagnosis of invalid-prior-cell paths.
 the bbox stage. `bbox_guess_fallback_count` indicates that the bbox stage did
 not finish the job and the robust walk still had to be used.
 
-@subsection p53_definitions_legacy 4.4 Loss Counters
+@subsection p53_definitions_legacy 4.4 Loss and Exit Counters
 
-- `lost`: per-step particle removals performed during cleanup.
-- `lost_cumulative`: run-local cumulative particle loss over the current run.
+- `search_exited_count`: number of particles from `search_population` whose final settlement status is `EXITED`.
+- `lost`: per-step removals of `LOST` particles (search failures) during cleanup.
+- `lost_cumulative`: run-local cumulative count of `lost`.
+- `exited`: per-step removals of `EXITED` particles, which left through a removing face.
+- `exited_cumulative`: run-local cumulative count of `exited`.
 
-`lost` is the instantaneous timestep loss signal. It is useful for spotting when
-a run first begins to fail. `lost_cumulative` is the integrated attrition over
-the entire run and is the natural numerator for run-level loss fractions.
+`lost` is the instantaneous failure signal. It is useful for spotting when a run first
+begins to fail; in a closed or periodic domain it should be zero. `exited` is outflow:
+in an open domain it should match the particle flux through the outlet faces.
 
-In nominal paths, `lost` should match `search_lost_count`, because particles that
-finish the timestep in the `LOST` state are the ones removed in cleanup.
+In nominal paths, `lost` matches `search_lost_count` and `exited` matches
+`search_exited_count`, because the particles that finish settlement `LOST` or `EXITED`
+are the ones removed in cleanup.
+
+@subsection p53_definitions_boundary 4.4a Boundary Event Counters
+
+- `reflections`: wall reflections performed during the walk. Each is one mirror of the particle about the plane of a boundary face whose policy is `reflect`; an edge or corner crossing reflects about each crossed face in turn.
+- `reflection_fallbacks`: particles that reached the reflection cap in one search and were placed just inside their boundary cell. Expected to be zero; a nonzero value also prints a WARNING line.
+- `blocked_walk_retry_count`: walks that ended far beyond a boundary face (more than the blocked-walk guard of three cell sizes), treated as blocked by the domain's shape rather than as a real crossing, and searched again from scratch in the same pass.
+- `wraps`: periodic wraps. Each crossed periodic face counts once, so an edge or corner crossing of two seams counts two.
+
+Reflections and wraps measure boundary traffic, not trouble. In a statistically steady
+flow, `reflections` should track the particle flux into the walls and `wraps` the flux
+through the periodic seams. A per-step INFO line ("boundary events: ... wall reflections,
+... periodic wraps, ... blocked walks searched again") repeats them when
+`LOG_SEARCH_METRICS` is in `logging.enabled_functions`.
 
 @subsection p53_definitions_derived 4.5 Derived Per-Timestep Signals
 
@@ -230,7 +258,9 @@ Healthy baseline behavior usually looks like:
 - `search_work_index` low and stable,
 - `re_search_fraction` low for gentle cases and nonzero for migration-heavy cases,
 - `max_traversal_steps` small,
-- `tie_break_count` and `boundary_clamp_count` near zero in nominal cases.
+- `tie_break_count` and `boundary_clamp_count` near zero in nominal cases,
+- `reflection_fallbacks` and `blocked_walk_retry_count` zero; `exited` zero in a closed or
+  periodic domain.
 
 Stressed-but-healthy behavior usually looks like:
 
@@ -246,7 +276,9 @@ Failing behavior usually looks like:
 - `lost` and `lost_cumulative` increasing,
 - `search_work_index` large,
 - `max_traversal_fail_count` nonzero,
-- strong `boundary_clamp_count` or repeated fallback behavior.
+- strong `boundary_clamp_count` or repeated fallback behavior,
+- `reflection_fallbacks` nonzero, or `blocked_walk_retry_count` large outside a strongly
+  non-convex domain.
 
 @section p53_examples_sec 6. Worked Example Classes
 

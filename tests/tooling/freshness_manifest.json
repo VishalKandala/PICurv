@@ -43,7 +43,7 @@
         "10_Post_Processing_Reference",
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:40d55a3453c6cdca138342df961c5419a2f3bf0776765933bc3f3016f6192f70"
+      "attested_digest": "sha256:9aa5ab483df2167360dc6369b7eaeb0b759e78a84acd90dc96b3c5a0bf776361"
     },
     {
       "id": "capability.evidence_matrix",
@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:34933ac74247ca940e9ffe6f0370a04a8fc9250a497d4dbd44a78652092e3093"
+      "attested_digest": "sha256:ddd89837377d6773ace9c6e1b394541231b56c9c26cb7dd8968a6e4a20f1f188"
     },
     {
       "id": "artifact.topology",
@@ -268,7 +268,7 @@
         "27_Trilinear_Interpolation_and_Projection",
         "53_Search_Robustness_Metrics_Reference"
       ],
-      "attested_digest": "unattested"
+      "attested_digest": "sha256:a11976b141f952912be0ac8c0ff897a190a8a03fca783f1af1ab58b240469842"
     },
     {
       "id": "particles.motion",

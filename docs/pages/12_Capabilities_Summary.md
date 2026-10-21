@@ -48,9 +48,9 @@ Particle controls include:
 - restart modes (`init`, `load`),
 - grid-to-particle interpolation method (`Trilinear` direct cell-center, `CornerAveraged` legacy, or `FaceFlux` divergence-free velocity from face fluxes),
 - scalar micromixing update path (IEM-style `Psi` model),
-- per-face particle boundary policy (`reflect` at walls, `remove` at inlets and outlets; experimental).
+- per-face particle boundary policy (`reflect` at walls, `remove` at inlets and outlets, `wrap` on periodic faces; `remove` is still experimental).
 
-A particle crossing a periodic face re-enters through the paired face, shifted by the seam translation (`particle_policy: wrap`, experimental).
+A particle crossing a periodic face re-enters through the paired face, shifted by the seam translation (`particle_policy: wrap`).
 
 @subsection p12_turbulence_ssec 2.1 Turbulence Models
 

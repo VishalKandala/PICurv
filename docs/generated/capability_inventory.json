@@ -404,7 +404,7 @@
       },
       "FaceFlux": {
         "maps_to": 2,
-        "status": "experimental"
+        "status": "supported"
       },
       "Trilinear": {
         "maps_to": 0,
@@ -797,7 +797,7 @@
     "public_values": {
       "reflect": {
         "maps_to": "reflect",
-        "status": "experimental"
+        "status": "supported"
       },
       "remove": {
         "maps_to": "remove",
@@ -805,7 +805,7 @@
       },
       "wrap": {
         "maps_to": "wrap",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "case.yml -> boundary_conditions[].particle_policy",

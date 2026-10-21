@@ -425,7 +425,10 @@ statistically uniform in a solved incompressible flow; compare against Trilinear
 
 **Evidence.** Unit verified - `make unit-runtime` builds fluxes from a stream function and
 checks that the interpolated velocity is divergence-free to round-off, is zero normal to
-a wall face, and equals `Contra2Cart` at the cell centre.
+a wall face, and equals `Contra2Cart` at the cell centre. Analytically verified -
+`faceflux-uniform-tracers-2026-10-21`: in a Re_tau 202 DNS channel, Trilinear builds a 3%
+near-wall tracer excess that does not shrink with the time step; FaceFlux keeps every wall band
+within 1.6 SE of uniform, and the shared `Contra2Cart` solve is bit-identical with unchanged cost.
 
 **Limitations.** First-order accurate: a component varies only along its own axis inside
 a cell, so it is constant across the cell in the other two directions (for example the
