@@ -1134,7 +1134,7 @@
         "threshold": "Well-mixed from step 0 by volume-weighted chi-square; first-layer density within 2 SE of 1.",
         "verdict": "met"
       },
-      "limitations": "Grids with first cells comparable to the interior; a DNS channel with a first cell at y+ 1.1 seeded 0.974 +- 0.009 in its first layer (one realisation, under investigation), so thin wall cells are not covered by this record. Largest seeding 262k particles.",
+      "limitations": "Grids with first cells comparable to the interior. Thin wall cells were checked separately on 2026-10-21 (DNS channel, first cell y+ 1.1, 96x96x256, six seedings including 4x N and a 4x3x9 layout): first layer 0.9959 +- 0.0031 pooled, so a single realisation's 0.974 was a fluctuation. Largest seeding 262k particles.",
       "artifacts": []
     },
     {
@@ -1179,7 +1179,7 @@
         "threshold": "FaceFlux bands within 2 SE of 0 and chi-square uniform; Eulerian fields bit-identical and Contra2Cart cost unchanged.",
         "verdict": "met"
       },
-      "limitations": "One realisation per configuration. The grid is rectilinear, where FaceFlux is exactly divergence-free; warped curvilinear cells leave a residual, not measured here. FaceFlux velocity accuracy (first order) was not measured. The shared seeding starts the first layer at 0.974 +- 0.009, under separate investigation, so a residual near-wall effect below about 1% is not excluded.",
+      "limitations": "One realisation per configuration. The grid is rectilinear, where FaceFlux is exactly divergence-free; warped curvilinear cells leave a residual, not measured here. FaceFlux velocity accuracy (first order) was not measured. The shared seeding starts the first layer at 0.974 +- 0.009, a seeding fluctuation (six seedings pool to 0.9959 +- 0.0031), so the FaceFlux first layer's rise to 1.010 is consistent with relaxation from it; a residual near-wall effect below about 1% is not excluded by this one realisation.",
       "artifacts": []
     }
   ]
