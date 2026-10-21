@@ -449,185 +449,47 @@ PetscErrorCode ApplyPeriodicCorrectionsToCellCentersAndSpacing(UserCtx *user)
     PetscInt       ys = info.ys, ye = info.ys + info.ym;
     PetscInt       zs = info.zs, ze = info.zs + info.zm;
     PetscInt       mx = info.mx, my = info.my, mz = info.mz;
-    Cmpnts       ***cent, ***lcent, ***gs;
-    PetscReal      delta;
+    const BCFace   neg_faces[3] = {BC_FACE_NEG_X, BC_FACE_NEG_Y, BC_FACE_NEG_Z};
+    Cmpnts       ***cent, ***lcent;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
-    // Check if any periodic boundaries exist
-    PetscBool has_periodic = PETSC_FALSE;
-    for (int i = 0; i < 6; i++) {
-        if (user->boundary_faces[i].mathematical_type == PERIODIC) {
-            has_periodic = PETSC_TRUE;
-            break;
-        }
-    }
-
-    if (!has_periodic) {
-        LOG_ALLOW(LOCAL, LOG_TRACE, "No periodic boundaries; skipping corrections for Cent/GridSpace.\n");
-        PROFILE_FUNCTION_END;
-        PetscFunctionReturn(0);
-    }
-
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Applying periodic corrections to Cent and GridSpace.\n");
-
-    // Must update ghosts first before applying corrections
-    ierr = UpdateLocalGhosts(user, FIELD_ID_CENT); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, FIELD_ID_GRID_SPACE); CHKERRQ(ierr);
-
-    // --- X-direction periodic corrections ---
-    if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC || 
-        user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC) {
-        
+    // The dummy slot before the first cell of a periodic axis holds the last cell's centre
+    // shifted back by the validated seam translation T, and the slot after the last cell holds
+    // the first cell's centre shifted forward by T; exact for any translated period. Axes are
+    // corrected in turn, refreshing ghosts between them, so edge and corner dummies collect the
+    // translation of every periodic axis they lie across.
+    for (PetscInt axis = 0; axis < 3; axis++) {
+        if (user->boundary_faces[neg_faces[axis]].mathematical_type != PERIODIC) continue;
+        PetscCheck(user->periodic_translation_valid[axis], PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+                   "Periodic cell-centre correction on axis %d needs the validated seam translation.", (int)axis);
+        const Cmpnts T = user->periodic_translation[axis];
+        ierr = UpdateLocalGhosts(user, FIELD_ID_CENT); CHKERRQ(ierr);
         ierr = DMDAVecGetArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
         ierr = DMDAVecGetArray(user->fda, user->lCent, &lcent); CHKERRQ(ierr);
-        ierr = DMDAVecGetArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
-
-        if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs == 0) {
-            if (user->cgrid) {
-                for (PetscInt k=zs; k<ze; k++) {
-                    for (PetscInt j=ys; j<ye; j++) {
-                        cent[k][j][0] = lcent[k][j][-2];
-                    }
-                }
-            } else {
-                for (PetscInt k=zs; k<ze; k++) {
-                    for (PetscInt j=ys; j<ye; j++) {
-                        delta = (gs[k][j][1].x + gs[k][j][-2].x) / 2.0;
-                        cent[k][j][0].x = cent[k][j][1].x - delta;
-                        cent[k][j][0].y = cent[k][j][1].y;
-                        cent[k][j][0].z = cent[k][j][1].z;
-                    }
-                }
-            }
-        }
-
-        if (user->boundary_faces[BC_FACE_POS_X].mathematical_type == PERIODIC && xe == mx) {
-            if (user->cgrid) {
-                for (PetscInt k=zs; k<ze; k++) {
-                    for (PetscInt j=ys; j<ye; j++) {
-                        cent[k][j][mx-1] = lcent[k][j][mx+1];
-                    }
-                }
-            } else {
-                for (PetscInt k=zs; k<ze; k++) {
-                    for (PetscInt j=ys; j<ye; j++) {
-                        delta = (gs[k][j][mx-2].x + gs[k][j][mx+1].x) / 2.0;
-                        cent[k][j][mx-1].x = cent[k][j][mx-2].x + delta;
-                        cent[k][j][mx-1].y = cent[k][j][mx-2].y;
-                        cent[k][j][mx-1].z = cent[k][j][mx-2].z;
-                    }
+        for (PetscInt k = zs; k < ze; k++) {
+            for (PetscInt j = ys; j < ye; j++) {
+                for (PetscInt i = xs; i < xe; i++) {
+                    const PetscInt idx[3] = {i, j, k}, n[3] = {mx, my, mz};
+                    PetscInt src_i = i, src_j = j, src_k = k;
+                    PetscReal sign;
+                    if (idx[axis] == 0) sign = -1.0;              // before the first cell: last cell - T
+                    else if (idx[axis] == n[axis] - 1) sign = 1.0; // after the last cell: first cell + T
+                    else continue;
+                    // Wrapped local ghost of the source cell: index -2 is the last physical cell,
+                    // n + 1 the first.
+                    if (axis == 0) src_i = (sign < 0.0) ? -2 : mx + 1;
+                    if (axis == 1) src_j = (sign < 0.0) ? -2 : my + 1;
+                    if (axis == 2) src_k = (sign < 0.0) ? -2 : mz + 1;
+                    cent[k][j][i].x = lcent[src_k][src_j][src_i].x + sign * T.x;
+                    cent[k][j][i].y = lcent[src_k][src_j][src_i].y + sign * T.y;
+                    cent[k][j][i].z = lcent[src_k][src_j][src_i].z + sign * T.z;
                 }
             }
         }
-
-        ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
         ierr = DMDAVecRestoreArray(user->fda, user->lCent, &lcent); CHKERRQ(ierr);
         ierr = DMDAVecRestoreArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
-    }    
-    // --- Y-direction periodic corrections ---
-    if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC || 
-        user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC) {
-        
-        ierr = DMDAVecGetArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
-        ierr = DMDAVecGetArray(user->fda, user->lCent, &lcent); CHKERRQ(ierr);
-        ierr = DMDAVecGetArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
-
-        if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys == 0) {
-            if (user->cgrid) {
-                for (PetscInt k=zs; k<ze; k++) {
-                    for (PetscInt i=xs; i<xe; i++) {
-                        cent[k][0][i] = lcent[k][-2][i];
-                    }
-                }
-            } else {
-                for (PetscInt k=zs; k<ze; k++) {
-                    for (PetscInt i=xs; i<xe; i++) {
-                        delta = (gs[k][1][i].y + gs[k][-2][i].y) / 2.0;
-                        cent[k][0][i].x = cent[k][1][i].x;
-                        cent[k][0][i].y = cent[k][1][i].y - delta;
-                        cent[k][0][i].z = cent[k][1][i].z;
-                    }
-                }
-            }
-        }
-
-        if (user->boundary_faces[BC_FACE_POS_Y].mathematical_type == PERIODIC && ye == my) {
-            if (user->cgrid) {
-                for (PetscInt k=zs; k<ze; k++) {
-                    for (PetscInt i=xs; i<xe; i++) {
-                        cent[k][my-1][i] = lcent[k][my+1][i];
-                    }
-                }
-            } else {
-                for (PetscInt k=zs; k<ze; k++) {
-                    for (PetscInt i=xs; i<xe; i++) {
-                        delta = (gs[k][my-2][i].y + gs[k][my+1][i].y) / 2.0;
-                        cent[k][my-1][i].x = cent[k][my-2][i].x;
-                        cent[k][my-1][i].y = cent[k][my-2][i].y + delta;
-                        cent[k][my-1][i].z = cent[k][my-2][i].z;
-                    }
-                }
-            }
-        }
-
-        ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArray(user->fda, user->lCent, &lcent); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
-
-    }
-
-    // --- Z-direction periodic corrections ---
-    if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC || 
-        user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC) {
-        
-        ierr = DMDAVecGetArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
-        ierr = DMDAVecGetArray(user->fda, user->lCent, &lcent); CHKERRQ(ierr);
-        ierr = DMDAVecGetArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
-
-        if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && zs == 0) {
-            if (user->cgrid) {
-                for (PetscInt j=ys; j<ye; j++) {
-                    for (PetscInt i=xs; i<xe; i++) {
-                        cent[0][j][i] = lcent[-2][j][i];
-                    }
-                }
-            } else {
-                for (PetscInt j=ys; j<ye; j++) {
-                    for (PetscInt i=xs; i<xe; i++) {
-                        delta = (gs[1][j][i].z + gs[-2][j][i].z) / 2.0;
-                        cent[0][j][i].x = cent[1][j][i].x;
-                        cent[0][j][i].y = cent[1][j][i].y;
-                        cent[0][j][i].z = cent[1][j][i].z - delta;
-                    }
-                }
-            }
-        }
-
-        if (user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC && ze == mz) {
-            if (user->cgrid) {
-                for (PetscInt j=ys; j<ye; j++) {
-                    for (PetscInt i=xs; i<xe; i++) {
-                        cent[mz-1][j][i] = lcent[mz+1][j][i];
-                    }
-                }
-            } else {
-                for (PetscInt j=ys; j<ye; j++) {
-                    for (PetscInt i=xs; i<xe; i++) {
-                        delta = (gs[mz-2][j][i].z + gs[mz+1][j][i].z) / 2.0;
-                        cent[mz-1][j][i].x = cent[mz-2][j][i].x;
-                        cent[mz-1][j][i].y = cent[mz-2][j][i].y;
-                        cent[mz-1][j][i].z = cent[mz-2][j][i].z + delta;
-                    }
-                }
-            }
-        }
-
-        ierr = DMDAVecRestoreArray(user->fda, user->lGridSpace, &gs); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArray(user->fda, user->lCent, &lcent); CHKERRQ(ierr);
-        ierr = DMDAVecRestoreArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
-
     }
 
     PROFILE_FUNCTION_END;

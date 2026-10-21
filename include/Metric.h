@@ -202,11 +202,13 @@ PetscErrorCode ComputeCellEdgeVectors(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmp
                                       Cmpnts edges[3]);
 
 /**
- * @brief Builds translated periodic images for cell centers and grid spacing.
+ * @brief Builds translated periodic images for the dummy cell centers of periodic axes.
  *
- * PETSc wraps field indices but does not translate coordinates. This routine
- * applies the validated per-axis geometric translation to wrapped center
- * coordinates and refreshes the associated local grid spacing.
+ * PETSc wraps field indices but does not translate coordinates. This routine sets the dummy
+ * slot before the first cell of each periodic axis to the last cell's center minus the
+ * validated seam translation, and the slot after the last cell to the first cell's center
+ * plus it, axis by axis with a ghost refresh in between, so edge and corner dummies carry the
+ * translation of every periodic axis they cross. Grid spacing is not modified.
  *
  * @param user The UserCtx containing grid and field data.
  * @return PetscErrorCode 0 on success.
