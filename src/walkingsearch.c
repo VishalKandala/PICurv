@@ -1230,11 +1230,34 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
             } else {
                 PetscReal cell_size;
                 PetscBool reflect = PETSC_TRUE; // Every crossed face reflects particles
+                PetscInt  wrap_face = -1;       // Most-crossed periodic face, if any
                 for (PetscInt f = 0; f < NUM_FACES; ++f) {
-                    if (distances[f] < 0.0 && user->boundary_faces[kCellFaceDomainFace[f]].particle_policy != PARTICLE_BOUNDARY_REFLECT) reflect = PETSC_FALSE;
+                    if (distances[f] >= 0.0) continue;
+                    const ParticleBoundaryPolicy policy = user->boundary_faces[kCellFaceDomainFace[f]].particle_policy;
+                    if (policy != PARTICLE_BOUNDARY_REFLECT) reflect = PETSC_FALSE;
+                    if (policy == PARTICLE_BOUNDARY_WRAP && (wrap_face < 0 || distances[f] < distances[wrap_face])) wrap_face = f;
                 }
                 ierr = GetCellCharacteristicSize(&current_cell, &cell_size); CHKERRQ(ierr);
-                if (guard_blocked_walk && -distances[crossed] > BLOCKED_WALK_GUARD_CELLS * cell_size) {
+                if (wrap_face >= 0) {
+                    // Re-enter through the paired face: shift by the seam translation and move to
+                    // the cell at the other end of the axis; a non-local cell hands the particle off.
+                    const BCFace    face = kCellFaceDomainFace[wrap_face];
+                    const PetscInt  axis = (PetscInt)face / 2;
+                    const PetscReal sign = ((PetscInt)face % 2 == 0) ? 1.0 : -1.0; // Beyond the min face: +T
+                    const Cmpnts    T    = user->periodic_translation[axis];
+                    PetscCheck(user->periodic_translation_valid[axis], PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+                               "Particle wrap on axis %d needs the validated seam translation.", (int)axis);
+                    particle->loc.x += sign * T.x;
+                    particle->loc.y += sign * T.y;
+                    particle->loc.z += sign * T.z;
+                    if (axis == 0) idx = (sign > 0.0) ? user->IM - 2 : 0;
+                    if (axis == 1) idy = (sign > 0.0) ? user->JM - 2 : 0;
+                    if (axis == 2) idz = (sign > 0.0) ? user->KM - 2 : 0;
+                    user->simCtx->searchMetrics.wrapCount++;
+                    repeatedIndexCount = 0; prevIdx = PETSC_MIN_INT; prevIdy = PETSC_MIN_INT; prevIdz = PETSC_MIN_INT;
+                    LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Wrapped through %s to (%.6e, %.6e, %.6e), cell (%d,%d,%d).\n",
+                              (long long)particle->PID, BCFaceToString(face), particle->loc.x, particle->loc.y, particle->loc.z, idx, idy, idz);
+                } else if (guard_blocked_walk && -distances[crossed] > BLOCKED_WALK_GUARD_CELLS * cell_size) {
                     blocked = PETSC_TRUE;
                     search_concluded = PETSC_TRUE;
                     LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: %.3e beyond boundary face %d of cell (%d,%d,%d), above the %.1f-cell guard. Walk treated as blocked.\n",

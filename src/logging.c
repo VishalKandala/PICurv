@@ -46,6 +46,7 @@ enum {
     SEARCH_METRIC_SUM_BLOCKED_RETRY,
     SEARCH_METRIC_SUM_REFLECTIONS,
     SEARCH_METRIC_SUM_REFLECTION_FALLBACKS,
+    SEARCH_METRIC_SUM_WRAPS,
     SEARCH_METRIC_MAX_TRAVERSAL_STEPS,
     SEARCH_METRIC_MAX_PASS_DEPTH,
     SEARCH_METRIC_REDUCTION_LEN
@@ -77,6 +78,7 @@ static void SearchMetricsReduceOp(void *invec, void *inoutvec, int *len, MPI_Dat
         inout[idx + SEARCH_METRIC_SUM_BLOCKED_RETRY] += in[idx + SEARCH_METRIC_SUM_BLOCKED_RETRY];
         inout[idx + SEARCH_METRIC_SUM_REFLECTIONS] += in[idx + SEARCH_METRIC_SUM_REFLECTIONS];
         inout[idx + SEARCH_METRIC_SUM_REFLECTION_FALLBACKS] += in[idx + SEARCH_METRIC_SUM_REFLECTION_FALLBACKS];
+        inout[idx + SEARCH_METRIC_SUM_WRAPS] += in[idx + SEARCH_METRIC_SUM_WRAPS];
         inout[idx + SEARCH_METRIC_MAX_TRAVERSAL_STEPS] = PetscMax(inout[idx + SEARCH_METRIC_MAX_TRAVERSAL_STEPS],
                                                                    in[idx + SEARCH_METRIC_MAX_TRAVERSAL_STEPS]);
         inout[idx + SEARCH_METRIC_MAX_PASS_DEPTH] = PetscMax(inout[idx + SEARCH_METRIC_MAX_PASS_DEPTH],
@@ -900,6 +902,7 @@ const char* ParticleBoundaryPolicyToString(ParticleBoundaryPolicy policy) {
     switch (policy) {
         case PARTICLE_BOUNDARY_REMOVE:  return "remove";
         case PARTICLE_BOUNDARY_REFLECT: return "reflect";
+        case PARTICLE_BOUNDARY_WRAP:    return "wrap";
         default:                        return "Unknown particle boundary policy";
     }
 }
@@ -3256,6 +3259,7 @@ PetscErrorCode ResetSearchMetrics(SimCtx *simCtx)
     simCtx->searchMetrics.blockedWalkRetryCount = 0;
     simCtx->searchMetrics.reflectionCount = 0;
     simCtx->searchMetrics.reflectionFallbackCount = 0;
+    simCtx->searchMetrics.wrapCount = 0;
     simCtx->searchMetrics.currentSettlementPass = 0;
 
     PetscFunctionReturn(0);
@@ -3297,6 +3301,7 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
     long long      blockedWalkRetryCount = 0;
     long long      reflectionCount = 0;
     long long      reflectionFallbackCount = 0;
+    long long      wrapCount = 0;
     MPI_Op         reduction_op = MPI_OP_NULL;
 
     PetscFunctionBeginUser;
@@ -3326,6 +3331,7 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
     local_metrics[SEARCH_METRIC_SUM_BLOCKED_RETRY] = (PetscReal)simCtx->searchMetrics.blockedWalkRetryCount;
     local_metrics[SEARCH_METRIC_SUM_REFLECTIONS] = (PetscReal)simCtx->searchMetrics.reflectionCount;
     local_metrics[SEARCH_METRIC_SUM_REFLECTION_FALLBACKS] = (PetscReal)simCtx->searchMetrics.reflectionFallbackCount;
+    local_metrics[SEARCH_METRIC_SUM_WRAPS] = (PetscReal)simCtx->searchMetrics.wrapCount;
     local_metrics[SEARCH_METRIC_MAX_TRAVERSAL_STEPS] = (PetscReal)simCtx->searchMetrics.maxTraversalSteps;
     local_metrics[SEARCH_METRIC_MAX_PASS_DEPTH] = (PetscReal)simCtx->searchMetrics.maxParticlePassDepth;
 
@@ -3351,6 +3357,7 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
     blockedWalkRetryCount = (long long)PetscFloorReal(global_metrics[SEARCH_METRIC_SUM_BLOCKED_RETRY] + 0.5);
     reflectionCount = (long long)PetscFloorReal(global_metrics[SEARCH_METRIC_SUM_REFLECTIONS] + 0.5);
     reflectionFallbackCount = (long long)PetscFloorReal(global_metrics[SEARCH_METRIC_SUM_REFLECTION_FALLBACKS] + 0.5);
+    wrapCount = (long long)PetscFloorReal(global_metrics[SEARCH_METRIC_SUM_WRAPS] + 0.5);
 
     if (searchAttempts > 0) {
         meanTraversalSteps = (PetscReal)traversalStepsSum / (PetscReal)searchAttempts;
@@ -3380,14 +3387,14 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
                         "search_population,search_located_count,search_lost_count,traversal_steps_sum,re_search_count,"
                         "max_traversal_fail_count,search_failure_fraction,search_work_index,re_search_fraction,"
                         "physical_time,lost_psi_sum,exited,exited_cumulative,exited_psi_sum,search_exited_count,"
-                        "blocked_walk_retry_count,reflections,reflection_fallbacks\n");
+                        "blocked_walk_retry_count,reflections,reflection_fallbacks,wraps\n");
             }
             if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
                 fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
             }
             fprintf(f,
                     "%d,%.6e,%d,%d,%lld,%d,%d,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%.6e,%.6e,%.6e,%.10e,"
-                    "%d,%lld,%.10e,%lld,%lld,%lld,%lld\n",
+                    "%d,%lld,%.10e,%lld,%lld,%lld,%lld,%lld\n",
                     (int)simCtx->step,
                     (double)simCtx->ti,
                     (int)totalParticles,
@@ -3421,15 +3428,16 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
                     searchExitedCount,
                     blockedWalkRetryCount,
                     reflectionCount,
-                    reflectionFallbackCount);
+                    reflectionFallbackCount,
+                    wrapCount);
             fclose(f);
         }
     }
 
     // Boundary events, one line per step after the reduction rather than one message per particle.
-    if (reflectionCount > 0 || blockedWalkRetryCount > 0) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Step %d boundary events: %lld wall reflections, %lld blocked walks searched again.\n",
-                  (int)simCtx->step, reflectionCount, blockedWalkRetryCount);
+    if (reflectionCount > 0 || blockedWalkRetryCount > 0 || wrapCount > 0) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Step %d boundary events: %lld wall reflections, %lld periodic wraps, %lld blocked walks searched again.\n",
+                  (int)simCtx->step, reflectionCount, wrapCount, blockedWalkRetryCount);
     }
     if (reflectionFallbackCount > 0) {
         LOG_ALLOW(GLOBAL, LOG_WARNING, "Step %d: %lld particles reached the reflection cap and were placed just inside their boundary cell.\n",

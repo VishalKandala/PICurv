@@ -481,8 +481,9 @@ shortfall below target (@ref p44_cap_constant_flux). See @ref p54_driven_sec.
 
 `boundary_conditions[].particle_policy` says what a particle becomes when its walk ends
 beyond that face. It is independent of the flow handler: every handler states a default
-(`noslip` reflects; the inlet and outlet handlers remove), and a BC entry may override it.
-It cannot be set on a `periodic` face, where particles do not wrap yet and are removed.
+(`noslip` reflects; the inlet and outlet handlers remove; the periodic handlers wrap), and a
+BC entry may override it. `wrap` belongs to `periodic` faces: they accept only it, and no other
+face accepts it.
 The startup banner prints the resolved policy of all six faces on its
 `Particle Boundary Policy` line.
 
@@ -517,7 +518,7 @@ face particles genuinely leave through.
 **Parameters it owns.** None.
 
 **Interactions.** Only meaningful where the particle can reach the face; the policy is
-ignored on faces nothing crosses. Not allowed on `periodic` faces. Analytical flows that
+ignored on faces nothing crosses. Not allowed on `periodic` faces, which wrap. Analytical flows that
 drive particles through a reflecting face pile them up in the last cell layer.
 
 **Diagnostics.** `search_metrics.csv` reports `reflections` and `reflection_fallbacks` per
@@ -549,8 +550,8 @@ diffuse upstream, or a wall you deliberately treat as absorbing.
 
 **Parameters it owns.** None.
 
-**Interactions.** The default for the inlet and outlet handlers and for `periodic` faces,
-and what a `bcs.run` without a `particle_policy` token means. A corner where one crossed face
+**Interactions.** The default for the inlet and outlet handlers, and what a `bcs.run`
+without a `particle_policy` token means. A corner where one crossed face
 removes and another reflects removes the particle.
 
 **Diagnostics.** `search_metrics.csv` and `Particle_Metrics.log` report `exited`,
@@ -562,6 +563,39 @@ ranks and checks it is counted once; `make unit-runtime` checks that removal tal
 and failures separately and keeps the survivor order.
 
 **Limitations.** A particle that leaves is gone; nothing re-injects it.
+
+@subsection p44_cap_ppol_wrap_sub wrap
+
+@anchor p44_cap_ppol_wrap
+
+**Identity.** `particle_policy: wrap` -> `particle_policy=wrap` in `bcs.run` ->
+`PARTICLE_BOUNDARY_WRAP` -> @ref LocateParticleOrFindMigrationTarget.
+
+**What it does.** When the walk ends beyond a periodic face, shifts the particle by the
+validated seam translation (`periodic_translation`, the same vector the Eulerian periodic
+images use) into the domain, moves the walk to the cell at the other end of that axis and
+continues. If that cell belongs to another rank, the particle is handed off there. A corner
+with a wall reflects after wrapping. Psi, weight and particle ID are unchanged.
+
+**When to choose it.** It is the default and only policy of `periodic` faces; there is no
+alternative to choose on them.
+
+**Parameters it owns.** None.
+
+**Interactions.** Requires a geometric periodic pair, whose translation the grid setup
+validates. The dummy cell centres next to a periodic seam, which particle interpolation reads,
+are the translated images of the cells across the seam, including along periodic edges and at
+corners.
+
+**Diagnostics.** `search_metrics.csv` reports `wraps` per step; the per-step INFO line counts
+periodic wraps. In a statistically steady flow, wraps per step should match the mean particle
+flux through the seam.
+
+**Evidence.** Unit verified - `make unit-periodic` wraps a particle through each x-periodic
+face and checks the shifted position and landing cell.
+
+**Limitations.** Only translational periodicity; rotational periods are not supported by the
+grid contract either.
 
 @section p44_nondim_sec 6. Non-Dimensionalization Before C Input
 

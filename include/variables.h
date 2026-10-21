@@ -280,6 +280,7 @@ typedef struct SearchMetricsState {
     PetscInt64 blockedWalkRetryCount;
     PetscInt64 reflectionCount;
     PetscInt64 reflectionFallbackCount;
+    PetscInt64 wrapCount;
     PetscInt   currentSettlementPass;
 } SearchMetricsState;
 
@@ -333,7 +334,8 @@ typedef enum {
 /** @brief What happens to a particle that crosses a domain-boundary face. */
 typedef enum {
     PARTICLE_BOUNDARY_REMOVE  = 0, ///< The particle leaves the domain (EXITED) and is removed.
-    PARTICLE_BOUNDARY_REFLECT = 1  ///< The particle is mirrored about the face plane and stays.
+    PARTICLE_BOUNDARY_REFLECT = 1, ///< The particle is mirrored about the face plane and stays.
+    PARTICLE_BOUNDARY_WRAP    = 2  ///< Periodic faces: the particle re-enters through the paired face.
 } ParticleBoundaryPolicy;
 
 /** @brief Defines the specific computational "strategy" for a boundary handler. */

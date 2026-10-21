@@ -2476,9 +2476,9 @@ def test_particle_policy_defaults_by_handler_and_accepts_overrides():
     assert prepared[5]["params"]["particle_policy"] == "reflect"
 
 
-def test_particle_policy_rejects_unknown_values_and_periodic_faces():
+def test_particle_policy_rejects_unknown_values_and_mismatched_wrap():
     """!
-    @brief An unknown policy is refused, and so is any policy on a PERIODIC face, where particles do not wrap yet.
+    @brief An unknown policy is refused; PERIODIC faces default to and accept only `wrap`, and only they accept it.
     """
     picurv = load_picurv_module()
     case_cfg = yaml.safe_load((FIXTURES / "valid" / "case.yml").read_text(encoding="utf-8"))
@@ -2490,9 +2490,14 @@ def test_particle_policy_rejects_unknown_values_and_periodic_faces():
     for idx, face in ((0, "-Xi"), (1, "+Xi")):
         case_cfg["boundary_conditions"][idx] = {"face": face, "type": "PERIODIC", "handler": "geometric"}
     prepared = picurv.validate_and_prepare_boundary_conditions(case_cfg)[0]
-    assert prepared[0]["params"]["particle_policy"] == "remove"
+    assert prepared[0]["params"]["particle_policy"] == "wrap"
     case_cfg["boundary_conditions"][0]["particle_policy"] = "reflect"
-    with pytest.raises(ValueError, match="cannot be set on a PERIODIC face"):
+    with pytest.raises(ValueError, match="does not fit a PERIODIC face"):
+        picurv.validate_and_prepare_boundary_conditions(case_cfg)
+
+    case_cfg = yaml.safe_load((FIXTURES / "valid" / "case.yml").read_text(encoding="utf-8"))
+    case_cfg["boundary_conditions"][2]["particle_policy"] = "wrap"
+    with pytest.raises(ValueError, match="does not fit a WALL face"):
         picurv.validate_and_prepare_boundary_conditions(case_cfg)
 
 

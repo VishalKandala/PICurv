@@ -107,12 +107,14 @@ interpreting that artifact.
 
 @section p34_limits_sec 5. Limitations
 
-- **Particles are not wrapped across periodic boundaries.** Neither the motion update
-  nor the walking search handles periodicity, so a particle that crosses a periodic face
-  leaves the domain and is removed as lost.
-- **A lost particle is removed, not reflected.** Steady loss through a boundary you did
-  not intend usually means the carrier velocity or the diffusion step carries particles
-  out; the per-step lost count reports it.
+- **Boundary behaviour is per face and experimental.** Each face's
+  `particle_policy` (@ref p44_ppol_sec) reflects the particle (walls), removes it as
+  having left the domain (inlets and outlets, counted as `exited`), or wraps it to the
+  paired face (periodic faces). Particle velocity is not reset at walls, and immersed
+  boundaries are not seen by particles.
+- **`lost` counts search failures only.** A particle that leaves through a removing face
+  is `exited`; a nonzero `lost` means the search failed for a particle believed inside the
+  domain and should be investigated.
 - **Diffusion, advection, the gradient drift and interpolation are verified.** A
   10,000-particle cloud in zero flow reproduced the Einstein relation to 0.17% in the MSD
   slope; a cloud in uniform flow drifted at exactly the carrier velocity; paired runs with

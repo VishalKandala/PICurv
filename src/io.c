@@ -2912,11 +2912,6 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                                (double)user->periodic_translation[axis].y,
                                (double)user->periodic_translation[axis].z); CHKERRQ(ierr);
         }
-        if (total_num_particles > 0 &&
-            (simCtx->i_periodic || simCtx->j_periodic || simCtx->k_periodic)) {
-            ierr = PetscPrintf(PETSC_COMM_SELF,
-                               " Particle Periodic Wrapping  : UNSUPPORTED (Eulerian periodicity only)\n"); CHKERRQ(ierr);
-        }
         if(strcmp(simCtx->eulerianSource,"load")==0 || strcmp(simCtx->eulerianSource,"solve")==0){
             ierr = PetscPrintf(PETSC_COMM_SELF, "-------------------- Boundary Conditions --------------------\n"); CHKERRQ(ierr);
             const int face_name_width = 17; // Adjusted for longer names (Zeta,Eta,Xi)

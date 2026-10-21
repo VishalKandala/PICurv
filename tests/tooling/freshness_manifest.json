@@ -43,7 +43,7 @@
         "10_Post_Processing_Reference",
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:9c7da1ad90fcd37f557e27af747be833ece96a946f21441aa1dd3745329bfc53"
+      "attested_digest": "sha256:fb2a99587411f3d84148831c640534c7531aed313bb462960d9dd44b4610bed3"
     },
     {
       "id": "capability.evidence_matrix",
@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:e955776746b418f3e9b576f4f841421e77385309048321ab107184889077ffe5"
+      "attested_digest": "sha256:dc7d885ce54a09e09634b3d13163548f960e62d29d090b85f2b71d716626f576"
     },
     {
       "id": "artifact.topology",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:6c91dec862fd6f17b8aba044fffc96a4b65fdfdc0d9de2f0199431cda25f3231",
+      "attested_digest": "sha256:0a66512e1a5edc4f1f22f895b1a787c0028f0f0eec299f3fc2bfd1c0373a2c64",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },

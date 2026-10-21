@@ -25,8 +25,8 @@ make unit-periodic
 make smoke-periodic
 ```
 
-Geometric periodicity currently applies to Eulerian fields only. Particle
-positions are not wrapped across periodic boundaries.
+Particles crossing a periodic face are wrapped to the paired face
+(`particle_policy: wrap`, the default for periodic handlers).
 
 ## Driven periodic
 

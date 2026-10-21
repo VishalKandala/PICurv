@@ -50,7 +50,7 @@ Particle controls include:
 - scalar micromixing update path (IEM-style `Psi` model),
 - per-face particle boundary policy (`reflect` at walls, `remove` at inlets and outlets; experimental).
 
-Particle positions are not currently wrapped across periodic boundaries.
+A particle crossing a periodic face re-enters through the paired face, shifted by the seam translation (`particle_policy: wrap`, experimental).
 
 @subsection p12_turbulence_ssec 2.1 Turbulence Models
 

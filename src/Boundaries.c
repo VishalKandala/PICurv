@@ -923,10 +923,12 @@ PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename
             face_cfg->particle_policy = PARTICLE_BOUNDARY_REMOVE;
         } else if (strcasecmp(policy, "reflect") == 0 && face_cfg->mathematical_type != PERIODIC) {
             face_cfg->particle_policy = PARTICLE_BOUNDARY_REFLECT;
+        } else if (strcasecmp(policy, "wrap") == 0 && face_cfg->mathematical_type == PERIODIC) {
+            face_cfg->particle_policy = PARTICLE_BOUNDARY_WRAP;
         } else {
-            SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Face %s (%s): particle_policy '%s' is not supported; use 'remove'%s.",
+            SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Face %s (%s): particle_policy '%s' is not supported; use 'remove' or '%s'.",
                     BCFaceToString((BCFace)i), BCTypeToString(face_cfg->mathematical_type), policy,
-                    (face_cfg->mathematical_type == PERIODIC) ? "" : " or 'reflect'");
+                    (face_cfg->mathematical_type == PERIODIC) ? "wrap" : "reflect");
         }
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Face %s particle policy: %s.\n", BCFaceToString((BCFace)i),
                   ParticleBoundaryPolicyToString(face_cfg->particle_policy));

@@ -798,6 +798,10 @@
       "remove": {
         "maps_to": "remove",
         "status": "experimental"
+      },
+      "wrap": {
+        "maps_to": "wrap",
+        "status": "experimental"
       }
     },
     "selector": "case.yml -> boundary_conditions[].particle_policy",

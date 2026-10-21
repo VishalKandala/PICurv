@@ -289,6 +289,7 @@ Selector: `case.yml -> boundary_conditions[].particle_policy`
 |---|---|
 | `reflect` | `reflect` |
 | `remove` | `remove` |
+| `wrap` | `wrap` |
 
 ### Eulerian Post-Processing Kernels
 

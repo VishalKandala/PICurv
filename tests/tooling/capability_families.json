@@ -1635,6 +1635,16 @@
               "make:unit-runtime"
             ]
           }
+        },
+        "wrap": {
+          "status": "experimental",
+          "canonical": true,
+          "subsystem": "particles.transport",
+          "evidence": {
+            "unit": [
+              "make:unit-periodic"
+            ]
+          }
         }
       }
     },

@@ -7461,10 +7461,10 @@ BC_TYPE_MAP = {
     "periodic": "PERIODIC",
 }
 
-# What a particle crossing a boundary face becomes: mirrored back about the face plane, or
-# removed as having left the domain. Each handler states its default; a BC entry may override
-# it with `particle_policy`, except on PERIODIC faces, where particles do not wrap yet.
-PARTICLE_BOUNDARY_POLICIES = ("reflect", "remove")
+# What a particle crossing a boundary face becomes: mirrored back about the face plane,
+# removed as having left the domain, or (periodic faces only) re-entered through the paired
+# face. Each handler states its default; a BC entry may override it with `particle_policy`.
+PARTICLE_BOUNDARY_POLICIES = ("reflect", "remove", "wrap")
 
 BC_HANDLER_SPECS = {
     # Only handlers that are implemented end-to-end in current C path are allowed.
@@ -7500,20 +7500,20 @@ BC_HANDLER_SPECS = {
     },
     "geometric": {
         "types": {"PERIODIC"},
-        "particle_policy": "remove",
+        "particle_policy": "wrap",
         "required_params": set(),
         "optional_params": set(),
     },
     "constant_flux": {
         "types": {"PERIODIC"},
-        "particle_policy": "remove",
+        "particle_policy": "wrap",
         "required_params": {"target_flux"},
         "optional_params": {"enforce_seam_flux", "apply_trim"},
     },
     # Derives its own target from the initial condition, so it takes no target_flux.
     "initial_flux": {
         "types": {"PERIODIC"},
-        "particle_policy": "remove",
+        "particle_policy": "wrap",
         "required_params": set(),
         "optional_params": {"enforce_seam_flux", "apply_trim"},
     },
@@ -8230,16 +8230,16 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
                     # Defensive fallback; should not happen due unknown-key gate above.
                     converted_params[key] = value
 
-            if "particle_policy" in bc and bc_type == "PERIODIC":
-                raise ValueError(
-                    f"boundary_conditions[{bi}][{idx}].particle_policy cannot be set on a PERIODIC face: "
-                    "particles do not wrap across periodic faces yet, so they are removed there."
-                )
             policy = str(bc.get("particle_policy", handler_spec["particle_policy"])).strip().lower()
             if policy not in PARTICLE_BOUNDARY_POLICIES:
                 raise ValueError(
                     f"Unsupported particle_policy '{bc.get('particle_policy')}' for face {face} in block {bi}. "
                     f"Supported: {list(PARTICLE_BOUNDARY_POLICIES)}."
+                )
+            if (policy == "wrap") != (bc_type == "PERIODIC"):
+                raise ValueError(
+                    f"boundary_conditions[{bi}][{idx}].particle_policy '{policy}' does not fit a {bc_type} face: "
+                    "PERIODIC faces wrap particles to the paired face, and only they can."
                 )
             converted_params["particle_policy"] = policy
 

@@ -6,6 +6,7 @@
 #include "test_support.h"
 
 #include "Boundaries.h"
+#include "walkingsearch.h"
 
 /**
  * @brief Appends one key/value pair to a linked list of boundary-condition parameters.
@@ -117,6 +118,64 @@ static PetscErrorCode TestPeriodicGeometryStoresTranslation(void)
     PetscCall(PicurvAssertRealNear(expected_x, user->periodic_translation[0].x, 1.0e-12, "stored X translation"));
     PetscCall(PicurvAssertRealNear(0.0, user->periodic_translation[0].y, 1.0e-12, "stored X translation y component"));
     PetscCall(PicurvAssertRealNear(0.0, user->periodic_translation[0].z, 1.0e-12, "stored X translation z component"));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief Tests that a particle beyond either x-periodic face re-enters through the paired face, shifted by the seam translation.
+ */
+static PetscErrorCode TestLocateParticleWrapsThroughPeriodicFace(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Particle particle;
+    ParticleLocationStatus status = NEEDS_LOCATION;
+    Vec gcoor = NULL;
+    const Cmpnts ***coor = NULL;
+    PetscReal x0, T, yc, zc;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 4, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    MarkXPeriodic(user);
+    PetscCall(ValidatePeriodicGeometry(user));
+    user->boundary_faces[BC_FACE_NEG_X].particle_policy = PARTICLE_BOUNDARY_WRAP;
+    user->boundary_faces[BC_FACE_POS_X].particle_policy = PARTICLE_BOUNDARY_WRAP;
+    PetscCall(PetscMalloc1(simCtx->size, &user->RankCellInfoMap));
+    PetscCall(GetOwnedCellRange(&user->info, 0, &user->RankCellInfoMap[0].xs_cell, &user->RankCellInfoMap[0].xm_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 1, &user->RankCellInfoMap[0].ys_cell, &user->RankCellInfoMap[0].ym_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 2, &user->RankCellInfoMap[0].zs_cell, &user->RankCellInfoMap[0].zm_cell));
+    simCtx->searchMetrics.currentSettlementPass = 1;
+
+    /* Seam origin, translation, and the centre of the (., 1, 1) cell row in y and z. */
+    PetscCall(DMGetCoordinates(user->da, &gcoor));
+    PetscCall(DMDAVecGetArrayRead(user->fda, gcoor, &coor));
+    x0 = coor[0][0][0].x;
+    yc = 0.5 * (coor[1][1][0].y + coor[1][2][0].y);
+    zc = 0.5 * (coor[1][1][0].z + coor[2][1][0].z);
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, gcoor, &coor));
+    T = user->periodic_translation[0].x;
+
+    /* Beyond -Xi out of cell 0: re-enters at the +Xi end. */
+    PetscCall(PetscMemzero(&particle, sizeof(particle)));
+    particle.PID = 51;
+    particle.cell[0] = 0; particle.cell[1] = 1; particle.cell[2] = 1;
+    particle.loc.x = x0 - 0.01 * T; particle.loc.y = yc; particle.loc.z = zc;
+    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a wrapped particle should be located"));
+    PetscCall(PicurvAssertRealNear(x0 + 0.99 * T, particle.loc.x, 1.0e-12, "x shifts forward by the seam translation"));
+    PetscCall(PicurvAssertIntEqual(user->IM - 2, particle.cell[0], "the particle lands in the last cell"));
+
+    /* Beyond +Xi out of the last cell: re-enters at the -Xi end. */
+    PetscCall(PetscMemzero(&particle, sizeof(particle)));
+    particle.PID = 52;
+    particle.cell[0] = user->IM - 2; particle.cell[1] = 1; particle.cell[2] = 1;
+    particle.loc.x = x0 + 1.01 * T; particle.loc.y = yc; particle.loc.z = zc;
+    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a wrapped particle should be located"));
+    PetscCall(PicurvAssertRealNear(x0 + 0.01 * T, particle.loc.x, 1.0e-12, "x shifts back by the seam translation"));
+    PetscCall(PicurvAssertIntEqual(0, particle.cell[0], "the particle lands in the first cell"));
+    PetscCall(PicurvAssertIntEqual(2, (PetscInt)simCtx->searchMetrics.wrapCount, "one wrap per particle"));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
@@ -647,6 +706,7 @@ int main(int argc, char **argv)
         {"periodic-configuration-requires-paired-faces", TestPeriodicConfigurationRequiresPairedFaces},
         {"periodic-geometry-stores-translation", TestPeriodicGeometryStoresTranslation},
         {"periodic-geometry-stores-mixed-translations", TestPeriodicGeometryStoresMixedTranslations},
+        {"locate-particle-wraps-through-periodic-face", TestLocateParticleWrapsThroughPeriodicFace},
         {"periodic-geometry-rejects-varying-translation", TestPeriodicGeometryRejectsVaryingTranslation},
         {"periodic-face-center-coordinate-synchronization", TestPeriodicFaceCenterCoordinateSynchronization},
         {"periodic-quick-stencil-preparation", TestPeriodicQuickStencilPreparation},

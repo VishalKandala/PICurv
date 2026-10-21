@@ -1198,10 +1198,10 @@ Supported type/handler combinations:
 All six faces must be explicitly provided for each block.
 For detailed handler semantics, validation constraints, and C dispatch path, see **@subpage 44_Boundary_Conditions_Guide**.
 
-Optional per-face key `particle_policy: reflect | remove` sets what a particle crossing
-that face becomes. The default comes from the handler: `noslip` reflects, the inlet,
-outlet and periodic handlers remove. It cannot be set on a `PERIODIC` face. See
-@ref p44_ppol_sec.
+Optional per-face key `particle_policy: reflect | remove | wrap` sets what a particle
+crossing that face becomes. The default comes from the handler: `noslip` reflects, the
+inlet and outlet handlers remove, the periodic handlers wrap. `wrap` is accepted on
+`PERIODIC` faces only, and they accept nothing else. See @ref p44_ppol_sec.
 
 Generated profile example:
 

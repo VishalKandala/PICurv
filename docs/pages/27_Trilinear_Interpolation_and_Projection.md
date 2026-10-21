@@ -29,8 +29,9 @@ Key properties:
 - **Boundary handling**: at non-periodic boundaries, the dual-cell octant is clamped to use only physical cell centers, and trilinear weights are left unclamped (may exceed [0,1]) to provide second-order linear extrapolation. Weights still sum to 1.0.
 - **Periodic boundaries**: PETSc supplies wrapped field indices, while
   `ApplyPeriodicCorrectionsToCellCentersAndSpacing()` supplies translated
-  coordinate images. This interpolation path is Eulerian-only; particles are
-  not currently wrapped across periodic boundaries.
+  coordinate images, including at periodic edges and corners. A particle that
+  crosses a periodic seam is wrapped by the walking search (@ref p44_ppol_sec), so
+  a dual cell next to the seam combines in-domain centres with translated images.
 
 Code path: @ref InterpolateEulerFieldToSwarm dispatches to `InterpolateEulerFieldFromCenterToSwarm`.
 

@@ -14,7 +14,7 @@ derived exclusively from paired `PERIODIC` boundary conditions before the
 DMDA is created. The resulting internal periodic flags select PETSc periodic
 index wrapping; they are not user configuration options.
 
-Particle positions are not currently wrapped across periodic boundaries.
+Particles that cross a periodic face re-enter through the paired face, shifted by the validated seam translation; this is the `wrap` particle policy (@ref p44_cap_ppol_wrap), the default and only policy on periodic faces.
 
 @section p54_grid_sec 2. Grid Contract
 
