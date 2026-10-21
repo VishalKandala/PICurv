@@ -564,7 +564,9 @@ removes and another reflects removes the particle.
 
 **Evidence.** Unit verified - `make unit-mpi` pins one exit across a migration pass on two
 ranks and checks it is counted once; `make unit-runtime` checks that removal tallies exits
-and failures separately and keeps the survivor order.
+and failures separately and keeps the survivor order. Integration verified - `make smoke`
+carries 64 particles out through a channel outlet and checks, every step, that the count
+falls by exactly the exits, that the classified and removed exits agree, and that none is lost.
 
 **Limitations.** A particle that leaves is gone; nothing re-injects it.
 

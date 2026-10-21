@@ -464,13 +464,20 @@ static PetscErrorCode TestProfilingSummaryReducesOverRanks(void)
             double max_time, mean_time, min_time;
             int max_rank, min_rank;
             long long calls;
-            if (sscanf(line, "%255s | %lf | %d | %lf | %lf | %d | %lld", name, &max_time, &max_rank, &mean_time,
-                       &min_time, &min_rank, &calls) == 7 && strcmp(name, "ProfiledOnRankOneOnly") == 0) {
+            double avg_ms, min_calls, max_calls;
+            int min_calls_rank, max_calls_rank;
+            if (sscanf(line, "%255s | %lf | %d | %lf | %lf | %d | %lld | %lf | %lf | %d | %lf | %d", name, &max_time,
+                       &max_rank, &mean_time, &min_time, &min_rank, &calls, &avg_ms, &min_calls, &min_calls_rank,
+                       &max_calls, &max_calls_rank) == 12 && strcmp(name, "ProfiledOnRankOneOnly") == 0) {
                 found = PETSC_TRUE;
                 PetscCall(PicurvAssertIntEqual(1, max_rank, "the maximum should come from the rank that profiled it"));
                 PetscCall(PicurvAssertIntEqual(0, min_rank, "the minimum should come from the rank that did not"));
                 PetscCall(PicurvAssertRealNear(0.0, min_time, 0.0, "a rank that never called it contributes zero time"));
                 PetscCall(PicurvAssertIntEqual(1, (PetscInt)calls, "calls should be summed over ranks"));
+                PetscCall(PicurvAssertIntEqual(0, (PetscInt)min_calls, "the fewest calls per rank should be the uncalled rank's zero"));
+                PetscCall(PicurvAssertIntEqual(0, min_calls_rank, "the fewest calls should come from rank 0"));
+                PetscCall(PicurvAssertIntEqual(1, (PetscInt)max_calls, "the most calls per rank should be rank 1's one"));
+                PetscCall(PicurvAssertIntEqual(1, max_calls_rank, "the most calls should come from rank 1"));
             }
         }
         fclose(f);

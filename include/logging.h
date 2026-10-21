@@ -872,7 +872,8 @@ PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char 
  *
  * Every rank registers the functions any rank profiled, then each function's total time is
  * reduced to its maximum and minimum (with the ranks holding them) and its mean over ranks,
- * and its calls are summed. Rank 0 writes `ProfilingSummary_<mode>.log`, slowest rank first.
+ * and its calls are summed and reduced to their minimum and maximum per rank (with ranks), so a
+ * time spread can be told apart from a call-count spread. Rank 0 writes `ProfilingSummary_<mode>.log`, slowest rank first.
  * This is the profiler's only communication; the timed path stays local to each rank.
  *
  * @param simCtx  The Simulation Context Structure that can contains all the data regarding the simulation.

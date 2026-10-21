@@ -221,47 +221,6 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
  PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cmpnts p, PetscInt *position, const PetscReal threshold);
 
 /**
- * @brief Locates the grid cell containing a particle using a walking search.
- * @ingroup ParticleLocation
- *
- * This function implements a walking search algorithm to find the specific cell
- * (identified by global indices i, j, k) that encloses the particle's physical
- * location (`particle->loc`).
- *
- * The search starts from an initial guess cell (either the particle's previously known
- * cell or the corner of the local process domain) and iteratively steps to adjacent
- * cells based on the signed distances from the particle to the faces of the current
- * cell.
- *
- * Upon successful location (`position == 0`), the particle's `cell` field is updated
- * with the found indices (i,j,k), and the corresponding interpolation `weights`
- * are calculated and stored using the distances (`d`) relative to the final cell.
- *
- * Handles particles exactly on cell boundaries by attempting a tie-breaker if the
- * search gets stuck oscillating between adjacent cells due to the boundary condition.
- *
- * @param[in]  user     Pointer to the UserCtx structure containing grid information (DMDA, coordinates)
- *                      and domain boundaries.
- * @param[in,out] particle Pointer to the Particle structure. Its `loc` field provides the
- *                      target position. On successful return, its `cell` and `weights`
- *                      fields are updated. On failure, `cell` is set to `{-1, -1, -1}`
- *                      and `weights` to `{0.0, 0.0, 0.0}`.
- *
- * @return PetscErrorCode 0 on success. Non-zero error codes may indicate issues during
- *                        coordinate access, distance calculation, or other internal errors.
- *                        A return code of 0 does not guarantee the particle was found;
- *                        check `particle->cell[0] >= 0` afterward.
- *
- * @note Relies on helper functions like `InitializeTraversalParameters`, `CheckCellWithinLocalGrid`,
- *       `RetrieveCurrentCell`, `EvaluateParticlePosition`, `UpdateCellIndicesBasedOnDistances`,
- *       `UpdateParticleWeights`, and `FinalizeTraversal`.
- * @warning Ensure `particle->loc` is set correctly before calling.
- * @warning The function may fail to find the particle if it lies outside the domain accessible
- *          by the current process (including ghost cells) or if `MAX_TRAVERSAL` steps are exceeded.
- */
-PetscErrorCode LocateParticleInGrid(UserCtx *user, Particle *particle);
-
-/**
  * @brief Finalizes the traversal by reporting the results.
  *
  * This function prints the outcome of the traversal, indicating whether the particle

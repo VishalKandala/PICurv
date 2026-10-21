@@ -320,7 +320,7 @@ See also:
 logging:
   verbosity: "DEBUG"
   enabled_functions:
-    - Projection
+    - ProjectVelocity
     - UpdatePressure
 ```
 

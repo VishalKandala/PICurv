@@ -1341,6 +1341,91 @@ with open(post_path, "w", encoding="utf-8") as f:
 PY
 }
 
+prepare_flat_case_particles_outflow() {
+  # Particles carried by a uniform flow through the +Zeta outlet, whose handler defaults
+  # particle_policy to remove: every exit is counted, and none is a search failure.
+  local case_dir="$1"
+  python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
+import sys
+import yaml
+case_path, solver_path, monitor_path, post_path = sys.argv[1:]
+with open(case_path, "r", encoding="utf-8") as f:
+    case_cfg = yaml.safe_load(f)
+with open(solver_path, "r", encoding="utf-8") as f:
+    solver_cfg = yaml.safe_load(f)
+with open(monitor_path, "r", encoding="utf-8") as f:
+    monitor_cfg = yaml.safe_load(f)
+with open(post_path, "r", encoding="utf-8") as f:
+    post_cfg = yaml.safe_load(f)
+
+case_cfg.setdefault("run_control", {})
+case_cfg["run_control"]["start_step"] = 0
+case_cfg["run_control"]["total_steps"] = 8
+case_cfg["run_control"]["dt_physical"] = 0.04
+grid = case_cfg["grid"]["programmatic_settings"]
+grid["im"] = 8
+grid["jm"] = 8
+grid["km"] = 16
+case_cfg.setdefault("models", {}).setdefault("physics", {})
+case_cfg["models"]["physics"]["particles"] = {
+    "count": 64,
+    "init_mode": "PointSource",
+    "restart_mode": "init",
+    "point_source": {"x": 0.5, "y": 0.5, "z": 3.9},
+}
+case_cfg["models"]["physics"]["turbulence"] = {"les": False}
+
+solver_cfg.setdefault("operation_mode", {})
+solver_cfg["operation_mode"]["eulerian_field_source"] = "analytical"
+solver_cfg["operation_mode"]["analytical_type"] = "UNIFORM_FLOW"
+solver_cfg["operation_mode"]["uniform_flow"] = {"u": 0.0, "v": 0.0, "w": 1.0}
+
+monitor_cfg.setdefault("io", {})
+monitor_cfg["io"]["data_output_frequency"] = 4
+monitor_cfg["io"]["particle_console_output_frequency"] = 0
+
+post_cfg.setdefault("run_control", {})
+post_cfg["run_control"]["start_step"] = 0
+post_cfg["run_control"]["end_step"] = 8
+post_cfg["run_control"]["step_interval"] = 4
+post_cfg.setdefault("io", {})
+post_cfg["io"]["output_directory"] = "viz/particle_outflow"
+post_cfg["io"]["output_filename_prefix"] = "Field"
+post_cfg["io"]["output_particles"] = False
+
+with open(case_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(case_cfg, f, sort_keys=False)
+with open(solver_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(solver_cfg, f, sort_keys=False)
+with open(monitor_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(monitor_cfg, f, sort_keys=False)
+with open(post_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(post_cfg, f, sort_keys=False)
+PY
+}
+
+require_outflow_exits_counted() {
+  # Every step: particles = initial - cumulative exits, and none lost; some must exit.
+  local run_dir="$1"
+  local initial="$2"
+  local metrics="${run_dir}/output/analysis/metrics/search_metrics.csv"
+  require_file "${metrics}" "outflow search metrics"
+  require_file_contains "${run_dir}/config/bcs.run" "particle_policy=remove" "outlet particle policy in bcs.run"
+  python3 - "${metrics}" "${initial}" <<'PY' || die "outflow exits are not all counted: ${metrics}"
+import csv
+import sys
+path, initial = sys.argv[1], int(sys.argv[2])
+rows = [r for r in csv.DictReader(line for line in open(path, encoding="utf-8") if not line.startswith("#"))]
+assert rows, "no search-metrics rows"
+for r in rows:
+    assert int(r["lost"]) == 0 and int(r["lost_cumulative"]) == 0, f"step {r['step']}: particles lost"
+    assert int(r["total_particles"]) == initial - int(r["exited_cumulative"]), \
+        f"step {r['step']}: {r['total_particles']} particles, {r['exited_cumulative']} exited of {initial}"
+    assert int(r["exited"]) == int(r["search_exited_count"]), f"step {r['step']}: removed exits differ from classified"
+assert int(rows[-1]["exited_cumulative"]) > 0, "no particle reached the outlet"
+PY
+}
+
 prepare_flat_case_parabolic_stress() {
   local case_dir="$1"
   python3 - "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" <<'PY'
@@ -2138,6 +2223,18 @@ PY_SINGLE
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Console Cadence   : DISABLED" "brownian runtime banner disabled particle console cadence"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Log Row Sampling  : every 1 particle(s)" "brownian runtime banner row sampling"
   require_file_contains "${LAST_SOLVER_LOG}" "Particle Initialization Mode: Point Source" "brownian runtime banner initialization mode"
+
+  local outflow_case="${tmp_root}/flat-particles-outflow"
+  "${picurv_exe}" init flat_channel --dest "${outflow_case}" >/dev/null
+  prepare_flat_case_particles_outflow "${outflow_case}"
+  run_case_workflow \
+    "${outflow_case}" \
+    "${outflow_case}/config/case.yml" \
+    "${outflow_case}/config/solver.yml" \
+    "${outflow_case}/config/monitor.yml" \
+    "${outflow_case}/config/post.yml" \
+    "flat_particles_outflow"
+  require_outflow_exits_counted "${LAST_RUN_DIR}" 64
 }
 
 run_multi_rank_runtime_smoke() {

@@ -110,7 +110,7 @@ interpreting that artifact.
 
 - **Boundary behaviour is per face.** Each face's `particle_policy` (@ref p44_ppol_sec)
   reflects the particle (walls), removes it as having left the domain (inlets and outlets,
-  counted as `exited`; still experimental), or wraps it to the paired face (periodic faces).
+  counted as `exited`), or wraps it to the paired face (periodic faces).
   Particle velocity is not reset at walls, and immersed boundaries are not seen by particles.
 - **Trilinear velocity drifts tracers in strongly inhomogeneous flow.** It is not
   divergence-free, which builds a few-percent excess near no-slip walls in a resolved

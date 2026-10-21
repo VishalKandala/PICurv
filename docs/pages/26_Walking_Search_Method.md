@@ -54,8 +54,7 @@ starts (@ref FindOwnerOfCell), so its cost does not grow with the rank count.
 
 @section p26_implementation_sec 3. Implementation Touchpoints
 
-- single-particle walking search: @ref LocateParticleInGrid
-- robust locate-or-migrate decision: `LocateParticleOrFindMigrationTarget` (walking-search module)
+- single-particle walking search and locate-or-migrate decision: @ref LocateParticleOrFindMigrationTarget
 - global orchestrator: @ref LocateAllParticlesInGrid
 - rank migration communication: @ref PerformMigration (sent particles are removed afterwards in one pass by @ref RemoveFlaggedParticles, keeping the one-at-a-time survivor order; measurement `swarm-one-pass-removal-2026-10-20`)
 - owner of a cell: @ref FindOwnerOfCell

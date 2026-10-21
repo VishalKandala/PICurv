@@ -1643,13 +1643,16 @@
           }
         },
         "remove": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "particles.transport",
           "evidence": {
             "unit": [
               "make:unit-mpi",
               "make:unit-runtime"
+            ],
+            "integration": [
+              "make:smoke"
             ]
           }
         },

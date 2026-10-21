@@ -120,60 +120,10 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
                                            PetscReal *exitedScalarSumGlobal);
 
 /**
- * @brief Defines the basic migration pattern for particles within the swarm.
- *
- * This function establishes the migration pattern that dictates how particles
- * move between different MPI ranks in the simulation. It initializes a migration
- * list where each particle is assigned a target rank based on predefined conditions.
- * The migration pattern can be customized to implement various migration behaviors.
- *
- * @param[in,out] user    Pointer to the UserCtx structure containing simulation context.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- */
-PetscErrorCode DefineBasicMigrationPattern(UserCtx* user);
-
-/**
- * @brief Performs the basic migration of particles based on the defined migration pattern.
- *
- * This function updates the positions of particles within the swarm by migrating them
- * to target MPI ranks as specified in the migration list. It handles the migration process
- * by setting the 'DMSwarm_rank' field for each particle and invokes the DMSwarm migration
- * mechanism to relocate particles across MPI processes. After migration, it cleans up
- * allocated resources and ensures synchronization across all MPI ranks.
- *
- * @param[in,out] user    Pointer to the UserCtx structure containing simulation context.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- */
-PetscErrorCode PerformBasicMigration(UserCtx* user);
-
-/**
- * @brief Identifies particles leaving the local bounding box and finds their target neighbor rank.
- *
- * Iterates local particles, checks against local bounding box. If outside, checks
- * the pre-computed immediate neighbors (user->neighbors) using the global bboxlist
- * to see if the particle landed in one of them. Populates the migrationList.
- * Does NOT handle particles leaving the global domain (assumes CheckAndRemove was called).
- *
- * @param user           Pointer to the UserCtx (contains local bbox and neighbors).
- * @param bboxlist       Array of BoundingBox structs for all ranks (for checking neighbor boxes).
- * @param migrationList  Pointer to an array of MigrationInfo structs (output, allocated/reallocated by this func).
- * @param migrationCount Pointer to the number of particles marked for migration (output).
- * @param listCapacity   Pointer to the current allocated capacity of migrationList (in/out).
- *
- * @return PetscErrorCode 0 on success, non-zero on failure.
- */
-PetscErrorCode IdentifyMigratingParticles(UserCtx *user,
-                                        const BoundingBox *bboxlist,
-                                        MigrationInfo **migrationList,
-                                        PetscInt *migrationCount,
-					  PetscInt *listCapacity);
-
-/**
  * @brief Writes migration destinations into the DMSwarm rank field for marked particles.
  *
- * This helper consumes the migration list produced by `IdentifyMigratingParticles`
+ * This helper consumes the migration list built with AddToMigrationList() by the settlement
+ * loop (LocateAllParticlesInGrid()) or the restart path (MigrateRestartParticlesUsingCellID())
  * and updates each selected particle's destination rank so that a subsequent
  * `PerformMigration` call can transfer ownership correctly.
  *
@@ -258,39 +208,6 @@ PetscErrorCode ResizeSwarmGlobally(DM swarm, PetscInt N_target);
  * @return PetscErrorCode 0 on success, non-zero on critical failure.
  */
 PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user, PetscInt ti, const char *ext);
-
-/**
- * @brief Performs one full cycle of particle migration: identify, set ranks, and migrate.
- *
- * This function encapsulates the three main steps of migrating particles between MPI ranks:
- * 1. Identify particles on the local rank that need to move based on their current
- *    positions and the domain decomposition (`bboxlist`).
- * 2. Determine the destination rank for each migrating particle.
- * 3. Perform the actual migration using PETSc's `DMSwarmMigrate`.
- * It also calculates and logs the global number of particles migrated.
- *
- * @param user Pointer to the UserCtx structure.
- * @param bboxlist Array of BoundingBox structures defining the spatial domain of each MPI rank.
- * @param migrationList_p Pointer to a pointer for the MigrationInfo array. This array will be
- *                        allocated/reallocated by `IdentifyMigratingParticles` if necessary.
- *                        The caller is responsible for freeing this list eventually.
- * @param migrationCount_p Pointer to store the number of particles identified for migration
- *                         on the local rank. This is reset to 0 after migration for the current cycle.
- * @param migrationListCapacity_p Pointer to store the current capacity of the `migrationList_p` array.
- * @param currentTime Current simulation time (used for logging).
- * @param step Current simulation step number (used for logging).
- * @param migrationCycleName A descriptive name for this migration cycle (e.g., "Preliminary Sort", "Main Loop")
- *                           for logging purposes.
- * @param[out] globalMigrationCount_out Pointer to store the total number of particles migrated
- *                                      across all MPI ranks during this cycle.
- * @return PetscErrorCode 0 on success, non-zero on failure.
- */
-PetscErrorCode PerformSingleParticleMigrationCycle(UserCtx *user, const BoundingBox *bboxlist,
-                                                   MigrationInfo **migrationList_p, PetscInt *migrationCount_p,
-                                                   PetscInt *migrationListCapacity_p,
-                                                   PetscReal currentTime, PetscInt step, const char *migrationCycleName,
-                                                   PetscInt *globalMigrationCount_out);
-
 
 /**
  * @brief Re-initializes the positions of particles currently on this rank if this rank owns

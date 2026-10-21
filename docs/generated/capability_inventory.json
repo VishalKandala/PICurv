@@ -801,7 +801,7 @@
       },
       "remove": {
         "maps_to": "remove",
-        "status": "experimental"
+        "status": "supported"
       },
       "wrap": {
         "maps_to": "wrap",

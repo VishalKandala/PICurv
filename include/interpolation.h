@@ -286,15 +286,6 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
 PetscErrorCode InterpolateAllFieldsToSwarm(UserCtx *user);
 
 /**
- * @brief Interpolates particle velocities using trilinear interpolation.
- *
- * @param[in] user Pointer to the user-defined context containing grid and swarm information.
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- */
-
-PetscErrorCode InterpolateParticleVelocities(UserCtx *user);
-
-/**
  * @brief Safely interpolate a scalar field from corner nodes (from the coordinate DM)
  *        to cell centers (from the cell-centered DM) using the provided UserCtx.
  *
