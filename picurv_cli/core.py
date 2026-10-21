@@ -12858,7 +12858,7 @@ def case_declares_periodic_axis(case_cfg: dict) -> bool:
     return any(entry.get("type") == "PERIODIC" for block in blocks for entry in block)
 
 
-def da_processor_layout_problems(grid_cfg: dict, num_procs: int,
+def da_processor_layout_problems(grid_cfg: dict, num_procs: "int | None",
                                  block_dims: "list | None" = None, solver_cfg: "dict | None" = None,
                                  any_periodic: bool = False) -> list:
     """!
@@ -12871,17 +12871,18 @@ def da_processor_layout_problems(grid_cfg: dict, num_procs: int,
              Only the coarsest level can fail, because every finer level is aligned to
              twice its widths.
     @param[in] grid_cfg The case's grid block.
-    @param[in] num_procs MPI processes the solve will launch.
+    @param[in] num_procs MPI processes the solve will launch, or None when unknown (validate
+               without a cluster profile), which skips only the product check.
     @param[in] block_dims Per-block node counts, or None to skip the multigrid check.
     @param[in] solver_cfg Parsed solver.yml, for the multigrid levels and semi-coarsening.
     @param[in] any_periodic Whether any face is PERIODIC.
     @return List of messages; empty when the layout is usable or not set.
     """
     layout = resolve_grid_da_processor_layout(grid_cfg)
-    if not layout or num_procs <= 1:
+    if not layout or (num_procs is not None and num_procs <= 1):
         return []
     problems = []
-    if all(layout.get(key) is not None for key in GRID_DA_PROCESSOR_KEYS):
+    if num_procs is not None and all(layout.get(key) is not None for key in GRID_DA_PROCESSOR_KEYS):
         total_layout = 1
         for key in GRID_DA_PROCESSOR_KEYS:
             total_layout *= layout[key]
@@ -17937,6 +17938,27 @@ def validate_workflow(args):
         cluster_cfg = read_yaml_file(cluster_path)
         validate_cluster_config(cluster_cfg, cluster_path)
         checked.append(cluster_path)
+
+    # The rank layout that run --dry-run checks; without a cluster profile the process
+    # count is unknown, so only each axis is checked against the coarsest multigrid level.
+    if solver_group_selected:
+        grid_cfg = case_cfg.get("grid") or {}
+        block_dims = resolve_grid_node_dims(case_cfg, case_path)
+        layout_problems = da_processor_layout_problems(
+            grid_cfg, get_cluster_total_tasks(cluster_cfg) if cluster_cfg else None, block_dims,
+            solver_cfg, case_declares_periodic_axis(case_cfg))
+        if layout_problems:
+            emit_structured_error(
+                ERROR_CODE_CFG_INCONSISTENT_COMBO,
+                key="grid.da_processors",
+                file_path=case_path,
+                message=" ".join(layout_problems),
+            )
+            sys.exit(1)
+        if block_dims is None and resolve_grid_da_processor_layout(grid_cfg):
+            print(f"[WARNING] {case_path}: could not determine the grid's dimensions without building "
+                  "it, so the da_processors layout was not checked against the multigrid levels.",
+                  file=sys.stderr)
 
     try:
         runtime_execution_path, _ = load_runtime_execution_config(

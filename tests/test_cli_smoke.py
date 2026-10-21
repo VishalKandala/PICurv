@@ -2527,6 +2527,24 @@ def test_validate_valid_configs_pass():
     assert "[SUCCESS] Validation completed" in result.stdout
 
 
+def test_validate_refuses_a_rank_layout_the_coarsest_multigrid_level_cannot_hold(tmp_path):
+    """!
+    @brief validate reports the multigrid layout abort that run --dry-run reports, without a cluster profile.
+    @details Eight ranks on the fixture's 8-cell i axis (k is semi-coarsened) leave each rank fewer points than the
+             stencil width at the coarsest level; with no process count only the per-axis
+             check applies, and it is enough to refuse.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    case_path = tmp_path / "case.yml"
+    case_text = (valid / "case.yml").read_text(encoding="utf-8")
+    case_path.write_text(case_text.replace("grid:\n", "grid:\n  da_processors_x: 8\n", 1), encoding="utf-8")
+    result = run_picurv(["validate", "--case", str(case_path), "--solver", str(valid / "solver.yml"),
+                         "--monitor", str(valid / "monitor.yml")])
+    assert result.returncode != 0
+    assert "grid.da_processors_x = 8 is too many ranks" in result.stdout + result.stderr
+
+
 def test_validate_zero_mode_case_allows_omitting_velocity_components(tmp_path):
     """!
     @brief Test that validate zero mode case allows omitting velocity components.
