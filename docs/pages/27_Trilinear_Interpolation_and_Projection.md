@@ -46,6 +46,25 @@ This is second-order on uniform Cartesian grids but degrades to first-order on c
 
 Code path: @ref InterpolateEulerFieldToSwarm dispatches to `InterpolateEulerFieldFromCornerToSwarm`.
 
+@subsection p27_face_flux_ssec 1.2a Face-Flux Velocity
+
+For velocity only, `FaceFlux` uses the face fluxes `Ucont` the pressure projection makes
+discretely divergence-free. Inside the host cell, with weights \f$a_1, a_2, a_3\f$
+measured from each axis's minimum face, every flux family and its face-area vector are
+interpolated linearly between the two faces of that family,
+
+\f[ U^i(a) = (1-a_i)\,U^i_- + a_i\,U^i_+, \qquad S_i(a) = (1-a_i)\,S_{i,-} + a_i\,S_{i,+}, \f]
+
+and the Cartesian velocity solves \f$S_i(a)\cdot u = U^i(a)\f$ (@ref ContravariantToCartesianInCell,
+the cell-centre solve of @ref Contra2Cart, which is the case \f$a = 1/2\f$). On a cell whose
+face-area vectors do not vary along their own axis, \f$\nabla\cdot u\f$ equals the cell's
+discrete flux divergence, so a divergence-free flow gives a divergence-free particle velocity
+and a uniform tracer density is preserved; a wall face carries no flux, so the wall-normal
+velocity is zero there. Each component is linear only along its own axis, so the method is
+first-order accurate (see @ref p08_cap_interp_faceflux).
+
+Code path: @ref InterpolateEulerFieldToSwarm dispatches `Ucat` to `InterpolateEulerVelocityFromFacesToSwarm`; other fields use the Trilinear path.
+
 @subsection p27_shared_ssec 1.3 Shared Kernels
 
 Both methods share the same underlying trilinear kernels:
@@ -62,10 +81,10 @@ YAML (`solver.yml`):
 
 ```yaml
 interpolation:
-  method: "Trilinear"     # default; or "CornerAveraged"
+  method: "Trilinear"     # default; or "CornerAveraged", "FaceFlux"
 ```
 
-C flag: `-interpolation_method 0` (Trilinear) or `-interpolation_method 1` (CornerAveraged).
+C flag: `-interpolation_method 0` (Trilinear), `1` (CornerAveraged) or `2` (FaceFlux).
 
 Enum: `InterpolationMethod` in `include/variables.h`. Stored in `SimCtx.interpolationMethod`.
 

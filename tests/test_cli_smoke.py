@@ -2545,6 +2545,38 @@ def test_validate_refuses_a_rank_layout_the_coarsest_multigrid_level_cannot_hold
     assert "grid.da_processors_x = 8 is too many ranks" in result.stdout + result.stderr
 
 
+def test_face_flux_interpolation_needs_the_face_fluxes(tmp_path):
+    """!
+    @brief FaceFlux maps to code 2, validates with the solved flow, and is refused with analytical TGV3D.
+    @details FaceFlux reads the face fluxes Ucont; TGV3D sets Ucat only, so the particle velocity
+             would come from fluxes that do not hold the flow.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    assert picurv.normalize_interpolation_method("FaceFlux") == 2
+    valid = FIXTURES / "valid"
+    solver = picurv.read_yaml_file(str(valid / "solver.yml"))
+    solver["interpolation"] = {"method": "FaceFlux"}
+
+    def validate(solver_cfg):
+        """!
+        @brief Validate the fixture trio with the given solver configuration.
+        @param[in] solver_cfg Solver configuration to write and validate.
+        @return Completed validate process.
+        """
+        path = tmp_path / "solver.yml"
+        path.write_text(yaml.safe_dump(solver_cfg), encoding="utf-8")
+        return run_picurv(["validate", "--case", str(valid / "case.yml"), "--solver", str(path),
+                           "--monitor", str(valid / "monitor.yml")])
+
+    assert validate(solver).returncode == 0
+    solver["operation_mode"] = {"eulerian_field_source": "analytical", "analytical_type": "TGV3D"}
+    refused = validate(solver)
+    assert refused.returncode != 0
+    assert "interpolation.method 'FaceFlux' needs the face fluxes" in refused.stdout + refused.stderr
+
+
 def test_validate_zero_mode_case_allows_omitting_velocity_components(tmp_path):
     """!
     @brief Test that validate zero mode case allows omitting velocity components.

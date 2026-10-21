@@ -732,10 +732,13 @@ typedef enum {
  *
  * - INTERP_TRILINEAR: Direct trilinear from 8 nearest cell centers (second-order on curvilinear grids).
  * - INTERP_CORNER_AVERAGED: Legacy center-to-corner average, then trilinear from corners.
+ * - INTERP_FACE_FLUX: Velocity from the host cell's face fluxes, linear between opposite faces,
+ *   so it is divergence-free where the fluxes are; other fields use INTERP_TRILINEAR.
  */
 typedef enum {
     INTERP_TRILINEAR       = 0,
-    INTERP_CORNER_AVERAGED = 1
+    INTERP_CORNER_AVERAGED = 1,
+    INTERP_FACE_FLUX       = 2
 } InterpolationMethod;
 
 /** @brief Context for Multigrid operations. */

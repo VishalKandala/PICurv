@@ -10229,9 +10229,18 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         errors.append(f"  {solver_path}: 'interpolation' must be a mapping when provided.")
     elif isinstance(interp_cfg, dict) and 'method' in interp_cfg:
         try:
-            normalize_interpolation_method(interp_cfg['method'])
+            interp_code = normalize_interpolation_method(interp_cfg['method'])
         except ValueError as e:
             errors.append(f"  {solver_path}: {e}")
+        else:
+            # FaceFlux reads the face fluxes; the analytical types other than UNIFORM_FLOW set Ucat only.
+            op_mode = solver_cfg.get('operation_mode') if isinstance(solver_cfg.get('operation_mode'), dict) else {}
+            if (interp_code == 2 and str(op_mode.get('eulerian_field_source', 'solve')).strip().lower() == 'analytical'
+                    and str(op_mode.get('analytical_type', 'TGV3D')).strip().upper() != 'UNIFORM_FLOW'):
+                errors.append(
+                    f"  {solver_path}: interpolation.method 'FaceFlux' needs the face fluxes the flow is "
+                    f"built from, which analytical type '{op_mode.get('analytical_type', 'TGV3D')}' does not set; "
+                    "use 'Trilinear', or the UNIFORM_FLOW analytical type.")
 
     # --- monitor.yml: basic structure ---
     if not isinstance(monitor_cfg, dict) or not monitor_cfg:
@@ -14460,11 +14469,12 @@ def normalize_interpolation_method(value: str) -> int:
     mapped = {
         "Trilinear": 0,
         "CornerAveraged": 1,
+        "FaceFlux": 2,
     }.get(str(value).strip())
     if mapped is None:
         raise ValueError(
             f"Unknown interpolation_method '{value}'. Use one of: "
-            "'Trilinear', 'CornerAveraged'."
+            "'Trilinear', 'CornerAveraged', 'FaceFlux'."
         )
     return mapped
 

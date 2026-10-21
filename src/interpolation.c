@@ -1046,6 +1046,82 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "InterpolateEulerVelocityFromFacesToSwarm"
+
+/**
+ * @brief Particle velocity from the host cell's face fluxes (the FaceFlux method).
+ * @details Each contravariant flux varies linearly between the cell's two faces of its
+ *          family, at the particle's in-cell weights, and is mapped to Cartesian velocity by
+ *          ContravariantToCartesianInCell(), the cell-centre solve of Contra2Cart(). The
+ *          field is divergence-free wherever the fluxes are (exactly on rectilinear cells),
+ *          its wall-normal component vanishes on a wall face, and its components are linear
+ *          only along their own axis, so it is first-order accurate. Local to this
+ *          translation unit.
+ */
+static PetscErrorCode InterpolateEulerVelocityFromFacesToSwarm(UserCtx *user, const char *swarmOutFieldName)
+{
+    PetscErrorCode ierr;
+    DM             swarm = user->swarm;
+    DMDALocalInfo  info;
+    PetscMPIInt    rank;
+    Cmpnts      ***lucont = NULL, ***lcsi = NULL, ***leta = NULL, ***lzet = NULL;
+    PetscInt      *cellIDs = NULL;
+    PetscReal     *weights = NULL, *velocity = NULL;
+    PetscInt64    *pids = NULL;
+    PetscInt       nLocal;
+
+    PetscFunctionBegin;
+    PROFILE_FUNCTION_BEGIN;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting face-flux velocity interpolation into '%s'...\n", swarmOutFieldName);
+
+    ierr = DMDAVecGetArrayRead(user->fda, user->lUcont, (void *)&lucont); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, (void *)&lcsi); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lEta, (void *)&leta); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lZet, (void *)&lzet); CHKERRQ(ierr);
+    ierr = DMSwarmGetLocalSize(swarm, &nLocal); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&pids); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, swarmOutFieldName, NULL, NULL, (void**)&velocity); CHKERRQ(ierr);
+
+    for (PetscInt p = 0; p < nLocal; p++) {
+        /* Host cell in cell-centred array numbering; its minimum faces are one index below. */
+        const PetscInt i = cellIDs[3*p + 0] + 1, j = cellIDs[3*p + 1] + 1, k = cellIDs[3*p + 2] + 1;
+        const Cmpnts   w = {weights[3*p + 0], weights[3*p + 1], weights[3*p + 2]};
+        Cmpnts         u;
+
+        if (i - 1 < info.gxs || i >= info.gxs + info.gxm ||
+            j - 1 < info.gys || j >= info.gys + info.gym ||
+            k - 1 < info.gzs || k >= info.gzs + info.gzm) {
+            LOG_ALLOW(LOCAL, LOG_WARNING,
+                "[Rank %d] Particle PID %lld: host cell (%d,%d,%d) faces out of ghosted region. Zeroing '%s'.\n",
+                rank, (long long)pids[p], i - 1, j - 1, k - 1, swarmOutFieldName);
+            velocity[3*p + 0] = velocity[3*p + 1] = velocity[3*p + 2] = 0.0;
+            continue;
+        }
+        ierr = ContravariantToCartesianInCell(lucont, lcsi, leta, lzet, i, j, k, w, &u); CHKERRQ(ierr);
+        velocity[3*p + 0] = u.x;
+        velocity[3*p + 1] = u.y;
+        velocity[3*p + 2] = u.z;
+    }
+
+    ierr = DMSwarmRestoreField(swarm, swarmOutFieldName, NULL, NULL, (void**)&velocity); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&pids); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void**)&weights); CHKERRQ(ierr);
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (void *)&lzet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, (void *)&leta); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, (void *)&lcsi); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lUcont, (void *)&lucont); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Finished face-flux velocity interpolation into '%s'.\n", swarmOutFieldName);
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "InterpolateEulerFieldFromCornerToSwarm"
 
 /**
@@ -1378,7 +1454,10 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
                source_view.descriptor->canonical_name, source_view.descriptor->dof,
                target_descriptor->canonical_name, target_descriptor->components);
 
-    if (user->simCtx->interpolationMethod == INTERP_TRILINEAR) {
+    if (user->simCtx->interpolationMethod == INTERP_FACE_FLUX && source_field_id == FIELD_ID_UCAT) {
+        // Velocity comes from the face fluxes Ucat was built from; other fields have none.
+        ierr = InterpolateEulerVelocityFromFacesToSwarm(user, target_descriptor->canonical_name); CHKERRQ(ierr);
+    } else if (user->simCtx->interpolationMethod != INTERP_CORNER_AVERAGED) {
         ierr = InterpolateEulerFieldFromCenterToSwarm(user, source_view.local_vec,
                                                        source_view.descriptor->canonical_name,
                                                        target_descriptor->canonical_name); CHKERRQ(ierr);

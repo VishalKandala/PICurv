@@ -153,6 +153,7 @@ Full contract: **@subpage 64_Documentation_Extension_Framework**.
 - Canonical values:
   - `Trilinear`
   - `CornerAveraged`
+  - `FaceFlux`
 - Python hook:
   - `normalize_interpolation_method()` in `picurv_cli/core.py`
 - Generated mapping:

@@ -693,9 +693,16 @@ const char* BCTypeToString(BCType type);
 /**
  * @brief Returns the configuration token for a particle boundary policy.
  * @param[in] policy The ParticleBoundaryPolicy enum value.
- * @return Pointer to a constant string: "remove" or "reflect".
+ * @return Pointer to a constant string: "remove", "reflect" or "wrap".
  */
 const char* ParticleBoundaryPolicyToString(ParticleBoundaryPolicy policy);
+
+/**
+ * @brief Returns the display name of a grid-to-particle interpolation method.
+ * @param[in] method The InterpolationMethod enum value.
+ * @return Pointer to a constant string naming the method, as the banner and logs print it.
+ */
+const char* InterpolationMethodToString(InterpolationMethod method);
 
 /**
  * @brief Converts a BCHandlerType enum to its string representation.

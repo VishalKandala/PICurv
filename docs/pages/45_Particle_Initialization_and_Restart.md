@@ -37,7 +37,7 @@ Mapping to control flags:
   physical position, divided by `length_ref` like the grid bounds it sits within
 - `fields` -> `-particle_fields_*` (optional; see @ref p45_particle_values_sec)
 
-Note: The interpolation method (`Trilinear` / `CornerAveraged`) is configured in `solver.yml`, not `case.yml`. See **@subpage 08_Solver_Reference** and **@subpage 27_Trilinear_Interpolation_and_Projection**.
+Note: The interpolation method (`Trilinear` / `CornerAveraged` / `FaceFlux`) is configured in `solver.yml`, not `case.yml`. See **@subpage 08_Solver_Reference** and **@subpage 27_Trilinear_Interpolation_and_Projection**.
 
 @section p45_particle_values_sec 1.1 Configured Particle Values (`fields`)
 

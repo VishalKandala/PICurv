@@ -3031,7 +3031,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
             }
             ierr = PetscPrintf(PETSC_COMM_SELF, "\n"); CHKERRQ(ierr);
             ierr = PetscPrintf(PETSC_COMM_SELF, " Interpolation Method       : %s\n",
-                simCtx->interpolationMethod == INTERP_TRILINEAR ? "Trilinear (direct cell-center)" : "CornerAveraged (legacy)"); CHKERRQ(ierr);
+                InterpolationMethodToString(simCtx->interpolationMethod)); CHKERRQ(ierr);
             if (simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM ||
                 simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_EDGES) {
                 if (user->inletFaceDefined) {

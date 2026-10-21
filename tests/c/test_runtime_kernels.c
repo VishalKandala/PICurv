@@ -805,6 +805,111 @@ static PetscErrorCode TestInterpolateAllFieldsToSwarmCornerAveragedConstantField
     PetscFunctionReturn(0);
 }
 /**
+ * @brief FaceFlux: constant face fluxes give that velocity; other fields still interpolate trilinearly.
+ */
+static PetscErrorCode TestInterpolateAllFieldsToSwarmFaceFluxConstantFields(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscReal *velocity = NULL;
+    PetscReal *diffusivity = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    simCtx->interpolationMethod = INTERP_FACE_FLUX;
+    PetscCall(PicurvCreateSwarmPair(user, 1, "ske"));
+    PetscCall(VecSet(user->Ucont, 2.0)); /* Unit face-area vectors: the fluxes are the velocity */
+    PetscCall(VecSet(user->Ucat, -7.0));  /* Not read for velocity */
+    PetscCall(VecSet(user->Diffusivity, 0.25));
+    PetscCall(SyncRuntimeFieldGhosts(user));
+    PetscCall(SeedSingleParticle(user, 1, 1, 1, 0.5, 0.5, 0.5, 0.2, 0.7, 0.4, ACTIVE_AND_LOCATED));
+
+    PetscCall(InterpolateAllFieldsToSwarm(user));
+
+    PetscCall(DMSwarmGetField(user->swarm, "velocity", NULL, NULL, (void **)&velocity));
+    PetscCall(DMSwarmGetField(user->swarm, "Diffusivity", NULL, NULL, (void **)&diffusivity));
+    for (PetscInt c = 0; c < 3; c++)
+        PetscCall(PicurvAssertRealNear(2.0, velocity[c], 1.0e-12, "FaceFlux: velocity should come from the constant face fluxes"));
+    PetscCall(PicurvAssertRealNear(0.25, diffusivity[0], 1.0e-12, "FaceFlux: diffusivity should still interpolate trilinearly"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Diffusivity", NULL, NULL, (void **)&diffusivity));
+    PetscCall(DMSwarmRestoreField(user->swarm, "velocity", NULL, NULL, (void **)&velocity));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief FaceFlux: divergence-free fluxes give a divergence-free velocity, zero at a wall face,
+ *        and the Contra2Cart value at the cell centre.
+ *
+ * The fluxes come from a stream function psi(i, j) = i^2 j + 0.3 j^2 on cell edges, so every cell's
+ * discrete flux divergence is zero and the j = 0 wall face carries no flux. The velocity is linear
+ * in each weight, so one-sided differences of the weights give its divergence exactly.
+ */
+static PetscErrorCode TestFaceFluxVelocityIsDivergenceFree(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    Cmpnts ***ucont = NULL, ***ucat = NULL;
+    PetscReal *pos = NULL, *wgt = NULL, *vel = NULL;
+    PetscInt *cell = NULL, *status = NULL;
+    const PetscReal d = 0.25, w0[3] = {0.3, 0.6, 0.45};
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    simCtx->interpolationMethod = INTERP_FACE_FLUX;
+    PetscCall(DMDAVecGetArray(user->fda, user->Ucont, &ucont));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; k++)
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; j++)
+            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; i++) {
+                const PetscReal psi    = (PetscReal)(i * i * j) + 0.3 * j * j;
+                const PetscReal psi_jm = (PetscReal)(i * i * (j - 1)) + 0.3 * (j - 1) * (j - 1);
+                const PetscReal psi_im = (PetscReal)((i - 1) * (i - 1) * j) + 0.3 * j * j;
+                ucont[k][j][i].x = psi - psi_jm;
+                ucont[k][j][i].y = -(psi - psi_im);
+                ucont[k][j][i].z = 0.0;
+            }
+    PetscCall(DMDAVecRestoreArray(user->fda, user->Ucont, &ucont));
+    PetscCall(SyncRuntimeFieldGhosts(user));
+    PetscCall(Contra2Cart(user));
+
+    /* Particles in cell (2, 0, 2): at w0, w0 + d e_x, w0 + d e_y, w0 + d e_z, the centre, and on the j = 0 wall. */
+    PetscCall(PicurvCreateSwarmPair(user, 6, "ske"));
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&pos));
+    PetscCall(DMSwarmGetField(user->swarm, "weight", NULL, NULL, (void **)&wgt));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    for (PetscInt p = 0; p < 6; p++) {
+        for (PetscInt c = 0; c < 3; c++) {
+            wgt[3*p + c] = (p == 4) ? 0.5 : w0[c] + ((p == c + 1) ? d : 0.0);
+            pos[3*p + c] = 0.5;
+        }
+        if (p == 5) wgt[3*p + 1] = 0.0;
+        cell[3*p + 0] = 2; cell[3*p + 1] = 0; cell[3*p + 2] = 2;
+        status[p] = ACTIVE_AND_LOCATED;
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_location_status", NULL, NULL, (void **)&status));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    PetscCall(DMSwarmRestoreField(user->swarm, "weight", NULL, NULL, (void **)&wgt));
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&pos));
+
+    PetscCall(InterpolateAllFieldsToSwarm(user));
+
+    PetscCall(DMSwarmGetField(user->swarm, "velocity", NULL, NULL, (void **)&vel));
+    {
+        const PetscReal div = (vel[3*1 + 0] - vel[0]) / d + (vel[3*2 + 1] - vel[1]) / d + (vel[3*3 + 2] - vel[2]) / d;
+        const PetscReal scale = PetscAbsReal(vel[3*1 + 0] - vel[0]) / d;
+        PetscCall(PicurvAssertBool((PetscBool)(scale > 1.0), "the test field should vary across the cell"));
+        PetscCall(PicurvAssertRealNear(0.0, div, 1.0e-10 * scale, "FaceFlux velocity should be divergence-free"));
+    }
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, &ucat));
+    for (PetscInt c = 0; c < 3; c++)
+        PetscCall(PicurvAssertRealNear((&ucat[3][1][3].x)[c], vel[3*4 + c], 1.0e-12, "the cell-centre value should be Contra2Cart's"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ucat));
+    PetscCall(PicurvAssertRealNear(0.0, vel[3*5 + 1], 1.0e-12, "the wall-normal velocity should vanish on the wall face"));
+    PetscCall(DMSwarmRestoreField(user->swarm, "velocity", NULL, NULL, (void **)&vel));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests particle-to-grid scattering using known cell occupancy and scalar values.
  */
 
@@ -1736,6 +1841,8 @@ int main(int argc, char **argv)
         {"populate-initial-ucont-loads-staged-ucont", TestPopulateInitialUcontLoadsStagedUcont},
         {"interpolate-all-fields-to-swarm-constant-fields", TestInterpolateAllFieldsToSwarmConstantFields},
         {"interpolate-all-fields-to-swarm-corner-averaged-constant-fields", TestInterpolateAllFieldsToSwarmCornerAveragedConstantFields},
+        {"interpolate-all-fields-to-swarm-face-flux-constant-fields", TestInterpolateAllFieldsToSwarmFaceFluxConstantFields},
+        {"face-flux-velocity-is-divergence-free", TestFaceFluxVelocityIsDivergenceFree},
         {"scatter-all-particle-fields-to-euler-fields-averages-psi", TestScatterAllParticleFieldsToEulerFieldsAveragesPsi},
         {"calculate-particle-count-per-cell-counts-global-cell-ids", TestCalculateParticleCountPerCellCountsGlobalCellIDs},
         {"reset-all-particle-statuses-leaves-lost-particles-untouched", TestResetAllParticleStatusesLeavesLostParticlesUntouched},

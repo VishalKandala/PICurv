@@ -394,6 +394,46 @@ compatibility rather than accuracy. It is below second order even on a uniform C
 grid: the corner average smooths the field before the trilinear step sees it, and the
 maximum error converges at first order.
 
+@subsection p08_cap_interp_faceflux_sub FaceFlux
+
+@anchor p08_cap_interp_faceflux
+
+**Identity.** `interpolation.method: FaceFlux` -> `-interpolation_method 2` ->
+`INTERP_FACE_FLUX` -> @ref InterpolateEulerFieldToSwarm.
+
+**What it does.** Builds the particle velocity from its host cell's face fluxes `Ucont`
+instead of from cell-centre `Ucat`. Each contravariant flux varies linearly between the
+cell's two faces of its family, at the particle's in-cell weights, and is mapped to
+Cartesian velocity by @ref ContravariantToCartesianInCell, the solve @ref Contra2Cart
+uses at cell centres. The velocity is therefore divergence-free wherever the solver's
+fluxes are, its wall-normal component is zero on a wall face, and at a cell centre it
+equals `Ucat`. Diffusivity and its gradient are still interpolated with Trilinear.
+
+**When to choose it.** When the particle number density must stay uniform in a
+non-uniform flow, as an FDF needs: trilinear velocity is slightly compressible and drifts
+tracers, measurably near walls. Prefer Trilinear where velocity accuracy along a face
+matters more than density, and on coarse near-wall grids.
+
+**Parameters it owns.** None.
+
+**Interactions.** Needs `Ucont` to hold the flow, so it is refused with an analytical
+type other than `UNIFORM_FLOW`, which set `Ucat` only. Same swarm prerequisites as the
+other methods.
+
+**Diagnostics.** The startup banner names the method. The per-cell particle count stays
+statistically uniform in a solved incompressible flow; compare against Trilinear.
+
+**Evidence.** Unit verified - `make unit-runtime` builds fluxes from a stream function and
+checks that the interpolated velocity is divergence-free to round-off, is zero normal to
+a wall face, and equals `Contra2Cart` at the cell centre.
+
+**Limitations.** First-order accurate: a component varies only along its own axis inside
+a cell, so it is constant across the cell in the other two directions (for example the
+streamwise velocity does not vary in the wall-normal direction within a cell). The
+divergence is exactly zero only on cells whose face-area vectors do not vary along their
+own axis, which includes every rectilinear cell; on warped curvilinear cells a small
+residual remains.
+
 @subsection p08_cap_conv_steady_deterministic_sub steady_deterministic
 
 @anchor p08_cap_conv_steady_deterministic
@@ -846,13 +886,13 @@ Scientific field statistics are likewise a monitor concern, configured at
 
 ```yaml
 interpolation:
-  method: "Trilinear"     # default; or "CornerAveraged"
+  method: "Trilinear"     # default; or "CornerAveraged", "FaceFlux"
 ```
 
 Mappings:
-- `method` -> `-interpolation_method` (`Trilinear` = `0`, `CornerAveraged` = `1`)
+- `method` -> `-interpolation_method` (`Trilinear` = `0`, `CornerAveraged` = `1`, `FaceFlux` = `2`)
 
-The **Trilinear** method (default) performs direct trilinear interpolation from the 8 nearest cell centers; on the TGV3D field it converges at order 1.97. The **CornerAveraged** method is the legacy two-stage path (center-to-corner average, then trilinear from corners); on the same field and a uniform Cartesian grid its L2 error converges at order 1.68 and its maximum error at first order, so it is not second order anywhere measured. See @ref p08_cap_interp_corneraveraged.
+The **Trilinear** method (default) performs direct trilinear interpolation from the 8 nearest cell centers; on the TGV3D field it converges at order 1.97. The **CornerAveraged** method is the legacy two-stage path (center-to-corner average, then trilinear from corners); on the same field and a uniform Cartesian grid its L2 error converges at order 1.68 and its maximum error at first order, so it is not second order anywhere measured. See @ref p08_cap_interp_corneraveraged. The **FaceFlux** method builds velocity from the face fluxes so that it is divergence-free, at first-order accuracy; see @ref p08_cap_interp_faceflux.
 
 See **@subpage 27_Trilinear_Interpolation_and_Projection** for algorithmic details.
 

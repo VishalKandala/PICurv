@@ -394,6 +394,86 @@ PetscErrorCode SetupDomainRankInfo(SimCtx *simCtx);
 PetscErrorCode Contra2Cart(UserCtx *user);
 
 /**
+ * @brief Cartesian velocity at a point of one cell from the cell's face fluxes.
+ *
+ * Each contravariant flux (U^1, U^2, U^3) and each face-area vector row (Csi, Eta, Zet) is
+ * interpolated linearly between the cell's two faces of that family, at the fraction
+ * `w.x`, `w.y`, `w.z` of the way from the minimum face, and `S_i . u = U^i` is solved by
+ * Cramer's rule. With `w = (1/2, 1/2, 1/2)` this is the cell-centre value Contra2Cart()
+ * stores. The flux through each face family varies linearly along that family's own axis,
+ * so on a cell whose face-area vectors do not vary along their own axis (any rectilinear
+ * cell) the velocity's divergence is the cell's discrete flux divergence, and zero when the
+ * fluxes are divergence-free. It is inline and has no profiling hook: it runs once per cell or
+ * particle, inside Contra2Cart()'s loop on the solver's hot path.
+ *
+ * @param[in]  lucont Ghosted local `Ucont` array.
+ * @param[in]  lcsi   Ghosted local `Csi` array.
+ * @param[in]  leta   Ghosted local `Eta` array.
+ * @param[in]  lzet   Ghosted local `Zet` array.
+ * @param[in]  i      Cell index in cell-centred array numbering (physical cell `i - 1`).
+ * @param[in]  j      As `i`, for the j direction.
+ * @param[in]  k      As `i`, for the k direction.
+ * @param[in]  w      Position in the cell, each component in [0, 1] from the minimum face.
+ * @param[out] ucat   Cartesian velocity at that position.
+ *
+ * @return PetscErrorCode 0 on success; `PETSC_ERR_FLOP_COUNT` when the face-area vectors are degenerate.
+ */
+static inline PetscErrorCode ContravariantToCartesianInCell(Cmpnts ***lucont, Cmpnts ***lcsi, Cmpnts ***leta, Cmpnts ***lzet,
+                                                            PetscInt i, PetscInt j, PetscInt k, Cmpnts w, Cmpnts *ucat)
+{
+    PetscFunctionBeginUser;
+    // Transformation matrix [mat]: the face-area vectors at the point, each family
+    // interpolated between the cell's two faces of that family.
+    PetscReal mat[3][3];
+
+    mat[0][0] = (1.0 - w.x) * lcsi[k][j][i-1].x + w.x * lcsi[k][j][i].x;
+    mat[0][1] = (1.0 - w.x) * lcsi[k][j][i-1].y + w.x * lcsi[k][j][i].y;
+    mat[0][2] = (1.0 - w.x) * lcsi[k][j][i-1].z + w.x * lcsi[k][j][i].z;
+
+    mat[1][0] = (1.0 - w.y) * leta[k][j-1][i].x + w.y * leta[k][j][i].x;
+    mat[1][1] = (1.0 - w.y) * leta[k][j-1][i].y + w.y * leta[k][j][i].y;
+    mat[1][2] = (1.0 - w.y) * leta[k][j-1][i].z + w.y * leta[k][j][i].z;
+
+    mat[2][0] = (1.0 - w.z) * lzet[k-1][j][i].x + w.z * lzet[k][j][i].x;
+    mat[2][1] = (1.0 - w.z) * lzet[k-1][j][i].y + w.z * lzet[k][j][i].y;
+    mat[2][2] = (1.0 - w.z) * lzet[k-1][j][i].z + w.z * lzet[k][j][i].z;
+
+    // Contravariant velocity vector `q` at the point, interpolated the same way.
+    PetscReal q[3];
+    q[0] = (1.0 - w.x) * lucont[k][j][i-1].x + w.x * lucont[k][j][i].x; // U¹
+    q[1] = (1.0 - w.y) * lucont[k][j-1][i].y + w.y * lucont[k][j][i].y; // U²
+    q[2] = (1.0 - w.z) * lucont[k-1][j][i].z + w.z * lucont[k][j][i].z; // U³
+
+    // Solve the 3x3 system `mat * ucat = q` using Cramer's rule.
+    PetscReal det = mat[0][0] * (mat[1][1] * mat[2][2] - mat[1][2] * mat[2][1]) -
+                    mat[0][1] * (mat[1][0] * mat[2][2] - mat[1][2] * mat[2][0]) +
+                    mat[0][2] * (mat[1][0] * mat[2][1] - mat[1][1] * mat[2][0]);
+
+    if (PetscAbsReal(det) < 1.0e-18) {
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FLOP_COUNT, "Transformation matrix determinant is near zero at cell (%d,%d,%d) \n", i, j, k);
+    }
+
+    PetscReal det_inv = 1.0 / det;
+
+    PetscReal det0 = q[0] * (mat[1][1] * mat[2][2] - mat[1][2] * mat[2][1]) -
+                     q[1] * (mat[0][1] * mat[2][2] - mat[0][2] * mat[2][1]) +
+                     q[2] * (mat[0][1] * mat[1][2] - mat[0][2] * mat[1][1]);
+
+    PetscReal det1 = -q[0] * (mat[1][0] * mat[2][2] - mat[1][2] * mat[2][0]) +
+                      q[1] * (mat[0][0] * mat[2][2] - mat[0][2] * mat[2][0]) -
+                      q[2] * (mat[0][0] * mat[1][2] - mat[0][2] * mat[1][0]);
+
+    PetscReal det2 = q[0] * (mat[1][0] * mat[2][1] - mat[1][1] * mat[2][0]) -
+                     q[1] * (mat[0][0] * mat[2][1] - mat[0][1] * mat[2][0]) +
+                     q[2] * (mat[0][0] * mat[1][1] - mat[0][1] * mat[1][0]);
+
+    ucat->x = det0 * det_inv;
+    ucat->y = det1 * det_inv;
+    ucat->z = det2 * det_inv;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Convert the ghosted Cartesian velocity field to contravariant face fluxes.
  * @ingroup InitialConditions
  *

@@ -402,6 +402,10 @@
         "maps_to": 1,
         "status": "supported"
       },
+      "FaceFlux": {
+        "maps_to": 2,
+        "status": "experimental"
+      },
       "Trilinear": {
         "maps_to": 0,
         "status": "supported"

@@ -139,7 +139,7 @@ For each run, `picurv` generates:
 - `momentum_solver.newton_krylov.linear_solver.*` -> prefixed `-mom_nk_ksp_*`
   options; GMRES restart is GMRES-family-only. The PETSc PC backend is derived
   internally and is not a normal structured YAML choice.
-- `interpolation.method` -> `-interpolation_method`. Defaults to `Trilinear` (direct cell-center, second-order). Set to `CornerAveraged` for the legacy two-stage path.
+- `interpolation.method` -> `-interpolation_method`. Defaults to `Trilinear` (direct cell-center, second-order). Set to `CornerAveraged` for the legacy two-stage path, or `FaceFlux` for a divergence-free particle velocity built from the face fluxes.
 - `petsc_passthrough_options` remains the escape hatch for advanced PETSc/C flags.
 - `scalar_transport.schmidt_number`, `scalar_transport.turbulent_schmidt_number`, and
   `scalar_transport.iem_constant` are the structured scalar/Brownian transport and IEM

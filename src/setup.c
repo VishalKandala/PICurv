@@ -1140,8 +1140,11 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     PetscInt temp_interp = (PetscInt)INTERP_TRILINEAR;
     ierr = PetscOptionsGetInt(NULL, NULL, "-interpolation_method", &temp_interp, NULL); CHKERRQ(ierr);
     simCtx->interpolationMethod = (InterpolationMethod)temp_interp;
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Interpolation method: %s\n",
-              simCtx->interpolationMethod == INTERP_TRILINEAR ? "Trilinear (direct cell-center)" : "CornerAveraged (legacy)");
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Interpolation method: %s\n", InterpolationMethodToString(simCtx->interpolationMethod));
+    PetscCheck(simCtx->interpolationMethod != INTERP_FACE_FLUX || strcmp(simCtx->eulerianSource, "analytical") != 0 ||
+               strcmp(simCtx->AnalyticalSolutionType, "UNIFORM_FLOW") == 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
+               "FaceFlux interpolation reads the face fluxes Ucont; analytical type '%s' sets Ucat only. "
+               "Use Trilinear, or UNIFORM_FLOW.", simCtx->AnalyticalSolutionType);
     ierr = PetscOptionsGetReal(NULL, NULL, "-psrc_x", &simCtx->psrc_x, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-psrc_y", &simCtx->psrc_y, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-psrc_z", &simCtx->psrc_z, NULL); CHKERRQ(ierr);
@@ -3359,59 +3362,9 @@ PetscErrorCode Contra2Cart(UserCtx *user)
                 // Check if the cell is a fluid cell (not solid/blanked)
 	      //    if (lnvert_arr[k_cell][j_cell][i_cell] > 0.1) continue; // Skip solid/blanked cells
 
-                // Transformation matrix [mat] is the metric tensor at the cell center,
-                // estimated by averaging metrics from adjacent faces.
-                PetscReal mat[3][3];
-
-		//	PetscReal aj_center = laj_arr[k_cell+1][j_cell+1][i_cell+1];
-		
-                mat[0][0] = 0.5 * (lcsi_arr[k_cell][j_cell][i_cell-1].x + lcsi_arr[k_cell][j_cell][i_cell].x); //* aj_center;
-                mat[0][1] = 0.5 * (lcsi_arr[k_cell][j_cell][i_cell-1].y + lcsi_arr[k_cell][j_cell][i_cell].y); //* aj_center;
-                mat[0][2] = 0.5 * (lcsi_arr[k_cell][j_cell][i_cell-1].z + lcsi_arr[k_cell][j_cell][i_cell].z); //* aj_center;
-
-                mat[1][0] = 0.5 * (leta_arr[k_cell][j_cell-1][i_cell].x + leta_arr[k_cell][j_cell][i_cell].x); //* aj_center;
-                mat[1][1] = 0.5 * (leta_arr[k_cell][j_cell-1][i_cell].y + leta_arr[k_cell][j_cell][i_cell].y); //* aj_center;
-                mat[1][2] = 0.5 * (leta_arr[k_cell][j_cell-1][i_cell].z + leta_arr[k_cell][j_cell][i_cell].z); //* aj_center;
-
-                mat[2][0] = 0.5 * (lzet_arr[k_cell-1][j_cell][i_cell].x + lzet_arr[k_cell][j_cell][i_cell].x); //* aj_center;
-                mat[2][1] = 0.5 * (lzet_arr[k_cell-1][j_cell][i_cell].y + lzet_arr[k_cell][j_cell][i_cell].y); //* aj_center;
-                mat[2][2] = 0.5 * (lzet_arr[k_cell-1][j_cell][i_cell].z + lzet_arr[k_cell][j_cell][i_cell].z); //* aj_center;
-	
-                // Contravariant velocity vector `q` at the cell center,
-                // estimated by averaging face-based contravariant velocities.
-                PetscReal q[3];
-                q[0] = 0.5 * (lucont_arr[k_cell][j_cell][i_cell-1].x + lucont_arr[k_cell][j_cell][i_cell].x); // U¹ at cell center
-                q[1] = 0.5 * (lucont_arr[k_cell][j_cell-1][i_cell].y + lucont_arr[k_cell][j_cell][i_cell].y); // U² at cell center
-                q[2] = 0.5 * (lucont_arr[k_cell-1][j_cell][i_cell].z + lucont_arr[k_cell][j_cell][i_cell].z); // U³ at cell center
-
-                // Solve the 3x3 system `mat * ucat = q` using Cramer's rule.
-                PetscReal det = mat[0][0] * (mat[1][1] * mat[2][2] - mat[1][2] * mat[2][1]) -
-                                mat[0][1] * (mat[1][0] * mat[2][2] - mat[1][2] * mat[2][0]) +
-                                mat[0][2] * (mat[1][0] * mat[2][1] - mat[1][1] * mat[2][0]);
-
-		  if (PetscAbsReal(det) < 1.0e-18) {
-		      SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FLOP_COUNT, "Transformation matrix determinant is near zero at cell (%d,%d,%d) \n", i_cell, j_cell, k_cell);
-		                }
-
-                PetscReal det_inv = 1.0 / det;
-
-                PetscReal det0 = q[0] * (mat[1][1] * mat[2][2] - mat[1][2] * mat[2][1]) -
-                                 q[1] * (mat[0][1] * mat[2][2] - mat[0][2] * mat[2][1]) +
-                                 q[2] * (mat[0][1] * mat[1][2] - mat[0][2] * mat[1][1]);
-
-                PetscReal det1 = -q[0] * (mat[1][0] * mat[2][2] - mat[1][2] * mat[2][0]) +
-                                  q[1] * (mat[0][0] * mat[2][2] - mat[0][2] * mat[2][0]) -
-                                  q[2] * (mat[0][0] * mat[1][2] - mat[0][2] * mat[1][0]);
-
-                PetscReal det2 = q[0] * (mat[1][0] * mat[2][1] - mat[1][1] * mat[2][0]) -
-                                 q[1] * (mat[0][0] * mat[2][1] - mat[0][1] * mat[2][0]) +
-                                 q[2] * (mat[0][0] * mat[1][1] - mat[0][1] * mat[1][0]);
-
-                // Store computed Cartesian velocity in the GLOBAL Ucat array at the
-                // array index corresponding to the cell's origin node.
-                gucat_arr[k_cell][j_cell][i_cell].x = det0 * det_inv;
-                gucat_arr[k_cell][j_cell][i_cell].y = det1 * det_inv;
-                gucat_arr[k_cell][j_cell][i_cell].z = det2 * det_inv;
+                const Cmpnts centre = {0.5, 0.5, 0.5};
+                ierr = ContravariantToCartesianInCell(lucont_arr, lcsi_arr, leta_arr, lzet_arr, i_cell, j_cell, k_cell,
+                                                      centre, &gucat_arr[k_cell][j_cell][i_cell]); CHKERRQ(ierr);
             }
         }
     }

@@ -105,6 +105,7 @@ Selector: `solver.yml -> interpolation.method`
 | Value | Maps to |
 |---|---|
 | `CornerAveraged` | `1` |
+| `FaceFlux` | `2` |
 | `Trilinear` | `0` |
 
 ### Solution Convergence Modes

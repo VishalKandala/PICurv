@@ -59,10 +59,11 @@ diffusivity gradient available.
 
 Each stage relies on valid `DMSwarm_CellID`, interpolation weights, and synchronized ghost data.
 
-Step 5 dispatches through @ref InterpolateEulerFieldToSwarm, which selects between two interpolation paths based on `SimCtx.interpolationMethod`:
+Step 5 dispatches through @ref InterpolateEulerFieldToSwarm, which selects the interpolation path from `SimCtx.interpolationMethod`:
 
 - **Trilinear** (default): direct interpolation from the 8 nearest cell centers, second-order on curvilinear grids.
 - **CornerAveraged** (legacy): two-stage center-to-corner averaging then trilinear from corners.
+- **FaceFlux**: velocity from the host cell's face fluxes, divergence-free so tracer density stays uniform, first-order accurate; other fields use Trilinear.
 
 See **@subpage 27_Trilinear_Interpolation_and_Projection** for method details and configuration.
 

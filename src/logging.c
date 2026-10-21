@@ -908,6 +908,21 @@ const char* ParticleBoundaryPolicyToString(ParticleBoundaryPolicy policy) {
 }
 
 /**
+ * @brief Implementation of \ref InterpolationMethodToString().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see InterpolationMethodToString()
+ */
+const char* InterpolationMethodToString(InterpolationMethod method) {
+    switch (method) {
+        case INTERP_TRILINEAR:       return "Trilinear (direct cell-center)";
+        case INTERP_CORNER_AVERAGED: return "CornerAveraged (legacy)";
+        case INTERP_FACE_FLUX:       return "FaceFlux (divergence-free velocity from face fluxes)";
+        default:                     return "Unknown interpolation method";
+    }
+}
+
+/**
  * @brief Internal helper implementation: `BCHandlerTypeToString()`.
  * @details Local to this translation unit.
  */
