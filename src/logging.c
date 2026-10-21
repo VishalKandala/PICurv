@@ -2308,17 +2308,32 @@ PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char 
     PetscFunctionReturn(0);
 }
 
-// Comparison function for qsort to sort by total_time in descending order
-/**
- * @brief Order profiling records by their accumulated execution time.
- */
-static int _CompareProfiledFunctions(const void *a, const void *b)
-{
-    const ProfiledFunction *func_a = (const ProfiledFunction *)a;
-    const ProfiledFunction *func_b = (const ProfiledFunction *)b;
+// One row of the final summary: a function's total time across ranks
+typedef struct {
+    const char *name;
+    double      mean_time, min_time, max_time;
+    int         min_rank, max_rank;
+    long long   call_count; // Summed over ranks
+} ProfiledFunctionRanks;
 
-    if (func_a->total_time < func_b->total_time) return 1;
-    if (func_a->total_time > func_b->total_time) return -1;
+/**
+ * @brief Order profiling records by name, so every rank lists the same functions in the same order.
+ */
+static int _CompareProfiledFunctionNames(const void *a, const void *b)
+{
+    return strcmp(((const ProfiledFunction *)a)->name, ((const ProfiledFunction *)b)->name);
+}
+
+/**
+ * @brief Order final-summary rows by their slowest rank's total time, descending.
+ */
+static int _CompareProfiledFunctionRanks(const void *a, const void *b)
+{
+    const ProfiledFunctionRanks *func_a = (const ProfiledFunctionRanks *)a;
+    const ProfiledFunctionRanks *func_b = (const ProfiledFunctionRanks *)b;
+
+    if (func_a->max_time < func_b->max_time) return 1;
+    if (func_a->max_time > func_b->max_time) return -1;
     return 0;
 }
 
@@ -2332,14 +2347,56 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
 {
     PetscErrorCode ierr;
     PetscInt rank = simCtx->rank;
+    PetscMPIInt size, local_len = 0, total_len = 0, *lens = NULL, *displs = NULL;
+    char *local_names = NULL, *names = NULL; // Names this rank, and every rank, profiled
+    struct { double value; int rank; } *local_time = NULL, *min_time = NULL, *max_time = NULL;
+    double *local_seconds = NULL, *sum_time = NULL;
+    long long *local_calls = NULL, *sum_calls = NULL;
+    ProfiledFunctionRanks *rows = NULL;
     PetscFunctionBeginUser;
     if (!simCtx->profilingFinalSummary) PetscFunctionReturn(0);
+
+    // --- Step 0: Register on every rank each function any rank profiled, in name order ---
+    // The only communication of the profiler: two gathers and four reductions, here at the end of the run.
+    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRMPI(ierr);
+    for (PetscInt i = 0; i < g_profiler_count; ++i) local_len += (PetscMPIInt)strlen(g_profiler_registry[i].name) + 1;
+    ierr = PetscMalloc1(local_len + 1, &local_names); CHKERRQ(ierr);
+    for (PetscInt i = 0, off = 0; i < g_profiler_count; ++i) {
+        strcpy(local_names + off, g_profiler_registry[i].name);
+        off += (PetscInt)strlen(g_profiler_registry[i].name) + 1;
+    }
+    ierr = PetscMalloc2(size, &lens, size, &displs); CHKERRQ(ierr);
+    ierr = MPI_Allgather(&local_len, 1, MPI_INT, lens, 1, MPI_INT, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    for (PetscMPIInt r = 0; r < size; ++r) { displs[r] = total_len; total_len += lens[r]; }
+    ierr = PetscMalloc1(total_len + 1, &names); CHKERRQ(ierr);
+    ierr = MPI_Allgatherv(local_names, local_len, MPI_CHAR, names, lens, displs, MPI_CHAR, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    for (PetscMPIInt off = 0; off < total_len; off += (PetscMPIInt)strlen(names + off) + 1) {
+        PetscInt idx;
+        ierr = _FindOrCreateEntry(names + off, &idx); CHKERRQ(ierr); // A new entry points into names
+    }
+    qsort(g_profiler_registry, g_profiler_count, sizeof(ProfiledFunction), _CompareProfiledFunctionNames);
+
+    // --- Step 1: Reduce each function's total time (min, max with their ranks, sum) and calls ---
+    ierr = PetscMalloc4(g_profiler_count, &local_time, g_profiler_count, &min_time,
+                        g_profiler_count, &max_time, g_profiler_count, &sum_time); CHKERRQ(ierr);
+    ierr = PetscMalloc3(g_profiler_count, &local_seconds, g_profiler_count, &local_calls, g_profiler_count, &sum_calls); CHKERRQ(ierr);
+    for (PetscInt i = 0; i < g_profiler_count; ++i) {
+        local_seconds[i]    = g_profiler_registry[i].total_time;
+        local_time[i].value = g_profiler_registry[i].total_time;
+        local_time[i].rank  = (int)rank;
+        local_calls[i]      = g_profiler_registry[i].total_call_count;
+    }
+    ierr = MPI_Reduce(local_time, min_time, (int)g_profiler_count, MPI_DOUBLE_INT, MPI_MINLOC, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Reduce(local_time, max_time, (int)g_profiler_count, MPI_DOUBLE_INT, MPI_MAXLOC, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Reduce(local_seconds, sum_time, (int)g_profiler_count, MPI_DOUBLE, MPI_SUM, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Reduce(local_calls, sum_calls, (int)g_profiler_count, MPI_LONG_LONG, MPI_SUM, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+
     if (!rank) {
         
         char exec_mode_modifier[32] = "Unknown";
         if(simCtx->exec_mode == EXEC_MODE_SOLVER) PetscCall(PetscStrncpy(exec_mode_modifier, "Solver", sizeof(exec_mode_modifier)));
         else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) PetscCall(PetscStrncpy(exec_mode_modifier, "PostProcessor", sizeof(exec_mode_modifier)));
-        //--- Step 0: Create a file viewer for log file
+        //--- Step 2: Create a file viewer for log file
         FILE *f;
         char filen[PETSC_MAX_PATH_LEN + 128];
         ierr = PetscSNPrintf(filen, sizeof(filen), "%s/ProfilingSummary_%s.log",simCtx->log_dir,exec_mode_modifier); CHKERRQ(ierr);
@@ -2358,71 +2415,84 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
             }
         }
 
-        // --- Step 1: Sort the data for readability ---
-        qsort(g_profiler_registry, g_profiler_count, sizeof(ProfiledFunction), _CompareProfiledFunctions);
-
-        // --- Step 2: Dynamically determine the width for the function name column ---
-        PetscInt max_name_len = strlen("Function"); // Start with the header's length
+        // --- Step 3: Build the rows of functions some rank called, slowest rank first ---
+        PetscInt nrows = 0;
+        ierr = PetscMalloc1(g_profiler_count, &rows); CHKERRQ(ierr);
         for (PetscInt i = 0; i < g_profiler_count; ++i) {
-            if (g_profiler_registry[i].total_call_count > 0) {
-                PetscInt len = strlen(g_profiler_registry[i].name);
-                if (len > max_name_len) {
-                    max_name_len = len;
-                }
+            if (sum_calls[i] == 0) continue;
+            rows[nrows].name       = g_profiler_registry[i].name;
+            rows[nrows].mean_time  = sum_time[i] / size;
+            rows[nrows].min_time   = min_time[i].value;
+            rows[nrows].min_rank   = min_time[i].rank;
+            rows[nrows].max_time   = max_time[i].value;
+            rows[nrows].max_rank   = max_time[i].rank;
+            rows[nrows].call_count = sum_calls[i];
+            nrows++;
+        }
+        qsort(rows, nrows, sizeof(ProfiledFunctionRanks), _CompareProfiledFunctionRanks);
+
+        // --- Step 4: Dynamically determine the width for the function name column ---
+        PetscInt max_name_len = strlen("Function"); // Start with the header's length
+        for (PetscInt i = 0; i < nrows; ++i) {
+            PetscInt len = strlen(rows[i].name);
+            if (len > max_name_len) {
+                max_name_len = len;
             }
         }
         // Add a little padding
         max_name_len += 2; 
 
-        // --- Step 3: Define fixed widths for numeric columns for consistent alignment ---
-        const int time_width = 18;
+        // --- Step 5: Define fixed widths for numeric columns for consistent alignment ---
+        const int time_width = 14;
+        const int rank_width = 6;
         const int count_width = 15;
-        const int avg_width = 22;
+        const int avg_width = 19;
 
-        // --- Step 4: Print the formatted table ---
+        // --- Step 6: Print the formatted table ---
         PetscFPrintf(PETSC_COMM_SELF, f, "=================================================================================================================\n");
-        PetscFPrintf(PETSC_COMM_SELF, f, "                         FINAL PROFILING SUMMARY (Sorted by Total Time)\n");
+        PetscFPrintf(PETSC_COMM_SELF, f, "        FINAL PROFILING SUMMARY (total time per rank over %d ranks, sorted by the slowest rank)\n", (int)size);
         PetscFPrintf(PETSC_COMM_SELF, f, "=================================================================================================================\n");
         
         // Header Row
-        PetscFPrintf(PETSC_COMM_SELF, f, "%-*s | %-*s | %-*s | %-*s\n",
+        PetscFPrintf(PETSC_COMM_SELF, f, "%-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s\n",
                     max_name_len, "Function",
-                    time_width, "Total Time (s)",
-                    count_width, "Call Count",
+                    time_width, "Max Time (s)", rank_width, "Rank",
+                    time_width, "Mean Time (s)",
+                    time_width, "Min Time (s)", rank_width, "Rank",
+                    count_width, "Calls (all)",
                     avg_width, "Avg. Time/Call (ms)");
         
         // Separator Line (dynamically sized)
-        for (int i = 0; i < max_name_len; i++) PetscFPrintf(PETSC_COMM_SELF, f, "-");
-        PetscFPrintf(PETSC_COMM_SELF, f, "-|-");
-        for (int i = 0; i < time_width; i++) PetscFPrintf(PETSC_COMM_SELF, f, "-");
-        PetscFPrintf(PETSC_COMM_SELF, f, "-|-");
-        for (int i = 0; i < count_width; i++) PetscFPrintf(PETSC_COMM_SELF, f, "-");
-        PetscFPrintf(PETSC_COMM_SELF, f, "-|-");
-        for (int i = 0; i < avg_width; i++) PetscFPrintf(PETSC_COMM_SELF, f, "-");
+        for (int i = 0; i < max_name_len + 7 * 3 + 3 * time_width + 2 * rank_width + count_width + avg_width; i++) PetscFPrintf(PETSC_COMM_SELF, f, "-");
         PetscFPrintf(PETSC_COMM_SELF, f, "\n");
 
         // Data Rows
-        for (PetscInt i = 0; i < g_profiler_count; ++i) {
-            if (g_profiler_registry[i].total_call_count > 0) {
-                double avg_time_ms = (g_profiler_registry[i].total_time / g_profiler_registry[i].total_call_count) * 1000.0;
-                PetscFPrintf(PETSC_COMM_SELF, f, "%-*s | %*.*f | %*lld | %*.*f\n",
-                            max_name_len, g_profiler_registry[i].name,
-                            time_width, 6, g_profiler_registry[i].total_time,
-                            count_width, g_profiler_registry[i].total_call_count,
-                            avg_width, 6, avg_time_ms);
-                PetscFPrintf(PETSC_COMM_SELF, f, "------------------------------------------------------------------------------------------------------------------\n");
-            }
+        for (PetscInt i = 0; i < nrows; ++i) {
+            double avg_time_ms = (rows[i].mean_time * size / rows[i].call_count) * 1000.0;
+            PetscFPrintf(PETSC_COMM_SELF, f, "%-*s | %*.*f | %*d | %*.*f | %*.*f | %*d | %*lld | %*.*f\n",
+                        max_name_len, rows[i].name,
+                        time_width, 6, rows[i].max_time, rank_width, rows[i].max_rank,
+                        time_width, 6, rows[i].mean_time,
+                        time_width, 6, rows[i].min_time, rank_width, rows[i].min_rank,
+                        count_width, rows[i].call_count,
+                        avg_width, 6, avg_time_ms);
         }
         PetscFPrintf(PETSC_COMM_SELF, f, "==================================================================================================================\n");
     
         fclose(f);
+        ierr = PetscFree(rows); CHKERRQ(ierr);
     }
 
     // --- Final Cleanup ---
+    ierr = PetscFree4(local_time, min_time, max_time, sum_time); CHKERRQ(ierr);
+    ierr = PetscFree3(local_seconds, local_calls, sum_calls); CHKERRQ(ierr);
+    ierr = PetscFree2(lens, displs); CHKERRQ(ierr);
+    ierr = PetscFree(local_names); CHKERRQ(ierr);
     PetscFree(g_profiler_registry);
     g_profiler_registry = NULL;
     g_profiler_count = 0;
     g_profiler_capacity = 0;
+    ierr = PetscFree(names); CHKERRQ(ierr); // After the registry: its new entries point into it
     PetscFunctionReturn(0);
 }
 

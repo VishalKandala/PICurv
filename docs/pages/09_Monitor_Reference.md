@@ -303,7 +303,10 @@ Rules:
   and `PoissonRHS` becomes `ComputePoissonRHS`. Names of functions it removed are dropped
   with a warning.
 - `timestep_output.file` sets the filename written under `<run.runtime_logs>/`
-- `final_summary.enabled` controls the end-of-run `ProfilingSummary_*.log` file
+- `final_summary.enabled` controls the end-of-run `ProfilingSummary_*.log` file. For each function
+  it lists the total time on the slowest rank and that rank, the mean over ranks, the fastest rank
+  and its time (zero on a rank that never called it), the calls summed over ranks, and the mean time
+  per call; rows are sorted by the slowest rank. The per-step file still reports rank 0 only.
 
 @section p09_diagnostics_sec 6. diagnostics
 

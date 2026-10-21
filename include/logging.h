@@ -861,8 +861,13 @@ PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char 
 
 
 /**
- * @brief the profiling excercise and build a profiling summary which is then printed to a log file.
- * 
+ * @brief Writes the end-of-run profiling summary across all ranks; collective on PETSC_COMM_WORLD.
+ *
+ * Every rank registers the functions any rank profiled, then each function's total time is
+ * reduced to its maximum and minimum (with the ranks holding them) and its mean over ranks,
+ * and its calls are summed. Rank 0 writes `ProfilingSummary_<mode>.log`, slowest rank first.
+ * This is the profiler's only communication; the timed path stays local to each rank.
+ *
  * @param simCtx  The Simulation Context Structure that can contains all the data regarding the simulation.
  * 
  * @return        PetscErrorCode 0 on success.

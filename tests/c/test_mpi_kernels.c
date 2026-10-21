@@ -16,6 +16,7 @@
 #include "io.h"
 #include "field_catalog.h"
 #include "les.h"
+#include "logging.h"
 
 #include <stdlib.h>
 
@@ -420,6 +421,62 @@ static PetscErrorCode TestPeriodicStaggeredFieldSynchronizationMultiRank(void)
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lUcont, &ucont));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
+ * @brief The final profiling summary reduces each function's total time over ranks.
+ *
+ * A function profiled on rank 1 only must reach rank 0's summary with its maximum on rank 1,
+ * its minimum (zero) on rank 0 and one call in total.
+ */
+static PetscErrorCode TestProfilingSummaryReducesOverRanks(void)
+{
+    SimCtx simCtx;
+    PetscMPIInt rank = 0, size = 1;
+    char tmpdir[PETSC_MAX_PATH_LEN], summary_path[PETSC_MAX_PATH_LEN + 64], line[1024];
+
+    PetscFunctionBeginUser;
+    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
+    PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
+    PetscCall(PicurvAssertIntEqual(2, size, "profiling summary test expects exactly two MPI ranks"));
+    PetscCall(PetscMemzero(&simCtx, sizeof(simCtx)));
+    if (rank == 0) PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCallMPI(MPI_Bcast(tmpdir, PETSC_MAX_PATH_LEN, MPI_CHAR, 0, PETSC_COMM_WORLD));
+    PetscCall(PetscStrncpy(simCtx.log_dir, tmpdir, sizeof(simCtx.log_dir)));
+    simCtx.rank = rank;
+    simCtx.exec_mode = EXEC_MODE_SOLVER;
+    simCtx.profilingFinalSummary = PETSC_TRUE;
+
+    if (rank == 1) {
+        _ProfilingStart("ProfiledOnRankOneOnly");
+        _ProfilingEnd("ProfiledOnRankOneOnly");
+    }
+    PetscCall(ProfilingFinalize(&simCtx));
+
+    if (rank == 0) {
+        PetscBool found = PETSC_FALSE;
+        FILE *f;
+        PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path), "%s/ProfilingSummary_Solver.log", tmpdir));
+        f = fopen(summary_path, "r");
+        PetscCheck(f, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open %s", summary_path);
+        while (fgets(line, sizeof(line), f)) {
+            char name[256];
+            double max_time, mean_time, min_time;
+            int max_rank, min_rank;
+            long long calls;
+            if (sscanf(line, "%255s | %lf | %d | %lf | %lf | %d | %lld", name, &max_time, &max_rank, &mean_time,
+                       &min_time, &min_rank, &calls) == 7 && strcmp(name, "ProfiledOnRankOneOnly") == 0) {
+                found = PETSC_TRUE;
+                PetscCall(PicurvAssertIntEqual(1, max_rank, "the maximum should come from the rank that profiled it"));
+                PetscCall(PicurvAssertIntEqual(0, min_rank, "the minimum should come from the rank that did not"));
+                PetscCall(PicurvAssertRealNear(0.0, min_time, 0.0, "a rank that never called it contributes zero time"));
+                PetscCall(PicurvAssertIntEqual(1, (PetscInt)calls, "calls should be summed over ranks"));
+            }
+        }
+        fclose(f);
+        PetscCall(PicurvAssertBool(found, "the summary should list a function profiled on another rank"));
+        PetscCall(PicurvRemoveTempDir(tmpdir));
+    }
     PetscFunctionReturn(0);
 }
 /**
@@ -862,6 +919,7 @@ int main(int argc, char **argv)
         {"statistics-checkpoint-round-trip-multi-rank", TestStatisticsCheckpointRoundTripMultiRank},
         {"les-averaging-decomposition-independent", TestLESAveragingIsDecompositionIndependent},
         {"find-owner-of-cell-matches-rank-ranges", TestFindOwnerOfCellMatchesRankRanges},
+        {"profiling-summary-reduces-over-ranks", TestProfilingSummaryReducesOverRanks},
         {"restart-cellid-migration-moves-particle-to-owner", TestRestartCellIdMigrationMovesParticleToOwner},
         {"settlement-classifies-exit-once-across-passes", TestSettlementClassifiesExitOnceAcrossPasses},
     };
