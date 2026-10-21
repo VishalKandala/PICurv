@@ -422,6 +422,49 @@ static PetscErrorCode TestPeriodicStaggeredFieldSynchronizationMultiRank(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief The per-axis owner lookup agrees with a scan of every rank's cell ranges.
+ *
+ * Checks every cell of the grid, plus cells just outside each face, which have no owner.
+ */
+static PetscErrorCode TestFindOwnerOfCellMatchesRankRanges(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    RankCellInfo my_cell_info;
+    PetscMPIInt size = 1;
+
+    PetscFunctionBeginUser;
+    PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
+    PetscCall(PetscMemzero(&my_cell_info, sizeof(my_cell_info)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 6, 4));
+    PetscCall(GetOwnedCellRange(&user->info, 0, &my_cell_info.xs_cell, &my_cell_info.xm_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 1, &my_cell_info.ys_cell, &my_cell_info.ym_cell));
+    PetscCall(GetOwnedCellRange(&user->info, 2, &my_cell_info.zs_cell, &my_cell_info.zm_cell));
+    PetscCall(PetscMalloc1(size, &user->RankCellInfoMap));
+    PetscCallMPI(MPI_Allgather(&my_cell_info, sizeof(RankCellInfo), MPI_BYTE,
+                               user->RankCellInfoMap, sizeof(RankCellInfo), MPI_BYTE,
+                               PETSC_COMM_WORLD));
+
+    for (PetscInt k = -1; k <= user->KM - 1; ++k) {
+        for (PetscInt j = -1; j <= user->JM - 1; ++j) {
+            for (PetscInt i = -1; i <= user->IM - 1; ++i) {
+                PetscMPIInt owner, expected = -1;
+                for (PetscMPIInt r = 0; r < size; ++r) {
+                    const RankCellInfo *info = &user->RankCellInfoMap[r];
+                    if (i >= info->xs_cell && i < info->xs_cell + info->xm_cell &&
+                        j >= info->ys_cell && j < info->ys_cell + info->ym_cell &&
+                        k >= info->zs_cell && k < info->zs_cell + info->zm_cell) expected = r;
+                }
+                PetscCall(FindOwnerOfCell(user, i, j, k, &owner));
+                PetscCall(PicurvAssertIntEqual(expected, owner, "owner lookup should match the rank cell ranges"));
+            }
+        }
+    }
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests restart fast-path migration using preloaded cell ownership metadata.
  */
 
@@ -841,6 +884,7 @@ int main(int argc, char **argv)
         {"spatial-target-decomposition-independent", TestSpatialTargetIsDecompositionIndependent},
         {"statistics-checkpoint-round-trip-multi-rank", TestStatisticsCheckpointRoundTripMultiRank},
         {"les-averaging-decomposition-independent", TestLESAveragingIsDecompositionIndependent},
+        {"find-owner-of-cell-matches-rank-ranges", TestFindOwnerOfCellMatchesRankRanges},
         {"restart-cellid-migration-moves-particle-to-owner", TestRestartCellIdMigrationMovesParticleToOwner},
         {"settlement-classifies-exit-once-across-passes", TestSettlementClassifiesExitOnceAcrossPasses},
     };

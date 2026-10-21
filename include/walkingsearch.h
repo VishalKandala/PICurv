@@ -284,10 +284,11 @@ PetscErrorCode FinalizeTraversal(UserCtx *user, Particle *particle, PetscInt tra
  * @brief Finds the MPI rank that owns a given global cell index.
  * @ingroup DomainInfo
  *
- * This function performs a linear search through the pre-computed decomposition map
- * (`user->RankCellInfoMap`) to determine which process is responsible for the cell
- * with global indices (i, j, k). It is the definitive method for resolving cell
- * ownership in the "Walk and Handoff" migration algorithm.
+ * The DMDA decomposition is a tensor product of per-axis ranges, with rank
+ * i + m (j + n k) on process grid m x n x p, so the owner is found by a binary search of
+ * the range starts along each axis in the pre-computed decomposition map
+ * (`user->RankCellInfoMap`): O(log m + log n + log p), not O(ranks). It is the definitive
+ * method for resolving cell ownership in the "Walk and Handoff" migration algorithm.
  *
  * If the provided indices are outside the range of any rank (e.g., negative or
  * beyond the global domain), the function will not find an owner and `owner_rank`

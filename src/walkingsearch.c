@@ -920,13 +920,11 @@ PetscErrorCode FinalizeTraversal(UserCtx *user, Particle *particle, PetscInt tra
 PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k, PetscMPIInt *owner_rank)
 {
     PetscErrorCode ierr;
-    PetscMPIInt size;
+    PetscInt       procs[3];
 
     PetscFunctionBeginUser;
 
     PROFILE_FUNCTION_BEGIN;
-
-    ierr = MPI_Comm_size(PETSC_COMM_WORLD,&size); CHKERRQ(ierr);
 
     // --- 1. Input Validation ---
     if (!user || !user->RankCellInfoMap) {
@@ -936,24 +934,33 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output pointer owner_rank is NULL in FindOwnerOfCell.");
     }
 
-    // --- 2. Linear Search through the Decomposition Map ---
-    // Initialize to a "not found" state.
+    // --- 2. Binary Search of the Range Starts Along Each Axis ---
+    // Rank i + m (j + n k) owns process-grid slot (i, j, k); the axis-a starts are those of the
+    // ranks one stride apart from rank 0. Starts are node starts and strictly increase.
+    ierr = DMDAGetInfo(user->da, NULL, NULL, NULL, NULL, &procs[0], &procs[1], &procs[2],
+                       NULL, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
+    const PetscInt      cell[3]   = {i, j, k};
+    const PetscInt      stride[3] = {1, procs[0], procs[0] * procs[1]};
+    const RankCellInfo *map       = user->RankCellInfoMap;
+    PetscInt            slot[3];
     *owner_rank = -1;
-
-    // Loop through the map, which contains the ownership info for every rank 'r'.
-    for (PetscMPIInt r = 0; r < size; ++r) {
-        const RankCellInfo *info = &user->RankCellInfoMap[r];
-
-        // A rank owns a cell if the cell's index is within its start (inclusive)
-        // and end (exclusive) range for all three dimensions.
-        if ((i >= info->xs_cell && i < info->xs_cell + info->xm_cell) &&
-            (j >= info->ys_cell && j < info->ys_cell + info->ym_cell) &&
-            (k >= info->zs_cell && k < info->zs_cell + info->zm_cell))
-        {
-            *owner_rank = r; // We found the owner.
-            break;           // The search is over, exit the loop.
+    for (PetscInt a = 0; a < 3; ++a) {
+        PetscInt lo = 0, hi = procs[a] - 1; // Last slot whose start is <= cell[a]
+        while (lo < hi) {
+            const PetscInt      mid  = (lo + hi + 1) / 2;
+            const RankCellInfo *info = &map[mid * stride[a]];
+            if (((a == 0) ? info->xs_cell : (a == 1) ? info->ys_cell : info->zs_cell) <= cell[a]) lo = mid;
+            else hi = mid - 1;
         }
+        slot[a] = lo;
     }
+    const PetscInt      r    = slot[0] + procs[0] * (slot[1] + procs[1] * slot[2]);
+    const RankCellInfo *info = &map[r];
+    // A rank owns a cell if the cell's index is within its start (inclusive)
+    // and end (exclusive) range for all three dimensions.
+    if ((i >= info->xs_cell && i < info->xs_cell + info->xm_cell) &&
+        (j >= info->ys_cell && j < info->ys_cell + info->ym_cell) &&
+        (k >= info->zs_cell && k < info->zs_cell + info->zm_cell)) *owner_rank = (PetscMPIInt)r;
 
     // --- 3. Logging for Diagnostics ---
     // This is extremely useful for debugging particle migration issues.
@@ -1229,34 +1236,38 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                 ierr = UpdateCellIndicesBasedOnDistances(distances, &idx, &idy, &idz); CHKERRQ(ierr);
             } else {
                 PetscReal cell_size;
-                PetscBool reflect = PETSC_TRUE; // Every crossed face reflects particles
-                PetscInt  wrap_face = -1;       // Most-crossed periodic face, if any
+                PetscBool reflect = PETSC_TRUE;  // Every crossed face reflects particles
+                PetscBool wrap    = PETSC_FALSE; // Some crossed face is periodic
                 for (PetscInt f = 0; f < NUM_FACES; ++f) {
                     if (distances[f] >= 0.0) continue;
                     const ParticleBoundaryPolicy policy = user->boundary_faces[kCellFaceDomainFace[f]].particle_policy;
                     if (policy != PARTICLE_BOUNDARY_REFLECT) reflect = PETSC_FALSE;
-                    if (policy == PARTICLE_BOUNDARY_WRAP && (wrap_face < 0 || distances[f] < distances[wrap_face])) wrap_face = f;
+                    if (policy == PARTICLE_BOUNDARY_WRAP) wrap = PETSC_TRUE;
                 }
                 ierr = GetCellCharacteristicSize(&current_cell, &cell_size); CHKERRQ(ierr);
-                if (wrap_face >= 0) {
-                    // Re-enter through the paired face: shift by the seam translation and move to
-                    // the cell at the other end of the axis; a non-local cell hands the particle off.
-                    const BCFace    face = kCellFaceDomainFace[wrap_face];
-                    const PetscInt  axis = (PetscInt)face / 2;
-                    const PetscReal sign = ((PetscInt)face % 2 == 0) ? 1.0 : -1.0; // Beyond the min face: +T
-                    const Cmpnts    T    = user->periodic_translation[axis];
-                    PetscCheck(user->periodic_translation_valid[axis], PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
-                               "Particle wrap on axis %d needs the validated seam translation.", (int)axis);
-                    particle->loc.x += sign * T.x;
-                    particle->loc.y += sign * T.y;
-                    particle->loc.z += sign * T.z;
-                    if (axis == 0) idx = (sign > 0.0) ? user->IM - 2 : 0;
-                    if (axis == 1) idy = (sign > 0.0) ? user->JM - 2 : 0;
-                    if (axis == 2) idz = (sign > 0.0) ? user->KM - 2 : 0;
-                    user->simCtx->searchMetrics.wrapCount++;
+                if (wrap) {
+                    // Re-enter through the paired face of every crossed periodic face at once: shift by
+                    // each seam translation and move to the cell at the other end of that axis, so an
+                    // edge or corner crossing is one handoff when the new cell is not local.
+                    for (PetscInt f = 0; f < NUM_FACES; ++f) {
+                        const BCFace face = kCellFaceDomainFace[f];
+                        if (distances[f] >= 0.0 || user->boundary_faces[face].particle_policy != PARTICLE_BOUNDARY_WRAP) continue;
+                        const PetscInt  axis = (PetscInt)face / 2;
+                        const PetscReal sign = ((PetscInt)face % 2 == 0) ? 1.0 : -1.0; // Beyond the min face: +T
+                        const Cmpnts    T    = user->periodic_translation[axis];
+                        PetscCheck(user->periodic_translation_valid[axis], PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+                                   "Particle wrap on axis %d needs the validated seam translation.", (int)axis);
+                        particle->loc.x += sign * T.x;
+                        particle->loc.y += sign * T.y;
+                        particle->loc.z += sign * T.z;
+                        if (axis == 0) idx = (sign > 0.0) ? user->IM - 2 : 0;
+                        if (axis == 1) idy = (sign > 0.0) ? user->JM - 2 : 0;
+                        if (axis == 2) idz = (sign > 0.0) ? user->KM - 2 : 0;
+                        user->simCtx->searchMetrics.wrapCount++;
+                        LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Wrapped through %s to (%.6e, %.6e, %.6e), cell (%d,%d,%d).\n",
+                                  (long long)particle->PID, BCFaceToString(face), particle->loc.x, particle->loc.y, particle->loc.z, idx, idy, idz);
+                    }
                     repeatedIndexCount = 0; prevIdx = PETSC_MIN_INT; prevIdy = PETSC_MIN_INT; prevIdz = PETSC_MIN_INT;
-                    LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Wrapped through %s to (%.6e, %.6e, %.6e), cell (%d,%d,%d).\n",
-                              (long long)particle->PID, BCFaceToString(face), particle->loc.x, particle->loc.y, particle->loc.z, idx, idy, idz);
                 } else if (guard_blocked_walk && -distances[crossed] > BLOCKED_WALK_GUARD_CELLS * cell_size) {
                     blocked = PETSC_TRUE;
                     search_concluded = PETSC_TRUE;

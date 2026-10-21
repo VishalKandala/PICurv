@@ -574,8 +574,10 @@ and failures separately and keeps the survivor order.
 **What it does.** When the walk ends beyond a periodic face, shifts the particle by the
 validated seam translation (`periodic_translation`, the same vector the Eulerian periodic
 images use) into the domain, moves the walk to the cell at the other end of that axis and
-continues. If that cell belongs to another rank, the particle is handed off there. A corner
-with a wall reflects after wrapping. Psi, weight and particle ID are unchanged.
+continues. Every periodic face crossed in one step is wrapped at once, so an edge or corner
+crossing of several seams lands in its final cell and needs one handoff, not one per seam. If
+that cell belongs to another rank, the particle is handed off there. A corner with a wall
+reflects after wrapping. Psi, weight and particle ID are unchanged.
 
 **When to choose it.** It is the default and only policy of `periodic` faces; there is no
 alternative to choose on them.
@@ -592,7 +594,7 @@ periodic wraps. In a statistically steady flow, wraps per step should match the 
 flux through the seam.
 
 **Evidence.** Unit verified - `make unit-periodic` wraps a particle through each x-periodic
-face and checks the shifted position and landing cell.
+face and through an x-y periodic corner, and checks the shifted position and landing cell.
 
 **Limitations.** Only translational periodicity; rotational periods are not supported by the
 grid contract either.

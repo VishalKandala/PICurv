@@ -133,14 +133,17 @@ static PetscErrorCode TestLocateParticleWrapsThroughPeriodicFace(void)
     ParticleLocationStatus status = NEEDS_LOCATION;
     Vec gcoor = NULL;
     const Cmpnts ***coor = NULL;
-    PetscReal x0, T, yc, zc;
+    PetscReal x0, y0, T, Ty, yc, zc;
 
     PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 4, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 4, 4, 4, PETSC_TRUE, PETSC_TRUE, PETSC_FALSE));
     MarkXPeriodic(user);
+    MarkYPeriodic(user);
     PetscCall(ValidatePeriodicGeometry(user));
     user->boundary_faces[BC_FACE_NEG_X].particle_policy = PARTICLE_BOUNDARY_WRAP;
     user->boundary_faces[BC_FACE_POS_X].particle_policy = PARTICLE_BOUNDARY_WRAP;
+    user->boundary_faces[BC_FACE_NEG_Y].particle_policy = PARTICLE_BOUNDARY_WRAP;
+    user->boundary_faces[BC_FACE_POS_Y].particle_policy = PARTICLE_BOUNDARY_WRAP;
     PetscCall(PetscMalloc1(simCtx->size, &user->RankCellInfoMap));
     PetscCall(GetOwnedCellRange(&user->info, 0, &user->RankCellInfoMap[0].xs_cell, &user->RankCellInfoMap[0].xm_cell));
     PetscCall(GetOwnedCellRange(&user->info, 1, &user->RankCellInfoMap[0].ys_cell, &user->RankCellInfoMap[0].ym_cell));
@@ -151,10 +154,12 @@ static PetscErrorCode TestLocateParticleWrapsThroughPeriodicFace(void)
     PetscCall(DMGetCoordinates(user->da, &gcoor));
     PetscCall(DMDAVecGetArrayRead(user->fda, gcoor, &coor));
     x0 = coor[0][0][0].x;
+    y0 = coor[0][0][0].y;
     yc = 0.5 * (coor[1][1][0].y + coor[1][2][0].y);
     zc = 0.5 * (coor[1][1][0].z + coor[2][1][0].z);
     PetscCall(DMDAVecRestoreArrayRead(user->fda, gcoor, &coor));
     T = user->periodic_translation[0].x;
+    Ty = user->periodic_translation[1].y;
 
     /* Beyond -Xi out of cell 0: re-enters at the +Xi end. */
     PetscCall(PetscMemzero(&particle, sizeof(particle)));
@@ -175,7 +180,19 @@ static PetscErrorCode TestLocateParticleWrapsThroughPeriodicFace(void)
     PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a wrapped particle should be located"));
     PetscCall(PicurvAssertRealNear(x0 + 0.01 * T, particle.loc.x, 1.0e-12, "x shifts back by the seam translation"));
     PetscCall(PicurvAssertIntEqual(0, particle.cell[0], "the particle lands in the first cell"));
-    PetscCall(PicurvAssertIntEqual(2, (PetscInt)simCtx->searchMetrics.wrapCount, "one wrap per particle"));
+
+    /* Beyond -Xi and -Eta out of the corner cell: both seams are crossed in one wrap step. */
+    PetscCall(PetscMemzero(&particle, sizeof(particle)));
+    particle.PID = 53;
+    particle.cell[0] = 0; particle.cell[1] = 0; particle.cell[2] = 1;
+    particle.loc.x = x0 - 0.01 * T; particle.loc.y = y0 - 0.01 * Ty; particle.loc.z = zc;
+    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a corner-wrapped particle should be located"));
+    PetscCall(PicurvAssertRealNear(x0 + 0.99 * T, particle.loc.x, 1.0e-12, "x shifts forward at the corner"));
+    PetscCall(PicurvAssertRealNear(y0 + 0.99 * Ty, particle.loc.y, 1.0e-12, "y shifts forward at the corner"));
+    PetscCall(PicurvAssertIntEqual(user->IM - 2, particle.cell[0], "the corner particle lands in the last i cell"));
+    PetscCall(PicurvAssertIntEqual(user->JM - 2, particle.cell[1], "the corner particle lands in the last j cell"));
+    PetscCall(PicurvAssertIntEqual(4, (PetscInt)simCtx->searchMetrics.wrapCount, "one wrap per crossed periodic face"));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
