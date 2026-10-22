@@ -2693,6 +2693,8 @@ PY
     || die "staging an unchanged carried window failed; see ${carry_log}"
   require_file_contains "${carry_log}" "Statistics continuation check passed" \
     "an unchanged carried window passes the staging check"
+  require_file_not_contains "${carry_log}" "grid inputs differ" \
+    "an unchanged grid raises no restart grid warning"
   python3 - "${carry_case}/config/monitor.yml" <<'PY'
 import sys
 import yaml
@@ -2704,6 +2706,8 @@ window["weighting"] = "sample" if window.get("weighting") == "physical_time" els
 with open(path, "w", encoding="utf-8") as f:
     yaml.safe_dump(cfg, f, sort_keys=False)
 PY
+  local runs_before=""
+  runs_before="$(ls "${carry_case}/runs" | wc -l)"
   if (cd "${carry_case}" && "${picurv_exe}" run --solve -n "${nprocs}" --case config/case.yml \
         --solver config/solver.yml --monitor config/monitor.yml --restart-from "${reported_run}" \
         --statistics-state carry) >"${carry_log}" 2>&1; then
@@ -2711,8 +2715,10 @@ PY
   fi
   require_file_contains "${carry_log}" "defined differently in the checkpoint: weighting changed" \
     "a changed carried window is refused at staging, naming the property"
-  require_file_contains "${carry_log}" "not launched or submitted" \
+  require_file_contains "${carry_log}" "Nothing was launched or submitted, and the branch run directory was removed" \
     "a refused carried restart is not launched"
+  [[ "$(ls "${carry_case}/runs" | wc -l)" == "${runs_before}" ]] \
+    || die "a refused carried restart left its branch run directory behind."
 
   # (2) The same accumulation below LOG_INFO: the banner still records the cadence, so a
   #     quiet log stays interpretable, but no snapshot is emitted.

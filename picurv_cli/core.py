@@ -817,21 +817,23 @@ def allocate_generated_run_id(runs_root: str, case_cfg: dict, case_path: str) ->
     return run_id
 
 
-def discard_unused_run_directory(run_dir: str, *, created: bool) -> bool:
+def discard_unused_run_directory(run_dir: str, *, created: bool, staged: bool = False) -> bool:
     """!
     @brief Remove a generated run directory that never received any content.
 
     @details Only a directory this invocation created, and which still holds no files,
              is removed: an existing run, or one that already produced output, is never
-             touched by a staging failure.
+             touched by a staging failure. With @p staged the directory may hold the files
+             this invocation staged, for a refusal after staging but before any launch.
     @param[in] run_dir Run directory that was about to be staged.
     @param[in] created Whether this invocation created the directory.
+    @param[in] staged Whether files this invocation staged, and nothing else, may be present.
     @return True when the directory was removed.
     """
     if not created or not os.path.isdir(run_dir):
         return False
     for _root, _dirs, files in os.walk(run_dir):
-        if files:
+        if files and not staged:
             return False
     shutil.rmtree(run_dir, ignore_errors=True)
     return True
@@ -1021,6 +1023,44 @@ def snapshot_run_configuration(run_dir: str, source_paths: dict,
         active["executables"] = previous["executables"]
     write_json_file(os.path.join(config_root, "active.json"), active)
     return active
+
+
+#: Run records a continuation's staging rewrites in place, relative to the run directory.
+CONTINUATION_STAGED_RECORDS = ("config/active.json", "manifest.json",
+                               "inputs/assets.lock.yml", "inputs/software.lock.json")
+
+
+def capture_continuation_records(run_dir: str) -> dict:
+    """!
+    @brief Save the records a continuation's staging rewrites, so a refusal can undo it.
+    @param[in] run_dir Existing run directory.
+    @return Mapping of relative path to its bytes, or None where the file is absent.
+    """
+    saved = {}
+    for relative in CONTINUATION_STAGED_RECORDS:
+        path = os.path.join(run_dir, *relative.split("/"))
+        saved[relative] = open(path, "rb").read() if os.path.isfile(path) else None
+    return saved
+
+
+def restore_continuation_records(run_dir: str, saved: dict, revision: str):
+    """!
+    @brief Undo a refused continuation's staging: restore its records, drop its revision.
+    @details Everything else a continuation stages, including pinned executables, lives in
+             the revision directory, so removing it leaves the run as it was.
+    @param[in] run_dir Existing run directory.
+    @param[in] saved Records returned by capture_continuation_records().
+    @param[in] revision Configuration revision the refused staging created.
+    """
+    for relative, content in saved.items():
+        path = os.path.join(run_dir, *relative.split("/"))
+        if content is None:
+            if os.path.isfile(path):
+                os.remove(path)
+        else:
+            with open(path, "wb") as stream:
+                stream.write(content)
+    shutil.rmtree(os.path.join(run_dir, "config", "history", revision), ignore_errors=True)
 
 
 def load_active_run_configuration(run_dir: str) -> dict:
@@ -11953,10 +11993,56 @@ def build_local_launch_command(
 
     return prefix + command
 
+def restart_grid_inputs(run_dir: str, case_cfg: dict) -> dict:
+    """!
+    @brief The inputs a run's geometry is derived from, to compare across a restart.
+    @details The solver compares the checkpoint's geometry, which it hashes from the built
+             grid, only after the job has started. These inputs determine that geometry
+             within one build, so a difference is worth saying at staging: a staged
+             `inputs/grid/grid.run` (file and generated grids, already non-dimensional)
+             by content, otherwise the grid section without its rank layout and the
+             length scale; and the periodic faces of every block.
+    @param[in] run_dir Run whose staged grid is read.
+    @param[in] case_cfg That run's case configuration.
+    @return Mapping of input name to a comparable value.
+    """
+    staged = os.path.join(run_dir, "inputs", "grid", "grid.run")
+    grid = {key: value for key, value in (case_cfg.get("grid") or {}).items()
+            if not str(key).startswith("da_processors_")}
+    try:
+        periodic = [sorted(bc["face"] for bc in block if bc["type"] == "PERIODIC")
+                    for block in validate_and_prepare_boundary_conditions(case_cfg)]
+    except (ValueError, KeyError, TypeError):
+        periodic = None
+    inputs = {"periodic faces": periodic}
+    if os.path.isfile(staged):
+        inputs["grid file"] = _file_sha256(staged)
+    else:
+        inputs["grid"] = grid
+        inputs["length_ref"] = ((case_cfg.get("properties") or {}).get("scaling") or {}).get("length_ref")
+    return inputs
+
+
+def warn_on_restart_grid_change(source_inputs: dict, branch_inputs: dict):
+    """!
+    @brief Warn at staging when a restart's grid inputs differ from its source run's.
+    @param[in] source_inputs restart_grid_inputs() of the run that wrote the checkpoint.
+    @param[in] branch_inputs restart_grid_inputs() of the staged restart.
+    @return Names of the inputs that differ.
+    """
+    changed = sorted(name for name in set(source_inputs) | set(branch_inputs)
+                     if source_inputs.get(name) != branch_inputs.get(name))
+    if changed:
+        print(f"[WARNING] This restart's grid inputs differ from the source run's ({', '.join(changed)}). "
+              "The solver refuses a checkpoint whose geometry differs, but only once the job has "
+              "started and built the grid.", file=sys.stderr)
+    return changed
+
+
 def check_restart_continuation(solver_exe: str, solver_args: list, run_dir: str,
                                config_search_anchor: str = None):
     """!
-    @brief Refuse a staged restart whose carried statistics windows cannot continue.
+    @brief Ask the simulator whether a staged restart's carried statistics windows can continue.
     @details Runs the simulator's restart check on one rank. It parses the run's control
              file and compares each window with the source checkpoint's manifest exactly
              as the restart will, but builds no grid, so it costs about a second and runs
@@ -11966,7 +12052,7 @@ def check_restart_continuation(solver_exe: str, solver_args: list, run_dir: str,
     @param[in] solver_args Simulator arguments the run will launch with.
     @param[in] run_dir Staged run directory, the simulator's working directory.
     @param[in] config_search_anchor Path from which the local launcher configuration is found.
-    @return None; exits with the simulator's own refusal when the check fails.
+    @return None when the windows can continue, else the simulator's own reason.
     """
     command = build_local_launch_command(
         solver_exe, solver_args + ["-restart_check_only", "true"], 1,
@@ -11976,17 +12062,13 @@ def check_restart_continuation(solver_exe: str, solver_args: list, run_dir: str,
     result = _run_captured_command(command, run_dir)
     if result.returncode == 0:
         print("[INFO] Statistics continuation check passed.")
-        return
+        return None
     # PETSc prints a banner, its generic error class, then the simulator's own message.
     messages = [line.split("PETSC ERROR:", 1)[1].strip()
                 for line in (result.stdout + result.stderr).splitlines() if "PETSC ERROR:" in line]
     messages = [m for m in messages if m and not m.startswith("-")]
-    reason = (messages[1] if len(messages) > 1 else messages[0] if messages
-              else (result.stderr or result.stdout).strip() or f"exit status {result.returncode}")
-    print(f"[FATAL] This restart cannot continue its statistics windows: {reason}\n"
-          f"        The run was staged in {os.path.relpath(run_dir)} but not launched or submitted.",
-          file=sys.stderr)
-    sys.exit(1)
+    return (messages[1] if len(messages) > 1 else messages[0] if messages
+            else (result.stderr or result.stdout).strip() or f"exit status {result.returncode}")
 
 
 def resolve_cluster_execution(cluster_cfg: dict, config_search_anchor: str = None, extra_search_anchors=None) -> dict:
@@ -19804,6 +19886,15 @@ def run_workflow(args):
         else:
             print(f"[INFO] Created new self-contained run directory: {os.path.relpath(run_dir)}")
 
+        staged_records = capture_continuation_records(run_dir) if continue_mode else None
+        # Read before staging, which rewrites a continuation's own grid inputs.
+        source_run_dir = run_dir if is_continue else (
+            os.path.join(workspace_root or "", run_lineage["parent_path"]) if run_lineage else None)
+        source_grid_inputs = None
+        if source_run_dir and os.path.isdir(source_run_dir):
+            source_case_path = load_active_run_configuration(source_run_dir).get("case")
+            if source_case_path and os.path.isfile(source_case_path):
+                source_grid_inputs = restart_grid_inputs(source_run_dir, read_yaml_file(source_case_path))
         active_config = snapshot_run_configuration(
             run_dir,
             {
@@ -19901,9 +19992,22 @@ def run_workflow(args):
         if not had_pinned_executables or getattr(args, "pin_executables", None) is True:
             warn_on_stale_runtime_binaries(runtime_build_identities(run_dir=run_dir))
         solver_args = build_petsc_diagnostics_args(configs["monitor"], run_dir, "Solver") + ["-control_file", control_file]
+        if source_grid_inputs is not None:
+            warn_on_restart_grid_change(source_grid_inputs, restart_grid_inputs(run_dir, configs["case"]))
         carries_statistics = is_continue or str(configs.get("statistics_state", "reset")).lower() == "carry"
         if carries_statistics and normalize_field_statistics_config(configs["monitor"])["enabled"]:
-            check_restart_continuation(solver_exe, solver_args, run_dir, config_search_anchor=configs["case_path"])
+            refusal = check_restart_continuation(solver_exe, solver_args, run_dir,
+                                                 config_search_anchor=configs["case_path"])
+            if refusal:
+                if continue_mode:
+                    restore_continuation_records(run_dir, staged_records, active_config["revision"])
+                    undone = f"{os.path.relpath(run_dir)} is left as it was"
+                else:
+                    discard_unused_run_directory(run_dir, created=True, staged=True)
+                    undone = "the branch run directory was removed"
+                print(f"[FATAL] This restart cannot continue its statistics windows: {refusal}\n"
+                      f"        Nothing was launched or submitted, and {undone}.", file=sys.stderr)
+                sys.exit(1)
         if cluster_mode:
             scheduler_dir = os.path.join(run_dir, "scheduler")
             solver_script = os.path.join(scheduler_dir, "solver.sbatch")

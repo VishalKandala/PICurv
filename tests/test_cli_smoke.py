@@ -10597,14 +10597,13 @@ def test_monitor_function_lists_translate_renamed_poisson_functions(tmp_path, ca
             {"profiling": {"timestep_output": {"mode": "selected", "functions": ["FullyBlocked"]}}})
 
 
-def test_restart_continuation_check_runs_one_rank_and_reports_the_simulator_reason(monkeypatch, tmp_path, capsys):
+def test_restart_continuation_check_runs_one_rank_and_reports_the_simulator_reason(monkeypatch, tmp_path):
     """!
     @brief Staging asks the simulator, on one rank, whether carried windows can continue.
-    @details A pass returns; a refusal exits naming the simulator's own reason rather than
-             PETSc's generic error class, and says the run was not launched.
+    @details A pass returns None; a refusal returns the simulator's own reason rather than
+             PETSc's generic error class.
     @param[in] monkeypatch Pytest fixture for patching the command runner.
     @param[in] tmp_path Staged run directory.
-    @param[in] capsys Pytest fixture capturing the refusal.
     @return None.
     """
     picurv = load_picurv_module()
@@ -10624,7 +10623,7 @@ def test_restart_continuation_check_runs_one_rank_and_reports_the_simulator_reas
         return subprocess.CompletedProcess(command, outcome["returncode"], "", outcome["stderr"])
 
     monkeypatch.setattr(picurv, "_run_captured_command", run)
-    picurv.check_restart_continuation("simulator", ["-control_file", "run.control"], str(tmp_path))
+    assert picurv.check_restart_continuation("simulator", ["-control_file", "run.control"], str(tmp_path)) is None
     command, run_dir = commands[-1]
     assert command == ["mpiexec", "-n", "1", "simulator", "-control_file", "run.control",
                        "-restart_check_only", "true"]
@@ -10634,8 +10633,53 @@ def test_restart_continuation_check_runs_one_rank_and_reports_the_simulator_reas
         "[0]PETSC ERROR: --------------------- Error Message ---------\n"
         "[0]PETSC ERROR: Arguments are incompatible\n"
         "[0]PETSC ERROR: Statistics window 'w' was defined differently in the checkpoint: mask changed.\n"))
-    with pytest.raises(SystemExit):
-        picurv.check_restart_continuation("simulator", [], str(tmp_path))
-    refusal = capsys.readouterr().err
-    assert "Statistics window 'w' was defined differently in the checkpoint: mask changed." in refusal
-    assert "Arguments are incompatible" not in refusal and "not launched or submitted" in refusal
+    assert picurv.check_restart_continuation("simulator", [], str(tmp_path)) == (
+        "Statistics window 'w' was defined differently in the checkpoint: mask changed.")
+
+
+def test_refused_continuation_staging_is_undone(tmp_path):
+    """!
+    @brief A refused continuation restores the run records staging rewrote and drops its revision.
+    @param[in] tmp_path Existing run directory.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+    (run_dir / "config" / "active.json").write_text('{"revision": "initial"}', encoding="utf-8")
+    (run_dir / "manifest.json").write_text("original", encoding="utf-8")
+    saved = picurv.capture_continuation_records(str(run_dir))
+    revision = (run_dir / "config" / "history" / "r1" / "bin")
+    revision.mkdir(parents=True)
+    (revision / "simulator").write_text("pinned", encoding="utf-8")
+    (run_dir / "config" / "active.json").write_text('{"revision": "r1"}', encoding="utf-8")
+    (run_dir / "manifest.json").write_text("restaged", encoding="utf-8")
+    (run_dir / "inputs").mkdir()
+    (run_dir / "inputs" / "assets.lock.yml").write_text("new", encoding="utf-8")
+
+    picurv.restore_continuation_records(str(run_dir), saved, "r1")
+    assert (run_dir / "config" / "active.json").read_text(encoding="utf-8") == '{"revision": "initial"}'
+    assert (run_dir / "manifest.json").read_text(encoding="utf-8") == "original"
+    assert not (run_dir / "inputs" / "assets.lock.yml").exists()
+    assert not (run_dir / "config" / "history" / "r1").exists()
+
+
+def test_restart_grid_inputs_warn_only_on_a_geometric_change(tmp_path, capsys):
+    """!
+    @brief A restart whose grid inputs match its source is silent; a changed grid is named.
+    @details The rank layout is not geometry, so changing it must not warn.
+    @param[in] tmp_path Run directories.
+    @param[in] capsys Pytest fixture capturing the warning.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    case = {"grid": {"mode": "programmatic_c", "da_processors_x": 2,
+                     "programmatic_settings": {"im": 8, "jm": 8, "km": 8}},
+            "properties": {"scaling": {"length_ref": 1.0}}}
+    source = picurv.restart_grid_inputs(str(tmp_path), case)
+    relaid = {**case, "grid": {**case["grid"], "da_processors_x": 4}}
+    assert picurv.warn_on_restart_grid_change(source, picurv.restart_grid_inputs(str(tmp_path), relaid)) == []
+    assert capsys.readouterr().err == ""
+    refined = {**case, "grid": {**case["grid"], "programmatic_settings": {"im": 8, "jm": 8, "km": 16}}}
+    assert picurv.warn_on_restart_grid_change(source, picurv.restart_grid_inputs(str(tmp_path), refined)) == ["grid"]
+    assert "grid inputs differ from the source run's (grid)" in capsys.readouterr().err

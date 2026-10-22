@@ -682,8 +682,13 @@ launched or submitted, staging runs the simulator once on one rank with
 manifest and applies every window check a restart applies (count, names and order,
 definition hash, lifecycle state, end-time rules), building no grid, so it takes about a
 second on a login node at any production rank count. A refusal names the window and the
-changed property, such as `mask changed`, and nothing is queued. `--continue` runs the
-same check, since it carries windows by default. The geometry comparison and the
+changed property, such as `mask changed`, and nothing is queued; staging is undone, so a
+refused branch leaves no run directory and a refused `--continue` leaves the run's
+configuration, manifest and locks as they were. `--continue` runs the same check, since it
+carries windows by default. Any restart also compares its grid inputs with the source run's
+(a staged grid file by content, otherwise the grid section without the rank layout and the
+length scale, and the periodic faces) and warns when they differ, because the solver's
+geometry comparison needs the built grid and so refuses only after the job starts. The geometry comparison and the
 accumulator payload reads still happen at solver start, where a missing or incompatible
 payload fails rather than silently resetting. The restart bundle is staged whenever `carry` is requested, whatever
 the Eulerian source: an analytical-source run used to stage none, because it needs no
