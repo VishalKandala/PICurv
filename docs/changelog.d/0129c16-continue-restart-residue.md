@@ -1,0 +1,1 @@
+- Experimental: a `--continue` refused at staging also removes the restart checkpoint it materialized.
