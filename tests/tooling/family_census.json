@@ -215,6 +215,11 @@
       "classification": "parameter_of_entry",
       "reason": "Validates the optional initial_spectra list that the channel, duct and stability-mode IC providers measure on their own output, using the existing plane/line spectrum task syntax. It selects which diagnostics are written, not how the field is generated; the providers' entries on page 33 document it.",
       "owner": "33_Initial_Conditions"
+    },
+    "picurv_cli.core::POST_FIELD_STATISTICS_DEFAULT_OUTPUTS": {
+      "classification": "parameter_of_entry",
+      "reason": "The outputs written when a recipe names none: every value of the registered family post.field_statistics_output except the opt-in point_variance. It is a default subset of that family, not a second menu; page 10 states which outputs are opt-in.",
+      "owner": "post.field_statistics_output"
     }
   }
 }
