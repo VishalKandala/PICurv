@@ -141,7 +141,9 @@ PetscErrorCode ComputeWindowStatisticNodal(UserCtx *user, const PicurvWindowDefi
  * index along each retained direction, its mean cell-centre coordinates, and each
  * derived output, a vector one column per component. A variance or stress is that of
  * the slot's whole sample set, including the spread of the point means across it.
- * Selecting every direction gives one row for the whole domain.
+ * `point_variance` is the exception: it is derived at each point first and averaged
+ * over the points of the slot that sampled it, each counted once, so it excludes that
+ * spread. Selecting every direction gives one row for the whole domain.
  *
  * With `global_operations.dimensionalize` set, the outputs and coordinates are physical.
  *

@@ -796,7 +796,7 @@ typedef struct PostProcessParams {
     // --- Field Statistics (accumulated window state → derived fields) ---
     /** Comma-separated window names to derive; empty disables the pipeline. */
     char field_statistics_windows[MAX_FIELD_LIST_LENGTH];
-    /** Comma-separated outputs: mean, reynolds_stress, rms, tke, flux. */
+    /** Comma-separated outputs: mean, reynolds_stress, rms, tke, flux, point_variance. */
     char field_statistics_outputs[MAX_FIELD_LIST_LENGTH];
     /** Comma-separated formats: vtk for derived fields, csv for the convergence history. */
     char field_statistics_formats[MAX_FIELD_LIST_LENGTH];

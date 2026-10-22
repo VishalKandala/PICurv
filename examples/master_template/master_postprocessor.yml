@@ -147,6 +147,9 @@ statistics_pipeline:
 #   #   rms             -> per-component root mean square of the fluctuation
 #   #   tke             -> turbulent kinetic energy, for vector fields
 #   #   flux            -> the cross-field co-moments listed under covariances
+#   #   point_variance  -> per-component variance at each point; in a profile, the
+#   #                      equal-weight mean of those point variances over the slot,
+#   #                      not the pooled variance rms describes (opt-in)
 #   outputs: ["mean", "reynolds_stress", "rms", "tke", "flux"]
 #
 #   # vtk writes the derived fields as one .vts per window per processed step.

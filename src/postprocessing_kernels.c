@@ -320,9 +320,20 @@ PetscErrorCode ComputeWindowStatisticsProfile(UserCtx *user, const PicurvWindowD
          * rows of up to three components, interleaved per slot. */
         PetscCall(PicurvWindowDerive(user, definition, &reduced, outputs, index,
                                      user->PostScalar, user->PostVector, &derived));
-        PetscCall(PicurvSpatialRatioAverage(user, &plan, derived.components == 1 ? user->PostScalar : user->PostVector,
-                                            NULL, reduced.weight, average_direction, PETSC_COMM_WORLD,
-                                            NULL, values + entries));
+        if (derived.point_averaged) {
+            /* The equal-weight mean, over the points that sampled it, of each point's own
+             * statistic: derived before merging, so the spread of the point means about the
+             * slot mean, which the pooled rule adds, stays out. */
+            PetscCall(PicurvWindowDerive(user, definition, storage, outputs, index,
+                                         user->PostScalar, user->PostVector, &derived));
+            PetscCall(PicurvSpatialRatioAverage(user, &plan, derived.components == 1 ? user->PostScalar : user->PostVector,
+                                                NULL, derived.occupied ? storage->occupied_weight : storage->weight,
+                                                average_direction, PETSC_COMM_WORLD, NULL, values + entries));
+        } else {
+            PetscCall(PicurvSpatialRatioAverage(user, &plan, derived.components == 1 ? user->PostScalar : user->PostVector,
+                                                NULL, reduced.weight, average_direction, PETSC_COMM_WORLD,
+                                                NULL, values + entries));
+        }
         components[index] = derived.components;
         particle_sampled[index] = derived.occupied;
         PetscCall(PetscStrncpy(names[index], derived.name, sizeof(names[index])));

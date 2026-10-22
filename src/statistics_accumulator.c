@@ -502,12 +502,13 @@ typedef enum {
     DERIVED_RMS,
     DERIVED_TKE,
     DERIVED_FLUX,
+    DERIVED_POINT_VARIANCE,
     DERIVED_KIND_COUNT
 } DerivedKind;
 
 /** @brief Recipe spellings of the output kinds. */
 static const char *const kDerivedKindName[DERIVED_KIND_COUNT] = {
-    "mean", "reynolds_stress", "rms", "tke", "flux"
+    "mean", "reynolds_stress", "rms", "tke", "flux", "point_variance"
 };
 
 /**
@@ -524,9 +525,10 @@ static const PetscInt kDerivedKindScaleExponent[DERIVED_KIND_COUNT] = {
     2,  /* reynolds_stress  - covariance of one field with itself */
     1,  /* rms              - standard deviation */
     2,  /* tke              - half the trace of that covariance */
-    0   /* flux             - a co-moment of two possibly different fields, so its
+    0,  /* flux             - a co-moment of two possibly different fields, so its
                                 factor is their product and cannot be an exponent of
                                 one scale; DERIVED_FLUX resolves it directly. */
+    2   /* point_variance   - a variance of one field */
 };
 
 /**
@@ -558,7 +560,7 @@ static PetscErrorCode ParseDerivedKinds(const char *outputs, PetscBool wanted[DE
             }
             PetscCheck(matched, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
                        "Unknown field-statistics output '%s'. Available outputs are "
-                       "mean, reynolds_stress, rms, tke, and flux.", cursor);
+                       "mean, reynolds_stress, rms, tke, flux, and point_variance.", cursor);
         }
         cursor = comma ? comma + 1 : NULL;
     }
@@ -583,6 +585,7 @@ static PetscErrorCode DerivedKindExtent(const PicurvWindowDefinition *definition
         break;
     case DERIVED_REYNOLDS_STRESS:
     case DERIVED_RMS:
+    case DERIVED_POINT_VARIANCE:
         for (PetscInt field_index = 0; storage->m2 && field_index < storage->field_count; ++field_index) {
             const FieldDescriptor *descriptor = NULL;
             PetscInt components = 0;
@@ -590,8 +593,8 @@ static PetscErrorCode DerivedKindExtent(const PicurvWindowDefinition *definition
             if (!storage->m2[field_index]) continue;
             PetscCall(FieldGetDescriptor((FieldId)definition->fields[field_index].field_id, &descriptor));
             PetscCall(PicurvProductComponentCount(descriptor->dof, &components));
-            /* A stress tensor emits every component; an RMS emits only the
-             * diagonal, because an off-diagonal has no square root to take. */
+            /* A stress tensor emits every component; an RMS and a point variance
+             * emit only the diagonal, one value per component. */
             *count += (kind == DERIVED_REYNOLDS_STRESS) ? components : descriptor->dof;
         }
         break;
@@ -790,7 +793,7 @@ PetscErrorCode PicurvWindowDerive(UserCtx *user, const PicurvWindowDefinition *d
             if (!storage->m2[slot]) continue;
             PetscCall(FieldGetDescriptor((FieldId)definition->fields[slot].field_id, &descriptor));
             PetscCall(PicurvProductComponentCount(descriptor->dof, &extent));
-            if (kind == DERIVED_RMS) extent = descriptor->dof;
+            if (kind == DERIVED_RMS || kind == DERIVED_POINT_VARIANCE) extent = descriptor->dof;
             if (offset < extent) { member = offset; break; }
             offset -= extent;
         }
@@ -798,10 +801,12 @@ PetscErrorCode PicurvWindowDerive(UserCtx *user, const PicurvWindowDefinition *d
         set = RequestSampleSet(definition, slot, -1);
         field->components = 1;
         PetscCall(PicurvProductComponentCount(descriptor->dof, &source_components));
-        if (kind == DERIVED_RMS) {
-            PetscCall(PetscSNPrintf(field->name, sizeof(field->name), "%s_%s_rms%s",
+        if (kind == DERIVED_RMS || kind == DERIVED_POINT_VARIANCE) {
+            PetscCall(PetscSNPrintf(field->name, sizeof(field->name), "%s_%s_%s%s",
                                     definition->name, descriptor->canonical_name,
+                                    kind == DERIVED_RMS ? "rms" : "point_variance",
                                     descriptor->dof == 1 ? "" : kAxisName[member]));
+            field->point_averaged = (PetscBool)(kind == DERIVED_POINT_VARIANCE);
         } else if (descriptor->dof == 1) {
             PetscCall(PetscSNPrintf(field->name, sizeof(field->name), "%s_%s_variance",
                                     definition->name, descriptor->canonical_name));
@@ -864,14 +869,14 @@ PetscErrorCode PicurvWindowDerive(UserCtx *user, const PicurvWindowDefinition *d
                             trace += PicurvCoMomentStateCovariance(&pair);
                         }
                         target[k][j][i][0] = 0.5 * trace;
-                    } else if (kind == DERIVED_RMS) {
+                    } else if (kind == DERIVED_RMS || kind == DERIVED_POINT_VARIANCE) {
                         PetscReal deviation = 0.0;
 
                         pair.cm = source[k][j][i][(descriptor->dof == 1)
                                                   ? 0 : ProductDiagonalIndex(member)];
                         PetscCall(SafeStandardDeviation(PicurvCoMomentStateCovariance(&pair),
                                                         field->name, &deviation));
-                        target[k][j][i][0] = deviation;
+                        target[k][j][i][0] = (kind == DERIVED_RMS) ? deviation : deviation * deviation;
                     } else if (kind == DERIVED_FLUX) {
                         for (PetscInt c = 0; c < field->components; ++c) {
                             pair.cm = source[k][j][i][c];

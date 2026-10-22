@@ -3447,7 +3447,10 @@ POST_SPECTRA_MEAN_MODES = ("none", "domain", "sample")
 
 
 #: Derived outputs a post recipe may request from an accumulated window.
-POST_FIELD_STATISTICS_OUTPUTS = ("mean", "reynolds_stress", "rms", "tke", "flux")
+POST_FIELD_STATISTICS_OUTPUTS = ("mean", "reynolds_stress", "rms", "tke", "flux", "point_variance")
+#: Outputs written when a recipe names none: every output except the opt-in `point_variance`,
+#: which in a profile answers a different question from `rms` (page 10, profiles).
+POST_FIELD_STATISTICS_DEFAULT_OUTPUTS = POST_FIELD_STATISTICS_OUTPUTS[:-1]
 
 #: Output formats a post recipe may request. `vtk` writes the derived fields; `csv`
 #: appends one convergence row per processed step.
@@ -4445,7 +4448,7 @@ def normalize_post_field_statistics_config(post_cfg: dict) -> dict:
                 f"integer (got {source_step!r})."
             )
 
-    outputs = raw.get("outputs", list(POST_FIELD_STATISTICS_OUTPUTS))
+    outputs = raw.get("outputs", list(POST_FIELD_STATISTICS_DEFAULT_OUTPUTS))
     if not isinstance(outputs, list) or not outputs:
         raise ValueError(f"field statistics recipe for [{label}]: 'outputs' must be a non-empty list.")
     unknown = [item for item in outputs if item not in POST_FIELD_STATISTICS_OUTPUTS]

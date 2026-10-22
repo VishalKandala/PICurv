@@ -333,8 +333,32 @@ C_{ab} = \frac{\sum_p \left[ C_{ab,p} + W_p (\mu_{a,p} - \mu_a)(\mu_{b,p} - \mu_
 \f]
 
 the merge rule of @ref p60_principle_sec. A channel's Reynolds stress profile is
-therefore the full stress over the homogeneous plane. A point that never sampled the
-field is excluded rather than averaged in as a zero. Naming all three directions
+therefore the full stress over the homogeneous plane.
+
+Two variances can be wanted from the same state, and they answer different questions.
+Write \f$\sigma_p^2\f$ for the variance of point \f$p\f$'s own samples and
+\f$\mu_p\f$ for its mean. The pooled variance above, which `rms` and
+`reynolds_stress` report in a profile, is
+\f$\sum_p W_p[\sigma_p^2 + (\mu_p-\mu)^2] / \sum_p W_p\f$: the spread of every
+sample in the slot. `point_variance` reports the equal-weight mean of the point
+variances, \f$\frac{1}{N}\sum_p \sigma_p^2\f$ over the \f$N\f$ points of the slot
+that sampled the field, which leaves the spread of the point means out.
+
+- In a run window, a point's samples are its states in time. Where the flow is
+  statistically homogeneous along the averaged directions the point means agree, and
+  the two coincide. Where they do not, as in a developing layer, the pooled variance
+  also counts how the time mean varies along the plane.
+- In a `particles` ensemble, a point is a cell and its samples are the particles in
+  it, so \f$\sigma_p^2\f$ is the cell's within-cell (subgrid) variance and
+  \f$\mu_p\f$ its filtered value. `point_variance` is then the plane average of the
+  subgrid variance, the quantity a filtered-density-function study reports (the
+  generalized subgrid variance of Colucci et al. 1998). The pooled variance adds the
+  resolved variance of the filtered values across the plane, which in a mixing layer
+  is usually the larger part.
+
+Each point counts once in `point_variance`, whatever its weight: a cell with more
+particles, or a point with more samples, does not count for more. A point that never
+sampled the field is excluded rather than averaged in as a zero. Naming all three directions
 gives one row for the whole domain. An output measured over the occupied states of a
 particle-sampled field (@ref p58_update_sub), such as `Psi` or a `Ucat`-`Psi` flux, is
 left empty in a slot no particle reached, rather than written as a zero. A profile is
@@ -394,7 +418,7 @@ in seconds too. See @ref p58_derived_sec.
 
 @htmlinclude generated/capability_inventory_post_field_statistics_output.html
 
-Every output below was checked against a known answer by
+Every output below except `point_variance` was checked against a known answer by
 `field-statistics-tgv3d-2026-09-21`: on the analytic TGV3D field, each written value
 equals the eight-cell average of the exact cell statistic to round-off. Written fields are
 node averages of cell statistics, so a nodal `rms` is the mean of the neighbouring cell
@@ -509,6 +533,41 @@ classified as a parameter of these entries rather than as a family of its own.
 **Evidence.** Unit verified - `make unit-statistics`. Analytically verified - `field-statistics-tgv3d-2026-09-21`: the `Ucat`-`P` co-moment equals its exact value to 1.4e-18.
 
 **Limitations.** A cross-moment converges more slowly than either factor's own variance, so flux is the output most likely to be under-converged in a given window.
+
+@subsection p10_cap_fso_point_variance_sub point_variance
+
+@anchor p10_cap_fso_point_variance
+
+**Identity.** `field_statistics.outputs: [point_variance]` -> `DERIVED_POINT_VARIANCE` in
+@ref PicurvWindowDerive, reduced by @ref ComputeWindowStatisticsProfile.
+
+**What it does.** Writes each component's variance at each point,
+\f$\sigma_p^2 = C_{ii,p}/W_p\f$, named `<window>_<field>_point_variance` (with the
+axis appended for a vector). In the `.vts` this is the diagonal `reynolds_stress` gives.
+In a profile it is the equal-weight mean of those point values over the slot, not the
+pooled variance (@ref p10_profiles_sub).
+
+**When to choose it.** When the statistic of interest lives at each point and the
+profile should average it, not pool its samples: the subgrid variance of a particle
+ensemble, or the temporal variance at each point of a flow whose mean varies along the
+averaged directions. Choose `rms` or `reynolds_stress` for the variance of everything in
+the slot, which is the turbulence statistic of a homogeneous plane.
+
+**Parameters it owns.** None. It is opt-in: the default output list does not include it.
+
+**Interactions.** Needs the field's second moment, like `rms`. A particle-sampled field
+averages over the cells that held particles. Units are the field's squared.
+
+**Diagnostics.** In a slot whose point means agree it equals the square of the pooled
+`rms`; a pooled variance larger than it measures the spread of the point means.
+
+**Evidence.** Unit verified - `make unit-post-compute-mpi` (`tests/c/test_post_compute_mpi.c`):
+on one and several ranks, a profile of two states that differ by a varying amount at
+each point equals the plane mean of the point variances, below the pooled variance.
+
+**Limitations.** Equal weighting per point means a point that sampled once counts as
+much as one that sampled often, so it is noisier where sampling is sparse; the sample
+count in the `.vts` shows where.
 
 @section p10_cap_fse_sec 6.2 Field Statistics Ensemble Source Entries
 

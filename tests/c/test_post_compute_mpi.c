@@ -461,6 +461,103 @@ static PetscErrorCode TestFieldStatisticsProfileMultiRank(void)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief A `point_variance` profile is the plane mean of each point's own variance.
+ *
+ * Two states differ at each point by i + 1, so every point's variance is ((i + 1)/2)^2
+ * while the point means also vary across the plane. The profile must carry the
+ * equal-weight mean of the point variances, without the spread of the point means
+ * that the pooled RMS includes, on any decomposition.
+ */
+static PetscErrorCode TestFieldStatisticsPointVarianceProfile(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PicurvWindowDefinition definition;
+    PicurvWindowStorage storage;
+    SpatialTargetPlan plan;
+    const PetscBool over_ik[3] = {PETSC_TRUE, PETSC_FALSE, PETSC_TRUE};
+    PetscReal sums[2][64], reduced[2][64];
+    PetscMPIInt rank = 0;
+    char tmpdir[PETSC_MAX_PATH_LEN], prefix[PETSC_MAX_PATH_LEN + 16], path[PETSC_MAX_PATH_LEN + 64];
+
+    PetscFunctionBeginUser;
+    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
+    PetscCall(PetscMemzero(&definition, sizeof(definition)));
+    PetscCall(PetscStrncpy(definition.name, "plane", sizeof(definition.name)));
+    definition.weighting = PICURV_WEIGHTING_SAMPLE;
+    definition.cadence_kind = PICURV_CADENCE_STEP;
+    definition.step_cadence = 1;
+    definition.field_count = 1;
+    definition.fields[0].field_id = FIELD_ID_P;
+    definition.fields[0].want_second = PETSC_TRUE;
+
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 6, 4));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(VecSet(user->lNvert, 0.0));
+    PetscCall(PicurvPopulateUniformCellCenters(user));
+    PetscCall(PicurvWindowStorageCreate(user, &definition, &storage));
+    for (PetscInt state = 0; state < 2; ++state) {
+        PetscReal ***pressure = NULL;
+
+        PetscCall(DMDAVecGetArray(user->da, user->P, &pressure));
+        for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k)
+            for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j)
+                for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i)
+                    pressure[k][j][i] = ScalarValue(i, j, k) + state * (PetscReal)(i + 1);
+        PetscCall(DMDAVecRestoreArray(user->da, user->P, &pressure));
+        PetscCall(PicurvWindowAccumulate(user, &definition, &storage, 1.0));
+    }
+
+    PetscCall(SpatialTargetPlanCreate(user, FIELD_ID_P, PICURV_STATISTICS_MASK_FLUID, &plan));
+    PetscCall(PetscMemzero(sums, sizeof(sums)));
+    for (PetscInt k = plan.start[2]; k < plan.end[2]; ++k)
+        for (PetscInt j = plan.start[1]; j < plan.end[1]; ++j)
+            for (PetscInt i = plan.start[0]; i < plan.end[0]; ++i) {
+                sums[0][j] += 1.0;
+                sums[1][j] += PetscSqr(0.5 * (PetscReal)(i + 1));
+            }
+    PetscCallMPI(MPI_Allreduce(sums, reduced, 2 * 64, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+
+    if (rank == 0) PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCallMPI(MPI_Bcast(tmpdir, PETSC_MAX_PATH_LEN, MPI_CHAR, 0, PETSC_COMM_WORLD));
+    PetscCall(PetscSNPrintf(prefix, sizeof(prefix), "%s/Field", tmpdir));
+    PetscCall(ComputeWindowStatisticsProfile(user, &definition, &storage, "rms,point_variance", over_ik, prefix, 3));
+
+    if (rank == 0) {
+        char line[1024];
+        PetscInt rows = 0;
+        FILE *csv = NULL;
+
+        PetscCall(PetscSNPrintf(path, sizeof(path), "%s_profile_plane_00003.csv", prefix));
+        csv = fopen(path, "r");
+        PetscCheck(csv != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open %s", path);
+        PetscCheck(fgets(line, sizeof(line), csv) != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Empty profile");
+        PetscCall(PicurvAssertBool((PetscBool)(strcmp(line, "j,x,y,z,plane_P_rms,plane_P_point_variance\n") == 0),
+                                   "the point variance is written beside the pooled RMS"));
+        while (fgets(line, sizeof(line), csv)) {
+            int cell = -1;
+            double x, y, z, rms, point_variance;
+            PetscCheck(sscanf(line, "%d,%lf,%lf,%lf,%lf,%lf", &cell, &x, &y, &z, &rms, &point_variance) == 6,
+                       PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Malformed profile row: %s", line);
+            PetscCall(PicurvAssertRealNear(reduced[1][cell + 1] / reduced[0][cell + 1], point_variance, 1.0e-12,
+                                           "the row point variance is the plane mean of point variances"));
+            PetscCall(PicurvAssertBool((PetscBool)(PetscSqr(rms) > point_variance + 1.0e-6),
+                                       "the pooled variance also carries the spread of the point means"));
+            rows++;
+        }
+        fclose(csv);
+        PetscInt expected_rows = 0;
+        for (PetscInt j = 0; j < 64; ++j) if (reduced[0][j] > 0.0) expected_rows++;
+        PetscCall(PicurvAssertIntEqual(expected_rows, rows, "one row per sampled plane"));
+        PetscCall(PicurvRemoveTempDir(tmpdir));
+    }
+
+    PetscCall(PicurvWindowStorageDestroy(&storage));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
 /** @brief Runs the serial/MPI post-processing compute regression suite. */
 int main(int argc, char **argv)
 {
@@ -471,6 +568,7 @@ int main(int argc, char **argv)
         {"resize-swarm-globally-balanced", TestResizeSwarmGloballyBalanced},
         {"field-statistics-derived-nodal-multi-rank", TestFieldStatisticsDerivedNodalMultiRank},
         {"field-statistics-profile-multi-rank", TestFieldStatisticsProfileMultiRank},
+        {"field-statistics-point-variance-profile", TestFieldStatisticsPointVarianceProfile},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL,

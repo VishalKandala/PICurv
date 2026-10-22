@@ -338,6 +338,7 @@ Selector: `post.yml -> field_statistics.outputs[]`
 |---|---|
 | `flux` | `flux` |
 | `mean` | `mean` |
+| `point_variance` | `point_variance` |
 | `reynolds_stress` | `reynolds_stress` |
 | `rms` | `rms` |
 | `tke` | `tke` |

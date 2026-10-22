@@ -158,13 +158,16 @@ typedef struct {
     char      name[PICURV_STATISTICS_PAYLOAD_NAME_LENGTH]; /**< Output field name, window qualified. */
     PetscInt  components;                                   /**< One or three. */
     PetscBool occupied;   /**< Measured over the occupied states, so undefined where they are absent. */
+    PetscBool point_averaged; /**< Reduced over homogeneous directions as the equal-weight mean of
+                                   point values, not from the pooled sample set. */
 } PicurvDerivedField;
 
 /**
  * @brief Reports how many derived fields a requested output set produces.
  * @param[in]  definition Window definition naming the accumulated fields and pairs.
  * @param[in]  storage    Accumulator state the outputs are derived from.
- * @param[in]  outputs    Comma-separated output kinds: mean, reynolds_stress, rms, tke, flux.
+ * @param[in]  outputs    Comma-separated output kinds: mean, reynolds_stress, rms, tke, flux,
+ *                        point_variance.
  * @param[out] count      Number of derived fields.
  * @return Zero on success, or `PETSC_ERR_ARG_WRONG` for an unknown output kind.
  */
