@@ -9489,6 +9489,22 @@ def test_field_statistics_eligible_fields_match_the_c_catalog():
         )
 
 
+def _statistics_option_family(name):
+    """!
+    @brief Reduce an emitted statistics option to the family the ingress audit declares.
+    @details The audit collapses every substituted value of a constructed name to `%`.
+             The fields and covariances of windows and ensembles share one parser whose
+             names substitute the kind as well as the index, so those families carry
+             two; the rest substitute the index alone.
+    @param[in] name Emitted option name.
+    @return Declared family the name belongs to.
+    """
+    shared = re.match(r"^-field_statistics_(?:window|ensemble)_\d+_(field|covariance)(.*)$", name)
+    if shared:
+        return re.sub(r"_\d+", "_%", f"-field_statistics_%_%_{shared.group(1)}{shared.group(2)}")
+    return re.sub(r"_\d+", "_%", name)
+
+
 def test_field_statistics_control_emission_matches_option_families():
     """!
     @brief Emitted control lines must match the families declared to the ingress audit.
@@ -9505,7 +9521,7 @@ def test_field_statistics_control_emission_matches_option_families():
     assert lines, "an enabled configuration must emit control lines"
     for line in lines:
         name = line.split()[0]
-        canonical = re.sub(r"_\d+", "_%", name)
+        canonical = _statistics_option_family(name)
         assert name in literals or canonical in families, (
             f"emitted option '{name}' is neither a declared literal nor a declared family"
         )
@@ -9703,6 +9719,7 @@ def test_post_without_field_statistics_emits_no_keys():
     "block, fragment",
     [
         ({}, "non-empty list of window names"),
+        ({"ensembles": []}, "non-empty list of window names"),
         ({"windows": ["  "]}, "non-empty window names"),
         ({"windows": ["p", "p"]}, "more than once"),
         ({"windows": ["p"], "source_step": -1}, "non-negative integer"),
@@ -9724,6 +9741,121 @@ def test_post_field_statistics_validation_rejects(block, fragment):
     with pytest.raises(ValueError) as excinfo:
         picurv.normalize_post_field_statistics_config({"field_statistics": block})
     assert fragment in str(excinfo.value)
+
+
+_ENSEMBLE_BLOCK = {
+    "ensembles": [
+        {"name": "fdf", "source": "particles",
+         "fields": [{"field": "Psi", "moments": ["second"]}, {"field": "velocity", "moments": ["first"]}],
+         "covariances": [["velocity", "Psi"]]},
+        {"name": "plane", "source": "eulerian", "fields": [{"field": "Ucat", "moments": ["second"]}]},
+    ],
+    "homogeneous": ["k", "i"],
+    "formats": ["vtk", "csv"],
+}
+
+
+def test_post_statistics_ensembles_emit_the_window_option_families():
+    """!
+    @brief Recipe ensembles reach the post-processor as the window families under the ensemble kind.
+
+    @details The post-processor forwards each `field_statistics_ensemble_*` line to the
+             options database, where the run-window parser reads it, so every emitted
+             key must belong to a family the ingress audit declares.
+    """
+    picurv = load_picurv_module()
+
+    post_cfg = {
+        "run_control": {"start_step": 0, "end_step": 10, "step_interval": 1},
+        "io": {"output_directory": "viz", "output_filename_prefix": "Field"},
+        "field_statistics": _ENSEMBLE_BLOCK,
+    }
+    config = picurv.build_post_recipe_config(post_cfg)
+    assert config["field_statistics_windows"] == ""
+    assert config["field_statistics_homogeneous"] == "i,k"
+    assert config["field_statistics_ensemble_count"] == 2
+    assert config["field_statistics_ensemble_0_source"] == "particles"
+    assert config["field_statistics_ensemble_0_field_0_moments"] == "first,second"
+    assert config["field_statistics_ensemble_0_covariance_0"] == "velocity,Psi"
+    assert config["field_statistics_ensemble_1_field_0_name"] == "Ucat"
+
+    manifest = json.loads(
+        (REPO_ROOT / "tests" / "tooling" / "audit_ingress_manifest.json").read_text(encoding="utf-8")
+    )
+    families = set(manifest["known_petsc_option_families"])
+    literals = set(manifest["known_petsc_options"])
+    for key in config:
+        if not key.startswith("field_statistics_ensemble_"):
+            continue
+        name = "-" + key
+        assert name in literals or _statistics_option_family(name) in families, (
+            f"ensemble key '{key}' reaches no declared option family"
+        )
+
+
+def test_post_statistics_ensembles_are_always_expected_outputs():
+    """!
+    @brief Ensemble outputs and profiles are completion families every processed step must produce.
+    """
+    picurv = load_picurv_module()
+
+    post_cfg = {"io": {"output_directory": "viz", "output_filename_prefix": "Field"},
+                "field_statistics": _ENSEMBLE_BLOCK}
+    artifacts = picurv.get_post_field_statistics_artifacts(post_cfg, "/run")
+    assert ("vtk", "/run/viz/Field_statistics_fdf", None) in [
+        (kind, path.replace(os.sep, "/"), window) for kind, path, window in artifacts]
+    profiles = [path for kind, path, window in artifacts if kind == "profile" and window is None]
+    assert any(path.endswith("Field_profile_plane") for path in profiles)
+    # An ensemble has no convergence history to append to.
+    assert not [path for kind, path, _ in artifacts if kind == "csv"]
+    assert picurv._post_requests_field_statistics(post_cfg)
+
+
+@pytest.mark.parametrize(
+    "block, fragment",
+    [
+        ({"ensembles": [{"name": "e", "source": "lagrangian", "fields": [{"field": "Psi", "moments": ["first"]}]}]},
+         "'source' must be one of"),
+        ({"ensembles": [{"name": "e", "source": "particles", "fields": [{"field": "Ucat", "moments": ["first"]}]}]},
+         "cannot be accumulated"),
+        ({"ensembles": [{"name": "e", "source": "eulerian", "fields": [{"field": "P", "moments": ["first"]}]}],
+          "formats": ["csv"]}, "needs 'homogeneous'"),
+        ({"ensembles": [{"name": "p", "source": "eulerian", "fields": [{"field": "P", "moments": ["first"]}]}],
+          "windows": ["p"]}, "name of a requested window"),
+        ({"ensembles": [{"name": "e", "source": "eulerian", "fields": [{"field": "P", "moments": ["first"]}]}],
+          "homogeneous": ["x"]}, "distinct axes"),
+    ],
+)
+def test_post_statistics_ensemble_validation_rejects(block, fragment):
+    """!
+    @brief Each ensemble rule rejects with a message naming the cause.
+    @param[in] block Field-statistics block under test.
+    @param[in] fragment Text the message must contain.
+    """
+    picurv = load_picurv_module()
+
+    with pytest.raises(ValueError) as excinfo:
+        picurv.normalize_post_field_statistics_config({"field_statistics": block})
+    assert fragment in str(excinfo.value)
+
+
+def test_statistics_particle_fields_match_the_c_scatter_targets():
+    """!
+    @brief Each particle field an ensemble may name scatters, in C, to the field Python assumes.
+    """
+    picurv = load_picurv_module()
+
+    catalog_text = (REPO_ROOT / "src" / "particle_field_catalog.c").read_text(encoding="utf-8")
+    for name, spec in picurv.STATISTICS_PARTICLE_FIELDS.items():
+        entry = re.search(r'PARTICLE_FIELD_ENTRY\(\s*PARTICLE_FIELD_ID_\w+\s*,\s*"' + re.escape(name)
+                          + r'".*?\),\s*(?=PARTICLE_FIELD_ENTRY|\})', catalog_text, re.S)
+        assert entry, f"particle field '{name}' is not in the C particle catalog"
+        text = entry.group(0)
+        assert "PARTICLE_FIELD_CAPABILITY_EULERIAN_SCATTER" in text, f"'{name}' does not scatter in C"
+        target = picurv.STATISTICS_ELIGIBLE_FIELDS.get(spec["target"]) or {"components": 3}
+        assert f"FIELD_ID_{spec['target'].upper()}" in text, f"'{name}' scatters elsewhere in C"
+        assert f"\n                         {spec['components']}, PETSC_REAL" in text
+        assert target["components"] == spec["components"]
 
 
 def _statistics_monitor_with_windows(*specs):

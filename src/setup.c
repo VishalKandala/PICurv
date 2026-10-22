@@ -2221,7 +2221,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 	    // Config-counted, like the convergence-state reference fields: the window
 	    // count is resolved before this factory runs, and each accumulator is
 	    // duplicated from a vector created above so it inherits DM and layout.
-	    if (level == usermg->mglevels - 1 && FieldStatisticsIsActive(simCtx)) {
+	    if (level == usermg->mglevels - 1 && FieldStatisticsNeedsWorkspace(simCtx)) {
 	        ierr = PetscCalloc1((size_t)simCtx->fieldStatisticsWindowCount,
 	                            &user->fieldStatisticsStorage); CHKERRQ(ierr);
 	        for (PetscInt w = 0; w < simCtx->fieldStatisticsWindowCount; ++w) {
@@ -2254,7 +2254,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 	     * shared kernels can address, rather than simulation state. It exists only
 	     * to carry derived statistics to the nodal and VTK paths, so a run without
 	     * statistics allocates none of it. */
-	    if (level == usermg->mglevels - 1 && FieldStatisticsIsActive(simCtx)) {
+	    if (level == usermg->mglevels - 1 && FieldStatisticsNeedsWorkspace(simCtx)) {
 	        ierr = DMCreateGlobalVector(user->da,  &user->PostScalar);       CHKERRQ(ierr);
 	        ierr = VecSet(user->PostScalar, 0.0); CHKERRQ(ierr);
 	        ierr = DMCreateLocalVector(user->da,   &user->lPostScalar);      CHKERRQ(ierr);

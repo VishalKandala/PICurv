@@ -8,6 +8,7 @@
 #include "postprocessor.h"
 #include "statistics_accumulator.h"
 #include "statistics_window.h"
+#include "statistics_target.h"
 
 static const PetscReal kSentinel = -9876.5;
 
@@ -324,7 +325,7 @@ static PetscErrorCode TestFieldStatisticsDerivedNodalMultiRank(void)
                 pressure[k][j][i] = ScalarValue(i, j, k);
     PetscCall(DMDAVecRestoreArray(user->da, user->P, &pressure));
     PetscCall(PicurvWindowAccumulate(user, &definition, &storage, 1.0));
-    PetscCall(ComputeWindowStatisticNodal(user, 0, "mean", 0, name, sizeof(name),
+    PetscCall(ComputeWindowStatisticNodal(user, &definition, &storage, "mean", 0, name, sizeof(name),
                                           &result, &components));
     PetscCall(PicurvAssertIntEqual(1, components,
                                    "the pressure mean must derive as a scalar field"));
@@ -363,6 +364,103 @@ static PetscErrorCode TestFieldStatisticsDerivedNodalMultiRank(void)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief A wall-normal profile CSV holds each plane's pooled moments on any decomposition.
+ *
+ * One state of a field varying across every plane is merged over i and k. Each written
+ * row must carry the mean and RMS over that plane's points, computed here directly
+ * from the closed form, and the plane's mean cell-centre coordinate.
+ */
+static PetscErrorCode TestFieldStatisticsProfileMultiRank(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PicurvWindowDefinition definition;
+    PicurvWindowStorage storage;
+    SpatialTargetPlan plan;
+    const PetscBool over_ik[3] = {PETSC_TRUE, PETSC_FALSE, PETSC_TRUE};
+    PetscReal ***pressure = NULL, sums[3][64], reduced[3][64];
+    PetscMPIInt rank = 0;
+    char tmpdir[PETSC_MAX_PATH_LEN], prefix[PETSC_MAX_PATH_LEN + 16], path[PETSC_MAX_PATH_LEN + 64];
+
+    PetscFunctionBeginUser;
+    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
+    PetscCall(PetscMemzero(&definition, sizeof(definition)));
+    PetscCall(PetscStrncpy(definition.name, "plane", sizeof(definition.name)));
+    definition.weighting = PICURV_WEIGHTING_SAMPLE;
+    definition.cadence_kind = PICURV_CADENCE_STEP;
+    definition.step_cadence = 1;
+    definition.field_count = 1;
+    definition.fields[0].field_id = FIELD_ID_P;
+    definition.fields[0].want_second = PETSC_TRUE;
+
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 6, 4));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(VecSet(user->lNvert, 0.0));
+    PetscCall(PicurvPopulateUniformCellCenters(user));
+    PetscCall(PicurvWindowStorageCreate(user, &definition, &storage));
+    PetscCall(DMDAVecGetArray(user->da, user->P, &pressure));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k)
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j)
+            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i)
+                pressure[k][j][i] = ScalarValue(i, j, k);
+    PetscCall(DMDAVecRestoreArray(user->da, user->P, &pressure));
+    PetscCall(PicurvWindowAccumulate(user, &definition, &storage, 1.0));
+
+    /* The expected profile, straight from the closed form over each rank's points. */
+    PetscCall(SpatialTargetPlanCreate(user, FIELD_ID_P, PICURV_STATISTICS_MASK_FLUID, &plan));
+    PetscCall(PetscMemzero(sums, sizeof(sums)));
+    for (PetscInt k = plan.start[2]; k < plan.end[2]; ++k)
+        for (PetscInt j = plan.start[1]; j < plan.end[1]; ++j)
+            for (PetscInt i = plan.start[0]; i < plan.end[0]; ++i) {
+                sums[0][j] += 1.0;
+                sums[1][j] += ScalarValue(i, j, k);
+                sums[2][j] += PetscSqr(ScalarValue(i, j, k));
+            }
+    PetscCallMPI(MPI_Allreduce(sums, reduced, 3 * 64, MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
+
+    if (rank == 0) PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCallMPI(MPI_Bcast(tmpdir, PETSC_MAX_PATH_LEN, MPI_CHAR, 0, PETSC_COMM_WORLD));
+    PetscCall(PetscSNPrintf(prefix, sizeof(prefix), "%s/Field", tmpdir));
+    PetscCall(ComputeWindowStatisticsProfile(user, &definition, &storage, "mean,rms", over_ik, prefix, 7));
+
+    if (rank == 0) {
+        char line[1024];
+        PetscInt rows = 0, expected_rows = 0;
+        FILE *csv = NULL;
+
+        PetscCall(PetscSNPrintf(path, sizeof(path), "%s_profile_plane_00007.csv", prefix));
+        csv = fopen(path, "r");
+        PetscCheck(csv != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open %s", path);
+        PetscCheck(fgets(line, sizeof(line), csv) != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Empty profile");
+        PetscCall(PicurvAssertBool((PetscBool)(strcmp(line, "j,x,y,z,plane_P_mean,plane_P_rms\n") == 0),
+                                   "the header names the retained index, coordinates and outputs"));
+        while (fgets(line, sizeof(line), csv)) {
+            int cell = -1;
+            double x, y, z, mean, rms;
+            PetscReal expected_mean, expected_rms;
+
+            PetscCheck(sscanf(line, "%d,%lf,%lf,%lf,%lf,%lf", &cell, &x, &y, &z, &mean, &rms) == 6,
+                       PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Malformed profile row: %s", line);
+            expected_mean = reduced[1][cell + 1] / reduced[0][cell + 1];
+            expected_rms = PetscSqrtReal(reduced[2][cell + 1] / reduced[0][cell + 1] - PetscSqr(expected_mean));
+            PetscCall(PicurvAssertRealNear(expected_mean, mean, 1.0e-9, "the row mean is the plane mean"));
+            PetscCall(PicurvAssertRealNear(expected_rms, rms, 1.0e-9, "the row RMS is the plane's pooled RMS"));
+            PetscCall(PicurvAssertRealNear((cell + 0.5) / (PetscReal)user->JM, y, 1.0e-9,
+                                           "the row coordinate is the plane's cell centre"));
+            rows++;
+        }
+        fclose(csv);
+        for (PetscInt j = 0; j < 64; ++j) if (reduced[0][j] > 0.0) expected_rows++;
+        PetscCall(PicurvAssertIntEqual(expected_rows, rows, "one row per sampled plane"));
+        PetscCall(PicurvRemoveTempDir(tmpdir));
+    }
+
+    PetscCall(PicurvWindowStorageDestroy(&storage));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
 /** @brief Runs the serial/MPI post-processing compute regression suite. */
 int main(int argc, char **argv)
 {
@@ -372,6 +470,7 @@ int main(int argc, char **argv)
         {"particle-pipeline-matches-source-ownership", TestParticlePipelineMatchesSourceOwnership},
         {"resize-swarm-globally-balanced", TestResizeSwarmGloballyBalanced},
         {"field-statistics-derived-nodal-multi-rank", TestFieldStatisticsDerivedNodalMultiRank},
+        {"field-statistics-profile-multi-rank", TestFieldStatisticsProfileMultiRank},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL,

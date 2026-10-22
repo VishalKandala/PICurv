@@ -92,7 +92,10 @@ validation. @ref FieldGetView always checks the actual DM and vector handles.
 contract: canonical PETSc name, component count, `PetscDataType`, registration
 owner, default initialization value, supported operations, and an optional
 Eulerian scatter target. In particular, particle `Psi` maps explicitly to
-Eulerian `FIELD_ID_PSI`; no name coincidence is used to infer that bridge.
+Eulerian `FIELD_ID_PSI`, and particle `velocity` to `FIELD_ID_UCAT`; no name
+coincidence is used to infer that bridge. The runtime scatter averages only `Psi`.
+The target also fixes the layout and output names of a particle field's cell
+ensemble statistics (@ref p10_ensembles_sub).
 
 The registered aliases are retained because current diagnostic and boundary
 surfaces use them: `Eddy Viscosity` for `Nu_t`, `Cs` for `CS`,

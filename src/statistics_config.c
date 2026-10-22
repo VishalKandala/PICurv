@@ -9,6 +9,7 @@
 #include "statistics_config.h"
 #include "statistics_window.h"
 #include "field_catalog.h"
+#include "particle_field_catalog.h"
 #include "logging.h"
 #include "io.h"
 
@@ -24,14 +25,29 @@
  *          hand-written control file reports the same context Python would.
  */
 static PetscErrorCode ResolveStatisticsField(const char *window_name, const char *field_name,
-                                             PetscInt *field_id)
+                                             PetscBool particle_source, PetscInt *field_id)
 {
     FieldId resolved = FIELD_ID_UCAT;
 
     PetscFunctionBeginUser;
     PetscCheck(field_name != NULL && field_name[0] != '\0', PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
                "Statistics window '%s' names an empty field.", window_name);
-    PetscCall(FieldIdFromName(field_name, &resolved));
+    if (particle_source) {
+        /* A particle field is accumulated onto the Eulerian field it scatters to,
+         * which fixes its layout and the names its outputs carry. */
+        ParticleFieldId particle = PARTICLE_FIELD_ID_INVALID;
+        const ParticleFieldDescriptor *descriptor = NULL;
+
+        PetscCall(ParticleFieldIdFromName(field_name, &particle));
+        PetscCall(ParticleFieldGetDescriptor(particle, &descriptor));
+        PetscCheck(descriptor->capabilities & PARTICLE_FIELD_CAPABILITY_EULERIAN_SCATTER,
+                   PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                   "Statistics ensemble '%s' names particle field '%s', which has no Eulerian "
+                   "scatter target to accumulate onto.", window_name, field_name);
+        resolved = descriptor->eulerian_scatter_target;
+    } else {
+        PetscCall(FieldIdFromName(field_name, &resolved));
+    }
     *field_id = (PetscInt)resolved;
     PetscFunctionReturn(0);
 }
@@ -67,14 +83,15 @@ static PetscErrorCode SplitStatisticsList(char *value, char **tokens, PetscInt c
  * @brief Internal helper: reads one window's field list into its definition.
  * @details Local to this translation unit.
  */
-static PetscErrorCode ParseStatisticsFields(PetscInt window, PicurvWindowDefinition *definition)
+static PetscErrorCode ParseStatisticsFields(const char *kind, PetscInt window, PetscBool particle_source,
+                                            PicurvWindowDefinition *definition)
 {
     char name[STATISTICS_OPTION_NAME_LENGTH];
     PetscBool found = PETSC_FALSE;
 
     PetscFunctionBeginUser;
     PetscCall(PetscSNPrintf(name, sizeof(name),
-                            "-field_statistics_window_%" PetscInt_FMT "_field_count", window));
+                            "-field_statistics_%s_%" PetscInt_FMT "_field_count", kind, window));
     PetscCall(PetscOptionsGetInt(NULL, NULL, name, &definition->field_count, &found));
     PetscCheck(found && definition->field_count > 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
                "Statistics window '%s' requests no field.", definition->name);
@@ -90,18 +107,18 @@ static PetscErrorCode ParseStatisticsFields(PetscInt window, PicurvWindowDefinit
         PetscInt token_count = 0;
 
         PetscCall(PetscSNPrintf(name, sizeof(name),
-                                "-field_statistics_window_%" PetscInt_FMT "_field_%" PetscInt_FMT "_name",
-                                window, field_index));
+                                "-field_statistics_%s_%" PetscInt_FMT "_field_%" PetscInt_FMT "_name",
+                                kind, window, field_index));
         PetscCall(PetscOptionsGetString(NULL, NULL, name, field_name, sizeof(field_name), &found));
         PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
                    "Statistics window '%s' field %" PetscInt_FMT " has no name.",
                    definition->name, field_index);
-        PetscCall(ResolveStatisticsField(definition->name, field_name,
+        PetscCall(ResolveStatisticsField(definition->name, field_name, particle_source,
                                          &definition->fields[field_index].field_id));
 
         PetscCall(PetscSNPrintf(name, sizeof(name),
-                                "-field_statistics_window_%" PetscInt_FMT "_field_%" PetscInt_FMT "_moments",
-                                window, field_index));
+                                "-field_statistics_%s_%" PetscInt_FMT "_field_%" PetscInt_FMT "_moments",
+                                kind, window, field_index));
         PetscCall(PetscOptionsGetString(NULL, NULL, name, moments, sizeof(moments), &found));
         PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
                    "Statistics window '%s' field '%s' requests no moment.", definition->name, field_name);
@@ -129,14 +146,15 @@ static PetscErrorCode ParseStatisticsFields(PetscInt window, PicurvWindowDefinit
  * @brief Internal helper: reads one window's covariance list into its definition.
  * @details Local to this translation unit.
  */
-static PetscErrorCode ParseStatisticsCovariances(PetscInt window, PicurvWindowDefinition *definition)
+static PetscErrorCode ParseStatisticsCovariances(const char *kind, PetscInt window, PetscBool particle_source,
+                                                 PicurvWindowDefinition *definition)
 {
     char name[STATISTICS_OPTION_NAME_LENGTH];
     PetscBool found = PETSC_FALSE;
 
     PetscFunctionBeginUser;
     PetscCall(PetscSNPrintf(name, sizeof(name),
-                            "-field_statistics_window_%" PetscInt_FMT "_covariance_count", window));
+                            "-field_statistics_%s_%" PetscInt_FMT "_covariance_count", kind, window));
     PetscCall(PetscOptionsGetInt(NULL, NULL, name, &definition->covariance_count, &found));
     if (!found) definition->covariance_count = 0;
     PetscCheck(definition->covariance_count >= 0 &&
@@ -153,8 +171,8 @@ static PetscErrorCode ParseStatisticsCovariances(PetscInt window, PicurvWindowDe
         PetscBool second_present = PETSC_FALSE;
 
         PetscCall(PetscSNPrintf(name, sizeof(name),
-                                "-field_statistics_window_%" PetscInt_FMT "_covariance_%" PetscInt_FMT,
-                                window, pair_index));
+                                "-field_statistics_%s_%" PetscInt_FMT "_covariance_%" PetscInt_FMT,
+                                kind, window, pair_index));
         PetscCall(PetscOptionsGetString(NULL, NULL, name, pair, sizeof(pair), &found));
         PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
                    "Statistics window '%s' covariance %" PetscInt_FMT " has no members.",
@@ -163,8 +181,8 @@ static PetscErrorCode ParseStatisticsCovariances(PetscInt window, PicurvWindowDe
         PetscCheck(token_count == 2, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
                    "Statistics window '%s' covariance %" PetscInt_FMT " needs exactly two members.",
                    definition->name, pair_index);
-        PetscCall(ResolveStatisticsField(definition->name, tokens[0], &definition->covariances[pair_index].first));
-        PetscCall(ResolveStatisticsField(definition->name, tokens[1], &definition->covariances[pair_index].second));
+        PetscCall(ResolveStatisticsField(definition->name, tokens[0], particle_source, &definition->covariances[pair_index].first));
+        PetscCall(ResolveStatisticsField(definition->name, tokens[1], particle_source, &definition->covariances[pair_index].second));
         PetscCheck(definition->covariances[pair_index].first != definition->covariances[pair_index].second,
                    PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
                    "Statistics window '%s' pairs '%s' with itself; that is the self-product already "
@@ -281,6 +299,82 @@ static PetscErrorCode LogResolvedWindow(const PicurvWindowDefinition *definition
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "ParsePostStatisticsEnsembles"
+/**
+ * @brief Implementation of \ref ParsePostStatisticsEnsembles().
+ * @see ParsePostStatisticsEnsembles()
+ */
+PetscErrorCode ParsePostStatisticsEnsembles(SimCtx *simCtx)
+{
+    PostProcessParams *pps = NULL;
+    PetscInt count = 0;
+    PetscBool found = PETSC_FALSE;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCheck(simCtx != NULL && simCtx->pps != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "SimCtx and its post-processing parameters are required.");
+    pps = simCtx->pps;
+    PetscCall(PetscOptionsGetInt(NULL, NULL, "-field_statistics_ensemble_count", &count, &found));
+    if (!found || count <= 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
+    PetscCall(PetscCalloc2((size_t)count, &pps->field_statistics_ensembles,
+                           (size_t)count, &pps->field_statistics_ensemble_from_particles));
+    pps->field_statistics_ensemble_count = count;
+
+    for (PetscInt index = 0; index < count; ++index) {
+        PicurvWindowDefinition definition;
+        char option_name[STATISTICS_OPTION_NAME_LENGTH];
+        char source[STATISTICS_OPTION_VALUE_LENGTH];
+        PetscBool from_particles = PETSC_FALSE;
+
+        PetscCall(PetscMemzero(&definition, sizeof(definition)));
+        PetscCall(PetscSNPrintf(option_name, sizeof(option_name),
+                                "-field_statistics_ensemble_%" PetscInt_FMT "_name", index));
+        PetscCall(PetscOptionsGetString(NULL, NULL, option_name, definition.name,
+                                        sizeof(definition.name), &found));
+        PetscCheck(found && definition.name[0] != '\0', PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                   "Statistics ensemble %" PetscInt_FMT " has no name.", index);
+        /* Ensembles and run windows write to the same file names. */
+        for (PetscInt w = 0; w < simCtx->fieldStatisticsWindowCount; ++w) {
+            PetscBool clash = PETSC_FALSE;
+
+            PetscCall(PetscStrcmp(simCtx->fieldStatisticsWindows[w].definition.name, definition.name, &clash));
+            PetscCheck(!clash, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                       "Statistics ensemble '%s' has the name of a run window.", definition.name);
+        }
+        for (PetscInt prior = 0; prior < index; ++prior) {
+            PetscBool clash = PETSC_FALSE;
+
+            PetscCall(PetscStrcmp(pps->field_statistics_ensembles[prior].definition.name, definition.name, &clash));
+            PetscCheck(!clash, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                       "Statistics ensemble name '%s' is used more than once.", definition.name);
+        }
+
+        PetscCall(PetscSNPrintf(option_name, sizeof(option_name),
+                                "-field_statistics_ensemble_%" PetscInt_FMT "_source", index));
+        PetscCall(PetscOptionsGetString(NULL, NULL, option_name, source, sizeof(source), &found));
+        PetscCheck(found && (!strcmp(source, "particles") || !strcmp(source, "eulerian")),
+                   PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                   "Statistics ensemble '%s' needs source 'particles' or 'eulerian'.", definition.name);
+        from_particles = (PetscBool)!strcmp(source, "particles");
+
+        /* An ensemble is one instant, so it has no schedule of its own; the unit step
+         * cadence only satisfies the window validation it shares. */
+        definition.weighting = PICURV_WEIGHTING_SAMPLE;
+        definition.cadence_kind = PICURV_CADENCE_STEP;
+        definition.step_cadence = 1;
+        PetscCall(ParseStatisticsFields("ensemble", index, from_particles, &definition));
+        PetscCall(ParseStatisticsCovariances("ensemble", index, from_particles, &definition));
+        PetscCall(PicurvWindowInit(&pps->field_statistics_ensembles[index], &definition));
+        pps->field_statistics_ensemble_from_particles[index] = from_particles;
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Statistics ensemble '%s' from %s: %d field(s), %d covariance(s).\n",
+                  definition.name, source, (int)definition.field_count, (int)definition.covariance_count);
+    }
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "ParseFieldStatisticsConfig"
 /**
  * @brief Implementation of \ref ParseFieldStatisticsConfig().
@@ -338,8 +432,8 @@ PetscErrorCode ParseFieldStatisticsConfig(SimCtx *simCtx)
         }
 
         PetscCall(ParseStatisticsWindowSchedule(window_index, &definition));
-        PetscCall(ParseStatisticsFields(window_index, &definition));
-        PetscCall(ParseStatisticsCovariances(window_index, &definition));
+        PetscCall(ParseStatisticsFields("window", window_index, PETSC_FALSE, &definition));
+        PetscCall(ParseStatisticsCovariances("window", window_index, PETSC_FALSE, &definition));
         PetscCall(PicurvWindowInit(&simCtx->fieldStatisticsWindows[window_index], &definition));
         PetscCall(LogResolvedWindow(&simCtx->fieldStatisticsWindows[window_index].definition));
     }
@@ -358,7 +452,13 @@ PetscErrorCode ParseFieldStatisticsConfig(SimCtx *simCtx)
 PetscErrorCode DestroyFieldStatisticsConfig(SimCtx *simCtx)
 {
     PetscFunctionBeginUser;
-    if (!simCtx || !simCtx->fieldStatisticsWindows) PetscFunctionReturn(0);
+    if (!simCtx) PetscFunctionReturn(0);
+    if (simCtx->pps && simCtx->pps->field_statistics_ensembles) {
+        PetscCall(PetscFree2(simCtx->pps->field_statistics_ensembles,
+                             simCtx->pps->field_statistics_ensemble_from_particles));
+        simCtx->pps->field_statistics_ensemble_count = 0;
+    }
+    if (!simCtx->fieldStatisticsWindows) PetscFunctionReturn(0);
     PetscCall(PetscFree(simCtx->fieldStatisticsWindows));
     simCtx->fieldStatisticsWindows = NULL;
     simCtx->fieldStatisticsWindowCount = 0;

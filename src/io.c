@@ -12,6 +12,7 @@
 #include "field_catalog.h"
 #include "particle_field_catalog.h"
 #include "statistics_accumulator.h"
+#include "statistics_config.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -3302,6 +3303,7 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     strcpy(pps->field_statistics_output_prefix, "Field");
     pps->dimensionalize = PETSC_FALSE;
     pps->field_statistics_source_step = -1;
+    pps->field_statistics_homogeneous[0] = pps->field_statistics_homogeneous[1] = pps->field_statistics_homogeneous[2] = PETSC_FALSE;
     pps->reference[0] = pps->reference[1] = pps->reference[2] = 1;
     strncpy(pps->source_dir, simCtx->output_dir, sizeof(pps->source_dir) - 1);
     pps->source_dir[sizeof(pps->source_dir) - 1] = '\0'; // Ensure null-termination
@@ -3341,6 +3343,17 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
                     pps->field_statistics_outputs[MAX_FIELD_LIST_LENGTH - 1] = '\0';
                 } else if (strcasecmp(key, "field_statistics_source_step") == 0) {
                     pps->field_statistics_source_step = atoi(value);
+                } else if (strcasecmp(key, "field_statistics_homogeneous") == 0) {
+                    pps->field_statistics_homogeneous[0] = (PetscBool)(strchr(value, 'i') != NULL);
+                    pps->field_statistics_homogeneous[1] = (PetscBool)(strchr(value, 'j') != NULL);
+                    pps->field_statistics_homogeneous[2] = (PetscBool)(strchr(value, 'k') != NULL);
+                } else if (strncasecmp(key, "field_statistics_ensemble_", 26) == 0) {
+                    /* Ensembles are defined with the run windows' option families, so the
+                     * window parser reads them; the recipe line becomes that option. */
+                    char option[MAX_FILENAME_LENGTH + 2];
+
+                    PetscCall(PetscSNPrintf(option, sizeof(option), "-%s", key));
+                    PetscCall(PetscOptionsSetValue(NULL, option, value));
                 } else if (strcasecmp(key, "dimensionalize") == 0) {
                     pps->dimensionalize = (PetscBool)(strcasecmp(value, "true") == 0
                                                       || strcmp(value, "1") == 0);
@@ -3430,6 +3443,7 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Pipeline: %s\n", pps->particle_pipeline);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Output Frequency: %d\n", pps->particle_output_freq);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Post input extensions: Eulerian='.%s', Particle='.%s'\n", pps->eulerianExt, pps->particleExt);
+    PetscCall(ParsePostStatisticsEnsembles(simCtx));
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

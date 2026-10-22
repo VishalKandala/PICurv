@@ -207,6 +207,18 @@ const char *PicurvWindowStateName(PicurvWindowState state);
 PetscBool FieldStatisticsIsActive(const struct SimCtx *simCtx);
 
 /**
+ * @brief Reports whether this process derives field statistics of any kind.
+ *
+ * True when run windows are active or the post-processing recipe defines ensembles.
+ * It gates the workspace both share: the symmetric-tensor DM their products live on
+ * and the staging fields their derived outputs pass through.
+ *
+ * @param[in] simCtx Simulation context; may be NULL.
+ * @return `PETSC_TRUE` when the statistics workspace is needed.
+ */
+PetscBool FieldStatisticsNeedsWorkspace(const struct SimCtx *simCtx);
+
+/**
  * @brief Offers one completed state to every configured window.
  *
  * Called once per completed step from the runloop. Each due window advances its

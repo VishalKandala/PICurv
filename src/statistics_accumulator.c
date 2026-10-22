@@ -9,6 +9,9 @@
 #include "statistics_accumulator.h"
 #include "statistics_moments.h"
 #include "statistics_target.h"
+#include "interpolation.h"
+#include "ParticleMotion.h"
+#include "particle_field_catalog.h"
 #include "field_catalog.h"
 #include "io.h"
 #include "logging.h"
@@ -1058,6 +1061,289 @@ PetscErrorCode PicurvWindowAccumulate(UserCtx *user, const PicurvWindowDefinitio
     PetscCall(DMDAVecRestoreArray(user->da, storage->weight, &weight_arr));
     PetscCall(DMDAVecRestoreArray(user->da, storage->count, &count_arr));
     PetscCall(DMDAVecRestoreArrayRead(user->da, user->Nvert, &nvert));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Internal helper: the component pairs one stored product carries.
+ * @details Local to this translation unit. A self-product walks the symmetric pair
+ *          table; a vector-scalar covariance pairs each vector component with the
+ *          scalar's only one, as `PicurvWindowAccumulate` does.
+ */
+static void ProductComponents(PetscBool self, PetscInt dof_a, PetscInt dof_b, PetscInt components,
+                              PetscInt first[6], PetscInt second[6])
+{
+    for (PetscInt c = 0; c < components; ++c) {
+        first[c]  = self ? ((dof_a == 1) ? 0 : kProductFirst[c])  : ((dof_a == 3) ? c : 0);
+        second[c] = self ? ((dof_a == 1) ? 0 : kProductSecond[c]) : ((dof_b == 3) ? c : 0);
+    }
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "AccumulateParticleCentredProducts"
+/**
+ * @brief Internal helper: adds every particle's centred product into its cell.
+ * @details Local to this translation unit. The second pass of the two-pass ensemble:
+ *          each particle contributes `(a - mean_a)(b - mean_b)` for every component pair,
+ *          against its own cell's mean read from the ghosted copies. Sums go to the
+ *          ghosted patch and are then added onto their owners into @p product, the way
+ *          `AccumulateParticleField` sums go.
+ */
+static PetscErrorCode AccumulateParticleCentredProducts(UserCtx *user, ParticleFieldId field_a,
+                                                        ParticleFieldId field_b, DM dm_a, Vec mean_a,
+                                                        DM dm_b, Vec mean_b, PetscInt components,
+                                                        const PetscInt first[6], const PetscInt second[6],
+                                                        DM product_dm, Vec product)
+{
+    const ParticleFieldDescriptor *descriptor_a = NULL, *descriptor_b = NULL;
+    const PetscReal *values_a = NULL, *values_b = NULL;
+    const PetscInt *cell = NULL;
+    PetscScalar ****centre_a = NULL, ****centre_b = NULL, ****sum = NULL;
+    PetscInt nlocal = 0, gxs, gys, gzs, gxm, gym, gzm;
+    Vec local_sum = NULL;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(ParticleFieldGetDescriptor(field_a, &descriptor_a));
+    PetscCall(ParticleFieldGetDescriptor(field_b, &descriptor_b));
+    PetscCall(DMDAGetGhostCorners(product_dm, &gxs, &gys, &gzs, &gxm, &gym, &gzm));
+    PetscCall(DMGetLocalVector(product_dm, &local_sum));
+    PetscCall(VecZeroEntries(local_sum));
+
+    PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+    PetscCall(DMSwarmGetField(user->swarm, descriptor_a->canonical_name, NULL, NULL, (void **)&values_a));
+    /* A self-product reads one field twice, and a swarm field cannot be held twice. */
+    if (field_b == field_a) values_b = values_a;
+    else PetscCall(DMSwarmGetField(user->swarm, descriptor_b->canonical_name, NULL, NULL, (void **)&values_b));
+    PetscCall(DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cell));
+    PetscCall(DMDAVecGetArrayDOFRead(dm_a, mean_a, &centre_a));
+    PetscCall(DMDAVecGetArrayDOFRead(dm_b, mean_b, &centre_b));
+    PetscCall(DMDAVecGetArrayDOF(product_dm, local_sum, &sum));
+
+    for (PetscInt p = 0; p < nlocal; ++p) {
+        /* Cell indices are geometric; storage is shifted by the boundary layer. */
+        const PetscInt i = cell[3 * p + 0] + 1, j = cell[3 * p + 1] + 1, k = cell[3 * p + 2] + 1;
+        const PetscReal *a = &values_a[p * descriptor_a->components];
+        const PetscReal *b = &values_b[p * descriptor_b->components];
+
+        if (i < gxs || i >= gxs + gxm || j < gys || j >= gys + gym || k < gzs || k >= gzs + gzm) continue;
+        for (PetscInt c = 0; c < components; ++c) {
+            sum[k][j][i][c] += (a[first[c]] - centre_a[k][j][i][first[c]]) *
+                               (b[second[c]] - centre_b[k][j][i][second[c]]);
+        }
+    }
+
+    PetscCall(DMDAVecRestoreArrayDOF(product_dm, local_sum, &sum));
+    PetscCall(DMDAVecRestoreArrayDOFRead(dm_b, mean_b, &centre_b));
+    PetscCall(DMDAVecRestoreArrayDOFRead(dm_a, mean_a, &centre_a));
+    PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cell));
+    if (field_b != field_a) PetscCall(DMSwarmRestoreField(user->swarm, descriptor_b->canonical_name, NULL, NULL, (void **)&values_b));
+    PetscCall(DMSwarmRestoreField(user->swarm, descriptor_a->canonical_name, NULL, NULL, (void **)&values_a));
+
+    PetscCall(DMLocalToGlobalBegin(product_dm, local_sum, ADD_VALUES, product));
+    PetscCall(DMLocalToGlobalEnd(product_dm, local_sum, ADD_VALUES, product));
+    PetscCall(DMRestoreLocalVector(product_dm, &local_sum));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "PicurvWindowStorageFromParticles"
+/**
+ * @brief Implementation of \ref PicurvWindowStorageFromParticles().
+ * @see PicurvWindowStorageFromParticles()
+ */
+PetscErrorCode PicurvWindowStorageFromParticles(UserCtx *user, const PicurvWindowDefinition *definition,
+                                                PicurvWindowStorage *storage)
+{
+    ParticleFieldId particle[PICURV_WINDOW_MAX_REQUESTS];
+    FieldView       view[PICURV_WINDOW_MAX_REQUESTS];
+    Vec             centre[PICURV_WINDOW_MAX_REQUESTS] = {NULL};
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCheck(user != NULL && definition != NULL && storage != NULL && user->swarm != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Context, swarm, definition, and storage are required.");
+
+    /* Unit weights: count, weight and squared weight are all the particle count. */
+    PetscCall(CalculateParticleCountPerCell(user));
+    PetscCall(VecCopy(user->ParticleCount, storage->count));
+    PetscCall(VecCopy(user->ParticleCount, storage->weight));
+    PetscCall(VecCopy(user->ParticleCount, storage->weight_sq));
+
+    /* Pass one: each field's cell mean, the particle sum divided by the count. */
+    for (PetscInt f = 0; f < definition->field_count; ++f) {
+        Vec local_sum = NULL, sum = NULL;
+
+        PetscCall(ParticleFieldIdFromScatterTarget((FieldId)definition->fields[f].field_id, &particle[f]));
+        PetscCall(FieldGetView(user, (FieldId)definition->fields[f].field_id, &view[f]));
+        PetscCall(DMGetLocalVector(view[f].dm, &local_sum));
+        PetscCall(VecZeroEntries(local_sum));
+        PetscCall(AccumulateParticleField(user->swarm, particle[f], view[f].dm, local_sum));
+        PetscCall(VecDuplicate(storage->mean[f], &sum));
+        PetscCall(VecZeroEntries(sum));
+        PetscCall(DMLocalToGlobalBegin(view[f].dm, local_sum, ADD_VALUES, sum));
+        PetscCall(DMLocalToGlobalEnd(view[f].dm, local_sum, ADD_VALUES, sum));
+        PetscCall(DMRestoreLocalVector(view[f].dm, &local_sum));
+        PetscCall(NormalizeGridVectorByCount(user->da, storage->count, view[f].dm, sum, storage->mean[f]));
+        PetscCall(VecDestroy(&sum));
+        /* The second pass reads each particle's own cell mean, which may be a ghost. */
+        PetscCall(DMCreateLocalVector(view[f].dm, &centre[f]));
+        PetscCall(DMGlobalToLocalBegin(view[f].dm, storage->mean[f], INSERT_VALUES, centre[f]));
+        PetscCall(DMGlobalToLocalEnd(view[f].dm, storage->mean[f], INSERT_VALUES, centre[f]));
+    }
+
+    /* Pass two: centred self-products, then cross-field covariances. */
+    for (PetscInt f = 0; f < definition->field_count; ++f) {
+        const PetscInt dof = view[f].descriptor->dof;
+        PetscInt components = 0, first[6], second[6];
+        DM product_dm = NULL;
+
+        if (!definition->fields[f].want_second) continue;
+        PetscCall(PicurvProductComponentCount(dof, &components));
+        PetscCall(PicurvStatisticsComponentDM(user, components, &product_dm));
+        ProductComponents(PETSC_TRUE, dof, dof, components, first, second);
+        PetscCall(AccumulateParticleCentredProducts(user, particle[f], particle[f], view[f].dm, centre[f],
+                                                    view[f].dm, centre[f], components, first, second,
+                                                    product_dm, storage->m2[f]));
+    }
+    for (PetscInt pair = 0; pair < definition->covariance_count; ++pair) {
+        PetscInt a = 0, b = 0, components = 0, first[6], second[6];
+        DM pair_dm = NULL;
+
+        PetscCall(FindFieldSlot(definition, definition->covariances[pair].first, &a));
+        PetscCall(FindFieldSlot(definition, definition->covariances[pair].second, &b));
+        PetscCall(PicurvCovarianceComponentCount(view[a].descriptor->dof, view[b].descriptor->dof, &components));
+        PetscCall(PicurvStatisticsComponentDM(user, components, &pair_dm));
+        ProductComponents(PETSC_FALSE, view[a].descriptor->dof, view[b].descriptor->dof, components, first, second);
+        PetscCall(AccumulateParticleCentredProducts(user, particle[a], particle[b], view[a].dm, centre[a],
+                                                    view[b].dm, centre[b], components, first, second,
+                                                    pair_dm, storage->cm[pair]));
+    }
+
+    for (PetscInt f = 0; f < definition->field_count; ++f) PetscCall(VecDestroy(&centre[f]));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "PicurvWindowStorageReduce"
+/**
+ * @brief Implementation of \ref PicurvWindowStorageReduce().
+ * @see PicurvWindowStorageReduce()
+ */
+PetscErrorCode PicurvWindowStorageReduce(UserCtx *user, const PicurvWindowDefinition *definition,
+                                         const PicurvWindowStorage *storage,
+                                         const PetscBool average_direction[3],
+                                         PicurvWindowStorage *reduced)
+{
+    SpatialTargetPlan plan;
+    PetscReal ***weight = NULL, ***occupied = NULL;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCheck(user != NULL && definition != NULL && storage != NULL && reduced != NULL && average_direction != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Context, definition, and both storages are required.");
+    if (definition->field_count == 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
+    PetscCall(SpatialTargetPlanCreate(user, (FieldId)definition->fields[0].field_id,
+                                      PICURV_STATISTICS_MASK_FLUID, &plan));
+    PetscCall(DMDAVecGetArrayRead(user->da, storage->weight, &weight));
+
+    /* Slot means: the weighted average of the point means, written to every point.
+     * A point the window never sampled is excluded, never averaged in as a zero. */
+    for (PetscInt f = 0; f < definition->field_count; ++f) {
+        FieldView view;
+        PetscScalar ****mean = NULL, ****weighted = NULL;
+        Vec scratch = NULL;
+
+        PetscCall(FieldGetView(user, (FieldId)definition->fields[f].field_id, &view));
+        PetscCall(VecDuplicate(storage->mean[f], &scratch));
+        PetscCall(DMDAVecGetArrayDOFRead(view.dm, storage->mean[f], &mean));
+        PetscCall(DMDAVecGetArrayDOF(view.dm, scratch, &weighted));
+        for (PetscInt k = plan.start[2]; k < plan.end[2]; ++k)
+        for (PetscInt j = plan.start[1]; j < plan.end[1]; ++j)
+        for (PetscInt i = plan.start[0]; i < plan.end[0]; ++i) {
+            for (PetscInt c = 0; c < view.descriptor->dof; ++c) weighted[k][j][i][c] = weight[k][j][i] * mean[k][j][i][c];
+        }
+        PetscCall(DMDAVecRestoreArrayDOF(view.dm, scratch, &weighted));
+        PetscCall(DMDAVecRestoreArrayDOFRead(view.dm, storage->mean[f], &mean));
+        PetscCall(PicurvSpatialRatioAverage(user, &plan, scratch, storage->weight, storage->weight,
+                                            average_direction, PETSC_COMM_WORLD, reduced->mean[f], NULL));
+        PetscCall(VecDestroy(&scratch));
+    }
+
+    /* Slot co-moments: every point's own co-moment plus the spread of its means about
+     * the slot means, divided by the slot weight. Self-products, then cross pairs. */
+    for (PetscInt index = 0; index < storage->field_count + storage->covariance_count; ++index) {
+        const PetscBool self = (PetscBool)(index < storage->field_count);
+        const PetscInt pair = index - storage->field_count;
+        PetscInt a = index, b = index, components = 0, first[6], second[6];
+        FieldView view_a, view_b;
+        PetscScalar ****point_a = NULL, ****point_b = NULL, ****slot_a = NULL, ****slot_b = NULL;
+        PetscScalar ****moment = NULL, ****total = NULL;
+        Vec source = NULL, target = NULL, scratch = NULL;
+        DM product_dm = NULL;
+
+        if (self) {
+            if (!storage->m2[index]) continue;
+            source = storage->m2[index];
+            target = reduced->m2[index];
+        } else {
+            PetscCall(FindFieldSlot(definition, definition->covariances[pair].first, &a));
+            PetscCall(FindFieldSlot(definition, definition->covariances[pair].second, &b));
+            source = storage->cm[pair];
+            target = reduced->cm[pair];
+        }
+        PetscCall(FieldGetView(user, (FieldId)definition->fields[a].field_id, &view_a));
+        PetscCall(FieldGetView(user, (FieldId)definition->fields[b].field_id, &view_b));
+        PetscCall(VecGetDM(source, &product_dm));
+        PetscCall(DMDAGetInfo(product_dm, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &components,
+                              NULL, NULL, NULL, NULL, NULL));
+        ProductComponents(self, view_a.descriptor->dof, view_b.descriptor->dof, components, first, second);
+
+        PetscCall(VecDuplicate(source, &scratch));
+        PetscCall(DMDAVecGetArrayDOFRead(view_a.dm, storage->mean[a], &point_a));
+        PetscCall(DMDAVecGetArrayDOFRead(view_b.dm, storage->mean[b], &point_b));
+        PetscCall(DMDAVecGetArrayDOFRead(view_a.dm, reduced->mean[a], &slot_a));
+        PetscCall(DMDAVecGetArrayDOFRead(view_b.dm, reduced->mean[b], &slot_b));
+        PetscCall(DMDAVecGetArrayDOFRead(product_dm, source, &moment));
+        PetscCall(DMDAVecGetArrayDOF(product_dm, scratch, &total));
+        for (PetscInt k = plan.start[2]; k < plan.end[2]; ++k)
+        for (PetscInt j = plan.start[1]; j < plan.end[1]; ++j)
+        for (PetscInt i = plan.start[0]; i < plan.end[0]; ++i) {
+            for (PetscInt c = 0; c < components; ++c) {
+                total[k][j][i][c] = moment[k][j][i][c] + weight[k][j][i] *
+                                    (point_a[k][j][i][first[c]] - slot_a[k][j][i][first[c]]) *
+                                    (point_b[k][j][i][second[c]] - slot_b[k][j][i][second[c]]);
+            }
+        }
+        PetscCall(DMDAVecRestoreArrayDOF(product_dm, scratch, &total));
+        PetscCall(DMDAVecRestoreArrayDOFRead(product_dm, source, &moment));
+        PetscCall(DMDAVecRestoreArrayDOFRead(view_b.dm, reduced->mean[b], &slot_b));
+        PetscCall(DMDAVecRestoreArrayDOFRead(view_a.dm, reduced->mean[a], &slot_a));
+        PetscCall(DMDAVecRestoreArrayDOFRead(view_b.dm, storage->mean[b], &point_b));
+        PetscCall(DMDAVecRestoreArrayDOFRead(view_a.dm, storage->mean[a], &point_a));
+        PetscCall(PicurvSpatialRatioAverage(user, &plan, scratch, storage->weight, storage->weight,
+                                            average_direction, PETSC_COMM_WORLD, target, NULL));
+        PetscCall(VecDestroy(&scratch));
+    }
+
+    /* Unit weight wherever the slot was sampled, so derivation reads the stored values
+     * as they are. The averaged weight is positive exactly there. */
+    PetscCall(PicurvSpatialRatioAverage(user, &plan, storage->weight, NULL, storage->weight,
+                                        average_direction, PETSC_COMM_WORLD, reduced->weight, NULL));
+    PetscCall(DMDAVecGetArray(user->da, reduced->weight, &occupied));
+    for (PetscInt k = plan.start[2]; k < plan.end[2]; ++k)
+    for (PetscInt j = plan.start[1]; j < plan.end[1]; ++j)
+    for (PetscInt i = plan.start[0]; i < plan.end[0]; ++i) {
+        occupied[k][j][i] = (occupied[k][j][i] > 0.0) ? 1.0 : 0.0;
+    }
+    PetscCall(DMDAVecRestoreArray(user->da, reduced->weight, &occupied));
+    PetscCall(VecCopy(reduced->weight, reduced->count));
+    PetscCall(VecCopy(reduced->weight, reduced->weight_sq));
+
+    PetscCall(DMDAVecRestoreArrayRead(user->da, storage->weight, &weight));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

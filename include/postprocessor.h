@@ -12,6 +12,7 @@
 #include "postprocessing_kernels.h"
 #include "vtk_io.h"
 #include "particle_statistics.h"
+#include "ParticleMotion.h"
 /* --------------------------------------------------------------------
    postprocessor.h
 

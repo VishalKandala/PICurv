@@ -253,4 +253,60 @@ PetscErrorCode PicurvWindowValidFractionRange(UserCtx *user, const PicurvWindowD
 PetscErrorCode PicurvWindowAccumulate(UserCtx *user, const PicurvWindowDefinition *definition,
                                       PicurvWindowStorage *storage, PetscReal weight);
 
+/**
+ * @brief Fills a window's storage from the particles sampling each cell at one instant.
+ *
+ * The particles a cell holds are that cell's samples, each of unit weight, so the
+ * stored state is the cell's particle ensemble: its count, the ensemble mean of every
+ * requested field, and the centred sums of every requested self-product and
+ * covariance. Each field is identified by its Eulerian scatter target, which fixes its
+ * layout and the names its derived outputs carry.
+ *
+ * The runtime accumulator streams states it sees once, so it updates running means
+ * sample by sample. A snapshot holds every sample at once, which admits the two-pass
+ * form instead: the means first, through the same particle sum the runtime scatter
+ * uses, then the centred products about them. That is the more accurate of the two,
+ * needs no division per sample, and does not depend on particle order. Both produce
+ * the same stored state, so derivation and output treat the two alike.
+ *
+ * A particle contributes wherever its cell lies in this rank's ghosted patch, and the
+ * patch sums are added onto their owners, so a particle need not sit on the rank that
+ * owns its cell. One outside the patch is skipped, as in the scatter.
+ *
+ * @param[in]     user       Block context supplying the swarm and the grid.
+ * @param[in]     definition Fields and pairs to accumulate, by Eulerian scatter target.
+ * @param[in,out] storage    Freshly created storage for @p definition; overwritten.
+ * @return Zero on success, or a PETSc error, including for a field no particle field
+ *         scatters to.
+ */
+PetscErrorCode PicurvWindowStorageFromParticles(UserCtx *user, const PicurvWindowDefinition *definition,
+                                                PicurvWindowStorage *storage);
+
+/**
+ * @brief Merges a window's pointwise state over homogeneous directions.
+ *
+ * Every point of a retained slot is combined into one state through the weighted
+ * merge: the slot mean is the weight-averaged point mean, and the slot co-moment adds
+ * to the point co-moments the spread of the point means about it,
+ * \f$C = \sum_p [C_p + W_p (\mu_{a,p} - \mu_a)(\mu_{b,p} - \mu_b)] / \sum_p W_p\f$.
+ * It is the moment of the slot's whole sample set, which an average of the point
+ * statistics is not.
+ *
+ * The result is written back at every point of its slot, as a state of unit weight
+ * holding the merged mean and the merged co-moments already divided by the merged
+ * weight. The derivation therefore applies to it unchanged, and a point carries
+ * weight only where its slot was sampled. Its occupancy totals are not the slot's.
+ *
+ * @param[in]  user              Block context supplying the target domain and mask.
+ * @param[in]  definition        Window definition.
+ * @param[in]  storage           Pointwise state to merge.
+ * @param[in]  average_direction Directions to merge over, in `(i, j, k)` order.
+ * @param[out] reduced           Storage created for @p definition; overwritten.
+ * @return Zero on success, or a PETSc error.
+ */
+PetscErrorCode PicurvWindowStorageReduce(UserCtx *user, const PicurvWindowDefinition *definition,
+                                         const PicurvWindowStorage *storage,
+                                         const PetscBool average_direction[3],
+                                         PicurvWindowStorage *reduced);
+
 #endif /* PICURV_STATISTICS_ACCUMULATOR_H */

@@ -806,6 +806,13 @@ typedef struct PostProcessParams {
     PetscBool dimensionalize;
     /** Committed step supplying the state; negative means the step being processed. */
     PetscInt field_statistics_source_step;
+    /** Directions profiles merge over, in (i, j, k) order; none selected writes no profile. */
+    PetscBool field_statistics_homogeneous[3];
+    /** Recipe-defined single-instant windows, derived at every processed step. */
+    PetscInt field_statistics_ensemble_count;
+    struct PicurvWindow *field_statistics_ensembles;
+    /** Whether each ensemble samples the particles in a cell rather than the cell's state. */
+    PetscBool *field_statistics_ensemble_from_particles;
 
     // --- Legacy settings ---
     char eulerianExt[8]; // from original PostProcessParams (repurposed for PreCheckAndResize() as the input file extension.)

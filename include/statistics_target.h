@@ -154,7 +154,10 @@ PetscBool SpatialTargetPlanMaskAllows(const SpatialTargetPlan *plan, PetscReal n
  *
  * @param[in]  user        Block context supplying the DMDA and the solid mask.
  * @param[in]  plan        Resolved iteration domain, from `SpatialTargetPlanCreate()`.
- * @param[in]  numerator   Ghosted local field to average in the numerator.
+ * @param[in]  numerator   Field to average in the numerator, ghosted local or global, on
+ *                         any DMDA sharing the block's layout. Its components are averaged
+ *                         independently against the one scalar denominator, so a vector or
+ *                         a symmetric tensor reduces in one call.
  * @param[in]  denominator Ghosted local field to average in the denominator, or NULL
  *                         to divide by the number of admitted points.
  * @param[in]  inclusion   Optional second mask: points where this field is not
@@ -163,20 +166,23 @@ PetscBool SpatialTargetPlanMaskAllows(const SpatialTargetPlan *plan, PetscReal n
  *                         NULL applies the plan's mask alone.
  * @param[in]  average_direction Directions to average over, in `(xi, eta, zeta)` order.
  * @param[in]  comm        Communicator to reduce over.
- * @param[out] ratio       Ghosted local field receiving the quotient, or NULL when only
- *                         the scalar is wanted. Zero wherever the averaged denominator
- *                         underflows.
- * @param[out] scalar      Receives the single averaged value, or NULL. Valid only when
- *                         every direction is averaged, since otherwise there is no
- *                         single value to report.
+ * @param[out] ratio       Field on the numerator's DM receiving the quotient at every
+ *                         admitted point, or NULL when only @p reduced is wanted. Zero
+ *                         wherever the averaged denominator underflows.
+ * @param[out] reduced     Receives the quotient of every retained slot, or NULL. The
+ *                         same on every rank of @p comm. Holds `dof` entries per slot,
+ *                         slot `i + mx (j + my k)` over the retained global indices with
+ *                         an averaged direction's index taken as zero and its extent as
+ *                         one: one value when every direction is averaged, a profile
+ *                         when some are not. Slots no admitted point reached hold zero.
  * @return Zero on success, `PETSC_ERR_ARG_OUTOFRANGE` when the retained directions
  *         would need an unreasonably large reduction buffer, or
- *         `PETSC_ERR_ARG_WRONGSTATE` when a scalar is requested from a result that
- *         still varies in space.
+ *         `PETSC_ERR_ARG_WRONGSTATE` when @p reduced is requested from a pointwise
+ *         operation, which has no reduced form.
  */
 PetscErrorCode PicurvSpatialRatioAverage(UserCtx *user, const SpatialTargetPlan *plan,
                                          Vec numerator, Vec denominator, Vec inclusion,
                                          const PetscBool average_direction[3], MPI_Comm comm,
-                                         Vec ratio, PetscReal *scalar);
+                                         Vec ratio, PetscReal *reduced);
 
 #endif /* PICURV_STATISTICS_TARGET_H */

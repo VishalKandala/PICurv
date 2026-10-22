@@ -332,6 +332,15 @@ Selector: `post.yml -> field_statistics.outputs[]`
 | `rms` | `rms` |
 | `tke` | `tke` |
 
+### Field Statistics Ensemble Sources
+
+Selector: `post.yml -> field_statistics.ensembles[].source`
+
+| Value | Maps to |
+|---|---|
+| `eulerian` | `eulerian` |
+| `particles` | `particles` |
+
 ### Field Statistics Weighting Modes
 
 Selector: `monitor.yml -> field_statistics.windows[].weighting`

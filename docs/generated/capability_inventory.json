@@ -896,6 +896,23 @@
     "title": "Field Statistics Derived Outputs"
   },
   {
+    "family_page": "10_Post_Processing_Reference",
+    "id": "post.field_statistics_ensemble_source",
+    "parity": [],
+    "public_values": {
+      "eulerian": {
+        "maps_to": "eulerian",
+        "status": "experimental"
+      },
+      "particles": {
+        "maps_to": "particles",
+        "status": "experimental"
+      }
+    },
+    "selector": "post.yml -> field_statistics.ensembles[].source",
+    "title": "Field Statistics Ensemble Sources"
+  },
+  {
     "family_page": "58_Field_Statistics",
     "id": "statistics.weighting",
     "parity": [],

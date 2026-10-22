@@ -96,6 +96,14 @@ PetscErrorCode ParticleFieldTryIdFromName(const char *field_name, ParticleFieldI
                                           PetscBool *found);
 
 /**
+ * @brief Find the particle field that scatters to an Eulerian field.
+ * @param[in]  target   Eulerian field identity.
+ * @param[out] field_id The particle field whose scatter target is @p target.
+ * @return Zero on success; `PETSC_ERR_ARG_WRONG` when no particle field scatters there.
+ */
+PetscErrorCode ParticleFieldIdFromScatterTarget(FieldId target, ParticleFieldId *field_id);
+
+/**
  * @brief Return the canonical PETSc DMSwarm name for an ID.
  * @param[in] field_id Typed particle-field identity.
  * @return Catalog-owned canonical name or `InvalidParticleField`.

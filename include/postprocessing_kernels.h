@@ -4,6 +4,7 @@
 #include "variables.h"
 #include "logging.h"
 #include "io.h" // For the UpdateLocalGhosts function prototype
+#include "statistics_accumulator.h"
 
 // Function prototypes for post-processing kernels
 
@@ -114,8 +115,9 @@ PetscErrorCode ComputeDisplacement(UserCtx *user, const char *disp_field);
  * scaling table alone cannot express, and why one blanket velocity factor would have
  * been wrong for three of the five kinds.
  *
- * @param[in]  user         Block context holding the accumulators and staging fields.
- * @param[in]  window_index Window whose state is derived.
+ * @param[in]  user         Block context holding the staging fields.
+ * @param[in]  definition   Window or ensemble whose state is derived.
+ * @param[in]  storage      Its accumulated state.
  * @param[in]  outputs      Comma-separated output kinds the recipe requested.
  * @param[in]  output_index Index into that output set.
  * @param[out] out_name     Name of the derived field, window qualified.
@@ -124,10 +126,38 @@ PetscErrorCode ComputeDisplacement(UserCtx *user, const char *disp_field);
  * @param[out] out_components Component count of the result.
  * @return Zero on success, or a PETSc error.
  */
-PetscErrorCode ComputeWindowStatisticNodal(UserCtx *user, PetscInt window_index,
+PetscErrorCode ComputeWindowStatisticNodal(UserCtx *user, const PicurvWindowDefinition *definition,
+                                           const PicurvWindowStorage *storage,
                                            const char *outputs, PetscInt output_index,
                                            char *out_name, size_t name_size,
                                            Vec *out_vec, PetscInt *out_components);
+
+/**
+ * @brief Writes a window's statistics merged over homogeneous directions as a profile.
+ *
+ * Merges the pointwise state over the selected directions through
+ * `PicurvWindowStorageReduce()`, derives every requested output from the merged state,
+ * and writes one CSV row per retained slot the window sampled: the slot's 0-based cell
+ * index along each retained direction, its mean cell-centre coordinates, and each
+ * derived output, a vector one column per component. A variance or stress is that of
+ * the slot's whole sample set, including the spread of the point means across it.
+ * Selecting every direction gives one row for the whole domain.
+ *
+ * With `global_operations.dimensionalize` set, the outputs and coordinates are physical.
+ *
+ * @param[in] user              Block context holding the staging fields.
+ * @param[in] definition        Window or ensemble whose state is reduced.
+ * @param[in] storage           Its pointwise state.
+ * @param[in] outputs           Comma-separated output kinds the recipe requested.
+ * @param[in] average_direction Directions to merge over, in `(i, j, k)` order.
+ * @param[in] output_prefix     Output path prefix; `_profile_<name>_<step>.csv` is appended.
+ * @param[in] ti                Step being processed.
+ * @return Zero on success, or a PETSc error.
+ */
+PetscErrorCode ComputeWindowStatisticsProfile(UserCtx *user, const PicurvWindowDefinition *definition,
+                                              const PicurvWindowStorage *storage, const char *outputs,
+                                              const PetscBool average_direction[3],
+                                              const char *output_prefix, PetscInt ti);
 
 /**
  * @brief Appends one convergence row for an accumulated window to its CSV history.

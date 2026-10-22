@@ -252,7 +252,7 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
     /* The symmetric-tensor DM exists only to carry statistics products, and only the
      * finest level accumulates them. Configuration is resolved before grid setup, so
      * a run without statistics never builds it. */
-    if (FieldStatisticsIsActive(simCtx) && user->thislevel == simCtx->mglevels - 1) {
+    if (FieldStatisticsNeedsWorkspace(simCtx) && user->thislevel == simCtx->mglevels - 1) {
         ierr = CreateCompatibleBlockDM(user->da, 6, &user->fda6); CHKERRQ(ierr);
     }
     ierr = DMDASetUniformCoordinates(user->da, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0); CHKERRQ(ierr);

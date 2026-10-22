@@ -1889,6 +1889,42 @@
       }
     },
     {
+      "id": "post.field_statistics_ensemble_source",
+      "title": "Field Statistics Ensemble Sources",
+      "selector": "post.yml -> field_statistics.ensembles[].source",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "POST_STATISTICS_ENSEMBLE_SOURCES"
+      },
+      "parity_sources": [],
+      "family_page": "10_Post_Processing_Reference",
+      "entry_anchor_prefix": "p10_cap_fse_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "particles": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-statistics-accumulator",
+              "make:unit-post-compute-mpi"
+            ]
+          }
+        },
+        "eulerian": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:unit-statistics-accumulator",
+              "make:unit-post-compute-mpi"
+            ]
+          }
+        }
+      }
+    },
+    {
       "id": "statistics.weighting",
       "title": "Field Statistics Weighting Modes",
       "selector": "monitor.yml -> field_statistics.windows[].weighting",

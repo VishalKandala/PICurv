@@ -432,6 +432,16 @@ PetscBool FieldStatisticsIsActive(const SimCtx *simCtx)
                        simCtx->fieldStatisticsWindows != NULL);
 }
 
+/**
+ * @brief Implementation of \ref FieldStatisticsNeedsWorkspace().
+ * @see FieldStatisticsNeedsWorkspace()
+ */
+PetscBool FieldStatisticsNeedsWorkspace(const SimCtx *simCtx)
+{
+    if (FieldStatisticsIsActive(simCtx)) return PETSC_TRUE;
+    return (PetscBool)(simCtx && simCtx->pps && simCtx->pps->field_statistics_ensemble_count > 0);
+}
+
 #undef __FUNCT__
 #define __FUNCT__ "FieldStatisticsUpdateWindows"
 /**

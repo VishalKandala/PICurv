@@ -210,14 +210,16 @@ static PetscInt SpatialAverageSlot(const PetscBool average_direction[3],
 PetscErrorCode PicurvSpatialRatioAverage(UserCtx *user, const SpatialTargetPlan *plan,
                                          Vec numerator, Vec denominator, Vec inclusion,
                                          const PetscBool average_direction[3], MPI_Comm comm,
-                                         Vec ratio, PetscReal *scalar)
+                                         Vec ratio, PetscReal *reduced)
 {
-    DM             da = NULL;
+    DM             da = NULL, numerator_dm = NULL;
     DMDALocalInfo  info;
     PetscInt       retained_extent[3];
     PetscInt       buffer_size = 1;
     PetscInt       averaged_count = 0;
-    PetscReal   ***num = NULL, ***den = NULL, ***inc = NULL, ***out = NULL, ***nvert = NULL;
+    PetscInt       dof = 1;
+    PetscReal   ***den = NULL, ***inc = NULL, ***nvert = NULL;
+    PetscScalar ****num = NULL, ****out = NULL;
     PetscReal     *num_sum = NULL, *den_sum = NULL;
 
     PetscFunctionBeginUser;
@@ -228,6 +230,13 @@ PetscErrorCode PicurvSpatialRatioAverage(UserCtx *user, const SpatialTargetPlan 
 
     da = user->da;
     PetscCall(DMDAGetLocalInfo(da, &info));
+    /* The numerator's own DM supplies its component count; every component shares the
+     * scalar denominator, inclusion mask and solid mask. */
+    PetscCall(VecGetDM(numerator, &numerator_dm));
+    PetscCheck(numerator_dm != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+               "The numerator must carry the DMDA it was created from.");
+    PetscCall(DMDAGetInfo(numerator_dm, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &dof,
+                          NULL, NULL, NULL, NULL, NULL));
 
     retained_extent[0] = average_direction[0] ? 1 : info.mx;
     retained_extent[1] = average_direction[1] ? 1 : info.my;
@@ -236,14 +245,13 @@ PetscErrorCode PicurvSpatialRatioAverage(UserCtx *user, const SpatialTargetPlan 
         if (average_direction[axis]) averaged_count++;
         buffer_size *= retained_extent[axis];
     }
-    PetscCheck(scalar == NULL || averaged_count == 3, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
-               "A single averaged value exists only when every direction is averaged over; "
-               "%" PetscInt_FMT " of 3 were selected.", averaged_count);
+    PetscCheck(reduced == NULL || averaged_count > 0, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+               "Reduced values exist only when at least one direction is averaged over.");
 
-    PetscCall(DMDAVecGetArrayRead(da, numerator, &num));
+    PetscCall(DMDAVecGetArrayDOFRead(numerator_dm, numerator, &num));
     if (denominator) PetscCall(DMDAVecGetArrayRead(da, denominator, &den));
     if (inclusion) PetscCall(DMDAVecGetArrayRead(da, inclusion, &inc));
-    if (ratio) PetscCall(DMDAVecGetArray(da, ratio, &out));
+    if (ratio) PetscCall(DMDAVecGetArrayDOF(numerator_dm, ratio, &out));
     PetscCall(DMDAVecGetArrayRead(da, user->lNvert, &nvert));
 
     if (averaged_count == 0) {
@@ -256,22 +264,22 @@ PetscErrorCode PicurvSpatialRatioAverage(UserCtx *user, const SpatialTargetPlan 
         for (PetscInt j = plan->start[1]; j < plan->end[1]; j++)
         for (PetscInt i = plan->start[0]; i < plan->end[0]; i++) {
             const PetscReal divisor = denominator ? den[k][j][i] : 1.0;
+            const PetscBool admitted = (PetscBool)(SpatialTargetPlanMaskAllows(plan, nvert[k][j][i]) &&
+                                                   !(inc && inc[k][j][i] <= 0.0));
 
-            if (!SpatialTargetPlanMaskAllows(plan, nvert[k][j][i]) ||
-                (inc && inc[k][j][i] <= 0.0)) {
-                out[k][j][i] = 0.0;
-                continue;
+            for (PetscInt c = 0; c < dof; c++) {
+                out[k][j][i][c] = (admitted && PetscAbsReal(divisor) > 0.0)
+                                      ? (num[k][j][i][c] / divisor) : 0.0;
             }
-            out[k][j][i] = (PetscAbsReal(divisor) > 0.0) ? (num[k][j][i] / divisor) : 0.0;
         }
     } else {
-        PetscCheck(buffer_size <= PICURV_SPATIAL_AVERAGE_MAX_BUFFER, PETSC_COMM_SELF,
+        PetscCheck(buffer_size * dof <= PICURV_SPATIAL_AVERAGE_MAX_BUFFER, PETSC_COMM_SELF,
                    PETSC_ERR_ARG_OUTOFRANGE,
                    "Averaging over %" PetscInt_FMT " direction(s) would need a reduction buffer "
                    "of %" PetscInt_FMT " entries, above the %d entry limit. Average over more "
-                   "directions.", averaged_count, buffer_size, PICURV_SPATIAL_AVERAGE_MAX_BUFFER);
+                   "directions.", averaged_count, buffer_size * dof, PICURV_SPATIAL_AVERAGE_MAX_BUFFER);
 
-        PetscCall(PetscCalloc2(buffer_size, &num_sum, buffer_size, &den_sum));
+        PetscCall(PetscCalloc2(buffer_size * dof, &num_sum, buffer_size, &den_sum));
 
         for (PetscInt k = plan->start[2]; k < plan->end[2]; k++)
         for (PetscInt j = plan->start[1]; j < plan->end[1]; j++)
@@ -284,14 +292,20 @@ PetscErrorCode PicurvSpatialRatioAverage(UserCtx *user, const SpatialTargetPlan 
             if (inc && inc[k][j][i] <= 0.0) continue;
 
             slot = SpatialAverageSlot(average_direction, retained_extent, i, j, k);
-            num_sum[slot] += num[k][j][i];
+            for (PetscInt c = 0; c < dof; c++) num_sum[slot * dof + c] += num[k][j][i][c];
             den_sum[slot] += denominator ? den[k][j][i] : 1.0;
         }
 
-        PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, num_sum, (PetscMPIInt)buffer_size,
+        PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, num_sum, (PetscMPIInt)(buffer_size * dof),
                                    MPIU_REAL, MPI_SUM, comm));
         PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, den_sum, (PetscMPIInt)buffer_size,
                                    MPIU_REAL, MPI_SUM, comm));
+        for (PetscInt slot = 0; slot < buffer_size; slot++) {
+            for (PetscInt c = 0; c < dof; c++) {
+                num_sum[slot * dof + c] = (PetscAbsReal(den_sum[slot]) > 0.0)
+                                              ? (num_sum[slot * dof + c] / den_sum[slot]) : 0.0;
+            }
+        }
 
         if (out) {
             for (PetscInt k = plan->start[2]; k < plan->end[2]; k++)
@@ -299,21 +313,18 @@ PetscErrorCode PicurvSpatialRatioAverage(UserCtx *user, const SpatialTargetPlan 
             for (PetscInt i = plan->start[0]; i < plan->end[0]; i++) {
                 const PetscInt slot = SpatialAverageSlot(average_direction, retained_extent, i, j, k);
 
-                out[k][j][i] = (PetscAbsReal(den_sum[slot]) > 0.0)
-                                   ? (num_sum[slot] / den_sum[slot]) : 0.0;
+                for (PetscInt c = 0; c < dof; c++) out[k][j][i][c] = num_sum[slot * dof + c];
             }
         }
-        if (scalar) {
-            *scalar = (PetscAbsReal(den_sum[0]) > 0.0) ? (num_sum[0] / den_sum[0]) : 0.0;
-        }
+        if (reduced) PetscCall(PetscArraycpy(reduced, num_sum, buffer_size * dof));
 
         PetscCall(PetscFree2(num_sum, den_sum));
     }
 
-    PetscCall(DMDAVecRestoreArrayRead(da, numerator, &num));
+    PetscCall(DMDAVecRestoreArrayDOFRead(numerator_dm, numerator, &num));
     if (denominator) PetscCall(DMDAVecRestoreArrayRead(da, denominator, &den));
     if (inclusion) PetscCall(DMDAVecRestoreArrayRead(da, inclusion, &inc));
-    if (ratio) PetscCall(DMDAVecRestoreArray(da, ratio, &out));
+    if (ratio) PetscCall(DMDAVecRestoreArrayDOF(numerator_dm, ratio, &out));
     PetscCall(DMDAVecRestoreArrayRead(da, user->lNvert, &nvert));
 
     PROFILE_FUNCTION_END;

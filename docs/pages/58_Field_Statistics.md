@@ -40,9 +40,12 @@ pipeline does not conflate them.
 not snapshots. A run that needs the states themselves selects ordinary
 instantaneous field output.
 
-**Particle ensemble statistics are a separate subsystem.** Mean-square
+**Particle trajectory statistics are a separate subsystem.** Mean-square
 displacement and its relatives live under `post.yml -> statistics_pipeline` and
-share no state with field windows. See @ref 28_IEM_and_Statistical_Averaging.
+share no state with field windows. See @ref 28_IEM_and_Statistical_Averaging. The
+moments of the particles *within each cell* at one instant are different: they are
+a window whose samples are particles, defined as a recipe ensemble
+(@ref p10_ensembles_sub), and they use this subsystem's storage and derivation.
 
 @section p58_window_sec 2. Windows
 
@@ -418,6 +421,14 @@ averaging over them scales the result down by whatever fraction of the vector th
 window never covered. The valid-fraction column in the same row reveals whether the
 mask made the sampled set smaller than the targeted one; at one they are the same set.
 
+With `homogeneous` set, `csv` also writes a profile per processed step: the state
+merged over the named directions into the moments of each retained slot's pooled
+samples, derived through the same normalization (@ref p10_profiles_sub). The merge is
+`PicurvWindowStorageReduce`, which writes the merged state back as unit-weight storage
+so `PicurvWindowDerive` applies unchanged. A recipe may also define ensembles,
+single-instant windows filled from the step being processed rather than restored from
+a bundle (@ref p10_ensembles_sub); they are derived and written exactly as windows are.
+
 A window with no sample yet at a given step is skipped with a note rather than
 treated as an error, because a recipe covering a whole run legitimately reaches
 bundles from before that window began.
@@ -514,6 +525,21 @@ every accepted step, and the offline derivation and spatial reduction that run o
 in post-processing. They share exactly one thing, the symmetric component-pair
 table that defines product order. The moment to split them is when a further
 product family arrives and that table needs a home of its own.
+
+**Two producers fill the same storage.** `PicurvWindowAccumulate` streams: each
+accepted state arrives once, so it updates running means sample by sample with the
+weighted Welford form. That fixes its order of operations, occupancy first, then
+co-moments against the pre-update means, then means, each pass sweeping the grid for
+one field. `PicurvWindowStorageFromParticles` fills the same state from a particle
+snapshot, where every sample is present at once. It uses the two-pass centred form
+instead: cell means from the particle sum the runtime scatter already uses
+(`AccumulateParticleField`), then centred products about them in a second particle
+pass. That is the more accurate of the two, needs no division per sample, and is
+independent of particle order. The two therefore do not share an update routine;
+they share the storage contract (a mean, and centred sums of the second moments and
+co-moments), and a unit test checks that both produce the same state from the same
+samples. Moving the streaming accumulator onto a per-sample routine would reorder its
+hot loop from per-field sweeps to per-point updates.
 
 **Several moment kernels have no production caller.** The reset functions are
 their structs' constructors; the merge functions implement the weighted parallel

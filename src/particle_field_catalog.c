@@ -18,7 +18,8 @@ static const ParticleFieldDescriptor gParticleFieldCatalog[PARTICLE_FIELD_ID_COU
     PARTICLE_FIELD_ENTRY(PARTICLE_FIELD_ID_VELOCITY, "velocity", "ParticleVelocity", NULL,
                          3, PETSC_REAL, PARTICLE_FIELD_REGISTRATION_PICURV,
                          PARTICLE_FIELD_CAPABILITY_DEFAULT_INITIALIZE |
-                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT, 0.0, FIELD_ID_INVALID,
+                         PARTICLE_FIELD_CAPABILITY_EULERIAN_SCATTER |
+                         PARTICLE_FIELD_CAPABILITY_CHECKPOINT, 0.0, FIELD_ID_UCAT,
                 FIELD_DIM_VELOCITY),
     PARTICLE_FIELD_ENTRY(PARTICLE_FIELD_ID_CELL_ID, "DMSwarm_CellID", "CellID", NULL,
                          3, PETSC_INT, PARTICLE_FIELD_REGISTRATION_PICURV,
@@ -82,6 +83,26 @@ PetscErrorCode ParticleFieldGetDescriptor(ParticleFieldId field_id,
 
     *descriptor = &gParticleFieldCatalog[field_id];
     PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Returns the particle field scattering to one Eulerian field.
+ * @see ParticleFieldIdFromScatterTarget()
+ */
+PetscErrorCode ParticleFieldIdFromScatterTarget(FieldId target, ParticleFieldId *field_id)
+{
+    PetscFunctionBeginUser;
+    PetscCheck(field_id != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "ParticleFieldId output cannot be NULL.");
+    for (PetscInt index = 0; index < PARTICLE_FIELD_ID_COUNT; ++index) {
+        if ((gParticleFieldCatalog[index].capabilities & PARTICLE_FIELD_CAPABILITY_EULERIAN_SCATTER) &&
+            gParticleFieldCatalog[index].eulerian_scatter_target == target) {
+            *field_id = (ParticleFieldId)index;
+            PetscFunctionReturn(0);
+        }
+    }
+    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+            "No particle field scatters to Eulerian field '%s'.", FieldCanonicalName(target));
 }
 
 /**

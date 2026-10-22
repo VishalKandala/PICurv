@@ -4115,6 +4115,43 @@ def post_spectra_task_basename(task_cfg: dict, output_prefix: str) -> str:
     return "_".join(parts)
 
 
+def _normalize_post_statistics_ensembles(raw) -> list:
+    """!
+    @brief Validate and canonicalize the ensembles a post recipe defines.
+    @details An ensemble is a window over one instant: its samples are the particles in
+             each cell, or each cell's own state, at the step being processed. It is
+             defined in the recipe rather than the run, because it needs no state
+             accumulated during the solve.
+    @param[in] raw The recipe's `field_statistics.ensembles` list, or None.
+    @return List of ensembles with name, source, fields and covariances.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("'field_statistics.ensembles' must be a list.")
+    ensembles = []
+    for index, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            raise ValueError(f"'field_statistics.ensembles[{index}]' must be a mapping.")
+        name = entry.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"'field_statistics.ensembles[{index}]' needs a non-empty 'name'.")
+        name = name.strip()
+        if any(existing["name"] == name for existing in ensembles):
+            raise ValueError(f"field statistics ensemble '{name}' is defined more than once.")
+        source = entry.get("source")
+        if source not in POST_STATISTICS_ENSEMBLE_SOURCES:
+            raise ValueError(
+                f"field statistics ensemble '{name}': 'source' must be one of "
+                f"{list(POST_STATISTICS_ENSEMBLE_SOURCES)} (got {source!r})."
+            )
+        fields, covariances = _normalize_statistics_requests(
+            f"field statistics ensemble '{name}'", entry.get("fields"), entry.get("covariances"),
+            _ensemble_source_fields(source))
+        ensembles.append({"name": name, "source": source, "fields": fields, "covariances": covariances})
+    return ensembles
+
+
 def normalize_post_field_statistics_config(post_cfg: dict) -> dict:
     """!
     @brief Validate and canonicalize the field_statistics block of post.yml.
@@ -4130,13 +4167,16 @@ def normalize_post_field_statistics_config(post_cfg: dict) -> dict:
     """
     raw = (post_cfg or {}).get("field_statistics")
     if raw is None:
-        return {"windows": [], "source_step": None, "outputs": [], "formats": []}
+        return {"windows": [], "ensembles": [], "homogeneous": [], "source_step": None,
+                "outputs": [], "formats": []}
     if not isinstance(raw, dict):
         raise ValueError("'field_statistics' must be a mapping.")
 
-    windows = raw.get("windows")
-    if not isinstance(windows, list) or not windows:
-        raise ValueError("'field_statistics.windows' must be a non-empty list of window names.")
+    ensembles = _normalize_post_statistics_ensembles(raw.get("ensembles"))
+    windows = raw.get("windows", [] if ensembles else None)
+    if not isinstance(windows, list) or not (windows or ensembles):
+        raise ValueError("'field_statistics.windows' must be a non-empty list of window names "
+                         "unless 'ensembles' defines what to derive.")
     cleaned = []
     for entry in windows:
         if not isinstance(entry, str) or not entry.strip():
@@ -4146,8 +4186,12 @@ def normalize_post_field_statistics_config(post_cfg: dict) -> dict:
         if name in cleaned:
             raise ValueError(f"field statistics recipe lists window '{name}' more than once.")
         cleaned.append(name)
+    for ensemble in ensembles:
+        if ensemble["name"] in cleaned:
+            raise ValueError(f"field statistics ensemble '{ensemble['name']}' has the name of a "
+                             "requested window; both would write the same files.")
 
-    label = ", ".join(cleaned)
+    label = ", ".join(cleaned + [ensemble["name"] for ensemble in ensembles])
     source_step = raw.get("source_step")
     if source_step is not None:
         if not isinstance(source_step, int) or isinstance(source_step, bool) or source_step < 0:
@@ -4180,15 +4224,31 @@ def normalize_post_field_statistics_config(post_cfg: dict) -> dict:
     if len(set(formats)) != len(formats):
         raise ValueError(f"field statistics recipe for [{label}]: 'formats' lists a duplicate.")
 
+    homogeneous = raw.get("homogeneous", [])
+    if (not isinstance(homogeneous, list) or any(axis not in ("i", "j", "k") for axis in homogeneous)
+            or len(set(homogeneous)) != len(homogeneous)):
+        raise ValueError(
+            f"field statistics recipe for [{label}]: 'homogeneous' must list distinct axes from "
+            f"['i', 'j', 'k'] (got {homogeneous!r})."
+        )
+    # An ensemble has no convergence history, so its CSV output is the profile alone.
+    if ensembles and "csv" in formats and not homogeneous:
+        raise ValueError(
+            f"field statistics recipe for [{label}]: an ensemble writes CSV only as a profile, "
+            "so 'csv' needs 'homogeneous' to name the directions to merge over."
+        )
+
     return {
         "windows": cleaned,
+        "ensembles": ensembles,
+        "homogeneous": [axis for axis in ("i", "j", "k") if axis in homogeneous],
         "source_step": source_step,
         "outputs": list(outputs),
         "formats": list(formats),
     }
 
 
-def _post_window_derived_field_count(window_cfg: dict, outputs: list) -> int:
+def _post_window_derived_field_count(window_cfg: dict, outputs: list, eligible: dict = None) -> int:
     """!
     @brief Count the derived fields one window would produce for a set of outputs.
 
@@ -4199,8 +4259,11 @@ def _post_window_derived_field_count(window_cfg: dict, outputs: list) -> int:
 
     @param[in] window_cfg Normalized window definition from monitor.yml.
     @param[in] outputs Requested output kinds.
+    @param[in] eligible Field table the window's fields are named from; the Eulerian
+                        table when None.
     @return Value returned by `_post_window_derived_field_count()`.
     """
+    eligible = STATISTICS_ELIGIBLE_FIELDS if eligible is None else eligible
     fields = window_cfg.get("fields", []) or []
     covariances = window_cfg.get("covariances", []) or []
     with_second = [f for f in fields if "second" in (f.get("moments") or [])]
@@ -4210,14 +4273,14 @@ def _post_window_derived_field_count(window_cfg: dict, outputs: list) -> int:
             total += len(fields)
         elif kind == "reynolds_stress":
             for entry in with_second:
-                dof = STATISTICS_ELIGIBLE_FIELDS[entry["field"]]["components"]
+                dof = eligible[entry["field"]]["components"]
                 total += 6 if dof == 3 else 1
         elif kind == "rms":
             for entry in with_second:
-                total += STATISTICS_ELIGIBLE_FIELDS[entry["field"]]["components"]
+                total += eligible[entry["field"]]["components"]
         elif kind == "tke":
             total += sum(1 for entry in with_second
-                         if STATISTICS_ELIGIBLE_FIELDS[entry["field"]]["components"] == 3)
+                         if eligible[entry["field"]]["components"] == 3)
         elif kind == "flux":
             total += len(covariances)
     return total
@@ -4230,7 +4293,8 @@ def _post_requests_field_statistics(post_cfg: dict) -> bool:
     @return Value returned by `_post_requests_field_statistics()`.
     """
     try:
-        return bool(normalize_post_field_statistics_config(post_cfg)["windows"])
+        config = normalize_post_field_statistics_config(post_cfg)
+        return bool(config["windows"] or config["ensembles"])
     except ValueError:
         # Malformed configuration is reported by validation, not by this predicate.
         return False
@@ -4243,10 +4307,12 @@ def get_post_field_statistics_artifacts(post_cfg: dict, run_dir: str):
              half-finished window from a completed one.
     @param[in] post_cfg Parsed post-processing configuration.
     @param[in] run_dir Run directory the outputs are written under.
-    @return List of (kind, path_prefix, window) tuples; kind is 'vtk' or 'csv'.
+    @return List of (kind, path_prefix, window) tuples; kind is 'vtk', 'csv' (a history
+            shared by every step) or 'profile' (a prefix taking `_<step>.csv`). window is
+            None for a recipe ensemble, which every processed step produces.
     """
     config = normalize_post_field_statistics_config(post_cfg)
-    if not config["windows"]:
+    if not (config["windows"] or config["ensembles"]):
         return []
     io_cfg = post_cfg.get("io", {}) or {}
     internal = (post_cfg or {}).get("_picurv_paths", {}) or {}
@@ -4255,17 +4321,21 @@ def get_post_field_statistics_artifacts(post_cfg: dict, run_dir: str):
     csv_prefix_path = None
     if internal.get("field_statistics_prefix"):
         csv_prefix_path = os.path.join(run_dir, internal["field_statistics_prefix"])
+    csv_base = csv_prefix_path or os.path.join(visualization_dir, str(visualization_prefix))
     artifacts = []
-    for window in config["windows"]:
+    # An ensemble is built from the step itself, so every processed step produces it;
+    # its entries carry no window, which marks them as always expected.
+    owners = [(window, window) for window in config["windows"]]
+    owners += [(ensemble["name"], None) for ensemble in config["ensembles"]]
+    for name, window in owners:
         if "vtk" in config["formats"]:
             artifacts.append(("vtk", os.path.join(
-                visualization_dir, f"{visualization_prefix}_statistics_{window}"
+                visualization_dir, f"{visualization_prefix}_statistics_{name}"
             ), window))
-        if "csv" in config["formats"]:
-            csv_base = csv_prefix_path or os.path.join(
-                visualization_dir, str(visualization_prefix)
-            )
-            artifacts.append(("csv", f"{csv_base}_statistics_{window}.csv", window))
+        if "csv" in config["formats"] and window is not None:
+            artifacts.append(("csv", f"{csv_base}_statistics_{name}.csv", window))
+        if "csv" in config["formats"] and config["homogeneous"]:
+            artifacts.append(("profile", f"{csv_base}_profile_{name}", window))
     return artifacts
 
 
@@ -4338,7 +4408,7 @@ def build_post_recipe_config(post_cfg: dict, monitor_cfg=None) -> dict:
     io = post_cfg.get('io', {})
     internal_paths = post_cfg.get('_picurv_paths', {}) or {}
     field_statistics = normalize_post_field_statistics_config(post_cfg)
-    if field_statistics["windows"]:
+    if field_statistics["windows"] or field_statistics["ensembles"]:
         c_config['field_statistics_windows'] = ",".join(field_statistics["windows"])
         c_config['field_statistics_outputs'] = ",".join(field_statistics["outputs"])
         c_config['field_statistics_formats'] = ",".join(field_statistics["formats"])
@@ -4348,6 +4418,23 @@ def build_post_recipe_config(post_cfg: dict, monitor_cfg=None) -> dict:
             c_config['field_statistics_source_step'] = field_statistics["source_step"]
         if internal_paths.get("field_statistics_prefix"):
             c_config['field_statistics_output_prefix'] = internal_paths["field_statistics_prefix"]
+        if field_statistics["homogeneous"]:
+            c_config['field_statistics_homogeneous'] = ",".join(field_statistics["homogeneous"])
+        # Ensemble lines are the run windows' option families under the ensemble kind;
+        # the post-processor forwards them to the window parser it shares.
+        if field_statistics["ensembles"]:
+            c_config['field_statistics_ensemble_count'] = len(field_statistics["ensembles"])
+        for index, ensemble in enumerate(field_statistics["ensembles"]):
+            prefix = f"field_statistics_ensemble_{index}"
+            c_config[f'{prefix}_name'] = ensemble["name"]
+            c_config[f'{prefix}_source'] = ensemble["source"]
+            c_config[f'{prefix}_field_count'] = len(ensemble["fields"])
+            for field_index, field_entry in enumerate(ensemble["fields"]):
+                c_config[f'{prefix}_field_{field_index}_name'] = field_entry["field"]
+                c_config[f'{prefix}_field_{field_index}_moments'] = ",".join(field_entry["moments"])
+            c_config[f'{prefix}_covariance_count'] = len(ensemble["covariances"])
+            for pair_index, pair in enumerate(ensemble["covariances"]):
+                c_config[f'{prefix}_covariance_{pair_index}'] = f"{pair[0]},{pair[1]}"
 
     c_config['output_prefix'] = io.get('output_directory', 'viz') + '/' + io.get('output_filename_prefix', 'Field')
     c_config['particle_output_prefix'] = io.get('output_directory', 'viz') + '/' + io.get('particle_filename_prefix', 'Particle')
@@ -5088,6 +5175,8 @@ def collect_post_completion_families(run_dir: str, post_cfg: dict, monitor_cfg=N
     for kind, path, window in get_post_field_statistics_artifacts(post_cfg, run_dir):
         if kind == 'vtk':
             families.append((_scan_post_vtk_steps(path, 'vts'), window, True))
+        elif kind == 'profile':
+            families.append((_scan_post_vtk_steps(path, 'csv'), window, True))
         else:
             families.append((csv_family(path), window, False))
 
@@ -8646,6 +8735,27 @@ STATISTICS_ELIGIBLE_FIELDS = {
     "CS": {"components": 1, "requires": "les"},
 }
 
+#: Particle fields a recipe ensemble may sample. Each is accumulated onto the Eulerian
+#: field its particle-catalog entry scatters to, which also names its derived outputs.
+STATISTICS_PARTICLE_FIELDS = {
+    "Psi": {"components": 1, "requires": "particles", "target": "Psi"},
+    "velocity": {"components": 3, "requires": "particles", "target": "Ucat"},
+}
+
+#: Sources a recipe ensemble may draw its samples from: the particles in each cell, or
+#: each cell's own state.
+POST_STATISTICS_ENSEMBLE_SOURCES = ("particles", "eulerian")
+
+
+def _ensemble_source_fields(source: str) -> dict:
+    """!
+    @brief Return the field table an ensemble of one source names its fields from.
+    @param[in] source One of `POST_STATISTICS_ENSEMBLE_SOURCES`.
+    @return The particle or the Eulerian statistics field table.
+    """
+    return STATISTICS_PARTICLE_FIELDS if source == "particles" else STATISTICS_ELIGIBLE_FIELDS
+
+
 #: Moment names one field may request. Higher moments cannot be recovered from
 #: centered state after the fact, so they need their own accumulation rather than
 #: an extension of this list.
@@ -8661,7 +8771,9 @@ _POST_SCHEMA = {
         "lagrangian_pipeline", "statistics_pipeline", "statistics_output_prefix",
         "field_statistics", "spectra", "io",
     },
-    ("field_statistics",): {"windows", "source_step", "outputs", "formats"},
+    ("field_statistics",): {"windows", "ensembles", "homogeneous", "source_step", "outputs", "formats"},
+    ("field_statistics", "ensembles", "[]"): {"name", "source", "fields", "covariances"},
+    ("field_statistics", "ensembles", "[]", "fields", "[]"): {"field", "moments"},
     ("spectra",): {"output_prefix", "tasks"},
     ("spectra", "tasks", "[]"): {
         "task", "field", "block", "symbol", "subtract_mean", "mean_source_step",
@@ -10521,6 +10633,22 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
                             "kinetic energy, or a covariance for a flux."
                         )
 
+    for ensemble in (recipe or {}).get("ensembles", []):
+        eligible = _ensemble_source_fields(ensemble["source"])
+        if _post_window_derived_field_count(ensemble, recipe["outputs"], eligible) == 0:
+            errors.append(
+                f"  {post_path}: outputs {recipe['outputs']} produce no field for ensemble "
+                f"'{ensemble['name']}'; add 'second' to a field's moments or a covariance."
+            )
+        if case_cfg is not None:
+            requirements = {eligible[entry["field"]]["requires"] for entry in ensemble["fields"]}
+            for requirement in sorted(r for r in requirements if r):
+                if not _statistics_subsystem_available(case_cfg, requirement):
+                    errors.append(
+                        f"  {post_path}: ensemble '{ensemble['name']}' needs the '{requirement}' "
+                        "subsystem, which is not enabled for this case."
+                    )
+
     if not isinstance(post_cfg, dict) or not post_cfg:
         errors.append(f"  {post_path}: post-processing config is empty or not a valid YAML mapping.")
         _print_validation_errors(errors)
@@ -12245,87 +12373,9 @@ def normalize_field_statistics_config(monitor_cfg: dict, case_cfg: dict = None) 
                     f"(got {time_cadence!r})."
                 )
 
-        fields_raw = window.get("fields")
-        if not isinstance(fields_raw, list) or not fields_raw:
-            raise ValueError(f"field statistics window '{name}': 'fields' must be a non-empty list.")
-        fields = []
-        for field_entry in fields_raw:
-            if not isinstance(field_entry, dict):
-                raise ValueError(f"field statistics window '{name}': each 'fields' entry must be a mapping.")
-            field_name = field_entry.get("field")
-            if field_name not in STATISTICS_ELIGIBLE_FIELDS:
-                raise ValueError(
-                    f"field statistics window '{name}': field {field_name!r} cannot be accumulated. "
-                    f"Available fields: {sorted(STATISTICS_ELIGIBLE_FIELDS)}."
-                )
-            requirement = STATISTICS_ELIGIBLE_FIELDS[field_name]["requires"]
-            if case_cfg is not None and not _statistics_subsystem_available(case_cfg, requirement):
-                raise ValueError(
-                    f"field statistics window '{name}': field '{field_name}' requires the "
-                    f"'{requirement}' subsystem, which is not enabled for this case."
-                )
-            if any(existing["field"] == field_name for existing in fields):
-                raise ValueError(
-                    f"field statistics window '{name}': field '{field_name}' is listed more than once."
-                )
-            moments = field_entry.get("moments")
-            if not isinstance(moments, list) or not moments:
-                raise ValueError(
-                    f"field statistics window '{name}': field '{field_name}' needs a non-empty "
-                    "'moments' list."
-                )
-            unknown = [m for m in moments if m not in STATISTICS_MOMENT_NAMES]
-            if unknown:
-                raise ValueError(
-                    f"field statistics window '{name}': field '{field_name}' requests unknown "
-                    f"moments {unknown}. Available moments: {list(STATISTICS_MOMENT_NAMES)}."
-                )
-            # The first moment is always kept, because every centered product is
-            # measured against it.
-            fields.append({"field": field_name, "moments": ["first"] + (["second"] if "second" in moments else [])})
-
-        covariances_raw = window.get("covariances", []) or []
-        if not isinstance(covariances_raw, list):
-            raise ValueError(f"field statistics window '{name}': 'covariances' must be a list.")
-        requested = {entry["field"] for entry in fields}
-        covariances = []
-        for pair in covariances_raw:
-            if not isinstance(pair, list) or len(pair) != 2:
-                raise ValueError(
-                    f"field statistics window '{name}': each covariance must be a pair of field names."
-                )
-            first, second = pair
-            for member in (first, second):
-                if member not in STATISTICS_ELIGIBLE_FIELDS:
-                    raise ValueError(
-                        f"field statistics window '{name}': covariance member {member!r} cannot be "
-                        f"accumulated. Available fields: {sorted(STATISTICS_ELIGIBLE_FIELDS)}."
-                    )
-            if first == second:
-                raise ValueError(
-                    f"field statistics window '{name}': covariance ['{first}', '{second}'] pairs a "
-                    "field with itself; request that through moments: [second] instead."
-                )
-            missing = sorted({first, second} - requested)
-            if missing:
-                raise ValueError(
-                    f"field statistics window '{name}': covariance ['{first}', '{second}'] needs "
-                    f"{missing} in 'fields' as well, because a co-moment is centered against their means."
-                )
-            # Two three-component fields would need a full nine-component tensor,
-            # which nothing allocates.
-            if (STATISTICS_ELIGIBLE_FIELDS[first]["components"] == 3
-                    and STATISTICS_ELIGIBLE_FIELDS[second]["components"] == 3):
-                raise ValueError(
-                    f"field statistics window '{name}': covariance ['{first}', '{second}'] pairs two "
-                    "vector fields, which is not supported."
-                )
-            if sorted((first, second)) in [sorted(existing) for existing in covariances]:
-                raise ValueError(
-                    f"field statistics window '{name}': covariance ['{first}', '{second}'] is "
-                    "requested more than once."
-                )
-            covariances.append([first, second])
+        fields, covariances = _normalize_statistics_requests(
+            f"field statistics window '{name}'", window.get("fields"), window.get("covariances"),
+            STATISTICS_ELIGIBLE_FIELDS, case_cfg)
 
         windows.append({
             "name": name,
@@ -12339,6 +12389,100 @@ def normalize_field_statistics_config(monitor_cfg: dict, case_cfg: dict = None) 
         })
 
     return {"enabled": bool(enabled), "windows": windows}
+
+
+def _normalize_statistics_requests(label: str, fields_raw, covariances_raw, eligible: dict, case_cfg=None):
+    """!
+    @brief Validate and canonicalize the fields and covariances one window or ensemble requests.
+    @param[in] label Owner named in error messages, such as `field statistics window 'w'`.
+    @param[in] fields_raw The requested fields list of the owner.
+    @param[in] covariances_raw The requested covariance pairs of the owner, or None.
+    @param[in] eligible Fields the owner may name, with component counts and requirements.
+    @param[in] case_cfg Parsed case configuration for subsystem checks, or None to skip them.
+    @return Tuple of the canonical field entries and covariance pairs.
+    """
+    if not isinstance(fields_raw, list) or not fields_raw:
+        raise ValueError(f"{label}: 'fields' must be a non-empty list.")
+    fields = []
+    for field_entry in fields_raw:
+        if not isinstance(field_entry, dict):
+            raise ValueError(f"{label}: each 'fields' entry must be a mapping.")
+        field_name = field_entry.get("field")
+        if field_name not in eligible:
+            raise ValueError(
+                f"{label}: field {field_name!r} cannot be accumulated. "
+                f"Available fields: {sorted(eligible)}."
+            )
+        requirement = eligible[field_name]["requires"]
+        if case_cfg is not None and not _statistics_subsystem_available(case_cfg, requirement):
+            raise ValueError(
+                f"{label}: field '{field_name}' requires the "
+                f"'{requirement}' subsystem, which is not enabled for this case."
+            )
+        if any(existing["field"] == field_name for existing in fields):
+            raise ValueError(
+                f"{label}: field '{field_name}' is listed more than once."
+            )
+        moments = field_entry.get("moments")
+        if not isinstance(moments, list) or not moments:
+            raise ValueError(
+                f"{label}: field '{field_name}' needs a non-empty "
+                "'moments' list."
+            )
+        unknown = [m for m in moments if m not in STATISTICS_MOMENT_NAMES]
+        if unknown:
+            raise ValueError(
+                f"{label}: field '{field_name}' requests unknown "
+                f"moments {unknown}. Available moments: {list(STATISTICS_MOMENT_NAMES)}."
+            )
+        # The first moment is always kept, because every centered product is
+        # measured against it.
+        fields.append({"field": field_name, "moments": ["first"] + (["second"] if "second" in moments else [])})
+
+    covariances_raw = covariances_raw or []
+    if not isinstance(covariances_raw, list):
+        raise ValueError(f"{label}: 'covariances' must be a list.")
+    requested = {entry["field"] for entry in fields}
+    covariances = []
+    for pair in covariances_raw:
+        if not isinstance(pair, list) or len(pair) != 2:
+            raise ValueError(
+                f"{label}: each covariance must be a pair of field names."
+            )
+        first, second = pair
+        for member in (first, second):
+            if member not in eligible:
+                raise ValueError(
+                    f"{label}: covariance member {member!r} cannot be "
+                    f"accumulated. Available fields: {sorted(eligible)}."
+                )
+        if first == second:
+            raise ValueError(
+                f"{label}: covariance ['{first}', '{second}'] pairs a "
+                "field with itself; request that through moments: [second] instead."
+            )
+        missing = sorted({first, second} - requested)
+        if missing:
+            raise ValueError(
+                f"{label}: covariance ['{first}', '{second}'] needs "
+                f"{missing} in 'fields' as well, because a co-moment is centered against their means."
+            )
+        # Two three-component fields would need a full nine-component tensor,
+        # which nothing allocates.
+        if (eligible[first]["components"] == 3
+                and eligible[second]["components"] == 3):
+            raise ValueError(
+                f"{label}: covariance ['{first}', '{second}'] pairs two "
+                "vector fields, which is not supported."
+            )
+        if sorted((first, second)) in [sorted(existing) for existing in covariances]:
+            raise ValueError(
+                f"{label}: covariance ['{first}', '{second}'] is "
+                "requested more than once."
+            )
+        covariances.append([first, second])
+
+    return fields, covariances
 
 
 def resolve_field_statistics_flags(monitor_cfg: dict, case_cfg: dict = None) -> list:

@@ -152,8 +152,28 @@ statistics_pipeline:
 #   # vtk writes the derived fields as one .vts per window per processed step.
 #   # csv appends one row per processed step to a per-window convergence history,
 #   # recording sample count, weight, represented time, mask coverage, and the
-#   # domain-mean TKE when the window has one.
+#   # domain-mean TKE when the window has one. With homogeneous set, csv also
+#   # writes a profile per window or ensemble per processed step.
 #   formats: ["vtk", "csv"]
+#
+#   # Directions the statistics are homogeneous along. Each profile row merges
+#   # every point of one retained slot into the moments of its pooled samples, so
+#   # [i, k] gives a profile along j. Omit for no profile.
+#   # homogeneous: ["i", "k"]
+#
+#   # Single-instant windows the recipe defines itself, derived at every processed
+#   # step. source: particles takes each cell's particles as its samples (fields
+#   # Psi and velocity, which accumulate onto Psi and Ucat); source: eulerian takes
+#   # each cell's own state, which only a profile turns into a spread. fields and
+#   # covariances are written as in monitor.yml. An ensemble has no history, so
+#   # csv for one needs homogeneous. windows may be omitted when ensembles is set.
+#   # ensembles:
+#   #   - name: "fdf"
+#   #     source: "particles"
+#   #     fields:
+#   #       - {field: "Psi", moments: ["first", "second"]}
+#   #       - {field: "velocity", moments: ["first"]}
+#   #     covariances: [["velocity", "Psi"]]
 
 # --- Turbulent Energy Spectra ---
 # Measures energy spectra from the instantaneous velocity in each committed

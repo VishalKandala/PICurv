@@ -56,7 +56,8 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `post.io.input_extensions.*` | `eulerianExt`, `particleExt` in `post.run` | `src/io.c` | `ReadSimulationFields`, `ReadAllSwarmFields`, swarm precheck |
 | `post.statistics_pipeline.*` | `statistics_pipeline`, `statistics_output_prefix` | `src/io.c` | `GlobalStatisticsPipeline` dispatch |
 | `post.io.paraview_series` | No PETSc option; conductor-only policy | `picurv_cli/core.py` | `finalize_post_paraview_series` writes PVD collections after field processing |
-| `post.field_statistics.*` | `field_statistics_windows`, `field_statistics_outputs`, `field_statistics_formats`, `field_statistics_source_step` | `src/io.c` (`ParsePostProcessingSettings`) | `FieldStatisticsPipeline` in `src/postprocessor.c`, derivation in `src/statistics_accumulator.c` |
+| `post.field_statistics.*` | `field_statistics_windows`, `field_statistics_outputs`, `field_statistics_formats`, `field_statistics_source_step`, `field_statistics_homogeneous` | `src/io.c` (`ParsePostProcessingSettings`) | `FieldStatisticsPipeline` in `src/postprocessor.c`, derivation and homogeneous merge in `src/statistics_accumulator.c`, profile in `src/postprocessing_kernels.c` |
+| `post.field_statistics.ensembles[]` | `field_statistics_ensemble_count`, `field_statistics_ensemble_<n>_*`, forwarded by `src/io.c` to the options `-field_statistics_ensemble_<n>_*` | `src/statistics_config.c` (`ParsePostStatisticsEnsembles`, sharing the window field and covariance parser) | `FieldStatisticsPipeline` in `src/postprocessor.c`; particle cells via `PicurvWindowStorageFromParticles` |
 | `post.spectra.*` (digest only) | `spectra_signature` | `src/io.c` (`ParsePostProcessingSettings`) | accepted and ignored; exists so a changed spectra recipe reaches the recipe fingerprint each step's output record carries |
 
 @section p15_python_only_sec 3. Python-Only Orchestration Mapping (No C Ingestion)

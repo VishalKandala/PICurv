@@ -10,7 +10,8 @@ For the full commented template, see:
 
 It carries two separate statistics contracts, which are deliberately not
 combined. `statistics_pipeline` reduces particle trajectories; `field_statistics`
-derives the Eulerian field windows the solver accumulated. Particle MSD and
+derives the Eulerian field windows the solver accumulated, and the single-instant
+ensembles the recipe itself defines. Particle MSD and
 resolved turbulence statistics answer different questions and share no state.
 A third block, `spectra`, measures energy spectra from the instantaneous velocity;
 unlike every other block here it runs in the conductor rather than in the C
@@ -272,6 +273,9 @@ Mappings:
 - `outputs` -> `field_statistics_outputs`
 - `formats` -> `field_statistics_formats`
 - `source_step` -> `field_statistics_source_step`
+- `homogeneous` -> `field_statistics_homogeneous`
+- `ensembles[n]` -> `field_statistics_ensemble_<n>_*`, the run windows' option families
+  under the `ensemble` kind (see @ref p10_ensembles_sub)
 
 The recipe **names** windows rather than redescribing them. The post-processor is
 launched with the run's own control file and resolves the window definitions
@@ -302,6 +306,75 @@ produces a history. Pinning `source_step` reads every processed step's output fr
 that one bundle instead, collapsing the history to a single answer.
 
 Each window writes its own files, so a window name may not be listed twice.
+
+@subsection p10_profiles_sub Profiles over homogeneous directions
+
+`homogeneous` names the grid directions, from `i`, `j` and `k`, along which the
+statistics are statistically equivalent. With `csv` in `formats`, every window and
+ensemble then also writes `<prefix>_profile_<name>_<step>.csv` beside its history: one
+row per retained index the window sampled, holding the 0-based cell index along each
+retained direction, the mean cell-centre coordinates over that slot, and one column per
+component of every requested output.
+
+```yaml
+field_statistics:
+  windows: [production]
+  homogeneous: [i, k]      # a wall-normal profile along j
+  outputs: [mean, rms, reynolds_stress]
+  formats: [vtk, csv]
+```
+
+A slot's statistic is that of its whole sample set, not an average of point
+statistics. Its mean is the weighted mean of the point means, and its co-moments add,
+to the point co-moments, the spread of the point means about the slot mean:
+
+\f[
+C_{ab} = \frac{\sum_p \left[ C_{ab,p} + W_p (\mu_{a,p} - \mu_a)(\mu_{b,p} - \mu_b) \right]}{\sum_p W_p},
+\f]
+
+the merge rule of @ref p60_principle_sec. A channel's Reynolds stress profile is
+therefore the full stress over the homogeneous plane. A point that never sampled the
+field is excluded rather than averaged in as a zero. Naming all three directions
+gives one row for the whole domain. A profile is computed from the same state the
+`.vts` is, and follows `global_operations.dimensionalize` the same way, its
+coordinates included.
+
+@subsection p10_ensembles_sub Ensembles
+
+An ensemble is a window over one instant instead of over time. Its samples are either
+the particles each cell holds (`source: particles`) or each cell's own state
+(`source: eulerian`), at the step being processed. It needs no state accumulated
+during the solve, so the recipe defines it in full, with the same `fields` and
+`covariances` a monitor window uses:
+
+```yaml
+field_statistics:
+  ensembles:
+    - name: fdf
+      source: particles
+      fields:
+        - {field: Psi, moments: [first, second]}
+        - {field: velocity, moments: [first]}
+      covariances: [[velocity, Psi]]
+    - name: resolved
+      source: eulerian
+      fields:
+        - {field: Ucat, moments: [first, second]}
+  homogeneous: [i]
+  outputs: [mean, rms, reynolds_stress, flux]
+  formats: [vtk, csv]
+```
+
+An ensemble derives the same outputs a window does, written the same way. The
+`.vts` is `<output_prefix>_statistics_<name>_<step>.vts`, and the profile follows
+@ref p10_profiles_sub. It has no convergence history, so `csv` for an ensemble
+requires `homogeneous`. An ensemble name must differ from every window name, since
+both name their files.
+
+A particle field is named by its particle name and accumulated onto the Eulerian field
+its particle-catalog entry scatters to, which also names its outputs. `Psi` scatters
+to `Psi` and `velocity` to `Ucat`, so the particle velocity's outputs read
+`<name>_Ucat_...`. Only particle fields with a scatter target can be named.
 
 **Derived statistics follow `global_operations.dimensionalize`.** Each carries the
 source field's reference scale raised to its own power: a mean and an RMS are linear
@@ -429,6 +502,90 @@ classified as a parameter of these entries rather than as a family of its own.
 **Evidence.** Unit verified - `make unit-statistics`. Analytically verified - `field-statistics-tgv3d-2026-09-21`: the `Ucat`-`P` co-moment equals its exact value to 1.4e-18.
 
 **Limitations.** A cross-moment converges more slowly than either factor's own variance, so flux is the output most likely to be under-converged in a given window.
+
+@section p10_cap_fse_sec 6.2 Field Statistics Ensemble Source Entries
+
+@htmlinclude generated/capability_inventory_post_field_statistics_ensemble_source.html
+
+Both sources fill the same accumulator state a run window holds, so derivation,
+output and profiles are shared and only the sampling differs.
+
+@subsection p10_cap_fse_particles_sub particles
+
+@anchor p10_cap_fse_particles
+
+**Identity.** `post.yml -> field_statistics.ensembles[].source` = `particles` ->
+`field_statistics_ensemble_<n>_source particles` -> @ref PicurvWindowStorageFromParticles.
+
+**What it does.** Takes the particles each cell holds at the processed step as that
+cell's samples, each of unit weight, and stores their count, ensemble means, and
+the centred sums of every requested self-product and covariance. The means come from
+the same particle sum the runtime scatter uses. The centred products are then
+accumulated about those means in a second pass over the particles. Before anything
+is accumulated, each particle is moved to the rank owning its recorded cell.
+
+**When to choose it.** To measure what the particles carry within a cell: the
+subgrid variance of the scalar a filtered-density-function model transports, or a
+particle-velocity flux, which no Eulerian field holds. Choose `eulerian` instead for
+a field the grid already holds, where a cell has one value and so no spread of its
+own.
+
+**Parameters it owns.** None beyond the family's: `fields` names `Psi` or
+`velocity`, with `moments`, and `covariances` pairs them as scalar-scalar or
+vector-scalar.
+
+**Interactions.** Needs a case with particles. Validation refuses an ensemble whose
+fields need a subsystem the case does not enable, and the post-processor refuses one
+when the run wrote no particles. The particle stage is entered for it even when no
+particle output is requested.
+
+**Diagnostics.** An empty cell has zero weight and is skipped in profiles and left
+zero in the `.vts`; a cell with one particle has zero variance. Few particles per
+cell show as noisy variance fields, which a profile over the homogeneous directions
+smooths by pooling.
+
+**Evidence.** Unit verified: `make unit-statistics-accumulator` reproduces, from
+three particles in a cell, the means, symmetric products and vector-scalar
+co-moment the streaming accumulator produces for the same samples.
+`make unit-post-compute-mpi` checks the profile it is written through on one and
+several ranks.
+
+**Limitations.** Every particle carries unit weight; mass-weighted (Favre)
+statistics are not available. An ensemble is one cell; samples are not pooled over
+a neighbourhood before the profile step.
+
+@subsection p10_cap_fse_eulerian_sub eulerian
+
+@anchor p10_cap_fse_eulerian
+
+**Identity.** `post.yml -> field_statistics.ensembles[].source` = `eulerian` ->
+`field_statistics_ensemble_<n>_source eulerian` -> @ref PicurvWindowAccumulate.
+
+**What it does.** Applies the processed step's Eulerian state to empty storage as one
+accepted state of unit weight, so each cell's mean is its value and its spread is
+zero. Combined with `homogeneous`, the profile is the spatial mean and spatial
+variance of the instantaneous field over each retained slot, such as the
+instantaneous mean-velocity profile of a temporal mixing layer.
+
+**When to choose it.** For statistics of one snapshot over homogeneous directions,
+where a run window would average over time instead. Without `homogeneous` its `.vts`
+only restates the field, so pair it with a profile. Choose `particles` for spread
+within a cell.
+
+**Parameters it owns.** None beyond the family's: `fields` names any field a monitor
+window may accumulate.
+
+**Interactions.** Reads fields as loaded, so a field must be one the step's
+checkpoint holds.
+
+**Diagnostics.** A pointwise variance or RMS is identically zero; only a profile
+carries spread.
+
+**Evidence.** Unit verified: `make unit-statistics-accumulator` checks the
+homogeneous merge against the pooled moments computed directly, and
+`make unit-post-compute-mpi` checks the written profile on one and several ranks.
+
+**Limitations.** One instant only; a time average belongs in a run window.
 
 @section p10_stat_entries_sec 7. Particle Statistics Task Entries
 

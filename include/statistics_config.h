@@ -44,7 +44,24 @@
 PetscErrorCode ParseFieldStatisticsConfig(SimCtx *simCtx);
 
 /**
- * @brief Releases the window definitions resolved by ParseFieldStatisticsConfig().
+ * @brief Resolves the statistics ensembles a post-processing recipe defines.
+ *
+ * An ensemble is a window over one instant instead of over time: its samples are the
+ * particles in each cell (`source` `particles`) or the single state of each cell
+ * (`source` `eulerian`) at the step being processed. Its fields and covariances use
+ * the run windows' option families under the `ensemble` kind, which the recipe
+ * parser forwards from the post-processing file. A particle field is named by its
+ * particle name and resolved to the Eulerian field it scatters to.
+ *
+ * @param[in,out] simCtx Context whose post-processing parameters receive the ensembles;
+ *                       run windows must already be resolved, since names may not clash.
+ * @return Zero on success, or a PETSc error for a malformed definition.
+ */
+PetscErrorCode ParsePostStatisticsEnsembles(SimCtx *simCtx);
+
+/**
+ * @brief Releases the window definitions resolved by ParseFieldStatisticsConfig() and the
+ *        ensembles resolved by ParsePostStatisticsEnsembles().
  * @param[in,out] simCtx Simulation context to clear; safe when nothing was resolved.
  * @return Zero on success.
  */

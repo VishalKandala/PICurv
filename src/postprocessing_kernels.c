@@ -1,6 +1,7 @@
 #include "postprocessing_kernels.h"
 #include "statistics_accumulator.h"
 #include "statistics_window.h"
+#include "statistics_target.h"
 #include "particle_field_catalog.h"
 
 // =========== Dimensionalization Kernels ========================
@@ -209,30 +210,25 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
  *          the header declaration in `include/postprocessing_kernels.h`.
  * @see ComputeWindowStatisticNodal()
  */
-PetscErrorCode ComputeWindowStatisticNodal(UserCtx *user, PetscInt window_index,
+PetscErrorCode ComputeWindowStatisticNodal(UserCtx *user, const PicurvWindowDefinition *definition,
+                                           const PicurvWindowStorage *storage,
                                            const char *outputs, PetscInt output_index,
                                            char *out_name, size_t name_size,
                                            Vec *out_vec, PetscInt *out_components)
 {
     PetscErrorCode ierr;
-    SimCtx *simCtx = NULL;
     PicurvDerivedField derived;
-    const PicurvWindowDefinition *definition = NULL;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    PetscCheck(user != NULL && out_name != NULL && out_vec != NULL && out_components != NULL,
-               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Context and outputs are required.");
-    simCtx = user->simCtx;
-    PetscCheck(FieldStatisticsIsActive(simCtx) && user->fieldStatisticsStorage != NULL,
-               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
-               "No accumulated window state exists to derive.");
-    definition = &simCtx->fieldStatisticsWindows[window_index].definition;
+    PetscCheck(user != NULL && definition != NULL && storage != NULL && out_name != NULL &&
+               out_vec != NULL && out_components != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Context, state, and outputs are required.");
 
     /* Derive into the cell-centred staging pair, then reach the nodal path by
      * catalogued name. A per-window accumulator has no compile-time offset, so
      * staging is what lets the shared ghost and nodal kernels address it at all. */
-    ierr = PicurvWindowDerive(user, definition, &user->fieldStatisticsStorage[window_index],
+    ierr = PicurvWindowDerive(user, definition, storage,
                               outputs, output_index, user->PostScalar, user->PostVector,
                               &derived); CHKERRQ(ierr);
     /* The derivation writes the physical interior only, so the layout boundary would
@@ -257,6 +253,120 @@ PetscErrorCode ComputeWindowStatisticNodal(UserCtx *user, PetscInt window_index,
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "-> KERNEL: Derived '%s' (%d component(s)).\n",
               out_name, (int)derived.components);
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "ComputeWindowStatisticsProfile"
+/**
+ * @brief Implementation of \ref ComputeWindowStatisticsProfile().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/postprocessing_kernels.h`.
+ * @see ComputeWindowStatisticsProfile()
+ */
+PetscErrorCode ComputeWindowStatisticsProfile(UserCtx *user, const PicurvWindowDefinition *definition,
+                                              const PicurvWindowStorage *storage, const char *outputs,
+                                              const PetscBool average_direction[3],
+                                              const char *output_prefix, PetscInt ti)
+{
+    static const char *const axis_index[3] = {"i", "j", "k"};
+    static const char *const axis_coordinate[3] = {"x", "y", "z"};
+    PicurvWindowStorage reduced;
+    SpatialTargetPlan plan;
+    DMDALocalInfo info;
+    PetscInt extent[3], slots = 1, derived_count = 0, entries = 0;
+    PetscInt *components = NULL;
+    PetscReal *occupied = NULL, *centre = NULL, *values = NULL, length_scale = 1.0;
+    char (*names)[PICURV_STATISTICS_PAYLOAD_NAME_LENGTH] = NULL;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCheck(user != NULL && definition != NULL && storage != NULL && output_prefix != NULL,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Context, state, and output prefix are required.");
+    PetscCall(PicurvWindowStorageCreate(user, definition, &reduced));
+    PetscCall(PicurvWindowStorageReduce(user, definition, storage, average_direction, &reduced));
+    PetscCall(PicurvWindowDerivedCount(definition, &reduced, outputs, &derived_count));
+    PetscCall(SpatialTargetPlanCreate(user, (FieldId)definition->fields[0].field_id,
+                                      PICURV_STATISTICS_MASK_FLUID, &plan));
+    PetscCall(DMDAGetLocalInfo(user->da, &info));
+    extent[0] = average_direction[0] ? 1 : info.mx;
+    extent[1] = average_direction[1] ? 1 : info.my;
+    extent[2] = average_direction[2] ? 1 : info.mz;
+    slots = extent[0] * extent[1] * extent[2];
+
+    /* Occupancy and coordinates are reduced like the outputs, so every column of a row
+     * describes the same set of points. The merged weight is one wherever the slot was
+     * sampled, so its average marks the rows to write. */
+    PetscCall(PetscCalloc4(slots, &occupied, 3 * slots, &centre, PetscMax(derived_count, 1), &components,
+                           PetscMax(derived_count, 1), &names));
+    PetscCall(PicurvSpatialRatioAverage(user, &plan, reduced.weight, NULL, reduced.weight, average_direction,
+                                        PETSC_COMM_WORLD, NULL, occupied));
+    PetscCall(PicurvSpatialRatioAverage(user, &plan, user->Cent, NULL, reduced.weight, average_direction,
+                                        PETSC_COMM_WORLD, NULL, centre));
+    PetscCall(PetscCalloc1(PetscMax(3 * derived_count * slots, 1), &values));
+    for (PetscInt index = 0; index < derived_count; ++index) {
+        PicurvDerivedField derived;
+
+        /* Each output is staged, then reduced into its own block of the table: `slots`
+         * rows of up to three components, interleaved per slot. */
+        PetscCall(PicurvWindowDerive(user, definition, &reduced, outputs, index,
+                                     user->PostScalar, user->PostVector, &derived));
+        PetscCall(PicurvSpatialRatioAverage(user, &plan, derived.components == 1 ? user->PostScalar : user->PostVector,
+                                            NULL, reduced.weight, average_direction, PETSC_COMM_WORLD,
+                                            NULL, values + entries));
+        components[index] = derived.components;
+        PetscCall(PetscStrncpy(names[index], derived.name, sizeof(names[index])));
+        entries += derived.components * slots;
+    }
+    if (user->simCtx->pps && user->simCtx->pps->dimensionalize) {
+        PetscCall(PicurvFieldReferenceScale(user->simCtx, "Cent", &length_scale, NULL, 0));
+    }
+
+    if (user->simCtx->rank == 0) {
+        char path[PETSC_MAX_PATH_LEN];
+        FILE *csv = NULL;
+
+        PetscCall(PetscSNPrintf(path, sizeof(path), "%s_profile_%s_%05" PetscInt_FMT ".csv",
+                                output_prefix, definition->name, ti));
+        csv = fopen(path, "w");
+        PetscCheck(csv != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Unable to open profile '%s'.", path);
+        for (PetscInt axis = 0; axis < 3; ++axis) if (!average_direction[axis]) fprintf(csv, "%s,", axis_index[axis]);
+        fprintf(csv, "x,y,z");
+        for (PetscInt index = 0; index < derived_count; ++index) {
+            for (PetscInt c = 0; c < components[index]; ++c) {
+                fprintf(csv, ",%s%s%s", names[index], components[index] == 1 ? "" : "_",
+                        components[index] == 1 ? "" : axis_coordinate[c]);
+            }
+        }
+        fprintf(csv, "\n");
+        for (PetscInt slot = 0; slot < slots; ++slot) {
+            const PetscInt index[3] = {slot % extent[0], (slot / extent[0]) % extent[1], slot / (extent[0] * extent[1])};
+            PetscInt offset = 0;
+
+            /* A slot no point of the window reached has nothing to report. */
+            if (occupied[slot] <= 0.0) continue;
+            /* Storage carries a boundary layer at index zero, so cell c is entry c + 1. */
+            for (PetscInt axis = 0; axis < 3; ++axis) {
+                if (!average_direction[axis]) fprintf(csv, "%d,", (int)(index[axis] - 1));
+            }
+            fprintf(csv, "%.10e,%.10e,%.10e", (double)(centre[3 * slot + 0] * length_scale),
+                    (double)(centre[3 * slot + 1] * length_scale), (double)(centre[3 * slot + 2] * length_scale));
+            for (PetscInt output = 0; output < derived_count; ++output) {
+                for (PetscInt c = 0; c < components[output]; ++c) {
+                    fprintf(csv, ",%.10e", (double)values[offset + components[output] * slot + c]);
+                }
+                offset += components[output] * slots;
+            }
+            fprintf(csv, "\n");
+        }
+        PetscCheck(fclose(csv) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE, "Unable to close profile '%s'.", path);
+    }
+
+    PetscCall(PetscFree(values));
+    PetscCall(PetscFree4(occupied, centre, components, names));
+    PetscCall(PicurvWindowStorageDestroy(&reduced));
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "-> KERNEL: Profiled '%s' at step %" PetscInt_FMT ".\n", definition->name, ti);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

@@ -64,7 +64,7 @@ was wanted. Homogeneous-direction averaging is the case this serves.
 
 | Extension | Depends on | Unlocks |
 | --- | --- | --- |
-| @ref p60_reduction_sec | nothing | profiles, regions, bins, clipping |
+| @ref p60_reduction_sec | nothing | regions, bins, clipping |
 | @ref p60_view_sec | nothing | nodal statistics output, accumulator field logging |
 | @ref p60_ess_sec | nothing | uncertainty reporting under unequal weights |
 | @ref p60_order_extension_sec | nothing | skewness, flatness, and their spatial reductions |
@@ -77,9 +77,9 @@ was wanted. Homogeneous-direction averaging is the case this serves.
 | @ref p60_spectra_temporal_sec | bounded probe history | frequency spectra where nothing is homogeneous |
 | @ref p60_spectra_online_sec | @ref p60_spectra_temporal_sec for the transpose | spatial spectra without a snapshot series |
 
-Spatial reduction is listed first because it is the largest capability for the
-least new code: the kernel it needs is already written and tested, and it has no
-online counterpart to design.
+Spatial reduction is listed first because its homogeneous-direction form is already
+implemented and the remaining subsets reuse the same merge, with no online counterpart
+to design.
 
 @section p60_view_sec 3. A View Bindable To An Explicit Vector Pair
 
@@ -109,31 +109,26 @@ and add a second mechanism doing what the first already does.
 
 @section p60_reduction_sec 4. Spatial Reduction In Post-Processing
 
-Profiles, regions, bins, and clipping are derived from the pointwise state a
-window already holds, by the reduction described in @ref p60_principle_sec. This
-is where the majority of the remaining scientific capability lives, and it needs
-no new online state.
+Reduction over homogeneous directions is implemented: `field_statistics.homogeneous`
+merges the pointwise state of a window or recipe ensemble over the named directions
+and writes a profile CSV (@ref p10_profiles_sub). What remains is reduction over
+subsets that are not whole grid directions, which needs:
 
-What it requires:
+- **A region selector in the post recipe.** Coordinate ranges, index ranges, or a
+  named region. It sits in `post.yml` because the choice is made after the run.
+- **Bins and clipping.** Conditioning the merge on a coordinate or field value, for
+  which `PicurvWindowStorageReduce` would take a slot assignment instead of a set of
+  collapsed directions.
 
-- **A region selector in the post recipe.** Coordinate ranges, index ranges, a
-  homogeneous-direction collapse such as averaging over `i` and `k` at fixed `j`,
-  or a named region. This sits in `post.yml` because the choice is made after
-  the run, not committed at solve time.
-- **A reduction driver** that walks the selected points and combines their
-  accumulators through the existing weighted merge, in a pairwise or tree order
-  rather than sequentially, so the combination stays well conditioned across a
-  large point count. `PicurvWindowSpatialMean` is the shape to follow; it already
-  performs the domain-wide case of exactly this reduction, and it already
-  excludes points the mask never sampled.
-- **An output form for reduced results.** A profile is a one-dimensional table
-  rather than a field, so it belongs in a CSV alongside the convergence history
-  rather than in the `.vts`.
+The merge itself needs no change. It forms each slot's mean first and then the
+spread of the point means about it, two reductions over the slot, which stays well
+conditioned for any point count. A non-rectangular region would only change which
+points share a slot.
 
 The practical gain beyond cost is that regions are chosen *after* the solve.
-Because the pointwise state is checkpointed, a wake window or a wall-normal
-profile that nobody anticipated can be extracted from a completed run without
-re-solving, and revised as often as the analysis demands.
+Because the pointwise state is checkpointed, a wake window that nobody anticipated
+can be extracted from a completed run without re-solving, and revised as often as
+the analysis demands.
 
 @section p60_targets_sec 5. Online Targets For The Non-Commuting Cases
 

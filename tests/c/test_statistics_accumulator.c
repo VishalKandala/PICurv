@@ -884,6 +884,188 @@ static PetscErrorCode TestRunloopDriverAppliesScheduledStates(void)
 }
 
 /**
+ * @brief Places one particle in a geometric cell with the given velocity and scalar.
+ */
+static void PlaceParticle(PetscReal *velocity, PetscReal *psi, PetscInt *cell, PetscInt p,
+                          PetscInt ci, PetscInt cj, PetscInt ck, const PetscReal v[3], PetscReal value)
+{
+    for (PetscInt c = 0; c < 3; ++c) velocity[3 * p + c] = v[c];
+    psi[p] = value;
+    cell[3 * p + 0] = ci; cell[3 * p + 1] = cj; cell[3 * p + 2] = ck;
+}
+
+/**
+ * @brief A cell's particles form the same state the streaming accumulator builds.
+ *
+ * Three particles carry the suite's reference series in one cell, so the two-pass
+ * ensemble must reproduce the means, symmetric products and vector-scalar co-moment
+ * that the streaming tests assert for the same samples. A lone particle in another
+ * cell has its own values as mean and no spread; an empty cell stays unsampled.
+ */
+static PetscErrorCode TestParticleEnsembleMatchesStreamingState(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PicurvWindowStorage storage;
+    PicurvWindowDefinition d;
+    const PetscReal series[3][3] = {{1.0, 2.0, 3.0}, {3.0, 6.0, 5.0}, {5.0, 4.0, 7.0}};
+    const PetscReal scalars[3] = {1.0, 2.0, 6.0};
+    const PetscReal products[6] = {8.0, 4.0, 8.0, 8.0, 4.0, 8.0};
+    const PetscReal co_moment[3] = {10.0, 2.0, 10.0};
+    const PetscReal lone[3] = {-1.0, 0.5, 2.0};
+    PetscReal *velocity = NULL, *psi = NULL, value = 0.0;
+    PetscInt *cell = NULL, nlocal = 0;
+    PetscMPIInt rank = 0;
+    char context[128];
+
+    PetscFunctionBeginUser;
+    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
+    memset(&d, 0, sizeof(d));
+    strncpy(d.name, "cells", PICURV_WINDOW_NAME_LENGTH - 1);
+    d.weighting = PICURV_WEIGHTING_SAMPLE;
+    d.cadence_kind = PICURV_CADENCE_STEP;
+    d.step_cadence = 1;
+    d.field_count = 2;
+    d.fields[0].field_id = FIELD_ID_UCAT; d.fields[0].want_second = PETSC_TRUE;
+    d.fields[1].field_id = FIELD_ID_PSI;  d.fields[1].want_second = PETSC_TRUE;
+    d.covariance_count = 1;
+    d.covariances[0].first = FIELD_ID_UCAT;
+    d.covariances[0].second = FIELD_ID_PSI;
+
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, ACC_N, ACC_N, ACC_N));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    nlocal = (rank == 0) ? 4 : 0;
+    PetscCall(PicurvCreateSwarmPair(user, nlocal, "unused"));
+    PetscCall(DMSwarmGetField(user->swarm, "velocity", NULL, NULL, (void **)&velocity));
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    if (nlocal) {
+        for (PetscInt p = 0; p < 3; ++p) PlaceParticle(velocity, psi, cell, p, 1, 2, 3, series[p], scalars[p]);
+        PlaceParticle(velocity, psi, cell, 3, 0, 0, 0, lone, 4.0);
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmRestoreField(user->swarm, "velocity", NULL, NULL, (void **)&velocity));
+
+    PetscCall(PicurvWindowStorageCreate(user, &d, &storage));
+    PetscCall(PicurvWindowStorageFromParticles(user, &d, &storage));
+
+    /* Geometric cell (1,2,3) is storage point (2,3,4). */
+    PetscCall(ReadScalarAt(user, storage.count, 2, 3, 4, &value));
+    PetscCall(PicurvAssertRealNear(3.0, value, 0.0, "the cell holds three samples"));
+    for (PetscInt c = 0; c < 3; ++c) {
+        PetscCall(ReadComponentAt(user, storage.mean[0], 3, c, 2, 3, 4, &value));
+        PetscCall(PicurvAssertRealNear(3.0 + c, value, 1.0e-12, "velocity ensemble mean"));
+        PetscCall(ReadComponentAt(user, storage.cm[0], 3, c, 2, 3, 4, &value));
+        PetscCall(PetscSNPrintf(context, sizeof(context), "velocity-Psi co-moment component %d", (int)c));
+        PetscCall(PicurvAssertRealNear(co_moment[c], value, 1.0e-11, context));
+    }
+    for (PetscInt c = 0; c < 6; ++c) {
+        PetscCall(ReadComponentAt(user, storage.m2[0], 6, c, 2, 3, 4, &value));
+        PetscCall(PetscSNPrintf(context, sizeof(context), "velocity product component %d", (int)c));
+        PetscCall(PicurvAssertRealNear(products[c], value, 1.0e-11, context));
+    }
+    PetscCall(ReadScalarAt(user, storage.mean[1], 2, 3, 4, &value));
+    PetscCall(PicurvAssertRealNear(3.0, value, 1.0e-12, "Psi ensemble mean"));
+    PetscCall(ReadScalarAt(user, storage.m2[1], 2, 3, 4, &value));
+    PetscCall(PicurvAssertRealNear(14.0, value, 1.0e-11, "Psi centred sum (4 + 1 + 9)"));
+
+    PetscCall(ReadComponentAt(user, storage.mean[0], 3, 0, 1, 1, 1, &value));
+    PetscCall(PicurvAssertRealNear(-1.0, value, 1.0e-12, "a lone particle is its cell's mean"));
+    PetscCall(ReadScalarAt(user, storage.m2[1], 1, 1, 1, &value));
+    PetscCall(PicurvAssertRealNear(0.0, value, 0.0, "a lone particle has no spread"));
+    PetscCall(ReadScalarAt(user, storage.weight, 3, 3, 3, &value));
+    PetscCall(PicurvAssertRealNear(0.0, value, 0.0, "an empty cell is unsampled"));
+
+    PetscCall(PicurvWindowStorageDestroy(&storage));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/** @brief Closed-form test field: a scalar varying in every direction and over samples. */
+static PetscReal ReductionScalar(PetscInt i, PetscInt j, PetscInt k, PetscInt s)
+{
+    return 0.3 * i - 0.2 * k * k + 0.1 * i * j + (s ? 0.5 * (i + 2 * k) : -0.25 * j);
+}
+
+/**
+ * @brief A homogeneous merge equals the moments of the slot's pooled sample set.
+ *
+ * Two states of a field varying across the averaged plane are accumulated, then the
+ * state is merged over i and k. Each j slot must hold the mean and variance of all of
+ * its points' samples pooled, which differs from the average of the point variances
+ * by the spread of the point means. The merged state also derives through the
+ * unchanged derivation.
+ */
+static PetscErrorCode TestReductionEqualsPooledMoments(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PicurvWindowStorage storage, reduced;
+    PicurvWindowDefinition d = AccDefinition(PETSC_TRUE);
+    const PetscBool over_ik[3] = {PETSC_TRUE, PETSC_FALSE, PETSC_TRUE};
+    SpatialTargetPlan plan;
+    PicurvDerivedField derived;
+    PetscReal value = 0.0;
+
+    PetscFunctionBeginUser;
+    d.field_count = 1;
+    d.fields[0].field_id = FIELD_ID_P;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, ACC_N, ACC_N, ACC_N));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(VecSet(user->lNvert, 0.0));
+    PetscCall(PicurvWindowStorageCreate(user, &d, &storage));
+    PetscCall(PicurvWindowStorageCreate(user, &d, &reduced));
+    for (PetscInt s = 0; s < 2; ++s) {
+        PetscReal ***p = NULL;
+
+        PetscCall(DMDAVecGetArray(user->da, user->P, &p));
+        for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k)
+            for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j)
+                for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i)
+                    p[k][j][i] = ReductionScalar(i, j, k, s);
+        PetscCall(DMDAVecRestoreArray(user->da, user->P, &p));
+        PetscCall(PicurvWindowAccumulate(user, &d, &storage, 1.0));
+    }
+    PetscCall(PicurvWindowStorageReduce(user, &d, &storage, over_ik, &reduced));
+    PetscCall(SpatialTargetPlanCreate(user, FIELD_ID_P, PICURV_STATISTICS_MASK_FLUID, &plan));
+
+    for (PetscInt j = plan.start[1]; j < plan.end[1]; ++j) {
+        PetscReal sum = 0.0, sum_sq = 0.0, n = 0.0, mean = 0.0;
+        char context[128];
+
+        /* A single rank owns the whole plane, so the plan spans its physical points. */
+        for (PetscInt k = plan.start[2]; k < plan.end[2]; ++k)
+            for (PetscInt i = plan.start[0]; i < plan.end[0]; ++i)
+                for (PetscInt s = 0; s < 2; ++s) { sum += ReductionScalar(i, j, k, s); n += 1.0; }
+        mean = sum / n;
+        for (PetscInt k = plan.start[2]; k < plan.end[2]; ++k)
+            for (PetscInt i = plan.start[0]; i < plan.end[0]; ++i)
+                for (PetscInt s = 0; s < 2; ++s) sum_sq += PetscSqr(ReductionScalar(i, j, k, s) - mean);
+
+        PetscCall(ReadScalarAt(user, reduced.mean[0], 3, j, 2, &value));
+        PetscCall(PetscSNPrintf(context, sizeof(context), "pooled mean of slot j=%d", (int)j));
+        PetscCall(PicurvAssertRealNear(mean, value, 1.0e-12, context));
+        PetscCall(ReadScalarAt(user, reduced.m2[0], 1, j, 3, &value));
+        PetscCall(PetscSNPrintf(context, sizeof(context), "pooled variance of slot j=%d", (int)j));
+        PetscCall(PicurvAssertRealNear(sum_sq / n, value, 1.0e-12, context));
+        PetscCall(ReadScalarAt(user, reduced.weight, 2, j, 2, &value));
+        PetscCall(PicurvAssertRealNear(1.0, value, 0.0, "a sampled slot carries unit weight"));
+        if (j == 2) {
+            PetscCall(PicurvWindowDerive(user, &d, &reduced, "rms", 0, user->PostScalar, user->PostVector, &derived));
+            PetscCall(ReadScalarAt(user, user->PostScalar, 2, j, 1, &value));
+            PetscCall(PicurvAssertRealNear(PetscSqrtReal(sum_sq / n), value, 1.0e-12,
+                                           "the merged state derives through the unchanged derivation"));
+        }
+    }
+
+    PetscCall(PicurvWindowStorageDestroy(&reduced));
+    PetscCall(PicurvWindowStorageDestroy(&storage));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Entry point for the accumulator suite.
  */
 int main(int argc, char **argv)
@@ -905,6 +1087,8 @@ int main(int argc, char **argv)
         {"derived-quantities", TestDerivedQuantities},
         {"spatial-mean-excludes-unsampled-points", TestSpatialMeanExcludesUnsampledPoints},
         {"runloop-driver-applies-scheduled-states", TestRunloopDriverAppliesScheduledStates},
+        {"particle-ensemble-matches-streaming-state", TestParticleEnsembleMatchesStreamingState},
+        {"reduction-equals-pooled-moments", TestReductionEqualsPooledMoments},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv statistics accumulator tests");

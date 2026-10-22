@@ -482,6 +482,107 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
 
 
 #undef __FUNCT__
+#define __FUNCT__ "WriteWindowStatistics"
+/**
+ * @brief Internal helper: writes one window's or ensemble's derived output for a step.
+ * @details Local to this translation unit. The `.vts` carries every requested output
+ *          pointwise; with `csv` and homogeneous directions selected, a profile CSV
+ *          carries them merged over those directions.
+ */
+static PetscErrorCode WriteWindowStatistics(UserCtx *user, PostProcessParams *pps,
+                                            const PicurvWindowDefinition *definition,
+                                            const PicurvWindowStorage *storage,
+                                            PetscBool want_vtk, PetscBool want_csv, PetscInt ti)
+{
+    PetscFunctionBeginUser;
+    if (want_vtk) {
+        VTKMetaData meta;
+        PetscInt derived_count = 0;
+        char filename[PETSC_MAX_PATH_LEN];
+
+        PetscCall(PicurvWindowDerivedCount(definition, storage, pps->field_statistics_outputs, &derived_count));
+        /* An output kind resolves against what the window accumulated, so asking
+         * for stresses from a means-only window yields nothing. Report it the way
+         * an unrecognized Eulerian output field is reported, rather than writing a
+         * quietly short file. */
+        if (derived_count == 0) {
+            LOG_ALLOW(LOCAL, LOG_WARNING,
+                      "Outputs '%s' produce no field for window '%s'; it accumulates none of "
+                      "the state they need. Skipping.\n",
+                      pps->field_statistics_outputs, definition->name);
+        }
+        /* One file per window. The point-data cap is per file, and a single
+         * window with every output already fills most of it. */
+        PetscCall(BeginStructuredVTKOutput(user, &meta));
+        for (PetscInt index = 0; index < derived_count; ++index) {
+            char name[MAX_VTK_FIELD_NAME_LENGTH];
+            Vec nodal = NULL;
+            PetscInt components = 0;
+
+            PetscCall(ComputeWindowStatisticNodal(user, definition, storage, pps->field_statistics_outputs,
+                                                  index, name, sizeof(name), &nodal, &components));
+            /* The staging vector is reused for the next field, which is safe
+             * because appending copies the values out. */
+            PetscCall(AppendStructuredVTKField(user, &meta, name, nodal, components));
+        }
+        PetscCall(PetscSNPrintf(filename, sizeof(filename), "%s_statistics_%s_%05" PetscInt_FMT ".vts",
+                                pps->output_prefix, definition->name, ti));
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Wrote %d derived field(s) for window '%s' to %s\n",
+                  (int)meta.num_point_data_fields, definition->name, filename);
+        PetscCall(FinishStructuredVTKOutput(&meta, filename));
+    }
+    if (want_csv && (pps->field_statistics_homogeneous[0] || pps->field_statistics_homogeneous[1] ||
+                     pps->field_statistics_homogeneous[2])) {
+        PetscCall(ComputeWindowStatisticsProfile(user, definition, storage, pps->field_statistics_outputs,
+                                                 pps->field_statistics_homogeneous,
+                                                 pps->field_statistics_output_prefix, ti));
+    }
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "FillStatisticsEnsemble"
+/**
+ * @brief Internal helper: fills one recipe ensemble's storage from the loaded step.
+ * @details Local to this translation unit. A particle ensemble takes each cell's
+ *          particles as its samples; an Eulerian one takes the cell's own state as its
+ *          single sample, which is one accepted state of unit weight. Storage holds
+ *          solver units, as a run window's restored state does, because derivation
+ *          applies the physical scale itself; a dimensionalized post run has already
+ *          scaled what it loaded, so that scale is removed here.
+ */
+static PetscErrorCode FillStatisticsEnsemble(UserCtx *user, PostProcessParams *pps, PetscInt index,
+                                             PicurvWindowStorage *storage)
+{
+    const PicurvWindowDefinition *definition = &pps->field_statistics_ensembles[index].definition;
+    PetscReal scale[PICURV_WINDOW_MAX_REQUESTS];
+
+    PetscFunctionBeginUser;
+    if (pps->field_statistics_ensemble_from_particles[index]) {
+        PetscCall(PicurvWindowStorageFromParticles(user, definition, storage));
+    } else {
+        PetscCall(PicurvWindowAccumulate(user, definition, storage, 1.0));
+    }
+    if (!pps->dimensionalize) PetscFunctionReturn(0);
+    for (PetscInt f = 0; f < definition->field_count; ++f) {
+        PetscCall(PicurvFieldReferenceScale(user->simCtx, FieldCanonicalName((FieldId)definition->fields[f].field_id),
+                                            &scale[f], NULL, 0));
+        PetscCall(VecScale(storage->mean[f], 1.0 / scale[f]));
+        if (storage->m2[f]) PetscCall(VecScale(storage->m2[f], 1.0 / (scale[f] * scale[f])));
+    }
+    for (PetscInt pair = 0; pair < definition->covariance_count; ++pair) {
+        PetscReal first = 1.0, second = 1.0;
+
+        PetscCall(PicurvFieldReferenceScale(user->simCtx, FieldCanonicalName((FieldId)definition->covariances[pair].first),
+                                            &first, NULL, 0));
+        PetscCall(PicurvFieldReferenceScale(user->simCtx, FieldCanonicalName((FieldId)definition->covariances[pair].second),
+                                            &second, NULL, 0));
+        PetscCall(VecScale(storage->cm[pair], 1.0 / (first * second)));
+    }
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "FieldStatisticsPipeline"
 /**
  * @brief Implementation of \ref FieldStatisticsPipeline().
@@ -500,12 +601,10 @@ PetscErrorCode FieldStatisticsPipeline(UserCtx *user, PostProcessParams *pps, Pe
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    if (pps->field_statistics_windows[0] == '\0') { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
+    if (pps->field_statistics_windows[0] == '\0' && pps->field_statistics_ensemble_count == 0) {
+        PROFILE_FUNCTION_END; PetscFunctionReturn(0);
+    }
     simCtx = user->simCtx;
-
-    PetscCheck(FieldStatisticsIsActive(simCtx), PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
-               "Field-statistics post-processing was requested, but the run's control configures "
-               "no statistics window.");
 
     {
         char formats[MAX_FIELD_LIST_LENGTH];
@@ -524,99 +623,77 @@ PetscErrorCode FieldStatisticsPipeline(UserCtx *user, PostProcessParams *pps, Pe
     }
     if (!want_vtk && !want_csv) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
-    /* An explicit source step pins every processed step to one bundle; otherwise each
-     * step derives from its own, which is what turns a multi-step recipe into a
-     * convergence history rather than the same picture repeated. */
-    source_step = (pps->field_statistics_source_step >= 0) ? pps->field_statistics_source_step : ti;
+    if (pps->field_statistics_windows[0] != '\0') {
+        PetscCheck(FieldStatisticsIsActive(simCtx), PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+                   "Field-statistics post-processing was requested, but the run's control configures "
+                   "no statistics window.");
+        /* An explicit source step pins every processed step to one bundle; otherwise each
+         * step derives from its own, which is what turns a multi-step recipe into a
+         * convergence history rather than the same picture repeated. */
+        source_step = (pps->field_statistics_source_step >= 0) ? pps->field_statistics_source_step : ti;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Starting Field Statistics Pipeline (step %" PetscInt_FMT ") ---\n",
-              source_step);
-    simCtx->fieldStatisticsContinue = PETSC_TRUE;
-    ierr = RestoreFieldStatisticsState(simCtx, source_step); CHKERRQ(ierr);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "--- Starting Field Statistics Pipeline (step %" PetscInt_FMT ") ---\n",
+                  source_step);
+        simCtx->fieldStatisticsContinue = PETSC_TRUE;
+        ierr = RestoreFieldStatisticsState(simCtx, source_step); CHKERRQ(ierr);
 
-    ierr = PetscStrallocpy(pps->field_statistics_windows, &windows_copy); CHKERRQ(ierr);
-    window_name = strtok(windows_copy, ",");
-    while (window_name) {
-        PetscInt window_index = -1;
-        const PicurvWindow *window = NULL;
+        ierr = PetscStrallocpy(pps->field_statistics_windows, &windows_copy); CHKERRQ(ierr);
+        window_name = strtok(windows_copy, ",");
+        while (window_name) {
+            PetscInt window_index = -1;
+            const PicurvWindow *window = NULL;
 
-        TrimWhitespace(window_name);
-        if (!*window_name) { window_name = strtok(NULL, ","); continue; }
+            TrimWhitespace(window_name);
+            if (!*window_name) { window_name = strtok(NULL, ","); continue; }
 
-        for (PetscInt w = 0; w < simCtx->fieldStatisticsWindowCount; ++w) {
-            PetscBool matches = PETSC_FALSE;
+            for (PetscInt w = 0; w < simCtx->fieldStatisticsWindowCount; ++w) {
+                PetscBool matches = PETSC_FALSE;
 
-            ierr = PetscStrcmp(simCtx->fieldStatisticsWindows[w].definition.name,
-                               window_name, &matches); CHKERRQ(ierr);
-            if (matches) { window_index = w; break; }
-        }
-        if (window_index < 0) {
-            ierr = PetscFree(windows_copy); CHKERRQ(ierr);
-            SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
-                    "Field-statistics post-processing requested window '%s', which this run does "
-                    "not configure.", window_name);
-        }
-        window = &simCtx->fieldStatisticsWindows[window_index];
+                ierr = PetscStrcmp(simCtx->fieldStatisticsWindows[w].definition.name,
+                                   window_name, &matches); CHKERRQ(ierr);
+                if (matches) { window_index = w; break; }
+            }
+            if (window_index < 0) {
+                ierr = PetscFree(windows_copy); CHKERRQ(ierr);
+                SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                        "Field-statistics post-processing requested window '%s', which this run does "
+                        "not configure.", window_name);
+            }
+            window = &simCtx->fieldStatisticsWindows[window_index];
 
-        /* A window that has not started by this step is not an error: a recipe
-         * spanning a whole run legitimately reaches bundles from before it began. */
-        if (window->sample_count <= 0) {
-            LOG_ALLOW(GLOBAL, LOG_INFO,
-                      "Statistics window '%s' had accumulated no sample by step %" PetscInt_FMT
-                      "; nothing to derive yet.\n", window->definition.name, source_step);
+            /* A window that has not started by this step is not an error: a recipe
+             * spanning a whole run legitimately reaches bundles from before it began. */
+            if (window->sample_count <= 0) {
+                LOG_ALLOW(GLOBAL, LOG_INFO,
+                          "Statistics window '%s' had accumulated no sample by step %" PetscInt_FMT
+                          "; nothing to derive yet.\n", window->definition.name, source_step);
+                window_name = strtok(NULL, ",");
+                continue;
+            }
+
+            ierr = WriteWindowStatistics(user, pps, &window->definition, &user->fieldStatisticsStorage[window_index],
+                                         want_vtk, want_csv, ti); CHKERRQ(ierr);
+            if (want_csv) {
+                ierr = ComputeWindowStatisticsSummary(user, window_index,
+                                                      pps->field_statistics_output_prefix,
+                                                      ti); CHKERRQ(ierr);
+            }
+
             window_name = strtok(NULL, ",");
-            continue;
         }
-
-        if (want_vtk) {
-            VTKMetaData meta;
-            PetscInt derived_count = 0;
-            char filename[PETSC_MAX_PATH_LEN];
-
-            ierr = PicurvWindowDerivedCount(&window->definition,
-                                            &user->fieldStatisticsStorage[window_index],
-                                            pps->field_statistics_outputs, &derived_count); CHKERRQ(ierr);
-            /* An output kind resolves against what the window accumulated, so asking
-             * for stresses from a means-only window yields nothing. Report it the way
-             * an unrecognized Eulerian output field is reported, rather than writing a
-             * quietly short file. */
-            if (derived_count == 0) {
-                LOG_ALLOW(LOCAL, LOG_WARNING,
-                          "Outputs '%s' produce no field for window '%s'; it accumulates none of "
-                          "the state they need. Skipping.\n",
-                          pps->field_statistics_outputs, window->definition.name);
-            }
-            /* One file per window. The point-data cap is per file, and a single
-             * window with every output already fills most of it. */
-            ierr = BeginStructuredVTKOutput(user, &meta); CHKERRQ(ierr);
-            for (PetscInt index = 0; index < derived_count; ++index) {
-                char name[MAX_VTK_FIELD_NAME_LENGTH];
-                Vec nodal = NULL;
-                PetscInt components = 0;
-
-                ierr = ComputeWindowStatisticNodal(user, window_index,
-                                                   pps->field_statistics_outputs, index,
-                                                   name, sizeof(name), &nodal, &components); CHKERRQ(ierr);
-                /* The staging vector is reused for the next field, which is safe
-                 * because appending copies the values out. */
-                ierr = AppendStructuredVTKField(user, &meta, name, nodal, components); CHKERRQ(ierr);
-            }
-            ierr = PetscSNPrintf(filename, sizeof(filename), "%s_statistics_%s_%05" PetscInt_FMT ".vts",
-                                 pps->output_prefix, window->definition.name, ti); CHKERRQ(ierr);
-            LOG_ALLOW(GLOBAL, LOG_INFO, "Wrote %d derived field(s) for window '%s' to %s\n",
-                      (int)meta.num_point_data_fields, window->definition.name, filename);
-            ierr = FinishStructuredVTKOutput(&meta, filename); CHKERRQ(ierr);
-        }
-
-        if (want_csv) {
-            ierr = ComputeWindowStatisticsSummary(user, window_index,
-                                                  pps->field_statistics_output_prefix,
-                                                  ti); CHKERRQ(ierr);
-        }
-
-        window_name = strtok(NULL, ",");
+        ierr = PetscFree(windows_copy); CHKERRQ(ierr);
     }
-    ierr = PetscFree(windows_copy); CHKERRQ(ierr);
+
+    /* Recipe ensembles are built from the step just loaded, so they need no bundle. */
+    for (PetscInt index = 0; index < pps->field_statistics_ensemble_count; ++index) {
+        const PicurvWindowDefinition *definition = &pps->field_statistics_ensembles[index].definition;
+        PicurvWindowStorage storage;
+
+        ierr = PicurvWindowStorageCreate(user, definition, &storage); CHKERRQ(ierr);
+        ierr = FillStatisticsEnsemble(user, pps, index, &storage); CHKERRQ(ierr);
+        ierr = WriteWindowStatistics(user, pps, definition, &storage, want_vtk, want_csv, ti); CHKERRQ(ierr);
+        ierr = PicurvWindowStorageDestroy(&storage); CHKERRQ(ierr);
+    }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Field Statistics Pipeline Complete ---\n");
     PROFILE_FUNCTION_END;
@@ -924,7 +1001,11 @@ int main(int argc, char **argv)
     // Each stage declares what it needs rather than inferring it from another
     // stage's configuration. Field statistics are Eulerian and must not require a
     // swarm: a turbulence run normally carries no particles at all.
-    PetscBool needs_particle_stage = (pps->outputParticles || pps->particle_pipeline[0] != '\0' || pps->statistics_pipeline[0] != '\0') ? PETSC_TRUE : PETSC_FALSE;
+    PetscBool needs_particle_ensembles = PETSC_FALSE;
+    for (PetscInt index = 0; index < pps->field_statistics_ensemble_count; ++index) {
+        if (pps->field_statistics_ensemble_from_particles[index]) needs_particle_ensembles = PETSC_TRUE;
+    }
+    PetscBool needs_particle_stage = (pps->outputParticles || pps->particle_pipeline[0] != '\0' || pps->statistics_pipeline[0] != '\0' || needs_particle_ensembles) ? PETSC_TRUE : PETSC_FALSE;
     if(needs_particle_stage) {
         if(simCtx->np > 0){
             ierr = InitializeParticleSwarm(simCtx); CHKERRQ(ierr);
@@ -932,7 +1013,8 @@ int main(int argc, char **argv)
             ierr = SetupPostProcessSwarm(user,pps); CHKERRQ(ierr);
         }else{
             SETERRQ(PETSC_COMM_SELF,1,
-                    "Particle post-processing requested (particle output or particle statistics pipeline) "
+                    "Particle post-processing requested (particle output, a particle statistics pipeline, "
+                    "or a particle statistics ensemble) "
                     "but np=0. Please set np>0 during solver run to enable particle post-processing.");
         }
     }
@@ -974,6 +1056,13 @@ int main(int argc, char **argv)
 
             // 2. Load particle data into the correctly sized swarm
             ierr = ReadAllSwarmFields(user, ti); CHKERRQ(ierr);
+
+            // A cell ensemble counts the particles in each cell's ghosted patch, and a
+            // particle is read onto whichever rank its file position falls to, so move
+            // each to the rank owning its recorded cell first.
+            if (needs_particle_ensembles) {
+                ierr = MigrateRestartParticlesUsingCellID(user); CHKERRQ(ierr);
+            }
 
             // 3. Global statistical reductions (MSD, etc.) → CSV files. These compare
             //    against nondimensional theory, so they read the positions as loaded.
