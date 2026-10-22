@@ -118,6 +118,11 @@ PetscErrorCode ReadSimulationFields(UserCtx *user, PetscInt ti);
  * zeroed: a window count mismatch, a renamed window, a changed definition hash, a
  * requested end earlier than the represented span, or missing state.
  *
+ * Under EXEC_MODE_RESTART_CHECK it needs no grid: it validates the bundle and every
+ * window against the manifest, skipping only the geometry comparison and the payload
+ * reads, and returns. The CLI runs that before staging a carried restart, so an
+ * incompatible window is refused before a job is queued.
+ *
  * @param[in,out] simCtx Simulation context carrying the windows and accumulators.
  * @param[in]     ti     Step whose committed bundle supplies the state.
  * @return Zero on success, or a PETSc error when continuation cannot be honored.

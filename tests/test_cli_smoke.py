@@ -10595,3 +10595,47 @@ def test_monitor_function_lists_translate_renamed_poisson_functions(tmp_path, ca
     with pytest.raises(ValueError, match="no longer exist"):
         picurv.resolve_profiling_config(
             {"profiling": {"timestep_output": {"mode": "selected", "functions": ["FullyBlocked"]}}})
+
+
+def test_restart_continuation_check_runs_one_rank_and_reports_the_simulator_reason(monkeypatch, tmp_path, capsys):
+    """!
+    @brief Staging asks the simulator, on one rank, whether carried windows can continue.
+    @details A pass returns; a refusal exits naming the simulator's own reason rather than
+             PETSc's generic error class, and says the run was not launched.
+    @param[in] monkeypatch Pytest fixture for patching the command runner.
+    @param[in] tmp_path Staged run directory.
+    @param[in] capsys Pytest fixture capturing the refusal.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    commands = []
+    outcome = {"returncode": 0, "stderr": ""}
+    monkeypatch.delenv("PICURV_MPI_LAUNCHER", raising=False)
+    monkeypatch.setenv("MPI_LAUNCHER", "mpiexec -n 8")
+
+    def run(command, run_dir):
+        """!
+        @brief Record the command and answer as the simulator would.
+        @param[in] command Launched command.
+        @param[in] run_dir Working directory.
+        @return Simulated completed process.
+        """
+        commands.append((command, run_dir))
+        return subprocess.CompletedProcess(command, outcome["returncode"], "", outcome["stderr"])
+
+    monkeypatch.setattr(picurv, "_run_captured_command", run)
+    picurv.check_restart_continuation("simulator", ["-control_file", "run.control"], str(tmp_path))
+    command, run_dir = commands[-1]
+    assert command == ["mpiexec", "-n", "1", "simulator", "-control_file", "run.control",
+                       "-restart_check_only", "true"]
+    assert run_dir == str(tmp_path)
+
+    outcome.update(returncode=75, stderr=(
+        "[0]PETSC ERROR: --------------------- Error Message ---------\n"
+        "[0]PETSC ERROR: Arguments are incompatible\n"
+        "[0]PETSC ERROR: Statistics window 'w' was defined differently in the checkpoint: mask changed.\n"))
+    with pytest.raises(SystemExit):
+        picurv.check_restart_continuation("simulator", [], str(tmp_path))
+    refusal = capsys.readouterr().err
+    assert "Statistics window 'w' was defined differently in the checkpoint: mask changed." in refusal
+    assert "Arguments are incompatible" not in refusal and "not launched or submitted" in refusal

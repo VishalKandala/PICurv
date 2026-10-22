@@ -855,6 +855,7 @@ typedef struct VTKMetaData {
 typedef enum {
     EXEC_MODE_SOLVER,          // The application is running as the main fluid solver.
     EXEC_MODE_POSTPROCESSOR,   // The application is running as the post-processor.
+    EXEC_MODE_RESTART_CHECK,   // The solver only checks that a restart can continue its checkpoint, then exits.
     EXEC_MODE_UNKNOWN          // Default/error state.
 } ExecutionMode;
 

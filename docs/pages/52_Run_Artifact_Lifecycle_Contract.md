@@ -676,14 +676,25 @@ scientific continuation of the same measurement.
 validation still owns grid layout and required state; changing the statistics recipe
 can make the requested state unusable.
 
-**Diagnostics.** The generated control contains the continue flag. A missing or
-incompatible checkpoint statistics payload fails during restart setup rather than
-silently resetting. The restart bundle is staged whenever `carry` is requested, whatever
+**Diagnostics.** The generated control contains the continue flag. Before the run is
+launched or submitted, staging runs the simulator once on one rank with
+`-restart_check_only`: it reads the run's control file and the source checkpoint's
+manifest and applies every window check a restart applies (count, names and order,
+definition hash, lifecycle state, end-time rules), building no grid, so it takes about a
+second on a login node at any production rank count. A refusal names the window and the
+changed property, such as `mask changed`, and nothing is queued. `--continue` runs the
+same check, since it carries windows by default. The geometry comparison and the
+accumulator payload reads still happen at solver start, where a missing or incompatible
+payload fails rather than silently resetting. The restart bundle is staged whenever `carry` is requested, whatever
 the Eulerian source: an analytical-source run used to stage none, because it needs no
 fields, and then failed at start-up looking for the accumulators.
 
 **Evidence.** Unit verified — `tests/test_workspace_lifecycle.py` exercises the CLI
-choice and generated run control surface. Analytically verified - `field-statistics-tgv3d-2026-09-21`: a TGV3D run
+choice and generated run control surface. Integration verified - `make smoke` (field
+statistics): an unchanged carried window passes the staging check and a changed weighting
+is refused at staging with the property named and nothing launched;
+`tests/test_cli_smoke.py` checks the check runs on one rank and reports the simulator's own
+reason. Analytically verified - `field-statistics-tgv3d-2026-09-21`: a TGV3D run
 restarted at step 10 with `carry` reproduced the continuous run's windows to 1.1e-16 at
 step 20.
 

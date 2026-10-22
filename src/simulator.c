@@ -41,6 +41,18 @@ int main(int argc, char **argv)
   ierr = CreateSimulationContext(argc, argv, &simCtx); CHKERRQ(ierr);
   // == IIB. SET EXECUTION MODE (SOLVER vs POST-PROCESSOR) =====
   simCtx->exec_mode = EXEC_MODE_SOLVER;
+  // A restart check needs only the configuration and the checkpoint manifest, so it stops
+  // before any directory, grid, or field is created.
+  {
+    PetscBool restart_check = PETSC_FALSE;
+    ierr = PetscOptionsGetBool(NULL, NULL, "-restart_check_only", &restart_check, NULL); CHKERRQ(ierr);
+    if (restart_check) {
+      simCtx->exec_mode = EXEC_MODE_RESTART_CHECK;
+      ierr = RestoreFieldStatisticsState(simCtx, simCtx->StartStep); CHKERRQ(ierr);
+      ierr = FinalizeSimulation(simCtx); CHKERRQ(ierr);
+      return PetscFinalize();
+    }
+  }
   // == IIC. CONFIGURE SIMULATION ENVIRONMENT & DIRECTORIES =====
   ierr = SetupSimulationEnvironment(simCtx); CHKERRQ(ierr);
   

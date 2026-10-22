@@ -4,7 +4,8 @@
     "src/setup.c",
     "src/io.c",
     "src/statistics_config.c",
-    "src/ParticleInitialConditions.c"
+    "src/ParticleInitialConditions.c",
+    "src/simulator.c"
   ],
   "known_petsc_options": [
     "-TwoD",
@@ -114,6 +115,7 @@
     "-psrc_z",
     "-rans",
     "-ren",
+    "-restart_check_only",
     "-restart_dir",
     "-rframe",
     "-rfsi",

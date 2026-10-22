@@ -249,7 +249,7 @@ static PetscErrorCode CreateCheckpointDirectoryCollective(const SimCtx *simCtx, 
     PetscFunctionReturn(0);
 }
 
-/** @brief Validate a committed bundle and return selected authoritative metadata. */
+/** @brief Validate a committed bundle and return selected authoritative metadata; a NULL @p user skips the geometry comparison. */
 static PetscErrorCode ValidateCheckpointBundle(SimCtx *simCtx, UserCtx *user,
                                                const char *checkpoint_directory,
                                                PetscInt expected_step,
@@ -277,7 +277,7 @@ static PetscErrorCode ValidateCheckpointBundle(SimCtx *simCtx, UserCtx *user,
     FILE *commit_file = NULL;
 
     PetscFunctionBeginUser;
-    PetscCheck(simCtx != NULL && user != NULL && checkpoint_directory != NULL,
+    PetscCheck(simCtx != NULL && checkpoint_directory != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Checkpoint validation inputs cannot be NULL.");
     PetscCall(PetscSNPrintf(metadata_path, sizeof(metadata_path), "%s/checkpoint.meta", checkpoint_directory));
     PetscCall(PetscSNPrintf(commit_path, sizeof(commit_path), "%s/COMMITTED", checkpoint_directory));
@@ -324,9 +324,12 @@ static PetscErrorCode ValidateCheckpointBundle(SimCtx *simCtx, UserCtx *user,
                                     saved_geometry_digest, sizeof(saved_geometry_digest), &found));
     PetscCheck(found, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
                "Checkpoint '%s' does not record geometry identity.", metadata_path);
-    PetscCall(ComputeCheckpointGeometrySHA256(simCtx, user, current_geometry_digest));
-    PetscCheck(!strcmp(saved_geometry_digest, current_geometry_digest), PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
-               "Checkpoint geometry/layout does not match the active grid.");
+    /* Without a grid (a restart check before setup) there is no active geometry to compare. */
+    if (user) {
+        PetscCall(ComputeCheckpointGeometrySHA256(simCtx, user, current_geometry_digest));
+        PetscCheck(!strcmp(saved_geometry_digest, current_geometry_digest), PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
+                   "Checkpoint geometry/layout does not match the active grid.");
+    }
 
     PetscCall(PetscOptionsGetInt(options, NULL, "-checkpoint_payload_count", &payload_count, &found));
     PetscCheck(found && payload_count > 0, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
@@ -1737,9 +1740,13 @@ PetscErrorCode RestoreFieldStatisticsState(SimCtx *simCtx, PetscInt ti)
         PetscFunctionReturn(0);
     }
 
-    user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
-    PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
-               "Finest-level fields must exist before statistics state is restored.");
+    /* A restart check runs before setup: it validates everything the metadata holds and
+     * stops before the payloads, which need the grid. */
+    if (simCtx->exec_mode != EXEC_MODE_RESTART_CHECK) {
+        user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
+        PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+                   "Finest-level fields must exist before statistics state is restored.");
+    }
     source_path = (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) ? simCtx->pps->source_dir
                                                                  : simCtx->restart_dir;
     PetscCheck(source_path != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
@@ -1771,6 +1778,12 @@ PetscErrorCode RestoreFieldStatisticsState(SimCtx *simCtx, PetscInt ti)
                                             &simCtx->fieldStatisticsWindows[window]));
     }
     PetscCall(PetscOptionsDestroy(&options));
+    if (!user) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Statistics continuation check passed: %d window(s) can continue from '%s'.\n",
+                  simCtx->fieldStatisticsWindowCount, checkpoint_directory);
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
 
     for (PetscInt block = 0; block < simCtx->block_number; ++block) {
         PetscCheck(user[block].fieldStatisticsStorage != NULL, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,

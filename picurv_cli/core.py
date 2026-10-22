@@ -11953,6 +11953,42 @@ def build_local_launch_command(
 
     return prefix + command
 
+def check_restart_continuation(solver_exe: str, solver_args: list, run_dir: str,
+                               config_search_anchor: str = None):
+    """!
+    @brief Refuse a staged restart whose carried statistics windows cannot continue.
+    @details Runs the simulator's restart check on one rank. It parses the run's control
+             file and compares each window with the source checkpoint's manifest exactly
+             as the restart will, but builds no grid, so it costs about a second and runs
+             on a login node whatever the production rank count. Passing it does not
+             replace the full check at solver start, which also compares geometry.
+    @param[in] solver_exe Simulator executable the run will launch.
+    @param[in] solver_args Simulator arguments the run will launch with.
+    @param[in] run_dir Staged run directory, the simulator's working directory.
+    @param[in] config_search_anchor Path from which the local launcher configuration is found.
+    @return None; exits with the simulator's own refusal when the check fails.
+    """
+    command = build_local_launch_command(
+        solver_exe, solver_args + ["-restart_check_only", "true"], 1,
+        config_search_anchor=config_search_anchor,
+        allow_single_rank_launcher_override=True, force_num_procs=1,
+    )
+    result = _run_captured_command(command, run_dir)
+    if result.returncode == 0:
+        print("[INFO] Statistics continuation check passed.")
+        return
+    # PETSc prints a banner, its generic error class, then the simulator's own message.
+    messages = [line.split("PETSC ERROR:", 1)[1].strip()
+                for line in (result.stdout + result.stderr).splitlines() if "PETSC ERROR:" in line]
+    messages = [m for m in messages if m and not m.startswith("-")]
+    reason = (messages[1] if len(messages) > 1 else messages[0] if messages
+              else (result.stderr or result.stdout).strip() or f"exit status {result.returncode}")
+    print(f"[FATAL] This restart cannot continue its statistics windows: {reason}\n"
+          f"        The run was staged in {os.path.relpath(run_dir)} but not launched or submitted.",
+          file=sys.stderr)
+    sys.exit(1)
+
+
 def resolve_cluster_execution(cluster_cfg: dict, config_search_anchor: str = None, extra_search_anchors=None) -> dict:
     """!
     @brief Resolve cluster execution launcher settings from shared runtime config plus cluster.yml overrides.
@@ -19865,6 +19901,9 @@ def run_workflow(args):
         if not had_pinned_executables or getattr(args, "pin_executables", None) is True:
             warn_on_stale_runtime_binaries(runtime_build_identities(run_dir=run_dir))
         solver_args = build_petsc_diagnostics_args(configs["monitor"], run_dir, "Solver") + ["-control_file", control_file]
+        carries_statistics = is_continue or str(configs.get("statistics_state", "reset")).lower() == "carry"
+        if carries_statistics and normalize_field_statistics_config(configs["monitor"])["enabled"]:
+            check_restart_continuation(solver_exe, solver_args, run_dir, config_search_anchor=configs["case_path"])
         if cluster_mode:
             scheduler_dir = os.path.join(run_dir, "scheduler")
             solver_script = os.path.join(scheduler_dir, "solver.sbatch")

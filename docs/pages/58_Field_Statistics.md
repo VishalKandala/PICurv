@@ -320,6 +320,11 @@ as zeros, so its saved state cannot be continued: its mask group no longer match
 continuation is refused with that group named. Such a window has to start again under a
 new name.
 
+The hash is compared by the simulator, because only it holds the resolved definition, but
+`picurv run` asks it before launching: a carried restart is checked at staging on one rank,
+without a grid (@ref p52_cap_restart_stats_carry), so an incompatible window is refused
+before a job is queued.
+
 Each group is also hashed on its own, and the truncated group digests are stored
 beside the full one. That is what lets a mismatch name the property that changed
 rather than reporting only that two digests differ.

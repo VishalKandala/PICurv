@@ -2673,6 +2673,47 @@ run_field_statistics_smoke() {
         -name Field_statistics_equivalence.csv | head -1)" \
     "step,state,samples" "statistics convergence history header"
 
+  # (1b) Staging a carried restart asks the simulator, before any launch, whether the
+  #      windows can continue: an unchanged window passes, a changed one is refused with
+  #      the property named and nothing launched.
+  local carry_case="${tmp_root}/field_statistics_reported" carry_log="${tmp_root}/field_statistics_carry.log"
+  python3 - "${carry_case}/config/case.yml" <<'PY'
+import sys
+import yaml
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    cfg = yaml.safe_load(f)
+cfg["run_control"].update({"start_step": 4, "total_steps": 1})
+with open(path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(cfg, f, sort_keys=False)
+PY
+  (cd "${carry_case}" && "${picurv_exe}" run --solve -n "${nprocs}" --case config/case.yml \
+     --solver config/solver.yml --monitor config/monitor.yml --restart-from "${reported_run}" \
+     --statistics-state carry --no-submit) >"${carry_log}" 2>&1 \
+    || die "staging an unchanged carried window failed; see ${carry_log}"
+  require_file_contains "${carry_log}" "Statistics continuation check passed" \
+    "an unchanged carried window passes the staging check"
+  python3 - "${carry_case}/config/monitor.yml" <<'PY'
+import sys
+import yaml
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    cfg = yaml.safe_load(f)
+window = cfg["field_statistics"]["windows"][0]
+window["weighting"] = "sample" if window.get("weighting") == "physical_time" else "physical_time"
+with open(path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(cfg, f, sort_keys=False)
+PY
+  if (cd "${carry_case}" && "${picurv_exe}" run --solve -n "${nprocs}" --case config/case.yml \
+        --solver config/solver.yml --monitor config/monitor.yml --restart-from "${reported_run}" \
+        --statistics-state carry) >"${carry_log}" 2>&1; then
+    die "a carried window with a changed weighting was launched instead of refused at staging."
+  fi
+  require_file_contains "${carry_log}" "defined differently in the checkpoint: weighting changed" \
+    "a changed carried window is refused at staging, naming the property"
+  require_file_contains "${carry_log}" "not launched or submitted" \
+    "a refused carried restart is not launched"
+
   # (2) The same accumulation below LOG_INFO: the banner still records the cadence, so a
   #     quiet log stays interpretable, but no snapshot is emitted.
   run_field_statistics_variant "field_statistics_quiet" 1 2 "WARNING"
