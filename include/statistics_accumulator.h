@@ -24,6 +24,13 @@
  * fluid mask can move: a point contributes only to the states in which it was
  * valid, so its own count and weight are what normalize its moments.
  *
+ * A particle-sampled field (`FIELD_CAPABILITY_PARTICLE_SAMPLED`) is a measurement
+ * only in the states in which its cell held particles, so it is accumulated over a
+ * second sample set, the occupied states, with occupancy of its own. A covariance
+ * pairing it with an ordinary field is taken over the occupied states too, and needs
+ * the ordinary member's mean over those same states; that mean is kept beside the
+ * member's own. A window requesting no particle-sampled field holds none of this.
+ *
  * Every product is one vector carrying all of its components, not one vector per
  * component. A symmetric second-order tensor is a single object: splitting it would
  * cost six memory streams in the per-step accumulation loop instead of one cache
@@ -40,6 +47,11 @@ typedef struct PicurvWindowStorage {
     Vec      *mean;              /**< One per field, matching that field's layout. */
     Vec      *m2;                /**< One per field; NULL when no second moment was requested. */
     Vec      *cm;                /**< One per covariance pair. */
+    Vec       occupied_count;     /**< Occupied-state count; NULL without a particle-sampled field. */
+    Vec       occupied_weight;    /**< Occupied-state weight; NULL without a particle-sampled field. */
+    Vec       occupied_weight_sq; /**< Occupied-state squared weight; NULL likewise. */
+    Vec      *occupied_mean;      /**< Per field: its mean over the occupied states, for an ordinary
+                                       field paired with a particle-sampled one; NULL otherwise. */
 } PicurvWindowStorage;
 
 /** @brief Maximum stored length of a payload name, including the terminator. */
@@ -143,8 +155,9 @@ PetscErrorCode PicurvWindowStorageDestroy(PicurvWindowStorage *storage);
 
 /** @brief One derived output field, resolved by enumeration index. */
 typedef struct {
-    char     name[PICURV_STATISTICS_PAYLOAD_NAME_LENGTH]; /**< Output field name, window qualified. */
-    PetscInt components;                                   /**< One or three. */
+    char      name[PICURV_STATISTICS_PAYLOAD_NAME_LENGTH]; /**< Output field name, window qualified. */
+    PetscInt  components;                                   /**< One or three. */
+    PetscBool occupied;   /**< Measured over the occupied states, so undefined where they are absent. */
 } PicurvDerivedField;
 
 /**

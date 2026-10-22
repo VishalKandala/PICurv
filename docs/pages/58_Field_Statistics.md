@@ -244,6 +244,20 @@ a verified kernel:
 M_2 = M_{2,A} + M_{2,B} + \frac{W_A W_B}{W}\delta^2 .
 \f]
 
+**Particle-sampled fields are measured over the occupied states.** `Psi` is the cell
+mean of the particles a cell holds, so in a state where the cell holds none its stored
+value is a placeholder, not a measurement. A field carrying the catalog capability
+`FIELD_CAPABILITY_PARTICLE_SAMPLED` is therefore accumulated over a second sample set,
+the states in which the cell held at least one particle (`ParticleCount > 0`, as the
+scatter computed it for that state). That set has its own count, weight and
+squared-weight sum. A covariance pairing it with an ordinary field is taken over the
+occupied states too, and centred on the ordinary member's mean over those states,
+`<field>_occupied_mean`, which is kept beside that member's own mean. A centred
+co-moment needs both means over the same samples. The ordinary field's own statistics
+still use every state, so `Ucat` is unconditional and a `Ucat`-`Psi` flux is not.
+A window with no particle-sampled field holds none of this state. Its storage,
+checkpoint payloads and identity hash are unchanged.
+
 @subsection p58_order_sub 4.2 Products and Component Order
 
 Component order is explicit everywhere and never implicit.
@@ -298,7 +312,13 @@ At startup the resolved definition is hashed once with SHA-256
 user option. Hashed, in fixed order: window name; `start_time` in solver time; weighting mode;
 cadence kind and value; resolved field entries ordered by field identity, each
 with its moment set; resolved covariance pairs, canonicalized within each pair and
-ordered; mask identity; and target kind and layout semantics.
+ordered; mask identity, including the occupied-state validity of each
+particle-sampled field (4.1); and target kind and layout semantics.
+
+A window accumulating `Psi` before the occupied sample set existed counted empty cells
+as zeros, so its saved state cannot be continued: its mask group no longer matches, and
+continuation is refused with that group named. Such a window has to start again under a
+new name.
 
 Each group is also hashed on its own, and the truncated group digests are stored
 beside the full one. That is what lets a mismatch name the property that changed

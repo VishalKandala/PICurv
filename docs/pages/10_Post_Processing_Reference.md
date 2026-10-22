@@ -335,7 +335,10 @@ C_{ab} = \frac{\sum_p \left[ C_{ab,p} + W_p (\mu_{a,p} - \mu_a)(\mu_{b,p} - \mu_
 the merge rule of @ref p60_principle_sec. A channel's Reynolds stress profile is
 therefore the full stress over the homogeneous plane. A point that never sampled the
 field is excluded rather than averaged in as a zero. Naming all three directions
-gives one row for the whole domain. A profile is computed from the same state the
+gives one row for the whole domain. An output measured over the occupied states of a
+particle-sampled field (@ref p58_update_sub), such as `Psi` or a `Ucat`-`Psi` flux, is
+left empty in a slot no particle reached, rather than written as a zero. A profile is
+computed from the same state the
 `.vts` is, and follows `global_operations.dimensionalize` the same way, its
 coordinates included. The `profile_series` reducer (@ref p10_reducers_sec) reduces
 each step's profile to its maximum, minimum, integral, maximum-gradient thickness and
@@ -580,7 +583,11 @@ within a cell.
 window may accumulate.
 
 **Interactions.** Reads fields as loaded, so a field must be one the step's
-checkpoint holds.
+checkpoint holds. A particle-sampled field such as `Psi` counts only the cells that
+held particles at that step, read from the checkpointed `ParticleCount`. An empty cell's
+`Psi` is a placeholder, not a value, and its pooled moments are of the occupied cells.
+They still differ from the `particles` source, which weights each cell by its particle
+count where this weights each cell once.
 
 **Diagnostics.** A pointwise variance or RMS is identically zero; only a profile
 carries spread.

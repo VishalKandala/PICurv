@@ -272,7 +272,9 @@ def profile_series(args):
     """!
     @brief Write the functionals of every column of one profile family as a history CSV.
     @details Reads every `<prefix>_<step>.csv` of the family. A profile retaining two or
-             more directions is a map, not a curve, and is refused.
+             more directions is a map, not a curve, and is refused. A column's empty
+             cells, slots its particle-sampled output never reached, are left out of its
+             functionals.
     @param[in] args Parsed `profile-series` arguments.
     @return Process exit status.
     """
@@ -288,7 +290,8 @@ def profile_series(args):
         with open(path, encoding="utf-8", newline="") as stream:
             reader = csv.reader(stream)
             header = next(reader, [])
-            rows = [[float(cell) for cell in row] for row in reader if row]
+            # A particle-sampled column is empty where no particle reached its slot.
+            rows = [[float(cell) if cell else None for cell in row] for row in reader if row]
         if len([c for c in header if c in PROFILE_LOCATION_COLUMNS[:3]]) != 1:
             raise SystemExit(f"{path} retains more than one direction; it is a map, not a profile.")
         position = [header.index(axis) for axis in ("x", "y", "z")]
@@ -299,7 +302,9 @@ def profile_series(args):
         for column, name in enumerate(header):
             if name in PROFILE_LOCATION_COLUMNS:
                 continue
-            for functional, value in profile_functionals(s, [row[column] for row in rows]).items():
+            kept = [n for n, row in enumerate(rows) if row[column] is not None]
+            for functional, value in profile_functionals([s[n] for n in kept],
+                                                         [rows[n][column] for n in kept]).items():
                 key = f"{name}.{functional}"
                 record[key] = value
                 if key not in fields:

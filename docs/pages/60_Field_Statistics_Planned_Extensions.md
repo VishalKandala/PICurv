@@ -141,7 +141,11 @@ reduction cannot follow:
   between the stencil points.
 - **Point probes at off-grid locations**, for the same reason.
 - **Conditional sampling**, where a state is accumulated only when a condition
-  holds, since unconditional weights cannot be split afterwards.
+  holds, since unconditional weights cannot be split afterwards. One fixed condition
+  exists: a particle-sampled field is accumulated over the states in which its cell
+  held particles, with its own occupancy (@ref p58_update_sub). A user-selected
+  condition would generalize that second sample set, and extend the mask group it
+  already records itself in.
 
 `SpatialTargetPlan` exists as an abstraction with only the pointwise identity
 mapping implemented, so these extend it rather than retrofit it, and the

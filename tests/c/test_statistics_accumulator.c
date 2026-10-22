@@ -1065,6 +1065,137 @@ static PetscErrorCode TestReductionEqualsPooledMoments(void)
     PetscFunctionReturn(0);
 }
 
+/** @brief Sets Psi and the particle count uniformly, so a state is occupied or not everywhere. */
+static PetscErrorCode SetParticleState(UserCtx *user, PetscReal psi_value, PetscReal particles)
+{
+    PetscFunctionBeginUser;
+    PetscCall(VecSet(user->Psi, psi_value));
+    PetscCall(VecSet(user->ParticleCount, particles));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief A particle-sampled field is accumulated over the occupied states only.
+ *
+ * Three states of the suite's reference series, the second with no particle in any
+ * cell. Ucat is ordinary, so it keeps all three samples; Psi and the Ucat-Psi pair keep
+ * the first and third. The pair is centred on Ucat's mean over those two states, (3,3,5),
+ * not on its all-state mean, (3,4,5). Psi's outputs are flagged as occupied-set outputs.
+ */
+static PetscErrorCode TestParticleSampledFieldUsesOccupiedStates(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PicurvWindowStorage storage;
+    PicurvWindowDefinition d = AccDefinition(PETSC_TRUE);
+    const PetscReal series[3][3] = {{1.0, 2.0, 3.0}, {3.0, 6.0, 5.0}, {5.0, 4.0, 7.0}};
+    const PetscReal scalars[3] = {1.0, 2.0, 6.0};
+    const PetscReal occupied[3] = {1.0, 0.0, 3.0};
+    /* Over states 0 and 2: Psi mean 3.5 and centred sum 2 * 2.5^2; the co-moment against
+     * Ucat about (3,3,5) is (-2)(-2.5) + (2)(2.5) = 10, (-1)(-2.5) + (1)(2.5) = 5, and 10. */
+    const PetscReal co_moment[3] = {10.0, 5.0, 10.0};
+    PicurvDerivedField derived;
+    PetscReal value = 0.0;
+
+    PetscFunctionBeginUser;
+    d.fields[1].field_id = FIELD_ID_PSI;
+    d.covariance_count = 1;
+    d.covariances[0].first = FIELD_ID_UCAT;
+    d.covariances[0].second = FIELD_ID_PSI;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, ACC_N, ACC_N, ACC_N));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(PicurvWindowStorageCreate(user, &d, &storage));
+    PetscCall(PicurvAssertBool((PetscBool)(storage.occupied_count && storage.occupied_mean[0] &&
+                                           !storage.occupied_mean[1]),
+                               "the occupied set and Ucat's occupied-state mean exist; Psi needs none"));
+    for (PetscInt s = 0; s < 3; ++s) {
+        PetscCall(SetUniform(user, series[s][0], series[s][1], series[s][2], 0.0));
+        PetscCall(SetParticleState(user, scalars[s], occupied[s]));
+        PetscCall(PicurvWindowAccumulate(user, &d, &storage, 1.0));
+    }
+
+    PetscCall(ReadScalarAt(user, storage.count, 2, 2, 2, &value));
+    PetscCall(PicurvAssertRealNear(3.0, value, 0.0, "every state is a sample of the ordinary set"));
+    PetscCall(ReadScalarAt(user, storage.occupied_count, 2, 2, 2, &value));
+    PetscCall(PicurvAssertRealNear(2.0, value, 0.0, "only the occupied states are samples of Psi"));
+    PetscCall(ReadComponentAt(user, storage.mean[0], 3, 1, 2, 2, 2, &value));
+    PetscCall(PicurvAssertRealNear(4.0, value, 1.0e-12, "Ucat's own mean keeps every state"));
+    PetscCall(ReadComponentAt(user, storage.occupied_mean[0], 3, 1, 2, 2, 2, &value));
+    PetscCall(PicurvAssertRealNear(3.0, value, 1.0e-12, "Ucat's occupied-state mean keeps states 0 and 2"));
+    PetscCall(ReadScalarAt(user, storage.mean[1], 2, 2, 2, &value));
+    PetscCall(PicurvAssertRealNear(3.5, value, 1.0e-12, "Psi's mean skips the empty state"));
+    PetscCall(ReadScalarAt(user, storage.m2[1], 2, 2, 2, &value));
+    PetscCall(PicurvAssertRealNear(12.5, value, 1.0e-11, "Psi's centred sum skips the empty state"));
+    for (PetscInt c = 0; c < 3; ++c) {
+        PetscCall(ReadComponentAt(user, storage.cm[0], 3, c, 2, 2, 2, &value));
+        PetscCall(PicurvAssertRealNear(co_moment[c], value, 1.0e-11, "the pair is centred on occupied means"));
+    }
+
+    /* Outputs: index 0 is Ucat's mean, 1 Psi's, then the flux (mean, flux only). */
+    PetscCall(PicurvWindowDerive(user, &d, &storage, "mean,flux", 0, user->PostScalar, user->PostVector, &derived));
+    PetscCall(PicurvAssertBool((PetscBool)!derived.occupied, "Ucat's mean is an all-state output"));
+    PetscCall(PicurvWindowDerive(user, &d, &storage, "mean,flux", 2, user->PostScalar, user->PostVector, &derived));
+    PetscCall(PicurvAssertBool(derived.occupied, "the Ucat-Psi flux is an occupied-set output"));
+    PetscCall(ReadComponentAt(user, user->PostVector, 3, 1, 2, 2, 2, &value));
+    PetscCall(PicurvAssertRealNear(2.5, value, 1.0e-12, "the flux divides by the occupied weight"));
+
+    PetscCall(PicurvWindowStorageDestroy(&storage));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief A homogeneous merge of a particle-sampled field pools only its occupied samples.
+ *
+ * Psi takes the value i at cell i while occupied, and the cells with i odd never hold a
+ * particle; their zeros must not enter the plane mean.
+ */
+static PetscErrorCode TestReductionPoolsOnlyOccupiedSamples(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PicurvWindowStorage storage, reduced;
+    PicurvWindowDefinition d = AccDefinition(PETSC_FALSE);
+    const PetscBool over_ik[3] = {PETSC_TRUE, PETSC_FALSE, PETSC_TRUE};
+    SpatialTargetPlan plan;
+    PetscReal ***psi = NULL, ***particles = NULL, value = 0.0, sum = 0.0, n = 0.0;
+
+    PetscFunctionBeginUser;
+    d.field_count = 1;
+    d.fields[0].field_id = FIELD_ID_PSI;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, ACC_N, ACC_N, ACC_N));
+    PetscCall(VecSet(user->Nvert, 0.0));
+    PetscCall(VecSet(user->lNvert, 0.0));
+    PetscCall(DMDAVecGetArray(user->da, user->Psi, &psi));
+    PetscCall(DMDAVecGetArray(user->da, user->ParticleCount, &particles));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k)
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j)
+            for (PetscInt i = user->info.xs; i < user->info.xs + user->info.xm; ++i) {
+                particles[k][j][i] = (i % 2) ? 0.0 : 4.0;
+                psi[k][j][i] = (i % 2) ? 0.0 : (PetscReal)i;
+            }
+    PetscCall(DMDAVecRestoreArray(user->da, user->ParticleCount, &particles));
+    PetscCall(DMDAVecRestoreArray(user->da, user->Psi, &psi));
+    PetscCall(PicurvWindowStorageCreate(user, &d, &storage));
+    PetscCall(PicurvWindowStorageCreate(user, &d, &reduced));
+    PetscCall(PicurvWindowAccumulate(user, &d, &storage, 1.0));
+    PetscCall(PicurvWindowStorageReduce(user, &d, &storage, over_ik, &reduced));
+
+    PetscCall(SpatialTargetPlanCreate(user, FIELD_ID_PSI, PICURV_STATISTICS_MASK_FLUID, &plan));
+    for (PetscInt i = plan.start[0]; i < plan.end[0]; ++i) {
+        if (i % 2 == 0) { sum += (PetscReal)i; n += 1.0; }
+    }
+    PetscCall(ReadScalarAt(user, reduced.mean[0], 1, 2, 3, &value));
+    PetscCall(PicurvAssertRealNear(sum / n, value, 1.0e-12, "the plane mean pools occupied cells only"));
+    PetscCall(ReadScalarAt(user, reduced.occupied_weight, 1, 2, 3, &value));
+    PetscCall(PicurvAssertRealNear(1.0, value, 0.0, "the merged occupied set is sampled in the plane"));
+
+    PetscCall(PicurvWindowStorageDestroy(&reduced));
+    PetscCall(PicurvWindowStorageDestroy(&storage));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
 /**
  * @brief Entry point for the accumulator suite.
  */
@@ -1089,6 +1220,8 @@ int main(int argc, char **argv)
         {"runloop-driver-applies-scheduled-states", TestRunloopDriverAppliesScheduledStates},
         {"particle-ensemble-matches-streaming-state", TestParticleEnsembleMatchesStreamingState},
         {"reduction-equals-pooled-moments", TestReductionEqualsPooledMoments},
+        {"particle-sampled-field-uses-occupied-states", TestParticleSampledFieldUsesOccupiedStates},
+        {"reduction-pools-only-occupied-samples", TestReductionPoolsOnlyOccupiedSamples},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv statistics accumulator tests");

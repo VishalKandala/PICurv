@@ -277,7 +277,8 @@ PetscErrorCode ComputeWindowStatisticsProfile(UserCtx *user, const PicurvWindowD
     DMDALocalInfo info;
     PetscInt extent[3], slots = 1, derived_count = 0, entries = 0;
     PetscInt *components = NULL;
-    PetscReal *occupied = NULL, *centre = NULL, *values = NULL, length_scale = 1.0;
+    PetscBool *particle_sampled = NULL;
+    PetscReal *occupied = NULL, *with_particles = NULL, *centre = NULL, *values = NULL, length_scale = 1.0;
     char (*names)[PICURV_STATISTICS_PAYLOAD_NAME_LENGTH] = NULL;
 
     PetscFunctionBeginUser;
@@ -300,8 +301,15 @@ PetscErrorCode ComputeWindowStatisticsProfile(UserCtx *user, const PicurvWindowD
      * sampled, so its average marks the rows to write. */
     PetscCall(PetscCalloc4(slots, &occupied, 3 * slots, &centre, PetscMax(derived_count, 1), &components,
                            PetscMax(derived_count, 1), &names));
+    PetscCall(PetscCalloc2(slots, &with_particles, PetscMax(derived_count, 1), &particle_sampled));
     PetscCall(PicurvSpatialRatioAverage(user, &plan, reduced.weight, NULL, reduced.weight, average_direction,
                                         PETSC_COMM_WORLD, NULL, occupied));
+    /* An output measured over the occupied states has no value in a slot no particle
+     * ever reached; it is left empty there rather than written as a zero. */
+    if (reduced.occupied_weight) {
+        PetscCall(PicurvSpatialRatioAverage(user, &plan, reduced.occupied_weight, NULL, reduced.occupied_weight,
+                                            average_direction, PETSC_COMM_WORLD, NULL, with_particles));
+    }
     PetscCall(PicurvSpatialRatioAverage(user, &plan, user->Cent, NULL, reduced.weight, average_direction,
                                         PETSC_COMM_WORLD, NULL, centre));
     PetscCall(PetscCalloc1(PetscMax(3 * derived_count * slots, 1), &values));
@@ -316,6 +324,7 @@ PetscErrorCode ComputeWindowStatisticsProfile(UserCtx *user, const PicurvWindowD
                                             NULL, reduced.weight, average_direction, PETSC_COMM_WORLD,
                                             NULL, values + entries));
         components[index] = derived.components;
+        particle_sampled[index] = derived.occupied;
         PetscCall(PetscStrncpy(names[index], derived.name, sizeof(names[index])));
         entries += derived.components * slots;
     }
@@ -354,7 +363,8 @@ PetscErrorCode ComputeWindowStatisticsProfile(UserCtx *user, const PicurvWindowD
                     (double)(centre[3 * slot + 1] * length_scale), (double)(centre[3 * slot + 2] * length_scale));
             for (PetscInt output = 0; output < derived_count; ++output) {
                 for (PetscInt c = 0; c < components[output]; ++c) {
-                    fprintf(csv, ",%.16e", (double)values[offset + components[output] * slot + c]);
+                    if (particle_sampled[output] && with_particles[slot] <= 0.0) fprintf(csv, ",");
+                    else fprintf(csv, ",%.16e", (double)values[offset + components[output] * slot + c]);
                 }
                 offset += components[output] * slots;
             }
@@ -364,6 +374,7 @@ PetscErrorCode ComputeWindowStatisticsProfile(UserCtx *user, const PicurvWindowD
     }
 
     PetscCall(PetscFree(values));
+    PetscCall(PetscFree2(with_particles, particle_sampled));
     PetscCall(PetscFree4(occupied, centre, components, names));
     PetscCall(PicurvWindowStorageDestroy(&reduced));
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "-> KERNEL: Profiled '%s' at step %" PetscInt_FMT ".\n", definition->name, ti);

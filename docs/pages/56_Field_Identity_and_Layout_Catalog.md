@@ -95,7 +95,10 @@ Eulerian scatter target. In particular, particle `Psi` maps explicitly to
 Eulerian `FIELD_ID_PSI`, and particle `velocity` to `FIELD_ID_UCAT`; no name
 coincidence is used to infer that bridge. The runtime scatter averages only `Psi`.
 The target also fixes the layout and output names of a particle field's cell
-ensemble statistics (@ref p10_ensembles_sub).
+ensemble statistics (@ref p10_ensembles_sub). An Eulerian field whose value is only a
+measurement where its cell holds particles carries
+`FIELD_CAPABILITY_PARTICLE_SAMPLED`; `Psi` does, and statistics measure it over the
+occupied states (@ref p58_update_sub).
 
 The registered aliases are retained because current diagnostic and boundary
 surfaces use them: `Eddy Viscosity` for `Nu_t`, `Cs` for `CS`,

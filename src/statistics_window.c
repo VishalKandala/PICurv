@@ -332,10 +332,22 @@ PetscErrorCode PicurvWindowComputeHash(const PicurvWindowDefinition *definition,
             }
             break;
         case 6:
-            /* Exactly one mask is resolved, so this group hashes a constant. It
+            /* One point mask is resolved, so this group starts from a constant. It
              * exists so that a future mask key extends this group instead of
-             * renumbering every group after it and invalidating saved state. */
+             * renumbering every group after it and invalidating saved state. A
+             * particle-sampled field is valid only in occupied states, which is such a
+             * key: listing it changes what earlier state for that field means, while a
+             * window without one hashes exactly as before. */
             PetscCall(PetscSNPrintf(text, sizeof(text), "mask=fluid\n"));
+            for (PetscInt n = 0; n < definition->field_count; ++n) {
+                const FieldDescriptor *descriptor = NULL;
+
+                PetscCall(FieldGetDescriptor((FieldId)definition->fields[field_order[n]].field_id, &descriptor));
+                if (!(descriptor->capabilities & FIELD_CAPABILITY_PARTICLE_SAMPLED)) continue;
+                PetscCall(PetscStrlen(text, &used));
+                PetscCall(PetscSNPrintf(text + used, sizeof(text) - used, "valid=%s:particles\n",
+                                        descriptor->canonical_name));
+            }
             break;
         default:
             PetscCall(PetscSNPrintf(text, sizeof(text), "target=pointwise\n"));

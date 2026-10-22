@@ -728,12 +728,17 @@ static PetscErrorCode TestStatisticsCheckpointRoundTripMultiRank(void)
     definition.weighting = PICURV_WEIGHTING_PHYSICAL_TIME;
     definition.cadence_kind = PICURV_CADENCE_STEP;
     definition.step_cadence = 1;
-    definition.field_count = 2;
+    /* Psi is particle-sampled, so the window also carries the occupied sample set and
+     * Ucat's occupied-state mean for the Ucat-Psi pair; every payload must round-trip. */
+    definition.field_count = 3;
     definition.fields[0].field_id = FIELD_ID_UCAT; definition.fields[0].want_second = PETSC_TRUE;
     definition.fields[1].field_id = FIELD_ID_P;    definition.fields[1].want_second = PETSC_TRUE;
-    definition.covariance_count = 1;
+    definition.fields[2].field_id = FIELD_ID_PSI;  definition.fields[2].want_second = PETSC_TRUE;
+    definition.covariance_count = 2;
     definition.covariances[0].first = FIELD_ID_UCAT;
     definition.covariances[0].second = FIELD_ID_P;
+    definition.covariances[1].first = FIELD_ID_UCAT;
+    definition.covariances[1].second = FIELD_ID_PSI;
 
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
     tmpdir[0] = '\0';
@@ -757,11 +762,13 @@ static PetscErrorCode TestStatisticsCheckpointRoundTripMultiRank(void)
     for (PetscInt s = 0; s < 4; ++s) {
         PetscBool accepted = PETSC_FALSE;
         PetscReal weight = 0.0;
-        PetscReal ***p = NULL;
+        PetscReal ***p = NULL, ***psi = NULL, ***particles = NULL;
         Cmpnts ***ucat = NULL;
         const DMDALocalInfo info = user->info;
 
         PetscCall(DMDAVecGetArray(user->da, user->P, &p));
+        PetscCall(DMDAVecGetArray(user->da, user->Psi, &psi));
+        PetscCall(DMDAVecGetArray(user->da, user->ParticleCount, &particles));
         PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
         for (PetscInt k = info.zs; k < info.zs + info.zm; ++k)
             for (PetscInt j = info.ys; j < info.ys + info.ym; ++j)
@@ -769,11 +776,16 @@ static PetscErrorCode TestStatisticsCheckpointRoundTripMultiRank(void)
                     const PetscReal tag = (PetscReal)(100 * k + 10 * j + i);
 
                     p[k][j][i] = tag + 0.25 * (PetscReal)s;
+                    /* Occupancy varies with both the point and the state. */
+                    particles[k][j][i] = ((i + j + k + s) % 3) ? 2.0 : 0.0;
+                    psi[k][j][i] = 0.01 * tag + (PetscReal)s;
                     ucat[k][j][i].x = tag;
                     ucat[k][j][i].y = tag + 1.0 + (PetscReal)s;
                     ucat[k][j][i].z = tag - 1.0;
                 }
         PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
+        PetscCall(DMDAVecRestoreArray(user->da, user->ParticleCount, &particles));
+        PetscCall(DMDAVecRestoreArray(user->da, user->Psi, &psi));
         PetscCall(DMDAVecRestoreArray(user->da, user->P, &p));
 
         PetscCall(PicurvWindowOfferState(&window, s, 0.5 * (PetscReal)s, &accepted, &weight));
@@ -784,6 +796,9 @@ static PetscErrorCode TestStatisticsCheckpointRoundTripMultiRank(void)
     PetscCall(WriteCheckpointBundle(simCtx, "test"));
 
     PetscCall(PicurvWindowStoragePayloadCount(&storage, &payload_count));
+    /* Six occupancy vectors, three means, Ucat's occupied-state mean, three second
+     * moments and two co-moments. */
+    PetscCall(PicurvAssertIntEqual(15, payload_count, "the occupied sample set adds its own payloads"));
     PetscCall(PetscCalloc1((size_t)payload_count, &reference));
     for (PetscInt index = 0; index < payload_count; ++index) {
         PicurvStatisticsPayload payload;

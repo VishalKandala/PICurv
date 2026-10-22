@@ -112,7 +112,10 @@ typedef enum {
     FIELD_CAPABILITY_PERIODIC_FACE_SYNC        = 1u << 2,
     FIELD_CAPABILITY_PERIODIC_STAGGERED_SYNC   = 1u << 3,
     FIELD_CAPABILITY_PERIODIC_GEOMETRY_SHIFT   = 1u << 4,
-    FIELD_CAPABILITY_CHECKPOINT                = 1u << 5
+    FIELD_CAPABILITY_CHECKPOINT                = 1u << 5,
+    /** Defined only where a cell holds particles; elsewhere the stored value is a
+     *  placeholder, not a measurement, and statistics skip it. */
+    FIELD_CAPABILITY_PARTICLE_SAMPLED          = 1u << 6
 } FieldCapabilities;
 
 /** @brief How a field's physical dimension is known. */

@@ -359,6 +359,42 @@ static PicurvWindowDefinition HashWindow(void)
     return d;
 }
 
+/**
+ * @brief A particle-sampled field records its validity in the mask group, and only it does.
+ *
+ * Replacing P by Psi changes the field group, as any field does, and also the mask group,
+ * because Psi is accumulated over the occupied states only; replacing P by Phi changes the
+ * field group alone, so a window without a particle-sampled field hashes as before.
+ */
+static PetscErrorCode TestHashRecordsParticleSampledValidity(void)
+{
+    PicurvWindowDefinition base = HashWindow();
+    PicurvWindowDefinition psi = HashWindow();
+    PicurvWindowDefinition phi = HashWindow();
+    char digest[65];
+    char base_groups[PICURV_WINDOW_HASH_GROUP_COUNT][PICURV_WINDOW_HASH_GROUP_LENGTH];
+    char psi_groups[PICURV_WINDOW_HASH_GROUP_COUNT][PICURV_WINDOW_HASH_GROUP_LENGTH];
+    char phi_groups[PICURV_WINDOW_HASH_GROUP_COUNT][PICURV_WINDOW_HASH_GROUP_LENGTH];
+    PetscBool same = PETSC_FALSE;
+    const PetscInt mask_group = 6;
+
+    PetscFunctionBeginUser;
+    psi.fields[1].field_id = FIELD_ID_PSI;
+    psi.covariances[0].second = FIELD_ID_PSI;
+    phi.fields[1].field_id = FIELD_ID_PHI;
+    phi.covariances[0].second = FIELD_ID_PHI;
+    PetscCall(PicurvWindowComputeHash(&base, digest, base_groups));
+    PetscCall(PicurvWindowComputeHash(&psi, digest, psi_groups));
+    PetscCall(PicurvWindowComputeHash(&phi, digest, phi_groups));
+    PetscCall(PetscStrcmp(PicurvWindowHashGroupName(mask_group), "mask", &same));
+    PetscCall(PicurvAssertBool(same, "group 6 is the mask group"));
+    PetscCall(PetscStrcmp(base_groups[mask_group], psi_groups[mask_group], &same));
+    PetscCall(PicurvAssertBool((PetscBool)!same, "a particle-sampled field changes the mask group"));
+    PetscCall(PetscStrcmp(base_groups[mask_group], phi_groups[mask_group], &same));
+    PetscCall(PicurvAssertBool(same, "an ordinary field leaves the mask group as it was"));
+    PetscFunctionReturn(0);
+}
+
 /** @brief The hash is stable, and excludes exactly the properties the spec excludes. */
 static PetscErrorCode TestHashExclusionsAndStability(void)
 {
@@ -544,6 +580,7 @@ int main(int argc, char **argv)
         {"hash-exclusions-and-stability", TestHashExclusionsAndStability},
         {"hash-detects-each-property", TestHashDetectsEachProperty},
         {"first-hash-difference-localization", TestFirstHashDifferenceLocalization},
+        {"hash-records-particle-sampled-validity", TestHashRecordsParticleSampledValidity},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv statistics window tests");
