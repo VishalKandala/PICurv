@@ -320,6 +320,16 @@ Selector: `post.yml -> spectra.tasks[].task`
 | `plane_spectrum` | `plane_spectrum` |
 | `shell_spectrum` | `shell_spectrum` |
 
+### Post-Processing Reducer Tasks
+
+Selector: `post.yml -> reducers.tasks[].task`
+
+| Value | Maps to |
+|---|---|
+| `cross_section` | `cross_section` |
+| `profile_series` | `profile_series` |
+| `wall_profile` | `wall_profile` |
+
 ### Field Statistics Derived Outputs
 
 Selector: `post.yml -> field_statistics.outputs[]`

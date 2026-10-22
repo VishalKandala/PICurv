@@ -178,6 +178,10 @@
       "classification": "not_public",
       "reason": "Builds a stable signature mapping used for post-recipe change detection. Derives a fingerprint from settings rather than selecting among alternatives."
     },
+    "picurv_cli.core::normalize_post_reducers_config": {
+      "classification": "not_public",
+      "reason": "Normalizes the reducers block of post.yml. The task names are the registered family post.reducer_task; the friction-velocity sources and axes are parameters of the wall_profile and cross_section entries on page 10. The block itself is structure."
+    },
     "picurv_cli.core::normalize_post_spectra_config": {
       "classification": "not_public",
       "reason": "Normalizes the spectra configuration block. Its selectable sub-values are separate surfaces; the block itself is structure."

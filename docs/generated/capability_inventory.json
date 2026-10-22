@@ -868,6 +868,27 @@
   },
   {
     "family_page": "10_Post_Processing_Reference",
+    "id": "post.reducer_task",
+    "parity": [],
+    "public_values": {
+      "cross_section": {
+        "maps_to": "cross_section",
+        "status": "experimental"
+      },
+      "profile_series": {
+        "maps_to": "profile_series",
+        "status": "experimental"
+      },
+      "wall_profile": {
+        "maps_to": "wall_profile",
+        "status": "experimental"
+      }
+    },
+    "selector": "post.yml -> reducers.tasks[].task",
+    "title": "Post-Processing Reducer Tasks"
+  },
+  {
+    "family_page": "10_Post_Processing_Reference",
     "id": "post.field_statistics_output",
     "parity": [],
     "public_values": {

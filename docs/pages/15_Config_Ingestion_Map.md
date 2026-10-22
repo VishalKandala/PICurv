@@ -78,6 +78,7 @@ These keys are consumed by `picurv` orchestration only:
 | `study.plotting` | `results/plots/*` output controls | `picurv_cli/core.py` plotting pipeline | study reporting |
 | `post.spectra.tasks[*]` | `spectra.gen shell-spectrum/plane-spectrum/line-spectrum` arguments | `picurv_cli/core.py` (`normalize_post_spectra_config`) | `run_post_spectra_stage`, `generators/spectra.gen` |
 | `post.spectra.output_prefix` | spectra CSV basenames under `<run.analysis>/spectra/<recipe_id>/` | `picurv_cli/core.py` (`post_spectra_task_basename`) | `run_post_spectra_stage` |
+| `post.reducers.tasks[*]` | `reduce.gen wall-profile/cross-section/profile-series` arguments, resolved from the run | `picurv_cli/core.py` (`normalize_post_reducers_config`) | `run_post_reducers_stage` (from the post finalizer, or `--only reducers`), `generators/reduce.gen` |
 
 @section p15_exceptions_sec 4. Important Exceptions
 

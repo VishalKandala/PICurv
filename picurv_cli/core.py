@@ -3817,7 +3817,7 @@ POST_SPECTRA_SCALAR_COLUMNS = (
 
 
 #: Stages `picurv run --post-process` can execute, in the order they are listed.
-POST_STAGE_NAMES = ("fields", "spectra")
+POST_STAGE_NAMES = ("fields", "spectra", "reducers")
 
 
 def resolve_post_stage_selection(only) -> set:
@@ -4021,6 +4021,193 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
         "steps": ordered_steps,
         "artifacts": artifacts,
     }
+
+
+#: Reducer tasks a post recipe may request. Each runs a `generators/reduce.gen`
+#: subcommand over the field-statistics profiles of one window or ensemble.
+#: `retains` is how many directions the profile must keep, and `axis_key` the task key
+#: naming the one it keeps (`wall_axis`) or the one it merged (`stream_axis`).
+POST_REDUCER_TASKS = {
+    "wall_profile": {"command": "wall-profile", "retains": 1, "axis_key": "wall_axis", "default_axis": "j"},
+    "cross_section": {"command": "cross-section", "retains": 2, "axis_key": "stream_axis", "default_axis": "k"},
+    "profile_series": {"command": "profile-series", "retains": 1, "axis_key": None, "default_axis": None},
+}
+
+#: Where a wall reducer takes its friction velocity from, and what each needs: a metrics
+#: source averages over the window's effective bounds, so it needs a run window rather
+#: than an ensemble; a direct source takes the recipe's `value`.
+POST_REDUCER_FRICTION_SOURCES = {
+    "first_cell": {"needs": None},
+    "driven_flow": {"needs": "window"},
+    "wall_model": {"needs": "window"},
+    "body_force": {"needs": "value"},
+    "u_tau": {"needs": "value"},
+}
+
+#: Index axis -> the axis token `reduce.gen` takes.
+_REDUCER_AXIS_TOKENS = {"i": "Xi", "j": "Eta", "k": "Zeta"}
+
+
+def normalize_post_reducers_config(post_cfg: dict) -> dict:
+    """!
+    @brief Validate and canonicalize the reducers block of post.yml.
+    @details A reducer reads the profiles `field_statistics` writes, so each task names a
+             window or ensemble of the same recipe, and the recipe's `homogeneous` must
+             leave the directions the task needs.
+    @param[in] post_cfg Parsed post-processing configuration.
+    @return Mapping with the canonical task list.
+    """
+    raw = (post_cfg or {}).get("reducers")
+    if raw is None:
+        return {"tasks": []}
+    if not isinstance(raw, dict) or not isinstance(raw.get("tasks"), list) or not raw["tasks"]:
+        raise ValueError("'reducers' must be a mapping with a non-empty 'tasks' list.")
+    statistics = normalize_post_field_statistics_config(post_cfg)
+    windows = set(statistics["windows"])
+    owners = windows | {ensemble["name"] for ensemble in statistics["ensembles"]}
+    retained = [axis for axis in ("i", "j", "k") if axis not in statistics["homogeneous"]]
+    tasks = []
+    for index, entry in enumerate(raw["tasks"]):
+        if not isinstance(entry, dict):
+            raise ValueError(f"'reducers.tasks[{index}]' must be a mapping.")
+        name = entry.get("task")
+        if name not in POST_REDUCER_TASKS:
+            raise ValueError(f"reducer task {name!r} is unknown. Available tasks: {sorted(POST_REDUCER_TASKS)}.")
+        spec = POST_REDUCER_TASKS[name]
+        label = f"reducer '{name}'"
+        source = entry.get("source")
+        if source not in owners:
+            raise ValueError(f"{label}: 'source' must name a field_statistics window or ensemble of this "
+                             f"recipe (got {source!r}; available: {sorted(owners)}).")
+        if "csv" not in statistics["formats"] or len(retained) != spec["retains"]:
+            raise ValueError(f"{label} reads a profile keeping {spec['retains']} direction(s), so "
+                             f"field_statistics needs 'csv' in formats and 'homogeneous' leaving that "
+                             f"many (it leaves {retained}).")
+        task = {"task": name, "source": source}
+        if spec["axis_key"]:
+            axis = entry.get(spec["axis_key"], spec["default_axis"])
+            if axis not in _REDUCER_AXIS_TOKENS:
+                raise ValueError(f"{label}: '{spec['axis_key']}' must be one of i, j, k (got {axis!r}).")
+            kept = axis in retained
+            if kept != (spec["axis_key"] == "wall_axis"):
+                raise ValueError(f"{label}: the profile {'must keep' if not kept else 'must merge over'} "
+                                 f"'{axis}', but 'homogeneous' is {statistics['homogeneous']}.")
+            task[spec["axis_key"]] = axis
+            stream = entry.get("stream_axis", "k")
+            if stream not in _REDUCER_AXIS_TOKENS or stream == task.get("wall_axis"):
+                raise ValueError(f"{label}: 'stream_axis' must be i, j or k and differ from the wall axis.")
+            task["stream_axis"] = stream
+            friction = entry.get("friction_velocity", "first_cell")
+            if friction not in POST_REDUCER_FRICTION_SOURCES or (name == "cross_section" and friction == "wall_model"):
+                raise ValueError(f"{label}: 'friction_velocity' must be one of "
+                                 f"{[f for f in POST_REDUCER_FRICTION_SOURCES if name != 'cross_section' or f != 'wall_model']} "
+                                 f"(got {friction!r}).")
+            needs = POST_REDUCER_FRICTION_SOURCES.get(friction, {}).get("needs")
+            if needs == "window" and source not in windows:
+                raise ValueError(f"{label}: friction_velocity '{friction}' averages over a run window's time "
+                                 f"bounds, so 'source' must be a run window, not an ensemble.")
+            task["friction_velocity"] = friction
+            if needs == "value":
+                value = entry.get("value")
+                if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
+                    raise ValueError(f"{label}: friction_velocity '{friction}' needs a positive 'value'.")
+                task["value"] = float(value)
+            if name == "cross_section":
+                task["fold"] = bool(entry.get("fold", True))
+            if name == "wall_profile" and entry.get("half_height") is not None:
+                task["half_height"] = float(entry["half_height"])
+        tasks.append(task)
+    return {"tasks": tasks}
+
+
+def run_post_reducers_stage(run_dir: str, post_cfg: dict, quiet: bool = False) -> list:
+    """!
+    @brief Run every reducer task over the profiles the recipe has written.
+    @details Reducers read only small CSVs, so every profile present is reduced again on
+             each invocation rather than tracked step by step. Inputs come from the run:
+             the viscosity and reference scales from its case snapshot, the grid it was
+             staged with, a window's effective bounds from each step's `checkpoint.meta`,
+             and the runtime metrics CSVs.
+    @param[in] run_dir Run directory.
+    @param[in] post_cfg Post recipe with canonical paths applied.
+    @param[in] quiet Suppress progress reporting.
+    @return Absolute paths written.
+    @throws ValueError when a reducer fails.
+    """
+    tasks = normalize_post_reducers_config(post_cfg)["tasks"]
+    if not tasks:
+        return []
+    run_dir = os.path.abspath(run_dir)
+    if not isinstance((post_cfg or {}).get("_picurv_paths"), dict):
+        post_cfg, _ = apply_canonical_post_paths(post_cfg, run_dir)
+    script = os.path.join(GENERATORS_PATH, "reduce.gen")
+    grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
+    case_path = load_active_run_configuration(run_dir).get("case")
+    case_cfg = read_yaml_file(case_path) if case_path and os.path.isfile(case_path) else {}
+    scaling = resolve_fluid_scaling(case_cfg)
+    dimensional = bool((post_cfg.get("global_operations") or {}).get("dimensionalize", False))
+    velocity_scale = scaling["velocity_ref"] if dimensional else 1.0
+    dt_physical = float((case_cfg.get("run_control") or {}).get("dt_physical", 0.0) or 0.0)
+    step_time = dt_physical if dimensional else dt_physical / reference_scale(TIME, scaling)
+    prefix = os.path.join(run_dir, post_cfg["_picurv_paths"]["field_statistics_prefix"])
+    metrics = os.path.join(run_dir, CANONICAL_RUN_PATHS["metrics"])
+    output_root = os.path.join(run_dir, CANONICAL_RUN_PATHS["output"])
+    written = []
+
+    def run(arguments, label):
+        """!
+        @brief Run one reduce.gen subcommand, failing with its own diagnostics.
+        @param[in] arguments Subcommand and its arguments.
+        @param[in] label Reducer and step named in a failure.
+        """
+        result = subprocess.run([sys.executable, script, *arguments], text=True, capture_output=True)
+        if result.returncode != 0:
+            raise ValueError(f"reducer {label} failed with exit code {result.returncode}:\n"
+                             f"{(result.stderr or result.stdout).strip()}")
+
+    for task in tasks:
+        family = f"{prefix}_profile_{task['source']}"
+        if task["task"] == "profile_series":
+            output = f"{family}_history.csv"
+            if _scan_post_vtk_steps(family, "csv"):
+                run(["profile-series", "--profile-prefix", family, "--dt", repr(step_time),
+                     "--output", output], f"profile_series of '{task['source']}'")
+                written.append(output)
+            continue
+        friction = {"first_cell": [], "body_force": ["--body-force", repr(task.get("value"))],
+                    "u_tau": ["--u-tau", repr(task.get("value"))],
+                    "driven_flow": ["--driven-flow-csv", os.path.join(metrics, "driven_flow.csv")],
+                    "wall_model": ["--wall-model-csv", os.path.join(metrics, "wall_model.csv")]}[task["friction_velocity"]]
+        for step, path in sorted(_scan_post_vtk_steps(family, "csv").items()):
+            arguments = [POST_REDUCER_TASKS[task["task"]]["command"], "--profile", path, "--grid", grid,
+                         "--window", task["source"], "--viscosity",
+                         repr(scaling["nondimensional_kinematic_viscosity"]),
+                         "--velocity-scale", repr(velocity_scale),
+                         "--stream-axis", _REDUCER_AXIS_TOKENS[task["stream_axis"]], *friction]
+            metadata = os.path.join(_checkpoint_bundle_path(output_root, step), "checkpoint.meta")
+            options = _read_checkpoint_options(metadata) if os.path.isfile(metadata) else {}
+            for index in range(int(options.get("checkpoint_statistics_window_count", 0) or 0)):
+                key = f"checkpoint_statistics_window_{index}_"
+                if options.get(key + "name") == task["source"]:
+                    arguments += ["--window-start", options[key + "effective_start"],
+                                  "--window-end", options[key + "effective_end"],
+                                  "--window-note", f"{options.get(key + 'state')}, "
+                                                   f"{options.get(key + 'sample_count')} samples"]
+            if task["task"] == "wall_profile":
+                output = f"{prefix}_wall_profile_{task['source']}_{step}.csv"
+                arguments += ["--wall-axis", _REDUCER_AXIS_TOKENS[task["wall_axis"]], "--output", output]
+                if "half_height" in task:
+                    arguments += ["--half-height", repr(task["half_height"])]
+                written.append(output)
+            else:
+                output = f"{prefix}_cross_section_{task['source']}_{step}"
+                arguments += ["--output-prefix", output] + ([] if task["fold"] else ["--no-fold"])
+                written.append(output + "_cross_section.csv")
+            run(arguments, f"{task['task']} of '{task['source']}' at step {step}")
+    if not quiet:
+        for path in written:
+            print(f"[INFO] Reducer output: {os.path.relpath(path)}")
+    return written
 
 
 def _merge_spectra_rows(path: str, fieldnames: tuple, remeasured: set, new_rows: list) -> list:
@@ -4497,6 +4684,9 @@ def compute_post_recipe_id(post_cfg: dict) -> str:
     if isinstance(run_control, dict):
         for key in POST_RUN_CONTROL_ALIASES["start_step"] + POST_RUN_CONTROL_ALIASES["end_step"]:
             run_control.pop(key, None)
+    # Reducers read the recipe's outputs without changing them, so adding or revising
+    # one must not move the recipe to a new home and recompute every field.
+    normalized.pop("reducers", None)
     digest = hashlib.sha256(
         json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:12]
@@ -4972,26 +5162,46 @@ def _post_finalize_python_source() -> str:
     return (
         "import os,sys;"
         f"sys.path.insert(0,{package_root!r});"
-        "from picurv_cli.core import read_yaml_file,apply_canonical_post_paths,finalize_post_paraview_series;"
+        "from picurv_cli.core import read_yaml_file,apply_canonical_post_paths,finalize_post_outputs;"
         "run=os.path.abspath(sys.argv[1]);cfg=read_yaml_file(sys.argv[2]);"
-        "cfg,_=apply_canonical_post_paths(cfg,run);finalize_post_paraview_series(run,cfg)"
+        "cfg,_=apply_canonical_post_paths(cfg,run);finalize_post_outputs(run,cfg,(sys.argv[3] if len(sys.argv)>3 else '').split(','))"
     )
 
 
-def build_post_finalize_command(run_dir: str, archived_post_path: str, post_cfg: dict) -> list:
+def build_post_finalize_command(run_dir: str, archived_post_path: str, post_cfg: dict,
+                                post_stages=POST_STAGE_NAMES) -> list:
     """!
     @brief Build the serial post-success command for staged execution.
+    @details It runs after the field post-processor succeeds, in the conductor or in the
+             submitted job, so whatever reads the field stage's output belongs here: the
+             ParaView collections and the reducers.
     @param[in] run_dir Run receiving the collection.
     @param[in] archived_post_path Archived post recipe read by the finalizer.
     @param[in] post_cfg Parsed post-processing recipe.
-    @return Command tokens, or an empty list when collection output is disabled.
+    @param[in] post_stages Selected post stages; reducers run only when selected.
+    @return Command tokens, or an empty list when there is nothing to finalize.
     """
-    if not normalize_post_paraview_series_config(post_cfg)["enabled"]:
+    reducers = "reducers" in post_stages and bool(normalize_post_reducers_config(post_cfg)["tasks"])
+    if not normalize_post_paraview_series_config(post_cfg)["enabled"] and not reducers:
         return []
     return [
         sys.executable, "-c", _post_finalize_python_source(),
         os.path.abspath(run_dir), os.path.abspath(archived_post_path),
+        "reducers" if reducers else "-",
     ]
+
+
+def finalize_post_outputs(run_dir: str, post_cfg: dict, stages) -> None:
+    """!
+    @brief Run every serial step that reads a successful field stage's output.
+    @param[in] run_dir Run directory.
+    @param[in] post_cfg Recipe with canonical paths applied.
+    @param[in] stages Stage names the finalizer covers beyond the collections.
+    @return None.
+    """
+    finalize_post_paraview_series(run_dir, post_cfg)
+    if "reducers" in stages:
+        run_post_reducers_stage(run_dir, post_cfg)
 
 
 def _post_requests_statistics(post_cfg: dict) -> bool:
@@ -5709,7 +5919,7 @@ def run_post_finalize_locked(run_dir: str, recipe_fingerprint: str,
     result = subprocess.run(command, cwd=run_dir)
     if result.returncode != 0:
         raise ValueError(
-            f"ParaView series finalization failed with exit code {result.returncode}."
+            f"Post finalization (ParaView series, reducers) failed with exit code {result.returncode}."
         )
 
 
@@ -8769,12 +8979,16 @@ _POST_SCHEMA = {
     (): {
         "run_control", "source_data", "global_operations", "eulerian_pipeline",
         "lagrangian_pipeline", "statistics_pipeline", "statistics_output_prefix",
-        "field_statistics", "spectra", "io",
+        "field_statistics", "spectra", "reducers", "io",
     },
     ("field_statistics",): {"windows", "ensembles", "homogeneous", "source_step", "outputs", "formats"},
     ("field_statistics", "ensembles", "[]"): {"name", "source", "fields", "covariances"},
     ("field_statistics", "ensembles", "[]", "fields", "[]"): {"field", "moments"},
     ("spectra",): {"output_prefix", "tasks"},
+    ("reducers",): {"tasks"},
+    ("reducers", "tasks", "[]"): {
+        "task", "source", "wall_axis", "stream_axis", "friction_velocity", "value", "fold", "half_height",
+    },
     ("spectra", "tasks", "[]"): {
         "task", "field", "block", "symbol", "subtract_mean", "mean_source_step",
         "reference", "axes", "fixed_indices",
@@ -10602,6 +10816,11 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
     except ValueError as e:
         spectra_recipe = None
         errors.append(f"  {post_path}: {e}")
+    if recipe is not None:
+        try:
+            normalize_post_reducers_config(post_cfg)
+        except ValueError as e:
+            errors.append(f"  {post_path}: {e}")
     if spectra_recipe and spectra_recipe["tasks"] and case_cfg is not None:
         errors.extend(validate_post_spectra_preconditions(spectra_recipe, case_cfg, post_path))
     if recipe and recipe["windows"] and monitor_cfg is not None:
@@ -16839,11 +17058,11 @@ def render_slurm_array_stage_script(
             f"--postprocessor {executable_token} -- {command_text}"
         )
         # Study members are ordinary root runs, but their post recipes may request the
-        # same run-local physical-time PVD product as standalone runs.  Keep this serial
-        # and downstream of the MPI postprocessor.
+        # same run-local physical-time PVD product and reducers as standalone runs.
+        # Keep this serial and downstream of the MPI postprocessor.
         lines.append(
             f"{shlex.quote(sys.executable)} -c {shlex.quote(_post_finalize_python_source())} "
-            '"$RUN_DIR" "$RUN_DIR/config/post.yml"'
+            '"$RUN_DIR" "$RUN_DIR/config/post.yml" reducers'
         )
     else:
         lines.append(f"exec {command_text}")
@@ -19747,7 +19966,7 @@ def run_workflow(args):
                 sys.exit(1)
 
         post_finalize_command = (
-            build_post_finalize_command(run_dir, archived_post_path, post_cfg)
+            build_post_finalize_command(run_dir, archived_post_path, post_cfg, post_stages)
             if 'fields' in post_stages else []
         )
         if post_stages != set(POST_STAGE_NAMES):
@@ -19808,6 +20027,15 @@ def run_workflow(args):
                   f"checkpoints with:")
             print(f"[INFO]   picurv run --post-process --only spectra "
                   f"--run-dir {os.path.relpath(run_dir)} --post {args.post}")
+
+        # Without the field stage nothing finalizes, so selected reducers run here, on
+        # the profiles earlier field stages wrote.
+        if 'reducers' in post_stages and 'fields' not in post_stages:
+            try:
+                run_post_reducers_stage(run_dir, post_plan['resolved_post_cfg'])
+            except ValueError as exc:
+                print(f"[FATAL] {exc}", file=sys.stderr)
+                sys.exit(1)
 
         if 'fields' not in post_stages:
             # --only selected a subset that excludes the field post-processor.
@@ -23336,109 +23564,41 @@ def _collect_spectra_plot_records(context: dict) -> list:
     return records
 
 
-#: Scalar functionals summarize derives from each column of a one-dimensional profile.
-#: `s` is arc length along the profile's cell centres, so they hold on curved grids too.
-PROFILE_SERIES_FUNCTIONALS = (
-    "max", "min", "integral", "max_gradient_thickness", "momentum_thickness",
-)
-
-#: Leading columns of a field-statistics profile that locate a row rather than hold an
-#: output: the retained cell indices, then the slot's mean cell-centre coordinates.
-PROFILE_LOCATION_COLUMNS = ("i", "j", "k", "x", "y", "z")
-
-
-def profile_functionals(s: list, values: list) -> dict:
-    """!
-    @brief Reduce one profile column to the scalar functionals in `PROFILE_SERIES_FUNCTIONALS`.
-
-    @details With `c_max` and `c_min` the extremes, the thicknesses are
-             `(c_max - c_min) / max|dc/ds|` (the vorticity thickness when the column is a
-             mean velocity across a shear layer) and
-             `integral (c - c_min)(c_max - c) ds / (c_max - c_min)^2` (the momentum
-             thickness). Integrals use the trapezoid rule and the gradient central
-             differences on the possibly non-uniform `s`. A thickness is omitted when the
-             column is constant, since it has no layer to measure.
-
-    @param[in] s Arc length of each row, increasing.
-    @param[in] values Column value of each row.
-    @return Mapping of functional name to value.
-    """
-    count = len(values)
-    if count == 0:
-        return {}
-    high, low = max(values), min(values)
-    result = {"max": high, "min": low}
-    if count < 2:
-        return result
-    result["integral"] = sum(0.5 * (values[n] + values[n + 1]) * (s[n + 1] - s[n]) for n in range(count - 1))
-    spread = high - low
-    if spread <= 0.0:
-        return result
-    gradient = 0.0
-    for n in range(count):
-        before, after = max(n - 1, 0), min(n + 1, count - 1)
-        if s[after] > s[before]:
-            gradient = max(gradient, abs(values[after] - values[before]) / (s[after] - s[before]))
-    if gradient > 0.0:
-        result["max_gradient_thickness"] = spread / gradient
-    product = [(value - low) * (high - value) for value in values]
-    result["momentum_thickness"] = sum(
-        0.5 * (product[n] + product[n + 1]) * (s[n + 1] - s[n]) for n in range(count - 1)
-    ) / (spread * spread)
-    return result
-
-
 def _collect_profile_plot_records(context: dict) -> list:
     """!
-    @brief Collect per-step scalar functionals of the field-statistics profiles a run holds.
+    @brief Collect the profile histories the `profile_series` reducer wrote.
 
-    @details A profile `<prefix>_profile_<name>_<step>.csv` retaining one direction becomes,
-             for every output column, the series `profile.<column>.<functional>`, one line
-             per profile file family. Profiles retaining two or more directions are maps,
-             not curves, and are skipped.
+    @details Each `<prefix>_profile_<name>_history.csv` holds one row per step and one
+             column per `<output column>.<functional>`, which becomes the series
+             `profile.<column>.<functional>`, one line per history file. The functionals
+             are the reducer's (`generators/reduce.gen profile-series`); this only reads.
 
     @param[in] context Summary context returned by `_build_summary_context()`.
-    @return Append-ordered plot record list; empty when no profile was written.
+    @return Append-ordered plot record list; empty when no history was written.
     """
     records = []
     run_dir = context.get("run_dir")
     if not run_dir:
         return records
     root_dir = os.path.join(run_dir, CANONICAL_RUN_PATHS["statistics"])
-    pattern = re.compile(r"^(.+_profile_.+)_(\d+)\.csv$")
-    found = []
     for root, _dirs, files in os.walk(root_dir):
-        for filename in files:
-            match = pattern.match(filename)
-            if match:
-                found.append((int(match.group(2)), os.path.join(root, filename), match.group(1)))
-    for step, path, family in sorted(found):
-        line = os.path.relpath(os.path.join(os.path.dirname(path), family), root_dir)
-        try:
-            with open(path, "r", encoding="utf-8", errors="replace", newline="") as stream:
-                reader = csv.reader(stream)
-                header = next(reader, [])
-                rows = [[_parse_float_loose(cell) for cell in row] for row in reader if row]
-        except OSError:
-            continue
-        indices = [column for column in header if column in PROFILE_LOCATION_COLUMNS[:3]]
-        if len(indices) != 1 or not {"x", "y", "z"} <= set(header):
-            continue
-        position = [header.index(axis) for axis in ("x", "y", "z")]
-        rows = [row for row in rows if len(row) == len(header) and None not in row]
-        s = [0.0]
-        for previous, current in zip(rows, rows[1:]):
-            s.append(s[-1] + math.sqrt(sum((current[c] - previous[c]) ** 2 for c in position)))
-        values = {}
-        for column, name in enumerate(header):
-            if name in PROFILE_LOCATION_COLUMNS:
+        for filename in sorted(files):
+            if not re.match(r"^.+_profile_.+_history\.csv$", filename):
                 continue
-            for functional, value in profile_functionals(s, [row[column] for row in rows]).items():
-                values[f"{name}.{functional}"] = value
-        # A plotted line is one source path, so the family prefix rather than the
-        # per-step file names it; each step's file is one point on that line.
-        _append_summary_plot_record(records, "profile", step, line, values,
-                                    os.path.join(os.path.dirname(path), family))
+            path = os.path.join(root, filename)
+            line = os.path.relpath(path, root_dir)[: -len("_history.csv")]
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as stream:
+                    for row in csv.DictReader(stream):
+                        step = _parse_int_loose(row.pop("step", None))
+                        time = _parse_float_loose(row.pop("time", None))
+                        values = {key: _parse_float_loose(value) for key, value in row.items()}
+                        values = {key: value for key, value in values.items() if value is not None}
+                        if step is not None and values:
+                            _append_summary_plot_record(records, "profile", step, line, values, path, 0,
+                                                        coordinates={"time": time})
+            except OSError:
+                continue
     return records
 
 

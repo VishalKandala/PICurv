@@ -1,26 +1,23 @@
 """!
 @file test_driven_periodic_profile_tools.py
-@brief Pytest coverage for the driven-periodic statistics reducers shipped with the examples.
+@brief Pytest coverage for the wall-profile and cross-section reducers in `generators/reduce.gen`.
 
-@details Both tools read the profile CSV a post recipe writes with
-`field_statistics.homogeneous`, the run's PICGRID, and the window scalars in the
-checkpoint's `checkpoint.meta`. They are exercised on a synthetic profile laid out as
+@details Both read the profile CSV a post recipe writes with
+`field_statistics.homogeneous` and the run's PICGRID; the conductor supplies the
+window's time bounds. They are exercised on a synthetic profile laid out as
 `ComputeWindowStatisticsProfile` writes one; the merge over the homogeneous directions
 itself is covered by the C statistics suites.
 """
 
 import importlib.machinery
 import importlib.util
-import json
-import shutil
 from pathlib import Path
 
 import numpy as np
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CHANNEL_TOOL = REPO_ROOT / "examples" / "periodic_test" / "driven_channel" / "tools" / "wall_normal_profile.py"
-DUCT_TOOL = REPO_ROOT / "examples" / "periodic_test" / "driven_duct" / "tools" / "cross_section_profile.py"
+REDUCE_GEN = REPO_ROOT / "generators" / "reduce.gen"
 PAIRS = ("xx", "xy", "xz", "yy", "yz", "zz")
 
 
@@ -40,7 +37,7 @@ def load_tool(path, name):
 
 def write_case(root, x, y, z, retained, mean, covariance):
     """!
-    @brief Write a PICGRID, a one-window checkpoint.meta, and the window's profile CSV.
+    @brief Write a PICGRID and a window's profile CSV.
     @param[in] root Directory to write into.
     @param[in] x Node coordinates along i.
     @param[in] y Node coordinates along j.
@@ -48,24 +45,13 @@ def write_case(root, x, y, z, retained, mean, covariance):
     @param[in] retained Index names the profile retains, in (k, j, i) order.
     @param[in] mean Slot means, retained cells + (3,).
     @param[in] covariance Slot covariances, retained cells + (6,) in PAIRS order.
-    @return Tuple of (profile path, bundle directory, grid path).
+    @return Tuple of (profile path, grid path).
     """
     dims = (x.size, y.size, z.size)
     grid = root / "grid.picgrid"
     rows = [f"{xi} {yj} {zk}" for zk in z for yj in y for xi in x]
     grid.write_text("PICGRID\n1\n" + " ".join(map(str, dims)) + "\n" + "\n".join(rows) + "\n",
                     encoding="utf-8")
-    bundle = root / "step_000000000100"
-    bundle.mkdir()
-    (bundle / "checkpoint.meta").write_text(
-        "-checkpoint_statistics_window_count 1\n"
-        "-checkpoint_statistics_window_0_name stationary\n"
-        "-checkpoint_statistics_window_0_state complete\n"
-        "-checkpoint_statistics_window_0_sample_count 10\n"
-        "-checkpoint_statistics_window_0_represented_time 2\n"
-        "-checkpoint_statistics_window_0_effective_start 1\n"
-        "-checkpoint_statistics_window_0_effective_end 3\n",
-        encoding="utf-8")
     order = [name for name in ("i", "j", "k") if name in retained]
     columns = order + ["x", "y", "z"] + [f"stationary_Ucat_mean_{c}" for c in "xyz"]
     columns += [f"stationary_Ucat_R_{pair}" for pair in PAIRS]
@@ -76,7 +62,7 @@ def write_case(root, x, y, z, retained, mean, covariance):
                               + [repr(float(v)) for v in mean[cell]] + [repr(float(v)) for v in covariance[cell]]))
     profile = root / "Field_profile_stationary_00100.csv"
     profile.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return profile, bundle, grid
+    return profile, grid
 
 
 def read_csv(path):
@@ -94,7 +80,7 @@ def test_channel_profile_folds_and_reads_the_wall_model(tmp_path):
     @brief Verify the channel profile read, the wall fold, the shear-stress sign, and wall-model u_tau.
     @param[in] tmp_path Pytest temporary directory fixture supplied to the function.
     """
-    tool = load_tool(CHANNEL_TOOL, "wall_normal_profile_under_test")
+    tool = load_tool(REDUCE_GEN, "reduce_gen_wall")
     x, y, z = np.linspace(0, 1, 4), np.linspace(0, 2, 7), np.linspace(0, 1, 5)
     yc = 0.5 * (y[1:] + y[:-1])
     mean = np.zeros((yc.size, 3))
@@ -102,14 +88,14 @@ def test_channel_profile_folds_and_reads_the_wall_model(tmp_path):
     covariance = np.zeros((yc.size, 6))
     covariance[:, 5] = 0.04 + 0.01 * yc                    # zz
     covariance[:, 4] = -(1 - yc)                           # yz: antisymmetric about the centre
-    profile, bundle, grid = write_case(tmp_path, x, y, z, ("j",), mean, covariance)
+    profile, grid = write_case(tmp_path, x, y, z, ("j",), mean, covariance)
     csv_path = tmp_path / "wall_model.csv"
     csv_path.write_text("step,time,u_tau_mean,u_tau_rms\n1,0.5,9,0\n2,1.5,0.3,0.4\n3,2.5,0.3,0.4\n4,3.5,9,0\n",
                         encoding="utf-8")
 
     out = tmp_path / "profile.csv"
-    common = ["--profile", str(profile), "--checkpoint", str(bundle), "--grid", str(grid),
-              "--viscosity", "0.01", "--output", str(out)]
+    common = ["wall-profile", "--profile", str(profile), "--grid", str(grid), "--viscosity", "0.01",
+              "--window-start", "1", "--window-end", "3", "--output", str(out)]
     assert tool.main(common + ["--u-tau", "1"]) == 0
     names, data = read_csv(out)
     np.testing.assert_allclose(data[:, names.index("y")], yc[:3], rtol=1e-9)
@@ -136,11 +122,11 @@ def test_channel_profile_rejects_a_profile_over_the_wrong_directions(tmp_path):
     @brief A profile that keeps the streamwise direction instead of the wall-normal one is refused.
     @param[in] tmp_path Pytest temporary directory fixture supplied to the function.
     """
-    tool = load_tool(CHANNEL_TOOL, "wall_normal_profile_wrong_axes")
+    tool = load_tool(REDUCE_GEN, "reduce_gen_wrong_axes")
     x, y, z = np.linspace(0, 1, 4), np.linspace(0, 2, 7), np.linspace(0, 1, 5)
-    profile, bundle, grid = write_case(tmp_path, x, y, z, ("k",), np.zeros((4, 3)), np.zeros((4, 6)))
+    profile, grid = write_case(tmp_path, x, y, z, ("k",), np.zeros((4, 3)), np.zeros((4, 6)))
     try:
-        tool.main(["--profile", str(profile), "--checkpoint", str(bundle), "--grid", str(grid),
+        tool.main(["wall-profile", "--profile", str(profile), "--grid", str(grid),
                    "--viscosity", "0.01", "--u-tau", "1", "--output", str(tmp_path / "out.csv")])
     except SystemExit as error:
         assert "homogeneous" in str(error)
@@ -153,7 +139,7 @@ def test_duct_cross_section_folds_onto_one_octant(tmp_path):
     @brief Verify the duct profile read, symmetry fold, bulk velocity, and body-force u_tau.
     @param[in] tmp_path Pytest temporary directory fixture supplied to the function.
     """
-    tool = load_tool(DUCT_TOOL, "cross_section_profile_under_test")
+    tool = load_tool(REDUCE_GEN, "reduce_gen_duct")
     x = y = 1.0 - np.cos(np.linspace(0, np.pi, 7))             # clustered, mirror-symmetric
     z = np.linspace(0, 3, 5)
     n = x.size - 1
@@ -161,11 +147,11 @@ def test_duct_cross_section_folds_onto_one_octant(tmp_path):
     mean = rng.standard_normal((n, n, 3))                      # indexed [j, i]
     mean[..., 2] += 1.0
     covariance = rng.random((n, n, 6))
-    profile, bundle, grid = write_case(tmp_path, x, y, z, ("j", "i"), mean, covariance)
+    profile, grid = write_case(tmp_path, x, y, z, ("j", "i"), mean, covariance)
 
     prefix = tmp_path / "duct"
-    common = ["--profile", str(profile), "--checkpoint", str(bundle), "--grid", str(grid),
-              "--viscosity", "0.01", "--output-prefix", str(prefix)]
+    common = ["cross-section", "--profile", str(profile), "--grid", str(grid), "--viscosity", "0.01",
+              "--window-start", "1", "--window-end", "3", "--output-prefix", str(prefix)]
     assert tool.main(common + ["--body-force", "0.02"]) == 0
     names, data = read_csv(Path(str(prefix) + "_cross_section.csv"))
     field = {name: data[:, names.index(name)].reshape(n, n) for name in names}   # [y, x]
@@ -196,25 +182,12 @@ def test_duct_cross_section_folds_onto_one_octant(tmp_path):
     np.testing.assert_allclose(data[:, names.index("u_z")], mean[..., 2].ravel(), rtol=1e-9)
 
 
-def test_tools_find_the_checkout_from_an_initialized_case(tmp_path):
-    """!
-    @brief Verify a copy outside the repository resolves the checkout through `.picurv-origin.json`.
-    @param[in] tmp_path Pytest temporary directory fixture supplied to the function.
-    """
-    case = tmp_path / "deep" / "case"
-    shutil.copytree(CHANNEL_TOOL.parent, case / "driven_channel" / "tools")
-    (case / ".picurv-origin.json").write_text(json.dumps({"source_repo_root": str(REPO_ROOT)}),
-                                              encoding="utf-8")
-    copy = load_tool(case / "driven_channel" / "tools" / CHANNEL_TOOL.name, "wall_normal_profile_copy")
-    assert Path(copy.REPO_ROOT) == REPO_ROOT
-
-
 def test_metrics_readers_handle_a_continued_run(tmp_path):
     """!
     @brief Test that the metrics readers skip continuation markers and repeated steps.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
-    tool = load_tool(CHANNEL_TOOL, "wall_normal_profile_continued")
+    tool = load_tool(REDUCE_GEN, "reduce_gen_metrics")
     driven = tmp_path / "driven_flow.csv"
     driven.write_text(
         "step,time,driving_acceleration\n"
@@ -233,3 +206,26 @@ def test_metrics_readers_handle_a_continued_run(tmp_path):
     assert rows == 2
     assert u_tau == 5.0
 
+
+
+def test_profile_series_writes_thickness_histories(tmp_path):
+    """!
+    @brief A tanh layer of growing width yields its vorticity and momentum thickness per step.
+    @details For U = (1 + tanh(y / w)) / 2 the vorticity thickness is 2 w and the momentum
+             thickness w / 2.
+    @param[in] tmp_path Pytest temporary directory fixture supplied to the function.
+    """
+    tool = load_tool(REDUCE_GEN, "reduce_gen_series")
+    for step, width in ((10, 1.0), (20, 2.0)):
+        y = np.linspace(-20.0, 20.0, 4001)
+        lines = ["j,x,y,z,layer_Ucat_mean_x"] + [
+            f"{n},0.5,{value},0.5,{0.5 * (1.0 + np.tanh(value / width))}" for n, value in enumerate(y)]
+        (tmp_path / f"Field_profile_layer_{step:05d}.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    out = tmp_path / "history.csv"
+    assert tool.main(["profile-series", "--profile-prefix", str(tmp_path / "Field_profile_layer"),
+                      "--dt", "0.5", "--output", str(out)]) == 0
+    names, data = read_csv(out)
+    np.testing.assert_allclose(data[:, names.index("time")], [5.0, 10.0])
+    np.testing.assert_allclose(data[:, names.index("layer_Ucat_mean_x.max_gradient_thickness")], [2.0, 4.0], rtol=1e-4)
+    np.testing.assert_allclose(data[:, names.index("layer_Ucat_mean_x.momentum_thickness")], [0.5, 1.0], rtol=1e-4)
+    assert "max_gradient_thickness" not in tool.profile_functionals([0.0, 1.0], [1.0, 1.0])

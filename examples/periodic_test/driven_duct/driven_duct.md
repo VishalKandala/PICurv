@@ -78,32 +78,33 @@ cells should be.
 ### 5.1 Extracting the comparison
 
 `post.yml` merges the window along the stream (`field_statistics.homogeneous: [k]`)
-and writes the cross-section's mean velocity and covariances as a profile CSV per
-processed step. Run the post stage over a checkpoint written after the window closed;
-`tools/cross_section_profile.py` then reads that profile, the grid for the wall
-positions, and the bundle's `checkpoint.meta` for the window's time bounds:
+into a cross-section profile of the mean velocity and covariances, and its
+`cross_section` reducer reads that profile off against the criteria. It runs after the
+field stage on every processed step whose profile exists, so post over a checkpoint
+written after the window closed; `--only reducers` re-runs it alone. The viscosity,
+grid, window bounds and metrics files come from the run.
 
-```bash
-python3 examples/periodic_test/driven_duct/tools/cross_section_profile.py \
-    --profile <run>/output/analysis/statistics/<recipe>/<prefix>_profile_stationary_<NNN>.csv \
-    --checkpoint <run>/output/checkpoints/step_<NNN> --window stationary \
-    --grid <run>/inputs/grid/grid.run --viscosity 4.5351474e-04 \
-    --output-prefix duct
+```yaml
+reducers:
+  tasks:
+    - task: cross_section
+      source: stationary
 ```
 
-It writes one CSV per criterion: `duct_wall_bisector.csv` and
-`duct_corner_bisector.csv` in wall units (1), `duct_cross_section.csv` with every
-cell's mean velocity and covariance for contouring the secondary flow (2), and
-`duct_wall_shear.csv` around the perimeter, normalized by its mean (3). The header
+It writes one CSV per criterion under the recipe's statistics directory, each named
+`<prefix>_cross_section_stationary_<step>_<criterion>.csv`: `wall_bisector` and
+`corner_bisector` in wall units (1), `cross_section` with every cell's mean velocity
+and covariance for contouring the secondary flow (2), and `wall_shear` around the
+perimeter, normalized by its mean (3). The header
 of each reports `U_b`, `Re_tau`, and the peak secondary speed over `U_b`.
 
 By default the cross-section is folded onto one octant, averaging its eight
 symmetry images, which is what makes a 1-3% secondary flow readable from a finite
-window. `--no-fold` keeps the raw field; its departure from symmetry is a direct
+window. `fold: false` keeps the raw field; its departure from symmetry is a direct
 estimate of the remaining sampling error, and a reason to lengthen the window if it
 rivals the secondary flow. The friction velocity defaults to the perimeter mean of
 the first cells' resolved gradient, which the shipped `y+ ~ 0.5` spacing supports;
-`--driven-flow-csv` with the run's `driven_flow.csv` uses the exact force balance
+`friction_velocity: driven_flow` uses the exact force balance
 `u_tau = sqrt(<f> A / P)` instead, `f` averaged over the window.
 
 ## 6. Before you launch

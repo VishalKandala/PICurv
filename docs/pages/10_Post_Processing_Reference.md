@@ -13,9 +13,10 @@ combined. `statistics_pipeline` reduces particle trajectories; `field_statistics
 derives the Eulerian field windows the solver accumulated, and the single-instant
 ensembles the recipe itself defines. Particle MSD and
 resolved turbulence statistics answer different questions and share no state.
-A third block, `spectra`, measures energy spectra from the instantaneous velocity;
-unlike every other block here it runs in the conductor rather than in the C
-post-processor.
+A third block, `spectra`, measures energy spectra from the instantaneous velocity,
+and a fourth, `reducers`, turns the field-statistics profiles into what one
+application compares against; unlike every other block here, both run in the
+conductor rather than in the C post-processor.
 
 @tableofcontents
 
@@ -337,10 +338,11 @@ therefore the full stress over the homogeneous plane. A point that never sampled
 field is excluded rather than averaged in as a zero. Naming all three directions
 gives one row for the whole domain. A profile is computed from the same state the
 `.vts` is, and follows `global_operations.dimensionalize` the same way, its
-coordinates included. `picurv summarize --plot profile.<column>.<functional>` plots a
-one-direction profile's maximum, minimum, integral, maximum-gradient thickness or
-momentum thickness against time, for example the vorticity-thickness growth of a
-mixing layer from its mean-velocity profile; see @ref 05_The_Conductor_Script.
+coordinates included. The `profile_series` reducer (@ref p10_reducers_sec) reduces
+each step's profile to its maximum, minimum, integral, maximum-gradient thickness and
+momentum thickness, for example the vorticity-thickness growth of a mixing layer from
+its mean-velocity profile, which `picurv summarize --plot profile.<column>.<functional>`
+then plots against time.
 
 @subsection p10_ensembles_sub Ensembles
 
@@ -661,8 +663,8 @@ changed spectra recipe reaches the recipe fingerprint each step's record carries
 picurv run --post-process --only spectra --run-dir runs/my_run --post post.yml
 ```
 
-`--only` selects among the post stages, `fields` (the field post-processor) and
-`spectra`, and defaults to both. Re-measuring a spectrum is cheap; rebuilding the
+`--only` selects among the post stages, `fields` (the field post-processor),
+`spectra` and `reducers` (@ref p10_reducers_sec), and defaults to all three. Re-measuring a spectrum is cheap; rebuilding the
 field output is not, so the analysis loop belongs behind `--only spectra`.
 
 Each task's spectrum and history CSVs accumulate across invocations of one recipe. Like
@@ -876,7 +878,181 @@ spectrum comes from ensembling over seeds at matched times, not from pooling tim
 
 **Limitations.** Single-block Cartesian grids without immersed masks. This does not produce line ensembles or temporal spectra. Existing curve plotting displays positive modes only; the CSV retains both signs.
 
-@section p10_io_sec 9. io
+@section p10_reducers_sec 9. reducers
+
+Reducers turn the profiles `field_statistics.homogeneous` writes into the quantities
+one application compares against: a channel's wall-unit profile, a duct's bisectors,
+a shear layer's thickness history. Each task is a `generators/reduce.gen` subcommand.
+The conductor runs it with every input resolved from the run itself, namely the
+nondimensional viscosity and reference scales from its case snapshot, its staged grid,
+a window's effective time bounds and sample count from each step's `checkpoint.meta`,
+and the runtime metrics CSVs. None has to be typed.
+
+```yaml
+field_statistics:
+  windows: [stationary]
+  homogeneous: [i, k]
+  outputs: [mean, reynolds_stress]
+  formats: [csv]
+
+reducers:
+  tasks:
+    - task: wall_profile
+      source: stationary          # a window or ensemble of this recipe
+      friction_velocity: driven_flow
+    - task: profile_series
+      source: stationary
+```
+
+**When they run.** After every successful field stage, in the same serial finalizer
+that builds the ParaView collections, so a submitted post job runs them too. Each run
+reduces every profile the recipe has written, because a reducer reads a few small CSVs.
+They are cheap enough to need no per-step tracking. `--only reducers` re-runs them
+alone over existing profiles, the loop to use while revising a reduction.
+
+**What a reducer may read.** Only small derived files. Anything that touches
+distributed fields, such as the merge over homogeneous directions or a cell ensemble,
+belongs to the C post-processor, so a reducer needs neither MPI nor a cost estimate.
+
+**Recipe identity.** `reducers` is excluded from the recipe identity, as
+`io.paraview_series` is: adding or revising a reducer reads the recipe's outputs
+without changing them, so it neither moves the recipe to a new directory nor
+recomputes field output.
+
+**Outputs** go to the recipe's statistics directory, beside the profiles they read:
+`<prefix>_wall_profile_<source>_<step>.csv`,
+`<prefix>_cross_section_<source>_<step>_<criterion>.csv`, and
+`<prefix>_profile_<source>_history.csv`. Lengths in them are in solver units. A
+profile written with `dimensionalize` is returned to solver units through the case's
+velocity scale before it is reduced, and wall-unit quantities are dimensionless either
+way.
+
+Keys: `task` and `source` always. `wall_profile` takes `wall_axis` (default `j`, the
+direction the profile keeps), `stream_axis` (default `k`), `friction_velocity` and
+`half_height`. `cross_section` takes `stream_axis` (default `k`, the merged
+direction), `friction_velocity` and `fold` (default true). `friction_velocity` is one
+of:
+
+- `first_cell` (default): from the first cells' resolved gradient, meaningful only in a
+  resolved sublayer.
+- `driven_flow`: the driving acceleration averaged over the window, the exact mean
+  force balance.
+- `wall_model`: the wall shear the wall model applied over the window, `wall_profile`
+  only.
+- `body_force` or `u_tau`: take a positive `value`.
+
+The two averaged sources need a run window's time bounds, so validation refuses them
+with an ensemble `source`. Validation also checks that `homogeneous` leaves exactly
+the directions a task reads: one for `wall_profile` and `profile_series`, two for
+`cross_section`.
+
+@section p10_cap_red_sec 9.1 Reducer Task Entries
+
+@htmlinclude generated/capability_inventory_post_reducer_task.html
+
+@subsection p10_cap_red_wall_profile_sub wall_profile
+
+@anchor p10_cap_red_wall_profile
+
+**Identity.** `reducers.tasks[].task: wall_profile` -> `reduce.gen wall-profile`.
+
+**What it does.** Reads a profile that keeps the wall-normal direction and folds its
+two halves onto one wall. Under the reflection the Reynolds shear stress changes
+sign, and an orientation term reports it relative to the wall each point is measured
+from. It writes `y`, `y+`, `U+`, the three RMS intensities and `-<u'v'>+`, with the
+log-law and sublayer references, and a header carrying `u_tau`, `Re_tau`, the
+viscosity and the half-height. The half-height defaults to half the wall-to-wall
+distance of the grid.
+
+**When to choose it.** For a plane channel against a DNS profile. A duct has only
+one homogeneous direction and needs `cross_section`. A free shear layer has no wall,
+so its useful reduction is `profile_series`.
+
+**Parameters it owns.** `wall_axis`, `stream_axis`, `friction_velocity` with `value`,
+`half_height`.
+
+**Interactions.** The source must write `mean` and `reynolds_stress`, with `csv` and
+`homogeneous` leaving only `wall_axis`.
+
+**Diagnostics.** The header's `u_tau` line names the source it used. `U+` against
+`y+` should meet the sublayer reference below `y+ ~ 5` and the log law above
+`y+ ~ 30` for a converged wall-resolved window.
+
+**Evidence.** Unit verified - `make test-python`: the fold, the shear-stress sign, and
+each friction-velocity source on a synthetic profile.
+
+**Limitations.** Assumes a rectilinear wall-normal grid line and two walls.
+
+@subsection p10_cap_red_cross_section_sub cross_section
+
+@anchor p10_cap_red_cross_section
+
+**Identity.** `reducers.tasks[].task: cross_section` -> `reduce.gen cross-section`.
+
+**What it does.** Reads a profile that keeps the two cross-stream directions of a
+square duct. It folds the cross-section onto one octant over its eight symmetry
+images when the grid is mirror-symmetric (the diagonal swap needs equal node
+distributions). It then writes the folded field, the wall- and corner-bisector
+profiles in wall units, and the wall-shear distribution normalized by its perimeter
+mean.
+
+**When to choose it.** For a duct, or any flow with a single homogeneous direction
+and a rectangular cross-section. Choose `wall_profile` when two directions are
+homogeneous.
+
+**Parameters it owns.** `stream_axis`, `friction_velocity` (not `wall_model`) with
+`value`, `fold`.
+
+**Interactions.** As `wall_profile`, with `homogeneous` naming only `stream_axis`.
+
+**Diagnostics.** `fold: false` keeps the raw field. Its departure from symmetry
+estimates the remaining sampling error, and is a reason to lengthen the window if it
+rivals the secondary flow.
+
+**Evidence.** Unit verified - `make test-python`: the octant fold's symmetries, the
+bulk velocity, and the body-force and driven-flow friction velocities on a synthetic
+profile.
+
+**Limitations.** A rectilinear cross-section only; it refuses any other.
+
+@subsection p10_cap_red_profile_series_sub profile_series
+
+@anchor p10_cap_red_profile_series
+
+**Identity.** `reducers.tasks[].task: profile_series` -> `reduce.gen profile-series`.
+
+**What it does.** Reduces every column of each step's one-direction profile to five
+functionals over the arc length `s` through the cell centres: `max`, `min`,
+`integral`, `max_gradient_thickness` = (max - min) / max|d/ds|, and
+`momentum_thickness` = the integral of (c - min)(max - c) ds / (max - min)^2. It writes
+one history row per step. A constant column has no thicknesses.
+
+**When to choose it.** When the answer is a scalar history rather than a profile:
+the vorticity and momentum thickness of a mixing layer from its mean-velocity
+profile, the peak of a variance profile. Its rows plot through
+`picurv summarize --plot profile.<column>.<functional>`.
+
+**Parameters it owns.** None.
+
+**Interactions.** The thicknesses are meaningful for a column that varies
+monotonically across a layer, such as a mean velocity. For any other column only the
+extremes and the integral have a direct reading.
+
+**Diagnostics.** For `U = (1 + tanh(y/w))/2` the two thicknesses are `2w` and `w/2`.
+
+**Evidence.** Unit verified - `make test-python` recovers both thicknesses of a tanh
+layer to 1e-4.
+
+**Limitations.** Profiles keeping two directions are maps and are refused.
+
+@section p10_io_sec 10. io
+
+@note **`output_directory` does not choose where a run's output goes.** The conductor
+routes every post artifact into `<run.visualization>/<recipe_id>/` and
+`<run.analysis.statistics>/<recipe_id>/`, and the recipe identity excludes
+`output_directory`. Two recipes differing only in it therefore share one home and
+overwrite each other's files. Change `output_filename_prefix` or a computational
+setting to keep them apart.
 
 Mappings:
 - `output_directory` + `output_filename_prefix` -> `output_prefix`
@@ -930,7 +1106,7 @@ references; retain the directory relationships or regenerate after restoring the
 Refreshing a collection is atomic under the run's post writer lock. Reopen the PVD
 in ParaView after a refresh; PICurv does not push updates into an open GUI session.
 
-@section p10_next_steps_sec 10. Next Steps
+@section p10_next_steps_sec 11. Next Steps
 
 Proceed to **@subpage 11_User_How_To_Guides** for goal-oriented recipes.
 

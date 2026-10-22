@@ -43,7 +43,7 @@
         "10_Post_Processing_Reference",
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:b1eb8b2c9c7cc0eeb38205bfac1fc7e6673bad128a7e2b315620e08e3445677e"
+      "attested_digest": "sha256:f4cc3e283db251da3f9b5d3bcc6989d1c81ac20908e165176074f35032a31d70"
     },
     {
       "id": "capability.evidence_matrix",
@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:cf0c5c1444a25fd38d2ec0073efb3968889c756ca0a3e484aef857dea3257c74"
+      "attested_digest": "sha256:de7e1e01f1fb6d67e78ca45858a38d220faf4d712a36ac1e937269db2e170000"
     },
     {
       "id": "artifact.topology",
@@ -87,7 +87,7 @@
       "dependent_pages": [
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:10193b560f40720fb88c48f811a997f4f557b0d1a85e4099ac415bae10b234e3"
+      "attested_digest": "sha256:95b0eeb69b8c8221c4f0d8535691b4ed4e0c1fc516e0a23d0c7ca7c586c8afa8"
     },
     {
       "id": "docs.page_types",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:f89be077d9478a65717ffe34dd525ae4ee3df00ce1814da8230866e4ed155d6a",
+      "attested_digest": "sha256:1e1ae811146e298e020a1caf32ef5847bb12f5d50c36262e574c93b96729b780",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },
@@ -329,7 +329,8 @@
         "src/vtk_io.c",
         "include/vtk_io.h",
         "include/postprocessor.h",
-        "generators/spectra.gen"
+        "generators/spectra.gen",
+        "generators/reduce.gen"
       ],
       "owning_pages": [
         "10_Post_Processing_Reference"

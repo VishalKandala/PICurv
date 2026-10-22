@@ -29,3 +29,8 @@ Repository defaults resolve these canonical paths directly.
 
 - `spectra.gen`: shell spectra for periodic boxes, or actual selected plane/line
   FFTs on Cartesian grids; the conductor owns checkpoint discovery and output paths.
+- `reduce.gen`: application reducers over field-statistics profiles - a channel's
+  wall-unit profile, a duct's cross-section and bisectors, and per-step profile
+  functionals (thicknesses, extremes). Reads only small CSVs and the PICGRID; the
+  conductor's `reducers` post stage supplies viscosity, scales, window bounds and
+  metrics paths from the run.

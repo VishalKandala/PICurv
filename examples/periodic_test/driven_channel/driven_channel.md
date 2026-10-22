@@ -195,29 +195,32 @@ resolution or from a precursor, carry it in with `mode: file`, and use
 ## 7. Extracting profiles for DNS comparison
 
 `monitor.yml` accumulates first and second moments of `Ucat` over a stationary
-window. Turning those into `U+` vs `y+` needs an average over the two
-homogeneous directions, which each variant's `post.yml` requests
-(`field_statistics.homogeneous: [i, k]`). Running the post stage over a checkpoint
-written after the window closed writes the plane-merged mean and Reynolds stresses
-per wall-normal cell as a profile CSV. `tools/wall_normal_profile.py` reads that
-profile, folds the two walls together, and writes `U+`, the three RMS intensities,
-and `-<u'v'>+` against `y+`:
+window. Each variant's `post.yml` turns them into `U+` against `y+` in two steps.
+`field_statistics.homogeneous: [i, k]` merges the window over the two homogeneous
+directions into a profile of the plane mean and Reynolds stresses per wall-normal
+cell. The `wall_profile` reducer then folds the two walls together and writes `U+`,
+the three RMS intensities, and `-<u'v'>+` against `y+`, with the log-law and sublayer
+references, to `<recipe statistics>/<prefix>_wall_profile_stationary_<step>.csv`:
 
-```bash
-python3 examples/periodic_test/driven_channel/tools/wall_normal_profile.py \
-    --profile <run>/output/analysis/statistics/<recipe>/<prefix>_profile_stationary_<NNN>.csv \
-    --checkpoint <run>/output/checkpoints/step_<NNN> --window stationary \
-    --grid <run>/inputs/grid/grid.run --viscosity <1/Re> \
-    --wall-model-csv <run>/output/analysis/metrics/wall_model.csv \
-    --output profile.csv
+```yaml
+reducers:
+  tasks:
+    - task: wall_profile
+      source: stationary
+      friction_velocity: driven_flow
 ```
 
+It runs after the field stage on every processed step whose profile exists, so post
+over a checkpoint written after the window closed. To re-run it alone over the
+profiles already written, use
+`picurv run --post-process --only reducers --run-dir <run> --post <post.yml>`. The
+viscosity, grid, window bounds and metrics files come from the run.
+
 The friction velocity sets every `+` quantity, so choose its source to suit the
-case. For `les_wallmodel_retau1000`, pass `--wall-model-csv`: the first cell sits
-in the log layer and no wall gradient is resolved, so the mean wall shear the
-model applied over the window is the only direct measure. For the wall-resolved
-variants, pass `--driven-flow-csv` with the run's `driven_flow.csv`: it averages the
-applied force over the window, the exact mean force balance (`--body-force` takes a value
-directly). Without either, or `--u-tau`, the tool estimates the friction
-velocity from the first cell's gradient, which is only meaningful when that cell
-lies in the viscous sublayer.
+case. For `les_wallmodel_retau1000`, use `friction_velocity: wall_model`: the first
+cell sits in the log layer and no wall gradient is resolved, so the mean wall shear
+the model applied over the window is the only direct measure. For the wall-resolved
+variants, `driven_flow` averages the applied force over the window, the exact mean
+force balance; `body_force` and `u_tau` take a `value` directly. `first_cell`, the
+default, estimates it from the first cell's gradient, which is only meaningful when
+that cell lies in the viscous sublayer.

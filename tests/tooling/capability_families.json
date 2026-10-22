@@ -1813,6 +1813,49 @@
       }
     },
     {
+      "id": "post.reducer_task",
+      "title": "Post-Processing Reducer Tasks",
+      "selector": "post.yml -> reducers.tasks[].task",
+      "public_surface": {
+        "kind": "python_constant",
+        "module": "picurv_cli.core",
+        "symbol": "POST_REDUCER_TASKS"
+      },
+      "parity_sources": [],
+      "family_page": "10_Post_Processing_Reference",
+      "entry_anchor_prefix": "p10_cap_red_",
+      "coverage_enforced": true,
+      "value_metadata": {
+        "wall_profile": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:test-python"
+            ]
+          }
+        },
+        "cross_section": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:test-python"
+            ]
+          }
+        },
+        "profile_series": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:test-python"
+            ]
+          }
+        }
+      }
+    },
+    {
       "id": "post.field_statistics_output",
       "title": "Field Statistics Derived Outputs",
       "selector": "post.yml -> field_statistics.outputs[]",

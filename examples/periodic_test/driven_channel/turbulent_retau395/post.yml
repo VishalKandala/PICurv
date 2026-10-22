@@ -3,10 +3,8 @@
 # ==============================================================================
 # Produces nodal Ucat and P for visual inspection, and the stationary window's
 # statistics merged over the spanwise (i) and streamwise (k) directions, leaving
-# a wall-normal profile. The DNS comparison is done by
-# tools/wall_normal_profile.py, which reads that profile
-# (<analysis statistics>/<recipe>/<prefix>_profile_stationary_<step>.csv). The
-# reduction is in solver units only because this case's reference scales are 1.
+# a wall-normal profile, which the wall_profile reducer folds and writes in wall
+# units for the DNS comparison.
 # ==============================================================================
 
 run_control:
@@ -30,6 +28,12 @@ field_statistics:
   homogeneous: [i, k]
   outputs: [mean, reynolds_stress]
   formats: [csv]
+
+reducers:
+  tasks:
+    - task: wall_profile
+      source: stationary
+      friction_velocity: driven_flow
 
 io:
   output_directory: "visualization/driven_channel_retau395"

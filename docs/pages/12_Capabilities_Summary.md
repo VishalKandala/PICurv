@@ -140,6 +140,8 @@ Pipeline capabilities include:
 - (experimental) single-instant ensembles defined in the post recipe: the moments of
   the particles within each cell, or of a snapshot field, derived the same way,
 - profiles of any of those statistics merged over homogeneous directions,
+- (experimental) conductor-side reducers over those profiles: a channel's wall-unit
+  profile, a duct's cross-section and bisectors, and per-step thickness histories,
 - output field selection from checkpoint payloads (input extensions are fixed to `dat`),
 - optional physical-time PVD collections spanning compatible restart ancestry,
   controlled by `post.yml -> io.paraview_series`; see @ref p66_pvd_evidence for

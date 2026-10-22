@@ -5247,51 +5247,135 @@ def test_summarize_exposes_driven_flow_history_as_plot_series(tmp_path):
     assert [point[1] for point in request["lines"][0]["points"]] == pytest.approx([0.0, 0.03])
 
 
-def test_profile_functionals_match_the_tanh_shear_layer():
+def test_summarize_plots_profile_series_histories(tmp_path):
     """!
-    @brief The profile functionals recover a tanh layer's vorticity and momentum thickness.
-
-    @details For U = (1 + tanh y) / 2 the steepest slope is 1/2 over a unit velocity
-             difference, so the vorticity thickness is 2, and the momentum thickness is
-             the integral of sech^2(y)/4, which is 1/2.
-    """
-    picurv = load_picurv_module()
-    y = [-8.0 + 0.01 * n for n in range(1601)]
-    u = [0.5 * (1.0 + math.tanh(value)) for value in y]
-
-    result = picurv.profile_functionals(y, u)
-    assert result["max_gradient_thickness"] == pytest.approx(2.0, rel=1e-4)
-    assert result["momentum_thickness"] == pytest.approx(0.5, rel=1e-4)
-    assert result["integral"] == pytest.approx(8.0, rel=1e-4)
-    assert "max_gradient_thickness" not in picurv.profile_functionals(y, [1.0] * len(y))
-
-
-def test_summarize_exposes_profile_functionals_as_plot_series(tmp_path):
-    """!
-    @brief Per-step profile CSVs become one plotted line per profile family.
+    @brief The profile_series reducer's histories become one plotted line per history file.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     picurv = load_picurv_module()
     run_dir = create_summary_run_dir(tmp_path)
-    profiles = run_dir / picurv.CANONICAL_RUN_PATHS["statistics"] / "Field-abc"
-    profiles.mkdir(parents=True, exist_ok=True)
-    for step, width in ((10, 1.0), (20, 2.0)):
-        rows = ["j,x,y,z,layer_Ucat_mean_x"]
-        for n in range(401):
-            y = -10.0 + 0.05 * n
-            rows.append(f"{n},0.5,{y},0.5,{0.5 * (1.0 + math.tanh(y / width))}")
-        (profiles / f"Field_profile_layer_{step:05d}.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
-    # A map over two retained directions is not a curve, so it yields no series.
-    (profiles / "Field_profile_map_00010.csv").write_text("i,j,x,y,z,map_P_mean\n0,0,0,0,0,1\n", encoding="utf-8")
+    histories = run_dir / picurv.CANONICAL_RUN_PATHS["statistics"] / "Field-abc"
+    histories.mkdir(parents=True, exist_ok=True)
+    (histories / "Field_profile_layer_history.csv").write_text(
+        "step,time,layer_Ucat_mean_x.max_gradient_thickness,layer_Ucat_mean_x.momentum_thickness\n"
+        "10,5.0,2.0,0.5\n20,10.0,4.0,1.0\n", encoding="utf-8")
 
     context = picurv._build_summary_context(str(run_dir))
     records = picurv._collect_summary_plot_records(context)
-    profile = [record for record in records if record["source"] == "profile"]
-    assert len(profile) == 2
+    assert len([record for record in records if record["source"] == "profile"]) == 2
     request = picurv._build_summary_plot_request(
         context, records, "profile.layer_Ucat_mean_x.max_gradient_thickness", None, False, None)
     assert len(request["lines"]) == 1
-    assert [point[1] for point in request["lines"][0]["points"]] == pytest.approx([2.0, 4.0], rel=2e-3)
+    assert [point[1] for point in request["lines"][0]["points"]] == pytest.approx([2.0, 4.0])
+    # The abscissa is the history's own time column.
+    assert [point[0] for point in request["lines"][0]["points"]] == pytest.approx([5.0, 10.0])
+
+
+def _reducer_recipe(**task):
+    """!
+    @brief Build a post recipe with one window profile and one reducer task.
+    @param[in] task Reducer task keys.
+    @return Parsed post configuration.
+    """
+    return {
+        "run_control": {"start_step": 0, "end_step": 10, "step_interval": 1},
+        "io": {"output_directory": "viz", "output_filename_prefix": "Field"},
+        "field_statistics": {"windows": ["stationary"], "homogeneous": ["i", "k"],
+                             "outputs": ["mean", "reynolds_stress"], "formats": ["csv"]},
+        "reducers": {"tasks": [{"task": "wall_profile", "source": "stationary", **task}]},
+    }
+
+
+@pytest.mark.parametrize(
+    "task, fragment",
+    [
+        ({"task": "spectrum"}, "is unknown"),
+        ({"source": "other"}, "'source' must name"),
+        ({"wall_axis": "k"}, "must keep"),
+        ({"friction_velocity": "body_force"}, "positive 'value'"),
+        ({"friction_velocity": "guess"}, "'friction_velocity' must be one of"),
+        ({"task": "cross_section"}, "keeping 2 direction"),
+    ],
+)
+def test_post_reducer_validation_rejects(task, fragment):
+    """!
+    @brief Each reducer rule rejects with a message naming the cause.
+    @param[in] task Reducer task overrides under test.
+    @param[in] fragment Text the message must contain.
+    """
+    picurv = load_picurv_module()
+    with pytest.raises(ValueError) as excinfo:
+        picurv.normalize_post_reducers_config(_reducer_recipe(**task))
+    assert fragment in str(excinfo.value)
+
+
+def test_post_reducers_leave_the_recipe_identity_and_finalize_after_fields(tmp_path):
+    """!
+    @brief Reducers do not move the recipe's home, and the finalizer runs them when selected.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    with_reducer = _reducer_recipe(friction_velocity="driven_flow")
+    without = {key: value for key, value in with_reducer.items() if key != "reducers"}
+    assert picurv.compute_post_recipe_id(with_reducer) == picurv.compute_post_recipe_id(without)
+    assert picurv.normalize_post_reducers_config(with_reducer)["tasks"][0] == {
+        "task": "wall_profile", "source": "stationary", "wall_axis": "j", "stream_axis": "k",
+        "friction_velocity": "driven_flow"}
+
+    command = picurv.build_post_finalize_command(str(tmp_path), str(tmp_path / "post.yml"), with_reducer)
+    assert command[-1] == "reducers"
+    assert picurv.build_post_finalize_command(str(tmp_path), str(tmp_path / "post.yml"), with_reducer,
+                                              {"fields", "spectra"}) == []
+    assert "reducers" in picurv.POST_STAGE_NAMES
+
+
+def test_post_reducers_stage_reduces_every_profile_with_run_inputs(tmp_path):
+    """!
+    @brief The stage resolves viscosity, grid, window bounds and metrics from the run itself.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+    (run_dir / "config" / "case.yml").write_text(
+        "run_control: {dt_physical: 0.5}\n"
+        "properties:\n  scaling: {length_ref: 1.0, velocity_ref: 1.0}\n"
+        "  fluid: {density: 1.0, viscosity: 0.01}\n", encoding="utf-8")
+    (run_dir / "inputs" / "grid").mkdir(parents=True)
+    x, y, z = [0.0, 0.5, 1.0], [0.0, 0.5, 1.0, 1.5, 2.0], [0.0, 1.0]
+    rows = [f"{xi} {yj} {zk}" for zk in z for yj in y for xi in x]
+    (run_dir / "inputs" / "grid" / "grid.run").write_text(
+        "PICGRID\n1\n3 5 2\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    post_cfg, _ = picurv.apply_canonical_post_paths(_reducer_recipe(friction_velocity="driven_flow"), str(run_dir))
+    post_cfg["reducers"]["tasks"].append({"task": "profile_series", "source": "stationary"})
+    prefix = run_dir / post_cfg["_picurv_paths"]["field_statistics_prefix"]
+    prefix.parent.mkdir(parents=True)
+    header = "j,x,y,z," + ",".join([f"stationary_Ucat_mean_{c}" for c in "xyz"]
+                                   + [f"stationary_Ucat_R_{p}" for p in ("xx", "xy", "xz", "yy", "yz", "zz")])
+    lines = [header] + [f"{j},0,{yc},0,0,0,{yc * (2 - yc)},0,0,0,0,0,0.01"
+                        for j, yc in enumerate((0.25, 0.75, 1.25, 1.75))]
+    for step in (4, 8):
+        (prefix.parent / f"{prefix.name}_profile_stationary_{step}.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        bundle = run_dir / picurv.CANONICAL_RUN_PATHS["output"] / "checkpoints" / f"step_{step:0{picurv.CHECKPOINT_STEP_WIDTH}d}"
+        bundle.mkdir(parents=True)
+        (bundle / "checkpoint.meta").write_text(
+            "-checkpoint_statistics_window_count 1\n-checkpoint_statistics_window_0_name stationary\n"
+            "-checkpoint_statistics_window_0_effective_start 0\n-checkpoint_statistics_window_0_effective_end 10\n",
+            encoding="utf-8")
+    metrics = run_dir / picurv.CANONICAL_RUN_PATHS["metrics"]
+    metrics.mkdir(parents=True)
+    (metrics / "driven_flow.csv").write_text("step,time,driving_acceleration\n1,1.0,0.04\n2,2.0,0.04\n",
+                                             encoding="utf-8")
+
+    written = picurv.run_post_reducers_stage(str(run_dir), post_cfg, quiet=True)
+    assert len(written) == 3
+    profile = [path for path in written if path.endswith("_wall_profile_stationary_8.csv")]
+    # u_tau = sqrt(<a> h) with h half the 2.0 wall distance from the grid.
+    assert open(profile[0], encoding="utf-8").readline().startswith("# u_tau = 2.0000000000e-01")
+    history = [path for path in written if path.endswith("_history.csv")][0]
+    content = open(history, encoding="utf-8").read().splitlines()
+    assert content[0].startswith("step,time,stationary_Ucat_mean_x.max")
+    assert [line.split(",")[:2] for line in content[1:]] == [["4", "2.0"], ["8", "4.0"]]
 
 
 def test_summarize_plot_request_uses_latest_continuation_segment_and_last_window(tmp_path):

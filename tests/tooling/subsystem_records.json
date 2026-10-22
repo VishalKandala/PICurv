@@ -2226,7 +2226,8 @@
       "capability_families": [
         "post.eulerian_task",
         "post.lagrangian_task",
-        "statistics.task"
+        "statistics.task",
+        "post.reducer_task"
       ],
       "obligations": {
         "purpose": {

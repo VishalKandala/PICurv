@@ -350,11 +350,11 @@ PetscErrorCode ComputeWindowStatisticsProfile(UserCtx *user, const PicurvWindowD
             for (PetscInt axis = 0; axis < 3; ++axis) {
                 if (!average_direction[axis]) fprintf(csv, "%d,", (int)(index[axis] - 1));
             }
-            fprintf(csv, "%.10e,%.10e,%.10e", (double)(centre[3 * slot + 0] * length_scale),
+            fprintf(csv, "%.16e,%.16e,%.16e", (double)(centre[3 * slot + 0] * length_scale),
                     (double)(centre[3 * slot + 1] * length_scale), (double)(centre[3 * slot + 2] * length_scale));
             for (PetscInt output = 0; output < derived_count; ++output) {
                 for (PetscInt c = 0; c < components[output]; ++c) {
-                    fprintf(csv, ",%.10e", (double)values[offset + components[output] * slot + c]);
+                    fprintf(csv, ",%.16e", (double)values[offset + components[output] * slot + c]);
                 }
                 offset += components[output] * slots;
             }
