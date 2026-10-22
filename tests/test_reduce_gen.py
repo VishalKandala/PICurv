@@ -194,7 +194,7 @@ def test_metrics_readers_handle_a_continued_run(tmp_path):
         "1,1.0,2.0\n2,2.0,2.0\n3,3.0,9.0\n"
         "# Continuation from step 2\n"
         "3,3.0,4.0\n4,4.0,4.0\n", encoding="utf-8")
-    accel, rows = tool.mean_driving_acceleration(str(driven), 1.0, 4.0)
+    accel, rows = tool.mean_driving_acceleration([str(driven)], 1.0, 4.0)
     assert rows == 4
     assert accel == (2.0 + 2.0 + 4.0 + 4.0) / 4
 
@@ -202,7 +202,7 @@ def test_metrics_readers_handle_a_continued_run(tmp_path):
     wall.write_text(
         "step,time,u_tau_mean,u_tau_rms\n1,1.0,3.0,4.0\n"
         "# Continuation from step 1\n2,2.0,3.0,4.0\n", encoding="utf-8")
-    u_tau, rows = tool.friction_velocity_from_wall_model(str(wall), 0.0, 5.0)
+    u_tau, rows = tool.friction_velocity_from_wall_model([str(wall)], 0.0, 5.0)
     assert rows == 2
     assert u_tau == 5.0
 
@@ -229,3 +229,22 @@ def test_profile_series_writes_thickness_histories(tmp_path):
     np.testing.assert_allclose(data[:, names.index("layer_Ucat_mean_x.max_gradient_thickness")], [2.0, 4.0], rtol=1e-4)
     np.testing.assert_allclose(data[:, names.index("layer_Ucat_mean_x.momentum_thickness")], [0.5, 1.0], rtol=1e-4)
     assert "max_gradient_thickness" not in tool.profile_functionals([0.0, 1.0], [1.0, 1.0])
+
+
+def test_metrics_readers_follow_a_branched_lineage(tmp_path):
+    """!
+    @brief A parent's rows count only up to the step its child branched from.
+    @details The parent ran on to step 4 after the checkpoint at step 2 the child
+             branched from, so its rows past step 2 belong to a trajectory the child
+             never saw and must not enter the child's window average.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    tool = load_tool(REDUCE_GEN, "reduce_gen_lineage")
+    parent = tmp_path / "parent.csv"
+    parent.write_text("step,time,driving_acceleration\n1,1.0,2.0\n2,2.0,2.0\n3,3.0,9.0\n4,4.0,9.0\n",
+                      encoding="utf-8")
+    child = tmp_path / "child.csv"
+    child.write_text("step,time,driving_acceleration\n3,3.0,4.0\n", encoding="utf-8")
+    accel, rows = tool.mean_driving_acceleration([f"{parent}@2", str(child)], 0.0, 10.0)
+    assert rows == 3
+    assert accel == (2.0 + 2.0 + 4.0) / 3

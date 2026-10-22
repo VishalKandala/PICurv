@@ -941,7 +941,10 @@ of:
 - `body_force` or `u_tau`: take a positive `value`.
 
 The two averaged sources need a run window's time bounds, so validation refuses them
-with an ensemble `source`. Validation also checks that `homogeneous` leaves exactly
+with an ensemble `source`. They average the metrics rows of the run's whole restart
+lineage. A window carried into a branched run spans its ancestors' time, so each
+ancestor's file is read up to the checkpoint its child branched from, and the run's own
+rows follow. Validation also checks that `homogeneous` leaves exactly
 the directions a task reads: one for `wall_profile` and `profile_series`, two for
 `cross_section`.
 

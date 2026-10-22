@@ -4413,6 +4413,8 @@ POST_JOB_STAND_IN = (
     "steps_file, prefix, calls, fail_at = sys.argv[1:5]\n"
     "steps = [int(line) for line in open(steps_file) if line.strip()]\n"
     "open(calls, 'a').write(','.join(map(str, steps)) + '\\n')\n"
+    "if fail_at == 'skip':\n"
+    "    sys.exit(0)\n"
     "for index, step in enumerate(steps):\n"
     "    if index == int(fail_at):\n"
     "        sys.exit(3)\n"
@@ -4426,7 +4428,8 @@ def test_post_job_plans_at_launch_records_output_and_skips_valid_steps(tmp_path)
 
     A stand-in postprocessor writes one file per listed step. The first job processes
     every step and records it; a second launches nothing; a deleted step is processed
-    alone; a job that fails part-way keeps the steps it finished.
+    alone; a job that fails part-way keeps the steps it finished; a job that exits
+    cleanly without its output is reported.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     @return None.
     """
@@ -4487,6 +4490,15 @@ def test_post_job_plans_at_launch_records_output_and_skips_valid_steps(tmp_path)
     assert "recorded 1 of 2" in result.stdout
     assert launch().returncode == 0
     assert calls.read_text().splitlines()[-1] == "4"
+    assert "lack an output" not in result.stderr        # a failed job's gap is its failure
+
+    # A postprocessor that ignores a key exits cleanly without writing the output it
+    # names; that is the pinned-executable case, and it is reported.
+    (viz / "Field_00001.vts").unlink()
+    result = launch(fail_at="skip")
+    assert result.returncode == 0
+    assert "recorded 0 of 1" in result.stdout
+    assert "exited cleanly, but 1 planned step(s) lack an output" in result.stderr
 
 
 def test_post_lock_wrapper_refuses_second_writer(tmp_path):
@@ -5376,6 +5388,65 @@ def test_post_reducers_stage_reduces_every_profile_with_run_inputs(tmp_path):
     content = open(history, encoding="utf-8").read().splitlines()
     assert content[0].startswith("step,time,stationary_Ucat_mean_x.max")
     assert [line.split(",")[:2] for line in content[1:]] == [["4", "2.0"], ["8", "4.0"]]
+
+
+def test_post_reducers_stage_reads_metrics_across_a_branched_lineage(tmp_path):
+    """!
+    @brief A window carried into a branched run averages its ancestors' metrics up to the branch.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+    (run_dir / "config" / "case.yml").write_text(
+        "run_control: {dt_physical: 0.5}\n"
+        "properties:\n  scaling: {length_ref: 1.0, velocity_ref: 1.0}\n"
+        "  fluid: {density: 1.0, viscosity: 0.01}\n", encoding="utf-8")
+    (run_dir / "inputs" / "grid").mkdir(parents=True)
+    x, y, z = [0.0, 0.5, 1.0], [0.0, 0.5, 1.0, 1.5, 2.0], [0.0, 1.0]
+    rows = [f"{xi} {yj} {zk}" for zk in z for yj in y for xi in x]
+    (run_dir / "inputs" / "grid" / "grid.run").write_text(
+        "PICGRID\n1\n3 5 2\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    post_cfg, _ = picurv.apply_canonical_post_paths(_reducer_recipe(friction_velocity="driven_flow"), str(run_dir))
+    post_cfg["reducers"]["tasks"].append({"task": "profile_series", "source": "stationary"})
+    prefix = run_dir / post_cfg["_picurv_paths"]["field_statistics_prefix"]
+    prefix.parent.mkdir(parents=True)
+    header = "j,x,y,z," + ",".join([f"stationary_Ucat_mean_{c}" for c in "xyz"]
+                                   + [f"stationary_Ucat_R_{p}" for p in ("xx", "xy", "xz", "yy", "yz", "zz")])
+    lines = [header] + [f"{j},0,{yc},0,0,0,{yc * (2 - yc)},0,0,0,0,0,0.01"
+                        for j, yc in enumerate((0.25, 0.75, 1.25, 1.75))]
+    for step in (4, 8):
+        (prefix.parent / f"{prefix.name}_profile_stationary_{step}.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        bundle = run_dir / picurv.CANONICAL_RUN_PATHS["output"] / "checkpoints" / f"step_{step:0{picurv.CHECKPOINT_STEP_WIDTH}d}"
+        bundle.mkdir(parents=True)
+        (bundle / "checkpoint.meta").write_text(
+            "-checkpoint_statistics_window_count 1\n-checkpoint_statistics_window_0_name stationary\n"
+            "-checkpoint_statistics_window_0_effective_start 0\n-checkpoint_statistics_window_0_effective_end 10\n",
+            encoding="utf-8")
+    metrics = run_dir / picurv.CANONICAL_RUN_PATHS["metrics"]
+    metrics.mkdir(parents=True)
+    (metrics / "driven_flow.csv").write_text("step,time,driving_acceleration\n9,9.0,0.04\n",
+                                             encoding="utf-8")
+    # The parent ran past the step-3 checkpoint the run branched from; those rows are
+    # not this run's history and must not enter the average.
+    parent = tmp_path / "parent"
+    (parent / picurv.CANONICAL_RUN_PATHS["metrics"]).mkdir(parents=True)
+    (parent / picurv.CANONICAL_RUN_PATHS["metrics"] / "driven_flow.csv").write_text(
+        "step,time,driving_acceleration\n1,1.0,0.04\n3,3.0,0.04\n5,5.0,9.0\n", encoding="utf-8")
+    (parent / "manifest.json").write_text(json.dumps({"run_id": "parent", "lineage": {"relationship": "root"}}),
+                                          encoding="utf-8")
+    (run_dir / "manifest.json").write_text(json.dumps({
+        "run_id": "run", "lineage": {"relationship": "branch", "parent_run_id": "parent",
+                                     "parent_path": str(parent), "checkpoint_step": 3,
+                                     "statistics_state": "carry"}}), encoding="utf-8")
+
+    written = picurv.run_post_reducers_stage(str(run_dir), post_cfg, quiet=True)
+    assert len(written) == 3
+    # sqrt(0.04 * 1): the parent's rows to step 3 and the run's own, never the 9.0.
+    profile = [path for path in written if path.endswith("_wall_profile_stationary_8.csv")]
+    # u_tau = sqrt(<a> h) with h half the 2.0 wall distance from the grid.
+    assert open(profile[0], encoding="utf-8").readline().startswith("# u_tau = 2.0000000000e-01")
+
 
 
 def test_summarize_plot_request_uses_latest_continuation_segment_and_last_window(tmp_path):

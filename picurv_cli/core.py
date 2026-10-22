@@ -4150,9 +4150,27 @@ def run_post_reducers_stage(run_dir: str, post_cfg: dict, quiet: bool = False) -
     dt_physical = float((case_cfg.get("run_control") or {}).get("dt_physical", 0.0) or 0.0)
     step_time = dt_physical if dimensional else dt_physical / reference_scale(TIME, scaling)
     prefix = os.path.join(run_dir, post_cfg["_picurv_paths"]["field_statistics_prefix"])
-    metrics = os.path.join(run_dir, CANONICAL_RUN_PATHS["metrics"])
     output_root = os.path.join(run_dir, CANONICAL_RUN_PATHS["output"])
+    lineage = resolve_run_lineage(run_dir)
     written = []
+
+    def lineage_metrics(name):
+        """!
+        @brief List a metrics CSV across the restart lineage, root to leaf.
+        @details A window carried into a branched run spans its ancestors' time, whose
+                 metrics rows are in their own files. Each ancestor's file is limited to
+                 the steps up to the checkpoint its child branched from.
+        @param[in] name Metrics CSV basename.
+        @return `path` or `path@last_step` entries for every segment holding the file.
+        """
+        entries = []
+        for index, segment in enumerate(lineage):
+            path = os.path.join(segment["run_dir"], CANONICAL_RUN_PATHS["metrics"], name)
+            if not os.path.isfile(path):
+                continue
+            child = lineage[index + 1] if index + 1 < len(lineage) else None
+            entries.append(f"{path}@{child['fork_step']}" if child else path)
+        return entries or [os.path.join(run_dir, CANONICAL_RUN_PATHS["metrics"], name)]
 
     def run(arguments, label):
         """!
@@ -4176,8 +4194,8 @@ def run_post_reducers_stage(run_dir: str, post_cfg: dict, quiet: bool = False) -
             continue
         friction = {"first_cell": [], "body_force": ["--body-force", repr(task.get("value"))],
                     "u_tau": ["--u-tau", repr(task.get("value"))],
-                    "driven_flow": ["--driven-flow-csv", os.path.join(metrics, "driven_flow.csv")],
-                    "wall_model": ["--wall-model-csv", os.path.join(metrics, "wall_model.csv")]}[task["friction_velocity"]]
+                    "driven_flow": ["--driven-flow-csv", *lineage_metrics("driven_flow.csv")],
+                    "wall_model": ["--wall-model-csv", *lineage_metrics("wall_model.csv")]}[task["friction_velocity"]]
         for step, path in sorted(_scan_post_vtk_steps(family, "csv").items()):
             arguments = [POST_REDUCER_TASKS[task["task"]]["command"], "--profile", path, "--grid", grid,
                          "--window", task["source"], "--viscosity",
@@ -4906,7 +4924,7 @@ def _resolve_lineage_parent_run(child_run_dir: str, lineage: dict) -> str:
 
 def resolve_run_lineage(run_dir: str, scope: str = "lineage") -> list:
     """!
-    @brief Return root-to-leaf run segments for a ParaView collection.
+    @brief Return root-to-leaf run segments, for a ParaView collection or a reducer's metrics.
     @param[in] run_dir Leaf run whose lineage is resolved.
     @param[in] scope Either run-local or full-lineage collection scope.
     @return Ordered run-segment mappings from root to leaf.
@@ -5809,11 +5827,13 @@ def main():
                                        recompute=args.recompute)
             sys.stdout.flush()
         if planned != 0:
+            result = None
             try:
                 result = subprocess.run(command)
             finally:
                 if args.post_recipe:
-                    finish_post_job(args.run_dir, args.post_recipe)
+                    finish_post_job(args.run_dir, args.post_recipe,
+                                    exited_cleanly=result is not None and result.returncode == 0)
                     sys.stdout.flush()
             if result.returncode != 0:
                 return int(result.returncode)
@@ -6157,7 +6177,7 @@ def prepare_post_job(run_dir: str, post_recipe_path: str, postprocessor: str,
     return len(steps)
 
 
-def finish_post_job(run_dir: str, post_recipe_path: str) -> int:
+def finish_post_job(run_dir: str, post_recipe_path: str, exited_cleanly: bool = False) -> int:
     """!
     @brief Record, after a post job ends, which steps it produced.
     @details Runs whether or not the postprocessor succeeded, so the steps a failed or
@@ -6165,6 +6185,8 @@ def finish_post_job(run_dir: str, post_recipe_path: str) -> int:
              output exists and was written by this job.
     @param[in] run_dir Run directory.
     @param[in] post_recipe_path The recipe the job was staged with.
+    @param[in] exited_cleanly Whether the postprocessor exited with status zero; a clean
+                              exit that left an expected output unwritten is reported.
     @return Number of steps recorded.
     """
     run_dir = os.path.abspath(run_dir)
@@ -6178,10 +6200,12 @@ def finish_post_job(run_dir: str, post_recipe_path: str) -> int:
     runtime_cfg = prepare_effective_post_config(post_cfg, source)
     outputs = post_step_outputs(run_dir, runtime_cfg, monitor_cfg)
     records = {}
+    incomplete = []
     for step_text, before in job["outputs_before"].items():
         step = int(step_text)
         found = outputs(step)
         if found is None:
+            incomplete.append(step)
             continue
         # A shared CSV changes with every step, so it proves a step was written only
         # when the step has no file of its own.
@@ -6199,6 +6223,19 @@ def finish_post_job(run_dir: str, post_recipe_path: str) -> int:
         if os.path.exists(path):
             os.remove(path)
     print(f"[INFO] Post job recorded {len(records)} of {len(job['outputs_before'])} planned step(s).")
+    # A postprocessor that does not know a recipe key ignores it and still exits
+    # cleanly, so a step can finish without an output the recipe expects. That is
+    # what a pinned executable older than the recipe looks like.
+    if incomplete and exited_cleanly:
+        try:
+            executable = run_executable_path(run_dir, "postprocessor")
+        except ValueError:
+            executable = "the run's postprocessor"
+        print(f"[WARNING] The postprocessor exited cleanly, but {len(incomplete)} planned step(s) "
+              f"lack an output this recipe expects (first: step {min(incomplete)}). It may "
+              f"predate a requested output: {executable} ignores recipe keys it does not know. "
+              "Check its build with 'picurv version', or post-process a branch of the run "
+              "built from the current source.", file=sys.stderr)
     return len(records)
 
 
