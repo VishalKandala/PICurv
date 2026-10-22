@@ -24,6 +24,44 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Disjoint key spaces of the keyed particle draws, so draws made for different
+ *        purposes never coincide for one particle.
+ */
+typedef enum {
+    PICURV_DRAW_SPACE_FIELD = 0,        /**< An expression's default, per-field stream. */
+    PICURV_DRAW_SPACE_NAMED_STREAM = 1, /**< `uniform(k)`/`normal(k)`: a stream shared across fields. */
+    PICURV_DRAW_SPACE_BROWNIAN = 2      /**< Brownian increments; the salt is the step. */
+} PicurvDrawSpace;
+
+/**
+ * @brief splitmix64 finalizer: a bijective mix of 64 bits.
+ * @param[in] z Bits to mix.
+ * @return The mixed bits.
+ */
+uint64_t PicurvMix64(uint64_t z);
+
+/**
+ * @brief Uniform on [0, 1) from the top 53 bits of a hash.
+ * @param[in] hash Mixed bits.
+ * @return A value in [0, 1).
+ */
+PetscReal PicurvUnitFromHash(uint64_t hash);
+
+/**
+ * @brief Hash that keys a particle draw: a pure function of its arguments, so a draw does
+ *        not depend on the rank a particle lives on, the order particles are visited, or
+ *        what was drawn before it.
+ * @param[in] seed   Run seed (`-particle_random_seed`).
+ * @param[in] space  Purpose of the draw.
+ * @param[in] stream Stream within the space.
+ * @param[in] pid    Particle identity.
+ * @param[in] salt   Event that distinguishes repeated draws for one particle.
+ * @return 64 mixed bits; derive further independent values with PicurvMix64().
+ */
+uint64_t PicurvParticleDrawHash(PetscInt64 seed, PicurvDrawSpace space, uint64_t stream,
+                                PetscInt64 pid, PetscInt64 salt);
+
 /** @brief A compiled expression: postfix code for a small stack evaluator. */
 typedef struct PicurvExpression PicurvExpression;
 

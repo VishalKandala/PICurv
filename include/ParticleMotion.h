@@ -19,28 +19,32 @@
 #include "walkingsearch.h"  // Walking search function for particle migration   
 
 /**
- * @brief Generates two independent standard normal random variables N(0,1) 
- *        using the Box-Muller transform.
- * 
- * @param[in]  rnd  The PETSc Random context (Uniform [0,1)).
- * @param[out] n1   First Gaussian number.
- * @param[out] n2   Second Gaussian number.
- * 
- * @return PetscErrorCode
+ * @brief Box-Muller transform of two uniforms on (0,1) into two independent N(0,1) values.
+ *
+ * @param[in]  u1 First uniform; must be strictly positive.
+ * @param[in]  u2 Second uniform.
+ * @param[out] n1 First Gaussian number.
+ * @param[out] n2 Second Gaussian number.
  */
-PetscErrorCode GenerateGaussianNoise(PetscRandom rnd, PetscReal *n1, PetscReal *n2);
+void GenerateGaussianNoise(PetscReal u1, PetscReal u2, PetscReal *n1, PetscReal *n2);
 
 /**
  * @brief Calculates the stochastic displacement vector (Brownian motion) for a single particle.
  *        Equation: dX_stoch = sqrt(2 * Gamma_eff * dt) * N(0,1)
  *
- * @param[in]  user          Pointer to UserCtx (access to dt and BrownianMotionRNG).
+ * The normals come from PicurvParticleDrawHash() in the Brownian key space with the step
+ * as salt, so a particle's increment at a step is a function of `particleRandomSeed`, its
+ * PID and the step alone: independent of the rank layout, of the particle's position in
+ * the local swarm, and of whether the run was restarted.
+ *
+ * @param[in]  user          Pointer to UserCtx (access to dt, step and the seed).
+ * @param[in]  pid           The particle's global ID.
  * @param[in]  diff_eff      The effective diffusivity (Gamma + Gamma_t) at the particle's location.
  * @param[out] displacement  Pointer to a Cmpnts struct to store the resulting (dx, dy, dz).
  *
  * @return PetscErrorCode
  */
-PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscReal diff_eff, Cmpnts *displacement);
+PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, PetscReal diff_eff, Cmpnts *displacement);
 
 /**
  * @brief Updates a particle's position based on its velocity and the timestep dt (stored in user->dt).

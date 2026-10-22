@@ -1094,37 +1094,78 @@ static PetscErrorCode TestCheckAndRemoveLostParticlesRemovesLostEntries(void)
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests Brownian displacement generation against a duplicated seeded RNG stream.
+ * @brief Tests that a Brownian increment is a function of (seed, PID, step) alone.
+ *
+ * The same key reproduces the increment whatever was drawn before it, which is what
+ * makes a restart and a different rank layout draw what the uninterrupted run drew;
+ * changing any one key changes it.
  */
 
-static PetscErrorCode TestCalculateBrownianDisplacementDeterministicSeed(void)
+static PetscErrorCode TestBrownianDisplacementIsKeyedOnSeedParticleAndStep(void)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
-    char tmpdir[PETSC_MAX_PATH_LEN];
-    Cmpnts first;
-    Cmpnts second;
+    Cmpnts base, again, other_pid, other_step, other_seed, none;
 
     PetscFunctionBeginUser;
-    PetscCall(PicurvBuildTinyRuntimeContext(NULL, PETSC_FALSE, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
     simCtx->dt = 0.25;
-    PetscCall(PicurvAssertBool((PetscBool)(simCtx->BrownianMotionRNG != NULL),
-                               "runtime setup path should initialize the Brownian RNG"));
+    simCtx->particleRandomSeed = 777;
+    simCtx->step = 12;
+    PetscCall(CalculateBrownianDisplacement(user, 41, 0.5, &base));
+    PetscCall(CalculateBrownianDisplacement(user, 42, 0.5, &other_pid));
+    PetscCall(CalculateBrownianDisplacement(user, 41, 0.5, &again));
+    simCtx->step = 13;
+    PetscCall(CalculateBrownianDisplacement(user, 41, 0.5, &other_step));
+    simCtx->step = 12;
+    simCtx->particleRandomSeed = 778;
+    PetscCall(CalculateBrownianDisplacement(user, 41, 0.5, &other_seed));
+    PetscCall(CalculateBrownianDisplacement(user, 41, 0.0, &none));
 
-    PetscCall(PetscRandomSetSeed(simCtx->BrownianMotionRNG, 12345));
-    PetscCall(PetscRandomSeed(simCtx->BrownianMotionRNG));
+    PetscCall(PicurvAssertBool((PetscBool)(base.x == again.x && base.y == again.y && base.z == again.z),
+                               "the same (seed, PID, step) must reproduce the increment after other draws"));
+    PetscCall(PicurvAssertBool((PetscBool)(base.x != other_pid.x && base.x != other_step.x && base.x != other_seed.x),
+                               "a different PID, step or seed must change the increment"));
+    PetscCall(PicurvAssertBool((PetscBool)(none.x == 0.0 && none.y == 0.0 && none.z == 0.0),
+                               "zero diffusivity must give no increment"));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
 
-    PetscCall(CalculateBrownianDisplacement(user, 0.5, &first));
-    PetscCall(PetscRandomSetSeed(simCtx->BrownianMotionRNG, 12345));
-    PetscCall(PetscRandomSeed(simCtx->BrownianMotionRNG));
-    PetscCall(CalculateBrownianDisplacement(user, 0.5, &second));
+/**
+ * @brief Tests that increments over many particles have zero mean, variance 2 D dt, and
+ *        uncorrelated components.
+ */
 
-    PetscCall(PicurvAssertRealNear(first.x, second.x, 1.0e-12, "Resetting the Brownian RNG seed should reproduce the x displacement"));
-    PetscCall(PicurvAssertRealNear(first.y, second.y, 1.0e-12, "Resetting the Brownian RNG seed should reproduce the y displacement"));
-    PetscCall(PicurvAssertRealNear(first.z, second.z, 1.0e-12, "Resetting the Brownian RNG seed should reproduce the z displacement"));
+static PetscErrorCode TestBrownianDisplacementMoments(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    const PetscInt count = 40000;
+    const PetscReal diffusivity = 0.5;
+    PetscReal sum[3] = {0.0, 0.0, 0.0}, sum_sq[3] = {0.0, 0.0, 0.0}, sum_xy = 0.0, variance;
 
-    PetscCall(PicurvDestroyRuntimeContext(&simCtx));
-    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    simCtx->dt = 0.25;
+    simCtx->particleRandomSeed = 12345;
+    simCtx->step = 3;
+    variance = 2.0 * diffusivity * simCtx->dt;
+    for (PetscInt pid = 0; pid < count; ++pid) {
+        Cmpnts d;
+
+        PetscCall(CalculateBrownianDisplacement(user, pid, diffusivity, &d));
+        const PetscReal c[3] = {d.x, d.y, d.z};
+        for (int a = 0; a < 3; ++a) { sum[a] += c[a]; sum_sq[a] += c[a] * c[a]; }
+        sum_xy += d.x * d.y;
+    }
+    /* Five standard errors: the mean's is sqrt(var/N), the variance's sqrt(2/N) var. */
+    for (int a = 0; a < 3; ++a) {
+        PetscCall(PicurvAssertRealNear(0.0, sum[a] / count, 5.0 * PetscSqrtReal(variance / count), "Brownian increments must have zero mean"));
+        PetscCall(PicurvAssertRealNear(variance, sum_sq[a] / count, 5.0 * PetscSqrtReal(2.0 / count) * variance, "Brownian increments must have variance 2 D dt"));
+    }
+    PetscCall(PicurvAssertRealNear(0.0, sum_xy / count, 5.0 * variance / PetscSqrtReal((PetscReal)count), "Brownian components must be uncorrelated"));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
 /**
@@ -1848,7 +1889,8 @@ int main(int argc, char **argv)
         {"reset-all-particle-statuses-leaves-lost-particles-untouched", TestResetAllParticleStatusesLeavesLostParticlesUntouched},
         {"check-and-remove-out-of-bounds-particles-removes-escaped-particle", TestCheckAndRemoveOutOfBoundsParticlesRemovesEscapedParticle},
         {"check-and-remove-lost-particles-removes-lost-entries", TestCheckAndRemoveLostParticlesRemovesLostEntries},
-        {"calculate-brownian-displacement-deterministic-seed", TestCalculateBrownianDisplacementDeterministicSeed},
+        {"brownian-displacement-keyed-on-seed-particle-step", TestBrownianDisplacementIsKeyedOnSeedParticleAndStep},
+        {"brownian-displacement-moments", TestBrownianDisplacementMoments},
         {"update-all-particle-positions-moves-swarm-entries", TestUpdateAllParticlePositionsMovesSwarmEntries},
         {"locate-particle-or-find-migration-target-reflects-at-wall", TestLocateParticleOrFindMigrationTargetReflectsAtWall},
         {"locate-all-particles-in-grid-prior-cell-fast-path", TestLocateAllParticlesInGridPriorCellFastPath},

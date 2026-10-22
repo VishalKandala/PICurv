@@ -1030,7 +1030,6 @@ typedef struct SimCtx {
     PetscInt occupiedCellCount;
     PetscReal particleLoadImbalance;
     SearchMetricsState searchMetrics;
-    PetscRandom BrownianMotionRNG;
     PetscReal C_IEM;
 
     //================ Group 10: Immersed Boundary & FSI Data Object Pointers ================

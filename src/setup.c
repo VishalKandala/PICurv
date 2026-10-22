@@ -552,7 +552,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->searchMetrics.bboxGuessFallbackCount = 0;
     simCtx->searchMetrics.maxParticlePassDepth = 0;
     simCtx->searchMetrics.currentSettlementPass = 0;
-    simCtx->BrownianMotionRNG = NULL;
     simCtx->C_IEM = 2.0;
 
     // --- Group 10: Immersed Boundary & FSI Data Object Pointers ---
@@ -1168,7 +1167,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-particle_random_seed", &simCtx->particleRandomSeed, NULL); CHKERRQ(ierr);
     PetscCheck(simCtx->particleRandomSeed >= 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
                "-particle_random_seed must be non-negative (got %" PetscInt_FMT ").", simCtx->particleRandomSeed);
-    ierr = InitializeBrownianRNG(simCtx); CHKERRQ(ierr);
     ierr = ParticleFieldPlanCreate(&simCtx->particleFieldPlan); CHKERRQ(ierr);
     PetscCheck(!simCtx->particleFieldPlan || simCtx->np > 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
                "Particle field initial values are configured but the run has no particles.");
@@ -3898,45 +3896,6 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscInt base_seed, PetscRandom *rand_
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InitializeBrownianRNG"
-/**
- * @brief Internal helper implementation: `InitializeBrownianRNG()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx) {
-    PetscErrorCode ierr;
-    PetscMPIInt rank;
-
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-
-    // 1. Create the generator (stored in SimCtx, not UserCtx, as it is global physics)
-    ierr = PetscRandomCreate(PETSC_COMM_WORLD, &simCtx->BrownianMotionRNG); CHKERRQ(ierr);
-    ierr = PetscRandomSetType(simCtx->BrownianMotionRNG, PETSCRAND48); CHKERRQ(ierr);
-
-    // 2. CRITICAL: Set interval to [0, 1). 
-    // This is required for the Gaussian math to work.
-    ierr = PetscRandomSetInterval(simCtx->BrownianMotionRNG, 0.0, 1.0); CHKERRQ(ierr);
-
-    // 3. Seed from the configured base, the rank, and the start step. It was seeded from
-    //    the wall clock, so no two runs of the same inputs agreed. The start step keeps a
-    //    restart from replaying the increments the first segment already drew, which would
-    //    correlate them; the same restart is still reproducible.
-    unsigned long seed = (unsigned long)simCtx->particleRandomSeed
-                       + (unsigned long)rank * 987654321UL
-                       + (unsigned long)simCtx->StartStep * 1000003UL;
-    ierr = PetscRandomSetSeed(simCtx->BrownianMotionRNG, seed); CHKERRQ(ierr);
-    ierr = PetscRandomSeed(simCtx->BrownianMotionRNG); CHKERRQ(ierr);
-
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "[Rank %d] Initialized Brownian Physics RNG.\n", rank);
-
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
 /////////////// DERIVATIVE CALCULATION HELPERS ///////////////
 
 #undef __FUNCT__
@@ -4435,11 +4394,6 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
         LOG_ALLOW(LOCAL, LOG_DEBUG, "  bcs_files array freed (%d files).\n", simCtx->num_bcs_files);
     }
 
-    // --- Brownian Motion RNG ---
-    if (simCtx->BrownianMotionRNG) {
-        ierr = PetscRandomDestroy(&simCtx->BrownianMotionRNG); CHKERRQ(ierr);
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "  BrownianMotionRNG destroyed.\n");
-    }
     // --- Post-Processing Parameters ---
     // pps is allocated with PetscNew and contains only static char arrays and basic types.
     // No internal dynamic allocations need to be freed.

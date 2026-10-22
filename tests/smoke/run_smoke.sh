@@ -1830,6 +1830,99 @@ PY
   done
 }
 
+# A Brownian increment is keyed on (seed, particle ID, step), so a run split by a
+# load-mode restart, or run on another rank count, must draw what the uninterrupted
+# run drew. Zero flow leaves the increments as the only motion, so positions must
+# agree bitwise: any drift would mean a draw depended on the stream's history.
+prepare_brownian_continuation_case() {
+  local case_dir="$1" start_step="$2" total_steps="$3" restart_mode="$4"
+  python3 - "${case_dir}/config" "${start_step}" "${total_steps}" "${restart_mode}" <<'PY'
+import sys
+import yaml
+config, start, total, mode = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
+def edit(name, change):
+    path = f"{config}/{name}.yml"
+    with open(path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    change(cfg)
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(cfg, f, sort_keys=False)
+def case(cfg):
+    cfg["run_control"].update({"start_step": start, "total_steps": total})
+    cfg["grid"]["programmatic_settings"].update({"im": 24, "jm": 24, "km": 24})
+    particles = cfg["models"]["physics"]["particles"]
+    particles.update({"init_mode": "PointSource", "point_source": {"x": 0.5, "y": 0.5, "z": 0.5},
+                      "restart_mode": mode})
+def post(cfg):
+    cfg["run_control"].update({"start_step": start, "end_step": start + total})
+edit("case", case)
+edit("post", post)
+PY
+}
+
+run_brownian_continuation_smoke() {
+  local continuous_case="${tmp_root}/brownian-continuous" split_case="${tmp_root}/brownian-split"
+  local continuous_run="" split_base_run="" split_run="" single_rank_run="" saved_nprocs="${nprocs}"
+  local case_dir=""
+
+  for case_dir in "${continuous_case}" "${split_case}"; do
+    "${picurv_exe}" init brownian_motion --dest "${case_dir}" >/dev/null
+    prepare_brownian_case_analytical "${case_dir}"
+  done
+  prepare_brownian_continuation_case "${continuous_case}" 0 4 init
+  run_case_workflow "${continuous_case}" config/case.yml config/solver.yml config/monitor.yml \
+    config/post.yml "brownian_continuous"
+  continuous_run="${LAST_RUN_DIR}"
+  prepare_brownian_continuation_case "${split_case}" 0 2 init
+  run_case_workflow "${split_case}" config/case.yml config/solver.yml config/monitor.yml \
+    config/post.yml "brownian_split_base"
+  split_base_run="${LAST_RUN_DIR}"
+  prepare_brownian_continuation_case "${split_case}" 2 2 load
+  run_case_workflow "${split_case}" config/case.yml config/solver.yml config/monitor.yml \
+    config/post.yml "brownian_split_restart" "${split_base_run}"
+  split_run="${LAST_RUN_DIR}"
+  if [[ "${saved_nprocs}" -gt 1 ]]; then
+    nprocs=1
+    run_case_workflow "${continuous_case}" config/case.yml config/solver.yml config/monitor.yml \
+      config/post.yml "brownian_continuous_one_rank"
+    single_rank_run="${LAST_RUN_DIR}"
+    nprocs="${saved_nprocs}"
+  fi
+
+  python3 - "${continuous_run}" "${split_run}" ${single_rank_run:+"${single_rank_run}"} <<'PY' \
+    || die "Brownian continuation: a restart or a rank change altered the particle increments."
+import struct
+import sys
+from pathlib import Path
+
+def vec(path):
+    data = path.read_bytes()
+    _, count = struct.unpack(">ii", data[:8])
+    return struct.unpack(f">{count}d", data[8:8 + 8 * count])
+
+def ints(path):
+    data = path.read_bytes()
+    _, count = struct.unpack(">ii", data[:8])
+    width = (len(data) - 8) // max(count, 1)
+    fmt = ">q" if width == 8 else ">i"
+    return [struct.unpack(fmt, data[8 + i * width:8 + (i + 1) * width])[0] for i in range(count)]
+
+def positions(run):
+    step = Path(run) / "output" / "checkpoints" / "step_000000000004" / "particles"
+    xyz = vec(step / "position.dat")
+    ids = ints(step / "pid.dat") if (step / "pid.dat").exists() else ints(step / "DMSwarm_pid.dat")
+    return {pid: xyz[3 * i:3 * i + 3] for i, pid in enumerate(ids)}
+
+reference = positions(sys.argv[1])
+assert reference and max(abs(c - 0.5) for p in reference.values() for c in p) > 1e-6, \
+    "the cloud did not spread; the comparison would be vacuous"
+for label, run in zip(("load-mode restart", "single-rank run"), sys.argv[2:]):
+    other = positions(run)
+    assert other == reference, f"{label}: positions differ from the uninterrupted run"
+    print(f"brownian continuation: {label} matches bitwise ({len(other)} particles)")
+PY
+}
+
 run_restart_equivalence_smoke() {
   local continuous_case="${tmp_root}/restart-equivalence-continuous"
   local split_case="${tmp_root}/restart-equivalence-split"
@@ -2946,6 +3039,9 @@ run_field_statistics_smoke
 
 echo "==> PICurv smoke: physical inputs give the same result at two reference-scale choices"
 run_units_equivalence_smoke
+
+echo "==> PICurv smoke: Brownian increments survive a restart and a rank change"
+run_brownian_continuation_smoke
 
 if [[ "${nprocs}" -gt 1 ]]; then
   echo "==> PICurv smoke: multi-rank runtime sequences (flat+bent)"

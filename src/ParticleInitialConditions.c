@@ -415,8 +415,11 @@ PetscErrorCode PicurvExpressionCompile(const char *text, const char *const *name
     PetscFunctionReturn(0);
 }
 
-/** @brief splitmix64 finalizer: a bijective mix of 64 bits. */
-static uint64_t Mix64(uint64_t z)
+/**
+ * @brief Implementation of \ref PicurvMix64().
+ * @see PicurvMix64()
+ */
+uint64_t PicurvMix64(uint64_t z)
 {
     z += 0x9E3779B97F4A7C15ULL;
     z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
@@ -424,10 +427,27 @@ static uint64_t Mix64(uint64_t z)
     return z ^ (z >> 31);
 }
 
-/** @brief Uniform on [0, 1) from the top 53 bits of a hash. */
-static PetscReal UnitFromHash(uint64_t hash)
+/**
+ * @brief Implementation of \ref PicurvUnitFromHash().
+ * @see PicurvUnitFromHash()
+ */
+PetscReal PicurvUnitFromHash(uint64_t hash)
 {
     return (PetscReal)(hash >> 11) * (1.0 / 9007199254740992.0);
+}
+
+/**
+ * @brief Implementation of \ref PicurvParticleDrawHash().
+ * @see PicurvParticleDrawHash()
+ */
+uint64_t PicurvParticleDrawHash(PetscInt64 seed, PicurvDrawSpace space, uint64_t stream,
+                                PetscInt64 pid, PetscInt64 salt)
+{
+    uint64_t hash = PicurvMix64((uint64_t)seed);
+    hash = PicurvMix64(hash ^ (uint64_t)space);
+    hash = PicurvMix64(hash ^ stream);
+    hash = PicurvMix64(hash ^ (uint64_t)pid);
+    return PicurvMix64(hash ^ (uint64_t)salt);
 }
 
 /** @brief A draw keyed on the particle, the event, the stream, and the function. */
@@ -435,18 +455,14 @@ static PetscReal Draw(const PicurvExpressionDrawKey *key, const ExpressionInstru
 {
     /* A default stream is the drawing field's own, so two fields draw independently; an
        explicit stream is shared by every expression that names it. */
-    const uint64_t space = instruction->arg ? 1u : 0u;
+    const PicurvDrawSpace space = instruction->arg ? PICURV_DRAW_SPACE_NAMED_STREAM : PICURV_DRAW_SPACE_FIELD;
     const uint64_t stream = instruction->arg ? (uint64_t)instruction->value : (uint64_t)key->field;
-    uint64_t hash = Mix64((uint64_t)key->seed);
-    hash = Mix64(hash ^ space);
-    hash = Mix64(hash ^ stream);
-    hash = Mix64(hash ^ (uint64_t)key->pid);
-    hash = Mix64(hash ^ (uint64_t)key->salt);
-    hash = Mix64(hash ^ (uint64_t)instruction->op);
-    if (instruction->op == OP_UNIFORM) return UnitFromHash(hash);
+    const uint64_t hash = PicurvMix64(PicurvParticleDrawHash(key->seed, space, stream, key->pid, key->salt)
+                                      ^ (uint64_t)instruction->op);
+    if (instruction->op == OP_UNIFORM) return PicurvUnitFromHash(hash);
     /* Box-Muller from two independent uniforms; u1 lies in (0, 1]. */
-    const PetscReal u1 = 1.0 - UnitFromHash(hash);
-    const PetscReal u2 = UnitFromHash(Mix64(hash ^ 0xD1B54A32D192ED03ULL));
+    const PetscReal u1 = 1.0 - PicurvUnitFromHash(hash);
+    const PetscReal u2 = PicurvUnitFromHash(PicurvMix64(hash ^ 0xD1B54A32D192ED03ULL));
     return PetscSqrtReal(-2.0 * PetscLogReal(u1)) * PetscCosReal(2.0 * PETSC_PI * u2);
 }
 

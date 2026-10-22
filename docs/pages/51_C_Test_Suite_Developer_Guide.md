@@ -178,7 +178,8 @@ Representative named cases by suite (exact strings used in `PicurvTestCase` arra
   - `reset-all-particle-statuses-leaves-lost-particles-untouched`
   - `check-and-remove-out-of-bounds-particles-removes-escaped-particle`
   - `check-and-remove-lost-particles-removes-lost-entries`
-  - `calculate-brownian-displacement-deterministic-seed`
+  - `brownian-displacement-keyed-on-seed-particle-step`
+  - `brownian-displacement-moments`
   - `update-all-particle-positions-moves-swarm-entries`
   - `locate-all-particles-in-grid-prior-cell-fast-path`
   - `locate-all-particles-in-grid-guess-path-resolves-local-particle`

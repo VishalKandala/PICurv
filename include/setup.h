@@ -591,17 +591,6 @@ PetscErrorCode InitializeRandomGenerators(UserCtx *user, PetscRandom *randx, Pet
 PetscErrorCode InitializeLogicalSpaceRNGs(PetscInt base_seed, PetscRandom *rand_logic_i, PetscRandom *rand_logic_j, PetscRandom *rand_logic_k);
 
 /**
- * @brief Initializes a single master RNG for time-stepping physics (Brownian motion).
- *        Configures it for Uniform [0, 1) which is required for Box-Muller transformation.
- *        Seeded from `particleRandomSeed`, the rank, and `StartStep`, so identical inputs on
- *        the same rank count reproduce, and a restart draws a fresh sequence.
- *
- * @param[in,out] simCtx  Pointer to the Simulation Context.
- * @return PetscErrorCode
- */
-PetscErrorCode InitializeBrownianRNG(SimCtx *simCtx);
-
-/**
  * @brief Transforms scalar derivatives from computational space to physical space
  *
  * using the chain rule.

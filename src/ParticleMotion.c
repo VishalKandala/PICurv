@@ -2,50 +2,24 @@
 
 #include "ParticleMotion.h"
 #include "particle_field_catalog.h"
+#include "ParticleInitialConditions.h"
 
 // Define a buffer size for error messages if not already available
 #ifndef ERROR_MSG_BUFFER_SIZE
 #define ERROR_MSG_BUFFER_SIZE 256 // Or use PETSC_MAX_PATH_LEN if appropriate
 #endif
 
-#undef __FUNCT__
-#define __FUNCT__ "GenerateGaussianNoise"
 /**
- * @brief Internal helper implementation: `GenerateGaussianNoise()`.
- * @details Local to this translation unit.
+ * @brief Implementation of \ref GenerateGaussianNoise().
+ * @see GenerateGaussianNoise()
  */
-PetscErrorCode GenerateGaussianNoise(PetscRandom rnd, PetscReal *n1, PetscReal *n2)
+void GenerateGaussianNoise(PetscReal u1, PetscReal u2, PetscReal *n1, PetscReal *n2)
 {
-    PetscErrorCode ierr;
-    PetscScalar    val1, val2;
-    PetscReal      u1, u2;
-    PetscReal      magnitude, theta;
+    const PetscReal magnitude = PetscSqrtReal(-2.0 * PetscLogReal(u1));
+    const PetscReal theta     = 2.0 * PETSC_PI * u2;
 
-    PetscFunctionBeginUser;
-
-    // 1. Get two independent uniform random numbers from the generator
-    // PetscRandomGetValue returns a PetscScalar (which might be complex).
-    // We take the Real part to ensure this works in both Real and Complex builds.
-    ierr = PetscRandomGetValue(rnd, &val1); CHKERRQ(ierr);
-    ierr = PetscRandomGetValue(rnd, &val2); CHKERRQ(ierr);
-
-    u1 = PetscRealPart(val1);
-    u2 = PetscRealPart(val2);
-
-    // 2. Safety Check: log(0) is undefined (infinity).
-    // If the RNG returns exactly 0.0, bump it to a tiny epsilon.
-    if (u1 <= 0.0) u1 = 1.0e-14;
-
-    // 3. Box-Muller Transform
-    // Formula: R = sqrt(-2 * ln(u1)), Theta = 2 * PI * u2
-    magnitude = PetscSqrtReal(-2.0 * PetscLogReal(u1));
-    theta     = 2.0 * PETSC_PI * u2; 
-
-    // 4. Calculate independent Normal variables
     *n1 = magnitude * PetscCosReal(theta);
     *n2 = magnitude * PetscSinReal(theta);
-
-    PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__
@@ -54,45 +28,27 @@ PetscErrorCode GenerateGaussianNoise(PetscRandom rnd, PetscReal *n1, PetscReal *
  * @brief Internal helper implementation: `CalculateBrownianDisplacement()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscReal diff_eff, Cmpnts *displacement)
+PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, PetscReal diff_eff, Cmpnts *displacement)
 {
-    PetscErrorCode ierr;
-    PetscReal      dt = user->simCtx->dt;
-    PetscReal      sigma;
-    PetscReal      n_x, n_y, n_z, gaussian_dummy;
+    const SimCtx  *simCtx = user->simCtx;
+    PetscReal      u[4], n[4], sigma;
+    uint64_t       hash;
 
     PetscFunctionBeginUser;
+    displacement->x = displacement->y = displacement->z = 0.0;
+    if (diff_eff <= 1.0e-12) PetscFunctionReturn(0);
 
-    // 1. Initialize output to zero for safety
-    displacement->x = 0.0;
-    displacement->y = 0.0;
-    displacement->z = 0.0;
+    /* Keyed on (seed, PID, step) alone, so the increment is independent of rank layout
+     * and particle order, and a restart reproduces it. */
+    hash = PicurvParticleDrawHash(simCtx->particleRandomSeed, PICURV_DRAW_SPACE_BROWNIAN, 0, pid, simCtx->step);
+    for (int w = 0; w < 4; ++w) u[w] = PicurvUnitFromHash(hash = PicurvMix64(hash ^ (uint64_t)w));
+    GenerateGaussianNoise(1.0 - u[0], u[1], &n[0], &n[1]); /* 1 - u lies in (0, 1]: log finite */
+    GenerateGaussianNoise(1.0 - u[2], u[3], &n[2], &n[3]);
 
-    // 2. Physical check: Diffusivity cannot be negative. 
-    // If 0, there is no Brownian motion.
-    if (diff_eff <= 1.0e-12) {
-        PetscFunctionReturn(0);
-    }
-
-    // 3. Calculate the Scaling Factor (Standard Deviation)
-    // Formula: sigma = sqrt(2 * D * dt)
-    // Note: dt is inside the root because variance scales linearly with time.
-    sigma = PetscSqrtReal(2.0 * diff_eff * dt);
-
-    // 4. Generate 3 Independent Gaussian Random Numbers
-    // GenerateGaussianNoise produces 2 numbers at a time. We call it twice.
-    
-    // Get noise for X and Y
-    ierr = GenerateGaussianNoise(user->simCtx->BrownianMotionRNG, &n_x, &n_y); CHKERRQ(ierr);
-    
-    // Get noise for Z (second sample is intentionally discarded here).
-    ierr = GenerateGaussianNoise(user->simCtx->BrownianMotionRNG, &n_z, &gaussian_dummy); CHKERRQ(ierr);
-
-    // 5. Calculate final stochastic displacement
-    displacement->x = sigma * n_x;
-    displacement->y = sigma * n_y;
-    displacement->z = sigma * n_z;
-
+    sigma = PetscSqrtReal(2.0 * diff_eff * simCtx->dt);
+    displacement->x = sigma * n[0];
+    displacement->y = sigma * n[1];
+    displacement->z = sigma * n[2];
     PetscFunctionReturn(0);
 }
 
@@ -112,7 +68,7 @@ PetscErrorCode UpdateParticlePosition(UserCtx *user, Particle *particle)
   Cmpnts brownian_disp;
 
   // 2. Calculate the stochastic kick
-  ierr = CalculateBrownianDisplacement(user,particle->diffusivity, &brownian_disp); CHKERRQ(ierr);
+  ierr = CalculateBrownianDisplacement(user, particle->PID, particle->diffusivity, &brownian_disp); CHKERRQ(ierr);
 
   // --- Update Position ---
   // X_new = X_old + ((U_convection + U_diffusivitygradient) * dt) + dX_brownian

@@ -89,7 +89,9 @@ false. Numbers are decimal literals. A particle expression may use:
 | `uniform()`, `normal()` | a per-particle draw in [0, 1), or from N(0, 1) |
 
 A draw is a pure function of `random_seed`, the particle ID, and the field; it does not
-depend on the rank a particle lives on or the order particles are visited. `uniform(k)` and `normal(k)`
+depend on the rank a particle lives on or the order particles are visited. Brownian
+increments are drawn the same way, keyed on the step instead of the field, in a key space of
+their own, so they never coincide with a field's draws. `uniform(k)` and `normal(k)`
 with a non-negative integer literal `k` name a stream shared across fields, so two fields
 can draw the same number for one particle.
 
@@ -375,10 +377,12 @@ continuous 20-step swarm bitwise, lost particles included.
 analytical carrier. Under a solved flow the Eulerian restart re-applies boundary
 conditions, which perturbs the flow around 1e-7 regardless of solver tolerance, and the
 particles inherit that; it is a floor on any claim of trajectory continuity across a
-solved-flow restart. The Brownian random stream is not part of the checkpoint: it is reseeded
-from `random_seed`, the rank and the start step, so a restart is reproducible and
-does not replay the first segment's draws, but with diffusion on it matches an
-uninterrupted run only in distribution (`psi-occupied-set-statistics-2026-10-22`).
+solved-flow restart. Brownian increments need no saved generator state: each is drawn from
+`random_seed`, the particle ID and the step alone, the same keyed draw that `uniform()`
+and `normal()` use. A restart with diffusion therefore continues the uninterrupted run's
+increments, and a run on another rank count draws the same ones; `make smoke` checks both
+bitwise on a zero-flow cloud. Runs made before this change drew from a per-rank stream
+and do not reproduce.
 
 @section p45_fields_sec 6. Swarm Fields Initialized at Startup
 
