@@ -21,14 +21,19 @@ with `strategy.momentum_solver: "Newton Krylov"`.
 Version one is deliberately narrow and validates its inputs up front
 (@ref MomentumSolver_NewtonKrylov rejects anything outside this set):
 
-- **no TwoD masking**;
 - fresh starts and Eulerian field restarts (including `--continue`); the first
   solved restart step uses BDF1 because only the checkpoint state is available;
 - solid cells are permitted: a masked row carries no unknown and is constrained like
   any other such row;
-- boundary handlers limited to no-slip walls, the constant/parabolic/file inlets,
+- boundary handlers limited to no-slip and free-slip walls, the constant/parabolic/file inlets,
   the conservation outlet, and periodic faces (with paired periodic axes) using
   the `geometric`, `constant_flux`, or `initial_flux` handler.
+
+`2D` (`-TwoD 1`) needs no constraint of its own: `ComputeRHS()` zeroes the i
+component's spatial terms, so that row of the residual is the time derivative alone,
+whose solution holds a time-constant i velocity exactly, as the Picard solver's skipped
+row does. The point-block preconditioner gives the row the same diagonal and nothing
+else. `make smoke` compares the two solvers on a planar 2D channel, laminar and LES.
 
 @note The gradient (Clark) model and wall functions both reach this solver through the
 shared residual it already evaluates. Two properties are worth knowing before using

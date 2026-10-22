@@ -270,8 +270,6 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user)
                "Newton Krylov version one does not support moving or rotating bodies/FSI.");
     PetscCheck(!simCtx->moveframe && !simCtx->rotateframe, PETSC_COMM_WORLD, PETSC_ERR_SUP,
                "Newton Krylov version one does not support moving or rotating reference frames.");
-    PetscCheck(!simCtx->TwoD, PETSC_COMM_WORLD, PETSC_ERR_SUP,
-               "Newton Krylov version one does not support TwoD component masking.");
     for (PetscInt face = 0; face < 6; ++face) {
         const BoundaryFaceConfig *cfg = &user->boundary_faces[face];
         PetscBool supported = PETSC_FALSE;
@@ -656,6 +654,13 @@ static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
                         FrozenMomentumJacobian_PointBlock(user, (const Cmpnts ***)ucont,
                             (const Cmpnts ***)csi, (const Cmpnts ***)eta, (const Cmpnts ***)zet,
                             (const PetscReal ***)aj, (const PetscReal ***)nu_t, i, j, k, block);
+                        /* A TwoD-masked row is the time derivative alone in the residual,
+                           so its block row is that derivative's diagonal. */
+                        if (simCtx->TwoD == component + 1) {
+                            for (PetscInt c = 0; c < 3; ++c)
+                                block[3 * component + c] = (c == component)
+                                    ? MomentumBDFCoefficient(simCtx) / simCtx->dt : 0.0;
+                        }
                         ierr = MatSetValuesStencil(preconditioning_matrix, 1, &row, 3, cols,
                                                   &block[3 * component], INSERT_VALUES);
                         if (ierr) goto cleanup;
@@ -1042,8 +1047,10 @@ cleanup:
  * use F=X-Uconditioned, unconditioned legacy dummy/tangential rows use F=X, and
  * periodic duplicates use Fdup=Xdup-Xrep. These equations prevent the zero Jacobian
  * rows that EnforceRHSBoundaryConditions()'s zeroing would produce in a matrix-free
- * Newton operator. Immersed, masked, TwoD, and interface rows are rejected before
- * this callback is installed.
+ * Newton operator. Immersed and interface rows are rejected before this callback is
+ * installed. A TwoD-masked component needs no constraint: ComputeRHS() zeroes its
+ * spatial terms, so its row is the time derivative alone, which holds a velocity that
+ * is constant in time exactly, as the Picard solver's skipped row does.
  * @param ctx Active solve context.
  * @param X Unconditioned PETSc trial state.
  * @param F Residual vector to update in place.

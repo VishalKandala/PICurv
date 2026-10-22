@@ -1923,6 +1923,67 @@ for label, run in zip(("load-mode restart", "single-rank run"), sys.argv[2:]):
 PY
 }
 
+# Newton Krylov holds a TwoD-masked component through the time-derivative-only row the
+# shared residual leaves, where Picard skips the row: the two must agree on a planar flow
+# to solver tolerance. The i faces are periodic, as a planar 2D case needs: with walls
+# there the flow varies along i, and the projection moves the masked component in both.
+run_two_d_solver_equivalence_smoke() {
+  local turbulence="" solver="" case_dir="" picard_run="" nk_run=""
+
+  for turbulence in laminar les; do
+    for solver in picard nk; do
+      case_dir="${tmp_root}/two-d-${turbulence}-${solver}"
+      "${picurv_exe}" init flat_channel --dest "${case_dir}" >/dev/null
+      prepare_free_slip_symmetry_case "${case_dir}" 0 "$([[ "${solver}" == nk ]] && echo nk || echo "${turbulence}")"
+      python3 - "${case_dir}/config/case.yml" "${turbulence}" <<'PY'
+import sys
+import yaml
+path, turbulence = sys.argv[1:]
+with open(path, encoding="utf-8") as f:
+    case = yaml.safe_load(f)
+physics = case["models"]["physics"]
+physics["dimensionality"] = "2D"
+# Sixteen cells keep the periodic axis above the multigrid hierarchy's coarsest limit.
+case["grid"]["programmatic_settings"]["im"] = 16
+for bc in case["boundary_conditions"]:
+    if bc["face"] in ("-Xi", "+Xi"):
+        bc.update({"type": "PERIODIC", "handler": "geometric"})
+        bc.pop("params", None)
+if turbulence == "les":
+    physics["turbulence"] = {"les": {"enabled": True, "model": "constant_smagorinsky", "constant_cs": 0.1}}
+with open(path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(case, f, sort_keys=False)
+PY
+      run_case_workflow "${case_dir}" "${case_dir}/config/case.yml" "${case_dir}/config/solver.yml" \
+        "${case_dir}/config/monitor.yml" "${case_dir}/config/post.yml" "two_d_${turbulence}_${solver}"
+      if [[ "${solver}" == picard ]]; then picard_run="${LAST_RUN_DIR}"; else nk_run="${LAST_RUN_DIR}"; fi
+    done
+    python3 - "${repo_root}" "${picard_run}" "${nk_run}" "${turbulence}" <<'PY' \
+      || die "TwoD ${turbulence}: Newton Krylov and Picard disagree, or the masked component moved."
+import glob
+import importlib.machinery
+import importlib.util
+import sys
+
+repo_root, picard_run, nk_run, turbulence = sys.argv[1:]
+loader = importlib.machinery.SourceFileLoader("picurv_spectra_gen", f"{repo_root}/generators/spectra.gen")
+module = importlib.util.module_from_spec(importlib.util.spec_from_loader("picurv_spectra_gen", loader))
+loader.exec_module(module)
+numpy = module.require_numpy()
+
+def ucat(run):
+    path = glob.glob(f"{run}/output/checkpoints/step_000000000003/eulerian/block_0000/Ucat.dat")[0]
+    return module.extract_interior_cells(module.read_petsc_vec_binary(path), (17, 17, 17), 3)
+
+picard, nk = ucat(picard_run), ucat(nk_run)
+error = float(numpy.abs(picard - nk).max() / numpy.abs(picard).max())
+masked = max(float(numpy.abs(field[..., 0]).max()) for field in (picard, nk)) / numpy.abs(picard).max()
+print(f"TwoD {turbulence}: NK vs Picard Ucat relative difference {error:.2e}, masked u {masked:.1e}")
+sys.exit(0 if error <= 1e-8 and masked <= 1e-9 else 1)
+PY
+  done
+}
+
 run_restart_equivalence_smoke() {
   local continuous_case="${tmp_root}/restart-equivalence-continuous"
   local split_case="${tmp_root}/restart-equivalence-split"
@@ -2385,6 +2446,8 @@ PY_SINGLE
   run_newton_krylov_continue_smoke
   echo "==> PICurv smoke: free-slip wall is a plane of symmetry"
   run_free_slip_symmetry_smoke
+  echo "==> PICurv smoke: TwoD under Newton Krylov matches Picard"
+  run_two_d_solver_equivalence_smoke
 
   "${picurv_exe}" init brownian_motion --dest "${brownian_case}" >/dev/null
   prepare_brownian_case_analytical "${brownian_case}"

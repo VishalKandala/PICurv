@@ -800,6 +800,58 @@ static PetscErrorCode TestFreeSlipWallsSolve(void)
 }
 
 /**
+ * @brief A TwoD solve converges, preconditioned and not, and holds the masked component.
+ *
+ * ComputeRHS() zeroes the masked component's spatial terms, so its residual row is the
+ * time derivative alone. With the same value at every history level, BDF2's solution of
+ * that row is the value itself, so a nonzero xi flux must survive the solve unchanged, as
+ * the Picard solver's skipped row keeps it.
+ */
+static PetscErrorCode TestTwoDSolveHoldsMaskedComponent(void)
+{
+    const char *models[] = {"none", "frozen_momentum_jacobian"};
+    const char *structures[] = {"none", "point_block"};
+
+    PetscFunctionBeginUser;
+    for (size_t n = 0; n < sizeof(models) / sizeof(models[0]); ++n) {
+        SimCtx *simCtx = NULL;
+        UserCtx *user = NULL;
+        Cmpnts ***ucont = NULL;
+        PetscReal drift = 0.0, global_drift = 0.0;
+        char tmpdir[PETSC_MAX_PATH_LEN] = "";
+
+        PetscCall(BuildNewtonFixture(periodic_x_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+        simCtx->TwoD = 1;
+        PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_snes_rtol", "1e-8"));
+        PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_snes_max_it", "20"));
+        PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_ksp_rtol", "1e-10"));
+        PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_model", models[n]));
+        PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_structure", structures[n]));
+        PetscCall(VecSet(user->Ucont, 0.0));
+        PetscCall(VecStrideSet(user->Ucont, 0, 0.1));
+        PetscCall(VecStrideSet(user->Ucont, 2, 0.05));
+        PetscCall(VecCopy(user->Ucont, user->Ucont_o));
+        PetscCall(VecCopy(user->Ucont, user->Ucont_rm1));
+        PetscCall(MomentumSolver_NewtonKrylov(user, NULL, NULL));
+        PetscCall(PicurvAssertBool(simCtx->mom_last_converged, "a TwoD solve must converge"));
+
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+        for (PetscInt k = PetscMax(user->info.zs, 1); k < PetscMin(user->info.zs + user->info.zm, user->info.mz - 2); ++k)
+            for (PetscInt j = PetscMax(user->info.ys, 1); j < PetscMin(user->info.ys + user->info.ym, user->info.my - 2); ++j)
+                for (PetscInt i = PetscMax(user->info.xs, 1); i < PetscMin(user->info.xs + user->info.xm, user->info.mx - 1); ++i)
+                    drift = PetscMax(drift, PetscAbsReal(ucont[k][j][i].x - 0.1));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+        PetscCallMPI(MPI_Allreduce(&drift, &global_drift, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD));
+        PetscCall(PicurvAssertRealNear(0.0, global_drift, 1.0e-12,
+                                       "the masked component must keep its time-constant value"));
+        PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));
+        PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_preconditioner_model"));
+        PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_preconditioner_structure"));
+    }
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/**
  * @brief Forms the complete direct FD Jacobian, checks every row, and compares MFFD actions.
  */
 static PetscErrorCode TestWholeOperatorDirectJacobian(void)
@@ -1204,8 +1256,7 @@ static PetscErrorCode TestUnsupportedConfigurationFailsBeforeAllocation(void)
            claimed as supported; they are simply no longer refused. */
         PetscInt *unsupported_flags[] = {
             &simCtx->immersed, &simCtx->movefsi, &simCtx->rotatefsi,
-            &simCtx->moveframe, &simCtx->rotateframe,
-            &simCtx->TwoD
+            &simCtx->moveframe, &simCtx->rotateframe
         };
         for (size_t flag = 0; flag < sizeof(unsupported_flags) / sizeof(unsupported_flags[0]); ++flag) {
             *unsupported_flags[flag] = 1;
@@ -1907,6 +1958,7 @@ int main(int argc, char **argv)
         {"restart-and-continuation-solve", TestRestartAndContinuationSolve},
         {"small-solve-and-rollback", TestSmallSolveAndRollback},
         {"free-slip-walls-solve", TestFreeSlipWallsSolve},
+        {"two-d-solve-holds-masked-component", TestTwoDSolveHoldsMaskedComponent},
         {"unsupported-configuration-fails-before-allocation", TestUnsupportedConfigurationFailsBeforeAllocation},
         {"post-allocation-failure-cleanup", TestPostAllocationFailureCleanup},
         {"linearization-config-parsing", TestLinearizationConfigParsing},

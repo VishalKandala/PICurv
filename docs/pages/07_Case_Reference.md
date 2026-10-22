@@ -343,8 +343,9 @@ the i velocity component initialized to zero.
 
 **Parameters it owns.** None.
 
-**Interactions.** Refused by the Newton-Krylov solver and by generated initial conditions
-that need a fresh 3D field. Only the i direction can be held fixed from YAML; the runtime
+**Interactions.** Supported by both momentum solvers: Newton Krylov holds the i component
+through the time-derivative-only row the shared residual leaves (@ref p55_scope_sec).
+Refused by generated initial conditions that need a fresh 3D field. Only the i direction can be held fixed from YAML; the runtime
 also accepts `-TwoD 2` (j) and `-TwoD 3` (k), reachable only through a PETSc passthrough.
 
 **Diagnostics.** The generated control file carries `-TwoD 1`; there is no startup banner
@@ -354,7 +355,10 @@ line for it.
 `tests/c/test_solver_kernels.c`, run by `make unit-solver`. Analytically verified -
 `eulerian-source-domain-modes-2026-09-21`: a Taylor-Green vortex in the j-k plane with a
 frozen i velocity ran 20 steps in 2D and in 3D; the i component moved by at most 3.1e-16
-and the j and k components matched the 3D run to 2.8e-15.
+and the j and k components matched the 3D run to 2.8e-15. Integration verified -
+`make smoke` (TwoD under Newton Krylov): on a planar channel periodic in i, Newton Krylov
+and Picard agree to solver tolerance, laminar and constant-Smagorinsky LES, and the i
+component stays at the pressure-solve tolerance.
 
 **Limitations.** Nothing checks that the i component starts at zero. The pressure
 projection still acts on every face, so the i component stays frozen only while the
