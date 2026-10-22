@@ -5,7 +5,10 @@
 @ref 58_Field_Statistics describes what the statistics pipeline does today:
 pointwise weighted centered first and second moments, accumulated per named
 window, carried across a restart, and derived into Reynolds stresses, RMS,
-turbulent kinetic energy, and fluxes.
+turbulent kinetic energy, fluxes, and point variances, in the units of the run when
+`global_operations.dimensionalize` is set. Post-processing adds single-instant
+ensembles over each cell's particles or state, and profiles over homogeneous
+directions (@ref p10_profiles_sub).
 
 This page records what it deliberately does not do, why each extension was left
 out, and what it depends on. Each is opt-in and builds on the abstractions that
@@ -58,7 +61,10 @@ A physical caveat applies to spatial reduction however it is computed: merging
 across points is only *meaningful* where those points are statistically
 equivalent. Over an inhomogeneous region the result is a well-defined total
 variance that mixes in the spatial variation of the mean, which is rarely what
-was wanted. Homogeneous-direction averaging is the case this serves.
+was wanted. Homogeneous-direction averaging is the case this serves. Where the
+point statistic itself is wanted, such as a cell's subgrid variance, the
+`point_variance` output averages the point values with equal weight instead of
+pooling them (@ref p10_cap_fso_point_variance).
 
 @section p60_order_sec 2. Dependency Order
 
@@ -71,7 +77,6 @@ was wanted. Homogeneous-direction averaging is the case this serves.
 | @ref p60_products_sec | online face targets, for the face case | face-flux and single-component products |
 | @ref p60_targets_sec | @ref p60_view_sec for surface output | surfaces, probes, conditional sampling |
 | @ref p60_reducer_sec | @ref p60_reduction_sec | one reducer behind flow observables |
-| @ref p60_dimensional_sec | nothing | dimensional derived statistics |
 | @ref p60_stats_boundary_sec | nothing | meaningful statistics at walls, inlets, and outlets |
 | @ref p60_spectra_partial_sec | selected Cartesian planes/lines | ensembles, masks, and expanded plotting |
 | @ref p60_spectra_temporal_sec | bounded probe history | frequency spectra where nothing is homogeneous |
@@ -111,7 +116,8 @@ and add a second mechanism doing what the first already does.
 
 Reduction over homogeneous directions is implemented: `field_statistics.homogeneous`
 merges the pointwise state of a window or recipe ensemble over the named directions
-and writes a profile CSV (@ref p10_profiles_sub). What remains is reduction over
+and writes a profile CSV (@ref p10_profiles_sub), pooled, or for `point_variance` as
+the equal-weight mean of the point values. What remains is reduction over
 subsets that are not whole grid directions, which needs:
 
 - **A region selector in the post recipe.** Coordinate ranges, index ranges, or a
@@ -237,19 +243,7 @@ existing implementation is correct and the gain is structural.
 Function-level logging, logging allow-lists, PETSc monitors, and performance
 profiling are not subsumed into scientific statistics at any point.
 
-@section p60_dimensional_sec 11. Dimensional Derived Statistics
-
-Derived statistics are written in nondimensional form even when
-`global_operations.dimensionalize` is set. A Reynolds stress scales as velocity
-squared, and a co-moment as the product of two different scales; the existing
-per-field scaling table expresses neither.
-
-The extension is a scaling rule per derived quantity rather than per field, so a
-product knows the scales of both its factors. Applying the velocity scale as things
-stand would be wrong rather than merely incomplete, which is why the current
-behaviour is to leave derived output nondimensional and say so.
-
-@section p60_stats_boundary_sec 12. Derived Statistics At Non-Periodic Boundaries
+@section p60_stats_boundary_sec 11. Derived Statistics At Non-Periodic Boundaries
 
 **What exists today.** `SynchronizePeriodicCellFields` populates the layout boundary of a
 derived statistics field on **periodic** faces only, where the value is exact. See
@@ -337,7 +331,7 @@ unwritten and documented removes the trap at a fraction of the cost. The work be
 worthwhile when wall-bounded statistics are read quantitatively from the field — which
 is the same class of case that needs @ref p60_spectra_partial_sec.
 
-@section p60_spectra_partial_sec 13. Offline Line And Plane Spectra
+@section p60_spectra_partial_sec 12. Offline Line And Plane Spectra
 
 Selected physical plane and line spectra are implemented and supported in
 `generators/spectra.gen`; see @ref p10_cap_spec_plane_spectrum and
@@ -406,12 +400,13 @@ spanwise directions. Not `examples/bent_channel`: a 90-degree bend develops
 streamwise and is bounded on all four sides, so it has no homogeneous direction and
 belongs to @ref p60_spectra_temporal_sec.
 
-@section p60_spectra_temporal_sec 14. Temporal Spectra From Bounded Probe Histories
+@section p60_spectra_temporal_sec 13. Temporal Spectra From Bounded Probe Histories
 
 **What exists today.** `post.yml -> spectra` measures spatial spectra offline from the
 instantaneous velocity in each committed checkpoint, documented in
-@ref p10_spectra_sec. The one implemented task, `shell_spectrum`, requires a triply
-periodic uniform Cartesian box.
+@ref p10_spectra_sec. Every implemented task needs a uniform, periodic, Cartesian
+direction to transform along: `shell_spectrum` a triply periodic box, `plane_spectrum`
+and `line_spectrum` a selected plane or line (@ref p60_spectra_partial_sec).
 
 **What is missing, and why it is not a gap in the above.** A spatial spectrum needs a
 direction that is uniformly spaced, periodic, and statistically homogeneous. A curved
@@ -449,7 +444,7 @@ What it requires:
 This is the extension that unlocks spectra for every geometry the spatial tasks refuse,
 and it is the smaller of the two remaining spectral pieces.
 
-@section p60_spectra_online_sec 15. Online Spatial Spectral Accumulation
+@section p60_spectra_online_sec 14. Online Spatial Spectral Accumulation
 
 **What is missing.** Spatial spectra are measured offline from written snapshots, so
 the number of independent samples is bounded by how many full fields a run can afford
@@ -486,7 +481,7 @@ What it requires:
 Storage is negligible — wavenumber by wall-normal index by component — which is orders
 of magnitude below the per-point histograms @ref p60_pdf_sec defers.
 
-@section p60_notplanned_sec 16. Not Planned
+@section p60_notplanned_sec 15. Not Planned
 
 These are recorded so they are not proposed again as gaps.
 
@@ -502,7 +497,7 @@ These are recorded so they are not proposed again as gaps.
   different matter: they are deferred on cost rather than ruled out, and
   @ref p60_pdf_sec records the terms under which they could arrive.
 
-@section p60_related_sec 17. Related Pages
+@section p60_related_sec 16. Related Pages
 
 - @subpage 58_Field_Statistics — what the pipeline does today
 - @subpage 10_Post_Processing_Reference — the spectra recipe these two extend
