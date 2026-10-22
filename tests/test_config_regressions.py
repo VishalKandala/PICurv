@@ -51,6 +51,9 @@ def test_maintained_examples_use_canonical_initial_condition_contract():
     """
     case_paths = sorted((REPO_ROOT / "examples").rglob("*.yml"))
     case_paths.append(FIXTURES / "valid" / "case.yml")
+    # Every generator the conductor accepts declares its parameters here, so this is the
+    # canonical set rather than a list that has to be kept in step by hand.
+    generators = set(load_picurv_module().IC_PARAM_QUANTITIES)
     checked = []
     for path in case_paths:
         payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -60,10 +63,7 @@ def test_maintained_examples_use_canonical_initial_condition_contract():
         checked.append(path)
         assert initial_conditions.get("mode") in {"generated", "file"}, path
         if initial_conditions["mode"] == "generated":
-            assert initial_conditions.get("generator") in {
-                "zero", "constant", "streamwise_constant", "poiseuille", "ic_gen",
-                "spectral_random_velocity", "channel_spectral_velocity", "duct_spectral_velocity"
-            }, path
+            assert initial_conditions.get("generator") in generators, path
     assert checked
 
 

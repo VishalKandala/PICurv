@@ -1,0 +1,49 @@
+# Dual-time Picard momentum solve. solver_newton_krylov.yml solves the same case with
+# Newton Krylov; the two should agree to their tolerances.
+operation_mode:
+  eulerian_field_source: "solve"
+
+strategy:
+  momentum_solver: "Dual Time Picard Jameson RK"
+
+tolerances:
+  max_iterations: 50
+  relative_tol: 1.0e-6
+  residual_absolute_tol: 1.0e-8   # dimensionless: |R| <= this * a0*|Ucont|_inf/dt
+  residual_relative_tol: 1.0e-6
+
+momentum_solver:
+  dual_time_picard_jameson_rk:
+    jameson_residual_noise_allowance_factor: 1.1
+    ratio_ema_alpha: 0.3
+    pseudo_cfl: {initial: 0.5, minimum: 0.001, maximum: 2.0, growth_factor: 1.1, reduction_factor: 0.75}
+
+# Colucci et al.: Sc = 1, Sc_t = 0.7, and the IEM frequency C_Omega (Gamma + Gamma_t) /
+# Delta_G^2 with C_Omega = 3 on Delta_G = 2 Delta. PICurv's rate uses the cell volume's
+# Delta^2, so C_IEM = 3 / 4.
+scalar_transport:
+  schmidt_number: 1.0
+  turbulent_schmidt_number: 0.7
+  iem_constant: 0.75
+
+poisson_solver:
+  method: "fgmres"
+  absolute_tolerance: 1.0e-9
+  relative_tolerance: 1.0e-11
+  max_iterations: 50
+  gmres: {restart: 20}
+  preconditioner: {type: "multigrid"}
+  multigrid:
+    levels: 3
+    pre_sweeps: 2
+    post_sweeps: 2
+    cycle: "v"
+    mode: "multiplicative"
+    # The thin periodic i axis has four cells and stays uncoarsened.
+    semi_coarsening: {i: true, j: false, k: false}
+    level_solvers:
+      level_0: {method: "preonly", preconditioner: "redundant"}
+      level_1: {method: "richardson", preconditioner: "bjacobi"}
+      level_2: {method: "richardson", preconditioner: "bjacobi"}
+
+petsc_passthrough_options: {}

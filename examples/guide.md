@@ -31,6 +31,9 @@ python3 tests/tooling/audit_starter_content.py
 - `interpolation_test/`: TGV3D analytical flow interpolation accuracy test with 10k particles.
 - `scatter_verification/`: verification-path prescribed scalar truth injection plus runtime particle-to-grid scatter metrics and grid-size sweeps.
 - `decaying_isotropic_turbulence/`: triply periodic LES decay benchmark, and the worked example for online field statistics; isotropy makes the accumulated Reynolds stresses self-checking.
+- `temporal_mixing_layer/`: the 2D temporal mixing layer of Colucci et al. (1998), the
+  particle FDF benchmark: free-slip cross-stream walls, constant-Smagorinsky LES, IEM
+  particles, per-cell ensembles with `point_variance`; Picard and Newton Krylov profiles.
 - `turbulent_channel/`: wall-resolved driven periodic plane channel at nominal
   `Re_tau ~ 180` (128 x 128 x 256 cells), with no subgrid model and no wall function:
   a candidate DNS configuration, not a validated benchmark. It is seeded with

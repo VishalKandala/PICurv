@@ -1,0 +1,35 @@
+# Colucci et al. report statistics "Reynolds averaged" over the homogeneous streamwise
+# direction at each time; here i and k are both homogeneous. Each processed step writes
+# a cross-stream profile per ensemble, and profile_series turns those into histories.
+run_control: {start_step: 0, end_step: 100, step_interval: 4}
+global_operations: {dimensionalize: true}
+field_statistics:
+  ensembles:
+    # The FDF: each cell's particles. Its mean profile is the paper's <A>_L, and
+    # point_variance is the generalized subgrid variance sigma_A averaged over the plane
+    # cell by cell (Figs. 2, 3, 10); rms pools it with the spread of the filtered values.
+    - name: fdf
+      source: particles
+      fields:
+        - {field: Psi, moments: [first, second]}
+    # The resolved velocity, for the vorticity thickness delta_v (Figs. 9, 13).
+    - name: resolved
+      source: eulerian
+      fields:
+        - {field: Ucat, moments: [first]}
+  homogeneous: [i, k]
+  outputs: [mean, rms, point_variance]
+  formats: [vtk, csv]
+reducers:
+  tasks:
+    # delta_v = max_gradient_thickness of the mean streamwise velocity (Ucat_z), and the
+    # integrated subgrid variance = integral of Psi_point_variance.
+    - task: profile_series
+      source: resolved
+    - task: profile_series
+      source: fdf
+io:
+  output_filename_prefix: tml
+  eulerian_fields: [Ucat, P]
+  output_particles: false
+  input_extensions: {eulerian: dat, particle: dat}

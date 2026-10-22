@@ -71,6 +71,7 @@ documentation work. That is why **@subpage 66_Evidence_Matrix** records no
 |---|---|---|---|
 | `decaying_isotropic_turbulence` | Benchmark | LES decay in a triply periodic box, 64³ cells | Dynamic model characterized on HOM02 — see below |
 | `turbulent_channel` | Benchmark | Seeded wall-resolved channel startup at nominal `Re_tau ~ 180` | Experimental seed; developed turbulence not validated — see below |
+| `temporal_mixing_layer` | Benchmark | 2D temporal mixing layer of Colucci et al. (1998): particle FDF of a conserved scalar, free-slip walls, LES; Picard and Newton Krylov | Not yet compared with the reference — see below |
 | `periodic_test/driven_channel` | Benchmark | Driven periodic channel; DNS and LES variants | See caveat below |
 | `periodic_test/driven_duct` | Benchmark | Square duct with secondary flow of the second kind | See caveat below |
 
@@ -95,6 +96,13 @@ A finite perturbation does not guarantee sustained transition. Establish station
 wall stress, velocity fluctuations and Reynolds shear stress before collecting
 statistics, then assess resolution and sampling uncertainty against a matching
 channel reference. Long campaigns require a measured pilot and cluster resources.
+
+`temporal_mixing_layer` sets up the non-reacting 2D layer of Colucci et al. (1998) with the
+paper's domain, grid spacing, Reynolds number, Smagorinsky constant, Schmidt numbers, IEM
+constant and particles per cell; its README maps each onto PICurv and names the figures each
+output compares with. A four-step run of both solver profiles and the post recipe has been
+checked; the full run and its comparison with the paper's figures have not, so it makes no
+claim about agreement yet.
 
 The pseudo-time stall once recorded for these periodic wall-bounded cases was
 re-characterized on 2026-09-18 and does not reproduce; the laminar channel reproduces

@@ -15,6 +15,7 @@ generated deterministically from parameters rather than from a manually curated 
 | `plane_channel_wm_retau1000.cfg` | `box` | wall-modelled LES channel, `Re_tau ~ 1000` | 32 x 20 x 48 |
 | `square_duct_reb4410.cfg` | `box` | square duct DNS, `Re_b = 4410` | 128 x 128 x 256 |
 | `isotropic_box_64.cfg` | `box` | decaying isotropic turbulence | 64^3 |
+| `temporal_mixing_layer_2d.cfg` | `box` | `examples/temporal_mixing_layer`, Colucci et al. 2D | 4 x 48 x 36 |
 | `coarse_square_tube_curved.cfg` | `sweep` | bent square duct, 90 deg | 64 x 64 x 280 |
 | `bent_channel_coarse.cfg` | `sweep` | `examples/bent_channel` | 20 x 20 x 144 |
 | `humphrey_bend_wm.cfg` | `sweep` | Humphrey et al. (1981) 90 deg bend, `Rc/D = 2.3`, wall-modelled rung | 32 x 32 x 256 |

@@ -1,0 +1,67 @@
+# Two-dimensional, non-reacting temporal mixing layer of Colucci, Jaberi, Givi & Pope
+# (Phys. Fluids 10:499, 1998), the filtered-density-function benchmark. Units are the
+# paper's: free-stream speed U_r = 1 and the length L_r with delta_v0 / L_r = 2.83.
+# Re = 500 on the velocity difference (2 U_r) and delta_v0: nu = 2 * 2.83 / 500.
+run_control:
+  start_step: 0
+  # t = 50, the end of the paper's histories; CFL = U_r dt / Delta = 0.45 (paper: 0.5).
+  total_steps: 100
+  dt_physical: 0.5
+
+properties:
+  scaling: {length_ref: 1.0, velocity_ref: 1.0}
+  fluid: {density: 1.0, viscosity: 0.01132}
+  initial_conditions:
+    mode: generated
+    generator: stability_mode_velocity
+    params:
+      field: Ucat
+      streamwise_axis: k
+      cross_axis: j
+      # U = tanh(y/delta), delta = delta_v0/2, between streams at -1 and +1.
+      base_profile: "tanh(y/1.415)"
+      # The most unstable mode (two wavelengths in the box) and its subharmonic, each
+      # peaking at 1% of the velocity difference, so the two vortices roll up and pair.
+      modes:
+        - {harmonic: 2, amplitude: 0.01}
+        - {harmonic: 1, amplitude: 0.01}
+      noise: {rms: 0.02, seed: 1, planar: true, spectrum: {type: white}, wall_modes: 8}
+
+grid:
+  mode: grid_gen
+  generator:
+    config_file: ../../config/grids/temporal_mixing_layer_2d.cfg
+    grid_type: box
+
+models:
+  physics:
+    dimensionality: 2D
+    particles:
+      # 50 particles per cell (the paper's NPG), seeded uniformly in volume:
+      # 50 x 4 x 48 x 36.
+      count: 345600
+      init_mode: Volume
+      restart_mode: init
+      random_seed: 12345
+      fields:
+        # The conserved scalar A = 0 in the lower stream and 1 in the upper, an error
+        # function with the velocity layer's own thickness: y0 = delta_v0 / sqrt(pi).
+        Psi: "0.5*(1 + erf(y/1.5967))"
+    turbulence:
+      les:
+        enabled: true
+        model: constant_smagorinsky
+        # The paper's Cs = 0.014 on Delta_G = 2 Delta with |S| = sqrt(S_ij S_ij), in
+        # PICurv's nu_t = C Delta^2 sqrt(2 S_ij S_ij): 0.014 * 4 / sqrt(2) = 0.0396.
+        constant_cs: 0.0396
+      wall_function: {enabled: false}
+
+# The paper's upper and lower boundaries are planes of mirror symmetry: free-slip walls.
+# Particles reflect there.
+boundary_conditions:
+  - {face: "-Xi", type: PERIODIC, handler: geometric}
+  - {face: "+Xi", type: PERIODIC, handler: geometric}
+  - {face: "-Eta", type: WALL, handler: free_slip}
+  - {face: "+Eta", type: WALL, handler: free_slip}
+  - {face: "-Zeta", type: PERIODIC, handler: geometric}
+  - {face: "+Zeta", type: PERIODIC, handler: geometric}

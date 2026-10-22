@@ -11,6 +11,7 @@
     "periodic_test",
     "scatter_verification",
     "search_robustness",
+    "temporal_mixing_layer",
     "turbulent_channel"
   ],
   "reference_only_templates": [
@@ -226,6 +227,18 @@
       "solver": "examples/periodic_test/driven_duct/solver_newton_krylov.yml",
       "monitor": "examples/turbulent_channel/monitor.yml",
       "post": "examples/periodic_test/driven_duct/post_spectral.yml"
+    },
+    {
+      "case": "examples/temporal_mixing_layer/case.yml",
+      "monitor": "examples/temporal_mixing_layer/monitor.yml",
+      "post": "examples/temporal_mixing_layer/post.yml",
+      "solver": "examples/temporal_mixing_layer/solver.yml"
+    },
+    {
+      "case": "examples/temporal_mixing_layer/case.yml",
+      "monitor": "examples/temporal_mixing_layer/monitor.yml",
+      "post": "examples/temporal_mixing_layer/post.yml",
+      "solver": "examples/temporal_mixing_layer/solver_newton_krylov.yml"
     }
   ],
   "study_bundles": [
@@ -343,6 +356,7 @@
     "config/grids/plane_channel_retau395.cfg",
     "config/grids/plane_channel_wm_retau1000.cfg",
     "config/grids/square_duct_reb4410.cfg",
+    "config/grids/temporal_mixing_layer_2d.cfg",
     "config/guide.md",
     "config/initial_conditions/expression.cfg",
     "config/initial_conditions/guide.md",
