@@ -1396,24 +1396,57 @@ def test_parse_solver_config_rejects_mixed_jameson_and_rk4_aliases():
         picurv.parse_solver_config(solver_cfg)
 
 
+def _scalar_transport_case(schmidt=None, turbulent=None, iem=None):
+    """!
+    @brief Case config carrying the scalar-transport parameters at their case.yml locations.
+    @param[in] schmidt Molecular Schmidt number, or None to omit.
+    @param[in] turbulent Turbulent Schmidt number, or None to omit.
+    @param[in] iem IEM constant, or None to omit.
+    @return Partial case configuration.
+    """
+    case = {"properties": {"fluid": {}}, "models": {"physics": {"turbulence": {}, "particles": {}}}}
+    for value, node, key in ((schmidt, case["properties"]["fluid"], "schmidt_number"),
+                             (turbulent, case["models"]["physics"]["turbulence"], "turbulent_schmidt_number"),
+                             (iem, case["models"]["physics"]["particles"], "iem_constant")):
+        if value is not None:
+            node[key] = value
+    return case
+
+
 def test_parse_solver_config_maps_scalar_transport_flags():
     """!
-    @brief Test that scalar transport properties map to C runtime flags.
+    @brief Scalar-transport parameters set in case.yml map to C runtime flags.
     """
     picurv = load_picurv_module()
-    solver_cfg = {
-        "scalar_transport": {
-            "schmidt_number": 1.0e12,
-            "turbulent_schmidt_number": 0.9,
-            "iem_constant": 3.5,
-        }
-    }
-
-    flags = picurv.parse_solver_config(solver_cfg)
+    flags = picurv.parse_solver_config({}, None, _scalar_transport_case(1.0e12, 0.9, 3.5))
 
     assert flags["-schmidt_number"] == 1.0e12
     assert flags["-turb_schmidt_number"] == 0.9
     assert flags["-iem_constant"] == 3.5
+
+
+def test_scalar_transport_deprecated_solver_location_still_maps_and_warns(capsys):
+    """!
+    @brief solver.yml scalar_transport still works, warns, and names the case.yml location.
+    @param[in] capsys Pytest fixture capturing the warning.
+    """
+    picurv = load_picurv_module()
+    solver_cfg = {"scalar_transport": {"schmidt_number": 2.0, "iem_constant": 1.5}}
+    assert picurv.resolve_scalar_transport({}, solver_cfg, warn=True) == {"schmidt_number": 2.0,
+                                                                           "iem_constant": 1.5}
+    err = capsys.readouterr().err
+    assert "properties.fluid.schmidt_number" in err and "models.physics.particles.iem_constant" in err
+    assert picurv.parse_solver_config(solver_cfg)["-iem_constant"] == 1.5
+
+
+def test_scalar_transport_set_in_both_places_is_refused():
+    """!
+    @brief A parameter in case.yml and in its deprecated solver.yml location is refused.
+    """
+    picurv = load_picurv_module()
+    with pytest.raises(ValueError, match="keep only the case.yml one"):
+        picurv.resolve_scalar_transport(_scalar_transport_case(iem=1.0),
+                                        {"scalar_transport": {"iem_constant": 2.0}})
 
 
 @pytest.mark.parametrize("value", [-1.0, float("nan"), float("inf"), -float("inf"), True])
@@ -1424,7 +1457,7 @@ def test_parse_solver_config_refuses_an_invalid_iem_constant(value):
     """
     picurv = load_picurv_module()
     with pytest.raises(ValueError, match="iem_constant"):
-        picurv.parse_solver_config({"scalar_transport": {"iem_constant": value}})
+        picurv.parse_solver_config({}, None, _scalar_transport_case(iem=value))
 
 
 
@@ -1437,12 +1470,15 @@ def test_validate_iem_constant_at_cli_ingress(tmp_path, value):
     @param[in] value Model constant accepted only when non-negative and finite.
     """
     valid = FIXTURES / "valid"
-    solver = yaml.safe_load((valid / "solver.yml").read_text())
-    solver["scalar_transport"] = {"iem_constant": value}
-    solver_path = tmp_path / "solver.yml"
-    solver_path.write_text(yaml.safe_dump(solver))
-    result = run_picurv(["validate", "--case", str(valid / "case.yml"),
-                         "--solver", str(solver_path), "--monitor", str(valid / "monitor.yml")])
+    case = yaml.safe_load((valid / "case.yml").read_text())
+    case.setdefault("models", {}).setdefault("physics", {}).setdefault("particles", {})["iem_constant"] = value
+    case_path = tmp_path / "case.yml"
+    case_path.write_text(yaml.safe_dump(case))
+    for asset in valid.iterdir():
+        if asset.name != "case.yml" and not (tmp_path / asset.name).exists():
+            (tmp_path / asset.name).symlink_to(asset)
+    result = run_picurv(["validate", "--case", str(case_path),
+                         "--solver", str(valid / "solver.yml"), "--monitor", str(valid / "monitor.yml")])
     if value in (0.0, 3.5):
         assert result.returncode == 0, result.stdout + result.stderr
     else:

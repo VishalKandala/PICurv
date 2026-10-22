@@ -71,6 +71,9 @@ properties:
   fluid:
     density: 1000.0     # [kg/m^3]
     viscosity: 0.001    # [Pa.s or kg/(m.s)]
+    # Molecular Schmidt number of the transported scalar: its diffusivity is nu / Sc, which
+    # sets the particles' Brownian motion. A very large value (1.0e12) turns that motion off.
+    schmidt_number: 1.0 # [Positive Number, optional] -> -schmidt_number (default 1.0)
 
   # --- Initial Conditions ---
   # The state of the fluid at the start of the simulation (t=0).
@@ -284,6 +287,9 @@ models:
       restart_mode: "init" # [string] -> -particle_restart_mode. Options: "init", "load"
       random_seed: 12345   # [Integer, optional] -> -particle_random_seed. 0..2147483647; seeds
                            # initial placement and Brownian draws (default 12345)
+      iem_constant: 2.0    # [Non-negative Number, optional] -> -iem_constant. C_IEM in the IEM
+                           # mixing rate C_IEM (Gamma + Gamma_t) / Delta^2 (default 2.0); 0 switches
+                           # micromixing off, so Psi is a passive label.
       point_source:        # Required only when init_mode = "PointSource" (maps to -psrc_x/-psrc_y/-psrc_z)
         x: 0.5             # [m] Physical position, divided by length_ref like the grid bounds.
         y: 0.25            #     This one is the centre of the domain defined under grid.
@@ -461,6 +467,10 @@ models:
         # and cabot, so delete it when selecting either.
         # [Number] -> -wall_roughness
         roughness_height: 1.0e-16   # [m] Physical length, divided by length_ref.
+
+      # Turbulent Schmidt number: the subgrid scalar diffusivity is nu_t / Sc_t.
+      # [Positive Number, optional] -> -turb_schmidt_number (default 0.7)
+      turbulent_schmidt_number: 0.7
   
 # ==============================================================================
 # 5. BOUNDARY CONDITIONS

@@ -87,7 +87,7 @@
       "dependent_pages": [
         "62_Capability_Status_Vocabulary"
       ],
-      "attested_digest": "sha256:95b0eeb69b8c8221c4f0d8535691b4ed4e0c1fc516e0a23d0c7ca7c586c8afa8"
+      "attested_digest": "sha256:eba4ea8a05b58108e9841c1df227e8f3d07e307aac589db02cc3f3b579b90a38"
     },
     {
       "id": "docs.page_types",
@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:59b9bd19530e2482b2405742c0d55e8669bed8f99bbc43b9957d1caa50356277",
+      "attested_digest": "sha256:cdedbc2784079af3b86da1e7412a2918c11158f8d636747229ced990b855aa63",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },

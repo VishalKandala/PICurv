@@ -26,7 +26,7 @@ Closed-form update implemented in code:
 \Psi^{n+1}=\langle\Psi\rangle + (\Psi^n-\langle\Psi\rangle)e^{-\Omega\Delta t}.
 \f]
 
-`C_IEM` is `solver.yml -> scalar_transport.iem_constant` (`-iem_constant`), default 2.0,
+`C_IEM` is `case.yml -> models.physics.particles.iem_constant` (`-iem_constant`), default 2.0,
 the conventional value; it is exposed for sensitivity studies, not because another value
 has been validated. `C_IEM = 0` switches micromixing off: @ref UpdateAllParticleFields
 skips the update rather than running it at a zero rate, because
@@ -97,9 +97,7 @@ models:
       init_mode: Volume
       fields:
         Psi: "where(uniform() < 0.5, 0, 1)"   # double delta inside every cell
-# solver.yml
-scalar_transport:
-  iem_constant: 2.0                            # the default; 0 makes Psi a passive label
+      iem_constant: 2.0                       # the default; 0 makes Psi a passive label
 ```
 
 Checkpoints store each particle's `Psi` (`particles/Psi.dat`). To see it, list `Psi` in

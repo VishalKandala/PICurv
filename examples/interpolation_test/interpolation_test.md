@@ -234,7 +234,7 @@ Particles leave through the walls by Brownian diffusion - the carrier is analyti
 particle diffusivity `1/(Re*Sc)` is still active, and a wall removes a particle rather
 than reflecting it. In this domain, only `0.2*pi` thick in z, about half the cloud is
 gone by `t = 2`. The error ratio is unaffected; the sample simply shrinks. Set
-`scalar_transport.schmidt_number` very large in the solver profile to keep every
+`properties.fluid.schmidt_number` very large in the case file to keep every
 particle.
 
 ### Step 3: Pass/Fail Criteria

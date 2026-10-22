@@ -10,6 +10,9 @@ properties:
   fluid:
     density: 1.0
     viscosity: 0.001
+    # A Schmidt number this large makes the particle diffusivity nu/Sc negligible, so the
+    # particles are carried by the uniform flow alone.
+    schmidt_number: 1.0e12
   initial_conditions:
     mode: generated
     generator: zero

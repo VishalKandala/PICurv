@@ -3540,15 +3540,71 @@ PRESCRIBED_FLOW_SOURCE_TYPES = ("file", "generated", "field_slice")
 #: Analytic scalar profiles the verification source may generate.
 VERIFICATION_SCALAR_PROFILES = ("CONSTANT", "LINEAR_X", "SIN_PRODUCT")
 
-#: solver.yml `scalar_transport` keys and the runtime flag each becomes. The Schmidt
-#: numbers are positive and set particle diffusivity; `iem_constant` is C_IEM in the IEM
-#: mixing rate Omega = C_IEM Gamma / Delta^2 (runtime default 2.0), and 0 switches
-#: micromixing off so a particle scalar is a passive label.
+#: Scalar-transport parameters and the runtime flag each becomes. The Schmidt numbers are
+#: positive and set particle diffusivity; `iem_constant` is C_IEM in the IEM mixing rate
+#: Omega = C_IEM Gamma / Delta^2 (runtime default 2.0), and 0 switches micromixing off so a
+#: particle scalar is a passive label.
 SCALAR_TRANSPORT_FLAGS = {
     "schmidt_number": "-schmidt_number",
     "turbulent_schmidt_number": "-turb_schmidt_number",
     "iem_constant": "-iem_constant",
 }
+
+#: Where each scalar-transport parameter lives in case.yml: the molecular Schmidt number is a
+#: fluid property, the turbulent one a parameter of the subgrid model, and C_IEM a parameter
+#: of the particle mixing model. solver.yml `scalar_transport` is their deprecated location.
+SCALAR_TRANSPORT_CASE_PATHS = {
+    "schmidt_number": ("properties", "fluid"),
+    "turbulent_schmidt_number": ("models", "physics", "turbulence"),
+    "iem_constant": ("models", "physics", "particles"),
+}
+
+
+def resolve_scalar_transport(case_cfg: dict, solver_cfg: dict, warn: bool = False) -> dict:
+    """!
+    @brief Resolve the scalar-transport parameters from case.yml or their deprecated location.
+    @details Each parameter is read from its case.yml location (SCALAR_TRANSPORT_CASE_PATHS)
+             or, as a deprecated alias, from solver.yml `scalar_transport`. Setting one in both
+             places is refused rather than resolved by precedence.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] solver_cfg Parsed solver configuration.
+    @param[in] warn Print a deprecation warning for each parameter read from solver.yml.
+    @return Mapping of parameter name to validated value, for the parameters that are set.
+    @throws ValueError for a malformed, duplicated, or out-of-range parameter.
+    """
+    legacy = (solver_cfg or {}).get("scalar_transport") or {}
+    if not isinstance(legacy, dict):
+        raise ValueError("solver.yml scalar_transport must be a mapping when provided.")
+    unknown = sorted(set(legacy) - set(SCALAR_TRANSPORT_FLAGS))
+    if unknown:
+        raise ValueError(f"solver.yml scalar_transport has unsupported key(s): {unknown}. "
+                         f"Use one of {sorted(SCALAR_TRANSPORT_FLAGS)}, in case.yml.")
+    values = {}
+    for key, path in SCALAR_TRANSPORT_CASE_PATHS.items():
+        node = case_cfg or {}
+        for part in path:
+            node = node.get(part) if isinstance(node, dict) else None
+        case_label = ".".join(path + (key,))
+        in_case = isinstance(node, dict) and key in node
+        if in_case and key in legacy:
+            raise ValueError(f"{key} is set in case.yml ({case_label}) and in its deprecated "
+                             f"solver.yml location (scalar_transport.{key}); keep only the case.yml one.")
+        if not in_case and key not in legacy:
+            continue
+        raw, label = (node[key], f"case.yml {case_label}") if in_case else \
+                     (legacy[key], f"solver.yml scalar_transport.{key}")
+        try:
+            value = _to_finite_float(raw, label) if key == "iem_constant" else float(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{label} must be numeric.") from exc
+        # iem_constant = 0 switches micromixing off; the Schmidt numbers divide.
+        if value < 0.0 or (value == 0.0 and key != "iem_constant"):
+            raise ValueError(f"{label} must be {'non-negative' if key == 'iem_constant' else 'positive'}.")
+        if not in_case and warn:
+            print(f"[WARNING] solver.yml scalar_transport.{key} is deprecated; set it in case.yml "
+                  f"as {case_label}.", file=sys.stderr)
+        values[key] = value
+    return values
 
 #: Image formats `picurv sweep` can render study plots in.
 STUDY_PLOT_FORMATS = ("png", "pdf", "svg")
@@ -8840,7 +8896,7 @@ _CASE_SCHEMA = {
     ("run_control",): {"start_step", "total_steps", "dt_physical"},
     ("properties",): {"scaling", "fluid", "initial_conditions"},
     ("properties", "scaling"): {"length_ref", "velocity_ref"},
-    ("properties", "fluid"): {"density", "viscosity"},
+    ("properties", "fluid"): {"density", "viscosity", "schmidt_number"},
     ("properties", "initial_conditions"): {
         "mode", "generator", "params", "field", "source_file",
         "source_case", "velocity_scale", "length_scale",
@@ -8867,12 +8923,12 @@ _CASE_SCHEMA = {
     ("models", "physics"): {"dimensionality", "fsi", "particles", "turbulence"},
     ("models", "physics", "fsi"): {"immersed", "moving_fsi"},
     ("models", "physics", "particles"): {"count", "init_mode", "restart_mode", "point_source", "random_seed",
-                                         "fields"},
+                                         "fields", "iem_constant"},
     ("models", "physics", "particles", "fields"): None,
     ("models", "physics", "particles", "point_source"): {"x", "y", "z"},
     # 'rans' stays listed so a case carrying it gets the planned-status refusal rather
     # than a generic unknown-key error; nothing translates it.
-    ("models", "physics", "turbulence"): {"les", "rans", "wall_function"},
+    ("models", "physics", "turbulence"): {"les", "rans", "wall_function", "turbulent_schmidt_number"},
     ("models", "physics", "turbulence", "les"): {
         "enabled", "model", "constant_cs", "vreman_coefficient", "wale_coefficient",
         "dynamic_frequency", "filter_width",
@@ -9210,6 +9266,7 @@ INPUT_QUANTITIES = {
     ("case", "properties", "scaling", "velocity_ref"): (VELOCITY, "reference"),
     ("case", "properties", "fluid", "density"): (DENSITY, "reference"),
     ("case", "properties", "fluid", "viscosity"): (DYNAMIC_VISCOSITY, "reference"),
+    ("case", "properties", "fluid", "schmidt_number"): UNITLESS,
     ("case", "properties", "initial_conditions", "mode"): NOT_A_QUANTITY,
     ("case", "properties", "initial_conditions", "generator"): NOT_A_QUANTITY,
     ("case", "properties", "initial_conditions", "field"): NOT_A_QUANTITY,
@@ -9254,6 +9311,7 @@ INPUT_QUANTITIES = {
     ("case", "models", "physics", "particles", "init_mode"): NOT_A_QUANTITY,
     ("case", "models", "physics", "particles", "restart_mode"): NOT_A_QUANTITY,
     ("case", "models", "physics", "particles", "random_seed"): NOT_A_QUANTITY,
+    ("case", "models", "physics", "particles", "iem_constant"): UNITLESS,
     ("case", "models", "physics", "particles", "point_source", "x"): (LENGTH, "cli"),
     ("case", "models", "physics", "particles", "point_source", "y"): (LENGTH, "cli"),
     ("case", "models", "physics", "particles", "point_source", "z"): (LENGTH, "cli"),
@@ -9262,6 +9320,7 @@ INPUT_QUANTITIES = {
     # Model constants, ratios, cadences, and selectors: nothing here carries a unit.
     ("case", "models", "physics", "turbulence", "les"): UNITLESS,
     ("case", "models", "physics", "turbulence", "rans"): NOT_A_QUANTITY,
+    ("case", "models", "physics", "turbulence", "turbulent_schmidt_number"): UNITLESS,
     ("case", "models", "physics", "turbulence", "wall_function", "enabled"): NOT_A_QUANTITY,
     ("case", "models", "physics", "turbulence", "wall_function", "model"): NOT_A_QUANTITY,
     ("case", "models", "physics", "turbulence", "wall_function", "roughness_height"): (LENGTH, "cli"),
@@ -10572,27 +10631,10 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
                     "Currently supported: 'sources'."
                 )
 
-        transport_cfg = solver_cfg.get('scalar_transport', {})
-        if transport_cfg is not None and not isinstance(transport_cfg, dict):
-            errors.append(f"  {solver_path}: 'scalar_transport' must be a mapping when provided.")
-        elif isinstance(transport_cfg, dict):
-            unknown_transport_keys = sorted(set(transport_cfg.keys()) - set(SCALAR_TRANSPORT_FLAGS))
-            if unknown_transport_keys:
-                errors.append(
-                    f"  {solver_path}: unsupported scalar_transport entries: {unknown_transport_keys}. "
-                    f"Currently supported: {sorted(SCALAR_TRANSPORT_FLAGS)}."
-                )
-            for key in SCALAR_TRANSPORT_FLAGS:
-                if key in transport_cfg:
-                    try:
-                        value = (_to_finite_float(transport_cfg[key], f"scalar_transport.{key}")
-                                 if key == "iem_constant" else float(transport_cfg[key]))
-                        # iem_constant = 0 switches micromixing off; the Schmidt numbers divide.
-                        if value < 0.0 or (value == 0.0 and key != "iem_constant"):
-                            errors.append(f"  {solver_path}: scalar_transport.{key} must be "
-                                          f"{'non-negative' if key == 'iem_constant' else 'positive'}.")
-                    except (TypeError, ValueError):
-                        errors.append(f"  {solver_path}: scalar_transport.{key} must be numeric.")
+        try:
+            resolve_scalar_transport(case_cfg, solver_cfg, warn=True)
+        except ValueError as exc:
+            errors.append(f"  {solver_path}: {exc}")
 
         tolerances_cfg = solver_cfg.get('tolerances', {})
         if tolerances_cfg is not None and not isinstance(tolerances_cfg, dict):
@@ -15760,12 +15802,13 @@ KRYLOV_KSP_TYPES = {
     "tfqmr", "tcqmr", "minres", "symmlq", "cr", "lsqr", "pipecg", "pipefgmres",
 }
 
-def parse_solver_config(solver_cfg: dict, scales: dict = None) -> dict:
+def parse_solver_config(solver_cfg: dict, scales: dict = None, case_cfg: dict = None) -> dict:
     """!
     @brief Parses the structured solver.yml into a flat dictionary of {flag: value}.
     @param[in] solver_cfg The parsed solver.yml configuration dictionary.
     @param[in] scales The case's reference scales. Required only when solver.yml sets a
                dimensional value, which is physical and is converted here.
+    @param[in] case_cfg The parsed case.yml, which holds the scalar-transport parameters.
     @return A dictionary where keys are C-solver flags and values are the corresponding settings.
     """
     flags = {}
@@ -15853,27 +15896,8 @@ def parse_solver_config(solver_cfg: dict, scales: dict = None) -> dict:
                 except (TypeError, ValueError) as exc:
                     raise ValueError(f"verification.sources.scalar.{key} must be numeric.") from exc
 
-    transport_cfg = solver_cfg.get('scalar_transport', {})
-    if transport_cfg:
-        if not isinstance(transport_cfg, dict):
-            raise ValueError("scalar_transport must be a mapping when provided.")
-        unknown_transport_keys = sorted(set(transport_cfg.keys()) - set(SCALAR_TRANSPORT_FLAGS))
-        if unknown_transport_keys:
-            raise ValueError(
-                f"scalar_transport has unsupported key(s): {unknown_transport_keys}. "
-                f"Use one of {sorted(SCALAR_TRANSPORT_FLAGS)}."
-            )
-        for key, flag in SCALAR_TRANSPORT_FLAGS.items():
-            if key in transport_cfg:
-                try:
-                    value = (_to_finite_float(transport_cfg[key], f"scalar_transport.{key}")
-                             if key == "iem_constant" else float(transport_cfg[key]))
-                except (TypeError, ValueError) as exc:
-                    raise ValueError(f"scalar_transport.{key} must be numeric.") from exc
-                if value < 0.0 or (value == 0.0 and key != "iem_constant"):
-                    raise ValueError(f"scalar_transport.{key} must be "
-                                     f"{'non-negative' if key == 'iem_constant' else 'positive'}.")
-                flags[flag] = value
+    for key, value in resolve_scalar_transport(case_cfg, solver_cfg).items():
+        flags[SCALAR_TRANSPORT_FLAGS[key]] = value
 
     selected_solver = None
     if 'strategy' in solver_cfg:
@@ -16537,7 +16561,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 control_lines.append(f"{key} {format_flag_value(value)}")
 
     try:
-        solver_flags = parse_solver_config(solver_cfg, resolve_reference_scales(case_cfg))
+        solver_flags = parse_solver_config(solver_cfg, resolve_reference_scales(case_cfg), case_cfg)
     except ValueError as e:
         print(f"[FATAL] Invalid solver.yml settings: {e}", file=sys.stderr)
         sys.exit(1)
@@ -21500,6 +21524,19 @@ def _build_case_overview(context: dict) -> dict:
     }
 
 
+def _summary_scalar_transport(context: dict, solver_cfg: dict) -> dict:
+    """!
+    @brief Scalar-transport parameters as the run resolves them, wherever they are set.
+    @param[in] context Summary context returned by `_build_summary_context()`.
+    @param[in] solver_cfg Parsed solver configuration.
+    @return Mapping of parameter name to value; empty when unresolvable.
+    """
+    try:
+        return resolve_scalar_transport(context.get("case_cfg") or {}, solver_cfg)
+    except ValueError:
+        return {}
+
+
 def _build_solver_overview(context: dict) -> dict:
     """!
     @brief Build a curated solver.yml summary with normalized selections.
@@ -21531,7 +21568,7 @@ def _build_solver_overview(context: dict) -> dict:
         },
         "poisson": poisson,
         "interpolation": cfg.get("interpolation", {"method": "Trilinear"}),
-        "scalar_transport": cfg.get("scalar_transport", {}),
+        "scalar_transport": _summary_scalar_transport(context, cfg),
         "verification": cfg.get("verification", {}),
         "petsc_passthrough": {"count": len(passthrough), "options": sorted(passthrough.keys())},
     }

@@ -31,14 +31,6 @@ momentum_solver:
       max_iterations: 400
       gmres: {restart: 80}
 
-# Colucci et al.: Sc = 1, Sc_t = 0.7, and the IEM frequency C_Omega (Gamma + Gamma_t) /
-# Delta_G^2 with C_Omega = 3 on Delta_G = 2 Delta. PICurv's rate uses the cell volume's
-# Delta^2, so C_IEM = 3 / 4.
-scalar_transport:
-  schmidt_number: 1.0
-  turbulent_schmidt_number: 0.7
-  iem_constant: 0.75
-
 poisson_solver:
   method: "fgmres"
   absolute_tolerance: 1.0e-9

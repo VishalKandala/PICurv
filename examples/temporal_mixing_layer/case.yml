@@ -10,7 +10,8 @@ run_control:
 
 properties:
   scaling: {length_ref: 1.0, velocity_ref: 1.0}
-  fluid: {density: 1.0, viscosity: 0.01132}
+  # Sc = 1 (Colucci et al.): the scalar's molecular diffusivity is nu.
+  fluid: {density: 1.0, viscosity: 0.01132, schmidt_number: 1.0}
   initial_conditions:
     mode: generated
     generator: stability_mode_velocity
@@ -47,6 +48,9 @@ models:
         # The conserved scalar A = 0 in the lower stream and 1 in the upper, an error
         # function with the velocity layer's own thickness: y0 = delta_v0 / sqrt(pi).
         Psi: "0.5*(1 + erf(y/1.5967))"
+      # The IEM frequency is C_Omega (Gamma + Gamma_t) / Delta_G^2 with C_Omega = 3 on
+      # Delta_G = 2 Delta; PICurv's rate uses the cell volume's Delta^2, so C_IEM = 3 / 4.
+      iem_constant: 0.75
     turbulence:
       les:
         enabled: true
@@ -55,6 +59,8 @@ models:
         # PICurv's nu_t = C Delta^2 sqrt(2 S_ij S_ij): 0.014 * 4 / sqrt(2) = 0.0396.
         constant_cs: 0.0396
       wall_function: {enabled: false}
+      # Sc_t = 0.7 (Colucci et al.): the subgrid scalar diffusivity is nu_t / 0.7.
+      turbulent_schmidt_number: 0.7
 
 # The paper's upper and lower boundaries are planes of mirror symmetry: free-slip walls.
 # Particles reflect there.

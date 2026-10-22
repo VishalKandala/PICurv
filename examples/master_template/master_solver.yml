@@ -60,11 +60,10 @@ operation_mode:
 # reuses the production scatter operator.
 
 # --- Scalar Transport Properties ---
-# These affect Eulerian diffusivity and particle scalar/Brownian models.
-scalar_transport:
-  schmidt_number: 1.0              # -> -schmidt_number
-  turbulent_schmidt_number: 0.7    # -> -turb_schmidt_number
-  iem_constant: 2.0                # -> -iem_constant; C_IEM in the IEM mixing rate (default 2.0)
+# The Schmidt numbers and the IEM constant are properties of the physics, so they are set
+# in case.yml: properties.fluid.schmidt_number, models.physics.turbulence.
+# turbulent_schmidt_number and models.physics.particles.iem_constant. A scalar_transport
+# block here is still read, as a deprecated alias, with a warning.
 
 # ==============================================================================
 # 2. PRIMARY SOLVER STRATEGY & TOLERANCES

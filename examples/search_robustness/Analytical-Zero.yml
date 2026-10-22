@@ -5,8 +5,4 @@ operation_mode:
 interpolation:
   method: "Trilinear"
 
-scalar_transport:
-  schmidt_number: 1.0
-  turbulent_schmidt_number: 0.7
-
 petsc_passthrough_options: {}

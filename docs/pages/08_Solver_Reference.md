@@ -899,32 +899,14 @@ The **Trilinear** method (default) performs direct trilinear interpolation from 
 
 See **@subpage 27_Trilinear_Interpolation_and_Projection** for algorithmic details.
 
-@section p08_scalar_transport_sec 10. scalar_transport
+@section p08_scalar_transport_sec 10. scalar_transport (deprecated location)
 
-```yaml
-scalar_transport:
-  schmidt_number: 1.0
-  turbulent_schmidt_number: 0.7
-  iem_constant: 2.0
-```
-
-Mappings:
-- `schmidt_number` -> `-schmidt_number`
-- `turbulent_schmidt_number` -> `-turb_schmidt_number`
-- `iem_constant` -> `-iem_constant`, the constant `C_IEM` in the IEM mixing rate
-  `Omega = C_IEM Gamma_eff / Delta^2` (@ref p28_iem_sec)
-
-Rules:
-- the Schmidt numbers must be positive; `iem_constant` must be non-negative, and both
-  configuration validation and the runtime require it to be finite
-- `iem_constant: 0` switches micromixing off: the particle update is skipped, so each
-  particle's `Psi` is carried unchanged and bit-identical - a passive label
-- omitted values use the C runtime defaults: `schmidt_number = 1.0`,
-  `turbulent_schmidt_number = 0.7`, and `iem_constant = 2.0`
-- `iem_constant` changes nothing while every particle's `Psi` is equal within each cell;
-  `models.physics.particles.fields` gives `Psi` its initial values (@ref p45_particle_values_sec),
-  and the verification scalar source, which also sets `Psi`, bypasses IEM; see @ref p28_iem_sec
-- use this structured block for ordinary scalar/Brownian transport tuning; reserve `petsc_passthrough_options` for flags without a YAML schema
+The Schmidt numbers and the IEM constant describe the physics being solved, so they are
+set in `case.yml`: `properties.fluid.schmidt_number`,
+`models.physics.turbulence.turbulent_schmidt_number` and
+`models.physics.particles.iem_constant` (@ref p07_scalar_transport_sec). A
+`scalar_transport` block in `solver.yml` is still read as a deprecated alias, with a
+warning naming each key's case location; setting one parameter in both files is refused.
 
 @section p08_verification_sec 11. verification
 

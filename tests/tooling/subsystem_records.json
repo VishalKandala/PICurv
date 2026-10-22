@@ -2072,11 +2072,11 @@
           "anchor": "p34_extension_sec"
         },
         "configuration": {
-          "page": "08_Solver_Reference",
-          "anchor": "p08_scalar_transport_sec"
+          "page": "07_Case_Reference",
+          "anchor": "p07_scalar_transport_sec"
         },
         "selection_guidance": {
-          "not_applicable": "IEM has no selector. It updates the particle scalar Psi on every particle every step whenever particles are active, with C_IEM configured by scalar_transport.iem_constant (default 2.0; 0 leaves Psi a passive label), and is bypassed only when a verification scalar profile overrides Psi; there is no alternative model to choose between. The scalar's initial value is configured by models.physics.particles.fields (page 45, section 1.1)."
+          "not_applicable": "IEM has no selector. It updates the particle scalar Psi on every particle every step whenever particles are active, with C_IEM configured by models.physics.particles.iem_constant (default 2.0; 0 leaves Psi a passive label), and is bypassed only when a verification scalar profile overrides Psi; there is no alternative model to choose between. The scalar's initial value is configured by models.physics.particles.fields (page 45, section 1.1)."
         },
         "observability": {
           "page": "34_Particle_Model_Overview",
@@ -2107,11 +2107,12 @@
           "anchor": "p28_troubleshoot_ssec"
         },
         "examples": {
-          "not_applicable": "No shipped example seeds a mixing scalar: every example with particles either leaves Psi at its default or prescribes it through the verification source, which bypasses IEM. The reproducible configuration is the one in 28_IEM_and_Statistical_Averaging section 1.2, which is the setup of the registered measurement iem-variance-decay-2026-10-01 (examples/brownian_motion on 8^3 cells with Volume seeding and a random 0/1 Psi)."
+          "page": "65_Example_Catalog",
+          "anchor": "p65_flow_sec"
         },
         "complete_reference": {
-          "page": "08_Solver_Reference",
-          "anchor": "p08_scalar_transport_sec"
+          "page": "07_Case_Reference",
+          "anchor": "p07_scalar_transport_sec"
         }
       },
       "concerns": {
