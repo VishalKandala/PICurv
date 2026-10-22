@@ -206,6 +206,11 @@
     "picurv_cli.core::normalize_monitor_function_names": {
       "classification": "not_public",
       "reason": "Translates C function names renamed or removed by the Poisson rewrite in monitor.yml logging and profiling lists. Those lists hold arbitrary instrumented function names, not values from a closed set, so there is no value inventory to document; 09_Monitor_Reference describes the translation."
+    },
+    "picurv_cli.core::normalize_ic_initial_spectra": {
+      "classification": "parameter_of_entry",
+      "reason": "Validates the optional initial_spectra list that the channel, duct and stability-mode IC providers measure on their own output, using the existing plane/line spectrum task syntax. It selects which diagnostics are written, not how the field is generated; the providers' entries on page 33 document it.",
+      "owner": "33_Initial_Conditions"
     }
   }
 }
