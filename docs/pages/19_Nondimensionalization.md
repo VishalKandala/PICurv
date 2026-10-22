@@ -91,12 +91,15 @@ particle `fields`.
 | `case.yml: grid.programmatic_settings.zMaxs` | LENGTH | c | L |
 | `case.yml: grid.programmatic_settings.zMins` | LENGTH | c | L |
 | `case.yml: grid.source_file` | LENGTH | staging | L |
+| `case.yml: initial_conditions.params.base_profile (stability_mode_velocity)` | VELOCITY | provider | U |
 | `case.yml: initial_conditions.params.box_length (resampled_velocity)` | LENGTH | cli | L |
 | `case.yml: initial_conditions.params.bulk_velocity (channel_spectral_velocity)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.bulk_velocity (duct_spectral_velocity)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.config_file (ic_gen)` | PAYLOAD | provider | by payload field |
 | `case.yml: initial_conditions.params.filter.cutoff (resampled_velocity)` | WAVENUMBER | cli | 1/L |
 | `case.yml: initial_conditions.params.filter.width (resampled_velocity)` | LENGTH | cli | L |
+| `case.yml: initial_conditions.params.noise.spectrum.k0 (stability_mode_velocity)` | WAVENUMBER | cli | 1/L |
+| `case.yml: initial_conditions.params.noise.spectrum.k_cut (stability_mode_velocity)` | WAVENUMBER | cli | 1/L |
 | `case.yml: initial_conditions.params.normalization.target (spectral_random_velocity)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.peak_velocity_physical (poiseuille)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.perturbation_rms (channel_spectral_velocity)` | VELOCITY | cli | U |
@@ -111,6 +114,7 @@ particle `fields`.
 | `case.yml: initial_conditions.params.spectrum.k_cut (spectral_random_velocity)` | WAVENUMBER | cli | 1/L |
 | `case.yml: initial_conditions.params.u_physical (constant)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.v_physical (constant)` | VELOCITY | cli | U |
+| `case.yml: initial_conditions.params.velocity_difference (stability_mode_velocity)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.velocity_physical (constant)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.velocity_physical (streamwise_constant)` | VELOCITY | cli | U |
 | `case.yml: initial_conditions.params.w_physical (constant)` | VELOCITY | cli | U |

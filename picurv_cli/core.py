@@ -417,10 +417,11 @@ _ASSET_SOURCE_REFERENCE_KEYS = {
     "source_file", "path", "config_file", "field_file", "grid_file", "source_case", "script"
 }
 _PYTHON_INITIAL_CONDITION_PROVIDERS = {"ic_gen", "spectral_random_velocity", "resampled_velocity",
-                                       "channel_spectral_velocity", "duct_spectral_velocity"}
+                                       "channel_spectral_velocity", "duct_spectral_velocity",
+                                       "stability_mode_velocity"}
 #: Providers `ic.gen` runs from structured parameters, each with a measured initial spectrum.
 SPECTRAL_IC_PROVIDERS = ("spectral_random_velocity", "resampled_velocity",
-                         "channel_spectral_velocity", "duct_spectral_velocity")
+                         "channel_spectral_velocity", "duct_spectral_velocity", "stability_mode_velocity")
 #: Of those, the triply periodic ones, whose initial spectrum is shell-averaged.
 SHELL_SPECTRUM_IC_PROVIDERS = ("spectral_random_velocity", "resampled_velocity")
 #: Parameters `spectral_random_velocity` accepts.
@@ -8893,6 +8894,18 @@ IC_PARAM_QUANTITIES["channel_spectral_velocity"] = IC_PARAM_QUANTITIES["duct_spe
     "spectrum.type": NOT_A_QUANTITY,
     "spectrum.k0": (WAVENUMBER, "cli"), "spectrum.k_cut": (WAVENUMBER, "cli"),
 }
+IC_PARAM_QUANTITIES["stability_mode_velocity"] = {
+    "field": NOT_A_QUANTITY, "streamwise_axis": NOT_A_QUANTITY, "cross_axis": NOT_A_QUANTITY,
+    "equation": NOT_A_QUANTITY, "eigen_points": NOT_A_QUANTITY, "initial_spectra": NOT_A_QUANTITY,
+    # The expression is physical in both coordinate and value; the provider scales both.
+    "base_profile": (VELOCITY, "provider"),
+    "velocity_difference": (VELOCITY, "cli"),
+    # Mode and noise amplitudes are fractions of the velocity difference; phases are radians.
+    "modes": NOT_A_QUANTITY,
+    "noise.rms": NOT_A_QUANTITY, "noise.seed": NOT_A_QUANTITY, "noise.wall_modes": NOT_A_QUANTITY,
+    "noise.planar": NOT_A_QUANTITY, "noise.spectrum.type": NOT_A_QUANTITY,
+    "noise.spectrum.k0": (WAVENUMBER, "cli"), "noise.spectrum.k_cut": (WAVENUMBER, "cli"),
+}
 
 
 def input_quantity(path: tuple) -> tuple:
@@ -9674,6 +9687,14 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             errors.append(f"  {case_path}: missing key 'properties.initial_conditions.{e.args[0]}'.")
         except ValueError as e:
             errors.append(f"  {case_path}: {e}")
+    if ic_is_authoritative and resolved_ic and resolved_ic.get("kind") == "stability_mode_velocity":
+        dimensionality = str((((case_cfg.get("models", {}) or {}).get("physics", {}) or {})
+                             .get("dimensionality", "3D"))).strip().upper()
+        smv = resolved_ic["params"]
+        if dimensionality == "2D" and ("i" in (smv["streamwise_axis"], smv["cross_axis"])
+                                       or not (smv.get("noise") or {"planar": True})["planar"]):
+            errors.append(f"  {case_path}: stability_mode_velocity in 2D mode needs i as the normal axis "
+                          "(streamwise and cross axes j and k) and noise.planar: true.")
     if (ic_is_authoritative and resolved_ic and
             GENERATED_IC_PROVIDERS.get(resolved_ic.get("kind"), {}).get("requires_fresh_3d")):
         if resolved_ic["kind"] in ("channel_spectral_velocity", "duct_spectral_velocity"):
@@ -13425,6 +13446,7 @@ def ic_payload_divisor(resolved_ic: dict, case_dir: str) -> float:
 GENERATED_IC_PROVIDERS = {
     "channel_spectral_velocity": {"requires_grid": True, "requires_fresh_3d": True},
     "duct_spectral_velocity": {"requires_grid": True, "requires_fresh_3d": True},
+    "stability_mode_velocity": {"requires_grid": True},
     "ic_gen": {
         "requires_grid": True,
         "diagnostic_artifacts": (),
@@ -13690,6 +13712,30 @@ def resolve_resampled_velocity_params(params: dict, prepared_blocks, scales: dic
             "provider_context": dict(provider_context or {}), "params": resolved}
 
 
+def normalize_ic_initial_spectra(requested, excluded_axes, generator, required):
+    """!
+    @brief Validate the spectra a structured IC provider measures on its own output.
+    @param[in] requested `params.initial_spectra` as written, or None.
+    @param[in] excluded_axes Axes the spectra must not transform (walls, cross-stream).
+    @param[in] generator Provider identifier, for messages.
+    @param[in] required Whether a nonempty list is mandatory.
+    @return Normalized spectrum tasks (an empty list when optional and absent).
+    @throws ValueError on an absent required list or an unsupported task.
+    """
+    if requested is None and not required:
+        return []
+    if not isinstance(requested, list) or not requested:
+        raise ValueError(f"{generator} requires params.initial_spectra: a nonempty list of "
+                         "plane_spectrum or line_spectrum tasks over the periodic axes.")
+    spectra = normalize_post_spectra_config({"spectra": {"tasks": requested}})
+    for task in spectra["tasks"]:
+        if task["task"] == "shell_spectrum" or set(task["axes"]) & set(excluded_axes):
+            raise ValueError(f"initial spectra must transform only periodic axes of the {generator} IC.")
+        if task["block"] != 0 or task["subtract_mean"].startswith("window:") or task["reference"]:
+            raise ValueError("initial spectra require block 0, no window mean, and no reference.")
+    return spectra["tasks"]
+
+
 def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, provider_context=None) -> dict:
     """!
     @brief Resolve legacy and structured initial-condition YAML into one launcher contract.
@@ -13779,21 +13825,36 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
                     valid = valid and bc["handler"] == "geometric"
             if not valid:
                 raise ValueError("wall spectral IC requires no-slip wall pairs and periodic remaining axes, driven only streamwise.")
-        requested_spectra = normalized.get("initial_spectra")
-        if not isinstance(requested_spectra, list) or not requested_spectra:
-            raise ValueError(f"{generator} requires params.initial_spectra: a nonempty list of "
-                             "plane_spectrum or line_spectrum tasks over the periodic axes.")
-        spectra = normalize_post_spectra_config({"spectra": {"tasks": requested_spectra}})
-        for task in spectra["tasks"]:
-            if task["task"] == "shell_spectrum" or set(task["axes"]) & set(normalized["wall_axes"]):
-                raise ValueError("initial spectra must transform only periodic axes of the wall spectral IC.")
-            if task["block"] != 0 or task["subtract_mean"].startswith("window:") or task["reference"]:
-                raise ValueError("initial spectra require block 0, no window mean, and no reference.")
-        normalized["initial_spectra"] = spectra["tasks"]
+        normalized["initial_spectra"] = normalize_ic_initial_spectra(
+            normalized.get("initial_spectra"), normalized["wall_axes"], generator, required=True)
         return {"finit": 4, "cli_params": {}, "kind": generator, "label": generator,
                 "field_name": "ufield", "field_code": 0,
                 "params": ic_provider_params_to_solver_units(generator, normalized, scales),
                 "provider_context": dict(provider_context or {})}
+
+    if generator == "stability_mode_velocity":
+        normalized = load_ic_generator_module().validate_stability_mode_params(params)
+        if not prepared_blocks or len(prepared_blocks) != 1:
+            raise ValueError("stability_mode_velocity requires exactly one block with resolved boundaries.")
+        face_axes = {"Xi": "i", "Eta": "j", "Zeta": "k"}
+        faces = prepared_blocks[0]
+        if len(faces) != 6:
+            raise ValueError("stability_mode_velocity requires all six boundary faces.")
+        for bc in faces:
+            cross = face_axes[bc["face"][1:]] == normalized["cross_axis"]
+            if cross == (bc["type"] == "PERIODIC") or (not cross and bc["handler"] != "geometric"):
+                raise ValueError("stability_mode_velocity requires geometric periodic streamwise and normal axes "
+                                 "and non-periodic cross-stream faces.")
+        if "initial_spectra" in normalized:
+            normalized["initial_spectra"] = normalize_ic_initial_spectra(
+                normalized["initial_spectra"], [normalized["cross_axis"]], generator, required=False)
+        context = dict(provider_context or {})
+        # The base profile is an expression of physical quantities; the provider applies these.
+        context.update({"length_ref": scales["length_ref"], "velocity_ref": scales["velocity_ref"]})
+        return {"finit": 4, "cli_params": {}, "kind": generator, "label": generator,
+                "field_name": "ufield", "field_code": 0,
+                "params": ic_provider_params_to_solver_units(generator, normalized, scales),
+                "provider_context": context}
 
     if generator == "resampled_velocity":
         return resolve_resampled_velocity_params(params, prepared_blocks, scales, provider_context)
@@ -13893,7 +13954,7 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
         raise ValueError(
             "initial_conditions.generator must be one of: zero, constant, "
             "streamwise_constant, poiseuille, ic_gen, spectral_random_velocity, resampled_velocity, "
-            "channel_spectral_velocity, duct_spectral_velocity."
+            "channel_spectral_velocity, duct_spectral_velocity, stability_mode_velocity."
         )
     finit_code, legacy_mode = generator_modes[generator]
     legacy_ic = dict(params)
@@ -13969,7 +14030,7 @@ def initial_condition_diagnostic_paths(run_dir, resolved_ic):
     paths = [os.path.join(run_dir, CANONICAL_RUN_PATHS["metrics"], "initial_condition_summary.json")]
     if resolved_ic["kind"] in SHELL_SPECTRUM_IC_PROVIDERS:
         return paths + [os.path.join(run_dir, INITIAL_CONDITION_SPECTRUM_RELPATH)]
-    for task in resolved_ic["params"]["initial_spectra"]:
+    for task in resolved_ic["params"].get("initial_spectra", []):
         base = post_spectra_task_basename(task, "initial_condition")
         paths.extend([os.path.join(run_dir, CANONICAL_RUN_PATHS["spectra"], base+suffix) for suffix in (".csv", ".json")])
     return paths
@@ -14064,7 +14125,7 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
                     os.remove(measured_field)
         else:
             paths = initial_condition_diagnostic_paths(run_dir, resolved_ic)
-            for task, path in zip(resolved_ic["params"]["initial_spectra"], paths[1::2]):
+            for task, path in zip(resolved_ic["params"].get("initial_spectra", []), paths[1::2]):
                 run_initial_spectrum_generator(output_path, staged_grid, path, case_dir, task)
         return output_path
     script = _resolve_generator_script(resolved_ic.get("script"), case_path, "ic.gen")

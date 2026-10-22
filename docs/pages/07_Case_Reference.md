@@ -54,7 +54,7 @@ Key mappings:
 - `fluid.density` and `fluid.viscosity` are used by `picurv` to compute Reynolds number -> `-ren`
 - `generator: zero|constant|poiseuille|streamwise_constant` -> the corresponding built-in `-finit` mode
 - `mode: file` and Python IC providers (`ic_gen`, `spectral_random_velocity`, `resampled_velocity`,
-  `channel_spectral_velocity`, `duct_spectral_velocity`) -> `-finit 4`, `-ic_field`, and staged `-ic_dir`
+  `channel_spectral_velocity`, `duct_spectral_velocity`, `stability_mode_velocity`) -> `-finit 4`, `-ic_field`, and staged `-ic_dir`
 - `params.u_physical/v_physical/w_physical` -> `-ucont_x/-ucont_y/-ucont_z`
 - `params.velocity_physical` and `params.peak_velocity_physical` -> `-ic_velocity_physical`
 - `flow_direction` -> `-flow_direction <int>` (`+Xi=0,-Xi=1,+Eta=2,-Eta=3,+Zeta=4,-Zeta=5`)

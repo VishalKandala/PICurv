@@ -645,3 +645,72 @@ both wall axes (ratios 2.42 and 2.44).
 **Limitations.** The product-parabola startup mean is not the exact laminar duct solution,
 and a startup construction establishes no sustained turbulence. Circular pipes and
 immersed boundaries are outside this provider. Measured on a reduced grid on one rank.
+
+@section p33_stability_mode_sec Linear-stability mode seeds
+
+`stability_mode_velocity` builds a parallel base flow `U(y)` along `streamwise_axis`, varying
+across `cross_axis`, plus the most unstable inviscid (Rayleigh) eigenmodes at chosen streamwise
+harmonics of the box, and optional broadband noise. It suits temporal free shear flows: a tanh
+profile gives a mixing layer, `sech^2` a jet (sinuous and varicose modes), a velocity deficit a
+wake. The third axis, `normal`, must be periodic like the streamwise one; the cross-stream faces
+may be any non-periodic type.
+
+```yaml
+mode: generated
+generator: stability_mode_velocity
+params:
+  field: Ucat
+  streamwise_axis: k
+  cross_axis: j
+  base_profile: "0.5*tanh(2*y/0.05)"     # physical velocity of the physical cross coordinate
+  modes:
+    - {harmonic: 2, amplitude: 0.01}     # fundamental of a box two wavelengths long
+    - {harmonic: 1, amplitude: 0.01, phase: 0.0}
+  noise: {rms: 0.02, seed: 1, planar: true, spectrum: {type: white}, wall_modes: 8}
+  # velocity_difference: 1.0             # default |U(y_max) - U(y_min)|
+  # eigen_points: 401
+```
+
+For harmonic `n` the wavenumber is `alpha = 2 pi n / L_s`, `L_s` the streamwise length. The
+eigenfunction solves `(U - c)(phi'' - alpha^2 phi) - U'' phi = 0` with `phi = 0` at both
+cross-stream ends, by second-order differences on `eigen_points` uniform points, and the mode
+with the largest growth rate `alpha c_i` is kept. Each mode is the discrete curl of
+`phi e^{i(alpha s + phase)}` along the normal axis, so the field is in the discrete divergence
+nullspace and has no normal velocity, and it is scaled so its streamwise fluctuation peaks at
+`amplitude * velocity_difference`. `noise.rms` is the volume RMS of the noise as a fraction of the
+velocity difference; it is the wall-bounded seed's divergence-free perturbation with the
+cross-stream ends as its walls (zero velocity there). `noise.planar: true` keeps it in the
+streamwise and cross-stream plane and uniform along the normal axis, which 2D mode requires.
+
+The base profile may use only the cross-stream coordinate (`x`, `y` or `z` for `i`, `j`, `k`)
+and is evaluated in physical units, then divided by the reference velocity. Streamwise and normal
+axes must be uniform and axis-aligned with at least four cells; the cross-stream axis may stretch.
+
+@subsection p33_cap_gen_stability_mode_velocity_sub stability_mode_velocity
+
+@anchor p33_cap_gen_stability_mode_velocity
+
+**Identity.** `properties.initial_conditions.generator: stability_mode_velocity` dispatches through `GENERATED_IC_PROVIDERS` into `generators/ic.gen`, then the existing file IC runtime path.
+
+**What it does.** A parallel base flow plus Rayleigh eigenmodes at chosen streamwise harmonics and optional divergence-free noise (@ref p33_stability_mode_sec).
+
+**When to choose it.** Temporal mixing layers, jets and wakes forced at their natural instability, and linear growth-rate checks of the solver.
+
+**Parameters it owns.** `streamwise_axis`, `cross_axis`, `base_profile`, `modes` (`harmonic`, `amplitude`, `phase`), `velocity_difference`, `eigen_points`, `noise`, and the optional `initial_spectra` over the periodic axes.
+
+**Interactions.** Single-block axis-aligned Cartesian grid; geometric periodic streamwise and normal axes; non-periodic cross-stream faces. In 2D mode the normal axis must be `i` and `noise.planar` true. Refuses a harmonic at or above a third of the streamwise cells and a profile with no unstable mode at a requested harmonic.
+
+**Diagnostics.** The initial-condition summary reports, per mode, the wavenumber, complex phase speed, growth rate (solver and physical units) and the streamwise amplitude left at the cross-stream ends; a growth-rate scan over the resolvable harmonics and the fastest-growing one, for sizing the box; and the discrete divergence.
+
+**Evidence.** Unit verified - `make test-python` checks Michalke's tanh result (most unstable at
+`alpha = 0.4449`, growth rate 0.0949 for `U = (1 + tanh y)/2`), the neutral wavenumbers of the tanh
+layer (1) and the Bickley jet's sinuous mode (2), a divergence below 1e-12 on uniform and stretched
+cross-stream grids, zero normal velocity with planar noise, the amplitude normalization, the units,
+the refusals and the conductor routing. Analytically verified - `stability-mode-growth-2026-10-21`:
+a 2D-mode PICurv solve of the seeded tanh layer grows at 0.0882 and 0.0927 on 64 and 128 cross-stream
+cells against the Rayleigh rate 0.0948, converging toward it (Richardson estimate 0.0948).
+
+**Limitations.** Temporal and parallel only: no spatial (complex-wavenumber) modes, no inflow
+forcing. Inviscid, so the modes do not satisfy no-slip at cross-stream walls; the summary reports
+what is left there, negligible when the walls are far. Streamwise modes only: no spanwise or
+oblique wavevectors. Axis-aligned Cartesian grids.

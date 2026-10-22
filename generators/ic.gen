@@ -1286,6 +1286,100 @@ def cartesian_flux_derivative(values, widths, axis, periodic):
     return np.moveaxis(derivative, 0, storage_axis)
 
 
+def with_dummy_layers(field, periodic):
+    """!
+    @brief Add PICurv's one-cell dummy layer to a cell-centred Ucat field.
+    @param[in] field Cell-centred Cartesian velocity in k/j/i/component order.
+    @param[in] periodic Cartesian axes (x=0 through z=2) whose dummies wrap.
+    @return Field with dummies: periodic dummies wrap, the others reflect oddly about the
+            face, so the face average is zero (a no-slip wall the runtime then repairs).
+    """
+    full = field
+    for a in range(3):
+        sa = 2-a
+        if a in periodic:
+            full = np.concatenate((np.take(full, [-1], axis=sa), full, np.take(full, [0], axis=sa)), axis=sa)
+        else:
+            full = np.concatenate((-np.take(full, [0], axis=sa), full, -np.take(full, [-1], axis=sa)), axis=sa)
+    return full
+
+
+def wall_seed_perturbation(cells, lengths, axes, widths, centers, walls, periodic, seed, spectrum, wall_modes,
+                           planar_axis=None):
+    """!
+    @brief Seeded divergence-free perturbation: the discrete curl of a random vector potential.
+    @details The potential is spectrally shaped along the periodic axes and spanned by
+             `wall_modes` sine modes times a sin(pi t) envelope along each wall axis, so it and
+             its wall-normal derivative vanish at the walls and the curl satisfies no-slip.
+    @param[in] cells Cell counts in storage (k, j, i) order.
+    @param[in] lengths Physical box lengths in Cartesian order.
+    @param[in] axes Node coordinates per Cartesian axis.
+    @param[in] widths Cell widths per Cartesian axis.
+    @param[in] centers Cell-centre coordinates per Cartesian axis.
+    @param[in] walls Cartesian wall axes.
+    @param[in] periodic Cartesian periodic axes, uniform.
+    @param[in] seed Random seed.
+    @param[in] spectrum Validated spectrum mapping.
+    @param[in] wall_modes Sine modes across each wall axis.
+    @param[in] planar_axis Optional periodic axis the perturbation must not vary along or
+               point along: only the potential's component on it is kept, at zero wavenumber
+               on it, so the curl lies in the other two axes' plane.
+    @return Cell-centred velocity in k/j/i/component order, and the divergence operator it
+            is discretely free of.
+    """
+    shape = list(cells)
+    for a in walls:
+        # sin(pi t) raises the highest sine index of sin(n pi t) by one.
+        if wall_modes + 1 > cells[2-a] // 2:
+            raise ValueError("wall_modes plus the wall envelope are unresolved on this grid.")
+        shape[2-a] = wall_modes
+    if planar_axis is not None:
+        shape[2-planar_axis] = 1
+    potential = np.random.default_rng(seed).standard_normal((*shape, 3))
+    if planar_axis is not None:
+        potential[..., [a for a in range(3) if a != planar_axis]] = 0.0
+    fft_axes = tuple(2-a for a in periodic)
+    coeff = np.fft.fftn(potential, axes=fft_axes)
+    kmag2 = np.zeros(shape)
+    active = np.ones(shape, dtype=bool)
+    for a in periodic:
+        n = shape[2-a]
+        k = 2*np.pi*np.fft.fftfreq(n, d=widths[a][0])
+        sh = [1, 1, 1]; sh[2-a] = n
+        kmag2 += k.reshape(sh)**2
+        active &= (np.abs(np.fft.fftfreq(n)*n) < n/3).reshape(sh) if n > 1 else np.ones(sh, dtype=bool)
+    kmag = np.sqrt(kmag2)
+    cutoff = spectrum.get("k_cut")
+    limit = min(2*np.pi/(3*widths[a][0]) for a in periodic)
+    if cutoff is not None and cutoff > limit*(1+1e-12):
+        raise ValueError("spectrum.k_cut exceeds the periodic two-thirds-resolution limit.")
+    coeff *= (spectral_envelope(kmag, spectrum, min(2*np.pi/lengths[a] for a in periodic))
+              * active * (kmag > 0))[..., None]
+    potential = np.fft.ifftn(coeff, axes=fft_axes).real
+    if planar_axis is not None:
+        potential = np.repeat(potential, cells[2-planar_axis], axis=2-planar_axis)
+    for a in walls:
+        t = (centers[a]-axes[a][0])/lengths[a]
+        # One power of the envelope is the least that keeps the potential and its
+        # wall-normal derivative zero at the wall, so the curl satisfies no-slip with
+        # the physical asymptotics: wall-parallel u' ~ y, wall-normal v' ~ y^2. A
+        # higher power would starve the buffer layer (sin^4 left u' ~ y^4, 1e-3 of a
+        # developed flow's at y+ ~ 13 on the Re_tau = 180 channel).
+        basis = np.sin(np.pi*t[:, None]*np.arange(1, wall_modes+1)) * np.sin(np.pi*t[:, None])
+        potential = np.moveaxis(np.tensordot(basis, potential, axes=(1, 2-a)), 0, 2-a)
+    def derivative(v, a):
+        """!
+        @brief Apply the wall-seed divergence operator to one component.
+        @param[in] v Scalar component of the potential or velocity.
+        @param[in] a Cartesian derivative axis.
+        @return Derivative using the grid widths and boundary topology.
+        """
+        return cartesian_flux_derivative(v, widths[a], a, a in periodic)
+    velocity = np.stack([derivative(potential[..., (a+2)%3], (a+1)%3)
+                         - derivative(potential[..., (a+1)%3], (a+2)%3) for a in range(3)], axis=-1)
+    return velocity, derivative
+
+
 def generate_wall_spectral_velocity(nodes, raw_params, generator):
     """!
     @brief Generate a seeded discrete-curl perturbation and flux-normalized startup mean.
@@ -1305,53 +1399,13 @@ def generate_wall_spectral_velocity(nodes, raw_params, generator):
     axes = (nodes[0, 0, :, 0], nodes[0, :, 0, 1], nodes[:, 0, 0, 2])
     widths = [np.diff(a) for a in axes]
     centers = [0.5*(a[:-1]+a[1:]) for a in axes]
-    shape = list(cells)
-    for a in walls:
-        # sin(pi t) raises the highest sine index of sin(n pi t) by one.
-        if params["wall_modes"] + 1 > cells[2-a] // 2:
-            raise ValueError("wall_modes plus the wall envelope are unresolved on this grid.")
-        shape[2-a] = params["wall_modes"]
-    potential = np.random.default_rng(params["seed"]).standard_normal((*shape, 3))
-    fft_axes = tuple(2-a for a in periodic)
-    coeff = np.fft.fftn(potential, axes=fft_axes)
-    kmag2 = np.zeros(shape)
-    active = np.ones(shape, dtype=bool)
-    for a in periodic:
-        n = cells[2-a]
-        k = 2*np.pi*np.fft.fftfreq(n, d=widths[a][0])
-        sh = [1, 1, 1]; sh[2-a] = n
-        kmag2 += k.reshape(sh)**2
-        active &= (np.abs(np.fft.fftfreq(n)*n) < n/3).reshape(sh)
-    kmag = np.sqrt(kmag2)
-    cutoff = params["spectrum"].get("k_cut")
-    limit = min(2*np.pi/(3*widths[a][0]) for a in periodic)
-    if cutoff is not None and cutoff > limit*(1+1e-12):
-        raise ValueError("spectrum.k_cut exceeds the periodic two-thirds-resolution limit.")
-    coeff *= (spectral_envelope(kmag, params["spectrum"], min(2*np.pi/lengths[a] for a in periodic))
-              * active * (kmag > 0))[..., None]
-    potential = np.fft.ifftn(coeff, axes=fft_axes).real
+    velocity, derivative = wall_seed_perturbation(cells, lengths, axes, widths, centers, walls, periodic,
+                                                  params["seed"], params["spectrum"], params["wall_modes"])
     mean = np.ones(cells)
     for a in walls:
         t = (centers[a]-axes[a][0])/lengths[a]
-        # One power of the envelope is the least that keeps the potential and its
-        # wall-normal derivative zero at the wall, so the curl satisfies no-slip with
-        # the physical asymptotics: wall-parallel u' ~ y, wall-normal v' ~ y^2. A
-        # higher power would starve the buffer layer (sin^4 left u' ~ y^4, 1e-3 of a
-        # developed flow's at y+ ~ 13 on the Re_tau = 180 channel).
-        basis = np.sin(np.pi*t[:, None]*np.arange(1, params["wall_modes"]+1)) * np.sin(np.pi*t[:, None])
-        potential = np.moveaxis(np.tensordot(basis, potential, axes=(1, 2-a)), 0, 2-a)
         sh = [1, 1, 1]; sh[2-a] = len(t)
         mean *= (4*t*(1-t)).reshape(sh)
-    def derivative(v, a):
-        """!
-        @brief Apply the wall-seed divergence operator to one component.
-        @param[in] v Scalar component of the potential or velocity.
-        @param[in] a Cartesian derivative axis.
-        @return Derivative using the grid widths and boundary topology.
-        """
-        return cartesian_flux_derivative(v, widths[a], a, a in periodic)
-    velocity = np.stack([derivative(potential[..., (a+2)%3], (a+1)%3)
-                         - derivative(potential[..., (a+1)%3], (a+2)%3) for a in range(3)], axis=-1)
     volume = widths[2][:, None, None]*widths[1][None, :, None]*widths[0][None, None, :]
     rms = np.sqrt(np.sum(volume*np.sum(velocity**2, axis=-1))/(3*np.sum(volume)))
     if not np.isfinite(rms) or rms <= 0:
@@ -1363,14 +1417,7 @@ def generate_wall_spectral_velocity(nodes, raw_params, generator):
     mean *= params["bulk_velocity"]*np.sum(volume)/np.sum(mean*volume)
     stream = "ijk".index(params["streamwise_axis"])
     velocity[..., stream] += mean
-    # Periodic dummies wrap. Wall dummies reflect oddly about the no-slip face.
-    full = velocity
-    for a in range(3):
-        sa = 2-a
-        if a in periodic:
-            full = np.concatenate((np.take(full, [-1], axis=sa), full, np.take(full, [0], axis=sa)), axis=sa)
-        else:
-            full = np.concatenate((-np.take(full, [0], axis=sa), full, -np.take(full, [-1], axis=sa)), axis=sa)
+    full = with_dummy_layers(velocity, periodic)
     return full, {"generator": generator, "field": "Ucat", "params": params,
         "vector_shape": list(full.shape), "scalar_count": int(full.size),
         "perturbation_component_rms": component_rms,
@@ -1383,6 +1430,224 @@ def generate_wall_spectral_velocity(nodes, raw_params, generator):
         "measurement_state": "generated_Ucat_before_runtime_reconstruction"}
 
 
+#: Parameters `stability_mode_velocity` accepts, and those of its `modes` entries and `noise`.
+STABILITY_MODE_PARAMS = frozenset({"field", "streamwise_axis", "cross_axis", "base_profile", "equation",
+                                   "modes", "velocity_difference", "eigen_points", "noise", "initial_spectra"})
+STABILITY_MODE_ENTRY_PARAMS = frozenset({"harmonic", "amplitude", "phase"})
+STABILITY_NOISE_PARAMS = frozenset({"rms", "seed", "spectrum", "wall_modes", "planar"})
+#: Cartesian coordinate name of each logical axis on an axis-aligned grid.
+AXIS_COORDINATE = {"i": "x", "j": "y", "k": "z"}
+
+
+def validate_stability_mode_params(raw):
+    """!
+    @brief Validate `stability_mode_velocity` parameters; velocities physical, amplitudes fractions of dU.
+    @param[in] raw Raw parameter mapping.
+    @return Normalized parameters.
+    """
+    if not isinstance(raw, dict) or set(raw) - STABILITY_MODE_PARAMS:
+        raise ValueError(f"stability_mode_velocity accepts only: {', '.join(sorted(STABILITY_MODE_PARAMS))}.")
+    if raw.get("field", "Ucat") != "Ucat":
+        raise ValueError("stability_mode_velocity requires field: Ucat.")
+    stream, cross = raw.get("streamwise_axis", "k"), raw.get("cross_axis", "j")
+    if stream not in "ijk" or cross not in "ijk" or len(stream) != 1 or len(cross) != 1 or stream == cross:
+        raise ValueError("streamwise_axis and cross_axis must be two different axes of i, j, k.")
+    if raw.get("equation", "rayleigh") != "rayleigh":
+        raise ValueError("stability_mode_velocity supports only equation: rayleigh.")
+    profile = raw.get("base_profile")
+    if not isinstance(profile, str) or not profile.strip():
+        raise ValueError("base_profile must be an expression of the cross-stream coordinate.")
+    validate_expression(profile, names=frozenset({AXIS_COORDINATE[cross]}))
+    modes = raw.get("modes")
+    if not isinstance(modes, list) or not modes:
+        raise ValueError("modes must be a nonempty list of {harmonic, amplitude, phase}.")
+    normalized_modes = []
+    for index, mode in enumerate(modes):
+        if not isinstance(mode, dict) or set(mode) - STABILITY_MODE_ENTRY_PARAMS or "harmonic" not in mode:
+            raise ValueError(f"modes[{index}] needs harmonic, and optionally amplitude and phase.")
+        harmonic = mode["harmonic"]
+        if isinstance(harmonic, bool) or not isinstance(harmonic, int) or harmonic < 1:
+            raise ValueError(f"modes[{index}].harmonic must be a positive integer.")
+        normalized_modes.append({"harmonic": harmonic,
+            "amplitude": _finite_number(mode.get("amplitude", 0.01), f"modes[{index}].amplitude", positive=True),
+            "phase": _finite_number(mode.get("phase", 0.0), f"modes[{index}].phase")})
+    if len({m["harmonic"] for m in normalized_modes}) != len(normalized_modes):
+        raise ValueError("each harmonic may appear in modes only once.")
+    points = raw.get("eigen_points", 401)
+    if isinstance(points, bool) or not isinstance(points, int) or points < 51:
+        raise ValueError("eigen_points must be an integer of at least 51.")
+    params = {"field": "Ucat", "streamwise_axis": stream, "cross_axis": cross,
+              "base_profile": profile.strip(), "equation": "rayleigh",
+              "modes": normalized_modes, "eigen_points": points}
+    if "velocity_difference" in raw:
+        params["velocity_difference"] = _finite_number(raw["velocity_difference"], "velocity_difference", positive=True)
+    noise = raw.get("noise")
+    if noise is not None:
+        if not isinstance(noise, dict) or set(noise) - STABILITY_NOISE_PARAMS or "rms" not in noise:
+            raise ValueError(f"noise needs rms and accepts: {', '.join(sorted(STABILITY_NOISE_PARAMS))}.")
+        common = validate_spectral_random_velocity_params({
+            "seed": noise.get("seed", 12345), "spectrum": noise.get("spectrum", {"type": "white"})})
+        modes_across = noise.get("wall_modes", 8)
+        if isinstance(modes_across, bool) or not isinstance(modes_across, int) or modes_across < 1:
+            raise ValueError("noise.wall_modes must be a positive integer.")
+        if not isinstance(noise.get("planar", False), bool):
+            raise ValueError("noise.planar must be true or false.")
+        params["noise"] = {"rms": _finite_number(noise["rms"], "noise.rms", positive=True),
+                           "seed": common["seed"], "spectrum": common["spectrum"],
+                           "wall_modes": modes_across, "planar": noise.get("planar", False)}
+    if "initial_spectra" in raw:
+        params["initial_spectra"] = raw["initial_spectra"]
+    return params
+
+
+def rayleigh_unstable_mode(y, base, alpha):
+    """!
+    @brief Most unstable temporal mode of the inviscid Rayleigh equation on [y_0, y_N].
+    @details Solves (U - c)(phi'' - alpha^2 phi) - U'' phi = 0 with phi = 0 at both ends, by
+             second-order differences on the uniform grid `y`, as the generalized eigenproblem
+             A phi = c B phi, B = D2 - alpha^2, A = U B - U''. B is negative definite, so the
+             problem reduces to the eigenvalues of B^-1 A.
+    @param[in] y Uniform grid including both ends.
+    @param[in] base Base velocity U on `y`.
+    @param[in] alpha Streamwise wavenumber.
+    @return Complex phase speed c (None when no mode grows) and phi on `y` (zero at the ends).
+    """
+    h = y[1] - y[0]
+    n = len(y) - 2
+    upp = (base[2:] - 2.0*base[1:-1] + base[:-2]) / h**2
+    d2 = (np.diag(-2.0*np.ones(n)) + np.diag(np.ones(n-1), 1) + np.diag(np.ones(n-1), -1)) / h**2
+    b = d2 - alpha**2*np.eye(n)
+    a = base[1:-1, None]*b - np.diag(upp)
+    values, vectors = np.linalg.eig(np.linalg.solve(b, a))
+    best = int(np.argmax(values.imag))
+    scale = max(np.max(np.abs(base)), np.finfo(float).tiny)
+    if not values[best].imag > 1.0e-8*scale:
+        return None, None
+    phi = np.zeros(len(y), dtype=complex)
+    phi[1:-1] = vectors[:, best] / vectors[np.argmax(np.abs(vectors[:, best])), best]
+    return values[best], phi
+
+
+def generate_stability_mode_velocity(nodes, raw_params, context=None):
+    """!
+    @brief Parallel base flow plus most-unstable inviscid eigenmodes and optional broadband noise.
+    @details u = U(y) e_s + sum_m Re[curl(psi_m e_n)] + noise, with psi_m the Rayleigh
+             eigenfunction at alpha_m = 2 pi n_m / L_s, each scaled so its streamwise
+             fluctuation peaks at amplitude_m * dU. The curl is PICurv's discrete one, so the
+             field is discretely divergence-free; the noise is the wall-seed perturbation with
+             the cross-stream ends as its walls.
+    @param[in] nodes Nondimensional PICGRID coordinates in k/j/i/component order.
+    @param[in] raw_params Raw provider parameters, dimensional values already in solver units
+               except the base-profile expression.
+    @param[in] context Conductor context with `length_ref` and `velocity_ref`.
+    @return Full Ucat array with dummies and diagnostic summary.
+    """
+    params = validate_stability_mode_params(raw_params)
+    context = context or {}
+    length_ref = float(context.get("length_ref", 1.0))
+    velocity_ref = float(context.get("velocity_ref", 1.0))
+    stream, cross = "ijk".index(params["streamwise_axis"]), "ijk".index(params["cross_axis"])
+    normal = 3 - stream - cross
+    periodic = [stream, normal]
+    cells, lengths = _periodic_spectral().validate_spectral_grid(
+        nodes, periodic, subject="stability_mode_velocity requires")
+    axes = (nodes[0, 0, :, 0], nodes[0, :, 0, 1], nodes[:, 0, 0, 2])
+    widths = [np.diff(a) for a in axes]
+    centers = [0.5*(a[:-1]+a[1:]) for a in axes]
+    name = AXIS_COORDINATE[params["cross_axis"]]
+
+    def profile(y):
+        """!
+        @brief Evaluate the physical base-profile expression in solver units.
+        @param[in] y Nondimensional cross-stream coordinates.
+        @return Base velocity in solver units.
+        """
+        values = evaluate_values(params["base_profile"], {name: y*length_ref}) * np.ones_like(y)
+        if not np.all(np.isfinite(values)):
+            raise ValueError("base_profile is not finite on the cross-stream extent.")
+        return values / velocity_ref
+
+    y_ends = (axes[cross][0], axes[cross][-1])
+    y_eig = np.linspace(*y_ends, params["eigen_points"])
+    u_eig = profile(y_eig)
+    delta_u = params.get("velocity_difference", abs(u_eig[-1] - u_eig[0]))
+    if not delta_u > 0:
+        raise ValueError("base_profile has no velocity difference across the cross-stream extent; "
+                         "set velocity_difference.")
+    shape = [1, 1, 1]; shape[2-cross] = cells[2-cross]
+    velocity = np.zeros((*cells, 3))
+    velocity[..., stream] += profile(centers[cross]).reshape(shape)
+
+    def derivative(v, a):
+        """!
+        @brief Apply the discrete divergence operator of this field's topology.
+        @param[in] v Scalar field component.
+        @param[in] a Cartesian derivative axis.
+        @return Cell-centred derivative.
+        """
+        return cartesian_flux_derivative(v, widths[a], a, a in periodic)
+
+    s_shape = [1, 1, 1]; s_shape[2-stream] = cells[2-stream]
+    s = (centers[stream] - axes[stream][0]).reshape(s_shape)
+    mode_summaries = []
+    for mode in params["modes"]:
+        n = mode["harmonic"]
+        if 3*n >= cells[2-stream]:
+            raise ValueError(f"harmonic {n} is beyond the two-thirds limit of {cells[2-stream]} streamwise cells.")
+        alpha = 2*np.pi*n/lengths[stream]
+        c, phi = rayleigh_unstable_mode(y_eig, u_eig, alpha)
+        if c is None:
+            raise ValueError(f"base_profile has no unstable Rayleigh mode at harmonic {n} (alpha = {alpha:.6g}).")
+        phi_cells = (np.interp(centers[cross], y_eig, phi.real)
+                     + 1j*np.interp(centers[cross], y_eig, phi.imag)).reshape(shape)
+        potential = np.zeros((*cells, 3))
+        potential[..., normal] = np.real(phi_cells*np.exp(1j*(alpha*s + mode["phase"])))
+        field = np.stack([derivative(potential[..., (a+2)%3], (a+1)%3)
+                          - derivative(potential[..., (a+1)%3], (a+2)%3) for a in range(3)], axis=-1)
+        # The streamwise fluctuation of one sinusoid peaks at sqrt(2) times its rms along s.
+        peak = np.max(np.sqrt(2.0*np.mean(field[..., stream]**2, axis=(2-stream, 2-normal))))
+        field *= mode["amplitude"]*delta_u/peak
+        velocity += field
+        end_amplitude = max(float(np.max(np.abs(np.take(field[..., stream], 0, axis=2-cross)))),
+                            float(np.max(np.abs(np.take(field[..., stream], -1, axis=2-cross)))))
+        mode_summaries.append({"harmonic": n, "alpha": float(alpha),
+            "alpha_physical": float(alpha/length_ref), "phase_speed": [float(c.real), float(c.imag)],
+            "growth_rate": float(alpha*c.imag), "growth_rate_physical": float(alpha*c.imag*velocity_ref/length_ref),
+            "amplitude": mode["amplitude"], "cross_end_streamwise_amplitude_over_dU": end_amplitude/delta_u})
+
+    noise_rms = None
+    if "noise" in params:
+        noise = params["noise"]
+        perturbation, _ = wall_seed_perturbation(
+            cells, lengths, axes, widths, centers, [cross], periodic, noise["seed"], noise["spectrum"],
+            noise["wall_modes"], planar_axis=normal if noise["planar"] else None)
+        volume = widths[2][:, None, None]*widths[1][None, :, None]*widths[0][None, None, :]
+        rms = np.sqrt(np.sum(volume*np.sum(perturbation**2, axis=-1))/(3*np.sum(volume)))
+        if not np.isfinite(rms) or rms <= 0:
+            raise ValueError("noise spectrum contains no active perturbation modes.")
+        velocity += perturbation*noise["rms"]*delta_u/rms
+        noise_rms = float(noise["rms"]*delta_u)
+
+    # The streamwise harmonics this grid resolves, and the fastest-growing of them: a guide
+    # for sizing the box, on a coarser eigen grid than the modes themselves.
+    scan = []
+    y_scan = np.linspace(*y_ends, min(params["eigen_points"], 201))
+    u_scan = profile(y_scan)
+    for n in range(1, min(32, (cells[2-stream]-1)//3) + 1):
+        c, _ = rayleigh_unstable_mode(y_scan, u_scan, 2*np.pi*n/lengths[stream])
+        scan.append({"harmonic": n, "growth_rate": float(2*np.pi*n/lengths[stream]*c.imag) if c is not None else 0.0})
+    fastest = max(scan, key=lambda entry: entry["growth_rate"]) if scan else None
+    divergence = sum(derivative(velocity[..., a], a) for a in range(3))
+    full = with_dummy_layers(velocity, periodic)
+    return full, {"generator": "stability_mode_velocity", "field": "Ucat", "params": params,
+        "vector_shape": list(full.shape), "scalar_count": int(full.size),
+        "velocity_difference": float(delta_u), "modes": mode_summaries, "noise_rms": noise_rms,
+        "harmonic_growth_scan": scan, "harmonic_growth_scan_eigen_points": len(y_scan),
+        "fastest_growing_harmonic": fastest,
+        "picurv_discrete_divergence_max": float(np.max(np.abs(divergence))),
+        "measurement_state": "generated_Ucat_before_runtime_reconstruction"}
+
+
 def build_parser():
     """!
     @brief Build the command-line parser.
@@ -1390,7 +1655,8 @@ def build_parser():
     """
     parser = argparse.ArgumentParser(description="Generate a PICurv initial-condition PETSc vector.")
     parser.add_argument("--generator", choices=("expression", "spectral_random_velocity", "resampled_velocity",
-                                                "channel_spectral_velocity", "duct_spectral_velocity"),
+                                                "channel_spectral_velocity", "duct_spectral_velocity",
+                                                "stability_mode_velocity"),
                         default="expression", help="Maintained IC generator implementation.")
     parser.add_argument("-c", "--config", help="Expression-generator INI configuration.")
     parser.add_argument("--params-json", help="JSON parameters for a built-in generator.")
@@ -1456,6 +1722,9 @@ def main(argv=None) -> int:
             )
         elif args.generator in ("channel_spectral_velocity", "duct_spectral_velocity"):
             field, summary = generate_wall_spectral_velocity(nodes, json.loads(args.params_json or "{}"), args.generator)
+        elif args.generator == "stability_mode_velocity":
+            field, summary = generate_stability_mode_velocity(
+                nodes, json.loads(args.params_json or "{}"), json.loads(args.context_json or "{}"))
         else:
             if not args.config or not args.field:
                 raise ValueError("expression generation requires --config and --field.")

@@ -62,7 +62,7 @@ Quick check:
 - confirm the generated control file contains `-TwoD 1` and the expected i resolution,
 - start from an initial condition whose i component is zero, since `2D` never changes it.
 
-Status: `2D` is experimental; see @ref p07_cap_dim_2d_sub.
+Its contract and limitations, including the i pressure-gradient caveat, are in @ref p07_cap_dim_2d_sub.
 
 @subsection p11_gridres_ssec 1.3 Increase Grid Resolution
 

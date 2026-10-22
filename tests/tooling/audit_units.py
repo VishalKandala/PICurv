@@ -121,6 +121,7 @@ def uncovered_inputs(core) -> list:
         "spectral_random_velocity": core.SPECTRAL_RANDOM_VELOCITY_PARAMS,
         "channel_spectral_velocity": ic_gen.WALL_SPECTRAL_PARAMS,
         "duct_spectral_velocity": ic_gen.WALL_SPECTRAL_PARAMS,
+        "stability_mode_velocity": ic_gen.STABILITY_MODE_PARAMS,
     }
     for generator, keys in provider_params.items():
         roots = {name.split(".", 1)[0] for name in core.IC_PARAM_QUANTITIES.get(generator, {})}

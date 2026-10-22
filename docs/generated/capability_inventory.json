@@ -1099,6 +1099,10 @@
       "spectral_random_velocity": {
         "maps_to": "spectral_random_velocity",
         "status": "supported"
+      },
+      "stability_mode_velocity": {
+        "maps_to": "stability_mode_velocity",
+        "status": "experimental"
       }
     },
     "selector": "case.yml -> properties.initial_conditions.generator (Python providers)",

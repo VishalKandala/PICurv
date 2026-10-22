@@ -2577,6 +2577,44 @@ def test_face_flux_interpolation_needs_the_face_fluxes(tmp_path):
     assert "interpolation.method 'FaceFlux' needs the face fluxes" in refused.stdout + refused.stderr
 
 
+def test_validate_stability_mode_ic_in_2d_needs_i_as_the_normal_axis(tmp_path):
+    """!
+    @brief 2D mode freezes the i velocity, so the eigenmodes and noise must lie in the j-k plane.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return None.
+    """
+    valid = FIXTURES / "valid"
+    case = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    case["models"].setdefault("physics", {})["dimensionality"] = "2D"
+    case["boundary_conditions"] = (
+        [{"face": f, "type": "PERIODIC", "handler": "geometric"} for f in ("-Xi", "+Xi", "-Zeta", "+Zeta")]
+        + [{"face": f, "type": "WALL", "handler": "noslip"} for f in ("-Eta", "+Eta")])
+
+    def validate(streamwise_axis, cross_axis):
+        """!
+        @brief Validate the fixture with a stability-mode IC on the given axes.
+        @param[in] streamwise_axis Streamwise axis of the modes.
+        @param[in] cross_axis Cross-stream axis of the base profile.
+        @return Completed validate process.
+        """
+        case["properties"]["initial_conditions"] = {
+            "mode": "generated", "generator": "stability_mode_velocity",
+            "params": {"streamwise_axis": streamwise_axis, "cross_axis": cross_axis,
+                       "base_profile": f"0.5*tanh({ {'i': 'x', 'j': 'y', 'k': 'z'}[cross_axis] })",
+                       "modes": [{"harmonic": 1, "amplitude": 0.01}],
+                       "noise": {"rms": 0.01, "planar": True}}}
+        path = tmp_path / "case.yml"
+        path.write_text(yaml.safe_dump(case), encoding="utf-8")
+        return run_picurv(["validate", "--case", str(path), "--solver", str(valid / "solver.yml"),
+                           "--monitor", str(valid / "monitor.yml")])
+
+    accepted = validate("k", "j")
+    assert accepted.returncode == 0, accepted.stdout + accepted.stderr
+    refused = validate("i", "j")
+    assert refused.returncode != 0
+    assert "needs i as the normal axis" in refused.stdout + refused.stderr
+
+
 def test_validate_zero_mode_case_allows_omitting_velocity_components(tmp_path):
     """!
     @brief Test that validate zero mode case allows omitting velocity components.

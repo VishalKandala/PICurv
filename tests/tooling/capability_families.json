@@ -2428,6 +2428,18 @@
               "measurement:resampled-velocity-hom02-2026-10-03"
             ]
           }
+        },
+        "stability_mode_velocity": {
+          "status": "experimental",
+          "canonical": true,
+          "evidence": {
+            "unit": [
+              "make:test-python"
+            ],
+            "analytical": [
+              "measurement:stability-mode-growth-2026-10-21"
+            ]
+          }
         }
       }
     }

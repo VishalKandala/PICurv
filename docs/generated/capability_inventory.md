@@ -426,3 +426,4 @@ Selector: `case.yml -> properties.initial_conditions.generator (Python providers
 | `ic_gen` | `ic_gen` |
 | `resampled_velocity` | `resampled_velocity` |
 | `spectral_random_velocity` | `spectral_random_velocity` |
+| `stability_mode_velocity` | `stability_mode_velocity` |

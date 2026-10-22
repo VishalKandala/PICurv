@@ -1181,6 +1181,21 @@
       },
       "limitations": "One realisation per configuration. The grid is rectilinear, where FaceFlux is exactly divergence-free; warped curvilinear cells leave a residual, not measured here. FaceFlux velocity accuracy (first order) was not measured. The shared seeding starts the first layer at 0.974 +- 0.009, a seeding fluctuation (six seedings pool to 0.9959 +- 0.0031), so the FaceFlux first layer's rise to 1.010 is consistent with relaxation from it; a residual near-wall effect below about 1% is not excluded by this one realisation.",
       "artifacts": []
+    },
+    {
+      "id": "stability-mode-growth-2026-10-21",
+      "question": "Does a tanh layer seeded by stability_mode_velocity grow at the Rayleigh growth rate in a PICurv 2D-mode solve, converging with cross-stream resolution?",
+      "date": "2026-10-21",
+      "commit": "stability-mode-generator branch from c13ba21 (uncommitted at measurement; committed with this record)",
+      "environment": "Local workstation (Intel i7-8750H, 6 cores), PETSc 3.20.3 debug build, 4 ranks.",
+      "configuration": "2D mode (i frozen), U = 0.5 tanh(y) so dU = 1 and the half-thickness is 1, nu = 1e-4 (Re 1e4 on dU and half-thickness). Box 4 cubic cells in i, cross-stream j on [-15, 15] with no-slip walls, streamwise k over two most-unstable wavelengths (L = 4 pi / 0.4449) periodic with 96 cells. Fundamental (harmonic 2) at amplitude 1e-4, no noise. dt 0.1, Picard dual-time momentum, multigrid Poisson with semi-coarsening in i. Growth from the harmonic-2 Fourier amplitude of the cross-stream velocity at the layer centre, fitted over t = 2 to 10.",
+      "result": {
+        "measured": "Eigenvalue growth rate (eigen grid 401 points) 0.09476. Measured: 0.0882 with 64 cross-stream cells (2.1 per half-thickness, 7.0% low) and 0.0927 with 128 (4.3 per half-thickness, 2.2% low); the energy fit gives 0.0893 and 0.0931. The error falls 3.1x on halving the spacing (observed order 1.6); Richardson extrapolation at that order gives 0.0948, and at order 2 gives 0.0942.",
+        "threshold": "Measured growth converging to the Rayleigh eigenvalue under cross-stream refinement.",
+        "verdict": "met"
+      },
+      "limitations": "Two resolutions only, one time step and one Reynolds number; the observed order is from two grids. Linear regime only (amplitude stays below 5e-4); roll-up and pairing are not tested. Debug build on one workstation. The viscous correction at Re 1e4 is taken as negligible, not computed.",
+      "artifacts": []
     }
   ]
 }
