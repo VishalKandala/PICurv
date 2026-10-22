@@ -36,7 +36,6 @@ reducers:
       friction_velocity: wall_model
 
 io:
-  output_directory: "visualization/driven_channel_les_wallmodel_retau1000"
   output_filename_prefix: "driven_channel_les_wallmodel_retau1000"
   eulerian_fields:
     - "Ucat_nodal"

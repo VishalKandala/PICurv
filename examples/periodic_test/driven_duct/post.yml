@@ -35,7 +35,6 @@ reducers:
       source: stationary
 
 io:
-  output_directory: "visualization/driven_duct"
   output_filename_prefix: "driven_duct"
   eulerian_fields:
     - "Ucat_nodal"

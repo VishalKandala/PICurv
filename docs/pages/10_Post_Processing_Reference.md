@@ -62,7 +62,6 @@ spectra:
       field: Ucat
 
 io:
-  output_directory: "viz"
   output_filename_prefix: "Field"
   particle_filename_prefix: "Particle"
   paraview_series:
@@ -1051,12 +1050,12 @@ layer to 1e-4.
 routes every post artifact into `<run.visualization>/<recipe_id>/` and
 `<run.analysis.statistics>/<recipe_id>/`, and the recipe identity excludes
 `output_directory`. Two recipes differing only in it therefore share one home and
-overwrite each other's files. Change `output_filename_prefix` or a computational
-setting to keep them apart.
+overwrite each other's files, so validation warns when a recipe sets it. Change
+`output_filename_prefix` or a computational setting to keep them apart.
 
 Mappings:
-- `output_directory` + `output_filename_prefix` -> `output_prefix`
-- `output_directory` + `particle_filename_prefix` -> `particle_output_prefix`
+- `<run.visualization>/<recipe_id>/` + `output_filename_prefix` -> `output_prefix`
+- `<run.visualization>/<recipe_id>/` + `particle_filename_prefix` -> `particle_output_prefix`
 - `output_particles` -> `output_particles`
 - `particle_subsampling_frequency` -> `particle_output_freq`
 - `eulerian_fields` -> `output_fields_instantaneous`

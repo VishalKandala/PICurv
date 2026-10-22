@@ -286,17 +286,12 @@ statistics_pipeline:
 # Controls what data is written to the final VTK files.
 # ==============================================================================
 io:
-  # Compatibility input: the conductor replaces this with the canonical
-  # <run.visualization>/<recipe_id>/ path. It does not redirect output.
-  output_directory: "visualization/standard_analysis"
-
   # (Required) The base name for the Eulerian output files. The C code will append
   # the timestep and extension, e.g., "eulerian_data_00100.vts".
-  # Combined with output_directory to form 'output_prefix' in post.run.
+  # The conductor prefixes it with the canonical <run.visualization>/<recipe_id>/ path.
   output_filename_prefix: "eulerian_data"
 
   # (Optional) The base name for particle output files. Defaults to "Particle".
-  # Combined with output_directory to form 'particle_output_prefix' in post.run.
   # Maps to the basename of 'particle_output_prefix' in post.run.
   particle_filename_prefix: "Particle"
 

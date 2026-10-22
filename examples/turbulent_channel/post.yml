@@ -13,7 +13,6 @@ eulerian_pipeline:
   input_field: Ucat
   output_field: Ucat_nodal
 io:
-  output_directory: visualization/channel
   output_filename_prefix: channel
   eulerian_fields:
   - Ucat_nodal

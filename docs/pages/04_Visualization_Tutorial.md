@@ -13,8 +13,8 @@ Here, you will learn the fundamental skills needed to explore *any* simulation r
 After a successful run, the postprocessor writes visualization files under
 `<run.visualization>/<recipe_id>/`. The recipe id combines a readable output prefix
 with a stable digest of the recipe, so repeated use resumes the same result while
-different recipes coexist. `post.yml -> io.output_directory` is runtime-managed and
-cannot redirect output outside this home.
+different recipes coexist. `post.yml -> io.output_directory` is ignored, and validation
+warns when a recipe sets it: it cannot redirect output outside this home.
 
 You will typically find:
 

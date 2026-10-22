@@ -10128,6 +10128,24 @@ def test_post_validation_warns_but_allows_start_step_off_cadence(tmp_path, capsy
     assert "'run_control.start_step' is 150" in captured
 
 
+def test_post_validation_warns_that_output_directory_is_ignored(tmp_path, capsys):
+    """!
+    @brief Setting io.output_directory warns, since recipes differing only in it share a home.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] capsys Pytest capture fixture.
+    """
+    picurv = load_picurv_module()
+
+    recipe = _post_with_window(0, 1000, 100)
+    recipe.setdefault("io", {})["output_directory"] = "viz"
+    picurv.validate_post_config(recipe, str(tmp_path / "post.yml"), _monitor_with_output_cadence(100))
+    assert "'io.output_directory' is ignored" in capsys.readouterr().err
+
+    del recipe["io"]["output_directory"]
+    picurv.validate_post_config(recipe, str(tmp_path / "post.yml"), _monitor_with_output_cadence(100))
+    assert "output_directory" not in capsys.readouterr().err
+
+
 def test_post_validation_skips_cadence_check_when_it_cannot_apply(tmp_path):
     """!
     @brief No monitor, no cadence, or a disabled cadence leaves the stride unchecked.

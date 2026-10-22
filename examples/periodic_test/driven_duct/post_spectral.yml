@@ -12,7 +12,6 @@ spectra:
       j: 63
     subtract_mean: sample
 io:
-  output_directory: visualization/duct
   output_filename_prefix: duct
   eulerian_fields: []
   output_particles: false

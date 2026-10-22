@@ -10921,6 +10921,15 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
         for key_name in ('output_directory', 'output_filename_prefix', 'particle_filename_prefix'):
             if key_name in io_cfg and not isinstance(io_cfg.get(key_name), str):
                 errors.append(f"  {post_path}: 'io.{key_name}' must be a string when provided.")
+        # The conductor files every post artifact by recipe identity, which excludes
+        # this key, so two recipes differing only in it write over each other.
+        if 'output_directory' in io_cfg:
+            warnings.append(
+                f"{post_path}: 'io.output_directory' is ignored; post output goes to the run's "
+                "visualization and analysis directories under the recipe's identity, so recipes "
+                "differing only in this key share one home and overwrite each other. Change "
+                "'io.output_filename_prefix' to keep them apart."
+            )
         if 'output_particles' in io_cfg and not isinstance(io_cfg.get('output_particles'), bool):
             errors.append(f"  {post_path}: 'io.output_particles' must be a boolean when provided.")
         try:

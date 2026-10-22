@@ -21,7 +21,6 @@ spectra:
       symbol: continuum
 
 io:
-  output_directory: visualization/dit
   output_filename_prefix: dit
   eulerian_fields: [Ucat_nodal, P_nodal, Qcrit_nodal]
   output_particles: false

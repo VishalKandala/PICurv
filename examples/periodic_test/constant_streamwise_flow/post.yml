@@ -20,7 +20,6 @@ eulerian_pipeline:
     reference_point: [1, 1, 1]
 
 io:
-  output_directory: "visualization/periodic_uniform_flow"
   output_filename_prefix: "periodic_uniform_flow"
   eulerian_fields:
     - "Ucat_nodal"

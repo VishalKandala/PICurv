@@ -36,7 +36,6 @@ reducers:
       friction_velocity: driven_flow
 
 io:
-  output_directory: "visualization/driven_channel_les_retau180"
   output_filename_prefix: "driven_channel_les_retau180"
   eulerian_fields:
     - "Ucat_nodal"

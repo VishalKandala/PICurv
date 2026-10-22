@@ -46,7 +46,6 @@ io:
   paraview_series:
     enabled: true
     scope: lineage
-  output_directory: "visualization/standard_analysis"
   output_filename_prefix: "eulerian_data"
   particle_filename_prefix: "Particle"
 

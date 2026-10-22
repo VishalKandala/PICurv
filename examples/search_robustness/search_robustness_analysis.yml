@@ -15,7 +15,6 @@ eulerian_pipeline:
     output_field: Ucat_nodal
 
 io:
-  output_directory: "viz"
   output_filename_prefix: "Field"
   particle_filename_prefix: "Particle"
   eulerian_fields:

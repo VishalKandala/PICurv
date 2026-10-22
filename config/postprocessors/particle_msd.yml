@@ -23,7 +23,6 @@ statistics_pipeline:
     - task: "msd"
 
 io:
-  output_directory: "viz"
   output_filename_prefix: "Field"
   particle_filename_prefix: "Particle"
   eulerian_fields: ["Ucat_nodal"]
