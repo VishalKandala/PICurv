@@ -42,7 +42,7 @@
           }
         },
         "free_slip": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "subsystem": "boundary.conditions",
           "evidence": {
@@ -52,7 +52,8 @@
               "make:unit-newton-krylov"
             ],
             "integration": [
-              "make:smoke"
+              "make:smoke",
+              "measurement:free-slip-symmetry-multirank-2026-10-22"
             ]
           }
         },

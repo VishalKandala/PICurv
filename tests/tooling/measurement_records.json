@@ -1241,6 +1241,21 @@
       },
       "limitations": "One duct, one window, one step, rectilinear and mirror-symmetric grid. The baseline printed 11 significant digits, so agreement finer than about 1e-10 is not observable. The header's peak-secondary-speed coordinates are listed in the opposite order to the baseline, consistent with a tie between mirror-image maxima; not investigated further.",
       "artifacts": []
+    },
+    {
+      "id": "free-slip-symmetry-multirank-2026-10-22",
+      "question": "Does a free_slip wall reproduce a plane of symmetry when the free-slip face and the wall-normal direction are split across ranks, and does it carry zero normal flux on a curvilinear grid?",
+      "date": "2026-10-22",
+      "commit": "ac419d2",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized, 16 ranks (2 x 2 x 4).",
+      "configuration": "Flat channel, 20 steps, dt 0.02: full 16 x 32 x 32 cells, yMaxs 1, noslip on both Eta walls, against half 16 x 16 x 32, yMaxs 0.5, +Eta free_slip; y split across 2 ranks so only the top ranks own the free-slip face; laminar Picard, constant_smagorinsky LES, and Newton Krylov with frozen_momentum_jacobian and point_block; the smoke recipe's tolerances. Bent channel (picurv init bent_channel, 20 x 20 x 144 cells, 90-degree arc of radius 4), 20 steps, dt 0.04, once with +Xi and once with +Eta free_slip.",
+      "result": {
+        "measured": "Flat channel, max|full lower half - half| / max|full lower half| at steps 10 and 20: Ucat 4.5e-15 and 4.5e-13 (laminar), 9.9e-15 and 2.5e-14 (LES), 2.4e-14 and 1.8e-14 (NK); P (mean removed) 8.1e-14 and 5.4e-12, 1.8e-13 and 5.2e-13, 1.7e-13 and 6.9e-14. Bent channel: normal contravariant flux on the free-slip face over max interior |U^zeta| 2.4e-16 (+Xi) and 7.1e-19 (+Eta); first-cell mean |Ucat| 1.07 at the free-slip face against 0.29-0.31 at the no-slip walls. No warnings or solver errors.",
+        "threshold": "Agreement to round-off; zero normal flux to round-off.",
+        "verdict": "met"
+      },
+      "limitations": "One rank layout; the 2 x 4 x 2 layout was refused by validate for multigrid depth. The laminar difference grows from 4.5e-15 to 4.5e-13 over steps 10-20, attributed to iterative-solver tolerance accumulation, not investigated further. The bent-channel check establishes impenetrability and slip, not a quantitative free-slip solution on a curved wall.",
+      "artifacts": []
     }
   ]
 }

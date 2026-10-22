@@ -246,7 +246,10 @@ residual and a converged solve with and without the point-block preconditioner.
 Integration verified - `make smoke` (`free-slip wall is a plane of symmetry`): a channel
 half bounded by a free-slip wall equals the corresponding half of the full no-slip
 channel after three steps to round-off, for laminar Picard, constant-Smagorinsky LES,
-and Newton Krylov with the point-block preconditioner.
+and Newton Krylov with the point-block preconditioner. Integration verified -
+`free-slip-symmetry-multirank-2026-10-22`: the same comparison on 16 ranks, with the
+free-slip face owned by a subset of them, agrees to 5e-12 or better after 20 steps;
+on the bent channel a free-slip wall carries round-off normal flux.
 
 **Limitations.** No moving free-slip wall. On a curvilinear grid an edge cell is
 mirrored along the metric of the cell it mirrors, which is exact only where the grid
