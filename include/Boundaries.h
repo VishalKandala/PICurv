@@ -164,6 +164,19 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_g
                                   BCFace face_id, PetscBool *can_service_out);
 
 /**
+ * @brief Reports whether a boundary face is a wall that exerts shear on the flow.
+ *
+ * Every WALL face is impenetrable, and code that needs only that tests the type. A
+ * free-slip wall exerts no shear, so the wall model, its eddy viscosity on the wall
+ * face, and the cells it writes belong only to the walls this reports: a free-slip
+ * face uses the interior face average there instead, as a symmetry plane does.
+ *
+ * @param face Boundary face configuration.
+ * @return PETSC_TRUE for a WALL face whose handler is not free-slip.
+ */
+PetscBool BoundaryFaceHasWallShear(const BoundaryFaceConfig *face);
+
+/**
  * @brief Places particles in a deterministic grid/raster pattern on a specified domain face.
  *
  * This function creates a set of equidistant, parallel lines of particles near the four
@@ -480,25 +493,35 @@ PetscErrorCode ApplyPeriodicBCs(UserCtx *user);
  * value here as well, but that alone changes nothing the solve sees; see
  * @ref p57_pressure_bc_sec for what has to change with it.
  *
+ * **Eddy viscosity.** Mirrored, zero gradient, across a free-slip wall only. The flow
+ * mirrors there, so the face value the viscous flux averages must be the interior one,
+ * as on the corresponding interior face of the full, unmirrored domain. A wall that
+ * exerts shear replaces the face value outright (the wall model's, or zero), and the
+ * other faces keep the convention they had before this rule existed.
+ *
  * Periodic faces are skipped: the periodic synchronizers own them. Only the flat part
  * of each face is written (shrunken loop ranges); edges and corners are filled
  * afterwards by `UpdateCornerNodes` from these values.
  *
  * @param user     Block context supplying the layout, face types, and `Ubcs`.
- * @param field_id Cell-centred field to fill: `FIELD_ID_UCAT`, `FIELD_ID_P`, or `FIELD_ID_PSI`.
+ * @param field_id Cell-centred field to fill: `FIELD_ID_UCAT`, `FIELD_ID_P`, `FIELD_ID_PSI`,
+ *                 or `FIELD_ID_NU_T`.
  * @return Zero on success; `PETSC_ERR_ARG_WRONG` for a field that is not cell-centred,
  *         `PETSC_ERR_SUP` for one with no boundary rule.
  */
 PetscErrorCode UpdateDummyCells(UserCtx *user, FieldId field_id);
 
 /**
- * @brief Fills the edge and corner dummy cells of one cell-centred field by averaging.
+ * @brief Fills the edge and corner dummy cells of one cell-centred field.
  *
  * Call after the face dummy cells are final, both periodic (the periodic
  * synchronizers) and non-periodic (`UpdateDummyCells`). Each edge dummy cell becomes the
  * mean of its two face-adjacent dummy cells; the edges along the Z faces are done
- * first, so the corners the remaining edges pass through are averaged from finished
- * edges. The rule is the same whatever the adjacent face types are.
+ * first, so the corners the remaining edges pass through are filled from finished
+ * edges. Across a free-slip wall the flow is the mirror image of the flow inside, so an
+ * edge cell beside one is instead the mirror image of its neighbour across that wall:
+ * a scalar copied, a velocity with its component along the wall's metric reversed.
+ * That keeps a free-slip wall exactly a plane of symmetry up to its edges.
  *
  * @param user     Block context supplying the layout.
  * @param field_id Cell-centred field whose edges and corners are filled.

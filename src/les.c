@@ -104,9 +104,9 @@ static PetscErrorCode BuildWallModelExclusionMask(UserCtx *user, Vec inclusion)
 
         for (PetscInt axis = 0; axis < 3; axis++) {
             /* Index 1 and extent-2 are the first interior cells the wall model writes. */
-            if ((user->boundary_faces[negative[axis]].mathematical_type == WALL &&
+            if ((BoundaryFaceHasWallShear(&user->boundary_faces[negative[axis]]) &&
                  coord[axis] == 1) ||
-                (user->boundary_faces[positive[axis]].mathematical_type == WALL &&
+                (BoundaryFaceHasWallShear(&user->boundary_faces[positive[axis]]) &&
                  coord[axis] == extent[axis] - 2)) {
                 mask[k][j][i] = 0.0;
                 break;
@@ -1026,6 +1026,7 @@ PetscErrorCode ComputeEddyViscosityLES(UserCtx *user)
     {
         const FieldId periodic_fields[] = {FIELD_ID_NU_T};
 
+        PetscCall(UpdateDummyCells(user, FIELD_ID_NU_T));
         PetscCall(SynchronizePeriodicCellFields(user, 1, periodic_fields));
         PetscCall(UpdateLocalGhosts(user, FIELD_ID_NU_T));
     }

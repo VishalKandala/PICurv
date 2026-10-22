@@ -278,6 +278,7 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user)
 
         switch (cfg->handler_type) {
             case BC_HANDLER_WALL_NOSLIP:
+            case BC_HANDLER_WALL_FREE_SLIP:
                 supported = (PetscBool)(cfg->mathematical_type == WALL);
                 break;
             case BC_HANDLER_INLET_CONSTANT_VELOCITY:
@@ -453,8 +454,8 @@ static PetscReal FrozenMomentumJacobian_FaceEddyViscosity(
     PetscReal neighbour;
 
     if (nu_t == NULL) return 0.0;
-    if ((user->boundary_faces[neg_face[axis]].mathematical_type == WALL && coord[axis] == 0) ||
-        (user->boundary_faces[pos_face[axis]].mathematical_type == WALL && coord[axis] == size[axis] - 2))
+    if ((BoundaryFaceHasWallShear(&user->boundary_faces[neg_face[axis]]) && coord[axis] == 0) ||
+        (BoundaryFaceHasWallShear(&user->boundary_faces[pos_face[axis]]) && coord[axis] == size[axis] - 2))
         return 0.0;
 
     neighbour = (axis == 0) ? nu_t[k][j][i + 1]

@@ -702,7 +702,10 @@ PetscErrorCode StringToBCFace(const char* str, BCFace* face_out) {
  */
 PetscErrorCode StringToBCType(const char* str, BCType* type_out) {
     if      (strcasecmp(str, "WALL")      == 0) *type_out = WALL;
-    else if (strcasecmp(str, "SYMMETRY")  == 0) *type_out = SYMMETRY;
+    else if (strcasecmp(str, "SYMMETRY")  == 0)
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE,
+                "The SYMMETRY boundary type is retired: a symmetry plane is a free-slip wall, "
+                "so use type WALL with handler free_slip.");
     else if (strcasecmp(str, "INLET")     == 0) *type_out = INLET;
     else if (strcasecmp(str, "OUTLET")    == 0) *type_out = OUTLET;
     else if (strcasecmp(str, "PERIODIC")  == 0) *type_out = PERIODIC;
@@ -717,6 +720,7 @@ PetscErrorCode StringToBCType(const char* str, BCType* type_out) {
  */
 PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out) {
     if      (strcasecmp(str, "noslip")              == 0) *handler_out = BC_HANDLER_WALL_NOSLIP;
+    else if (strcasecmp(str, "free_slip")           == 0) *handler_out = BC_HANDLER_WALL_FREE_SLIP;
     else if (strcasecmp(str, "constant_velocity")   == 0) *handler_out = BC_HANDLER_INLET_CONSTANT_VELOCITY;
     else if (strcasecmp(str, "conservation")        == 0) *handler_out = BC_HANDLER_OUTLET_CONSERVATION;
     else if (strcasecmp(str, "parabolic")           == 0) *handler_out = BC_HANDLER_INLET_PARABOLIC;
@@ -739,7 +743,8 @@ PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler) {
 	    if(handler != BC_HANDLER_OUTLET_CONSERVATION) return PETSC_ERR_ARG_WRONG;
 	    break;
         case WALL:
-            if (handler != BC_HANDLER_WALL_NOSLIP && handler != BC_HANDLER_WALL_MOVING) return PETSC_ERR_ARG_WRONG;
+            if (handler != BC_HANDLER_WALL_NOSLIP && handler != BC_HANDLER_WALL_FREE_SLIP &&
+                handler != BC_HANDLER_WALL_MOVING) return PETSC_ERR_ARG_WRONG;
             break;
         case INLET:
             if (handler != BC_HANDLER_INLET_CONSTANT_VELOCITY &&

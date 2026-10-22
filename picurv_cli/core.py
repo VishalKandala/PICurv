@@ -7851,7 +7851,6 @@ BC_FACE_MAP = {
 # Canonical BC selector maps. Add new values only with matching C parser/factory support.
 BC_TYPE_MAP = {
     "wall": "WALL",
-    "symmetry": "SYMMETRY",
     "inlet": "INLET",
     "outlet": "OUTLET",
     "periodic": "PERIODIC",
@@ -7865,6 +7864,13 @@ PARTICLE_BOUNDARY_POLICIES = ("reflect", "remove", "wrap")
 BC_HANDLER_SPECS = {
     # Only handlers that are implemented end-to-end in current C path are allowed.
     "noslip": {
+        "types": {"WALL"},
+        "particle_policy": "reflect",
+        "required_params": set(),
+        "optional_params": set(),
+    },
+    # Impenetrable and shear-free; also the condition at a plane of symmetry.
+    "free_slip": {
         "types": {"WALL"},
         "particle_policy": "reflect",
         "required_params": set(),
@@ -8548,6 +8554,12 @@ def validate_and_prepare_boundary_conditions(case_cfg: dict):
 
             bc_type_raw = str(bc["type"]).strip()
             bc_type = BC_TYPE_MAP.get(bc_type_raw.lower())
+            # A symmetry plane is a free-slip wall; the separate type was retired.
+            if bc_type_raw.lower() == "symmetry":
+                raise ValueError(
+                    f"BC type 'symmetry' for face {face} in block {bi} is retired: a symmetry plane "
+                    "is a free-slip wall, so use type 'wall' with handler 'free_slip'."
+                )
             if bc_type is None:
                 raise ValueError(
                     f"Unsupported BC type '{bc_type_raw}' for face {face} in block {bi}. "
@@ -14286,13 +14298,14 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
         for bc in faces:
             axis = face_axes[bc["face"][1:]]
             if axis in normalized["wall_axes"]:
-                valid = bc["type"] == "WALL" and bc["handler"] == "noslip"
+                # The perturbation vanishes at the wall, which every wall handler admits.
+                valid = bc["type"] == "WALL" and "WALL" in BC_HANDLER_SPECS.get(bc["handler"], {}).get("types", ())
             else:
                 valid = bc["type"] == "PERIODIC" and bc["handler"] in ("geometric", "constant_flux", "initial_flux")
                 if axis != normalized["streamwise_axis"]:
                     valid = valid and bc["handler"] == "geometric"
             if not valid:
-                raise ValueError("wall spectral IC requires no-slip wall pairs and periodic remaining axes, driven only streamwise.")
+                raise ValueError("wall spectral IC requires wall pairs (no-slip or free-slip) and periodic remaining axes, driven only streamwise.")
         normalized["initial_spectra"] = normalize_ic_initial_spectra(
             normalized.get("initial_spectra"), normalized["wall_axes"], generator, required=True)
         return {"finit": 4, "cli_params": {}, "kind": generator, "label": generator,

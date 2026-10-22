@@ -1189,9 +1189,9 @@ def test_reachability_never_overwrites_lifecycle_status():
     for name, spec in types["public_values"].items():
         assert spec["status"] in AUDIT.VALID_STATUSES, f"{name} status is not a lifecycle value"
         assert spec["reachability"] in ("reachable", "latent")
-    assert types["public_values"]["symmetry"]["status"] == "internal"
-    assert types["public_values"]["symmetry"]["reachability"] == "latent"
     assert types["public_values"]["inlet"]["reachability"] == "reachable"
+    # The retired symmetry type is gone from the inventory, not merely unreachable.
+    assert "symmetry" not in types["public_values"]
 
 
 def test_experimental_value_in_a_reachable_family_still_owes_limitations(tmp_path, monkeypatch):

@@ -664,8 +664,8 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 	  /* Zero is right for a wall-resolved run, where the subgrid stress vanishes at
 	     the wall. With a wall model the same face is where the modelled stress has to
 	     enter, so it takes the model's effective viscosity instead. */
-	  if ( user->boundary_faces[BC_FACE_NEG_X].mathematical_type == WALL && i==0 ) nu_t = lnu_wall ? lnu_wall[k][j][1] : 0.0;
-	  if ( user->boundary_faces[BC_FACE_POS_X].mathematical_type == WALL && i==mx-2 ) nu_t = lnu_wall ? lnu_wall[k][j][mx-2] : 0.0;    
+	  if ( BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_NEG_X]) && i==0 ) nu_t = lnu_wall ? lnu_wall[k][j][1] : 0.0;
+	  if ( BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_POS_X]) && i==mx-2 ) nu_t = lnu_wall ? lnu_wall[k][j][mx-2] : 0.0;    
 	  fp1[k][j][i].x = (g11 * dudc + g21 * dude + g31 * dudz + r11 * csi0 + r21 * csi1 + r31 * csi2) * ajc * (nu_t); 
 	  fp1[k][j][i].y = (g11 * dvdc + g21 * dvde + g31 * dvdz + r12 * csi0 + r22 * csi1 + r32 * csi2) * ajc * (nu_t);
 	  fp1[k][j][i].z = (g11 * dwdc + g21 * dwde + g31 * dwdz + r13 * csi0 + r23 * csi1 + r33 * csi2) * ajc * (nu_t);
@@ -829,8 +829,8 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 	  /* Zero is right for a wall-resolved run, where the subgrid stress vanishes at
 	     the wall. With a wall model the same face is where the modelled stress has to
 	     enter, so it takes the model's effective viscosity instead. */
-	  if ( user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == WALL && j==0 ) nu_t = lnu_wall ? lnu_wall[k][1][i] : 0.0;
-	  if ( user->boundary_faces[BC_FACE_POS_Y].mathematical_type == WALL && j==my-2 ) nu_t = lnu_wall ? lnu_wall[k][my-2][i] : 0.0;
+	  if ( BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_NEG_Y]) && j==0 ) nu_t = lnu_wall ? lnu_wall[k][1][i] : 0.0;
+	  if ( BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_POS_Y]) && j==my-2 ) nu_t = lnu_wall ? lnu_wall[k][my-2][i] : 0.0;
 		
 	  fp2[k][j][i].x = (g11 * dudc + g21 * dude + g31 * dudz + r11 * eta0 + r21 * eta1 + r31 * eta2) * ajc * (nu_t);
 	  fp2[k][j][i].y = (g11 * dvdc + g21 * dvde + g31 * dvdz + r12 * eta0 + r22 * eta1 + r32 * eta2) * ajc * (nu_t);
@@ -986,8 +986,8 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 	  /* Zero is right for a wall-resolved run, where the subgrid stress vanishes at
 	     the wall. With a wall model the same face is where the modelled stress has to
 	     enter, so it takes the model's effective viscosity instead. */
-	  if ( user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == WALL && k==0 ) nu_t = lnu_wall ? lnu_wall[1][j][i] : 0.0;
-	  if ( user->boundary_faces[BC_FACE_POS_Z].mathematical_type == WALL && k==mz-2 ) nu_t = lnu_wall ? lnu_wall[mz-2][j][i] : 0.0;
+	  if ( BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_NEG_Z]) && k==0 ) nu_t = lnu_wall ? lnu_wall[1][j][i] : 0.0;
+	  if ( BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_POS_Z]) && k==mz-2 ) nu_t = lnu_wall ? lnu_wall[mz-2][j][i] : 0.0;
 		
 	  fp3[k][j][i].x = (g11 * dudc + g21 * dude + g31 * dudz + r11 * zet0 + r21 * zet1 + r31 * zet2) * ajc * (nu_t);
 	  fp3[k][j][i].y = (g11 * dvdc + g21 * dvde + g31 * dvdz + r12 * zet0 + r22 * zet1 + r32 * zet2) * ajc * (nu_t);

@@ -317,7 +317,7 @@ typedef enum {
     INTERFACE          = 0,
     WALL               = 1 , 
     MOVING_WALL        = 2,
-    SYMMETRY           = 3,
+    /* 3 was SYMMETRY, retired: a symmetry plane is a WALL with the free-slip handler. */
     OUTLET             = 4,
     INLET              = 5, 
     FARFIELD           = 6,
@@ -343,7 +343,7 @@ typedef enum {
     BC_HANDLER_UNDEFINED = 0,
     BC_HANDLER_WALL_NOSLIP = 1, 
     BC_HANDLER_WALL_MOVING = 2,
-    BC_HANDLER_SYMMETRY_PLANE = 3,
+    BC_HANDLER_WALL_FREE_SLIP = 3,
     BC_HANDLER_INLET_CONSTANT_VELOCITY = 4,
     BC_HANDLER_INLET_PARABOLIC = 5,
     BC_HANDLER_INLET_PROFILE_FROM_FILE = 6,

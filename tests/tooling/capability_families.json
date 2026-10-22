@@ -41,6 +41,21 @@
             ]
           }
         },
+        "free_slip": {
+          "status": "experimental",
+          "canonical": true,
+          "subsystem": "boundary.conditions",
+          "evidence": {
+            "unit": [
+              "make:unit-boundaries",
+              "file:tests/c/test_boundaries.c",
+              "make:unit-newton-krylov"
+            ],
+            "integration": [
+              "make:smoke"
+            ]
+          }
+        },
         "constant_velocity": {
           "status": "supported",
           "canonical": true,
@@ -232,13 +247,6 @@
               "measurement:periodic-channel-laminar-picard-2026-09-18"
             ]
           }
-        },
-        "symmetry": {
-          "status": "internal",
-          "canonical": true,
-          "subsystem": "boundary.conditions",
-          "evidence": {},
-          "status_note": "Declared in BC_TYPE_MAP and present in the C enum, but no public handler supports it, so reachability marks it latent. 'latent' is a computed reachability state, not a lifecycle status."
         }
       }
     },

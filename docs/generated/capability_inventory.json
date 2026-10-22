@@ -8,6 +8,7 @@
           "conservation": "BC_HANDLER_OUTLET_CONSERVATION",
           "constant_flux": "BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX",
           "constant_velocity": "BC_HANDLER_INLET_CONSTANT_VELOCITY",
+          "free_slip": "BC_HANDLER_WALL_FREE_SLIP",
           "geometric": "BC_HANDLER_PERIODIC_GEOMETRIC",
           "initial_flux": "BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX",
           "noslip": "BC_HANDLER_WALL_NOSLIP",
@@ -23,6 +24,7 @@
           "conservation",
           "constant_flux",
           "constant_velocity",
+          "free_slip",
           "geometric",
           "initial_flux",
           "noslip",
@@ -45,6 +47,7 @@
           "BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX",
           "BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX",
           "BC_HANDLER_PERIODIC_GEOMETRIC",
+          "BC_HANDLER_WALL_FREE_SLIP",
           "BC_HANDLER_WALL_NOSLIP"
         ]
       }
@@ -81,6 +84,14 @@
         "status": "supported",
         "types": [
           "INLET"
+        ]
+      },
+      "free_slip": {
+        "optional_params": [],
+        "required_params": [],
+        "status": "experimental",
+        "types": [
+          "WALL"
         ]
       },
       "geometric": {
@@ -156,12 +167,6 @@
         "reachability": "reachable",
         "reachable": true,
         "status": "supported"
-      },
-      "symmetry": {
-        "maps_to": "SYMMETRY",
-        "reachability": "latent",
-        "reachable": false,
-        "status": "internal"
       },
       "wall": {
         "maps_to": "WALL",

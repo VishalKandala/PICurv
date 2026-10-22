@@ -928,10 +928,10 @@ const char* InterpolationMethodToString(InterpolationMethod method) {
  */
 const char* BCHandlerTypeToString(BCHandlerType handler_type) {
     switch (handler_type) {
-        // Wall & Symmetry Handlers
+        // Wall Handlers
         case BC_HANDLER_WALL_NOSLIP:             return "noslip";
         case BC_HANDLER_WALL_MOVING:             return "moving";
-        case BC_HANDLER_SYMMETRY_PLANE:          return "symmetry_plane";
+        case BC_HANDLER_WALL_FREE_SLIP:          return "free_slip";
 
         // Inlet Handlers
         case BC_HANDLER_INLET_CONSTANT_VELOCITY: return "constant_velocity";

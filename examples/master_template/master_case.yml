@@ -180,7 +180,7 @@ properties:
     # --- Wall-bounded spectral seed: channel (one wall pair) or duct (two). ---
     # A divergence-free perturbation (discrete curl of a seeded vector potential with a
     # wall envelope) on a flux-normalized mean. Requires a single Cartesian block with
-    # uniform periodic axes: WALL/noslip pairs on wall_axes, PERIODIC elsewhere, and
+    # uniform periodic axes: WALL pairs (noslip or free_slip) on wall_axes, PERIODIC elsewhere, and
     # only the streamwise pair driven (constant_flux or initial_flux). Velocities are
     # in physical units [m/s]. The turbulent_channel example uses this block.
     # mode: generated
@@ -470,8 +470,8 @@ models:
 # --- Geometric periodicity: set both opposite faces to PERIODIC/geometric.
 #     Periodic axes are derived from these BC pairs. The paired grid surfaces
 #     must match pointwise under one nonzero constant Cartesian translation,
-#     and the axis must contain at least four physical nodes. Periodic particle
-#     wrapping is not implemented. See examples/periodic_test/. ---
+#     and the axis must contain at least four physical nodes. Particles crossing
+#     a periodic face wrap to its pair. See examples/periodic_test/. ---
 boundary_conditions:
   - face: "-Xi"
     type: WALL
@@ -541,6 +541,9 @@ boundary_conditions:
 #
 # WALL faces:
 #   handler: noslip                     No-slip (zero velocity) wall.
+#   handler: free_slip                  Impenetrable wall without shear. Also the condition
+#                                       at a plane of symmetry: there is no separate
+#                                       symmetry type, so model one as WALL/free_slip.
 #
 # INLET faces:
 #   handler: constant_velocity          Uniform Cartesian velocity.

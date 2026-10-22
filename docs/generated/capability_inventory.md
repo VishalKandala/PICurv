@@ -11,6 +11,7 @@ Selector: `case.yml -> boundary_conditions[].handler`
 | `conservation` | `OUTLET` | none | none |
 | `constant_flux` | `PERIODIC` | `target_flux` | `apply_trim`, `enforce_seam_flux` |
 | `constant_velocity` | `INLET` | `vx`, `vy`, `vz` | none |
+| `free_slip` | `WALL` | none | none |
 | `geometric` | `PERIODIC` | none | none |
 | `initial_flux` | `PERIODIC` | none | `apply_trim`, `enforce_seam_flux` |
 | `noslip` | `WALL` | none | none |
@@ -26,7 +27,6 @@ Selector: `case.yml -> boundary_conditions[].type`
 | `inlet` | `INLET` |
 | `outlet` | `OUTLET` |
 | `periodic` | `PERIODIC` |
-| `symmetry` | `SYMMETRY` |
 | `wall` | `WALL` |
 
 ### Momentum Solvers

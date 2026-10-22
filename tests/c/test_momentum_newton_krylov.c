@@ -23,6 +23,16 @@ static const char *geometric_periodic_bcs =
     "-Zeta INLET constant_velocity vx=0.0 vy=0.0 vz=1.5\n"
     "+Zeta OUTLET conservation\n";
 
+/* Two free-slip walls facing two no-slip ones: the free-slip boundary value is read
+ * from the trial velocity, so the residual must still be a function of X alone. */
+static const char *free_slip_wall_bcs =
+    "-Xi WALL free_slip\n"
+    "+Xi WALL free_slip\n"
+    "-Eta WALL noslip\n"
+    "+Eta WALL noslip\n"
+    "-Zeta WALL noslip\n"
+    "+Zeta WALL noslip\n";
+
 static const char *fixed_wall_bcs =
     "-Xi WALL noslip\n"
     "+Xi WALL noslip\n"
@@ -364,6 +374,7 @@ static PetscErrorCode TestResidualRepeatabilityAndInputIntegrity(void)
 
     PetscFunctionBeginUser;
     PetscCall(CheckResidualRepeatabilityForBC(fixed_wall_bcs, "fixed walls"));
+    PetscCall(CheckResidualRepeatabilityForBC(free_slip_wall_bcs, "free-slip walls"));
     PetscCall(CheckResidualRepeatabilityForBC(NULL, "constant inlet/conservation outlet"));
     PetscCall(CheckResidualRepeatabilityForBC(parabolic_bcs, "parabolic inlet/conservation outlet"));
     PetscCall(CheckResidualRepeatabilityForBC(periodic_x_bcs, "x periodic"));
@@ -750,6 +761,40 @@ static PetscErrorCode BuildMinimalWallOperatorFixture(SimCtx **simCtx, UserCtx *
             BC_HANDLER_PERIODIC_GEOMETRIC : BC_HANDLER_WALL_NOSLIP;
         PetscCall(BoundaryCondition_Create((*user)->boundary_faces[face].handler_type,
                                             &(*user)->boundary_faces[face].handler));
+    }
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/**
+ * @brief A Newton solve with free-slip walls converges, preconditioned and not.
+ *
+ * Free-slip walls are supported by Newton Krylov from the start: the matrix-free action
+ * carries the reflected boundary through the residual, and the point-block
+ * preconditioner approximates the operator without wall-specific terms.
+ */
+static PetscErrorCode TestFreeSlipWallsSolve(void)
+{
+    const char *models[] = {"none", "frozen_momentum_jacobian"};
+    const char *structures[] = {"none", "point_block"};
+
+    PetscFunctionBeginUser;
+    for (size_t n = 0; n < sizeof(models) / sizeof(models[0]); ++n) {
+        SimCtx *simCtx = NULL;
+        UserCtx *user = NULL;
+        char tmpdir[PETSC_MAX_PATH_LEN] = "";
+
+        PetscCall(BuildNewtonFixture(free_slip_wall_bcs, &simCtx, &user, tmpdir, sizeof(tmpdir)));
+        PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_snes_rtol", "1e-4"));
+        PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_snes_max_it", "20"));
+        PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_ksp_rtol", "1e-6"));
+        PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_model", models[n]));
+        PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_preconditioner_structure", structures[n]));
+        PetscCall(VecSet(user->Ucont, 0.1));
+        PetscCall(MomentumSolver_NewtonKrylov(user, NULL, NULL));
+        PetscCall(PicurvAssertBool(simCtx->mom_last_converged, "a solve with free-slip walls must converge"));
+        PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));
+        PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_preconditioner_model"));
+        PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_preconditioner_structure"));
     }
     PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -1861,6 +1906,7 @@ int main(int argc, char **argv)
         {"flat-channel-bdf1-startup", TestFlatChannelStartup},
         {"restart-and-continuation-solve", TestRestartAndContinuationSolve},
         {"small-solve-and-rollback", TestSmallSolveAndRollback},
+        {"free-slip-walls-solve", TestFreeSlipWallsSolve},
         {"unsupported-configuration-fails-before-allocation", TestUnsupportedConfigurationFailsBeforeAllocation},
         {"post-allocation-failure-cleanup", TestPostAllocationFailureCleanup},
         {"linearization-config-parsing", TestLinearizationConfigParsing},

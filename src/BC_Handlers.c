@@ -90,6 +90,14 @@ PetscErrorCode Validate_DrivenFlowConfiguration(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
+/** @brief Cartesian boundary velocity one handler prescribes at one boundary face slot. */
+typedef Cmpnts (*FaceBoundaryVelocityRule)(const BoundaryCondition *self, BCFace face_id,
+                                           PetscInt i, PetscInt j, PetscInt k,
+                                           Cmpnts metric, PetscReal sign, Cmpnts interior);
+
+static PetscErrorCode ApplyFaceBoundaryVelocity(BoundaryCondition *self, BCContext *ctx,
+                                                FaceBoundaryVelocityRule rule);
+
 //================================================================================
 //
 //               HANDLER IMPLEMENTATION: NO-SLIP WALL
@@ -135,154 +143,108 @@ PetscErrorCode Create_WallNoSlip(BoundaryCondition *bc)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief The no-slip wall's boundary velocity: the wall's own, which is at rest.
+ */
+static Cmpnts WallNoSlipVelocity(const BoundaryCondition *self, BCFace face_id,
+                                 PetscInt i, PetscInt j, PetscInt k,
+                                 Cmpnts metric, PetscReal sign, Cmpnts interior)
+{
+    const Cmpnts rest = {0.0, 0.0, 0.0};
+
+    (void)self; (void)face_id; (void)i; (void)j; (void)k; (void)metric; (void)sign; (void)interior;
+    return rest;
+}
+
 #undef __FUNCT__
 #define __FUNCT__ "Apply_WallNoSlip"
 /**
  * @brief Apply no-slip velocity values to wall-adjacent cells for this boundary condition.
+ * @details A zero boundary velocity also closes the face, since its flux is the
+ *          velocity's product with the face metric.
  */
 static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx)
 {
-    PetscErrorCode ierr;
-    UserCtx*       user = ctx->user;
-    BCFace         face_id = ctx->face_id;
-    PetscBool      can_service;
-    
-    (void)self;  // Unused for simple handlers
-    
     PetscFunctionBeginUser;
-    DMDALocalInfo *info = &user->info;
-    Cmpnts ***ubcs, ***ucont;
-    PetscInt IM_nodes_global, JM_nodes_global,KM_nodes_global;
-
-    IM_nodes_global = user->IM;
-    JM_nodes_global = user->JM;
-    KM_nodes_global = user->KM;
-    
-    ierr = CanRankServiceFace(info,IM_nodes_global,JM_nodes_global,KM_nodes_global,face_id,&can_service); CHKERRQ(ierr);
-    // Check if this rank owns part of this boundary face
-    if (!can_service) PetscFunctionReturn(0);
-
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Apply_WallNoSlip: Applying to Face %d (%s).\n",
-              face_id, BCFaceToString(face_id));
+              ctx->face_id, BCFaceToString(ctx->face_id));
+    PetscCall(ApplyFaceBoundaryVelocity(self, ctx, WallNoSlipVelocity));
+    PetscFunctionReturn(0);
+}
 
-    // Get arrays
-    
-    ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
+//================================================================================
+//
+//               HANDLER IMPLEMENTATION: FREE-SLIP WALL
+//               (Corresponds to BC_HANDLER_WALL_FREE_SLIP)
+//
+// An impenetrable wall that exerts no shear: the normal velocity vanishes and the
+// tangential velocity has zero normal gradient. It is also a plane of symmetry,
+// the same condition read as the mirror image of the flow beyond it, which is why
+// PICurv offers no separate symmetry boundary type.
+//
+//================================================================================
 
-    PetscInt xs = info->xs, xe = info->xs + info->xm;
-    PetscInt ys = info->ys, ye = info->ys + info->ym;
-    PetscInt zs = info->zs, ze = info->zs + info->zm;
-    PetscInt mx = info->mx, my = info->my, mz = info->mz;
-    
-    // ✅ Use shrunken loop bounds (avoids edges/corners like inlet handler)
-    PetscInt lxs = xs, lxe = xe, lys = ys, lye = ye, lzs = zs, lze = ze;
-    if (xs == 0) lxs = xs + 1;
-    if (xe == mx) lxe = xe - 1;
-    if (ys == 0) lys = ys + 1;
-    if (ye == my) lye = ye - 1;
-    if (zs == 0) lzs = zs + 1;
-    if (ze == mz) lze = ze - 1;
+static PetscErrorCode Apply_WallFreeSlip(BoundaryCondition *self, BCContext *ctx);
 
-    switch (face_id) {
-        case BC_FACE_NEG_X: {
-            if (xs == 0){  
-                PetscInt i = xs;
-                for (PetscInt k = lzs; k < lze; k++) {
-                    for (PetscInt j = lys; j < lye; j++) {
-                        // ✅ Set contravariant flux to zero (no penetration)
-                        ucont[k][j][i].x = 0.0;
-                    
-                        // ✅ Set boundary velocity to zero (no slip)
-                        ubcs[k][j][i].x = 0.0;
-                        ubcs[k][j][i].y = 0.0;
-                        ubcs[k][j][i].z = 0.0;
-                        }                
-                    }
-                }
-            break;
-        }
+#undef __FUNCT__
+#define __FUNCT__ "Create_WallFreeSlip"
+/**
+ * @brief Implementation of \ref Create_WallFreeSlip().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/BC_Handlers.h`.
+ * @see Create_WallFreeSlip()
+ */
+PetscErrorCode Create_WallFreeSlip(BoundaryCondition *bc)
+{
+    PetscFunctionBeginUser;
+    if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+                     "Input BoundaryCondition object is NULL in Create_WallFreeSlip");
+    bc->priority   = BC_PRIORITY_WALL;
+    bc->Initialize = NULL;
+    bc->PreStep    = NULL;
+    bc->Apply      = Apply_WallFreeSlip;
+    bc->PostStep   = NULL;
+    /* The boundary value follows the adjacent velocity, so it is refreshed whenever
+     * the velocity is: on every boundary pass and after each projection. */
+    bc->UpdateUbcs = Apply_WallFreeSlip;
+    bc->Destroy    = NULL;
+    bc->data       = NULL;
+    PetscFunctionReturn(0);
+}
 
-        case BC_FACE_POS_X: {
-            if (xe == mx){            
-                PetscInt i = xe - 1;
-                for (PetscInt k = lzs; k < lze; k++) {
-                for (PetscInt j = lys; j < lye; j++) {
-                    ucont[k][j][i-1].x = 0.0;
-                    
-                    ubcs[k][j][i].x = 0.0;
-                    ubcs[k][j][i].y = 0.0;
-                    ubcs[k][j][i].z = 0.0;
-                    }
-                }    
-            }
-        break;
-        }    
-        case BC_FACE_NEG_Y: {
-            if (ys == 0){
-            PetscInt j = ys;
-            for (PetscInt k = lzs; k < lze; k++) {
-                for (PetscInt i = lxs; i < lxe; i++) {
-                    ucont[k][j][i].y = 0.0;
-                    
-                    ubcs[k][j][i].x = 0.0;
-                    ubcs[k][j][i].y = 0.0;
-                    ubcs[k][j][i].z = 0.0;
-                    }
-                }
-            }
-        } break;
+/**
+ * @brief The free-slip wall's boundary velocity: the adjacent velocity, less its normal part.
+ * @details Removing the component along the face metric leaves a velocity tangent to the
+ *          face, so the face flux vanishes; placing it as the boundary value makes the
+ *          dummy cell the mirror image of the interior one, reversing the normal velocity
+ *          and keeping the tangential one, which is zero normal gradient. On a curvilinear
+ *          grid the metric is the face's own normal, so the construction holds there too.
+ */
+static Cmpnts WallFreeSlipVelocity(const BoundaryCondition *self, BCFace face_id,
+                                   PetscInt i, PetscInt j, PetscInt k,
+                                   Cmpnts metric, PetscReal sign, Cmpnts interior)
+{
+    const PetscReal area_sq = metric.x * metric.x + metric.y * metric.y + metric.z * metric.z;
+    const PetscReal normal = (area_sq > 0.0)
+        ? (interior.x * metric.x + interior.y * metric.y + interior.z * metric.z) / area_sq : 0.0;
+    Cmpnts tangential;
 
-        case BC_FACE_POS_Y: {
-            if (ye == my){
-            PetscInt j = ye - 1;
-            for (PetscInt k = lzs; k < lze; k++) {
-                for (PetscInt i = lxs; i < lxe; i++) {
-                    ucont[k][j-1][i].y = 0.0;
-                    
-                    ubcs[k][j][i].x = 0.0;
-                    ubcs[k][j][i].y = 0.0;
-                    ubcs[k][j][i].z = 0.0;
-                    }
-                }
-            }
-        } break;
-            
-        case BC_FACE_NEG_Z: {
-            if (zs == 0){
-            PetscInt k = zs;
-            for (PetscInt j = lys; j < lye; j++) {
-                for (PetscInt i = lxs; i < lxe; i++) {
-                    ucont[k][j][i].z = 0.0;
-                    
-                    ubcs[k][j][i].x = 0.0;
-                    ubcs[k][j][i].y = 0.0;
-                    ubcs[k][j][i].z = 0.0;
-                    }
-                }
-            }
-        } break;
+    (void)self; (void)face_id; (void)i; (void)j; (void)k; (void)sign;
+    tangential.x = interior.x - normal * metric.x;
+    tangential.y = interior.y - normal * metric.y;
+    tangential.z = interior.z - normal * metric.z;
+    return tangential;
+}
 
-        case BC_FACE_POS_Z: {
-            if (ze == mz) {
-            PetscInt k = ze - 1;
-            for (PetscInt j = lys; j < lye; j++) {
-                for (PetscInt i = lxs; i < lxe; i++) {
-                    ucont[k-1][j][i].z = 0.0;
-                    
-                    ubcs[k][j][i].x = 0.0;
-                    ubcs[k][j][i].y = 0.0;
-                    ubcs[k][j][i].z = 0.0;
-                    }
-                }
-            }    
-        } break;
-    }
-
-    // Restore arrays
-    ierr = DMDAVecRestoreArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
-
+#undef __FUNCT__
+#define __FUNCT__ "Apply_WallFreeSlip"
+/**
+ * @brief Apply free-slip boundary values to wall-adjacent cells for this boundary condition.
+ */
+static PetscErrorCode Apply_WallFreeSlip(BoundaryCondition *self, BCContext *ctx)
+{
+    PetscFunctionBeginUser;
+    PetscCall(ApplyFaceBoundaryVelocity(self, ctx, WallFreeSlipVelocity));
     PetscFunctionReturn(0);
 }
 
@@ -987,13 +949,15 @@ static inline PetscReal ProfileSpeedAt(const InletProfileFileData *data, PetscIn
  * @param k Logical K index of the staggered face slot.
  * @param metric Face-area vector in the increasing computational direction.
  * @param sign Positive on a negative-side inlet and negative on a positive-side inlet.
+ * @param interior Velocity of the adjacent interior cell; an inlet's profile does not use it.
  * @return Cartesian velocity prescribed at the physical boundary location.
  */
 static inline Cmpnts EvaluateInletCartesianVelocity(const BoundaryCondition *self,
                                                      BCFace face_id,
                                                      PetscInt i, PetscInt j, PetscInt k,
-                                                     Cmpnts metric, PetscReal sign)
+                                                     Cmpnts metric, PetscReal sign, Cmpnts interior)
 {
+    (void)interior;
     PetscReal normal_speed = 0.0;
     Cmpnts velocity = {0.0, 0.0, 0.0};
 
@@ -1043,29 +1007,35 @@ static inline Cmpnts EvaluateInletCartesianVelocity(const BoundaryCondition *sel
     return velocity;
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "ApplyFaceBoundaryVelocity"
 /**
- * @brief Applies a Cartesian inlet velocity through the common face-layout path.
- *
- * @details The provider evaluation is mode-specific, while ownership clipping,
- *          immersed-cell exclusion, metric projection, `Ubcs` placement, and the
- *          normal staggered `Ucont` write are shared by every inlet profile mode.
+ * @brief Sets a handler's boundary velocity and the face flux it implies on one face.
+ * @details Shared by every handler that prescribes a Cartesian velocity at its face: the
+ *          inlets, the no-slip wall and the free-slip wall. For each boundary slot this
+ *          rank owns it asks @p rule for the velocity, stores it as the boundary value,
+ *          and sets the face flux to its product with the face metric. A rule whose
+ *          velocity is tangent to the face therefore closes the face. A slot whose fluid
+ *          side is blanked (`nvert > 0.1`) belongs to an immersed body, whose own boundary
+ *          condition applies there, so it is left untouched.
+ * @param self Handler being applied.
+ * @param ctx  Boundary context naming the face.
+ * @param rule Velocity the handler prescribes, given the slot, the face metric, the
+ *             side (`sign`, positive on a negative face) and the adjacent interior velocity.
+ * @return PetscErrorCode 0 on success.
  */
-static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ctx)
+static PetscErrorCode ApplyFaceBoundaryVelocity(BoundaryCondition *self, BCContext *ctx,
+                                                FaceBoundaryVelocityRule rule)
 {
     PetscErrorCode ierr;
     UserCtx *user = ctx->user;
     BCFace face_id = ctx->face_id;
     PetscBool can_service;
     DMDALocalInfo *info = &user->info;
-    Cmpnts ***ubcs, ***ucont, ***csi, ***eta, ***zet;
+    Cmpnts ***ubcs, ***ucont, ***csi, ***eta, ***zet, ***ucat;
     PetscReal ***nvert;
 
     PetscFunctionBeginUser;
-    PetscCheck(self->type == BC_HANDLER_INLET_CONSTANT_VELOCITY ||
-               self->type == BC_HANDLER_INLET_PARABOLIC ||
-               self->type == BC_HANDLER_INLET_PROFILE_FROM_FILE,
-               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
-               "Common inlet application cannot service handler type %d.", self->type);
 
     ierr = CanRankServiceFace(info, user->IM, user->JM, user->KM, face_id, &can_service); CHKERRQ(ierr);
     if (!can_service) PetscFunctionReturn(0);
@@ -1076,6 +1046,7 @@ static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ct
     ierr = DMDAVecGetArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
+    ierr = DMDAVecGetArrayRead(user->fda, user->lUcat, (const Cmpnts***)&ucat); CHKERRQ(ierr);
 
     const PetscInt xs = info->xs, xe = info->xs + info->xm;
     const PetscInt ys = info->ys, ye = info->ys + info->ym;
@@ -1100,8 +1071,8 @@ static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ct
                     if ((sign > 0 && nvert[k][j][i + 1] > 0.1) ||
                         (sign < 0 && nvert[k][j][i] > 0.1)) continue;
                     const Cmpnts metric = csi[k][j][i];
-                    const Cmpnts velocity = EvaluateInletCartesianVelocity(self, face_id, i, j, k,
-                                                                           metric, sign);
+                    const Cmpnts velocity = rule(self, face_id, i, j, k, metric, sign,
+                                                 (sign > 0) ? ucat[k][j][i + 1] : ucat[k][j][i]);
                     ubcs[k][j][ib] = velocity;
                     ucont[k][j][i].x = velocity.x * metric.x + velocity.y * metric.y + velocity.z * metric.z;
                 }
@@ -1117,8 +1088,8 @@ static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ct
                     if ((sign > 0 && nvert[k][j + 1][i] > 0.1) ||
                         (sign < 0 && nvert[k][j][i] > 0.1)) continue;
                     const Cmpnts metric = eta[k][j][i];
-                    const Cmpnts velocity = EvaluateInletCartesianVelocity(self, face_id, i, j, k,
-                                                                           metric, sign);
+                    const Cmpnts velocity = rule(self, face_id, i, j, k, metric, sign,
+                                                 (sign > 0) ? ucat[k][j + 1][i] : ucat[k][j][i]);
                     ubcs[k][jb][i] = velocity;
                     ucont[k][j][i].y = velocity.x * metric.x + velocity.y * metric.y + velocity.z * metric.z;
                 }
@@ -1134,8 +1105,8 @@ static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ct
                     if ((sign > 0 && nvert[k + 1][j][i] > 0.1) ||
                         (sign < 0 && nvert[k][j][i] > 0.1)) continue;
                     const Cmpnts metric = zet[k][j][i];
-                    const Cmpnts velocity = EvaluateInletCartesianVelocity(self, face_id, i, j, k,
-                                                                           metric, sign);
+                    const Cmpnts velocity = rule(self, face_id, i, j, k, metric, sign,
+                                                 (sign > 0) ? ucat[k + 1][j][i] : ucat[k][j][i]);
                     ubcs[kb][j][i] = velocity;
                     ucont[k][j][i].z = velocity.x * metric.x + velocity.y * metric.y + velocity.z * metric.z;
                 }
@@ -1148,7 +1119,29 @@ static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ct
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, (const Cmpnts***)&csi); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, (const Cmpnts***)&eta); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->fda, user->lUcat, (const Cmpnts***)&ucat); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "Apply_InletVelocity"
+/**
+ * @brief Applies a Cartesian inlet velocity through the common face-layout path.
+ *
+ * @details The provider evaluation is mode-specific; ownership clipping, immersed-cell
+ *          exclusion, metric projection, `Ubcs` placement, and the normal staggered
+ *          `Ucont` write are `ApplyFaceBoundaryVelocity()`'s, shared with the walls.
+ */
+static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ctx)
+{
+    PetscFunctionBeginUser;
+    PetscCheck(self->type == BC_HANDLER_INLET_CONSTANT_VELOCITY ||
+               self->type == BC_HANDLER_INLET_PARABOLIC ||
+               self->type == BC_HANDLER_INLET_PROFILE_FROM_FILE,
+               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+               "Common inlet application cannot service handler type %d.", self->type);
+    PetscCall(ApplyFaceBoundaryVelocity(self, ctx, EvaluateInletCartesianVelocity));
     PetscFunctionReturn(0);
 }
 

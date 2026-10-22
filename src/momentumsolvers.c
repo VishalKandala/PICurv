@@ -486,12 +486,12 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
         const PetscBool npy1 = (PetscBool)(u->boundary_faces[BC_FACE_POS_Y].mathematical_type != PERIODIC);
         const PetscBool npz0 = (PetscBool)(u->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC);
         const PetscBool npz1 = (PetscBool)(u->boundary_faces[BC_FACE_POS_Z].mathematical_type != PERIODIC);
-        const PetscBool wxn = (PetscBool)(u->boundary_faces[BC_FACE_NEG_X].mathematical_type == WALL);
-        const PetscBool wxp = (PetscBool)(u->boundary_faces[BC_FACE_POS_X].mathematical_type == WALL);
-        const PetscBool wyn = (PetscBool)(u->boundary_faces[BC_FACE_NEG_Y].mathematical_type == WALL);
-        const PetscBool wyp = (PetscBool)(u->boundary_faces[BC_FACE_POS_Y].mathematical_type == WALL);
-        const PetscBool wzn = (PetscBool)(u->boundary_faces[BC_FACE_NEG_Z].mathematical_type == WALL);
-        const PetscBool wzp = (PetscBool)(u->boundary_faces[BC_FACE_POS_Z].mathematical_type == WALL);
+        const PetscBool wxn = BoundaryFaceHasWallShear(&u->boundary_faces[BC_FACE_NEG_X]);
+        const PetscBool wxp = BoundaryFaceHasWallShear(&u->boundary_faces[BC_FACE_POS_X]);
+        const PetscBool wyn = BoundaryFaceHasWallShear(&u->boundary_faces[BC_FACE_NEG_Y]);
+        const PetscBool wyp = BoundaryFaceHasWallShear(&u->boundary_faces[BC_FACE_POS_Y]);
+        const PetscBool wzn = BoundaryFaceHasWallShear(&u->boundary_faces[BC_FACE_NEG_Z]);
+        const PetscBool wzp = BoundaryFaceHasWallShear(&u->boundary_faces[BC_FACE_POS_Z]);
 
         Cmpnts ***ucont, ***ucat = NULL;
         Cmpnts ***icsi, ***ieta, ***izet, ***jcsi, ***jeta, ***jzet, ***kcsi, ***keta, ***kzet;

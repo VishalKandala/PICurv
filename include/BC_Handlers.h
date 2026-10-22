@@ -46,6 +46,19 @@ PetscErrorCode Validate_DrivenFlowConfiguration(UserCtx *user);
 PetscErrorCode Create_WallNoSlip(BoundaryCondition *bc);
 
 /**
+ * @brief Configures a BoundaryCondition object to behave as a free-slip wall.
+ *
+ * The wall is impenetrable and exerts no shear: the normal velocity vanishes and the
+ * tangential velocity has zero normal gradient, which is also the condition at a plane
+ * of symmetry. The boundary value follows the adjacent velocity, so the handler also
+ * provides `UpdateUbcs`.
+ *
+ * @param[in,out] bc Boundary object whose callbacks and handler metadata are installed.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode Create_WallFreeSlip(BoundaryCondition *bc);
+
+/**
  * @brief Configures a BoundaryCondition object to behave as a constant velocity inlet.
  *
  * @param[in,out] bc Boundary object configured with the constant-velocity inlet callbacks.

@@ -1741,6 +1741,95 @@ print(f"units equivalence: {len(unit)} particles agree to {worst:.1e}; dimension
 PY
 }
 
+# A free-slip wall is a plane of symmetry: the flow in a channel half bounded by one
+# equals the corresponding half of the full channel, to round-off. The variants cover
+# the eddy viscosity mirrored across the plane (LES) and the matrix-free Newton
+# residual that reads the reflected boundary (Newton Krylov).
+prepare_free_slip_symmetry_case() {
+  local case_dir="$1"
+  local half="$2"
+  local variant="$3"
+  python3 - "${case_dir}" "${half}" "${variant}" <<'PY'
+import sys
+import yaml
+
+case_dir, half, variant = sys.argv[1], sys.argv[2] == "1", sys.argv[3]
+paths = {name: f"{case_dir}/config/{name}.yml" for name in ("case", "solver", "monitor")}
+case, solver, monitor = (yaml.safe_load(open(paths[name], encoding="utf-8")) for name in ("case", "solver", "monitor"))
+case["run_control"].update({"start_step": 0, "total_steps": 3, "dt_physical": 0.02})
+case["grid"]["programmatic_settings"].update(
+    {"im": 4, "jm": 8 if half else 16, "km": 16, "yMaxs": 0.5 if half else 1.0, "zMaxs": 2.0})
+for bc in case["boundary_conditions"]:
+    if bc["face"] == "+Eta":
+        bc["handler"] = "free_slip" if half else "noslip"
+case["models"]["physics"]["particles"] = {"count": 0}
+case["models"]["physics"]["turbulence"] = (
+    {"les": {"enabled": True, "model": "constant_smagorinsky", "constant_cs": 0.1}}
+    if variant == "les" else {"les": False})
+solver["tolerances"].update({"max_iterations": 400, "relative_tol": 1e-12,
+                             "residual_absolute_tol": 1e-13, "residual_relative_tol": 1e-12})
+solver["poisson_solver"].update({"absolute_tolerance": 1e-14, "relative_tolerance": 1e-14,
+                                 "max_iterations": 400})
+if variant == "nk":
+    solver["strategy"]["momentum_solver"] = "Newton Krylov"
+    solver["momentum_solver"] = {"newton_krylov": {
+        "jacobian": {"type": "finite_difference", "finite_difference": {"mode": "matrix_free"}},
+        "preconditioner": {"model": "frozen_momentum_jacobian", "structure": {"type": "point_block"}},
+        "nonlinear_solver": {"method": "newtonls", "absolute_tolerance": 1e-13,
+                             "relative_tolerance": 1e-12, "step_tolerance": 1e-15, "max_iterations": 50}}}
+monitor.setdefault("io", {})["data_output_frequency"] = 1
+for name, cfg in zip(("case", "solver", "monitor"), (case, solver, monitor)):
+    yaml.safe_dump(cfg, open(paths[name], "w", encoding="utf-8"), sort_keys=False)
+PY
+}
+
+run_free_slip_symmetry_smoke() {
+  local variant=""
+  for variant in laminar les nk; do
+    local full_case="${tmp_root}/free-slip-${variant}-full"
+    local half_case="${tmp_root}/free-slip-${variant}-half"
+    local full_run="" half_run=""
+
+    "${picurv_exe}" init flat_channel --dest "${full_case}" >/dev/null
+    "${picurv_exe}" init flat_channel --dest "${half_case}" >/dev/null
+    prepare_free_slip_symmetry_case "${full_case}" 0 "${variant}"
+    prepare_free_slip_symmetry_case "${half_case}" 1 "${variant}"
+    run_case_workflow "${full_case}" "${full_case}/config/case.yml" "${full_case}/config/solver.yml" \
+      "${full_case}/config/monitor.yml" "${full_case}/config/post.yml" "free_slip_${variant}_full"
+    full_run="${LAST_RUN_DIR}"
+    run_case_workflow "${half_case}" "${half_case}/config/case.yml" "${half_case}/config/solver.yml" \
+      "${half_case}/config/monitor.yml" "${half_case}/config/post.yml" "free_slip_${variant}_half"
+    half_run="${LAST_RUN_DIR}"
+    python3 - "${repo_root}" "${full_run}" "${half_run}" "${variant}" <<'PY' || die "free-slip ${variant} half channel does not match the full channel's half"
+import glob
+import importlib.machinery
+import importlib.util
+import sys
+
+repo_root, full_run, half_run, variant = sys.argv[1:]
+loader = importlib.machinery.SourceFileLoader("picurv_spectra_gen", f"{repo_root}/generators/spectra.gen")
+module = importlib.util.module_from_spec(importlib.util.spec_from_loader("picurv_spectra_gen", loader))
+loader.exec_module(module)
+numpy = module.require_numpy()
+
+def load(run, nodes, field, components):
+    path = glob.glob(f"{run}/output/checkpoints/step_000000000003/eulerian/block_0000/{field}.dat")[0]
+    return module.extract_interior_cells(module.read_petsc_vec_binary(path), nodes, components)
+
+for field, components, tolerance in (("Ucat", 3, 1e-11), ("P", 1, 1e-9)):
+    full = load(full_run, (5, 17, 17), field, components)
+    half = load(half_run, (5, 9, 17), field, components)
+    lower = full[:, :half.shape[1]]
+    if field == "P":   # pressure is defined up to a constant
+        lower, half = lower - lower.mean(), half - half.mean()
+    error = float(numpy.abs(lower - half).max() / numpy.abs(lower).max())
+    print(f"free-slip {variant} {field}: relative difference {error:.2e}")
+    if not error <= tolerance:
+        sys.exit(1)
+PY
+  done
+}
+
 run_restart_equivalence_smoke() {
   local continuous_case="${tmp_root}/restart-equivalence-continuous"
   local split_case="${tmp_root}/restart-equivalence-split"
@@ -2201,6 +2290,8 @@ PY_SINGLE
 
   run_restart_equivalence_smoke
   run_newton_krylov_continue_smoke
+  echo "==> PICurv smoke: free-slip wall is a plane of symmetry"
+  run_free_slip_symmetry_smoke
 
   "${picurv_exe}" init brownian_motion --dest "${brownian_case}" >/dev/null
   prepare_brownian_case_analytical "${brownian_case}"

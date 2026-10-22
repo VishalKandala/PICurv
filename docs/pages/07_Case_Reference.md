@@ -1040,7 +1040,8 @@ you accept a modelled wall stress rather than a computed one.
 **Interactions.** Configured independently of the LES closure - enabling a turbulence model
 does not imply a wall function, and vice versa. The wall handler itself remains
 @ref p44_cap_noslip "noslip"; the wall function changes how the stress is imposed, not the
-BC selection.
+BC selection. A @ref p44_cap_free_slip "free_slip" wall exerts no stress, so the wall
+function is not applied there.
 
 The correction also reaches the LES closure. `Contra2Cart` rebuilds the Cartesian field
 from the contravariant one at the top of each timestep and so discards the previous
@@ -1195,6 +1196,7 @@ Supported type/handler combinations:
     `params.source.script` selects a compatible override
 - `OUTLET` + `conservation`
 - `WALL` + `noslip`
+- `WALL` + `free_slip` (also a plane of symmetry; the former `symmetry` type is retired)
 - `PERIODIC` + `geometric`
 - `PERIODIC` + `constant_flux` (`target_flux`, optional `enforce_seam_flux`; `apply_trim` is a deprecated alias)
 - `PERIODIC` + `initial_flux` (no params; optional `enforce_seam_flux`) - target measured from the initial condition
@@ -1203,7 +1205,7 @@ All six faces must be explicitly provided for each block.
 For detailed handler semantics, validation constraints, and C dispatch path, see **@subpage 44_Boundary_Conditions_Guide**.
 
 Optional per-face key `particle_policy: reflect | remove | wrap` sets what a particle
-crossing that face becomes. The default comes from the handler: `noslip` reflects, the
+crossing that face becomes. The default comes from the handler: both wall handlers reflect, the
 inlet and outlet handlers remove, the periodic handlers wrap. `wrap` is accepted on
 `PERIODIC` faces only, and they accept nothing else. See @ref p44_ppol_sec.
 

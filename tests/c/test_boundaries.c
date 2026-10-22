@@ -378,6 +378,7 @@ static PetscErrorCode TestBoundaryConditionFactoryImplementedHandlerMatrix(void)
     };
     const struct HandlerExpectation expectations[] = {
         {BC_HANDLER_WALL_NOSLIP, BC_PRIORITY_WALL, PETSC_TRUE, PETSC_FALSE},
+        {BC_HANDLER_WALL_FREE_SLIP, BC_PRIORITY_WALL, PETSC_TRUE, PETSC_FALSE},
         {BC_HANDLER_INLET_CONSTANT_VELOCITY, BC_PRIORITY_INLET, PETSC_TRUE, PETSC_TRUE},
         {BC_HANDLER_INLET_PARABOLIC, BC_PRIORITY_INLET, PETSC_TRUE, PETSC_TRUE},
         {BC_HANDLER_INLET_PROFILE_FROM_FILE, BC_PRIORITY_INLET, PETSC_TRUE, PETSC_TRUE},
@@ -778,6 +779,174 @@ static PetscErrorCode TestWallNoSlipHandlerFaceMatrix(void)
     }
 
     PetscCall(DestroyBoundaryHandler(&bc));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/** @brief Sets every entry of a three-component vector to one Cartesian value. */
+static PetscErrorCode SetUniformCartesian(Vec v, PetscReal x, PetscReal y, PetscReal z)
+{
+    PetscFunctionBeginUser;
+    PetscCall(VecStrideSet(v, 0, x));
+    PetscCall(VecStrideSet(v, 1, y));
+    PetscCall(VecStrideSet(v, 2, z));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests the free-slip wall across the full face matrix on a Cartesian grid.
+ *
+ * With an adjacent velocity of (1, 2, 3) the boundary value is that velocity less its
+ * component normal to the face, the normal flux vanishes, and the dummy cell mirrors the
+ * interior: the normal component reversed, the tangential ones kept. That mirror is the
+ * symmetry-plane condition.
+ */
+static PetscErrorCode TestWallFreeSlipHandlerFaceMatrix(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    BoundaryCondition *bc = NULL;
+    BCContext ctx;
+    Cmpnts ***ucont = NULL, ***ubcs = NULL, ***ucat = NULL;
+    const BCFace faces[] = {BC_FACE_NEG_X, BC_FACE_POS_X, BC_FACE_NEG_Y,
+                            BC_FACE_POS_Y, BC_FACE_NEG_Z, BC_FACE_POS_Z};
+    const PetscReal interior[3] = {1.0, 2.0, 3.0};
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMemzero(&ctx, sizeof(ctx)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_WALL_FREE_SLIP, &bc));
+    PetscCall(PicurvAssertBool((PetscBool)(bc->UpdateUbcs != NULL),
+                               "a free-slip wall refreshes its boundary value with the flow"));
+
+    for (size_t n = 0; n < sizeof(faces) / sizeof(faces[0]); ++n) {
+        const BCFace face = faces[n];
+        const PetscInt axis = (PetscInt)face / 2;
+        PetscInt ucont_k, ucont_j, ucont_i, ubcs_k, ubcs_j, ubcs_i;
+
+        for (PetscInt f = 0; f < 6; ++f) user->boundary_faces[f].mathematical_type = WALL;
+        PetscCall(VecSet(user->Ucont, 5.0));
+        PetscCall(VecSet(user->Bcs.Ubcs, 7.0));
+        PetscCall(SetUniformCartesian(user->Ucat, interior[0], interior[1], interior[2]));
+        PetscCall(SetUniformCartesian(user->lUcat, interior[0], interior[1], interior[2]));
+        ctx.user = user;
+        ctx.face_id = face;
+        PetscCall(bc->Apply(bc, &ctx));
+        PetscCall(UpdateDummyCells(user, FIELD_ID_UCAT));
+
+        PetscCall(GetRepresentativeFaceSlots(user, face, &ucont_k, &ucont_j, &ucont_i, &ubcs_k, &ubcs_j, &ubcs_i));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+        PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, &ucat));
+        PetscCall(PicurvAssertRealNear(0.0, GetFaceNormalComponent(ucont[ucont_k][ucont_j][ucont_i], face), 1.0e-12,
+                                       "a free-slip wall closes the face"));
+        for (PetscInt c = 0; c < 3; ++c) {
+            const PetscReal boundary = (&ubcs[ubcs_k][ubcs_j][ubcs_i].x)[c];
+            const PetscReal dummy = (&ucat[ubcs_k][ubcs_j][ubcs_i].x)[c];
+
+            PetscCall(PicurvAssertRealNear(c == axis ? 0.0 : interior[c], boundary, 1.0e-12,
+                                           "the boundary value is the adjacent velocity less its normal part"));
+            PetscCall(PicurvAssertRealNear(c == axis ? -interior[c] : interior[c], dummy, 1.0e-12,
+                                           "the dummy cell is the mirror image of the interior one"));
+        }
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, &ucat));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+        PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+    }
+
+    PetscCall(DestroyBoundaryHandler(&bc));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests the free-slip wall against a face whose normal is not a grid axis.
+ *
+ * The -Zeta face metric is (0, 3, 4), so the unit normal is (0, 0.6, 0.8). An adjacent
+ * velocity (1, 1, 1) has normal part 1.4 along it, leaving (1, 0.16, -0.12), whose flux
+ * through the face is zero.
+ */
+static PetscErrorCode TestWallFreeSlipCurvilinearNormal(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    BoundaryCondition *bc = NULL;
+    BCContext ctx;
+    Cmpnts ***zet = NULL, ***ucont = NULL, ***ubcs = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMemzero(&ctx, sizeof(ctx)));
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(DMDAVecGetArray(user->fda, user->lZet, &zet));
+    zet[0][3][3].x = 0.0;
+    zet[0][3][3].y = 3.0;
+    zet[0][3][3].z = 4.0;
+    PetscCall(DMDAVecRestoreArray(user->fda, user->lZet, &zet));
+    PetscCall(SetUniformCartesian(user->lUcat, 1.0, 1.0, 1.0));
+    PetscCall(BoundaryCondition_Create(BC_HANDLER_WALL_FREE_SLIP, &bc));
+    ctx.user = user;
+    ctx.face_id = BC_FACE_NEG_Z;
+    PetscCall(bc->Apply(bc, &ctx));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucont, &ucont));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(PicurvAssertRealNear(0.0, ucont[0][3][3].z, 1.0e-12, "no flux through a tilted free-slip face"));
+    PetscCall(PicurvAssertRealNear(1.0, ubcs[0][3][3].x, 1.0e-12, "the tangential x component is kept"));
+    PetscCall(PicurvAssertRealNear(0.16, ubcs[0][3][3].y, 1.0e-12, "the normal part is removed from y"));
+    PetscCall(PicurvAssertRealNear(-0.12, ubcs[0][3][3].z, 1.0e-12, "the normal part is removed from z"));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Bcs.Ubcs, &ubcs));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &ucont));
+
+    PetscCall(DestroyBoundaryHandler(&bc));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests which faces exert shear, and that only a free-slip wall mirrors the eddy viscosity.
+ */
+static PetscErrorCode TestFreeSlipWallExertsNoShear(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    PetscReal ***nu_t = NULL;
+    const PetscInt mid = 3;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    user->boundary_faces[BC_FACE_NEG_X].mathematical_type = WALL;
+    user->boundary_faces[BC_FACE_NEG_X].handler_type = BC_HANDLER_WALL_NOSLIP;
+    user->boundary_faces[BC_FACE_POS_X].mathematical_type = WALL;
+    user->boundary_faces[BC_FACE_POS_X].handler_type = BC_HANDLER_WALL_FREE_SLIP;
+    user->boundary_faces[BC_FACE_NEG_Y].mathematical_type = INLET;
+    user->boundary_faces[BC_FACE_NEG_Y].handler_type = BC_HANDLER_INLET_CONSTANT_VELOCITY;
+    PetscCall(PicurvAssertBool(BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_NEG_X]),
+                               "a no-slip wall exerts shear"));
+    PetscCall(PicurvAssertBool((PetscBool)!BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_POS_X]),
+                               "a free-slip wall exerts none"));
+    PetscCall(PicurvAssertBool((PetscBool)!BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_NEG_Y]),
+                               "an inlet is not a wall"));
+
+    /* The minimal context carries no turbulence storage; this test owns its Nu_t. */
+    PetscCall(DMCreateGlobalVector(user->da, &user->Nu_t));
+    PetscCall(DMCreateLocalVector(user->da, &user->lNu_t));
+    PetscCall(VecSet(user->Nu_t, 0.0));
+    PetscCall(DMDAVecGetArray(user->da, user->Nu_t, &nu_t));
+    for (PetscInt k = user->info.zs; k < user->info.zs + user->info.zm; ++k)
+        for (PetscInt j = user->info.ys; j < user->info.ys + user->info.ym; ++j)
+            for (PetscInt i = 1; i < user->info.mx - 1; ++i) nu_t[k][j][i] = 0.01 * i;
+    PetscCall(DMDAVecRestoreArray(user->da, user->Nu_t, &nu_t));
+    PetscCall(UpdateDummyCells(user, FIELD_ID_NU_T));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->Nu_t, &nu_t));
+    PetscCall(PicurvAssertRealNear(0.01 * (user->info.mx - 2), nu_t[mid][mid][user->info.mx - 1], 0.0,
+                                   "the eddy viscosity mirrors across a free-slip wall"));
+    PetscCall(PicurvAssertRealNear(0.0, nu_t[mid][mid][0], 0.0,
+                                   "a no-slip wall replaces the face value, so its dummy is not written"));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->Nu_t, &nu_t));
+    PetscCall(VecDestroy(&user->Nu_t));
+    PetscCall(VecDestroy(&user->lNu_t));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
@@ -1512,6 +1681,41 @@ static PetscErrorCode TestApplyWallFunctionSkipsNonWallFaces(void)
 }
 
 /**
+ * @brief Tests that the wall model leaves a free-slip wall alone.
+ */
+static PetscErrorCode TestApplyWallFunctionSkipsFreeSlipWalls(void)
+{
+    SimCtx      *simCtx = NULL;
+    UserCtx     *user = NULL;
+    Cmpnts    ***ucat = NULL;
+    PetscReal    before = 0.0, after = 0.0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    simCtx->ren = 1000.0;
+    simCtx->wallfunction = 1;
+    simCtx->wall_roughness_height = 1.0e-16;
+    PetscCall(SeedWallFrictionVelocityStorage(user));
+    user->boundary_faces[BC_FACE_NEG_X].mathematical_type = WALL;
+    user->boundary_faces[BC_FACE_NEG_X].handler_type = BC_HANDLER_WALL_FREE_SLIP;
+    PetscCall(SeedWallFunctionFixture(user, 1.0));
+
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, (const Cmpnts ***)&ucat));
+    before = ucat[2][2][1].y;
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, (const Cmpnts ***)&ucat));
+    PetscCall(ApplyWallFunction(user));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->Ucat, (const Cmpnts ***)&ucat));
+    after = ucat[2][2][1].y;
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucat, (const Cmpnts ***)&ucat));
+    PetscCall(PicurvAssertRealNear(before, after, 0.0, "a free-slip wall carries no wall model"));
+
+    PetscCall(VecDestroy(&user->Friction_Velocity));
+    PetscCall(VecDestroy(&user->lFriction_Velocity));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests that every wall law's friction velocity responds to the flow it is given.
  *
  * A law that ignores the resolved velocity and reports a fixed number still slows the
@@ -1819,6 +2023,9 @@ int main(int argc, char **argv)
         {"deterministic-face-grid-location-matrix", TestGetDeterministicFaceGridLocationFaceMatrix},
         {"random-inlet-face-location-matrix", TestGetRandomCellAndLogicalCoordsOnInletFaceMatrix},
         {"wall-no-slip-handler-face-matrix", TestWallNoSlipHandlerFaceMatrix},
+        {"wall-free-slip-handler-face-matrix", TestWallFreeSlipHandlerFaceMatrix},
+        {"wall-free-slip-curvilinear-normal", TestWallFreeSlipCurvilinearNormal},
+        {"free-slip-wall-exerts-no-shear", TestFreeSlipWallExertsNoShear},
         {"dummy-cells-follow-each-fields-boundary-rule", TestDummyCellsFollowEachFieldsBoundaryRule},
         {"inlet-constant-velocity-handler-behavior", TestInletConstantVelocityHandlerBehavior},
         {"inlet-common-application-curvilinear-metric", TestInletCommonApplicationCurvilinearMetric},
@@ -1833,6 +2040,7 @@ int main(int argc, char **argv)
         {"enforce-rhs-bcs-matches-row-classification", TestEnforceRHSBoundaryConditionsMatchesRowClassification},
         {"apply-wall-function-matches-the-log-law", TestApplyWallFunctionMatchesTheLogLawItDispatches},
         {"apply-wall-function-skips-non-wall-faces", TestApplyWallFunctionSkipsNonWallFaces},
+        {"apply-wall-function-skips-free-slip-walls", TestApplyWallFunctionSkipsFreeSlipWalls},
         {"wall-function-model-selector-chooses-the-law", TestWallFunctionModelSelectorChoosesTheLaw},
         {"wall-model-friction-velocity-responds-to-the-flow", TestWallModelFrictionVelocityRespondsToTheFlow},
         {"wall-friction-velocity-storage-matches-the-catalog", TestWallFrictionVelocityStorageMatchesTheCatalog},

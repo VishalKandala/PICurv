@@ -25,10 +25,12 @@ precedence used where faces meet at an edge.
 
 @htmlinclude generated/capability_inventory_boundary_type.html
 
-@warning `symmetry` is accepted by the type map but **no public handler supports
-it**, so any complete configuration using it is rejected. It is listed as latent
-rather than removed because the C enum still carries `SYMMETRY`; it is not a
-capability you can select today.
+**A symmetry plane is a free-slip wall.** Across a plane of symmetry the normal
+velocity vanishes, the tangential velocity has zero normal gradient, and so do the
+scalars: exactly the conditions of a wall that exerts no shear. PICurv therefore
+offers it as `type: wall` with @ref p44_cap_free_slip "free_slip" rather than as a
+boundary type of its own. The former `symmetry` type is retired: a case naming it is
+refused with that substitution, and the C type parser refuses `SYMMETRY` the same way.
 
 @subsection p44_type_wall_sub wall
 
@@ -36,7 +38,13 @@ capability you can select today.
 
 **Identity.** `type: wall` -> `WALL` -> priority `BC_PRIORITY_WALL`.
 
-**What it does.** Marks a face as a solid surface. Legal handler: @ref p44_cap_noslip "noslip".
+**What it does.** Marks a face as an impenetrable surface. Legal handlers:
+@ref p44_cap_noslip "noslip" and @ref p44_cap_free_slip "free_slip". Everything that
+depends only on impenetrability (zero normal flux, the pressure solve's zero normal
+flux, particle reflection, the scalars' zero-gradient dummy cells, Newton Krylov's
+fixed wall-normal unknowns) applies to every wall. What depends on shear (the wall
+model, its eddy viscosity on the wall face, and the cells it writes) applies only to a
+wall whose handler exerts it, as `BoundaryFaceHasWallShear()` reports.
 
 **When to choose it.** Any impermeable physical surface.
 
@@ -193,6 +201,56 @@ every shipped wall-bounded example. Analytically verified - `duct-poiseuille-pic
 
 **Limitations.** `MOVING_WALL` exists in the C enum but is not exposed through the
 validator, so a moving wall cannot currently be configured from YAML.
+
+@subsection p44_cap_free_slip_sub free_slip
+
+@anchor p44_cap_free_slip
+
+**Identity.** `handler: free_slip` on a `WALL` face -> `BC_HANDLER_WALL_FREE_SLIP` ->
+@ref Create_WallFreeSlip.
+
+**What it does.** An impenetrable wall that exerts no shear. Its boundary velocity is
+the adjacent interior velocity less its component along the face metric, so the face
+flux vanishes and the dummy cell is the mirror image of the interior one: normal
+velocity reversed, tangential velocity kept, which is zero normal gradient. The value
+follows the flow, so the handler refreshes it on every boundary pass and after each
+projection (`UpdateUbcs`). The metric is the face's own normal, so the construction
+holds on curvilinear grids. Across the wall the eddy viscosity is mirrored too
+(`UpdateDummyCells`), and so are the edge cells where it meets another face
+(`UpdateCornerNodes`). Pressure and the scalars take zero normal gradient as on any
+wall.
+
+**When to choose it.** At a plane of symmetry, to solve half of a symmetric problem;
+or at a far boundary where the flow should neither cross nor be retarded, such as the
+cross-stream boundaries of a temporal mixing layer. Choose `noslip` for a solid wall
+the fluid adheres to.
+
+**Parameters it owns.** None.
+
+**Interactions.** Particles reflect by default. A wall function configured for the
+case is not applied on a free-slip face, and the face takes the interior face average
+of the eddy viscosity rather than a wall value. Supported by every momentum solver,
+Newton Krylov included: its matrix-free residual reconstructs the Cartesian state
+from the trial vector before the boundary is applied, so the reflected boundary is a
+function of the trial state alone. The channel and duct spectral initial conditions
+accept free-slip walls, since their perturbations vanish at the wall.
+
+**Diagnostics.** The startup banner lists the face as `free_slip`. The first-cell
+tangential velocity is free to be nonzero; a wall-normal velocity in the dummy cell
+that is not the negative of the interior one indicates the handler did not run.
+
+**Evidence.** Unit verified - `make unit-boundaries` (`tests/c/test_boundaries.c`): zero
+face flux, the mirrored dummy cell on all six faces, the tangential projection on a tilted face, no wall model on a
+free-slip face, the mirrored eddy viscosity; `make unit-newton-krylov`: a deterministic
+residual and a converged solve with and without the point-block preconditioner.
+Integration verified - `make smoke` (`free-slip wall is a plane of symmetry`): a channel
+half bounded by a free-slip wall equals the corresponding half of the full no-slip
+channel after three steps to round-off, for laminar Picard, constant-Smagorinsky LES,
+and Newton Krylov with the point-block preconditioner.
+
+**Limitations.** No moving free-slip wall. On a curvilinear grid an edge cell is
+mirrored along the metric of the cell it mirrors, which is exact only where the grid
+is orthogonal to the wall there.
 
 @subsection p44_cap_constant_velocity_sub constant_velocity
 
@@ -785,11 +843,13 @@ C ingestion path:
 3. `ValidateBCHandlerForBCType` enforces type-handler compatibility.
 4. @ref BoundaryCondition_Create maps handler enums to concrete implementations.
 
-The constant, parabolic, and prescribed-flow inlet handlers share one application
-path. Each mode evaluates a Cartesian boundary velocity; the common path stores it
-in `Ubcs` and sets the face-normal `Ucont` component from its dot product with the
-local face-area metric. The current scalar modes obtain that Cartesian vector by
-aligning their speed with the signed unit metric normal.
+The inlet handlers and both wall handlers share one application path,
+`ApplyFaceBoundaryVelocity()`. Each evaluates a Cartesian boundary velocity; the common
+path stores it in `Ubcs` and sets the face-normal `Ucont` component from its dot
+product with the local face-area metric, skipping a slot whose fluid side an immersed
+body blanks. The inlet modes align their speed with the signed unit metric normal; the
+no-slip wall is at rest; the free-slip wall takes the adjacent velocity's tangential
+part, whose flux is zero by construction.
 
 `boundary_faces` is the canonical in-memory representation. Do not restore or
 maintain duplicate persistent legacy BC arrays in `UserCtx`. If a future
@@ -799,6 +859,7 @@ on-demand adapter only when a concrete consumer exists.
 Current factory-wired handlers include:
 
 - wall no-slip,
+- wall free-slip,
 - inlet constant velocity,
 - inlet parabolic,
 - inlet prescribed flow from file,
@@ -811,7 +872,7 @@ Current factory-wired handlers include:
 
 Important contributor note:
 
-- C enums include additional BC categories and handlers (for example symmetry-family entries),
+- C enums include additional BC categories and handlers (moving walls, far field, characteristic),
 - but the current end-to-end user contract intentionally exposes the validated subset listed above.
 - `source.type: field_slice` is Python-side preprocessing only: it creates the
   same staged `source_file` contract used by file-backed and generated profiles.
