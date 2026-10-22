@@ -1847,11 +1847,14 @@
           }
         },
         "cross_section": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "make:test-python"
+            ],
+            "benchmark": [
+              "measurement:reducer-cross-section-old-tool-2026-10-22"
             ]
           }
         },

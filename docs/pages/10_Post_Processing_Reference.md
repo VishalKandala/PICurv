@@ -1021,7 +1021,11 @@ homogeneous.
 estimates the remaining sampling error, and is a reason to lengthen the window if it
 rivals the secondary flow.
 
-**Evidence.** Unit verified - `make test-python`: the octant fold's symmetries, the
+**Evidence.** Benchmark - `reducer-cross-section-old-tool-2026-10-22`: on an LES
+square duct at Re_b 4410 it reproduces the retired `cross_section_profile.py` to
+round-off, folded and unfolded (largest difference 3.3e-11 of the column maximum,
+in the last printed digits), with the driven-flow friction velocity read through the
+restart lineage. Unit verified - `make test-python`: the octant fold's symmetries, the
 bulk velocity, and the body-force and driven-flow friction velocities on a synthetic
 profile.
 

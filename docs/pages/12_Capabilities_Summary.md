@@ -144,7 +144,7 @@ Pipeline capabilities include:
   the particles within each cell, or of a snapshot field, derived the same way,
 - profiles of any of those statistics merged over homogeneous directions,
 - conductor-side reducers over those profiles: a channel's wall-unit profile and
-  per-step thickness histories, and (experimental) a duct's cross-section and bisectors,
+  per-step thickness histories, and a duct's cross-section and bisectors,
 - output field selection from checkpoint payloads (input extensions are fixed to `dat`),
 - optional physical-time PVD collections spanning compatible restart ancestry,
   controlled by `post.yml -> io.paraview_series`; see @ref p66_pvd_evidence for

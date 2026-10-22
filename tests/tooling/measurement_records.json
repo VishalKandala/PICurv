@@ -1226,6 +1226,21 @@
       },
       "limitations": "At 0.085 particles per cell 92% of cells were empty, which this commit counted as zeros in the eulerian Psi ensemble; that was corrected in 2aa7d4c and is not re-measured here. Profiles then printed 11 digits.",
       "artifacts": []
+    },
+    {
+      "id": "reducer-cross-section-old-tool-2026-10-22",
+      "question": "Does the cross_section reducer, reading the post-processor's single-homogeneous-direction profile, reproduce the retired cross_section_profile.py, folded and unfolded?",
+      "date": "2026-10-22",
+      "commit": "7d10936; baseline cross_section_profile.py as of bf4f687",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized, batch post job.",
+      "configuration": "LES square duct, Re_b 4410, run duct_les_reb4410_prod_20261009-194015 branched for 10 steps with statistics carried; 64 x 64 x 128 cells, nu 4.5351474e-4, constant_flux along Zeta; stationary window t 150-650 with Ucat first and second moments, step 32500. Reducer cross_section with friction_velocity driven_flow, run with fold true and fold false; baseline run with --driven-flow-csv and --no-fold.",
+      "result": {
+        "measured": "Headers identical and u_tau identical (7.1189779817e-02, read through the restart lineage). Largest difference over column maximum: folded 2.8e-12 (cross_section), 2.3e-16 (wall_bisector), 1.1e-16 (corner_bisector), 0 (wall_shear); unfolded 3.3e-11, 0, 4.2e-20, 0. Largest relative difference on non-zero entries 1.2e-11 folded, 7.7e-11 unfolded.",
+        "threshold": "Agreement to round-off.",
+        "verdict": "met"
+      },
+      "limitations": "One duct, one window, one step, rectilinear and mirror-symmetric grid. The baseline printed 11 significant digits, so agreement finer than about 1e-10 is not observable. The header's peak-secondary-speed coordinates are listed in the opposite order to the baseline, consistent with a tie between mirror-image maxima; not investigated further.",
+      "artifacts": []
     }
   ]
 }

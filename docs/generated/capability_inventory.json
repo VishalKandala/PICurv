@@ -878,7 +878,7 @@
     "public_values": {
       "cross_section": {
         "maps_to": "cross_section",
-        "status": "experimental"
+        "status": "supported"
       },
       "profile_series": {
         "maps_to": "profile_series",
