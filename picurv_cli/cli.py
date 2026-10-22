@@ -204,6 +204,37 @@ def _add_sweep_parser(subparsers):
     return p_sweep
 
 
+class _LazyVersionAction(argparse.Action):
+    """!
+    @brief `--version`, resolving the build identity only when the flag is given.
+    @details argparse's own version action formats its string while the parser is built,
+             which would run git for every command; this one defers it to the flag.
+    """
+
+    def __init__(self, option_strings, dest=argparse.SUPPRESS, default=argparse.SUPPRESS, help=None):
+        """!
+        @brief Register a flag that takes no value.
+        @param[in] option_strings Flag spellings.
+        @param[in] dest Unused destination.
+        @param[in] default Unused default.
+        @param[in] help Help text.
+        """
+        super().__init__(option_strings=option_strings, dest=dest, default=default, nargs=0,
+                         help=help or "show program's version number and exit")
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        """!
+        @brief Print `picurv <version>` and exit.
+        @param[in] parser Parser being run.
+        @param[in] namespace Unused namespace.
+        @param[in] values Unused values.
+        @param[in] option_string Flag used.
+        """
+        # stdout, as argparse's own version action prints it.
+        print(f"picurv {picurv_build()['version']}")
+        parser.exit()
+
+
 def _add_validate_parser(subparsers):
     """!
     @brief Perform add validate parser.
@@ -745,7 +776,7 @@ def build_main_parser():
             "  - Run cancellation: picurv cancel --run-dir ...; use --graceful for solver final-output shutdown"
         ),
     )
-    parser.add_argument("-v", "--version", action="version", version=f"picurv {PICURV_VERSION}")
+    parser.add_argument("-v", "--version", action=_LazyVersionAction)
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
     _add_run_parser(subparsers)
     _add_sweep_parser(subparsers)

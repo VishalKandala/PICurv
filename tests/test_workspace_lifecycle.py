@@ -295,9 +295,9 @@ def test_stale_runtime_binaries_are_reported_against_the_active_source(tmp_path,
     @param[in] capsys Pytest capture fixture.
     @param[in] monkeypatch Pytest monkeypatch fixture.
     """
-    monkeypatch.setitem(core.PICURV_BUILD, "git_commit", "abcdef1234567890abcdef")
-    monkeypatch.setitem(core.PICURV_BUILD, "dirty", False)
-    monkeypatch.setitem(core.PICURV_BUILD, "build_id", "0.2.0+gabcdef123456")
+    monkeypatch.setitem(core.picurv_build(), "git_commit", "abcdef1234567890abcdef")
+    monkeypatch.setitem(core.picurv_build(), "dirty", False)
+    monkeypatch.setitem(core.picurv_build(), "build_id", "0.2.0+gabcdef123456")
     _fake_binary(tmp_path / "simulator", "simulator 0.2.0+gabcdef123456")
     _fake_binary(tmp_path / "postprocessor", "postprocessor 0.2.0+g999999999999")
     monkeypatch.setattr(core, "INVOKED_SCRIPT_DIR", str(tmp_path))
@@ -503,15 +503,15 @@ def test_reproducibility_policy_refuses_a_development_build(tmp_path, monkeypatc
     payload["reproducibility"] = {"require_clean_release": True}
     core.write_yaml_file(str(config), payload)
 
-    monkeypatch.setitem(core.PICURV_BUILD, "dirty", True)
-    monkeypatch.setitem(core.PICURV_BUILD, "dev_distance", 12)
-    monkeypatch.setitem(core.PICURV_BUILD, "build_id", "0.2.0.dev12+gabc.dirty")
+    monkeypatch.setitem(core.picurv_build(), "dirty", True)
+    monkeypatch.setitem(core.picurv_build(), "dev_distance", 12)
+    monkeypatch.setitem(core.picurv_build(), "build_id", "0.2.0.dev12+gabc.dirty")
     with pytest.raises(ValueError, match="require_clean_release"):
         core.enforce_reproducibility_policy(str(workspace))
 
     # A clean release satisfies it, and no policy at all is never enforced.
-    monkeypatch.setitem(core.PICURV_BUILD, "dirty", False)
-    monkeypatch.setitem(core.PICURV_BUILD, "dev_distance", 0)
+    monkeypatch.setitem(core.picurv_build(), "dirty", False)
+    monkeypatch.setitem(core.picurv_build(), "dev_distance", 0)
     assert core.enforce_reproducibility_policy(str(workspace))["require_clean_release"] is True
     payload.pop("reproducibility")
     core.write_yaml_file(str(config), payload)
@@ -564,9 +564,9 @@ def test_build_identity_problems_reports_stale_and_workspace_mismatch(tmp_path, 
     @param[in] tmp_path Pytest temporary-directory fixture.
     @param[in] monkeypatch Pytest monkeypatch fixture.
     """
-    monkeypatch.setitem(core.PICURV_BUILD, "git_commit", "abcdef1234567890abcdef")
-    monkeypatch.setitem(core.PICURV_BUILD, "dirty", False)
-    monkeypatch.setitem(core.PICURV_BUILD, "build_id", "0.2.0+gabcdef123456")
+    monkeypatch.setitem(core.picurv_build(), "git_commit", "abcdef1234567890abcdef")
+    monkeypatch.setitem(core.picurv_build(), "dirty", False)
+    monkeypatch.setitem(core.picurv_build(), "build_id", "0.2.0+gabcdef123456")
     _fake_binary(tmp_path / "simulator", "simulator 0.2.0+gabcdef123456")
     _fake_binary(tmp_path / "postprocessor", "postprocessor 0.2.0+g999999999999")
     monkeypatch.setattr(core, "INVOKED_SCRIPT_DIR", str(tmp_path))
@@ -839,7 +839,7 @@ def test_versions_install_fails_when_the_build_does_not_carry_the_new_identity(t
     """!
     @brief Success is reported only after the executables are checked against the new source.
 
-    @details The conductor's own PICURV_BUILD still describes the commit it started on,
+    @details The conductor's own picurv_build() still describes the commit it started on,
              so the check must use the identity read after the checkout moved.
     @param[in] tmp_path Pytest temporary-directory fixture.
     @param[in] monkeypatch Pytest monkeypatch fixture.
@@ -1247,7 +1247,7 @@ def test_versions_list_orders_tags_by_version_not_text(tmp_path, monkeypatch, ca
     core.versions_workflow(build_main_parser().parse_args(["versions", "list"]))
 
     out = capsys.readouterr().out
-    assert out.startswith(f"Active: {core.PICURV_BUILD['build_id']}")
+    assert out.startswith(f"Active: {core.picurv_build()['build_id']}")
     listed = [line.strip() for line in out.splitlines() if line.startswith("  ")]
     assert listed == ["v1.10.0", "v1.9.0", "v1.2.0", "v1.0.0"]
 

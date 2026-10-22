@@ -24,6 +24,7 @@ import glob
 import csv
 import json
 import hashlib
+import functools
 import itertools
 import re
 import shlex
@@ -220,9 +221,29 @@ def _read_release_version() -> str:
     return value or "0.0.0"
 
 
+def _git_output(*arguments) -> "str | None":
+    """!
+    @brief Run one git command in the source checkout.
+    @param[in] arguments Git arguments.
+    @return Stripped standard output, or None when git is unavailable or the command fails.
+    """
+    try:
+        result = subprocess.run(["git", *arguments], cwd=PACKAGE_PROJECT_ROOT,
+                                text=True, capture_output=True, check=False)
+    except OSError:
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
 def _source_build_identity(release_version: str) -> dict:
     """!
     @brief Resolve reproducible release, commit, and dirty-tree build identity.
+    @details One `git describe --long --dirty` gives the commit, its distance from the
+             release tag, and whether tracked files differ from it (untracked files are
+             ignored, as `git status --untracked-files=no` did). Only when the tag is
+             missing does it fall back to the commit, a dirty check, and the commit count.
+             On a cold network filesystem each git call costs seconds, which is why this is
+             reached lazily through picurv_build() rather than at import.
     @param[in] release_version Release version read from VERSION.
     @return Mapping suitable for manifests and user-facing status output.
     """
@@ -233,47 +254,28 @@ def _source_build_identity(release_version: str) -> dict:
         "git_short_commit": None,
         "dirty": None,
         "build_id": release_version,
+        "dev_distance": None,
+        "released": False,
     }
-    try:
-        commit_result = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=PACKAGE_PROJECT_ROOT,
-            text=True, capture_output=True, check=False,
-        )
-        dirty_result = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=no"],
-            cwd=PACKAGE_PROJECT_ROOT, text=True, capture_output=True, check=False,
-        )
-        if commit_result.returncode == 0:
-            commit = commit_result.stdout.strip()
-            identity["git_commit"] = commit
-            identity["git_short_commit"] = commit[:12]
-        if dirty_result.returncode == 0:
-            identity["dirty"] = bool(dirty_result.stdout.strip())
-    except OSError:
-        pass
+    described = _git_output("describe", "--tags", "--long", "--dirty", "--abbrev=40",
+                            "--match", f"v{release_version}")
+    match = re.match(r"^v.+-(\d+)-g([0-9a-f]{40})(-dirty)?$", described or "")
+    if match:
+        identity["dev_distance"] = int(match.group(1))
+        identity["git_commit"] = match.group(2)
+        identity["dirty"] = bool(match.group(3))
+    else:
+        # No tag for this release yet: every commit is development toward it.
+        identity["git_commit"] = _git_output("rev-parse", "HEAD")
+        status = _git_output("status", "--porcelain", "--untracked-files=no")
+        identity["dirty"] = None if status is None else bool(status)
+        count = _git_output("rev-list", "--count", "HEAD")
+        if count is not None and count.isdigit():
+            identity["dev_distance"] = int(count)
+    if identity["git_commit"]:
+        identity["git_short_commit"] = identity["git_commit"][:12]
     # Commits since the release tag, so a development build is visibly ahead of the
     # release it names rather than claiming to be that release.
-    identity["dev_distance"] = None
-    identity["released"] = False
-    try:
-        tag_result = subprocess.run(
-            ["git", "describe", "--tags", "--match", f"v{release_version}", "--long"],
-            cwd=PACKAGE_PROJECT_ROOT, text=True, capture_output=True, check=False,
-        )
-        if tag_result.returncode == 0:
-            parts = tag_result.stdout.strip().rsplit("-", 2)
-            if len(parts) == 3 and parts[1].isdigit():
-                identity["dev_distance"] = int(parts[1])
-        else:
-            # No tag for this release yet: every commit is development toward it.
-            count_result = subprocess.run(
-                ["git", "rev-list", "--count", "HEAD"], cwd=PACKAGE_PROJECT_ROOT,
-                text=True, capture_output=True, check=False,
-            )
-            if count_result.returncode == 0 and count_result.stdout.strip().isdigit():
-                identity["dev_distance"] = int(count_result.stdout.strip())
-    except OSError:
-        pass
     identity["released"] = identity["dev_distance"] == 0 and not identity["dirty"]
     if identity["git_short_commit"]:
         development = "" if identity["dev_distance"] in (0, None) else f".dev{identity['dev_distance']}"
@@ -285,9 +287,18 @@ def _source_build_identity(release_version: str) -> dict:
     return identity
 
 
+@functools.lru_cache(maxsize=None)
+def picurv_build() -> dict:
+    """!
+    @brief The conductor's own build identity, resolved on first use and kept for the process.
+    @details Commands that only parse, validate, or scaffold never touch git; manifests,
+             locks, and `picurv version` do, once. Callers that store it copy it.
+    @return The cached identity mapping from _source_build_identity().
+    """
+    return _source_build_identity(PICURV_RELEASE_VERSION)
+
+
 PICURV_RELEASE_VERSION = _read_release_version()
-PICURV_BUILD = _source_build_identity(PICURV_RELEASE_VERSION)
-PICURV_VERSION = PICURV_BUILD["version"]
 CASE_ORIGIN_METADATA_FILENAME = ".picurv-origin.json"
 WORKSPACE_CONFIG_FILENAME = ".picurv-workspace.yml"
 WORKSPACE_SCHEMA_VERSION = 1
@@ -518,7 +529,7 @@ def enforce_workspace_version(workspace_root: str) -> dict:
     software = payload.get("software") or {}
     requirement = software.get("picurv") if isinstance(software, dict) else None
     if requirement in (None, ""):
-        return dict(PICURV_BUILD)
+        return dict(picurv_build())
     try:
         from packaging.specifiers import SpecifierSet
         from packaging.version import Version
@@ -534,7 +545,7 @@ def enforce_workspace_version(workspace_root: str) -> dict:
     if not matches:
         raise ValueError(
             f"Workspace requires PICurv {requirement!r}, but the active release is "
-            f"{PICURV_RELEASE_VERSION} (build {PICURV_BUILD['build_id']}).\n"
+            f"{PICURV_RELEASE_VERSION} (build {picurv_build()['build_id']}).\n"
             f"Activate a matching installation with 'picurv versions activate <version>' "
             "and retry.\n"
             f"Note: {PACKAGE_PROJECT_ROOT} is a single shared installation. Activating "
@@ -543,7 +554,7 @@ def enforce_workspace_version(workspace_root: str) -> dict:
             "satisfied at once. A run staged with --pin-executables keeps its own copy and "
             "survives an activation."
         )
-    return dict(PICURV_BUILD)
+    return dict(picurv_build())
 
 
 def enforce_reproducibility_policy(workspace_root: str) -> dict:
@@ -566,19 +577,19 @@ def enforce_reproducibility_policy(workspace_root: str) -> dict:
         return {}
     if policy.get("require_clean_release"):
         problems = []
-        if PICURV_BUILD.get("dirty"):
+        if picurv_build().get("dirty"):
             problems.append("the source tree has uncommitted changes")
-        if PICURV_BUILD.get("dev_distance"):
+        if picurv_build().get("dev_distance"):
             problems.append(
-                f"HEAD is {PICURV_BUILD['dev_distance']} commit(s) past the "
+                f"HEAD is {picurv_build()['dev_distance']} commit(s) past the "
                 f"v{PICURV_RELEASE_VERSION} release tag"
             )
-        elif PICURV_BUILD.get("dev_distance") is None:
+        elif picurv_build().get("dev_distance") is None:
             problems.append("the release tag could not be resolved from this checkout")
         if problems:
             raise ValueError(
                 f"{WORKSPACE_CONFIG_FILENAME} sets reproducibility.require_clean_release, "
-                f"but this build is {PICURV_BUILD['build_id']}: " + "; ".join(problems) + ".\n"
+                f"but this build is {picurv_build()['build_id']}: " + "; ".join(problems) + ".\n"
                 "Commit and tag the release, or clear the policy for exploratory work."
             )
     if policy.get("pin_executables"):
@@ -856,9 +867,9 @@ def build_software_lock(run_dir: "str | None" = None) -> dict:
     lock = {
         "schema_version": 1,
         "picurv_version": PICURV_RELEASE_VERSION,
-        "build_id": PICURV_BUILD.get("build_id"),
-        "git_commit": PICURV_BUILD.get("git_commit"),
-        "git_dirty": PICURV_BUILD.get("dirty"),
+        "build_id": picurv_build().get("build_id"),
+        "git_commit": picurv_build().get("git_commit"),
+        "git_dirty": picurv_build().get("dirty"),
         "captured_at": datetime.now().astimezone().isoformat(),
         "executables": {},
         "generators": {},
@@ -1381,7 +1392,7 @@ def build_run_manifest(run_dir: str, run_id: str, *, workspace_root=None,
             (load_workspace_config(workspace_root).get("workspace") or {})
             if workspace_root else None
         ),
-        "software": dict(PICURV_BUILD),
+        "software": dict(picurv_build()),
         # The conductor's identity says which source staged the run; the binaries'
         # says which build produced its checkpoints. They can differ - an edited C
         # tree that was never rebuilt - so provenance records both.
@@ -1752,6 +1763,8 @@ _BINARY_PETSC_PATTERN = re.compile(
 )
 #: Marker in front of the same text inside the executable, readable without running it.
 _BINARY_PETSC_STAMP_MARKER = b"PICURV_PETSC_BUILD:"
+#: Marker of the build-identity stamp in an executable (src/setup.c, picurv_build_stamp).
+_BINARY_BUILD_STAMP_MARKER = b"PICURV_BUILD:"
 
 
 def _parse_binary_petsc_line(line: str) -> "dict | None":
@@ -1829,6 +1842,49 @@ def petsc_library_mismatch(petsc: "dict | None", library: "str | None") -> bool:
     return not os.path.realpath(library).startswith(build_root.rstrip(os.sep) + os.sep)
 
 
+def _read_binary_build_stamp(executable_path: str) -> "dict | None":
+    """!
+    @brief Read the build identity stamped into an executable's bytes, without running it.
+    @details src/setup.c stores `PICURV_BUILD:<release> <commit> <dirty>` beside the PETSc
+             stamp. Running `--version` on a login node starts the dynamic loader against a
+             cold filesystem, tens of seconds; reading the file costs one read.
+    @param[in] executable_path Path to `simulator` or `postprocessor`.
+    @return The identity mapping `read_binary_build_identity()` returns, or None for a binary
+            built before the stamp existed.
+    """
+    try:
+        with open(executable_path, "rb") as stream:
+            data = stream.read()
+    except OSError:
+        return None
+    start = data.find(_BINARY_BUILD_STAMP_MARKER)
+    if start < 0:
+        return None
+    fields = data[start + len(_BINARY_BUILD_STAMP_MARKER):start + 512].split(b"\0", 1)[0].decode(
+        "utf-8", errors="replace").split()
+    if len(fields) != 3 or not re.fullmatch(r"[0-9a-f]+", fields[1]) or fields[2] not in ("true", "false"):
+        return None
+    release, commit, dirty = fields[0], fields[1][:12], fields[2] == "true"
+    petsc = read_binary_petsc_stamp(executable_path)
+    if petsc is None:
+        return None
+    # Exactly what `--version` prints (src/setup.c), which the job-start check compares with.
+    name = os.path.basename(executable_path)
+    version_line = (f"{name} {release}+g{commit}{'.dirty' if dirty else ''}\n"
+                    f"petsc {petsc['version']} {petsc['mode']} {petsc['arch']} {petsc['dir']}")
+    return {
+        "available": True,
+        "path": executable_path,
+        "version_line": version_line,
+        "release_version": release,
+        "git_commit": commit,
+        "dirty": dirty,
+        "build_id": f"{release}+g{commit}{'.dirty' if dirty else ''}",
+        "petsc": petsc,
+        "identity_source": "stamp",
+    }
+
+
 def read_binary_build_identity(executable_path: str) -> dict:
     """!
     @brief Read the build identity a native executable was compiled with.
@@ -1843,6 +1899,9 @@ def read_binary_build_identity(executable_path: str) -> dict:
     """
     if not os.path.isfile(executable_path) or not os.access(executable_path, os.X_OK):
         return {"available": False, "reason": "not built", "path": executable_path}
+    stamped = _read_binary_build_stamp(executable_path)
+    if stamped is not None:
+        return stamped
     try:
         result = subprocess.run(
             [executable_path, "--version"], text=True, capture_output=True, timeout=30,
@@ -1890,7 +1949,7 @@ def runtime_build_identities(source_identity: "dict | None" = None,
     @param[in] run_dir Run whose pinned executables are read; the installation's when None.
     @return Mapping of executable name to its identity, each carrying `matches_source`.
     """
-    source_identity = source_identity or PICURV_BUILD
+    source_identity = source_identity or picurv_build()
     identities = {}
     source_commit = str(source_identity.get("git_commit") or "")
     for name in RUN_EXECUTABLE_NAMES:
@@ -1921,7 +1980,7 @@ def build_identity_problems(identities: dict, workspace_requirement=None,
                                the identity this process computed at startup.
     @return Human-readable problem descriptions; empty when the build is coherent.
     """
-    source_identity = source_identity or PICURV_BUILD
+    source_identity = source_identity or picurv_build()
     problems = []
     for name, identity in sorted(identities.items()):
         if not identity.get("available"):
@@ -1969,7 +2028,7 @@ def warn_on_stale_runtime_binaries(identities: dict) -> list:
     for name in stale:
         print(
             f"[WARNING] {name} was built from {identities[name]['build_id']}, but the active "
-            f"source is {PICURV_BUILD['build_id']}. Checkpoints will record the binary's "
+            f"source is {picurv_build()['build_id']}. Checkpoints will record the binary's "
             "identity, not the source's. Run 'picurv build' to rebuild.",
             file=sys.stderr,
         )
@@ -18279,7 +18338,7 @@ def build_case_asset_graph(case_cfg: dict, case_path: str) -> dict:
         provider["source_files"] = _provider_source_fingerprints(provider["spec"], case_path)
         provider["software"] = {
             "release_version": PICURV_RELEASE_VERSION,
-            "git_commit": PICURV_BUILD.get("git_commit"),
+            "git_commit": picurv_build().get("git_commit"),
         }
         provider["spec_sha256"] = _stable_mapping_sha256({
             "kind": provider["kind"],
@@ -20182,7 +20241,7 @@ def sweep_workflow(args):
         "artifact_type": "study",
         "study_id": study_id,
         "created_at": datetime.now().isoformat(),
-        "software": dict(PICURV_BUILD),
+        "software": dict(picurv_build()),
         "study_type": study_cfg.get("study_type"),
         "num_cases": len(case_entries),
         "paths": {
@@ -24809,7 +24868,7 @@ def version_workflow(args):
     @return None.
     """
     workspace_root = find_workspace_root(os.getcwd())
-    payload = dict(PICURV_BUILD)
+    payload = dict(picurv_build())
     payload["source_root"] = PACKAGE_PROJECT_ROOT
     payload["workspace"] = workspace_root
     payload["workspace_requirement"] = None
@@ -24953,7 +25012,7 @@ def versions_workflow(args):
     action = args.versions_action
     if action == "list":
         result = _git_source_command(["tag", "--list", "--sort=-version:refname"])
-        print(f"Active: {PICURV_BUILD['build_id']}")
+        print(f"Active: {picurv_build()['build_id']}")
         tags = [line for line in result.stdout.splitlines() if line.strip()]
         if tags:
             print("Installed/available tags:")
@@ -25004,7 +25063,7 @@ def versions_workflow(args):
     ref = _resolve_version_ref(str(version))
     _git_source_command(["checkout", "--detach", ref])
     run_project_make(PACKAGE_PROJECT_ROOT, make_args)
-    # PICURV_BUILD was computed when this process started, before the checkout moved,
+    # picurv_build() was computed when this process started, before the checkout moved,
     # so the source identity the new binaries must match is read again here.
     source_identity = _source_build_identity(_read_release_version())
     problems = build_identity_problems(

@@ -39,6 +39,15 @@ static const char picurv_petsc_build_stamp[] =
     PICURV_STRINGIZE(PETSC_VERSION_MAJOR) "." PICURV_STRINGIZE(PETSC_VERSION_MINOR) "."
     PICURV_STRINGIZE(PETSC_VERSION_SUBMINOR) " " PICURV_PETSC_MODE " " PETSC_ARCH " " PETSC_DIR;
 
+#define PICURV_BUILD_STAMP_MARKER "PICURV_BUILD:"
+
+/* The release, commit and dirty state, in the file for the conductor to read without
+ * running the binary: --version initializes nothing, but the dynamic loader and a login
+ * node's filesystem still make a start cost tens of seconds. External linkage keeps the
+ * otherwise unreferenced array in the executable. */
+const char picurv_build_stamp[] =
+    PICURV_BUILD_STAMP_MARKER PICURV_RELEASE_VERSION " " PICURV_GIT_COMMIT " " PICURV_BUILD_DIRTY;
+
 /**
  * @brief Implementation of \ref PicurvHandleVersionArgument().
  * @details The public argument and return contract is documented in `include/setup.h`.

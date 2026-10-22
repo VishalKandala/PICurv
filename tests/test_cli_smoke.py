@@ -2615,6 +2615,100 @@ def test_validate_stability_mode_ic_in_2d_needs_i_as_the_normal_axis(tmp_path):
     assert "needs i as the normal axis" in refused.stdout + refused.stderr
 
 
+def test_help_runs_no_git_and_version_does(tmp_path):
+    """!
+    @brief The build identity is resolved lazily: `--help` never runs git, `--version` does.
+    @details On a cold network filesystem each git call costs seconds, which import-time
+             resolution charged to every command.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return None.
+    """
+    marker = tmp_path / "git_called"
+    fake = tmp_path / "bin" / "git"
+    fake.parent.mkdir()
+    real_git = shutil.which("git")
+    fake.write_text(f'#!/bin/sh\necho "$@" >> "{marker}"\nexec "{real_git}" "$@"\n', encoding="utf-8")
+    fake.chmod(0o755)
+    env = {"PATH": f"{fake.parent}{os.pathsep}{os.environ['PATH']}"}
+    assert run_picurv(["--help"], env=env).returncode == 0
+    assert not marker.exists()
+    version = run_picurv(["--version"], env=env)
+    assert version.returncode == 0 and version.stdout.startswith("picurv 0.")
+    assert "describe" in marker.read_text(encoding="utf-8")
+
+
+def test_binary_identity_is_read_from_its_stamp_without_running_it(tmp_path):
+    """!
+    @brief A stamped executable's identity comes from its bytes; it is never started.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    binary = tmp_path / "simulator"
+    # Not a runnable program: executing it would fail, so a result proves it was not run.
+    binary.write_bytes(b"\x7fELF-not-really\0PICURV_BUILD:1.2.3 0123456789abcdef0123 true\0"
+                       b"PICURV_PETSC_BUILD:petsc 3.20.3 optimized arch-x /opt/petsc\0")
+    binary.chmod(0o755)
+    identity = picurv.read_binary_build_identity(str(binary))
+    assert identity["available"] and identity["identity_source"] == "stamp"
+    assert identity["build_id"] == "1.2.3+g0123456789ab.dirty"
+    assert identity["version_line"] == ("simulator 1.2.3+g0123456789ab.dirty\n"
+                                        "petsc 3.20.3 optimized arch-x /opt/petsc")
+    assert identity["petsc"]["version"] == "3.20.3"
+
+
+@pytest.mark.parametrize("name", ["simulator", "postprocessor"])
+def test_stamped_identity_matches_what_the_built_binary_prints(name):
+    """!
+    @brief The stamp reproduces `--version` exactly, which the job-start identity check compares.
+    @param[in] name Executable name.
+    @return None.
+    """
+    executable = REPO_ROOT / "bin" / name
+    if not executable.exists():
+        pytest.skip(f"{name} is not built")
+    picurv = load_picurv_module()
+    stamped = picurv._read_binary_build_stamp(str(executable))
+    if stamped is None:
+        pytest.skip(f"{name} predates the build stamp")
+    printed = subprocess.run([str(executable), "--version"], text=True, capture_output=True,
+                             timeout=60, check=False).stdout.strip()
+    assert stamped["version_line"] == printed
+
+
+def test_source_identity_from_one_describe_and_the_untagged_fallback(monkeypatch):
+    """!
+    @brief `git describe --long --dirty` alone gives commit, distance and dirty state; without
+           the tag the commit, status and commit count are read instead.
+    @param[in] monkeypatch Pytest monkeypatch fixture supplied to the function.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    commit = "ab" * 20
+    calls = []
+
+    def tagged(*arguments):
+        """!
+        @brief Answer git as a checkout 7 commits past a tagged release with local edits.
+        @param[in] arguments Git arguments.
+        @return Simulated output.
+        """
+        calls.append(arguments[0])
+        return f"v2.0.0-7-g{commit}-dirty" if arguments[0] == "describe" else None
+
+    monkeypatch.setattr(picurv, "_git_output", tagged)
+    identity = picurv._source_build_identity("2.0.0")
+    assert calls == ["describe"]
+    assert identity["build_id"] == f"2.0.0.dev7+g{commit[:12]}.dirty"
+    assert identity["git_commit"] == commit and identity["dirty"] and not identity["released"]
+
+    answers = {"describe": None, "rev-parse": commit, "status": "", "rev-list": "40"}
+    monkeypatch.setattr(picurv, "_git_output", lambda *arguments: answers[arguments[0]])
+    untagged = picurv._source_build_identity("2.0.0")
+    assert untagged["build_id"] == f"2.0.0.dev40+g{commit[:12]}"
+    assert untagged["dirty"] is False
+
+
 def test_validate_zero_mode_case_allows_omitting_velocity_components(tmp_path):
     """!
     @brief Test that validate zero mode case allows omitting velocity components.

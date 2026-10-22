@@ -143,7 +143,10 @@ make audit-build
 
 `picurv version` prints the release, Git commit, and dirty-tree build identity of the
 Python conductor, then reads back what `simulator --version` and
-`postprocessor --version` actually report. Those two identities are not the same fact:
+`postprocessor --version` report, from the identity stamped into each binary's bytes
+rather than by starting it; a binary built before the stamp is started instead. The
+conductor's own identity is resolved only by commands that record or print it, so
+`--help`, `validate` and `init` run no git. Those two identities are not the same fact:
 the conductor's says which source staged a run, the binaries' says which build produced
 its checkpoints, and an edited C tree that was never rebuilt makes them disagree. The
 run manifest records both, and `run` warns at staging when a binary is stale.
