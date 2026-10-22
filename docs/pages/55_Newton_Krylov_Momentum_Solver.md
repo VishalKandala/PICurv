@@ -587,11 +587,11 @@ lie between the two half-window TKE values. These two blocks do not establish
 a confidence interval. Spectra were produced from 51 checkpoints, but no DNS
 spectrum acceptance test was performed.
 
-| Experimental surface exercised | Lifecycle decision from this run |
+| Surface exercised (experimental at the time) | Lifecycle decision from this run |
 | --- | --- |
 | `momentum.newton_krylov`, `momentum.solver: Newton Krylov`, `momentum.nk_preconditioner: none` | Supported within the declared scope; record the campaign under production evidence |
-| `cluster.scheduling` | Remains experimental: Slurm submission and dependent post-processing ran, but live cancellation, graceful cancellation, and accounting reconciliation were not checked |
-| `workspace.asset_lifecycle` | Remains experimental: manifest records content-addressed grid/IC materialization through hardlinks; cluster import modes, campaign-scale reuse, reflinks, and remote-backed pruning were not checked |
+| `cluster.scheduling` | Remained experimental after this run: Slurm submission and dependent post-processing ran, but live cancellation, graceful cancellation, and accounting reconciliation were not checked. Since promoted to supported; see its subsystem record |
+| `workspace.asset_lifecycle` | Remained experimental after this run: manifest records content-addressed grid/IC materialization through hardlinks; cluster import modes, campaign-scale reuse, reflinks, and remote-backed pruning were not checked. Since promoted to supported; see its subsystem record |
 
 Statistics, spectra, initial-condition generation, periodic forcing, and restart
 already have supported records. Asset materialization through hardlinks does

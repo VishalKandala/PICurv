@@ -556,7 +556,7 @@
     "public_values": {
       "cabot": {
         "maps_to": 3,
-        "status": "experimental"
+        "status": "known-defective"
       },
       "log_law": {
         "maps_to": 1,
@@ -877,11 +877,11 @@
       },
       "profile_series": {
         "maps_to": "profile_series",
-        "status": "experimental"
+        "status": "supported"
       },
       "wall_profile": {
         "maps_to": "wall_profile",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "post.yml -> reducers.tasks[].task",
@@ -1140,7 +1140,7 @@
       },
       "stability_mode_velocity": {
         "maps_to": "stability_mode_velocity",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "case.yml -> properties.initial_conditions.generator (Python providers)",

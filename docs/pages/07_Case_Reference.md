@@ -1141,9 +1141,13 @@ suggested came from that fit's single-snapshot subgrid estimate, not from the mo
 **What it does.** Applies Cabot's wall model, which integrates a mixing-length eddy
 viscosity across the wall layer rather than assuming a profile shape.
 
-**When to choose it.** Not for results yet. It is meant for near-wall flow that departs
-from equilibrium, but as implemented its pressure-gradient term makes the wall stress
-unreliable (see Limitations); use `werner` or `log_law`.
+@warning **`cabot` is known-defective.** As implemented, its pressure-gradient term makes
+the wall stress unreliable: on the Re_tau ~ 1000 channel it put the friction velocity
+22% low (see Limitations). The runtime still accepts it.
+
+**When to choose it.** Not for results. It is meant for near-wall flow that departs
+from equilibrium, but use `werner` or `log_law` instead until the pressure-gradient
+term is corrected.
 
 **Parameters it owns.** None currently.
 

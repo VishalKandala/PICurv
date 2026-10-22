@@ -45,10 +45,10 @@ matrix-free Newton linearizations. Full details: @ref 24_Dual_Time_Picard_Jameso
 solves the momentum residual with PETSc `SNES`, using matrix-free
 Jacobian--vector products (finite-difference `Jv`), an inner GMRES Krylov solve,
 and a backtracking line search. It exposes nonlinear, line-search, GMRES, and
-preconditioner controls. The supported baseline is unpreconditioned
-matrix-free differencing; the experimental alternative is a provisional
-frozen-momentum point-block preconditioner, whose PETSc block-Jacobi backend is
-chosen internally. It requires a deterministic residual (its Cartesian boundary state is reconstructed
+preconditioner controls. The baseline is unpreconditioned matrix-free
+differencing; the alternative is the frozen-momentum point-block preconditioner,
+whose PETSc block-Jacobi backend is chosen internally. Both are supported, the
+preconditioner within the scope its entry states (@ref 08_Solver_Reference). It requires a deterministic residual (its Cartesian boundary state is reconstructed
 from the current trial vector before boundary conditions are applied). Its
 convergence diagnostics and failure modes (`SNES`/`KSP` reasons) differ from the
 Picard solver. It has a **narrower, explicitly validated scope** — see its

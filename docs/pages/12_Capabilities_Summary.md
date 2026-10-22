@@ -77,7 +77,7 @@ behind it was ever implemented, so it was removed and the subsystem returned to 
 `models.physics.turbulence.rans` is now refused at validation (@ref p57_rans_sec). Wall
 functions are configured separately from the LES closure, and offer three
 laws - `log_law`, `werner`, and `cabot`; `log_law` and `werner` are supported on that
-channel validation, and `cabot` is experimental: on the same channel its pressure-gradient
+channel validation, and `cabot` is known-defective: on the same channel its pressure-gradient
 term put the friction velocity 22% low. The correction is applied inside the
 momentum solve and again before the LES strain rates are formed, so a
 wall-modelled large-eddy simulation is coupled in both directions, and the modelled
@@ -140,8 +140,8 @@ Pipeline capabilities include:
 - (experimental) single-instant ensembles defined in the post recipe: the moments of
   the particles within each cell, or of a snapshot field, derived the same way,
 - profiles of any of those statistics merged over homogeneous directions,
-- (experimental) conductor-side reducers over those profiles: a channel's wall-unit
-  profile, a duct's cross-section and bisectors, and per-step thickness histories,
+- conductor-side reducers over those profiles: a channel's wall-unit profile and
+  per-step thickness histories, and (experimental) a duct's cross-section and bisectors,
 - output field selection from checkpoint payloads (input extensions are fixed to `dat`),
 - optional physical-time PVD collections spanning compatible restart ancestry,
   controlled by `post.yml -> io.paraview_series`; see @ref p66_pvd_evidence for

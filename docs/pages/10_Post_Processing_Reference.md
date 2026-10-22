@@ -987,7 +987,10 @@ so its useful reduction is `profile_series`.
 `y+` should meet the sublayer reference below `y+ ~ 5` and the log law above
 `y+ ~ 30` for a converged wall-resolved window.
 
-**Evidence.** Unit verified - `make test-python`: the fold, the shear-stress sign, and
+**Evidence.** Benchmark - `reducer-wall-profile-old-tool-2026-10-22`: on a wall-modelled
+Re_tau ~ 1000 channel it reproduces the retired `wall_normal_profile.py` to round-off
+(largest relative difference 7.0e-11, in the last printed digit). Unit verified -
+`make test-python`: the fold, the shear-stress sign, and
 each friction-velocity source on a synthetic profile.
 
 **Limitations.** Assumes a rectilinear wall-normal grid line and two walls.

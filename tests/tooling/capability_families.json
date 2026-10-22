@@ -1086,7 +1086,7 @@
           "spelling_of": "werner"
         },
         "cabot": {
-          "status": "experimental",
+          "status": "known-defective",
           "canonical": true,
           "evidence": {
             "unit": [
@@ -1827,11 +1827,14 @@
       "coverage_enforced": true,
       "value_metadata": {
         "wall_profile": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "make:test-python"
+            ],
+            "benchmark": [
+              "measurement:reducer-wall-profile-old-tool-2026-10-22"
             ]
           }
         },
@@ -1845,10 +1848,13 @@
           }
         },
         "profile_series": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
+              "make:test-python"
+            ],
+            "analytical": [
               "make:test-python"
             ]
           }
@@ -2509,7 +2515,7 @@
           }
         },
         "stability_mode_velocity": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [

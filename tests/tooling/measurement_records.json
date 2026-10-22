@@ -1196,6 +1196,36 @@
       },
       "limitations": "Two resolutions only, one time step and one Reynolds number; the observed order is from two grids. Linear regime only (amplitude stays below 5e-4); roll-up and pairing are not tested. Debug build on one workstation. The viscous correction at Re 1e4 is taken as negligible, not computed.",
       "artifacts": []
+    },
+    {
+      "id": "reducer-wall-profile-old-tool-2026-10-22",
+      "question": "Does the wall_profile reducer, reading the post-processor's homogeneous profile, reproduce the retired wall_normal_profile.py that reduced the window payloads itself?",
+      "date": "2026-10-22",
+      "commit": "599aeba (reducers stage); baseline wall_normal_profile.py as of bf4f687",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized, batch post job.",
+      "configuration": "Wall-modelled Re_tau ~ 1000 channel, log-law model, run wm_log_law_20261009-150931 branched for 10 steps with statistics carried; grid 32 x 20 x 48, nu 5e-5; stationary window t 2200-2800 with Ucat first and second moments, step 140000. Recipe field_statistics homogeneous [i, k], outputs mean and reynolds_stress, reducers wall_profile with the old tool's u_tau 4.9974713466e-02 supplied so both use one friction velocity.",
+      "result": {
+        "measured": "Identical header and 10 rows; largest relative difference 7.0e-11 (w_rms_plus, row 1), every difference a flip in the last of 11 printed digits; 4 of 10 rows byte-identical.",
+        "threshold": "Agreement to round-off.",
+        "verdict": "met"
+      },
+      "limitations": "One channel, one window, one step. The baseline printed 11 significant digits, so agreement finer than about 1e-10 is not observable. The driven_flow friction velocity on the branched run failed in this measurement; that was fixed in 426fc90 and is covered by a unit test, not re-run here.",
+      "artifacts": []
+    },
+    {
+      "id": "statistics-ensemble-decomposition-2026-10-21",
+      "question": "Are field-statistics ensembles and homogeneous profiles independent of the MPI decomposition on a production-size case?",
+      "date": "2026-10-21",
+      "commit": "bf4f687",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized; post at 1, 8, 64 and 128 ranks.",
+      "configuration": "Re_tau 180 DNS channel 96 x 96 x 256, x and z periodic, 200k tracers with Psi = x and turbulent particle velocity, step 20410 of a 10-step branch. Ensembles fdf (particles: Psi and velocity with second moments, velocity-Psi covariance) and grid (eulerian: Psi), homogeneous [i, k], outputs mean, rms, flux, reynolds_stress, formats vtk and csv.",
+      "result": {
+        "measured": "Largest relative difference against 1 rank 5.5e-11 (fdf) and 3.3e-11 (grid) at 8, 64 and 128 ranks, every difference a last-printed-digit flip of an 11-digit print; 96 rows in each profile, no NaN. Ensemble overhead about 3-5 s per post step at 64 ranks.",
+        "threshold": "Agreement to round-off across decompositions.",
+        "verdict": "met"
+      },
+      "limitations": "At 0.085 particles per cell 92% of cells were empty, which this commit counted as zeros in the eulerian Psi ensemble; that was corrected in 2aa7d4c and is not re-measured here. Profiles then printed 11 digits.",
+      "artifacts": []
     }
   ]
 }

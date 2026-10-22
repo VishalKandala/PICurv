@@ -339,7 +339,7 @@ is the same class of case that needs @ref p60_spectra_partial_sec.
 
 @section p60_spectra_partial_sec 13. Offline Line And Plane Spectra
 
-Selected physical plane and line spectra are now experimental implementations in
+Selected physical plane and line spectra are implemented and supported in
 `generators/spectra.gen`; see @ref p10_cap_spec_plane_spectrum and
 @ref p10_cap_spec_line_spectrum for their current contracts. The remaining proposals
 below concern broader reductions, mask handling, plotting, and scale. They are not

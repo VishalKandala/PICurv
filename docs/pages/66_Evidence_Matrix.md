@@ -136,7 +136,7 @@ likely to matter:
   A second window of `werner` (`wmles-channel-retau1000-werner-window2-2026-10-09`, not met)
   put its friction velocity 3.2% high against the 3% bound, so its bias straddles the
   criterion. `cabot` failed the same channel (`wmles-channel-retau1000-cabot-2026-10-09`) and
-  stays experimental. Unit coverage alone said nothing about any of this: until 2026-10-08
+  is known-defective. Unit coverage alone said nothing about any of this: until 2026-10-08
   `werner` passed it while applying a cell-averaged relation to a point velocity and
   over-predicting the channel's friction velocity by 14.5%.
 
