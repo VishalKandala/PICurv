@@ -196,14 +196,16 @@ resolution or from a precursor, carry it in with `mode: file`, and use
 
 `monitor.yml` accumulates first and second moments of `Ucat` over a stationary
 window. Turning those into `U+` vs `y+` needs an average over the two
-homogeneous directions, and the postprocessor has no homogeneous-averaging task,
-so that reduction is done outside it by `tools/wall_normal_profile.py`. It reads
-the window from one committed checkpoint bundle written after the window closed,
-folds the two walls together, and writes `U+`, the three RMS intensities, and
-`-<u'v'>+` against `y+`:
+homogeneous directions, which each variant's `post.yml` requests
+(`field_statistics.homogeneous: [i, k]`). Running the post stage over a checkpoint
+written after the window closed writes the plane-merged mean and Reynolds stresses
+per wall-normal cell as a profile CSV. `tools/wall_normal_profile.py` reads that
+profile, folds the two walls together, and writes `U+`, the three RMS intensities,
+and `-<u'v'>+` against `y+`:
 
 ```bash
 python3 examples/periodic_test/driven_channel/tools/wall_normal_profile.py \
+    --profile <run>/output/analysis/statistics/<recipe>/<prefix>_profile_stationary_<NNN>.csv \
     --checkpoint <run>/output/checkpoints/step_<NNN> --window stationary \
     --grid <run>/inputs/grid/grid.run --viscosity <1/Re> \
     --wall-model-csv <run>/output/analysis/metrics/wall_model.csv \

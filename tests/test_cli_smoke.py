@@ -7,6 +7,7 @@ import importlib.machinery
 import importlib.util
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -5244,6 +5245,53 @@ def test_summarize_exposes_driven_flow_history_as_plot_series(tmp_path):
     request = picurv._build_summary_plot_request(
         context, records, "driven_flow.driving_acceleration", None, False, None)
     assert [point[1] for point in request["lines"][0]["points"]] == pytest.approx([0.0, 0.03])
+
+
+def test_profile_functionals_match_the_tanh_shear_layer():
+    """!
+    @brief The profile functionals recover a tanh layer's vorticity and momentum thickness.
+
+    @details For U = (1 + tanh y) / 2 the steepest slope is 1/2 over a unit velocity
+             difference, so the vorticity thickness is 2, and the momentum thickness is
+             the integral of sech^2(y)/4, which is 1/2.
+    """
+    picurv = load_picurv_module()
+    y = [-8.0 + 0.01 * n for n in range(1601)]
+    u = [0.5 * (1.0 + math.tanh(value)) for value in y]
+
+    result = picurv.profile_functionals(y, u)
+    assert result["max_gradient_thickness"] == pytest.approx(2.0, rel=1e-4)
+    assert result["momentum_thickness"] == pytest.approx(0.5, rel=1e-4)
+    assert result["integral"] == pytest.approx(8.0, rel=1e-4)
+    assert "max_gradient_thickness" not in picurv.profile_functionals(y, [1.0] * len(y))
+
+
+def test_summarize_exposes_profile_functionals_as_plot_series(tmp_path):
+    """!
+    @brief Per-step profile CSVs become one plotted line per profile family.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = create_summary_run_dir(tmp_path)
+    profiles = run_dir / picurv.CANONICAL_RUN_PATHS["statistics"] / "Field-abc"
+    profiles.mkdir(parents=True, exist_ok=True)
+    for step, width in ((10, 1.0), (20, 2.0)):
+        rows = ["j,x,y,z,layer_Ucat_mean_x"]
+        for n in range(401):
+            y = -10.0 + 0.05 * n
+            rows.append(f"{n},0.5,{y},0.5,{0.5 * (1.0 + math.tanh(y / width))}")
+        (profiles / f"Field_profile_layer_{step:05d}.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    # A map over two retained directions is not a curve, so it yields no series.
+    (profiles / "Field_profile_map_00010.csv").write_text("i,j,x,y,z,map_P_mean\n0,0,0,0,0,1\n", encoding="utf-8")
+
+    context = picurv._build_summary_context(str(run_dir))
+    records = picurv._collect_summary_plot_records(context)
+    profile = [record for record in records if record["source"] == "profile"]
+    assert len(profile) == 2
+    request = picurv._build_summary_plot_request(
+        context, records, "profile.layer_Ucat_mean_x.max_gradient_thickness", None, False, None)
+    assert len(request["lines"]) == 1
+    assert [point[1] for point in request["lines"][0]["points"]] == pytest.approx([2.0, 4.0], rel=2e-3)
 
 
 def test_summarize_plot_request_uses_latest_continuation_segment_and_last_window(tmp_path):

@@ -5,11 +5,13 @@
 
 @details
 A square duct has one homogeneous direction, the streamwise one, so its statistics
-reduce to a cross-section rather than a wall-normal line. The reduction itself, the
-window lookup in `checkpoint.meta` and the covariance over the homogeneous set, is
-the one `driven_channel/tools/wall_normal_profile.py` performs and is imported from
-it; this script averages along the stream only and then reads off what the case's
-acceptance criteria name (`driven_duct.md` section 5):
+reduce to a cross-section rather than a wall-normal line. The reduction is the
+post-processor's: a recipe with `field_statistics.homogeneous` set to the streamwise
+direction alone writes a profile CSV holding, per cross-section cell, the
+streamwise mean and the covariance over the pooled samples. It is read back through
+`driven_channel/tools/wall_normal_profile.py`, together with the window lookup in
+`checkpoint.meta`, and this script reads off what the case's acceptance criteria
+name (`driven_duct.md` section 5):
 
 - `<prefix>_cross_section.csv`: every cell's mean velocity and the six covariance
   components, in solver units, for contouring the secondary flow;
@@ -38,6 +40,7 @@ Usage:
 
 @code
     cross_section_profile.py \\
+        --profile RUN/output/analysis/statistics/RECIPE/Field_profile_stationary_200000.csv \\
         --checkpoint RUN/output/checkpoints/step_000000200000 --window stationary \\
         --grid RUN/inputs/grid/grid.run --viscosity 4.5351474e-04 \\
         --output-prefix duct
@@ -57,7 +60,7 @@ CHANNEL_TOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".
 
 def load_channel_tool():
     """!
-    @brief Import the window reduction from the channel tool rather than duplicating it.
+    @brief Import the profile reader from the channel tool rather than duplicating it.
     @return The loaded module.
     """
     loader = importlib.machinery.SourceFileLoader("picurv_wall_normal_profile", CHANNEL_TOOL)
@@ -96,8 +99,12 @@ def main(argv=None):
     """
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--profile", required=True,
+                        help="Profile CSV a post recipe wrote for the window with homogeneous set "
+                             "to the streamwise direction alone.")
     parser.add_argument("--checkpoint", required=True,
-                        help="Committed checkpoint bundle directory (output/checkpoints/step_NNN).")
+                        help="Committed checkpoint bundle the profile was derived from; only its "
+                             "checkpoint.meta is read, for the window's time bounds.")
     parser.add_argument("--grid", required=True, help="Canonical PICGRID path for the run.")
     parser.add_argument("--window", default="stationary", help="Statistics window name.")
     parser.add_argument("--block", type=int, default=0, help="Block index.")
@@ -121,9 +128,10 @@ def main(argv=None):
     pairs = channel.M2_PAIRS
     stream_kji = channel.AXIS_TO_KJI[args.stream_axis]
     stream_c = channel.AXIS_TO_COMPONENT[args.stream_axis]
-    stats = channel.homogeneous_statistics(args.checkpoint, args.window, args.grid, args.block,
-                                           (stream_kji,))
-    numpy, nodes, window = stats["numpy"], stats["nodes"], stats["window"]
+    stats = channel.profile_statistics(args.profile, args.window, args.grid, args.block,
+                                       tuple(axis for axis in (0, 1, 2) if axis != stream_kji))
+    numpy, nodes = stats["numpy"], stats["nodes"]
+    window = channel.read_window(args.checkpoint, args.window)
     mean, covariance = stats["mean"], stats["covariance"]
 
     # The two remaining axes, in (k, j, i) order, and the velocity component normal

@@ -446,7 +446,8 @@ output uses glanceable dashboards with aligned field groups and compact tables;
 use `--format json` for structured automation output.
 
 Plotting supports numeric scalar histories from continuity, particle metrics,
-momentum, Poisson, profiling, runtime memory, and solution-convergence logs.
+momentum, Poisson, profiling, runtime memory, and solution-convergence logs, and
+from functionals of field-statistics profiles.
 Block-based histories render one line per block and profiling histories render
 one line per function. Residual/norm series use logarithmic scaling when all
 values are positive; `--linear-y` forces linear scaling. Plot mode is standalone
@@ -476,6 +477,7 @@ Typical sources:
 - `<run.runtime_logs>/Profiling_Timestep_Summary.csv` when enabled
 - `<run.runtime_logs>/Runtime_Memory.log` when `monitor.diagnostics.runtime_memory_log.enabled` is true
 - `<run.analysis.metrics>/les_coefficient.csv` when `case.yml -> models.physics.turbulence.les.diagnostics.enabled` is true; the `les.*` series carry the effective coefficient, its spread, eddy-viscosity levels, the modelled subgrid energy, and the pre-clipping backscattering and limited fractions
+- `<run.analysis.statistics>/<recipe>/*_profile_<name>_<step>.csv` when a post recipe sets `field_statistics.homogeneous` (@ref p10_profiles_sub). A profile that retains one direction becomes, for each output column, the series `profile.<column>.<functional>` over steps. The functionals are `max`, `min`, `integral` and two thicknesses. `max_gradient_thickness` is (max - min) / max|d/ds|, which is the vorticity thickness when the column is a mean velocity across a shear layer. `momentum_thickness` is the integral of (c - min)(max - c) ds / (max - min)^2. Here s is the arc length through the profile's cell centres, integrals use the trapezoid rule, and a constant column has no thicknesses. A profile retaining two directions is a map and yields no series.
 - `<run.runtime_logs>/PETSc_*_Solver.log` / `<run.runtime_logs>/PETSc_*_PostProcessor.log` when file-backed PETSc diagnostics are enabled
 - `<run.scheduler>/*_solver.log` or `<run.scheduler>/solver_*.out` for sampled particle snapshot previews
 

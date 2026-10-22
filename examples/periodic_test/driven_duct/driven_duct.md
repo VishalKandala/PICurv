@@ -77,13 +77,15 @@ cells should be.
 
 ### 5.1 Extracting the comparison
 
-The postprocessor has no homogeneous-averaging task, so
-`tools/cross_section_profile.py` reduces the window outside it. It reads one
-committed checkpoint bundle written after the window closed and averages along the
-stream:
+`post.yml` merges the window along the stream (`field_statistics.homogeneous: [k]`)
+and writes the cross-section's mean velocity and covariances as a profile CSV per
+processed step. Run the post stage over a checkpoint written after the window closed;
+`tools/cross_section_profile.py` then reads that profile, the grid for the wall
+positions, and the bundle's `checkpoint.meta` for the window's time bounds:
 
 ```bash
 python3 examples/periodic_test/driven_duct/tools/cross_section_profile.py \
+    --profile <run>/output/analysis/statistics/<recipe>/<prefix>_profile_stationary_<NNN>.csv \
     --checkpoint <run>/output/checkpoints/step_<NNN> --window stationary \
     --grid <run>/inputs/grid/grid.run --viscosity 4.5351474e-04 \
     --output-prefix duct

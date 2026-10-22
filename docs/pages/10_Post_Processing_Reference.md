@@ -337,7 +337,10 @@ therefore the full stress over the homogeneous plane. A point that never sampled
 field is excluded rather than averaged in as a zero. Naming all three directions
 gives one row for the whole domain. A profile is computed from the same state the
 `.vts` is, and follows `global_operations.dimensionalize` the same way, its
-coordinates included.
+coordinates included. `picurv summarize --plot profile.<column>.<functional>` plots a
+one-direction profile's maximum, minimum, integral, maximum-gradient thickness or
+momentum thickness against time, for example the vorticity-thickness growth of a
+mixing layer from its mean-velocity profile; see @ref 05_The_Conductor_Script.
 
 @subsection p10_ensembles_sub Ensembles
 

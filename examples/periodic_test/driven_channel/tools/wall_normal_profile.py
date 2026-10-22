@@ -4,29 +4,20 @@
 @brief Reduce a field-statistics window into wall-normal profiles for DNS comparison.
 
 @details
-`field_statistics` accumulates per-cell time moments and is BC-agnostic, so it
-works unchanged under periodic boundaries. What the postprocessor does not have
-is a *spatial* reduction: nothing averages a statistics field over homogeneous
-directions. Comparing against a channel DNS needs exactly that, so this script
-does the reduction outside the postprocessor, reading the window payloads
-directly from one committed checkpoint bundle.
-
-The window is looked up by name in the bundle's `checkpoint.meta`, which also
-supplies its sample count and effective time bounds; its payloads are
-`statistics/window_NNNN/block_NNNN/{Ucat_mean,Ucat_m2,weight}.dat`. `Ucat_m2`
-holds the six centred, weighted sums M2 in the order (xx, xy, xz, yy, yz, zz),
-so the per-cell temporal covariance is M2/W. The covariance over the
-homogeneous plane adds the spatial covariance of the per-cell time means:
-
-    <u_a' u_b'> = mean(M2_ab / W) + mean(U_a U_b) - mean(U_a) mean(U_b)
-
-where mean() runs over the two directions that are not wall-normal. The two
-walls are then folded onto one half-channel (the Reynolds shear stress changes
-sign under the reflection), and the result is written as a CSV of
+The reduction over the homogeneous directions is the post-processor's. A recipe
+deriving the window with `field_statistics.homogeneous` set to the streamwise and
+spanwise directions and `outputs` including `mean` and `reynolds_stress` writes a
+profile CSV whose rows hold, per wall-normal cell, the plane mean velocity and the
+covariance over the plane's pooled samples, the per-cell temporal covariance plus
+the spread of the cell means. This script reads that profile back, folds the two
+walls onto one half-channel (the Reynolds shear stress changes sign under the
+reflection), and writes a CSV of
 
     y, y+, U+, u'+, v'+, w'+, -<u'v'>+
 
-together with the log-law and viscous-sublayer reference curves.
+together with the log-law and viscous-sublayer reference curves. The window's
+effective time bounds come from the `checkpoint.meta` of the bundle the profile was
+derived from, and the wall positions from the run's grid.
 
 The friction velocity comes from one of:
 
@@ -42,15 +33,15 @@ The friction velocity comes from one of:
 - otherwise sqrt(nu dU/dy) from the first cell, which is only meaningful when the
   first cell sits in the viscous sublayer.
 
-The PICGRID and PETSc-binary readers are imported from `generators/spectra.gen`,
-which owns the DMDA interior-extraction convention (a cell-centred payload is
-sized `(IM+1, JM+1, KM+1)` and the physical interior is `[1:KM, 1:JM, 1:IM]`), and
-the metadata parser from `picurv_cli`, rather than duplicated.
+The PICGRID reader is imported from `generators/spectra.gen` and the metadata parser
+from `picurv_cli`, rather than duplicated. The profile must be in solver units: a
+recipe with `dimensionalize` off, or a case with unit reference scales.
 
 Usage:
 
 @code
     wall_normal_profile.py \\
+        --profile RUN/output/analysis/statistics/RECIPE/Field_profile_stationary_50000.csv \\
         --checkpoint RUN/output/checkpoints/step_000000050000 --window stationary \\
         --grid RUN/inputs/grid/grid.run --wall-axis Eta --stream-axis Zeta \\
         --viscosity 5.0e-05 --wall-model-csv RUN/output/analysis/metrics/wall_model.csv \\
@@ -98,7 +89,7 @@ SPECTRA_GEN = os.path.join(REPO_ROOT, "generators", "spectra.gen")
 AXIS_TO_KJI = {"Xi": 2, "Eta": 1, "Zeta": 0}
 # Axis token -> Cartesian velocity component index.
 AXIS_TO_COMPONENT = {"Xi": 0, "Eta": 1, "Zeta": 2}
-# Component pairs of a dof-6 second-moment payload, in its stored order.
+# Component pairs of the symmetric covariance, in the stored (xx, xy, xz, yy, yz, zz) order.
 M2_PAIRS = ((0, 0), (0, 1), (0, 2), (1, 1), (1, 2), (2, 2))
 
 
@@ -117,13 +108,14 @@ def load_spectra_helpers():
     return module
 
 
-def read_window(checkpoint_dir, window, block):
+def read_window(checkpoint_dir, window):
     """!
-    @brief Resolve a statistics window by name inside one committed checkpoint bundle.
+    @brief Read a statistics window's scalars from one committed checkpoint bundle.
+    @details Only `checkpoint.meta` is read: the window's state, sample count and
+             effective time bounds, which the friction-velocity sources average over.
     @param[in] checkpoint_dir Checkpoint bundle directory holding `checkpoint.meta`.
     @param[in] window Window name from monitor.yml.
-    @param[in] block Block index.
-    @return Tuple of (payload directory, window metadata dict, block node dims or None).
+    @return Dict of the window's checkpoint scalars.
     """
     sys.path.insert(0, REPO_ROOT)
     from picurv_cli.core import _read_checkpoint_options
@@ -136,61 +128,65 @@ def read_window(checkpoint_dir, window, block):
     for index in range(int(options.get("checkpoint_statistics_window_count", 0) or 0)):
         prefix = f"checkpoint_statistics_window_{index}_"
         names.append(options.get(prefix + "name"))
-        if names[-1] != window:
-            continue
-        info = {key[len(prefix):]: value for key, value in options.items() if key.startswith(prefix)}
-        payload_dir = os.path.join(checkpoint_dir, "statistics", f"window_{index:04d}", f"block_{block:04d}")
-        if not os.path.isdir(payload_dir):
-            raise SystemExit(f"window {window!r} has no payloads for block {block} under {payload_dir}.")
-        dims = None
-        if f"checkpoint_block_{block}_im" in options:
-            dims = tuple(int(options[f"checkpoint_block_{block}_{axis}"]) for axis in ("im", "jm", "km"))
-        return payload_dir, info, dims
+        if names[-1] == window:
+            return {key[len(prefix):]: value for key, value in options.items() if key.startswith(prefix)}
     raise SystemExit(f"no statistics window named {window!r} in {metadata}; it holds {names}.")
 
 
-def homogeneous_statistics(checkpoint_dir, window_name, grid_path, block, homogeneous):
+def profile_statistics(profile_csv, window_name, grid_path, block, retained):
     """!
-    @brief Reduce one statistics window's velocity moments over homogeneous directions.
-    @details The covariance over the homogeneous set is the mean of the per-cell
-             temporal covariance M2/W plus the spatial covariance of the per-cell time
-             means: <u_a' u_b'> = mean(M2_ab / W) + mean(U_a U_b) - mean(U_a) mean(U_b).
-    @param[in] checkpoint_dir Committed checkpoint bundle directory.
-    @param[in] window_name Statistics window name from monitor.yml.
+    @brief Read a window's velocity statistics merged over its homogeneous directions.
+    @details The reduction is the post-processor's: a recipe with
+             `field_statistics.homogeneous` naming the homogeneous directions and
+             `outputs` including `mean` and `reynolds_stress` writes, per retained
+             cell, the plane mean and the covariance over the plane's pooled samples
+             (the per-cell temporal covariance plus the spread of the cell means). This
+             reads that CSV back into arrays indexed by the retained cells in (k, j, i)
+             order, so the folding and wall units below work on them directly. The
+             values are taken as they were written, so the recipe must leave them in
+             solver units: `dimensionalize` off, or unit reference scales.
+    @param[in] profile_csv The `<prefix>_profile_<window>_<step>.csv` the recipe wrote.
+    @param[in] window_name Window the profile was written for.
     @param[in] grid_path Canonical PICGRID path for the run.
     @param[in] block Block index.
-    @param[in] homogeneous Axes to average over, as indices in (k, j, i) order.
-    @return Dict with `numpy`, `nodes` ((KM, JM, IM, 3) node coordinates), `window`
-            (its checkpoint.meta scalars), `mean` (remaining axes + (3,)) and
-            `covariance` (remaining axes + (6,), in M2_PAIRS order).
+    @param[in] retained Axes the profile must retain, as indices in (k, j, i) order.
+    @return Dict with `numpy`, `nodes` ((KM, JM, IM, 3) node coordinates), `mean`
+            (retained axes + (3,)) and `covariance` (retained axes + (6,), in
+            M2_PAIRS order).
     """
     helpers = load_spectra_helpers()
     numpy = helpers.require_numpy()
-    payload_dir, window, meta_dims = read_window(checkpoint_dir, window_name, block)
     blocks = helpers.read_picgrid_blocks(grid_path)
     if block >= len(blocks):
         raise SystemExit(f"block {block} is out of range; the grid holds {len(blocks)}.")
     node_dims = blocks[block]["dims"]
-    if meta_dims is not None and tuple(meta_dims) != tuple(node_dims):
-        raise SystemExit(f"grid dimensions {node_dims} do not match the checkpoint's {meta_dims}.")
-
-    def payload(name, components):
-        values = helpers.read_petsc_vec_binary(os.path.join(payload_dir, f"{name}.dat"))
-        return helpers.extract_interior_cells(values, node_dims, components)
-
-    mean = payload("Ucat_mean", 3)
-    m2 = payload("Ucat_m2", 6)
-    weight = payload("weight", 1)[..., 0]
-    if not numpy.all(weight > 0.0):
-        raise SystemExit(f"window {window_name!r} has cells with no accepted weight.")
-
-    reduced_mean = numpy.mean(mean, axis=homogeneous)
-    temporal = numpy.mean(m2 / weight[..., None], axis=homogeneous)
-    spatial = numpy.stack(
-        [numpy.mean(mean[..., a] * mean[..., b], axis=homogeneous)
-         - reduced_mean[..., a] * reduced_mean[..., b] for a, b in M2_PAIRS], axis=-1)
-    return {"numpy": numpy, "nodes": blocks[block]["coords"], "window": window,
-            "mean": reduced_mean, "covariance": temporal + spatial}
+    cells_kji = (node_dims[2] - 1, node_dims[1] - 1, node_dims[0] - 1)
+    index_names = ("k", "j", "i")
+    with open(profile_csv, encoding="utf-8") as handle:
+        rows = [line.strip().split(",") for line in handle if line.strip()]
+    header, rows = rows[0], rows[1:]
+    present = tuple(axis for axis in range(3) if index_names[axis] in header)
+    if present != tuple(sorted(retained)):
+        raise SystemExit(f"{profile_csv} retains {[index_names[a] for a in present]}, but this "
+                         f"reduction needs {[index_names[a] for a in sorted(retained)]}; set the "
+                         "recipe's field_statistics.homogeneous to the other directions.")
+    labels = "xyz"
+    columns = [f"{window_name}_Ucat_mean_{labels[c]}" for c in range(3)]
+    columns += [f"{window_name}_Ucat_R_{labels[a]}{labels[b]}" for a, b in M2_PAIRS]
+    missing = [name for name in columns if name not in header]
+    if missing:
+        raise SystemExit(f"{profile_csv} has no {missing}; the recipe's outputs must include "
+                         "mean and reynolds_stress for this window.")
+    shape = tuple(cells_kji[axis] for axis in present)
+    values = numpy.full(shape + (9,), numpy.nan)
+    for row in rows:
+        cell = tuple(int(row[header.index(index_names[axis])]) for axis in present)
+        values[cell] = [float(row[header.index(name)]) for name in columns]
+    if numpy.isnan(values).any():
+        raise SystemExit(f"{profile_csv} does not cover every retained cell; the window must "
+                         "have sampled every cell.")
+    return {"numpy": numpy, "nodes": blocks[block]["coords"],
+            "mean": values[..., :3], "covariance": values[..., 3:]}
 
 
 def read_metrics_rows(csv_path):
@@ -259,8 +255,12 @@ def main(argv=None):
     """
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--profile", required=True,
+                        help="Profile CSV a post recipe wrote for the window with homogeneous set "
+                             "to the two directions other than the wall-normal one.")
     parser.add_argument("--checkpoint", required=True,
-                        help="Committed checkpoint bundle directory (output/checkpoints/step_NNN).")
+                        help="Committed checkpoint bundle the profile was derived from; only its "
+                             "checkpoint.meta is read, for the window's time bounds.")
     parser.add_argument("--grid", required=True, help="Canonical PICGRID path for the run.")
     parser.add_argument("--window", default="stationary", help="Statistics window name.")
     parser.add_argument("--block", type=int, default=0, help="Block index.")
@@ -289,10 +289,10 @@ def main(argv=None):
     stream_c = AXIS_TO_COMPONENT[args.stream_axis]
     wall_c = AXIS_TO_COMPONENT[args.wall_axis]
     span_c = ({0, 1, 2} - {stream_c, wall_c}).pop()
-    homogeneous = tuple(axis for axis in (0, 1, 2) if axis != wall_kji)
 
-    stats = homogeneous_statistics(args.checkpoint, args.window, args.grid, args.block, homogeneous)
-    numpy, nodes, window = stats["numpy"], stats["nodes"], stats["window"]
+    stats = profile_statistics(args.profile, args.window, args.grid, args.block, (wall_kji,))
+    numpy, nodes = stats["numpy"], stats["nodes"]
+    window = read_window(args.checkpoint, args.window)
     plane_mean = stats["mean"]
 
     def covariance(a, b):

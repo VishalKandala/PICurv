@@ -23286,6 +23286,7 @@ def _collect_summary_plot_records(context: dict) -> list:
                 )
 
     records.extend(_collect_spectra_plot_records(context))
+    records.extend(_collect_profile_plot_records(context))
     return records
 
 
@@ -23332,6 +23333,112 @@ def _collect_spectra_plot_records(context: dict) -> list:
                 # A history a concurrent post stage is still writing is simply not
                 # listed yet; summarize is read-only and must never fail on it.
                 continue
+    return records
+
+
+#: Scalar functionals summarize derives from each column of a one-dimensional profile.
+#: `s` is arc length along the profile's cell centres, so they hold on curved grids too.
+PROFILE_SERIES_FUNCTIONALS = (
+    "max", "min", "integral", "max_gradient_thickness", "momentum_thickness",
+)
+
+#: Leading columns of a field-statistics profile that locate a row rather than hold an
+#: output: the retained cell indices, then the slot's mean cell-centre coordinates.
+PROFILE_LOCATION_COLUMNS = ("i", "j", "k", "x", "y", "z")
+
+
+def profile_functionals(s: list, values: list) -> dict:
+    """!
+    @brief Reduce one profile column to the scalar functionals in `PROFILE_SERIES_FUNCTIONALS`.
+
+    @details With `c_max` and `c_min` the extremes, the thicknesses are
+             `(c_max - c_min) / max|dc/ds|` (the vorticity thickness when the column is a
+             mean velocity across a shear layer) and
+             `integral (c - c_min)(c_max - c) ds / (c_max - c_min)^2` (the momentum
+             thickness). Integrals use the trapezoid rule and the gradient central
+             differences on the possibly non-uniform `s`. A thickness is omitted when the
+             column is constant, since it has no layer to measure.
+
+    @param[in] s Arc length of each row, increasing.
+    @param[in] values Column value of each row.
+    @return Mapping of functional name to value.
+    """
+    count = len(values)
+    if count == 0:
+        return {}
+    high, low = max(values), min(values)
+    result = {"max": high, "min": low}
+    if count < 2:
+        return result
+    result["integral"] = sum(0.5 * (values[n] + values[n + 1]) * (s[n + 1] - s[n]) for n in range(count - 1))
+    spread = high - low
+    if spread <= 0.0:
+        return result
+    gradient = 0.0
+    for n in range(count):
+        before, after = max(n - 1, 0), min(n + 1, count - 1)
+        if s[after] > s[before]:
+            gradient = max(gradient, abs(values[after] - values[before]) / (s[after] - s[before]))
+    if gradient > 0.0:
+        result["max_gradient_thickness"] = spread / gradient
+    product = [(value - low) * (high - value) for value in values]
+    result["momentum_thickness"] = sum(
+        0.5 * (product[n] + product[n + 1]) * (s[n + 1] - s[n]) for n in range(count - 1)
+    ) / (spread * spread)
+    return result
+
+
+def _collect_profile_plot_records(context: dict) -> list:
+    """!
+    @brief Collect per-step scalar functionals of the field-statistics profiles a run holds.
+
+    @details A profile `<prefix>_profile_<name>_<step>.csv` retaining one direction becomes,
+             for every output column, the series `profile.<column>.<functional>`, one line
+             per profile file family. Profiles retaining two or more directions are maps,
+             not curves, and are skipped.
+
+    @param[in] context Summary context returned by `_build_summary_context()`.
+    @return Append-ordered plot record list; empty when no profile was written.
+    """
+    records = []
+    run_dir = context.get("run_dir")
+    if not run_dir:
+        return records
+    root_dir = os.path.join(run_dir, CANONICAL_RUN_PATHS["statistics"])
+    pattern = re.compile(r"^(.+_profile_.+)_(\d+)\.csv$")
+    found = []
+    for root, _dirs, files in os.walk(root_dir):
+        for filename in files:
+            match = pattern.match(filename)
+            if match:
+                found.append((int(match.group(2)), os.path.join(root, filename), match.group(1)))
+    for step, path, family in sorted(found):
+        line = os.path.relpath(os.path.join(os.path.dirname(path), family), root_dir)
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace", newline="") as stream:
+                reader = csv.reader(stream)
+                header = next(reader, [])
+                rows = [[_parse_float_loose(cell) for cell in row] for row in reader if row]
+        except OSError:
+            continue
+        indices = [column for column in header if column in PROFILE_LOCATION_COLUMNS[:3]]
+        if len(indices) != 1 or not {"x", "y", "z"} <= set(header):
+            continue
+        position = [header.index(axis) for axis in ("x", "y", "z")]
+        rows = [row for row in rows if len(row) == len(header) and None not in row]
+        s = [0.0]
+        for previous, current in zip(rows, rows[1:]):
+            s.append(s[-1] + math.sqrt(sum((current[c] - previous[c]) ** 2 for c in position)))
+        values = {}
+        for column, name in enumerate(header):
+            if name in PROFILE_LOCATION_COLUMNS:
+                continue
+            for functional, value in profile_functionals(s, [row[column] for row in rows]).items():
+                values[f"{name}.{functional}"] = value
+        # A plotted line is one source path, so the family prefix rather than the
+        # per-step file names it; each step's file is one point on that line.
+        _append_summary_plot_record(records, "profile", step, line, values,
+                                    os.path.join(os.path.dirname(path), family))
     return records
 
 
