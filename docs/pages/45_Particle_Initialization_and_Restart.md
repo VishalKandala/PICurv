@@ -381,8 +381,12 @@ solved-flow restart. Brownian increments need no saved generator state: each is 
 `random_seed`, the particle ID and the step alone, the same keyed draw that `uniform()`
 and `normal()` use. A restart with diffusion therefore continues the uninterrupted run's
 increments, and a run on another rank count draws the same ones; `make smoke` checks both
-bitwise on a zero-flow cloud. Runs made before this change drew from a per-rank stream
-and do not reproduce.
+bitwise on a zero-flow cloud. Production exercised - `keyed-brownian-continuation-2026-10-22`:
+on a 200k-tracer channel at Sc 1 a restart is bitwise at the restart step and then differs
+only by the fluid restart difference carried through the particle velocities (positions
+5.3e-8 after 10 steps, against 0.037 with the earlier per-rank stream), and 64 and 144 ranks
+agree to 9e-15. Runs made before this change drew from a per-rank stream and do not
+reproduce.
 
 @section p45_fields_sec 6. Swarm Fields Initialized at Startup
 

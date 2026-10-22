@@ -1271,6 +1271,21 @@
       },
       "limitations": "With finite Schmidt number a continued run matches an uninterrupted one only in distribution: the Brownian random stream is not checkpointed but reseeded from random_seed, rank and start step by design (Psi_mean differed by up to 1.8% after 10 steps). The incompatible-window refusal happens at simulator start, not at CLI staging. One case, one particle loading.",
       "artifacts": []
+    },
+    {
+      "id": "keyed-brownian-continuation-2026-10-22",
+      "question": "With Brownian increments keyed on (seed, particle ID, step), does a diffusive run continued across a restart draw what the uninterrupted run drew, and do two rank layouts draw the same increments?",
+      "date": "2026-10-22",
+      "commit": "36161da",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized; 144 ranks (4 x 4 x 9) and 64 ranks (4 x 4 x 4).",
+      "configuration": "Re_tau 180 channel, 96 x 96 x 256 cells, 200k tracers, Psi = x, schmidt_number 1, particle restart_mode load, branched at step 20400. Window psiwin (Ucat and Psi first and second moments, covariance [Ucat, Psi], step_cadence 1). A: 20 steps uninterrupted; B: 10 steps; C: B restarted with --statistics-state carry for 10 more; D: as A on 64 ranks for 10 steps.",
+      "result": {
+        "measured": "B equals A bitwise at step 20410 in particle positions, velocities and Psi, the Eulerian fields, and every window payload. C against A at 20420: positions differ by at most 5.3e-8 (0.037 with the earlier per-rank stream), particle velocities by 4.5e-6, particle Psi bitwise; profile differences over column maximum Psi_mean 8.4e-6, Psi_rms 2.1e-6, Ucat_Psi flux at most 9.0e-5 (0.36 before); occupied_count differs in 5 of 617,981 occupied cells by one sample. The fluid restart difference (Ucat 2.9e-6, P 1.8e-6) is unchanged, and positions differ by about it times the elapsed time. D against A at 20410: positions 8.9e-15, particle velocities 4.9e-13, Ucat 6.2e-13, ParticleCount bitwise.",
+        "threshold": "Bitwise at the restart step; afterwards no difference beyond what the fluid restart difference carries; rank layouts agree to round-off.",
+        "verdict": "met"
+      },
+      "limitations": "One case and two rank layouts. The fluid restart is not bitwise (about 3e-6 at these momentum tolerances), so a continued solved-flow run still diverges at that level; that is not a property of the Brownian draw.",
+      "artifacts": []
     }
   ]
 }
