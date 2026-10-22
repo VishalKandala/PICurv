@@ -2719,6 +2719,18 @@ PY
     "a refused carried restart is not launched"
   [[ "$(ls "${carry_case}/runs" | wc -l)" == "${runs_before}" ]] \
     || die "a refused carried restart left its branch run directory behind."
+  local active_before=""
+  active_before="$(cat "${reported_run}/config/active.json")"
+  if (cd "${carry_case}" && "${picurv_exe}" run --solve --continue --run-dir "${reported_run}" \
+        --case config/case.yml --solver config/solver.yml --monitor config/monitor.yml \
+        --no-submit) >"${carry_log}" 2>&1; then
+    die "a continuation with a changed window was staged instead of refused."
+  fi
+  require_file_contains "${carry_log}" "is left as it was" "a refused continuation is undone"
+  [[ "$(cat "${reported_run}/config/active.json")" == "${active_before}" ]] \
+    || die "a refused continuation changed the run's active configuration."
+  [[ ! -e "${reported_run}/inputs/restart/checkpoints/step_000000000004" ]] \
+    || die "a refused continuation left its materialized restart checkpoint behind."
 
   # (2) The same accumulation below LOG_INFO: the banner still records the cadence, so a
   #     quiet log stays interpretable, but no snapshot is emitted.

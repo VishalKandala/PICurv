@@ -10639,7 +10639,8 @@ def test_restart_continuation_check_runs_one_rank_and_reports_the_simulator_reas
 
 def test_refused_continuation_staging_is_undone(tmp_path):
     """!
-    @brief A refused continuation restores the run records staging rewrote and drops its revision.
+    @brief A refused continuation restores the run records staging rewrote, drops its revision,
+           and removes the restart checkpoint it materialized, keeping earlier ones.
     @param[in] tmp_path Existing run directory.
     @return None.
     """
@@ -10648,13 +10649,15 @@ def test_refused_continuation_staging_is_undone(tmp_path):
     (run_dir / "config").mkdir(parents=True)
     (run_dir / "config" / "active.json").write_text('{"revision": "initial"}', encoding="utf-8")
     (run_dir / "manifest.json").write_text("original", encoding="utf-8")
-    saved = picurv.capture_continuation_records(str(run_dir))
+    checkpoints = run_dir / "inputs" / "restart" / "checkpoints"
+    (checkpoints / "step_000000000010").mkdir(parents=True)
+    saved = picurv.capture_continuation_records(str(run_dir), str(run_dir / "inputs" / "restart"))
+    (checkpoints / "step_000000000020" / "eulerian").mkdir(parents=True)
     revision = (run_dir / "config" / "history" / "r1" / "bin")
     revision.mkdir(parents=True)
     (revision / "simulator").write_text("pinned", encoding="utf-8")
     (run_dir / "config" / "active.json").write_text('{"revision": "r1"}', encoding="utf-8")
     (run_dir / "manifest.json").write_text("restaged", encoding="utf-8")
-    (run_dir / "inputs").mkdir()
     (run_dir / "inputs" / "assets.lock.yml").write_text("new", encoding="utf-8")
 
     picurv.restore_continuation_records(str(run_dir), saved, "r1")
@@ -10662,6 +10665,7 @@ def test_refused_continuation_staging_is_undone(tmp_path):
     assert (run_dir / "manifest.json").read_text(encoding="utf-8") == "original"
     assert not (run_dir / "inputs" / "assets.lock.yml").exists()
     assert not (run_dir / "config" / "history" / "r1").exists()
+    assert sorted(path.name for path in checkpoints.iterdir()) == ["step_000000000010"]
 
 
 def test_restart_grid_inputs_warn_only_on_a_geometric_change(tmp_path, capsys):

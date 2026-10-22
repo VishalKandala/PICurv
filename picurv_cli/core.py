@@ -1030,29 +1030,42 @@ CONTINUATION_STAGED_RECORDS = ("config/active.json", "manifest.json",
                                "inputs/assets.lock.yml", "inputs/software.lock.json")
 
 
-def capture_continuation_records(run_dir: str) -> dict:
+def capture_continuation_records(run_dir: str, restart_dir: str) -> dict:
     """!
-    @brief Save the records a continuation's staging rewrites, so a refusal can undo it.
+    @brief Save what a continuation's staging changes, so a refusal can undo it.
+    @details Staging rewrites the records in CONTINUATION_STAGED_RECORDS and materializes
+             the restart checkpoint into the run's restart input, so both are captured
+             before restart resolution runs.
     @param[in] run_dir Existing run directory.
-    @return Mapping of relative path to its bytes, or None where the file is absent.
+    @param[in] restart_dir The run's restart input directory.
+    @return Saved state for restore_continuation_records().
     """
-    saved = {}
+    records = {}
     for relative in CONTINUATION_STAGED_RECORDS:
         path = os.path.join(run_dir, *relative.split("/"))
-        saved[relative] = open(path, "rb").read() if os.path.isfile(path) else None
-    return saved
+        records[relative] = open(path, "rb").read() if os.path.isfile(path) else None
+    checkpoints = os.path.join(restart_dir, "checkpoints")
+    return {"records": records, "checkpoints": checkpoints,
+            "checkpoint_entries": set(os.listdir(checkpoints)) if os.path.isdir(checkpoints) else None}
 
 
 def restore_continuation_records(run_dir: str, saved: dict, revision: str):
     """!
     @brief Undo a refused continuation's staging: restore its records, drop its revision.
-    @details Everything else a continuation stages, including pinned executables, lives in
-             the revision directory, so removing it leaves the run as it was.
+    @details Removes the restart checkpoints staging materialized; everything else a
+             continuation stages, including pinned executables, lives in the revision
+             directory, so removing it leaves the run as it was.
     @param[in] run_dir Existing run directory.
-    @param[in] saved Records returned by capture_continuation_records().
+    @param[in] saved State returned by capture_continuation_records().
     @param[in] revision Configuration revision the refused staging created.
     """
-    for relative, content in saved.items():
+    checkpoints, before = saved["checkpoints"], saved["checkpoint_entries"]
+    if os.path.isdir(checkpoints):
+        for entry in set(os.listdir(checkpoints)) - (before or set()):
+            shutil.rmtree(os.path.join(checkpoints, entry), ignore_errors=True)
+        if before is None and not os.listdir(checkpoints):
+            os.rmdir(checkpoints)
+    for relative, content in saved["records"].items():
         path = os.path.join(run_dir, *relative.split("/"))
         if content is None:
             if os.path.isfile(path):
@@ -19865,6 +19878,9 @@ def run_workflow(args):
         # actually there, and before any stage writes into it.
         enforce_run_directory_structure(run_dir)
 
+        # Captured before restart resolution, which materializes the checkpoint it reads.
+        staged_records = (capture_continuation_records(run_dir, resolve_run_restart_dir(run_dir, configs["monitor"]))
+                          if continue_mode else None)
         try:
             resolved_restart_source_dir, is_continue, run_lineage = resolve_restart_source(
                 args, configs["case"], configs["solver"], configs["monitor"], run_dir
@@ -19889,7 +19905,6 @@ def run_workflow(args):
         else:
             print(f"[INFO] Created new self-contained run directory: {os.path.relpath(run_dir)}")
 
-        staged_records = capture_continuation_records(run_dir) if continue_mode else None
         # Read before staging, which rewrites a continuation's own grid inputs.
         source_run_dir = run_dir if is_continue else (
             os.path.join(workspace_root or "", run_lineage["parent_path"]) if run_lineage else None)
