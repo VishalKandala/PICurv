@@ -448,7 +448,11 @@ static PetscErrorCode TestProfilingSummaryReducesOverRanks(void)
     simCtx.profilingFinalSummary = PETSC_TRUE;
 
     if (rank == 1) {
+        PetscLogDouble start = 0.0, now = 0.0;
         _ProfilingStart("ProfiledOnRankOneOnly");
+        /* Spin until the clock advances: a zero elapsed time ties both ranks and the maximum falls to rank 0. */
+        PetscCall(PetscTime(&start));
+        do PetscCall(PetscTime(&now)); while (now <= start);
         _ProfilingEnd("ProfiledOnRankOneOnly");
     }
     PetscCall(ProfilingFinalize(&simCtx));
