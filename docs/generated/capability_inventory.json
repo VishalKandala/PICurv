@@ -928,11 +928,11 @@
     "public_values": {
       "eulerian": {
         "maps_to": "eulerian",
-        "status": "experimental"
+        "status": "supported"
       },
       "particles": {
         "maps_to": "particles",
-        "status": "experimental"
+        "status": "supported"
       }
     },
     "selector": "post.yml -> field_statistics.ensembles[].source",

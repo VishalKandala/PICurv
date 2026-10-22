@@ -555,7 +555,10 @@ smooths by pooling.
 three particles in a cell, the means, symmetric products and vector-scalar
 co-moment the streaming accumulator produces for the same samples.
 `make unit-post-compute-mpi` checks the profile it is written through on one and
-several ranks.
+several ranks. Integration verified -
+`psi-occupied-set-statistics-2026-10-22`: on a 200k-tracer channel the `particles` and
+`eulerian` profiles of `Psi` agree in mean and to about 1% in variance, and agree
+between 1 and 64 ranks to 7e-13.
 
 **Limitations.** Every particle carries unit weight; mass-weighted (Favre)
 statistics are not available. An ensemble is one cell; samples are not pooled over
@@ -594,7 +597,10 @@ carries spread.
 
 **Evidence.** Unit verified: `make unit-statistics-accumulator` checks the
 homogeneous merge against the pooled moments computed directly, and
-`make unit-post-compute-mpi` checks the written profile on one and several ranks.
+`make unit-post-compute-mpi` checks the written profile on one and several ranks. Integration verified -
+`psi-occupied-set-statistics-2026-10-22`: on a 200k-tracer channel the `particles` and
+`eulerian` profiles of `Psi` agree in mean and to about 1% in variance, and agree
+between 1 and 64 ranks to 7e-13.
 
 **Limitations.** One instant only; a time average belongs in a run window.
 

@@ -1964,22 +1964,28 @@
       "coverage_enforced": true,
       "value_metadata": {
         "particles": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "make:unit-statistics-accumulator",
               "make:unit-post-compute-mpi"
+            ],
+            "integration": [
+              "measurement:psi-occupied-set-statistics-2026-10-22"
             ]
           }
         },
         "eulerian": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "make:unit-statistics-accumulator",
               "make:unit-post-compute-mpi"
+            ],
+            "integration": [
+              "measurement:psi-occupied-set-statistics-2026-10-22"
             ]
           }
         }

@@ -140,7 +140,7 @@ Pipeline capabilities include:
 - particle statistics reduction pipeline (currently MSD family),
 - derived Eulerian field statistics: Reynolds stresses, RMS, turbulent kinetic
   energy, and turbulent fluxes from windows the solver accumulated online,
-- (experimental) single-instant ensembles defined in the post recipe: the moments of
+- single-instant ensembles defined in the post recipe: the moments of
   the particles within each cell, or of a snapshot field, derived the same way,
 - profiles of any of those statistics merged over homogeneous directions,
 - conductor-side reducers over those profiles: a channel's wall-unit profile and

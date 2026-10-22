@@ -1256,6 +1256,21 @@
       },
       "limitations": "One rank layout; the 2 x 4 x 2 layout was refused by validate for multigrid depth. The laminar difference grows from 4.5e-15 to 4.5e-13 over steps 10-20, attributed to iterative-solver tolerance accumulation, not investigated further. The bent-channel check establishes impenetrability and slip, not a quantitative free-slip solution on a curved wall.",
       "artifacts": []
+    },
+    {
+      "id": "psi-occupied-set-statistics-2026-10-22",
+      "question": "Do particle-sampled Psi statistics, counted over occupied states, give rank-independent ensembles consistent with the particles, continue a run window exactly across a restart, and refuse a window accumulated before the change?",
+      "date": "2026-10-22",
+      "commit": "7d10936 (solves), ac419d2 (reruns and posts)",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized; solves on 144 ranks (4 x 4 x 9), posts on 1, 64 ranks.",
+      "configuration": "Re_tau 180 channel, 96 x 96 x 256 cells, 200k tracers (0.085 per cell), Psi = x, branched at step 20400. Ensembles: field_statistics.ensembles with sources particles and eulerian, homogeneous [i, k], step 20410. Run window psiwin (Ucat and Psi first and second moments, covariance [Ucat, Psi], step_cadence 1): A 20 steps uninterrupted; B 10 steps, then C restarted from B with --statistics-state carry for 10 more; posted at 20420 with outputs mean, rms and flux; once at schmidt_number 1 and once at 1e30. A psiwin window accumulated by 599aeba continued with 7d10936.",
+      "result": {
+        "measured": "Ensembles: the eulerian Psi mean follows the particle mean (mid-plane 3.088 against 3.078; previously 0.42 when empty cells counted as zero); variances within about 1%; 1 against 64 ranks agree to 6.8e-13. Restart, no diffusion: B's checkpoint byte-identical to A's at 20410 including the occupied-count and occupied-mean payloads; psiwin Psi_mean and Psi_rms profiles byte-identical in all 96 rows; Psi payloads equal to 1.4e-16; occupied_count identical except one particle in a neighbouring cell for one step (2 of 510,353 cells, totals equal); the remaining Ucat differences (up to 3e-7 of the column maximum, and 2e-5 for the flux) follow a 3e-6 fluid restart difference within momentum solver tolerance. Old window refused at simulator start: mask changed.",
+        "threshold": "Rank independence to round-off; exact continuation of every Psi statistic when particle motion is deterministic; refusal of an incompatible window.",
+        "verdict": "met"
+      },
+      "limitations": "With finite Schmidt number a continued run matches an uninterrupted one only in distribution: the Brownian random stream is not checkpointed but reseeded from random_seed, rank and start step by design (Psi_mean differed by up to 1.8% after 10 steps). The incompatible-window refusal happens at simulator start, not at CLI staging. One case, one particle loading.",
+      "artifacts": []
     }
   ]
 }

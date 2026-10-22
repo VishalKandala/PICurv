@@ -375,7 +375,10 @@ continuous 20-step swarm bitwise, lost particles included.
 analytical carrier. Under a solved flow the Eulerian restart re-applies boundary
 conditions, which perturbs the flow around 1e-7 regardless of solver tolerance, and the
 particles inherit that; it is a floor on any claim of trajectory continuity across a
-solved-flow restart.
+solved-flow restart. The Brownian random stream is not part of the checkpoint: it is reseeded
+from `random_seed`, the rank and the start step, so a restart is reproducible and
+does not replay the first segment's draws, but with diffusion on it matches an
+uninterrupted run only in distribution (`psi-occupied-set-statistics-2026-10-22`).
 
 @section p45_fields_sec 6. Swarm Fields Initialized at Startup
 
