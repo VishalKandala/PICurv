@@ -1,0 +1,1 @@
+- Experimental: each particle step counts particles per cell twice instead of four times, and the scatter's debug averages, which are global reductions, run only at debug log level; results are unchanged.
