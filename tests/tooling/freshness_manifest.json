@@ -131,7 +131,7 @@
         "39_Common_Fatal_Errors",
         "09_Monitor_Reference"
       ],
-      "attested_digest": "sha256:5861b0e5d36371d1f9a826645e43103d7ff69acd825407027fe61e6b411f572f",
+      "attested_digest": "sha256:9b03d6f3debaf28c724854987ff25edde300ab2aca9a01b9aa8e38d6bc689202",
       "enforcement": "blocking",
       "promotion_reason": "The guard decides whether a directory is recursively deleted. A change to either side of it must be reviewed against the documented contract before the site can certify."
     },

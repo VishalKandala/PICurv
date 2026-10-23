@@ -6851,7 +6851,7 @@ def test_diagnostics_config_emits_runtime_memory_flags_and_petsc_args(tmp_path):
 
 def test_structured_solver_monitoring_emits_prefixed_poisson_flags(tmp_path):
     """!
-    @brief Test human-readable monitor solver settings emit prefixed Poisson control flags.
+    @brief Test human-readable monitor solver settings emit prefixed Poisson control flags, and Newton-Krylov ones only under that solver.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     valid = FIXTURES / "valid"
@@ -6902,20 +6902,26 @@ def test_structured_solver_monitoring_emits_prefixed_poisson_flags(tmp_path):
     )
 
     content = Path(control_file).read_text(encoding="utf-8")
-    for flag in (
-        "-mom_nk_pic_monitor",
-        "-mom_nk_snes_monitor",
-        "-mom_nk_snes_converged_reason",
-        "-mom_nk_ksp_monitor",
-        "-mom_nk_ksp_converged_reason",
-    ):
-        assert f"\n{flag}\n" in f"\n{content}"
+    nk_flags = ("-mom_nk_pic_monitor", "-mom_nk_snes_monitor", "-mom_nk_snes_converged_reason",
+                "-mom_nk_ksp_monitor", "-mom_nk_ksp_converged_reason")
+    # The fixture's momentum solver is Picard, which reads none of the Newton-Krylov monitors.
+    assert not any(flag in content for flag in nk_flags)
+    solver_cfg["strategy"]["momentum_solver"] = "Newton Krylov"
+    solver_cfg.pop("momentum_solver", None)
+    nk_content = Path(picurv.generate_solver_control_file(
+        str(run_dir), "demo_run",
+        {"case": case_cfg, "case_path": str(valid / "case.yml"), "solver": solver_cfg,
+         "solver_path": str(valid / "solver.yml"), "monitor": monitor_cfg,
+         "monitor_path": str(valid / "monitor.yml")},
+        1, monitor_files)).read_text(encoding="utf-8")
+    for flag in nk_flags:
+        assert f"\n{flag}\n" in f"\n{nk_content}"
+    assert "-mom_nk_ksp_converged_reason 1" not in nk_content
     assert "-ps_ksp_pic_monitor_true_residual" in content
     assert "-ps_ksp_monitor_true_residual" in content
     assert "-ps_ksp_converged_reason" in content
     assert "-ps_ksp_view" in content
     assert "-ps_pc_svd_monitor" in content
-    assert "-mom_nk_ksp_converged_reason 1" not in content
 
 
 def test_structured_solver_monitoring_false_emits_no_newton_switches():

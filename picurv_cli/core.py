@@ -16769,6 +16769,14 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     except ValueError as e:
         print(f"[FATAL] Invalid monitor.yml solver_monitoring settings: {e}", file=sys.stderr)
         sys.exit(1)
+    if solver_flags.get('-mom_solver_type') != '"newton_krylov"':
+        # The momentum monitors are Newton-Krylov's; a monitor.yml shared with a Picard
+        # profile would otherwise hand PETSc options nothing reads.
+        inactive = [flag for flag in SOLVER_MONITORING_MOMENTUM_FLAG_MAP.values()
+                    if solver_monitoring_flags.pop(flag, None) is not None]
+        if inactive:
+            print("[INFO] monitor.yml solver_monitoring.momentum applies to Newton-Krylov only; "
+                  "not passed to this momentum solver.")
     append_passthrough_flags(control_lines, solver_monitoring_flags)
     
     io_cfg = monitor_cfg.get('io', {})

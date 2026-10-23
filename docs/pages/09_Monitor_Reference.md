@@ -445,6 +445,9 @@ Rules:
 - The structured `momentum.*` and `poisson.*` keys are booleans. `true` emits
   a bare switch and `false` emits nothing; no Boolean monitor is serialized as
   a numeric viewer argument.
+- The `momentum.*` keys apply only when `strategy.momentum_solver` is
+  `Newton Krylov`. Under another momentum solver they are not emitted, so one
+  `monitor.yml` can serve a Picard and a Newton-Krylov profile of the same case.
 - `momentum.newton_krylov_history` writes PICurv's own rank-zero history files
   rather than enabling a PETSc stdout monitor: one row per Newton iteration and
   one row per Krylov iteration. The per-Krylov row carries the requested
