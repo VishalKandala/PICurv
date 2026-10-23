@@ -4125,6 +4125,7 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     // --- Group F: Cell/Face Coordinates and Grid Spacing (All levels) ---
     if (user->Cent) { ierr = VecDestroy(&user->Cent); CHKERRQ(ierr); }
     if (user->lCent) { ierr = VecDestroy(&user->lCent); CHKERRQ(ierr); }
+    ierr = MetricDestroyFacePlanes(user); CHKERRQ(ierr);
     if (user->GridSpace) { ierr = VecDestroy(&user->GridSpace); CHKERRQ(ierr); }
     if (user->lGridSpace) { ierr = VecDestroy(&user->lGridSpace); CHKERRQ(ierr); }
     if (user->Centx) { ierr = VecDestroy(&user->Centx); CHKERRQ(ierr); }

@@ -428,4 +428,122 @@ PetscErrorCode ComputeMetricNorms(UserCtx *user);
  * @return PetscErrorCode
  */
 PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx);
+
+/**
+ * @brief Builds one face plane: the unit outward normal of (v2 - v1) x (v4 - v1) and the vertex mean.
+ *
+ * The single definition of a cell face plane: ComputeSignedDistanceToPlane() and the
+ * precomputed planes both use it, so their distances are bit-identical. The normal points
+ * away from `cell_centroid`. A degenerate face (normal magnitude below 1e-12) is reported
+ * through `degenerate` and left unnormalised.
+ *
+ * @param[in]  v1            First face vertex; the normal's origin.
+ * @param[in]  v2            Second face vertex; the normal's first edge is v2 - v1.
+ * @param[in]  v3            Third face vertex; it enters only the centroid.
+ * @param[in]  v4            Fourth face vertex; the normal's second edge is v4 - v1.
+ * @param[in]  cell_centroid Centroid of the cell the face belongs to, which fixes the outward side.
+ * @param[out] plane         The face plane.
+ * @param[out] degenerate    Whether the normal magnitude is below 1e-12.
+ * @return PETSC_TRUE when the orientation is ambiguous (the face plane contains the centroid offset).
+ */
+PetscBool MetricFacePlane(const Cmpnts v1, const Cmpnts v2, const Cmpnts v3, const Cmpnts v4,
+                          const Cmpnts cell_centroid, FacePlane *plane, PetscBool *degenerate);
+
+/**
+ * @brief Builds the six face planes of a hexahedron, as the particle search tests them.
+ *
+ * Face vertex orders and orientation are those CalculateDistancesToCellFaces() has always
+ * used; degenerate faces set their bit in `degenerate`. `size` is set to 0. This per-cell form
+ * serves callers holding only a Cell; MetricComputeFacePlanes() precomputes the shared per-face form.
+ *
+ * @param[in]  cell   The cell, vertices in GetCellVerticesFromGrid() order.
+ * @param[out] planes The cell's face planes.
+ */
+void MetricBuildCellFacePlanes(const Cell *cell, CellFacePlanes *planes);
+
+/**
+ * @brief Builds the block's particle face planes once, as catalogued per-face fields.
+ *
+ * Each face carries one plane, shared by the two cells on either side: a unit normal pointing
+ * toward +i, +j or +k and the mean of its four vertices, built by MetricFacePlane() in the vertex
+ * order of the minus face (LEFT, BOTTOM, BACK) of the cell above it and oriented by that cell
+ * (by the cell below where only it is local). Grid-cell faces come from the node coordinates and
+ * are stored in the I/J/K-face layouts (`PlaneNormal*`, `PlaneCentroid*`: the face whose lower
+ * corner is node (i,j,k) sits at [k+1][j+1][i] for I, [k+1][j][i+1] for J, [k][j+1][i+1] for K);
+ * dual-cell faces come from lCent and sit at their lower-corner cell centre (`DualPlaneNormal*`,
+ * `DualPlaneCentroid*`). `SearchCellSize` holds each cell's GetCellCharacteristicSize() at its
+ * shifted cell-centred index. A face with no plane (degenerate, or beyond the ghosted region) has a
+ * zero normal. Owned values are the global fields; the locals are their ordinary ghost update
+ * (UpdateLocalGhosts(), the plain scatter: no periodic face repair). Collective. Built by
+ * CalculateAllGridMetrics() on the finest level of a particle run, after the coordinates and lCent
+ * are final; a no-op once built. Coordinates are fixed thereafter (there are no moving grids); a
+ * grid that changes must MetricDestroyFacePlanes() and rebuild.
+ *
+ * @param[in,out] user Block whose planes are built; MetricDestroyFacePlanes() frees them.
+ * @return PetscErrorCode 0 on success, or a PETSc error.
+ */
+PetscErrorCode MetricComputeFacePlanes(UserCtx *user);
+
+/**
+ * @brief Frees the face-plane fields MetricComputeFacePlanes() built, if any.
+ * @param[in,out] user Block whose planes are freed; their Vecs are reset to NULL.
+ * @return PetscErrorCode 0 on success, or a PETSc error.
+ */
+PetscErrorCode MetricDestroyFacePlanes(UserCtx *user);
+
+/** @brief Read-only flat arrays of one family of face planes (grid cells or dual cells). */
+typedef struct FacePlaneArrays {
+    PetscBool        dual;        ///< Dual-cell planes (from lCent) rather than grid-cell planes.
+    const Cmpnts    *normal[3];   ///< Unit normals toward +i, +j, +k; zero where there is no plane.
+    const Cmpnts    *centroid[3]; ///< Face vertex means.
+    const PetscReal *size;        ///< Grid-cell sizes; NULL for dual cells.
+} FacePlaneArrays;
+
+/**
+ * @brief Opens a family's face-plane arrays for reading; MetricComputeFacePlanes() must have run.
+ * @param[in]  user   Block whose planes are read.
+ * @param[in]  dual   PETSC_TRUE for the dual-cell planes, PETSC_FALSE for the grid-cell planes.
+ * @param[out] arrays The open arrays; close with MetricRestoreFacePlaneArrays().
+ * @return PetscErrorCode 0 on success, or PETSC_ERR_ARG_WRONGSTATE if the planes are not built.
+ */
+PetscErrorCode MetricGetFacePlaneArrays(UserCtx *user, PetscBool dual, FacePlaneArrays *arrays);
+
+/**
+ * @brief Closes arrays opened by MetricGetFacePlaneArrays().
+ * @param[in]     user   Block whose planes were read.
+ * @param[in,out] arrays The arrays to close.
+ * @return PetscErrorCode 0 on success, or a PETSc error.
+ */
+PetscErrorCode MetricRestoreFacePlaneArrays(UserCtx *user, FacePlaneArrays *arrays);
+
+/**
+ * @brief Assembles one cell's six outward face planes from the shared per-face planes.
+ *
+ * A cell's plus faces use the stored normals and its minus faces their exact negation; a face
+ * whose stored normal is zero sets its `degenerate` bit. For a grid cell `(i, j, k)` is its origin
+ * node; for a dual cell, the lower-corner cell centre.
+ *
+ * @param[in]  arrays Open plane arrays.
+ * @param[in]  info   The block's DMDA local info, for its ghosted extents.
+ * @param[in]  i      Cell origin i index.
+ * @param[in]  j      Cell origin j index.
+ * @param[in]  k      Cell origin k index.
+ * @param[out] planes The cell's planes, with `size` from `SearchCellSize` (0 for dual cells).
+ */
+void MetricGatherCellFacePlanes(const FacePlaneArrays *arrays, const DMDALocalInfo *info,
+                                PetscInt i, PetscInt j, PetscInt k, CellFacePlanes *planes);
+
+/**
+ * @brief Index of point (i, j, k) in a block's ghosted local arrays (coordinates, lCent, planes).
+ * @param[in] info The block's DMDA local info, for its ghosted extents.
+ * @param[in] i    Global i index, within the ghosted range.
+ * @param[in] j    Global j index, within the ghosted range.
+ * @param[in] k    Global k index, within the ghosted range.
+ * @return The flat index, x fastest.
+ */
+static inline PetscInt MetricCellFacePlanesIndex(const DMDALocalInfo *info, PetscInt i, PetscInt j, PetscInt k)
+{
+    const PetscInt di = i - info->gxs, dj = j - info->gys, dk = k - info->gzs;
+    return (dk * info->gym + dj) * info->gxm + di;
+}
 #endif /* METRIC_H */

@@ -172,6 +172,12 @@ resolved from this record by `PicurvFieldReferenceScale()` (`src/io.c`).
 | `Csi` | Eulerian | `AREA` | L^2 |
 | `Diffusivity` | Eulerian | `DIFFUSIVITY` | U L |
 | `DiffusivityGradient` | Eulerian | `VELOCITY` | U |
+| `DualPlaneCentroidI` | Eulerian | `LENGTH` | L |
+| `DualPlaneCentroidJ` | Eulerian | `LENGTH` | L |
+| `DualPlaneCentroidK` | Eulerian | `LENGTH` | L |
+| `DualPlaneNormalI` | Eulerian | `DIMENSIONLESS` | 1 |
+| `DualPlaneNormalJ` | Eulerian | `DIMENSIONLESS` | 1 |
+| `DualPlaneNormalK` | Eulerian | `DIMENSIONLESS` | 1 |
 | `Eta` | Eulerian | `AREA` | L^2 |
 | `GridSpace` | Eulerian | `LENGTH` | L |
 | `IAj` | Eulerian | `INVERSE_VOLUME` | 1/L^3 |
@@ -193,10 +199,17 @@ resolved from this record by `PicurvFieldReferenceScale()` (`src/io.c`).
 | `P` | Eulerian | `PRESSURE` | rho U^2 |
 | `ParticleCount` | Eulerian | `DIMENSIONLESS` | 1 |
 | `Phi` | Eulerian | `PRESSURE` | rho U^2 |
+| `PlaneCentroidI` | Eulerian | `LENGTH` | L |
+| `PlaneCentroidJ` | Eulerian | `LENGTH` | L |
+| `PlaneCentroidK` | Eulerian | `LENGTH` | L |
+| `PlaneNormalI` | Eulerian | `DIMENSIONLESS` | 1 |
+| `PlaneNormalJ` | Eulerian | `DIMENSIONLESS` | 1 |
+| `PlaneNormalK` | Eulerian | `DIMENSIONLESS` | 1 |
 | `PostScalar` | Eulerian | `FROM_SOURCE` | its source field's |
 | `PostVector` | Eulerian | `FROM_SOURCE` | its source field's |
 | `Psi` | Eulerian | `DIMENSIONLESS` | 1 |
 | `Qcrit` | Eulerian | `INVERSE_TIME_SQUARED` | U^2/L^2 |
+| `SearchCellSize` | Eulerian | `LENGTH` | L |
 | `Ucat` | Eulerian | `VELOCITY` | U |
 | `Ucont` | Eulerian | `VOLUME_FLUX` | U L^2 |
 | `Ucont_o` | Eulerian | `VOLUME_FLUX` | U L^2 |

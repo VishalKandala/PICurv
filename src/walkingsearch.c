@@ -1,6 +1,7 @@
 // walkingsearch.c
 
 #include "walkingsearch.h"
+#include "Metric.h"
 #include "logging.h"
 #include <petsc.h>
 #include <stdbool.h>
@@ -68,6 +69,18 @@ PetscErrorCode GetCellCharacteristicSize(const Cell *cell, PetscReal *cellSize)
 }
 
 
+/**
+ * @brief Signed distance from `p` to a face plane, positive on the cell side, zeroed below `threshold`.
+ */
+static inline PetscReal FacePlaneDistance(const FacePlane *plane, const Cmpnts p, const PetscReal threshold)
+{
+    const PetscReal vec_p_to_fc_x = plane->centroid.x - p.x;
+    const PetscReal vec_p_to_fc_y = plane->centroid.y - p.y;
+    const PetscReal vec_p_to_fc_z = plane->centroid.z - p.z;
+    const PetscReal d = vec_p_to_fc_x * plane->normal.x + vec_p_to_fc_y * plane->normal.y + vec_p_to_fc_z * plane->normal.z;
+    return (fabs(d) < threshold) ? 0.0 : d;
+}
+
 #undef __FUNCT__
 #define __FUNCT__ "ComputeSignedDistanceToPlane"
 /**
@@ -78,136 +91,57 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
                                             const Cmpnts cell_centroid,const Cmpnts p_target,
 					    PetscReal *d_signed, const PetscReal threshold, Cmpnts *normal_out)
 {
-    PetscErrorCode ierr = 0;
-    PetscMPIInt rank;
+    FacePlane plane;
+    PetscBool degenerate;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-
     if (d_signed == NULL) {
-        ierr = MPI_Comm_rank(MPI_COMM_WORLD, &rank); CHKERRQ(ierr);
-        LOG_ALLOW(LOCAL, LOG_ERROR, "Output pointer 'd_signed' is NULL on rank %d.\n", rank);
+        LOG_ALLOW(LOCAL, LOG_ERROR, "Output pointer 'd_signed' is NULL.\n");
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output pointer 'd_signed' must not be NULL.");
     }
-
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "Target point: (%.6e, %.6e, %.6e)\n", p_target.x, p_target.y, p_target.z);
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Cell Centroid: (%.6e, %.6e, %.6e)\n", cell_centroid.x, cell_centroid.y, cell_centroid.z);
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Face Vertices:\n");
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "    v1: (%.6e, %.6e, %.6e)\n", v1.x, v1.y, v1.z);
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "    v2: (%.6e, %.6e, %.6e)\n", v2.x, v2.y, v2.z);
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "    v3: (%.6e, %.6e, %.6e)\n", v3.x, v3.y, v3.z);
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "    v4: (%.6e, %.6e, %.6e)\n", v4.x, v4.y, v4.z);
-
-    // --- Calculate Edge Vectors for Initial Normal Computation ---
-    PetscReal edge1_x = v2.x - v1.x;
-    PetscReal edge1_y = v2.y - v1.y;
-    PetscReal edge1_z = v2.z - v1.z;
-
-    PetscReal edge2_x = v4.x - v1.x;
-    PetscReal edge2_y = v4.y - v1.y;
-    PetscReal edge2_z = v4.z - v1.z;
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Edge1 (v2-v1): (%.6e, %.6e, %.6e)\n", edge1_x, edge1_y, edge1_z);
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Edge2 (v4-v1): (%.6e, %.6e, %.6e)\n", edge2_x, edge2_y, edge2_z);
-
-    // --- Compute Initial Normal Vector (Cross Product: edge1 x edge2) ---
-    PetscReal normal_x_initial = edge1_y * edge2_z - edge1_z * edge2_y;  
-    PetscReal normal_y_initial = edge1_z * edge2_x - edge1_x * edge2_z;
-    PetscReal normal_z_initial = edge1_x * edge2_y - edge1_y * edge2_x;
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Initial Raw Normal (edge1 x edge2): (%.6e, %.6e, %.6e)\n", normal_x_initial, normal_y_initial, normal_z_initial);
-
-    PetscReal normal_magnitude = sqrt(normal_x_initial * normal_x_initial +
-                                   normal_y_initial * normal_y_initial +
-                                   normal_z_initial * normal_z_initial);
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Initial Normal Magnitude: %.6e\n", normal_magnitude);
-
-    if (normal_magnitude < 1.0e-12) {
-        ierr = MPI_Comm_rank(MPI_COMM_WORLD, &rank); CHKERRQ(ierr);
-        LOG_ALLOW(LOCAL, LOG_ERROR,
-                  "Degenerate plane detected on rank %d. Normal magnitude (%.3e) is too small.\n",
-                  rank, normal_magnitude);
-        LOG_ALLOW(LOCAL, LOG_ERROR, "  Offending vertices for normal: v1(%.3e,%.3e,%.3e), v2(%.3e,%.3e,%.3e), v4(%.3e,%.3e,%.3e)\n",
-                  v1.x,v1.y,v1.z, v2.x,v2.y,v2.z, v4.x,v4.y,v4.z);
+    if (MetricFacePlane(v1, v2, v3, v4, cell_centroid, &plane, &degenerate)) {
+        LOG_ALLOW(LOCAL, LOG_WARNING, "Dot product for normal orientation is zero. Normal direction might be ambiguous. Keeping initial normal direction from (v2-v1)x(v4-v1).\n");
+    }
+    if (degenerate) {
+        LOG_ALLOW(LOCAL, LOG_ERROR, "Degenerate plane: offending vertices for normal v1(%.3e,%.3e,%.3e), v2(%.3e,%.3e,%.3e), v4(%.3e,%.3e,%.3e)\n",
+                  v1.x, v1.y, v1.z, v2.x, v2.y, v2.z, v4.x, v4.y, v4.z);
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_USER, "Degenerate plane detected (normal vector is near zero).");
     }
-
-    // --- Calculate the Centroid of the Four Face Vertices (v1, v2, v3, v4) ---    
-    PetscReal face_centroid_x = 0.25 * (v1.x + v2.x + v3.x + v4.x);
-    PetscReal face_centroid_y = 0.25 * (v1.y + v2.y + v3.y + v4.y);
-    PetscReal face_centroid_z = 0.25 * (v1.z + v2.z + v3.z + v4.z);
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Face Centroid: (%.6e, %.6e, %.6e)\n", face_centroid_x, face_centroid_y, face_centroid_z);
-
-    // --- Orient the Normal to Point Outward from the Cell ---
-    // Vector from face centroid to cell centroid
-    PetscReal vec_fc_to_cc_x = cell_centroid.x - face_centroid_x;
-    PetscReal vec_fc_to_cc_y = cell_centroid.y - face_centroid_y;
-    PetscReal vec_fc_to_cc_z = cell_centroid.z - face_centroid_z;
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Vec (FaceCentroid -> CellCentroid): (%.6e, %.6e, %.6e)\n", vec_fc_to_cc_x, vec_fc_to_cc_y, vec_fc_to_cc_z);
-
-    // Dot product of initial normal with vector from face centroid to cell centroid
-    PetscReal dot_prod_orientation = normal_x_initial * vec_fc_to_cc_x +
-                                     normal_y_initial * vec_fc_to_cc_y +
-                                     normal_z_initial * vec_fc_to_cc_z;
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Dot Product for Orientation (N_initial . Vec_FC_to_CC): %.6e\n", dot_prod_orientation);
-
-    PetscReal normal_x = normal_x_initial;
-    PetscReal normal_y = normal_y_initial;
-    PetscReal normal_z = normal_z_initial;
-
-    // If dot_prod_orientation > 0, initial normal points towards cell interior, so flip it.
-    if (dot_prod_orientation > 1.0e-9) { // Use a small epsilon to avoid issues if dot product is extremely close to zero
-        normal_x = -normal_x_initial;
-        normal_y = -normal_y_initial;
-        normal_z = -normal_z_initial;
-        LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Initial normal was inward (dot_prod > 0). Flipped normal.\n");
-    } else if (dot_prod_orientation == 0.0 && normal_magnitude > 1e-12) {
-        // This case is ambiguous or face plane contains cell centroid.
-        // This might happen for highly symmetric cells or if face_centroid IS cell_centroid (e.g. 2D cell).
-        // For now, we keep the original normal direction based on v1,v2,v4 ordering.
-        // A more robust solution for this edge case might be needed if it occurs often.
-        ierr = MPI_Comm_rank(MPI_COMM_WORLD, &rank); CHKERRQ(ierr);
-         LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: Dot product for normal orientation is zero. Normal direction might be ambiguous. Keeping initial normal direction from (v2-v1)x(v4-v1).\n", rank);
-    }
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Oriented Raw Normal: (%.6e, %.6e, %.6e)\n", normal_x, normal_y, normal_z);
-
-
-    // --- Normalize the (Now Outward-Pointing) Normal Vector ---
-    // Note: normal_magnitude was calculated from initial normal.
-    // If we flipped, magnitude is the same.
-    normal_x /= normal_magnitude;
-    normal_y /= normal_magnitude;
-    normal_z /= normal_magnitude;
-    if (normal_out) {
-        normal_out->x = normal_x;
-        normal_out->y = normal_y;
-        normal_out->z = normal_z;
-    }
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Normalized Outward Normal: (%.6f, %.6f, %.6f)\n", normal_x, normal_y, normal_z);
-
-
-    // --- Compute Vector from Target Point to Face Centroid ---
-    PetscReal vec_p_to_fc_x = face_centroid_x - p_target.x;
-    PetscReal vec_p_to_fc_y = face_centroid_y - p_target.y;
-    PetscReal vec_p_to_fc_z = face_centroid_z - p_target.z;
-
-    // --- Compute Signed Distance ---
-    *d_signed = vec_p_to_fc_x * normal_x +
-                vec_p_to_fc_y * normal_y +
-                vec_p_to_fc_z * normal_z;
-
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Raw Signed Distance (using outward normal): %.15e\n", *d_signed);
-
-    // --- Apply Threshold ---
-    if (fabs(*d_signed) < threshold) {
-        LOG_ALLOW(LOCAL, LOG_VERBOSE, "  Distance %.15e is less than threshold %.1e. Setting to 0.0.\n", *d_signed, threshold);
-        *d_signed = 0.0;
-    }
-
+    if (normal_out) *normal_out = plane.normal;
+    *d_signed = FacePlaneDistance(&plane, p_target, threshold);
     LOG_ALLOW(LOCAL, LOG_VERBOSE, "Final Signed Distance: %.15e\n", *d_signed);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
+#undef __FUNCT__
+#define __FUNCT__ "CalculateDistancesToCellFacePlanes"
+/**
+ * @brief Implementation of \ref CalculateDistancesToCellFacePlanes().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see CalculateDistancesToCellFacePlanes()
+ */
+PetscErrorCode CalculateDistancesToCellFacePlanes(const Cmpnts p, const CellFacePlanes *planes, PetscReal *d,
+                                                  const PetscReal threshold, Cmpnts *normals)
+{
+    // The order faces were always evaluated in, so the first degenerate face reported is unchanged.
+    static const int order[NUM_FACES] = {BACK, FRONT, BOTTOM, TOP, LEFT, RIGHT};
+
+    PetscFunctionBeginUser;
+    for (int n = 0; n < NUM_FACES; ++n) {
+        const FacePlane *plane = &planes->face[order[n]];
+        if (((PetscInt)planes->degenerate >> order[n]) & 1) {
+            LOG_ALLOW(LOCAL, LOG_ERROR, "Degenerate plane detected on face %d (normal magnitude below 1e-12).\n", order[n]);
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_USER, "Degenerate plane detected (normal vector is near zero).");
+        }
+        d[order[n]] = FacePlaneDistance(plane, p, threshold);
+        if (normals) normals[order[n]] = plane->normal;
+    }
+    PetscFunctionReturn(0);
+}
 
 #undef __FUNCT__
 #define __FUNCT__ "CalculateDistancesToCellFaces"
@@ -235,104 +169,9 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "'d' is NULL.");
     }
 
-    // Compute the centroid of the entire cell
-    Cmpnts cell_centroid = {0.0, 0.0, 0.0};
-    for (int i = 0; i < 8; ++i) {
-      cell_centroid.x += cell->vertices[i].x;
-      cell_centroid.y += cell->vertices[i].y;
-      cell_centroid.z += cell->vertices[i].z;
-    }
-    cell_centroid.x /= 8.0;
-    cell_centroid.y /= 8.0;
-    cell_centroid.z /= 8.0;
-
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "Cell Centroid: (%.6e, %.6e, %.6e)\n",
-	      cell_centroid.x, cell_centroid.y, cell_centroid.z);    
-
-    
-    // Compute the signed distance from point 'p' to the BACK face of the cell.
-    // The BACK face is defined by vertices 0, 3, 2, and 1, with its normal vector pointing in the -z direction.
-    ierr = ComputeSignedDistanceToPlane(
-        cell->vertices[0], // Vertex 0
-        cell->vertices[3], // Vertex 3
-        cell->vertices[2], // Vertex 2
-        cell->vertices[1], // Vertex 1
-	cell_centroid,     // Cell centroid 
-        p,                  // Target point
-        &d[BACK],           // Storage location for the BACK face distance
-        threshold,          // Threshold for zero distance
-        normals ? &normals[BACK] : NULL // Optional unit outward normal
-    );  CHKERRQ(ierr);
-
-    // Compute the signed distance from point 'p' to the FRONT face of the cell.
-    // The FRONT face is defined by vertices 4, 7, 6, and 5, with its normal vector pointing in the +z direction.
-    ierr = ComputeSignedDistanceToPlane(
-        cell->vertices[4], // Vertex 4
-        cell->vertices[7], // Vertex 7
-        cell->vertices[6], // Vertex 6
-        cell->vertices[5], // Vertex 5
-	cell_centroid,     // Cell centroid 
-        p,                  // Target point
-        &d[FRONT],          // Storage location for the FRONT face distance
-        threshold,          // Threshold for zero distance
-        normals ? &normals[FRONT] : NULL // Optional unit outward normal
-    );  CHKERRQ(ierr);
-
-    // Compute the signed distance from point 'p' to the BOTTOM face of the cell.
-    // The BOTTOM face is defined by vertices 0, 1, 6, and 7, with its normal vector pointing in the -y direction.
-    ierr = ComputeSignedDistanceToPlane(
-        cell->vertices[0], // Vertex 0
-        cell->vertices[1], // Vertex 1
-        cell->vertices[6], // Vertex 6
-        cell->vertices[7], // Vertex 7
-	cell_centroid,     // Cell centroid 
-        p,                  // Target point
-        &d[BOTTOM],         // Storage location for the BOTTOM face distance
-        threshold,          // Threshold for zero distance
-        normals ? &normals[BOTTOM] : NULL // Optional unit outward normal
-    );  CHKERRQ(ierr);
-
-    // Compute the signed distance from point 'p' to the TOP face of the cell.
-    // The TOP face is defined by vertices 3, 4, 5, and 2, with its normal vector pointing in the +y direction.
-    ierr = ComputeSignedDistanceToPlane(
-        cell->vertices[3], // Vertex 3
-        cell->vertices[4], // Vertex 4
-        cell->vertices[5], // Vertex 5
-        cell->vertices[2], // Vertex 2
-	cell_centroid,     // Cell centroid 
-	p,                  // Target point
-        &d[TOP],            // Storage location for the TOP face distance
-        threshold,          // Threshold for zero distance
-        normals ? &normals[TOP] : NULL // Optional unit outward normal
-    );  CHKERRQ(ierr);
-
-    // Compute the signed distance from point 'p' to the LEFT face of the cell.
-    // The LEFT face is defined by vertices 0, 7, 4, and 3, with its normal vector pointing in the -x direction.
-    ierr = ComputeSignedDistanceToPlane(
-        cell->vertices[0], // Vertex 0
-        cell->vertices[7], // Vertex 7
-        cell->vertices[4], // Vertex 4
-        cell->vertices[3], // Vertex 3
-	cell_centroid,     // Cell centroid 
-	p,                  // Target point
-        &d[LEFT],           // Storage location for the LEFT face distance
-        threshold,          // Threshold for zero distance
-        normals ? &normals[LEFT] : NULL // Optional unit outward normal
-    );  CHKERRQ(ierr);
-
-    // Compute the signed distance from point 'p' to the RIGHT face of the cell.
-    // The RIGHT face is defined by vertices 1, 2, 5, and 6, with its normal vector pointing in the +x direction.
-    ierr = ComputeSignedDistanceToPlane(
-        cell->vertices[1], // Vertex 1
-        cell->vertices[2], // Vertex 2
-        cell->vertices[5], // Vertex 5
-        cell->vertices[6], // Vertex 6
-	cell_centroid,     // Cell centroid 
-        p,                  // Target point
-        &d[RIGHT],          // Storage location for the RIGHT face distance
-        threshold,          // Threshold for zero distance
-        normals ? &normals[RIGHT] : NULL // Optional unit outward normal
-    );  CHKERRQ(ierr);
+    CellFacePlanes planes;
+    MetricBuildCellFacePlanes(cell, &planes);
+    ierr = CalculateDistancesToCellFacePlanes(p, &planes, d, threshold, normals); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Populated d: "
 	      "d[LEFT=%d]=%.3e, d[RIGHT=%d]=%.3e, d[BOTTOM=%d]=%.3e, "
@@ -723,6 +562,30 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "EvaluateParticlePositionInPlanes"
+/**
+ * @brief Implementation of \ref EvaluateParticlePositionInPlanes().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/walkingsearch.h`.
+ * @see EvaluateParticlePositionInPlanes()
+ */
+PetscErrorCode EvaluateParticlePositionInPlanes(const CellFacePlanes *planes, PetscReal *d, const Cmpnts p,
+                                                PetscInt *position, const PetscReal threshold)
+{
+    PetscErrorCode ierr;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    // Scale the base threshold by the cell size (threshold 1e-6 in a 0.01 cell is 1e-8).
+    ierr = CalculateDistancesToCellFacePlanes(p, planes, d, threshold * planes->size, NULL); CHKERRQ(ierr);
+    if(get_log_level() == LOG_DEBUG && is_function_allowed(__func__)) LOG_FACE_DISTANCES(d);
+    // 0 inside, 1 (2 or 3) on a face (edge or corner), -1 outside.
+    ierr = DeterminePointPosition(d, position); CHKERRQ(ierr);
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "EvaluateParticlePosition"
 /**
  * @brief Implementation of \ref EvaluateParticlePosition().
@@ -733,55 +596,19 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
 PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cmpnts p, PetscInt *position, const PetscReal threshold)
 {
     PetscErrorCode ierr;
-    PetscReal cellSize;
-    PetscReal cellThreshold;
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    CellFacePlanes planes;
+    PetscReal      size;
 
-    // Validate input pointers to ensure they are not NULL, preventing potential segmentation faults.
+    PetscFunctionBeginUser;
     if (cell == NULL || position == NULL) {
       LOG_ALLOW(LOCAL,LOG_ERROR, "One or more input pointers are NULL.\n");
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "One or more input pointers are NULL.");
     }
-  
-    // Compute a local cell size
-    ierr = GetCellCharacteristicSize(cell, &cellSize); CHKERRQ(ierr);
-
-    // scale base threshold by cell size (ex: if threshold = 1e-6 and cell size = 0.01, cellThreshold = 1e-8)
-    cellThreshold = threshold*cellSize; 
-
-    // Invoke the function to calculate signed distances from the particle to each face of the cell.
-    // The distances are stored in the array pointed to by 'd'.
-    ierr = CalculateDistancesToCellFaces(p, cell, d, cellThreshold, NULL); CHKERRQ(ierr);
-    CHKERRQ(ierr); // Check for errors in distance calculation.
-
-
-    // Catch degenerate-plane error manually:
-    if (ierr == PETSC_ERR_USER) {
-        LOG_ALLOW(LOCAL, LOG_WARNING,
-                  "Skipping cell due to degenerate face.\n");
-        // We can set *position = -1 here
-        *position = -1; // treat as outside
-        PROFILE_FUNCTION_END;
-        return 0; // not a fatal error, just skip
-    } else {
-        CHKERRQ(ierr);
-    }
-
-
-    // Debugging output: Print the computed distances to each face for verification purposes.
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "Face Distances:\n");
-    if(get_log_level() == LOG_DEBUG && is_function_allowed(__func__)) LOG_FACE_DISTANCES(d); 
-    CHKERRQ(ierr); // Check for errors in printing distances.
-
-    // Determine the particle's position relative to the cell based on the computed distances.
-    // The function sets the value pointed to by 'position' accordingly:
-    // 0 for inside, 1 (2 or 3) for on the boundary, and -1 for outside.
-    ierr = DeterminePointPosition(d,position); 
-    CHKERRQ(ierr); // Check for errors in position determination.
-
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0); // Indicate successful execution of the function.
+    ierr = GetCellCharacteristicSize(cell, &size); CHKERRQ(ierr);
+    MetricBuildCellFacePlanes(cell, &planes);
+    planes.size = size;
+    ierr = EvaluateParticlePositionInPlanes(&planes, d, p, position, threshold); CHKERRQ(ierr);
+    PetscFunctionReturn(0);
 }
 
 #undef __FUNCT__
@@ -976,7 +803,7 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
  *          the header declaration in `include/walkingsearch.h`.
  * @see ReflectParticleAcrossCellFace()
  */
-PetscErrorCode ReflectParticleAcrossCellFace(const Cell *cell, PetscInt face, Cmpnts *p)
+PetscErrorCode ReflectParticleAcrossCellFace(const CellFacePlanes *planes, PetscInt face, Cmpnts *p)
 {
     PetscErrorCode ierr;
     PetscReal      d[NUM_FACES];
@@ -984,11 +811,11 @@ PetscErrorCode ReflectParticleAcrossCellFace(const Cell *cell, PetscInt face, Cm
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    if (!cell || !p) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Cell and point must not be NULL.");
+    if (!planes || !p) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Planes and point must not be NULL.");
     if (face < 0 || face >= NUM_FACES) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Face %d is not a cell face.", face);
 
     // Mirror about the face plane: d < 0 outside and n points outward, so p + 2 d n is the image.
-    ierr = CalculateDistancesToCellFaces(*p, cell, d, 0.0, n); CHKERRQ(ierr);
+    ierr = CalculateDistancesToCellFacePlanes(*p, planes, d, 0.0, n); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL, LOG_VERBOSE, "Mirror about face %d: d = %.6e, n = (%.6e, %.6e, %.6e).\n", face, d[face], n[face].x, n[face].y, n[face].z);
     p->x += 2.0 * d[face] * n[face].x;
     p->y += 2.0 * d[face] * n[face].y;
@@ -1091,6 +918,8 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
     const PetscBool guard_blocked_walk = (PetscBool)(particle->cell[0] >= 0 && user->simCtx->searchMetrics.currentSettlementPass <= 1);
 
     // --- 1. Initialize the Search ---
+    FacePlaneArrays plane_arrays;
+    ierr = MetricGetFacePlaneArrays(user, PETSC_FALSE, &plane_arrays); CHKERRQ(ierr);
     ierr = InitializeTraversalParameters(user, particle, &idx, &idy, &idz, &traversal_steps); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL,LOG_VERBOSE, " The Threshold for considering a particle to be at a face is %.16f.\n",DISTANCE_THRESHOLD);
@@ -1173,12 +1002,12 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                               (long long)particle->PID, idx, idy, idz, repeatedIndexCount);
                     
                     // Re-evaluate at the stuck cell to get definitive weights
-                    Cell final_cell;
                     PetscReal final_d[NUM_FACES];
                     PetscInt final_position; // Dummy variable
                     
-                    ierr = RetrieveCurrentCell(user, idx, idy, idz, &final_cell); CHKERRQ(ierr);
-                    ierr = EvaluateParticlePosition(&final_cell, final_d, particle->loc, &final_position, DISTANCE_THRESHOLD);
+                    CellFacePlanes final_planes;
+                    MetricGatherCellFacePlanes(&plane_arrays, &user->info, idx, idy, idz, &final_planes);
+                    ierr = EvaluateParticlePositionInPlanes(&final_planes, final_d, particle->loc, &final_position, DISTANCE_THRESHOLD);
                     
                     if (ierr == 0) { // If evaluation succeeded
                         ierr = UpdateParticleWeights(final_d, particle); CHKERRQ(ierr);
@@ -1203,12 +1032,13 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
         prevIdx = idx; prevIdy = idy; prevIdz = idz;
 
         // --- 2d. Geometric Evaluation ---
-        Cell      current_cell;
+        CellFacePlanes current_planes_storage;
+        MetricGatherCellFacePlanes(&plane_arrays, &user->info, idx, idy, idz, &current_planes_storage);
+        const CellFacePlanes *current_planes = &current_planes_storage;
         PetscReal distances[NUM_FACES];
         PetscInt  position_in_cell;
 
-        ierr = RetrieveCurrentCell(user, idx, idy, idz, &current_cell); CHKERRQ(ierr);
-        ierr = EvaluateParticlePosition(&current_cell, distances, particle->loc, &position_in_cell, DISTANCE_THRESHOLD); CHKERRQ(ierr);
+        ierr = EvaluateParticlePositionInPlanes(current_planes, distances, particle->loc, &position_in_cell, DISTANCE_THRESHOLD); CHKERRQ(ierr);
         last_position_result = position_in_cell;
 
         // --- 2e. Decision Making ---
@@ -1238,7 +1068,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                     if (policy != PARTICLE_BOUNDARY_REFLECT) reflect = PETSC_FALSE;
                     if (policy == PARTICLE_BOUNDARY_WRAP) wrap = PETSC_TRUE;
                 }
-                ierr = GetCellCharacteristicSize(&current_cell, &cell_size); CHKERRQ(ierr);
+                cell_size = current_planes->size;
                 if (wrap) {
                     // Re-enter through the paired face of every crossed periodic face at once: shift by
                     // each seam translation and move to the cell at the other end of that axis, so an
@@ -1275,7 +1105,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                 } else if (reflections < REFLECTION_CAP) {
                     // Mirror about the most-crossed face and evaluate this cell again; an edge or
                     // corner crossing reflects about the next face on the following iteration.
-                    ierr = ReflectParticleAcrossCellFace(&current_cell, crossed, &particle->loc); CHKERRQ(ierr);
+                    ierr = ReflectParticleAcrossCellFace(current_planes, crossed, &particle->loc); CHKERRQ(ierr);
                     reflections++;
                     user->simCtx->searchMetrics.reflectionCount++;
                     repeatedIndexCount = 0; prevIdx = PETSC_MIN_INT; prevIdy = PETSC_MIN_INT; prevIdz = PETSC_MIN_INT;
@@ -1283,6 +1113,8 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                               (long long)particle->PID, crossed, idx, idy, idz, particle->loc.x, particle->loc.y, particle->loc.z);
                 } else {
                     PetscBool placed;
+                    Cell      current_cell; // The fallback needs the vertices; it runs once per capped walk
+                    ierr = RetrieveCurrentCell(user, idx, idy, idz, &current_cell); CHKERRQ(ierr);
                     ierr = PlaceParticleInsideCell(&current_cell, &particle->loc, &placed); CHKERRQ(ierr);
                     if (placed) {
                         user->simCtx->searchMetrics.reflectionFallbackCount++;
@@ -1345,7 +1177,8 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
 
     // --- 4. Report the Final Outcome ---
     ierr = ReportSearchOutcome(particle, *status_out, traversal_steps); CHKERRQ(ierr);
-    
+    ierr = MetricRestoreFacePlaneArrays(user, &plane_arrays); CHKERRQ(ierr);
+
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

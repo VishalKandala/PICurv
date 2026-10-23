@@ -97,6 +97,21 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
 PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, PetscReal *d, const PetscReal threshold, Cmpnts *normals);
 
 /**
+ * @brief Signed distances from a point to precomputed cell face planes.
+ *
+ * @param[in]  p         The target point.
+ * @param[in]  planes    Face planes from MetricBuildCellFacePlanes().
+ * @param[out] d         Six signed distances, positive inside, indexed by `Face`; below `threshold` set to 0.
+ * @param[in]  threshold Absolute distance below which a distance is zero.
+ * @param[out] normals   Optional, may be NULL: each face's unit outward normal, in the order of `d`.
+ *
+ * @return PetscErrorCode 0 on success, or PETSC_ERR_USER for a degenerate face (checked in
+ *         BACK, FRONT, BOTTOM, TOP, LEFT, RIGHT order, as CalculateDistancesToCellFaces() always has).
+ */
+PetscErrorCode CalculateDistancesToCellFacePlanes(const Cmpnts p, const CellFacePlanes *planes, PetscReal *d,
+                                                  const PetscReal threshold, Cmpnts *normals);
+
+/**
  * @brief Classifies a point based on precomputed face distances.
  *
  * Given an array of six distances d[NUM_FACES] from the point to each face
@@ -221,6 +236,21 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
  PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cmpnts p, PetscInt *position, const PetscReal threshold);
 
 /**
+ * @brief EvaluateParticlePosition() against precomputed face planes and cell size.
+ *
+ * @param[in]  planes    Face planes with `size` set, e.g. a record of `user->lCellPlanes`.
+ * @param[out] d         Six signed face distances, thresholded at `threshold * planes->size`.
+ * @param[in]  p         The particle position.
+ * @param[out] position  0 inside, 1 to 3 on a face, edge or corner, -1 outside.
+ * @param[in]  threshold Base threshold, scaled by the cell size.
+ *
+ * @return PetscErrorCode 0 on success, or PETSC_ERR_USER for a degenerate face.
+ */
+PetscErrorCode EvaluateParticlePositionInPlanes(const CellFacePlanes *planes, PetscReal *d, const Cmpnts p,
+                                                PetscInt *position, const PetscReal threshold);
+
+
+/**
  * @brief Finalizes the traversal by reporting the results.
  *
  * This function prints the outcome of the traversal, indicating whether the particle
@@ -268,17 +298,16 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
 /**
  * @brief Mirrors a point about the plane of one face of a cell.
  *
- * The plane is the one the walking search uses for that face (unit outward normal from
- * `CalculateDistancesToCellFaces`), so a point outside the face by |d| ends inside it by |d|:
- * p' = p + 2 d n, with d < 0 outside. Only the position changes.
+ * The plane is the one the walking search tested the point against, so a point outside the
+ * face by |d| ends inside it by |d|: p' = p + 2 d n, with d < 0 outside. Only the position changes.
  *
- * @param[in]     cell The cell whose face plane is used.
+ * @param[in]     planes The cell's face planes (MetricGatherCellFacePlanes() or MetricBuildCellFacePlanes()).
  * @param[in]     face The face index (LEFT, RIGHT, BOTTOM, TOP, FRONT or BACK).
  * @param[in,out] p    The point to mirror.
  *
  * @return PetscErrorCode 0 on success, or a non-zero PETSc error code (including a degenerate face).
  */
-PetscErrorCode ReflectParticleAcrossCellFace(const Cell *cell, PetscInt face, Cmpnts *p);
+PetscErrorCode ReflectParticleAcrossCellFace(const CellFacePlanes *planes, PetscInt face, Cmpnts *p);
 
 /**
  * @brief Moves a point to just inside a cell along the segment toward the cell centroid.

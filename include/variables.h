@@ -205,6 +205,19 @@ typedef struct Cell {
     Cmpnts vertices[8]; ///< Coordinates of the eight vertices of the cell.
 } Cell;
 
+/** @brief One cell face as the particle search tests against it: a plane through the vertex mean. */
+typedef struct FacePlane {
+    Cmpnts normal;   ///< Unit outward normal of (v2 - v1) x (v4 - v1); unnormalised when degenerate.
+    Cmpnts centroid; ///< Mean of the face's four vertices.
+} FacePlane;
+
+/** @brief The six face planes of one hexahedron, indexed by `Face`, and its characteristic size. */
+typedef struct CellFacePlanes {
+    FacePlane face[NUM_FACES]; ///< Face planes in LEFT..BACK order.
+    PetscInt  degenerate;      ///< Bit f set when face f's normal magnitude is below 1e-12.
+    PetscReal size;            ///< Mean edge length (GetCellCharacteristicSize()); 0 where unused.
+} CellFacePlanes;
+
 /** @brief Defines a particle's core properties for Lagrangian tracking. */
 typedef struct Particle {
     PetscInt64 PID;
@@ -1174,6 +1187,13 @@ typedef struct UserCtx {
   
     // --- Grid Metrics (Global and Local) ---
   Vec Cent, lCent, Csi, Eta, Zet, Aj, lCsi, lEta, lZet, lAj, GridSpace,lGridSpace;
+  // Face planes for particle search (grid cells) and cell-centre interpolation (dual cells): one
+  // plane per face family, shared by the two cells on either side (MetricComputeFacePlanes()).
+  Vec PlaneNormalI, PlaneNormalJ, PlaneNormalK, lPlaneNormalI, lPlaneNormalJ, lPlaneNormalK;
+  Vec PlaneCentroidI, PlaneCentroidJ, PlaneCentroidK, lPlaneCentroidI, lPlaneCentroidJ, lPlaneCentroidK;
+  Vec SearchCellSize, lSearchCellSize;
+  Vec DualPlaneNormalI, DualPlaneNormalJ, DualPlaneNormalK, lDualPlaneNormalI, lDualPlaneNormalJ, lDualPlaneNormalK;
+  Vec DualPlaneCentroidI, DualPlaneCentroidJ, DualPlaneCentroidK, lDualPlaneCentroidI, lDualPlaneCentroidJ, lDualPlaneCentroidK;
   Vec   Centx,Centy,Centz;
   Vec   lCentx,lCenty,lCentz;
   Vec 	ICsi, IEta, IZet, IAj, lICsi, lIEta, lIZet, lIAj;

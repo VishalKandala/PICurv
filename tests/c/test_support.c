@@ -8,6 +8,7 @@
 #include "grid.h"
 #include "io.h"
 #include "setup.h"
+#include "Metric.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -551,6 +552,7 @@ PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
 
     PetscCall(PicurvPopulateUniformCellCenters(user));
     PetscCall(PicurvPopulateIdentityMetrics(user));
+    PetscCall(MetricComputeFacePlanes(user)); // Tests that change the grid rebuild them
 
     *simCtx_out = simCtx;
     *user_out = user;
@@ -988,6 +990,7 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
         PetscCall(DestroyVecIfSet(&user->R));
         PetscCall(DestroyVecIfSet(&user->Cent));
         PetscCall(DestroyVecIfSet(&user->lCent));
+        PetscCall(MetricDestroyFacePlanes(user));
         PetscCall(DestroyVecIfSet(&user->GridSpace));
         PetscCall(DestroyVecIfSet(&user->lGridSpace));
         PetscCall(DestroyVecIfSet(&user->Centx));

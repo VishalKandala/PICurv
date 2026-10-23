@@ -191,6 +191,62 @@ static PetscErrorCode TestDegenerateCellIsRefused(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests that the shared per-face planes reproduce each cell's own planes and are observable.
+ * @details On the fixture's uniform grid every face is planar, so a grid cell's gathered planes
+ *          and a dual cell's must give the per-cell distances CalculateDistancesToCellFaces()
+ *          computes from the same vertices, to rounding; the catalog's diagnostics must accept them.
+ */
+static PetscErrorCode TestFacePlanesMatchPerCellPlanes(void)
+{
+    SimCtx         *simCtx = NULL;
+    UserCtx        *user = NULL;
+    FacePlaneArrays arrays;
+    CellFacePlanes  shared;
+    Cell            cell;
+    PetscReal       d_shared[NUM_FACES], d_cell[NUM_FACES], size;
+    const Cmpnts    p = {0.31, 0.47, 0.52};
+    const Cmpnts ***cent = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 6, 6, 6));
+    PetscCall(MetricComputeFacePlanes(user));
+
+    PetscCall(MetricGetFacePlaneArrays(user, PETSC_FALSE, &arrays));
+    for (PetscInt c = 0; c < 3; ++c) {
+        MetricGatherCellFacePlanes(&arrays, &user->info, c, c + 1, c, &shared);
+        PetscCall(RetrieveCurrentCell(user, c, c + 1, c, &cell));
+        PetscCall(CalculateDistancesToCellFaces(p, &cell, d_cell, 0.0, NULL));
+        PetscCall(CalculateDistancesToCellFacePlanes(p, &shared, d_shared, 0.0, NULL));
+        PetscCall(GetCellCharacteristicSize(&cell, &size));
+        PetscCall(PicurvAssertIntEqual(0, shared.degenerate, "grid cell faces all have planes"));
+        PetscCall(PicurvAssertRealNear(size, shared.size, 1.0e-15, "grid cell size"));
+        for (PetscInt f = 0; f < NUM_FACES; ++f) PetscCall(PicurvAssertRealNear(d_cell[f], d_shared[f], 1.0e-14, "grid cell face distance"));
+    }
+    PetscCall(MetricRestoreFacePlaneArrays(user, &arrays));
+
+    PetscCall(MetricGetFacePlaneArrays(user, PETSC_TRUE, &arrays));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCent, (void *)&cent));
+    for (PetscInt c = 1; c < 4; ++c) {
+        const PetscInt i = c, j = 2, k = 4 - c;
+        cell.vertices[0] = cent[k][j][i];         cell.vertices[1] = cent[k][j][i + 1];
+        cell.vertices[2] = cent[k][j + 1][i + 1]; cell.vertices[3] = cent[k][j + 1][i];
+        cell.vertices[4] = cent[k + 1][j + 1][i]; cell.vertices[5] = cent[k + 1][j + 1][i + 1];
+        cell.vertices[6] = cent[k + 1][j][i + 1]; cell.vertices[7] = cent[k + 1][j][i];
+        MetricGatherCellFacePlanes(&arrays, &user->info, i, j, k, &shared);
+        PetscCall(CalculateDistancesToCellFaces(p, &cell, d_cell, 0.0, NULL));
+        PetscCall(CalculateDistancesToCellFacePlanes(p, &shared, d_shared, 0.0, NULL));
+        for (PetscInt f = 0; f < NUM_FACES; ++f) PetscCall(PicurvAssertRealNear(d_cell[f], d_shared[f], 1.0e-14, "dual cell face distance"));
+    }
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCent, (void *)&cent));
+    PetscCall(MetricRestoreFacePlaneArrays(user, &arrays));
+
+    PetscCall(LOG_FIELD_MIN_MAX(user, FIELD_ID_PLANE_NORMAL_I));
+    PetscCall(LOG_FIELD_ANATOMY(user, FIELD_ID_DUAL_PLANE_CENTROID_K, "face-plane test"));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Runs the unit-metric PETSc test binary.
  */
 
@@ -206,6 +262,7 @@ int main(int argc, char **argv)
         {"characteristic-length-scale-wall-resolved-cell", TestComputeCellCharacteristicLengthScaleWallResolvedCell},
         {"degenerate-cell-is-refused", TestDegenerateCellIsRefused},
         {"metric-jacobian-is-cell-volume-for-parallelepiped", TestMetricJacobianIsCellVolumeForParallelepiped},
+        {"face-planes-match-per-cell-planes", TestFacePlanesMatchPerCellPlanes},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv metric tests");

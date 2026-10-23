@@ -4,6 +4,7 @@
  */
 
 #include "test_support.h"
+#include "Metric.h"
 
 #include "walkingsearch.h"
 #include "ParticleInitialConditions.h"
@@ -106,30 +107,34 @@ static void BuildShearedUnitCell(PetscReal shear, Cell *cell)
  */
 static PetscErrorCode TestReflectParticleAcrossCellFace(void)
 {
-    Cell   cell;
-    Cmpnts p;
+    Cell           cell;
+    CellFacePlanes planes;
+    Cmpnts         p;
 
     PetscFunctionBeginUser;
     BuildShearedUnitCell(0.0, &cell);
+    MetricBuildCellFacePlanes(&cell, &planes);
     p.x = -0.2; p.y = 0.5; p.z = 0.5;
-    PetscCall(ReflectParticleAcrossCellFace(&cell, LEFT, &p));
+    PetscCall(ReflectParticleAcrossCellFace(&planes, LEFT, &p));
     PetscCall(PicurvAssertRealNear(0.2, p.x, 1.0e-14, "flat face: x mirrors about x = 0"));
     PetscCall(PicurvAssertRealNear(0.5, p.y, 1.0e-14, "flat face: y is unchanged"));
     PetscCall(PicurvAssertRealNear(0.5, p.z, 1.0e-14, "flat face: z is unchanged"));
 
     /* LEFT face of the sheared cell is the plane x = 0.5 z; (-0.3, 0.5, 0.4) mirrors to (0.5, 0.5, 0). */
     BuildShearedUnitCell(0.5, &cell);
+    MetricBuildCellFacePlanes(&cell, &planes);
     p.x = -0.3; p.y = 0.5; p.z = 0.4;
-    PetscCall(ReflectParticleAcrossCellFace(&cell, LEFT, &p));
+    PetscCall(ReflectParticleAcrossCellFace(&planes, LEFT, &p));
     PetscCall(PicurvAssertRealNear(0.5, p.x, 1.0e-14, "sheared face: mirrored x"));
     PetscCall(PicurvAssertRealNear(0.5, p.y, 1.0e-14, "sheared face: y is unchanged"));
     PetscCall(PicurvAssertRealNear(0.0, p.z, 1.0e-14, "sheared face: mirrored z"));
 
     /* Corner: reflecting about LEFT and then BOTTOM mirrors both coordinates. */
     BuildShearedUnitCell(0.0, &cell);
+    MetricBuildCellFacePlanes(&cell, &planes);
     p.x = -0.1; p.y = -0.2; p.z = 0.5;
-    PetscCall(ReflectParticleAcrossCellFace(&cell, LEFT, &p));
-    PetscCall(ReflectParticleAcrossCellFace(&cell, BOTTOM, &p));
+    PetscCall(ReflectParticleAcrossCellFace(&planes, LEFT, &p));
+    PetscCall(ReflectParticleAcrossCellFace(&planes, BOTTOM, &p));
     PetscCall(PicurvAssertRealNear(0.1, p.x, 1.0e-14, "corner: x mirrored"));
     PetscCall(PicurvAssertRealNear(0.2, p.y, 1.0e-14, "corner: y mirrored"));
     PetscFunctionReturn(0);

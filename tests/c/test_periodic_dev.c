@@ -4,6 +4,7 @@
  */
 
 #include "test_support.h"
+#include "Metric.h"
 
 #include "Boundaries.h"
 #include "walkingsearch.h"
@@ -241,6 +242,8 @@ static PetscErrorCode TestLocateParticleWrapsThroughOffAxisSeam(void)
             }
     PetscCall(DMDAVecRestoreArray(user->fda, gcoor, &coor));
     PetscCall(DMSetCoordinates(user->da, gcoor));
+    PetscCall(MetricDestroyFacePlanes(user)); /* The grid moved: its search planes are rebuilt */
+    PetscCall(MetricComputeFacePlanes(user));
     PetscCall(ValidatePeriodicGeometry(user));
     PetscCall(PicurvAssertRealNear(c * T0, user->periodic_translation[0].x, 1.0e-12, "translation x is rotated"));
     PetscCall(PicurvAssertRealNear(s * T0, user->periodic_translation[0].y, 1.0e-12, "translation gains a y component"));

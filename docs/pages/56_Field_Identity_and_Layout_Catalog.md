@@ -174,11 +174,12 @@ The catalog groups fields by layout as follows:
 - shifted cell-centered: `Ucat`, `P`, `Nu_t`, `CS`, `Utau`, `NuWall`, `Diffusivity`,
   `DiffusivityGradient`, `Nvert`, `Aj`, `Cent`, `GridSpace`, `Phi`, `Psi`,
   `Nvert_o`, `ParticleCount`, `PostScalar`,
-  `PostVector`, and `Qcrit`;
+  `PostVector`, `Qcrit`, `SearchCellSize`, `DualPlaneNormalI`, `DualPlaneNormalJ`,
+  `DualPlaneNormalK`, `DualPlaneCentroidI`, `DualPlaneCentroidJ`, and `DualPlaneCentroidK`;
 - component-staggered: `Ucont`, `Ucont_o`, and `Ucont_rm1`;
-- I-face family: `Csi`, `Centx`, `ICsi`, `IEta`, `IZet`, and `IAj`;
-- J-face family: `Eta`, `Centy`, `JCsi`, `JEta`, `JZet`, and `JAj`;
-- K-face family: `Zet`, `Centz`, `KCsi`, `KEta`, `KZet`, and `KAj`.
+- I-face family: `Csi`, `Centx`, `ICsi`, `IEta`, `IZet`, `IAj`, `PlaneNormalI`, and `PlaneCentroidI`;
+- J-face family: `Eta`, `Centy`, `JCsi`, `JEta`, `JZet`, `JAj`, `PlaneNormalJ`, and `PlaneCentroidJ`;
+- K-face family: `Zet`, `Centz`, `KCsi`, `KEta`, `KZet`, `KAj`, `PlaneNormalK`, and `PlaneCentroidK`.
 
 Four of those entries are staging workspaces rather than solver state, and none of
 them is checkpointed. `CellScalarAtCorner` and `CellVectorAtCorner` hold the result
@@ -191,6 +192,21 @@ instead of each growing a second, view-based entry point.
 `Qcrit` is catalogued for the same reason: the post-processor computes it at cell
 centres, and only a catalog identity lets `nodal_average` refresh its ghosts by name and
 average it to nodes, since a `.vts` carries point data only.
+
+The face-plane entries are the planes the particle search and cell-centre interpolation
+test points against, built once by `MetricComputeFacePlanes()` (`src/Metric.c`) on the finest
+level of a particle run and never checkpointed. Each face has one plane, shared by the cells
+on either side: `PlaneNormal*` is its unit normal toward +i, +j or +k and `PlaneCentroid*` the
+mean of its four vertices, and a zero normal marks a face with no plane. They differ from
+`Csi` and `Centx` by construction: the normal is the edge cross product (v2 - v1) x (v4 - v1)
+the search has always used, not the diagonal area vector, and the centroids come from the raw
+ghosted coordinates with no boundary extrapolation or seam shift. `SearchCellSize` is each
+cell's mean edge length, which scales the search's on-face tolerance. The `DualPlane*` entries
+are the same for the dual cells whose vertices are cell centres; they are filed as
+cell-centred because index (i, j, k) holds the faces whose lower corner is the cell centre
+`Cent[k][j][i]`, while the faces themselves lie between centres. The ghosted local vectors are
+computed directly from ghosted inputs; the global vectors hold the owned values for
+`LOG_FIELD_MIN_MAX` and are never scattered back.
 
 The particle inventory is: `position`, `velocity`, `DMSwarm_CellID`, `weight`,
 `Diffusivity`, `DiffusivityGradient`, `Psi`, `DMSwarm_location_status`,

@@ -41,6 +41,375 @@ PetscErrorCode MetricGetCellVertices(UserCtx *user,
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "MetricFacePlane"
+/**
+ * @brief Implementation of \ref MetricFacePlane().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Metric.h`.
+ * @see MetricFacePlane()
+ */
+PetscBool MetricFacePlane(const Cmpnts v1, const Cmpnts v2, const Cmpnts v3, const Cmpnts v4,
+                          const Cmpnts cell_centroid, FacePlane *plane, PetscBool *degenerate)
+{
+    const PetscReal edge1_x = v2.x - v1.x, edge1_y = v2.y - v1.y, edge1_z = v2.z - v1.z;
+    const PetscReal edge2_x = v4.x - v1.x, edge2_y = v4.y - v1.y, edge2_z = v4.z - v1.z;
+    PetscReal normal_x = edge1_y * edge2_z - edge1_z * edge2_y;
+    PetscReal normal_y = edge1_z * edge2_x - edge1_x * edge2_z;
+    PetscReal normal_z = edge1_x * edge2_y - edge1_y * edge2_x;
+    const PetscReal normal_magnitude = sqrt(normal_x * normal_x + normal_y * normal_y + normal_z * normal_z);
+    PetscBool ambiguous = PETSC_FALSE;
+
+    plane->centroid.x = 0.25 * (v1.x + v2.x + v3.x + v4.x);
+    plane->centroid.y = 0.25 * (v1.y + v2.y + v3.y + v4.y);
+    plane->centroid.z = 0.25 * (v1.z + v2.z + v3.z + v4.z);
+    *degenerate = (PetscBool)(normal_magnitude < 1.0e-12);
+    if (!*degenerate) {
+        // Orient outward: flip a normal that points from the face toward the cell centroid.
+        const PetscReal dot_prod_orientation = normal_x * (cell_centroid.x - plane->centroid.x) +
+                                               normal_y * (cell_centroid.y - plane->centroid.y) +
+                                               normal_z * (cell_centroid.z - plane->centroid.z);
+        if (dot_prod_orientation > 1.0e-9) {
+            normal_x = -normal_x; normal_y = -normal_y; normal_z = -normal_z;
+        } else if (dot_prod_orientation == 0.0) {
+            ambiguous = PETSC_TRUE; // Keep the (v2-v1)x(v4-v1) direction
+        }
+        normal_x /= normal_magnitude;
+        normal_y /= normal_magnitude;
+        normal_z /= normal_magnitude;
+    }
+    plane->normal.x = normal_x; plane->normal.y = normal_y; plane->normal.z = normal_z;
+    return ambiguous;
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "MetricBuildCellFacePlanes"
+/**
+ * @brief Implementation of \ref MetricBuildCellFacePlanes().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Metric.h`.
+ * @see MetricBuildCellFacePlanes()
+ */
+void MetricBuildCellFacePlanes(const Cell *cell, CellFacePlanes *planes)
+{
+    // Face vertex orders: each face's v1, v2, v4 span its normal, as the walking search has always used.
+    static const int face_vertices[NUM_FACES][4] = {
+        [LEFT] = {0, 7, 4, 3}, [RIGHT] = {1, 2, 5, 6}, [BOTTOM] = {0, 1, 6, 7},
+        [TOP] = {3, 4, 5, 2}, [FRONT] = {4, 7, 6, 5}, [BACK] = {0, 3, 2, 1}};
+    Cmpnts   cell_centroid = {0.0, 0.0, 0.0};
+    PetscInt mask = 0;
+
+    for (int i = 0; i < 8; ++i) {
+      cell_centroid.x += cell->vertices[i].x;
+      cell_centroid.y += cell->vertices[i].y;
+      cell_centroid.z += cell->vertices[i].z;
+    }
+    cell_centroid.x /= 8.0;
+    cell_centroid.y /= 8.0;
+    cell_centroid.z /= 8.0;
+    for (int f = 0; f < NUM_FACES; ++f) {
+        const int *v = face_vertices[f];
+        PetscBool  degenerate;
+        if (MetricFacePlane(cell->vertices[v[0]], cell->vertices[v[1]], cell->vertices[v[2]], cell->vertices[v[3]],
+                            cell_centroid, &planes->face[f], &degenerate)) {
+            LOG_ALLOW(LOCAL, LOG_WARNING, "Face %d: dot product for normal orientation is zero; keeping the (v2-v1)x(v4-v1) direction.\n", f);
+        }
+        if (degenerate) mask |= (PetscInt)1 << f;
+    }
+    planes->degenerate = mask;
+    planes->size = 0.0;
+}
+
+/** @brief The catalogued fields MetricComputeFacePlanes() owns. */
+static const FieldId kFacePlaneFields[] = {
+    FIELD_ID_PLANE_NORMAL_I, FIELD_ID_PLANE_NORMAL_J, FIELD_ID_PLANE_NORMAL_K,
+    FIELD_ID_PLANE_CENTROID_I, FIELD_ID_PLANE_CENTROID_J, FIELD_ID_PLANE_CENTROID_K, FIELD_ID_SEARCH_CELL_SIZE,
+    FIELD_ID_DUAL_PLANE_NORMAL_I, FIELD_ID_DUAL_PLANE_NORMAL_J, FIELD_ID_DUAL_PLANE_NORMAL_K,
+    FIELD_ID_DUAL_PLANE_CENTROID_I, FIELD_ID_DUAL_PLANE_CENTROID_J, FIELD_ID_DUAL_PLANE_CENTROID_K};
+
+/** @brief Offset from a face's lower-corner origin to where its family stores it (see Metric.h). */
+static const PetscInt kPrimalFaceShift[3][3] = {{0, 1, 1}, {1, 0, 1}, {1, 1, 0}};
+
+#undef __FUNCT__
+#define __FUNCT__ "MetricComputeFacePlanes"
+/**
+ * @brief Implementation of \ref MetricComputeFacePlanes().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Metric.h`.
+ * @see MetricComputeFacePlanes()
+ */
+PetscErrorCode MetricComputeFacePlanes(UserCtx *user)
+{
+    const DMDALocalInfo *info = &user->info;
+    const PetscInt       gs[3] = {info->gxs, info->gys, info->gzs};
+    const PetscInt       ge[3] = {info->gxs + info->gxm, info->gys + info->gym, info->gzs + info->gzm};
+    Vec                  Coor;
+    const PetscScalar   *src_flat[2] = {NULL, NULL};
+    Vec                 *globals[2][6] = {
+        {&user->PlaneNormalI, &user->PlaneNormalJ, &user->PlaneNormalK,
+         &user->PlaneCentroidI, &user->PlaneCentroidJ, &user->PlaneCentroidK},
+        {&user->DualPlaneNormalI, &user->DualPlaneNormalJ, &user->DualPlaneNormalK,
+         &user->DualPlaneCentroidI, &user->DualPlaneCentroidJ, &user->DualPlaneCentroidK}};
+    Vec                 *locals[2][6] = {
+        {&user->lPlaneNormalI, &user->lPlaneNormalJ, &user->lPlaneNormalK,
+         &user->lPlaneCentroidI, &user->lPlaneCentroidJ, &user->lPlaneCentroidK},
+        {&user->lDualPlaneNormalI, &user->lDualPlaneNormalJ, &user->lDualPlaneNormalK,
+         &user->lDualPlaneCentroidI, &user->lDualPlaneCentroidJ, &user->lDualPlaneCentroidK}};
+    Cmpnts              *out[2][6];
+    PetscReal           *size = NULL;
+
+    PetscFunctionBeginUser;
+    if (user->SearchCellSize) PetscFunctionReturn(0);
+    PROFILE_FUNCTION_BEGIN;
+    for (int which = 0; which < 2; ++which) {
+        for (int f = 0; f < 6; ++f) {
+            PetscCall(DMCreateGlobalVector(user->fda, globals[which][f]));
+            PetscCall(DMCreateLocalVector(user->fda, locals[which][f]));
+            PetscCall(VecSet(*locals[which][f], 0.0)); // A zero normal marks a face no plane was built for
+            PetscCall(VecGetArray(*locals[which][f], (PetscScalar **)&out[which][f]));
+        }
+    }
+    PetscCall(DMCreateGlobalVector(user->da, &user->SearchCellSize));
+    PetscCall(DMCreateLocalVector(user->da, &user->lSearchCellSize));
+    PetscCall(VecSet(user->lSearchCellSize, 0.0));
+    PetscCall(VecGetArray(user->lSearchCellSize, &size));
+
+    PetscCall(DMGetCoordinatesLocal(user->da, &Coor));
+    PetscCall(VecGetArrayRead(Coor, &src_flat[0]));
+    PetscCall(VecGetArrayRead(user->lCent, &src_flat[1]));
+    const PetscBool periodic[3] = {(PetscBool)(user->simCtx->i_periodic != 0), (PetscBool)(user->simCtx->j_periodic != 0),
+                                   (PetscBool)(user->simCtx->k_periodic != 0)};
+    const PetscInt  mx[3] = {info->mx, info->my, info->mz};
+    for (int which = 0; which < 2; ++which) {
+        const Cmpnts *X = (const Cmpnts *)src_flat[which];
+        // Points a cell may use, as the walk and the interpolation use them: physical nodes 0..mx-2
+        // (the last DA point, and its wrapped ghost copies, are a dummy); cell centres 1..mx-2 across
+        // a wall and 0..mx-1 on a periodic axis, where the boundary centres are the seam images.
+        // No plane is oriented by a cell that touches any other point.
+        PetscInt lo[3], hi[3];
+        for (int a = 0; a < 3; ++a) {
+            lo[a] = PetscMax(gs[a], (which && !periodic[a]) ? 1 : 0);
+            hi[a] = PetscMin(ge[a] - 1, (which && periodic[a]) ? mx[a] - 1 : mx[a] - 2);
+        }
+        #define PICURV_AT(i, j, k) X[MetricCellFacePlanesIndex(info, (i), (j), (k))]
+        for (PetscInt k = gs[2]; k < ge[2]; ++k) {
+            for (PetscInt j = gs[1]; j < ge[1]; ++j) {
+                for (PetscInt i = gs[0]; i < ge[0]; ++i) {
+                    const PetscInt o[3] = {i, j, k};
+                    for (PetscInt a = 0; a < 3; ++a) {
+                        const PetscInt b = (a + 1) % 3, c = (a + 2) % 3;
+                        // The face's own points, and the cell that orients it: the one above (origin o) when all
+                        // its points are usable, else the one below. Without either the face keeps no plane.
+                        if (o[b] < lo[b] || o[b] + 1 > hi[b] || o[c] < lo[c] || o[c] + 1 > hi[c]) continue;
+                        PetscInt  cell[3] = {i, j, k};
+                        PetscBool above = (PetscBool)(o[a] >= lo[a] && o[a] + 1 <= hi[a]);
+                        if (!above) {
+                            if (o[a] - 1 < lo[a] || o[a] > hi[a]) continue;
+                            cell[a] -= 1;
+                        }
+                        Cell hex; // Vertex numbering of GetCellVerticesFromGrid()
+                        hex.vertices[0] = PICURV_AT(cell[0],     cell[1],     cell[2]);
+                        hex.vertices[1] = PICURV_AT(cell[0] + 1, cell[1],     cell[2]);
+                        hex.vertices[2] = PICURV_AT(cell[0] + 1, cell[1] + 1, cell[2]);
+                        hex.vertices[3] = PICURV_AT(cell[0],     cell[1] + 1, cell[2]);
+                        hex.vertices[4] = PICURV_AT(cell[0],     cell[1] + 1, cell[2] + 1);
+                        hex.vertices[5] = PICURV_AT(cell[0] + 1, cell[1] + 1, cell[2] + 1);
+                        hex.vertices[6] = PICURV_AT(cell[0] + 1, cell[1],     cell[2] + 1);
+                        hex.vertices[7] = PICURV_AT(cell[0],     cell[1],     cell[2] + 1);
+                        Cmpnts centroid = {0.0, 0.0, 0.0};
+                        for (int v = 0; v < 8; ++v) {
+                            centroid.x += hex.vertices[v].x;
+                            centroid.y += hex.vertices[v].y;
+                            centroid.z += hex.vertices[v].z;
+                        }
+                        centroid.x /= 8.0; centroid.y /= 8.0; centroid.z /= 8.0;
+                        // The face at o in the vertex order of the minus face (LEFT, BOTTOM, BACK) of cell o.
+                        PetscInt e1[3] = {0, 0, 0}, e2[3] = {0, 0, 0};
+                        if (a == 0) { e1[2] = 1; e2[1] = 1; }      // LEFT: o, o+k, o+j+k, o+j
+                        else if (a == 1) { e1[0] = 1; e2[2] = 1; } // BOTTOM: o, o+i, o+i+k, o+k
+                        else { e1[1] = 1; e2[0] = 1; }             // BACK: o, o+j, o+i+j, o+i
+                        FacePlane plane;
+                        PetscBool degenerate;
+                        if (MetricFacePlane(PICURV_AT(i, j, k), PICURV_AT(i + e1[0], j + e1[1], k + e1[2]),
+                                            PICURV_AT(i + e1[0] + e2[0], j + e1[1] + e2[1], k + e1[2] + e2[2]),
+                                            PICURV_AT(i + e2[0], j + e2[1], k + e2[2]), centroid, &plane, &degenerate)) {
+                            LOG_ALLOW(LOCAL, LOG_WARNING, "Face family %d at (%d,%d,%d): ambiguous orientation; keeping (v2-v1)x(v4-v1).\n",
+                                      (int)a, (int)i, (int)j, (int)k);
+                        }
+                        if (degenerate) continue;
+                        // Stored pointing toward +a: the minus face of the cell above, the plus face of the one below.
+                        const PetscReal sign = above ? -1.0 : 1.0;
+                        const PetscInt *sh = which ? (const PetscInt[3]){0, 0, 0} : kPrimalFaceShift[a];
+                        const PetscInt  at = MetricCellFacePlanesIndex(info, i + sh[0], j + sh[1], k + sh[2]);
+                        out[which][a][at].x = sign * plane.normal.x;
+                        out[which][a][at].y = sign * plane.normal.y;
+                        out[which][a][at].z = sign * plane.normal.z;
+                        out[which][3 + a][at] = plane.centroid;
+                    }
+                    if (which == 0 && i >= lo[0] && i + 1 <= hi[0] && j >= lo[1] && j + 1 <= hi[1] && k >= lo[2] && k + 1 <= hi[2]) {
+                        Cell hex;
+                        hex.vertices[0] = PICURV_AT(i,     j,     k);
+                        hex.vertices[1] = PICURV_AT(i + 1, j,     k);
+                        hex.vertices[2] = PICURV_AT(i + 1, j + 1, k);
+                        hex.vertices[3] = PICURV_AT(i,     j + 1, k);
+                        hex.vertices[4] = PICURV_AT(i,     j + 1, k + 1);
+                        hex.vertices[5] = PICURV_AT(i + 1, j + 1, k + 1);
+                        hex.vertices[6] = PICURV_AT(i + 1, j,     k + 1);
+                        hex.vertices[7] = PICURV_AT(i,     j,     k + 1);
+                        PetscCall(GetCellCharacteristicSize(&hex, &size[MetricCellFacePlanesIndex(info, i + 1, j + 1, k + 1)]));
+                    }
+                }
+            }
+        }
+        #undef PICURV_AT
+    }
+    PetscCall(VecRestoreArrayRead(user->lCent, &src_flat[1]));
+    PetscCall(VecRestoreArrayRead(Coor, &src_flat[0]));
+
+    // Owned values become the global fields; a plain ghost update then gives every rank the
+    // owner's planes, which on every face a particle can reach are the ones it computed itself.
+    PetscCall(VecRestoreArray(user->lSearchCellSize, &size));
+    for (int which = 0; which < 2; ++which) {
+        for (int f = 0; f < 6; ++f) PetscCall(VecRestoreArray(*locals[which][f], (PetscScalar **)&out[which][f]));
+    }
+    for (size_t f = 0; f < sizeof(kFacePlaneFields) / sizeof(kFacePlaneFields[0]); ++f) {
+        FieldView view;
+        const PetscScalar *local = NULL;
+        PetscScalar       *global = NULL;
+        const PetscInt     dof = (kFacePlaneFields[f] == FIELD_ID_SEARCH_CELL_SIZE) ? 1 : 3;
+        PetscCall(FieldGetView(user, kFacePlaneFields[f], &view));
+        // Copy the owned block (DMLocalToGlobal cannot insert on a periodic axis held by one rank).
+        PetscCall(VecGetArrayRead(view.local_vec, &local));
+        PetscCall(VecGetArray(view.global_vec, &global));
+        for (PetscInt k = info->zs, g = 0; k < info->zs + info->zm; ++k) {
+            for (PetscInt j = info->ys; j < info->ys + info->ym; ++j) {
+                for (PetscInt i = info->xs; i < info->xs + info->xm; ++i, ++g) {
+                    PetscCall(PetscArraycpy(&global[dof * g], &local[dof * MetricCellFacePlanesIndex(info, i, j, k)], dof));
+                }
+            }
+        }
+        PetscCall(VecRestoreArray(view.global_vec, &global));
+        PetscCall(VecRestoreArrayRead(view.local_vec, &local));
+        PetscCall(UpdateLocalGhosts(user, kFacePlaneFields[f]));
+    }
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "MetricDestroyFacePlanes"
+/**
+ * @brief Implementation of \ref MetricDestroyFacePlanes().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Metric.h`.
+ * @see MetricDestroyFacePlanes()
+ */
+PetscErrorCode MetricDestroyFacePlanes(UserCtx *user)
+{
+    PetscFunctionBeginUser;
+    for (size_t f = 0; f < sizeof(kFacePlaneFields) / sizeof(kFacePlaneFields[0]); ++f) {
+        const FieldDescriptor *descriptor = NULL;
+        PetscCall(FieldGetDescriptor(kFacePlaneFields[f], &descriptor));
+        PetscCall(VecDestroy((Vec *)((char *)user + descriptor->global_vec_offset)));
+        PetscCall(VecDestroy((Vec *)((char *)user + descriptor->local_vec_offset)));
+    }
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "MetricGetFacePlaneArrays"
+/**
+ * @brief Implementation of \ref MetricGetFacePlaneArrays().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Metric.h`.
+ * @see MetricGetFacePlaneArrays()
+ */
+PetscErrorCode MetricGetFacePlaneArrays(UserCtx *user, PetscBool dual, FacePlaneArrays *arrays)
+{
+    Vec normals[3], centroids[3];
+
+    PetscFunctionBeginUser;
+    PetscCheck(user->lSearchCellSize, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+               "Particle face planes are not built: MetricComputeFacePlanes() runs in CalculateAllGridMetrics() "
+               "for a particle run, collectively, once the grid is final.");
+    if (dual) {
+        normals[0] = user->lDualPlaneNormalI; normals[1] = user->lDualPlaneNormalJ; normals[2] = user->lDualPlaneNormalK;
+        centroids[0] = user->lDualPlaneCentroidI; centroids[1] = user->lDualPlaneCentroidJ; centroids[2] = user->lDualPlaneCentroidK;
+    } else {
+        normals[0] = user->lPlaneNormalI; normals[1] = user->lPlaneNormalJ; normals[2] = user->lPlaneNormalK;
+        centroids[0] = user->lPlaneCentroidI; centroids[1] = user->lPlaneCentroidJ; centroids[2] = user->lPlaneCentroidK;
+    }
+    arrays->dual = dual;
+    for (int a = 0; a < 3; ++a) {
+        PetscCall(VecGetArrayRead(normals[a], (const PetscScalar **)&arrays->normal[a]));
+        PetscCall(VecGetArrayRead(centroids[a], (const PetscScalar **)&arrays->centroid[a]));
+    }
+    arrays->size = NULL;
+    if (!dual) PetscCall(VecGetArrayRead(user->lSearchCellSize, &arrays->size));
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "MetricRestoreFacePlaneArrays"
+/**
+ * @brief Implementation of \ref MetricRestoreFacePlaneArrays().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Metric.h`.
+ * @see MetricRestoreFacePlaneArrays()
+ */
+PetscErrorCode MetricRestoreFacePlaneArrays(UserCtx *user, FacePlaneArrays *arrays)
+{
+    Vec normals[3], centroids[3];
+
+    PetscFunctionBeginUser;
+    if (arrays->dual) {
+        normals[0] = user->lDualPlaneNormalI; normals[1] = user->lDualPlaneNormalJ; normals[2] = user->lDualPlaneNormalK;
+        centroids[0] = user->lDualPlaneCentroidI; centroids[1] = user->lDualPlaneCentroidJ; centroids[2] = user->lDualPlaneCentroidK;
+    } else {
+        normals[0] = user->lPlaneNormalI; normals[1] = user->lPlaneNormalJ; normals[2] = user->lPlaneNormalK;
+        centroids[0] = user->lPlaneCentroidI; centroids[1] = user->lPlaneCentroidJ; centroids[2] = user->lPlaneCentroidK;
+    }
+    for (int a = 0; a < 3; ++a) {
+        PetscCall(VecRestoreArrayRead(normals[a], (const PetscScalar **)&arrays->normal[a]));
+        PetscCall(VecRestoreArrayRead(centroids[a], (const PetscScalar **)&arrays->centroid[a]));
+    }
+    if (!arrays->dual) PetscCall(VecRestoreArrayRead(user->lSearchCellSize, &arrays->size));
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
+#define __FUNCT__ "MetricGatherCellFacePlanes"
+/**
+ * @brief Implementation of \ref MetricGatherCellFacePlanes().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/Metric.h`.
+ * @see MetricGatherCellFacePlanes()
+ */
+void MetricGatherCellFacePlanes(const FacePlaneArrays *arrays, const DMDALocalInfo *info,
+                                PetscInt i, PetscInt j, PetscInt k, CellFacePlanes *planes)
+{
+    static const PetscInt dual_shift[3] = {0, 0, 0};
+    static const Face     minus_face[3] = {LEFT, BOTTOM, BACK}, plus_face[3] = {RIGHT, TOP, FRONT};
+
+    planes->degenerate = 0;
+    for (PetscInt a = 0; a < 3; ++a) {
+        const PetscInt *sh = arrays->dual ? dual_shift : kPrimalFaceShift[a];
+        for (int side = 0; side < 2; ++side) {
+            const PetscInt  at = MetricCellFacePlanesIndex(info, i + sh[0] + (a == 0 ? side : 0),
+                                                           j + sh[1] + (a == 1 ? side : 0), k + sh[2] + (a == 2 ? side : 0));
+            const Face      f  = side ? plus_face[a] : minus_face[a];
+            const Cmpnts    n  = arrays->normal[a][at];
+            FacePlane      *p  = &planes->face[f];
+            // Stored toward +a: outward for the plus face, reversed (exactly) for the minus face.
+            if (side) p->normal = n;
+            else { p->normal.x = -n.x; p->normal.y = -n.y; p->normal.z = -n.z; }
+            p->centroid = arrays->centroid[a][at];
+            if (n.x == 0.0 && n.y == 0.0 && n.z == 0.0) planes->degenerate |= (PetscInt)1 << f;
+        }
+    }
+    planes->size = arrays->dual ? 0.0 : arrays->size[MetricCellFacePlanesIndex(info, i + 1, j + 1, k + 1)];
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "TrilinearBlend"
 
 /* ------------------------------------------------------------------------- */
@@ -1888,6 +2257,14 @@ PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
             if (level == usermg->mglevels - 1) {
                 ierr = ComputeMetricsDivergence(user); CHKERRQ(ierr);
             }
+        }
+    }
+
+    // Face planes for particle search and interpolation, from the final coordinates and lCent.
+    if (simCtx->np > 0) {
+        for (PetscInt bi = 0; bi < nblk; bi++) {
+            UserCtx *user = &mgctx[usermg->mglevels - 1].user[bi];
+            ierr = MetricComputeFacePlanes(user); CHKERRQ(ierr);
         }
     }
 
