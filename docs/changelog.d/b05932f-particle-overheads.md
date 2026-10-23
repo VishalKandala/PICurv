@@ -1,0 +1,1 @@
+- Experimental: particle transport no longer pays per-particle overheads from the profiler's name lookup and from rebuilding the coordinate array on every walk step, and checkpoints are written in parallel instead of gathered onto rank 0, which held about 24 bytes per particle in the whole run; results and checkpoint files are unchanged.
