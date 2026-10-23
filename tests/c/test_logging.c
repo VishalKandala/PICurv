@@ -1493,14 +1493,16 @@ static PetscErrorCode TestProfilingLifecycleHelpers(void)
 
     PetscCall(ProfilingInitialize(&simCtx));
 
-    _ProfilingStart("FlowSolver");
-    _ProfilingEnd("FlowSolver");
-    _ProfilingStart("UnselectedHelper");
-    _ProfilingEnd("UnselectedHelper");
+    /* Each index stands for one call site's cache; the second FlowSolver pair reuses it. */
+    PetscInt flow_idx = -1, helper_idx = -1;
+    _ProfilingStart("FlowSolver", &flow_idx);
+    _ProfilingEnd("FlowSolver", &flow_idx);
+    _ProfilingStart("UnselectedHelper", &helper_idx);
+    _ProfilingEnd("UnselectedHelper", &helper_idx);
     PetscCall(ProfilingLogTimestepSummary(&simCtx, 1));
 
-    _ProfilingStart("FlowSolver");
-    _ProfilingEnd("FlowSolver");
+    _ProfilingStart("FlowSolver", &flow_idx);
+    _ProfilingEnd("FlowSolver", &flow_idx);
     PetscCall(ProfilingResetTimestepCounters());
     PetscCall(ProfilingLogTimestepSummary(&simCtx, 2));
     PetscCall(ProfilingFinalize(&simCtx));

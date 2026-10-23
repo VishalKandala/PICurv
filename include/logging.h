@@ -887,13 +887,15 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx);
 /**
  * @brief Internal profiling hook invoked by `PROFILE_FUNCTION_BEGIN`.
  * @param func_name Function name used by the profiling helper.
+ * @param idx Call site's cached registry index; -1 until first resolved.
  */
-void _ProfilingStart(const char *func_name);
+void _ProfilingStart(const char *func_name, PetscInt *idx);
 /**
  * @brief Internal profiling hook invoked by `PROFILE_FUNCTION_END`.
  * @param func_name Function name used by the profiling helper.
+ * @param idx Call site's cached registry index, shared with its `PROFILE_FUNCTION_BEGIN`.
  */
-void _ProfilingEnd(const char *func_name);
+void _ProfilingEnd(const char *func_name, PetscInt *idx);
 
 
 /**
@@ -901,18 +903,23 @@ void _ProfilingEnd(const char *func_name);
  *
  * Place this macro at the very beginning of a function you wish to profile.
  * It automatically captures the function's name and starts a wall-clock timer.
+ * The function's registry index is cached in a function-local static after the first
+ * call, so profiling a helper called per particle costs a clock read, not a name search.
  */
 #define PROFILE_FUNCTION_BEGIN \
-    _ProfilingStart(__FUNCT__)
+    static PetscInt _picurv_profile_idx = -1; \
+    _ProfilingStart(__FUNCT__, &_picurv_profile_idx)
 
 /**
  * @brief Marks the end of a profiled code block.
  *
  * Place this macro just before every return point in a function that starts
  * with PROFILE_FUNCTION_BEGIN. It stops the timer and accumulates the results.
+ * It reads the index PROFILE_FUNCTION_BEGIN declares, so it must sit in that
+ * macro's scope; a function that ends a timer it never began does not compile.
  */
 #define PROFILE_FUNCTION_END \
-    _ProfilingEnd(__FUNCT__)
+    _ProfilingEnd(__FUNCT__, &_picurv_profile_idx)
 
 
 /**

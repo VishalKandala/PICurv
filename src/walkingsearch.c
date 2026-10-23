@@ -681,9 +681,8 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
 {
     PetscErrorCode ierr;
     Vec Coor;
-    Cmpnts ***coor_array;
-    PetscMPIInt rank;
-    DMDALocalInfo info_nodes;
+    const PetscScalar *coor_flat;
+    PetscInt gxs, gys, gzs, gxm, gym, gzm;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -694,32 +693,30 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "One or more input pointers are NULL.");
     }
 
-    // Get local coordinates
+    // Called once per walk step per particle, so read the ghosted local coordinates as a flat
+    // array: DMDAVecGetArrayRead would rebuild a pointer array over the whole local grid on
+    // every call. The indices are ghosted global node indices, as for that 3D view.
     ierr = DMGetCoordinatesLocal(user->da, &Coor); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(user->fda, Coor, &coor_array); CHKERRQ(ierr);
+    ierr = DMDAGetGhostCorners(user->fda, &gxs, &gys, &gzs, &gxm, &gym, &gzm); CHKERRQ(ierr);
+    ierr = VecGetArrayRead(Coor, &coor_flat); CHKERRQ(ierr);
+    {
+        const Cmpnts *coor = (const Cmpnts *)coor_flat;
+#define PICURV_NODE(i, j, k) coor[(((k) - gzs) * gym + ((j) - gys)) * gxm + ((i) - gxs)]
+        // Vertex numbering of GetCellVerticesFromGrid().
+        cell->vertices[0] = PICURV_NODE(idx,     idy,     idz);
+        cell->vertices[1] = PICURV_NODE(idx + 1, idy,     idz);
+        cell->vertices[2] = PICURV_NODE(idx + 1, idy + 1, idz);
+        cell->vertices[3] = PICURV_NODE(idx,     idy + 1, idz);
+        cell->vertices[4] = PICURV_NODE(idx,     idy + 1, idz + 1);
+        cell->vertices[5] = PICURV_NODE(idx + 1, idy + 1, idz + 1);
+        cell->vertices[6] = PICURV_NODE(idx + 1, idy,     idz + 1);
+        cell->vertices[7] = PICURV_NODE(idx,     idy,     idz + 1);
+#undef PICURV_NODE
+    }
+    ierr = VecRestoreArrayRead(Coor, &coor_flat); CHKERRQ(ierr);
 
-    // Get the local grid information FOR THE GHOSTED ARRAY from user->fda
-    // This info contains the mapping between global and local indices.
-    ierr = DMDAGetLocalInfo(user->fda, &info_nodes); CHKERRQ(ierr);
-
-    PetscInt  idx_local = idx; // - info_nodes.gxs;
-    PetscInt  idy_local = idy; // - info_nodes.gys;
-    PetscInt  idz_local = idz; // - info_nodes.gzs;
-    
-    LOG_ALLOW(LOCAL,LOG_VERBOSE," [Rank %d] Getting vertex coordinates for cell: %d,%d,%d whose local coordinates are %d,%d,%d.\n",rank,idx,idy,idz,idx_local,idy_local,idz_local);
-    
-    // Get the current cell's vertices
-    ierr = GetCellVerticesFromGrid(coor_array, idx_local, idy_local, idz_local, cell); CHKERRQ(ierr);
-
-    // Restore array
-    ierr = DMDAVecRestoreArrayRead(user->fda, Coor, &coor_array); CHKERRQ(ierr);
-
-    // Get MPI rank for debugging
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-
-    // Debug: Print cell vertices
     LOG_ALLOW(LOCAL,LOG_VERBOSE, "Cell (%d, %d, %d) vertices \n", idx, idy, idz);
-    ierr = LOG_CELL_VERTICES(cell, rank); CHKERRQ(ierr);
+    ierr = LOG_CELL_VERTICES(cell, user->simCtx->rank); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -887,6 +884,7 @@ PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscI
 PetscErrorCode FinalizeTraversal(UserCtx *user, Particle *particle, PetscInt traversal_steps, PetscBool cell_found, PetscInt idx, PetscInt idy, PetscInt idz)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     // Validate input pointers
     if (user == NULL || particle == NULL) {
       LOG_ALLOW(LOCAL,LOG_ERROR, "One or more input pointers are NULL.\n");

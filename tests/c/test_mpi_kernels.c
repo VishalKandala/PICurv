@@ -449,11 +449,12 @@ static PetscErrorCode TestProfilingSummaryReducesOverRanks(void)
 
     if (rank == 1) {
         PetscLogDouble start = 0.0, now = 0.0;
-        _ProfilingStart("ProfiledOnRankOneOnly");
+        PetscInt profile_idx = -1;
+        _ProfilingStart("ProfiledOnRankOneOnly", &profile_idx);
         /* Spin until the clock advances: a zero elapsed time ties both ranks and the maximum falls to rank 0. */
         PetscCall(PetscTime(&start));
         do PetscCall(PetscTime(&now)); while (now <= start);
-        _ProfilingEnd("ProfiledOnRankOneOnly");
+        _ProfilingEnd("ProfiledOnRankOneOnly", &profile_idx);
     }
     PetscCall(ProfilingFinalize(&simCtx));
 

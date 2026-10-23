@@ -2056,6 +2056,24 @@ static PetscErrorCode _FindOrCreateEntry(const char *func_name, PetscInt *idx)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Internal helper: resolve a profiling call site's registry index, reusing its cache.
+ * @details Local to this translation unit. A cached index is trusted only while it still names
+ *          this function, so a registry rebuilt by finalize and re-initialize re-resolves instead
+ *          of charging time to another entry; the name search runs once per call site otherwise.
+ */
+static PetscErrorCode _ResolveCallSiteEntry(const char *func_name, PetscInt *idx)
+{
+    PetscFunctionBeginUser;
+    if (*idx >= 0 && *idx < g_profiler_count &&
+        (g_profiler_registry[*idx].name == func_name ||
+         strcmp(g_profiler_registry[*idx].name, func_name) == 0)) {
+        PetscFunctionReturn(0);
+    }
+    PetscCall(_FindOrCreateEntry(func_name, idx));
+    PetscFunctionReturn(0);
+}
+
 // --- Public API Implementation ---
 /**
  * @brief Internal helper implementation: `ProfilingInitialize()`.
@@ -2085,11 +2103,10 @@ PetscErrorCode ProfilingInitialize(SimCtx *simCtx)
  * @see _ProfilingStart()
  */
 
-void _ProfilingStart(const char *func_name)
+void _ProfilingStart(const char *func_name, PetscInt *idx)
 {
-    PetscInt idx;
-    if (_FindOrCreateEntry(func_name, &idx) != 0) return; // Fail silently
-    PetscTime(&g_profiler_registry[idx].start_time);
+    if (_ResolveCallSiteEntry(func_name, idx) != 0) return; // Fail silently
+    PetscTime(&g_profiler_registry[*idx].start_time);
 }
 
 /**
@@ -2099,19 +2116,18 @@ void _ProfilingStart(const char *func_name)
  * @see _ProfilingEnd()
  */
 
-void _ProfilingEnd(const char *func_name)
+void _ProfilingEnd(const char *func_name, PetscInt *idx)
 {
     double end_time;
     PetscTime(&end_time);
 
-    PetscInt idx;
-    if (_FindOrCreateEntry(func_name, &idx) != 0) return; // Fail silently
+    if (_ResolveCallSiteEntry(func_name, idx) != 0) return; // Fail silently
 
-    double elapsed = end_time - g_profiler_registry[idx].start_time;
-    g_profiler_registry[idx].total_time += elapsed;
-    g_profiler_registry[idx].current_step_time += elapsed;
-    g_profiler_registry[idx].total_call_count++;
-    g_profiler_registry[idx].current_step_call_count++;
+    double elapsed = end_time - g_profiler_registry[*idx].start_time;
+    g_profiler_registry[*idx].total_time += elapsed;
+    g_profiler_registry[*idx].current_step_time += elapsed;
+    g_profiler_registry[*idx].total_call_count++;
+    g_profiler_registry[*idx].current_step_call_count++;
 }
 
 /**

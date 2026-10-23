@@ -121,32 +121,46 @@ static PetscErrorCode FormatStatisticsPath(const char *root, PetscInt window, Pe
     PetscFunctionReturn(0);
 }
 
-/** @brief Gather a vector in decomposition-independent natural ordering onto rank zero. */
-static PetscErrorCode GatherVectorToRankZero(Vec field_vec, Vec *sequential_vec)
+/**
+ * @brief Express a vector in decomposition-independent natural ordering.
+ * @details A DMDA vector is permuted into a new natural vector; any other vector (a swarm
+ *          field, for one) is already ordered rank by rank and is returned as is, with
+ *          *natural_vec left NULL. The caller destroys *natural_vec.
+ */
+static PetscErrorCode NaturalOrderedVector(Vec field_vec, Vec *natural_vec, Vec *ordered_vec)
 {
     DM dm = NULL;
     const char *dm_type = NULL;
-    Vec natural_vec = NULL;
+
+    PetscFunctionBeginUser;
+    *natural_vec = NULL;
+    *ordered_vec = field_vec;
+    PetscCall(VecGetDM(field_vec, &dm));
+    if (dm) PetscCall(DMGetType(dm, &dm_type));
+    if (dm_type && !strcmp(dm_type, DMDA)) {
+        PetscCall(DMDACreateNaturalVector(dm, natural_vec));
+        PetscCall(DMDAGlobalToNaturalBegin(dm, field_vec, INSERT_VALUES, *natural_vec));
+        PetscCall(DMDAGlobalToNaturalEnd(dm, field_vec, INSERT_VALUES, *natural_vec));
+        *ordered_vec = *natural_vec;
+    }
+    PetscFunctionReturn(0);
+}
+
+/** @brief Gather a vector in decomposition-independent natural ordering onto rank zero. */
+static PetscErrorCode GatherVectorToRankZero(Vec field_vec, Vec *sequential_vec)
+{
+    Vec natural_vec = NULL, ordered_vec = NULL;
     VecScatter scatter = NULL;
 
     PetscFunctionBeginUser;
     PetscCheck(field_vec != NULL && sequential_vec != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "A source vector and output vector pointer are required.");
     *sequential_vec = NULL;
+    PetscCall(NaturalOrderedVector(field_vec, &natural_vec, &ordered_vec));
 
-    PetscCall(VecGetDM(field_vec, &dm));
-    if (dm) PetscCall(DMGetType(dm, &dm_type));
-    if (dm_type && !strcmp(dm_type, DMDA)) {
-        PetscCall(DMDACreateNaturalVector(dm, &natural_vec));
-        PetscCall(DMDAGlobalToNaturalBegin(dm, field_vec, INSERT_VALUES, natural_vec));
-        PetscCall(DMDAGlobalToNaturalEnd(dm, field_vec, INSERT_VALUES, natural_vec));
-    }
-
-    PetscCall(VecScatterCreateToZero(natural_vec ? natural_vec : field_vec, &scatter, sequential_vec));
-    PetscCall(VecScatterBegin(scatter, natural_vec ? natural_vec : field_vec, *sequential_vec,
-                              INSERT_VALUES, SCATTER_FORWARD));
-    PetscCall(VecScatterEnd(scatter, natural_vec ? natural_vec : field_vec, *sequential_vec,
-                            INSERT_VALUES, SCATTER_FORWARD));
+    PetscCall(VecScatterCreateToZero(ordered_vec, &scatter, sequential_vec));
+    PetscCall(VecScatterBegin(scatter, ordered_vec, *sequential_vec, INSERT_VALUES, SCATTER_FORWARD));
+    PetscCall(VecScatterEnd(scatter, ordered_vec, *sequential_vec, INSERT_VALUES, SCATTER_FORWARD));
     PetscCall(VecScatterDestroy(&scatter));
     PetscCall(VecDestroy(&natural_vec));
     PetscFunctionReturn(0);
@@ -2013,8 +2027,8 @@ PetscErrorCode WriteFieldData(UserCtx *user,
                               const char *ext)
 {
     MPI_Comm       comm;
-    PetscMPIInt    rank;
-    Vec            sequential_vec = NULL;
+    Vec            natural_vec = NULL, ordered_vec = NULL;
+    PetscViewer    viewer;
     char           filename[PETSC_MAX_PATH_LEN];
     SimCtx         *simCtx=user->simCtx;
 
@@ -2029,28 +2043,27 @@ PetscErrorCode WriteFieldData(UserCtx *user,
     /*                  Basic communicator information              */
     /* ------------------------------------------------------------ */
     PetscCall(PetscObjectGetComm((PetscObject)field_vec,&comm));
-    PetscCallMPI(MPI_Comm_rank(comm,&rank));
 
     PetscCall(PetscSNPrintf(filename, sizeof(filename), "%s/%s.%s",
                             simCtx->current_io_directory, field_name, ext));
 
-    PetscCall(GatherVectorToRankZero(field_vec, &sequential_vec));
-    if (rank == 0) {
-        PetscViewer viewer;
+    // A parallel binary viewer writes the same file a sequential one does - the header, then
+    // the values in global order - while holding one rank's share at a time, so no rank
+    // gathers the whole field: at 1e9 particles a field is tens of GB.
+    PetscCall(NaturalOrderedVector(field_vec, &natural_vec, &ordered_vec));
+    if ((int)get_log_level() >= (int)LOG_DEBUG) {
         PetscReal vmin, vmax;
 
-        PetscCall(VecMin(sequential_vec, NULL, &vmin));
-        PetscCall(VecMax(sequential_vec, NULL, &vmax));
-        LOG_ALLOW(GLOBAL,LOG_DEBUG,
-                  " <%s> range = [%.4e … %.4e]\n",
-                  field_name,(double)vmin,(double)vmax);
-        PetscCall(PetscViewerBinaryOpen(PETSC_COMM_SELF, filename, FILE_MODE_WRITE, &viewer));
-        PetscCall(PetscViewerBinarySetSkipInfo(viewer, PETSC_TRUE));
-        PetscCall(VecView(sequential_vec, viewer));
-        PetscCall(PetscViewerDestroy(&viewer));
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Wrote <%s>\n", filename);
+        PetscCall(VecMin(ordered_vec, NULL, &vmin));
+        PetscCall(VecMax(ordered_vec, NULL, &vmax));
+        LOG_ALLOW(GLOBAL,LOG_DEBUG, " <%s> range = [%.4e … %.4e]\n", field_name,(double)vmin,(double)vmax);
     }
-    PetscCall(VecDestroy(&sequential_vec));
+    PetscCall(PetscViewerBinaryOpen(comm, filename, FILE_MODE_WRITE, &viewer));
+    PetscCall(PetscViewerBinarySetSkipInfo(viewer, PETSC_TRUE));
+    PetscCall(VecView(ordered_vec, viewer));
+    PetscCall(PetscViewerDestroy(&viewer));
+    PetscCall(VecDestroy(&natural_vec));
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Wrote <%s>\n", filename);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
