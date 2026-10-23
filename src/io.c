@@ -3313,6 +3313,9 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     strncpy(pps->statistics_output_prefix, "Stats",  MAX_FILENAME_LENGTH - 1);
     strcpy(pps->particleExt,"dat"); // The input file format for particles.
     strcpy(pps->eulerianExt,"dat"); // The input file format for Eulerian fields.
+    /* The postprocessor's own decomposition: the control file carries the solve's, which
+     * fits a different rank count, so the postprocessor reads only this one. */
+    pps->da_procs[0] = pps->da_procs[1] = pps->da_procs[2] = PETSC_DECIDE;
     /* A negative source step means "the last step this recipe covers", so a recipe
      * that does not name one still derives from a bundle that exists. */
     pps->field_statistics_windows[0] = '\0';
@@ -3372,6 +3375,14 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
 
                     PetscCall(PetscSNPrintf(option, sizeof(option), "-%s", key));
                     PetscCall(PetscOptionsSetValue(NULL, option, value));
+                } else if (strcasecmp(key, "da_processors") == 0) {
+                    PetscInt parsed[3];
+                    PetscCheck(sscanf(value, "%" PetscInt_FMT " %" PetscInt_FMT " %" PetscInt_FMT,
+                                      &parsed[0], &parsed[1], &parsed[2]) == 3
+                               && parsed[0] > 0 && parsed[1] > 0 && parsed[2] > 0,
+                               PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
+                               "Post recipe da_processors must be three positive integers, got '%s'.", value);
+                    for (PetscInt axis = 0; axis < 3; ++axis) pps->da_procs[axis] = parsed[axis];
                 } else if (strcasecmp(key, "dimensionalize") == 0) {
                     pps->dimensionalize = (PetscBool)(strcasecmp(value, "true") == 0
                                                       || strcmp(value, "1") == 0);

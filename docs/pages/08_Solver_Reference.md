@@ -784,9 +784,9 @@ Rules:
 - `multigrid.levels` is bounded by the MPI decomposition, not chosen freely: every level must leave each rank
   at least `stencil_width` nodes per axis (3 when any axis is periodic, 2 otherwise). Exceeding it aborts during
   DM creation with `Local x-width of domain ... is smaller than stencil width`. `picurv run`, including
-  `--dry-run`, and `picurv validate` refuse such a layout before launch when `grid.da_processors_x/y/z` is
-  set (`validate` checks each axis, and the rank product too when given `--cluster`); a layout left to
-  PETSc is only known at runtime. Formula and worked maxima:
+  `--dry-run`, refuses such a decomposition before launch and chooses one automatically only among those
+  that pass (@ref p05_decomposition_ssec); `picurv validate` checks a set layout per axis, and resolves
+  the full decomposition when given `--cluster`. Formula and worked maxima:
   @ref 25_Pressure_Poisson_GMRES_Multigrid.
 - The outer Poisson preconditioner is multigrid-only in the current runtime.
 - `pre_sweeps` and `post_sweeps` are applied separately: smoothers run `pre_sweeps` iterations before the coarse-grid correction and `post_sweeps` after it. When they differ, the post-smoother copies the configured level solver and reads extra options under `-ps_mg_levels_N_up_`; see @ref 25_Pressure_Poisson_GMRES_Multigrid.

@@ -125,19 +125,14 @@ Verification:
 @subsection p11_mpi_ssec 3.1 Run in Parallel and Control DMDA Layout
 
 ```bash
-./bin/picurv run -n 16 --solve ...
+./bin/picurv run -n 16 --solve ...                      # decomposition chosen from the grid
+./bin/picurv run --ni 4 --nj 2 --nk 2 --solve ...       # 16 ranks, decomposition given
 ```
 
-Optional partition hints:
-
-```yaml
-grid:
-  da_processors_x: 4
-  da_processors_y: 2
-  da_processors_z: 2
-```
-
-Note: `da_processors_*` are scalar globals, not per-block vectors.
+The chosen decomposition is printed before launch and in `--dry-run`. On a cluster it is
+set by `cluster.yml -> execution.decomposition`. How the automatic choice works and the
+order of precedence: @ref p05_decomposition_ssec. The decomposition is global, not per
+block.
 
 @subsection p11_cluster_run_ssec 3.2 Run on Slurm (Generate and Submit)
 

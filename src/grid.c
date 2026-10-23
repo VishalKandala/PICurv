@@ -226,11 +226,10 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
             p = simCtx->da_procs_z;
         
         } else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
-
-          LOG_ALLOW(GLOBAL,LOG_ERROR,"Currently Only Single Rank is supported. \n");
-          
-          m = n = p = PETSC_DECIDE;
-            
+            /* The postprocessor's own decomposition from its recipe; PETSc decides where unset. */
+            m = simCtx->pps->da_procs[0];
+            n = simCtx->pps->da_procs[1];
+            p = simCtx->pps->da_procs[2];
         } 
         // lx, ly, lz are NULL, so DMDACreate3d will use the m,n,p values.
     }

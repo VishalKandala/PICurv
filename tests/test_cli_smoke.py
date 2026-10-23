@@ -6027,6 +6027,116 @@ def test_da_processor_layout_mismatch_explains_how_to_fix_it():
     assert "remove all three settings to let PETSc choose" in message
 
 
+_TML_SOLVER = {"poisson_solver": {"multigrid": {"levels": 3, "semi_coarsening": {"i": True}}}}
+_TML_NODES = [[5, 49, 37]]
+
+
+def test_auto_decomposition_keeps_a_thin_axis_whole_and_refuses_what_no_layout_fits():
+    """!
+    @brief The automatic decomposition cuts the least area among layouts grid setup accepts.
+    @details The temporal mixing layer grid (4 x 48 x 36 cells, i periodic and uncoarsened,
+             three multigrid levels) puts eight ranks on j and k only; 32 ranks fit no layout at
+             the coarsest level, and the refusal names rank counts that do.
+    """
+    picurv = load_picurv_module()
+    assert picurv.resolve_decomposition(8, {}, _TML_NODES, _TML_SOLVER, True)["layout"] == (1, 4, 2)
+    assert picurv.resolve_decomposition(1, {}, _TML_NODES, _TML_SOLVER, True)["layout"] == (1, 1, 1)
+    refused = picurv.resolve_decomposition(32, {}, _TML_NODES, _TML_SOLVER, True)
+    assert refused["layout"] is None
+    assert "Rank counts that fit nearby: 16, 18, 24." in refused["problems"][0]
+    unknown = picurv.resolve_decomposition(8, {}, None, _TML_SOLVER, True)
+    assert unknown["layout"] is None and not unknown["problems"]
+
+
+def test_decomposition_precedence_is_cli_then_cluster_then_deprecated_case_keys(capsys):
+    """!
+    @brief `--ni/--nj/--nk` beat cluster.yml, which beats the deprecated case.yml keys, which beat auto.
+    @param[in] capsys Pytest output-capture fixture, for the deprecation warning.
+    """
+    picurv = load_picurv_module()
+    legacy = {"da_processors_x": 1, "da_processors_y": 2, "da_processors_z": 4}
+    cluster = {"execution": {"decomposition": {"i": 1, "j": 8, "k": 1}}}
+    nodes = [[9, 65, 65]]
+    resolve = picurv.resolve_decomposition
+    assert resolve(8, legacy, nodes, None, False, (1, 1, 8), cluster)["source"] == "--ni/--nj/--nk"
+    assert resolve(8, legacy, nodes, None, False, None, cluster)["layout"] == (1, 8, 1)
+    capsys.readouterr()
+    assert resolve(8, legacy, nodes, None, False)["layout"] == (1, 2, 4)
+    assert "grid.da_processors_x/y/z is deprecated" in capsys.readouterr().err
+    assert resolve(8, {}, nodes, None, False)["source"] == "auto"
+    assert resolve(4, {}, nodes, None, False, (1, 1, 8))["problems"]
+    bad = resolve(8, {}, nodes, None, False, None, {"execution": {"decomposition": {"i": 1, "j": 8}}})
+    assert "needs positive integers i, j and k" in bad["problems"][0]
+
+
+def test_rank_count_and_axis_counts_are_reconciled_on_the_command_line():
+    """!
+    @brief `-n` defaults to the product of `--ni/--nj/--nk`, to 1 without them, and must agree with them.
+    @return None.
+    """
+    picurv = load_picurv_module()
+
+    def normalized(num_procs=None, ni=None, nj=None, nk=None):
+        """!
+        @brief Normalize one set of `picurv run` rank arguments.
+        @param[in] num_procs `-n`, or None.
+        @param[in] ni `--ni`, or None.
+        @param[in] nj `--nj`, or None.
+        @param[in] nk `--nk`, or None.
+        @return (rank count, decomposition tuple or None).
+        """
+        args = SimpleNamespace(num_procs=num_procs, ni=ni, nj=nj, nk=nk)
+        picurv.normalize_decomposition_args(args)
+        return args.num_procs, args.decomposition
+
+    assert normalized() == (1, None)
+    assert normalized(6) == (6, None)
+    assert normalized(None, 1, 2, 3) == (6, (1, 2, 3))
+    assert normalized(6, 1, 2, 3) == (6, (1, 2, 3))
+    for bad in ((5, 1, 2, 3), (None, 1, 2, None), (None, 0, 2, 3)):
+        with pytest.raises(SystemExit):
+            normalized(*bad)
+
+
+def test_post_recipe_carries_the_post_decomposition(tmp_path):
+    """!
+    @brief The post recipe states the postprocessor's layout when it runs on several ranks, and nothing serially.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    picurv.ensure_run_layout(str(run_dir))
+    post_cfg = yaml.safe_load((FIXTURES / "valid" / "post.yml").read_text(encoding="utf-8"))
+    sources = {"Post-Profile": str(FIXTURES / "valid" / "post.yml")}
+    split = Path(picurv.generate_post_recipe_file(str(run_dir), "run", post_cfg, sources, None,
+                                                  {"layout": (1, 2, 2), "source": "auto", "problems": []}))
+    assert "da_processors = 1 2 2" in split.read_text(encoding="utf-8")
+    serial = Path(picurv.generate_post_recipe_file(str(run_dir), "run", post_cfg, sources, None,
+                                                   {"layout": (1, 1, 1), "source": "serial", "problems": []}))
+    assert "da_processors" not in serial.read_text(encoding="utf-8")
+
+
+def test_dry_run_reports_the_solver_and_post_decompositions():
+    """!
+    @brief `run --dry-run` reports both stages' layouts and blocks a rank count no layout fits.
+    """
+    valid = FIXTURES / "valid"
+    base = ["run", "--solve", "--post-process", "--case", str(valid / "case.yml"),
+            "--solver", str(valid / "solver.yml"), "--monitor", str(valid / "monitor.yml"),
+            "--post", str(valid / "post.yml"), "--dry-run", "--format", "json"]
+    explicit = run_picurv(base + ["--ni", "1", "--nj", "2", "--nk", "1"])
+    assert explicit.returncode == 0, explicit.stderr
+    payload = json.loads(explicit.stdout)
+    assert payload["solver_num_procs_effective"] == 2
+    assert payload["decomposition"]["layout"] == [1, 2, 1]
+    assert payload["post_decomposition"]["source"] == "--ni/--nj/--nk"
+    auto = json.loads(run_picurv(base + ["-n", "2"]).stdout)
+    assert auto["decomposition"]["source"] == "auto"
+    refused = run_picurv(base + ["-n", "64"])
+    assert refused.returncode != 0
+    assert len(json.loads(refused.stdout)["blocking"]) == 1
+
+
 def test_generate_solver_control_file_applies_top_level_da_processors_for_grid_gen(tmp_path):
     """!
     @brief Test that grid-gen mode accepts top-level DMDA processor layout hints.

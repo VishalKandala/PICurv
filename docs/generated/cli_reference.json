@@ -473,13 +473,49 @@
           },
           {
             "choices": [],
-            "default": "1",
+            "default": null,
             "dest": "num_procs",
             "flags": [
               "-n",
               "--num-procs"
             ],
-            "help": "Number of MPI processes for solver and post-processing stages.",
+            "help": "Number of MPI processes for solver and post-processing stages (default 1, or\nthe product of --ni --nj --nk). The decomposition is chosen from the grid and\nits boundary conditions unless given.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "ni",
+            "flags": [
+              "--ni"
+            ],
+            "help": "MPI ranks along the grid's i axis. Give --ni, --nj and --nk together.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "nj",
+            "flags": [
+              "--nj"
+            ],
+            "help": "MPI ranks along the grid's j axis. Give --ni, --nj and --nk together.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "nk",
+            "flags": [
+              "--nk"
+            ],
+            "help": "MPI ranks along the grid's k axis. Give --ni, --nj and --nk together.",
             "is_flag": false,
             "nargs": null,
             "required": false

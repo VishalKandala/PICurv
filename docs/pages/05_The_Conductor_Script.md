@@ -310,7 +310,11 @@ Inputs for `--post-process`:
 
 MPI/local options:
 - `-n, --num-procs`
-  - applies to solver and field postprocessor launch sizing.
+  - applies to solver and field postprocessor launch sizing; defaults to 1, or to the
+    product of `--ni/--nj/--nk` when those are given.
+- `--ni, --nj, --nk`
+  - optional MPI decomposition (ranks along i, j, k), given together. With `-n` as well,
+    the product must equal it. See @ref p05_decomposition_ssec.
   - PICurv strips conflicting MPI size flags from post launches and rewrites them to the requested rank count.
   - local multi-rank runs resolve launcher overrides in this order: `PICURV_MPI_LAUNCHER`, `MPI_LAUNCHER`, nearest `.picurv-execution.yml`, nearest legacy `.picurv-local.yml`, then default `mpiexec`.
 
@@ -332,6 +336,39 @@ Local example:
   --post my_case/post.yml
 ```
 In this command, the solver and field postprocessor both run with 8 ranks.
+
+@subsection p05_decomposition_ssec 4.1 MPI Decomposition
+
+Each stage launches on a structured split of the grid into `ni x nj x nk` ranks. The
+first source that sets one wins:
+
+1. `--ni/--nj/--nk` on the command line;
+2. `cluster.yml` `execution.decomposition: {i, j, k}` in cluster mode;
+3. `case.yml` `grid.da_processors_x/y/z`, deprecated and read with a warning;
+4. the automatic choice.
+
+The automatic choice enumerates every ordered `(ni, nj, nk)` whose product is the rank
+count and keeps those grid setup accepts: on the coarsest multigrid level each rank must
+hold at least the stencil width of points along every axis, 3 when any face is
+`PERIODIC` and 2 otherwise, and an axis under `semi_coarsening` is not halved. Among
+those it takes the one with the least grid area between ranks, summed over blocks as
+`(n_a - 1)` times the cell cross-section normal to axis `a`; ties go to the most even
+split, then to more ranks on k, then on j. A thin axis therefore stays whole when
+another can take the ranks: the 4 x 48 x 36-cell `temporal_mixing_layer` grid gets
+`1 x 4 x 2` on 8 ranks. When no layout fits, the run is refused before launch with the
+nearby rank counts that do fit. When the grid's size is not known before the run (a
+`grid_gen` script grid under `--dry-run`), PETSc chooses at runtime.
+
+A set layout passes the same check, and its product must equal the rank count.
+
+The chosen layout is printed as `MPI decomposition: ni x nj x nk (i x j x k) for N
+rank(s), from <source>` before launch. It appears in the dry-run plan as `decomposition`
+and `post_decomposition` and in `<run.scheduler>/submission.json` under each stage.
+
+The field postprocessor resolves its own layout the same way, for its own rank count.
+It is written into the post recipe as `da_processors = ni nj nk` and read only by the
+postprocessor, so a post-only run on a run directory does not inherit the solve's split.
+`--continue` may change the layout: it is excluded from the run's identity hash.
 
 Slurm example (generate + submit):
 ```bash
@@ -685,6 +722,7 @@ above is hand-written and complements it; this section is the exhaustive referen
   - `--fetch-missing` (try the configured storage profile before rebuilding one)
 - launch controls:
   - `-n, --num-procs <int>` (solver and field postprocessor stages)
+  - `--ni/--nj/--nk <int>` (MPI decomposition, given together; @ref p05_decomposition_ssec)
   - `--cluster <cluster.yml>` (enables Slurm mode)
   - `--scheduler <name>` (must be used with `--cluster`; must match `cluster.yml:scheduler.type`)
   - `--no-submit` (stage files and submission metadata without starting execution)
@@ -816,6 +854,8 @@ Use `--strict` in CI/pre-submit checks when validating reusable profile librarie
 - `solver_num_procs_effective`
 - `post_num_procs_effective`
 - `num_procs_effective` (currently mirrors solver count)
+- `decomposition` / `post_decomposition` (`layout` as `[ni, nj, nk]` or null when PETSc chooses, `source`, `summary`; @ref p05_decomposition_ssec)
+- `blocking` (reasons the run would be refused, such as a rank count no decomposition fits)
 
 For file-backed grid modes, `artifacts` includes the planned staged grid path
 (`<run.inputs>/grid/grid.run`). For `grid.mode: grid_gen`, it also includes the generated

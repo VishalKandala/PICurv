@@ -345,11 +345,12 @@ Two consequences worth planning around:
 - Periodic cases are strictly more constrained than wall-bounded ones, because
   the stencil width is 3 rather than 2. A solver profile that runs for a channel
   can abort when reused for a fully periodic box at the same rank count.
-- When the case sets `grid.da_processors_x/y/z`, `picurv run` checks this before
-  launch, including under `--dry-run`, for file, `grid_gen` and programmatic grids,
-  and names the largest rank count each axis can take. When the layout is left to
-  PETSc, the decomposition is not known until runtime, so the first evidence is
-  the aborted job. Set the layout explicitly for any run where it matters.
+- `picurv run`, including `--dry-run`, applies this check before launch for file,
+  `grid_gen` and programmatic grids. A given decomposition that fails it is refused
+  with the largest rank count each axis can take; otherwise the automatic choice
+  only considers layouts that pass, and refuses a rank count none fits
+  (@ref p05_decomposition_ssec). Only a grid whose size is unknown before the run
+  leaves the layout to PETSc, where the first evidence is the aborted job.
 
 Reducing `levels` is the usual fix; also delete the now-unused
 `level_solvers.level_N` entry for the level that no longer exists. Shallower

@@ -390,8 +390,9 @@ Before launching any restart or continuation:
 - do not edit bundle contents or generated control files by hand.
 
 `--continue` is for the same physical case. It permits changes to run-control
-time settings, the MPI domain decomposition (`grid.da_processors_x/y/z` and the
-rank count), solver parameters/type, monitoring, postprocessing, and resource
+time settings, the MPI domain decomposition (the rank count and the layout, which
+`--ni/--nj/--nk` and `cluster.yml` set outside `case.yml`, and the deprecated
+`grid.da_processors_x/y/z`), solver parameters/type, monitoring, postprocessing, and resource
 settings. Other `case.yml` changes are rejected; use `--restart-from` to create
 a new branch. `--restart-from` may change case physics, but C still requires the
 same grid geometry/layout. A newly enabled optional subsystem such as particles

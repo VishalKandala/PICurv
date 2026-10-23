@@ -30,7 +30,7 @@ Domain controls include:
   an unchanged 3-D grid,
 - per-direction geometric periodicity for Eulerian fields, derived from paired
   BCs and requiring matching surfaces under a constant translation,
-- optional DMDA partition hints (`da_processors_x/y/z`).
+- MPI decomposition from `--ni/--nj/--nk`, `cluster.yml` `execution.decomposition`, or chosen from the grid and multigrid levels.
 
 @section p12_physics_sec 2. Physics and Model Selection
 

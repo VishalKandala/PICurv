@@ -141,9 +141,16 @@ def _add_run_parser(subparsers):
         "-n",
         "--num-procs",
         type=int,
-        default=1,
-        help="Number of MPI processes for solver and post-processing stages.",
+        default=None,
+        help="Number of MPI processes for solver and post-processing stages (default 1, or\n"
+             "the product of --ni --nj --nk). The decomposition is chosen from the grid and\n"
+             "its boundary conditions unless given.",
     )
+    for axis in ("i", "j", "k"):
+        p_run.add_argument(
+            f"--n{axis}", type=int, default=None,
+            help=f"MPI ranks along the grid's {axis} axis. Give --ni, --nj and --nk together.",
+        )
     p_run.add_argument("--cluster", help="Path to cluster.yml for Slurm execution mode.")
     p_run.add_argument("--scheduler", help="Explicit scheduler selector (currently 'slurm').")
     p_run.add_argument("--no-submit", action="store_true", help="Stage run artifacts without starting local execution or Slurm submission.")
@@ -814,6 +821,7 @@ def dispatch_command(args):
             fail_cli_usage("--recompute regenerates post-processing output and requires --post-process.")
         if args.scheduler and not args.cluster:
             fail_cli_usage("--scheduler requires --cluster in this version.")
+        normalize_decomposition_args(args)
         run_workflow(args)
         return
     if args.command == "sweep":

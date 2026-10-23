@@ -1621,6 +1621,11 @@ PY
     require_file "${LAST_POST_LOG}" "postprocessor runtime log"
     require_file_contains "${LAST_POST_LOG}" "Postprocessor MPI processes: ${nprocs}" \
       "postprocessor MPI rank count in runtime summary"
+    if (( nprocs > 1 )); then
+      # The postprocessor launches with the layout resolved for its own rank count.
+      require_file_contains "$(find "${created_run}/config/post-recipes" -name post.run | head -n 1)" \
+        "da_processors = " "postprocessor MPI decomposition in the post recipe"
+    fi
   fi
   require_file "${created_run}/logs/Runtime_Memory.log" "runtime memory log"
   require_file_contains "${created_run}/logs/Runtime_Memory.log" "Process Current MB Max" "runtime memory log header"

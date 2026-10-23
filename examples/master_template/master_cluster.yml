@@ -45,6 +45,10 @@ execution:
   # Multi-word launcher strings are accepted, but the portable form is:
   # launcher: "mpirun"
   # launcher_args: ["-mca", "pml", "ucx"]
+  # MPI decomposition (ranks along i, j, k); the product must equal
+  # nodes * ntasks_per_node. Omit it to let `picurv` choose the decomposition
+  # that cuts the least grid area among those the multigrid levels accept.
+  # decomposition: {i: 1, j: 4, k: 16}
   # Generated Slurm solver jobs enable this runtime walltime guard by default.
   # Uncomment only when you need to override the defaults:
   # walltime_guard:

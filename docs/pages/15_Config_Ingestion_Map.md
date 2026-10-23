@@ -21,7 +21,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | :--- | :--- | :--- | :--- |
 | `case.run_control.*` | `-start_step`, `-totalsteps`, `-dt` | `src/setup.c` (`CreateSimulationContext`) | `src/runloop.c`, setup/timestep logic |
 | `case.grid.programmatic_settings.im/jm/km/...` | `-im/-jm/-km`, bounds, stretch (`im/jm/km` translated from YAML cell counts to C node counts) | `src/io.c` (`ReadGridGenerationInputs`, `PopulateFinestUserGridResolutionFromOptions`) | `src/grid.c`, analytical geometry setup |
-| `case.grid.da_processors_*` | `-da_processors_x/y/z` | `src/setup.c` | `src/grid.c` DMDA creation |
+| `--ni/--nj/--nk`, `cluster.execution.decomposition`, deprecated `case.grid.da_processors_*`, or the automatic choice (@ref p05_decomposition_ssec) | `-da_processors_x/y/z` (solver control); `da_processors` (post recipe, the postprocessor's own) | `src/setup.c`; `src/io.c` (`ParsePostProcessingSettings`) | `src/grid.c` DMDA creation |
 | `case.models.domain.blocks` | `-nblk` | `src/setup.c` | `src/grid.c` |
 | paired `case.boundary_conditions` periodic faces | BC rows; periodic axes are derived in C | `src/Boundaries.c`, `src/io.c` (`DeterminePeriodicity`) | `src/grid.c` DMDA creation, periodic field synchronization |
 | `case.models.physics.particles.*` | `-numParticles`, `-pinit`, `-particle_restart_mode`, `-particle_random_seed`, `-psrc_*`, `-particle_fields_*` | `src/setup.c`, `src/ParticleInitialConditions.c` (`fields`) | `src/ParticleSwarm.c`, `src/ParticleMotion.c`, `src/runloop.c` (applies `fields`), statistics kernels |
@@ -54,6 +54,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `monitor.solver_monitoring.petsc_passthrough_options` | raw flags in control | PETSc options db | PETSc monitors/debug options |
 | `post.run_control.*` | `startTime/endTime/timeStep` in `post.run` | `src/io.c` (`ParsePostProcessingSettings`) | `src/postprocessor.c` main loop, when no step list is given |
 | (conductor, at job start) | `step_list_file` in `post.run` | `src/io.c` (`ParsePostProcessingSettings`) | `ResolvePostProcessingSteps` in `src/postprocessor.c` |
+| (conductor, at staging; @ref p05_decomposition_ssec) | `da_processors` in `post.run` | `src/io.c` (`ParsePostProcessingSettings`) | `InitializeSingleGridDM` in `src/grid.c` |
 | `post.io.input_extensions.*` | `eulerianExt`, `particleExt` in `post.run` | `src/io.c` | `ReadSimulationFields`, `ReadAllSwarmFields`, swarm precheck |
 | `post.statistics_pipeline.*` | `statistics_pipeline`, `statistics_output_prefix` | `src/io.c` | `GlobalStatisticsPipeline` dispatch |
 | `post.io.paraview_series` | No PETSc option; conductor-only policy | `picurv_cli/core.py` | `finalize_post_paraview_series` writes PVD collections after field processing |

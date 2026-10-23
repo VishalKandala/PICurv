@@ -31,6 +31,10 @@
       "classification": "structural",
       "reason": "PETSc owns this vocabulary, not PICurv. The set is not a menu offered to the user: it is the list of KSP tokens PICurv recognises as Krylov methods so it can WARN when one is configured at the multigrid coarse level. Any PETSc KSP token is accepted whether or not it appears here, so documenting these 22 as a capability family would claim a closed surface that does not exist."
     },
+    "picurv_cli.core::normalize_decomposition_args": {
+      "classification": "cli_inventory_sufficient",
+      "reason": "Reconciles `-n` with the optional `--ni/--nj/--nk` of `picurv run` into one rank count; it selects no behaviour by name. The generated CLI reference lists the flags, and page 05 (MPI Decomposition) explains precedence and the automatic choice."
+    },
     "picurv_cli.core::LAUNCH_MODES": {
       "classification": "cli_inventory_sufficient",
       "reason": "Local versus cluster launch, resolved from `--cluster` rather than selected by name. The generated CLI reference covers the flag and the cluster guide covers when a batch launch is appropriate."

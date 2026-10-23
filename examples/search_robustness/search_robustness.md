@@ -65,28 +65,31 @@ and run-level reduction.
 
 ## Recommended Runs
 
+Each command splits the domain between two ranks along i (`--ni 2 --nj 1 --nk 1`), so
+particles cross a rank boundary during the run.
+
 Cartesian Brownian baseline:
 
 ```bash
-./bin/picurv run --solve --post-process -n 2   --case  examples/search_robustness/search_robustness_cartesian.yml   --solver examples/search_robustness/Analytical-Zero.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
+./bin/picurv run --solve --post-process --ni 2 --nj 1 --nk 1   --case  examples/search_robustness/search_robustness_cartesian.yml   --solver examples/search_robustness/Analytical-Zero.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
 ```
 
 Curvilinear Brownian baseline:
 
 ```bash
-./bin/picurv run --solve --post-process -n 2   --case  examples/search_robustness/search_robustness_curvilinear.yml   --solver examples/search_robustness/Imp-MG-Standard.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
+./bin/picurv run --solve --post-process --ni 2 --nj 1 --nk 1   --case  examples/search_robustness/search_robustness_curvilinear.yml   --solver examples/search_robustness/Imp-MG-Standard.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
 ```
 
 Cartesian deterministic migration stress:
 
 ```bash
-./bin/picurv run --solve --post-process -n 2   --case  examples/search_robustness/search_robustness_cartesian_uniform.yml   --solver examples/search_robustness/Analytical-UniformFlow.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
+./bin/picurv run --solve --post-process --ni 2 --nj 1 --nk 1   --case  examples/search_robustness/search_robustness_cartesian_uniform.yml   --solver examples/search_robustness/Analytical-UniformFlow.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
 ```
 
 Curvilinear deterministic migration stress:
 
 ```bash
-./bin/picurv run --solve --post-process -n 2   --case  examples/search_robustness/search_robustness_curvilinear_uniform.yml   --solver examples/search_robustness/Analytical-UniformFlow.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
+./bin/picurv run --solve --post-process --ni 2 --nj 1 --nk 1   --case  examples/search_robustness/search_robustness_curvilinear_uniform.yml   --solver examples/search_robustness/Analytical-UniformFlow.yml   --monitor examples/search_robustness/Search_Robustness_Output.yml   --post examples/search_robustness/search_robustness_analysis.yml
 ```
 
 ## Interpretation Notes

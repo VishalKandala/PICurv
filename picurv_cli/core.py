@@ -6984,6 +6984,7 @@ def prepare_case_for_continuation(run_dir: str, case_id: str, last_step: int,
         "solver": solver_cfg, "solver_path": source_files['Solver'],
         "monitor": monitor_cfg, "monitor_path": source_files['Monitor'],
         "walltime_guard_policy": resolve_walltime_guard_policy(cluster_cfg),
+        "cluster_cfg": cluster_cfg,
     }
     control_file = generate_solver_control_file(
         run_dir, case_id, configs, cluster_tasks, monitor_files,
@@ -9166,8 +9167,9 @@ _CLUSTER_SCHEMA = {
     ("resources",): {"account", "partition", "nodes", "ntasks_per_node", "mem", "time"},
     ("notifications",): {"mail_user", "mail_type"},
     ("execution",): {
-        "module_setup", "launcher", "launcher_args", "extra_sbatch", "walltime_guard",
+        "module_setup", "launcher", "launcher_args", "extra_sbatch", "walltime_guard", "decomposition",
     },
+    ("execution", "decomposition"): {"i", "j", "k"},
     ("execution", "extra_sbatch"): None,
     ("execution", "walltime_guard"): {
         "enabled", "warmup_steps", "multiplier", "min_seconds", "estimator_alpha",
@@ -13602,43 +13604,197 @@ def da_processor_layout_problems(grid_cfg: dict, num_procs: "int | None",
     return problems
 
 
+def normalize_decomposition_args(args) -> None:
+    """!
+    @brief Resolve `-n` and the optional `--ni/--nj/--nk` of `picurv run` into one rank count.
+    @details The three counts go together. Given them, `-n` defaults to their product and
+             must equal it when also given; without them, `-n` defaults to 1. Sets
+             `args.num_procs` and `args.decomposition` (a tuple or None).
+    @param[in,out] args Parsed `picurv run` arguments.
+    """
+    parts = [getattr(args, key, None) for key in ("ni", "nj", "nk")]
+    args.decomposition = None
+    if any(part is not None for part in parts):
+        if any(part is None or part <= 0 for part in parts):
+            fail_cli_usage("--ni, --nj and --nk are given together, as positive integers.")
+        product = parts[0] * parts[1] * parts[2]
+        if args.num_procs is None:
+            args.num_procs = product
+        elif args.num_procs != product:
+            fail_cli_usage(f"--ni x --nj x --nk is {parts[0]} x {parts[1]} x {parts[2]} = {product} ranks, "
+                           f"but -n is {args.num_procs}; give one or make them agree.")
+        args.decomposition = tuple(parts)
+    if args.num_procs is None:
+        args.num_procs = 1
+    if args.num_procs < 1:
+        fail_cli_usage("-n must be a positive integer.")
+
+
+def _decomposition_layout(layout) -> dict:
+    """!
+    @brief Express an (ni, nj, nk) tuple as the da_processors mapping the layout checks read.
+    @param[in] layout Rank counts along i, j, k.
+    @return {"da_processors_x": ni, "da_processors_y": nj, "da_processors_z": nk}.
+    """
+    return dict(zip(GRID_DA_PROCESSOR_KEYS, layout))
+
+
+def choose_decomposition(num_procs: int, block_dims: list, solver_cfg: "dict | None",
+                         any_periodic: bool):
+    """!
+    @brief Choose the MPI decomposition of a structured grid for a rank count.
+    @details Every ordered (ni, nj, nk) with product `num_procs` that grid setup accepts at
+             the multigrid levels in use (da_processor_layout_problems) is a candidate. The
+             one cutting the least grid area between ranks wins, so a thin axis, such as the
+             i axis of a 2D case, is not split while another can be; ties go to the most even
+             split, then to more ranks on k, then on j.
+    @param[in] num_procs MPI ranks.
+    @param[in] block_dims Per-block node counts.
+    @param[in] solver_cfg Parsed solver.yml, for the multigrid levels and semi-coarsening.
+    @param[in] any_periodic Whether any face is PERIODIC, which sets the stencil width.
+    @return (ni, nj, nk), or None when no decomposition is feasible.
+    """
+    best = None
+    for ni in range(1, num_procs + 1):
+        if num_procs % ni:
+            continue
+        for nj in range(1, num_procs // ni + 1):
+            if (num_procs // ni) % nj:
+                continue
+            layout = (ni, nj, num_procs // ni // nj)
+            if da_processor_layout_problems(_decomposition_layout(layout), num_procs, block_dims,
+                                            solver_cfg, any_periodic):
+                continue
+            cut = imbalance = 0.0
+            for dims in block_dims:
+                cells = [max(d - 1, 1) for d in dims]
+                cut += sum((layout[a] - 1) * cells[(a + 1) % 3] * cells[(a + 2) % 3] for a in range(3))
+                largest = 1.0
+                for a in range(3):
+                    largest *= -(-cells[a] // layout[a])
+                imbalance = max(imbalance, largest * num_procs / (cells[0] * cells[1] * cells[2]))
+            key = (cut, imbalance, -layout[2], -layout[1])
+            if best is None or key < best[0]:
+                best = (key, layout)
+    return best[1] if best else None
+
+
+def resolve_decomposition(num_procs: int, grid_cfg: dict, block_dims: "list | None",
+                          solver_cfg: "dict | None", any_periodic: bool,
+                          explicit=None, cluster_cfg: "dict | None" = None) -> dict:
+    """!
+    @brief Resolve the MPI decomposition a stage launches with.
+    @details In order of precedence: `--ni/--nj/--nk`, cluster.yml
+             `execution.decomposition`, the deprecated case.yml `grid.da_processors_*`, and
+             otherwise choose_decomposition(). A set layout must multiply to the rank count
+             and pass the multigrid check. When the grid's size cannot be known before the
+             run, PETSc chooses.
+    @param[in] num_procs MPI ranks of the stage.
+    @param[in] grid_cfg The case's grid block.
+    @param[in] block_dims Per-block node counts, or None when unknown.
+    @param[in] solver_cfg Parsed solver.yml.
+    @param[in] any_periodic Whether any face is PERIODIC.
+    @param[in] explicit (ni, nj, nk) from the command line, or None.
+    @param[in] cluster_cfg Parsed cluster.yml, or None.
+    @return {"layout": (ni, nj, nk) or None, "source": str, "problems": [str]}.
+    """
+    if num_procs <= 1:
+        return {"layout": (1, 1, 1), "source": "serial", "problems": []}
+    layout, source = None, None
+    if explicit:
+        layout, source = tuple(explicit), "--ni/--nj/--nk"
+    elif isinstance(((cluster_cfg or {}).get("execution") or {}).get("decomposition"), dict):
+        spec = cluster_cfg["execution"]["decomposition"]
+        if not all(isinstance(spec.get(axis), int) and spec.get(axis) > 0 for axis in "ijk"):
+            return {"layout": None, "source": "cluster.yml",
+                    "problems": ["cluster.yml execution.decomposition needs positive integers i, j and k."]}
+        layout, source = (spec["i"], spec["j"], spec["k"]), "cluster.yml execution.decomposition"
+    else:
+        legacy = resolve_grid_da_processor_layout(grid_cfg or {})
+        if legacy:
+            print("[WARNING] case.yml grid.da_processors_x/y/z is deprecated; give the decomposition "
+                  "with --ni/--nj/--nk or cluster.yml execution.decomposition.", file=sys.stderr)
+            if len(legacy) == 3:
+                layout, source = tuple(legacy[key] for key in GRID_DA_PROCESSOR_KEYS), "case.yml (deprecated)"
+            else:
+                problems = da_processor_layout_problems(grid_cfg, num_procs, block_dims, solver_cfg, any_periodic)
+                return {"layout": None, "partial": legacy, "source": "case.yml (deprecated, partial)",
+                        "problems": problems}
+    if layout is not None:
+        return {"layout": layout, "source": source,
+                "problems": da_processor_layout_problems(_decomposition_layout(layout), num_procs,
+                                                         block_dims, solver_cfg, any_periodic)}
+    if not block_dims:
+        return {"layout": None, "source": "PETSc (grid size unknown before the run)", "problems": []}
+    layout = choose_decomposition(num_procs, block_dims, solver_cfg, any_periodic)
+    if layout is None:
+        feasible = [n for n in range(max(num_procs - 16, 2), num_procs + 17)
+                    if choose_decomposition(n, block_dims, solver_cfg, any_periodic)]
+        nearest = sorted(feasible, key=lambda n: (abs(n - num_procs), n))[:3]
+        return {"layout": None, "source": "auto", "problems": [
+            f"No decomposition of {num_procs} ranks fits this grid at its multigrid levels "
+            f"(each rank needs at least the stencil width of points on the coarsest level). "
+            + (f"Rank counts that fit nearby: {', '.join(map(str, sorted(nearest)))}." if nearest
+               else "Lower poisson_solver.multigrid.levels or refine the grid.")]}
+    return {"layout": layout, "source": "auto", "problems": []}
+
+
+def _decomposition_record(resolved: "dict | None") -> "dict | None":
+    """!
+    @brief The JSON-serializable record of a resolved decomposition for run metadata.
+    @param[in] resolved Result of resolve_decomposition(), or None.
+    @return {"layout": [ni, nj, nk] or None, "source": str}, or None.
+    """
+    if not resolved:
+        return None
+    return {"layout": list(resolved["layout"]) if resolved.get("layout") else None,
+            "source": resolved["source"]}
+
+
+def describe_decomposition(resolved: dict, num_procs: int) -> str:
+    """!
+    @brief One line stating the decomposition a stage launches with.
+    @param[in] resolved Result of resolve_decomposition().
+    @param[in] num_procs MPI ranks of the stage.
+    @return Human-readable description.
+    """
+    if resolved.get("problems"):
+        return f"MPI decomposition: none usable for {num_procs} rank(s) ({resolved['source']})."
+    if resolved.get("layout") is None:
+        return f"MPI decomposition: chosen by PETSc for {num_procs} rank(s) ({resolved['source']})."
+    ni, nj, nk = resolved["layout"]
+    return f"MPI decomposition: {ni} x {nj} x {nk} (i x j x k) for {num_procs} rank(s), from {resolved['source']}."
+
+
 def append_grid_da_processor_layout(control_lines: list, grid_cfg: dict, num_procs: int,
                                     block_dims: "list | None" = None,
                                     solver_cfg: "dict | None" = None,
-                                    any_periodic: bool = False) -> None:
+                                    any_periodic: bool = False,
+                                    explicit=None, cluster_cfg: "dict | None" = None) -> dict:
     """!
-    @brief Append optional global DMDA layout flags for any grid mode.
-    @param[in] control_lines Argument passed to `append_grid_da_processor_layout()`.
-    @param[in] grid_cfg Argument passed to `append_grid_da_processor_layout()`.
-    @param[in] num_procs Argument passed to `append_grid_da_processor_layout()`.
-    @param[in] block_dims Per-block node counts, for the multigrid width check.
-    @param[in] solver_cfg Parsed solver.yml, for the multigrid width check.
+    @brief Resolve the solver's MPI decomposition, report it, and append its flags.
+    @param[in] control_lines Control-file lines to extend.
+    @param[in] grid_cfg The case's grid block.
+    @param[in] num_procs MPI ranks of the solve.
+    @param[in] block_dims Per-block node counts, for the multigrid check and the choice.
+    @param[in] solver_cfg Parsed solver.yml, for the multigrid levels.
     @param[in] any_periodic Whether any face is PERIODIC.
-    @throws ValueError when the layout would abort grid setup.
+    @param[in] explicit (ni, nj, nk) from the command line, or None.
+    @param[in] cluster_cfg Parsed cluster.yml, or None.
+    @return The resolved decomposition (resolve_decomposition()).
+    @throws ValueError when the decomposition would abort grid setup or none fits.
     """
-    layout = resolve_grid_da_processor_layout(grid_cfg)
-    if not layout:
-        if num_procs > 1:
-            print("[INFO] Letting PETSc automatically determine processor layout.")
-        return
-
-    if num_procs == 1:
-        print("[INFO] Serial run, ignoring da_processors layout.")
-        return
-
-    problems = da_processor_layout_problems(grid_cfg, num_procs, block_dims, solver_cfg, any_periodic)
-    if problems:
-        raise ValueError(" ".join(problems))
-    if all(layout.get(key) is not None for key in GRID_DA_PROCESSOR_KEYS):
-        print(f"[INFO] Applying user-defined processor layout for {num_procs} processes.")
-    else:
-        printable = " x ".join(str(layout.get(key, "PETSC_DECIDE")) for key in GRID_DA_PROCESSOR_KEYS)
-        print(f"[INFO] Applying partial processor layout: {printable}.")
-
-    for key in GRID_DA_PROCESSOR_KEYS:
-        value = layout.get(key)
-        if value is not None:
-            control_lines.append(f"-{key} {value}")
+    resolved = resolve_decomposition(num_procs, grid_cfg, block_dims, solver_cfg, any_periodic,
+                                     explicit, cluster_cfg)
+    if resolved["problems"]:
+        raise ValueError(" ".join(resolved["problems"]))
+    print(f"[INFO] {describe_decomposition(resolved, num_procs)}")
+    layout = resolved.get("layout")
+    if num_procs > 1 and layout is not None:
+        control_lines.extend(f"-{key} {value}" for key, value in zip(GRID_DA_PROCESSOR_KEYS, layout))
+    elif num_procs > 1 and resolved.get("partial"):
+        control_lines.extend(f"-{key} {value}" for key, value in resolved["partial"].items())
+    return resolved
 
 def normalize_momentum_solver_type(value: str) -> str:
     """!
@@ -16585,11 +16741,12 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         sys.exit(1)
     control_lines.append(f"-bcs_files \"{','.join(bcs_files)}\"")
 
-    append_grid_da_processor_layout(
+    configs["decomposition_resolved"] = append_grid_da_processor_layout(
         control_lines, grid_cfg, num_procs,
         block_dims=resolve_grid_node_dims(
             case_cfg, configs["case_path"], os.path.join(run_dir, "inputs", "grid", "grid.run")),
-        solver_cfg=solver_cfg, any_periodic=case_declares_periodic_axis(case_cfg))
+        solver_cfg=solver_cfg, any_periodic=case_declares_periodic_axis(case_cfg),
+        explicit=configs.get("decomposition"), cluster_cfg=configs.get("cluster_cfg"))
     
     parse_and_add_model_flags(case_cfg, control_lines)
     append_les_diagnostics_flags(resolve_les_diagnostics(case_cfg, configs.get('monitor') or {}), control_lines)
@@ -16656,7 +16813,30 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     print(f"[SUCCESS] Generated solver control file: {os.path.relpath(control_file_path)}")
     return os.path.abspath(control_file_path)
 
-def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_files: dict, monitor_cfg=None) -> str:
+def resolve_post_decomposition(run_dir: str, num_procs: int, explicit=None,
+                               cluster_cfg: "dict | None" = None) -> dict:
+    """!
+    @brief Resolve the postprocessor's MPI decomposition from the run's staged configuration.
+    @details The postprocessor builds the same grid hierarchy as the solve, from the run's
+             active case and solver files and its staged grid, so its decomposition is
+             resolved like the solve's, for its own rank count.
+    @param[in] run_dir Run directory.
+    @param[in] num_procs MPI ranks of the post-processing stage.
+    @param[in] explicit (ni, nj, nk) from the command line, or None.
+    @param[in] cluster_cfg Parsed cluster.yml, or None.
+    @return The resolved decomposition (resolve_decomposition()).
+    """
+    active = load_active_run_configuration(run_dir)
+    case_cfg = read_yaml_file(active["case"]) if active.get("case") and os.path.isfile(active["case"]) else {}
+    solver_cfg = read_yaml_file(active["solver"]) if active.get("solver") and os.path.isfile(active["solver"]) else {}
+    block_dims = resolve_grid_node_dims(case_cfg, active.get("case") or os.path.join(run_dir, "config", "case.yml"),
+                                        os.path.join(run_dir, "inputs", "grid", "grid.run"))
+    return resolve_decomposition(num_procs, case_cfg.get("grid") or {}, block_dims, solver_cfg,
+                                 case_declares_periodic_axis(case_cfg), explicit, cluster_cfg)
+
+
+def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_files: dict, monitor_cfg=None,
+                              decomposition: "dict | None" = None) -> str:
     """!
     @brief Generates a key=value config file (post.run) for the C post-processor.
     @details Translates the structured post-processing YAML into the specific flat
@@ -16667,6 +16847,8 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
     @param[in] post_cfg The parsed post-profile YAML configuration dictionary.
     @param[in] source_files A dictionary of source files for the header.
     @param[in] monitor_cfg Optional parsed monitor YAML configuration dictionary.
+    @param[in] decomposition The postprocessor's resolved decomposition (resolve_post_decomposition()),
+               or None to let PETSc decide.
     @return The absolute path to the generated post.run recipe file.
     """
     print("[INFO] Generating post-processor recipe file (post.run)...")
@@ -16684,6 +16866,8 @@ def generate_post_recipe_file(run_dir: str, run_id: str, post_cfg: dict, source_
             lines.append(f"{key} = {value}")
     # The steps themselves are decided when the job starts (prepare_post_job()).
     lines.append(f"step_list_file = {get_post_step_list_path(run_dir, post_cfg)}")
+    if decomposition and decomposition.get("layout") and decomposition["layout"] != (1, 1, 1):
+        lines.append("da_processors = " + " ".join(str(v) for v in decomposition["layout"]))
 
     with open(post_recipe_path, "w") as f:
         f.write("\n".join(lines))
@@ -18122,13 +18306,18 @@ def build_run_dry_plan(args) -> dict:
         block_dims = resolve_grid_node_dims(
             loaded_case_cfg, case_path,
             os.path.join(run_dir, "inputs", "grid", "grid.run") if continue_mode else None)
-        plan.setdefault("blocking", []).extend(da_processor_layout_problems(
-            loaded_case_cfg.get("grid") or {}, solver_num_procs_effective, block_dims,
-            solver_cfg, case_declares_periodic_axis(loaded_case_cfg)))
-        if block_dims is None and resolve_grid_da_processor_layout(loaded_case_cfg.get("grid") or {}):
+        decomposition = resolve_decomposition(
+            solver_num_procs_effective, loaded_case_cfg.get("grid") or {}, block_dims, solver_cfg,
+            case_declares_periodic_axis(loaded_case_cfg), getattr(args, "decomposition", None),
+            cluster_cfg if cluster_mode else None)
+        plan.setdefault("blocking", []).extend(decomposition["problems"])
+        plan["decomposition"] = {"layout": list(decomposition["layout"]) if decomposition.get("layout") else None,
+                                 "source": decomposition["source"],
+                                 "summary": describe_decomposition(decomposition, solver_num_procs_effective)}
+        if block_dims is None and solver_num_procs_effective > 1:
             plan["warnings"].append(
                 "Could not determine the grid's dimensions without building it, so the "
-                "da_processors layout was not checked against the multigrid levels.")
+                "decomposition was not checked against the multigrid levels.")
         # A plan that omits what a real run would refuse is not a plan. The run
         # directory does not exist yet, but `realpath` still normalizes it, so the
         # run-root and ancestor verdicts are decidable here.
@@ -18298,6 +18487,22 @@ def build_run_dry_plan(args) -> dict:
             allow_source_frontier_scan=allow_source_frontier_scan,
             postprocessor_sha=_file_sha256(post_exe),
         )
+
+        if args.solve:
+            post_decomposition = resolve_decomposition(
+                post_num_procs_effective, loaded_case_cfg.get("grid") or {}, block_dims, solver_cfg,
+                case_declares_periodic_axis(loaded_case_cfg), getattr(args, "decomposition", None),
+                cluster_cfg if cluster_mode else None)
+        else:
+            post_decomposition = resolve_post_decomposition(
+                run_dir, post_num_procs_effective, getattr(args, "decomposition", None),
+                cluster_cfg if cluster_mode else None)
+        plan.setdefault("blocking", []).extend(
+            problem for problem in post_decomposition["problems"] if problem not in plan["blocking"])
+        plan["post_decomposition"] = {
+            "layout": list(post_decomposition["layout"]) if post_decomposition.get("layout") else None,
+            "source": post_decomposition["source"],
+            "summary": describe_decomposition(post_decomposition, post_num_procs_effective)}
 
         post_recipe_path = os.path.join(get_post_recipe_root(run_dir, post_cfg), "post.run")
         archived_post_path = os.path.join(get_post_recipe_root(run_dir, post_cfg), "post.yml")
@@ -18581,6 +18786,9 @@ def render_run_dry_plan(plan: dict, output_format: str = "text"):
               f"(statistics: {lineage.get('statistics_state')})")
     print(f"  Solver MPI procs: {plan.get('solver_num_procs_effective')}")
     print(f"  Post MPI procs  : {plan.get('post_num_procs_effective')}")
+    for key, label in (("decomposition", "Solver"), ("post_decomposition", "Post")):
+        if plan.get(key):
+            print(f"  {label} {plan[key]['summary']}")
     if plan.get("warnings"):
         print("  Warnings       :")
         for warning in plan["warnings"]:
@@ -18694,9 +18902,16 @@ def validate_workflow(args):
     if solver_group_selected:
         grid_cfg = case_cfg.get("grid") or {}
         block_dims = resolve_grid_node_dims(case_cfg, case_path)
-        layout_problems = da_processor_layout_problems(
-            grid_cfg, get_cluster_total_tasks(cluster_cfg) if cluster_cfg else None, block_dims,
-            solver_cfg, case_declares_periodic_axis(case_cfg))
+        if cluster_cfg:
+            tasks = get_cluster_total_tasks(cluster_cfg)
+            decomposition = resolve_decomposition(tasks, grid_cfg, block_dims, solver_cfg,
+                                                  case_declares_periodic_axis(case_cfg), None, cluster_cfg)
+            layout_problems = decomposition["problems"]
+            if not layout_problems:
+                print(f"[INFO] {describe_decomposition(decomposition, tasks)}")
+        else:
+            layout_problems = da_processor_layout_problems(
+                grid_cfg, None, block_dims, solver_cfg, case_declares_periodic_axis(case_cfg))
         if layout_problems:
             emit_structured_error(
                 ERROR_CODE_CFG_INCONSISTENT_COMBO,
@@ -19900,6 +20115,8 @@ def run_workflow(args):
             'monitor': read_yaml_file(args.monitor), 'monitor_path': os.path.abspath(args.monitor),
             'walltime_guard_policy': walltime_guard_policy,
             'statistics_state': getattr(args, "statistics_state", None) or "reset",
+            'decomposition': getattr(args, "decomposition", None),
+            'cluster_cfg': cluster_cfg if cluster_mode else None,
         }
 
         print("\n[INFO] Validating configuration files...")
@@ -20119,6 +20336,7 @@ def run_workflow(args):
                 "script": solver_script,
                 "submitted": False,
                 "num_procs_effective": solver_num_procs_effective,
+                "decomposition": _decomposition_record(configs.get("decomposition_resolved")),
             }
             print(f"[SUCCESS] Generated solver Slurm script: {os.path.relpath(solver_script)}")
             if not args.no_submit:
@@ -20141,6 +20359,7 @@ def run_workflow(args):
                 "log_file": solver_log,
                 "submitted": False,
                 "num_procs_effective": solver_num_procs_effective,
+                "decomposition": _decomposition_record(configs.get("decomposition_resolved")),
             }
             if args.no_submit:
                 print(f"[SUCCESS] Staged local solver command: {solver_log}")
@@ -20368,7 +20587,15 @@ def run_workflow(args):
                 print(f"[INFO] Statistics CSV output: {os.path.relpath(stats_path)}")
 
             source_files_post = {'Case': case_path, 'Post-Profile': args.post}
-            post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_effective_cfg, source_files_post, monitor_cfg)
+            post_decomposition = resolve_post_decomposition(
+                run_dir, post_num_procs_effective, getattr(args, "decomposition", None),
+                cluster_cfg if cluster_mode else None)
+            if post_decomposition["problems"]:
+                print(f"[FATAL] {' '.join(post_decomposition['problems'])}", file=sys.stderr)
+                sys.exit(1)
+            print(f"[INFO] Post-processing {describe_decomposition(post_decomposition, post_num_procs_effective)}")
+            post_recipe_file = generate_post_recipe_file(run_dir, run_id, post_effective_cfg, source_files_post,
+                                                         monitor_cfg, post_decomposition)
             if post_exe is None:
                 print(f"[FATAL] {post_exe_error}", file=sys.stderr)
                 sys.exit(1)
@@ -20380,6 +20607,7 @@ def run_workflow(args):
             ]
             post_stage_meta = {
                 "num_procs_effective": post_num_procs_effective,
+                "decomposition": _decomposition_record(post_decomposition),
                 "steps_planned": len(post_plan['steps_to_process']),
                 "steps_current": post_plan['steps_current'],
                 "recompute": recompute,
@@ -20744,6 +20972,7 @@ def sweep_workflow(args):
             "solver": solver_cfg, "solver_path": solver_path,
             "monitor": monitor_cfg, "monitor_path": monitor_path,
             "walltime_guard_policy": resolve_walltime_guard_policy(cluster_cfg),
+            "cluster_cfg": cluster_cfg,
         }
         control_file = generate_solver_control_file(run_dir, case_id, configs, cluster_tasks, monitor_files)
         archive_active_generated_configuration(
@@ -20764,7 +20993,12 @@ def sweep_workflow(args):
         ):
             os.makedirs(os.path.join(run_dir, relative), exist_ok=True)
         output_prefix = post_cfg.get("io", {}).get("output_filename_prefix", "post")
-        post_recipe = generate_post_recipe_file(run_dir, case_id, post_cfg, {'Case': case_path, 'Post-Profile': post_path}, monitor_cfg)
+        post_decomposition = resolve_post_decomposition(run_dir, cluster_tasks, None, cluster_cfg)
+        if post_decomposition["problems"]:
+            print(f"[FATAL] Study case {case_id}: {' '.join(post_decomposition['problems'])}", file=sys.stderr)
+            sys.exit(1)
+        post_recipe = generate_post_recipe_file(run_dir, case_id, post_cfg, {'Case': case_path, 'Post-Profile': post_path},
+                                                monitor_cfg, post_decomposition)
         ensure_post_lock_wrapper(run_dir)
 
         case_entries.append({

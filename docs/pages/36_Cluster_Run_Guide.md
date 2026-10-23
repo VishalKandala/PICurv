@@ -129,6 +129,10 @@ This allows consistent local dry-run and cluster production flow from the same i
 - `picurv init` now creates `.picurv-execution.yml` in each new case with inert defaults.
 - If your cluster needs the same MPI launcher tokens for login-node and batch runs, edit that file and let `cluster.yml` override only when batch jobs differ.
 - For one-off interactive multi-rank runs on cluster login nodes, `PICURV_MPI_LAUNCHER` still overrides everything.
+- the MPI decomposition comes from `cluster.yml -> execution.decomposition: {i, j, k}`, whose
+  product must be `nodes * ntasks_per_node`; without it `picurv` chooses one for that rank
+  count (@ref p05_decomposition_ssec). The postprocessor resolves its own the same way.
+  Sweeps apply the cluster decomposition to every member.
 - `--num-procs` in cluster mode is a consistency guard, not an independent rank selector:
   - allowed values are `1` (auto) or exactly `nodes * ntasks_per_node`.
   - any other value is rejected as an inconsistent configuration combo.

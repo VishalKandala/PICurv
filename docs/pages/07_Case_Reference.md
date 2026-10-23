@@ -104,18 +104,11 @@ Mode compatibility note:
 - for `solver.yml -> operation_mode.eulerian_field_source: analytical`, `TGV3D` supports `grid.mode: programmatic_c` (the solver assigns the [0, 2π]² × [0, 0.2π] TGV domain) and `grid.mode: file` (the given grid is kept and the field is evaluated at its cell centres, e.g. a warped `grid.gen box --amp-A` grid spanning the same domain).
 - `ZERO_FLOW` and `UNIFORM_FLOW` support `grid.mode: programmatic_c` and `grid.mode: file`.
 
-Optional global DMDA layout hints apply to all grid modes:
-
-```yaml
-grid:
-  da_processors_x: 4
-  da_processors_y: 2
-  da_processors_z: 2
-```
-
-These are scalar global values, not per-block vectors. Legacy placement under
-`grid.programmatic_settings.da_processors_*` is still accepted for compatibility,
-but the shared top-level `grid.da_processors_*` form is preferred.
+The MPI decomposition is not a case property: it is given with `--ni/--nj/--nk`, by
+`cluster.yml -> execution.decomposition`, or chosen from the grid
+(@ref p05_decomposition_ssec). `grid.da_processors_x/y/z` (and the older
+`grid.programmatic_settings.da_processors_*`) are deprecated: they are still read, with a
+warning, below the other two sources.
 
 @subsection p07_grid_prog_ssec 3.1 mode: programmatic_c
 
@@ -140,7 +133,7 @@ Dimension contract:
   regardless of which `grid.mode` produced it. See @ref p19_fields_sec.
 
 Important constraint:
-- `grid.da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block processor decomposition is not implemented.
+- `grid.da_processors_x/y/z` are deprecated (@ref p05_decomposition_ssec); per-block processor decomposition is not implemented.
 
 @subsection p07_grid_file_ssec 3.2 mode: file
 
@@ -185,7 +178,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **When to choose it.** When the geometry came from `grid.gen`, from a mesher, or from a previous study, and you want the exact same mesh across runs. Prefer it over `grid_gen` once a mesh is settled: regenerating on every launch is a way to silently change geometry.
 
-**Parameters it owns.** `grid.source_file` -> the staged `.picgrid` path. Global DMDA hints `grid.da_processors_x/y/z` apply here as to every mode.
+**Parameters it owns.** `grid.source_file` -> the staged `.picgrid` path.
 
 **Interactions.** Mutually exclusive with `programmatic_c` and `grid_gen`. Compatible with the `ZERO_FLOW` and `UNIFORM_FLOW` analytical sources; `TGV3D` is not, because it needs the programmatic Cartesian box.
 
@@ -207,7 +200,7 @@ For direct `grid.gen` usage, generator types, and config-file structure, see **@
 
 **Parameters it owns.** `grid.programmatic_settings.im/jm/km` (cell counts, converted to node counts before `-im/-jm/-km`), `xMins/xMaxs`, `yMins/yMaxs`, `zMins/zMaxs`, `rxs/rys/rzs`, and `cgrids` -> `-cgrids` - see @ref p07_grid_prog_ssec for why this is not a real geometry choice.
 
-**Interactions.** Mutually exclusive with `file` and `grid_gen`. Required by the `TGV3D` analytical source. Per-block lists are supported for the geometry arrays, but `grid.da_processors_*` stay scalar: per-block processor decomposition is not implemented.
+**Interactions.** Mutually exclusive with `file` and `grid_gen`. Required by the `TGV3D` analytical source. Per-block lists are supported for the geometry arrays, but the MPI decomposition stays global: per-block processor decomposition is not implemented.
 
 **Diagnostics.** The startup banner reports the resolved block extents and counts. A count/extent mismatch across per-block lists is a validation error naming the offending key.
 

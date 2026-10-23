@@ -820,6 +820,7 @@ typedef struct PostProcessParams {
 
     // --- Processing Parameters ---
     PetscInt reference[3]; // Reference point for normalizing any field against.
+    PetscInt da_procs[3];  ///< Postprocessor MPI decomposition (i, j, k) from the recipe; PETSC_DECIDE where unset.
     
 } PostProcessParams;
 

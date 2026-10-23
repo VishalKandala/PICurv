@@ -210,12 +210,10 @@ grid:
   # Options: 'file', 'programmatic_c', or 'grid_gen'.
   mode: programmatic_c
 
-  # --- Optional Global DMDA Layout (applies to all grid modes) ---
-  # Edit or remove these for parallel runs. The product must equal the total
-  # MPI process count (-n) when all three are set.
-  da_processors_x: 2
-  da_processors_y: 2
-  da_processors_z: 4
+  # The MPI decomposition is not set here. `picurv run` chooses it from the grid,
+  # the multigrid levels and the boundary conditions, or takes it from
+  # `--ni/--nj/--nk` or cluster.yml `execution.decomposition`. The former keys
+  # da_processors_x/y/z are still read here, with a deprecation warning.
 
   # --- Option A: Grid from File ---
   # Use this if you have a pre-generated grid file.

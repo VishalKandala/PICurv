@@ -20,9 +20,6 @@ run_control:
 
 grid:
   mode: file
-  da_processors_x: 2
-  da_processors_y: 1
-  da_processors_z: 1
   source_file: "bent_channel_coarse.picgrid"
 
 models:

@@ -23,9 +23,6 @@ run_control:
 
 grid:
   mode: programmatic_c
-  da_processors_x: 2
-  da_processors_y: 1
-  da_processors_z: 1
   programmatic_settings:
     im: 32
     jm: 32

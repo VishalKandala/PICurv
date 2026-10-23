@@ -19,6 +19,7 @@ It describes the launcher-level contract, which may be stricter or more explicit
 4. `post.yml`: post-processing recipe.
 5. MPI launch settings (`-n`, executable stage selection).
    - `-n/--num-procs` sizes both solver and field postprocessor launches.
+   - optional `--ni/--nj/--nk` give the MPI decomposition (@ref p05_decomposition_ssec).
    - optional site execution defaults can be supplied via nearest `.picurv-execution.yml`.
 6. (Cluster mode) `cluster.yml`: <run.scheduler>/resource/launcher contract.
 7. (Sweep mode) `study.yml`: parameter matrix + metrics/plot contract.
@@ -49,9 +50,9 @@ For each run, `picurv` generates:
 - `grid.mode` supports: `file`, `programmatic_c`, `grid_gen`.
 - For `programmatic_c`, per-block arrays are supported for geometry (`im/jm/km`, bounds, stretching).
 - `programmatic_c.im/jm/km` are cell counts in YAML; `picurv` converts them to node counts before writing `-im/-jm/-km`.
-- `grid.da_processors_x/y/z` optionally set the global DMDA layout for any grid mode.
-- Legacy `grid.programmatic_settings.da_processors_*` is still accepted for compatibility.
-- `da_processors_x/y/z` are scalar integers only (global DMDA layout). Per-block MPI decomposition is not currently supported.
+- `grid.da_processors_x/y/z` (and legacy `grid.programmatic_settings.da_processors_*`) are deprecated:
+  read with a warning, below `--ni/--nj/--nk` and `cluster.yml -> execution.decomposition`
+  (@ref p05_decomposition_ssec). Per-block MPI decomposition is not supported.
 - For `grid_gen`, `grid.generator.config_file` is required today. `grid.gen` consumes cell counts and writes node counts into `.picgrid`.
 - `grid.generator.output_file`, `stats_file`, and `vts_file` are rejected: `picurv` chooses the destination for the generated grid, its `.vts` preview, and its `.info` quality report, and writes all three unconditionally into the run's own asset store.
 - Generated initial conditions reject `output_file`, `summary_json`, and `spectrum_csv` in `properties.initial_conditions.params`, and generated or `field_slice` inlet profiles reject `source.output_file`, for the same reason.
@@ -252,6 +253,7 @@ Verification-pathway rule:
 - `execution.launcher` controls launch style (`srun`, `mpirun`, custom). A multi-word launcher string is accepted for site compatibility, but keeping the executable here and extra flags in `execution.launcher_args` is the preferred portable form.
 - `execution.launcher_args` provides site-specific launch flags and is appended after any inline tokens parsed from `execution.launcher`.
 - when `execution.launcher` / `execution.launcher_args` are omitted, `picurv` falls back to nearest `.picurv-execution.yml` (`cluster_execution`, then `default_execution`) before using the built-in default `srun`.
+- `execution.decomposition: {i, j, k}` optionally sets the MPI decomposition of the solver and postprocessor stages; the product must be `nodes * ntasks_per_node`. When omitted, `picurv` chooses one (@ref p05_decomposition_ssec).
 - `execution.walltime_guard` optionally tunes the automatic runtime walltime estimator for generated Slurm solver jobs. When omitted, generated solver jobs still use the built-in default policy (`enabled: true`, `warmup_steps: 10`, `multiplier: 2.0`, `min_seconds: 60`, `estimator_alpha: 0.35`).
 - `execution.extra_sbatch` supports scheduler-specific pass-through flags.
 - `cluster.yml` does not currently define run naming. `picurv` derives `run_id` from `<case_basename>_<timestamp>` and uses that same run ID to name generated scheduler jobs.
