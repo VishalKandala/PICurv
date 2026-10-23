@@ -718,7 +718,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = UpdateAllParticleFields(user); CHKERRQ(ierr);
             
             // g. (For Two-Way Coupling) Scatter particle data back to the grid to act as a source term.
-            ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
+            //    The scatter recounts the particles per cell, which the metrics below also read.
             ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
             
             // h. (Optional) Calculate advanced particle metrics for logging/debugging.

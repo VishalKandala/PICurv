@@ -2022,20 +2022,18 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Scattering particle field 'Psi' to user->Psi.\n");
         // Zero the target vector before accumulating the new average for this step/call.
 
-	// Debug Verification ------------------------------------------------
-	Vec swarm_Psi;
-	PetscReal Avg_Psi,Avg_swarm_Psi;
-	     
-	ierr = VecMean(user->Psi,&Avg_Psi);
-	LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Scalar(Psi) before scatter: %.4f.\n",Avg_Psi);
-	     
-	ierr = DMSwarmCreateGlobalVectorFromField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI), &swarm_Psi);
-	ierr = VecMean(swarm_Psi,&Avg_swarm_Psi);
-
-	LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Particle Scalar(Psi): %.4f.\n",Avg_swarm_Psi);
-
-	ierr = DMSwarmDestroyGlobalVectorFromField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI), &swarm_Psi);
-	// Debug----------------------------------------------------------------
+	// Debug verification: global means are collectives, so they run only when they are logged.
+	const PetscBool log_means = (PetscBool)((int)get_log_level() >= (int)LOG_DEBUG);
+	PetscReal Avg_Psi = 0.0, Avg_swarm_Psi = 0.0;
+	if (log_means) {
+	    Vec swarm_Psi;
+	    ierr = VecMean(user->Psi,&Avg_Psi); CHKERRQ(ierr);
+	    LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Scalar(Psi) before scatter: %.4f.\n",Avg_Psi);
+	    ierr = DMSwarmCreateGlobalVectorFromField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI), &swarm_Psi); CHKERRQ(ierr);
+	    ierr = VecMean(swarm_Psi,&Avg_swarm_Psi); CHKERRQ(ierr);
+	    LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Particle Scalar(Psi): %.4f.\n",Avg_swarm_Psi);
+	    ierr = DMSwarmDestroyGlobalVectorFromField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PSI), &swarm_Psi); CHKERRQ(ierr);
+	}
 	  
 	//ierr = VecSet(user->P, 0.0); CHKERRQ(ierr);
         // Call the unified scatter function. It will handle DM determination and validation.
@@ -2048,9 +2046,10 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
         ierr = UpdateCornerNodes(user, FIELD_ID_PSI); CHKERRQ(ierr);
         // IEM reads the cell mean through the ghosted lPsi; refresh it from the new average.
         ierr = UpdateLocalGhosts(user, FIELD_ID_PSI); CHKERRQ(ierr);
-	ierr = VecMean(user->Psi,&Avg_Psi);
-	
-	LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Scalar(Psi) after  scatter: %.4f.\n",Avg_Psi);
+	if (log_means) {
+	    ierr = VecMean(user->Psi,&Avg_Psi); CHKERRQ(ierr);
+	    LOG_ALLOW(GLOBAL,LOG_DEBUG," Average of Scalar(Psi) after  scatter: %.4f.\n",Avg_Psi);
+	}
     } else {
         // Only log a warning if the target Eulerian field is missing in the context.
         LOG_ALLOW(GLOBAL, LOG_WARNING, "Skipping scatter for 'Psi': UserCtx->Psi is NULL.\n");

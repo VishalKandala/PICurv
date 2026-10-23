@@ -76,10 +76,10 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
     fieldName = descriptor->canonical_name;
 
     // Relax toward the mean of the particles where they are now. The Eulerian Psi otherwise
-    // holds the previous step's scatter, taken before the particles moved and migrated.
-    // Collective, so it comes before the early return of ranks with no particles.
+    // holds the previous step's scatter, taken before the particles moved and migrated; the
+    // scatter recounts the particles per cell itself. Collective, so it comes before the early
+    // return of ranks with no particles.
     if (field_id == PARTICLE_FIELD_ID_PSI) {
-        ierr = CalculateParticleCountPerCell(user); CHKERRQ(ierr);
         ierr = ScatterAllParticleFieldsToEulerFields(user); CHKERRQ(ierr);
     }
 
