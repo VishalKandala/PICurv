@@ -453,7 +453,7 @@ PetscErrorCode MetricLogicalToPhysical(UserCtx  *user,
   Cmpnts V[8];
   PetscFunctionBeginUser;
   
-  PROFILE_FUNCTION_BEGIN;
+  PROFILE_HELPER_BEGIN;
 
   ierr = MetricGetCellVertices(user,X,i,j,k,V); CHKERRQ(ierr);
   TrilinearBlend(V,xi,eta,zta,Xp);
@@ -482,7 +482,7 @@ PetscErrorCode MetricJacobian(UserCtx *user,
   Cmpnts V[8];
   PetscFunctionBeginUser;
 
-  PROFILE_FUNCTION_BEGIN;
+  PROFILE_HELPER_BEGIN;
 
   ierr = MetricGetCellVertices(user,X,i,j,k,V); CHKERRQ(ierr);
 
@@ -537,7 +537,7 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3], PetscReal de
 {
   PetscFunctionBeginUser;
 
-  PROFILE_FUNCTION_BEGIN;
+  PROFILE_HELPER_BEGIN;
 
   /* contravariant basis vectors (row of adjugate(J)) divided by detJ */
   PetscReal gxi[3]  = {  J[1][1]*J[2][2]-J[1][2]*J[2][1],
@@ -621,7 +621,7 @@ PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double 
 PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, double ni[3], double nj[3], double nk[3], double *Ai, double *Aj, double *Ak)
 {
 	PetscFunctionBeginUser;
-	PROFILE_FUNCTION_BEGIN;
+	PROFILE_HELPER_BEGIN;
 	double g[3][3];
 	double G[3][3];
 	
@@ -667,7 +667,7 @@ PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, do
 PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmpnts zet, double *dx, double *dy, double *dz)
 {
 		PetscFunctionBeginUser;
-		PROFILE_FUNCTION_BEGIN;
+		PROFILE_HELPER_BEGIN;
         double ni[3], nj[3], nk[3];
         double Li, Lj, Lk;
         double Ai, Aj, Ak;
@@ -1779,7 +1779,7 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
 }
 
 #undef __FUNCT__
-#define __FUNCT__ "ComputeJFaceMetrics"
+#define __FUNCT__ "ComputeKFaceMetrics"
 /**
  * @brief Internal helper implementation: `ComputeKFaceMetrics()`.
  * @details Local to this translation unit.

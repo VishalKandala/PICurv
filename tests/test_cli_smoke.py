@@ -6759,6 +6759,7 @@ def test_new_profiling_config_emits_explicit_timestep_flags(tmp_path):
             "file": "timesteps.csv",
         },
         "final_summary": {"enabled": False},
+        "helpers": ["UnpackSwarmFields", "MetricJacobian"],
     }
 
     run_dir = tmp_path / "run"
@@ -6788,7 +6789,27 @@ def test_new_profiling_config_emits_explicit_timestep_flags(tmp_path):
     assert "-profiling_timestep_mode selected" in content
     assert "-profiling_timestep_file timesteps.csv" in content
     assert "-profiling_final_summary false" in content
+    assert "-profiling_helpers UnpackSwarmFields,MetricJacobian" in content
     assert "-profile_config_file" in content
+
+
+def test_profiling_helpers_resolve_names_or_all():
+    """!
+    @brief `profiling.helpers` enables named helper timers, or all of them, and nothing by default.
+    @details A list is name-normalized; `all` passes through; anything else is refused. The
+             control-file flag is checked with the other profiling flags.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    assert picurv.resolve_profiling_config({})["helpers"] == []
+    assert picurv.resolve_profiling_config({"profiling": {"helpers": "all"}})["helpers"] == ["all"]
+    assert picurv.resolve_profiling_config(
+        {"profiling": {"helpers": ["UnpackSwarmFields", "UnpackSwarmFields", "MetricJacobian"]}})["helpers"] == [
+        "UnpackSwarmFields", "MetricJacobian"]
+    for bad in ("some", 3, ["ok", ""], ["a,b"]):
+        with pytest.raises(ValueError, match="profiling.helpers"):
+            picurv.resolve_profiling_config({"profiling": {"helpers": bad}})
+
 
 
 def test_diagnostics_config_emits_runtime_memory_flags_and_petsc_args(tmp_path):

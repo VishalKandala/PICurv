@@ -2004,130 +2004,155 @@ const char* ParticleLocationStatusToString(ParticleLocationStatus level)
 }
 
 ///////// Profiling System /////////
+// Timers are PETSc log events, so PETSc's own events, log_view and the PICurv reports below
+// read one record. PICurv functions register under two classes: aggregates (always on) and
+// helpers (per-particle or per-cell functions, off unless enabled by name). This file keeps
+// only reporting state: the enabled and selected names and the per-step snapshot.
 
-// Data structure to hold profiling info for one function
-typedef struct {
-    const char *name;
-    double     total_time;
-    double     current_step_time;
-    long long  total_call_count;
-    long long  current_step_call_count;
-    double     start_time; // Timer for the current call
-    PetscBool  always_log;
-} ProfiledFunction;
+static PetscClassId    g_profile_class_function = 0;  // "PICurv"; 0 until first profiled call
+static PetscClassId    g_profile_class_helper   = 0;  // "PICurvHelper"
+static char          **g_profile_helpers  = NULL;     // Helpers enabled by name (owned by SimCtx)
+static PetscInt        g_profile_nhelpers = 0;
+static PetscBool       g_profile_all_helpers = PETSC_FALSE;
+static char          **g_profile_selected  = NULL;    // timestep_output 'selected' names (owned by SimCtx)
+static PetscInt        g_profile_nselected = 0;
+static PetscLogDouble *g_profile_step_time  = NULL;   // Running totals at the last step boundary,
+static int            *g_profile_step_count = NULL;   // indexed by PETSc event
+static PetscInt        g_profile_step_capacity = 0;
 
-// Global registry for all profiled functions
-static ProfiledFunction *g_profiler_registry = NULL;
-static PetscInt g_profiler_count = 0;
-static PetscInt g_profiler_capacity = 0;
-
-// Internal helper to find a function in the registry or create it
 /**
- * @brief Find a profiling record by name or allocate and register a new record.
+ * @brief Whether a name appears in a list of names.
  */
-static PetscErrorCode _FindOrCreateEntry(const char *func_name, PetscInt *idx)
+static PetscBool _ProfilingNameListed(const char *name, char **names, PetscInt n)
 {
+    for (PetscInt i = 0; i < n; ++i) if (names[i] && strcmp(names[i], name) == 0) return PETSC_TRUE;
+    return PETSC_FALSE;
+}
+
+/**
+ * @brief Whether a helper function's timer is enabled.
+ */
+static PetscBool _ProfilingHelperEnabled(const char *name)
+{
+    return (PetscBool)(g_profile_all_helpers || _ProfilingNameListed(name, g_profile_helpers, g_profile_nhelpers));
+}
+
+/**
+ * @brief Register the two PICurv event classes and start PETSc's default log handler, once.
+ * @details The handler must run before the first event begins: an event that begins before it
+ *          and ends after it is not one the handler can close.
+ */
+static PetscErrorCode _ProfilingEnsureStarted(void)
+{
+    PetscBool active = PETSC_FALSE;
+
     PetscFunctionBeginUser;
-    // Search for existing entry
-    for (PetscInt i = 0; i < g_profiler_count; ++i) {
-        if (strcmp(g_profiler_registry[i].name, func_name) == 0) {
-            *idx = i;
-            PetscFunctionReturn(0);
-        }
+    if (!g_profile_class_function) {
+        PetscCall(PetscClassIdRegister("PICurv", &g_profile_class_function));
+        PetscCall(PetscClassIdRegister("PICurvHelper", &g_profile_class_helper));
     }
-
-    // Not found, create a new entry
-    if (g_profiler_count >= g_profiler_capacity) {
-        PetscInt new_capacity = g_profiler_capacity == 0 ? 16 : g_profiler_capacity * 2;
-        PetscErrorCode ierr = PetscRealloc(sizeof(ProfiledFunction) * new_capacity, &g_profiler_registry); CHKERRQ(ierr);
-        g_profiler_capacity = new_capacity;
-    }
-
-    *idx = g_profiler_count;
-    g_profiler_registry[*idx].name = func_name;
-    g_profiler_registry[*idx].total_time = 0.0;
-    g_profiler_registry[*idx].current_step_time = 0.0;
-    g_profiler_registry[*idx].total_call_count = 0;
-    g_profiler_registry[*idx].current_step_call_count = 0;
-    g_profiler_registry[*idx].start_time = 0.0;
-    g_profiler_registry[*idx].always_log = PETSC_FALSE;
-    g_profiler_count++;
-
+    PetscCall(PetscLogIsActive(&active));
+    if (!active) PetscCall(PetscLogDefaultBegin());
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Internal helper: resolve a profiling call site's registry index, reusing its cache.
- * @details Local to this translation unit. A cached index is trusted only while it still names
- *          this function, so a registry rebuilt by finalize and re-initialize re-resolves instead
- *          of charging time to another entry; the name search runs once per call site otherwise.
+ * @brief Implementation of \ref _ProfilingRegister().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see _ProfilingRegister()
  */
-static PetscErrorCode _ResolveCallSiteEntry(const char *func_name, PetscInt *idx)
+void _ProfilingRegister(const char *func_name, PetscBool helper, PetscLogEvent *event)
 {
-    PetscFunctionBeginUser;
-    if (*idx >= 0 && *idx < g_profiler_count &&
-        (g_profiler_registry[*idx].name == func_name ||
-         strcmp(g_profiler_registry[*idx].name, func_name) == 0)) {
-        PetscFunctionReturn(0);
+    PetscLogEvent registered = -1;
+
+    if (_ProfilingEnsureStarted() != 0) return; // Fail silently: the call site stays untimed
+    if (PetscLogEventRegister(func_name, helper ? g_profile_class_helper : g_profile_class_function, &registered) != 0) return;
+    // New events start active, and excluding a class reaches only events that already exist,
+    // so a helper is switched off as it registers unless it is enabled.
+    if (helper && !_ProfilingHelperEnabled(func_name)) {
+        if (PetscLogEventSetActiveAll(registered, PETSC_FALSE) != 0) return;
     }
-    PetscCall(_FindOrCreateEntry(func_name, idx));
-    PetscFunctionReturn(0);
+    *event = registered;
 }
 
-// --- Public API Implementation ---
 /**
- * @brief Internal helper implementation: `ProfilingInitialize()`.
- * @details Local to this translation unit.
+ * @brief Whether a PETSc event belongs to one of PICurv's classes.
+ */
+static PetscBool _ProfilingIsPicurvClass(PetscClassId classid)
+{
+    return (PetscBool)(classid && (classid == g_profile_class_function || classid == g_profile_class_helper));
+}
+
+/**
+ * @brief Implementation of \ref ProfilingInitialize().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/logging.h`.
+ * @see ProfilingInitialize()
  */
 PetscErrorCode ProfilingInitialize(SimCtx *simCtx)
 {
+    PetscLogState state = NULL;
+    PetscInt      nevents = 0;
+
     PetscFunctionBeginUser;
     if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be null for ProfilingInitialize");
-
-    // Iterate through the list of critical functions provided in SimCtx
-    for (PetscInt i = 0; i < simCtx->nProfilingSelectedFuncs; ++i) {
-        PetscInt idx;
-        const char *func_name = simCtx->profilingSelectedFuncs[i];
-        PetscErrorCode ierr = _FindOrCreateEntry(func_name, &idx); CHKERRQ(ierr);
-        g_profiler_registry[idx].always_log = PETSC_TRUE;
-
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Marked '%s' as a critical function for profiling.\n", func_name);
+    PetscCall(_ProfilingEnsureStarted());
+    g_profile_selected    = simCtx->profilingSelectedFuncs;
+    g_profile_nselected   = simCtx->nProfilingSelectedFuncs;
+    g_profile_helpers     = simCtx->profilingHelpers;
+    g_profile_nhelpers    = simCtx->nProfilingHelpers;
+    g_profile_all_helpers = simCtx->profilingAllHelpers;
+    // Helpers that ran before this (during setup) registered switched off; apply the list to them.
+    PetscCall(PetscLogGetState(&state));
+    PetscCall(PetscLogStateGetNumEvents(state, &nevents));
+    for (PetscLogEvent e = 0; e < nevents; ++e) {
+        PetscLogEventInfo info;
+        PetscCall(PetscLogStateEventGetInfo(state, e, &info));
+        if (info.classid == g_profile_class_helper) PetscCall(PetscLogEventSetActiveAll(e, _ProfilingHelperEnabled(info.name)));
+    }
+    for (PetscInt i = 0; i < g_profile_nselected; ++i) {
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Marked '%s' for per-step profiling output.\n", g_profile_selected[i]);
+    }
+    for (PetscInt i = 0; i < g_profile_nhelpers; ++i) {
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Enabled helper timer '%s'.\n", g_profile_helpers[i]);
     }
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Implementation of \ref _ProfilingStart().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/logging.h`.
- * @see _ProfilingStart()
+ * @brief Read an event's running total time and call count on this rank (main stage).
  */
-
-void _ProfilingStart(const char *func_name, PetscInt *idx)
+static PetscErrorCode _ProfilingEventTotals(PetscLogEvent event, PetscLogDouble *time, int *count)
 {
-    if (_ResolveCallSiteEntry(func_name, idx) != 0) return; // Fail silently
-    PetscTime(&g_profiler_registry[*idx].start_time);
+    PetscEventPerfInfo info;
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscLogEventGetPerfInfo(PETSC_DETERMINE, event, &info));
+    *time  = info.time;
+    *count = info.count;
+    PetscFunctionReturn(0);
 }
 
 /**
- * @brief Implementation of \ref _ProfilingEnd().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/logging.h`.
- * @see _ProfilingEnd()
+ * @brief Record every event's running totals as the start of the next step.
  */
-
-void _ProfilingEnd(const char *func_name, PetscInt *idx)
+static PetscErrorCode _ProfilingSnapshotStep(void)
 {
-    double end_time;
-    PetscTime(&end_time);
+    PetscLogState state = NULL;
+    PetscInt      nevents = 0;
 
-    if (_ResolveCallSiteEntry(func_name, idx) != 0) return; // Fail silently
-
-    double elapsed = end_time - g_profiler_registry[*idx].start_time;
-    g_profiler_registry[*idx].total_time += elapsed;
-    g_profiler_registry[*idx].current_step_time += elapsed;
-    g_profiler_registry[*idx].total_call_count++;
-    g_profiler_registry[*idx].current_step_call_count++;
+    PetscFunctionBeginUser;
+    PetscCall(PetscLogGetState(&state));
+    if (!state) PetscFunctionReturn(0);
+    PetscCall(PetscLogStateGetNumEvents(state, &nevents));
+    if (nevents > g_profile_step_capacity) {
+        PetscCall(PetscFree2(g_profile_step_time, g_profile_step_count));
+        g_profile_step_capacity = PetscMax(2 * g_profile_step_capacity, nevents);
+        PetscCall(PetscCalloc2(g_profile_step_capacity, &g_profile_step_time, g_profile_step_capacity, &g_profile_step_count));
+    }
+    for (PetscLogEvent e = 0; e < nevents; ++e) PetscCall(_ProfilingEventTotals(e, &g_profile_step_time[e], &g_profile_step_count[e]));
+    PetscFunctionReturn(0);
 }
 
 /**
@@ -2136,14 +2161,10 @@ void _ProfilingEnd(const char *func_name, PetscInt *idx)
  *          the header declaration in `include/logging.h`.
  * @see ProfilingResetTimestepCounters()
  */
-
 PetscErrorCode ProfilingResetTimestepCounters(void)
 {
     PetscFunctionBeginUser;
-    for (PetscInt i = 0; i < g_profiler_count; ++i) {
-        g_profiler_registry[i].current_step_time = 0.0;
-        g_profiler_registry[i].current_step_call_count = 0;
-    }
+    PetscCall(_ProfilingSnapshotStep());
     PetscFunctionReturn(0);
 }
 
@@ -2153,93 +2174,71 @@ PetscErrorCode ProfilingResetTimestepCounters(void)
  *          the header declaration in `include/logging.h`.
  * @see ProfilingLogTimestepSummary()
  */
-
 PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step)
 {
-    PetscBool should_write = PETSC_FALSE;
-    FILE *f = NULL;
-    char filen[(2 * PETSC_MAX_PATH_LEN) + 16];
+    const PetscBool all = (PetscBool)(simCtx && strcmp(simCtx->profilingTimestepMode, "all") == 0);
+    PetscLogState   state = NULL;
+    PetscInt        nevents = 0;
+    FILE           *f = NULL;
+    char            filen[(2 * PETSC_MAX_PATH_LEN) + 16];
 
     PetscFunctionBeginUser;
     if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be null for ProfilingLogTimestepSummary");
+    if (strcmp(simCtx->profilingTimestepMode, "off") == 0) PetscFunctionReturn(0);
 
-    if (strcmp(simCtx->profilingTimestepMode, "off") == 0) {
-        for (PetscInt i = 0; i < g_profiler_count; ++i) {
-            g_profiler_registry[i].current_step_time = 0.0;
-            g_profiler_registry[i].current_step_call_count = 0;
-        }
-        PetscFunctionReturn(0);
-    }
-
-    for (PetscInt i = 0; i < g_profiler_count; ++i) {
-        if (g_profiler_registry[i].current_step_call_count <= 0) {
-            continue;
-        }
-        if (strcmp(simCtx->profilingTimestepMode, "all") == 0 || g_profiler_registry[i].always_log) {
-            should_write = PETSC_TRUE;
-            break;
-        }
-    }
+    PetscCall(PetscLogGetState(&state));
+    PetscCall(PetscLogStateGetNumEvents(state, &nevents));
 
     /* A selected name that matches no instrumented function records nothing, and a
        list made only of such names writes no file at all. Say so once, on the first
        step, rather than leave an absent file to be discovered after the run. */
-    if (step == simCtx->StartStep + 1 && strcmp(simCtx->profilingTimestepMode, "selected") == 0) {
-        for (PetscInt i = 0; i < g_profiler_count; ++i) {
-            if (g_profiler_registry[i].always_log && g_profiler_registry[i].total_call_count == 0) {
+    if (step == simCtx->StartStep + 1 && !all) {
+        for (PetscInt i = 0; i < g_profile_nselected; ++i) {
+            PetscBool ran = PETSC_FALSE;
+            for (PetscLogEvent e = 0; e < nevents && !ran; ++e) {
+                PetscLogEventInfo info;
+                PetscLogDouble    time;
+                int               count;
+                PetscCall(PetscLogStateEventGetInfo(state, e, &info));
+                if (!_ProfilingIsPicurvClass(info.classid) || strcmp(info.name, g_profile_selected[i]) != 0) continue;
+                PetscCall(_ProfilingEventTotals(e, &time, &count));
+                ran = (PetscBool)(count > 0);
+            }
+            if (!ran) {
                 LOG(GLOBAL, LOG_WARNING,
                     "profiling.timestep_output.functions lists '%s', which recorded no call in the first "
                     "step. It is not an instrumented function; the final summary lists the names that are.\n",
-                    g_profiler_registry[i].name);
+                    g_profile_selected[i]);
             }
         }
     }
 
-    if (should_write && simCtx->rank == 0) {
-        snprintf(filen, sizeof(filen), "%s/%s", simCtx->log_dir, simCtx->profilingTimestepFile);
-        if (step == simCtx->StartStep + 1 && !simCtx->continueMode) {
-            f = fopen(filen, "w");
-            if (!f) {
-                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open profiling timestep log file: %s", filen);
-            }
-            PetscFPrintf(PETSC_COMM_SELF, f, "step,function,calls,step_time_s\n");
-        } else {
-            f = fopen(filen, "a");
-            if (!f) {
-                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open profiling timestep log file: %s", filen);
-            }
-            if (step == simCtx->StartStep + 1 && ftell(f) == 0) {
-                PetscFPrintf(PETSC_COMM_SELF, f, "step,function,calls,step_time_s\n");
-            }
-        }
-        if (simCtx->continueMode && step == simCtx->StartStep + 1) {
-            PetscFPrintf(PETSC_COMM_SELF, f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
-        }
-
-        for (PetscInt i = 0; i < g_profiler_count; ++i) {
-            if (g_profiler_registry[i].current_step_call_count <= 0) {
-                continue;
-            }
-            if (strcmp(simCtx->profilingTimestepMode, "all") == 0 || g_profiler_registry[i].always_log) {
-                PetscFPrintf(
-                    PETSC_COMM_SELF,
-                    f,
-                    "%d,%s,%lld,%.6f\n",
-                    (int)step,
-                    g_profiler_registry[i].name,
-                    g_profiler_registry[i].current_step_call_count,
-                    g_profiler_registry[i].current_step_time
-                );
+    for (PetscLogEvent e = 0; e < nevents; ++e) {
+        PetscLogEventInfo info;
+        PetscLogDouble    time, since_time;
+        int               count, since_count;
+        PetscCall(PetscLogStateEventGetInfo(state, e, &info));
+        if (!_ProfilingIsPicurvClass(info.classid)) continue;
+        if (!all && !_ProfilingNameListed(info.name, g_profile_selected, g_profile_nselected)) continue;
+        PetscCall(_ProfilingEventTotals(e, &time, &count));
+        // An event registered after the last snapshot started from zero.
+        since_time  = time  - (e < g_profile_step_capacity ? g_profile_step_time[e]  : 0.0);
+        since_count = count - (e < g_profile_step_capacity ? g_profile_step_count[e] : 0);
+        if (since_count <= 0 || simCtx->rank != 0) continue;
+        if (!f) {
+            snprintf(filen, sizeof(filen), "%s/%s", simCtx->log_dir, simCtx->profilingTimestepFile);
+            const PetscBool fresh = (PetscBool)(step == simCtx->StartStep + 1 && !simCtx->continueMode);
+            f = fopen(filen, fresh ? "w" : "a");
+            if (!f) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open profiling timestep log file: %s", filen);
+            if (step == simCtx->StartStep + 1 && (fresh || ftell(f) == 0)) PetscFPrintf(PETSC_COMM_SELF, f, "step,function,calls,step_time_s\n");
+            if (simCtx->continueMode && step == simCtx->StartStep + 1) {
+                PetscFPrintf(PETSC_COMM_SELF, f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
             }
         }
-        fclose(f);
+        PetscFPrintf(PETSC_COMM_SELF, f, "%d,%s,%d,%.6f\n", (int)step, info.name, since_count, (double)since_time);
     }
-
-    // Reset per-step counters for the next iteration
-    for (PetscInt i = 0; i < g_profiler_count; ++i) {
-        g_profiler_registry[i].current_step_time = 0.0;
-        g_profiler_registry[i].current_step_call_count = 0;
-    }
+    if (f) fclose(f);
+    PetscCall(_ProfilingSnapshotStep());
     PetscFunctionReturn(0);
 }
 
@@ -2350,11 +2349,11 @@ typedef struct {
 } ProfiledFunctionRanks;
 
 /**
- * @brief Order profiling records by name, so every rank lists the same functions in the same order.
+ * @brief Order C strings, for qsort over `const char *` arrays.
  */
-static int _CompareProfiledFunctionNames(const void *a, const void *b)
+static int _CompareNames(const void *a, const void *b)
 {
-    return strcmp(((const ProfiledFunction *)a)->name, ((const ProfiledFunction *)b)->name);
+    return strcmp(*(const char *const *)a, *(const char *const *)b);
 }
 
 /**
@@ -2371,6 +2370,131 @@ static int _CompareProfiledFunctionRanks(const void *a, const void *b)
 }
 
 /**
+ * @brief Reduce one section of the final summary across ranks and print it on rank 0.
+ * @details Collective. Every rank contributes the events it recorded (`names`, with their totals);
+ *          the union of names over ranks is formed by name, so ranks may have recorded different
+ *          sets. Each name's time is reduced to its max and min with their ranks and its mean, and
+ *          its calls are summed and reduced to their min and max per rank with ranks. Rows with
+ *          calls on some rank are printed, slowest rank first.
+ */
+static PetscErrorCode _ProfilingReduceSection(FILE *f, const char *banner, PetscInt nlocal, const char **names,
+                                              const PetscLogDouble *times, const long long *counts)
+{
+    PetscMPIInt rank, size, local_len = 0, total_len = 0, *lens = NULL, *displs = NULL;
+    char       *local_names = NULL, *all_names = NULL;
+    const char **unique = NULL;
+    PetscInt   nall = 0, nunique = 0;
+    struct { double value; int rank; } *local_time = NULL, *min_time = NULL, *max_time = NULL;
+    struct { double value; int rank; } *local_count = NULL, *min_count = NULL, *max_count = NULL;
+    double     *local_seconds = NULL, *sum_time = NULL;
+    long long  *local_calls = NULL, *sum_calls = NULL;
+
+    PetscFunctionBeginUser;
+    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
+    PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
+
+    // --- Union of the recorded names over ranks, in name order ---
+    for (PetscInt i = 0; i < nlocal; ++i) local_len += (PetscMPIInt)strlen(names[i]) + 1;
+    PetscCall(PetscMalloc1(local_len + 1, &local_names));
+    for (PetscInt i = 0, off = 0; i < nlocal; ++i) { strcpy(local_names + off, names[i]); off += (PetscInt)strlen(names[i]) + 1; }
+    PetscCall(PetscMalloc2(size, &lens, size, &displs));
+    PetscCallMPI(MPI_Allgather(&local_len, 1, MPI_INT, lens, 1, MPI_INT, PETSC_COMM_WORLD));
+    for (PetscMPIInt r = 0; r < size; ++r) { displs[r] = total_len; total_len += lens[r]; }
+    PetscCall(PetscMalloc1(total_len + 1, &all_names));
+    PetscCallMPI(MPI_Allgatherv(local_names, local_len, MPI_CHAR, all_names, lens, displs, MPI_CHAR, PETSC_COMM_WORLD));
+    for (PetscMPIInt off = 0; off < total_len; off += (PetscMPIInt)strlen(all_names + off) + 1) nall++;
+    PetscCall(PetscMalloc1(nall + 1, &unique));
+    for (PetscMPIInt off = 0; off < total_len; off += (PetscMPIInt)strlen(all_names + off) + 1) unique[nunique++] = all_names + off;
+    qsort(unique, nunique, sizeof(*unique), _CompareNames);
+    {
+        PetscInt kept = 0;
+        for (PetscInt i = 0; i < nunique; ++i) if (kept == 0 || strcmp(unique[kept - 1], unique[i]) != 0) unique[kept++] = unique[i];
+        nunique = kept;
+    }
+
+    // --- This rank's totals in union order (zero for a name it did not record) ---
+    PetscCall(PetscMalloc4(nunique + 1, &local_time, nunique + 1, &min_time, nunique + 1, &max_time, nunique + 1, &sum_time));
+    PetscCall(PetscMalloc3(nunique + 1, &local_seconds, nunique + 1, &local_calls, nunique + 1, &sum_calls));
+    PetscCall(PetscMalloc3(nunique + 1, &local_count, nunique + 1, &min_count, nunique + 1, &max_count));
+    for (PetscInt u = 0; u < nunique; ++u) {
+        double    t = 0.0;
+        long long c = 0;
+        for (PetscInt i = 0; i < nlocal; ++i) if (strcmp(names[i], unique[u]) == 0) { t += times[i]; c += counts[i]; }
+        local_seconds[u] = t; local_time[u].value = t; local_time[u].rank = (int)rank;
+        local_calls[u] = c;   local_count[u].value = (double)c; local_count[u].rank = (int)rank; // Exact below 2^53 calls
+    }
+    PetscCallMPI(MPI_Reduce(local_time, min_time, (int)nunique, MPI_DOUBLE_INT, MPI_MINLOC, 0, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Reduce(local_time, max_time, (int)nunique, MPI_DOUBLE_INT, MPI_MAXLOC, 0, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Reduce(local_seconds, sum_time, (int)nunique, MPI_DOUBLE, MPI_SUM, 0, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Reduce(local_calls, sum_calls, (int)nunique, MPI_LONG_LONG, MPI_SUM, 0, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Reduce(local_count, min_count, (int)nunique, MPI_DOUBLE_INT, MPI_MINLOC, 0, PETSC_COMM_WORLD));
+    PetscCallMPI(MPI_Reduce(local_count, max_count, (int)nunique, MPI_DOUBLE_INT, MPI_MAXLOC, 0, PETSC_COMM_WORLD));
+
+    if (!rank) {
+        ProfiledFunctionRanks *rows = NULL;
+        PetscInt nrows = 0, max_name_len = (PetscInt)strlen("Function");
+        PetscCall(PetscMalloc1(nunique + 1, &rows));
+        for (PetscInt u = 0; u < nunique; ++u) {
+            if (sum_calls[u] == 0) continue;
+            rows[nrows].name           = unique[u];
+            rows[nrows].mean_time      = sum_time[u] / size;
+            rows[nrows].min_time       = min_time[u].value;
+            rows[nrows].min_rank       = min_time[u].rank;
+            rows[nrows].max_time       = max_time[u].value;
+            rows[nrows].max_rank       = max_time[u].rank;
+            rows[nrows].call_count     = sum_calls[u];
+            rows[nrows].min_calls      = min_count[u].value;
+            rows[nrows].min_calls_rank = min_count[u].rank;
+            rows[nrows].max_calls      = max_count[u].value;
+            rows[nrows].max_calls_rank = max_count[u].rank;
+            max_name_len = PetscMax(max_name_len, (PetscInt)strlen(unique[u]));
+            nrows++;
+        }
+        qsort(rows, nrows, sizeof(ProfiledFunctionRanks), _CompareProfiledFunctionRanks);
+        max_name_len += 2;
+
+        const int time_width = 14, rank_width = 6, count_width = 15, avg_width = 19;
+        PetscFPrintf(PETSC_COMM_SELF, f, "=================================================================================================================\n");
+        PetscFPrintf(PETSC_COMM_SELF, f, "        %s (total time per rank over %d ranks, sorted by the slowest rank)\n", banner, (int)size);
+        PetscFPrintf(PETSC_COMM_SELF, f, "=================================================================================================================\n");
+        PetscFPrintf(PETSC_COMM_SELF, f, "%-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s\n",
+                     (int)max_name_len, "Function",
+                     time_width, "Max Time (s)", rank_width, "Rank",
+                     time_width, "Mean Time (s)",
+                     time_width, "Min Time (s)", rank_width, "Rank",
+                     count_width, "Calls (all)",
+                     avg_width, "Avg. Time/Call (ms)",
+                     count_width, "Min Calls/Rank", rank_width, "Rank",
+                     count_width, "Max Calls/Rank", rank_width, "Rank");
+        for (int i = 0; i < (int)max_name_len + 11 * 3 + 3 * time_width + 4 * rank_width + 3 * count_width + avg_width; i++) PetscFPrintf(PETSC_COMM_SELF, f, "-");
+        PetscFPrintf(PETSC_COMM_SELF, f, "\n");
+        for (PetscInt i = 0; i < nrows; ++i) {
+            double avg_time_ms = (rows[i].mean_time * size / rows[i].call_count) * 1000.0;
+            PetscFPrintf(PETSC_COMM_SELF, f, "%-*s | %*.*f | %*d | %*.*f | %*.*f | %*d | %*lld | %*.*f | %*.0f | %*d | %*.0f | %*d\n",
+                         (int)max_name_len, rows[i].name,
+                         time_width, 6, rows[i].max_time, rank_width, rows[i].max_rank,
+                         time_width, 6, rows[i].mean_time,
+                         time_width, 6, rows[i].min_time, rank_width, rows[i].min_rank,
+                         count_width, rows[i].call_count,
+                         avg_width, 6, avg_time_ms,
+                         count_width, rows[i].min_calls, rank_width, rows[i].min_calls_rank,
+                         count_width, rows[i].max_calls, rank_width, rows[i].max_calls_rank);
+        }
+        PetscFPrintf(PETSC_COMM_SELF, f, "==================================================================================================================\n");
+        PetscCall(PetscFree(rows));
+    }
+
+    PetscCall(PetscFree4(local_time, min_time, max_time, sum_time));
+    PetscCall(PetscFree3(local_seconds, local_calls, sum_calls));
+    PetscCall(PetscFree3(local_count, min_count, max_count));
+    PetscCall(PetscFree(unique));
+    PetscCall(PetscFree(all_names));
+    PetscCall(PetscFree2(lens, displs));
+    PetscCall(PetscFree(local_names));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Implementation of \ref ProfilingFinalize().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/logging.h`.
@@ -2378,169 +2502,58 @@ static int _CompareProfiledFunctionRanks(const void *a, const void *b)
  */
 PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
 {
-    PetscErrorCode ierr;
-    PetscInt rank = simCtx->rank;
-    PetscMPIInt size, local_len = 0, total_len = 0, *lens = NULL, *displs = NULL;
-    char *local_names = NULL, *names = NULL; // Names this rank, and every rank, profiled
-    struct { double value; int rank; } *local_time = NULL, *min_time = NULL, *max_time = NULL;
-    struct { double value; int rank; } *local_count = NULL, *min_count = NULL, *max_count = NULL;
-    double *local_seconds = NULL, *sum_time = NULL;
-    long long *local_calls = NULL, *sum_calls = NULL;
-    ProfiledFunctionRanks *rows = NULL;
+    PetscLogState   state = NULL;
+    PetscInt        nevents = 0, npicurv = 0, npetsc = 0;
+    const char    **picurv_names = NULL, **petsc_names = NULL;
+    PetscLogDouble *picurv_times = NULL, *petsc_times = NULL;
+    long long      *picurv_counts = NULL, *petsc_counts = NULL;
+    FILE           *f = NULL;
+
     PetscFunctionBeginUser;
     if (!simCtx->profilingFinalSummary) PetscFunctionReturn(0);
 
-    // --- Step 0: Register on every rank each function any rank profiled, in name order ---
-    // The only communication of the profiler: two gathers and six reductions, here at the end of the run.
-    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRMPI(ierr);
-    for (PetscInt i = 0; i < g_profiler_count; ++i) local_len += (PetscMPIInt)strlen(g_profiler_registry[i].name) + 1;
-    ierr = PetscMalloc1(local_len + 1, &local_names); CHKERRQ(ierr);
-    for (PetscInt i = 0, off = 0; i < g_profiler_count; ++i) {
-        strcpy(local_names + off, g_profiler_registry[i].name);
-        off += (PetscInt)strlen(g_profiler_registry[i].name) + 1;
-    }
-    ierr = PetscMalloc2(size, &lens, size, &displs); CHKERRQ(ierr);
-    ierr = MPI_Allgather(&local_len, 1, MPI_INT, lens, 1, MPI_INT, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    for (PetscMPIInt r = 0; r < size; ++r) { displs[r] = total_len; total_len += lens[r]; }
-    ierr = PetscMalloc1(total_len + 1, &names); CHKERRQ(ierr);
-    ierr = MPI_Allgatherv(local_names, local_len, MPI_CHAR, names, lens, displs, MPI_CHAR, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    for (PetscMPIInt off = 0; off < total_len; off += (PetscMPIInt)strlen(names + off) + 1) {
-        PetscInt idx;
-        ierr = _FindOrCreateEntry(names + off, &idx); CHKERRQ(ierr); // A new entry points into names
-    }
-    qsort(g_profiler_registry, g_profiler_count, sizeof(ProfiledFunction), _CompareProfiledFunctionNames);
-
-    // --- Step 1: Reduce each function's total time and calls (min, max with their ranks, sum) ---
-    ierr = PetscMalloc4(g_profiler_count, &local_time, g_profiler_count, &min_time,
-                        g_profiler_count, &max_time, g_profiler_count, &sum_time); CHKERRQ(ierr);
-    ierr = PetscMalloc3(g_profiler_count, &local_seconds, g_profiler_count, &local_calls, g_profiler_count, &sum_calls); CHKERRQ(ierr);
-    ierr = PetscMalloc3(g_profiler_count, &local_count, g_profiler_count, &min_count, g_profiler_count, &max_count); CHKERRQ(ierr);
-    for (PetscInt i = 0; i < g_profiler_count; ++i) {
-        local_seconds[i]    = g_profiler_registry[i].total_time;
-        local_time[i].value = g_profiler_registry[i].total_time;
-        local_time[i].rank  = (int)rank;
-        local_calls[i]      = g_profiler_registry[i].total_call_count;
-        local_count[i].value = (double)g_profiler_registry[i].total_call_count; // Exact below 2^53 calls
-        local_count[i].rank  = (int)rank;
-    }
-    ierr = MPI_Reduce(local_time, min_time, (int)g_profiler_count, MPI_DOUBLE_INT, MPI_MINLOC, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    ierr = MPI_Reduce(local_time, max_time, (int)g_profiler_count, MPI_DOUBLE_INT, MPI_MAXLOC, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    ierr = MPI_Reduce(local_seconds, sum_time, (int)g_profiler_count, MPI_DOUBLE, MPI_SUM, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    ierr = MPI_Reduce(local_calls, sum_calls, (int)g_profiler_count, MPI_LONG_LONG, MPI_SUM, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    ierr = MPI_Reduce(local_count, min_count, (int)g_profiler_count, MPI_DOUBLE_INT, MPI_MINLOC, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-    ierr = MPI_Reduce(local_count, max_count, (int)g_profiler_count, MPI_DOUBLE_INT, MPI_MAXLOC, 0, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-
-    if (!rank) {
-        
-        char exec_mode_modifier[32] = "Unknown";
-        if(simCtx->exec_mode == EXEC_MODE_SOLVER) PetscCall(PetscStrncpy(exec_mode_modifier, "Solver", sizeof(exec_mode_modifier)));
-        else if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) PetscCall(PetscStrncpy(exec_mode_modifier, "PostProcessor", sizeof(exec_mode_modifier)));
-        //--- Step 2: Create a file viewer for log file
-        FILE *f;
-        char filen[PETSC_MAX_PATH_LEN + 128];
-        ierr = PetscSNPrintf(filen, sizeof(filen), "%s/ProfilingSummary_%s.log",simCtx->log_dir,exec_mode_modifier); CHKERRQ(ierr);
-
-        // Open the log file: append with section label in continue mode, truncate otherwise.
-        if (simCtx->continueMode) {
-            f = fopen(filen, "a");
-            if (!f) {
-                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open log file: %s", filen);
-            }
-            fprintf(f, "\n=== Continuation from step %" PetscInt_FMT " ===\n", simCtx->StartStep);
+    // --- This rank's recorded events, split into PICurv's and PETSc's own ---
+    PetscCall(PetscLogGetState(&state));
+    if (state) PetscCall(PetscLogStateGetNumEvents(state, &nevents));
+    PetscCall(PetscMalloc3(nevents + 1, &picurv_names, nevents + 1, &picurv_times, nevents + 1, &picurv_counts));
+    PetscCall(PetscMalloc3(nevents + 1, &petsc_names, nevents + 1, &petsc_times, nevents + 1, &petsc_counts));
+    for (PetscLogEvent e = 0; e < nevents; ++e) {
+        PetscLogEventInfo info;
+        PetscLogDouble    time;
+        int               count;
+        PetscCall(PetscLogStateEventGetInfo(state, e, &info));
+        PetscCall(_ProfilingEventTotals(e, &time, &count));
+        if (count <= 0) continue;
+        if (_ProfilingIsPicurvClass(info.classid)) {
+            picurv_names[npicurv] = info.name; picurv_times[npicurv] = time; picurv_counts[npicurv++] = count;
         } else {
-            f = fopen(filen, "w");
-            if (!f) {
-                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open log file: %s", filen);
-            }
+            petsc_names[npetsc] = info.name; petsc_times[npetsc] = time; petsc_counts[npetsc++] = count;
         }
-
-        // --- Step 3: Build the rows of functions some rank called, slowest rank first ---
-        PetscInt nrows = 0;
-        ierr = PetscMalloc1(g_profiler_count, &rows); CHKERRQ(ierr);
-        for (PetscInt i = 0; i < g_profiler_count; ++i) {
-            if (sum_calls[i] == 0) continue;
-            rows[nrows].name       = g_profiler_registry[i].name;
-            rows[nrows].mean_time  = sum_time[i] / size;
-            rows[nrows].min_time   = min_time[i].value;
-            rows[nrows].min_rank   = min_time[i].rank;
-            rows[nrows].max_time   = max_time[i].value;
-            rows[nrows].max_rank   = max_time[i].rank;
-            rows[nrows].call_count = sum_calls[i];
-            rows[nrows].min_calls      = min_count[i].value;
-            rows[nrows].min_calls_rank = min_count[i].rank;
-            rows[nrows].max_calls      = max_count[i].value;
-            rows[nrows].max_calls_rank = max_count[i].rank;
-            nrows++;
-        }
-        qsort(rows, nrows, sizeof(ProfiledFunctionRanks), _CompareProfiledFunctionRanks);
-
-        // --- Step 4: Dynamically determine the width for the function name column ---
-        PetscInt max_name_len = strlen("Function"); // Start with the header's length
-        for (PetscInt i = 0; i < nrows; ++i) {
-            PetscInt len = strlen(rows[i].name);
-            if (len > max_name_len) {
-                max_name_len = len;
-            }
-        }
-        // Add a little padding
-        max_name_len += 2; 
-
-        // --- Step 5: Define fixed widths for numeric columns for consistent alignment ---
-        const int time_width = 14;
-        const int rank_width = 6;
-        const int count_width = 15;
-        const int avg_width = 19;
-
-        // --- Step 6: Print the formatted table ---
-        PetscFPrintf(PETSC_COMM_SELF, f, "=================================================================================================================\n");
-        PetscFPrintf(PETSC_COMM_SELF, f, "        FINAL PROFILING SUMMARY (total time per rank over %d ranks, sorted by the slowest rank)\n", (int)size);
-        PetscFPrintf(PETSC_COMM_SELF, f, "=================================================================================================================\n");
-        
-        // Header Row
-        PetscFPrintf(PETSC_COMM_SELF, f, "%-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s\n",
-                    max_name_len, "Function",
-                    time_width, "Max Time (s)", rank_width, "Rank",
-                    time_width, "Mean Time (s)",
-                    time_width, "Min Time (s)", rank_width, "Rank",
-                    count_width, "Calls (all)",
-                    avg_width, "Avg. Time/Call (ms)",
-                    count_width, "Min Calls/Rank", rank_width, "Rank",
-                    count_width, "Max Calls/Rank", rank_width, "Rank");
-        
-        // Separator Line (dynamically sized)
-        for (int i = 0; i < max_name_len + 11 * 3 + 3 * time_width + 4 * rank_width + 3 * count_width + avg_width; i++) PetscFPrintf(PETSC_COMM_SELF, f, "-");
-        PetscFPrintf(PETSC_COMM_SELF, f, "\n");
-
-        // Data Rows
-        for (PetscInt i = 0; i < nrows; ++i) {
-            double avg_time_ms = (rows[i].mean_time * size / rows[i].call_count) * 1000.0;
-            PetscFPrintf(PETSC_COMM_SELF, f, "%-*s | %*.*f | %*d | %*.*f | %*.*f | %*d | %*lld | %*.*f | %*.0f | %*d | %*.0f | %*d\n",
-                        max_name_len, rows[i].name,
-                        time_width, 6, rows[i].max_time, rank_width, rows[i].max_rank,
-                        time_width, 6, rows[i].mean_time,
-                        time_width, 6, rows[i].min_time, rank_width, rows[i].min_rank,
-                        count_width, rows[i].call_count,
-                        avg_width, 6, avg_time_ms,
-                        count_width, rows[i].min_calls, rank_width, rows[i].min_calls_rank,
-                        count_width, rows[i].max_calls, rank_width, rows[i].max_calls_rank);
-        }
-        PetscFPrintf(PETSC_COMM_SELF, f, "==================================================================================================================\n");
-    
-        fclose(f);
-        ierr = PetscFree(rows); CHKERRQ(ierr);
     }
 
-    // --- Final Cleanup ---
-    ierr = PetscFree4(local_time, min_time, max_time, sum_time); CHKERRQ(ierr);
-    ierr = PetscFree3(local_seconds, local_calls, sum_calls); CHKERRQ(ierr);
-    ierr = PetscFree3(local_count, min_count, max_count); CHKERRQ(ierr);
-    ierr = PetscFree2(lens, displs); CHKERRQ(ierr);
-    ierr = PetscFree(local_names); CHKERRQ(ierr);
-    PetscFree(g_profiler_registry);
-    g_profiler_registry = NULL;
-    g_profiler_count = 0;
-    g_profiler_capacity = 0;
-    ierr = PetscFree(names); CHKERRQ(ierr); // After the registry: its new entries point into it
+    if (!simCtx->rank) {
+        char exec_mode_modifier[32] = "Unknown";
+        char filen[PETSC_MAX_PATH_LEN + 128];
+        if (simCtx->exec_mode == EXEC_MODE_SOLVER) PetscCall(PetscStrncpy(exec_mode_modifier, "Solver", sizeof(exec_mode_modifier)));
+        else if (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) PetscCall(PetscStrncpy(exec_mode_modifier, "PostProcessor", sizeof(exec_mode_modifier)));
+        PetscCall(PetscSNPrintf(filen, sizeof(filen), "%s/ProfilingSummary_%s.log", simCtx->log_dir, exec_mode_modifier));
+        // Append with a section label in continue mode, truncate otherwise.
+        f = fopen(filen, simCtx->continueMode ? "a" : "w");
+        if (!f) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open log file: %s", filen);
+        if (simCtx->continueMode) fprintf(f, "\n=== Continuation from step %" PetscInt_FMT " ===\n", simCtx->StartStep);
+    }
+    PetscCall(_ProfilingReduceSection(f, "FINAL PROFILING SUMMARY", npicurv, picurv_names, picurv_times, picurv_counts));
+    if (!simCtx->rank) {
+        PetscFPrintf(PETSC_COMM_SELF, f, "\nPETSc's own events follow. Their times are inclusive and run inside the PICurv functions above,\n"
+                                         "so the two sections must not be added together.\n");
+    }
+    PetscCall(_ProfilingReduceSection(f, "PETSC EVENTS", npetsc, petsc_names, petsc_times, petsc_counts));
+    if (f) fclose(f);
+
+    PetscCall(PetscFree3(picurv_names, picurv_times, picurv_counts));
+    PetscCall(PetscFree3(petsc_names, petsc_times, petsc_counts));
+    PetscCall(PetscFree2(g_profile_step_time, g_profile_step_count));
+    g_profile_step_capacity = 0;
     PetscFunctionReturn(0);
 }
 

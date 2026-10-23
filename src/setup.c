@@ -569,6 +569,9 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     strcpy(simCtx->profilingSelectedFuncsFile, "config/profile.run");
     simCtx->useProfilingSelectedFuncsCfg =  PETSC_FALSE;
     simCtx->profilingSelectedFuncs = NULL;
+    simCtx->profilingHelpers = NULL;
+    simCtx->nProfilingHelpers = 0;
+    simCtx->profilingAllHelpers = PETSC_FALSE;
     simCtx->nProfilingSelectedFuncs = 0;
     strcpy(simCtx->profilingTimestepMode, "selected");
     strcpy(simCtx->profilingTimestepFile, "Profiling_Timestep_Summary.csv");
@@ -692,6 +695,18 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
             ierr = PetscStrallocpy("AdvanceSimulation", &simCtx->profilingSelectedFuncs[1]); CHKERRQ(ierr);
             ierr = PetscStrallocpy("LocateAllParticlesInGrid", &simCtx->profilingSelectedFuncs[2]); CHKERRQ(ierr);
             ierr = PetscStrallocpy("InterpolateAllFieldsToSwarm", &simCtx->profilingSelectedFuncs[3]); CHKERRQ(ierr);
+        }
+    }
+
+    // Helper timers (per-particle and per-cell functions) are off unless named, or 'all'.
+    {
+        PetscInt  nmax = 512;
+        PetscBool found = PETSC_FALSE;
+        ierr = PetscMalloc1(nmax, &simCtx->profilingHelpers); CHKERRQ(ierr);
+        ierr = PetscOptionsGetStringArray(NULL, NULL, "-profiling_helpers", simCtx->profilingHelpers, &nmax, &found); CHKERRQ(ierr);
+        simCtx->nProfilingHelpers = found ? nmax : 0;
+        for (PetscInt i = 0; i < simCtx->nProfilingHelpers; ++i) {
+            if (strcmp(simCtx->profilingHelpers[i], "all") == 0) simCtx->profilingAllHelpers = PETSC_TRUE;
         }
     }
 
@@ -3583,7 +3598,7 @@ PetscErrorCode BinarySearchInt64(PetscInt n, const PetscInt64 arr[], PetscInt64 
     PetscInt low = 0, high = n - 1;
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
 
     // --- 1. Input Validation ---
     if (!found) {
@@ -4441,6 +4456,13 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
         ierr = PetscFree(simCtx->profilingSelectedFuncs); CHKERRQ(ierr);
         simCtx->profilingSelectedFuncs = NULL;
         LOG_ALLOW(LOCAL, LOG_DEBUG, "  profilingSelectedFuncs array freed (%d functions).\n", simCtx->nProfilingSelectedFuncs);
+    }
+    if (simCtx->profilingHelpers) {
+        for (PetscInt i = 0; i < simCtx->nProfilingHelpers; i++) {
+            ierr = PetscFree(simCtx->profilingHelpers[i]); CHKERRQ(ierr);
+        }
+        ierr = PetscFree(simCtx->profilingHelpers); CHKERRQ(ierr);
+        simCtx->nProfilingHelpers = 0;
     }
 
     // ============================================================================

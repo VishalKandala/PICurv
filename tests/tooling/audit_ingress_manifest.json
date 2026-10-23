@@ -104,6 +104,7 @@
     "-postprocessing_config_file",
     "-profile_config_file",
     "-profiling_final_summary",
+    "-profiling_helpers",
     "-profiling_timestep_file",
     "-profiling_timestep_mode",
     "-ps_ksp_pic_monitor_true_residual",

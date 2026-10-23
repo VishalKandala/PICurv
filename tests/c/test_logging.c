@@ -1465,10 +1465,32 @@ static PetscErrorCode TestFieldAnatomyLogging(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+/* Profiled stand-ins: the profiling macros name their PETSc event by __FUNCT__. */
+#undef __FUNCT__
+#define __FUNCT__ "FlowSolver"
+/** @brief Profiled stand-in: an aggregate named FlowSolver. */
+static void ProfiledFlowSolver(void) { PROFILE_FUNCTION_BEGIN; PROFILE_FUNCTION_END; }
+#undef __FUNCT__
+#define __FUNCT__ "UnselectedAggregate"
+/** @brief Profiled stand-in: an aggregate the per-step list does not select. */
+static void ProfiledUnselectedAggregate(void) { PROFILE_FUNCTION_BEGIN; PROFILE_FUNCTION_END; }
+#undef __FUNCT__
+#define __FUNCT__ "EnabledHelper"
+/** @brief Profiled stand-in: a helper that profiling.helpers names. */
+static void ProfiledEnabledHelper(void) { PROFILE_HELPER_BEGIN; PROFILE_HELPER_END; }
+#undef __FUNCT__
+#define __FUNCT__ "DisabledHelper"
+/** @brief Profiled stand-in: a helper that profiling.helpers does not name. */
+static void ProfiledDisabledHelper(void) { PROFILE_HELPER_BEGIN; PROFILE_HELPER_END; }
+#undef __FUNCT__
+#define __FUNCT__ "TestProfilingLifecycleHelpers"
+
 /**
  * @brief Tests profiling helper lifecycle logging for timestep and final-summary outputs.
+ * @details Aggregates are always timed; a helper is timed only when `profiling.helpers` names
+ *          it; the per-step file lists selected aggregates; the summary lists every timed PICurv
+ *          function and then PETSc's own events.
  */
-
 static PetscErrorCode TestProfilingLifecycleHelpers(void)
 {
     SimCtx simCtx;
@@ -1476,7 +1498,9 @@ static PetscErrorCode TestProfilingLifecycleHelpers(void)
     char timestep_path[PETSC_MAX_PATH_LEN];
     char summary_path[PETSC_MAX_PATH_LEN];
     static char selected_name[] = "FlowSolver";
+    static char helper_name[] = "EnabledHelper";
     char *selected_funcs[] = {selected_name};
+    char *helpers[] = {helper_name};
 
     PetscFunctionBeginUser;
     PetscCall(PetscMemzero(&simCtx, sizeof(simCtx)));
@@ -1489,20 +1513,20 @@ static PetscErrorCode TestProfilingLifecycleHelpers(void)
     simCtx.StartStep = 0;
     simCtx.nProfilingSelectedFuncs = 1;
     simCtx.profilingSelectedFuncs = selected_funcs;
+    simCtx.nProfilingHelpers = 1;
+    simCtx.profilingHelpers = helpers;
     simCtx.profilingFinalSummary = PETSC_TRUE;
 
     PetscCall(ProfilingInitialize(&simCtx));
+    PetscCall(ProfilingResetTimestepCounters());
 
-    /* Each index stands for one call site's cache; the second FlowSolver pair reuses it. */
-    PetscInt flow_idx = -1, helper_idx = -1;
-    _ProfilingStart("FlowSolver", &flow_idx);
-    _ProfilingEnd("FlowSolver", &flow_idx);
-    _ProfilingStart("UnselectedHelper", &helper_idx);
-    _ProfilingEnd("UnselectedHelper", &helper_idx);
+    ProfiledFlowSolver();
+    ProfiledUnselectedAggregate();
+    ProfiledEnabledHelper();
+    ProfiledDisabledHelper();
     PetscCall(ProfilingLogTimestepSummary(&simCtx, 1));
 
-    _ProfilingStart("FlowSolver", &flow_idx);
-    _ProfilingEnd("FlowSolver", &flow_idx);
+    ProfiledFlowSolver();
     PetscCall(ProfilingResetTimestepCounters());
     PetscCall(ProfilingLogTimestepSummary(&simCtx, 2));
     PetscCall(ProfilingFinalize(&simCtx));
@@ -1515,14 +1539,22 @@ static PetscErrorCode TestProfilingLifecycleHelpers(void)
                                  "profiling timestep summary should contain the CSV header"));
     PetscCall(AssertFileContains(timestep_path, "1,FlowSolver,1,",
                                  "profiling timestep summary should log selected functions"));
-    PetscCall(AssertFileNotContains(timestep_path, "UnselectedHelper",
+    PetscCall(AssertFileNotContains(timestep_path, "2,FlowSolver",
+                                    "a call before the step interval was reset belongs to no step"));
+    PetscCall(AssertFileNotContains(timestep_path, "UnselectedAggregate",
                                     "profiling timestep summary should omit unselected functions in selected mode"));
     PetscCall(AssertFileContains(summary_path, "FINAL PROFILING SUMMARY",
                                  "profiling final summary should include its table banner"));
     PetscCall(AssertFileContains(summary_path, "FlowSolver",
                                  "profiling final summary should include selected functions"));
-    PetscCall(AssertFileContains(summary_path, "UnselectedHelper",
+    PetscCall(AssertFileContains(summary_path, "UnselectedAggregate",
                                  "profiling final summary should include total-time entries for unselected functions"));
+    PetscCall(AssertFileContains(summary_path, "EnabledHelper",
+                                 "a helper named in profiling.helpers is timed"));
+    PetscCall(AssertFileNotContains(summary_path, "DisabledHelper",
+                                    "a helper not named in profiling.helpers records nothing"));
+    PetscCall(AssertFileContains(summary_path, "PETSC EVENTS",
+                                 "the summary should list PETSc's own events after PICurv's"));
     PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscFunctionReturn(0);
 }

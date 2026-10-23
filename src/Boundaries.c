@@ -423,7 +423,7 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
 
     PetscFunctionBeginUser;
 
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
 
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr);
 

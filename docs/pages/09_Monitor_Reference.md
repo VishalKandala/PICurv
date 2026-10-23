@@ -285,7 +285,21 @@ profiling:
     file: "Profiling_Timestep_Summary.csv"
   final_summary:
     enabled: true
+  helpers: []                  # or a list of names, or "all"
 ```
+
+Every profiled PICurv function is a PETSc log event, so these timings, PETSc's own events and
+`log_view` (@ref p09_diagnostics_sec) read one record. Functions come in two kinds:
+
+- **Aggregates**, called once or a few times per step or solver pass (`FlowSolver`,
+  `LocateAllParticlesInGrid`, `InterpolateAllFieldsToSwarm`, the scatter, migration, ...), are
+  always timed.
+- **Helpers**, called per particle or per cell (`UnpackSwarmFields`, `CheckCellWithinLocalGrid`,
+  `LocateParticleOrFindMigrationTarget`, `MetricJacobian`, ...), are timed only when
+  `helpers` names them. Off, a helper costs one flag test per call; on, a call costs about
+  100 ns on an optimized PETSc build, which at about 19 helper calls per particle per step adds
+  noticeably to a large particle run. `helpers: all` turns every helper on, for a short
+  diagnostic run.
 
 Rules:
 - `timestep_output.mode`:
@@ -306,7 +320,15 @@ Rules:
 - `final_summary.enabled` controls the end-of-run `ProfilingSummary_*.log` file. For each function
   it lists the total time on the slowest rank and that rank, the mean over ranks, the fastest rank
   and its time (zero on a rank that never called it), the calls summed over ranks, and the mean time
-  per call; rows are sorted by the slowest rank. The per-step file still reports rank 0 only.
+  per call; rows are sorted by the slowest rank. A first section lists the PICurv functions that
+  were timed (aggregates, and the helpers `helpers` enabled); a second, `PETSC EVENTS`, lists
+  PETSc's own events that ran (`KSPSolve`, `VecScatterBegin`, `DMSwarmMigrate`, ...) the same way.
+  PETSc's times are inclusive and run inside PICurv's, so the sections are not added together.
+  The per-step file reports rank 0 only; a step's values are the change in each event's running
+  totals over that step, and an event still open at the step's end (the time loop itself) adds
+  its time when it ends.
+- `helpers` lists the helper functions to time, by the names the final summary shows when they
+  are enabled, or is `all`. Names the Poisson rewrite changed are translated as above.
 
 @section p09_diagnostics_sec 6. diagnostics
 

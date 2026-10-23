@@ -61,7 +61,7 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, Pets
 PetscErrorCode UpdateParticlePosition(UserCtx *user, Particle *particle)
 {
   PetscFunctionBeginUser; // PETSc macro for error/stack tracing
-  PROFILE_FUNCTION_BEGIN;
+  PROFILE_HELPER_BEGIN;
 
   PetscErrorCode ierr;
   PetscReal  dt = user->simCtx->dt;
@@ -1016,7 +1016,7 @@ PetscErrorCode AddToMigrationList(MigrationInfo **migration_list_p,
 
     PetscFunctionBeginUser;
 
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
 
     // --- 1. Input Validation ---
     if (!migration_list_p || !capacity_p || !count_p) {
@@ -1253,7 +1253,7 @@ static PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
 
     PetscFunctionBeginUser;
 
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
 
     // --- 1. Input Validation and Setup ---
     if (!user || !particle || !guess_rank_out || !bboxlist) {

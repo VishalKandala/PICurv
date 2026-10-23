@@ -187,6 +187,7 @@ Verification-pathway rule:
 - checkpoint-internal directory and payload names are fixed; monitor YAML does
   not expose Eulerian or particle checkpoint subdirectory overrides
 - `profiling.timestep_output` -> `profile.run` when `mode: selected`, plus profiling control flags
+- `profiling.helpers` -> `-profiling_helpers <name,name,...>` or `-profiling_helpers all`
 - `diagnostics.petsc` -> PETSc startup arguments on solver/postprocessor commands,
   including run-local `-info` output and optional PETSc class filtering
 - `diagnostics.runtime_memory_log` -> `-runtime_memory_log_enabled/-runtime_memory_log_file`

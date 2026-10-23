@@ -425,6 +425,26 @@ static PetscErrorCode TestPeriodicStaggeredFieldSynchronizationMultiRank(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
+#undef __FUNCT__
+#define __FUNCT__ "ProfiledOnRankOneOnly"
+/**
+ * @brief A profiled function that takes a measurable time; the profiling macros name it by __FUNCT__.
+ */
+static PetscErrorCode ProfiledOnRankOneOnly(void)
+{
+    PetscLogDouble start = 0.0, now = 0.0;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    /* Spin until the clock advances: a zero elapsed time ties both ranks and the maximum falls to rank 0. */
+    PetscCall(PetscTime(&start));
+    do PetscCall(PetscTime(&now)); while (now <= start);
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+#undef __FUNCT__
+#define __FUNCT__ "TestProfilingSummaryReducesOverRanks"
+
 /**
  * @brief The final profiling summary reduces each function's total time over ranks.
  *
@@ -449,15 +469,7 @@ static PetscErrorCode TestProfilingSummaryReducesOverRanks(void)
     simCtx.exec_mode = EXEC_MODE_SOLVER;
     simCtx.profilingFinalSummary = PETSC_TRUE;
 
-    if (rank == 1) {
-        PetscLogDouble start = 0.0, now = 0.0;
-        PetscInt profile_idx = -1;
-        _ProfilingStart("ProfiledOnRankOneOnly", &profile_idx);
-        /* Spin until the clock advances: a zero elapsed time ties both ranks and the maximum falls to rank 0. */
-        PetscCall(PetscTime(&start));
-        do PetscCall(PetscTime(&now)); while (now <= start);
-        _ProfilingEnd("ProfiledOnRankOneOnly", &profile_idx);
-    }
+    if (rank == 1) PetscCall(ProfiledOnRankOneOnly());
     PetscCall(ProfilingFinalize(&simCtx));
 
     if (rank == 0) {

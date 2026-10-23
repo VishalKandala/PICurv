@@ -808,26 +808,24 @@ const char* ParticleLocationStatusToString(ParticleLocationStatus level);
 void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, PetscReal currentTime);
 
 /**
- * @brief Initializes the custom profiling system using configuration from SimCtx.
+ * @brief Applies the profiling configuration from SimCtx to PICurv's PETSc log events.
  *
- * This function sets up the internal data structures for tracking function
- * performance. It reads the list of "critical functions" from the provided
- * SimCtx and marks them for per-step logging at LOG_INFO level.
+ * Records the per-step `selected` function list and the enabled helper timers
+ * (`profiling.helpers`), and switches each helper event registered so far on or off to
+ * match. Starts PETSc's default log handler if nothing has yet. Called once from
+ * CreateSimulationContext(), before the main time loop.
  *
- * It should be called once at the beginning of the application, after
- * CreateSimulationContext() but before the main time loop.
- *
- * @param simCtx The master simulation context, which contains the list of
- *               critical function names to always log.
+ * @param simCtx The master simulation context holding the profiling configuration; its
+ *               name lists must outlive profiling.
  * @return PetscErrorCode
  */
 PetscErrorCode ProfilingInitialize(SimCtx *simCtx);
 
 /**
- * @brief Resets per-timestep profiling counters for the next solver step.
+ * @brief Starts a new per-step profiling interval.
  *
- * This clears transient counters without discarding cumulative totals used by
- * final profiling summaries.
+ * Records every PETSc event's running totals; the next ProfilingLogTimestepSummary()
+ * reports the difference. Cumulative totals are untouched.
  *
  * @return PetscErrorCode 0 on success.
  */
@@ -842,8 +840,10 @@ PetscErrorCode ProfilingResetTimestepCounters(void);
  * - `selected`: writes only functions marked for per-step reporting
  * - `all`: writes every instrumented function that ran in the timestep
  *
- * It must be called once per timestep, typically at the end of the main loop.
- * After logging, it resets the per-step counters and timers.
+ * It must be called once per timestep, typically at the end of the main loop. A step's
+ * values are the change in each PICurv event's PETSc running totals since the previous
+ * call (or ProfilingResetTimestepCounters()); an event still open, such as the enclosing
+ * time loop, adds its time only when it ends. Only rank 0 writes.
  *
  * @param simCtx The simulation context holding profiling output settings.
  * @param step The current simulation step number, for logging context.
@@ -870,11 +870,13 @@ PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char 
 /**
  * @brief Writes the end-of-run profiling summary across all ranks; collective on PETSC_COMM_WORLD.
  *
- * Every rank registers the functions any rank profiled, then each function's total time is
- * reduced to its maximum and minimum (with the ranks holding them) and its mean over ranks,
- * and its calls are summed and reduced to their minimum and maximum per rank (with ranks), so a
- * time spread can be told apart from a call-count spread. Rank 0 writes `ProfilingSummary_<mode>.log`, slowest rank first.
- * This is the profiler's only communication; the timed path stays local to each rank.
+ * Two sections: PICurv's events (aggregates, and helpers that were enabled), then PETSc's own
+ * events, whose inclusive times nest inside PICurv's. In each, the names any rank recorded are
+ * united by name, each name's total time is reduced to its maximum and minimum (with the ranks
+ * holding them) and its mean over ranks, and its calls are summed and reduced to their minimum
+ * and maximum per rank (with ranks), so a time spread can be told apart from a call-count spread.
+ * Rank 0 writes `ProfilingSummary_<mode>.log`, slowest rank first. This is the profiler's only
+ * communication; the timed path stays local to each rank.
  *
  * @param simCtx  The Simulation Context Structure that can contains all the data regarding the simulation.
  * 
@@ -883,43 +885,58 @@ PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char 
 PetscErrorCode ProfilingFinalize(SimCtx *simCtx);
 
 // --- Internal functions, do not call directly ---
-// These are called by the macros below.
+// Called by the macros below.
 /**
- * @brief Internal profiling hook invoked by `PROFILE_FUNCTION_BEGIN`.
- * @param func_name Function name used by the profiling helper.
- * @param idx Call site's cached registry index; -1 until first resolved.
+ * @brief Internal profiling hook: register a call site's function as a PETSc log event.
+ * @details Called once per call site, on its first execution. Registers the PICurv event
+ *          classes and starts PETSc's default log handler on the first call anywhere. A helper
+ *          event is switched off as it registers unless its name is enabled
+ *          (`profiling.helpers`). On failure the call site stays untimed.
+ * @param func_name Function name (`__FUNCT__`), the event's name.
+ * @param helper    PETSC_TRUE for a per-particle or per-cell helper, PETSC_FALSE for an aggregate.
+ * @param event     Call site's cached event; set when registration succeeds, else left at -1.
  */
-void _ProfilingStart(const char *func_name, PetscInt *idx);
-/**
- * @brief Internal profiling hook invoked by `PROFILE_FUNCTION_END`.
- * @param func_name Function name used by the profiling helper.
- * @param idx Call site's cached registry index, shared with its `PROFILE_FUNCTION_BEGIN`.
- */
-void _ProfilingEnd(const char *func_name, PetscInt *idx);
-
+void _ProfilingRegister(const char *func_name, PetscBool helper, PetscLogEvent *event);
 
 /**
- * @brief Marks the beginning of a profiled code block (typically a function).
+ * @brief Marks the beginning of a profiled function: an always-on aggregate timer.
  *
- * Place this macro at the very beginning of a function you wish to profile.
- * It automatically captures the function's name and starts a wall-clock timer.
- * The function's registry index is cached in a function-local static after the first
- * call, so profiling a helper called per particle costs a clock read, not a name search.
+ * Place this macro at the very beginning of a function called once or a few times per step
+ * or solver pass. The function is a PETSc log event of class `PICurv`, named by `__FUNCT__`,
+ * registered on its first call and cached in a function-local static; it appears in the
+ * final profiling summary, the per-step output and `log_view`.
  */
 #define PROFILE_FUNCTION_BEGIN \
-    static PetscInt _picurv_profile_idx = -1; \
-    _ProfilingStart(__FUNCT__, &_picurv_profile_idx)
+    static PetscLogEvent _picurv_profile_event = -1; \
+    if (PetscUnlikely(_picurv_profile_event < 0)) _ProfilingRegister(__FUNCT__, PETSC_FALSE, &_picurv_profile_event); \
+    if (_picurv_profile_event >= 0) (void)PetscLogEventBegin(_picurv_profile_event, 0, 0, 0, 0)
+
+/**
+ * @brief Marks the beginning of a profiled helper: timed only when enabled by name.
+ *
+ * For functions called per particle or per cell. The event (class `PICurvHelper`) is off
+ * unless `profiling.helpers` names it (or is `all`); off, a call costs one flag test.
+ * End it with PROFILE_FUNCTION_END (or its alias PROFILE_HELPER_END).
+ */
+#define PROFILE_HELPER_BEGIN \
+    static PetscLogEvent _picurv_profile_event = -1; \
+    if (PetscUnlikely(_picurv_profile_event < 0)) _ProfilingRegister(__FUNCT__, PETSC_TRUE, &_picurv_profile_event); \
+    if (_picurv_profile_event >= 0) (void)PetscLogEventBegin(_picurv_profile_event, 0, 0, 0, 0)
 
 /**
  * @brief Marks the end of a profiled code block.
  *
- * Place this macro just before every return point in a function that starts
- * with PROFILE_FUNCTION_BEGIN. It stops the timer and accumulates the results.
- * It reads the index PROFILE_FUNCTION_BEGIN declares, so it must sit in that
- * macro's scope; a function that ends a timer it never began does not compile.
+ * Place this macro just before every return point in a function that starts with
+ * PROFILE_FUNCTION_BEGIN or PROFILE_HELPER_BEGIN. A missed one leaves the PETSc event open,
+ * and the function's later calls are then not recorded. It reads the event the BEGIN macro
+ * declares, so it must sit in that macro's scope; a function that ends a timer it never began
+ * does not compile.
  */
 #define PROFILE_FUNCTION_END \
-    _ProfilingEnd(__FUNCT__, &_picurv_profile_idx)
+    do { if (_picurv_profile_event >= 0) (void)PetscLogEventEnd(_picurv_profile_event, 0, 0, 0, 0); } while (0)
+
+/** @brief Alias of PROFILE_FUNCTION_END for a function that began with PROFILE_HELPER_BEGIN. */
+#define PROFILE_HELPER_END PROFILE_FUNCTION_END
 
 
 /**

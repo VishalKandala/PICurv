@@ -1072,6 +1072,9 @@ typedef struct SimCtx {
     PetscBool useProfilingSelectedFuncsCfg;
     char      **profilingSelectedFuncs;
     PetscInt  nProfilingSelectedFuncs;
+    char      **profilingHelpers;    ///< Helper functions whose timers are enabled (-profiling_helpers).
+    PetscInt  nProfilingHelpers;
+    PetscBool profilingAllHelpers; ///< -profiling_helpers all: every helper timer is enabled.
     char      profilingTimestepMode[32];
     char      profilingTimestepFile[PETSC_MAX_PATH_LEN];
     PetscBool profilingFinalSummary;

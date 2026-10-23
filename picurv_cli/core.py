@@ -9037,7 +9037,7 @@ _MONITOR_SCHEMA = {
         "field_statistics",
     },
     ("logging",): {"verbosity", "enabled_functions"},
-    ("profiling",): {"timestep_output", "final_summary"},
+    ("profiling",): {"timestep_output", "final_summary", "helpers"},
     ("profiling", "timestep_output"): {"mode", "functions", "file"},
     ("profiling", "final_summary"): {"enabled"},
     ("diagnostics",): {"petsc", "runtime_memory_log", "les"},
@@ -12447,11 +12447,27 @@ def resolve_profiling_config(monitor_cfg: dict) -> dict:
     else:
         raise ValueError("monitor.profiling.final_summary must be a mapping when provided.")
 
+    # Per-particle and per-cell helper timers are off unless named here, or 'all'.
+    helpers = profiling_cfg.get("helpers", [])
+    if helpers is None:
+        helpers = []
+    if isinstance(helpers, str):
+        if helpers.strip().lower() != "all":
+            raise ValueError("monitor.profiling.helpers must be 'all' or a list of function names.")
+        helpers = ["all"]
+    elif not isinstance(helpers, list) or not all(isinstance(item, str) and item.strip() for item in helpers):
+        raise ValueError("monitor.profiling.helpers must be 'all' or a list of non-empty function names.")
+    elif helpers != ["all"]:
+        helpers = normalize_monitor_function_names(helpers, "monitor.profiling.helpers")
+        if any("," in item or item.strip() != item for item in helpers):
+            raise ValueError("monitor.profiling.helpers names must not contain commas or surrounding spaces.")
+
     return {
         "mode": mode,
         "functions": functions,
         "timestep_file": timestep_file,
         "final_summary_enabled": final_enabled,
+        "helpers": helpers,
     }
 
 
@@ -16634,6 +16650,8 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     if profiling_cfg.get("mode") != "off":
         control_lines.append(f"-profiling_timestep_file {profiling_cfg.get('timestep_file', 'Profiling_Timestep_Summary.csv')}")
     control_lines.append(f"-profiling_final_summary {str(bool(profiling_cfg.get('final_summary_enabled', True))).lower()}")
+    if profiling_cfg.get("helpers"):
+        control_lines.append(f"-profiling_helpers {','.join(profiling_cfg['helpers'])}")
     diagnostics_cfg = resolve_diagnostics_config(monitor_cfg)
     memory_log_cfg = diagnostics_cfg["runtime_memory_log"]
     control_lines.append(f"-runtime_memory_log_enabled {str(bool(memory_log_cfg.get('enabled', True))).lower()}")
@@ -21628,7 +21646,7 @@ def _build_summary_context(run_dir: str) -> dict:
     io_cfg = monitor_cfg.get("io", {}) if isinstance(monitor_cfg, dict) else {}
     scheduler_dir = os.path.join(run_dir, "scheduler")
 
-    profiling_cfg = {"mode": "off", "functions": [], "timestep_file": "Profiling_Timestep_Summary.csv", "final_summary_enabled": True}
+    profiling_cfg = {"mode": "off", "functions": [], "timestep_file": "Profiling_Timestep_Summary.csv", "final_summary_enabled": True, "helpers": []}
     if monitor_cfg:
         profiling_cfg = resolve_profiling_config(monitor_cfg)
 

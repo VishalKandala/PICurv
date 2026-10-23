@@ -176,7 +176,7 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
 
     PetscFunctionBeginUser;
 
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
 
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr);
 
@@ -527,7 +527,7 @@ static PetscErrorCode InitializeSwarmFieldValue(const ParticleFieldDescriptor *d
 {
     PetscFunctionBeginUser;
 
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
 
     PetscCheck(descriptor != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Particle field descriptor cannot be NULL during initialization.");
@@ -892,7 +892,7 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
                 PetscReal *velocities,PetscInt *LocStatus,PetscReal *diffusivity, Cmpnts *diffusivitygradient, PetscReal *psi, Particle *particle) {
     PetscFunctionBeginUser;
 
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
 
     PetscMPIInt rank;
     PetscErrorCode ierr;
@@ -1024,7 +1024,7 @@ PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
                                  PetscReal *psi) 
 {
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     
     if (!particle) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input Particle pointer is NULL.\n");
@@ -1093,7 +1093,7 @@ PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
 PetscBool IsParticleInsideBoundingBox(const BoundingBox *bbox, const Particle *particle)
 {
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
 
     // Validate input pointers
     if (!bbox) {
@@ -1144,7 +1144,7 @@ PetscBool IsParticleInsideBoundingBox(const BoundingBox *bbox, const Particle *p
 PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle) {
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
 
     // Validate input pointers
     if (!d || !particle) {

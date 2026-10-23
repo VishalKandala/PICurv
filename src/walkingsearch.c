@@ -33,7 +33,7 @@ PetscErrorCode GetCellCharacteristicSize(const Cell *cell, PetscReal *cellSize)
 {
     PetscErrorCode ierr = 0;
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     if (!cell || !cellSize) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, 
         "GetCellCharacteristicSize: Null pointer(s).");
 
@@ -95,7 +95,7 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
     PetscBool degenerate;
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     if (d_signed == NULL) {
         LOG_ALLOW(LOCAL, LOG_ERROR, "Output pointer 'd_signed' is NULL.\n");
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output pointer 'd_signed' must not be NULL.");
@@ -155,7 +155,7 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
 
     // Validate that the 'cell' pointer is not NULL to prevent dereferencing a null pointer.
     if (cell == NULL) {
@@ -198,7 +198,7 @@ PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result)
 {
     
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     // Validate input pointers
     if (d == NULL) {
       LOG_ALLOW(LOCAL,LOG_ERROR, "'d' is NULL.\n");
@@ -266,7 +266,7 @@ PetscErrorCode GetCellVerticesFromGrid(Cmpnts ***coor, PetscInt idx, PetscInt id
 {
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     // Validate input pointers
     if (coor == NULL) {
       LOG_ALLOW(LOCAL,LOG_ERROR, "'coor' is NULL.\n");
@@ -308,7 +308,7 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
     DMDALocalInfo info;
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
 
     // Validate input pointers
     if (user == NULL || particle == NULL || idx == NULL || idy == NULL || idz == NULL || traversal_steps == NULL) {
@@ -452,7 +452,7 @@ PetscErrorCode CheckCellWithinLocalGrid(UserCtx *user, PetscInt idx, PetscInt id
     DMDALocalInfo info_nodes; // Node information from the DMDA that defines ghost regions (user->fda)
 
     PetscFunctionBeginUser; // Assuming this is part of your PETSc style
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
 
     // Validate inputs
     if (user == NULL || is_within == NULL) {
@@ -524,7 +524,7 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
     PetscInt gxs, gys, gzs, gxm, gym, gzm;
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
 
     // Validate input pointers
     if (user == NULL || cell == NULL) {
@@ -575,7 +575,7 @@ PetscErrorCode EvaluateParticlePositionInPlanes(const CellFacePlanes *planes, Pe
     PetscErrorCode ierr;
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     // Scale the base threshold by the cell size (threshold 1e-6 in a 0.01 cell is 1e-8).
     ierr = CalculateDistancesToCellFacePlanes(p, planes, d, threshold * planes->size, NULL); CHKERRQ(ierr);
     if(get_log_level() == LOG_DEBUG && is_function_allowed(__func__)) LOG_FACE_DISTANCES(d);
@@ -621,7 +621,7 @@ PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscI
 {
 
    PetscFunctionBeginUser;
-   PROFILE_FUNCTION_BEGIN;
+   PROFILE_HELPER_BEGIN;
   /*
     PetscInt cxm,cxs;  // maximum & minimum cell ID in x
     PetscInt cym,cys;  // maximum & minimum cell ID in y
@@ -711,7 +711,7 @@ PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscI
 PetscErrorCode FinalizeTraversal(UserCtx *user, Particle *particle, PetscInt traversal_steps, PetscBool cell_found, PetscInt idx, PetscInt idy, PetscInt idz)
 {
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     // Validate input pointers
     if (user == NULL || particle == NULL) {
       LOG_ALLOW(LOCAL,LOG_ERROR, "One or more input pointers are NULL.\n");
@@ -746,7 +746,7 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
 {
     PetscFunctionBeginUser;
 
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
 
     // --- 1. Input Validation ---
     if (!user || !user->RankCellInfoMap) {
@@ -810,7 +810,7 @@ PetscErrorCode ReflectParticleAcrossCellFace(const CellFacePlanes *planes, Petsc
     Cmpnts         n[NUM_FACES];
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     if (!planes || !p) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Planes and point must not be NULL.");
     if (face < 0 || face >= NUM_FACES) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Face %d is not a cell face.", face);
 
@@ -841,7 +841,7 @@ PetscErrorCode PlaceParticleInsideCell(const Cell *cell, Cmpnts *p, PetscBool *p
     PetscReal      t = 0.0;
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     if (!cell || !p || !placed) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Cell, point and output flag must not be NULL.");
     *placed = PETSC_FALSE;
     for (int v = 0; v < 8; ++v) {
@@ -904,7 +904,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
     PetscInt  reflections = 0;
 
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
     if (user && user->simCtx) {
         user->simCtx->searchMetrics.searchAttempts++;
@@ -1197,7 +1197,7 @@ PetscErrorCode ReportSearchOutcome(const Particle *particle,
                                           PetscInt traversal_steps)
 {
     PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
+    PROFILE_HELPER_BEGIN;
     switch (status) {
         case ACTIVE_AND_LOCATED:
             LOG_ALLOW(LOCAL, LOG_INFO, "Search SUCCESS [PID %lld]: Located in global cell (%d, %d, %d) after %d steps.\n",

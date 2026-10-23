@@ -27,7 +27,7 @@ import sys
 from typing import Iterable, Set
 
 
-_ACCESSOR = r'PetscOptions(?:Get(?:Int|Real|Bool|String|IntArray|RealArray)|HasName)'
+_ACCESSOR = r'PetscOptions(?:Get(?:Int|Real|Bool|String|IntArray|RealArray|StringArray)|HasName)'
 
 OPTION_RE = re.compile(_ACCESSOR + r'\s*\(\s*NULL\s*,\s*NULL\s*,\s*"(-[^"]+)"')
 
