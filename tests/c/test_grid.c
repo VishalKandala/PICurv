@@ -147,6 +147,25 @@ static PetscErrorCode TestReadGridGenerationInputsNonDimensionalizesBounds(void)
 }
 
 /**
+ * @brief Tests that the coarsest split puts each refined finest-level boundary nearest its share.
+ * @details 128 cells on 4 ranks at 3 levels: PETSc's even coarsest split (9,9,8,8 of 34
+ *          points) refines to finest owned cells 33/36/32/27; 9,8,8,9 refines to 33/32/32/31.
+ *          An axis that is never refined keeps PETSc's own split.
+ */
+static PetscErrorCode TestBalanceCoarsestOwnershipBalancesFinestLevel(void)
+{
+    const PetscInt refined[4] = {9, 8, 8, 9}, unrefined[4] = {25, 25, 25, 24};
+    PetscInt       l[4];
+
+    PetscFunctionBeginUser;
+    PetscCall(BalanceCoarsestOwnership(34, 128, 2, 4, l));
+    for (PetscInt r = 0; r < 4; ++r) PetscCall(PicurvAssertIntEqual(refined[r], l[r], "3-level coarsest split"));
+    PetscCall(BalanceCoarsestOwnership(99, 97, 0, 4, l));
+    for (PetscInt r = 0; r < 4; ++r) PetscCall(PicurvAssertIntEqual(unrefined[r], l[r], "unrefined axis keeps PETSc's split"));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Runs the unit-grid PETSc test binary.
  */
 
@@ -158,6 +177,7 @@ int main(int argc, char **argv)
         {"gather-and-broadcast-bboxes", TestGatherAndBroadcastBoundingBoxes},
         {"read-grid-generation-inputs-nondimensionalizes-bounds",
          TestReadGridGenerationInputsNonDimensionalizesBounds},
+        {"balance-coarsest-ownership-balances-finest-level", TestBalanceCoarsestOwnershipBalancesFinestLevel},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv grid tests");

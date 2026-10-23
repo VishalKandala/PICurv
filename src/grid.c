@@ -133,6 +133,46 @@ PetscErrorCode CreateCompatibleBlockDM(DM source, PetscInt dof, DM *result)
 }
 
 #undef __FUNCT__
+#define __FUNCT__ "BalanceCoarsestOwnership"
+/**
+ * @brief Implementation of \ref BalanceCoarsestOwnership().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/grid.h`.
+ * @see BalanceCoarsestOwnership()
+ */
+PetscErrorCode BalanceCoarsestOwnership(PetscInt coarse_nodes, PetscInt fine_cells, PetscInt refinements,
+                                        PetscInt ranks, PetscInt *l)
+{
+    const PetscInt width = coarse_nodes / ranks, extras = coarse_nodes % ranks, cols = extras + 1;
+    PetscInt      *worst = NULL;  // [r * cols + e]: least largest share over ranks 0..r using e + 1s
+    PetscBool     *wide = NULL;   // [r * cols + e]: whether rank r takes a + 1 on that optimum
+
+    PetscFunctionBeginUser;
+    PetscCall(PetscMalloc2(ranks * cols, &worst, ranks * cols, &wide));
+    #define PICURV_FINE_NODE(c) ((c) == 0 ? 0 : (refinements ? (((c) - 1) << refinements) + 1 : (c)))
+    for (PetscInt r = 0; r < ranks; ++r) {
+        for (PetscInt e = 0; e < cols; ++e) {
+            worst[r * cols + e] = PETSC_MAX_INT;
+            for (PetscInt w = 0; w <= 1 && w <= e; ++w) {
+                const PetscInt before = e - w;
+                if (r == 0 ? before != 0 : worst[(r - 1) * cols + before] == PETSC_MAX_INT) continue;
+                const PetscInt start = PICURV_FINE_NODE(r * width + before);
+                const PetscInt end = (r == ranks - 1) ? fine_cells : PICURV_FINE_NODE((r + 1) * width + e);
+                const PetscInt share = PetscMax(end - start, r ? worst[(r - 1) * cols + before] : 0);
+                if (share < worst[r * cols + e]) { worst[r * cols + e] = share; wide[r * cols + e] = (PetscBool)w; }
+            }
+        }
+    }
+    #undef PICURV_FINE_NODE
+    for (PetscInt r = ranks - 1, e = extras; r >= 0; --r) {
+        l[r] = width + (wide[r * cols + e] ? 1 : 0);
+        e -= wide[r * cols + e] ? 1 : 0;
+    }
+    PetscCall(PetscFree2(worst, wide));
+    PetscFunctionReturn(0);
+}
+
+#undef __FUNCT__
 #define __FUNCT__ "InitializeSingleGridDM"
 /**
  * @brief Create and configure one PETSc DMDA for a multigrid level.
@@ -231,7 +271,16 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
             n = simCtx->pps->da_procs[1];
             p = simCtx->pps->da_procs[2];
         } 
-        // lx, ly, lz are NULL, so DMDACreate3d will use the m,n,p values.
+        // With a full layout, choose the coarsest split so the finest level balances;
+        // otherwise lx, ly, lz stay NULL and PETSc splits the coarsest level evenly.
+        if (m > 0 && n > 0 && p > 0) {
+            const UserCtx *finest = &simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user[user->_this];
+            const PetscInt refinements = simCtx->usermg.mglevels - 1;
+            ierr = PetscMalloc3(m, &lx, n, &ly, p, &lz); CHKERRQ(ierr);
+            ierr = BalanceCoarsestOwnership(user->IM + 1, finest->IM - 1, user->isc ? 0 : refinements, m, lx); CHKERRQ(ierr);
+            ierr = BalanceCoarsestOwnership(user->JM + 1, finest->JM - 1, user->jsc ? 0 : refinements, n, ly); CHKERRQ(ierr);
+            ierr = BalanceCoarsestOwnership(user->KM + 1, finest->KM - 1, user->ksc ? 0 : refinements, p, lz); CHKERRQ(ierr);
+        }
     }
 
     // --- Create the DMDA for the current UserCtx ---
@@ -241,7 +290,7 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
                           m, n, p,
                           1, stencil_width, lx, ly, lz, &user->da); CHKERRQ(ierr);
     
-    if (coarse_user) {
+    if (lx) {
         ierr = PetscFree3(lx, ly, lz); CHKERRQ(ierr);
     }
     

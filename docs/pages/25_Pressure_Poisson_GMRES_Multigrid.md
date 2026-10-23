@@ -340,6 +340,18 @@ Worked maxima for a triply periodic box (stencil width 3):
 | 128 | 8 | 512 | 3 |
 | 192 | 6 | 216 | 4 |
 
+The finer levels do not split their own grid: each inherits its ownership by refining
+the next coarser level's, a coarse rank boundary at node `c` landing at `2c - 1`. When
+`M` does not divide by `P`, the `M mod P` ranks that hold one extra coarsest point decide
+the finest level's balance, and PETSc's choice of the first ranks compounds it: 128 cells
+on 4 ranks at three levels would own 33, 36, 32 and 27 cells per axis, so a 4 x 4 x 4
+layout carries 1.42 times the mean cell count on its busiest rank. Grid setup
+(`BalanceCoarsestOwnership` in `src/grid.c`) therefore keeps PETSc's point counts,
+`floor(M / P)` and one more, so the constraint above is unchanged, and picks which ranks
+take the extra point to minimise the largest finest-level share: 33, 32, 32 and 31 for
+the same grid. It applies when the full rank layout is known, which `picurv run` always
+supplies; an axis under `semi_coarsening` is not refined and keeps PETSc's split.
+
 Two consequences worth planning around:
 
 - Periodic cases are strictly more constrained than wall-bounded ones, because

@@ -281,4 +281,24 @@ PetscErrorCode CalculateFaceCenterAndArea(UserCtx *user, BCFace face_id,
  */
 PetscErrorCode CreateCompatibleBlockDM(DM source, PetscInt dof, DM *result);
 
+/**
+ * @brief Split one axis of the coarsest level so the finest level's owned cells balance.
+ * @details The finer levels inherit their ownership by refinement (InitializeSingleGridDM):
+ *          each refinement maps a coarse rank boundary at node c to 2c - 1, so a boundary
+ *          at coarsest node c lands at finest node 2^R (c - 1) + 1. Refining PETSc's default
+ *          coarsest split compounds its remainder, e.g. 128 cells on 4 ranks at 3 levels own
+ *          33/36/32/27 cells. This keeps PETSc's widths (floor and floor + 1, so every
+ *          stencil-width check on the default split still holds) and chooses which ranks take
+ *          the + 1 to minimise the largest finest-level share, by dynamic programming over
+ *          (rank, + 1s used so far): O(ranks^2) once per axis at setup.
+ * @param[in]  coarse_nodes Coarsest-level DA points on the axis.
+ * @param[in]  fine_cells   Finest-level physical cells on the axis.
+ * @param[in]  refinements  Refinements of the axis between the coarsest and finest levels.
+ * @param[in]  ranks        Ranks on the axis.
+ * @param[out] l            Coarsest-level DA points owned by each rank on the axis.
+ * @return PetscErrorCode 0 on success, or a PETSc allocation error.
+ */
+PetscErrorCode BalanceCoarsestOwnership(PetscInt coarse_nodes, PetscInt fine_cells, PetscInt refinements,
+                                        PetscInt ranks, PetscInt *l);
+
 #endif // GRID_H
