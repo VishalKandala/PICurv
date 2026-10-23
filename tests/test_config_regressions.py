@@ -1508,7 +1508,6 @@ def test_parse_model_flags_maps_structured_turbulence_options():
                             "min_viscosity_ratio": 0.25,
                         },
                         "gradient_model": {"enabled": True},
-                        "diagnostics": {"enabled": True, "cadence": 5, "yoshizawa_ci": 0.11},
                     },
                     "wall_function": {
                         "enabled": True,
@@ -1535,9 +1534,6 @@ def test_parse_model_flags_maps_structured_turbulence_options():
     assert "-les_clip_max_cs 0.42" in control_lines
     assert "-les_min_viscosity_ratio 0.25" in control_lines
     assert "-les_gradient_model 1" in control_lines
-    assert "-les_diagnostics true" in control_lines
-    assert "-les_diagnostics_cadence 5" in control_lines
-    assert "-les_yoshizawa_ci 0.11" in control_lines
     assert "-wallfunction 1" in control_lines
     # The roughness height is a physical length, so it reaches the solver divided by L_ref.
     assert "-wall_roughness 2e-05" in control_lines
@@ -2123,21 +2119,32 @@ def test_wall_function_rejects_an_unknown_model():
         picurv.normalize_wall_function_model("spalding")
 
 
-def test_les_yoshizawa_constant_is_reachable_from_yaml():
+def test_les_diagnostics_are_set_in_monitor_yml():
     """!
-    @brief Test the Yoshizawa constant is a documented key, not a passthrough-only flag.
+    @brief LES diagnostics in monitor.yml diagnostics.les map to their runtime flags,
+           including the Yoshizawa constant, a documented key rather than a passthrough flag.
     """
     picurv = load_picurv_module()
     control_lines = []
-    picurv.append_les_parameter_flags(
-        {"diagnostics": {"enabled": True, "yoshizawa_ci": 0.07}}, control_lines)
-    assert "-les_yoshizawa_ci 0.07" in control_lines
+    monitor = {"diagnostics": {"les": {"enabled": True, "cadence": 5, "yoshizawa_ci": 0.07}}}
+    picurv.append_les_diagnostics_flags(picurv.resolve_les_diagnostics({}, monitor), control_lines)
+    assert control_lines == ["-les_diagnostics true", "-les_diagnostics_cadence 5", "-les_yoshizawa_ci 0.07"]
+    for bad in ({"yoshizawa_ci": -1.0}, {"cadence": 0}, {"cadence": 2.5}, {"enabled": "yes"}):
+        with pytest.raises(ValueError):
+            picurv.resolve_les_diagnostics({}, {"diagnostics": {"les": bad}})
 
-    errors, _ = _les_validation(
-        {"enabled": True, "model": "dynamic_smagorinsky",
-         "diagnostics": {"enabled": True, "yoshizawa_ci": -1.0}}
-    )
-    assert any("yoshizawa_ci" in error for error in errors)
+
+def test_les_diagnostics_deprecated_case_location_warns_and_conflicts_refuse(capsys):
+    """!
+    @brief The former case.yml location still works with a warning; both locations are refused.
+    @param[in] capsys Pytest fixture capturing the warning.
+    """
+    picurv = load_picurv_module()
+    case = {"models": {"physics": {"turbulence": {"les": {"diagnostics": {"enabled": True, "cadence": 3}}}}}}
+    assert picurv.resolve_les_diagnostics(case, {}, warn=True) == {"enabled": True, "cadence": 3}
+    assert "monitor.yml as diagnostics.les" in capsys.readouterr().err
+    with pytest.raises(ValueError, match="keep only monitor.yml"):
+        picurv.resolve_les_diagnostics(case, {"diagnostics": {"les": {"enabled": False}}})
 
 
 def test_les_test_filter_accepts_a_bare_kernel_name():

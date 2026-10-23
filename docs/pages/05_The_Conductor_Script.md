@@ -476,7 +476,7 @@ Typical sources:
 - `<run.runtime_logs>/solution_convergence.log` (mode-specific speed/KE drift and L2 norms)
 - `<run.runtime_logs>/Profiling_Timestep_Summary.csv` when enabled
 - `<run.runtime_logs>/Runtime_Memory.log` when `monitor.diagnostics.runtime_memory_log.enabled` is true
-- `<run.analysis.metrics>/les_coefficient.csv` when `case.yml -> models.physics.turbulence.les.diagnostics.enabled` is true; the `les.*` series carry the effective coefficient, its spread, eddy-viscosity levels, the modelled subgrid energy, and the pre-clipping backscattering and limited fractions
+- `<run.analysis.metrics>/les_coefficient.csv` when `monitor.yml -> diagnostics.les.enabled` is true; the `les.*` series carry the effective coefficient, its spread, eddy-viscosity levels, the modelled subgrid energy, and the pre-clipping backscattering and limited fractions
 - `<run.analysis.statistics>/<recipe>/*_profile_<name>_history.csv` when a post recipe runs the `profile_series` reducer (@ref p10_reducers_sec). Each column `<output column>.<functional>` becomes the series `profile.<column>.<functional>`, one line per history file, plotted against the time the reducer recorded; the functionals are the reducer's.
 - `<run.runtime_logs>/PETSc_*_Solver.log` / `<run.runtime_logs>/PETSc_*_PostProcessor.log` when file-backed PETSc diagnostics are enabled
 - `<run.scheduler>/*_solver.log` or `<run.scheduler>/solver_*.out` for sampled particle snapshot previews

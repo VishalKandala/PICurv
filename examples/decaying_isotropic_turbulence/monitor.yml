@@ -3,6 +3,7 @@ profiling:
   timestep_output: {mode: "off"}
   final_summary: {enabled: true}
 diagnostics:
+  les: {enabled: true, cadence: 1}
   petsc:
     malloc_debug: false
     malloc_test: false

@@ -23,6 +23,7 @@ profiling:
     enabled: true
 
 diagnostics:
+  les: {enabled: true, cadence: 10}
   petsc:
     malloc_debug: false
     malloc_test: false

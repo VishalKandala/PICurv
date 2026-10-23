@@ -8,7 +8,7 @@
 > characterized on the AGARD HOM02 benchmark, started from Wray's DNS field rather than
 > this case's random seed (`hom02-les-execution-2026-10-09`; page 72, section 10).
 >
-> **What to check.** With `diagnostics.enabled` the solver appends a row per step to
+> **What to check.** With LES diagnostics enabled (`monitor.yml -> diagnostics.les`) the solver appends a row per step to
 > `<run.analysis.metrics>/les_coefficient.csv`. The `cs_effective` column is the whole-domain
 > coefficient reported as `Cs`. On HOM02 at this resolution it settled at
 > **0.19** after the initial transient, somewhat above Lilly's 0.16-0.17, which assumes

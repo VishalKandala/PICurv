@@ -305,7 +305,7 @@ so Krylov iteration counts can rise with it enabled; watch them when you turn it
 
 @section p72_diagnostics_sec 8. Reading the Diagnostics
 
-With `diagnostics.enabled`, the solver appends one row per step (or per `cadence` steps)
+With `monitor.yml -> diagnostics.les.enabled`, the solver appends one row per step (or per `cadence` steps)
 to `<run.analysis.metrics>/les_coefficient.csv`. Three groups of columns answer different questions.
 
 **Is the coefficient right?** `cs_effective` is the whole-domain

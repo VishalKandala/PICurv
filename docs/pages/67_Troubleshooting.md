@@ -143,7 +143,7 @@ checks are worth doing before anything else:
 
 The closure is quiet when it misbehaves: a wrong coefficient still produces a run that
 completes and plots that look plausible. Turn the diagnostics on
-(`les.diagnostics.enabled: true`) and read `<run.analysis.metrics>/les_coefficient.csv`
+(`monitor.yml -> diagnostics.les.enabled: true`) and read `<run.analysis.metrics>/les_coefficient.csv`
 before anything else.
 
 **`cs_effective` is zero for the whole run.** Expected for the first two steps of a run

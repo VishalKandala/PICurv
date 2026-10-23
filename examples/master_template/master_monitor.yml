@@ -97,6 +97,26 @@ diagnostics:
     enabled: true
     file: "Runtime_Memory.log"
 
+  # Per-step LES coefficient statistics appended to output/analysis/metrics/les_coefficient.csv:
+  # the effective Cs, its spread, eddy-viscosity levels, the modelled subgrid energy, and
+  # the fractions of the domain backscattering or limited before clipping. Those last two
+  # describe a state no stored field preserves. Needs LES enabled in case.yml.
+  les:
+    # [Boolean] -> -les_diagnostics
+    enabled: false
+
+    # Steps between rows.
+    # [Integer] -> -les_diagnostics_cadence
+    cadence: 1
+
+    # Yoshizawa constant C_I for the reported subgrid kinetic energy,
+    # k_sgs = 2 C_I Delta^2 |S|^2. Affects the k_sgs_mean column only, never the
+    # eddy viscosity or the momentum equations. Compare it against the resolved
+    # turbulent kinetic energy from field_statistics to judge how much of the
+    # energy the grid resolves.
+    # [Number] -> -les_yoshizawa_ci
+    yoshizawa_ci: 0.09
+
 # ==============================================================================
 # 4. PHYSICAL-SOLUTION MONITORING
 #    Controls convergence reporting for the completed flow state.

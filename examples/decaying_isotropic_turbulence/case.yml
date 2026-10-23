@@ -55,9 +55,6 @@ models:
         clipping:
           mode: clamp
           max_cs: 0.3
-        diagnostics:
-          enabled: true
-          cadence: 1
       wall_function: {enabled: false}
 
 boundary_conditions:

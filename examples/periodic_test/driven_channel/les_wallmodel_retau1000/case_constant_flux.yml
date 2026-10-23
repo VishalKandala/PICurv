@@ -77,7 +77,6 @@ models:
           mode: "homogeneous"
           directions: ["i", "k"]
         clipping: {mode: "clamp", max_cs: 0.3}
-        diagnostics: {enabled: true, cadence: 10}
       wall_function:
         # Switch this off and the case becomes an under-resolved wall-resolved LES.
         # Werner-Wengle rather than log_law: the startup wall stress is near laminar,

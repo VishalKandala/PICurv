@@ -8575,21 +8575,6 @@ def validate_les_configuration(case_cfg: dict, les_cfg: dict, case_path: str,
                 "select mode 'clamp'."
             )
 
-    diagnostics = les_cfg.get('diagnostics')
-    if isinstance(diagnostics, dict):
-        if 'cadence' in diagnostics:
-            try:
-                if int(diagnostics['cadence']) <= 0:
-                    errors.append(
-                        f"  {case_path}: models.physics.turbulence.les.diagnostics.cadence must be positive."
-                    )
-            except (TypeError, ValueError):
-                errors.append(
-                    f"  {case_path}: models.physics.turbulence.les.diagnostics.cadence must be an integer."
-                )
-        _numeric(diagnostics, 'yoshizawa_ci',
-                 "models.physics.turbulence.les.diagnostics.yoshizawa_ci", minimum=0.0)
-
     # The dynamic procedure's controls have no meaning for a prescribed coefficient.
     # Only an explicitly named constant model triggers this: a template that documents
     # every key while LES is switched off should not be rejected on an inferred default.
@@ -9054,7 +9039,8 @@ _MONITOR_SCHEMA = {
     ("profiling",): {"timestep_output", "final_summary"},
     ("profiling", "timestep_output"): {"mode", "functions", "file"},
     ("profiling", "final_summary"): {"enabled"},
-    ("diagnostics",): {"petsc", "runtime_memory_log"},
+    ("diagnostics",): {"petsc", "runtime_memory_log", "les"},
+    ("diagnostics", "les"): {"enabled", "cadence", "yoshizawa_ci"},
     ("diagnostics", "petsc"): {
         "info", "malloc_debug", "malloc_test", "malloc_dump", "malloc_view", "malloc_view_threshold",
         "memory_view", "log_view", "log_view_memory", "log_all", "log_trace",
@@ -10635,6 +10621,10 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             resolve_scalar_transport(case_cfg, solver_cfg, warn=True)
         except ValueError as exc:
             errors.append(f"  {solver_path}: {exc}")
+        try:
+            resolve_les_diagnostics(case_cfg, monitor_cfg, warn=True)
+        except ValueError as exc:
+            errors.append(f"  {monitor_path}: {exc}")
 
         tolerances_cfg = solver_cfg.get('tolerances', {})
         if tolerances_cfg is not None and not isinstance(tolerances_cfg, dict):
@@ -15513,18 +15503,67 @@ def append_les_parameter_flags(les_cfg: dict, control_lines: list):
                                        "models.physics.turbulence.les.gradient_model")
         control_lines.append(f"-les_gradient_model {1 if enabled else 0}")
 
-    diagnostics = les_cfg.get('diagnostics')
-    if diagnostics is not None:
-        if not isinstance(diagnostics, dict):
-            diagnostics = {'enabled': diagnostics}
-        enabled = resolve_enabled_flag(diagnostics, "models.physics.turbulence.les.diagnostics")
-        control_lines.append(f"-les_diagnostics {'true' if enabled else 'false'}")
-        if 'cadence' in diagnostics:
-            control_lines.append(
-                f"-les_diagnostics_cadence {format_flag_value(diagnostics['cadence'])}")
-        if 'yoshizawa_ci' in diagnostics:
-            control_lines.append(
-                f"-les_yoshizawa_ci {format_flag_value(diagnostics['yoshizawa_ci'])}")
+def resolve_les_diagnostics(case_cfg: dict, monitor_cfg: dict, warn: bool = False) -> "dict | None":
+    """!
+    @brief Resolve the LES diagnostic log settings from monitor.yml or their deprecated location.
+    @details The log is observation, not physics, so it is configured in monitor.yml
+             `diagnostics.les`; case.yml `models.physics.turbulence.les.diagnostics` is read as a
+             deprecated alias. Setting both is refused. `yoshizawa_ci` only scales the subgrid
+             kinetic energy the log reports, so it belongs with the log.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] monitor_cfg Parsed monitor configuration.
+    @param[in] warn Print a deprecation warning when the case.yml location is used.
+    @return {"enabled", optional "cadence", optional "yoshizawa_ci"}, or None when unset.
+    @throws ValueError for a duplicated, malformed, or out-of-range setting.
+    """
+    monitor_value = (((monitor_cfg or {}).get("diagnostics") or {}).get("les")
+                     if isinstance((monitor_cfg or {}).get("diagnostics"), dict) else None)
+    les_cfg = ((((case_cfg or {}).get("models") or {}).get("physics") or {}).get("turbulence") or {}).get("les")
+    case_value = les_cfg.get("diagnostics") if isinstance(les_cfg, dict) else None
+    if monitor_value is not None and case_value is not None:
+        raise ValueError("LES diagnostics are set in monitor.yml (diagnostics.les) and in their deprecated "
+                         "case.yml location (models.physics.turbulence.les.diagnostics); keep only monitor.yml.")
+    value, label = ((monitor_value, "monitor.yml diagnostics.les") if monitor_value is not None
+                    else (case_value, "case.yml models.physics.turbulence.les.diagnostics"))
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        value = {"enabled": value}
+    unknown = sorted(set(value) - {"enabled", "cadence", "yoshizawa_ci"})
+    if unknown:
+        raise ValueError(f"{label} has unsupported key(s): {unknown}. Use enabled, cadence, yoshizawa_ci.")
+    resolved = {"enabled": resolve_enabled_flag(value, label)}
+    if "cadence" in value:
+        if isinstance(value["cadence"], bool) or not isinstance(value["cadence"], int) or value["cadence"] <= 0:
+            raise ValueError(f"{label}.cadence must be a positive integer.")
+        resolved["cadence"] = value["cadence"]
+    if "yoshizawa_ci" in value:
+        try:
+            ci = _to_finite_float(value["yoshizawa_ci"], f"{label}.yoshizawa_ci")
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{label}.yoshizawa_ci must be numeric.") from exc
+        if ci < 0.0:
+            raise ValueError(f"{label}.yoshizawa_ci must be non-negative.")
+        resolved["yoshizawa_ci"] = ci
+    if monitor_value is None and warn:
+        print("[WARNING] case.yml models.physics.turbulence.les.diagnostics is deprecated; "
+              "set it in monitor.yml as diagnostics.les.", file=sys.stderr)
+    return resolved
+
+
+def append_les_diagnostics_flags(diagnostics: "dict | None", control_lines: list):
+    """!
+    @brief Append the LES diagnostic log flags resolved by resolve_les_diagnostics().
+    @param[in] diagnostics Resolved settings, or None to append nothing.
+    @param[out] control_lines A list of strings to which C-flags will be appended.
+    """
+    if diagnostics is None:
+        return
+    control_lines.append(f"-les_diagnostics {'true' if diagnostics['enabled'] else 'false'}")
+    if "cadence" in diagnostics:
+        control_lines.append(f"-les_diagnostics_cadence {format_flag_value(diagnostics['cadence'])}")
+    if "yoshizawa_ci" in diagnostics:
+        control_lines.append(f"-les_yoshizawa_ci {format_flag_value(diagnostics['yoshizawa_ci'])}")
 
 def append_turbulence_flags(models: dict, control_lines: list, scales: dict = None):
     """!
@@ -16553,6 +16592,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
         solver_cfg=solver_cfg, any_periodic=case_declares_periodic_axis(case_cfg))
     
     parse_and_add_model_flags(case_cfg, control_lines)
+    append_les_diagnostics_flags(resolve_les_diagnostics(case_cfg, configs.get('monitor') or {}), control_lines)
     
     if 'solver_parameters' in case_cfg:
         params = case_cfg['solver_parameters']

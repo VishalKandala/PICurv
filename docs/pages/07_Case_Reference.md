@@ -266,7 +266,7 @@ Common mappings:
 - `physics.turbulence.les.averaging.mode/directions` -> `-les_averaging_mode`, `-les_averaging_directions`
 - `physics.turbulence.les.clipping.mode/max_cs/min_viscosity_ratio` -> `-les_clip_mode`, `-les_clip_max_cs`, `-les_min_viscosity_ratio`
 - `physics.turbulence.les.gradient_model.enabled` -> `-les_gradient_model`
-- `physics.turbulence.les.diagnostics.enabled/cadence/yoshizawa_ci` -> `-les_diagnostics`, `-les_diagnostics_cadence`, `-les_yoshizawa_ci`
+- the coefficient log is set in `monitor.yml -> diagnostics.les` (@ref p09_les_diagnostics_sub); `physics.turbulence.les.diagnostics` is its deprecated former location, still read with a warning
 - `physics.turbulence.wall_function.enabled/model` -> `-wallfunction` (`1` log law, `2` Werner-Wengle, `3` Cabot)
 - `physics.turbulence.wall_function.roughness_height` -> `-wall_roughness` (`log_law` only); a physical length, divided by `length_ref`
 - `physics.particles.count` -> `-numParticles`
@@ -473,7 +473,7 @@ from the configuration, so `nu_t` is built from it directly; nothing is synchron
 checkpointed, or written to disk on its behalf.
 
 **Diagnostics.** The startup banner reports the resolved turbulence model. With
-`diagnostics.enabled` set, `<run.analysis.metrics>/les_coefficient.csv` records the eddy-viscosity levels
+the LES diagnostics enabled (`monitor.yml -> diagnostics.les`), `<run.analysis.metrics>/les_coefficient.csv` records the eddy-viscosity levels
 and the modelled subgrid energy each step. The eddy-viscosity field is available for
 output.
 
@@ -512,11 +512,11 @@ in the domain.
 factor multiplying `Delta^2 |S|`, which is `Cs^2` in the classical notation - not `Cs`.
 Under `clipping.mode: none` it is signed, because a negative coefficient is backscatter.
 
-**Diagnostics.** With `diagnostics.enabled`, `<run.analysis.metrics>/les_coefficient.csv` records the
+**Diagnostics.** With `monitor.yml -> diagnostics.les.enabled`, `<run.analysis.metrics>/les_coefficient.csv` records the
 effective coefficient converted to `Cs`, its spatial spread, eddy-viscosity levels, and
 the fractions of the domain that were backscattering or limited before clipping. Those
 last two describe a pre-clipping state that no stored field preserves.
-`diagnostics.cadence` sets the interval, and `diagnostics.yoshizawa_ci` sets the
+`diagnostics.les.cadence` sets the interval, and `diagnostics.les.yoshizawa_ci` sets the
 constant in the reported subgrid kinetic energy; neither affects the solution.
 `picurv summarize --plot les.cs_effective` renders the coefficient history directly.
 
@@ -573,7 +573,7 @@ for every LES model. The Clark gradient term is independent and may be combined.
 step and nothing is checkpointed on the model's behalf.
 
 **Diagnostics.** The startup banner reports `Vreman`, its coefficient, and
-`per direction (cell edges; filter_width unused)`. With `diagnostics.enabled`,
+`per direction (cell edges; filter_width unused)`. With LES diagnostics enabled,
 `les_coefficient.csv` records the eddy-viscosity levels and subgrid energy; its
 coefficient columns are written as `nan`, because the model carries no Smagorinsky
 coefficient.
@@ -620,7 +620,7 @@ for every LES model. The Clark gradient term is independent and may be combined.
 **Storage.** No coefficient field; `nu_t` is recomputed every step.
 
 **Diagnostics.** The startup banner reports `WALE`, its coefficient and the filter width.
-With `diagnostics.enabled`, `les_coefficient.csv` records the eddy-viscosity levels, with
+With LES diagnostics enabled, `les_coefficient.csv` records the eddy-viscosity levels, with
 its Smagorinsky coefficient columns written as `nan`.
 
 **Evidence.** Implemented, with unit coverage run by `make unit-les`:
