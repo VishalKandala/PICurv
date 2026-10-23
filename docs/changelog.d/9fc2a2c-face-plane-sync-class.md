@@ -1,0 +1,1 @@
+- Maintenance: the particle face-plane fields use their layout's ghost-synchronization class like the other face fields, and a multi-rank periodic test checks that every plane the search or interpolation reads survives a ghost update; results are unchanged.
