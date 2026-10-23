@@ -1,0 +1,1 @@
+- Experimental: under `constant_smagorinsky`, `les_coefficient.csv` writes `nan` for `cs_effective` (only the dynamic procedure measures it; `cs_mean` is the configured value), and a failing decomposition given on the command line or in `cluster.yml` is reported under that name.
