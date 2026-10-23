@@ -907,7 +907,7 @@
       },
       "point_variance": {
         "maps_to": "point_variance",
-        "status": "experimental"
+        "status": "supported"
       },
       "reynolds_stress": {
         "maps_to": "reynolds_stress",

@@ -1286,6 +1286,36 @@
       },
       "limitations": "One case and two rank layouts. The fluid restart is not bitwise (about 3e-6 at these momentum tolerances), so a continued solved-flow run still diverges at that level; that is not a property of the Brownian draw.",
       "artifacts": []
+    },
+    {
+      "id": "tml-point-variance-2026-10-22",
+      "question": "Does point_variance return the plane average of each cell's particle variance, checked against a profile whose within-cell variance is known exactly?",
+      "date": "2026-10-22",
+      "commit": "5d3722e",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized; 16 ranks on one node, decomposition 2 x 4 x 2 chosen automatically for the solve and the post.",
+      "configuration": "examples/temporal_mixing_layer unchanged (Colucci et al. 1998): 4 x 48 x 36 cells, i periodic and frozen by 2D mode, j free-slip walls, k periodic; Re 500 on the velocity difference and initial vorticity thickness; constant Smagorinsky; 345,600 particles (50 per cell, uniform random) carrying Psi = 0.5(1 + erf(y/1.5967)); IEM mixing; dt 0.5, 100 steps (t = 50); post every 4 steps, homogeneous [i, k]. Run once with solver.yml (dual-time Picard) and once with solver_newton_krylov.yml.",
+      "result": {
+        "measured": "At t = 0 the particles carry the erf profile itself, so each cell's variance is that of A over the cell. Integrating the exact within-cell variance over y gives 0.02528 in the continuum, 0.02477 with the 1/n sample-variance factor at 50 particles per cell; the fdf_Psi_point_variance profile integrates to 0.024786 (0.06% from 0.02477, 2.0% from the unbiased 0.02528, so the estimator is consistent with 1/n). The pooled rms over the plane integrates to a different quantity (0.3231 for rms itself), as intended. Picard and Newton-Krylov histories of the integral agree to 3.6e-7 over 26 samples to t = 50.",
+        "threshold": "Agreement with the exact plane-averaged within-cell variance within the sampling error of 50 particles per cell (about 1% on the plane integral).",
+        "verdict": "met"
+      },
+      "limitations": "The exact check is at t = 0 only; later times have no reference within PICurv, and Colucci et al.'s generalized subgrid variance is defined at the 2 Delta filter scale, so their Fig. 10 values are not the same quantity in absolute terms. The 1/n reading is inferred from the match rather than read from the code. Per-cell particle counts vary about 50; the bias factor uses the mean. One case, one loading.",
+      "artifacts": []
+    },
+    {
+      "id": "nk-2d-mode-mixing-layer-2026-10-22",
+      "question": "Does the Newton-Krylov momentum solver in 2D mode reproduce the dual-time Picard solution through roll-up of a mixing layer, with every step converged?",
+      "date": "2026-10-22",
+      "commit": "5d3722e",
+      "environment": "Owner's Slurm cluster (TAMU Grace), PETSc 3.20.3 optimized; 16 ranks on one node, decomposition 2 x 4 x 2 chosen automatically for the solve and the post.",
+      "configuration": "examples/temporal_mixing_layer unchanged (Colucci et al. 1998): 4 x 48 x 36 cells, i periodic and frozen by 2D mode, j free-slip walls, k periodic; Re 500 on the velocity difference and initial vorticity thickness; constant Smagorinsky; 345,600 particles (50 per cell, uniform random) carrying Psi = 0.5(1 + erf(y/1.5967)); IEM mixing; dt 0.5, 100 steps (t = 50); post every 4 steps, homogeneous [i, k]. Run once with solver.yml (dual-time Picard) and once with solver_newton_krylov.yml.",
+      "result": {
+        "measured": "All 100 Newton-Krylov steps converged and were committed (CONVERGED_FNORM_ABS 53, CONVERGED_FNORM_RELATIVE 47; none unconverged or diverged); 2 to 3 Newton (mean 2.78) and 24 to 39 Krylov iterations (mean 28.2) per step, final nonlinear norm at most 2.8e-8. Vorticity thickness of the resolved mean velocity agrees with Picard to 3.1e-7 relative over 26 samples while it doubles (3.388 to 6.819); momentum thickness to the fifth digit; Psi mean and rms profiles at t = 50 overlay. Flow solver 0.27 s per step against Picard's 0.50 s; the step total is dominated by particle location (1.2 s). Locally, make smoke compares the two solvers on a planar 2D channel, laminar and LES: Ucat agrees to 6e-14 and the masked i velocity stays at round-off.",
+        "threshold": "Every step converged, and agreement with Picard within the momentum solver tolerance through the nonlinear roll-up.",
+        "verdict": "met"
+      },
+      "limitations": "One 2D case with periodic and free-slip faces at Re 500 and coarse resolution (1.27 cells per half-thickness of the initial layer); no 2D case with walls, inlets or outlets beyond the smoke channel. Agreement with Picard is solver consistency, not validation: the case's roll-up is later than Colucci et al.'s Fig. 13 for both solvers alike.",
+      "artifacts": []
     }
   ]
 }

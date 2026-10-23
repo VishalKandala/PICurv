@@ -1948,12 +1948,15 @@
           }
         },
         "point_variance": {
-          "status": "experimental",
+          "status": "supported",
           "canonical": true,
           "evidence": {
             "unit": [
               "make:unit-post-compute-mpi",
               "file:tests/c/test_post_compute_mpi.c"
+            ],
+            "analytical": [
+              "measurement:tml-point-variance-2026-10-22"
             ]
           }
         }

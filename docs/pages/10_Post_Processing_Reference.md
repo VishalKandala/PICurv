@@ -420,10 +420,11 @@ in seconds too. See @ref p58_derived_sec.
 
 Every output below except `point_variance` was checked against a known answer by
 `field-statistics-tgv3d-2026-09-21`: on the analytic TGV3D field, each written value
-equals the eight-cell average of the exact cell statistic to round-off. Written fields are
-node averages of cell statistics, so a nodal `rms` is the mean of the neighbouring cell
-RMS values, not the root of an averaged variance. None has yet been compared against a
-turbulent reference profile.
+equals the eight-cell average of the exact cell statistic to round-off. `point_variance`
+was checked by `tml-point-variance-2026-10-22` against an exactly known particle
+ensemble (its entry below). Written fields are node averages of cell statistics, so a
+nodal `rms` is the mean of the neighbouring cell RMS values, not the root of an averaged
+variance. None has yet been compared against a turbulent reference profile.
 
 @note **`formats` is a parameter, not a choice between behaviours.** `vtk` writes the
 derived fields listed below into the window's bundle; `csv` appends one row per
@@ -564,6 +565,10 @@ averages over the cells that held particles. Units are the field's squared.
 **Evidence.** Unit verified - `make unit-post-compute-mpi` (`tests/c/test_post_compute_mpi.c`):
 on one and several ranks, a profile of two states that differ by a varying amount at
 each point equals the plane mean of the point variances, below the pooled variance.
+Analytically verified - `tml-point-variance-2026-10-22`: in `temporal_mixing_layer` at
+t = 0, where each cell's particles carry a known erf profile, the profile integrates to
+0.024786 against the exact plane-averaged within-cell variance 0.02477 (with the 1/n
+factor at 50 particles per cell), a 0.06% difference.
 
 **Limitations.** Equal weighting per point means a point that sampled once counts as
 much as one that sampled often, so it is noisier where sampling is sparse; the sample

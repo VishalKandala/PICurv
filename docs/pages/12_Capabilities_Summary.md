@@ -139,7 +139,8 @@ Pipeline capabilities include:
 - Lagrangian particle tasks,
 - particle statistics reduction pipeline (currently MSD family),
 - derived Eulerian field statistics: Reynolds stresses, RMS, turbulent kinetic
-  energy, and turbulent fluxes from windows the solver accumulated online,
+  energy, turbulent fluxes, and the per-point variance (`point_variance`) from windows
+  the solver accumulated online,
 - single-instant ensembles defined in the post recipe: the moments of
   the particles within each cell, or of a snapshot field, derived the same way,
 - profiles of any of those statistics merged over homogeneous directions,

@@ -33,7 +33,10 @@ Version one is deliberately narrow and validates its inputs up front
 component's spatial terms, so that row of the residual is the time derivative alone,
 whose solution holds a time-constant i velocity exactly, as the Picard solver's skipped
 row does. The point-block preconditioner gives the row the same diagonal and nothing
-else. `make smoke` compares the two solvers on a planar 2D channel, laminar and LES.
+else. `make smoke` compares the two solvers on a planar 2D channel, laminar and LES, and
+`nk-2d-mode-mixing-layer-2026-10-22` through the roll-up of the `temporal_mixing_layer`
+example on 16 ranks: all 100 steps converged in 2 to 3 Newton iterations, and the vorticity
+thickness matched Picard to 3.1e-7 relative while it doubled.
 
 @note The gradient (Clark) model and wall functions both reach this solver through the
 shared residual it already evaluates. Two properties are worth knowing before using
