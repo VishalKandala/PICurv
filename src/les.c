@@ -1163,7 +1163,9 @@ PetscErrorCode LogLESDiagnostics(UserCtx *user)
         fprintf(file,
                 "%d,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e\n",
                 (int)simCtx->step, (double)simCtx->ti,
-                has_coefficient ? (double)cs_effective : (double)NAN,
+                // cs_effective is the Germano contraction ratio, which only the dynamic
+                // procedure measures; the constant model's coefficient is cs_mean.
+                dynamic ? (double)cs_effective : (double)NAN,
                 has_coefficient ? (double)cs_mean : (double)NAN,
                 has_coefficient ? (double)mean : (double)NAN,
                 has_coefficient ? (double)PetscSqrtReal(variance) : (double)NAN,
@@ -1178,8 +1180,10 @@ PetscErrorCode LogLESDiagnostics(UserCtx *user)
                    "Unable to close the LES diagnostics file.");
 
         LOG_ALLOW(GLOBAL, LOG_INFO,
-                  "  LES coefficient: Cs_effective=%.4f, nu_t/nu (mean)=%.3e, backscatter=%.1f%%\n",
-                  (double)cs_effective, (double)(global_sum[3] / volume / molecular),
+                  "  LES coefficient: %s=%.4f, nu_t/nu (mean)=%.3e, backscatter=%.1f%%\n",
+                  dynamic ? "Cs_effective" : "Cs_mean",
+                  (double)(dynamic ? cs_effective : cs_mean),
+                  (double)(global_sum[3] / volume / molecular),
                   (double)(100.0 * global_sum[5] / volume));
     }
 

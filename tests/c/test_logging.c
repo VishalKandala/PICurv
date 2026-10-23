@@ -7,6 +7,7 @@
 
 #include "logging.h"
 #include "interpolation.h"
+#include "les.h"
 #include "setup.h"
 #include "statistics_accumulator.h"
 #include "statistics_window.h"
@@ -1018,6 +1019,46 @@ static PetscErrorCode TestInterpolationErrorLogging(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests that the constant Smagorinsky model reports its configured coefficient, not a measured one.
+ *
+ * cs_effective is the dynamic procedure's Germano contraction ratio. The constant model has
+ * none, so the row carries nan there and the configured Cs in cs_mean; it once wrote 0,
+ * which reads like a measurement.
+ */
+static PetscErrorCode TestLESDiagnosticsConstantModelHasNoMeasuredCoefficient(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char metrics_path[PETSC_MAX_PATH_LEN];
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 5, 5, 5));
+    PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCall(PetscStrncpy(simCtx->analysis_dir, tmpdir, sizeof(simCtx->analysis_dir)));
+    simCtx->les = CONSTANT_SMAGORINSKY;
+    simCtx->les_config.constant_cs = 0.2;
+    simCtx->les_config.diagnostics_enabled = PETSC_TRUE;
+    simCtx->les_config.diagnostics_cadence = 1;
+    simCtx->ren = 1.0;
+    simCtx->step = 3;
+    simCtx->ti = 0.5;
+    PetscCall(DMCreateLocalVector(user->da, &user->lNu_t));
+    PetscCall(VecSet(user->lNu_t, 0.0));
+    PetscCall(VecSet(user->lAj, 1.0));
+
+    PetscCall(LogLESDiagnostics(user));
+
+    PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/les_coefficient.csv", simCtx->analysis_dir));
+    PetscCall(PicurvAssertFileExists(metrics_path, "LogLESDiagnostics should write les_coefficient.csv"));
+    PetscCall(AssertFileContains(metrics_path, "3,5.000000e-01,nan,2.000000e-01,4.000000e-02,",
+                                 "the constant model should write nan for cs_effective and its Cs in cs_mean"));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests file-backed scatter metrics logging against a fully occupied constant field.
  */
 
@@ -1924,6 +1965,7 @@ int main(int argc, char **argv)
         {"logging-file-parsing-and-formatting-helpers", TestLoggingFileParsingAndFormattingHelpers},
         {"logging-continuity-and-field-diagnostics", TestLoggingContinuityAndFieldDiagnostics},
         {"interpolation-error-logging", TestInterpolationErrorLogging},
+        {"les-diagnostics-constant-model-has-no-measured-coefficient", TestLESDiagnosticsConstantModelHasNoMeasuredCoefficient},
         {"scatter-metrics-logging", TestScatterMetricsLogging},
         {"particle-field-table-logging", TestParticleFieldTableLogging},
         {"particle-console-snapshot-logging", TestParticleConsoleSnapshotLogging},

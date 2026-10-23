@@ -310,7 +310,8 @@ to `<run.analysis.metrics>/les_coefficient.csv`. Three groups of columns answer 
 
 **Is the coefficient right?** `cs_effective` is the whole-domain
 `sqrt(<L:M>/<M:M>)`, computed the same way regardless of averaging mode so it stays
-comparable across modes. Lilly's analysis puts it near **0.16-0.17** for decaying
+comparable across modes. Only the dynamic model measures it; under
+`constant_smagorinsky` it is `nan` and `cs_mean` is the configured coefficient. Lilly's analysis puts it near **0.16-0.17** for decaying
 isotropic turbulence with the cutoff in an inertial range; on the HOM02 benchmark at
 64^3 with the box test filter it settles at 0.193-0.196 under homogeneous averaging and
 0.181-0.183 under local averaging (@ref p72_status_sec), so read a value in that range

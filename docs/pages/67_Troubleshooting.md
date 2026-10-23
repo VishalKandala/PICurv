@@ -148,8 +148,8 @@ before anything else.
 
 **`cs_effective` is zero for the whole run.** Expected for the first two steps of a run
 started from rest, because the procedure has no developed field to sample. Beyond that,
-check that the model is `dynamic_smagorinsky`; the constant model reports the
-coefficient you configured, not a measured one.
+check that the model is `dynamic_smagorinsky`. The constant model measures nothing:
+it writes `nan` in `cs_effective` and the coefficient you configured in `cs_mean`.
 
 **`cs_effective` is far from 0.18-0.19 in isotropic turbulence.** That is what the
 dynamic procedure measured on the HOM02 benchmark at 64^3 with the box test filter

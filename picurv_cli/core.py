@@ -13538,7 +13538,7 @@ def case_declares_periodic_axis(case_cfg: dict) -> bool:
 
 def da_processor_layout_problems(grid_cfg: dict, num_procs: "int | None",
                                  block_dims: "list | None" = None, solver_cfg: "dict | None" = None,
-                                 any_periodic: bool = False) -> list:
+                                 any_periodic: bool = False, source: "str | None" = None) -> list:
     """!
     @brief Problems with a user-set DMDA layout that would abort grid setup.
     @details Mirrors `InitializeAllGridDMs()` in src/grid.c: each coarser level holds
@@ -13554,9 +13554,20 @@ def da_processor_layout_problems(grid_cfg: dict, num_procs: "int | None",
     @param[in] block_dims Per-block node counts, or None to skip the multigrid check.
     @param[in] solver_cfg Parsed solver.yml, for the multigrid levels and semi-coarsening.
     @param[in] any_periodic Whether any face is PERIODIC.
+    @param[in] source Where the layout was given, as `--ni/--nj/--nk` or
+               `cluster.yml execution.decomposition`; None for case.yml's own keys.
     @return List of messages; empty when the layout is usable or not set.
     """
     layout = resolve_grid_da_processor_layout(grid_cfg)
+    if source == "--ni/--nj/--nk":
+        names = dict(zip(GRID_DA_PROCESSOR_KEYS, ("--ni", "--nj", "--nk")))
+        together = "--ni x --nj x --nk"
+    elif source:
+        names = {key: f"{source}.{axis}" for key, axis in zip(GRID_DA_PROCESSOR_KEYS, "ijk")}
+        together = f"{source} (i, j, k)"
+    else:
+        names = {key: f"grid.{key}" for key in GRID_DA_PROCESSOR_KEYS}
+        together = "grid.da_processors_x/y/z"
     if not layout or (num_procs is not None and num_procs <= 1):
         return []
     problems = []
@@ -13568,11 +13579,10 @@ def da_processor_layout_problems(grid_cfg: dict, num_procs: "int | None",
             printable = " x ".join(str(layout[key]) for key in GRID_DA_PROCESSOR_KEYS)
             problems.append(
                 "DMDA processor layout mismatch: "
-                f"grid.da_processors_x/y/z is {printable} (product {total_layout}), "
+                f"{together} is {printable} (product {total_layout}), "
                 f"but this run requests {num_procs} MPI processes. "
-                "Set da_processors_x/y/z to values whose product equals the requested "
-                "MPI process count, or remove all three settings to let PETSc choose "
-                "the layout automatically."
+                "Give values whose product equals the requested MPI process count, or "
+                "remove all three settings to let PICurv choose the layout."
             )
     if not block_dims:
         return problems
@@ -13592,7 +13602,7 @@ def da_processor_layout_problems(grid_cfg: dict, num_procs: "int | None",
             points = coarse + 1
             if points // ranks < stencil:
                 problems.append(
-                    f"grid.{key} = {ranks} is too many ranks for block {block}'s "
+                    f"{names[key]} = {ranks} is too many ranks for block {block}'s "
                     f"{axis} axis at {levels} multigrid levels: the coarsest level has "
                     f"{points} points there, so a rank gets {points // ranks}, below the "
                     f"stencil width {stencil}"
@@ -13722,8 +13732,9 @@ def resolve_decomposition(num_procs: int, grid_cfg: dict, block_dims: "list | No
                         "problems": problems}
     if layout is not None:
         return {"layout": layout, "source": source,
-                "problems": da_processor_layout_problems(_decomposition_layout(layout), num_procs,
-                                                         block_dims, solver_cfg, any_periodic)}
+                "problems": da_processor_layout_problems(
+                    _decomposition_layout(layout), num_procs, block_dims, solver_cfg, any_periodic,
+                    None if source.startswith("case.yml") else source)}
     if not block_dims:
         return {"layout": None, "source": "PETSc (grid size unknown before the run)", "problems": []}
     layout = choose_decomposition(num_procs, block_dims, solver_cfg, any_periodic)

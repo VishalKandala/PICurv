@@ -6024,7 +6024,7 @@ def test_da_processor_layout_mismatch_explains_how_to_fix_it():
     message = str(error.value)
     assert "grid.da_processors_x/y/z is 8 x 10 x 6 (product 480)" in message
     assert "requests 768 MPI processes" in message
-    assert "remove all three settings to let PETSc choose" in message
+    assert "remove all three settings to let PICurv choose" in message
 
 
 _TML_SOLVER = {"poisson_solver": {"multigrid": {"levels": 3, "semi_coarsening": {"i": True}}}}
@@ -6041,6 +6041,12 @@ def test_auto_decomposition_keeps_a_thin_axis_whole_and_refuses_what_no_layout_f
     picurv = load_picurv_module()
     assert picurv.resolve_decomposition(8, {}, _TML_NODES, _TML_SOLVER, True)["layout"] == (1, 4, 2)
     assert picurv.resolve_decomposition(1, {}, _TML_NODES, _TML_SOLVER, True)["layout"] == (1, 1, 1)
+    # A given layout that fails is reported under the name it was given by.
+    cluster = {"execution": {"decomposition": {"i": 1, "j": 4, "k": 4}}}
+    named = picurv.resolve_decomposition(16, {}, _TML_NODES, _TML_SOLVER, True, None, cluster)
+    assert named["problems"][0].startswith("cluster.yml execution.decomposition.k = 4 is too many ranks")
+    flags = picurv.resolve_decomposition(16, {}, _TML_NODES, _TML_SOLVER, True, (1, 4, 4))
+    assert flags["problems"][0].startswith("--nk = 4 is too many ranks")
     refused = picurv.resolve_decomposition(32, {}, _TML_NODES, _TML_SOLVER, True)
     assert refused["layout"] is None
     assert "Rank counts that fit nearby: 16, 18, 24." in refused["problems"][0]
