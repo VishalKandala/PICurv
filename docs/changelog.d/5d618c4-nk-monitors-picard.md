@@ -1,0 +1,1 @@
+- Experimental: `monitor.yml` `solver_monitoring.momentum` options are passed only to a Newton-Krylov momentum solve, so one monitor file can serve a Picard and a Newton-Krylov profile without PETSc unused-option warnings.
