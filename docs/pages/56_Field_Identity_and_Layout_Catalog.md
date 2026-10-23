@@ -204,9 +204,10 @@ ghosted coordinates with no boundary extrapolation or seam shift. `SearchCellSiz
 cell's mean edge length, which scales the search's on-face tolerance. The `DualPlane*` entries
 are the same for the dual cells whose vertices are cell centres; they are filed as
 cell-centred because index (i, j, k) holds the faces whose lower corner is the cell centre
-`Cent[k][j][i]`, while the faces themselves lie between centres. The ghosted local vectors are
-computed directly from ghosted inputs; the global vectors hold the owned values for
-`LOG_FIELD_MIN_MAX` and are never scattered back.
+`Cent[k][j][i]`, while the faces themselves lie between centres. Each rank computes its owned
+planes into the global vectors and fills its ghosts by the ordinary `UpdateLocalGhosts()`, with
+the sync class of each layout; `unit-mpi` checks that on a periodic, partitioned grid every plane
+the search or interpolation can read equals the one built from that cell's own vertices.
 
 The particle inventory is: `position`, `velocity`, `DMSwarm_CellID`, `weight`,
 `Diffusivity`, `DiffusivityGradient`, `Psi`, `DMSwarm_location_status`,

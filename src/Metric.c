@@ -265,8 +265,9 @@ PetscErrorCode MetricComputeFacePlanes(UserCtx *user)
     PetscCall(VecRestoreArrayRead(user->lCent, &src_flat[1]));
     PetscCall(VecRestoreArrayRead(Coor, &src_flat[0]));
 
-    // Owned values become the global fields; a plain ghost update then gives every rank the
-    // owner's planes, which on every face a particle can reach are the ones it computed itself.
+    // Owned values become the global fields; the catalogued ghost update then gives every rank the
+    // owner's planes, which on every face a particle can reach are the ones it computed itself
+    // (the periodic face repair writes only the ghosts beyond the physical range, which none reads).
     PetscCall(VecRestoreArray(user->lSearchCellSize, &size));
     for (int which = 0; which < 2; ++which) {
         for (int f = 0; f < 6; ++f) PetscCall(VecRestoreArray(*locals[which][f], (PetscScalar **)&out[which][f]));

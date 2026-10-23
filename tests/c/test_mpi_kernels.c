@@ -9,6 +9,8 @@
 #include "ParticleSwarm.h"
 #include "Boundaries.h"
 #include "grid.h"
+#include "Metric.h"
+#include "walkingsearch.h"
 #include "setup.h"
 #include "statistics_target.h"
 #include "statistics_accumulator.h"
@@ -929,6 +931,81 @@ static PetscErrorCode TestLESAveragingIsDecompositionIndependent(void)
 }
 
 /**
+ * @brief Tests that, across a periodic seam and rank boundaries, the face planes the search and
+ *        interpolation read after a ghost update are each cell's own planes.
+ * @details Every grid cell made of physical nodes and every dual cell the interpolation can form
+ *          must give, to rounding, the distances CalculateDistancesToCellFaces() computes from that
+ *          cell's own vertices, whatever the fields' sync classes do to the ghosts beyond.
+ */
+static PetscErrorCode TestFacePlanesSurvivePeriodicGhostUpdate(void)
+{
+    SimCtx         *simCtx = NULL;
+    UserCtx        *user = NULL;
+    FacePlaneArrays arrays;
+    CellFacePlanes  shared;
+    Cell            cell;
+    PetscReal       d_shared[NUM_FACES], d_cell[NUM_FACES];
+    const Cmpnts ***cent = NULL;
+    const FieldId   fields[] = {FIELD_ID_PLANE_NORMAL_I, FIELD_ID_PLANE_NORMAL_J, FIELD_ID_PLANE_NORMAL_K,
+                                FIELD_ID_PLANE_CENTROID_I, FIELD_ID_PLANE_CENTROID_J, FIELD_ID_PLANE_CENTROID_K,
+                                FIELD_ID_SEARCH_CELL_SIZE, FIELD_ID_DUAL_PLANE_NORMAL_I, FIELD_ID_DUAL_PLANE_NORMAL_J,
+                                FIELD_ID_DUAL_PLANE_NORMAL_K, FIELD_ID_DUAL_PLANE_CENTROID_I,
+                                FIELD_ID_DUAL_PLANE_CENTROID_J, FIELD_ID_DUAL_PLANE_CENTROID_K};
+    PetscInt        checked = 0, checked_global = 0;
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContextsWithPeriodicity(&simCtx, &user, 8, 4, 4, PETSC_TRUE, PETSC_FALSE, PETSC_FALSE));
+    MarkXPeriodic(user);
+    for (size_t f = 0; f < sizeof(fields) / sizeof(fields[0]); ++f) PetscCall(UpdateLocalGhosts(user, fields[f]));
+
+    const DMDALocalInfo *info = &user->info;
+    const PetscInt gs[3] = {info->gxs, info->gys, info->gzs};
+    const PetscInt ge[3] = {info->gxs + info->gxm, info->gys + info->gym, info->gzs + info->gzm};
+    const PetscInt mx[3] = {info->mx, info->my, info->mz};
+    const Cmpnts   p = {0.43, 0.38, 0.61};
+
+    /* Grid cells: origins whose nodes are physical (0..mx-2) and local. */
+    PetscCall(MetricGetFacePlaneArrays(user, PETSC_FALSE, &arrays));
+    for (PetscInt k = PetscMax(gs[2], 0); k + 1 <= PetscMin(ge[2] - 1, mx[2] - 2); ++k)
+        for (PetscInt j = PetscMax(gs[1], 0); j + 1 <= PetscMin(ge[1] - 1, mx[1] - 2); ++j)
+            for (PetscInt i = PetscMax(gs[0], 0); i + 1 <= PetscMin(ge[0] - 1, mx[0] - 2); ++i) {
+                MetricGatherCellFacePlanes(&arrays, info, i, j, k, &shared);
+                PetscCall(RetrieveCurrentCell(user, i, j, k, &cell));
+                PetscCall(CalculateDistancesToCellFaces(p, &cell, d_cell, 0.0, NULL));
+                PetscCall(CalculateDistancesToCellFacePlanes(p, &shared, d_shared, 0.0, NULL));
+                for (PetscInt f = 0; f < NUM_FACES; ++f)
+                    PetscCall(PicurvAssertRealNear(d_cell[f], d_shared[f], 1.0e-14, "grid cell plane after ghost update"));
+                checked++;
+            }
+    PetscCall(MetricRestoreFacePlaneArrays(user, &arrays));
+
+    /* Dual cells: centres 0..mx-1 on the periodic x axis, 1..mx-2 across the walls. */
+    PetscCall(MetricGetFacePlaneArrays(user, PETSC_TRUE, &arrays));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCent, (void *)&cent));
+    for (PetscInt k = PetscMax(gs[2], 1); k + 1 <= PetscMin(ge[2] - 1, mx[2] - 2); ++k)
+        for (PetscInt j = PetscMax(gs[1], 1); j + 1 <= PetscMin(ge[1] - 1, mx[1] - 2); ++j)
+            for (PetscInt i = PetscMax(gs[0], 0); i + 1 <= PetscMin(ge[0] - 1, mx[0] - 1); ++i) {
+                cell.vertices[0] = cent[k][j][i];         cell.vertices[1] = cent[k][j][i + 1];
+                cell.vertices[2] = cent[k][j + 1][i + 1]; cell.vertices[3] = cent[k][j + 1][i];
+                cell.vertices[4] = cent[k + 1][j + 1][i]; cell.vertices[5] = cent[k + 1][j + 1][i + 1];
+                cell.vertices[6] = cent[k + 1][j][i + 1]; cell.vertices[7] = cent[k + 1][j][i];
+                MetricGatherCellFacePlanes(&arrays, info, i, j, k, &shared);
+                PetscCall(CalculateDistancesToCellFaces(p, &cell, d_cell, 0.0, NULL));
+                PetscCall(CalculateDistancesToCellFacePlanes(p, &shared, d_shared, 0.0, NULL));
+                for (PetscInt f = 0; f < NUM_FACES; ++f)
+                    PetscCall(PicurvAssertRealNear(d_cell[f], d_shared[f], 1.0e-14, "dual cell plane after ghost update"));
+                checked++;
+            }
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCent, (void *)&cent));
+    PetscCall(MetricRestoreFacePlaneArrays(user, &arrays));
+
+    PetscCallMPI(MPI_Allreduce(&checked, &checked_global, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD));
+    PetscCall(PicurvAssertBool((PetscBool)(checked_global > 0), "some cells were checked"));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Runs the unit-mpi PETSc test binary.
  */
 int main(int argc, char **argv)
@@ -942,6 +1019,7 @@ int main(int argc, char **argv)
         {"periodic-face-center-coordinates-multi-rank", TestPeriodicFaceCenterCoordinatesMultiRank},
         {"periodic-face-field-synchronization-multi-rank", TestPeriodicFaceFieldSynchronizationMultiRank},
         {"periodic-staggered-field-synchronization-multi-rank", TestPeriodicStaggeredFieldSynchronizationMultiRank},
+        {"face-planes-survive-periodic-ghost-update", TestFacePlanesSurvivePeriodicGhostUpdate},
         {"spatial-target-decomposition-independent", TestSpatialTargetIsDecompositionIndependent},
         {"statistics-checkpoint-round-trip-multi-rank", TestStatisticsCheckpointRoundTripMultiRank},
         {"les-averaging-decomposition-independent", TestLESAveragingIsDecompositionIndependent},

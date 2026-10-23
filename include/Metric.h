@@ -473,8 +473,8 @@ void MetricBuildCellFacePlanes(const Cell *cell, CellFacePlanes *planes);
  * dual-cell faces come from lCent and sit at their lower-corner cell centre (`DualPlaneNormal*`,
  * `DualPlaneCentroid*`). `SearchCellSize` holds each cell's GetCellCharacteristicSize() at its
  * shifted cell-centred index. A face with no plane (degenerate, or beyond the ghosted region) has a
- * zero normal. Owned values are the global fields; the locals are their ordinary ghost update
- * (UpdateLocalGhosts(), the plain scatter: no periodic face repair). Collective. Built by
+ * zero normal. Owned values are the global fields; the locals are their ghost update through
+ * UpdateLocalGhosts() and the fields' catalogued sync classes. Collective. Built by
  * CalculateAllGridMetrics() on the finest level of a particle run, after the coordinates and lCent
  * are final; a no-op once built. Coordinates are fixed thereafter (there are no moving grids); a
  * grid that changes must MetricDestroyFacePlanes() and rebuild.
