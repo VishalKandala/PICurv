@@ -226,6 +226,14 @@ io:
   # [Non-negative Integer] -> -statistics_console_output_freq
   statistics_console_output_frequency: 100
 
+  # Whether the run's first state (step 0, or a restart's starting step) and its last
+  # completed state are checkpointed besides the data_output_frequency cadence. Both
+  # default to true; turning them off saves those writes in benchmarks. A run without
+  # its final checkpoint resumes (--continue) from its last cadence checkpoint.
+  # [Boolean] -> -write_initial_checkpoint / -write_final_checkpoint
+  write_initial_checkpoint: true
+  write_final_checkpoint: true
+
   # --- Particle Tracking Row Subsampling ---
   # Within each particle console snapshot, print only every Nth particle row.
   # [Integer] -> -logfreq

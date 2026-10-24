@@ -6790,7 +6790,35 @@ def test_new_profiling_config_emits_explicit_timestep_flags(tmp_path):
     assert "-profiling_timestep_file timesteps.csv" in content
     assert "-profiling_final_summary false" in content
     assert "-profiling_helpers UnpackSwarmFields,MetricJacobian" in content
+    assert "-write_initial_checkpoint" not in content  # absent keys keep the defaults
     assert "-profile_config_file" in content
+
+
+def test_boundary_checkpoint_switches_reach_the_control_file(tmp_path):
+    """!
+    @brief io.write_initial_checkpoint / write_final_checkpoint emit explicit boolean flags.
+    @param[in] tmp_path Pytest temporary directory.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    valid = FIXTURES / "valid"
+    case_cfg = picurv.read_yaml_file(str(valid / "case.yml"))
+    solver_cfg = picurv.read_yaml_file(str(valid / "solver.yml"))
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+    monitor_cfg.setdefault("io", {}).update({"write_initial_checkpoint": False, "write_final_checkpoint": True})
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+    source_files = {"Case": str(valid / "case.yml"), "Solver": str(valid / "solver.yml"),
+                    "Monitor": str(valid / "monitor.yml")}
+    monitor_files = picurv.prepare_monitor_files(str(run_dir), "demo_run", monitor_cfg, source_files)
+    content = Path(picurv.generate_solver_control_file(
+        str(run_dir), "demo_run",
+        {"case": case_cfg, "case_path": str(valid / "case.yml"), "solver": solver_cfg,
+         "solver_path": str(valid / "solver.yml"), "monitor": monitor_cfg,
+         "monitor_path": str(valid / "monitor.yml")},
+        1, monitor_files)).read_text(encoding="utf-8")
+    assert "-write_initial_checkpoint false" in content
+    assert "-write_final_checkpoint true" in content
 
 
 def test_profiling_helpers_resolve_names_or_all():

@@ -740,6 +740,14 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
                                &simCtx->fieldStatisticsContinue, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-dt", &simCtx->dt, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-tio", &simCtx->tiout, NULL); CHKERRQ(ierr);
+    {
+        // Boundary checkpoints (the run's first and last states) are written unless turned off.
+        PetscBool write_initial = PETSC_TRUE, write_final = PETSC_TRUE;
+        ierr = PetscOptionsGetBool(NULL, NULL, "-write_initial_checkpoint", &write_initial, NULL); CHKERRQ(ierr);
+        ierr = PetscOptionsGetBool(NULL, NULL, "-write_final_checkpoint", &write_final, NULL); CHKERRQ(ierr);
+        simCtx->skipInitialCheckpoint = (PetscBool)!write_initial;
+        simCtx->skipFinalCheckpoint   = (PetscBool)!write_final;
+    }
     ierr = PetscOptionsGetInt(NULL, NULL, "-particle_console_output_freq", &simCtx->particleConsoleOutputFreq, &particle_console_output_freq_flg); CHKERRQ(ierr);
     if (!particle_console_output_freq_flg) {
         simCtx->particleConsoleOutputFreq = simCtx->tiout;

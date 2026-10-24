@@ -9051,7 +9051,7 @@ _MONITOR_SCHEMA = {
     ("diagnostics", "runtime_memory_log"): {"enabled", "file"},
     ("io",): {
         "data_output_frequency", "particle_console_output_frequency", "particle_log_interval",
-        "statistics_console_output_frequency",
+        "statistics_console_output_frequency", "write_initial_checkpoint", "write_final_checkpoint",
     },
     ("solver_monitoring",): {"momentum", "poisson", "petsc_passthrough_options"},
     ("solver_monitoring", "momentum"): {
@@ -10795,6 +10795,9 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         freq = io_cfg.get('data_output_frequency')
         if freq is not None and (not isinstance(freq, int) or freq <= 0):
             errors.append(f"  {monitor_path}: 'io.data_output_frequency' must be a positive integer (got {freq}).")
+        for key in ('write_initial_checkpoint', 'write_final_checkpoint'):
+            if key in io_cfg and not isinstance(io_cfg[key], bool):
+                errors.append(f"  {monitor_path}: 'io.{key}' must be true or false (got {io_cfg[key]!r}).")
         particle_console_freq = io_cfg.get('particle_console_output_frequency')
         if particle_console_freq is not None and (not isinstance(particle_console_freq, int) or particle_console_freq < 0):
             errors.append(
@@ -16820,6 +16823,11 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     io_cfg = monitor_cfg.get('io', {})
     particle_console_output_freq = resolve_particle_console_output_frequency(io_cfg)
     if 'data_output_frequency' in io_cfg: control_lines.append(f"-tio {io_cfg['data_output_frequency']}")
+    # The run's first and last states are checkpointed unless turned off; cadence and
+    # signal checkpoints do not depend on these.
+    for key in ('write_initial_checkpoint', 'write_final_checkpoint'):
+        if key in io_cfg:
+            control_lines.append(f"-{key} {str(bool(io_cfg[key])).lower()}")
     if particle_console_output_freq is not None:
         control_lines.append(f"-particle_console_output_freq {particle_console_output_freq}")
     statistics_console_output_freq = resolve_statistics_console_output_frequency(io_cfg)

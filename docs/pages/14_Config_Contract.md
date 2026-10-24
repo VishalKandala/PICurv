@@ -203,6 +203,7 @@ Verification-pathway rule:
   covariance entries. An omitted `end_time` is absent from the control file rather
   than given a sentinel, because absence is what makes a window open-ended.
 - `io.statistics_console_output_frequency` -> `-statistics_console_output_freq`.
+- `io.write_initial_checkpoint` / `io.write_final_checkpoint` -> `-write_initial_checkpoint` / `-write_final_checkpoint`.
   It governs reporting only and is excluded from the window identity hash, so
   changing it cannot change an accumulated result.
 - window definitions are resolved and hashed in C, and the post-processor reads

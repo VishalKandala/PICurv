@@ -62,6 +62,47 @@ static PetscErrorCode TestVerifyPathExistence(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests that turned-off boundary checkpoints are skipped while cadence ones are written.
+ * @details With io.write_initial_checkpoint and io.write_final_checkpoint false, the `initial`,
+ *          `branch_start` and `final` bundles write nothing; a `cadence` bundle still commits.
+ */
+static PetscErrorCode TestBoundaryCheckpointsCanBeSkipped(void)
+{
+    SimCtx *simCtx = NULL;
+    UserCtx *user = NULL;
+    char tmpdir[PETSC_MAX_PATH_LEN];
+    char path[PETSC_MAX_PATH_LEN];
+    PetscBool exists = PETSC_FALSE;
+    const char *skipped[] = {"initial", "branch_start", "final"};
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    tmpdir[0] = '\0';
+    if (simCtx->rank == 0) PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
+    PetscCallMPI(MPI_Bcast(tmpdir, sizeof(tmpdir), MPI_CHAR, 0, PETSC_COMM_WORLD));
+    PetscCall(PetscStrncpy(simCtx->output_dir, tmpdir, sizeof(simCtx->output_dir)));
+    PetscCall(PetscStrncpy(simCtx->restart_dir, tmpdir, sizeof(simCtx->restart_dir)));
+    PetscCall(PicurvPopulateIdentityMetrics(user));
+    simCtx->skipInitialCheckpoint = PETSC_TRUE;
+    simCtx->skipFinalCheckpoint = PETSC_TRUE;
+
+    for (size_t r = 0; r < sizeof(skipped) / sizeof(skipped[0]); ++r) {
+        PetscCall(WriteCheckpointBundle(simCtx, skipped[r]));
+    }
+    PetscCall(PetscSNPrintf(path, sizeof(path), "%s/checkpoints/step_000000000001/COMMITTED", tmpdir));
+    PetscCall(PetscTestFile(path, 'r', &exists));
+    PetscCall(PicurvAssertBool((PetscBool)!exists, "turned-off boundary checkpoints write no bundle"));
+
+    PetscCall(WriteCheckpointBundle(simCtx, "cadence"));
+    PetscCall(PetscTestFile(path, 'r', &exists));
+    PetscCall(PicurvAssertBool(exists, "a cadence checkpoint is written regardless"));
+
+    if (simCtx->rank == 0) PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests writing and reloading core Eulerian field vectors.
  */
 
@@ -1122,6 +1163,7 @@ int main(int argc, char **argv)
         {"should-write-data-output", TestShouldWriteDataOutput},
         {"verify-path-existence", TestVerifyPathExistence},
         {"write-and-read-simulation-fields", TestWriteAndReadSimulationFields},
+        {"boundary-checkpoints-can-be-skipped", TestBoundaryCheckpointsCanBeSkipped},
         {"postprocessor-read-scales-each-load-once", TestPostprocessorReadScalesEachLoadOnce},
         {"checkpoint-same-step-rewrite-rejected", TestCheckpointSameStepRewriteIsRejected},
         {"display-banner-reports-statistics-cadence", TestDisplayBannerReportsStatisticsCadence},

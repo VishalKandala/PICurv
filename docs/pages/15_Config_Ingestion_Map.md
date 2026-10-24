@@ -41,6 +41,7 @@ This page maps configuration flow from YAML schema to generated artifacts and C 
 | `monitor.io.particle_console_output_frequency` | `-particle_console_output_freq` | `src/setup.c` | `src/io.c`, `src/setup.c`, particle console logging |
 | `monitor.io.particle_log_interval` | `-logfreq` | `src/setup.c` | particle console row subsampling |
 | `monitor.io.statistics_console_output_frequency` | `-statistics_console_output_freq` | `src/statistics_config.c` | `src/logging.c` statistics console snapshot, `src/runloop.c` |
+| `monitor.io.write_initial_checkpoint` / `write_final_checkpoint` | `-write_initial_checkpoint` / `-write_final_checkpoint` | `src/setup.c` | `src/io.c` WriteCheckpointBundle |
 | fixed run topology | canonical `-output_dir`, `-restart_dir`, `-log_dir`, `-analysis_dir` | `picurv_cli/core.py`, then `src/setup.c` | `src/io.c`, `src/setup.c`, `src/runloop.c`, `src/logging.c` |
 | `monitor.logging.*` | `whitelist.run`, `LOG_LEVEL` env | `src/setup.c` + `src/logging.c` | logging macros/system |
 | `monitor.profiling.*` | `profile.run` (selected-mode only) + explicit profiling flags in `*.control` | `src/setup.c` + profiling init | profiler summaries |

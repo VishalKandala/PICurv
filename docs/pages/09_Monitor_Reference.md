@@ -68,6 +68,8 @@ io:
   particle_console_output_frequency: 100
   statistics_console_output_frequency: 100
   particle_log_interval: 10
+  write_initial_checkpoint: true
+  write_final_checkpoint: true
 ```
 
 Mappings:
@@ -75,11 +77,20 @@ Mappings:
 - `particle_console_output_frequency` -> `-particle_console_output_freq`
 - `statistics_console_output_frequency` -> `-statistics_console_output_freq`
 - `particle_log_interval` -> `-logfreq`
+- `write_initial_checkpoint` -> `-write_initial_checkpoint`
+- `write_final_checkpoint` -> `-write_final_checkpoint`
 
 Semantics:
 - `data_output_frequency` controls committed-checkpoint cadence. Initial and
   final completed states are also checkpointed, including an off-cadence final
-  state.
+  state, unless `write_initial_checkpoint` or `write_final_checkpoint` is `false`.
+- `write_initial_checkpoint` (default `true`) covers the run's first state: step 0 of a fresh
+  run, or the starting step of a restart (`branch_start`). `write_final_checkpoint` (default
+  `true`) covers the last completed step. Turning them off saves those writes, which dominate
+  wall time in short large benchmarks (about 140 GB per write at 10^9 particles), at a cost:
+  without its final checkpoint a run resumes (`--continue`) or branches from its last cadence
+  checkpoint, and without the initial one there is no step-0 state to post-process. A run
+  stopped early by a signal or the walltime guard still checkpoints its last good state.
 - Checkpoint-internal `eulerian/`, `particles/`, and `statistics/` names are
   fixed and are not user configuration. See @ref p58_checkpoint_sec.
 - `statistics_console_output_frequency` controls how often field-statistics window

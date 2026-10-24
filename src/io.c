@@ -2579,6 +2579,15 @@ PetscErrorCode WriteCheckpointBundle(SimCtx *simCtx, const char *reason)
     PetscCheck(simCtx != NULL && reason != NULL && reason[0] != '\0',
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Simulation context and checkpoint reason are required.");
+    // io.write_initial_checkpoint / io.write_final_checkpoint can turn off the run's boundary
+    // bundles; cadence and signal bundles are always written.
+    if ((simCtx->skipInitialCheckpoint && (strcmp(reason, "initial") == 0 || strcmp(reason, "branch_start") == 0)) ||
+        (simCtx->skipFinalCheckpoint && strcmp(reason, "final") == 0)) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Skipping the %s checkpoint at step %" PetscInt_FMT " (io.write_%s_checkpoint is false).\n",
+                  reason, simCtx->step, strcmp(reason, "final") == 0 ? "final" : "initial");
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
     user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
     PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
                "Finest-level fields must exist before checkpoint output.");

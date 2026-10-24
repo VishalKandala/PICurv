@@ -164,6 +164,8 @@
     "-walltime_guard_multiplier",
     "-walltime_guard_warmup_steps",
     "-whitelist_config_file",
+    "-write_final_checkpoint",
+    "-write_initial_checkpoint",
     "-xMaxs",
     "-xMins",
     "-yMaxs",

@@ -908,6 +908,8 @@ typedef struct SimCtx {
     PetscInt  StartStep;
     PetscInt  StepsToRun;
     PetscInt  tiout;
+    PetscBool skipInitialCheckpoint; ///< io.write_initial_checkpoint false: no initial/branch_start bundle.
+    PetscBool skipFinalCheckpoint;   ///< io.write_final_checkpoint false: no end-of-run bundle.
     PetscInt  particleConsoleOutputFreq;
     PetscReal StartTime;
     PetscReal dt;
