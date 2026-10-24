@@ -1,0 +1,1 @@
+- Experimental: checkpoint field files honour PETSc's `-viewer_binary_mpiio false` to move them through rank 0 instead of MPI-IO; the file format is the same either way. On Open MPI 4.1 over Lustre, `OMPI_MCA_io=romio321` was measured faster than the default OMPIO driver.

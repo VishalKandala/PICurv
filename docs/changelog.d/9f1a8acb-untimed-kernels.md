@@ -1,0 +1,1 @@
+- Performance: 47 per-particle and per-cell arithmetic kernels no longer carry profiling timers, restoring the 10-15% of optimized particle step time that full timer coverage cost; `make audit-profiling` lists them with their measured call rates and rejects a timer on one.
