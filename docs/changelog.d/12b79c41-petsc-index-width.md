@@ -1,0 +1,1 @@
+- Experimental: PICurv builds and runs against a 64-bit-index PETSc as well as the default 32-bit one, needed above about 7.16e8 particles; `picurv version` shows each executable's index width, checkpoints record it and are refused by a build of the other width, setup refuses a particle count the index width cannot hold, and `make check-alt-petsc` tests a second PETSc build.
