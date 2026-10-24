@@ -4,6 +4,7 @@
  */
 
 #include "particle_field_catalog.h"
+#include "logging.h"
 
 #define PARTICLE_FIELD_ENTRY(field_id_, name_, alias1_, alias2_, components_, type_, registration_, capabilities_, default_, scatter_target_, dimension_) \
     [field_id_] = {                                                                                                                                     \
@@ -72,6 +73,7 @@ PetscErrorCode ParticleFieldGetDescriptor(ParticleFieldId field_id,
                                           const ParticleFieldDescriptor **descriptor)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(descriptor != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Particle field descriptor output cannot be NULL.");
     PetscCheck(field_id >= 0 && field_id < PARTICLE_FIELD_ID_COUNT,
@@ -82,6 +84,7 @@ PetscErrorCode ParticleFieldGetDescriptor(ParticleFieldId field_id,
                "Particle field catalog entry %d is not initialized consistently.", (int)field_id);
 
     *descriptor = &gParticleFieldCatalog[field_id];
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -92,17 +95,20 @@ PetscErrorCode ParticleFieldGetDescriptor(ParticleFieldId field_id,
 PetscErrorCode ParticleFieldIdFromScatterTarget(FieldId target, ParticleFieldId *field_id)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(field_id != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "ParticleFieldId output cannot be NULL.");
     for (PetscInt index = 0; index < PARTICLE_FIELD_ID_COUNT; ++index) {
         if ((gParticleFieldCatalog[index].capabilities & PARTICLE_FIELD_CAPABILITY_EULERIAN_SCATTER) &&
             gParticleFieldCatalog[index].eulerian_scatter_target == target) {
             *field_id = (ParticleFieldId)index;
+            PROFILE_HELPER_END;
             PetscFunctionReturn(0);
         }
     }
     SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
             "No particle field scatters to Eulerian field '%s'.", FieldCanonicalName(target));
+    PROFILE_HELPER_END;
 }
 
 /**
@@ -114,10 +120,12 @@ PetscErrorCode ParticleFieldIdFromName(const char *field_name, ParticleFieldId *
     PetscBool found = PETSC_FALSE;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCall(ParticleFieldTryIdFromName(field_name, field_id, &found));
     PetscCheck(found, PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE,
                "Particle field name '%s' is not registered in the persistent particle field catalog.",
                field_name);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -129,6 +137,7 @@ PetscErrorCode ParticleFieldTryIdFromName(const char *field_name, ParticleFieldI
                                           PetscBool *found)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(field_name != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Particle field name cannot be NULL.");
     PetscCheck(field_id != NULL && found != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
@@ -149,6 +158,7 @@ PetscErrorCode ParticleFieldTryIdFromName(const char *field_name, ParticleFieldI
             break;
         }
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -158,8 +168,10 @@ PetscErrorCode ParticleFieldTryIdFromName(const char *field_name, ParticleFieldI
  */
 const char *ParticleFieldName(ParticleFieldId field_id)
 {
-    if (field_id < 0 || field_id >= PARTICLE_FIELD_ID_COUNT) return "InvalidParticleField";
-    if (gParticleFieldCatalog[field_id].id != field_id) return "InvalidParticleField";
+    PROFILE_HELPER_BEGIN;
+    if (field_id < 0 || field_id >= PARTICLE_FIELD_ID_COUNT) { PROFILE_HELPER_END; return "InvalidParticleField"; }
+    if (gParticleFieldCatalog[field_id].id != field_id) { PROFILE_HELPER_END; return "InvalidParticleField"; }
+    PROFILE_HELPER_END;
     return gParticleFieldCatalog[field_id].canonical_name;
 }
 

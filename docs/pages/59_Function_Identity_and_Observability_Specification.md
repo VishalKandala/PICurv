@@ -2,60 +2,85 @@
 
 @anchor _Function_Identity_and_Observability_Specification
 
-This deferred specification records the possible optimization of function-name
-filtering and profiling. It is not part of the field-statistics implementation
-and currently has no implementation branch.
+How a C function is named and timed, and the one part of the original deferred work,
+the logging allowlist, that is still open.
 
 @tableofcontents
 
-@section p59_problem_sec 1. Problem to Measure
+@section p59_identity_sec 1. Function Identity
 
-Logging allowlists and profiling currently identify instrumented functions by
-name. Emitted logging is normally dominated by formatting and I/O, but filtered
-calls in hot loops and repeated profiler start/end name searches may have
-measurable cost. That cost must be benchmarked before changing the system.
+A function's name everywhere is C99's predefined `__func__`: profiling events, logging
+filters (`LOG_ALLOW`, `is_function_allowed(__func__)`) and PETSc's error traces (PETSc
+3.20's `PETSC_FUNCTION_NAME` is `__func__`). No file defines or reads `__FUNCT__`; a
+hand-written name could drift from the function it labels, which is how
+`ComputeKFaceMetrics` was once reported as `ComputeJFaceMetrics`. Names written in
+`monitor.yml` (`logging.enabled_functions`, `profiling.timestep_output.functions`,
+`profiling.helpers`) are these function names.
 
-@section p59_direction_sec 2. Recorded Direction
+@section p59_profiling_sec 2. Profiling Contract
 
-If benchmarks justify the work:
+Every function defined in `src/*.c` that is not `static inline` times itself:
 
-- give instrumented application functions a compile-time `FunctionId` or a
-  call-site-cached registry handle;
-- resolve configured names once into a bitset/indexed allow table;
-- make profiler start/end update directly indexed state;
-- check log level before function filtering in every hot-path macro;
-- parse profiling mode once at ingress; and
-- retain canonical function names for YAML, diagnostics, errors, and output.
+- it begins one timer, `PROFILE_FUNCTION_BEGIN` or `PROFILE_HELPER_BEGIN`, as its first
+  statement after `PetscFunctionBeginUser` (an early return placed before the timer, such
+  as a once-only guard, needs no END);
+- every explicit `return` and `PetscFunctionReturn` after it is immediately preceded by
+  `PROFILE_FUNCTION_END` (or its alias `PROFILE_HELPER_END`), and a body that can fall off
+  its end ends with one. Error returns inside `SETERRQ`, `PetscCall` and `CHKERRQ` end the
+  run and need none.
 
-The implementation should preserve existing logging macros, log formats,
-profiling files, and default behavior as far as possible. A cached handle may be
-less intrusive than a manually maintained enum of every C function; the
-benchmark/prototype phase chooses between them.
+A missed END leaves the function's PETSc event open; its later calls are then not recorded.
+`make audit-profiling` (also run by `make check`) enforces both rules and the absence of
+`__FUNCT__`, against the declared exclusions in `tests/tooling/audit_profiling_coverage.py`:
+`main`, the asynchronous signal handler, the logging filter itself (`get_log_level`,
+`is_function_allowed`, `set_allowed_functions`), the profiler's own functions, and two
+dependency-free leaf modules, `src/checksum.c` and `src/statistics_moments.c`, which include
+only `petscsys.h`.
 
-@section p59_boundaries_sec 3. Explicit Boundaries
+Each timer is a PETSc log event named by `__func__`, registered on the function's first call
+and cached at the call site. Registration waits for `PetscInitialize` and stops after
+`PetscFinalize`, so a function that runs outside them (argument handling in `main`) stays
+untimed instead of failing. There are two kinds:
 
-This work does not:
+- `PROFILE_FUNCTION_BEGIN`, class `PICurv`: functions called a handful of times per step,
+  solver pass or post-processing step. Always timed.
+- `PROFILE_HELPER_BEGIN`, class `PICurvHelper`: functions called per particle, per cell or
+  in inner loops. Off unless `profiling.helpers` names them or is `all`
+  (@ref p09_profiling_sec).
 
-- reuse `FieldId` or create one universal identity namespace;
-- assign IDs to filenames, arbitrary configuration values, PETSc object names,
-  DMSwarm field names, or user-defined postprocessing labels;
-- replace boundary-condition enums/function pointers already resolved at
-  ingress;
-- redesign runtime physical-solution monitoring or scientific statistics; or
-- block @ref 58_Field_Statistics.
+The split is set by measured calls per rank per step with every helper on, over a particle
+run, an implicit-momentum flow run, a Newton–Krylov run and a post-processing step: at most 20
+is an aggregate. A function no measured case reached starts as a helper and is promoted once a
+case that exercises it shows it is called rarely. A new function starts as a helper unless it is
+plainly once per step.
 
-One-time string comparisons at external ingress and presentation boundaries are
-correct and remain.
+@section p59_cost_sec 3. Measured Cost
 
-@section p59_plan_sec 4. Future Plan
+Per call, PETSc 3.20.3 built optimized (`--with-debugging=0`), one rank on Grace:
 
-1. Benchmark disabled, filtered, selected, and all-function logging/profiling on
-   representative serial and MPI runs.
-2. Inventory call sites and macros; identify only repeated runtime lookups.
-3. Prototype cached handles and compile-time IDs without changing output.
-4. Select the simpler design that demonstrates a material improvement.
-5. Add behavior, concurrency, and overhead regressions, then update monitoring
-   and contributor documentation.
+| Timer | Cost |
+|---|---|
+| empty loop iteration (reference) | 2.5 ns |
+| helper, off | 3.5 ns |
+| PETSc event, active | 98 ns |
+| former PICurv registry timer (removed) | 54 ns |
 
-This work receives its own branch series only after explicit approval.
+A particle step makes about 19 helper calls per particle, so the former always-on timers cost
+1.4 s per step at 1.64M particles per rank (20–33% of step time); off, helpers cost a few
+milliseconds. `helpers: all` costs about 100 ns per call and roughly doubles a particle
+step, so it is for short diagnostic runs. A debug PETSc build pays about 26 ns per switched-off
+helper, which is visible in debug runs.
 
+@section p59_logging_sec 4. Still Deferred: Logging Filter
+
+Logging still filters by name: `LOG_ALLOW` checks the level first, then `is_function_allowed`
+compares `__func__` against the allowlist. Emitted logging is dominated by formatting and I/O,
+and the level check keeps filtered calls cheap at production levels, so this is unchanged. If a
+benchmark shows the name comparison is material at debug levels, the recorded direction is to
+resolve the configured names once into an indexed allow table and cache each call site's entry,
+as the profiler does, without changing log formats or the YAML names.
+
+This work does not reuse `FieldId` or create one universal identity namespace, assign IDs to
+filenames, configuration values, PETSc object names, DMSwarm field names or post-processing
+labels, or replace boundary-condition dispatch resolved at ingress. One-time string comparisons
+at external ingress and presentation boundaries are correct and remain.

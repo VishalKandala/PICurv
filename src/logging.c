@@ -58,6 +58,7 @@ enum {
  */
 static void SearchMetricsReduceOp(void *invec, void *inoutvec, int *len, MPI_Datatype *datatype)
 {
+    PROFILE_FUNCTION_BEGIN;
     PetscReal *in = (PetscReal *)invec;
     PetscReal *inout = (PetscReal *)inoutvec;
     (void)datatype;
@@ -84,6 +85,7 @@ static void SearchMetricsReduceOp(void *invec, void *inoutvec, int *len, MPI_Dat
         inout[idx + SEARCH_METRIC_MAX_PASS_DEPTH] = PetscMax(inout[idx + SEARCH_METRIC_MAX_PASS_DEPTH],
                                                              in[idx + SEARCH_METRIC_MAX_PASS_DEPTH]);
     }
+    PROFILE_FUNCTION_END;
 }
 
 // --------------------- Function Implementations ---------------------
@@ -134,6 +136,7 @@ PetscErrorCode print_log_level(void)
   const char     *level_name;
 
   PetscFunctionBeginUser;
+  PROFILE_HELPER_BEGIN;
   /* get MPI rank */
   ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRMPI(ierr);
 
@@ -153,6 +156,7 @@ PetscErrorCode print_log_level(void)
                      level_name, level, (int)rank);
   CHKERRMPI(ierr);
 
+  PROFILE_HELPER_END;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -217,6 +221,7 @@ PetscBool is_function_allowed(const char* functionName)
  */
 PetscErrorCode LOG_CELL_VERTICES(const Cell *cell, PetscMPIInt rank)
 {
+    PROFILE_HELPER_BEGIN;
 
     // Validate input pointers
     if (cell == NULL) {
@@ -230,6 +235,7 @@ PetscErrorCode LOG_CELL_VERTICES(const Cell *cell, PetscMPIInt rank)
                        i, cell->vertices[i].x, cell->vertices[i].y, cell->vertices[i].z);
         }
 
+    PROFILE_HELPER_END;
     return 0; // Indicate successful execution
 }
 
@@ -242,6 +248,7 @@ PetscErrorCode LOG_CELL_VERTICES(const Cell *cell, PetscMPIInt rank)
  */
 PetscErrorCode LOG_FACE_DISTANCES(PetscReal* d)
 {
+    PROFILE_HELPER_BEGIN;
 
     // Validate input array
     if (d == NULL) {
@@ -257,6 +264,7 @@ PetscErrorCode LOG_FACE_DISTANCES(PetscReal* d)
     PetscPrintf(PETSC_COMM_SELF, "  FRONT(%d):  %.15f\n", FRONT, d[FRONT]);
     PetscPrintf(PETSC_COMM_SELF, "  BACK(%d):   %.15f\n", BACK, d[BACK]);
 
+    PROFILE_HELPER_END;
     return 0; // Indicate successful execution
 }
 
@@ -265,7 +273,9 @@ PetscErrorCode LOG_FACE_DISTANCES(PetscReal* d)
  */
 static void IntToStr(int value, char *buf, size_t bufsize)
 {
+    PROFILE_HELPER_BEGIN;
     snprintf(buf, bufsize, "%d", value);
+    PROFILE_HELPER_END;
 }
 
 /*
@@ -273,7 +283,9 @@ static void IntToStr(int value, char *buf, size_t bufsize)
  */
 static void Int64ToStr(PetscInt64 value, char *buf, size_t bufsize)
 {
+    PROFILE_HELPER_BEGIN;
     snprintf(buf, bufsize, "%ld", value);
+    PROFILE_HELPER_END;
 }
 
 /*
@@ -281,7 +293,9 @@ static void Int64ToStr(PetscInt64 value, char *buf, size_t bufsize)
  */
 static void CellToStr(const PetscInt *cell, char *buf, size_t bufsize)
 {
+    PROFILE_HELPER_BEGIN;
     snprintf(buf, bufsize, "(%d, %d, %d)", cell[0], cell[1], cell[2]);
+    PROFILE_HELPER_END;
 }
 
 /*
@@ -289,7 +303,9 @@ static void CellToStr(const PetscInt *cell, char *buf, size_t bufsize)
  */
 static void TripleRealToStr(const PetscReal *arr, char *buf, size_t bufsize)
 {
+    PROFILE_HELPER_BEGIN;
     snprintf(buf, bufsize, "(%.4f, %.4f, %.4f)", arr[0], arr[1], arr[2]);
+    PROFILE_HELPER_END;
 }
 
 /*
@@ -322,6 +338,7 @@ static PetscErrorCode ComputeMaxColumnWidths(PetscInt nParticles,
                                                int *wRank, int *wPID, int *wCell,
                                                int *wPos, int *wVel, int *wWt)
 {
+    PROFILE_HELPER_BEGIN;
     char tmp[TMP_BUF_SIZE];
 
     *wRank = strlen("Rank");  /* Start with the header label lengths */
@@ -356,6 +373,7 @@ static PetscErrorCode ComputeMaxColumnWidths(PetscInt nParticles,
         TripleRealToStr(&weights[3 * i], tmp, TMP_BUF_SIZE);
         if ((int)strlen(tmp) > *wWt) *wWt = (int)strlen(tmp);
     }
+    PROFILE_HELPER_END;
     return 0;
 }
 
@@ -378,12 +396,14 @@ static PetscErrorCode ComputeMaxColumnWidths(PetscInt nParticles,
  */
 static void BuildRowFormatString(PetscMPIInt wRank, PetscInt wPID, PetscInt wCell, PetscInt wPos, PetscInt wVel, PetscInt wWt, char *fmtStr, size_t bufSize)
 {
+    PROFILE_HELPER_BEGIN;
     // Build a format string using snprintf.
     // We assume that the Rank is an int (%d), PID is a 64-bit int (%ld)
     // and the remaining columns are strings (which have been formatted already).
     snprintf(fmtStr, bufSize,
              "| %%-%dd | %%-%dd | %%-%ds | %%-%ds | %%-%ds | %%-%ds |\n",
              wRank, wPID, wCell, wPos, wVel, wWt);
+    PROFILE_HELPER_END;
 }
 
 /*
@@ -391,6 +411,7 @@ static void BuildRowFormatString(PetscMPIInt wRank, PetscInt wPID, PetscInt wCel
  */
 static void BuildHeaderString(char *headerStr, size_t bufSize, PetscMPIInt wRank, PetscInt wPID, PetscInt wCell, PetscInt wPos, PetscInt wVel, PetscInt wWt)
 {
+    PROFILE_HELPER_BEGIN;
     snprintf(headerStr, bufSize,
              "| %-*s | %-*s | %-*s | %-*s | %-*s | %-*s |\n",
              (int)wRank, "Rank",
@@ -399,6 +420,7 @@ static void BuildHeaderString(char *headerStr, size_t bufSize, PetscMPIInt wRank
              (int)wPos, "Position (x,y,z)",
              (int)wVel, "Velocity (x,y,z)",
              (int)wWt, "Weights (a1,a2,a3)");
+    PROFILE_HELPER_END;
 }
 
 /**
@@ -409,6 +431,7 @@ static void BuildHeaderString(char *headerStr, size_t bufSize, PetscMPIInt wRank
  */
 PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval)
 {
+    PROFILE_HELPER_BEGIN;
     DM swarm = user->swarm;
     PetscErrorCode ierr;
     PetscInt localNumParticles;
@@ -525,6 +548,7 @@ PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval)
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_VELOCITY), NULL, NULL, (void**)&velocities); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL,LOG_DEBUG, "Restored all particle fields.\n");
+    PROFILE_HELPER_END;
     return 0;
 }
 
@@ -537,9 +561,12 @@ PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval)
 
 PetscBool IsParticleConsoleSnapshotEnabled(const SimCtx *simCtx)
 {
+    PROFILE_FUNCTION_BEGIN;
     if (!simCtx) {
+        PROFILE_FUNCTION_END;
         return PETSC_FALSE;
     }
+    PROFILE_FUNCTION_END;
     return (PetscBool)(simCtx->np > 0 &&
                        simCtx->particleConsoleOutputFreq > 0 &&
                        get_log_level() >= LOG_INFO);
@@ -554,6 +581,8 @@ PetscBool IsParticleConsoleSnapshotEnabled(const SimCtx *simCtx)
 
 PetscBool ShouldEmitPeriodicParticleConsoleSnapshot(const SimCtx *simCtx, PetscInt completed_step)
 {
+    PROFILE_FUNCTION_BEGIN;
+    PROFILE_FUNCTION_END;
     return (PetscBool)(IsParticleConsoleSnapshotEnabled(simCtx) &&
                        completed_step > 0 &&
                        completed_step % simCtx->particleConsoleOutputFreq == 0);
@@ -571,8 +600,10 @@ PetscErrorCode EmitParticleConsoleSnapshot(UserCtx *user, SimCtx *simCtx, PetscI
     PetscErrorCode ierr;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     LOG(GLOBAL, LOG_INFO, "Particle states at step %d:\n", step);
     ierr = LOG_PARTICLE_FIELDS(user, simCtx->LoggingFrequency); CHKERRQ(ierr);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -582,7 +613,8 @@ PetscErrorCode EmitParticleConsoleSnapshot(UserCtx *user, SimCtx *simCtx, PetscI
  */
 static void trim(char *s)
 {
-    if (!s) return;
+    PROFILE_HELPER_BEGIN;
+    if (!s) { PROFILE_HELPER_END; return; }
 
     /* ---- 1. strip leading blanks ----------------------------------- */
     char *p = s;
@@ -596,6 +628,7 @@ static void trim(char *s)
     size_t len = strlen(s);
     while (len > 0 && isspace((unsigned char)s[len - 1]))
         s[--len] = '\0';
+    PROFILE_HELPER_END;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -617,6 +650,7 @@ PetscErrorCode LoadAllowedFunctionsFromFile(const char   filename[],
   PetscErrorCode ierr;
 
   PetscFunctionBegin;
+  PROFILE_HELPER_BEGIN;
 
   /* ---------------------------------------------------------------------- */
   /* 1. Open file                                                           */
@@ -651,6 +685,7 @@ PetscErrorCode LoadAllowedFunctionsFromFile(const char   filename[],
   *funcsOut = funcs;
   *nOut     = (PetscInt)n;
 
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
@@ -663,12 +698,14 @@ PetscErrorCode FreeAllowedFunctions(char **funcs, PetscInt n)
 {
   PetscErrorCode ierr;
   PetscFunctionBegin;
+  PROFILE_HELPER_BEGIN;
   if (funcs) {
     for (PetscInt i = 0; i < n; ++i) {
       ierr = PetscFree(funcs[i]); CHKERRQ(ierr);
     }
     ierr = PetscFree(funcs); CHKERRQ(ierr);
   }
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
@@ -679,15 +716,17 @@ PetscErrorCode FreeAllowedFunctions(char **funcs, PetscInt n)
  * @see BCFaceToString()
  */
 const char* BCFaceToString(BCFace face) {
+    PROFILE_FUNCTION_BEGIN;
     switch (face) {
-        case BC_FACE_NEG_X: return "-Xi (I-Min)";
-        case BC_FACE_POS_X: return "+Xi (I-Max)";
-        case BC_FACE_NEG_Y: return "-Eta (J-Min)";
-        case BC_FACE_POS_Y: return "+Eta (J-Max)";
-        case BC_FACE_NEG_Z: return "-Zeta (K-Min)";
-        case BC_FACE_POS_Z: return "+Zeta (K-Max)";
-        default:            return "Unknown Face";
+        case BC_FACE_NEG_X: PROFILE_FUNCTION_END; return "-Xi (I-Min)";
+        case BC_FACE_POS_X: PROFILE_FUNCTION_END; return "+Xi (I-Max)";
+        case BC_FACE_NEG_Y: PROFILE_FUNCTION_END; return "-Eta (J-Min)";
+        case BC_FACE_POS_Y: PROFILE_FUNCTION_END; return "+Eta (J-Max)";
+        case BC_FACE_NEG_Z: PROFILE_FUNCTION_END; return "-Zeta (K-Min)";
+        case BC_FACE_POS_Z: PROFILE_FUNCTION_END; return "+Zeta (K-Max)";
+        default:            PROFILE_FUNCTION_END; return "Unknown Face";
     }
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -698,14 +737,16 @@ const char* BCFaceToString(BCFace face) {
  */
 const char* InitialConditionModeToString(InitialConditionMode mode)
 {
+    PROFILE_FUNCTION_BEGIN;
     switch(mode){
-        case IC_MODE_ZERO: return "Zero";
-        case IC_MODE_CONSTANT_CARTESIAN: return "Cartesian Constant";
-        case IC_MODE_POISEUILLE: return "Poiseuille";
-        case IC_MODE_CONSTANT_STREAMWISE: return "Streamwise Constant";
-        case IC_MODE_FILE: return "File";
-        default: return "Unknown Initial Condition";
+        case IC_MODE_ZERO: PROFILE_FUNCTION_END; return "Zero";
+        case IC_MODE_CONSTANT_CARTESIAN: PROFILE_FUNCTION_END; return "Cartesian Constant";
+        case IC_MODE_POISEUILLE: PROFILE_FUNCTION_END; return "Poiseuille";
+        case IC_MODE_CONSTANT_STREAMWISE: PROFILE_FUNCTION_END; return "Streamwise Constant";
+        case IC_MODE_FILE: PROFILE_FUNCTION_END; return "File";
+        default: PROFILE_FUNCTION_END; return "Unknown Initial Condition";
     }
+    PROFILE_FUNCTION_END;
 }
 
 /*
@@ -714,15 +755,17 @@ const char* InitialConditionModeToString(InitialConditionMode mode)
  */
 const char* FlowDirectionToString(FlowDirection fd)
 {
+    PROFILE_HELPER_BEGIN;
     switch ((int)fd) {
-        case FLOW_DIR_POS_XI:   return "+Xi";
-        case FLOW_DIR_NEG_XI:   return "-Xi";
-        case FLOW_DIR_POS_ETA:  return "+Eta";
-        case FLOW_DIR_NEG_ETA:  return "-Eta";
-        case FLOW_DIR_POS_ZETA: return "+Zeta";
-        case FLOW_DIR_NEG_ZETA: return "-Zeta";
-        default:                return "from INLET";
+        case FLOW_DIR_POS_XI:   PROFILE_HELPER_END; return "+Xi";
+        case FLOW_DIR_NEG_XI:   PROFILE_HELPER_END; return "-Xi";
+        case FLOW_DIR_POS_ETA:  PROFILE_HELPER_END; return "+Eta";
+        case FLOW_DIR_NEG_ETA:  PROFILE_HELPER_END; return "-Eta";
+        case FLOW_DIR_POS_ZETA: PROFILE_HELPER_END; return "+Zeta";
+        case FLOW_DIR_NEG_ZETA: PROFILE_HELPER_END; return "-Zeta";
+        default:                PROFILE_HELPER_END; return "from INLET";
     }
+    PROFILE_HELPER_END;
 }
 
 /**
@@ -733,13 +776,15 @@ const char* FlowDirectionToString(FlowDirection fd)
  */
 const char* ParticleInitializationToString(ParticleInitializationType ParticleInitialization)
 {
+    PROFILE_FUNCTION_BEGIN;
     switch(ParticleInitialization){
-        case PARTICLE_INIT_SURFACE_RANDOM: return "Surface: Random";
-        case PARTICLE_INIT_VOLUME:         return "Volume";
-        case PARTICLE_INIT_POINT_SOURCE:   return "Point Source";
-        case PARTICLE_INIT_SURFACE_EDGES:  return "Surface: At edges";
-        default: return "Unknown Particle Initialization";
+        case PARTICLE_INIT_SURFACE_RANDOM: PROFILE_FUNCTION_END; return "Surface: Random";
+        case PARTICLE_INIT_VOLUME:         PROFILE_FUNCTION_END; return "Volume";
+        case PARTICLE_INIT_POINT_SOURCE:   PROFILE_FUNCTION_END; return "Point Source";
+        case PARTICLE_INIT_SURFACE_EDGES:  PROFILE_FUNCTION_END; return "Surface: At edges";
+        default: PROFILE_FUNCTION_END; return "Unknown Particle Initialization";
     }
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -750,18 +795,18 @@ const char* ParticleInitializationToString(ParticleInitializationType ParticleIn
  */
 const char* LESModelToString(LESModelType LESFlag)
 {
+    PROFILE_FUNCTION_BEGIN;
     switch(LESFlag){
-        case NO_LES_MODEL: return "No LES";
-        case CONSTANT_SMAGORINSKY: return "Constant Smagorinsky";
-        case DYNAMIC_SMAGORINSKY: return "Dynamic Smagorinsky";
-        case VREMAN: return "Vreman";
-        case WALE: return "WALE";
-        default: return "Unknown LES Flag";
+        case NO_LES_MODEL: PROFILE_FUNCTION_END; return "No LES";
+        case CONSTANT_SMAGORINSKY: PROFILE_FUNCTION_END; return "Constant Smagorinsky";
+        case DYNAMIC_SMAGORINSKY: PROFILE_FUNCTION_END; return "Dynamic Smagorinsky";
+        case VREMAN: PROFILE_FUNCTION_END; return "Vreman";
+        case WALE: PROFILE_FUNCTION_END; return "WALE";
+        default: PROFILE_FUNCTION_END; return "Unknown LES Flag";
     }
+    PROFILE_FUNCTION_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LESFilterWidthModelToString"
 /**
  * @brief Implementation of \ref LESFilterWidthModelToString().
  * @details Full API contract is documented with the header declaration in
@@ -770,19 +815,19 @@ const char* LESModelToString(LESModelType LESFlag)
  */
 const char* LESFilterWidthModelToString(LESFilterWidthModel model)
 {
+    PROFILE_FUNCTION_BEGIN;
     /* These spellings are the user-facing YAML values, so a banner line can be pasted
        back into a case file without translation. */
     switch(model){
-        case LES_FILTER_WIDTH_CUBE_ROOT_VOLUME: return "cube_root_volume";
-        case LES_FILTER_WIDTH_GEOMETRIC_MEAN:   return "geometric_mean";
-        case LES_FILTER_WIDTH_MAX_EDGE:         return "max_edge";
-        case LES_FILTER_WIDTH_SCOTTI:           return "scotti";
-        default: return "unknown";
+        case LES_FILTER_WIDTH_CUBE_ROOT_VOLUME: PROFILE_FUNCTION_END; return "cube_root_volume";
+        case LES_FILTER_WIDTH_GEOMETRIC_MEAN:   PROFILE_FUNCTION_END; return "geometric_mean";
+        case LES_FILTER_WIDTH_MAX_EDGE:         PROFILE_FUNCTION_END; return "max_edge";
+        case LES_FILTER_WIDTH_SCOTTI:           PROFILE_FUNCTION_END; return "scotti";
+        default: PROFILE_FUNCTION_END; return "unknown";
     }
+    PROFILE_FUNCTION_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LESTestFilterKernelToString"
 /**
  * @brief Implementation of \ref LESTestFilterKernelToString().
  * @details Full API contract is documented with the header declaration in
@@ -791,15 +836,15 @@ const char* LESFilterWidthModelToString(LESFilterWidthModel model)
  */
 const char* LESTestFilterKernelToString(LESTestFilterKernel kernel)
 {
+    PROFILE_FUNCTION_BEGIN;
     switch(kernel){
-        case LES_TEST_FILTER_VOLUME_WEIGHTED_BOX: return "volume_weighted_box";
-        case LES_TEST_FILTER_SIMPSON_IK:          return "simpson_ik";
-        default: return "unknown";
+        case LES_TEST_FILTER_VOLUME_WEIGHTED_BOX: PROFILE_FUNCTION_END; return "volume_weighted_box";
+        case LES_TEST_FILTER_SIMPSON_IK:          PROFILE_FUNCTION_END; return "simpson_ik";
+        default: PROFILE_FUNCTION_END; return "unknown";
     }
+    PROFILE_FUNCTION_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LESAveragingModeToString"
 /**
  * @brief Implementation of \ref LESAveragingModeToString().
  * @details Full API contract is documented with the header declaration in
@@ -808,16 +853,16 @@ const char* LESTestFilterKernelToString(LESTestFilterKernel kernel)
  */
 const char* LESAveragingModeToString(LESAveragingMode mode)
 {
+    PROFILE_FUNCTION_BEGIN;
     switch(mode){
-        case LES_AVERAGING_LOCAL:       return "local";
-        case LES_AVERAGING_HOMOGENEOUS: return "homogeneous";
-        case LES_AVERAGING_GLOBAL:      return "global";
-        default: return "unknown";
+        case LES_AVERAGING_LOCAL:       PROFILE_FUNCTION_END; return "local";
+        case LES_AVERAGING_HOMOGENEOUS: PROFILE_FUNCTION_END; return "homogeneous";
+        case LES_AVERAGING_GLOBAL:      PROFILE_FUNCTION_END; return "global";
+        default: PROFILE_FUNCTION_END; return "unknown";
     }
+    PROFILE_FUNCTION_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LESClipModeToString"
 /**
  * @brief Implementation of \ref LESClipModeToString().
  * @details Full API contract is documented with the header declaration in
@@ -826,16 +871,16 @@ const char* LESAveragingModeToString(LESAveragingMode mode)
  */
 const char* LESClipModeToString(LESClipMode mode)
 {
+    PROFILE_HELPER_BEGIN;
     switch(mode){
-        case LES_CLIP_CLAMP:         return "clamp";
-        case LES_CLIP_CLIP_NEGATIVE: return "clip_negative";
-        case LES_CLIP_NONE:          return "none";
-        default: return "unknown";
+        case LES_CLIP_CLAMP:         PROFILE_HELPER_END; return "clamp";
+        case LES_CLIP_CLIP_NEGATIVE: PROFILE_HELPER_END; return "clip_negative";
+        case LES_CLIP_NONE:          PROFILE_HELPER_END; return "none";
+        default: PROFILE_HELPER_END; return "unknown";
     }
+    PROFILE_HELPER_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "WallFunctionModelToString"
 /**
  * @brief Implementation of \ref WallFunctionModelToString().
  * @details Full API contract is documented with the header declaration in
@@ -844,14 +889,16 @@ const char* LESClipModeToString(LESClipMode mode)
  */
 const char* WallFunctionModelToString(WallFunctionModel model)
 {
+    PROFILE_HELPER_BEGIN;
     /* User-facing YAML spellings, so a banner line can be pasted back into a case. */
     switch(model){
-        case WALL_FUNCTION_NONE:    return "none";
-        case WALL_FUNCTION_LOG_LAW: return "log_law";
-        case WALL_FUNCTION_WERNER:  return "werner";
-        case WALL_FUNCTION_CABOT:   return "cabot";
-        default: return "unknown";
+        case WALL_FUNCTION_NONE:    PROFILE_HELPER_END; return "none";
+        case WALL_FUNCTION_LOG_LAW: PROFILE_HELPER_END; return "log_law";
+        case WALL_FUNCTION_WERNER:  PROFILE_HELPER_END; return "werner";
+        case WALL_FUNCTION_CABOT:   PROFILE_HELPER_END; return "cabot";
+        default: PROFILE_HELPER_END; return "unknown";
     }
+    PROFILE_HELPER_END;
 }
 
 /**
@@ -862,12 +909,14 @@ const char* WallFunctionModelToString(WallFunctionModel model)
  */
 const char* MomentumSolverTypeToString(MomentumSolverType SolverFlag)
 {
+    PROFILE_FUNCTION_BEGIN;
     switch(SolverFlag){
-        case MOMENTUM_SOLVER_EXPLICIT_RK: return "Explicit 4 stage Runge-Kutta ";
-        case MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK: return "Dual Time Picard with 4-stage Jameson RK Smoothing";
-        case MOMENTUM_SOLVER_NEWTON_KRYLOV: return "Newton Krylov";
-        default: return "Unknown Momentum Solver Type";
+        case MOMENTUM_SOLVER_EXPLICIT_RK: PROFILE_FUNCTION_END; return "Explicit 4 stage Runge-Kutta ";
+        case MOMENTUM_SOLVER_DUALTIME_PICARD_JAMESON_RK: PROFILE_FUNCTION_END; return "Dual Time Picard with 4-stage Jameson RK Smoothing";
+        case MOMENTUM_SOLVER_NEWTON_KRYLOV: PROFILE_FUNCTION_END; return "Newton Krylov";
+        default: PROFILE_FUNCTION_END; return "Unknown Momentum Solver Type";
     }
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -877,19 +926,21 @@ const char* MomentumSolverTypeToString(MomentumSolverType SolverFlag)
  * @see BCTypeToString()
  */
 const char* BCTypeToString(BCType type) {
+    PROFILE_FUNCTION_BEGIN;
     switch (type) {
       //  case DIRICHLET: return "DIRICHLET";
       //  case NEUMANN:   return "NEUMANN";
-        case WALL:      return "WALL";
-        case INLET:     return "INLET";
-        case OUTLET:    return "OUTLET";
-        case FARFIELD:  return "FARFIELD";
-        case PERIODIC:  return "PERIODIC";
-        case INTERFACE: return "INTERFACE";
+        case WALL:      PROFILE_FUNCTION_END; return "WALL";
+        case INLET:     PROFILE_FUNCTION_END; return "INLET";
+        case OUTLET:    PROFILE_FUNCTION_END; return "OUTLET";
+        case FARFIELD:  PROFILE_FUNCTION_END; return "FARFIELD";
+        case PERIODIC:  PROFILE_FUNCTION_END; return "PERIODIC";
+        case INTERFACE: PROFILE_FUNCTION_END; return "INTERFACE";
 
 	// case CUSTOM:    return "CUSTOM";
-        default:        return "Unknown BC Type";
+        default:        PROFILE_FUNCTION_END; return "Unknown BC Type";
     }
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -899,12 +950,14 @@ const char* BCTypeToString(BCType type) {
  * @see ParticleBoundaryPolicyToString()
  */
 const char* ParticleBoundaryPolicyToString(ParticleBoundaryPolicy policy) {
+    PROFILE_FUNCTION_BEGIN;
     switch (policy) {
-        case PARTICLE_BOUNDARY_REMOVE:  return "remove";
-        case PARTICLE_BOUNDARY_REFLECT: return "reflect";
-        case PARTICLE_BOUNDARY_WRAP:    return "wrap";
-        default:                        return "Unknown particle boundary policy";
+        case PARTICLE_BOUNDARY_REMOVE:  PROFILE_FUNCTION_END; return "remove";
+        case PARTICLE_BOUNDARY_REFLECT: PROFILE_FUNCTION_END; return "reflect";
+        case PARTICLE_BOUNDARY_WRAP:    PROFILE_FUNCTION_END; return "wrap";
+        default:                        PROFILE_FUNCTION_END; return "Unknown particle boundary policy";
     }
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -914,12 +967,14 @@ const char* ParticleBoundaryPolicyToString(ParticleBoundaryPolicy policy) {
  * @see InterpolationMethodToString()
  */
 const char* InterpolationMethodToString(InterpolationMethod method) {
+    PROFILE_FUNCTION_BEGIN;
     switch (method) {
-        case INTERP_TRILINEAR:       return "Trilinear (direct cell-center)";
-        case INTERP_CORNER_AVERAGED: return "CornerAveraged (legacy)";
-        case INTERP_FACE_FLUX:       return "FaceFlux (divergence-free velocity from face fluxes)";
-        default:                     return "Unknown interpolation method";
+        case INTERP_TRILINEAR:       PROFILE_FUNCTION_END; return "Trilinear (direct cell-center)";
+        case INTERP_CORNER_AVERAGED: PROFILE_FUNCTION_END; return "CornerAveraged (legacy)";
+        case INTERP_FACE_FLUX:       PROFILE_FUNCTION_END; return "FaceFlux (divergence-free velocity from face fluxes)";
+        default:                     PROFILE_FUNCTION_END; return "Unknown interpolation method";
     }
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -927,34 +982,36 @@ const char* InterpolationMethodToString(InterpolationMethod method) {
  * @details Local to this translation unit.
  */
 const char* BCHandlerTypeToString(BCHandlerType handler_type) {
+    PROFILE_FUNCTION_BEGIN;
     switch (handler_type) {
         // Wall Handlers
-        case BC_HANDLER_WALL_NOSLIP:             return "noslip";
-        case BC_HANDLER_WALL_MOVING:             return "moving";
-        case BC_HANDLER_WALL_FREE_SLIP:          return "free_slip";
+        case BC_HANDLER_WALL_NOSLIP:             PROFILE_FUNCTION_END; return "noslip";
+        case BC_HANDLER_WALL_MOVING:             PROFILE_FUNCTION_END; return "moving";
+        case BC_HANDLER_WALL_FREE_SLIP:          PROFILE_FUNCTION_END; return "free_slip";
 
         // Inlet Handlers
-        case BC_HANDLER_INLET_CONSTANT_VELOCITY: return "constant_velocity";
-        case BC_HANDLER_INLET_PARABOLIC:         return "parabolic";
-        case BC_HANDLER_INLET_PROFILE_FROM_FILE: return "prescribed_flow";
+        case BC_HANDLER_INLET_CONSTANT_VELOCITY: PROFILE_FUNCTION_END; return "constant_velocity";
+        case BC_HANDLER_INLET_PARABOLIC:         PROFILE_FUNCTION_END; return "parabolic";
+        case BC_HANDLER_INLET_PROFILE_FROM_FILE: PROFILE_FUNCTION_END; return "prescribed_flow";
 
         // Outlet Handlers
-        case BC_HANDLER_OUTLET_CONSERVATION:     return "conservation";
-        case BC_HANDLER_OUTLET_PRESSURE:         return "pressure";
+        case BC_HANDLER_OUTLET_CONSERVATION:     PROFILE_FUNCTION_END; return "conservation";
+        case BC_HANDLER_OUTLET_PRESSURE:         PROFILE_FUNCTION_END; return "pressure";
 
         // Other Physical Handlers
-        case BC_HANDLER_FARFIELD_NONREFLECTING:  return "nonreflecting";
+        case BC_HANDLER_FARFIELD_NONREFLECTING:  PROFILE_FUNCTION_END; return "nonreflecting";
 
         // Multi-Block / Interface Handlers
-        case BC_HANDLER_PERIODIC_GEOMETRIC:      return "geometric";
-        case BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX:   return "constant flux";
-        case BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX:    return "initial flux";
-        case BC_HANDLER_INTERFACE_OVERSET:       return "overset";
+        case BC_HANDLER_PERIODIC_GEOMETRIC:      PROFILE_FUNCTION_END; return "geometric";
+        case BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX:   PROFILE_FUNCTION_END; return "constant flux";
+        case BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX:    PROFILE_FUNCTION_END; return "initial flux";
+        case BC_HANDLER_INTERFACE_OVERSET:       PROFILE_FUNCTION_END; return "overset";
 
         // Default case
         case BC_HANDLER_UNDEFINED:
-        default:                                 return "UNKNOWN_HANDLER";
+        default:                                 PROFILE_FUNCTION_END; return "UNKNOWN_HANDLER";
     }
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -970,6 +1027,7 @@ PetscErrorCode DualMonitorDestroy(void **ctx)
     PetscMPIInt    rank;
     
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank); CHKERRQ(ierr);
     if(!rank && monctx->file_handle){
       fclose(monctx->file_handle);
@@ -977,6 +1035,7 @@ PetscErrorCode DualMonitorDestroy(void **ctx)
     
     ierr = PetscFree(monctx); CHKERRQ(ierr);
     *ctx = NULL;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -993,8 +1052,6 @@ PetscErrorCode DualMonitorDestroy(void **ctx)
  * @param ctx   A pointer to the DualMonitorCtx structure.
  * @return      PetscErrorCode 0 on success.
  */
-#undef __FUNCT__
-#define __FUNCT__ "DualKSPMonitor"
 /**
  * @brief Implementation of \ref DualKSPMonitor().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1012,6 +1069,7 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx)
     PetscMPIInt    rank;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank); CHKERRQ(ierr);
 
     // 1. Calculate the true residual norm.
@@ -1046,6 +1104,7 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx)
 
     } //rank
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -1083,6 +1142,8 @@ typedef struct SolutionConvergenceDeterministicPass2 {
  */
 static PetscReal SolutionConvergenceSafeRelative(PetscReal numerator, PetscReal denominator)
 {
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     return numerator / PetscMax(PetscAbsReal(denominator), SOLUTION_CONVERGENCE_REL_EPS);
 }
 
@@ -1115,6 +1176,7 @@ static PetscErrorCode ComputeCurrentFlowObservables(SimCtx *simCtx, PetscReal *m
     UserCtx   *user = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (!simCtx || !mean_speed_out || !mean_ke_out) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "ComputeCurrentFlowObservables received a NULL argument.");
     }
@@ -1176,6 +1238,7 @@ static PetscErrorCode ComputeCurrentFlowObservables(SimCtx *simCtx, PetscReal *m
         *mean_ke_out = global[2] / global[0];
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -1251,6 +1314,7 @@ static PetscErrorCode ComputeDeterministicSolutionMetrics(SimCtx *simCtx,
     UserCtx   *user = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (!simCtx || !has_reference_out || !u_abs_l2_out || !u_rel_l2_out || !p_abs_l2_out || !p_rel_l2_out ||
         !mean_speed_out || !mean_speed_ref_out || !mean_speed_abs_out || !mean_speed_rel_out ||
         !mean_ke_out || !mean_ke_ref_out || !mean_ke_abs_out || !mean_ke_rel_out) {
@@ -1372,12 +1436,12 @@ static PetscErrorCode ComputeDeterministicSolutionMetrics(SimCtx *simCtx,
                                sizeof(SolutionConvergenceDeterministicPass1) / sizeof(PetscReal),
                                MPIU_REAL, MPI_SUM, PETSC_COMM_WORLD));
 
-    if (global_pass1.fluid_volume <= 0.0) PetscFunctionReturn(0);
+    if (global_pass1.fluid_volume <= 0.0) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     *mean_speed_out = global_pass1.current_speed_sum / global_pass1.fluid_volume;
     *mean_ke_out = global_pass1.current_ke_sum / global_pass1.fluid_volume;
 
-    if (!*has_reference_out) PetscFunctionReturn(0);
+    if (!*has_reference_out) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     *mean_speed_ref_out = global_pass1.reference_speed_sum / global_pass1.fluid_volume;
     *mean_speed_abs_out = PetscAbsReal(*mean_speed_out - *mean_speed_ref_out);
@@ -1446,6 +1510,7 @@ static PetscErrorCode ComputeDeterministicSolutionMetrics(SimCtx *simCtx,
     *p_abs_l2_out = PetscSqrtReal(global_pass2.delta_pressure_norm_sq);
     *p_rel_l2_out = SolutionConvergenceSafeRelative(*p_abs_l2_out, PetscSqrtReal(global_pass2.current_pressure_norm_sq));
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -1472,18 +1537,21 @@ static PetscReal SolutionConvergenceHistoryGet(const PetscReal *history,
                                                PetscInt samples_available,
                                                PetscInt offset_from_latest)
 {
+    PROFILE_HELPER_BEGIN;
     PetscInt count = 0;
     PetscInt index = 0;
 
     if (!history || capacity <= 0 || samples_available <= 0 || offset_from_latest < 0) {
+        PROFILE_HELPER_END;
         return 0.0;
     }
 
     count = PetscMin(samples_available, capacity);
-    if (offset_from_latest >= count) return 0.0;
+    if (offset_from_latest >= count) { PROFILE_HELPER_END; return 0.0; }
 
     index = (samples_available - 1 - offset_from_latest) % capacity;
     if (index < 0) index += capacity;
+    PROFILE_HELPER_END;
     return history[index];
 }
 
@@ -1511,6 +1579,7 @@ static PetscErrorCode AppendStatisticalObservableSample(SimCtx *simCtx,
     PetscInt slot = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (!simCtx || !simCtx->solutionConvergenceMeanSpeedHistory || !simCtx->solutionConvergenceMeanKEHistory) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Statistical solution-convergence history is not allocated.");
     }
@@ -1524,6 +1593,7 @@ static PetscErrorCode AppendStatisticalObservableSample(SimCtx *simCtx,
     simCtx->solutionConvergenceMeanSpeedHistory[slot] = mean_speed;
     simCtx->solutionConvergenceMeanKEHistory[slot] = mean_ke;
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -1614,6 +1684,7 @@ static PetscErrorCode ComputeStatisticalWindowMetrics(const SimCtx *simCtx,
     PetscReal ke_prev_sum_sq = 0.0;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (!simCtx || !has_reference_out || !mean_speed_window_out || !mean_speed_window_prev_out ||
         !mean_speed_window_abs_out || !mean_speed_window_rel_out || !mean_speed_rms_window_out ||
         !mean_speed_rms_window_prev_out || !mean_speed_rms_window_abs_out || !mean_speed_rms_window_rel_out ||
@@ -1643,7 +1714,7 @@ static PetscErrorCode ComputeStatisticalWindowMetrics(const SimCtx *simCtx,
 
     w = simCtx->solutionConvergenceWindowSteps;
     history_capacity = 2 * w;
-    if (w <= 0 || samples_available < w) PetscFunctionReturn(0);
+    if (w <= 0 || samples_available < w) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     for (PetscInt idx = 0; idx < w; ++idx) {
         PetscReal speed_value = SolutionConvergenceHistoryGet(simCtx->solutionConvergenceMeanSpeedHistory,
@@ -1667,7 +1738,7 @@ static PetscErrorCode ComputeStatisticalWindowMetrics(const SimCtx *simCtx,
     *mean_ke_rms_window_out = PetscSqrtReal(PetscMax(0.0, ke_sum_sq / (PetscReal)w -
                                                           (*mean_ke_window_out) * (*mean_ke_window_out)));
 
-    if (samples_available < 2 * w) PetscFunctionReturn(0);
+    if (samples_available < 2 * w) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     for (PetscInt idx = w; idx < 2 * w; ++idx) {
         PetscReal speed_value = SolutionConvergenceHistoryGet(simCtx->solutionConvergenceMeanSpeedHistory,
@@ -1701,6 +1772,7 @@ static PetscErrorCode ComputeStatisticalWindowMetrics(const SimCtx *simCtx,
     *mean_ke_rms_window_abs_out = PetscAbsReal(*mean_ke_rms_window_out - *mean_ke_rms_window_prev_out);
     *mean_ke_rms_window_rel_out = SolutionConvergenceSafeRelative(*mean_ke_rms_window_abs_out, *mean_ke_rms_window_out);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -1717,13 +1789,15 @@ static PetscErrorCode ComputeStatisticalWindowMetrics(const SimCtx *simCtx,
  */
 static const char *SolutionConvergenceModeToString(SolutionConvergenceMode mode)
 {
+    PROFILE_FUNCTION_BEGIN;
     switch (mode) {
-        case SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC: return "steady_deterministic";
-        case SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC: return "periodic_deterministic";
-        case SOLUTION_CONVERGENCE_STATISTICAL_STEADY: return "statistical_steady";
-        case SOLUTION_CONVERGENCE_TRANSIENT: return "transient";
-        default: return "unknown";
+        case SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC: PROFILE_FUNCTION_END; return "steady_deterministic";
+        case SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC: PROFILE_FUNCTION_END; return "periodic_deterministic";
+        case SOLUTION_CONVERGENCE_STATISTICAL_STEADY: PROFILE_FUNCTION_END; return "statistical_steady";
+        case SOLUTION_CONVERGENCE_TRANSIENT: PROFILE_FUNCTION_END; return "transient";
+        default: PROFILE_FUNCTION_END; return "unknown";
     }
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -1747,9 +1821,10 @@ PetscErrorCode LOG_SOLUTION_CONVERGENCE(SimCtx *simCtx)
     PetscReal   mean_ke_rms_window = 0.0, mean_ke_rms_window_prev = 0.0, mean_ke_rms_window_abs_drift = 0.0, mean_ke_rms_window_rel_drift = 0.0;
 
     PetscFunctionBeginUser;
-    if (!simCtx) PetscFunctionReturn(0);
-    if (simCtx->exec_mode != EXEC_MODE_SOLVER) PetscFunctionReturn(0);
-    if (!simCtx->solutionConvergenceEnabled) PetscFunctionReturn(0);
+    PROFILE_FUNCTION_BEGIN;
+    if (!simCtx) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
+    if (simCtx->exec_mode != EXEC_MODE_SOLVER) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
+    if (!simCtx->solutionConvergenceEnabled) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     samples_before = simCtx->solutionConvergenceSamplesRecorded;
 
@@ -1904,6 +1979,7 @@ PetscErrorCode LOG_SOLUTION_CONVERGENCE(SimCtx *simCtx)
 
     simCtx->solutionConvergenceSamplesRecorded = samples_before + 1;
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -1919,8 +1995,6 @@ PetscErrorCode LOG_SOLUTION_CONVERGENCE(SimCtx *simCtx)
  *             and local (user->...) data.
  * @return     PetscErrorCode 0 on success.
  */
-#undef __FUNCT__
-#define __FUNCT__ "LOG_CONTINUITY_METRICS"
 /**
  * @brief Implementation of \ref LOG_CONTINUITY_METRICS().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1937,6 +2011,7 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
     const PetscInt ti = simCtx->step;         // Get the current timestep
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
     // Only rank 0 performs file I/O.
@@ -1981,6 +2056,7 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
         fclose(f);
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -1992,15 +2068,17 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
  */
 const char* ParticleLocationStatusToString(ParticleLocationStatus level) 
 {
+    PROFILE_HELPER_BEGIN;
     switch (level) {
-        case NEEDS_LOCATION:        return "NEEDS_LOCATION";
-        case ACTIVE_AND_LOCATED: return "ACTIVE_AND_LOCATED";
-        case MIGRATING_OUT:     return "MIGRATING_OUT";
-        case LOST:               return "LOST";
-        case UNINITIALIZED:      return "UNINITIALIZED";
-        case EXITED:             return "EXITED";
-        default:            return "UNKNOWN_LEVEL";
+        case NEEDS_LOCATION:        PROFILE_HELPER_END; return "NEEDS_LOCATION";
+        case ACTIVE_AND_LOCATED: PROFILE_HELPER_END; return "ACTIVE_AND_LOCATED";
+        case MIGRATING_OUT:     PROFILE_HELPER_END; return "MIGRATING_OUT";
+        case LOST:               PROFILE_HELPER_END; return "LOST";
+        case UNINITIALIZED:      PROFILE_HELPER_END; return "UNINITIALIZED";
+        case EXITED:             PROFILE_HELPER_END; return "EXITED";
+        default:            PROFILE_HELPER_END; return "UNKNOWN_LEVEL";
     }
+    PROFILE_HELPER_END;
 }
 
 ///////// Profiling System /////////
@@ -2044,15 +2122,16 @@ static PetscBool _ProfilingHelperEnabled(const char *name)
  */
 static PetscErrorCode _ProfilingEnsureStarted(void)
 {
-    PetscBool active = PETSC_FALSE;
+    PetscLogHandler handler = NULL;
 
     PetscFunctionBeginUser;
     if (!g_profile_class_function) {
         PetscCall(PetscClassIdRegister("PICurv", &g_profile_class_function));
         PetscCall(PetscClassIdRegister("PICurvHelper", &g_profile_class_helper));
     }
-    PetscCall(PetscLogIsActive(&active));
-    if (!active) PetscCall(PetscLogDefaultBegin());
+    // The reports read the default handler, which -log_trace or another handler does not start.
+    PetscCall(PetscLogGetDefaultHandler(&handler));
+    if (!handler) PetscCall(PetscLogDefaultBegin());
     PetscFunctionReturn(0);
 }
 
@@ -2066,6 +2145,9 @@ void _ProfilingRegister(const char *func_name, PetscBool helper, PetscLogEvent *
 {
     PetscLogEvent registered = -1;
 
+    // Before PetscInitialize (argument handling in main) or after PetscFinalize there is no log
+    // to register with; the call site stays untimed and tries again on its next call.
+    if (!PetscInitializeCalled || PetscFinalizeCalled) return;
     if (_ProfilingEnsureStarted() != 0) return; // Fail silently: the call site stays untimed
     if (PetscLogEventRegister(func_name, helper ? g_profile_class_helper : g_profile_class_function, &registered) != 0) return;
     // New events start active, and excluding a class reaches only events that already exist,
@@ -2266,8 +2348,9 @@ PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char 
     FILE           *f = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be null for RuntimeMemoryLogSample");
-    if (!simCtx->runtimeMemoryLogEnabled) PetscFunctionReturn(0);
+    if (!simCtx->runtimeMemoryLogEnabled) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     ierr = PetscMemoryGetCurrentUsage(&process_current_bytes); CHKERRQ(ierr);
     ierr = PetscMemoryGetMaximumUsage(&process_peak_bytes); CHKERRQ(ierr);
@@ -2335,6 +2418,7 @@ PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char 
         fclose(f);
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -2567,7 +2651,8 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
  */
 void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, PetscReal currentTime)
 {
-    if (totalSteps <= 0) return;
+    PROFILE_FUNCTION_BEGIN;
+    if (totalSteps <= 0) { PROFILE_FUNCTION_END; return; }
 
     // --- Configuration ---
     const int barWidth = 50;
@@ -2603,10 +2688,9 @@ void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, Pe
 
     // Flush the output buffer to ensure the bar is displayed immediately
     fflush(stdout);
+    PROFILE_FUNCTION_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LOG_FIELD_MIN_MAX"
 /**
  * @brief Implementation of \ref LOG_FIELD_MIN_MAX().
  * @details Full API contract is documented with the header declaration in `include/logging.h`.
@@ -2627,6 +2711,7 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, FieldId field_id)
     const char    *data_layout = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     ierr = FieldGetView(user, field_id, &view); CHKERRQ(ierr);
     fieldName = view.descriptor->canonical_name;
@@ -2734,11 +2819,10 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, FieldId field_id)
         PetscPrintf(PETSC_COMM_SELF, "--------------------------------------------\n\n");
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LogFieldAnatomyView"
 /**
  * @brief Shared architecture-aware anatomy logger for catalog and transient fields.
  */
@@ -2754,6 +2838,7 @@ static PetscErrorCode LogFieldAnatomyView(UserCtx *user, const char *field_name,
     char           dominant_dir = '\0'; // 'x', 'y', 'z' for face-centered, 'm' for mixed (Ucont)
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
     PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
@@ -3006,11 +3091,10 @@ static PetscErrorCode LogFieldAnatomyView(UserCtx *user, const char *field_name,
 
     ierr = PetscSynchronizedFlush(PETSC_COMM_WORLD, PETSC_STDOUT); CHKERRQ(ierr);
     ierr = PetscBarrier(NULL);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LOG_FIELD_ANATOMY"
 /**
  * @brief Resolves a persistent field view and emits its layout-aware boundary anatomy.
  * @see LOG_FIELD_ANATOMY()
@@ -3020,10 +3104,12 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, FieldId field_id, const char *st
     FieldView view;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(FieldGetView(user, field_id, &view));
     PetscCall(LogFieldAnatomyView(user, view.descriptor->canonical_name, stage_name,
                                   view.dm, view.local_vec, view.descriptor->dof,
                                   view.descriptor->layout));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -3033,7 +3119,9 @@ PetscErrorCode LOG_FIELD_ANATOMY(UserCtx *user, FieldId field_id, const char *st
  */
 PetscBool IsStatisticsConsoleSnapshotEnabled(const SimCtx *simCtx)
 {
-    if (!FieldStatisticsIsActive(simCtx)) return PETSC_FALSE;
+    PROFILE_FUNCTION_BEGIN;
+    if (!FieldStatisticsIsActive(simCtx)) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+    PROFILE_FUNCTION_END;
     return (PetscBool)(simCtx->statisticsConsoleOutputFreq > 0 && get_log_level() >= LOG_INFO);
 }
 
@@ -3043,8 +3131,10 @@ PetscBool IsStatisticsConsoleSnapshotEnabled(const SimCtx *simCtx)
  */
 PetscBool ShouldEmitPeriodicStatisticsConsoleSnapshot(const SimCtx *simCtx, PetscInt completed_step)
 {
-    if (!IsStatisticsConsoleSnapshotEnabled(simCtx)) return PETSC_FALSE;
-    if (completed_step < 0) return PETSC_FALSE;
+    PROFILE_FUNCTION_BEGIN;
+    if (!IsStatisticsConsoleSnapshotEnabled(simCtx)) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+    if (completed_step < 0) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+    PROFILE_FUNCTION_END;
     return (PetscBool)((completed_step % simCtx->statisticsConsoleOutputFreq) == 0);
 }
 
@@ -3055,8 +3145,9 @@ PetscBool ShouldEmitPeriodicStatisticsConsoleSnapshot(const SimCtx *simCtx, Pets
 PetscErrorCode EmitStatisticsConsoleSnapshot(UserCtx *user, const SimCtx *simCtx, PetscInt step)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(simCtx != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
-    if (!IsStatisticsConsoleSnapshotEnabled(simCtx)) PetscFunctionReturn(0);
+    if (!IsStatisticsConsoleSnapshotEnabled(simCtx)) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     LOG(GLOBAL, LOG_INFO, "Statistics windows at step %d (%d window(s)):\n",
         step, simCtx->fieldStatisticsWindowCount);
@@ -3092,11 +3183,10 @@ PetscErrorCode EmitStatisticsConsoleSnapshot(UserCtx *user, const SimCtx *simCtx
             window->sample_count, (double)window->total_weight,
             (double)window->represented_time, progress, coverage);
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LOG_CORNER_FIELD_ANATOMY"
 /**
  * @brief Emits anatomy for the transient scalar or vector corner-staging field.
  * @see LOG_CORNER_FIELD_ANATOMY()
@@ -3106,6 +3196,7 @@ PetscErrorCode LOG_CORNER_FIELD_ANATOMY(UserCtx *user, FieldId corner_field_id, 
     FieldView view;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
     PetscCheck(corner_field_id == FIELD_ID_CELL_SCALAR_AT_CORNER ||
                corner_field_id == FIELD_ID_CELL_VECTOR_AT_CORNER,
@@ -3117,11 +3208,10 @@ PetscErrorCode LOG_CORNER_FIELD_ANATOMY(UserCtx *user, FieldId corner_field_id, 
     PetscCall(LogFieldAnatomyView(user, view.descriptor->canonical_name, stage_name, view.dm,
                                   view.local_vec, view.descriptor->dof,
                                   view.descriptor->layout));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LOG_INTERPOLATION_ERROR"
 /**
  * @brief Implementation of \ref LOG_INTERPOLATION_ERROR().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -3130,6 +3220,7 @@ PetscErrorCode LOG_CORNER_FIELD_ANATOMY(UserCtx *user, FieldId corner_field_id, 
  */
 PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
 {
+    PROFILE_HELPER_BEGIN;
     SimCtx *simCtx = user->simCtx;
     PetscErrorCode ierr;
     DM swarm = user->swarm;
@@ -3199,11 +3290,10 @@ PetscErrorCode LOG_INTERPOLATION_ERROR(UserCtx *user)
     ierr = DMSwarmDestroyGlobalVectorFromField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), &positionVec); CHKERRQ(ierr);
     ierr = DMSwarmDestroyGlobalVectorFromField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_VELOCITY), &velocityVec); CHKERRQ(ierr);
     
+    PROFILE_HELPER_END;
     return 0;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LOG_SCATTER_METRICS"
 /**
  * @brief Implementation of \ref LOG_SCATTER_METRICS().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -3241,9 +3331,11 @@ PetscErrorCode LOG_SCATTER_METRICS(UserCtx *user)
     PetscReal      relative_l2_error = 0.0;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
     simCtx = user->simCtx;
     if (!VerificationScalarOverrideActive(simCtx) || !user->swarm || !user->Psi || !user->ParticleCount) {
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -3357,11 +3449,10 @@ PetscErrorCode LOG_SCATTER_METRICS(UserCtx *user)
         LOG_ALLOW(GLOBAL, LOG_INFO, "Scatter occupancy fraction: %.6e\n", (double)occupancy_fraction);
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ResetSearchMetrics"
 /**
  * @brief Implementation of \ref ResetSearchMetrics().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -3371,6 +3462,7 @@ PetscErrorCode LOG_SCATTER_METRICS(UserCtx *user)
 PetscErrorCode ResetSearchMetrics(SimCtx *simCtx)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL for ResetSearchMetrics.");
 
     simCtx->searchMetrics.searchAttempts = 0;
@@ -3393,11 +3485,10 @@ PetscErrorCode ResetSearchMetrics(SimCtx *simCtx)
     simCtx->searchMetrics.wrapCount = 0;
     simCtx->searchMetrics.currentSettlementPass = 0;
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LOG_SEARCH_METRICS"
 /**
  * @brief Implementation of \ref LOG_SEARCH_METRICS().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -3436,12 +3527,14 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
     MPI_Op         reduction_op = MPI_OP_NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     if (!user || !user->simCtx) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx and SimCtx are required for LOG_SEARCH_METRICS.");
     }
     simCtx = user->simCtx;
 
     if (simCtx->np <= 0) {
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -3592,11 +3685,10 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
               tieBreakCount,
               maxPassDepth);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "CalculateAdvancedParticleMetrics"
 /**
  * @brief Internal helper implementation: `CalculateAdvancedParticleMetrics()`.
  * @details Local to this translation unit.
@@ -3608,6 +3700,7 @@ PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user)
     PetscMPIInt    size, rank;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
@@ -3644,11 +3737,10 @@ PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user)
 
     LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "[Rank %d] Advanced Metrics: Imbalance=%.2f, OccupiedCells=%d\n", rank, simCtx->particleLoadImbalance, simCtx->occupiedCellCount);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LOG_PARTICLE_METRICS"
 /**
  * @brief Implementation of \ref LOG_PARTICLE_METRICS().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -3663,6 +3755,7 @@ PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName)
     const char     *stage_label = (stageName && stageName[0] != '\0') ? stageName : "N/A";
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
     PetscInt totalParticles;
@@ -3692,11 +3785,10 @@ PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName)
                         (int)simCtx->particlesExitedLastStep, (long long)simCtx->particlesExitedCumulative);
         fclose(f);
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PicurvOpenDiagnosticsCsv"
 /**
  * @brief Implementation of \ref PicurvOpenDiagnosticsCsv().
  * @details Full API contract is documented with the header declaration in
@@ -3709,6 +3801,7 @@ PetscErrorCode PicurvOpenDiagnosticsCsv(const SimCtx *simCtx, const char *filena
     FILE *handle = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(simCtx && filename && header && file, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "A diagnostics CSV needs a context, a name, a header, and somewhere to "
                "return the handle.");
@@ -3726,5 +3819,6 @@ PetscErrorCode PicurvOpenDiagnosticsCsv(const SimCtx *simCtx, const char *filena
     }
 
     *file = handle;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

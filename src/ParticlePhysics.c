@@ -7,8 +7,6 @@
 #define ERROR_MSG_BUFFER_SIZE 256
 #endif
 
-#undef __FUNCT__
-#define __FUNCT__ "UpdateParticleField"
 /**
  * @brief Internal helper implementation: `UpdateParticleField()`.
  * @details Local to this translation unit.
@@ -22,6 +20,7 @@ PetscErrorCode UpdateParticleField(ParticleFieldId field_id,
                                    PetscReal C_model)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     if (field_id == PARTICLE_FIELD_ID_PSI) {
         // Guard the LES mixing time scale against degenerate or cut-cell volumes.
@@ -36,11 +35,10 @@ PetscErrorCode UpdateParticleField(ParticleFieldId field_id,
         *psi_io = mean_val + (psi_old - mean_val) * decay;
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "UpdateFieldForAllParticles"
 /**
  * @brief Internal helper implementation: `UpdateFieldForAllParticles()`.
  * @details Local to this translation unit.
@@ -147,8 +145,6 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "UpdateAllParticleFields"
 /**
  * @brief Implementation of \ref UpdateAllParticleFields().
  * @details Full API contract (arguments, ownership, side effects) is documented with

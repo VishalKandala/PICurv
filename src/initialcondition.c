@@ -5,8 +5,6 @@
 
  #include "initialcondition.h"
 
-#undef __FUNCT__
-#define __FUNCT__ "SetInitialInteriorField"
 /**
  * @brief Internal helper implementation: `SetInitialInteriorField()`.
  * @details Local to this translation unit.
@@ -188,8 +186,6 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, FieldId field_id)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LoadInitialUcont"
 /**
  * @brief Load a staged file IC and return with Ucont populated.
  */
@@ -199,6 +195,7 @@ static PetscErrorCode LoadInitialUcont(UserCtx *user)
     SimCtx *simCtx = user->simCtx;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     ierr = PetscStrncpy(simCtx->_io_context_buffer, simCtx->initialConditionDirectory,
                         sizeof(simCtx->_io_context_buffer)); CHKERRQ(ierr);
     simCtx->current_io_directory = simCtx->_io_context_buffer;
@@ -220,11 +217,10 @@ static PetscErrorCode LoadInitialUcont(UserCtx *user)
     }
 
     simCtx->current_io_directory = NULL;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PopulateInitialUcont"
 /**
  * @brief Dispatch one fresh-start IC and return with Ucont populated.
  */
@@ -234,16 +230,16 @@ PetscErrorCode PopulateInitialUcont(UserCtx *user)
     SimCtx *simCtx = user->simCtx;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     if (simCtx->initialConditionMode == IC_MODE_FILE) {
         ierr = LoadInitialUcont(user); CHKERRQ(ierr);
     } else {
         ierr = SetInitialInteriorField(user, FIELD_ID_UCONT); CHKERRQ(ierr);
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "FinalizeBlockState"
 /**
  * @brief Complete one initial-condition block after its interior values are assigned.
  */
@@ -280,8 +276,6 @@ static PetscErrorCode FinalizeBlockState(UserCtx *user)
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "SetInitialFluidState_FreshStart"
 /**
  * @brief Initialize Eulerian fields for a new simulation without restart data.
  */
@@ -326,8 +320,6 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetInitialFluidState_Load"
 /**
  * @brief Restore Eulerian fields from checkpoint files for a restart simulation.
  */
@@ -360,8 +352,6 @@ static PetscErrorCode SetInitialFluidState_Load(SimCtx *simCtx)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InitializeEulerianState"
 /**
  * @brief Internal helper implementation: `InitializeEulerianState()`.
  * @details Local to this translation unit.

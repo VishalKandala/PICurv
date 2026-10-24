@@ -62,7 +62,9 @@ static PetscErrorCode EvaluateConfiguredScalarProfile(const VerificationScalarCo
 
 PetscBool AnalyticalTypeRequiresCustomGeometry(const char *analytical_type)
 {
-    if (!analytical_type) return PETSC_FALSE;
+    PROFILE_FUNCTION_BEGIN;
+    if (!analytical_type) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+    PROFILE_FUNCTION_END;
     return (strcmp(analytical_type, "TGV3D") == 0) ? PETSC_TRUE : PETSC_FALSE;
 }
 
@@ -74,8 +76,10 @@ PetscBool AnalyticalTypeRequiresCustomGeometry(const char *analytical_type)
  */
 PetscBool AnalyticalRunUsesCustomGeometry(const SimCtx *simCtx)
 {
-    if (!simCtx || strcmp(simCtx->eulerianSource, "analytical") != 0) return PETSC_FALSE;
-    if (!AnalyticalTypeRequiresCustomGeometry(simCtx->AnalyticalSolutionType)) return PETSC_FALSE;
+    PROFILE_FUNCTION_BEGIN;
+    if (!simCtx || strcmp(simCtx->eulerianSource, "analytical") != 0) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+    if (!AnalyticalTypeRequiresCustomGeometry(simCtx->AnalyticalSolutionType)) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+    PROFILE_FUNCTION_END;
     return simCtx->generate_grid;
 }
 
@@ -87,13 +91,13 @@ PetscBool AnalyticalRunUsesCustomGeometry(const SimCtx *simCtx)
  */
 PetscBool AnalyticalTypeSupportsInterpolationError(const char *analytical_type)
 {
-    if (!analytical_type) return PETSC_FALSE;
-    if (strcmp(analytical_type, "ZERO_FLOW") == 0 || strcmp(analytical_type, "UNIFORM_FLOW") == 0) return PETSC_FALSE;
+    PROFILE_FUNCTION_BEGIN;
+    if (!analytical_type) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+    if (strcmp(analytical_type, "ZERO_FLOW") == 0 || strcmp(analytical_type, "UNIFORM_FLOW") == 0) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+    PROFILE_FUNCTION_END;
     return PETSC_TRUE;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetAnalyticalGridInfo"
 /**
  * @brief Internal helper implementation: `SetAnalyticalGridInfo()`.
  * @details Local to this translation unit.
@@ -194,8 +198,6 @@ PetscErrorCode SetAnalyticalGridInfo(UserCtx *user)
  *                       PUBLIC ANALYTICAL SOLUTION ENGINE                        *
  *================================================================================*/
 
-#undef __FUNCT__
-#define __FUNCT__ "AnalyticalSolutionEngine"
 /**
  * @brief Implementation of \ref AnalyticalSolutionEngine().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -251,8 +253,6 @@ PetscErrorCode AnalyticalSolutionEngine(SimCtx *simCtx)
  *                       PRIVATE IMPLEMENTATIONS                                  *
  *================================================================================*/
 
-#undef __FUNCT__
-#define __FUNCT__ "SetAnalyticalSolution_TGV3D"
 /**
  * @brief Populate the Eulerian field vectors with the Taylor--Green vortex at the current time.
  */
@@ -278,6 +278,7 @@ static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx)
     const PetscReal prs_decay = exp(-4.0 * nu * k * k * t);
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         UserCtx* user = &user_finest[bi];
@@ -382,11 +383,10 @@ static PetscErrorCode SetAnalyticalSolution_TGV3D(SimCtx *simCtx)
 
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetAnalyticalSolution_ZeroFlow"
 /**
  * @brief Set every analytical Eulerian field to the quiescent zero-flow reference state.
  */
@@ -396,6 +396,7 @@ static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx)
     UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         UserCtx *user = &user_finest[bi];
@@ -417,11 +418,10 @@ static PetscErrorCode SetAnalyticalSolution_ZeroFlow(SimCtx *simCtx)
         ierr = UpdateLocalGhosts(user, FIELD_ID_P);    CHKERRQ(ierr);
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetAnalyticalSolution_UniformFlow"
 /**
  * @brief Fill the analytical Eulerian fields with the configured spatially uniform flow state.
  */
@@ -435,6 +435,7 @@ static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx)
     const PetscReal w = uniform_velocity.z;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         UserCtx *user = &user_finest[bi];
@@ -477,11 +478,10 @@ static PetscErrorCode SetAnalyticalSolution_UniformFlow(SimCtx *simCtx)
         ierr = UpdateLocalGhosts(user, FIELD_ID_P);     CHKERRQ(ierr);
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetAnalyticalSolutionForParticles_TGV3D"
 /**
  * @brief Evaluate Taylor--Green velocities at swarm particle positions and store them in `tempVec`.
  */
@@ -492,6 +492,7 @@ static PetscErrorCode SetAnalyticalSolutionForParticles_TGV3D(Vec tempVec, SimCt
     PetscReal *data;
     
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     // TGV3D parameters (matching your Eulerian implementation)
     const PetscReal V0  = 1.0;
@@ -519,11 +520,10 @@ static PetscErrorCode SetAnalyticalSolutionForParticles_TGV3D(Vec tempVec, SimCt
     
     ierr = VecRestoreArray(tempVec, &data); CHKERRQ(ierr);
     
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetAnalyticalSolutionForParticles_UniformFlow"
 /**
  * @brief Fill the particle velocity vector with the configured uniform analytical flow.
  */
@@ -535,6 +535,7 @@ static PetscErrorCode SetAnalyticalSolutionForParticles_UniformFlow(Vec tempVec,
     const Cmpnts uniform_velocity = simCtx->AnalyticalUniformVelocity;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     ierr = VecGetLocalSize(tempVec, &nLocal); CHKERRQ(ierr);
     ierr = VecGetArray(tempVec, &data); CHKERRQ(ierr);
@@ -545,11 +546,10 @@ static PetscErrorCode SetAnalyticalSolutionForParticles_UniformFlow(Vec tempVec,
     }
     ierr = VecRestoreArray(tempVec, &data); CHKERRQ(ierr);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetAnalyticalSolutionForParticles"
 /**
  * @brief Implementation of \ref SetAnalyticalSolutionForParticles().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -562,6 +562,7 @@ PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx)
     const char *analytical_type = simCtx->AnalyticalSolutionType[0] ? simCtx->AnalyticalSolutionType : "default";
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Type: %s\n", analytical_type);
     
@@ -569,14 +570,17 @@ PetscErrorCode SetAnalyticalSolutionForParticles(Vec tempVec, SimCtx *simCtx)
     if (strcmp(simCtx->AnalyticalSolutionType, "TGV3D") == 0) {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Using TGV3D solution.\n");
         ierr = SetAnalyticalSolutionForParticles_TGV3D(tempVec, simCtx); CHKERRQ(ierr);
+        PROFILE_HELPER_END;
         return 0;
     }
     if (strcmp(simCtx->AnalyticalSolutionType, "UNIFORM_FLOW") == 0) {
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Using UNIFORM_FLOW solution.\n");
         ierr = SetAnalyticalSolutionForParticles_UniformFlow(tempVec, simCtx); CHKERRQ(ierr);
+        PROFILE_HELPER_END;
         return 0;
     }
     
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -591,6 +595,7 @@ static PetscErrorCode EvaluateConfiguredScalarProfile(const VerificationScalarCo
                                                       PetscReal *value)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (!cfg) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "VerificationScalarConfig cannot be NULL.");
     if (!value) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Scalar output pointer cannot be NULL.");
 
@@ -608,11 +613,10 @@ static PetscErrorCode EvaluateConfiguredScalarProfile(const VerificationScalarCo
                 "Unsupported verification scalar profile '%s'.", cfg->profile);
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "EvaluateAnalyticalScalarProfile"
 /**
  * @brief Implementation of \ref EvaluateAnalyticalScalarProfile().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -627,6 +631,7 @@ PetscErrorCode EvaluateAnalyticalScalarProfile(const SimCtx *simCtx,
                                                PetscReal *value)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     (void)t;
     if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
     if (!simCtx->verificationScalar.enabled) {
@@ -634,11 +639,10 @@ PetscErrorCode EvaluateAnalyticalScalarProfile(const SimCtx *simCtx,
                 "EvaluateAnalyticalScalarProfile requires verification scalar mode to be enabled.");
     }
     PetscCall(EvaluateConfiguredScalarProfile(&simCtx->verificationScalar, x, y, z, value));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetAnalyticalScalarFieldOnParticles"
 /**
  * @brief Implementation of \ref SetAnalyticalScalarFieldOnParticles().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -655,6 +659,7 @@ PetscErrorCode SetAnalyticalScalarFieldOnParticles(UserCtx *user, ParticleFieldI
     const char     *swarm_field_name = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
     if (!user->swarm) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "UserCtx->swarm is NULL.");
 
@@ -666,7 +671,7 @@ PetscErrorCode SetAnalyticalScalarFieldOnParticles(UserCtx *user, ParticleFieldI
     swarm_field_name = descriptor->canonical_name;
 
     ierr = DMSwarmGetLocalSize(user->swarm, &nlocal); CHKERRQ(ierr);
-    if (nlocal == 0) PetscFunctionReturn(0);
+    if (nlocal == 0) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions); CHKERRQ(ierr);
     ierr = DMSwarmGetField(user->swarm, swarm_field_name, NULL, NULL, (void **)&scalar_values); CHKERRQ(ierr);
@@ -684,11 +689,10 @@ PetscErrorCode SetAnalyticalScalarFieldOnParticles(UserCtx *user, ParticleFieldI
 
     ierr = DMSwarmRestoreField(user->swarm, swarm_field_name, NULL, NULL, (void **)&scalar_values); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions); CHKERRQ(ierr);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetAnalyticalScalarFieldAtCellCenters"
 /**
  * @brief Implementation of \ref SetAnalyticalScalarFieldAtCellCenters().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -705,6 +709,7 @@ PetscErrorCode SetAnalyticalScalarFieldAtCellCenters(UserCtx *user, Vec targetVe
     PetscInt        lxs, lxe, lys, lye, lzs, lze;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
     if (!targetVec) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "targetVec cannot be NULL.");
 
@@ -738,5 +743,6 @@ PetscErrorCode SetAnalyticalScalarFieldAtCellCenters(UserCtx *user, Vec targetVe
 
     ierr = DMDAVecRestoreArrayRead(user->fda, user->Cent, &cent); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(user->da, targetVec, &target); CHKERRQ(ierr);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }

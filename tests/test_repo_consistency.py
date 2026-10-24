@@ -14,6 +14,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PICURV = REPO_ROOT / "picurv_cli" / "picurv"
 AUDIT_FUNCTION_DOCS = REPO_ROOT / "tests" / "tooling" / "audit_function_docs.py"
+AUDIT_PROFILING_COVERAGE = REPO_ROOT / "tests" / "tooling" / "audit_profiling_coverage.py"
 AUDIT_USER_FACING_REPORTING = REPO_ROOT / "tests" / "tooling" / "audit_user_facing_reporting.py"
 AUDIT_STARTER_CONTENT = REPO_ROOT / "tests" / "tooling" / "audit_starter_content.py"
 
@@ -289,6 +290,21 @@ def test_c_and_python_function_docs_pass_repository_audit():
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
 
 
+def test_every_eligible_c_function_is_profiled():
+    """!
+    @brief Test that every non-inline src/ function times itself and closes its timer on each return.
+    """
+    result = subprocess.run(
+        [sys.executable, str(AUDIT_PROFILING_COVERAGE)],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+
+
 def test_user_facing_reporting_passes_repository_audit():
     """!
     @brief Test that C/Python reporting remains option-aware and policy-routed.
@@ -327,7 +343,7 @@ def test_petsc_array_restore_regressions_stay_fixed():
     poisson_source = _read_text(REPO_ROOT / "src" / "poisson.c")
     compute_rhs_start = rhs_source.index("PetscErrorCode ComputeRHS")
     projection_start = poisson_source.index("PetscErrorCode ProjectVelocity(UserCtx *user)\n{")
-    compute_rhs_end = rhs_source.index("#undef __FUNCT__", compute_rhs_start)
+    compute_rhs_end = rhs_source.index("\n}\n", compute_rhs_start)
     projection_end = poisson_source.index("\n}\n", projection_start)
     compute_rhs = rhs_source[compute_rhs_start:compute_rhs_end]
     projection = poisson_source[projection_start:projection_end]

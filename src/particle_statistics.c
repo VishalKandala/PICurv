@@ -36,14 +36,16 @@ static const char *PARTICLE_MSD_CSV_HEADER =
  */
 static PetscBool MSDCSVLineMatchesStep(const char *line, PetscInt ti)
 {
+    PROFILE_HELPER_BEGIN;
     char *endptr = NULL;
     long parsed_step;
 
-    if (!line) return PETSC_FALSE;
+    if (!line) { PROFILE_HELPER_END; return PETSC_FALSE; }
     parsed_step = strtol(line, &endptr, 10);
-    if (endptr == line) return PETSC_FALSE;
+    if (endptr == line) { PROFILE_HELPER_END; return PETSC_FALSE; }
     while (*endptr == ' ' || *endptr == '\t') endptr++;
-    if (*endptr != ',') return PETSC_FALSE;
+    if (*endptr != ',') { PROFILE_HELPER_END; return PETSC_FALSE; }
+    PROFILE_HELPER_END;
     return (PetscBool)(parsed_step == (long)ti ? PETSC_TRUE : PETSC_FALSE);
 }
 
@@ -64,12 +66,14 @@ static PetscErrorCode RewriteParticleMSDCSV(const char *csv_path, PetscInt ti, c
     PetscBool inserted_row = PETSC_FALSE;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(PetscSNPrintf(tmp_path, sizeof(tmp_path), "%s.tmp", csv_path));
 
     dst = fopen(tmp_path, "w");
     if (!dst) {
         LOG_ALLOW(GLOBAL, LOG_WARNING,
                   "ComputeParticleMSD: could not open '%s' for writing.\n", tmp_path);
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
 
@@ -110,6 +114,7 @@ static PetscErrorCode RewriteParticleMSDCSV(const char *csv_path, PetscInt ti, c
         remove(tmp_path);
         LOG_ALLOW(GLOBAL, LOG_WARNING,
                   "ComputeParticleMSD: could not finalize '%s'.\n", tmp_path);
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
 
@@ -118,11 +123,10 @@ static PetscErrorCode RewriteParticleMSDCSV(const char *csv_path, PetscInt ti, c
         LOG_ALLOW(GLOBAL, LOG_WARNING,
                   "ComputeParticleMSD: could not replace '%s'.\n", csv_path);
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeParticleMSD"
 /**
  * @brief Internal helper implementation: `ComputeParticleMSD()`.
  * @details Local to this translation unit.

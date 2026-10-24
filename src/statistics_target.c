@@ -16,6 +16,7 @@
 PetscErrorCode PicurvLayoutDimensionIsNodeLike(FieldLayout layout, PetscInt dim, PetscBool *node_like)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(node_like != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Classification output is required.");
     PetscCheck(dim >= 0 && dim < 3, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
@@ -46,6 +47,7 @@ PetscErrorCode PicurvLayoutDimensionIsNodeLike(FieldLayout layout, PetscInt dim,
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                 "Unknown field layout %d.", (int)layout);
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -62,16 +64,16 @@ PetscErrorCode PicurvLayoutDimensionIsNodeLike(FieldLayout layout, PetscInt dim,
 static void ResolveLayoutSpan(PetscBool node_like, PetscBool periodic, PetscInt size,
                               PetscInt *lo, PetscInt *hi_exclusive)
 {
+    PROFILE_FUNCTION_BEGIN;
     /* Node-like and non-periodic is the only case whose first physical entry
      * sits at index zero; everywhere else index zero is a boundary, dummy, or
      * periodic duplicate. */
     *lo = (node_like && !periodic) ? 0 : 1;
     /* The final slot is the DMDA's extra non-physical entry under every layout. */
     *hi_exclusive = size - 1;
+    PROFILE_FUNCTION_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SpatialTargetPlanCreate"
 /**
  * @brief Implementation of \ref SpatialTargetPlanCreate().
  * @see SpatialTargetPlanCreate()
@@ -147,19 +149,19 @@ PetscErrorCode SpatialTargetPlanLocalPointCount(const SpatialTargetPlan *plan, P
     PetscInt total = 1;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(plan != NULL && count != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Plan and count output are required.");
     for (PetscInt dim = 0; dim < 3; ++dim) {
         const PetscInt extent = plan->end[dim] - plan->start[dim];
-        if (extent <= 0) { *count = 0; PetscFunctionReturn(0); }
+        if (extent <= 0) { *count = 0; PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
         total *= extent;
     }
     *count = total;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SpatialTargetPlanGlobalPointCount"
 /**
  * @brief Implementation of \ref SpatialTargetPlanGlobalPointCount().
  * @see SpatialTargetPlanGlobalPointCount()
@@ -184,7 +186,9 @@ PetscErrorCode SpatialTargetPlanGlobalPointCount(const SpatialTargetPlan *plan, 
  */
 PetscBool SpatialTargetPlanMaskAllows(const SpatialTargetPlan *plan, PetscReal nvert_value)
 {
-    if (plan == NULL) return PETSC_FALSE;
+    PROFILE_HELPER_BEGIN;
+    if (plan == NULL) { PROFILE_HELPER_END; return PETSC_FALSE; }
+    PROFILE_HELPER_END;
     return (PetscBool)(nvert_value < PICURV_STATISTICS_FLUID_THRESHOLD);
 }
 
@@ -198,6 +202,8 @@ static PetscInt SpatialAverageSlot(const PetscBool average_direction[3],
                                    const PetscInt retained_extent[3],
                                    PetscInt i, PetscInt j, PetscInt k)
 {
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     return (average_direction[0] ? 0 : i) +
            retained_extent[0] * ((average_direction[1] ? 0 : j) +
            retained_extent[1] *  (average_direction[2] ? 0 : k));

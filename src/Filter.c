@@ -20,6 +20,7 @@
  */
 static double ApplySimpsonRuleHomogeneousFilter(double values[3][3][3])
 {
+	PROFILE_HELPER_BEGIN;
 	// The stencil only uses the central j-plane (j-index = 1, corresponding to the y-direction).
 	// The formula is a weighted sum of the 9 points in that plane.
 	const double corners = values[0][1][0] + values[2][1][0] + values[0][1][2] + values[2][1][2]; // 4 corner points
@@ -27,6 +28,7 @@ static double ApplySimpsonRuleHomogeneousFilter(double values[3][3][3])
 	const double center  = values[1][1][1];                                                        // 1 center point
 
 	// The weights (1, 4, 16) and normalization factor (36) come from the 2D Simpson's rule.
+	PROFILE_HELPER_END;
 	return (corners + 4.0 * edges + 16.0 * center) / 36.0;
 }
 
@@ -36,6 +38,7 @@ static double ApplySimpsonRuleHomogeneousFilter(double values[3][3][3])
  */
 static double ApplyVolumeWeightedBoxFilter(double values[3][3][3], double weights[3][3][3])
 {
+    PROFILE_HELPER_BEGIN;
     // v1...v8 store the sum of (value * weight) for each of the 8 sub-cubes.
     // w1...w8 store the sum of (weight) for each of the 8 sub-cubes.
 	double v1, v2, v3, v4, v5, v6, v7, v8;
@@ -101,9 +104,11 @@ static double ApplyVolumeWeightedBoxFilter(double values[3][3][3], double weight
     // Production safety check: avoid division by zero if all weights are zero
     // (e.g., if the stencil is entirely inside a solid body).
     if (fabs(total_weight) < 1.0e-12) {
+        PROFILE_HELPER_END;
         return 0.0;
     }
 
+	PROFILE_HELPER_END;
 	return total_weighted_value / total_weight;
 }
 
@@ -112,8 +117,6 @@ static double ApplyVolumeWeightedBoxFilter(double values[3][3][3], double weight
  *                          PUBLIC FUNCTIONS                                      *
  *================================================================================*/
 
-#undef __FUNCT__
-#define __FUNCT__ "ApplyLESTestFilter"
 /**
  * @brief Implementation of \ref ApplyLESTestFilter().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -122,22 +125,24 @@ static double ApplyVolumeWeightedBoxFilter(double values[3][3][3], double weight
  */
 double ApplyLESTestFilter(LESTestFilterKernel kernel, double values[3][3][3], double weights[3][3][3])
 {
+	PROFILE_HELPER_BEGIN;
 	// This function acts as a dispatcher over the configured stencil.
 	switch (kernel) {
 	case LES_TEST_FILTER_SIMPSON_IK:
 		// The caller has declared the i and k directions homogeneous, so the more
 		// accurate Simpson stencil applies. Volume weights are irrelevant there.
+		PROFILE_HELPER_END;
 		return ApplySimpsonRuleHomogeneousFilter(values);
 	case LES_TEST_FILTER_VOLUME_WEIGHTED_BOX:
 	default:
 		// Default for general, non-uniform, curvilinear grids. The volume-weighted
 		// box filter keeps the average correct when neighbouring cells differ in size.
+		PROFILE_HELPER_END;
 		return ApplyVolumeWeightedBoxFilter(values, weights);
 	}
+	PROFILE_HELPER_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ApplyLESTestFilterSymTensor"
 /**
  * @brief Implementation of \ref ApplyLESTestFilterSymTensor().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -151,6 +156,7 @@ PetscErrorCode ApplyLESTestFilterSymTensor(LESTestFilterKernel kernel, SymTensor
 	double component[6][3][3][3];
 
 	PetscFunctionBeginUser;
+	PROFILE_HELPER_BEGIN;
 	PetscCheck(filtered != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
 	           "Filtered tensor destination cannot be NULL.");
 
@@ -172,5 +178,6 @@ PetscErrorCode ApplyLESTestFilterSymTensor(LESTestFilterKernel kernel, SymTensor
 	filtered->yz = ApplyLESTestFilter(kernel, component[4], weights);
 	filtered->zz = ApplyLESTestFilter(kernel, component[5], weights);
 
+	PROFILE_HELPER_END;
 	PetscFunctionReturn(0);
 }

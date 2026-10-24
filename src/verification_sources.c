@@ -10,7 +10,9 @@
  */
 PetscBool VerificationDiffusivityOverrideActive(const SimCtx *simCtx)
 {
-    if (!simCtx) return PETSC_FALSE;
+    PROFILE_FUNCTION_BEGIN;
+    if (!simCtx) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+    PROFILE_FUNCTION_END;
     return simCtx->verificationDiffusivity.enabled;
 }
 
@@ -20,7 +22,9 @@ PetscBool VerificationDiffusivityOverrideActive(const SimCtx *simCtx)
  */
 PetscBool VerificationScalarOverrideActive(const SimCtx *simCtx)
 {
-    if (!simCtx) return PETSC_FALSE;
+    PROFILE_FUNCTION_BEGIN;
+    if (!simCtx) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+    PROFILE_FUNCTION_END;
     return simCtx->verificationScalar.enabled;
 }
 
@@ -38,9 +42,10 @@ PetscErrorCode ApplyVerificationDiffusivityOverride(UserCtx *user)
     PetscReal      min_gamma = PETSC_MAX_REAL;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     // Leave the production diffusivity untouched unless this verification mode is selected.
-    if (!VerificationDiffusivityOverrideActive(simCtx)) PetscFunctionReturn(0);
+    if (!VerificationDiffusivityOverrideActive(simCtx)) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     ierr = DMDAVecGetArray(user->da, user->Diffusivity, &diff_arr); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, user->Cent, &cent); CHKERRQ(ierr);
@@ -84,6 +89,7 @@ PetscErrorCode ApplyVerificationDiffusivityOverride(UserCtx *user)
               (double)simCtx->verificationDiffusivity.gamma0,
               (double)simCtx->verificationDiffusivity.slope_x);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -94,13 +100,15 @@ PetscErrorCode ApplyVerificationDiffusivityOverride(UserCtx *user)
 PetscErrorCode ApplyVerificationScalarOverrideToParticles(UserCtx *user)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
     // The normal particle model owns Psi unless the verification override is enabled.
-    if (!VerificationScalarOverrideActive(user->simCtx)) PetscFunctionReturn(0);
+    if (!VerificationScalarOverrideActive(user->simCtx)) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     PetscCall(SetAnalyticalScalarFieldOnParticles(user, PARTICLE_FIELD_ID_PSI));
     LOG_ALLOW(GLOBAL, LOG_DEBUG,
               "Applied verification scalar override profile '%s' to particle field 'Psi'.\n",
               user->simCtx->verificationScalar.profile);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }

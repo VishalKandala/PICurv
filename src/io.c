@@ -56,6 +56,7 @@ static PetscErrorCode CopyOwnedLocalScalarToGlobal(DM dm, Vec local_vec, Vec glo
     PetscScalar ***global_array = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     PetscCall(DMDAGetLocalInfo(dm, &info));
     PetscCall(DMDAVecGetArrayRead(dm, local_vec, &local_array));
@@ -66,19 +67,22 @@ static PetscErrorCode CopyOwnedLocalScalarToGlobal(DM dm, Vec local_vec, Vec glo
                 global_array[k][j][i] = local_array[k][j][i];
     PetscCall(DMDAVecRestoreArray(dm, global_vec, &global_array));
     PetscCall(DMDAVecRestoreArrayRead(dm, local_vec, &local_array));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 /** @brief Implementation of \ref CheckpointFieldIsEnabled(). */
 PetscBool CheckpointFieldIsEnabled(const SimCtx *simCtx, const FieldDescriptor *descriptor)
 {
+    PROFILE_HELPER_BEGIN;
     const unsigned int availability = descriptor ? descriptor->availability : FIELD_AVAILABILITY_ALWAYS;
 
-    if (!simCtx || !descriptor || !(descriptor->capabilities & FIELD_CAPABILITY_CHECKPOINT)) return PETSC_FALSE;
-    if ((availability & FIELD_AVAILABILITY_TURBULENCE) && !simCtx->les) return PETSC_FALSE;
-    if ((availability & FIELD_AVAILABILITY_LES_DYNAMIC) && simCtx->les != DYNAMIC_SMAGORINSKY) return PETSC_FALSE;
-    if ((availability & FIELD_AVAILABILITY_PARTICLES) && simCtx->np <= 0) return PETSC_FALSE;
-    if ((availability & FIELD_AVAILABILITY_WALL_MODEL) && !simCtx->wallfunction) return PETSC_FALSE;
+    if (!simCtx || !descriptor || !(descriptor->capabilities & FIELD_CAPABILITY_CHECKPOINT)) { PROFILE_HELPER_END; return PETSC_FALSE; }
+    if ((availability & FIELD_AVAILABILITY_TURBULENCE) && !simCtx->les) { PROFILE_HELPER_END; return PETSC_FALSE; }
+    if ((availability & FIELD_AVAILABILITY_LES_DYNAMIC) && simCtx->les != DYNAMIC_SMAGORINSKY) { PROFILE_HELPER_END; return PETSC_FALSE; }
+    if ((availability & FIELD_AVAILABILITY_PARTICLES) && simCtx->np <= 0) { PROFILE_HELPER_END; return PETSC_FALSE; }
+    if ((availability & FIELD_AVAILABILITY_WALL_MODEL) && !simCtx->wallfunction) { PROFILE_HELPER_END; return PETSC_FALSE; }
+    PROFILE_HELPER_END;
     return PETSC_TRUE;
 }
 
@@ -103,21 +107,23 @@ static PetscErrorCode FormatStatisticsPath(const char *root, PetscInt window, Pe
     size_t used = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(path != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output path is required.");
     if (root) PetscCall(PetscSNPrintf(path, path_size, "%s/%s", root, PICURV_STATISTICS_DIRECTORY));
     else PetscCall(PetscSNPrintf(path, path_size, "%s", PICURV_STATISTICS_DIRECTORY));
-    if (window < 0) PetscFunctionReturn(0);
+    if (window < 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     PetscCall(PetscStrlen(path, &used));
     PetscCall(PetscSNPrintf(path + used, path_size - used, "/window_%04" PetscInt_FMT, window));
-    if (block < 0) PetscFunctionReturn(0);
+    if (block < 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     PetscCall(PetscStrlen(path, &used));
     PetscCall(PetscSNPrintf(path + used, path_size - used, "/block_%04" PetscInt_FMT, block));
-    if (!payload_name) PetscFunctionReturn(0);
+    if (!payload_name) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     PetscCall(PetscStrlen(path, &used));
     PetscCall(PetscSNPrintf(path + used, path_size - used, "/%s.dat", payload_name));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -133,6 +139,7 @@ static PetscErrorCode NaturalOrderedVector(Vec field_vec, Vec *natural_vec, Vec 
     const char *dm_type = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     *natural_vec = NULL;
     *ordered_vec = field_vec;
     PetscCall(VecGetDM(field_vec, &dm));
@@ -143,6 +150,7 @@ static PetscErrorCode NaturalOrderedVector(Vec field_vec, Vec *natural_vec, Vec 
         PetscCall(DMDAGlobalToNaturalEnd(dm, field_vec, INSERT_VALUES, *natural_vec));
         *ordered_vec = *natural_vec;
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -153,6 +161,7 @@ static PetscErrorCode GatherVectorToRankZero(Vec field_vec, Vec *sequential_vec)
     VecScatter scatter = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(field_vec != NULL && sequential_vec != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "A source vector and output vector pointer are required.");
     *sequential_vec = NULL;
@@ -163,6 +172,7 @@ static PetscErrorCode GatherVectorToRankZero(Vec field_vec, Vec *sequential_vec)
     PetscCall(VecScatterEnd(scatter, ordered_vec, *sequential_vec, INSERT_VALUES, SCATTER_FORWARD));
     PetscCall(VecScatterDestroy(&scatter));
     PetscCall(VecDestroy(&natural_vec));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -173,10 +183,12 @@ static PetscErrorCode ComputeCheckpointGeometrySHA256(SimCtx *simCtx, UserCtx *u
     char metadata[256];
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(simCtx != NULL && user != NULL && digest_hex != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Geometry hash inputs cannot be NULL.");
     if (simCtx->checkpointGeometryHashReady) {
         PetscCall(PetscStrncpy(digest_hex, simCtx->checkpointGeometrySHA256, 65));
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -212,6 +224,7 @@ static PetscErrorCode ComputeCheckpointGeometrySHA256(SimCtx *simCtx, UserCtx *u
     PetscCallMPI(MPI_Bcast(digest_hex, 65, MPI_CHAR, 0, PETSC_COMM_WORLD));
     PetscCall(PetscStrncpy(simCtx->checkpointGeometrySHA256, digest_hex, 65));
     simCtx->checkpointGeometryHashReady = PETSC_TRUE;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -219,10 +232,12 @@ static PetscErrorCode ComputeCheckpointGeometrySHA256(SimCtx *simCtx, UserCtx *u
 static PetscErrorCode FormatCheckpointStepDirectory(const char *root, PetscInt step, char *path, size_t path_size)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(root != NULL && path != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Checkpoint root and output path are required.");
     PetscCall(PetscSNPrintf(path, path_size, "%s/%s/step_%0*" PetscInt_FMT,
                             root, PICURV_CHECKPOINTS_DIRECTORY, PICURV_CHECKPOINT_STEP_WIDTH, step));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -234,12 +249,14 @@ static PetscErrorCode ResolveCheckpointStepDirectory(const char *source_root, Pe
     PetscBool exact_bundle = PETSC_FALSE;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(source_root != NULL && path != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Checkpoint source and output path are required.");
     PetscCall(PetscSNPrintf(metadata_path, sizeof(metadata_path), "%s/checkpoint.meta", source_root));
     PetscCall(PetscTestFile(metadata_path, 'r', &exact_bundle));
     if (exact_bundle) PetscCall(PetscStrncpy(path, source_root, path_size));
     else PetscCall(FormatCheckpointStepDirectory(source_root, step, path, path_size));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -249,6 +266,7 @@ static PetscErrorCode CreateCheckpointDirectoryCollective(const SimCtx *simCtx, 
     PetscMPIInt create_failed = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(simCtx != NULL && path != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Simulation context and directory path are required.");
     if (simCtx->rank == 0 && mkdir(path, 0777) != 0) {
@@ -260,6 +278,7 @@ static PetscErrorCode CreateCheckpointDirectoryCollective(const SimCtx *simCtx, 
     PetscCallMPI(MPI_Bcast(&create_failed, 1, MPI_INT, 0, PETSC_COMM_WORLD));
     PetscCheck(!create_failed, PETSC_COMM_WORLD, PETSC_ERR_FILE_OPEN,
                "Unable to create checkpoint directory '%s'.", path);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -291,6 +310,7 @@ static PetscErrorCode ValidateCheckpointBundle(SimCtx *simCtx, UserCtx *user,
     FILE *commit_file = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(simCtx != NULL && checkpoint_directory != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Checkpoint validation inputs cannot be NULL.");
     PetscCall(PetscSNPrintf(metadata_path, sizeof(metadata_path), "%s/checkpoint.meta", checkpoint_directory));
@@ -394,6 +414,7 @@ static PetscErrorCode ValidateCheckpointBundle(SimCtx *simCtx, UserCtx *user,
     if (particle_count) *particle_count = saved_particle_count;
     if (particles_saved) *particles_saved = saved_particles;
     if (les_saved) *les_saved = saved_les;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -409,8 +430,9 @@ static PetscErrorCode ValidateCheckpointBundle(SimCtx *simCtx, UserCtx *user,
  * @see TrimWhitespace()
  */
 void TrimWhitespace(char *str) {
-    if (!str) return;
-    if (str[0] == '\0') return;
+    PROFILE_FUNCTION_BEGIN;
+    if (!str) { PROFILE_FUNCTION_END; return; }
+    if (str[0] == '\0') { PROFILE_FUNCTION_END; return; }
 
     char *start = str;
     // Find the first non-whitespace character
@@ -432,6 +454,7 @@ void TrimWhitespace(char *str) {
     if (str != start) {
         memmove(str, start, (end - start) + 2); // +2 to include the new null terminator
     }
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -443,15 +466,16 @@ void TrimWhitespace(char *str) {
 
 PetscBool ShouldWriteDataOutput(const SimCtx *simCtx, PetscInt completed_step)
 {
+    PROFILE_FUNCTION_BEGIN;
     if (!simCtx) {
+        PROFILE_FUNCTION_END;
         return PETSC_FALSE;
     }
+    PROFILE_FUNCTION_END;
     return (PetscBool)(simCtx->tiout > 0 && completed_step > 0 && completed_step % simCtx->tiout == 0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ReadGridGenerationInputs"
 /**
  * @brief Internal helper implementation: `ReadGridGenerationInputs()`.
  * @details Local to this translation unit.
@@ -563,6 +587,7 @@ PetscErrorCode PopulateFinestUserGridResolutionFromOptions(UserCtx *finest_users
     SimCtx         *simCtx = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     if (!finest_users) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "finest_users cannot be NULL.");
@@ -594,12 +619,11 @@ PetscErrorCode PopulateFinestUserGridResolutionFromOptions(UserCtx *finest_users
     }
 
     ierr = PetscFree3(IMs, JMs, KMs); CHKERRQ(ierr);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ReadGridFile"
 /**
  * @brief Internal helper implementation: `ReadGridFile()`.
  * @details Local to this translation unit.
@@ -688,6 +712,7 @@ PetscErrorCode ReadGridFile(UserCtx *user)
  * @see FreeBC_ParamList()
  */
 void FreeBC_ParamList(BC_Param *head) {
+    PROFILE_FUNCTION_BEGIN;
     BC_Param *current = head;
     while (current != NULL) {
         BC_Param *next = current->next;
@@ -696,6 +721,7 @@ void FreeBC_ParamList(BC_Param *head) {
         PetscFree(current);
         current = next;
     }
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -703,6 +729,7 @@ void FreeBC_ParamList(BC_Param *head) {
  * @details Local to this translation unit.
  */
 PetscErrorCode StringToBCFace(const char* str, BCFace* face_out) {
+    PROFILE_FUNCTION_BEGIN;
     if      (strcasecmp(str, "-Xi")   == 0) *face_out = BC_FACE_NEG_X;
     else if (strcasecmp(str, "+Xi")   == 0) *face_out = BC_FACE_POS_X;
     else if (strcasecmp(str, "-Eta")  == 0) *face_out = BC_FACE_NEG_Y;
@@ -710,6 +737,7 @@ PetscErrorCode StringToBCFace(const char* str, BCFace* face_out) {
     else if (strcasecmp(str, "-Zeta") == 0) *face_out = BC_FACE_NEG_Z;
     else if (strcasecmp(str, "+Zeta") == 0) *face_out = BC_FACE_POS_Z;
     else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown face specifier: %s", str);
+    PROFILE_FUNCTION_END;
     return 0;
 }
 
@@ -718,6 +746,7 @@ PetscErrorCode StringToBCFace(const char* str, BCFace* face_out) {
  * @details Local to this translation unit.
  */
 PetscErrorCode StringToBCType(const char* str, BCType* type_out) {
+    PROFILE_FUNCTION_BEGIN;
     if      (strcasecmp(str, "WALL")      == 0) *type_out = WALL;
     else if (strcasecmp(str, "SYMMETRY")  == 0)
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE,
@@ -728,6 +757,7 @@ PetscErrorCode StringToBCType(const char* str, BCType* type_out) {
     else if (strcasecmp(str, "PERIODIC")  == 0) *type_out = PERIODIC;
     // ... add other BCTypes here ...
     else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown BC Type string: %s", str);
+    PROFILE_FUNCTION_END;
     return 0;
 }
 
@@ -736,6 +766,7 @@ PetscErrorCode StringToBCType(const char* str, BCType* type_out) {
  * @details Local to this translation unit.
  */
 PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out) {
+    PROFILE_FUNCTION_BEGIN;
     if      (strcasecmp(str, "noslip")              == 0) *handler_out = BC_HANDLER_WALL_NOSLIP;
     else if (strcasecmp(str, "free_slip")           == 0) *handler_out = BC_HANDLER_WALL_FREE_SLIP;
     else if (strcasecmp(str, "constant_velocity")   == 0) *handler_out = BC_HANDLER_INLET_CONSTANT_VELOCITY;
@@ -747,6 +778,7 @@ PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out
     else if (strcasecmp(str,"initial_flux")         == 0) *handler_out = BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX;
     // ... add other BCHandlerTypes here ...
     else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE, "Unknown BC Handler string: %s", str);
+    PROFILE_FUNCTION_END;
     return 0;
 }
 
@@ -755,24 +787,26 @@ PetscErrorCode StringToBCHandlerType(const char* str, BCHandlerType* handler_out
  * @details Local to this translation unit.
  */
 PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler) {
+    PROFILE_FUNCTION_BEGIN;
     switch (type) {
         case OUTLET:
-	    if(handler != BC_HANDLER_OUTLET_CONSERVATION) return PETSC_ERR_ARG_WRONG;
+	    if(handler != BC_HANDLER_OUTLET_CONSERVATION) { PROFILE_FUNCTION_END; return PETSC_ERR_ARG_WRONG; }
 	    break;
         case WALL:
             if (handler != BC_HANDLER_WALL_NOSLIP && handler != BC_HANDLER_WALL_FREE_SLIP &&
-                handler != BC_HANDLER_WALL_MOVING) return PETSC_ERR_ARG_WRONG;
+                handler != BC_HANDLER_WALL_MOVING) { PROFILE_FUNCTION_END; return PETSC_ERR_ARG_WRONG; }
             break;
         case INLET:
             if (handler != BC_HANDLER_INLET_CONSTANT_VELOCITY &&
                 handler != BC_HANDLER_INLET_PARABOLIC &&
-                handler != BC_HANDLER_INLET_PROFILE_FROM_FILE) return PETSC_ERR_ARG_WRONG;
+                handler != BC_HANDLER_INLET_PROFILE_FROM_FILE) { PROFILE_FUNCTION_END; return PETSC_ERR_ARG_WRONG; }
             break;
         case PERIODIC:
-            if(handler != BC_HANDLER_PERIODIC_GEOMETRIC && handler != BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX && handler != BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX) return PETSC_ERR_ARG_WRONG;
+            if(handler != BC_HANDLER_PERIODIC_GEOMETRIC && handler != BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX && handler != BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX) { PROFILE_FUNCTION_END; return PETSC_ERR_ARG_WRONG; }
         // ... add other validation cases here ...
         default: break;
     }
+    PROFILE_FUNCTION_END;
     return 0; // Combination is valid
 }
 
@@ -781,19 +815,22 @@ PetscErrorCode ValidateBCHandlerForBCType(BCType type, BCHandlerType handler) {
  * @details Local to this translation unit.
  */
 PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *value_out, PetscBool *found) {
+    PROFILE_FUNCTION_BEGIN;
     *found = PETSC_FALSE;
     *value_out = 0.0;
-    if (!key) return 0; // No key to search for
+    if (!key) { PROFILE_FUNCTION_END; return 0; } // No key to search for
 
     BC_Param *current = params;
     while (current) {
         if (strcasecmp(current->key, key) == 0) {
             *value_out = atof(current->value);
             *found = PETSC_TRUE;
+            PROFILE_FUNCTION_END;
             return 0; // Found it, we're done
         }
         current = current->next;
     }
+    PROFILE_FUNCTION_END;
     return 0; // It's not an error to not find the key.
 }
 
@@ -802,9 +839,10 @@ PetscErrorCode GetBCParamReal(BC_Param *params, const char *key, PetscReal *valu
  * @details Local to this translation unit.
  */
 PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *value_out, PetscBool *found) {
+    PROFILE_HELPER_BEGIN;
     *found = PETSC_FALSE;
     *value_out = PETSC_FALSE;
-    if (!key) return 0; // No key to search for
+    if (!key) { PROFILE_HELPER_END; return 0; } // No key to search for
 
     BC_Param *current = params;
     while (current) {
@@ -822,15 +860,15 @@ PetscErrorCode GetBCParamBool(BC_Param *params, const char *key, PetscBool *valu
             } else {
                 *value_out = PETSC_FALSE;
             }
+            PROFILE_HELPER_END;
             return 0; // Found it, we're done
         }
         current = current->next;
     }
+    PROFILE_HELPER_END;
     return 0; // It's not an error to not find the key.
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GetBCParamString"
 /**
  * @brief Implementation of \ref GetBCParamString().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -854,8 +892,6 @@ PetscErrorCode GetBCParamString(BC_Param *params, const char *key, const char **
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GetDrivenSeamFluxFlag"
 /**
  * @brief Implementation of \ref GetDrivenSeamFluxFlag().
  * @details The option was originally spelled `apply_trim`, which said that
@@ -871,11 +907,13 @@ PetscErrorCode GetDrivenSeamFluxFlag(BC_Param *params, PetscBool *value_out, Pet
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     ierr = GetBCParamBool(params, "enforce_seam_flux", value_out, found); CHKERRQ(ierr);
     if (!*found) {
         ierr = GetBCParamBool(params, "apply_trim", value_out, found); CHKERRQ(ierr);
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -884,8 +922,6 @@ PetscErrorCode GetDrivenSeamFluxFlag(BC_Param *params, PetscBool *value_out, Pet
 //                        PUBLIC PARSING FUNCTION
 //
 //================================================================================
-#undef __FUNCT__
-#define __FUNCT__ "ParseAllBoundaryConditions"
 /**
  * @brief Internal helper implementation: `ParseAllBoundaryConditions()`.
  * @details Local to this translation unit.
@@ -1071,8 +1107,6 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
 //================================================================================
 
 // ... (existing helper functions like FreeBC_ParamList, StringToBCFace, etc.) ...
-#undef __FUNCT__
-#define __FUNCT__ "DeterminePeriodicity"
 /**
  * @brief Internal helper implementation: `DeterminePeriodicity()`.
  * @details Local to this translation unit.
@@ -1084,6 +1118,7 @@ PetscErrorCode DeterminePeriodicity(SimCtx *simCtx)
     PetscInt       periodic_flags[3] = {0, 0, 0}; // Index 0:I, 1:J, 2:K
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
     // --- Part 1: Collectively verify all BCS files exist before proceeding ---
@@ -1174,6 +1209,7 @@ PetscErrorCode DeterminePeriodicity(SimCtx *simCtx)
     simCtx->j_periodic = periodic_flags[1];
     simCtx->k_periodic = periodic_flags[2];
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -1188,6 +1224,7 @@ PetscErrorCode VerifyPathExistence(const char *path, PetscBool is_dir, PetscBool
     MPI_Comm       comm = PETSC_COMM_WORLD;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(comm, &rank); CHKERRQ(ierr);
 
     if (rank == 0) {
@@ -1218,11 +1255,10 @@ PetscErrorCode VerifyPathExistence(const char *path, PetscBool is_dir, PetscBool
         SETERRQ(comm, PETSC_ERR_FILE_OPEN, "Mandatory %s not found. Rank 0 expected it at '%s'. Check path and permissions.", description, path);
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ReadFieldData"
 /**
  * @brief Internal helper implementation: `ReadFieldData()`.
  * @details Local to this translation unit.
@@ -1445,8 +1481,6 @@ PetscErrorCode ReadFieldData(UserCtx *user,
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "RestoreDrivenFluxTarget"
 /**
  * @brief Restore a latched driven-flow flux target from a checkpoint manifest.
  *
@@ -1476,6 +1510,7 @@ static PetscErrorCode RestoreDrivenFluxTarget(SimCtx *simCtx, UserCtx *user,
     PetscReal    saved_target = 0.0;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     for (PetscInt face = 0; face < 6; ++face) {
         if (user->boundary_faces[face].handler_type == BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX) {
@@ -1483,7 +1518,7 @@ static PetscErrorCode RestoreDrivenFluxTarget(SimCtx *simCtx, UserCtx *user,
             break;
         }
     }
-    if (!uses_initial_flux) PetscFunctionReturn(0);
+    if (!uses_initial_flux) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     PetscCall(PetscSNPrintf(metadata_path, sizeof(metadata_path),
                             "%s/checkpoint.meta", checkpoint_directory));
@@ -1509,6 +1544,7 @@ static PetscErrorCode RestoreDrivenFluxTarget(SimCtx *simCtx, UserCtx *user,
                   "controller will re-measure it from the restarted field.\n", checkpoint_directory);
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -1526,6 +1562,7 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
     PetscBool les_saved = PETSC_FALSE;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     if(simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR){
         source_path = simCtx->pps->source_dir;
     } else if(simCtx->exec_mode == EXEC_MODE_SOLVER){
@@ -1590,12 +1627,11 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
     }
     simCtx->restartHistoryAvailable = PETSC_TRUE;
     simCtx->current_io_directory = NULL;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ReadStatisticsWindowState"
 /** @brief Restore one window's scalar bookkeeping from a validated manifest. */
 static PetscErrorCode ReadStatisticsWindowState(PetscOptions options, PetscInt window,
                                                 const char *metadata_path, PetscReal checkpoint_time,
@@ -1723,8 +1759,6 @@ static PetscErrorCode ReadStatisticsWindowState(PetscOptions options, PetscInt w
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "RestoreFieldStatisticsState"
 /**
  * @brief Implementation of \ref RestoreFieldStatisticsState().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1848,6 +1882,7 @@ PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, const char 
   Vec            fieldVec;
 
   PetscFunctionBegin;
+  PROFILE_HELPER_BEGIN;
 
   swarm = user->swarm;
 
@@ -1864,6 +1899,7 @@ PetscErrorCode ReadSwarmField(UserCtx *user, const char *field_name, const char 
   /* 4) Destroy the global vector reference. */
   ierr = DMSwarmDestroyGlobalVectorFromField(swarm, field_name, &fieldVec);CHKERRQ(ierr);
 
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
@@ -1883,6 +1919,7 @@ PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, const ch
 
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Reading '%s' via temporary Vec.\n", field_name);
 
@@ -1931,6 +1968,7 @@ PetscErrorCode ReadSwarmIntField(UserCtx *user, const char *field_name, const ch
     // 6. Clean up
     ierr = VecDestroy(&temp_vec); CHKERRQ(ierr);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -1946,11 +1984,13 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
   char checkpoint_directory[PETSC_MAX_PATH_LEN];
 
   PetscFunctionBeginUser;
+  PROFILE_HELPER_BEGIN;
   PetscCall(DMSwarmGetSize(user->swarm, &nGlobal));
   LOG_ALLOW(GLOBAL, LOG_INFO, "Reading DMSwarm fields for timestep %d (swarm size is %d).\n", ti, nGlobal);
 
   if (nGlobal == 0) {
       LOG_ALLOW(GLOBAL, LOG_INFO, "Swarm is empty for timestep %d. Nothing to read.\n", ti);
+      PROFILE_HELPER_END;
       PetscFunctionReturn(0);
   }
 
@@ -1984,6 +2024,7 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
   simCtx->current_io_directory = NULL;
 
   LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading DMSwarm fields for timestep %d.\n", ti);
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
@@ -1996,6 +2037,7 @@ PetscErrorCode ReadCheckpointParticleCount(UserCtx *user, PetscInt ti, PetscInt 
     PetscBool particles_saved = PETSC_FALSE;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(user != NULL && particle_count != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Simulation context and particle-count output are required.");
     simCtx = user->simCtx;
@@ -2011,12 +2053,11 @@ PetscErrorCode ReadCheckpointParticleCount(UserCtx *user, PetscInt ti, PetscInt 
                                        &particles_saved, NULL));
     PetscCheck(particles_saved, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
                "Checkpoint step %" PetscInt_FMT " contains no particle state.", ti);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "WriteFieldData" 
 /**
  * @brief Internal helper implementation: `WriteFieldData()`.
  * @details Local to this translation unit.
@@ -2080,6 +2121,7 @@ PetscErrorCode WriteSimulationFields(UserCtx *user, const char *checkpoint_direc
     SimCtx *simCtx = user->simCtx;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(checkpoint_directory != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Checkpoint destination cannot be NULL.");
     PetscCall(PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer),
@@ -2104,11 +2146,10 @@ PetscErrorCode WriteSimulationFields(UserCtx *user, const char *checkpoint_direc
         PetscCall(WriteFieldData(user, descriptor->canonical_name, view.global_vec, "dat"));
     }
     simCtx->current_io_directory = NULL;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "WriteStatisticsFields"
 /** @brief Write every window's accumulator payloads for one block into a bundle. */
 static PetscErrorCode WriteStatisticsFields(UserCtx *user, const char *checkpoint_directory)
 {
@@ -2158,7 +2199,8 @@ PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, const char
   Vec            fieldVec;
   DM     swarm;  
 
-  PetscFunctionBeginUser; /* PETSc macro indicating start of function */
+  PetscFunctionBeginUser;
+  PROFILE_FUNCTION_BEGIN; /* PETSc macro indicating start of function */
 
   /* 
    * 1) Retrieve the PetscSwarm from the user context.
@@ -2200,6 +2242,7 @@ PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, const char
             "Successfully wrote swarm data for field: %s\n",
             field_name);
 
+  PROFILE_FUNCTION_END;
   PetscFunctionReturn(0); /* PETSc macro indicating end of function */
 }
 
@@ -2218,6 +2261,7 @@ PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, const c
     PetscScalar    *scalar_array;  // Pointer to the temporary Vec's scalar data
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Casting '%s' to Vec for writing.\n", field_name);
 
@@ -2265,6 +2309,7 @@ PetscErrorCode WriteSwarmIntField(UserCtx *user, const char *field_name, const c
     // Clean up
     ierr = VecDestroy(&temp_vec); CHKERRQ(ierr);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -2277,9 +2322,11 @@ PetscErrorCode WriteAllSwarmFields(UserCtx *user, const char *checkpoint_directo
     SimCtx         *simCtx = user->simCtx;
     
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     // If no swarm is configured or there are no particles, do nothing and return.
     if (!user->swarm || simCtx->np <= 0) {
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -2303,6 +2350,7 @@ PetscErrorCode WriteAllSwarmFields(UserCtx *user, const char *checkpoint_directo
 
     simCtx->current_io_directory = NULL;
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -2324,6 +2372,7 @@ static PetscErrorCode WriteCheckpointPayloadEntry(FILE *manifest,
     struct stat payload_stat;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(manifest != NULL && checkpoint_directory != NULL && relative_path != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Checkpoint payload metadata inputs are required.");
     PetscCall(PetscSNPrintf(payload_path, sizeof(payload_path), "%s/%s",
@@ -2354,6 +2403,7 @@ static PetscErrorCode WriteCheckpointPayloadEntry(FILE *manifest,
                        payload_index, (long long)payload_stat.st_size) > 0,
                PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
                "Unable to append payload metadata for '%s'.", relative_path);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -2371,6 +2421,7 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
     FILE *manifest = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     for (PetscInt block = 0; block < simCtx->block_number; ++block) {
         for (PetscInt raw_id = 0; raw_id < FIELD_ID_COUNT; ++raw_id) {
             const FieldDescriptor *descriptor = NULL;
@@ -2604,6 +2655,7 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
         PetscCall(PicurvSHA256File(metadata_path, manifest_digest));
     }
     PetscCallMPI(MPI_Bcast(manifest_digest, 65, MPI_CHAR, 0, PETSC_COMM_WORLD));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -2623,6 +2675,7 @@ PetscErrorCode WriteCheckpointBundle(SimCtx *simCtx, const char *reason)
     PetscMPIInt writer_pid = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(simCtx != NULL && reason != NULL && reason[0] != '\0',
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Simulation context and checkpoint reason are required.");
@@ -2646,6 +2699,7 @@ PetscErrorCode WriteCheckpointBundle(SimCtx *simCtx, const char *reason)
                    simCtx->step, (double)saved_time, (double)simCtx->ti);
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "Checkpoint step %d is already committed; skipping duplicate write.\n",
                   simCtx->step);
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -2721,6 +2775,7 @@ PetscErrorCode WriteCheckpointBundle(SimCtx *simCtx, const char *reason)
     LOG_ALLOW(GLOBAL, LOG_INFO,
               "Committed checkpoint step %d at t=%.17g (%s): %s\n",
               simCtx->step, (double)simCtx->ti, reason, final_directory);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -2735,6 +2790,7 @@ PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut)
     Vec sequential_vec = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(inVec != NULL && N != NULL && arrayOut != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Vector, size output, and array output are required.");
@@ -2757,6 +2813,7 @@ PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut)
         PetscCall(VecRestoreArrayRead(sequential_vec, &values));
     }
     PetscCall(VecDestroy(&sequential_vec));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -2776,6 +2833,7 @@ PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name,
     size_t         element_size = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     PetscCheck(swarm != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "DMSwarm cannot be NULL.");
     PetscCheck(field_name != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Swarm field name cannot be NULL.");
@@ -2845,6 +2903,7 @@ PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name,
 
     ierr = DMSwarmRestoreField(swarm, field_name, &bs, NULL, &local_array_void); CHKERRQ(ierr);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -2876,6 +2935,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
     
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "DisplayBanner - UserCtx pointer is NULL.");
     switch (get_log_level()) {
@@ -3223,11 +3283,10 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         ierr = PetscPrintf(PETSC_COMM_SELF, "=============================================================\n"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, "\n"); CHKERRQ(ierr);
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PicurvPhysicalTime"
 /** @brief Implementation of \ref PicurvPhysicalTime(). */
 PetscErrorCode PicurvPhysicalTime(const SimCtx *simCtx, PetscReal solver_time, PetscReal *physical)
 {
@@ -3235,15 +3294,15 @@ PetscErrorCode PicurvPhysicalTime(const SimCtx *simCtx, PetscReal solver_time, P
     PetscReal            scale = 1.0;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(simCtx && physical, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Context and physical-time output are required.");
     PetscCall(FieldDimensionReferenceScale(&simCtx->scaling, time_dimension, &scale));
     *physical = solver_time * scale;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PicurvFieldReferenceScale"
 /**
  * @brief Implementation of \ref PicurvFieldReferenceScale().
  * @details The argument and return contract is documented in `include/io.h`.
@@ -3259,6 +3318,7 @@ PetscErrorCode PicurvFieldReferenceScale(SimCtx *simCtx, const char *field_name,
     PetscBool       found = PETSC_FALSE;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(simCtx && field_name && scale, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Context, field name, and output scale are required.");
 
@@ -3284,6 +3344,7 @@ PetscErrorCode PicurvFieldReferenceScale(SimCtx *simCtx, const char *field_name,
     if (description && description_length) {
         PetscCall(FieldDimensionLabel(dimension, description, description_length));
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -3491,10 +3552,6 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ParsePostProcessingSettings"
-#undef __FUNCT__
-#define __FUNCT__ "ParseScalingInformation"
 /**
  * @brief Implementation of \ref ParseScalingInformation().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -3550,6 +3607,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
                         PetscInt          *Nout,
                         MPI_Comm      comm)
 {
+    PROFILE_HELPER_BEGIN;
     /* STEP 0: Prepare local variables & log function entry */
     PetscMPIInt    rank, size;
     PetscErrorCode ierr;
@@ -3566,6 +3624,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
     if (!filename || !data_out || !Nout) {
         LOG_ALLOW(GLOBAL, LOG_WARNING,
                   "Null pointer argument provided.\n");
+        PROFILE_HELPER_END;
         return 1;
     }
 
@@ -3593,6 +3652,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
                       "File '%s' not found.\n",
                       filename);
         }
+        PROFILE_HELPER_END;
         return 2;
     }
 
@@ -3603,6 +3663,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
             LOG_ALLOW(GLOBAL, LOG_WARNING,
                       "File '%s' could not be opened for reading.\n",
                       filename);
+            PROFILE_HELPER_END;
             return 3;
         }
 
@@ -3624,6 +3685,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
             fclose(fp);
             LOG_ALLOW(GLOBAL, LOG_WARNING,
                       "malloc failed for array.\n");
+            PROFILE_HELPER_END;
             return 4;
         }
 
@@ -3656,6 +3718,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
             LOG_ALLOW(GLOBAL, LOG_WARNING,
                       "malloc failed on rank %d.\n",
                       rank);
+            PROFILE_HELPER_END;
             return 5;
         }
     }
@@ -3670,6 +3733,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
     LOG_ALLOW(GLOBAL, LOG_DEBUG,
               "Done. Provided array of length=%d to all ranks.\n",
               N);
+    PROFILE_HELPER_END;
     return 0; /* success */
 }
 
@@ -3683,6 +3747,7 @@ PetscErrorCode ReadPositionsFromFile(PetscInt timeIndex,
                                       PetscInt *Ncoords)
 {
   PetscFunctionBeginUser;
+  PROFILE_HELPER_BEGIN;
 
   PetscErrorCode ierr;
   Vec            coordsVec;
@@ -3697,6 +3762,7 @@ PetscErrorCode ReadPositionsFromFile(PetscInt timeIndex,
     LOG_ALLOW(GLOBAL, LOG_ERROR,
               "Error reading position data (ti=%d).\n",
               timeIndex);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(ierr);
   }
 
@@ -3707,6 +3773,7 @@ PetscErrorCode ReadPositionsFromFile(PetscInt timeIndex,
 
   LOG_ALLOW(GLOBAL, LOG_DEBUG,
             "Successfully gathered coordinates. Ncoords=%d.\n", *Ncoords);
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
@@ -3722,6 +3789,7 @@ PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
                                            PetscInt *Nscalars)
 {
   PetscFunctionBeginUser;
+  PROFILE_HELPER_BEGIN;
 
   PetscErrorCode ierr;
   Vec            fieldVec;
@@ -3735,6 +3803,7 @@ PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
     LOG_ALLOW(GLOBAL, LOG_ERROR,
               "Error reading field '%s' (ti=%d).\n",
               fieldName, timeIndex);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(ierr);
   }
 
@@ -3746,5 +3815,6 @@ PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
   LOG_ALLOW(GLOBAL, LOG_DEBUG,
             "Successfully gathered field '%s'. Nscalars=%d.\n",
             fieldName, *Nscalars);
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }

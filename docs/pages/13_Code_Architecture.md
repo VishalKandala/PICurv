@@ -172,6 +172,10 @@ Not all option consumption is explicit `PetscOptionsGet*`; PETSc dynamic ingesti
 - New particle model:
   - extend `ParticlePhysics.c`/`ParticleMotion.c` interface
   - add structured schema and ingestion wiring
+- Any new C function in `src/` that is not `static inline` times itself with
+  `PROFILE_FUNCTION_BEGIN` (once per step or pass) or `PROFILE_HELPER_BEGIN` (per particle or
+  cell) and a `PROFILE_FUNCTION_END` before every return; names come from `__func__`, never
+  `__FUNCT__`. `make audit-profiling` checks it (@ref 59_Function_Identity_and_Observability_Specification).
 
 @section p13_next_steps_sec 8. Next Steps
 

@@ -29,9 +29,11 @@ static void RuntimeShutdownSignalHandler(int signum)
  */
 static void RuntimeRequestAutoWalltimeGuard(void)
 {
+    PROFILE_HELPER_BEGIN;
     if (g_runtime_shutdown_signal == 0) {
         g_runtime_shutdown_auto_requested = PETSC_TRUE;
     }
+    PROFILE_HELPER_END;
 }
 
 /**
@@ -39,6 +41,8 @@ static void RuntimeRequestAutoWalltimeGuard(void)
  */
 static PetscBool RuntimeShutdownRequested(void)
 {
+    PROFILE_FUNCTION_BEGIN;
+    PROFILE_FUNCTION_END;
     return (PetscBool)(g_runtime_shutdown_signal != 0 || g_runtime_shutdown_auto_requested);
 }
 
@@ -54,11 +58,13 @@ static PetscBool RuntimeShutdownRequested(void)
 static PetscErrorCode RefreshScatteredParticleState(UserCtx *user)
 {
     PetscFunctionBeginUser;
-    if (!user) PetscFunctionReturn(0);
+    PROFILE_FUNCTION_BEGIN;
+    if (!user) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     if (VerificationScalarOverrideActive(user->simCtx)) {
         PetscCall(ApplyVerificationScalarOverrideToParticles(user));
     }
     PetscCall(ScatterAllParticleFieldsToEulerFields(user));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -67,18 +73,20 @@ static PetscErrorCode RefreshScatteredParticleState(UserCtx *user)
  */
 static const char *RuntimeShutdownSignalName(PetscInt signum)
 {
+    PROFILE_HELPER_BEGIN;
     switch (signum) {
 #ifdef SIGTERM
-        case SIGTERM: return "SIGTERM";
+        case SIGTERM: PROFILE_HELPER_END; return "SIGTERM";
 #endif
 #ifdef SIGUSR1
-        case SIGUSR1: return "SIGUSR1";
+        case SIGUSR1: PROFILE_HELPER_END; return "SIGUSR1";
 #endif
 #ifdef SIGINT
-        case SIGINT: return "SIGINT";
+        case SIGINT: PROFILE_HELPER_END; return "SIGINT";
 #endif
-        default: return "UNKNOWN";
+        default: PROFILE_HELPER_END; return "UNKNOWN";
     }
+    PROFILE_HELPER_END;
 }
 
 /**
@@ -86,12 +94,16 @@ static const char *RuntimeShutdownSignalName(PetscInt signum)
  */
 static const char *RuntimeShutdownReasonName(void)
 {
+    PROFILE_HELPER_BEGIN;
     if (g_runtime_shutdown_signal != 0) {
+        PROFILE_HELPER_END;
         return RuntimeShutdownSignalName((PetscInt)g_runtime_shutdown_signal);
     }
     if (g_runtime_shutdown_auto_requested) {
+        PROFILE_HELPER_END;
         return "AUTO_WALLTIME_GUARD";
     }
+    PROFILE_HELPER_END;
     return "NONE";
 }
 
@@ -103,6 +115,7 @@ static PetscErrorCode RegisterRuntimeSignalHandler(int signum)
     struct sigaction action;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     memset(&action, 0, sizeof(action));
     action.sa_handler = RuntimeShutdownSignalHandler;
 
@@ -114,6 +127,7 @@ static PetscErrorCode RegisterRuntimeSignalHandler(int signum)
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SYS, "sigaction failed for signal %d.", signum);
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -128,6 +142,7 @@ PetscErrorCode InitializeRuntimeSignalHandlers(void)
     PetscErrorCode ierr;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     g_runtime_shutdown_signal = 0;
     g_runtime_shutdown_auto_requested = PETSC_FALSE;
 
@@ -141,6 +156,7 @@ PetscErrorCode InitializeRuntimeSignalHandlers(void)
     ierr = RegisterRuntimeSignalHandler(SIGINT); CHKERRQ(ierr);
 #endif
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -152,7 +168,9 @@ PetscErrorCode InitializeRuntimeSignalHandlers(void)
  */
 PetscReal RuntimeWalltimeGuardUpdateEWMA(PetscBool has_previous, PetscReal previous_ewma_seconds, PetscReal latest_step_seconds, PetscReal alpha)
 {
-    if (!has_previous) return latest_step_seconds;
+    PROFILE_HELPER_BEGIN;
+    if (!has_previous) { PROFILE_HELPER_END; return latest_step_seconds; }
+    PROFILE_HELPER_END;
     return alpha * latest_step_seconds + (1.0 - alpha) * previous_ewma_seconds;
 }
 
@@ -164,6 +182,8 @@ PetscReal RuntimeWalltimeGuardUpdateEWMA(PetscBool has_previous, PetscReal previ
  */
 PetscReal RuntimeWalltimeGuardConservativeEstimate(PetscReal warmup_average_seconds, PetscReal ewma_seconds, PetscReal latest_step_seconds)
 {
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     return PetscMax(warmup_average_seconds, PetscMax(ewma_seconds, latest_step_seconds));
 }
 
@@ -175,6 +195,8 @@ PetscReal RuntimeWalltimeGuardConservativeEstimate(PetscReal warmup_average_seco
  */
 PetscReal RuntimeWalltimeGuardRequiredHeadroom(PetscReal min_seconds, PetscReal multiplier, PetscReal conservative_estimate_seconds)
 {
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     return PetscMax(min_seconds, multiplier * conservative_estimate_seconds);
 }
 
@@ -186,15 +208,17 @@ PetscReal RuntimeWalltimeGuardRequiredHeadroom(PetscReal min_seconds, PetscReal 
  */
 PetscBool RuntimeWalltimeGuardShouldTrigger(PetscInt completed_steps, PetscInt warmup_steps, PetscReal remaining_seconds, PetscReal min_seconds, PetscReal multiplier, PetscReal warmup_average_seconds, PetscReal ewma_seconds, PetscReal latest_step_seconds, PetscReal *required_headroom_seconds_out)
 {
+    PROFILE_HELPER_BEGIN;
     PetscReal conservative_estimate = 0.0;
     PetscReal required_headroom     = 0.0;
 
     if (required_headroom_seconds_out) *required_headroom_seconds_out = 0.0;
-    if (completed_steps < warmup_steps) return PETSC_FALSE;
+    if (completed_steps < warmup_steps) { PROFILE_HELPER_END; return PETSC_FALSE; }
 
     conservative_estimate = RuntimeWalltimeGuardConservativeEstimate(warmup_average_seconds, ewma_seconds, latest_step_seconds);
     required_headroom     = RuntimeWalltimeGuardRequiredHeadroom(min_seconds, multiplier, conservative_estimate);
     if (required_headroom_seconds_out) *required_headroom_seconds_out = required_headroom;
+    PROFILE_HELPER_END;
     return (PetscBool)(remaining_seconds <= required_headroom);
 }
 
@@ -203,9 +227,11 @@ PetscBool RuntimeWalltimeGuardShouldTrigger(PetscInt completed_steps, PetscInt w
  */
 static PetscReal RuntimeWalltimeGuardRemainingSeconds(const SimCtx *simCtx)
 {
+    PROFILE_HELPER_BEGIN;
     time_t now = time(NULL);
 
-    if (now == (time_t)-1) return -1.0;
+    if (now == (time_t)-1) { PROFILE_HELPER_END; return -1.0; }
+    PROFILE_HELPER_END;
     return simCtx->walltimeGuardLimitSeconds - ((PetscReal)now - simCtx->walltimeGuardJobStartEpochSeconds);
 }
 
@@ -214,6 +240,7 @@ static PetscReal RuntimeWalltimeGuardRemainingSeconds(const SimCtx *simCtx)
  */
 static void UpdateRuntimeWalltimeGuardEstimator(SimCtx *simCtx, PetscReal completed_step_seconds)
 {
+    PROFILE_HELPER_BEGIN;
     simCtx->walltimeGuardCompletedSteps++;
     simCtx->walltimeGuardLatestStepSeconds = completed_step_seconds;
 
@@ -224,6 +251,7 @@ static void UpdateRuntimeWalltimeGuardEstimator(SimCtx *simCtx, PetscReal comple
             simCtx->walltimeGuardEWMASeconds          = simCtx->walltimeGuardWarmupAverageSeconds;
             simCtx->walltimeGuardHasEWMA             = PETSC_TRUE;
         }
+        PROFILE_HELPER_END;
         return;
     }
 
@@ -234,6 +262,7 @@ static void UpdateRuntimeWalltimeGuardEstimator(SimCtx *simCtx, PetscReal comple
         simCtx->walltimeGuardEstimatorAlpha
     );
     simCtx->walltimeGuardHasEWMA = PETSC_TRUE;
+    PROFILE_HELPER_END;
 }
 
 /**
@@ -245,7 +274,8 @@ static PetscErrorCode MaybeRequestRuntimeWalltimeGuardShutdown(SimCtx *simCtx, c
     PetscReal required_headroom = 0.0;
 
     PetscFunctionBeginUser;
-    if (!simCtx->walltimeGuardActive || RuntimeShutdownRequested()) PetscFunctionReturn(0);
+    PROFILE_FUNCTION_BEGIN;
+    if (!simCtx->walltimeGuardActive || RuntimeShutdownRequested()) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     remaining_seconds = RuntimeWalltimeGuardRemainingSeconds(simCtx);
     if (!RuntimeWalltimeGuardShouldTrigger(
@@ -258,6 +288,7 @@ static PetscErrorCode MaybeRequestRuntimeWalltimeGuardShutdown(SimCtx *simCtx, c
             simCtx->walltimeGuardEWMASeconds,
             simCtx->walltimeGuardLatestStepSeconds,
             &required_headroom)) {
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -277,6 +308,7 @@ static PetscErrorCode MaybeRequestRuntimeWalltimeGuardShutdown(SimCtx *simCtx, c
         (double)simCtx->walltimeGuardLatestStepSeconds
     );
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -288,6 +320,7 @@ static PetscErrorCode WriteForcedTerminationOutput(SimCtx *simCtx, UserCtx *user
     PetscErrorCode ierr;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     ierr = RuntimeMemoryLogSample(simCtx, simCtx->step, "Shutdown", RuntimeShutdownReasonName()); CHKERRQ(ierr);
 
@@ -304,6 +337,7 @@ static PetscErrorCode WriteForcedTerminationOutput(SimCtx *simCtx, UserCtx *user
     ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRMPI(ierr);
     fflush(stdout);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -317,6 +351,7 @@ PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user, PetscBool preserve_prev
     SimCtx         *simCtx = user->simCtx; // Access global settings if needed
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: Updating solver history vectors.\n",
               simCtx->rank, user->_this);
 
@@ -352,11 +387,10 @@ PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user, PetscBool preserve_prev
         ierr = UpdateLocalGhosts(user, FIELD_ID_NVERT_O); CHKERRQ(ierr);
     }
     
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PerformInitialSetup"
 /**
  * @brief Internal helper implementation: `PerformInitializedParticleSetup()`.
  * @details Local to this translation unit.
@@ -369,6 +403,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     BoundingBox *bboxlist = simCtx->bboxlist;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Performing initial particle setup procedures.\n", simCtx->ti, simCtx->step);
 
@@ -385,7 +420,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     ierr = MigrateRestartParticlesUsingCellID(user); CHKERRQ(ierr);
     ierr = LocateAllParticlesInGrid(user, bboxlist); CHKERRQ(ierr);
 
-    if(get_log_level() >= LOG_DEBUG && is_function_allowed(__FUNCT__)==true){
+    if(get_log_level() >= LOG_DEBUG && is_function_allowed(__func__)==true){
         LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%d] Particle field states after Initial settlement...\n", simCtx->ti, simCtx->step);
         ierr = LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency); CHKERRQ(ierr);
     }
@@ -440,11 +475,10 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Initial setup complete. Ready for time marching. ---\n");
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PerformLoadedParticleSetup"
 /**
  * @brief Internal helper implementation: `PerformLoadedParticleSetup()`.
  * @details Local to this translation unit.
@@ -453,6 +487,7 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     UserCtx     *user     = simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user;
 
     // --- 0. Re-compute Eulerian Diffusivity from loaded fields.
@@ -502,11 +537,10 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     }
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Initial setup complete. Ready for time marching. ---\n");
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "FinalizeRestartState"
 /**
  * @brief Internal helper implementation: `FinalizeRestartState()`.
  * @details Local to this translation unit.
@@ -515,6 +549,7 @@ PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Finalizing RESTART from state (step=%d, t=%.4f) ---\n", simCtx->StartStep, simCtx->ti);
 
@@ -543,11 +578,10 @@ PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Restart state successfully finalized. --\n");
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "AdvanceSimulation"
 /**
  * @brief Internal helper implementation: `AdvanceSimulation()`.
  * @details Local to this translation unit.
@@ -609,7 +643,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         // =================================================================
         //     2. EULERIAN SOLVER STEP
         // =================================================================
-        if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
+        if(get_log_level() == LOG_VERBOSE && is_function_allowed(__func__)==true){
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_COORDINATES, "PreFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_CSI, "PreFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_ETA, "PreFlowSolver"); CHKERRQ(ierr);
@@ -638,7 +672,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = FlowSolver(simCtx); CHKERRQ(ierr);
         }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Eulerian Field Updated ...\n");
-        if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
+        if(get_log_level() == LOG_VERBOSE && is_function_allowed(__func__)==true){
             LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Post FlowSolver field states:\n");
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_UCAT, "PostFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_P, "PostFlowSolver"); CHKERRQ(ierr);
@@ -679,7 +713,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             }
 
             // a.1 (Optional) Log Eulerian Diffusivity min/max and anatomy for debugging.
-            if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
+            if(get_log_level() == LOG_VERBOSE && is_function_allowed(__func__)==true){
                 LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Updated Diffusivity Min/Max:\n");
                 ierr = LOG_FIELD_MIN_MAX(&user[0], FIELD_ID_DIFFUSIVITY); CHKERRQ(ierr);
                 ierr = LOG_FIELD_MIN_MAX(&user[0], FIELD_ID_DIFFUSIVITY_GRADIENT); CHKERRQ(ierr);
@@ -728,7 +762,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = LOG_PARTICLE_METRICS(user, "Timestep Metrics"); CHKERRQ(ierr);
 
 
-            if(get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
+            if(get_log_level() == LOG_VERBOSE && is_function_allowed(__func__)==true){
                 LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Post Lagrangian update field states:\n");
                 ierr = LOG_FIELD_MIN_MAX(&user[0], FIELD_ID_PSI); CHKERRQ(ierr);
                 ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_PSI, "PostScatter"); CHKERRQ(ierr);

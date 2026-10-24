@@ -19,9 +19,11 @@ static PetscErrorCode WriteVTKFileFooter(FILE *fp, const VTKMetaData *meta);
  * @brief Write one binary data block in VTK appended-data format.
  */
 static PetscErrorCode WriteVTKAppendedBlock(FILE *fp, const void *data, PetscInt num_elements, size_t element_size) {
+    PROFILE_FUNCTION_BEGIN;
     uint32_t block_size = num_elements * (uint32_t)element_size;
-    if (fwrite(&block_size, sizeof(uint32_t), 1, fp) != 1) return PETSC_ERR_FILE_WRITE;
-    if (fwrite(data, element_size, num_elements, fp) != (size_t)num_elements) return PETSC_ERR_FILE_WRITE;
+    if (fwrite(&block_size, sizeof(uint32_t), 1, fp) != 1) { PROFILE_FUNCTION_END; return PETSC_ERR_FILE_WRITE; }
+    if (fwrite(data, element_size, num_elements, fp) != (size_t)num_elements) { PROFILE_FUNCTION_END; return PETSC_ERR_FILE_WRITE; }
+    PROFILE_FUNCTION_END;
     return 0;
 }
 
@@ -30,6 +32,7 @@ static PetscErrorCode WriteVTKAppendedBlock(FILE *fp, const void *data, PetscInt
  */
 static PetscErrorCode WriteVTSXMLHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset)
 {
+    PROFILE_HELPER_BEGIN;
     const char *byte_order = "LittleEndian";
     const char *precision  = "Float64";
 
@@ -61,6 +64,7 @@ static PetscErrorCode WriteVTSXMLHeader(FILE *fp, const VTKMetaData *meta, Petsc
     fprintf(fp, "  </StructuredGrid>\n");
     fprintf(fp, "  <AppendedData encoding=\"raw\">\n_");
     
+    PROFILE_HELPER_END;
     return 0;
 }
 
@@ -69,6 +73,7 @@ static PetscErrorCode WriteVTSXMLHeader(FILE *fp, const VTKMetaData *meta, Petsc
  */
 static PetscErrorCode WriteVTPXMLHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset)
 {
+    PROFILE_HELPER_BEGIN;
     const char *byte_order = "LittleEndian";
     const char *precision     = "Float64";
     const char *int_type_str  = (sizeof(PetscInt) == 8) ? "Int64" : "Int32";
@@ -110,6 +115,7 @@ static PetscErrorCode WriteVTPXMLHeader(FILE *fp, const VTKMetaData *meta, Petsc
     fprintf(fp, "  </PolyData>\n");
     fprintf(fp, "  <AppendedData encoding=\"raw\">\n_");
 
+    PROFILE_HELPER_END;
     return 0;
 }
 
@@ -118,11 +124,15 @@ static PetscErrorCode WriteVTPXMLHeader(FILE *fp, const VTKMetaData *meta, Petsc
  */
 static PetscErrorCode WriteVTKFileHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset)
 {
+    PROFILE_FUNCTION_BEGIN;
     if (meta->fileType == VTK_STRUCTURED) {
+        PROFILE_FUNCTION_END;
         return WriteVTSXMLHeader(fp, meta, boffset);
     } else if (meta->fileType == VTK_POLYDATA) {
+        PROFILE_FUNCTION_END;
         return WriteVTPXMLHeader(fp, meta, boffset);
     }
+    PROFILE_FUNCTION_END;
     return PETSC_ERR_ARG_WRONG;
 }
 
@@ -131,9 +141,11 @@ static PetscErrorCode WriteVTKFileHeader(FILE *fp, const VTKMetaData *meta, Pets
  */
 static PetscErrorCode WriteVTKFileFooter(FILE *fp, const VTKMetaData *meta)
 {
+    PROFILE_FUNCTION_BEGIN;
     (void)meta;
     fprintf(fp, "\n  </AppendedData>\n");
     fprintf(fp, "</VTKFile>\n");
+    PROFILE_FUNCTION_END;
     return 0;
 }
 
@@ -148,6 +160,7 @@ static PetscErrorCode WriteVTKFileFooter(FILE *fp, const VTKMetaData *meta)
 
 PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData *meta, MPI_Comm comm)
 {
+    PROFILE_FUNCTION_BEGIN;
     PetscMPIInt rank;
     MPI_Comm_rank(comm, &rank);
     PetscErrorCode ierr = 0;
@@ -161,6 +174,7 @@ PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData
         fp = fopen(tmp_filename, "wb");
         if (!fp) {
             LOG_ALLOW(GLOBAL, LOG_ERROR, "fopen failed for %s.\n", tmp_filename);
+            PROFILE_FUNCTION_END;
             return PETSC_ERR_FILE_OPEN;
         }
 
@@ -170,6 +184,7 @@ PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData
         if (ierr) {
             fclose(fp);
             remove(tmp_filename);
+            PROFILE_FUNCTION_END;
             return ierr;
         }
 
@@ -178,6 +193,7 @@ PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData
             if (ierr) {
                 fclose(fp);
                 remove(tmp_filename);
+                PROFILE_FUNCTION_END;
                 return ierr;
             }
         }
@@ -189,6 +205,7 @@ PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData
                 if (ierr) {
                     fclose(fp);
                     remove(tmp_filename);
+                    PROFILE_FUNCTION_END;
                     return ierr;
                 }
             }
@@ -199,6 +216,7 @@ PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData
                 if (ierr) {
                     fclose(fp);
                     remove(tmp_filename);
+                    PROFILE_FUNCTION_END;
                     return ierr;
                 }
             }
@@ -207,6 +225,7 @@ PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData
                 if (ierr) {
                     fclose(fp);
                     remove(tmp_filename);
+                    PROFILE_FUNCTION_END;
                     return ierr;
                 }
             }
@@ -215,18 +234,22 @@ PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData
         if (ierr) {
             fclose(fp);
             remove(tmp_filename);
+            PROFILE_FUNCTION_END;
             return ierr;
         }
         if (fclose(fp) != 0) {
             remove(tmp_filename);
+            PROFILE_FUNCTION_END;
             return PETSC_ERR_FILE_WRITE;
         }
         if (rename(tmp_filename, filename) != 0) {
             remove(tmp_filename);
+            PROFILE_FUNCTION_END;
             return PETSC_ERR_FILE_WRITE;
         }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Rank 0 finished writing VTK file '%s'.\n", filename);
     }
+    PROFILE_FUNCTION_END;
     return 0;
 }
 
@@ -247,6 +270,7 @@ PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords,
     PetscScalar    *full_coords_arr = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     ierr = DMDAGetInfo(user->da, NULL, &IM, &JM, &KM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
 
     // Set the dimensions of the output grid
@@ -295,6 +319,7 @@ PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords,
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Subsampled coordinates prepared on rank 0 with total %" PetscInt_FMT " points.\n", *out_npoints);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -308,12 +333,14 @@ PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords,
 PetscErrorCode BeginStructuredVTKOutput(UserCtx *user, VTKMetaData *meta)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(user != NULL && meta != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Context and metadata are required.");
     PetscCall(PetscMemzero(meta, sizeof(*meta)));
     meta->fileType = VTK_STRUCTURED;
     PetscCall(PrepareOutputCoordinates(user, &meta->coords, &meta->mx, &meta->my, &meta->mz,
                                        &meta->npoints));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -329,12 +356,14 @@ PetscErrorCode AppendStructuredVTKField(UserCtx *user, VTKMetaData *meta, const 
     VTKFieldInfo *entry = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(user != NULL && meta != NULL && name != NULL && field_vec != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Context, metadata, name, and vector are required.");
     if (meta->num_point_data_fields >= MAX_POINT_DATA_FIELDS) {
         LOG_ALLOW(GLOBAL, LOG_WARNING,
                   "Reached the %d point-data field limit; '%s' is not written.\n",
                   MAX_POINT_DATA_FIELDS, name);
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
     entry = &meta->point_data_fields[meta->num_point_data_fields];
@@ -342,6 +371,7 @@ PetscErrorCode AppendStructuredVTKField(UserCtx *user, VTKMetaData *meta, const 
     entry->num_components = components;
     PetscCall(PrepareOutputEulerianFieldData(user, field_vec, components, &entry->data));
     meta->num_point_data_fields++;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -354,6 +384,7 @@ PetscErrorCode AppendStructuredVTKField(UserCtx *user, VTKMetaData *meta, const 
 PetscErrorCode FinishStructuredVTKOutput(VTKMetaData *meta, const char *filename)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(meta != NULL && filename != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Metadata and filename are required.");
     PetscCall(CreateVTKFileFromMetadata(filename, meta, PETSC_COMM_WORLD));
@@ -364,6 +395,7 @@ PetscErrorCode FinishStructuredVTKOutput(VTKMetaData *meta, const char *filename
     }
     if (meta->coords) PetscCall(PetscFree(meta->coords));
     meta->num_point_data_fields = 0;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -382,6 +414,7 @@ PetscErrorCode PrepareOutputEulerianFieldData(UserCtx *user, Vec field_vec, Pets
     PetscScalar   *full_field_arr = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     ierr = DMDAGetInfo(user->da, NULL, &IM, &JM, &KM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
     nx = IM - 1; ny = JM - 1; nz = KM - 1;
     npoints = nx * ny * nz;
@@ -476,6 +509,7 @@ PetscErrorCode PrepareOutputEulerianFieldData(UserCtx *user, Vec field_vec, Pets
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Subsampled field data prepared on rank 0 with total %" PetscInt_FMT " points.\n", npoints);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -490,6 +524,7 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
     PetscInt stride = pps->particle_output_freq > 0 ? pps->particle_output_freq : 1;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     // Initialize output parameters on all ranks
     *p_n_total = 0;
@@ -513,6 +548,7 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
     *p_n_total = n_total_particles;
     if (n_total_particles == 0) {
         ierr = PetscFree(full_coords_arr); CHKERRQ(ierr);
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
     PetscCheck(n_components == 3,
@@ -658,5 +694,6 @@ PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, 
 
     ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRQ(ierr);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }

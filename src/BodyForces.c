@@ -13,23 +13,24 @@
  */
 static char DrivenFlowDirection(const UserCtx *user)
 {
+    PROFILE_HELPER_BEGIN;
     for (int i = 0; i < 6; i++) {
         const BCHandlerType handler_type = user->boundary_faces[i].handler_type;
         if (handler_type == BC_HANDLER_PERIODIC_DRIVEN_CONSTANT_FLUX ||
             handler_type == BC_HANDLER_PERIODIC_DRIVEN_INITIAL_FLUX) {
             switch (user->boundary_faces[i].face_id) {
-                case BC_FACE_NEG_X: case BC_FACE_POS_X: return 'X';
-                case BC_FACE_NEG_Y: case BC_FACE_POS_Y: return 'Y';
-                case BC_FACE_NEG_Z: case BC_FACE_POS_Z: return 'Z';
+                case BC_FACE_NEG_X: case BC_FACE_POS_X: PROFILE_HELPER_END; return 'X';
+                case BC_FACE_NEG_Y: case BC_FACE_POS_Y: PROFILE_HELPER_END; return 'Y';
+                case BC_FACE_NEG_Z: case BC_FACE_POS_Z: PROFILE_HELPER_END; return 'Z';
             }
+            PROFILE_HELPER_END;
             return ' ';
         }
     }
+    PROFILE_HELPER_END;
     return ' ';
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeDrivenChannelFlowSource"
 /**
  * @brief Internal helper implementation: `ComputeDrivenChannelFlowSource()`.
  * @details Local to this translation unit.
@@ -39,18 +40,21 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
     PetscErrorCode ierr;
     SimCtx *simCtx = user->simCtx;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     // --- Step 1: Discover if and where a driven flow is active ---
     const char drivenDirection = DrivenFlowDirection(user); // ' ' when none is configured
 
     // --- Step 2: Early exit if no driven flow is configured ---
     if (drivenDirection == ' ') {
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
 
     // --- Step 3: Get the control signal and exit if no correction is needed ---
     PetscReal bulkVelocityCorrection = simCtx->bulkVelocityCorrection;
     if (PetscAbsReal(bulkVelocityCorrection) < 1.0e-12) {
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
 
@@ -161,11 +165,10 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LogDrivenFlowDiagnostics"
 /**
  * @brief Implementation of \ref LogDrivenFlowDiagnostics().
  * @details Full API contract is documented with the header declaration in
@@ -178,10 +181,11 @@ PetscErrorCode LogDrivenFlowDiagnostics(UserCtx *user)
     FILE      *file = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     /* The controller state is global: every rank holds the same values, set from the
        controller's collective reductions, so rank 0 reports it once per step. */
-    if (direction == ' ' || user->_this != 0 || simCtx->rank != 0) PetscFunctionReturn(0);
+    if (direction == ' ' || user->_this != 0 || simCtx->rank != 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     /* What the momentum equation actually received this step. The source is resolved
        once per step and skipped entirely when the correction is negligible, in which
@@ -205,5 +209,6 @@ PetscErrorCode LogDrivenFlowDiagnostics(UserCtx *user)
             (double)physical_time);
     PetscCheck(fclose(file) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
                "Unable to close the driven-flow diagnostics file.");
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

@@ -74,10 +74,12 @@ static const FieldId POISSON_FACE_AJ_FIELDS[3] = {FIELD_ID_IAJ, FIELD_ID_JAJ, FI
  */
 static PetscInt PoissonOperator_StencilSlot(const PetscInt d[3])
 {
+    PROFILE_HELPER_BEGIN;
     for (PetscInt s = 0; s < 19; s++) {
         if (POISSON_STENCIL_OFFSETS[s][0] == d[0] && POISSON_STENCIL_OFFSETS[s][1] == d[1] &&
-            POISSON_STENCIL_OFFSETS[s][2] == d[2]) return s;
+            POISSON_STENCIL_OFFSETS[s][2] == d[2]) { PROFILE_HELPER_END; return s; }
     }
+    PROFILE_HELPER_END;
     return -1;
 }
 
@@ -91,9 +93,11 @@ static inline PetscReal PoissonOperator_At(const PetscReal ***field, const Petsc
 /** @brief Records which axes are periodic, from the negative face of each axis. */
 static void PoissonOperator_PeriodicAxes(const UserCtx *user, PetscBool periodic[3])
 {
+    PROFILE_FUNCTION_BEGIN;
     periodic[0] = (PetscBool)(user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC);
     periodic[1] = (PetscBool)(user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC);
     periodic[2] = (PetscBool)(user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC);
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -109,6 +113,7 @@ static PoissonTransverseDifference PoissonOperator_TransverseDifference(
     const PetscReal ***nvert, const PetscInt c[3], PetscInt n, PetscInt t,
     const PetscInt m[3], const PetscBool periodic[3])
 {
+    PROFILE_HELPER_BEGIN;
     PoissonTransverseDifference diff = {0, 0, 0.0};
     PetscInt plus[3] = {0, 0, 0}, plus_n[3] = {0, 0, 0};
     PetscInt minus[3] = {0, 0, 0}, minus_n[3] = {0, 0, 0};
@@ -130,6 +135,7 @@ static PoissonTransverseDifference PoissonOperator_TransverseDifference(
     } else {
         diff.lo = -1; diff.hi = 1; diff.weight = 0.25;
     }
+    PROFILE_HELPER_END;
     return diff;
 }
 
@@ -141,6 +147,7 @@ static PoissonFaceGradient PoissonOperator_FaceGradientStencil(
     const PoissonFaceMetrics *metrics, const PetscReal ***nvert, const PetscInt c[3],
     PetscInt n, const PetscInt m[3], const PetscBool periodic[3])
 {
+    PROFILE_HELPER_BEGIN;
     PoissonFaceGradient face;
     const Cmpnts normal = metrics->metric[n][n][c[2]][c[1]][c[0]];
 
@@ -154,6 +161,7 @@ static PoissonFaceGradient PoissonOperator_FaceGradientStencil(
             face.diff[b] = PoissonOperator_TransverseDifference(nvert, c, n, b, m, periodic);
         }
     }
+    PROFILE_HELPER_END;
     return face;
 }
 
@@ -163,6 +171,7 @@ static PetscErrorCode PoissonOperator_GetFaceMetrics(UserCtx *user, PoissonFaceM
     FieldView view;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     for (PetscInt n = 0; n < 3; n++) {
         for (PetscInt b = 0; b < 3; b++) {
             PetscCall(FieldGetView(user, POISSON_FACE_METRIC_FIELDS[n][b], &view));
@@ -171,6 +180,7 @@ static PetscErrorCode PoissonOperator_GetFaceMetrics(UserCtx *user, PoissonFaceM
         PetscCall(FieldGetView(user, POISSON_FACE_AJ_FIELDS[n], &view));
         PetscCall(DMDAVecGetArrayRead(view.dm, view.local_vec, (void *)&metrics->aj[n]));
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -180,6 +190,7 @@ static PetscErrorCode PoissonOperator_RestoreFaceMetrics(UserCtx *user, PoissonF
     FieldView view;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     for (PetscInt n = 0; n < 3; n++) {
         for (PetscInt b = 0; b < 3; b++) {
             PetscCall(FieldGetView(user, POISSON_FACE_METRIC_FIELDS[n][b], &view));
@@ -188,6 +199,7 @@ static PetscErrorCode PoissonOperator_RestoreFaceMetrics(UserCtx *user, PoissonF
         PetscCall(FieldGetView(user, POISSON_FACE_AJ_FIELDS[n], &view));
         PetscCall(DMDAVecRestoreArrayRead(view.dm, view.local_vec, (void *)&metrics->aj[n]));
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -214,6 +226,7 @@ static inline PetscInt PoissonOperator_NeighborIndex(PetscInt v, PetscInt d, Pet
 static void PoissonOperator_AddFaceFlux(const PoissonFaceGradient *face, const PetscInt own[3],
                                         PetscInt n, PetscReal sign, PetscScalar coefficients[19])
 {
+    PROFILE_HELPER_BEGIN;
     for (PetscInt b = 0; b < 3; b++) {
         const PetscReal g = face->dot[b] * face->aj;
         PetscInt lower[3] = {own[0], own[1], own[2]};
@@ -238,10 +251,9 @@ static void PoissonOperator_AddFaceFlux(const PoissonFaceGradient *face, const P
         coefficients[PoissonOperator_StencilSlot(lo_lower)] += sign * (-term);
         coefficients[PoissonOperator_StencilSlot(lo_upper)] += sign * (-term);
     }
+    PROFILE_HELPER_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "AssemblePoissonOperator"
 /**
  * @brief Implementation of \ref AssemblePoissonOperator().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -342,8 +354,6 @@ PetscErrorCode AssemblePoissonOperator(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputePoissonRHS"
 /**
  * @brief Implementation of \ref ComputePoissonRHS().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -405,8 +415,6 @@ PetscErrorCode ComputePoissonRHS(UserCtx *user, Vec B)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "UpdatePressure"
 /**
  * @brief Implementation of \ref UpdatePressure().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -427,8 +435,6 @@ PetscErrorCode UpdatePressure(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ProjectVelocity"
 /**
  * @brief Implementation of \ref ProjectVelocity().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -547,6 +553,7 @@ static PetscErrorCode PoissonMultigrid_RemoveNullSpace(MatNullSpace nullsp, Vec 
     MPI_Comm            comm = PetscObjectComm((PetscObject)X);
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     (void)nullsp;
     PetscCall(DMDAVecGetArray(user->da, X, &x));
     PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
@@ -583,6 +590,7 @@ static PetscErrorCode PoissonMultigrid_RemoveNullSpace(MatNullSpace nullsp, Vec 
 
     PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (void *)&nvert));
     PetscCall(DMDAVecRestoreArray(user->da, X, &x));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -596,14 +604,17 @@ static PetscErrorCode PoissonMultigrid_RemoveNullSpace(MatNullSpace nullsp, Vec 
 static void PoissonMultigrid_InterpolationParent(PetscInt f, PetscInt m, PetscInt semi,
                                                  PetscInt *coarse, PetscInt *direction)
 {
+    PROFILE_HELPER_BEGIN;
     if (semi) {
         *coarse = f;
         *direction = 0;
+        PROFILE_HELPER_END;
         return;
     }
     *coarse = (f + 1) / 2;
     *direction = (f - 2 * (*coarse)) == 0 ? 1 : -1;
     if (f == 1 || f == m - 2) *direction = 0;
+    PROFILE_HELPER_END;
 }
 
 /**
@@ -619,6 +630,7 @@ static PetscErrorCode PoissonMultigrid_Interpolate(Mat P, Vec X, Vec F)
     PetscReal        ***f;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(MatShellGetContext(P, &user));
     coarse = user->user_c;
     info = user->info;
@@ -678,6 +690,7 @@ static PetscErrorCode PoissonMultigrid_Interpolate(Mat P, Vec X, Vec F)
     PetscCall(DMDAVecRestoreArrayRead(coarse->da, coarse->lNvert, (void *)&nvert_c));
     PetscCall(DMDAVecRestoreArrayRead(coarse->da, lX, (void *)&x));
     PetscCall(DMRestoreLocalVector(coarse->da, &lX));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -697,6 +710,7 @@ static PetscErrorCode PoissonMultigrid_Restrict(Mat R, Vec X, Vec F)
     PetscReal        ***f;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(MatShellGetContext(R, &user));
     fine = user->user_f;
     info = user->info;
@@ -740,6 +754,7 @@ static PetscErrorCode PoissonMultigrid_Restrict(Mat R, Vec X, Vec F)
     PetscCall(DMDAVecRestoreArrayRead(fine->da, fine->lNvert, (void *)&nvert_f));
     PetscCall(DMDAVecRestoreArrayRead(fine->da, lX, (void *)&x));
     PetscCall(DMRestoreLocalVector(fine->da, &lX));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -757,10 +772,11 @@ static PetscErrorCode PoissonMultigrid_ShiftBlockFactors(KSP level_ksp)
     PetscInt  nblocks;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCall(KSPGetPC(level_ksp, &level_pc));
     PetscCall(PCGetType(level_pc, &level_pc_type));
     if (level_pc_type) PetscCall(PetscStrcmp(level_pc_type, PCBJACOBI, &is_bjacobi));
-    if (!is_bjacobi) PetscFunctionReturn(0);
+    if (!is_bjacobi) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     PetscCall(KSPSetUp(level_ksp));
     PetscCall(PCBJacobiGetSubKSP(level_pc, &nblocks, NULL, &block_ksp));
@@ -769,11 +785,10 @@ static PetscErrorCode PoissonMultigrid_ShiftBlockFactors(KSP level_ksp)
         PetscCall(KSPGetPC(block_ksp[b], &block_pc));
         PetscCall(PCFactorSetShiftAmount(block_pc, 1.e-10));
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PoissonMultigrid_Build"
 /**
  * @brief Builds the multigrid solver for block @p bi and stores it in the finest level.
  *
@@ -905,6 +920,7 @@ static PetscErrorCode PoissonMultigrid_OpenConvergenceLog(KSP ksp, SimCtx *simCt
     const PetscBool first_step = (PetscBool)(simCtx->step == simCtx->StartStep + 1);
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCall(KSPGetMonitorContext(ksp, &monitor));
     monitor->step = simCtx->step;
     monitor->log_to_console = simCtx->ps_ksp_pic_monitor_true_residual;
@@ -924,6 +940,7 @@ static PetscErrorCode PoissonMultigrid_OpenConvergenceLog(KSP ksp, SimCtx *simCt
         PetscCall(PetscFPrintf(PETSC_COMM_SELF, monitor->file_handle,
                                "--- Convergence for Timestep %d, Block %d ---\n", (int)simCtx->step, bi));
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -933,16 +950,16 @@ static PetscErrorCode PoissonMultigrid_CloseConvergenceLog(KSP ksp)
     DualMonitorCtx *monitor = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(KSPGetMonitorContext(ksp, &monitor));
     if (monitor->file_handle) {
         fclose(monitor->file_handle);
         monitor->file_handle = NULL;
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PoissonSolver_Multigrid"
 /**
  * @brief Implementation of \ref PoissonSolver_Multigrid().
  * @details Full API contract (arguments, ownership, side effects) is documented with

@@ -55,15 +55,18 @@ const char picurv_build_stamp[] =
  */
 int PicurvHandleVersionArgument(int argc, char **argv, const char *executable_name)
 {
+    PROFILE_HELPER_BEGIN;
     for (int index = 1; index < argc; ++index) {
         if (!strcmp(argv[index], "--version") || !strcmp(argv[index], "-version")) {
             printf("%s %s+g%.12s%s\n", executable_name, PICURV_RELEASE_VERSION,
                    PICURV_GIT_COMMIT,
                    !strcmp(PICURV_BUILD_DIRTY, "true") ? ".dirty" : "");
             printf("%s\n", picurv_petsc_build_stamp + sizeof(PICURV_PETSC_STAMP_MARKER) - 1);
+            PROFILE_HELPER_END;
             return 1;
         }
     }
+    PROFILE_HELPER_END;
     return 0;
 }
 
@@ -75,24 +78,27 @@ int PicurvHandleVersionArgument(int argc, char **argv, const char *executable_na
  */
 PetscBool RuntimeWalltimeGuardParsePositiveSeconds(const char *text, PetscReal *seconds_out)
 {
+    PROFILE_HELPER_BEGIN;
     char   *endptr = NULL;
     double parsed_value;
 
     if (seconds_out) *seconds_out = 0.0;
-    if (!text || text[0] == '\0') return PETSC_FALSE;
+    if (!text || text[0] == '\0') { PROFILE_HELPER_END; return PETSC_FALSE; }
 
     errno        = 0;
     parsed_value = strtod(text, &endptr);
     if (endptr == text || errno == ERANGE || !isfinite(parsed_value) || parsed_value <= 0.0) {
+        PROFILE_HELPER_END;
         return PETSC_FALSE;
     }
 
     while (*endptr != '\0' && isspace((unsigned char)*endptr)) {
         endptr++;
     }
-    if (*endptr != '\0') return PETSC_FALSE;
+    if (*endptr != '\0') { PROFILE_HELPER_END; return PETSC_FALSE; }
 
     if (seconds_out) *seconds_out = (PetscReal)parsed_value;
+    PROFILE_HELPER_END;
     return PETSC_TRUE;
 }
 
@@ -108,9 +114,10 @@ PetscErrorCode InitializeSolutionConvergenceState(SimCtx *simCtx)
     PetscInt history_capacity = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     if (!simCtx) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
-    if (simCtx->exec_mode != EXEC_MODE_SOLVER) PetscFunctionReturn(0);
-    if (!simCtx->solutionConvergenceEnabled) PetscFunctionReturn(0);
+    if (simCtx->exec_mode != EXEC_MODE_SOLVER) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
+    if (!simCtx->solutionConvergenceEnabled) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     if (!simCtx->usermg.mgctx) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
                 "Multigrid hierarchy must exist before initializing solution convergence storage.");
@@ -145,6 +152,7 @@ PetscErrorCode InitializeSolutionConvergenceState(SimCtx *simCtx)
         PetscCall(PetscCalloc1((size_t)history_capacity, &simCtx->solutionConvergenceMeanKEHistory));
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -159,13 +167,14 @@ PetscErrorCode DestroySolutionConvergenceState(SimCtx *simCtx)
     UserCtx *user = NULL;
 
     PetscFunctionBeginUser;
-    if (!simCtx) PetscFunctionReturn(0);
+    PROFILE_HELPER_BEGIN;
+    if (!simCtx) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
     if (simCtx->fieldStatisticsWindows) {
         PetscCall(PetscFree(simCtx->fieldStatisticsWindows));
         simCtx->fieldStatisticsWindows = NULL;
         simCtx->fieldStatisticsWindowCount = 0;
     }
-    if (!simCtx->usermg.mgctx) PetscFunctionReturn(0);
+    if (!simCtx->usermg.mgctx) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     user = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
     if (user) {
@@ -201,11 +210,10 @@ PetscErrorCode DestroySolutionConvergenceState(SimCtx *simCtx)
     }
     simCtx->solutionConvergenceSamplesRecorded = 0;
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LESConfigSetDefaults"
 /**
  * @brief Implementation of \ref LESConfigSetDefaults().
  * @details Full API contract is documented with the header declaration in
@@ -215,6 +223,7 @@ PetscErrorCode DestroySolutionConvergenceState(SimCtx *simCtx)
 PetscErrorCode LESConfigSetDefaults(LESConfig *config)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(config != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "LES configuration destination cannot be NULL.");
 
@@ -243,11 +252,10 @@ PetscErrorCode LESConfigSetDefaults(LESConfig *config)
     config->diagnostics_enabled     = PETSC_FALSE;
     config->diagnostics_cadence     = 1;
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ParseLESConfiguration"
 /**
  * @brief Reads every LES closure parameter from the generated control file.
  *
@@ -273,6 +281,7 @@ static PetscErrorCode ParseLESConfiguration(SimCtx *simCtx)
     PetscBool  found = PETSC_FALSE;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_constant_cs", &config->constant_cs, NULL));
     PetscCall(PetscOptionsGetReal(NULL, NULL, "-les_vreman_coefficient", &config->vreman_coefficient, NULL));
@@ -365,11 +374,10 @@ static PetscErrorCode ParseLESConfiguration(SimCtx *simCtx)
                "-les_diagnostics_cadence must be positive; received %" PetscInt_FMT ".",
                config->diagnostics_cadence);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "CreateSimulationContext"
 
 /**
  * @brief Implementation of \ref CreateSimulationContext().
@@ -1252,8 +1260,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PetscMkdirRecursive"
 /**
  * @brief Create a directory path recursively using PETSc-compatible error handling.
  */
@@ -1266,6 +1272,7 @@ static PetscErrorCode PetscMkdirRecursive(const char *path)
     PetscBool      exists;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     // Create a mutable copy of the path
     len = strlen(path);
@@ -1300,6 +1307,7 @@ static PetscErrorCode PetscMkdirRecursive(const char *path)
         ierr = PetscMkdir(tmp_path); CHKERRQ(ierr);
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -1316,12 +1324,13 @@ static PetscErrorCode PetscMkdirRecursive(const char *path)
  */
 static PetscBool DirectoriesOverlap(const char *first, const char *second)
 {
+    PROFILE_FUNCTION_BEGIN;
     char        a[PETSC_MAX_PATH_LEN], b[PETSC_MAX_PATH_LEN];
     const char *source[2];
     char       *target[2];
     int         which;
 
-    if (!first || !second || !*first || !*second) return PETSC_FALSE;
+    if (!first || !second || !*first || !*second) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
     source[0] = first;  source[1] = second;
     target[0] = a;      target[1] = b;
 
@@ -1345,10 +1354,11 @@ static PetscBool DirectoriesOverlap(const char *first, const char *second)
         out[used] = '\0';
     }
 
-    if (!*a || !*b) return PETSC_FALSE;
-    if (strcmp(a, b) == 0) return PETSC_TRUE;
-    if (strncmp(a, b, strlen(b)) == 0 && a[strlen(b)] == '/') return PETSC_TRUE;
-    if (strncmp(b, a, strlen(a)) == 0 && b[strlen(a)] == '/') return PETSC_TRUE;
+    if (!*a || !*b) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+    if (strcmp(a, b) == 0) { PROFILE_FUNCTION_END; return PETSC_TRUE; }
+    if (strncmp(a, b, strlen(b)) == 0 && a[strlen(b)] == '/') { PROFILE_FUNCTION_END; return PETSC_TRUE; }
+    if (strncmp(b, a, strlen(a)) == 0 && b[strlen(a)] == '/') { PROFILE_FUNCTION_END; return PETSC_TRUE; }
+    PROFILE_FUNCTION_END;
     return PETSC_FALSE;
 }
 
@@ -1367,13 +1377,15 @@ static const char *kReservedRunDirectories[] = {"config", "scheduler", "checkpoi
  */
 static PetscBool DirectoryValueIsWellFormed(const char *value)
 {
+    PROFILE_FUNCTION_BEGIN;
     const char *cursor;
 
-    if (!value || value[0] == '\0') return PETSC_FALSE;
+    if (!value || value[0] == '\0') { PROFILE_FUNCTION_END; return PETSC_FALSE; }
     for (cursor = value; *cursor; ++cursor) {
-        if (isspace((unsigned char)*cursor)) return PETSC_FALSE;
-        if (*cursor == '"' || *cursor == '\'' || *cursor == '#') return PETSC_FALSE;
+        if (isspace((unsigned char)*cursor)) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+        if (*cursor == '"' || *cursor == '\'' || *cursor == '#') { PROFILE_FUNCTION_END; return PETSC_FALSE; }
     }
+    PROFILE_FUNCTION_END;
     return PETSC_TRUE;
 }
 
@@ -1385,9 +1397,10 @@ static PetscBool DirectoryValueIsWellFormed(const char *value)
  */
 static PetscBool DirectoryHitsReservedName(const char *value)
 {
+    PROFILE_FUNCTION_BEGIN;
     const char *cursor = value;
 
-    if (!value) return PETSC_FALSE;
+    if (!value) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
 
     /* Walk every path segment, skipping separators and "." components. A
        first-segment-only check accepted "./config", ".//config", "output/" and
@@ -1403,12 +1416,14 @@ static PetscBool DirectoryHitsReservedName(const char *value)
             for (index = 0; kReservedRunDirectories[index]; ++index) {
                 if (strlen(kReservedRunDirectories[index]) == segment &&
                     strncmp(cursor, kReservedRunDirectories[index], segment) == 0) {
+                    PROFILE_FUNCTION_END;
                     return PETSC_TRUE;
                 }
             }
         }
         cursor += segment;
     }
+    PROFILE_FUNCTION_END;
     return PETSC_FALSE;
 }
 
@@ -1442,6 +1457,7 @@ typedef enum {
 static PetscBool NormalizePathLexically(const char *value, char *out, size_t size,
                                         char *stack)
 {
+    PROFILE_FUNCTION_BEGIN;
     const char *cursor = value;
     size_t      used = 0;
     PetscBool   absolute = (PetscBool)(value[0] == '/');
@@ -1463,7 +1479,7 @@ static PetscBool NormalizePathLexically(const char *value, char *out, size_t siz
             if (last) { *last = '\0'; used = strlen(stack); }
             else if (used) { stack[0] = '\0'; used = 0; }
         } else {
-            if (used + len + 2 >= PETSC_MAX_PATH_LEN) return PETSC_FALSE;
+            if (used + len + 2 >= PETSC_MAX_PATH_LEN) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
             stack[used++] = '/';
             memcpy(stack + used, cursor, len);
             used += len;
@@ -1474,13 +1490,14 @@ static PetscBool NormalizePathLexically(const char *value, char *out, size_t siz
     }
 
     if (absolute) {
-        if (strlen(stack) + 1 >= size) return PETSC_FALSE;
+        if (strlen(stack) + 1 >= size) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
         strcpy(out, used ? stack : "/");
     } else {
         const char *relative = used ? stack + 1 : ".";
-        if (strlen(relative) + 1 >= size) return PETSC_FALSE;
+        if (strlen(relative) + 1 >= size) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
         strcpy(out, relative);
     }
+    PROFILE_FUNCTION_END;
     return PETSC_TRUE;
 }
 
@@ -1502,6 +1519,7 @@ static PetscBool NormalizePathLexically(const char *value, char *out, size_t siz
 static PetscBool ResolveDirectoryPhysically(const char *value, const char *cwd,
                                             char *out, size_t size, char *scratch)
 {
+    PROFILE_FUNCTION_BEGIN;
     /* Five PATH_MAX buffers, on the heap. On the stack they cost 20 KB inside a call
        chain that already carries the caller's three, and that overflowed far enough to
        corrupt the simulation context on rank zero - the guard broke the run it was
@@ -1514,17 +1532,17 @@ static PetscBool ResolveDirectoryPhysically(const char *value, const char *cwd,
 
     if (value[0] == '/') {
         if ((size_t)snprintf(absolute, PETSC_MAX_PATH_LEN, "%s", value) >= PETSC_MAX_PATH_LEN)
-            return PETSC_FALSE;
+            { PROFILE_FUNCTION_END; return PETSC_FALSE; }
     } else {
         if ((size_t)snprintf(absolute, PETSC_MAX_PATH_LEN, "%s/%s", cwd, value)
             >= PETSC_MAX_PATH_LEN)
-            return PETSC_FALSE;
+            { PROFILE_FUNCTION_END; return PETSC_FALSE; }
     }
     if (!NormalizePathLexically(absolute, normalized, PETSC_MAX_PATH_LEN, lexical))
-        return PETSC_FALSE;
+        { PROFILE_FUNCTION_END; return PETSC_FALSE; }
 
     if ((size_t)snprintf(probe, PETSC_MAX_PATH_LEN, "%s", normalized) >= PETSC_MAX_PATH_LEN)
-        return PETSC_FALSE;
+        { PROFILE_FUNCTION_END; return PETSC_FALSE; }
 
     /* Walk up to the longest existing prefix, then re-append what was trimmed. */
     for (;;) {
@@ -1532,16 +1550,18 @@ static PetscBool ResolveDirectoryPhysically(const char *value, const char *cwd,
         if (realpath(probe, resolved)) {
             size_t consumed = strlen(probe);
             const char *tail = normalized + consumed;
-            if ((size_t)snprintf(out, size, "%s%s", resolved, tail) >= size) return PETSC_FALSE;
+            if ((size_t)snprintf(out, size, "%s%s", resolved, tail) >= size) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
             /* Re-normalize: `resolved` may be "/" and `tail` may start with "/". */
+            PROFILE_FUNCTION_END;
             return NormalizePathLexically(out, out, size, lexical);
         }
         last = strrchr(probe, '/');
-        if (!last) return PETSC_FALSE;
+        if (!last) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
         if (last == probe) { probe[1] = '\0'; }   /* Down to "/" - try once more. */
         else              { *last = '\0'; }
-        if (strcmp(probe, "/") == 0 && !realpath(probe, resolved)) return PETSC_FALSE;
+        if (strcmp(probe, "/") == 0 && !realpath(probe, resolved)) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
     }
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -1552,10 +1572,12 @@ static PetscBool ResolveDirectoryPhysically(const char *value, const char *cwd,
  */
 static PetscBool PathContainsOrEquals(const char *ancestor, const char *path)
 {
+    PROFILE_FUNCTION_BEGIN;
     size_t len = strlen(ancestor);
 
-    if (strcmp(ancestor, path) == 0) return PETSC_TRUE;
-    if (strcmp(ancestor, "/") == 0) return PETSC_TRUE;
+    if (strcmp(ancestor, path) == 0) { PROFILE_FUNCTION_END; return PETSC_TRUE; }
+    if (strcmp(ancestor, "/") == 0) { PROFILE_FUNCTION_END; return PETSC_TRUE; }
+    PROFILE_FUNCTION_END;
     return (PetscBool)(strncmp(path, ancestor, len) == 0 && path[len] == '/');
 }
 
@@ -1577,6 +1599,7 @@ static PetscBool PathContainsOrEquals(const char *ancestor, const char *path)
 static DirectoryVerdict ClassifyLogDirectory(const char *log_dir, const char *output_dir,
                                              const char **reason)
 {
+    PROFILE_FUNCTION_BEGIN;
     /* One heap block for every path buffer this classification needs: three here and
        five for the physical resolution. */
     char            *scratch = NULL;
@@ -1588,18 +1611,22 @@ static DirectoryVerdict ClassifyLogDirectory(const char *log_dir, const char *ou
     /* --- Non-waivable: ambiguous or self-destructive targets. --- */
     if (!log_dir || log_dir[0] == '\0') {
         *reason = "is empty";
+        PROFILE_FUNCTION_END;
         return DIR_VERDICT_MALFORMED;
     }
     if (!DirectoryValueIsWellFormed(log_dir)) {
         *reason = "contains whitespace, a quote, or a comment marker";
+        PROFILE_FUNCTION_END;
         return DIR_VERDICT_MALFORMED;
     }
     if (DirectoryHitsReservedName(log_dir)) {
         *reason = "collides with a reserved run directory";
+        PROFILE_FUNCTION_END;
         return DIR_VERDICT_RESERVED;
     }
     if (DirectoriesOverlap(log_dir, output_dir)) {
         *reason = "overlaps the solver output directory";
+        PROFILE_FUNCTION_END;
         return DIR_VERDICT_OVERLAP;
     }
     /* `~` is refused before anything else looks at the path. Nothing expands it: the
@@ -1613,6 +1640,7 @@ static DirectoryVerdict ClassifyLogDirectory(const char *log_dir, const char *ou
         *reason = "starts with '~', which nothing expands - the options file is read by "
                   "PETSc, not by a shell, so this would name a literal '~' directory "
                   "inside the run. Give a real absolute path. This cannot be overridden";
+        PROFILE_FUNCTION_END;
         return DIR_VERDICT_UNEXPANDED_TILDE;
     }
     /* A relative traversal is refused on the value itself, before any resolution: it
@@ -1623,11 +1651,13 @@ static DirectoryVerdict ClassifyLogDirectory(const char *log_dir, const char *ou
          (strlen(log_dir) >= 3 && strcmp(log_dir + strlen(log_dir) - 3, "/..") == 0))) {
         *reason = "walks above the working directory by relative traversal, which cannot "
                   "be authorized";
+        PROFILE_FUNCTION_END;
         return DIR_VERDICT_RELATIVE_ESCAPE;
     }
 
     if (PetscMalloc1(8 * PETSC_MAX_PATH_LEN, &scratch)) {
         *reason = "cannot be checked because scratch space could not be allocated";
+        PROFILE_FUNCTION_END;
         return DIR_VERDICT_UNRESOLVABLE;
     }
     cwd      = scratch;
@@ -1667,6 +1697,7 @@ static DirectoryVerdict ClassifyLogDirectory(const char *log_dir, const char *ou
     }
 
     PetscFree(scratch);
+    PROFILE_FUNCTION_END;
     return verdict;
 }
 
@@ -1697,15 +1728,15 @@ static DirectoryVerdict ClassifyLogDirectory(const char *log_dir, const char *ou
 static PetscBool LogDirectoryIsSafeToWipe(const char *log_dir, const char *output_dir,
                                           PetscBool authorized, const char **reason)
 {
+    PROFILE_FUNCTION_BEGIN;
     DirectoryVerdict verdict = ClassifyLogDirectory(log_dir, output_dir, reason);
 
-    if (verdict == DIR_VERDICT_CONTAINED) return PETSC_TRUE;
-    if (verdict == DIR_VERDICT_EXTERNAL_ABSOLUTE && authorized) return PETSC_TRUE;
+    if (verdict == DIR_VERDICT_CONTAINED) { PROFILE_FUNCTION_END; return PETSC_TRUE; }
+    if (verdict == DIR_VERDICT_EXTERNAL_ABSOLUTE && authorized) { PROFILE_FUNCTION_END; return PETSC_TRUE; }
+    PROFILE_FUNCTION_END;
     return PETSC_FALSE;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetupSimulationEnvironment"
 /**
  * @brief Internal helper implementation: `SetupSimulationEnvironment()`.
  * @details Local to this translation unit.
@@ -1717,6 +1748,7 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
     PetscBool      exists;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Setting up simulation environment ---\n");
@@ -1803,7 +1835,7 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
             LOG_ALLOW(GLOBAL, LOG_DEBUG, "Creating/cleaning log directory: %s\n", simCtx->log_dir);
             ierr = PetscRMTree(simCtx->log_dir); // Wipes the directory and its contents
             if (ierr) { /* Ignore file-not-found error, but fail on others */
-                PetscError(PETSC_COMM_SELF, __LINE__, __FUNCT__, __FILE__, ierr, PETSC_ERROR_INITIAL, "Could not remove existing log directory '%s'. Check permissions.", simCtx->log_dir);
+                PetscError(PETSC_COMM_SELF, __LINE__, PETSC_FUNCTION_NAME, __FILE__, ierr, PETSC_ERROR_INITIAL, "Could not remove existing log directory '%s'. Check permissions.", simCtx->log_dir);
             }
             ierr = PetscMkdir(simCtx->log_dir); CHKERRQ(ierr);
         } else {
@@ -1914,11 +1946,10 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Environment setup complete ---\n");
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "AllocateContextHeirarchy"
 /**
  * @brief Allocate the user-context objects required by every multigrid level.
  */
@@ -2018,8 +2049,6 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetupGridAndSolvers"
 /**
  * @brief Implementation of \ref SetupGridAndSolvers().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -2055,8 +2084,6 @@ PetscErrorCode SetupGridAndSolvers(SimCtx *simCtx)
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "CreateAndInitializeAllVectors"
 /**
  * @brief Internal helper implementation: `CreateAndInitializeAllVectors()`.
  * @details Local to this translation unit.
@@ -2334,8 +2361,6 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "RepairPeriodicNormalFaceGhosts"
 /**
  * @brief Repairs the adjacent normal ghost layer for periodic face-staggered data.
  *
@@ -2354,7 +2379,8 @@ static PetscErrorCode RepairPeriodicNormalFaceGhosts(UserCtx *user, DM dm, Vec l
     PetscInt mx, my, mz;
 
     PetscFunctionBeginUser;
-    if (!face_direction && !component_staggered) PetscFunctionReturn(0);
+    PROFILE_HELPER_BEGIN;
+    if (!face_direction && !component_staggered) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     PetscCall(DMDAGetLocalInfo(dm, &info));
     xs = info.xs; xe = info.xs + info.xm;
@@ -2407,6 +2433,7 @@ static PetscErrorCode RepairPeriodicNormalFaceGhosts(UserCtx *user, DM dm, Vec l
         }
 
         PetscCall(DMDAVecRestoreArray(dm, local_vec, &array));
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
 
@@ -2504,11 +2531,10 @@ static PetscErrorCode RepairPeriodicNormalFaceGhosts(UserCtx *user, DM dm, Vec l
         PetscCall(DMDAVecRestoreArray(dm, local_vec, &array));
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "UpdateLocalGhosts"
 /**
  * @brief Updates a catalogued field's local ghost representation.
  * @details Resolves the typed field view, performs the existing PETSc scatter,
@@ -2697,8 +2723,6 @@ PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetupBoundaryConditions"
 /**
  * @brief Internal helper implementation: `SetupBoundaryConditions()`.
  * @details Local to this translation unit.
@@ -2775,6 +2799,7 @@ PetscErrorCode Allocate3DArrayScalar(PetscReal ****array, PetscInt nz, PetscInt 
   PetscInt       k, j;
 
   PetscFunctionBegin;
+  PROFILE_HELPER_BEGIN;
   /* Step 1: Allocate memory for an array of nz layer pointers (zero-initialized) */
   ierr = PetscCalloc1(nz, &data); CHKERRQ(ierr);
 
@@ -2795,6 +2820,7 @@ PetscErrorCode Allocate3DArrayScalar(PetscReal ****array, PetscInt nz, PetscInt 
     }
   }
   *array = data;
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
@@ -2809,6 +2835,7 @@ PetscErrorCode Deallocate3DArrayScalar(PetscReal ***array, PetscInt nz, PetscInt
   (void)ny;
 
   PetscFunctionBegin;
+  PROFILE_HELPER_BEGIN;
    if (!array || !array[0] || !array[0][0] ) { // Added more robust check
       LOG_ALLOW(GLOBAL, LOG_WARNING, "Deallocate3DArrayScalar called with potentially unallocated or NULL array.\n");
        if (array) {
@@ -2819,6 +2846,7 @@ PetscErrorCode Deallocate3DArrayScalar(PetscReal ***array, PetscInt nz, PetscInt
            }
             ierr = PetscFree(array); CHKERRQ(ierr); // Free layer pointers if they exist
        }
+       PROFILE_HELPER_END;
        PetscFunctionReturn(0);
    }
 
@@ -2836,6 +2864,7 @@ PetscErrorCode Deallocate3DArrayScalar(PetscReal ***array, PetscInt nz, PetscInt
      The starting address is 'array' itself. */
   ierr = PetscFree(array); CHKERRQ(ierr); // Free the LAYER POINTERS
 
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
@@ -2854,6 +2883,7 @@ PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny,
   PetscMPIInt    rank;
 
   PetscFunctionBegin;
+  PROFILE_HELPER_BEGIN;
 
   ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);
   
@@ -2886,6 +2916,7 @@ PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny,
   LOG_ALLOW(GLOBAL,LOG_DEBUG,"[Rank %d] 3D pointer structure for vector data created. \n",rank);
   
   *array = data;
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
@@ -2902,6 +2933,7 @@ PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny,
   (void)ny;
 
   PetscFunctionBegin;
+  PROFILE_HELPER_BEGIN;
   // If array is NULL or hasn't been allocated properly, just return.
   if (!array || !array[0] || !array[0][0] ) {
       LOG_ALLOW(GLOBAL, LOG_WARNING, "Deallocate3DArrayVector called with potentially unallocated or NULL array.\n");
@@ -2934,6 +2966,7 @@ PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny,
           // Finally, free the array of layer pointers
           ierr = PetscFree(array); CHKERRQ(ierr);
       }
+      PROFILE_HELPER_END;
       PetscFunctionReturn(0); // Return gracefully if input was NULL initially
   }
 
@@ -2952,11 +2985,10 @@ PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny,
      The starting address is 'array' itself. */
   ierr = PetscFree(array); CHKERRQ(ierr); // Free the LAYER POINTERS
 
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GetOwnedCellRange"
 /**
  * @brief Internal helper implementation: `GetOwnedCellRange()`.
  * @details Local to this translation unit.
@@ -2972,6 +3004,7 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
     PetscInt GlobalNodesInDim_from_info; // Total number of DA points in this dimension, from DMDALocalInfo.
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     // --- 1. Input Validation ---
     if (!info_nodes || !xs_cell_global_out || !xm_cell_local_out) {
@@ -3005,6 +3038,7 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
     if (physical_nodes_in_dim <= 1) {
         *xs_cell_global_out = xs_node_global_rank; // Still report the rank's starting node
         *xm_cell_local_out  = 0;                    // But 0 cells
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
 
@@ -3049,11 +3083,10 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
         }
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(ierr);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeAndStoreNeighborRanks"
 /**
  * @brief Internal helper implementation: `ComputeAndStoreNeighborRanks()`.
  * @details Local to this translation unit.
@@ -3168,8 +3201,6 @@ PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetDMDAProcLayout"
 /**
  * @brief Internal helper implementation: `SetDMDAProcLayout()`.
  * @details Local to this translation unit.
@@ -3244,8 +3275,6 @@ PetscErrorCode SetDMDAProcLayout(DM dm, UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetupDomainRankInfo"
 /**
  * @brief Implementation of \ref SetupDomainRankInfo().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -3319,8 +3348,6 @@ PetscErrorCode SetupDomainRankInfo(SimCtx *simCtx)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "Contra2Cart"
 /**
  * @brief Internal helper implementation: `Contra2Cart()`.
  * @details Local to this translation unit.
@@ -3405,8 +3432,6 @@ PetscErrorCode Contra2Cart(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "Cart2Contra"
 /**
  * @brief Convert a spatially varying Cartesian velocity field to contravariant fluxes.
  */
@@ -3469,8 +3494,6 @@ PetscErrorCode Cart2Contra(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "UniformCart2Contra"
 /*
  * Converts a uniform Cartesian velocity (u,v,w) to contravariant fluxes in Ucont.
  * Computes the dot product of the physical velocity with each face-area vector:
@@ -3520,8 +3543,6 @@ PetscErrorCode UniformCart2Contra(UserCtx *user, PetscReal u, PetscReal v, Petsc
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SetupDomainCellDecompositionMap"
 /**
  * @brief Internal helper implementation: `SetupDomainCellDecompositionMap()`.
  * @details Local to this translation unit.
@@ -3585,8 +3606,6 @@ PetscErrorCode SetupDomainCellDecompositionMap(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "BinarySearchInt64"
 /**
  * @brief Implementation of \ref BinarySearchInt64().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -3638,6 +3657,7 @@ PetscErrorCode BinarySearchInt64(PetscInt n, const PetscInt64 arr[], PetscInt64 
  */
 static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 {
+  PROFILE_HELPER_BEGIN;
   PetscInt nidx;
   DMDALocalInfo	info = user->info;
 
@@ -3649,12 +3669,11 @@ static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
   
   AOApplicationToPetsc(ao,1,&nidx);
   
+  PROFILE_HELPER_END;
   return (nidx);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeDivergence"
 /**
  * @brief Implementation of \ref ComputeDivergence().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -3819,8 +3838,6 @@ PetscErrorCode ComputeDivergence(UserCtx *user )
  PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InitializeRandomGenerators"
 
 /**
  * @brief Implementation of \ref InitializeRandomGenerators().
@@ -3866,8 +3883,6 @@ PetscErrorCode InitializeRandomGenerators(UserCtx* user, PetscRandom *randx, Pet
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InitializeLogicalSpaceRNGs"
 /**
  * @brief Internal helper implementation: `InitializeLogicalSpaceRNGs()`.
  * @details Local to this translation unit.
@@ -3913,8 +3928,6 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscInt base_seed, PetscRandom *rand_
 
 /////////////// DERIVATIVE CALCULATION HELPERS ///////////////
 
-#undef __FUNCT__
-#define __FUNCT__ "TransformScalarDerivativesToPhysical"
 /**
  * @brief Implementation of \ref TransformScalarDerivativesToPhysical().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -3930,6 +3943,7 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscInt base_seed, PetscRandom *rand_
                                                  PetscReal dPhi_dzet,
                                                  Cmpnts *gradPhi)
 {
+    PROFILE_HELPER_BEGIN;
     // Gradient X component
     gradPhi->x = jacobian * (dPhi_dcsi * csi_metrics.x + dPhi_deta * eta_metrics.x + dPhi_dzet * zet_metrics.x);
     
@@ -3938,10 +3952,9 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscInt base_seed, PetscRandom *rand_
     
     // Gradient Z component
     gradPhi->z = jacobian * (dPhi_dcsi * csi_metrics.z + dPhi_deta * eta_metrics.z + dPhi_dzet * zet_metrics.z);
+    PROFILE_HELPER_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "TransformDerivativesToPhysical"
 /**
  * @brief Transform contravariant vector derivatives into physical Cartesian derivatives.
  */
@@ -3949,6 +3962,7 @@ static void TransformDerivativesToPhysical(PetscReal jacobian, Cmpnts csi_metric
                                            Cmpnts deriv_csi, Cmpnts deriv_eta, Cmpnts deriv_zet,
                                            Cmpnts *dudx, Cmpnts *dvdx, Cmpnts *dwdx)
 {
+    PROFILE_HELPER_BEGIN;
     // Derivatives of the first component (u)
     dudx->x = jacobian * (deriv_csi.x * csi_metrics.x + deriv_eta.x * eta_metrics.x + deriv_zet.x * zet_metrics.x);
     dudx->y = jacobian * (deriv_csi.x * csi_metrics.y + deriv_eta.x * eta_metrics.y + deriv_zet.x * zet_metrics.y);
@@ -3961,10 +3975,9 @@ static void TransformDerivativesToPhysical(PetscReal jacobian, Cmpnts csi_metric
     dwdx->x = jacobian * (deriv_csi.z * csi_metrics.x + deriv_eta.z * eta_metrics.x + deriv_zet.z * zet_metrics.x);
     dwdx->y = jacobian * (deriv_csi.z * csi_metrics.y + deriv_eta.z * eta_metrics.y + deriv_zet.z * zet_metrics.y);
     dwdx->z = jacobian * (deriv_csi.z * csi_metrics.z + deriv_eta.z * eta_metrics.z + deriv_zet.z * zet_metrics.z);
+    PROFILE_HELPER_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeScalarFieldDerivatives"
 /**
  * @brief Internal helper implementation: `ComputeScalarFieldDerivatives()`.
  * @details Local to this translation unit.
@@ -3978,6 +3991,7 @@ PetscErrorCode ComputeScalarFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
     PetscReal d_csi, d_eta, d_zet;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     // 1. Get read-only access to metrics
     ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi); CHKERRQ(ierr);
@@ -4003,11 +4017,10 @@ PetscErrorCode ComputeScalarFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da,  user->lAj,  &jac); CHKERRQ(ierr);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeVectorFieldDerivatives"
 /**
  * @brief Internal helper implementation: `ComputeVectorFieldDerivatives()`.
  * @details Local to this translation unit.
@@ -4019,6 +4032,7 @@ PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
     Cmpnts ***csi, ***eta, ***zet;
     PetscReal ***jac;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     // 1. Get read-only access to the necessary metric data arrays
     ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi); CHKERRQ(ierr);
@@ -4051,6 +4065,7 @@ PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da,  user->lAj,  &jac); CHKERRQ(ierr);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -4060,8 +4075,6 @@ PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
 //
 //================================================================================
 
-#undef __FUNCT__
-#define __FUNCT__ "DestroyUserVectors"
 /**
  * @brief Internal helper implementation: `DestroyUserVectors()`.
  * @details Local to this translation unit.
@@ -4070,6 +4083,7 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     // --- Group A: Primary Flow Fields (Always allocated at all levels) ---
     if (user->Ucont) { ierr = VecDestroy(&user->Ucont); CHKERRQ(ierr); }
@@ -4209,10 +4223,9 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->R) { ierr = VecDestroy(&user->R); CHKERRQ(ierr); }
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "All vectors destroyed for UserCtx.\n");
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
-#undef __FUNCT__
-#define __FUNCT__ "DestroyUserContext"
 /**
  * @brief Internal helper implementation: `DestroyUserContext()`.
  * @details Local to this translation unit.
@@ -4221,9 +4234,11 @@ PetscErrorCode DestroyUserContext(UserCtx *user)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     if (!user) {
         LOG_ALLOW(LOCAL, LOG_WARNING, "DestroyUserContext called with NULL user pointer.\n");
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
 
@@ -4296,11 +4311,10 @@ PetscErrorCode DestroyUserContext(UserCtx *user)
     }
 
     LOG_ALLOW(LOCAL, LOG_INFO, "UserCtx at level %d fully destroyed.\n", user->thislevel);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "FinalizeSimulation"
 /**
  * @brief Implementation of \ref FinalizeSimulation().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -4311,9 +4325,11 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     if (!simCtx) {
         LOG_ALLOW(GLOBAL, LOG_WARNING, "FinalizeSimulation called with NULL SimCtx pointer.\n");
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
 
@@ -4475,5 +4491,6 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "========================================\n");
 
     ierr = PetscFree(simCtx); CHKERRQ(ierr);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }

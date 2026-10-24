@@ -301,6 +301,9 @@ Every profiled PICurv function is a PETSc log event, so these timings, PETSc's o
   noticeably to a large particle run. `helpers: all` turns every helper on, for a short
   diagnostic run.
 
+Which functions are aggregates or helpers, how a new function is instrumented, and the
+measured per-call costs are in @ref 59_Function_Identity_and_Observability_Specification.
+
 Rules:
 - `timestep_output.mode`:
   - `off`: disable per-step profiling output

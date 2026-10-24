@@ -58,9 +58,11 @@ static const char *const kAxisName[3] = {"x", "y", "z"};
  */
 static PetscInt ProductDiagonalIndex(PetscInt component)
 {
+    PROFILE_HELPER_BEGIN;
     for (PetscInt c = 0; c < 6; ++c) {
-        if (kProductFirst[c] == component && kProductSecond[c] == component) return c;
+        if (kProductFirst[c] == component && kProductSecond[c] == component) { PROFILE_HELPER_END; return c; }
     }
+    PROFILE_HELPER_END;
     return -1;
 }
 
@@ -72,10 +74,12 @@ static PetscInt ProductDiagonalIndex(PetscInt component)
 static PetscErrorCode ProductComponentLabel(PetscInt index, char *out, size_t size)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(index >= 0 && index < 6, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                "Product component %" PetscInt_FMT " is outside the symmetric set.", index);
     PetscCall(PetscSNPrintf(out, size, "%s%s", kAxisName[kProductFirst[index]],
                             kAxisName[kProductSecond[index]]));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -86,10 +90,12 @@ static PetscErrorCode ProductComponentLabel(PetscInt index, char *out, size_t si
 PetscErrorCode PicurvProductComponentCount(PetscInt dof, PetscInt *count)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(count != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Count output is required.");
     PetscCheck(dof == 1 || dof == 3, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                "Self-products are supported for scalar and three-vector fields, got dof %" PetscInt_FMT ".", dof);
     *count = (dof == 1) ? 1 : 6;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -100,6 +106,7 @@ PetscErrorCode PicurvProductComponentCount(PetscInt dof, PetscInt *count)
 PetscErrorCode PicurvCovarianceComponentCount(PetscInt dof_a, PetscInt dof_b, PetscInt *count)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(count != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Count output is required.");
     /* Scalar-scalar and vector-scalar pairs only; a vector-vector cross product
      * would need a nine-component carrier that nothing allocates. */
@@ -108,6 +115,7 @@ PetscErrorCode PicurvCovarianceComponentCount(PetscInt dof_a, PetscInt dof_b, Pe
                "Covariance is supported for scalar-scalar and vector-scalar pairs, got dof %" PetscInt_FMT
                " and %" PetscInt_FMT ".", dof_a, dof_b);
     *count = (dof_a == 3 || dof_b == 3) ? 3 : 1;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -118,6 +126,7 @@ PetscErrorCode PicurvCovarianceComponentCount(PetscInt dof_a, PetscInt dof_b, Pe
 PetscErrorCode PicurvStatisticsComponentDM(UserCtx *user, PetscInt components, DM *dm)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(user != NULL && dm != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Context and DM output are required.");
     switch (components) {
@@ -131,6 +140,7 @@ PetscErrorCode PicurvStatisticsComponentDM(UserCtx *user, PetscInt components, D
     PetscCheck(*dm != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
                "The block DM for %" PetscInt_FMT " accumulator components was never created.",
                components);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -149,9 +159,11 @@ typedef enum {
  */
 static PetscBool FieldIsParticleSampled(PetscInt field_id)
 {
+    PROFILE_FUNCTION_BEGIN;
     const FieldDescriptor *descriptor = NULL;
 
-    if (FieldGetDescriptor((FieldId)field_id, &descriptor) != 0 || descriptor == NULL) return PETSC_FALSE;
+    if (FieldGetDescriptor((FieldId)field_id, &descriptor) != 0 || descriptor == NULL) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+    PROFILE_FUNCTION_END;
     return (PetscBool)((descriptor->capabilities & FIELD_CAPABILITY_PARTICLE_SAMPLED) != 0);
 }
 
@@ -165,9 +177,12 @@ static PetscBool FieldIsParticleSampled(PetscInt field_id)
  */
 static SampleSet RequestSampleSet(const PicurvWindowDefinition *definition, PetscInt slot, PetscInt pair)
 {
+    PROFILE_FUNCTION_BEGIN;
     if (slot >= 0) {
+        PROFILE_FUNCTION_END;
         return FieldIsParticleSampled(definition->fields[slot].field_id) ? SAMPLE_SET_OCCUPIED : SAMPLE_SET_ALL;
     }
+    PROFILE_FUNCTION_END;
     return (FieldIsParticleSampled(definition->covariances[pair].first) ||
             FieldIsParticleSampled(definition->covariances[pair].second)) ? SAMPLE_SET_OCCUPIED : SAMPLE_SET_ALL;
 }
@@ -179,9 +194,11 @@ static SampleSet RequestSampleSet(const PicurvWindowDefinition *definition, Pets
 static void SampleSetOccupancy(const PicurvWindowStorage *storage, SampleSet set,
                                Vec *count, Vec *weight, Vec *weight_sq)
 {
+    PROFILE_HELPER_BEGIN;
     *count     = (set == SAMPLE_SET_OCCUPIED) ? storage->occupied_count : storage->count;
     *weight    = (set == SAMPLE_SET_OCCUPIED) ? storage->occupied_weight : storage->weight;
     *weight_sq = (set == SAMPLE_SET_OCCUPIED) ? storage->occupied_weight_sq : storage->weight_sq;
+    PROFILE_HELPER_END;
 }
 
 /**
@@ -192,14 +209,15 @@ static void SampleSetOccupancy(const PicurvWindowStorage *storage, SampleSet set
  */
 static Vec SampleSetMean(const PicurvWindowStorage *storage, SampleSet set, PetscInt slot)
 {
+    PROFILE_HELPER_BEGIN;
     if (set == SAMPLE_SET_OCCUPIED && storage->occupied_mean && storage->occupied_mean[slot]) {
+        PROFILE_HELPER_END;
         return storage->occupied_mean[slot];
     }
+    PROFILE_HELPER_END;
     return storage->mean[slot];
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PicurvWindowStorageCreate"
 /**
  * @brief Implementation of \ref PicurvWindowStorageCreate().
  * @see PicurvWindowStorageCreate()
@@ -312,7 +330,8 @@ PetscErrorCode PicurvWindowStorageCreate(UserCtx *user, const PicurvWindowDefini
 PetscErrorCode PicurvWindowStorageDestroy(PicurvWindowStorage *storage)
 {
     PetscFunctionBeginUser;
-    if (storage == NULL) PetscFunctionReturn(0);
+    PROFILE_HELPER_BEGIN;
+    if (storage == NULL) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
     if (storage->count) PetscCall(VecDestroy(&storage->count));
     if (storage->weight) PetscCall(VecDestroy(&storage->weight));
     if (storage->weight_sq) PetscCall(VecDestroy(&storage->weight_sq));
@@ -336,6 +355,7 @@ PetscErrorCode PicurvWindowStorageDestroy(PicurvWindowStorage *storage)
     if (storage->m2) PetscCall(PetscFree(storage->m2));
     if (storage->cm) PetscCall(PetscFree(storage->cm));
     PetscCall(PetscMemzero(storage, sizeof(*storage)));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -349,15 +369,18 @@ static PetscErrorCode FindFieldSlot(const PicurvWindowDefinition *definition, Pe
                                     PetscInt *slot)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     for (PetscInt field_index = 0; field_index < definition->field_count; ++field_index) {
         if (definition->fields[field_index].field_id == field_id) {
             *slot = field_index;
+            PROFILE_HELPER_END;
             PetscFunctionReturn(0);
         }
     }
     SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
             "Window '%s' requests a covariance over field '%s', which is not in its field list.",
             definition->name, FieldCanonicalName((FieldId)field_id));
+    PROFILE_HELPER_END;
 }
 
 /**
@@ -367,6 +390,7 @@ static PetscErrorCode FindFieldSlot(const PicurvWindowDefinition *definition, Pe
 PetscErrorCode PicurvWindowStoragePayloadCount(const PicurvWindowStorage *storage, PetscInt *count)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(storage != NULL && count != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Storage and count output are required.");
     *count = 3 + storage->field_count + storage->covariance_count + (storage->occupied_count ? 3 : 0);
@@ -378,6 +402,7 @@ PetscErrorCode PicurvWindowStoragePayloadCount(const PicurvWindowStorage *storag
     for (PetscInt field_index = 0; storage->m2 && field_index < storage->field_count; ++field_index) {
         if (storage->m2[field_index]) *count += 1;
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -393,6 +418,7 @@ PetscErrorCode PicurvWindowStoragePayload(UserCtx *user, const PicurvWindowDefin
     PetscInt cursor = index;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(user != NULL && definition != NULL && storage != NULL && payload != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Context, definition, storage, and payload output are required.");
@@ -418,6 +444,7 @@ PetscErrorCode PicurvWindowStoragePayload(UserCtx *user, const PicurvWindowDefin
             payload->components = 1;
             payload->role = "occupancy";
             payload->layout = FieldLayoutName(FIELD_LAYOUT_CELL_CENTERED);
+            PROFILE_FUNCTION_END;
             PetscFunctionReturn(0);
         }
         cursor -= occupancy_count;
@@ -433,6 +460,7 @@ PetscErrorCode PicurvWindowStoragePayload(UserCtx *user, const PicurvWindowDefin
         payload->components = descriptor->dof;
         payload->role = "mean";
         payload->layout = FieldLayoutName(descriptor->layout);
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
     cursor -= storage->field_count;
@@ -448,6 +476,7 @@ PetscErrorCode PicurvWindowStoragePayload(UserCtx *user, const PicurvWindowDefin
         payload->components = descriptor->dof;
         payload->role = "mean";
         payload->layout = FieldLayoutName(descriptor->layout);
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -471,6 +500,7 @@ PetscErrorCode PicurvWindowStoragePayload(UserCtx *user, const PicurvWindowDefin
                 PetscCall(PicurvProductComponentCount(descriptor->dof, &payload->components));
                 payload->role = "second_moment";
                 payload->layout = FieldLayoutName(descriptor->layout);
+                PROFILE_FUNCTION_END;
                 PetscFunctionReturn(0);
             }
         }
@@ -492,6 +522,7 @@ PetscErrorCode PicurvWindowStoragePayload(UserCtx *user, const PicurvWindowDefin
         payload->role = "co_moment";
         payload->layout = FieldLayoutName(first->layout);
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -541,6 +572,7 @@ static PetscErrorCode ParseDerivedKinds(const char *outputs, PetscBool wanted[DE
     char *cursor = buffer;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     for (PetscInt k = 0; k < DERIVED_KIND_COUNT; ++k) wanted[k] = PETSC_FALSE;
     PetscCheck(outputs != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output list is required.");
     PetscCall(PetscStrncpy(buffer, outputs, sizeof(buffer)));
@@ -564,6 +596,7 @@ static PetscErrorCode ParseDerivedKinds(const char *outputs, PetscBool wanted[DE
         }
         cursor = comma ? comma + 1 : NULL;
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -578,6 +611,7 @@ static PetscErrorCode DerivedKindExtent(const PicurvWindowDefinition *definition
                                         DerivedKind kind, PetscInt *count)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     *count = 0;
     switch (kind) {
     case DERIVED_MEAN:
@@ -613,6 +647,7 @@ static PetscErrorCode DerivedKindExtent(const PicurvWindowDefinition *definition
         *count = storage->covariance_count;
         break;
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -627,6 +662,7 @@ PetscErrorCode PicurvWindowDerivedCount(const PicurvWindowDefinition *definition
     PetscBool wanted[DERIVED_KIND_COUNT];
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(definition != NULL && storage != NULL && count != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Definition, storage, and count are required.");
     PetscCall(ParseDerivedKinds(outputs, wanted));
@@ -638,6 +674,7 @@ PetscErrorCode PicurvWindowDerivedCount(const PicurvWindowDefinition *definition
         PetscCall(DerivedKindExtent(definition, storage, (DerivedKind)k, &extent));
         *count += extent;
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -651,14 +688,17 @@ PetscErrorCode PicurvWindowDerivedCount(const PicurvWindowDefinition *definition
 static PetscErrorCode SafeStandardDeviation(PetscReal variance, const char *label, PetscReal *result)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (variance >= 0.0) {
         *result = PetscSqrtReal(variance);
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
     PetscCheck(variance >= -PICURV_STATISTICS_VARIANCE_FLOOR, PETSC_COMM_SELF, PETSC_ERR_FP,
                "Derived variance for '%s' is %g, which is too negative to be floating-point "
                "cancellation; the accumulated state is inconsistent.", label, (double)variance);
     *result = 0.0;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -673,6 +713,7 @@ static PetscErrorCode ResolveDerivedIndex(const PicurvWindowDefinition *definiti
                                           PetscInt index, DerivedKind *kind, PetscInt *offset)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     for (PetscInt k = 0; k < DERIVED_KIND_COUNT; ++k) {
         PetscInt extent = 0;
 
@@ -681,16 +722,16 @@ static PetscErrorCode ResolveDerivedIndex(const PicurvWindowDefinition *definiti
         if (index < extent) {
             *kind = (DerivedKind)k;
             *offset = index;
+            PROFILE_HELPER_END;
             PetscFunctionReturn(0);
         }
         index -= extent;
     }
     SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
             "Derived index is past the end of the requested output set.");
+    PROFILE_HELPER_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PicurvWindowDerive"
 /**
  * @brief Implementation of \ref PicurvWindowDerive().
  * @see PicurvWindowDerive()
@@ -917,8 +958,6 @@ PetscErrorCode PicurvWindowDerive(UserCtx *user, const PicurvWindowDefinition *d
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PicurvWindowSpatialMean"
 /**
  * @brief Implementation of \ref PicurvWindowSpatialMean().
  * @see PicurvWindowSpatialMean()
@@ -952,8 +991,6 @@ PetscErrorCode PicurvWindowSpatialMean(UserCtx *user, const PicurvWindowDefiniti
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PicurvWindowValidFractionRange"
 /**
  * @brief Implementation of \ref PicurvWindowValidFractionRange().
  * @see PicurvWindowValidFractionRange()
@@ -1008,8 +1045,6 @@ PetscErrorCode PicurvWindowValidFractionRange(UserCtx *user, const PicurvWindowD
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PicurvWindowAccumulate"
 /**
  * @brief Implementation of \ref PicurvWindowAccumulate().
  * @see PicurvWindowAccumulate()
@@ -1245,14 +1280,14 @@ PetscErrorCode PicurvWindowAccumulate(UserCtx *user, const PicurvWindowDefinitio
 static void ProductComponents(PetscBool self, PetscInt dof_a, PetscInt dof_b, PetscInt components,
                               PetscInt first[6], PetscInt second[6])
 {
+    PROFILE_HELPER_BEGIN;
     for (PetscInt c = 0; c < components; ++c) {
         first[c]  = self ? ((dof_a == 1) ? 0 : kProductFirst[c])  : ((dof_a == 3) ? c : 0);
         second[c] = self ? ((dof_a == 1) ? 0 : kProductSecond[c]) : ((dof_b == 3) ? c : 0);
     }
+    PROFILE_HELPER_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "AccumulateParticleCentredProducts"
 /**
  * @brief Internal helper: adds every particle's centred product into its cell.
  * @details Local to this translation unit. The second pass of the two-pass ensemble:
@@ -1319,8 +1354,6 @@ static PetscErrorCode AccumulateParticleCentredProducts(UserCtx *user, ParticleF
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PicurvWindowStorageFromParticles"
 /**
  * @brief Implementation of \ref PicurvWindowStorageFromParticles().
  * @see PicurvWindowStorageFromParticles()
@@ -1422,6 +1455,7 @@ static PetscErrorCode ReduceSampleSetMean(UserCtx *user, const SpatialTargetPlan
     Vec scratch = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(VecDuplicate(point_mean, &scratch));
     PetscCall(DMDAVecGetArrayRead(user->da, weight, &w));
     PetscCall(DMDAVecGetArrayDOFRead(dm, point_mean, &mean));
@@ -1437,11 +1471,10 @@ static PetscErrorCode ReduceSampleSetMean(UserCtx *user, const SpatialTargetPlan
     PetscCall(PicurvSpatialRatioAverage(user, plan, scratch, weight, weight, average_direction,
                                         PETSC_COMM_WORLD, slot_mean, NULL));
     PetscCall(VecDestroy(&scratch));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PicurvWindowStorageReduce"
 /**
  * @brief Implementation of \ref PicurvWindowStorageReduce().
  * @see PicurvWindowStorageReduce()

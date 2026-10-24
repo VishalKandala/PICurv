@@ -5,8 +5,6 @@
 #include "particle_field_catalog.h"
 
 // =========== Dimensionalization Kernels ========================
-#undef __FUNCT__
-#define __FUNCT__ "DimensionalizeField"
 /**
  * @brief Implementation of \ref DimensionalizeField().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -89,8 +87,6 @@ PetscErrorCode DimensionalizeField(UserCtx *user, const char *field_name)
 
 //============ Post-Processing Kernels ===========================
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeNodalAverage"
 /**
  * @brief Implementation of \ref ComputeNodalAverage().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -134,7 +130,7 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
     ierr = FieldIdFromName(in_field_name, &in_field_id); CHKERRQ(ierr);
     ierr = UpdateLocalGhosts(user, in_field_id); CHKERRQ(ierr);
     /* The boundary node average reads the dummy cells, so show them before averaging. */
-    if (get_log_level() == LOG_VERBOSE && is_function_allowed(__FUNCT__)) {
+    if (get_log_level() == LOG_VERBOSE && is_function_allowed(__func__)) {
         ierr = LOG_FIELD_ANATOMY(user, in_field_id, "PreNodalAverage"); CHKERRQ(ierr);
     }
 
@@ -202,8 +198,6 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeWindowStatisticNodal"
 /**
  * @brief Implementation of \ref ComputeWindowStatisticNodal().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -257,8 +251,6 @@ PetscErrorCode ComputeWindowStatisticNodal(UserCtx *user, const PicurvWindowDefi
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeWindowStatisticsProfile"
 /**
  * @brief Implementation of \ref ComputeWindowStatisticsProfile().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -393,8 +385,6 @@ PetscErrorCode ComputeWindowStatisticsProfile(UserCtx *user, const PicurvWindowD
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeWindowStatisticsSummary"
 /**
  * @brief Implementation of \ref ComputeWindowStatisticsSummary().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -487,8 +477,6 @@ PetscErrorCode ComputeWindowStatisticsSummary(UserCtx *user, PetscInt window_ind
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeQCriterion"
 /**
  * @brief Implementation of \ref ComputeQCriterion().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -636,8 +624,6 @@ PetscErrorCode ComputeQCriterion(UserCtx* user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "NormalizeRelativeField"
 /**
  * @brief Implementation of \ref NormalizeRelativeField().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -711,8 +697,6 @@ PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_
 // ===========================================================================
 // Particle Post-Processing Kernels
 // ===========================================================================
-#undef __FUNCT__
-#define __FUNCT__ "ComputeSpecificKE"
 /**
  * @brief Internal helper implementation: `ComputeSpecificKE()`.
  * @details Local to this translation unit.
@@ -753,8 +737,6 @@ PetscErrorCode ComputeSpecificKE(UserCtx* user, const char* velocity_field, cons
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeDisplacement"
 /**
  * @brief Internal helper implementation: `ComputeDisplacement()`.
  * @details Local to this translation unit.

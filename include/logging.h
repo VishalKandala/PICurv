@@ -891,8 +891,9 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx);
  * @details Called once per call site, on its first execution. Registers the PICurv event
  *          classes and starts PETSc's default log handler on the first call anywhere. A helper
  *          event is switched off as it registers unless its name is enabled
- *          (`profiling.helpers`). On failure the call site stays untimed.
- * @param func_name Function name (`__FUNCT__`), the event's name.
+ *          (`profiling.helpers`). Before PetscInitialize, after PetscFinalize, or on failure, it
+ *          registers nothing and the call site stays untimed, trying again on its next call.
+ * @param func_name Function name (`__func__`), the event's name.
  * @param helper    PETSC_TRUE for a per-particle or per-cell helper, PETSC_FALSE for an aggregate.
  * @param event     Call site's cached event; set when registration succeeds, else left at -1.
  */
@@ -902,13 +903,13 @@ void _ProfilingRegister(const char *func_name, PetscBool helper, PetscLogEvent *
  * @brief Marks the beginning of a profiled function: an always-on aggregate timer.
  *
  * Place this macro at the very beginning of a function called once or a few times per step
- * or solver pass. The function is a PETSc log event of class `PICurv`, named by `__FUNCT__`,
+ * or solver pass. The function is a PETSc log event of class `PICurv`, named by `__func__`,
  * registered on its first call and cached in a function-local static; it appears in the
  * final profiling summary, the per-step output and `log_view`.
  */
 #define PROFILE_FUNCTION_BEGIN \
     static PetscLogEvent _picurv_profile_event = -1; \
-    if (PetscUnlikely(_picurv_profile_event < 0)) _ProfilingRegister(__FUNCT__, PETSC_FALSE, &_picurv_profile_event); \
+    if (PetscUnlikely(_picurv_profile_event < 0)) _ProfilingRegister(__func__, PETSC_FALSE, &_picurv_profile_event); \
     if (_picurv_profile_event >= 0) (void)PetscLogEventBegin(_picurv_profile_event, 0, 0, 0, 0)
 
 /**
@@ -920,7 +921,7 @@ void _ProfilingRegister(const char *func_name, PetscBool helper, PetscLogEvent *
  */
 #define PROFILE_HELPER_BEGIN \
     static PetscLogEvent _picurv_profile_event = -1; \
-    if (PetscUnlikely(_picurv_profile_event < 0)) _ProfilingRegister(__FUNCT__, PETSC_TRUE, &_picurv_profile_event); \
+    if (PetscUnlikely(_picurv_profile_event < 0)) _ProfilingRegister(__func__, PETSC_TRUE, &_picurv_profile_event); \
     if (_picurv_profile_event >= 0) (void)PetscLogEventBegin(_picurv_profile_event, 0, 0, 0, 0)
 
 /**

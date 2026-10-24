@@ -4,6 +4,7 @@
  */
 
 #include "field_catalog.h"
+#include "logging.h"
 
 #define FIELD_NO_VEC_OFFSET ((size_t)-1)
 
@@ -284,6 +285,7 @@ _Static_assert(sizeof(gFieldCatalog) / sizeof(gFieldCatalog[0]) == FIELD_ID_COUN
 PetscErrorCode FieldGetDescriptor(FieldId field_id, const FieldDescriptor **descriptor)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(descriptor != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Field descriptor output cannot be NULL.");
     PetscCheck(field_id >= 0 && field_id < FIELD_ID_COUNT, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
@@ -292,6 +294,7 @@ PetscErrorCode FieldGetDescriptor(FieldId field_id, const FieldDescriptor **desc
                "Field catalog entry %d is not initialized consistently.", (int)field_id);
 
     *descriptor = &gFieldCatalog[field_id];
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -306,9 +309,11 @@ PetscErrorCode FieldIdFromName(const char *field_name, FieldId *field_id)
     PetscBool found = PETSC_FALSE;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCall(FieldTryIdFromName(field_name, field_id, &found));
     PetscCheck(found, PETSC_COMM_SELF, PETSC_ERR_ARG_UNKNOWN_TYPE,
                "Field name '%s' is not registered in the Eulerian field catalog.", field_name);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -319,6 +324,7 @@ PetscErrorCode FieldIdFromName(const char *field_name, FieldId *field_id)
 PetscErrorCode FieldTryIdFromName(const char *field_name, FieldId *field_id, PetscBool *found)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(field_name != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Field name cannot be NULL.");
     PetscCheck(field_id != NULL && found != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
@@ -339,6 +345,7 @@ PetscErrorCode FieldTryIdFromName(const char *field_name, FieldId *field_id, Pet
             break;
         }
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -350,6 +357,7 @@ PetscErrorCode FieldDimensionReferenceScale(const ScalingCtx *scaling, FieldDime
                                             PetscReal *scale)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(scaling != NULL && scale != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Scaling context and scale output cannot be NULL.");
     PetscCheck(dimension.kind == FIELD_DIMENSION_FIXED, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
@@ -357,6 +365,7 @@ PetscErrorCode FieldDimensionReferenceScale(const ScalingCtx *scaling, FieldDime
     *scale = PetscPowRealInt(scaling->L_ref, dimension.length) *
              PetscPowRealInt(scaling->U_ref, dimension.velocity) *
              PetscPowRealInt(scaling->rho_ref, dimension.density);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -371,15 +380,18 @@ PetscErrorCode FieldDimensionLabel(FieldDimension dimension, char *label, size_t
     size_t      used = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(label != NULL && length > 0, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Dimension label buffer cannot be NULL or empty.");
     label[0] = '\0';
     if (dimension.kind == FIELD_DIMENSION_NOT_A_QUANTITY) {
         PetscCall(PetscStrncpy(label, "not a physical quantity", length));
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
     if (dimension.kind == FIELD_DIMENSION_FROM_SOURCE) {
         PetscCall(PetscStrncpy(label, "dimension of its source field", length));
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
     for (int index = 0; index < 3; ++index) {
@@ -393,6 +405,7 @@ PetscErrorCode FieldDimensionLabel(FieldDimension dimension, char *label, size_t
         PetscCall(PetscStrlen(label, &used));
     }
     if (!used) PetscCall(PetscStrncpy(label, "dimensionless", length));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -403,8 +416,10 @@ PetscErrorCode FieldDimensionLabel(FieldDimension dimension, char *label, size_t
  */
 const char *FieldCanonicalName(FieldId field_id)
 {
-    if (field_id < 0 || field_id >= FIELD_ID_COUNT) return "InvalidField";
-    if (gFieldCatalog[field_id].id != field_id) return "InvalidField";
+    PROFILE_FUNCTION_BEGIN;
+    if (field_id < 0 || field_id >= FIELD_ID_COUNT) { PROFILE_FUNCTION_END; return "InvalidField"; }
+    if (gFieldCatalog[field_id].id != field_id) { PROFILE_FUNCTION_END; return "InvalidField"; }
+    PROFILE_FUNCTION_END;
     return gFieldCatalog[field_id].canonical_name;
 }
 
@@ -414,15 +429,17 @@ const char *FieldCanonicalName(FieldId field_id)
  */
 const char *FieldLayoutName(FieldLayout layout)
 {
+    PROFILE_FUNCTION_BEGIN;
     switch (layout) {
-        case FIELD_LAYOUT_NODE_CENTERED:       return "Node-Centered";
-        case FIELD_LAYOUT_CELL_CENTERED:       return "Cell-Centered";
-        case FIELD_LAYOUT_I_FACE:              return "I-Face";
-        case FIELD_LAYOUT_J_FACE:              return "J-Face";
-        case FIELD_LAYOUT_K_FACE:              return "K-Face";
-        case FIELD_LAYOUT_COMPONENT_STAGGERED: return "Component-Staggered";
-        default:                               return "Invalid-Layout";
+        case FIELD_LAYOUT_NODE_CENTERED:       PROFILE_FUNCTION_END; return "Node-Centered";
+        case FIELD_LAYOUT_CELL_CENTERED:       PROFILE_FUNCTION_END; return "Cell-Centered";
+        case FIELD_LAYOUT_I_FACE:              PROFILE_FUNCTION_END; return "I-Face";
+        case FIELD_LAYOUT_J_FACE:              PROFILE_FUNCTION_END; return "J-Face";
+        case FIELD_LAYOUT_K_FACE:              PROFILE_FUNCTION_END; return "K-Face";
+        case FIELD_LAYOUT_COMPONENT_STAGGERED: PROFILE_FUNCTION_END; return "Component-Staggered";
+        default:                               PROFILE_FUNCTION_END; return "Invalid-Layout";
     }
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -436,6 +453,7 @@ PetscErrorCode FieldGetView(UserCtx *user, FieldId field_id, FieldView *view)
     const FieldDescriptor *descriptor = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "UserCtx cannot be NULL when resolving a field view.");
     PetscCheck(view != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
@@ -478,6 +496,7 @@ PetscErrorCode FieldGetView(UserCtx *user, FieldId field_id, FieldView *view)
     PetscCheck(view->local_vec != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
                "Local vector for field '%s' is unavailable in this UserCtx.", descriptor->canonical_name);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 

@@ -21,8 +21,6 @@
 static const BCFace kCellFaceDomainFace[NUM_FACES] = {BC_FACE_NEG_X, BC_FACE_POS_X, BC_FACE_NEG_Y,
                                                       BC_FACE_POS_Y, BC_FACE_POS_Z, BC_FACE_NEG_Z};
 
-#undef __FUNCT__
-#define __FUNCT__ "GetCellCharacteristicSize"
 /**
  * @brief Implementation of \ref GetCellCharacteristicSize().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -81,8 +79,6 @@ static inline PetscReal FacePlaneDistance(const FacePlane *plane, const Cmpnts p
     return (fabs(d) < threshold) ? 0.0 : d;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeSignedDistanceToPlane"
 /**
  * @brief Internal helper implementation: `ComputeSignedDistanceToPlane()`.
  * @details Local to this translation unit.
@@ -116,8 +112,6 @@ PetscErrorCode ComputeSignedDistanceToPlane(const Cmpnts v1, const Cmpnts v2, co
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "CalculateDistancesToCellFacePlanes"
 /**
  * @brief Implementation of \ref CalculateDistancesToCellFacePlanes().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -131,6 +125,7 @@ PetscErrorCode CalculateDistancesToCellFacePlanes(const Cmpnts p, const CellFace
     static const int order[NUM_FACES] = {BACK, FRONT, BOTTOM, TOP, LEFT, RIGHT};
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     for (int n = 0; n < NUM_FACES; ++n) {
         const FacePlane *plane = &planes->face[order[n]];
         if (((PetscInt)planes->degenerate >> order[n]) & 1) {
@@ -140,11 +135,10 @@ PetscErrorCode CalculateDistancesToCellFacePlanes(const Cmpnts p, const CellFace
         d[order[n]] = FacePlaneDistance(plane, p, threshold);
         if (normals) normals[order[n]] = plane->normal;
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "CalculateDistancesToCellFaces"
 /**
  * @brief Implementation of \ref CalculateDistancesToCellFaces().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -186,8 +180,6 @@ PetscErrorCode CalculateDistancesToCellFaces(const Cmpnts p, const Cell *cell, P
     PetscFunctionReturn(0); // Indicate successful execution of the function.
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "DeterminePointPosition"
 /**
  * @brief Implementation of \ref DeterminePointPosition().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -253,8 +245,6 @@ PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result)
     PetscFunctionReturn(0); // Indicate successful execution
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GetCellVerticesFromGrid"
 /**
  * @brief Implementation of \ref GetCellVerticesFromGrid().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -294,8 +284,6 @@ PetscErrorCode GetCellVerticesFromGrid(Cmpnts ***coor, PetscInt idx, PetscInt id
     PetscFunctionReturn(0); // Indicate successful execution
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InitializeTraversalParameters"
 /**
  * @brief Implementation of \ref InitializeTraversalParameters().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -438,8 +426,6 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "CheckCellWithinLocalGrid"
 /**
  * @brief Implementation of \ref CheckCellWithinLocalGrid().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -508,8 +494,6 @@ PetscErrorCode CheckCellWithinLocalGrid(UserCtx *user, PetscInt idx, PetscInt id
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "RetrieveCurrentCell"
 /**
  * @brief Implementation of \ref RetrieveCurrentCell().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -561,8 +545,6 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "EvaluateParticlePositionInPlanes"
 /**
  * @brief Implementation of \ref EvaluateParticlePositionInPlanes().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -585,8 +567,6 @@ PetscErrorCode EvaluateParticlePositionInPlanes(const CellFacePlanes *planes, Pe
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "EvaluateParticlePosition"
 /**
  * @brief Implementation of \ref EvaluateParticlePosition().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -600,6 +580,7 @@ PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cm
     PetscReal      size;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (cell == NULL || position == NULL) {
       LOG_ALLOW(LOCAL,LOG_ERROR, "One or more input pointers are NULL.\n");
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "One or more input pointers are NULL.");
@@ -608,11 +589,10 @@ PetscErrorCode EvaluateParticlePosition(const Cell *cell, PetscReal *d, const Cm
     MetricBuildCellFacePlanes(cell, &planes);
     planes.size = size;
     ierr = EvaluateParticlePositionInPlanes(&planes, d, p, position, threshold); CHKERRQ(ierr);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "UpdateCellIndicesBasedOnDistances"
 /**
  * @brief Internal helper implementation: `UpdateCellIndicesBasedOnDistances()`.
  * @details Local to this translation unit.
@@ -700,8 +680,6 @@ PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscI
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "FinalizeTraversal"
 /**
  * @brief Implementation of \ref FinalizeTraversal().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -736,8 +714,6 @@ PetscErrorCode FinalizeTraversal(UserCtx *user, Particle *particle, PetscInt tra
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "FindOwnerOfCell"
 /**
  * @brief Internal helper implementation: `FindOwnerOfCell()`.
  * @details Local to this translation unit.
@@ -795,8 +771,6 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ReflectParticleAcrossCellFace"
 /**
  * @brief Implementation of \ref ReflectParticleAcrossCellFace().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -825,8 +799,6 @@ PetscErrorCode ReflectParticleAcrossCellFace(const CellFacePlanes *planes, Petsc
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PlaceParticleInsideCell"
 /**
  * @brief Implementation of \ref PlaceParticleInsideCell().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -874,8 +846,6 @@ PetscErrorCode PlaceParticleInsideCell(const Cell *cell, Cmpnts *p, PetscBool *p
     PetscFunctionReturn(0);
 }
 
-#undef  __FUNCT__
-#define __FUNCT__ "LocateParticleOrFindMigrationTarget"
 
 /**
  * @brief Implementation of \ref LocateParticleOrFindMigrationTarget().
@@ -1184,8 +1154,6 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ReportSearchOutcome"
 /**
  * @brief Implementation of \ref ReportSearchOutcome().
  * @details Full API contract (arguments, ownership, side effects) is documented with

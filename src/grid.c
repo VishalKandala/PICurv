@@ -6,8 +6,6 @@
 
 #define BBOX_TOLERANCE 1e-6
 
-#undef __FUNCT__
-#define __FUNCT__ "ParseAndSetGridInputs"
 /**
  * @brief Parse grid-generation options and store the resulting geometry settings in the context.
  */
@@ -47,8 +45,6 @@ static PetscErrorCode ParseAndSetGridInputs(UserCtx *user)
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "DefineAllGridDimensions"
 /**
  * @brief Internal helper implementation: `DefineAllGridDimensions()`.
  * @details Local to this translation unit.
@@ -96,8 +92,6 @@ PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "CreateCompatibleBlockDM"
 /**
  * @brief Implementation of \ref CreateCompatibleBlockDM().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -132,8 +126,6 @@ PetscErrorCode CreateCompatibleBlockDM(DM source, PetscInt dof, DM *result)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "BalanceCoarsestOwnership"
 /**
  * @brief Implementation of \ref BalanceCoarsestOwnership().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -148,6 +140,7 @@ PetscErrorCode BalanceCoarsestOwnership(PetscInt coarse_nodes, PetscInt fine_cel
     PetscBool     *wide = NULL;   // [r * cols + e]: whether rank r takes a + 1 on that optimum
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCall(PetscMalloc2(ranks * cols, &worst, ranks * cols, &wide));
     #define PICURV_FINE_NODE(c) ((c) == 0 ? 0 : (refinements ? (((c) - 1) << refinements) + 1 : (c)))
     for (PetscInt r = 0; r < ranks; ++r) {
@@ -169,11 +162,10 @@ PetscErrorCode BalanceCoarsestOwnership(PetscInt coarse_nodes, PetscInt fine_cel
         e -= wide[r * cols + e] ? 1 : 0;
     }
     PetscCall(PetscFree2(worst, wide));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InitializeSingleGridDM"
 /**
  * @brief Create and configure one PETSc DMDA for a multigrid level.
  */
@@ -313,8 +305,6 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "InitializeAllGridDMs"
 /**
  * @brief Internal helper implementation: `InitializeAllGridDMs()`.
  * @details Local to this translation unit.
@@ -395,8 +385,6 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user);
 static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd);
 static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_user);
 
-#undef __FUNCT__
-#define __FUNCT__ "AssignAllGridCoordinates"
 /**
  * @brief Internal helper implementation: `AssignAllGridCoordinates()`.
  * @details Local to this translation unit.
@@ -419,7 +407,7 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
         UserCtx *fine_user = &usermg->mgctx[usermg->mglevels - 1].user[bi];
         ierr = SetFinestLevelCoordinates(fine_user); CHKERRQ(ierr);
         LOG_ALLOW(GLOBAL,LOG_TRACE,"The Finest level coordinates for block %d have been set.\n",bi);
-        if(get_log_level()==LOG_VERBOSE && is_function_allowed(__FUNCT__)==true){
+        if(get_log_level()==LOG_VERBOSE && is_function_allowed(__func__)==true){
             ierr = LOG_FIELD_MIN_MAX(fine_user, FIELD_ID_COORDINATES);
         }
     }
@@ -434,7 +422,7 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
             ierr = RestrictCoordinates(coarse_user, fine_user); CHKERRQ(ierr);
 
             LOG_ALLOW(GLOBAL,LOG_TRACE,"Coordinates restricted to block %d level %d.\n",bi,level);
-            if(get_log_level()==LOG_VERBOSE && is_function_allowed(__FUNCT__)==true) {
+            if(get_log_level()==LOG_VERBOSE && is_function_allowed(__func__)==true) {
                 ierr = LOG_FIELD_MIN_MAX(coarse_user, FIELD_ID_COORDINATES);
             }
         }
@@ -457,8 +445,6 @@ static inline PetscReal CoordinateComponent(Cmpnts value, PetscInt component)
     return value.z;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ValidatePeriodicGeometry"
 /**
  * @brief Implementation of \ref ValidatePeriodicGeometry().
  * @details Full API contract is documented with the header declaration in
@@ -596,8 +582,6 @@ PetscErrorCode ValidatePeriodicGeometry(UserCtx *user)
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "SetFinestLevelCoordinates"
 /**
  * @brief Attach the generated physical coordinates to the finest-level DMDA.
  */
@@ -666,8 +650,6 @@ static inline PetscReal ComputeStretchedCoord(PetscInt i, PetscInt N, PetscReal 
     }
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GenerateAndSetCoordinates"
 /**
  * @brief Generate analytic grid coordinates and install them on the finest grid level.
  */
@@ -735,8 +717,6 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
 
     PetscFunctionReturn(0);
 }
-#undef __FUNCT__
-#define __FUNCT__ "ReadAndSetCoordinates"
 /**
  * @brief Load grid coordinates from the input file and install them on the finest level.
  */
@@ -813,8 +793,6 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "RestrictCoordinates"
 /**
  * @brief Restrict finest-grid coordinates onto each coarser multigrid level.
  */
@@ -885,8 +863,6 @@ static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_us
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeLocalBoundingBox"
 /**
  * @brief Implementation of \ref ComputeLocalBoundingBox().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1033,8 +1009,6 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GatherAllBoundingBoxes"
 
 /**
  * @brief Implementation of \ref GatherAllBoundingBoxes().
@@ -1097,8 +1071,6 @@ PetscErrorCode GatherAllBoundingBoxes(UserCtx *user, BoundingBox **allBBoxes)
   PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "BroadcastAllBoundingBoxes"
 
 /**
  * @brief Internal helper implementation: `BroadcastAllBoundingBoxes()`.
@@ -1146,8 +1118,6 @@ PetscErrorCode BroadcastAllBoundingBoxes(UserCtx *user, BoundingBox **bboxlist)
   PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "CalculateInletProperties"
 /**
  * @brief Implementation of \ref CalculateInletProperties().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1199,8 +1169,6 @@ PetscErrorCode CalculateInletProperties(UserCtx *user)
 
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "CalculateOutletProperties"
 /**
  * @brief Implementation of \ref CalculateOutletProperties().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1242,8 +1210,6 @@ PetscErrorCode CalculateOutletProperties(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "CalculateFaceCenterAndArea"
 /**
  * @brief Implementation of \ref CalculateFaceCenterAndArea().
  * @details Full API contract (arguments, ownership, side effects) is documented with

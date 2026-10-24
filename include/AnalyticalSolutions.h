@@ -79,8 +79,6 @@ PetscBool AnalyticalRunUsesCustomGeometry(const SimCtx *simCtx);
  */
 PetscBool AnalyticalTypeSupportsInterpolationError(const char *analytical_type);
 
-#undef __FUNCT__
-#define __FUNCT__ "AnalyticalSolutionEngine"
 /**
  * @brief Dispatches to the appropriate analytical solution function based on simulation settings.
  *

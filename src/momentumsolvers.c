@@ -11,8 +11,6 @@
  *               SHARED PHYSICAL-TIME (BDF) COEFFICIENT PLUMBING                  *
  *================================================================================*/
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumUsesBDF2"
 /**
  * @brief Single source of truth for the BDF1/BDF2 selection. See header.
  *
@@ -23,25 +21,25 @@
  */
 PetscBool MomentumUsesBDF2(SimCtx *simCtx)
 {
+    PROFILE_HELPER_BEGIN;
     const PetscInt ti      = simCtx->step;
     const PetscInt tistart = simCtx->StartStep;
+    PROFILE_HELPER_END;
     return (PetscBool)(COEF_TIME_ACCURACY > 1.1 && ti != 1 &&
                        (simCtx->restartHistoryAvailable || ti > tistart + 1));
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumBDFCoefficient"
 /**
  * @brief Returns a0 in {1.0, 1.5} for the current physical step. See header.
  */
 PetscReal MomentumBDFCoefficient(SimCtx *simCtx)
 {
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     return MomentumUsesBDF2(simCtx) ? COEF_TIME_ACCURACY : 1.0;
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeTotalResidual"
 /**
  * @brief Shared implementation of `ComputeTotalResidual()`.
  */
@@ -90,8 +88,6 @@ PetscErrorCode ComputeTotalResidual(UserCtx *user)
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "Momentum_Solver_Explicit_RungeKutta4"
 /**
  * @brief Internal helper implementation: `MomentumSolver_Explicit_RungeKutta4()`.
  * @details Local to this translation unit.
@@ -218,8 +214,6 @@ PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm,
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeGlobalSpectralRadiusEstimate"
 /**
  * @brief Compute a conservative global pseudo-time spectral radius estimate.
  *
@@ -265,6 +259,7 @@ static PetscErrorCode ComputeGlobalSpectralRadiusEstimate(
     PetscReal       local_max = 0.0;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     for (PetscInt bi = 0; bi < block_number; bi++) {
         DMDALocalInfo info = user[bi].info; /* pre-stored local ownership info */
@@ -308,6 +303,7 @@ static PetscErrorCode ComputeGlobalSpectralRadiusEstimate(
        that degenerate case (conservative but finite). */
     *lambda_max_out = PetscMax(*lambda_max_out, COEF_TIME_ACCURACY / dt);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -337,12 +333,14 @@ static inline PetscReal MomFaceGabs(Cmpnts N, Cmpnts A, Cmpnts B)
  * Indices i +/- 1, j +/- 1, k +/- 1 are always valid on the interior loop range. */
 static PetscBool MomCellUsesOneSidedViscousStencil(PetscReal ***nvert, PetscInt k, PetscInt j, PetscInt i)
 {
+    PROFILE_HELPER_BEGIN;
     for (PetscInt dk = -1; dk <= 1; dk++)
         for (PetscInt dj = -1; dj <= 1; dj++)
             for (PetscInt di = -1; di <= 1; di++) {
                 if (!dk && !dj && !di) continue;
-                if (MOM_VISC_ONESIDED(nvert[k+dk][j+dj][i+di])) return PETSC_TRUE;
+                if (MOM_VISC_ONESIDED(nvert[k+dk][j+dj][i+di])) { PROFILE_HELPER_END; return PETSC_TRUE; }
             }
+    PROFILE_HELPER_END;
     return PETSC_FALSE;
 }
 
@@ -350,12 +348,14 @@ static PetscBool MomCellUsesOneSidedViscousStencil(PetscReal ***nvert, PetscInt 
  * Uses the SKIP band so it is consistent with the one-sided viscous trigger. */
 static PetscBool MomCellHasSolidNeighbor(PetscReal ***nvert, PetscInt k, PetscInt j, PetscInt i)
 {
+    PROFILE_HELPER_BEGIN;
     for (PetscInt dk = -1; dk <= 1; dk++)
         for (PetscInt dj = -1; dj <= 1; dj++)
             for (PetscInt di = -1; di <= 1; di++) {
                 if (!dk && !dj && !di) continue;
-                if (MOM_SKIP_SOLID(nvert[k+dk][j+dj][i+di])) return PETSC_TRUE;
+                if (MOM_SKIP_SOLID(nvert[k+dk][j+dj][i+di])) { PROFILE_HELPER_END; return PETSC_TRUE; }
             }
+    PROFILE_HELPER_END;
     return PETSC_FALSE;
 }
 
@@ -368,22 +368,24 @@ static PetscBool MomQuickDirModified(PetscReal ***nvert, PetscInt a, PetscInt b,
                                      PetscInt idx, PetscInt m, PetscBool np0, PetscBool np1,
                                      PetscInt g0, PetscInt g1, char dir)
 {
+    PROFILE_HELPER_BEGIN;
     /* (a,b,c) are the fixed indices; idx is the moving index in direction `dir`.
        The two contributing faces (idx, idx-1) have QUICK stencils spanning idx-2..idx+2. */
-    if (np0 && idx <= 1)   return PETSC_TRUE;     /* faces idx,idx-1 reach the negative edge */
-    if (np1 && idx >= m-2) return PETSC_TRUE;     /* ... or the positive edge */
+    if (np0 && idx <= 1)   { PROFILE_HELPER_END; return PETSC_TRUE; }     /* faces idx,idx-1 reach the negative edge */
+    if (np1 && idx >= m-2) { PROFILE_HELPER_END; return PETSC_TRUE; }     /* ... or the positive edge */
     for (PetscInt d = -2; d <= 2; d++) {
         if (d == 0) continue;
         const PetscInt p = idx + d;
         /* Required stencil information unavailable in the local ghost range: do NOT assume
            fluid -> conservatively classify the direction as modified (use 2.5). */
-        if (p < g0 || p >= g1) return PETSC_TRUE;
+        if (p < g0 || p >= g1) { PROFILE_HELPER_END; return PETSC_TRUE; }
         PetscReal v;
         if      (dir == 'i') v = nvert[a][b][p];
         else if (dir == 'j') v = nvert[a][p][c];
         else                 v = nvert[p][b][c];
-        if (MOM_QUICK_BLOCKS(v)) return PETSC_TRUE;
+        if (MOM_QUICK_BLOCKS(v)) { PROFILE_HELPER_END; return PETSC_TRUE; }
     }
+    PROFILE_HELPER_END;
     return PETSC_FALSE;
 }
 
@@ -395,7 +397,8 @@ PetscInt MomCellActiveRows(PetscReal ***nvert, PetscInt k, PetscInt j, PetscInt 
                            PetscInt mx, PetscInt my, PetscInt mz,
                            PetscBool np_x1, PetscBool np_y1, PetscBool np_z1, PetscInt twoD)
 {
-    if (MOM_SKIP_SOLID(nvert[k][j][i])) return 0;     /* solid cell: all rows inactive */
+    PROFILE_HELPER_BEGIN;
+    if (MOM_SKIP_SOLID(nvert[k][j][i])) { PROFILE_HELPER_END; return 0; }     /* solid cell: all rows inactive */
     PetscInt bits = 0x7;
     if (MOM_SKIP_SOLID(nvert[k][j][i+1])) bits &= ~0x1;  /* positive xi neighbour solid   */
     if (MOM_SKIP_SOLID(nvert[k][j+1][i])) bits &= ~0x2;  /* positive eta neighbour solid  */
@@ -406,11 +409,10 @@ PetscInt MomCellActiveRows(PetscReal ***nvert, PetscInt k, PetscInt j, PetscInt 
     if      (twoD == 1) bits &= ~0x1;                    /* TwoD homogeneous direction: xi  */
     else if (twoD == 2) bits &= ~0x2;                    /*                             eta  */
     else if (twoD == 3) bits &= ~0x4;                    /*                             zeta */
+    PROFILE_HELPER_END;
     return bits;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeMomentumStabilityEstimate"
 /**
  * @brief Practical conservative momentum pseudo-time stability estimate (shadow). See header.
  *
@@ -426,6 +428,7 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
     PetscErrorCode ierr;
     PetscMPIInt rank;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     /* ---- input validation (no silent fallback) ---- */
     PetscCheck(user != NULL, PETSC_COMM_WORLD, PETSC_ERR_ARG_NULL, "user is NULL");
@@ -755,12 +758,11 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
     else if (rep->lambda_c >= rep->lambda_v)                              rep->limiter = MOM_STAB_LIMITER_CONVECTION;
     else                                                                  rep->limiter = MOM_STAB_LIMITER_VISCOSITY;
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumSolver_DualTime_Picard_JamesonRK"
 /**
  * @brief Internal helper implementation: `MomentumSolver_DualTime_Picard_JamesonRK()`.
  * @details Local to this translation unit.

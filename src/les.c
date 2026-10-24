@@ -42,8 +42,10 @@ static PetscErrorCode FinalizeSmagorinskyConstantField(UserCtx *user)
     const FieldId fields[] = {FIELD_ID_CS};
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(SynchronizePeriodicCellFields(user, 1, fields));
     PetscCall(UpdateLocalGhosts(user, FIELD_ID_CS));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -63,7 +65,9 @@ static PetscErrorCode FinalizeSmagorinskyConstantField(UserCtx *user)
 static PetscErrorCode LESResolveDomain(UserCtx *user, SpatialTargetPlan *plan)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCall(SpatialTargetPlanCreate(user, FIELD_ID_CS, PICURV_STATISTICS_MASK_FLUID, plan));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -94,6 +98,7 @@ static PetscErrorCode BuildWallModelExclusionMask(UserCtx *user, Vec inclusion)
     SpatialTargetPlan plan;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(VecSet(inclusion, 1.0));
     PetscCall(LESResolveDomain(user, &plan));
     PetscCall(DMDAVecGetArray(user->da, inclusion, &mask));
@@ -114,6 +119,7 @@ static PetscErrorCode BuildWallModelExclusionMask(UserCtx *user, Vec inclusion)
         }
     }
     PetscCall(DMDAVecRestoreArray(user->da, inclusion, &mask));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -128,13 +134,13 @@ static PetscErrorCode BuildWallModelExclusionMask(UserCtx *user, Vec inclusion)
  */
 static void LESPeriodicAxes(const SimCtx *simCtx, PetscBool periodic[3])
 {
+    PROFILE_FUNCTION_BEGIN;
     periodic[0] = (PetscBool)(simCtx->i_periodic != 0);
     periodic[1] = (PetscBool)(simCtx->j_periodic != 0);
     periodic[2] = (PetscBool)(simCtx->k_periodic != 0);
+    PROFILE_FUNCTION_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SymTensorSelfOuter"
 /**
  * @brief Implementation of \ref SymTensorSelfOuter().
  * @details Full API contract is documented with the header declaration in
@@ -143,6 +149,7 @@ static void LESPeriodicAxes(const SimCtx *simCtx, PetscBool periodic[3])
  */
 SymTensor SymTensorSelfOuter(Cmpnts v)
 {
+    PROFILE_HELPER_BEGIN;
     SymTensor t;
 
     t.xx = v.x * v.x;
@@ -151,11 +158,10 @@ SymTensor SymTensorSelfOuter(Cmpnts v)
     t.yy = v.y * v.y;
     t.yz = v.y * v.z;
     t.zz = v.z * v.z;
+    PROFILE_HELPER_END;
     return t;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SymTensorCombine"
 /**
  * @brief Implementation of \ref SymTensorCombine().
  * @details Full API contract is documented with the header declaration in
@@ -164,6 +170,7 @@ SymTensor SymTensorSelfOuter(Cmpnts v)
  */
 SymTensor SymTensorCombine(PetscReal a, SymTensor x, PetscReal b, SymTensor y)
 {
+    PROFILE_HELPER_BEGIN;
     SymTensor t;
 
     t.xx = a * x.xx + b * y.xx;
@@ -172,11 +179,10 @@ SymTensor SymTensorCombine(PetscReal a, SymTensor x, PetscReal b, SymTensor y)
     t.yy = a * x.yy + b * y.yy;
     t.yz = a * x.yz + b * y.yz;
     t.zz = a * x.zz + b * y.zz;
+    PROFILE_HELPER_END;
     return t;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SymTensorTrace"
 /**
  * @brief Implementation of \ref SymTensorTrace().
  * @details Full API contract is documented with the header declaration in
@@ -185,11 +191,11 @@ SymTensor SymTensorCombine(PetscReal a, SymTensor x, PetscReal b, SymTensor y)
  */
 PetscReal SymTensorTrace(SymTensor t)
 {
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     return t.xx + t.yy + t.zz;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SymTensorDeviator"
 /**
  * @brief Implementation of \ref SymTensorDeviator().
  * @details Full API contract is documented with the header declaration in
@@ -198,16 +204,16 @@ PetscReal SymTensorTrace(SymTensor t)
  */
 SymTensor SymTensorDeviator(SymTensor t)
 {
+    PROFILE_HELPER_BEGIN;
     const PetscReal isotropic = SymTensorTrace(t) / 3.0;
 
     t.xx -= isotropic;
     t.yy -= isotropic;
     t.zz -= isotropic;
+    PROFILE_HELPER_END;
     return t;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SymTensorContract"
 /**
  * @brief Implementation of \ref SymTensorContract().
  * @details Full API contract is documented with the header declaration in
@@ -216,13 +222,13 @@ SymTensor SymTensorDeviator(SymTensor t)
  */
 PetscReal SymTensorContract(SymTensor a, SymTensor b)
 {
+    PROFILE_HELPER_BEGIN;
     // The three off-diagonal components each stand for two entries of the full tensor.
+    PROFILE_HELPER_END;
     return a.xx * b.xx + a.yy * b.yy + a.zz * b.zz +
            2.0 * (a.xy * b.xy + a.xz * b.xz + a.yz * b.yz);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SymTensorTimesVector"
 /**
  * @brief Implementation of \ref SymTensorTimesVector().
  * @details Full API contract is documented with the header declaration in
@@ -231,16 +237,16 @@ PetscReal SymTensorContract(SymTensor a, SymTensor b)
  */
 Cmpnts SymTensorTimesVector(SymTensor t, Cmpnts v)
 {
+    PROFILE_HELPER_BEGIN;
     Cmpnts result;
 
     result.x = t.xx * v.x + t.xy * v.y + t.xz * v.z;
     result.y = t.xy * v.x + t.yy * v.y + t.yz * v.z;
     result.z = t.xz * v.x + t.yz * v.y + t.zz * v.z;
+    PROFILE_HELPER_END;
     return result;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SymTensorNormSq"
 /**
  * @brief Implementation of \ref SymTensorNormSq().
  * @details Full API contract is documented with the header declaration in
@@ -249,6 +255,8 @@ Cmpnts SymTensorTimesVector(SymTensor t, Cmpnts v)
  */
 PetscReal SymTensorNormSq(SymTensor t)
 {
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     return SymTensorContract(t, t);
 }
 
@@ -256,8 +264,6 @@ PetscReal SymTensorNormSq(SymTensor t)
  *                        STRAIN RATE AND FILTER WIDTH                            *
  *================================================================================*/
 
-#undef __FUNCT__
-#define __FUNCT__ "StrainRateFromGradients"
 /**
  * @brief Implementation of \ref StrainRateFromGradients().
  * @details Full API contract is documented with the header declaration in
@@ -270,6 +276,7 @@ PetscErrorCode StrainRateFromGradients(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
     SymTensor s;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     s.xx = dudx.x;
     s.xy = 0.5 * (dudx.y + dvdx.x);
@@ -282,11 +289,10 @@ PetscErrorCode StrainRateFromGradients(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
     // |S| = sqrt(2 S_ij S_ij), with the off-diagonal doubling handled by the contraction.
     if (magnitude) *magnitude = PetscSqrtReal(2.0 * SymTensorNormSq(s));
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeCellFilterWidth"
 /**
  * @brief Implementation of \ref ComputeCellFilterWidth().
  * @details Full API contract is documented with the header declaration in
@@ -299,6 +305,7 @@ PetscErrorCode ComputeCellFilterWidth(LESFilterWidthModel model, PetscReal aj,
     double dx = 0.0, dy = 0.0, dz = 0.0;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(delta != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Filter width destination cannot be NULL.");
     PetscCheck(aj > 0.0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
@@ -308,6 +315,7 @@ PetscErrorCode ComputeCellFilterWidth(LESFilterWidthModel model, PetscReal aj,
         // Cell volume alone: exact for a cube, and increasingly optimistic as the
         // cell is stretched, because it averages the three extents geometrically.
         *delta = PetscPowReal(1.0 / aj, 1.0 / 3.0);
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
 
@@ -341,6 +349,7 @@ PetscErrorCode ComputeCellFilterWidth(LESFilterWidthModel model, PetscReal aj,
         break;
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -348,8 +357,6 @@ PetscErrorCode ComputeCellFilterWidth(LESFilterWidthModel model, PetscReal aj,
  *                        GERMANO IDENTITY KERNELS                                *
  *================================================================================*/
 
-#undef __FUNCT__
-#define __FUNCT__ "LeonardStress"
 /**
  * @brief Implementation of \ref LeonardStress().
  * @details Full API contract is documented with the header declaration in
@@ -358,13 +365,13 @@ PetscErrorCode ComputeCellFilterWidth(LESFilterWidthModel model, PetscReal aj,
  */
 SymTensor LeonardStress(Cmpnts velocity_filtered, SymTensor velocity_product_filtered)
 {
+    PROFILE_HELPER_BEGIN;
     // L_ij = (u_i u_j)^ - u^_i u^_j : the stress carried between the two filter widths.
+    PROFILE_HELPER_END;
     return SymTensorCombine(1.0, velocity_product_filtered,
                             -1.0, SymTensorSelfOuter(velocity_filtered));
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GermanoModelTensor"
 /**
  * @brief Implementation of \ref GermanoModelTensor().
  * @details Full API contract is documented with the header declaration in
@@ -376,6 +383,7 @@ SymTensor GermanoModelTensor(PetscReal delta, PetscReal alpha,
                              SymTensor strain_filtered,
                              SymTensor strain_product_filtered)
 {
+    PROFILE_HELPER_BEGIN;
     // Term one: the model evaluated on the test-filtered strain. Both factors were
     // filtered separately, then multiplied.
     const SymTensor test_scale = SymTensorCombine(alpha * strain_magnitude_filtered,
@@ -392,6 +400,7 @@ SymTensor GermanoModelTensor(PetscReal delta, PetscReal alpha,
 
     // Trace-free, so the Leonard stress's trace cannot enter the contraction through
     // whatever discrete divergence the velocity field carries.
+    PROFILE_HELPER_END;
     return SymTensorDeviator(model);
 }
 
@@ -399,8 +408,6 @@ SymTensor GermanoModelTensor(PetscReal delta, PetscReal alpha,
  *                     COEFFICIENT AVERAGING AND LIMITING                         *
  *================================================================================*/
 
-#undef __FUNCT__
-#define __FUNCT__ "ResolveLESAveragingDirections"
 /**
  * @brief Implementation of \ref ResolveLESAveragingDirections().
  * @details Full API contract is documented with the header declaration in
@@ -414,6 +421,7 @@ PetscErrorCode ResolveLESAveragingDirections(UserCtx *user, PetscBool direction[
     PetscBool        periodic[3];
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(direction != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Averaging direction destination cannot be NULL.");
     LESPeriodicAxes(user->simCtx, periodic);
@@ -423,10 +431,12 @@ PetscErrorCode ResolveLESAveragingDirections(UserCtx *user, PetscBool direction[
     switch (config->averaging_mode) {
     case LES_AVERAGING_LOCAL:
         // No averaging: the coefficient is whatever the single cell's contractions give.
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
 
     case LES_AVERAGING_GLOBAL:
         for (PetscInt axis = 0; axis < 3; axis++) direction[axis] = PETSC_TRUE;
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
 
     case LES_AVERAGING_HOMOGENEOUS:
@@ -451,12 +461,12 @@ PetscErrorCode ResolveLESAveragingDirections(UserCtx *user, PetscBool direction[
                    "Homogeneous LES averaging was requested, but this block declares no "
                    "periodic axis and the configuration names no direction. Name the "
                    "homogeneous directions explicitly or select local averaging.");
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
+    PROFILE_FUNCTION_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ClipModelCoefficient"
 /**
  * @brief Implementation of \ref ClipModelCoefficient().
  * @details Full API contract is documented with the header declaration in
@@ -465,6 +475,7 @@ PetscErrorCode ResolveLESAveragingDirections(UserCtx *user, PetscBool direction[
  */
 PetscReal ClipModelCoefficient(PetscReal coefficient, const LESConfig *config, PetscBool *limited)
 {
+    PROFILE_HELPER_BEGIN;
     PetscReal result = coefficient;
 
     switch (config->clip_mode) {
@@ -483,11 +494,10 @@ PetscReal ClipModelCoefficient(PetscReal coefficient, const LESConfig *config, P
     }
 
     if (limited) *limited = (PetscBool)(result != coefficient);
+    PROFILE_HELPER_END;
     return result;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "EddyViscosityFromCoefficient"
 /**
  * @brief Implementation of \ref EddyViscosityFromCoefficient().
  * @details Full API contract is documented with the header declaration in
@@ -499,6 +509,7 @@ PetscReal EddyViscosityFromCoefficient(PetscReal coefficient, PetscReal delta,
                                        PetscReal molecular_viscosity,
                                        PetscReal min_viscosity_ratio)
 {
+    PROFILE_HELPER_BEGIN;
     PetscReal nu_t = coefficient * delta * delta * strain_magnitude;
 
     // A negative eddy viscosity is physical up to the point where it would drive the
@@ -506,11 +517,10 @@ PetscReal EddyViscosityFromCoefficient(PetscReal coefficient, PetscReal delta,
     const PetscReal floor = (min_viscosity_ratio - 1.0) * molecular_viscosity;
 
     if (nu_t < floor) nu_t = floor;
+    PROFILE_HELPER_END;
     return nu_t;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "WALEEddyViscosity"
 /**
  * @brief Implementation of \ref WALEEddyViscosity().
  * @details Full API contract is documented with the header declaration in
@@ -520,6 +530,7 @@ PetscReal EddyViscosityFromCoefficient(PetscReal coefficient, PetscReal delta,
 PetscReal WALEEddyViscosity(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
                             PetscReal delta, PetscReal coefficient)
 {
+    PROFILE_HELPER_BEGIN;
     const PetscReal g[3][3] = {{dudx.x, dudx.y, dudx.z},
                                {dvdx.x, dvdx.y, dvdx.z},
                                {dwdx.x, dwdx.y, dwdx.z}};
@@ -542,12 +553,11 @@ PetscReal WALEEddyViscosity(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
         }
 
     denominator = PetscPowReal(ss, 2.5) + PetscPowReal(sdsd, 1.25);
-    if (denominator <= LES_EPSILON * LES_EPSILON) return 0.0;
+    if (denominator <= LES_EPSILON * LES_EPSILON) { PROFILE_HELPER_END; return 0.0; }
+    PROFILE_HELPER_END;
     return coefficient * coefficient * delta * delta * PetscPowReal(sdsd, 1.5) / denominator;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "VremanEddyViscosity"
 /**
  * @brief Implementation of \ref VremanEddyViscosity().
  * @details Full API contract is documented with the header declaration in
@@ -557,6 +567,7 @@ PetscReal WALEEddyViscosity(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
 PetscReal VremanEddyViscosity(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
                               const Cmpnts edges[3], PetscReal coefficient)
 {
+    PROFILE_HELPER_BEGIN;
     const Cmpnts gradient[3] = {dudx, dvdx, dwdx};
     PetscReal beta[3][3] = {{0.0}}, alpha_sq = 0.0, b_beta;
 
@@ -580,12 +591,11 @@ PetscReal VremanEddyViscosity(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
            + beta[1][1] * beta[2][2] - beta[1][2] * beta[1][2];
 
     // B_beta is non-negative in exact arithmetic; rounding can leave it a hair below.
-    if (alpha_sq <= LES_EPSILON * LES_EPSILON || b_beta <= 0.0) return 0.0;
+    if (alpha_sq <= LES_EPSILON * LES_EPSILON || b_beta <= 0.0) { PROFILE_HELPER_END; return 0.0; }
+    PROFILE_HELPER_END;
     return coefficient * PetscSqrtReal(b_beta / alpha_sq);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SubgridKineticEnergy"
 /**
  * @brief Implementation of \ref SubgridKineticEnergy().
  * @details Full API contract is documented with the header declaration in
@@ -594,6 +604,8 @@ PetscReal VremanEddyViscosity(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
  */
 PetscReal SubgridKineticEnergy(PetscReal yoshizawa_ci, PetscReal delta, PetscReal strain_magnitude)
 {
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     return 2.0 * yoshizawa_ci * delta * delta * strain_magnitude * strain_magnitude;
 }
 
@@ -623,8 +635,10 @@ PetscReal SubgridKineticEnergy(PetscReal yoshizawa_ci, PetscReal delta, PetscRea
  */
 static PetscInt LESStrainSampleIndex(PetscInt index, PetscInt extent, PetscBool periodic)
 {
-    if (index == 0)          return periodic ? -2 : 1;
-    if (index == extent - 1) return periodic ? extent + 1 : extent - 2;
+    PROFILE_HELPER_BEGIN;
+    if (index == 0)          { PROFILE_HELPER_END; return periodic ? -2 : 1; }
+    if (index == extent - 1) { PROFILE_HELPER_END; return periodic ? extent + 1 : extent - 2; }
+    PROFILE_HELPER_END;
     return index;
 }
 
@@ -643,6 +657,7 @@ static PetscErrorCode ComputeStrainRateField(UserCtx *user, Cmpnts ***ucat,
     PetscReal      ***magnitude = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     PetscCall(DMDAGetLocalInfo(da, &info));
     PetscCall(LESResolveDomain(user, &plan));
@@ -681,6 +696,7 @@ static PetscErrorCode ComputeStrainRateField(UserCtx *user, Cmpnts ***ucat,
     PetscCall(DMDAVecRestoreArray(fda, strain_offdiagonal, &offdiagonal));
     PetscCall(DMDAVecRestoreArray(da, strain_magnitude, &magnitude));
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -704,8 +720,6 @@ static inline SymTensor LESStrainAt(Cmpnts diagonal, Cmpnts offdiagonal)
  *                              RUNTIME ENTRY POINTS                              *
  *================================================================================*/
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeSmagorinskyConstant"
 /**
  * @brief Implementation of \ref ComputeSmagorinskyConstant().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -941,8 +955,6 @@ PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeEddyViscosityLES"
 /**
  * @brief Implementation of \ref ComputeEddyViscosityLES().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1035,8 +1047,6 @@ PetscErrorCode ComputeEddyViscosityLES(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LogLESDiagnostics"
 /**
  * @brief Implementation of \ref LogLESDiagnostics().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1070,10 +1080,11 @@ PetscErrorCode LogLESDiagnostics(UserCtx *user)
     PetscReal ***coefficient = NULL, ***nu_t = NULL, ***nvert = NULL, ***aj = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
-    if (!config->diagnostics_enabled) PetscFunctionReturn(0);
-    if (config->diagnostics_cadence <= 0) PetscFunctionReturn(0);
-    if (simCtx->step % config->diagnostics_cadence != 0) PetscFunctionReturn(0);
+    if (!config->diagnostics_enabled) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
+    if (config->diagnostics_cadence <= 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
+    if (simCtx->step % config->diagnostics_cadence != 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     PetscCall(LESResolveDomain(user, &plan));
     PetscCall(PetscObjectGetComm((PetscObject)da, &comm));
@@ -1187,5 +1198,6 @@ PetscErrorCode LogLESDiagnostics(UserCtx *user)
                   (double)(100.0 * global_sum[5] / volume));
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

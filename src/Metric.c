@@ -14,8 +14,6 @@
 #include "Metric.h"          /* forward declarations + Cmpnts + UserCtx */
 
 
-#undef __FUNCT__
-#define __FUNCT__ "MetricGetCellVertices"
 /* ------------------------------------------------------------------------- */
 /**
  * @brief Implementation of \ref MetricGetCellVertices().
@@ -30,6 +28,7 @@ PetscErrorCode MetricGetCellVertices(UserCtx *user,
 {
   (void)user;
   PetscFunctionBeginUser;
+  PROFILE_HELPER_BEGIN;
   for (PetscInt c = 0; c < 8; ++c) {
     PetscInt ii = i + ((c & 1) ? 1 : 0);
     PetscInt jj = j + ((c & 2) ? 1 : 0);
@@ -37,11 +36,10 @@ PetscErrorCode MetricGetCellVertices(UserCtx *user,
     LOG_LOOP_ALLOW(GLOBAL, LOG_VERBOSE,i+j+k,10," ii: %d,jj:%d,kk:%d - Retrieved.\n",ii,jj,kk);
     V[c] = X[kk][jj][ii];
   }
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MetricFacePlane"
 /**
  * @brief Implementation of \ref MetricFacePlane().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -51,6 +49,7 @@ PetscErrorCode MetricGetCellVertices(UserCtx *user,
 PetscBool MetricFacePlane(const Cmpnts v1, const Cmpnts v2, const Cmpnts v3, const Cmpnts v4,
                           const Cmpnts cell_centroid, FacePlane *plane, PetscBool *degenerate)
 {
+    PROFILE_HELPER_BEGIN;
     const PetscReal edge1_x = v2.x - v1.x, edge1_y = v2.y - v1.y, edge1_z = v2.z - v1.z;
     const PetscReal edge2_x = v4.x - v1.x, edge2_y = v4.y - v1.y, edge2_z = v4.z - v1.z;
     PetscReal normal_x = edge1_y * edge2_z - edge1_z * edge2_y;
@@ -78,11 +77,10 @@ PetscBool MetricFacePlane(const Cmpnts v1, const Cmpnts v2, const Cmpnts v3, con
         normal_z /= normal_magnitude;
     }
     plane->normal.x = normal_x; plane->normal.y = normal_y; plane->normal.z = normal_z;
+    PROFILE_HELPER_END;
     return ambiguous;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MetricBuildCellFacePlanes"
 /**
  * @brief Implementation of \ref MetricBuildCellFacePlanes().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -91,6 +89,7 @@ PetscBool MetricFacePlane(const Cmpnts v1, const Cmpnts v2, const Cmpnts v3, con
  */
 void MetricBuildCellFacePlanes(const Cell *cell, CellFacePlanes *planes)
 {
+    PROFILE_HELPER_BEGIN;
     // Face vertex orders: each face's v1, v2, v4 span its normal, as the walking search has always used.
     static const int face_vertices[NUM_FACES][4] = {
         [LEFT] = {0, 7, 4, 3}, [RIGHT] = {1, 2, 5, 6}, [BOTTOM] = {0, 1, 6, 7},
@@ -117,6 +116,7 @@ void MetricBuildCellFacePlanes(const Cell *cell, CellFacePlanes *planes)
     }
     planes->degenerate = mask;
     planes->size = 0.0;
+    PROFILE_HELPER_END;
 }
 
 /** @brief The catalogued fields MetricComputeFacePlanes() owns. */
@@ -129,8 +129,6 @@ static const FieldId kFacePlaneFields[] = {
 /** @brief Offset from a face's lower-corner origin to where its family stores it (see Metric.h). */
 static const PetscInt kPrimalFaceShift[3][3] = {{0, 1, 1}, {1, 0, 1}, {1, 1, 0}};
 
-#undef __FUNCT__
-#define __FUNCT__ "MetricComputeFacePlanes"
 /**
  * @brief Implementation of \ref MetricComputeFacePlanes().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -296,8 +294,6 @@ PetscErrorCode MetricComputeFacePlanes(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MetricDestroyFacePlanes"
 /**
  * @brief Implementation of \ref MetricDestroyFacePlanes().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -307,17 +303,17 @@ PetscErrorCode MetricComputeFacePlanes(UserCtx *user)
 PetscErrorCode MetricDestroyFacePlanes(UserCtx *user)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     for (size_t f = 0; f < sizeof(kFacePlaneFields) / sizeof(kFacePlaneFields[0]); ++f) {
         const FieldDescriptor *descriptor = NULL;
         PetscCall(FieldGetDescriptor(kFacePlaneFields[f], &descriptor));
         PetscCall(VecDestroy((Vec *)((char *)user + descriptor->global_vec_offset)));
         PetscCall(VecDestroy((Vec *)((char *)user + descriptor->local_vec_offset)));
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MetricGetFacePlaneArrays"
 /**
  * @brief Implementation of \ref MetricGetFacePlaneArrays().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -329,6 +325,7 @@ PetscErrorCode MetricGetFacePlaneArrays(UserCtx *user, PetscBool dual, FacePlane
     Vec normals[3], centroids[3];
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(user->lSearchCellSize, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
                "Particle face planes are not built: MetricComputeFacePlanes() runs in CalculateAllGridMetrics() "
                "for a particle run, collectively, once the grid is final.");
@@ -346,11 +343,10 @@ PetscErrorCode MetricGetFacePlaneArrays(UserCtx *user, PetscBool dual, FacePlane
     }
     arrays->size = NULL;
     if (!dual) PetscCall(VecGetArrayRead(user->lSearchCellSize, &arrays->size));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MetricRestoreFacePlaneArrays"
 /**
  * @brief Implementation of \ref MetricRestoreFacePlaneArrays().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -362,6 +358,7 @@ PetscErrorCode MetricRestoreFacePlaneArrays(UserCtx *user, FacePlaneArrays *arra
     Vec normals[3], centroids[3];
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (arrays->dual) {
         normals[0] = user->lDualPlaneNormalI; normals[1] = user->lDualPlaneNormalJ; normals[2] = user->lDualPlaneNormalK;
         centroids[0] = user->lDualPlaneCentroidI; centroids[1] = user->lDualPlaneCentroidJ; centroids[2] = user->lDualPlaneCentroidK;
@@ -374,11 +371,10 @@ PetscErrorCode MetricRestoreFacePlaneArrays(UserCtx *user, FacePlaneArrays *arra
         PetscCall(VecRestoreArrayRead(centroids[a], (const PetscScalar **)&arrays->centroid[a]));
     }
     if (!arrays->dual) PetscCall(VecRestoreArrayRead(user->lSearchCellSize, &arrays->size));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MetricGatherCellFacePlanes"
 /**
  * @brief Implementation of \ref MetricGatherCellFacePlanes().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -388,6 +384,7 @@ PetscErrorCode MetricRestoreFacePlaneArrays(UserCtx *user, FacePlaneArrays *arra
 void MetricGatherCellFacePlanes(const FacePlaneArrays *arrays, const DMDALocalInfo *info,
                                 PetscInt i, PetscInt j, PetscInt k, CellFacePlanes *planes)
 {
+    PROFILE_HELPER_BEGIN;
     static const PetscInt dual_shift[3] = {0, 0, 0};
     static const Face     minus_face[3] = {LEFT, BOTTOM, BACK}, plus_face[3] = {RIGHT, TOP, FRONT};
 
@@ -408,10 +405,9 @@ void MetricGatherCellFacePlanes(const FacePlaneArrays *arrays, const DMDALocalIn
         }
     }
     planes->size = arrays->dual ? 0.0 : arrays->size[MetricCellFacePlanesIndex(info, i + 1, j + 1, k + 1)];
+    PROFILE_HELPER_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "TrilinearBlend"
 
 /* ------------------------------------------------------------------------- */
 /**
@@ -434,8 +430,6 @@ static inline void TrilinearBlend(const Cmpnts V[8],
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "MetricLogicalToPhysical"
 /* ------------------------------------------------------------------------- */
 /**
  * @brief Implementation of \ref MetricLogicalToPhysical().
@@ -463,8 +457,6 @@ PetscErrorCode MetricLogicalToPhysical(UserCtx  *user,
   PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MetricJacobian"
 /* ------------------------------------------------------------------------- */
 /**
  * @brief Implementation of \ref MetricJacobian().
@@ -523,8 +515,6 @@ PetscErrorCode MetricJacobian(UserCtx *user,
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "MetricVelocityContravariant"
 /* ------------------------------------------------------------------------- */
 /**
  * @brief Implementation of \ref MetricVelocityContravariant().
@@ -563,8 +553,6 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3], PetscReal de
 }
 
 /////////////////////////////////////////////////////////////////////////////////
-#undef __FUNCT__
-#define __FUNCT__ "InvertCovariantMetricTensor"
 /**
  * @brief Internal helper implementation: `InvertCovariantMetricTensor()`.
  * @details Local to this translation unit.
@@ -572,6 +560,7 @@ PetscErrorCode MetricVelocityContravariant(const PetscReal J[3][3], PetscReal de
 PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double contravariantTensor[3][3])
 {
 	PetscFunctionBeginUser;
+	PROFILE_HELPER_BEGIN;
 
 	const double a11=covariantTensor[0][0], a12=covariantTensor[0][1], a13=covariantTensor[0][2];
 	const double a21=covariantTensor[1][0], a22=covariantTensor[1][1], a23=covariantTensor[1][2];
@@ -608,12 +597,11 @@ PetscErrorCode InvertCovariantMetricTensor(double covariantTensor[3][3], double 
     contravariantTensor[2][1] = -(a32*a11-a31*a12)/det;
     contravariantTensor[2][2] = (a22*a11-a21*a12)/det;
 
+	PROFILE_HELPER_END;
 	PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "CalculateFaceNormalAndArea"
 /**
  * @brief Internal helper implementation: `CalculateFaceNormalAndArea()`.
  * @details Local to this translation unit.
@@ -658,8 +646,6 @@ PetscErrorCode CalculateFaceNormalAndArea(Cmpnts csi, Cmpnts eta, Cmpnts zet, do
 	PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeCellCharacteristicLengthScale"
 /**
  * @brief Internal helper implementation: `ComputeCellCharacteristicLengthScale()`.
  * @details Local to this translation unit.
@@ -687,8 +673,6 @@ PetscErrorCode ComputeCellCharacteristicLengthScale(PetscReal ajc, Cmpnts csi, C
 		PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeCellDirectionalExtents"
 /**
  * @brief Implementation of \ref ComputeCellDirectionalExtents().
  * @details Full API contract is documented with the header declaration in
@@ -703,6 +687,7 @@ PetscErrorCode ComputeCellDirectionalExtents(PetscReal ajc, Cmpnts csi, Cmpnts e
     const double area_zeta = sqrt(zet.x*zet.x + zet.y*zet.y + zet.z*zet.z);
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(ajc > 0.0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                "Cell Jacobian must be positive to define cell extents; received %g.", (double)ajc);
     PetscCheck(area_xi > 0.0 && area_eta > 0.0 && area_zeta > 0.0, PETSC_COMM_SELF,
@@ -716,11 +701,10 @@ PetscErrorCode ComputeCellDirectionalExtents(PetscReal ajc, Cmpnts csi, Cmpnts e
     *l_xi   = (1.0/ajc)/area_xi;
     *l_eta  = (1.0/ajc)/area_eta;
     *l_zeta = (1.0/ajc)/area_zeta;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeCellEdgeVectors"
 /**
  * @brief Implementation of \ref ComputeCellEdgeVectors().
  * @details Full API contract is documented with the header declaration in
@@ -731,6 +715,7 @@ PetscErrorCode ComputeCellEdgeVectors(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmp
                                       Cmpnts edges[3])
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(ajc > 0.0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                "Cell Jacobian must be positive to define cell edges; received %g.", (double)ajc);
     /* The face-area vectors are J grad(xi), J grad(eta), J grad(zeta), with J the cell
@@ -745,12 +730,11 @@ PetscErrorCode ComputeCellEdgeVectors(PetscReal ajc, Cmpnts csi, Cmpnts eta, Cmp
     edges[2].x = ajc * (csi.y*eta.z - csi.z*eta.y);
     edges[2].y = ajc * (csi.z*eta.x - csi.x*eta.z);
     edges[2].z = ajc * (csi.x*eta.y - csi.y*eta.x);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "CheckAndFixGridOrientation"
 /* -------------------------------------------------------------------------- */
 /**
  * @brief Internal helper implementation: `CheckAndFixGridOrientation()`.
@@ -805,8 +789,6 @@ PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ApplyPeriodicCorrectionsToCellCentersAndSpacing"
 /**
  * @brief Internal helper implementation: `ApplyPeriodicCorrectionsToCellCentersAndSpacing()`.
  * @details Local to this translation unit.
@@ -866,8 +848,6 @@ PetscErrorCode ApplyPeriodicCorrectionsToCellCentersAndSpacing(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ApplyPeriodicCorrectionsToIFaceCenter"
 /**
  * @brief Internal helper implementation: `ApplyPeriodicCorrectionsToIFaceCenter()`.
  * @details Local to this translation unit.
@@ -877,13 +857,13 @@ PetscErrorCode ApplyPeriodicCorrectionsToIFaceCenter(UserCtx *user)
     const FieldId fields[] = {FIELD_ID_CENTX};
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(SynchronizePeriodicFaceFields(user, 'i', 1, fields));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ApplyPeriodicCorrectionsToJFaceCenter"
 /**
  * @brief Internal helper implementation: `ApplyPeriodicCorrectionsToJFaceCenter()`.
  * @details Local to this translation unit.
@@ -893,13 +873,13 @@ PetscErrorCode ApplyPeriodicCorrectionsToJFaceCenter(UserCtx *user)
     const FieldId fields[] = {FIELD_ID_CENTY};
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(SynchronizePeriodicFaceFields(user, 'j', 1, fields));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ApplyPeriodicCorrectionsToKFaceCenter"
 /**
  * @brief Internal helper implementation: `ApplyPeriodicCorrectionsToKFaceCenter()`.
  * @details Local to this translation unit.
@@ -909,12 +889,12 @@ PetscErrorCode ApplyPeriodicCorrectionsToKFaceCenter(UserCtx *user)
     const FieldId fields[] = {FIELD_ID_CENTZ};
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(SynchronizePeriodicFaceFields(user, 'k', 1, fields));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeFaceMetrics"
 /**
  * @brief Internal helper implementation: `ComputeFaceMetrics()`.
  * @details Local to this translation unit.
@@ -1123,8 +1103,6 @@ PetscErrorCode ComputeFaceMetrics(UserCtx *user)
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeCellCenteredJacobianInverse"
 /**
  * @brief Implementation of \ref ComputeCellCenteredJacobianInverse().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1140,6 +1118,7 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user)
     Vec            localCoords_from_dm;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting calculation, extrapolation, and update for Aj.\n");
 
     // --- 1. Get Nodal Coordinates and Output Array ---
@@ -1265,12 +1244,11 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user)
     ierr = UpdateLocalGhosts(user, FIELD_ID_AJ); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Completed calculation, extrapolation, and update for Aj.\n");
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeCellCentersAndSpacing"
 /**
  * @brief Internal helper implementation: `ComputeCellCentersAndSpacing()`.
  * @details Local to this translation unit.
@@ -1372,8 +1350,6 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeIFaceMetrics"
 /**
  * @brief Internal helper implementation: `ComputeIFaceMetrics()`.
  * @details Local to this translation unit.
@@ -1583,8 +1559,6 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeJFaceMetrics"
 /**
  * @brief Internal helper implementation: `ComputeJFaceMetrics()`.
  * @details Local to this translation unit.
@@ -1778,8 +1752,6 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeKFaceMetrics"
 /**
  * @brief Internal helper implementation: `ComputeKFaceMetrics()`.
  * @details Local to this translation unit.
@@ -1978,6 +1950,7 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
  */
 static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 {
+  PROFILE_HELPER_BEGIN;
   PetscInt nidx;
   DMDALocalInfo	info = user->info;
 
@@ -1989,11 +1962,10 @@ static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
   
   AOApplicationToPetsc(ao,1,&nidx);
   
+  PROFILE_HELPER_END;
   return (nidx);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeMetricsDivergence"
 /**
  * @brief Internal helper implementation: `ComputeMetricsDivergence()`.
  * @details Local to this translation unit.
@@ -2084,8 +2056,6 @@ PetscErrorCode ComputeMetricsDivergence(UserCtx *user)
   PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeMetricNorms"
 /**
  * @brief Internal helper implementation: `ComputeMetricNorms()`.
  * @details Local to this translation unit.
@@ -2216,8 +2186,6 @@ PetscErrorCode ComputeMetricNorms(UserCtx *user)
   PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeAllGridMetrics"
 /**
  * @brief Internal helper implementation: `CalculateAllGridMetrics()`.
  * @details Local to this translation unit.

@@ -22,16 +22,16 @@
  */
 const char *PicurvWindowStateName(PicurvWindowState state)
 {
+    PROFILE_FUNCTION_BEGIN;
     switch (state) {
-    case PICURV_WINDOW_PENDING:  return "pending";
-    case PICURV_WINDOW_ACTIVE:   return "active";
-    case PICURV_WINDOW_COMPLETE: return "complete";
-    default:                     return "unknown";
+    case PICURV_WINDOW_PENDING:  PROFILE_FUNCTION_END; return "pending";
+    case PICURV_WINDOW_ACTIVE:   PROFILE_FUNCTION_END; return "active";
+    case PICURV_WINDOW_COMPLETE: PROFILE_FUNCTION_END; return "complete";
+    default:                     PROFILE_FUNCTION_END; return "unknown";
     }
+    PROFILE_FUNCTION_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PicurvWindowInit"
 /**
  * @brief Implementation of \ref PicurvWindowInit().
  * @see PicurvWindowInit()
@@ -79,9 +79,11 @@ PetscErrorCode PicurvWindowInit(PicurvWindow *window, const PicurvWindowDefiniti
  */
 static PetscBool WindowStateIsDue(const PicurvWindow *window, PetscInt step, PetscReal time)
 {
+    PROFILE_HELPER_BEGIN;
     if (window->definition.cadence_kind == PICURV_CADENCE_STEP) {
         /* The activation step is itself due; subsequent ones follow the stride. */
-        if (window->activation_step < 0) return PETSC_TRUE;
+        if (window->activation_step < 0) { PROFILE_HELPER_END; return PETSC_TRUE; }
+        PROFILE_HELPER_END;
         return (PetscBool)(((step - window->activation_step) % window->definition.step_cadence) == 0);
     }
     /* Time cadence: targets sit on the absolute grid effective_start + k*cadence, so
@@ -90,8 +92,10 @@ static PetscBool WindowStateIsDue(const PicurvWindow *window, PetscInt step, Pet
     {
         const PetscReal target = window->effective_start +
                                  (PetscReal)window->next_time_target * window->definition.time_cadence;
+        PROFILE_HELPER_END;
         return (PetscBool)(time >= target - WINDOW_TIME_EPSILON);
     }
+    PROFILE_HELPER_END;
 }
 
 /**
@@ -102,12 +106,14 @@ static PetscBool WindowStateIsDue(const PicurvWindow *window, PetscInt step, Pet
  */
 static void WindowAdvanceTimeTarget(PicurvWindow *window, PetscReal time)
 {
-    if (window->definition.cadence_kind != PICURV_CADENCE_TIME) return;
+    PROFILE_HELPER_BEGIN;
+    if (window->definition.cadence_kind != PICURV_CADENCE_TIME) { PROFILE_HELPER_END; return; }
     while (window->effective_start +
            (PetscReal)window->next_time_target * window->definition.time_cadence
            <= time + WINDOW_TIME_EPSILON) {
         window->next_time_target += 1;
     }
+    PROFILE_HELPER_END;
 }
 
 /**
@@ -122,17 +128,18 @@ PetscErrorCode PicurvWindowOfferState(PicurvWindow *window, PetscInt step, Petsc
     PetscBool closes = PETSC_FALSE;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(window != NULL && accepted != NULL && weight != NULL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Window, acceptance flag, and weight output are required.");
     *accepted = PETSC_FALSE;
     *weight = 0.0;
 
-    if (window->state == PICURV_WINDOW_COMPLETE) PetscFunctionReturn(0);
+    if (window->state == PICURV_WINDOW_COMPLETE) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     /* A completed state is accepted at most once, so a step already seen is
      * rejected outright rather than double counted. */
-    if (step == window->last_event_step) PetscFunctionReturn(0);
-    if (time < window->definition.start_time - WINDOW_TIME_EPSILON) PetscFunctionReturn(0);
+    if (step == window->last_event_step) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
+    if (time < window->definition.start_time - WINDOW_TIME_EPSILON) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     /* First observation: a window resumed later than its requested start cannot
      * claim represented time it never saw, so the origin moves forward. */
@@ -150,6 +157,7 @@ PetscErrorCode PicurvWindowOfferState(PicurvWindow *window, PetscInt step, Petsc
 
     if (!WindowStateIsDue(window, step, time)) {
         /* An active off-schedule state changes no scientific state. */
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
     window->last_event_step = step;
@@ -170,6 +178,7 @@ PetscErrorCode PicurvWindowOfferState(PicurvWindow *window, PetscInt step, Petsc
         window->last_accepted_time = right_edge;
         window->effective_end = right_edge;
         if (closes) window->state = PICURV_WINDOW_COMPLETE;
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -182,6 +191,7 @@ PetscErrorCode PicurvWindowOfferState(PicurvWindow *window, PetscInt step, Petsc
     window->total_weight += *weight;
     window->represented_time += interval;
     if (closes) window->state = PICURV_WINDOW_COMPLETE;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -196,7 +206,9 @@ static const char *const kHashGroupNames[PICURV_WINDOW_HASH_GROUP_COUNT] = {
  */
 const char *PicurvWindowHashGroupName(PetscInt group)
 {
-    if (group < 0 || group >= PICURV_WINDOW_HASH_GROUP_COUNT) return "unknown";
+    PROFILE_HELPER_BEGIN;
+    if (group < 0 || group >= PICURV_WINDOW_HASH_GROUP_COUNT) { PROFILE_HELPER_END; return "unknown"; }
+    PROFILE_HELPER_END;
     return kHashGroupNames[group];
 }
 
@@ -209,6 +221,7 @@ const char *PicurvWindowHashGroupName(PetscInt group)
 static void SortRequestOrder(PetscInt count, const PetscInt *primary, const PetscInt *secondary,
                              PetscInt *order)
 {
+    PROFILE_FUNCTION_BEGIN;
     for (PetscInt n = 0; n < count; ++n) order[n] = n;
     for (PetscInt n = 1; n < count; ++n) {
         const PetscInt candidate = order[n];
@@ -223,10 +236,9 @@ static void SortRequestOrder(PetscInt count, const PetscInt *primary, const Pets
         }
         order[m + 1] = candidate;
     }
+    PROFILE_FUNCTION_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PicurvWindowComputeHash"
 /**
  * @brief Implementation of \ref PicurvWindowComputeHash().
  * @see PicurvWindowComputeHash()
@@ -392,10 +404,11 @@ PetscErrorCode PicurvWindowFirstHashDifference(const PicurvWindowDefinition *def
     const char *cursor = saved_group_digests;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(definition != NULL && group != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Definition and group output are required.");
     *group = -1;
-    if (!saved_group_digests) PetscFunctionReturn(0);
+    if (!saved_group_digests) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
     PetscCall(PicurvWindowComputeHash(definition, digest, current));
 
     for (PetscInt index = 0; index < PICURV_WINDOW_HASH_GROUP_COUNT; ++index) {
@@ -408,14 +421,16 @@ PetscErrorCode PicurvWindowFirstHashDifference(const PicurvWindowDefinition *def
          * saved list is malformed rather than that this property changed. A
          * malformed list localizes to nothing: reporting the wrong property would
          * be worse than reporting none. */
-        if (length != expected) PetscFunctionReturn(0);
+        if (length != expected) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
         if (strncmp(cursor, current[index], length)) {
             *group = index;
+            PROFILE_HELPER_END;
             PetscFunctionReturn(0);
         }
-        if (!comma) PetscFunctionReturn(0);
+        if (!comma) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
         cursor = comma + 1;
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -425,11 +440,13 @@ PetscErrorCode PicurvWindowFirstHashDifference(const PicurvWindowDefinition *def
  */
 PetscReal PicurvWindowProgress(const PicurvWindow *window)
 {
+    PROFILE_HELPER_BEGIN;
     PetscReal span = 0.0;
 
-    if (window == NULL || !window->definition.bounded) return 0.0;
+    if (window == NULL || !window->definition.bounded) { PROFILE_HELPER_END; return 0.0; }
     span = window->definition.end_time - window->effective_start;
-    if (span <= 0.0) return 0.0;
+    if (span <= 0.0) { PROFILE_HELPER_END; return 0.0; }
+    PROFILE_HELPER_END;
     return PetscMin(1.0, window->represented_time / span);
 }
 
@@ -439,7 +456,9 @@ PetscReal PicurvWindowProgress(const PicurvWindow *window)
  */
 PetscBool FieldStatisticsIsActive(const SimCtx *simCtx)
 {
-    if (!simCtx || !simCtx->fieldStatisticsEnabled) return PETSC_FALSE;
+    PROFILE_FUNCTION_BEGIN;
+    if (!simCtx || !simCtx->fieldStatisticsEnabled) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
+    PROFILE_FUNCTION_END;
     return (PetscBool)(simCtx->fieldStatisticsWindowCount > 0 &&
                        simCtx->fieldStatisticsWindows != NULL);
 }
@@ -450,12 +469,12 @@ PetscBool FieldStatisticsIsActive(const SimCtx *simCtx)
  */
 PetscBool FieldStatisticsNeedsWorkspace(const SimCtx *simCtx)
 {
-    if (FieldStatisticsIsActive(simCtx)) return PETSC_TRUE;
+    PROFILE_FUNCTION_BEGIN;
+    if (FieldStatisticsIsActive(simCtx)) { PROFILE_FUNCTION_END; return PETSC_TRUE; }
+    PROFILE_FUNCTION_END;
     return (PetscBool)(simCtx && simCtx->pps && simCtx->pps->field_statistics_ensemble_count > 0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "FieldStatisticsUpdateWindows"
 /**
  * @brief Implementation of \ref FieldStatisticsUpdateWindows().
  * @see FieldStatisticsUpdateWindows()

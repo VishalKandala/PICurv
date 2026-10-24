@@ -4,8 +4,6 @@
 
 #define INTERPOLATION_DISTANCE_TOLERANCE 1.0e-14
 
-#undef __FUNCT__
-#define __FUNCT__ "InitializeSwarm"
 /**
  * @brief Implementation of \ref InitializeSwarm().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -28,8 +26,6 @@ PetscErrorCode InitializeSwarm(UserCtx* user) {
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "RegisterSwarmField"
 
 /**
  * @brief Internal helper implementation: `RegisterSwarmField()`.
@@ -39,17 +35,17 @@ PetscErrorCode RegisterSwarmField(DM swarm, const char *fieldName, PetscInt fiel
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     
     ierr = DMSwarmRegisterPetscDatatypeField(swarm, fieldName, fieldDim, dtype); CHKERRQ(ierr);
     // PetscDataTypes is an extern char* [] defined in petscsystypes.h that gives string names for PetscDataType enums
     LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field '%s' with dimension=%d, type=%s.\n",
             fieldName, fieldDim, PetscDataTypes[dtype]);
     
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "RegisterParticleFields"
 
 /**
  * @brief Implementation of \ref RegisterParticleFields().
@@ -62,6 +58,7 @@ PetscErrorCode RegisterParticleFields(DM swarm)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     for (PetscInt raw_id = 0; raw_id < PARTICLE_FIELD_ID_COUNT; ++raw_id) {
         const ParticleFieldDescriptor *descriptor = NULL;
@@ -77,11 +74,10 @@ PetscErrorCode RegisterParticleFields(DM swarm)
     ierr = DMSwarmFinalizeFieldRegister(swarm); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL,LOG_INFO,"RegisterParticleFields - Finalized field registration.\n");
     
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "BuildOwnedCellVolumeTable"
 /**
  * @brief Tabulate the volumes of this rank's owned cells for volume-uniform seeding.
  * @details Cells are visited in i-fastest order from `(xs, ys, zs)`, the cell origins the
@@ -150,8 +146,6 @@ static PetscErrorCode BuildOwnedCellVolumeTable(UserCtx *user, const Cmpnts ***c
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "DetermineVolumetricInitializationParameters"
 /**
  * @brief Draw one volume-uniform seeding point in this rank's owned cells.
  * @details The cell is drawn in proportion to its volume from `cell_cdf`
@@ -255,8 +249,6 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InitializeParticleBasicProperties"
 
 /**
  * @brief Initialize position-independent particle fields after a particle is created.
@@ -517,8 +509,6 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InitializeSwarmFieldValue"
 /**
  * @brief Assign one configured initial value to a swarm field entry.
  */
@@ -550,8 +540,6 @@ static PetscErrorCode InitializeSwarmFieldValue(const ParticleFieldDescriptor *d
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "AssignInitialFieldToSwarm"
 /**
  * @brief Apply a configured initial field specification across the local swarm.
  */
@@ -600,8 +588,6 @@ static PetscErrorCode AssignInitialFieldToSwarm(UserCtx *user, ParticleFieldId f
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "AssignInitialPropertiesToSwarm"
 
 /**
  * @brief Internal helper implementation: `AssignInitialPropertiesToSwarm()`.
@@ -691,8 +677,6 @@ PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "DistributeParticles"
 /**
  * @brief Implementation of \ref DistributeParticles().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -721,8 +705,6 @@ PetscErrorCode DistributeParticles(PetscInt numParticles, PetscMPIInt rank, Pets
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "FinalizeSwarmSetup"
 /**
  * @brief Implementation of \ref FinalizeSwarmSetup().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -749,8 +731,6 @@ PetscErrorCode FinalizeSwarmSetup(PetscRandom *randx, PetscRandom *randy, PetscR
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "DistributeParticlesByOwnedVolume"
 /**
  * @brief Split particles across ranks in proportion to the volume each rank owns.
  * @details Volumetric seeding places each rank's particles uniformly in its own volume, so the
@@ -774,6 +754,7 @@ static PetscErrorCode DistributeParticlesByOwnedVolume(UserCtx *user, PetscInt n
     const Cmpnts ***coor = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
     PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
     PetscCall(DMGetCoordinatesLocal(user->da, &coor_local));
@@ -800,11 +781,10 @@ static PetscErrorCode DistributeParticlesByOwnedVolume(UserCtx *user, PetscInt n
     }
     *localCount = count[rank];
     PetscCall(PetscFree3(volumes, count, frac));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "CreateParticleSwarm"
 /**
  * @brief Internal helper implementation: `CreateParticleSwarm()`.
  * @details Local to this translation unit.
@@ -878,8 +858,6 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
 // While Swarm fields store data in arrays, the Particle struct provides a convenient
 // way to manipulate individual particle properties during simulation steps.
 
-#undef __FUNCT__
-#define __FUNCT__ "UnpackSwarmFields"
 
 /**
  * @brief Implementation of \ref UnpackSwarmFields().
@@ -1007,8 +985,6 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "UpdateSwarmFields"
 /**
  * @brief Internal helper implementation: `UpdateSwarmFields()`.
  * @details Local to this translation unit.
@@ -1084,8 +1060,6 @@ PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "IsParticleInsideBoundingBox"
 /**
  * @brief Internal helper implementation: `IsParticleInsideBoundingBox()`.
  * @details Local to this translation unit.
@@ -1135,8 +1109,6 @@ PetscBool IsParticleInsideBoundingBox(const BoundingBox *bbox, const Particle *p
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "UpdateParticleWeights"
 /**
  * @brief Internal helper implementation: `UpdateParticleWeights()`.
  * @details Local to this translation unit.
@@ -1205,8 +1177,6 @@ PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle) {
  *                       configuration and provides access to the UserCtx.
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
-#undef __FUNCT__
-#define __FUNCT__ "InitializeParticleSwarm"
 /**
  * @brief Implementation of \ref InitializeParticleSwarm().
  * @details Full API contract (arguments, ownership, side effects) is documented with

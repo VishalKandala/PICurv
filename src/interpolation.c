@@ -16,8 +16,6 @@
 #define ERROR_MSG_BUFFER_SIZE 256 // Or use PETSC_MAX_PATH_LEN if appropriate
 #endif
 
-#undef __FUNCT__
-#define __FUNCT__ "InterpolateFieldFromCornerToCenter_Vector"
 /**
  * @brief Internal helper implementation: `InterpolateFieldFromCornerToCenter_Vector()`.
  * @details Local to this translation unit.
@@ -31,6 +29,7 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
     DMDALocalInfo  info;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
 
@@ -74,11 +73,10 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
         }
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InterpolateFieldFromCornerToCenter_Scalar"
 /**
  * @brief Internal helper implementation: `InterpolateFieldFromCornerToCenter_Scalar()`.
  * @details Local to this translation unit.
@@ -92,6 +90,7 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
     DMDALocalInfo  info;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
     
@@ -125,11 +124,10 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
         }
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "TestCornerToCenterInterpolation"
 /**
  * @brief Internal helper implementation: `TestCornerToCenterInterpolation()`.
  * @details Local to this translation unit.
@@ -142,6 +140,7 @@ PetscErrorCode TestCornerToCenterInterpolation(UserCtx *user)
     PetscReal      diff_norm;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     // 1. Create a temporary vector to hold the result of our interpolation.
     //    It must have the same layout and size as the ground-truth user->Cent vector.
@@ -184,11 +183,10 @@ PetscErrorCode TestCornerToCenterInterpolation(UserCtx *user)
 
     ierr = VecDestroy(&TestCent); CHKERRQ(ierr);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InterpolateFieldFromCenterToCorner_Vector"
 /**
  * @brief Internal helper implementation: `InterpolateFieldFromCenterToCorner_Vector()`.
  * @details Local to this translation unit.
@@ -322,8 +320,6 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector(
     return 0;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InterpolateFieldFromCenterToCorner_Scalar"
 /**
  * @brief Internal helper implementation: `InterpolateFieldFromCenterToCorner_Scalar()`.
  * @details Local to this translation unit.
@@ -453,8 +449,6 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(
     return 0;
 }
 
-#undef __FUNCT
-#define __FUNCT "PiecWiseLinearInterpolation_Scalar"
 /**
  * @brief Internal helper implementation: `PieceWiseLinearInterpolation_Scalar()`.
  * @details Local to this translation unit.
@@ -468,6 +462,7 @@ PetscErrorCode PieceWiseLinearInterpolation_Scalar(
     PetscReal    *val)
 {
   PetscFunctionBegin;
+  PROFILE_HELPER_BEGIN;
   *val = fieldScal[kCell][jCell][iCell];
   
   // Optional logging
@@ -475,11 +470,10 @@ PetscErrorCode PieceWiseLinearInterpolation_Scalar(
       "Field '%s' at (i=%d, j=%d, k=%d) => val=%.6f\n",
       fieldName, iCell, jCell, kCell, *val);
 
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
-#undef __FUNCT
-#define __FUNCT "PiecWiseLinearInterpolation_Vector"
 /**
  * @brief Internal helper implementation: `PieceWiseLinearInterpolation_Vector()`.
  * @details Local to this translation unit.
@@ -493,6 +487,7 @@ PetscErrorCode PieceWiseLinearInterpolation_Vector(
     Cmpnts       *vec)
 {
   PetscFunctionBegin;
+  PROFILE_HELPER_BEGIN;
   vec->x = fieldVec[kCell][jCell][iCell].x;
   vec->y = fieldVec[kCell][jCell][iCell].y;
   vec->z = fieldVec[kCell][jCell][iCell].z;
@@ -502,12 +497,11 @@ PetscErrorCode PieceWiseLinearInterpolation_Vector(
       "Field '%s' at (i=%d, j=%d, k=%d) => (x=%.6f, y=%.6f, z=%.6f)\n",
       fieldName, iCell, jCell, kCell, vec->x, vec->y, vec->z);
 
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT
-#define __FUNCT "ComputeTrilinearWeights"
 
 /**
  * @brief Compute the eight trilinear interpolation weights for a particle's local coordinates.
@@ -566,8 +560,6 @@ static inline void ComputeTrilinearWeightsUnclamped(PetscReal a1, PetscReal a2, 
         w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]);
 }
 
-#undef __FUNCT
-#define __FUNCT "TrilinearInterpolation_Scalar"
 
 /**
  * @brief Internal helper implementation: `TrilinearInterpolation_Scalar()`.
@@ -584,7 +576,8 @@ PetscErrorCode TrilinearInterpolation_Scalar(
     PetscReal     a3,
     PetscReal    *val)
 {
-    PetscFunctionBegin; // PETSc macro for error/stack tracing
+    PetscFunctionBegin;
+    PROFILE_HELPER_BEGIN; // PETSc macro for error/stack tracing
 
     // Compute the 8 corner weights
     PetscReal wcorner[8];
@@ -627,12 +620,11 @@ PetscErrorCode TrilinearInterpolation_Scalar(
     //    "TrilinearInterpolation_Scalar: Completed interpolation for field '%s' across local cells.\n",
 	  //    fieldName);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT
-#define __FUNCT "TrilinearInterpolation_Vector"
 /**
  * @brief Internal helper implementation: `TrilinearInterpolation_Vector()`.
  * @details Local to this translation unit.
@@ -648,7 +640,8 @@ PetscErrorCode TrilinearInterpolation_Vector(
     PetscReal     a3,
     Cmpnts       *vec)
 {
-  PetscFunctionBegin; // PETSc macro for error/stack tracing
+  PetscFunctionBegin;
+  PROFILE_HELPER_BEGIN; // PETSc macro for error/stack tracing
 
   // Compute the 8 corner weights
   PetscErrorCode ierr;
@@ -721,12 +714,11 @@ PetscErrorCode TrilinearInterpolation_Vector(
     vec->x = 0.0;  vec->y = 0.0;  vec->z = 0.0;
   }
 
+  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT
-#define __FUNCT "InterpolateEulerFieldToSwarmForParticle"
 /**
  * @brief Interpolate one Eulerian field to a single located swarm particle.
  */
@@ -845,8 +837,6 @@ typedef struct CenterInterpolationTarget {
     PetscReal  *swarm_out;   ///< Destination array while the pass runs.
 } CenterInterpolationTarget;
 
-#undef __FUNCT__
-#define __FUNCT__ "InterpolateEulerFieldFromCenterToSwarm"
 
 /**
  * @brief Direct cell-center trilinear interpolation (second-order on curvilinear grids).
@@ -1048,8 +1038,6 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InterpolateEulerVelocityFromFacesToSwarm"
 
 /**
  * @brief Particle velocity from the host cell's face fluxes (the FaceFlux method).
@@ -1124,8 +1112,6 @@ static PetscErrorCode InterpolateEulerVelocityFromFacesToSwarm(UserCtx *user, co
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InterpolateEulerFieldFromCornerToSwarm"
 
 /**
  * @brief Corner-averaged interpolation path (legacy).
@@ -1420,8 +1406,6 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ResolveInterpolationPair"
 /**
  * @brief Check that an Eulerian source can be interpolated to a particle destination.
  * @details The source must be cell-centred, the destination real-valued, and their component
@@ -1431,6 +1415,7 @@ static PetscErrorCode ResolveInterpolationPair(UserCtx *user, FieldId source_fie
                                                FieldView *source_view, const ParticleFieldDescriptor **target_descriptor)
 {
     PetscFunctionBegin;
+    PROFILE_FUNCTION_BEGIN;
     PetscCall(FieldGetView(user, source_field_id, source_view));
     PetscCall(ParticleFieldGetDescriptor(target_field_id, target_descriptor));
     PetscCheck(source_view->descriptor->layout == FIELD_LAYOUT_CELL_CENTERED,
@@ -1447,11 +1432,10 @@ static PetscErrorCode ResolveInterpolationPair(UserCtx *user, FieldId source_fie
                "Eulerian source '%s' has %d components but particle destination '%s' has %d.",
                source_view->descriptor->canonical_name, source_view->descriptor->dof,
                (*target_descriptor)->canonical_name, (*target_descriptor)->components);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InterpolateEulerFieldsToSwarm"
 /**
  * @brief Interpolates several Eulerian fields to their particle fields with the configured method.
  * @details FaceFlux takes Ucat from the face fluxes; the corner-averaged method runs one pass per
@@ -1466,6 +1450,7 @@ static PetscErrorCode InterpolateEulerFieldsToSwarm(UserCtx *user, PetscInt n, c
     PetscInt                  ncenter = 0;
 
     PetscFunctionBegin;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(n <= (PetscInt)(sizeof(targets) / sizeof(targets[0])), PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                "At most %d fields interpolate in one pass; %d requested.", (int)(sizeof(targets) / sizeof(targets[0])), (int)n);
     for (PetscInt f = 0; f < n; ++f) {
@@ -1488,11 +1473,10 @@ static PetscErrorCode InterpolateEulerFieldsToSwarm(UserCtx *user, PetscInt n, c
         }
     }
     if (ncenter > 0) PetscCall(InterpolateEulerFieldFromCenterToSwarm(user, ncenter, targets));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InterpolateEulerFieldToSwarm"
 
 /**
  * @brief Dispatches grid-to-particle interpolation to the method selected in the control file.
@@ -1506,12 +1490,12 @@ PetscErrorCode InterpolateEulerFieldToSwarm(
     ParticleFieldId target_field_id)
 {
     PetscFunctionBegin;
+    PROFILE_HELPER_BEGIN;
     PetscCall(InterpolateEulerFieldsToSwarm(user, 1, &source_field_id, &target_field_id));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InterpolateAllFieldsToSwarm"
 /**
  * @brief Internal helper implementation: `InterpolateAllFieldsToSwarm()`.
  * @details Local to this translation unit.
@@ -1585,8 +1569,6 @@ PetscErrorCode  InterpolateAllFieldsToSwarm(UserCtx *user)
  * @{
  */
 
-#undef __FUNCT__
-#define __FUNCT__ "AccumulateParticleField"
 /*
  * Internal implementation detail for public API `AccumulateParticleField`.
  * Documentation is maintained in include/interpolation.h to keep a single source
@@ -1710,8 +1692,6 @@ PetscErrorCode AccumulateParticleField(DM swarm, ParticleFieldId particle_field_
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "NormalizeGridVectorByCount"
 
 /* Implementation for NormalizeGridVectorByCount declared in include/interpolation.h. */
 PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
@@ -1824,8 +1804,6 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
 // MODULE 4: Internal Scatter Orchestration Helper - No PetscErrorClear
 //-----------------------------------------------------------------------------
 
-#undef __FUNCT__
-#define __FUNCT__   "ScatterParticleFieldToEulerField_Internal"
 /**
  * @brief Accumulate one particle field onto the Eulerian grid using the selected scatter stencil.
  */
@@ -1912,8 +1890,6 @@ static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ScatterParticleFieldToEulerField"
 
 /* Implementation for ScatterParticleFieldToEulerField declared in include/interpolation.h. */
 PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
@@ -1999,8 +1975,6 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ScatterAllParticleFieldsToEulerFields"
 /* Implementation for ScatterAllParticleFieldsToEulerFields declared in include/interpolation.h. */
 PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
 {
@@ -2066,8 +2040,6 @@ PetscErrorCode ScatterAllParticleFieldsToEulerFields(UserCtx *user)
 /** @} */ // End of scatter_module group
 
 
-#undef __FUNCT__
-#define __FUNCT__ "InterpolateCornerToFaceCenter_Scalar"
 
 /**
  * @brief Internal helper implementation: `InterpolateCornerToFaceCenter_Scalar()`.
@@ -2156,8 +2128,6 @@ PetscErrorCode InterpolateCornerToFaceCenter_Scalar(
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "InterpolateCornerToFaceCenter_Vector"
 
 /**
  * @brief Internal helper implementation: `InterpolateCornerToFaceCenter_Vector()`.

@@ -6,8 +6,6 @@
 //================================================================================
 
 
-#undef __FUNCT__
-#define __FUNCT__ "Validate_DrivenFlowConfiguration"
 /**
  * @brief Internal helper implementation: `Validate_DrivenFlowConfiguration()`.
  * @details Local to this translation unit.
@@ -15,6 +13,7 @@
 PetscErrorCode Validate_DrivenFlowConfiguration(UserCtx *user)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     // --- CHECK 1: Detect if a driven flow is active. ---
     PetscBool is_driven_flow_active = PETSC_FALSE;
@@ -39,6 +38,7 @@ PetscErrorCode Validate_DrivenFlowConfiguration(UserCtx *user)
 
     // If no driven flow handler is found, validation for this rule set is complete.
     if (!is_driven_flow_active) {
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
     
@@ -87,6 +87,7 @@ PetscErrorCode Validate_DrivenFlowConfiguration(UserCtx *user)
     
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "          ... Symmetry and mathematical types are valid. OK.\n");
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -111,8 +112,6 @@ static PetscErrorCode ApplyFaceBoundaryVelocity(BoundaryCondition *self, BCConte
 // --- FORWARD DECLARATIONS ---
 static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx);
 
-#undef __FUNCT__
-#define __FUNCT__ "Create_WallNoSlip"
 /**
  * @brief Implementation of \ref Create_WallNoSlip().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -122,6 +121,7 @@ static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx);
 PetscErrorCode Create_WallNoSlip(BoundaryCondition *bc)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     
     if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, 
                      "Input BoundaryCondition object is NULL in Create_WallNoSlip");
@@ -140,6 +140,7 @@ PetscErrorCode Create_WallNoSlip(BoundaryCondition *bc)
     // No private data needed for this simple handler
     bc->data = NULL;
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -150,14 +151,14 @@ static Cmpnts WallNoSlipVelocity(const BoundaryCondition *self, BCFace face_id,
                                  PetscInt i, PetscInt j, PetscInt k,
                                  Cmpnts metric, PetscReal sign, Cmpnts interior)
 {
+    PROFILE_HELPER_BEGIN;
     const Cmpnts rest = {0.0, 0.0, 0.0};
 
     (void)self; (void)face_id; (void)i; (void)j; (void)k; (void)metric; (void)sign; (void)interior;
+    PROFILE_HELPER_END;
     return rest;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "Apply_WallNoSlip"
 /**
  * @brief Apply no-slip velocity values to wall-adjacent cells for this boundary condition.
  * @details A zero boundary velocity also closes the face, since its flux is the
@@ -166,9 +167,11 @@ static Cmpnts WallNoSlipVelocity(const BoundaryCondition *self, BCFace face_id,
 static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Apply_WallNoSlip: Applying to Face %d (%s).\n",
               ctx->face_id, BCFaceToString(ctx->face_id));
     PetscCall(ApplyFaceBoundaryVelocity(self, ctx, WallNoSlipVelocity));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -186,8 +189,6 @@ static PetscErrorCode Apply_WallNoSlip(BoundaryCondition *self, BCContext *ctx)
 
 static PetscErrorCode Apply_WallFreeSlip(BoundaryCondition *self, BCContext *ctx);
 
-#undef __FUNCT__
-#define __FUNCT__ "Create_WallFreeSlip"
 /**
  * @brief Implementation of \ref Create_WallFreeSlip().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -197,6 +198,7 @@ static PetscErrorCode Apply_WallFreeSlip(BoundaryCondition *self, BCContext *ctx
 PetscErrorCode Create_WallFreeSlip(BoundaryCondition *bc)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                      "Input BoundaryCondition object is NULL in Create_WallFreeSlip");
     bc->priority   = BC_PRIORITY_WALL;
@@ -209,6 +211,7 @@ PetscErrorCode Create_WallFreeSlip(BoundaryCondition *bc)
     bc->UpdateUbcs = Apply_WallFreeSlip;
     bc->Destroy    = NULL;
     bc->data       = NULL;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -224,6 +227,7 @@ static Cmpnts WallFreeSlipVelocity(const BoundaryCondition *self, BCFace face_id
                                    PetscInt i, PetscInt j, PetscInt k,
                                    Cmpnts metric, PetscReal sign, Cmpnts interior)
 {
+    PROFILE_HELPER_BEGIN;
     const PetscReal area_sq = metric.x * metric.x + metric.y * metric.y + metric.z * metric.z;
     const PetscReal normal = (area_sq > 0.0)
         ? (interior.x * metric.x + interior.y * metric.y + interior.z * metric.z) / area_sq : 0.0;
@@ -233,18 +237,19 @@ static Cmpnts WallFreeSlipVelocity(const BoundaryCondition *self, BCFace face_id
     tangential.x = interior.x - normal * metric.x;
     tangential.y = interior.y - normal * metric.y;
     tangential.z = interior.z - normal * metric.z;
+    PROFILE_HELPER_END;
     return tangential;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "Apply_WallFreeSlip"
 /**
  * @brief Apply free-slip boundary values to wall-adjacent cells for this boundary condition.
  */
 static PetscErrorCode Apply_WallFreeSlip(BoundaryCondition *self, BCContext *ctx)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(ApplyFaceBoundaryVelocity(self, ctx, WallFreeSlipVelocity));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -273,8 +278,6 @@ typedef struct{
     PetscReal normal_velocity; // Face-normal speed selected from vx, vy, or vz.
 }InletConstantData;
 
-#undef __FUNCT__
-#define __FUNCT__ "Create_InletConstantVelocity"
 /**
  * @brief Implementation of \ref Create_InletConstantVelocity().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -285,6 +288,7 @@ PetscErrorCode Create_InletConstantVelocity(BoundaryCondition *bc)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     
     if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
 
@@ -300,12 +304,11 @@ PetscErrorCode Create_InletConstantVelocity(BoundaryCondition *bc)
     bc->UpdateUbcs = NULL;
     bc->Destroy    = Destroy_InletConstantVelocity;
     
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "Initialize_InletConstantVelocity"
 /**
  * @brief Initialize persistent state for a constant-velocity inlet boundary.
  */
@@ -318,6 +321,7 @@ static PetscErrorCode Initialize_InletConstantVelocity(BoundaryCondition *self, 
     PetscBool      found;
     
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Initialize_InletConstantVelocity: Initializing handler for Face %d. \n", face_id);
     data->normal_velocity = 0.0;
     
@@ -350,11 +354,10 @@ static PetscErrorCode Initialize_InletConstantVelocity(BoundaryCondition *self, 
     // Set initial boundary state
     ierr = Apply_InletVelocity(self, ctx); CHKERRQ(ierr);
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PreStep_InletConstantVelocity"
 /**
  * @brief Update constant-inlet data required before the next solver step.
  */
@@ -372,11 +375,11 @@ static PetscErrorCode PreStep_InletConstantVelocity(BoundaryCondition *self, BCC
     (void)local_outflow_contribution;
     
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PostStep_InletConstantVelocity"
 /**
  * @brief Perform post-step bookkeeping for a constant-velocity inlet boundary.
  */
@@ -393,6 +396,7 @@ static PetscErrorCode PostStep_InletConstantVelocity(BoundaryCondition *self, BC
     (void)local_outflow_contribution;
     
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     DMDALocalInfo *info = &user->info;
     Cmpnts ***ucont;
@@ -406,7 +410,7 @@ static PetscErrorCode PostStep_InletConstantVelocity(BoundaryCondition *self, BC
     ierr = CanRankServiceFace(info,IM_nodes_global,JM_nodes_global,KM_nodes_global,face_id,&can_service); CHKERRQ(ierr);
     
 
-    if (!can_service) PetscFunctionReturn(0);
+    if (!can_service) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
     
     ierr = DMDAVecGetArrayRead(user->fda, user->Ucont, (const Cmpnts***)&ucont); CHKERRQ(ierr);
 
@@ -465,22 +469,23 @@ static PetscErrorCode PostStep_InletConstantVelocity(BoundaryCondition *self, BC
     LOG_ALLOW(LOCAL, LOG_DEBUG, "PostStep_InletConstantVelocity: Face %d, flux = %.6e\n",
               face_id, local_flux);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "Destroy_InletConstantVelocity"
 /**
  * @brief Release resources owned by a constant-velocity inlet boundary.
  */
 static PetscErrorCode Destroy_InletConstantVelocity(BoundaryCondition *self)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (self && self->data) {
         PetscFree(self->data);
         self->data = NULL;
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -530,8 +535,6 @@ typedef struct {
     PetscReal cs2_half;    /**< Half-width (in index space) in cross-stream direction 2. */
 } InletParabolicData;
 
-#undef __FUNCT__
-#define __FUNCT__ "Create_InletParabolicProfile"
 /**
  * @brief Implementation of \ref Create_InletParabolicProfile().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -542,6 +545,7 @@ PetscErrorCode Create_InletParabolicProfile(BoundaryCondition *bc)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
 
@@ -557,12 +561,11 @@ PetscErrorCode Create_InletParabolicProfile(BoundaryCondition *bc)
     bc->UpdateUbcs = NULL;
     bc->Destroy    = Destroy_InletParabolicProfile;
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "Initialize_InletParabolicProfile"
 /**
  * @brief Initialize the geometric data used to evaluate a parabolic inlet profile.
  */
@@ -575,6 +578,7 @@ static PetscErrorCode Initialize_InletParabolicProfile(BoundaryCondition *self, 
     PetscBool      found;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Initialize_InletParabolicProfile: Initializing handler for Face %d.\n", face_id);
 
     // --- Parse v_max from boundary condition parameters ---
@@ -631,12 +635,11 @@ static PetscErrorCode Initialize_InletParabolicProfile(BoundaryCondition *self, 
     // Set initial boundary state
     ierr = Apply_InletVelocity(self, ctx); CHKERRQ(ierr);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "PreStep_InletParabolicProfile"
 /**
  * @brief Refresh parabolic-inlet values required before the solver step.
  */
@@ -650,13 +653,13 @@ static PetscErrorCode PreStep_InletParabolicProfile(BoundaryCondition *self, BCC
     (void)local_outflow_contribution;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 
 
-#undef __FUNCT__
-#define __FUNCT__ "PostStep_InletParabolicProfile"
 /**
  * @brief Perform post-step bookkeeping for a parabolic inlet boundary.
  */
@@ -673,6 +676,7 @@ static PetscErrorCode PostStep_InletParabolicProfile(BoundaryCondition *self, BC
     (void)local_outflow_contribution;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     DMDALocalInfo *info = &user->info;
     Cmpnts ***ucont;
@@ -686,7 +690,7 @@ static PetscErrorCode PostStep_InletParabolicProfile(BoundaryCondition *self, BC
     ierr = CanRankServiceFace(info, IM_nodes_global, JM_nodes_global, KM_nodes_global,
                               face_id, &can_service); CHKERRQ(ierr);
 
-    if (!can_service) PetscFunctionReturn(0);
+    if (!can_service) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     ierr = DMDAVecGetArrayRead(user->fda, user->Ucont, (const Cmpnts***)&ucont); CHKERRQ(ierr);
 
@@ -744,22 +748,23 @@ static PetscErrorCode PostStep_InletParabolicProfile(BoundaryCondition *self, BC
     LOG_ALLOW(LOCAL, LOG_DEBUG, "PostStep_InletParabolicProfile: Face %d, flux = %.6e\n",
               face_id, local_flux);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "Destroy_InletParabolicProfile"
 /**
  * @brief Release resources owned by a parabolic inlet boundary.
  */
 static PetscErrorCode Destroy_InletParabolicProfile(BoundaryCondition *self)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (self && self->data) {
         PetscFree(self->data);
         self->data = NULL;
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -803,6 +808,7 @@ static PetscErrorCode GetProfileFileExpectedDims(UserCtx *user, BCFace face_id,
                                                  PetscInt *n1, PetscInt *n2)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     switch (face_id) {
         case BC_FACE_NEG_X:
         case BC_FACE_POS_X:
@@ -828,6 +834,7 @@ static PetscErrorCode GetProfileFileExpectedDims(UserCtx *user, BCFace face_id,
                 "Invalid inlet profile dimensions (%d, %d) for grid (%d, %d, %d).",
                 *n1, *n2, user->IM, user->JM, user->KM);
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -853,6 +860,7 @@ static PetscErrorCode ReadPicSliceProfile(const char *source_file, PetscInt expe
     PetscInt frame_count = 0, n1 = 0, n2 = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     fd = fopen(source_file, "r");
     if (!fd) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
                      "Cannot open PICSLICE inlet profile file: %s", source_file);
@@ -918,6 +926,7 @@ static PetscErrorCode ReadPicSliceProfile(const char *source_file, PetscInt expe
                 source_file, n1 * n2, extra);
     }
     fclose(fd);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -1007,8 +1016,6 @@ static inline Cmpnts EvaluateInletCartesianVelocity(const BoundaryCondition *sel
     return velocity;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ApplyFaceBoundaryVelocity"
 /**
  * @brief Sets a handler's boundary velocity and the face flux it implies on one face.
  * @details Shared by every handler that prescribes a Cartesian velocity at its face: the
@@ -1036,9 +1043,10 @@ static PetscErrorCode ApplyFaceBoundaryVelocity(BoundaryCondition *self, BCConte
     PetscReal ***nvert;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     ierr = CanRankServiceFace(info, user->IM, user->JM, user->KM, face_id, &can_service); CHKERRQ(ierr);
-    if (!can_service) PetscFunctionReturn(0);
+    if (!can_service) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     ierr = DMDAVecGetArray(user->fda, user->Bcs.Ubcs, &ubcs); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont); CHKERRQ(ierr);
@@ -1121,11 +1129,10 @@ static PetscErrorCode ApplyFaceBoundaryVelocity(BoundaryCondition *self, BCConte
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lUcat, (const Cmpnts***)&ucat); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "Apply_InletVelocity"
 /**
  * @brief Applies a Cartesian inlet velocity through the common face-layout path.
  *
@@ -1136,17 +1143,17 @@ static PetscErrorCode ApplyFaceBoundaryVelocity(BoundaryCondition *self, BCConte
 static PetscErrorCode Apply_InletVelocity(BoundaryCondition *self, BCContext *ctx)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(self->type == BC_HANDLER_INLET_CONSTANT_VELOCITY ||
                self->type == BC_HANDLER_INLET_PARABOLIC ||
                self->type == BC_HANDLER_INLET_PROFILE_FROM_FILE,
                PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
                "Common inlet application cannot service handler type %d.", self->type);
     PetscCall(ApplyFaceBoundaryVelocity(self, ctx, EvaluateInletCartesianVelocity));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "Create_InletProfileFromFile"
 /**
  * @brief Implementation of \ref Create_InletProfileFromFile().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1157,6 +1164,7 @@ PetscErrorCode Create_InletProfileFromFile(BoundaryCondition *bc)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BoundaryCondition is NULL");
 
@@ -1178,11 +1186,10 @@ PetscErrorCode Create_InletProfileFromFile(BoundaryCondition *bc)
     bc->UpdateUbcs = NULL;
     bc->Destroy    = Destroy_InletProfileFromFile;
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "Initialize_InletProfileFromFile"
 /**
  * @brief Initializes a file-prescribed inlet profile handler for one boundary face.
  *
@@ -1204,6 +1211,7 @@ static PetscErrorCode Initialize_InletProfileFromFile(BoundaryCondition *self, B
     PetscInt expected_n1 = 0, expected_n2 = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     ierr = GetBCParamString(user->boundary_faces[face_id].params, "source_file",
                             &source_file, &found); CHKERRQ(ierr);
     if (!found || !source_file || source_file[0] == '\0') {
@@ -1221,11 +1229,10 @@ static PetscErrorCode Initialize_InletProfileFromFile(BoundaryCondition *self, B
               (double)data->min_speed, (double)data->max_speed);
 
     ierr = Apply_InletVelocity(self, ctx); CHKERRQ(ierr);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PreStep_InletProfileFromFile"
 /**
  * @brief Pre-step hook for the static file-prescribed inlet profile handler.
  *
@@ -1247,12 +1254,12 @@ static PetscErrorCode PreStep_InletProfileFromFile(BoundaryCondition *self, BCCo
     (void)local_inflow_contribution;
     (void)local_outflow_contribution;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "PostStep_InletProfileFromFile"
 /**
  * @brief Accumulates the applied inlet flux for a file-prescribed profile.
  *
@@ -1278,11 +1285,12 @@ static PetscErrorCode PostStep_InletProfileFromFile(BoundaryCondition *self, BCC
     (void)local_outflow_contribution;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     DMDALocalInfo *info = &user->info;
     Cmpnts ***ucont;
 
     ierr = CanRankServiceFace(info, user->IM, user->JM, user->KM, face_id, &can_service); CHKERRQ(ierr);
-    if (!can_service) PetscFunctionReturn(0);
+    if (!can_service) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     ierr = DMDAVecGetArrayRead(user->fda, user->Ucont, (const Cmpnts***)&ucont); CHKERRQ(ierr);
     PetscReal local_flux = 0.0;
@@ -1330,11 +1338,10 @@ static PetscErrorCode PostStep_InletProfileFromFile(BoundaryCondition *self, BCC
     LOG_ALLOW(LOCAL, LOG_DEBUG, "PostStep_InletProfileFromFile: Face %d, flux = %.6e\n",
               face_id, local_flux);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "Destroy_InletProfileFromFile"
 /**
  * @brief Releases private storage owned by a file-prescribed inlet profile handler.
  *
@@ -1344,6 +1351,7 @@ static PetscErrorCode PostStep_InletProfileFromFile(BoundaryCondition *self, BCC
 static PetscErrorCode Destroy_InletProfileFromFile(BoundaryCondition *self)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (self && self->data) {
         InletProfileFileData *data = (InletProfileFileData*)self->data;
         PetscFree(data->profile);
@@ -1351,6 +1359,7 @@ static PetscErrorCode Destroy_InletProfileFromFile(BoundaryCondition *self)
         PetscFree(self->data);
         self->data = NULL;
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -1377,8 +1386,6 @@ static PetscErrorCode Apply_OutletConservation(BoundaryCondition *self, BCContex
 static PetscErrorCode PostStep_OutletConservation(BoundaryCondition *self, BCContext *ctx,
                                                   PetscReal *in, PetscReal *out);
 
-#undef __FUNCT__
-#define __FUNCT__ "Create_OutletConservation"
 /**
  * @brief Implementation of \ref Create_OutletConservation().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1388,6 +1395,7 @@ static PetscErrorCode PostStep_OutletConservation(BoundaryCondition *self, BCCon
 PetscErrorCode Create_OutletConservation(BoundaryCondition *bc)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     
     if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input BoundaryCondition is NULL");
 
@@ -1405,11 +1413,10 @@ PetscErrorCode Create_OutletConservation(BoundaryCondition *bc)
     
     bc->data = NULL;
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PreStep_OutletConservation"                                     
 /**
  * @brief Prepare the outlet-conservation correction before advancing the solver.
  */
@@ -1427,6 +1434,7 @@ static PetscErrorCode PreStep_OutletConservation(BoundaryCondition *self, BCCont
     (void)local_inflow_contribution;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     // Step 1: Use the robust utility function to determine if this MPI rank owns a computable
     // portion of the specified boundary face. If not, there is no work to do, so we exit immediately.
@@ -1436,6 +1444,7 @@ static PetscErrorCode PreStep_OutletConservation(BoundaryCondition *self, BCCont
     ierr = CanRankServiceFace(info, IM_nodes_global, JM_nodes_global, KM_nodes_global, face_id, &can_service); CHKERRQ(ierr);
 
     if (!can_service) {
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
 
@@ -1538,11 +1547,10 @@ static PetscErrorCode PreStep_OutletConservation(BoundaryCondition *self, BCCont
     // Step 6: Add this face's calculated flux to the accumulator for this rank.
     *local_outflow_contribution += local_flux_out;
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "Apply_OutletConservation"
 /**
  * @brief (Handler Action) Applies mass conservation correction to the outlet face.
  *
@@ -1756,8 +1764,6 @@ static PetscErrorCode Apply_OutletConservation(BoundaryCondition *self, BCContex
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PostStep_OutletConservation"
 /**
  * @brief Update outlet-conservation state after a completed solver step.
  */
@@ -1775,12 +1781,13 @@ static PetscErrorCode PostStep_OutletConservation(BoundaryCondition *self, BCCon
     (void)local_inflow_contribution;
     
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     const PetscInt IM_nodes_global = user->IM;
     const PetscInt JM_nodes_global = user->JM;
     const PetscInt KM_nodes_global = user->KM;
     ierr = CanRankServiceFace(info, IM_nodes_global, JM_nodes_global, KM_nodes_global, face_id, &can_service); CHKERRQ(ierr);
 
-    if (!can_service) PetscFunctionReturn(0);
+    if (!can_service) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     // Get arrays (need both ucont and nvert)
     Cmpnts ***ucont;
@@ -1889,6 +1896,7 @@ static PetscErrorCode PostStep_OutletConservation(BoundaryCondition *self, BCCon
     LOG_ALLOW(LOCAL, LOG_DEBUG, "PostStep_OutletConservation: Face %d, corrected flux = %.6e\n",
               face_id, local_flux);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -1902,6 +1910,7 @@ static PetscErrorCode PostStep_OutletConservation(BoundaryCondition *self, BCCon
 
 PetscErrorCode Create_PeriodicGeometric(BoundaryCondition *bc){
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     
     if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input BoundaryCondition is NULL");
     bc->priority = BC_PRIORITY_WALL;
@@ -1916,12 +1925,11 @@ PetscErrorCode Create_PeriodicGeometric(BoundaryCondition *bc){
 
     bc->data = NULL;
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "MeasureDrivenFluxes"
 /**
  * @brief Measure the two volumetric fluxes the driven-flow controller senses.
  *
@@ -1949,6 +1957,7 @@ static PetscErrorCode MeasureDrivenFluxes(UserCtx *user, char direction,
     PetscInt i, j, k;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     // --- Get read-only access to necessary field data ---
     Cmpnts ***ucont;
@@ -2022,6 +2031,7 @@ static PetscErrorCode MeasureDrivenFluxes(UserCtx *user, char direction,
     ierr = MPI_Allreduce(&localCurrentBoundaryFlux, boundaryFlux, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
     ierr = MPI_Allreduce(&localAveragePlanarVolumetricFluxTerm, planarAverageFlux, 1, MPI_DOUBLE, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -2060,8 +2070,6 @@ typedef struct {
 
 // --- 2. HANDLER CONSTRUCTOR ---
 
-#undef __FUNCT__
-#define __FUNCT__ "Create_PeriodicDrivenConstant"
 /**
  * @brief Internal helper implementation: `Create_PeriodicDrivenConstant()`.
  * @details Local to this translation unit.
@@ -2070,6 +2078,7 @@ PetscErrorCode Create_PeriodicDrivenConstant(BoundaryCondition *bc)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     
     if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input BoundaryCondition object is NULL in Create_PeriodicDrivenConstantFlux");
 
@@ -2101,11 +2110,10 @@ PetscErrorCode Create_PeriodicDrivenConstant(BoundaryCondition *bc)
     bc->UpdateUbcs = NULL; // The boundary value is not flow-dependent (it's periodic).
     bc->Destroy    = Destroy_PeriodicDrivenConstant;
     
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "Initialize_PeriodicDrivenConstant"
 /**
  * @brief Initialize constant forcing data for a periodically driven boundary.
  */
@@ -2117,6 +2125,7 @@ static PetscErrorCode Initialize_PeriodicDrivenConstant(BoundaryCondition *self,
     UserCtx* user = ctx->user;
     
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Initializing PERIODIC_DRIVEN_CONSTANT_FLUX handler on Face %s...\n", BCFaceToString(face_id));
 
@@ -2171,11 +2180,10 @@ static PetscErrorCode Initialize_PeriodicDrivenConstant(BoundaryCondition *self,
 
     if(!trimfound) LOG_ALLOW(GLOBAL,LOG_DEBUG,"Seam-flux enforcement not specified, defaults to %s.\n",data->enforceSeamFlux? "True":"False");
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PreStep_PeriodicDrivenConstant"
 /**
  * @brief Prepare constant periodic-driving data before the solver step.
  */
@@ -2189,9 +2197,11 @@ static PetscErrorCode PreStep_PeriodicDrivenConstant(BoundaryCondition *self, BC
     SimCtx* simCtx = user->simCtx;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     // --- Master Check: Only the handler on the negative face performs calculations ---
     if (!data->isMasterController) {
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
     
@@ -2255,11 +2265,10 @@ static PetscErrorCode PreStep_PeriodicDrivenConstant(BoundaryCondition *self, BC
     (void)local_inflow_contribution;
     (void)local_outflow_contribution;
     
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "Apply_PeriodicDrivenConstant"
 /**
  * @brief Apply the configured constant driving term to the periodic boundary.
  */
@@ -2272,15 +2281,18 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
     PetscBool can_service;
     
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     
     // Check if this rank owns part of this boundary face
     ierr = CanRankServiceFace(&user->info, user->IM, user->JM, user->KM, face_id, &can_service); CHKERRQ(ierr);
     if (!can_service) {
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
     
     // If the correction is negligible, no work is needed.
     if (PetscAbsReal(user->simCtx->boundaryVelocityCorrection) < 1e-12) {
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
 
@@ -2358,17 +2370,17 @@ static PetscErrorCode Apply_PeriodicDrivenConstant(BoundaryCondition *self, BCCo
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, (const Cmpnts***)&zet); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da, user->lNvert, (const PetscReal***)&nvert); CHKERRQ(ierr);
     
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "Destroy_PeriodicDrivenConstant"
 /**
  * @brief Release resources owned by the constant periodic-driving boundary.
  */
 static PetscErrorCode Destroy_PeriodicDrivenConstant(BoundaryCondition *self)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     // Check that the handler object and its private data pointer are valid before trying to free.
     if (self && self->data) {
@@ -2382,6 +2394,7 @@ static PetscErrorCode Destroy_PeriodicDrivenConstant(BoundaryCondition *self)
         LOG_ALLOW(LOCAL, LOG_TRACE, "Destroy_PeriodicDrivenConstant: Private data freed successfully.\n");
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -2406,8 +2419,6 @@ static PetscErrorCode PreStep_PeriodicDrivenInitial(BoundaryCondition *self, BCC
 
 // --- 2. HANDLER CONSTRUCTOR ---
 
-#undef __FUNCT__
-#define __FUNCT__ "Create_PeriodicDrivenInitial"
 /**
  * @brief Internal helper implementation: `Create_PeriodicDrivenInitial()`.
  * @details Local to this translation unit.
@@ -2416,6 +2427,7 @@ PetscErrorCode Create_PeriodicDrivenInitial(BoundaryCondition *bc)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     if (!bc) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input BoundaryCondition object is NULL in Create_PeriodicDrivenInitial");
 
@@ -2445,11 +2457,10 @@ PetscErrorCode Create_PeriodicDrivenInitial(BoundaryCondition *bc)
     bc->UpdateUbcs = NULL; // The boundary value is not flow-dependent (it's periodic).
     bc->Destroy    = Destroy_PeriodicDrivenConstant; // Same private data layout.
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "Initialize_PeriodicDrivenInitial"
 /**
  * @brief Initialize forcing data for a periodic boundary driven to its initial flux.
  *
@@ -2467,6 +2478,7 @@ static PetscErrorCode Initialize_PeriodicDrivenInitial(BoundaryCondition *self, 
     UserCtx* user = ctx->user;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Initializing PERIODIC_DRIVEN_INITIAL_FLUX handler on Face %s...\n", BCFaceToString(face_id));
 
@@ -2516,11 +2528,10 @@ static PetscErrorCode Initialize_PeriodicDrivenInitial(BoundaryCondition *self, 
 
     if(!trimfound) LOG_ALLOW(GLOBAL,LOG_DEBUG,"Seam-flux enforcement not specified, defaults to %s.\n",data->enforceSeamFlux? "True":"False");
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PreStep_PeriodicDrivenInitial"
 /**
  * @brief Latch the initial-state flux once, then drive to it like a constant target.
  *
@@ -2540,6 +2551,7 @@ static PetscErrorCode PreStep_PeriodicDrivenInitial(BoundaryCondition *self, BCC
     SimCtx* simCtx = ctx->user->simCtx;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     if (data->isMasterController) {
         if (!simCtx->drivenFluxTargetLatched) {
@@ -2557,6 +2569,7 @@ static PetscErrorCode PreStep_PeriodicDrivenInitial(BoundaryCondition *self, BCC
             if (simCtx->step <= simCtx->StartStep) {
                 simCtx->bulkVelocityCorrection = 0.0;
                 simCtx->boundaryVelocityCorrection = 0.0;
+                PROFILE_HELPER_END;
                 PetscFunctionReturn(0);
             }
 
@@ -2579,5 +2592,6 @@ static PetscErrorCode PreStep_PeriodicDrivenInitial(BoundaryCondition *self, BCC
                                           local_inflow_contribution,
                                           local_outflow_contribution); CHKERRQ(ierr);
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }

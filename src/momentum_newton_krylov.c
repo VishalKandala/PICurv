@@ -97,6 +97,7 @@ static PetscErrorCode MomentumNewtonKrylov_Monitor(SNES snes, PetscInt iteration
 
     (void)snes;
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     if (iteration == 0 && !ctx->have_initial_norm) {
         ctx->initial_norm = norm;
         ctx->have_initial_norm = PETSC_TRUE;
@@ -108,6 +109,7 @@ static PetscErrorCode MomentumNewtonKrylov_Monitor(SNES snes, PetscInt iteration
                       (double)norm);
         (void)fflush(ctx->history_file);
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -125,7 +127,8 @@ static PetscErrorCode MomentumNewtonKrylov_LinearMonitor(KSP ksp, PetscInt itera
     PetscReal relative_tolerance = 0.0;
 
     PetscFunctionBeginUser;
-    if (!ctx->linear_history_file) PetscFunctionReturn(PETSC_SUCCESS);
+    PROFILE_HELPER_BEGIN;
+    if (!ctx->linear_history_file) { PROFILE_HELPER_END; PetscFunctionReturn(PETSC_SUCCESS); }
     PetscCall(SNESGetIterationNumber(ctx->snes, &newton_iteration));
     PetscCall(KSPGetTolerances(ksp, &relative_tolerance, NULL, NULL, NULL));
     (void)fprintf(ctx->linear_history_file,
@@ -135,24 +138,27 @@ static PetscErrorCode MomentumNewtonKrylov_LinearMonitor(KSP ksp, PetscInt itera
                   (int)newton_iteration, (int)iteration,
                   (double)relative_tolerance, (double)norm);
     (void)fflush(ctx->linear_history_file);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 /** @brief Opens the optional rank-zero Newton iteration-history file. */
 static void MomentumNewtonKrylov_OpenHistory(MomentumNewtonKrylovContext *ctx)
 {
+    PROFILE_FUNCTION_BEGIN;
     SimCtx *simCtx = ctx->user->simCtx;
     char path[PETSC_MAX_PATH_LEN + 128];
     const char *mode;
 
-    if (!simCtx->mom_nk_monitor_history || simCtx->rank != 0) return;
+    if (!simCtx->mom_nk_monitor_history || simCtx->rank != 0) { PROFILE_FUNCTION_END; return; }
     if (PetscSNPrintf(path, sizeof(path),
                      "%s/Momentum_Solver_Newton_Krylov_History_Block_%d.log",
-                     simCtx->log_dir, (int)ctx->user->_this)) return;
+                     simCtx->log_dir, (int)ctx->user->_this)) { PROFILE_FUNCTION_END; return; }
     mode = (simCtx->step == simCtx->StartStep + 1 && !simCtx->continueMode) ? "w" : "a";
     ctx->history_file = fopen(path, mode);
     if (!ctx->history_file) {
         LOG(GLOBAL, LOG_WARNING, "Could not open Newton iteration-history log '%s'.\n", path);
+        PROFILE_FUNCTION_END;
         return;
     }
     if (mode[0] == 'w') {
@@ -163,10 +169,11 @@ static void MomentumNewtonKrylov_OpenHistory(MomentumNewtonKrylovContext *ctx)
     }
     if (PetscSNPrintf(path, sizeof(path),
                      "%s/Momentum_Solver_Newton_Krylov_Linear_History_Block_%d.log",
-                     simCtx->log_dir, (int)ctx->user->_this)) return;
+                     simCtx->log_dir, (int)ctx->user->_this)) { PROFILE_FUNCTION_END; return; }
     ctx->linear_history_file = fopen(path, mode);
     if (!ctx->linear_history_file) {
         LOG(GLOBAL, LOG_WARNING, "Could not open Newton Krylov linear-history log '%s'.\n", path);
+        PROFILE_FUNCTION_END;
         return;
     }
     if (mode[0] == 'w') {
@@ -177,6 +184,7 @@ static void MomentumNewtonKrylov_OpenHistory(MomentumNewtonKrylovContext *ctx)
         (void)fprintf(ctx->linear_history_file, "# Continuation from step %d\n",
                       (int)simCtx->StartStep);
     }
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -192,20 +200,22 @@ static void MomentumNewtonKrylov_WriteSummary(const MomentumNewtonKrylovContext 
                                                PetscReal final_norm,
                                                PetscBool committed)
 {
+    PROFILE_FUNCTION_BEGIN;
     SimCtx *simCtx = ctx->user->simCtx;
     char path[PETSC_MAX_PATH_LEN + 128];
     const char *mode;
     const char *reason_name;
     FILE *file;
 
-    if (simCtx->rank != 0) return;
+    if (simCtx->rank != 0) { PROFILE_FUNCTION_END; return; }
     if (PetscSNPrintf(path, sizeof(path),
                      "%s/Momentum_Solver_Newton_Krylov_Summary_Block_%d.log",
-                     simCtx->log_dir, (int)ctx->user->_this)) return;
+                     simCtx->log_dir, (int)ctx->user->_this)) { PROFILE_FUNCTION_END; return; }
     mode = (simCtx->step == simCtx->StartStep + 1 && !simCtx->continueMode) ? "w" : "a";
     file = fopen(path, mode);
     if (!file) {
         LOG(GLOBAL, LOG_WARNING, "Could not open Newton summary log '%s'.\n", path);
+        PROFILE_FUNCTION_END;
         return;
     }
     if (mode[0] == 'w') {
@@ -235,10 +245,9 @@ static void MomentumNewtonKrylov_WriteSummary(const MomentumNewtonKrylovContext 
                   !committed ? "rolled_back" :
                   simCtx->mom_last_converged ? "committed" : "committed_unconverged");
     (void)fclose(file);
+    PROFILE_FUNCTION_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumNewtonKrylov_Validate"
 /**
  * @brief Rejects configurations outside the audited version-one feature set.
  * @param user Single-block momentum context to validate.
@@ -251,6 +260,7 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user)
     PetscInt  velocity_dof = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Newton Krylov requires a non-NULL UserCtx.");
     simCtx = user->simCtx;
@@ -324,11 +334,10 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user)
     PetscCall(VecMax(user->Nvert, NULL, &mask_max));
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Newton Krylov solid-cell mask maximum Nvert=%g.\n",
               (double)mask_max);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumNewtonKrylov_ReadLinearizationConfig"
 /**
  * @brief Reads application-owned Jacobian and preconditioner mathematics.
  */
@@ -342,6 +351,7 @@ static PetscErrorCode MomentumNewtonKrylov_ReadLinearizationConfig(
     PetscBool set = PETSC_FALSE, match = PETSC_FALSE;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(jacobian != NULL && description != NULL, PETSC_COMM_SELF,
                PETSC_ERR_ARG_NULL, "Newton Krylov linearization configuration is NULL.");
     PetscCall(PetscOptionsGetString(NULL, NULL, "-mom_nk_jacobian_type",
@@ -388,6 +398,7 @@ static PetscErrorCode MomentumNewtonKrylov_ReadLinearizationConfig(
                PETSC_COMM_WORLD, PETSC_ERR_SUP,
                "Unsupported Newton Krylov preconditioner model/structure combination: "
                "model='%s', structure='%s'.", model, structure);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -403,16 +414,20 @@ static MomentumRowType MomentumNewtonKrylov_ClassifyRow(
     UserCtx *user, const PetscReal ***nvert, PetscInt i, PetscInt j, PetscInt k,
     PetscInt component, PetscInt *ri, PetscInt *rj, PetscInt *rk)
 {
+    PROFILE_HELPER_BEGIN;
     const MomentumRowType type = ClassifyMomentumRow(user, i, j, k, component, ri, rj, rk);
 
     if (type == MOM_ROW_PHYSICAL && MomentumRowIsSolidMasked(nvert, i, j, k, component))
-        return MOM_ROW_FIXED_HOMOGENEOUS;
+        { PROFILE_HELPER_END; return MOM_ROW_FIXED_HOMOGENEOUS; }
+    PROFILE_HELPER_END;
     return type;
 }
 
 /** @brief Returns the squared Euclidean norm of one metric vector. */
 static PetscReal FrozenMomentumJacobian_MetricNormSquared(Cmpnts metric)
 {
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     return metric.x * metric.x + metric.y * metric.y + metric.z * metric.z;
 }
 
@@ -445,20 +460,22 @@ static PetscReal FrozenMomentumJacobian_FaceEddyViscosity(
     const UserCtx *user, const PetscReal ***nu_t, PetscInt axis,
     PetscInt i, PetscInt j, PetscInt k)
 {
+    PROFILE_HELPER_BEGIN;
     const BCFace neg_face[3] = {BC_FACE_NEG_X, BC_FACE_NEG_Y, BC_FACE_NEG_Z};
     const BCFace pos_face[3] = {BC_FACE_POS_X, BC_FACE_POS_Y, BC_FACE_POS_Z};
     const PetscInt coord[3] = {i, j, k};
     const PetscInt size[3] = {user->info.mx, user->info.my, user->info.mz};
     PetscReal neighbour;
 
-    if (nu_t == NULL) return 0.0;
+    if (nu_t == NULL) { PROFILE_HELPER_END; return 0.0; }
     if ((BoundaryFaceHasWallShear(&user->boundary_faces[neg_face[axis]]) && coord[axis] == 0) ||
         (BoundaryFaceHasWallShear(&user->boundary_faces[pos_face[axis]]) && coord[axis] == size[axis] - 2))
-        return 0.0;
+        { PROFILE_HELPER_END; return 0.0; }
 
     neighbour = (axis == 0) ? nu_t[k][j][i + 1]
               : (axis == 1) ? nu_t[k][j + 1][i]
                             : nu_t[k + 1][j][i];
+    PROFILE_HELPER_END;
     return 0.5 * (nu_t[k][j][i] + neighbour);
 }
 
@@ -468,6 +485,7 @@ static void FrozenMomentumJacobian_PointBlock(const UserCtx *user,
     const Cmpnts ***zet, const PetscReal ***aj, const PetscReal ***nu_t,
     PetscInt i, PetscInt j, PetscInt k, PetscScalar block[9])
 {
+    PROFILE_HELPER_BEGIN;
     const SimCtx *simCtx = user->simCtx;
     const PetscReal dtc = MomentumBDFCoefficient((SimCtx *)simCtx) / simCtx->dt;
     const PetscReal molecular = simCtx->ren > 0.0 ? 1.0 / simCtx->ren : 0.0;
@@ -575,15 +593,15 @@ static void FrozenMomentumJacobian_PointBlock(const UserCtx *user,
     block[0] = dtc + nui + Su; block[1] = 0.5 * AJjp * U0jp; block[2] = 0.5 * AJkp * U0kp;
     block[3] = 0.5 * AJip * U1ip; block[4] = dtc + nuj + Sv; block[5] = 0.5 * AJkp * U1kp;
     block[6] = 0.5 * AJip * U2ip; block[7] = 0.5 * AJjp * U2jp; block[8] = dtc + nuk + Sw;
+    PROFILE_HELPER_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "FrozenMomentumJacobian_DescribePointBlock"
 /** @brief Describes the audited frozen-coefficient point-block model. */
 static PetscErrorCode FrozenMomentumJacobian_DescribePointBlock(
     UserCtx *user, MomentumPreconditionerDescription *description)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     (void)user;
     PetscCheck(description != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Preconditioner description is NULL.");
@@ -591,11 +609,10 @@ static PetscErrorCode FrozenMomentumJacobian_DescribePointBlock(
     description->structure = MOM_NK_PC_STRUCTURE_POINT_BLOCK;
     description->block_size = 3;
     description->stencil_width = 0;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "FrozenMomentumJacobian_AssemblePointBlocks"
 /** @brief Inserts only the audited interior frozen-momentum point blocks. */
 static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
     UserCtx *user, Vec current_solution, Mat preconditioning_matrix)
@@ -611,6 +628,7 @@ static PetscErrorCode FrozenMomentumJacobian_AssemblePointBlocks(
     PetscErrorCode ierr = PETSC_SUCCESS, cleanup_ierr;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     /*
      * current_solution is the current SNES trial Ucont Vec: it is layout-compatible
      * with user->fda/user->Ucont, but is not necessarily the canonical user->Ucont
@@ -677,11 +695,10 @@ cleanup:
     if (eta) { cleanup_ierr = DMDAVecRestoreArrayRead(user->fda, user->lEta, &eta); if (!ierr) ierr = cleanup_ierr; }
     if (csi) { cleanup_ierr = DMDAVecRestoreArrayRead(user->fda, user->lCsi, &csi); if (!ierr) ierr = cleanup_ierr; }
     if (ucont) { cleanup_ierr = DMDAVecRestoreArrayRead(user->fda, user->lUcont, &ucont); if (!ierr) ierr = cleanup_ierr; }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(ierr);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumPreconditionerEngine_ApplyConstraintRows"
 /** @brief Inserts all common fixed, homogeneous, and periodic-duplicate rows. */
 static PetscErrorCode MomentumPreconditionerEngine_ApplyConstraintRows(
     UserCtx *user, Mat preconditioning_matrix)
@@ -690,6 +707,7 @@ static PetscErrorCode MomentumPreconditionerEngine_ApplyConstraintRows(
     const PetscReal ***nvert = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, &nvert));
     for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {
         for (PetscInt j = info.ys; j < info.ys + info.ym; ++j) {
@@ -717,6 +735,7 @@ static PetscErrorCode MomentumPreconditionerEngine_ApplyConstraintRows(
         }
     }
     PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, &nvert));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -725,13 +744,12 @@ static const MomentumPreconditionerModelOps frozen_momentum_point_block_ops = {
     FrozenMomentumJacobian_AssemblePointBlocks
 };
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumNewtonJacobian_Create"
 /** @brief Creates the selected Jacobian operator; currently PETSc MFFD only. */
 static PetscErrorCode MomentumNewtonJacobian_Create(SNES snes,
     MomentumNewtonJacobian *jacobian)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(jacobian->type == MOM_NK_JACOBIAN_FINITE_DIFFERENCE &&
                jacobian->finite_difference_mode == MOM_NK_FD_MODE_MATRIX_FREE,
                PETSC_COMM_WORLD, PETSC_ERR_SUP,
@@ -740,6 +758,7 @@ static PetscErrorCode MomentumNewtonJacobian_Create(SNES snes,
     PetscCall(MatSetOptionsPrefix(jacobian->jacobian_operator, "mom_nk_"));
     PetscCall(PetscObjectSetName((PetscObject)jacobian->jacobian_operator,
                                  "momentum_jacobian_finite_difference_matrix_free"));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -748,8 +767,10 @@ static PetscErrorCode MomentumNewtonJacobian_Update(SNES snes, Vec current_solut
     MomentumNewtonJacobian *jacobian)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCall(MatMFFDComputeJacobian(snes, current_solution, jacobian->jacobian_operator,
                                      jacobian->jacobian_operator, NULL));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -759,9 +780,11 @@ static PetscErrorCode MomentumNewtonJacobian_Register(SNES snes,
     MomentumNewtonKrylovContext *ctx)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCall(SNESSetJacobian(snes, jacobian->jacobian_operator,
                               engine->preconditioning_matrix,
                               MomentumNewtonKrylov_FormJacobian, ctx));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -769,18 +792,19 @@ static PetscErrorCode MomentumNewtonJacobian_Register(SNES snes,
 static PetscErrorCode MomentumNewtonJacobian_Destroy(MomentumNewtonJacobian *jacobian)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCall(MatDestroy(&jacobian->jacobian_operator));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumPreconditionerEngine_Create"
 /** @brief Validates a model/structure and creates or aliases its matrix. */
 static PetscErrorCode MomentumPreconditionerEngine_Create(UserCtx *user,
     Mat jacobian_operator, const MomentumPreconditionerDescription *requested,
     MomentumPreconditionerEngine *engine)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     engine->description = *requested;
     if (requested->model == MOM_NK_PC_MODEL_NONE &&
         requested->structure == MOM_NK_PC_STRUCTURE_NONE) {
@@ -805,17 +829,17 @@ static PetscErrorCode MomentumPreconditionerEngine_Create(UserCtx *user,
         SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_SUP,
                 "Unsupported Newton Krylov preconditioner model/structure combination.");
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumPreconditionerEngine_Assemble"
 /** @brief Runs model insertion, common row handling, and final assembly. */
 static PetscErrorCode MomentumPreconditionerEngine_Assemble(
     MomentumPreconditionerEngine *engine, UserCtx *user, Vec current_solution)
 {
     PetscFunctionBeginUser;
-    if (engine->aliases_jacobian_operator) PetscFunctionReturn(PETSC_SUCCESS);
+    PROFILE_FUNCTION_BEGIN;
+    if (engine->aliases_jacobian_operator) { PROFILE_FUNCTION_END; PetscFunctionReturn(PETSC_SUCCESS); }
     PetscCall(MatZeroEntries(engine->preconditioning_matrix));
     PetscCall(engine->model_ops->AssembleInterior(user, current_solution,
                                                    engine->preconditioning_matrix));
@@ -823,6 +847,7 @@ static PetscErrorCode MomentumPreconditionerEngine_Assemble(
         user, engine->preconditioning_matrix));
     PetscCall(MatAssemblyBegin(engine->preconditioning_matrix, MAT_FINAL_ASSEMBLY));
     PetscCall(MatAssemblyEnd(engine->preconditioning_matrix, MAT_FINAL_ASSEMBLY));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -831,7 +856,9 @@ static PetscErrorCode MomentumPreconditionerEngine_ConfigurePetscPC(
     MomentumPreconditionerEngine *engine, PC pc)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCall(PCSetType(pc, engine->petsc_pc_type));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -843,12 +870,14 @@ static PetscErrorCode MomentumPreconditionerEngine_ValidatePetscPC(
     PetscBool matches = PETSC_FALSE;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCall(PCGetType(pc, &actual_type));
     PetscCall(PetscStrcmp(actual_type, engine->petsc_pc_type, &matches));
     PetscCheck(matches, PETSC_COMM_WORLD, PETSC_ERR_SUP,
                "Newton Krylov preconditioner model/structure requires internal PETSc PC "
                "type '%s', but raw option processing selected '%s'.",
                engine->petsc_pc_type, actual_type ? actual_type : "(unset)");
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -857,31 +886,31 @@ static PetscErrorCode MomentumPreconditionerEngine_Destroy(
     MomentumPreconditionerEngine *engine)
 {
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     if (!engine->owns_preconditioning_matrix) engine->preconditioning_matrix = NULL;
     PetscCall(MatDestroy(&engine->preconditioning_matrix));
     engine->aliases_jacobian_operator = PETSC_FALSE;
     engine->owns_preconditioning_matrix = PETSC_FALSE;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumNewtonKrylov_FormJacobian"
 /** @brief Updates the Jacobian and then assembles any separate preconditioning matrix. */
 static PetscErrorCode MomentumNewtonKrylov_FormJacobian(SNES snes, Vec current_solution,
     Mat jacobian_operator, Mat preconditioning_matrix, void *vctx)
 {
     MomentumNewtonKrylovContext *ctx = (MomentumNewtonKrylovContext *)vctx;
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     (void)jacobian_operator;
     (void)preconditioning_matrix;
     PetscCall(MomentumNewtonJacobian_Update(snes, current_solution, &ctx->jacobian));
     PetscCall(MomentumPreconditionerEngine_Assemble(
         &ctx->preconditioning_engine, ctx->user, current_solution));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumPreconditionerEngine_CreateExactPointBlockMatrix"
 /**
  * @brief Creates the frozen point-block P matrix with its exact scalar pattern.
  * @details Row and column ownership follows the velocity DMDA global vector.
@@ -904,6 +933,7 @@ static PetscErrorCode MomentumPreconditionerEngine_CreateExactPointBlockMatrix(
     PetscErrorCode ierr = PETSC_SUCCESS, cleanup_ierr;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(preconditioning_matrix != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Point-block matrix output is NULL.");
     *preconditioning_matrix = NULL;
@@ -1034,11 +1064,10 @@ cleanup:
     cleanup_ierr = MatDestroy(&matrix); if (!ierr) ierr = cleanup_ierr;
     cleanup_ierr = PetscFree2(diagonal_nnz, offdiagonal_nnz);
     if (!ierr) ierr = cleanup_ierr;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(ierr);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumNewtonKrylov_ApplyConstraints"
 /**
  * @brief Replaces every non-independent residual row with an explicit equation.
  *
@@ -1068,6 +1097,7 @@ static PetscErrorCode MomentumNewtonKrylov_ApplyConstraints(MomentumNewtonKrylov
     const PetscInt zs = info.zs, ze = info.zs + info.zm;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(DMGetLocalVector(user->fda, &local_x));
     PetscCall(DMGlobalToLocalBegin(user->fda, X, INSERT_VALUES, local_x));
     PetscCall(DMGlobalToLocalEnd(user->fda, X, INSERT_VALUES, local_x));
@@ -1102,11 +1132,10 @@ static PetscErrorCode MomentumNewtonKrylov_ApplyConstraints(MomentumNewtonKrylov
     PetscCall(DMDAVecRestoreArrayRead(user->fda, user->Ucont, &conditioned));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, X, &x));
     PetscCall(DMRestoreLocalVector(user->fda, &local_x));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumNewtonKrylov_FormResidual"
 /**
  * @brief Adapts a PETSc trial vector to the existing momentum residual path.
  *
@@ -1144,6 +1173,7 @@ static PetscErrorCode MomentumNewtonKrylov_FormResidual(SNES snes, Vec X, Vec F,
     const FieldId cell_fields[] = {FIELD_ID_UCAT};
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     (void)snes;
     PetscCall(VecCopy(X, user->Ucont));
     PetscCall(SynchronizePeriodicStaggeredFields(user, 1, staggered_fields));
@@ -1191,6 +1221,7 @@ static PetscErrorCode MomentumNewtonKrylov_FormResidual(SNES snes, Vec X, Vec F,
     PetscCall(VecCopy(user->Rhs, F));
     PetscCall(VecScale(F, -1.0));
     PetscCall(MomentumNewtonKrylov_ApplyConstraints(ctx, X, F));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
@@ -1222,6 +1253,7 @@ static PetscErrorCode MomentumNewtonKrylov_AssessIterate(MomentumNewtonKrylovCon
     PetscReal ucont_inf;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(SNESGetFunction(ctx->snes, &F, NULL, NULL));
     PetscCall(SNESComputeFunction(ctx->snes, solution, F));
     PetscCall(VecNorm(F, NORM_INFINITY, residual));
@@ -1230,11 +1262,10 @@ static PetscErrorCode MomentumNewtonKrylov_AssessIterate(MomentumNewtonKrylovCon
     *reference = MomentumBDFCoefficient(simCtx) * ucont_inf / simCtx->dt;
     *satisfied = (PetscBool)(simCtx->mom_resid_atol > 0.0 && *reference > 0.0 &&
                              *residual <= simCtx->mom_resid_atol * *reference);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumSolver_NewtonKrylov"
 /*
  * Runs one per-call matrix-free Newton--Krylov momentum solve. The public
  * header owns the rendered API contract; this definition retains the detailed
@@ -1261,6 +1292,7 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
     const FieldId staggered_fields[] = {FIELD_ID_UCONT};
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCall(MomentumNewtonKrylov_Validate(user));
     PetscCheck(ibm == NULL && fsi == NULL, PETSC_COMM_WORLD, PETSC_ERR_SUP,
                "Newton Krylov version one does not accept IBM or FSI objects.");
@@ -1420,5 +1452,6 @@ cleanup:
     cleanup_ierr = MomentumPreconditionerEngine_Destroy(&ctx.preconditioning_engine); if (!ierr) ierr = cleanup_ierr;
     cleanup_ierr = MomentumNewtonJacobian_Destroy(&ctx.jacobian); if (!ierr) ierr = cleanup_ierr;
     cleanup_ierr = SNESDestroy(&snes); if (!ierr) ierr = cleanup_ierr;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(ierr);
 }

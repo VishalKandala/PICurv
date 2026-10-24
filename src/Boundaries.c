@@ -2,8 +2,6 @@
 #include <string.h>    // For strcasecmp
 #include <ctype.h>     // For isspace
 
-#undef __FUNCT__
-#define __FUNCT__ "CanRankServiceInletFace"
 /**
  * @brief Internal helper implementation: `CanRankServiceInletFace()`.
  * @details Local to this translation unit.
@@ -121,12 +119,12 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
  */
 PetscBool BoundaryFaceHasWallShear(const BoundaryFaceConfig *face)
 {
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     return (PetscBool)(face != NULL && face->mathematical_type == WALL &&
                        face->handler_type != BC_HANDLER_WALL_FREE_SLIP);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "CanRankServiceFace"
 
 /**
  * @brief Implementation of \ref CanRankServiceFace().
@@ -213,8 +211,6 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_g
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GetDeterministicFaceGridLocation"
 
 /**
  * @brief Internal helper implementation: `GetDeterministicFaceGridLocation()`.
@@ -235,6 +231,7 @@ PetscErrorCode GetDeterministicFaceGridLocation(
     PetscMPIInt rank_for_logging;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr);
 
     *placement_successful_out = PETSC_FALSE; // Default to failure
@@ -278,7 +275,7 @@ PetscErrorCode GetDeterministicFaceGridLocation(
     }
 
     // --- Step 2: Map global particle ID to a line and a point on that line ---
-    if (simCtx->np == 0) PetscFunctionReturn(0); // Nothing to do
+    if (simCtx->np == 0) { PROFILE_HELPER_END; PetscFunctionReturn(0); } // Nothing to do
 
     LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Distributing %lld particles over %d lines on face %s.\n",
         rank_for_logging, (long long)simCtx->np, num_lines_total, face_name);
@@ -397,11 +394,10 @@ PetscErrorCode GetDeterministicFaceGridLocation(
                     *xi_metric_logic_out, *eta_metric_logic_out, *zta_metric_logic_out);
         }
         
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GetRandomFCellAndLogicOnInletFace"
 
 /**
  * @brief Internal helper implementation: `GetRandomCellAndLogicalCoordsOnInletFace()`.
@@ -593,8 +589,6 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
 
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ClassifyMomentumRow"
 /**
  * @brief Implementation of \ref ClassifyMomentumRow().
  *
@@ -607,6 +601,7 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
 MomentumRowType ClassifyMomentumRow(UserCtx *user, PetscInt i, PetscInt j, PetscInt k,
                                     PetscInt component, PetscInt *ri, PetscInt *rj, PetscInt *rk)
 {
+    PROFILE_HELPER_BEGIN;
     const PetscInt mx = user->info.mx, my = user->info.my, mz = user->info.mz;
     const PetscInt coord[3] = {i, j, k};
     const PetscInt size[3] = {mx, my, mz};
@@ -648,14 +643,13 @@ MomentumRowType ClassifyMomentumRow(UserCtx *user, PetscInt i, PetscInt j, Petsc
         conditioned = tangential_interior;
     }
 
-    if (conditioned) return MOM_ROW_FIXED_CONDITIONED;
-    if (periodic_duplicate) return MOM_ROW_PERIODIC_DUPLICATE;
-    if (residual_zeroed) return MOM_ROW_FIXED_HOMOGENEOUS;
+    if (conditioned) { PROFILE_HELPER_END; return MOM_ROW_FIXED_CONDITIONED; }
+    if (periodic_duplicate) { PROFILE_HELPER_END; return MOM_ROW_PERIODIC_DUPLICATE; }
+    if (residual_zeroed) { PROFILE_HELPER_END; return MOM_ROW_FIXED_HOMOGENEOUS; }
+    PROFILE_HELPER_END;
     return MOM_ROW_PHYSICAL;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MomentumRowIsSolidMasked"
 /**
  * @brief Implementation of \ref MomentumRowIsSolidMasked().
  * @details Full API contract is documented with the header declaration in
@@ -665,23 +659,23 @@ MomentumRowType ClassifyMomentumRow(UserCtx *user, PetscInt i, PetscInt j, Petsc
 PetscBool MomentumRowIsSolidMasked(const PetscReal ***nvert, PetscInt i, PetscInt j,
                                    PetscInt k, PetscInt component)
 {
+    PROFILE_HELPER_BEGIN;
     /* PICURV_SOLID_THRESHOLD mirrors the 0.1 fluid test ComputeRHS() applies. */
     const PetscReal threshold = 0.1;
 
-    if (nvert == NULL) return PETSC_FALSE;
+    if (nvert == NULL) { PROFILE_HELPER_END; return PETSC_FALSE; }
     /* A solid cell carries no momentum equation in any component. */
-    if (nvert[k][j][i] > threshold) return PETSC_TRUE;
+    if (nvert[k][j][i] > threshold) { PROFILE_HELPER_END; return PETSC_TRUE; }
     /* A staggered row also loses its equation when the cell it points into is solid. */
     switch (component) {
-    case 0: return (PetscBool)(nvert[k][j][i + 1] > threshold);
-    case 1: return (PetscBool)(nvert[k][j + 1][i] > threshold);
-    case 2: return (PetscBool)(nvert[k + 1][j][i] > threshold);
-    default: return PETSC_FALSE;
+    case 0: PROFILE_HELPER_END; return (PetscBool)(nvert[k][j][i + 1] > threshold);
+    case 1: PROFILE_HELPER_END; return (PetscBool)(nvert[k][j + 1][i] > threshold);
+    case 2: PROFILE_HELPER_END; return (PetscBool)(nvert[k + 1][j][i] > threshold);
+    default: PROFILE_HELPER_END; return PETSC_FALSE;
     }
+    PROFILE_HELPER_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "EnforceRHSBoundaryConditions"
 /**
  * @brief Implementation of \ref EnforceRHSBoundaryConditions().
  *
@@ -729,8 +723,6 @@ PetscErrorCode EnforceRHSBoundaryConditions(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "BoundaryCondition_Create"
 /**
  * @brief Internal helper implementation: `BoundaryCondition_Create()`.
  * @details Local to this translation unit.
@@ -740,6 +732,7 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     const char* handler_name = BCHandlerTypeToString(handler_type);
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Factory called for handler type %s. \n", handler_name);
@@ -818,11 +811,10 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
     }
     
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Successfully created and configured handler for %s.\n", handler_name);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "BoundarySystem_Validate"
 /**
  * @brief Internal helper implementation: `BoundarySystem_Validate()`.
  * @details Local to this translation unit.
@@ -836,6 +828,7 @@ PetscErrorCode BoundarySystem_Validate(UserCtx *user)
     DMBoundaryType bx, by, bz;
     PetscBool dm_periodic[3];
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Validating parsed boundary condition configuration...\n");
     ierr = DMDAGetInfo(user->da, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
@@ -872,6 +865,7 @@ PetscErrorCode BoundarySystem_Validate(UserCtx *user)
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Boundary configuration is valid.\n");
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -880,8 +874,6 @@ PetscErrorCode BoundarySystem_Validate(UserCtx *user)
 //                       PUBLIC MASTER SETUP FUNCTION
 //
 //================================================================================
-#undef __FUNCT__
-#define __FUNCT__ "BoundarySystem_Initialize"
 /**
  * @brief Implementation of \ref BoundarySystem_Initialize().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -892,6 +884,7 @@ PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting creation and initialization of all boundary handlers.\n");
 
@@ -996,12 +989,11 @@ PetscErrorCode BoundarySystem_Initialize(UserCtx *user, const char *bcs_filename
     // =========================================================================
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "All boundary handlers created and initialized successfully.\n");
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "PropagateBoundaryConfigToCoarserLevels"
 /**
  * @brief Internal helper implementation: `PropagateBoundaryConfigToCoarserLevels()`.
  * @details Local to this translation unit.
@@ -1070,8 +1062,6 @@ PetscErrorCode PropagateBoundaryConfigToCoarserLevels(SimCtx *simCtx)
 //
 //================================================================================
 
-#undef __FUNCT__
-#define __FUNCT__ "BoundarySystem_ExecuteStep"
 /**
  * @brief Implementation of \ref BoundarySystem_ExecuteStep().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1494,8 +1484,6 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
 //
 // =============================================================================
 
-#undef __FUNCT__
-#define __FUNCT__ "BoundarySystem_RefreshUbcs"
 /**
  * @brief Internal helper implementation: `BoundarySystem_RefreshUbcs()`.
  * @details Local to this translation unit.
@@ -1504,6 +1492,7 @@ PetscErrorCode BoundarySystem_RefreshUbcs(UserCtx *user)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL, LOG_TRACE, "Refreshing `ubcs` targets for flow-dependent boundaries...\n");
 
@@ -1534,6 +1523,7 @@ PetscErrorCode BoundarySystem_RefreshUbcs(UserCtx *user)
         }
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -1542,8 +1532,6 @@ PetscErrorCode BoundarySystem_RefreshUbcs(UserCtx *user)
 //                         PUBLIC MASTER CLEANUP FUNCTION
 //
 //================================================================================
-#undef __FUNCT__
-#define __FUNCT__ "BoundarySystem_Destroy"
 /**
  * @brief Implementation of \ref BoundarySystem_Destroy().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1554,6 +1542,7 @@ PetscErrorCode BoundarySystem_Destroy(UserCtx *user)
 {
     PetscErrorCode ierr;
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     
 
@@ -1588,11 +1577,10 @@ PetscErrorCode BoundarySystem_Destroy(UserCtx *user)
     }
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "Destruction complete.\n");
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "TransferPeriodicFieldByDirection"
 /**
  * @brief Copies one cell field's wrapped local values onto the owned periodic duplicate plane.
  * @details Handles scalar and three-component storage for one selected logical axis.
@@ -1613,6 +1601,7 @@ static PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, FieldId fi
     PetscInt  dof;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(FieldGetView(user, field_id, &field_view));
     PetscCheck((field_view.descriptor->capabilities & FIELD_CAPABILITY_PERIODIC_CELL_SYNC) != 0u,
                PETSC_COMM_SELF, PETSC_ERR_SUP,
@@ -1671,11 +1660,10 @@ static PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, FieldId fi
         ierr = DMDAVecRestoreArrayRead(dm, local_vec, (void*)&l_array); CHKERRQ(ierr);
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SynchronizePeriodicCellFields"
 /**
  * @brief Implementation of \ref SynchronizePeriodicCellFields().
  * @details Full API contract is documented with the header declaration in
@@ -1689,10 +1677,11 @@ PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields,
     PetscBool      periodic_k;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
 
     PetscCheck(num_fields >= 0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                "Number of cell fields cannot be negative.");
-    if (num_fields == 0) PetscFunctionReturn(0);
+    if (num_fields == 0) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
     PetscCheck(field_ids != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Cell field-ID array cannot be NULL.");
 
@@ -1706,7 +1695,7 @@ PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields,
         user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC ||
         user->boundary_faces[BC_FACE_POS_Z].mathematical_type == PERIODIC;
 
-    if (!periodic_i && !periodic_j && !periodic_k) PetscFunctionReturn(0);
+    if (!periodic_i && !periodic_j && !periodic_k) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     for (PetscInt field = 0; field < num_fields; field++) {
         ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
@@ -1739,11 +1728,10 @@ PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields,
         }
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GetPersistentFaceField"
 /**
  * @brief Resolves one registered persistent single-face-family field.
  */
@@ -1756,6 +1744,7 @@ static PetscErrorCode GetPersistentFaceField(UserCtx *user, FieldId field_id,
     FieldLayout expected_layout;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(face_direction == 'i' || face_direction == 'j' || face_direction == 'k',
                PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
                "Invalid face direction '%c'; expected 'i', 'j', or 'k'.", face_direction);
@@ -1773,6 +1762,7 @@ static PetscErrorCode GetPersistentFaceField(UserCtx *user, FieldId field_id,
     *global_vec = field_view.global_vec;
     *local_vec = field_view.local_vec;
     *dof = field_view.descriptor->dof;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -1784,10 +1774,12 @@ static PetscErrorCode IsFaceCenterCoordinateField(FieldId field_id, PetscBool *i
     const FieldDescriptor *descriptor = NULL;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(is_coordinate != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Face-coordinate result cannot be NULL.");
     PetscCall(FieldGetDescriptor(field_id, &descriptor));
     *is_coordinate = (PetscBool)((descriptor->capabilities & FIELD_CAPABILITY_PERIODIC_GEOMETRY_SHIFT) != 0u);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -1802,6 +1794,7 @@ static PetscErrorCode TranslatePeriodicFaceCenterGhosts(UserCtx *user, Vec local
     const BCFace positive_faces[3] = {BC_FACE_POS_X, BC_FACE_POS_Y, BC_FACE_POS_Z};
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(DMDAGetLocalInfo(user->fda, &info));
     PetscCall(DMDAVecGetArray(user->fda, local_vec, &array));
 
@@ -1835,11 +1828,10 @@ static PetscErrorCode TranslatePeriodicFaceCenterGhosts(UserCtx *user, Vec local
     }
 
     PetscCall(DMDAVecRestoreArray(user->fda, local_vec, &array));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "TransferPeriodicFaceFieldByDirection"
 /** @brief Transfers one registered face-family field along one periodic axis. */
 static PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, FieldId field_id,
                                                            char face_direction, char periodic_direction)
@@ -1855,6 +1847,7 @@ static PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, FieldI
     PetscInt dof;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(periodic_direction == 'i' || periodic_direction == 'j' || periodic_direction == 'k',
                PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
                "Invalid periodic direction '%c'; expected 'i', 'j', or 'k'.", periodic_direction);
@@ -1908,11 +1901,10 @@ static PetscErrorCode TransferPeriodicFaceFieldByDirection(UserCtx *user, FieldI
         ierr = DMDAVecRestoreArray(dm, global_vec, &global_array); CHKERRQ(ierr);
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SynchronizePeriodicFaceFields"
 // Implements SynchronizePeriodicFaceFields(); the public header owns the
 // rendered API contract.
 PetscErrorCode SynchronizePeriodicFaceFields(UserCtx *user, char face_direction,
@@ -1924,9 +1916,10 @@ PetscErrorCode SynchronizePeriodicFaceFields(UserCtx *user, char face_direction,
     const BCFace positive_faces[3] = {BC_FACE_POS_X, BC_FACE_POS_Y, BC_FACE_POS_Z};
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(num_fields >= 0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                "Number of face fields cannot be negative.");
-    if (num_fields == 0) PetscFunctionReturn(0);
+    if (num_fields == 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     PetscCheck(field_ids != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Face field-ID array cannot be NULL.");
 
@@ -1969,11 +1962,10 @@ PetscErrorCode SynchronizePeriodicFaceFields(UserCtx *user, char face_direction,
         }
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GetPersistentStaggeredField"
 /**
  * @brief Resolves one registered persistent component-staggered field.
  */
@@ -1983,6 +1975,7 @@ static PetscErrorCode GetPersistentStaggeredField(UserCtx *user, FieldId field_i
     FieldView field_view;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(FieldGetView(user, field_id, &field_view));
     PetscCheck((field_view.descriptor->capabilities & FIELD_CAPABILITY_PERIODIC_STAGGERED_SYNC) != 0u &&
                field_view.descriptor->layout == FIELD_LAYOUT_COMPONENT_STAGGERED,
@@ -1992,11 +1985,10 @@ static PetscErrorCode GetPersistentStaggeredField(UserCtx *user, FieldId field_i
     *dm = field_view.dm;
     *global_vec = field_view.global_vec;
     *local_vec = field_view.local_vec;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "TransferPeriodicStaggeredFieldByDirection"
 /**
  * @brief Transfers one component-staggered field along one periodic axis.
  */
@@ -2014,6 +2006,7 @@ static PetscErrorCode TransferPeriodicStaggeredFieldByDirection(UserCtx *user, F
     Cmpnts ***global_array, ***local_array;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(periodic_direction == 'i' || periodic_direction == 'j' || periodic_direction == 'k',
                PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
                "Invalid periodic direction '%c'; expected 'i', 'j', or 'k'.", periodic_direction);
@@ -2041,11 +2034,10 @@ static PetscErrorCode TransferPeriodicStaggeredFieldByDirection(UserCtx *user, F
 
     ierr = DMDAVecRestoreArrayRead(dm, local_vec, &local_array); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArray(dm, global_vec, &global_array); CHKERRQ(ierr);
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SynchronizePeriodicStaggeredFields"
 /**
  * @brief Implementation of \ref SynchronizePeriodicStaggeredFields().
  */
@@ -2058,9 +2050,10 @@ PetscErrorCode SynchronizePeriodicStaggeredFields(UserCtx *user, PetscInt num_fi
     const BCFace positive_faces[3] = {BC_FACE_POS_X, BC_FACE_POS_Y, BC_FACE_POS_Z};
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(num_fields >= 0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                "Number of staggered fields cannot be negative.");
-    if (num_fields == 0) PetscFunctionReturn(0);
+    if (num_fields == 0) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
     PetscCheck(field_ids != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Staggered field-ID array cannot be NULL.");
 
@@ -2086,11 +2079,10 @@ PetscErrorCode SynchronizePeriodicStaggeredFields(UserCtx *user, PetscInt num_fi
         }
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PreparePeriodicQuickStencilFields"
 /**
  * @brief Implementation of \ref PreparePeriodicQuickStencilFields().
  */
@@ -2108,6 +2100,7 @@ PetscErrorCode PreparePeriodicQuickStencilFields(UserCtx *user, Vec local_vector
     const PetscInt gzs = info.gzs, gze = info.gzs + info.gzm;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(local_vector_field && local_scalar_field, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "QUICK stencil repair requires both local vector and scalar fields.");
     PetscCall(DMDAVecGetArray(user->fda, local_vector_field, &vector_array));
@@ -2152,11 +2145,10 @@ PetscErrorCode PreparePeriodicQuickStencilFields(UserCtx *user, Vec local_vector
 
     PetscCall(DMDAVecRestoreArray(user->da, local_scalar_field, &scalar_array));
     PetscCall(DMDAVecRestoreArray(user->fda, local_vector_field, &vector_array));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "SynchronizePeriodicLocalStaggeredField"
 /**
  * @brief Implementation of \ref SynchronizePeriodicLocalStaggeredField().
  */
@@ -2169,6 +2161,7 @@ PetscErrorCode SynchronizePeriodicLocalStaggeredField(UserCtx *user, Vec local_f
     const PetscInt zs = info.zs, ze = info.zs + info.zm;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(local_field, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Local staggered field cannot be NULL.");
     PetscCall(DMLocalToLocalBegin(user->fda, local_field, INSERT_VALUES, local_field));
@@ -2191,11 +2184,10 @@ PetscErrorCode SynchronizePeriodicLocalStaggeredField(UserCtx *user, Vec local_f
     PetscCall(DMDAVecRestoreArray(user->fda, local_field, &array));
     PetscCall(DMLocalToLocalBegin(user->fda, local_field, INSERT_VALUES, local_field));
     PetscCall(DMLocalToLocalEnd(user->fda, local_field, INSERT_VALUES, local_field));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ApplyMetricsPeriodicBCs"
 /**
  * @brief Internal helper implementation: `ApplyMetricsPeriodicBCs()`.
  * @details Local to this translation unit.
@@ -2223,8 +2215,6 @@ PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ApplyPeriodicBCs"
 /**
  * @brief Internal helper implementation: `ApplyPeriodicBCs()`.
  * @details Local to this translation unit.
@@ -2276,8 +2266,6 @@ PetscErrorCode ApplyPeriodicBCs(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "UpdateDummyCells"
 /**
  * @brief Implementation of \ref UpdateDummyCells().
  * @details Full API contract is documented with the header declaration in
@@ -2302,6 +2290,7 @@ PetscErrorCode UpdateDummyCells(UserCtx *user, FieldId field_id)
     PetscInt lzs = (zs == 0) ? zs + 1 : zs, lze = (ze == mz) ? ze - 1 : ze;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(FieldGetView(user, field_id, &view));
     PetscCheck(view.descriptor->layout == FIELD_LAYOUT_CELL_CENTERED, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
                "UpdateDummyCells fills cell-centred fields; '%s' is not one.", view.descriptor->canonical_name);
@@ -2368,6 +2357,7 @@ PetscErrorCode UpdateDummyCells(UserCtx *user, FieldId field_id)
 
     if (from_boundary_value) PetscCall(DMDAVecRestoreArrayDOF(user->fda, user->Bcs.Ubcs, &ubcs));
     PetscCall(DMDAVecRestoreArrayDOF(view.dm, view.global_vec, &field));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -2379,9 +2369,11 @@ PetscErrorCode UpdateDummyCells(UserCtx *user, FieldId field_id)
 static BCFace EdgeSeparatingFace(PetscInt tk, PetscInt tj, PetscInt ti,
                                  PetscInt nk, PetscInt nj, PetscInt ni)
 {
-    if (nk != tk) return (tk == 0) ? BC_FACE_NEG_Z : BC_FACE_POS_Z;
-    if (nj != tj) return (tj == 0) ? BC_FACE_NEG_Y : BC_FACE_POS_Y;
+    PROFILE_HELPER_BEGIN;
+    if (nk != tk) { PROFILE_HELPER_END; return (tk == 0) ? BC_FACE_NEG_Z : BC_FACE_POS_Z; }
+    if (nj != tj) { PROFILE_HELPER_END; return (tj == 0) ? BC_FACE_NEG_Y : BC_FACE_POS_Y; }
     (void)ni;
+    PROFILE_HELPER_END;
     return (ti == 0) ? BC_FACE_NEG_X : BC_FACE_POS_X;
 }
 
@@ -2399,6 +2391,7 @@ static void FillEdgeCell(PetscScalar ****f, PetscInt dof, const PetscBool free_s
                          PetscInt ak, PetscInt aj, PetscInt ai,
                          PetscInt bk, PetscInt bj, PetscInt bi)
 {
+    PROFILE_HELPER_BEGIN;
     const BCFace face_a = EdgeSeparatingFace(tk, tj, ti, ak, aj, ai);
     const BCFace face_b = EdgeSeparatingFace(tk, tj, ti, bk, bj, bi);
     PetscInt sk = ak, sj = aj, si = ai;
@@ -2406,6 +2399,7 @@ static void FillEdgeCell(PetscScalar ****f, PetscInt dof, const PetscBool free_s
 
     if (!free_slip[face_a] && !free_slip[face_b]) {
         for (PetscInt c = 0; c < dof; c++) f[tk][tj][ti][c] = 0.5 * (f[ak][aj][ai][c] + f[bk][bj][bi][c]);
+        PROFILE_HELPER_END;
         return;
     }
     if (!free_slip[face_a]) { sk = bk; sj = bj; si = bi; mirror = face_b; }
@@ -2420,10 +2414,9 @@ static void FillEdgeCell(PetscScalar ****f, PetscInt dof, const PetscBool free_s
         f[tk][tj][ti][1] -= 2.0 * normal * n.y;
         f[tk][tj][ti][2] -= 2.0 * normal * n.z;
     }
+    PROFILE_HELPER_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "UpdateCornerNodes"
 /**
  * @brief Implementation of \ref UpdateCornerNodes().
  * @details Full API contract is documented with the header declaration in
@@ -2444,6 +2437,7 @@ PetscErrorCode UpdateCornerNodes(UserCtx *user, FieldId field_id)
     Cmpnts     ***metric[3] = {NULL, NULL, NULL};
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCall(FieldGetView(user, field_id, &view));
     PetscCheck(view.descriptor->layout == FIELD_LAYOUT_CELL_CENTERED, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
                "UpdateCornerNodes fills cell-centred fields; '%s' is not one.", view.descriptor->canonical_name);
@@ -2499,6 +2493,7 @@ PetscErrorCode UpdateCornerNodes(UserCtx *user, FieldId field_id)
         PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, (const Cmpnts ***)&metric[0]));
     }
     PetscCall(DMDAVecRestoreArrayDOF(view.dm, view.global_vec, &f));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -2525,6 +2520,7 @@ static PetscErrorCode ApplyWallModelAtCell(UserCtx *user, PetscReal ***pressure,
                                  PetscReal normal_x, PetscReal normal_y, PetscReal normal_z)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     switch ((WallFunctionModel)user->simCtx->wallfunction) {
     case WALL_FUNCTION_WERNER:
         wall_function(user, distance_reference, distance_boundary,
@@ -2612,11 +2608,10 @@ static PetscErrorCode ApplyWallModelAtCell(UserCtx *user, PetscReal ***pressure,
         diagnostics->y_plus_sum            += y_plus;
         diagnostics->cells                 += 1;
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ApplyWallFunction"
 /**
  * @brief Internal helper implementation: `ApplyWallFunction()`.
  * @details Local to this translation unit.
@@ -2628,11 +2623,13 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
     DMDALocalInfo *info = &user->info;
     
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     
     // =========================================================================
     // STEP 0: Early exit if wall functions are disabled
     // =========================================================================
     if (!simCtx->wallfunction) {
+        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
     
@@ -3104,11 +3101,10 @@ PetscErrorCode ApplyWallFunction(UserCtx *user)
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Complete.\n");
     
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LogWallModelDiagnostics"
 /**
  * @brief Implementation of \ref LogWallModelDiagnostics().
  * @details Full API contract is documented with the header declaration in
@@ -3127,8 +3123,9 @@ PetscErrorCode LogWallModelDiagnostics(UserCtx *user)
     PetscReal local_min, global_min;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
 
-    if (!simCtx->wallfunction) PetscFunctionReturn(0);
+    if (!simCtx->wallfunction) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
 
     PetscCall(PetscObjectGetComm((PetscObject)user->da, &comm));
 
@@ -3160,6 +3157,7 @@ PetscErrorCode LogWallModelDiagnostics(UserCtx *user)
             LOG_ALLOW(GLOBAL, LOG_WARNING,
                       "Wall model is enabled but no WALL face was corrected this step; "
                       "no diagnostics written.\n");
+            PROFILE_FUNCTION_END;
             PetscFunctionReturn(0);
         }
 
@@ -3259,11 +3257,10 @@ PetscErrorCode LogWallModelDiagnostics(UserCtx *user)
         }
     }
 
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "FinalizePostProjectionCellFields"
 /**
  * @brief Implementation of \ref FinalizePostProjectionCellFields().
  * @details Full API contract is documented with the header declaration in
@@ -3303,8 +3300,6 @@ PetscErrorCode FinalizePostProjectionCellFields(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ApplyBoundaryConditions"
 /**
  * @brief Implementation of \ref ApplyBoundaryConditions().
  * @details Full API contract (arguments, ownership, side effects) is documented with

@@ -1,7 +1,5 @@
 #include "solvers.h" // The new header we will create
 
-#undef __FUNCT__
-#define __FUNCT__ "FlowSolver"
 /**
  * @brief Implementation of \ref FlowSolver().
  * @details Full API contract (arguments, ownership, side effects) is documented with

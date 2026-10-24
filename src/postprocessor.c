@@ -12,8 +12,6 @@
 #include "statistics_window.h"
 
 
-#undef __FUNCT__
-#define __FUNCT__ "SetupPostProcessSwarm"
 /**
  * @brief Internal helper implementation: `SetupPostProcessSwarm()`.
  * @details Local to this translation unit.
@@ -96,8 +94,6 @@ PetscErrorCode SetupPostProcessSwarm(UserCtx* user, PostProcessParams* pps)
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "EulerianDataProcessingPipeline"
 /**
  * @brief Implementation of \ref EulerianDataProcessingPipeline().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -191,8 +187,6 @@ PetscErrorCode EulerianDataProcessingPipeline(UserCtx* user, PostProcessParams* 
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "WriteEulerianFile"
 /**
  * @brief Implementation of \ref WriteEulerianFile().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -481,8 +475,6 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "WriteWindowStatistics"
 /**
  * @brief Internal helper: writes one window's or ensemble's derived output for a step.
  * @details Local to this translation unit. The `.vts` carries every requested output
@@ -495,6 +487,7 @@ static PetscErrorCode WriteWindowStatistics(UserCtx *user, PostProcessParams *pp
                                             PetscBool want_vtk, PetscBool want_csv, PetscInt ti)
 {
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (want_vtk) {
         VTKMetaData meta;
         PetscInt derived_count = 0;
@@ -537,11 +530,10 @@ static PetscErrorCode WriteWindowStatistics(UserCtx *user, PostProcessParams *pp
                                                  pps->field_statistics_homogeneous,
                                                  pps->field_statistics_output_prefix, ti));
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "FillStatisticsEnsemble"
 /**
  * @brief Internal helper: fills one recipe ensemble's storage from the loaded step.
  * @details Local to this translation unit. A particle ensemble takes each cell's
@@ -558,12 +550,13 @@ static PetscErrorCode FillStatisticsEnsemble(UserCtx *user, PostProcessParams *p
     PetscReal scale[PICURV_WINDOW_MAX_REQUESTS];
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     if (pps->field_statistics_ensemble_from_particles[index]) {
         PetscCall(PicurvWindowStorageFromParticles(user, definition, storage));
     } else {
         PetscCall(PicurvWindowAccumulate(user, definition, storage, 1.0));
     }
-    if (!pps->dimensionalize) PetscFunctionReturn(0);
+    if (!pps->dimensionalize) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
     for (PetscInt f = 0; f < definition->field_count; ++f) {
         PetscCall(PicurvFieldReferenceScale(user->simCtx, FieldCanonicalName((FieldId)definition->fields[f].field_id),
                                             &scale[f], NULL, 0));
@@ -579,11 +572,10 @@ static PetscErrorCode FillStatisticsEnsemble(UserCtx *user, PostProcessParams *p
                                             &second, NULL, 0));
         PetscCall(VecScale(storage->cm[pair], 1.0 / (first * second)));
     }
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "FieldStatisticsPipeline"
 /**
  * @brief Implementation of \ref FieldStatisticsPipeline().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -700,8 +692,6 @@ PetscErrorCode FieldStatisticsPipeline(UserCtx *user, PostProcessParams *pps, Pe
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ParticleDataProcessingPipeline"
 /**
  * @brief Implementation of \ref ParticleDataProcessingPipeline().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -774,8 +764,6 @@ PetscErrorCode ParticleDataProcessingPipeline(UserCtx* user, PostProcessParams* 
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GlobalStatisticsPipeline"
 /**
  * @brief Internal helper implementation: `GlobalStatisticsPipeline()`.
  * @details Local to this translation unit.
@@ -823,8 +811,6 @@ PetscErrorCode GlobalStatisticsPipeline(UserCtx *user, PostProcessParams *pps, P
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "WriteParticleFile"
 /**
  * @brief Implementation of \ref WriteParticleFile().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -892,8 +878,6 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ResolvePostProcessingSteps"
 /**
  * @brief Internal helper implementation: `ResolvePostProcessingSteps()`.
  * @details Local to this translation unit.
@@ -903,6 +887,7 @@ PetscErrorCode ResolvePostProcessingSteps(PostProcessParams *pps, PetscInt **ste
     PetscMPIInt rank;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     *steps = NULL;
     *count = 0;
     if (pps->step_list_file[0] == '\0') {
@@ -910,6 +895,7 @@ PetscErrorCode ResolvePostProcessingSteps(PostProcessParams *pps, PetscInt **ste
         PetscCall(PetscMalloc1(n > 0 ? n : 1, steps));
         for (PetscInt k = 0; k < n; ++k) (*steps)[k] = pps->startTime + k * pps->timeStep;
         *count = n;
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
 
@@ -959,11 +945,10 @@ PetscErrorCode ResolvePostProcessingSteps(PostProcessParams *pps, PetscInt **ste
     if (n > 0) PetscCallMPI(MPI_Bcast(list, (PetscMPIInt)n, MPIU_INT, 0, PETSC_COMM_WORLD));
     *steps = list;
     *count = n;
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "main"
 #ifndef PICURV_POSTPROCESSOR_NO_MAIN
 /**
  * @brief Entry point for the postprocessor executable.

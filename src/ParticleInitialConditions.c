@@ -87,35 +87,42 @@ typedef struct {
 /** @brief Record the first parse error with its position; later ones are consequences. */
 static void ParserFail(ExpressionParser *parser, const char *message)
 {
+    PROFILE_HELPER_BEGIN;
     if (!parser->error[0]) {
         snprintf(parser->error, sizeof(parser->error), "%s at position %zu of '%s'",
                  message, parser->pos + 1, parser->text);
     }
+    PROFILE_HELPER_END;
 }
 
 /** @brief Skip whitespace before the next token. */
 static void SkipSpace(ExpressionParser *parser)
 {
+    PROFILE_FUNCTION_BEGIN;
     while (parser->text[parser->pos] && isspace((unsigned char)parser->text[parser->pos])) parser->pos++;
+    PROFILE_FUNCTION_END;
 }
 
 /** @brief Consume @p token if it is next, and report whether it was. */
 static PetscBool Accept(ExpressionParser *parser, const char *token)
 {
+    PROFILE_FUNCTION_BEGIN;
     size_t length = strlen(token);
 
     SkipSpace(parser);
-    if (strncmp(parser->text + parser->pos, token, length) != 0) return PETSC_FALSE;
+    if (strncmp(parser->text + parser->pos, token, length) != 0) { PROFILE_FUNCTION_END; return PETSC_FALSE; }
     if (isalpha((unsigned char)token[0])) {
         const char next = parser->text[parser->pos + length];
-        if (isalnum((unsigned char)next) || next == '_') return PETSC_FALSE;
+        if (isalnum((unsigned char)next) || next == '_') { PROFILE_FUNCTION_END; return PETSC_FALSE; }
     }
     /* `*` must not match the first half of `**`, nor `<` the first half of `<=`. */
     if ((!strcmp(token, "*") && parser->text[parser->pos + 1] == '*') ||
         ((!strcmp(token, "<") || !strcmp(token, ">")) && parser->text[parser->pos + 1] == '=')) {
+        PROFILE_FUNCTION_END;
         return PETSC_FALSE;
     }
     parser->pos += length;
+    PROFILE_FUNCTION_END;
     return PETSC_TRUE;
 }
 
@@ -123,9 +130,11 @@ static PetscBool Accept(ExpressionParser *parser, const char *token)
 static PetscInt NewNode(ExpressionParser *parser, ExpressionOp op, PetscInt nchild,
                         PetscInt a, PetscInt b, PetscInt c)
 {
-    if (parser->error[0]) return -1;
+    PROFILE_FUNCTION_BEGIN;
+    if (parser->error[0]) { PROFILE_FUNCTION_END; return -1; }
     if (parser->count == parser->capacity) {
         ParserFail(parser, "expression is too long");
+        PROFILE_FUNCTION_END;
         return -1;
     }
     ExpressionNode *node = &parser->nodes[parser->count];
@@ -135,6 +144,7 @@ static PetscInt NewNode(ExpressionParser *parser, ExpressionOp op, PetscInt nchi
     node->child[0] = a;
     node->child[1] = b;
     node->child[2] = c;
+    PROFILE_FUNCTION_END;
     return parser->count++;
 }
 
@@ -143,6 +153,7 @@ static PetscInt ParseOr(ExpressionParser *parser);
 /** @brief number | name | name(args) | (expression) */
 static PetscInt ParseAtom(ExpressionParser *parser)
 {
+    PROFILE_HELPER_BEGIN;
     SkipSpace(parser);
     const char *start = parser->text + parser->pos;
 
@@ -154,29 +165,32 @@ static PetscInt ParseAtom(ExpressionParser *parser)
         if (start[length] == 'e' || start[length] == 'E') {
             size_t exponent = length + 1;
             if (start[exponent] == '+' || start[exponent] == '-') exponent++;
-            if (!isdigit((unsigned char)start[exponent])) { ParserFail(parser, "malformed number"); return -1; }
+            if (!isdigit((unsigned char)start[exponent])) { ParserFail(parser, "malformed number"); PROFILE_HELPER_END; return -1; }
             while (isdigit((unsigned char)start[exponent])) exponent++;
             length = exponent;
         }
         if (isalnum((unsigned char)start[length]) || start[length] == '_' || start[length] == '.') {
             ParserFail(parser, "malformed number");
+            PROFILE_HELPER_END;
             return -1;
         }
         const PetscReal value = strtod(start, NULL);
         parser->pos += length;
         PetscInt node = NewNode(parser, OP_CONST, 0, -1, -1, -1);
         if (node >= 0) parser->nodes[node].value = value;
+        PROFILE_HELPER_END;
         return node;
     }
     if (isalpha((unsigned char)*start) || *start == '_') {
         char name[64];
         size_t length = 0;
         while (isalnum((unsigned char)start[length]) || start[length] == '_') length++;
-        if (length >= sizeof(name)) { ParserFail(parser, "name is too long"); return -1; }
+        if (length >= sizeof(name)) { ParserFail(parser, "name is too long"); PROFILE_HELPER_END; return -1; }
         memcpy(name, start, length);
         name[length] = '\0';
         if (!strcmp(name, "and") || !strcmp(name, "or") || !strcmp(name, "not")) {
             ParserFail(parser, "operator where an operand was expected");
+            PROFILE_HELPER_END;
             return -1;
         }
         parser->pos += length;
@@ -185,64 +199,75 @@ static PetscInt ParseAtom(ExpressionParser *parser)
                 if (strcmp(name, kFunctions[f].name)) continue;
                 if (kFunctions[f].random && !parser->allow_random) {
                     ParserFail(parser, "random draws are not available in this expression");
+                    PROFILE_HELPER_END;
                     return -1;
                 }
                 PetscInt args[3] = {-1, -1, -1}, nargs = 0;
                 if (!Accept(parser, ")")) {
                     do {
-                        if (nargs == 3) { ParserFail(parser, "too many arguments"); return -1; }
+                        if (nargs == 3) { ParserFail(parser, "too many arguments"); PROFILE_HELPER_END; return -1; }
                         args[nargs++] = ParseOr(parser);
-                        if (parser->error[0]) return -1;
+                        if (parser->error[0]) { PROFILE_HELPER_END; return -1; }
                     } while (Accept(parser, ","));
-                    if (!Accept(parser, ")")) { ParserFail(parser, "expected ')'"); return -1; }
+                    if (!Accept(parser, ")")) { ParserFail(parser, "expected ')'"); PROFILE_HELPER_END; return -1; }
                 }
                 if (nargs < kFunctions[f].min_args || nargs > kFunctions[f].max_args) {
                     ParserFail(parser, "wrong number of arguments");
+                    PROFILE_HELPER_END;
                     return -1;
                 }
                 if (kFunctions[f].random) {
                     /* A draw's stream is a constant so that two expressions naming the
                        same stream draw the same number for the same particle. */
                     PetscInt node = NewNode(parser, kFunctions[f].op, 0, -1, -1, -1);
-                    if (node < 0) return -1;
+                    if (node < 0) { PROFILE_HELPER_END; return -1; }
                     if (nargs == 1) {
                         const ExpressionNode *stream = &parser->nodes[args[0]];
                         if (stream->op != OP_CONST || stream->value < 0.0 ||
                             stream->value != PetscFloorReal(stream->value)) {
                             ParserFail(parser, "a draw's stream must be a non-negative integer literal");
+                            PROFILE_HELPER_END;
                             return -1;
                         }
                         parser->nodes[node].value = stream->value;
                         parser->nodes[node].var = 1;
                     }
+                    PROFILE_HELPER_END;
                     return node;
                 }
+                PROFILE_HELPER_END;
                 return NewNode(parser, kFunctions[f].op, nargs, args[0], args[1], args[2]);
             }
             ParserFail(parser, "unknown function");
+            PROFILE_HELPER_END;
             return -1;
         }
         if (!strcmp(name, "pi")) {
             PetscInt node = NewNode(parser, OP_CONST, 0, -1, -1, -1);
             if (node >= 0) parser->nodes[node].value = PETSC_PI;
+            PROFILE_HELPER_END;
             return node;
         }
         for (PetscInt v = 0; v < parser->name_count; ++v) {
             if (!strcmp(name, parser->names[v])) {
                 PetscInt node = NewNode(parser, OP_VAR, 0, -1, -1, -1);
                 if (node >= 0) parser->nodes[node].var = v;
+                PROFILE_HELPER_END;
                 return node;
             }
         }
         ParserFail(parser, "unknown name");
+        PROFILE_HELPER_END;
         return -1;
     }
     if (Accept(parser, "(")) {
         PetscInt inner = ParseOr(parser);
-        if (!Accept(parser, ")")) { ParserFail(parser, "expected ')'"); return -1; }
+        if (!Accept(parser, ")")) { ParserFail(parser, "expected ')'"); PROFILE_HELPER_END; return -1; }
+        PROFILE_HELPER_END;
         return inner;
     }
     ParserFail(parser, "expected a number, name, or '('");
+    PROFILE_HELPER_END;
     return -1;
 }
 
@@ -258,8 +283,10 @@ static PetscInt ParseUnary(ExpressionParser *parser);
  */
 static PetscInt ParsePower(ExpressionParser *parser)
 {
+    PROFILE_HELPER_BEGIN;
     PetscInt base = ParseAtom(parser);
-    if (Accept(parser, "**")) return NewNode(parser, OP_POW, 2, base, ParseUnary(parser), -1);
+    if (Accept(parser, "**")) { PROFILE_HELPER_END; return NewNode(parser, OP_POW, 2, base, ParseUnary(parser), -1); }
+    PROFILE_HELPER_END;
     return base;
 }
 
@@ -270,8 +297,10 @@ static PetscInt ParsePower(ExpressionParser *parser)
  */
 static PetscInt ParseUnary(ExpressionParser *parser)
 {
-    if (Accept(parser, "-")) return NewNode(parser, OP_NEG, 1, ParseUnary(parser), -1, -1);
-    if (Accept(parser, "+")) return NewNode(parser, OP_POS, 1, ParseUnary(parser), -1, -1);
+    PROFILE_FUNCTION_BEGIN;
+    if (Accept(parser, "-")) { PROFILE_FUNCTION_END; return NewNode(parser, OP_NEG, 1, ParseUnary(parser), -1, -1); }
+    if (Accept(parser, "+")) { PROFILE_FUNCTION_END; return NewNode(parser, OP_POS, 1, ParseUnary(parser), -1, -1); }
+    PROFILE_FUNCTION_END;
     return ParsePower(parser);
 }
 
@@ -283,15 +312,17 @@ static PetscInt ParseUnary(ExpressionParser *parser)
  */
 static PetscInt ParseTerm(ExpressionParser *parser)
 {
+    PROFILE_FUNCTION_BEGIN;
     PetscInt left = ParseUnary(parser);
     for (;;) {
         if (Accept(parser, "*")) left = NewNode(parser, OP_MUL, 2, left, ParseUnary(parser), -1);
         else if (Accept(parser, "/")) {
-            if (parser->text[parser->pos] == '/') { ParserFail(parser, "'//' is not supported"); return -1; }
+            if (parser->text[parser->pos] == '/') { ParserFail(parser, "'//' is not supported"); PROFILE_FUNCTION_END; return -1; }
             left = NewNode(parser, OP_DIV, 2, left, ParseUnary(parser), -1);
         } else if (Accept(parser, "%")) left = NewNode(parser, OP_MOD, 2, left, ParseUnary(parser), -1);
-        else return left;
+        else { PROFILE_FUNCTION_END; return left; }
     }
+    PROFILE_FUNCTION_END;
 }
 
 /**
@@ -301,17 +332,20 @@ static PetscInt ParseTerm(ExpressionParser *parser)
  */
 static PetscInt ParseSum(ExpressionParser *parser)
 {
+    PROFILE_FUNCTION_BEGIN;
     PetscInt left = ParseTerm(parser);
     for (;;) {
         if (Accept(parser, "+")) left = NewNode(parser, OP_ADD, 2, left, ParseTerm(parser), -1);
         else if (Accept(parser, "-")) left = NewNode(parser, OP_SUB, 2, left, ParseTerm(parser), -1);
-        else return left;
+        else { PROFILE_FUNCTION_END; return left; }
     }
+    PROFILE_FUNCTION_END;
 }
 
 /** @brief sum (comparison sum)*; a chain `a < b < c` is `(a < b) and (b < c)`. */
 static PetscInt ParseComparison(ExpressionParser *parser)
 {
+    PROFILE_FUNCTION_BEGIN;
     static const struct { const char *token; ExpressionOp op; } kComparisons[] = {
         {"==", OP_EQ}, {"!=", OP_NE}, {"<=", OP_LE}, {">=", OP_GE}, {"<", OP_LT}, {">", OP_GT},
     };
@@ -322,34 +356,41 @@ static PetscInt ParseComparison(ExpressionParser *parser)
         for (size_t c = 0; c < sizeof(kComparisons) / sizeof(kComparisons[0]); ++c) {
             if (Accept(parser, kComparisons[c].token)) { op = kComparisons[c].op; break; }
         }
-        if (op == OP_CONST) return (result < 0) ? left : result;
+        if (op == OP_CONST) { PROFILE_FUNCTION_END; return (result < 0) ? left : result; }
         const PetscInt right = ParseSum(parser);
         const PetscInt pair = NewNode(parser, op, 2, left, right, -1);
         result = (result < 0) ? pair : NewNode(parser, OP_AND, 2, result, pair, -1);
         left = right;
     }
+    PROFILE_FUNCTION_END;
 }
 
 /** @brief 'not' not | comparison */
 static PetscInt ParseNot(ExpressionParser *parser)
 {
-    if (Accept(parser, "not")) return NewNode(parser, OP_NOT, 1, ParseNot(parser), -1, -1);
+    PROFILE_FUNCTION_BEGIN;
+    if (Accept(parser, "not")) { PROFILE_FUNCTION_END; return NewNode(parser, OP_NOT, 1, ParseNot(parser), -1, -1); }
+    PROFILE_FUNCTION_END;
     return ParseComparison(parser);
 }
 
 /** @brief not ('and' not)* */
 static PetscInt ParseAnd(ExpressionParser *parser)
 {
+    PROFILE_HELPER_BEGIN;
     PetscInt left = ParseNot(parser);
     while (Accept(parser, "and")) left = NewNode(parser, OP_AND, 2, left, ParseNot(parser), -1);
+    PROFILE_HELPER_END;
     return left;
 }
 
 /** @brief and ('or' and)* */
 static PetscInt ParseOr(ExpressionParser *parser)
 {
+    PROFILE_HELPER_BEGIN;
     PetscInt left = ParseAnd(parser);
     while (Accept(parser, "or")) left = NewNode(parser, OP_OR, 2, left, ParseAnd(parser), -1);
+    PROFILE_HELPER_END;
     return left;
 }
 
@@ -357,6 +398,7 @@ static PetscInt ParseOr(ExpressionParser *parser)
 static void EmitNode(const ExpressionParser *parser, PetscInt index, PicurvExpression *expression,
                      PetscInt *depth)
 {
+    PROFILE_FUNCTION_BEGIN;
     const ExpressionNode *node = &parser->nodes[index];
 
     for (PetscInt c = 0; c < node->nchild; ++c) EmitNode(parser, node->child[c], expression, depth);
@@ -367,15 +409,18 @@ static void EmitNode(const ExpressionParser *parser, PetscInt index, PicurvExpre
     *depth += 1 - node->nchild;
     if (*depth > expression->max_depth) expression->max_depth = *depth;
     if (node->op == OP_UNIFORM || node->op == OP_NORMAL) expression->draws = PETSC_TRUE;
+    PROFILE_FUNCTION_END;
 }
 
 /** @brief Count the instructions a subtree emits (shared subtrees count per use). */
 static PetscInt CountCode(const ExpressionParser *parser, PetscInt index)
 {
+    PROFILE_HELPER_BEGIN;
     const ExpressionNode *node = &parser->nodes[index];
     PetscInt total = 1;
 
     for (PetscInt c = 0; c < node->nchild; ++c) total += CountCode(parser, node->child[c]);
+    PROFILE_HELPER_END;
     return total;
 }
 
@@ -390,6 +435,7 @@ PetscErrorCode PicurvExpressionCompile(const char *text, const char *const *name
     PetscInt         root, depth = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(text && expression, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Expression text and output are required.");
     PetscCall(PetscMemzero(&parser, sizeof(parser)));
     parser.text = text;
@@ -412,6 +458,7 @@ PetscErrorCode PicurvExpressionCompile(const char *text, const char *const *name
     PetscCall(PetscMalloc1(CountCode(&parser, root), &(*expression)->code));
     EmitNode(&parser, root, *expression, &depth);
     PetscCall(PetscFree(parser.nodes));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -421,9 +468,11 @@ PetscErrorCode PicurvExpressionCompile(const char *text, const char *const *name
  */
 uint64_t PicurvMix64(uint64_t z)
 {
+    PROFILE_HELPER_BEGIN;
     z += 0x9E3779B97F4A7C15ULL;
     z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
     z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    PROFILE_HELPER_END;
     return z ^ (z >> 31);
 }
 
@@ -433,6 +482,8 @@ uint64_t PicurvMix64(uint64_t z)
  */
 PetscReal PicurvUnitFromHash(uint64_t hash)
 {
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     return (PetscReal)(hash >> 11) * (1.0 / 9007199254740992.0);
 }
 
@@ -443,33 +494,39 @@ PetscReal PicurvUnitFromHash(uint64_t hash)
 uint64_t PicurvParticleDrawHash(PetscInt64 seed, PicurvDrawSpace space, uint64_t stream,
                                 PetscInt64 pid, PetscInt64 salt)
 {
+    PROFILE_HELPER_BEGIN;
     uint64_t hash = PicurvMix64((uint64_t)seed);
     hash = PicurvMix64(hash ^ (uint64_t)space);
     hash = PicurvMix64(hash ^ stream);
     hash = PicurvMix64(hash ^ (uint64_t)pid);
+    PROFILE_HELPER_END;
     return PicurvMix64(hash ^ (uint64_t)salt);
 }
 
 /** @brief A draw keyed on the particle, the event, the stream, and the function. */
 static PetscReal Draw(const PicurvExpressionDrawKey *key, const ExpressionInstruction *instruction)
 {
+    PROFILE_HELPER_BEGIN;
     /* A default stream is the drawing field's own, so two fields draw independently; an
        explicit stream is shared by every expression that names it. */
     const PicurvDrawSpace space = instruction->arg ? PICURV_DRAW_SPACE_NAMED_STREAM : PICURV_DRAW_SPACE_FIELD;
     const uint64_t stream = instruction->arg ? (uint64_t)instruction->value : (uint64_t)key->field;
     const uint64_t hash = PicurvMix64(PicurvParticleDrawHash(key->seed, space, stream, key->pid, key->salt)
                                       ^ (uint64_t)instruction->op);
-    if (instruction->op == OP_UNIFORM) return PicurvUnitFromHash(hash);
+    if (instruction->op == OP_UNIFORM) { PROFILE_HELPER_END; return PicurvUnitFromHash(hash); }
     /* Box-Muller from two independent uniforms; u1 lies in (0, 1]. */
     const PetscReal u1 = 1.0 - PicurvUnitFromHash(hash);
     const PetscReal u2 = PicurvUnitFromHash(PicurvMix64(hash ^ 0xD1B54A32D192ED03ULL));
+    PROFILE_HELPER_END;
     return PetscSqrtReal(-2.0 * PetscLogReal(u1)) * PetscCosReal(2.0 * PETSC_PI * u2);
 }
 
 /** @brief Maximum or minimum that propagates NaN, as numpy does. */
 static PetscReal Extreme(PetscReal a, PetscReal b, PetscBool maximum)
 {
-    if (PetscIsNanReal(a) || PetscIsNanReal(b)) return NAN;
+    PROFILE_HELPER_BEGIN;
+    if (PetscIsNanReal(a) || PetscIsNanReal(b)) { PROFILE_HELPER_END; return NAN; }
+    PROFILE_HELPER_END;
     return maximum ? PetscMax(a, b) : PetscMin(a, b);
 }
 
@@ -484,6 +541,7 @@ PetscErrorCode PicurvExpressionEvaluate(const PicurvExpression *expression, cons
     PetscInt  top = 0;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     PetscCheck(!expression->draws || key, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "An expression that draws random numbers needs a draw key.");
     for (PetscInt i = 0; i < expression->length; ++i) {
@@ -536,6 +594,7 @@ PetscErrorCode PicurvExpressionEvaluate(const PicurvExpression *expression, cons
         }
     }
     *result = stack[0];
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -546,9 +605,11 @@ PetscErrorCode PicurvExpressionEvaluate(const PicurvExpression *expression, cons
 PetscErrorCode PicurvExpressionDestroy(PicurvExpression **expression)
 {
     PetscFunctionBeginUser;
-    if (!expression || !*expression) PetscFunctionReturn(0);
+    PROFILE_HELPER_BEGIN;
+    if (!expression || !*expression) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
     PetscCall(PetscFree((*expression)->code));
     PetscCall(PetscFree(*expression));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -586,11 +647,12 @@ PetscErrorCode ParticleFieldPlanCreate(ParticleFieldPlan **plan)
     char      option[256];
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(plan, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Plan output is required.");
     *plan = NULL;
     PetscCall(PetscSNPrintf(option, sizeof(option), "-particle_fields_count"));
     PetscCall(PetscOptionsGetInt(NULL, NULL, option, &count, &found));
-    if (!found || count == 0) PetscFunctionReturn(0);
+    if (!found || count == 0) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     PetscCheck(count > 0 && count <= PARTICLE_FIELD_ID_COUNT, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
                "%s must be between 0 and %d (got %" PetscInt_FMT ").", option, (int)PARTICLE_FIELD_ID_COUNT, count);
 
@@ -630,6 +692,7 @@ PetscErrorCode ParticleFieldPlanCreate(ParticleFieldPlan **plan)
                                               &binding->component[c]));
         }
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -639,6 +702,7 @@ static PetscErrorCode DomainBounds(const SimCtx *simCtx, Cmpnts *lower, Cmpnts *
     PetscMPIInt size = 1;
 
     PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
     PetscCheck(simCtx->bboxlist, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
                "Rank bounding boxes are needed before a particle initial value is applied.");
     PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
@@ -652,12 +716,15 @@ static PetscErrorCode DomainBounds(const SimCtx *simCtx, Cmpnts *lower, Cmpnts *
         upper->y = PetscMax(upper->y, simCtx->bboxlist[r].max_coords.y);
         upper->z = PetscMax(upper->z, simCtx->bboxlist[r].max_coords.z);
     }
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 /** @brief Position within the domain along one axis, in [0, 1]; 0 across a flat axis. */
 static PetscReal Normalized(PetscReal value, PetscReal lower, PetscReal upper)
 {
+    PROFILE_HELPER_BEGIN;
+    PROFILE_HELPER_END;
     return (upper > lower) ? (value - lower) / (upper - lower) : 0.0;
 }
 
@@ -674,7 +741,8 @@ PetscErrorCode ParticleFieldPlanApply(UserCtx *user, const ParticleFieldPlan *pl
     Cmpnts            lower, upper;
 
     PetscFunctionBeginUser;
-    if (!plan || end <= first) PetscFunctionReturn(0);
+    PROFILE_FUNCTION_BEGIN;
+    if (!plan || end <= first) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     PetscCheck(user && user->swarm && event, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Swarm and event are required.");
     simCtx = user->simCtx;
     PetscCall(DomainBounds(simCtx, &lower, &upper));
@@ -717,6 +785,7 @@ PetscErrorCode ParticleFieldPlanApply(UserCtx *user, const ParticleFieldPlan *pl
     }
     PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pids));
     PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void **)&positions));
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -731,7 +800,8 @@ PetscErrorCode ParticleFieldPlanSummarize(UserCtx *user, const ParticleFieldPlan
     PetscInt nlocal = 0;
 
     PetscFunctionBeginUser;
-    if (!plan) PetscFunctionReturn(0);
+    PROFILE_FUNCTION_BEGIN;
+    if (!plan) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     simCtx = user->simCtx;
     PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
     if (simCtx->rank == 0) {
@@ -799,6 +869,7 @@ PetscErrorCode ParticleFieldPlanSummarize(UserCtx *user, const ParticleFieldPlan
         PetscCall(DMSwarmRestoreField(user->swarm, descriptor->canonical_name, NULL, NULL, (void **)&field));
     }
     if (csv) fclose(csv);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -809,7 +880,8 @@ PetscErrorCode ParticleFieldPlanSummarize(UserCtx *user, const ParticleFieldPlan
 PetscErrorCode ParticleFieldPlanDestroy(ParticleFieldPlan **plan)
 {
     PetscFunctionBeginUser;
-    if (!plan || !*plan) PetscFunctionReturn(0);
+    PROFILE_HELPER_BEGIN;
+    if (!plan || !*plan) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
     for (PetscInt b = 0; b < (*plan)->count; ++b) {
         for (PetscInt c = 0; c < PARTICLE_FIELD_MAX_COMPONENTS; ++c) {
             PetscCall(PicurvExpressionDestroy(&(*plan)->bindings[b].component[c]));
@@ -817,5 +889,6 @@ PetscErrorCode ParticleFieldPlanDestroy(ParticleFieldPlan **plan)
     }
     PetscCall(PetscFree((*plan)->bindings));
     PetscCall(PetscFree(*plan));
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }

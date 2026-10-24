@@ -2,8 +2,6 @@
 #include "verification_sources.h"
 #include "les.h"   /* SymTensor kernels for the gradient (Clark) closure term */
 
-#undef __FUNCT__
-#define __FUNCT__ "Convection"
 /**
  * @brief Implementation of \ref Convection().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -423,8 +421,6 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "Viscous"
 /**
  * @brief Implementation of \ref Viscous().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1120,8 +1116,6 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
   return(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeBodyForces"
 /**
  * @brief Internal helper implementation: `ComputeBodyForces()`.
  * @details Local to this translation unit.
@@ -1130,6 +1124,7 @@ PetscErrorCode ComputeBodyForces(UserCtx *user, Vec Rct)
 {
 	PetscErrorCode ierr;
     PetscFunctionBeginUser;
+	PROFILE_HELPER_BEGIN;
 
     // --- 1. Apply momentum source for driven channel/pipe flows ---
     // This function will internally check if a driven flow BC is active.
@@ -1145,11 +1140,10 @@ PetscErrorCode ComputeBodyForces(UserCtx *user, Vec Rct)
     // per timestep, so any force carrying state across calls (a filter, ramp,
     // moving average, or integral term) must gate its update on simCtx->step.
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0); 
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeRHS"
 /**
  * @brief Internal helper implementation: `ComputeRHS()`.
  * @details Local to this translation unit.
@@ -1856,8 +1850,6 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeEulerianDiffusivity"
 /**
  * @brief Implementation of \ref ComputeEulerianDiffusivity().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1990,8 +1982,6 @@ PetscErrorCode ComputeEulerianDiffusivity(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "ComputeEulerianDiffusivityGradient"
 /**
  * @brief Internal helper implementation: `ComputeEulerianDiffusivityGradient()`.
  * @details Local to this translation unit.

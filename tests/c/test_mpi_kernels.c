@@ -425,10 +425,8 @@ static PetscErrorCode TestPeriodicStaggeredFieldSynchronizationMultiRank(void)
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
 }
-#undef __FUNCT__
-#define __FUNCT__ "ProfiledOnRankOneOnly"
 /**
- * @brief A profiled function that takes a measurable time; the profiling macros name it by __FUNCT__.
+ * @brief A profiled function that takes a measurable time; the profiling macros name it by __func__.
  */
 static PetscErrorCode ProfiledOnRankOneOnly(void)
 {
@@ -442,8 +440,6 @@ static PetscErrorCode ProfiledOnRankOneOnly(void)
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
-#undef __FUNCT__
-#define __FUNCT__ "TestProfilingSummaryReducesOverRanks"
 
 /**
  * @brief The final profiling summary reduces each function's total time over ranks.

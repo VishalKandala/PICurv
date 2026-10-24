@@ -15,15 +15,15 @@
  */
 void GenerateGaussianNoise(PetscReal u1, PetscReal u2, PetscReal *n1, PetscReal *n2)
 {
+    PROFILE_HELPER_BEGIN;
     const PetscReal magnitude = PetscSqrtReal(-2.0 * PetscLogReal(u1));
     const PetscReal theta     = 2.0 * PETSC_PI * u2;
 
     *n1 = magnitude * PetscCosReal(theta);
     *n2 = magnitude * PetscSinReal(theta);
+    PROFILE_HELPER_END;
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "CalculateBrownianDisplacement"
 /**
  * @brief Internal helper implementation: `CalculateBrownianDisplacement()`.
  * @details Local to this translation unit.
@@ -35,8 +35,9 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, Pets
     uint64_t       hash;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     displacement->x = displacement->y = displacement->z = 0.0;
-    if (diff_eff <= 1.0e-12) PetscFunctionReturn(0);
+    if (diff_eff <= 1.0e-12) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
     /* Keyed on (seed, PID, step) alone, so the increment is independent of rank layout
      * and particle order, and a restart reproduces it. */
@@ -49,11 +50,10 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, Pets
     displacement->x = sigma * n[0];
     displacement->y = sigma * n[1];
     displacement->z = sigma * n[2];
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__ 
-#define __FUNCT__ "UpdateParticlePosition"
 /**
  * @brief Internal helper implementation: `UpdateParticlePosition()`.
  * @details Local to this translation unit.
@@ -81,8 +81,6 @@ PetscErrorCode UpdateParticlePosition(UserCtx *user, Particle *particle)
   PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "UpdateAllParticlePositions"
 /**
  * @brief Internal helper implementation: `UpdateAllParticlePositions()`.
  * @details Local to this translation unit.
@@ -174,8 +172,6 @@ static inline PetscBool IsParticleInBox(const BoundingBox *bbox, const Cmpnts *p
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "CheckAndRemoveOutOfBoundsParticles"
 
 /**
  * @brief Internal helper implementation: `CheckAndRemoveOutOfBoundsParticles()`.
@@ -197,6 +193,7 @@ PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
     PetscMPIInt    rank, size;
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
     ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL, LOG_INFO, "[Rank %d] Checking for out-of-bounds particles...", rank);
@@ -254,11 +251,10 @@ PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
         LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "[Rank %d] Removed %d out-of-bounds particles globally.\n", rank, *removedCountGlobal);
     }
 
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "CheckAndRemoveLostParticles"
 /**
  * @brief Internal helper implementation: `CheckAndRemoveLostParticles()`.
  * @details Local to this translation unit.
@@ -356,8 +352,6 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "SetMigrationRanks"
 /**
  * @brief Internal helper implementation: `SetMigrationRanks()`.
  * @details Local to this translation unit.
@@ -386,8 +380,6 @@ PetscErrorCode SetMigrationRanks(UserCtx* user, const MigrationInfo *migrationLi
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "RemoveFlaggedParticles"
 /**
  * @brief Implementation of \ref RemoveFlaggedParticles().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -426,8 +418,6 @@ PetscErrorCode RemoveFlaggedParticles(DM swarm, PetscInt n_scan, PetscBool remov
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PerformMigration"
 
 /**
  * @brief Implementation of \ref PerformMigration().
@@ -472,8 +462,6 @@ PetscErrorCode PerformMigration(UserCtx *user)
 // MODULE (COUNT): Calculates Particle Count Per Cell - REVISED FOR DMDAVecGetArray
 //-----------------------------------------------------------------------------
 
-#undef __FUNCT__
-#define __FUNCT__ "CalculateParticleCountPerCell"
 /**
  * @brief Implementation of \ref CalculateParticleCountPerCell().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -640,8 +628,6 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
 
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ResizeSwarmGlobally"
 /**
  * @brief Implementation of \ref ResizeSwarmGlobally().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -689,8 +675,6 @@ PetscErrorCode ResizeSwarmGlobally(DM swarm, PetscInt N_target)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "PreCheckAndResizeSwarm"
 /**
  * @brief Internal helper implementation: `PreCheckAndResizeSwarm()`.
  * @details Local to this translation unit.
@@ -729,8 +713,6 @@ PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user,
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ReinitializeParticlesOnInletSurface"
 /**
  * @brief Internal helper implementation: `ReinitializeParticlesOnInletSurface()`.
  * @details Local to this translation unit.
@@ -944,8 +926,6 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GetLocalPIDSnapshot"
 /**
  * @brief Internal helper implementation: `GetLocalPIDSnapshot()`.
  * @details Local to this translation unit.
@@ -999,8 +979,6 @@ PetscErrorCode GetLocalPIDSnapshot(const PetscInt64 pid_field[],
     PetscFunctionReturn(0); 
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "AddToMigrationList"
 /**
  * @brief Internal helper implementation: `AddToMigrationList()`.
  * @details Local to this translation unit.
@@ -1057,8 +1035,6 @@ PetscErrorCode AddToMigrationList(MigrationInfo **migration_list_p,
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "FlagNewComersForLocation"
 /**
  * @brief Internal helper implementation: `FlagNewcomersForLocation()`.
  * @details Local to this translation unit.
@@ -1151,8 +1127,6 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm,
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "MigrateRestartParticlesUsingCellID"
 /**
  * @brief Internal helper implementation: `MigrateRestartParticlesUsingCellID()`.
  * @details Local to this translation unit.
@@ -1231,8 +1205,6 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "GuessParticleOwnerWithBBox"
 /**
  * @brief Select the rank whose gathered bounding box is the best owner candidate for a particle.
  * @note Testing status:
@@ -1351,8 +1323,6 @@ static PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
     PetscFunctionReturn(0);
 }
 
-#undef __FUNCT__
-#define __FUNCT__ "LocateAllParticlesInGrid"
 /**
  * @brief Implementation of \ref LocateAllParticlesInGrid().
  * @details Full API contract (arguments, ownership, side effects) is documented with
@@ -1593,8 +1563,6 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 }
 
 
-#undef __FUNCT__
-#define __FUNCT__ "ResetAllParticleStatuses"
 /**
  * @brief Implementation of \ref ResetAllParticleStatuses().
  * @details Full API contract (arguments, ownership, side effects) is documented with
