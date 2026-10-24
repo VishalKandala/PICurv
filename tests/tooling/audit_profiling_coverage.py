@@ -46,6 +46,61 @@ EXCLUDED = {
     "ProfilingFinalize": "the profiler itself; it reads every event's totals",
 }
 
+#: Arithmetic kernels left untimed because they run per particle or per cell: a timer, even off,
+#: stops the compiler inlining them, which cost 10-15% of particle step time (Grace, optimized
+#: PETSc, 6bd5b49 vs 151e81a). Rates are measured calls per step, the largest over a particle,
+#: an implicit-momentum flow and a Newton-Krylov run with every helper enabled. Their time
+#: appears in their callers' timers.
+KERNELS = {
+    "ApplyLESTestFilter": "29/cell per step",
+    "ApplyLESTestFilterSymTensor": "4.0/cell per step",
+    "ApplyVolumeWeightedBoxFilter": "29/cell per step",
+    "BoundaryFaceHasWallShear": "211/cell per step",
+    "CalculateBrownianDisplacement": "0.9/particle per step",
+    "CalculateDistancesToCellFacePlanes": "2.3/particle per step",
+    "ClassifyMomentumRow": "248/cell per step",
+    "ClipModelCoefficient": "1.3/cell per step",
+    "ComputeCellFilterWidth": "4.7/cell per step",
+    "ComputeVectorFieldDerivatives": "4.9/cell per step",
+    "EddyViscosityFromCoefficient": "1.7/cell per step",
+    "EdgeSeparatingFace": "11/cell per step",
+    "FillEdgeCell": "5.4/cell per step",
+    "GenerateGaussianNoise": "1.7/particle per step",
+    "GermanoModelTensor": "1.3/cell per step",
+    "GetOwnedCellRange": "0.5/particle per step",
+    "Gidx": "9/cell per step",
+    "LESStrainSampleIndex": "4.7/cell per step",
+    "LeonardStress": "1.3/cell per step",
+    "MetricGatherCellFacePlanes": "2.3/particle per step",
+    "MetricGetCellVertices": "1.3/particle per step",
+    "MetricGetFacePlaneArrays": "1.0/particle per step",
+    "MetricRestoreFacePlaneArrays": "1.0/particle per step",
+    "Normalized": "0.4/particle per step",
+    "PicurvMix64": "7.7/particle per step",
+    "PicurvParticleDrawHash": "0.9/particle per step",
+    "PicurvUnitFromHash": "3.4/particle per step",
+    "PoissonMultigrid_InterpolationParent": "57/cell per step",
+    "PoissonOperator_AddFaceFlux": "2.3/cell per step",
+    "PoissonOperator_FaceGradientStencil": "7.4/cell per step",
+    "PoissonOperator_StencilSlot": "23/cell per step",
+    "PoissonOperator_TransverseDifference": "15/cell per step",
+    "SpatialAverageSlot": "2.7/cell per step",
+    "SpatialTargetPlanMaskAllows": "7.3/cell per step",
+    "StrainRateFromGradients": "4.9/cell per step",
+    "SubgridKineticEnergy": "1.7/cell per step",
+    "SymTensorCombine": "40/cell per step",
+    "SymTensorContract": "7.6/cell per step",
+    "SymTensorDeviator": "1.3/cell per step",
+    "SymTensorNormSq": "6.2/cell per step",
+    "SymTensorSelfOuter": "37/cell per step",
+    "SymTensorTrace": "1.3/cell per step",
+    "TransformDerivativesToPhysical": "4.9/cell per step",
+    "TrilinearInterpolation_Scalar": "1.0/particle per step",
+    "TrilinearInterpolation_Vector": "2.0/particle per step",
+    "UpdateParticleField": "0.9/particle per step",
+    "WallNoSlipVelocity": "43/cell per step",
+}
+
 #: Whole files deliberately untimed: dependency-free leaf modules that include only petscsys.h.
 EXCLUDED_FILES = {
     "src/checksum.c": "SHA-256 and digest byte helpers; a leaf module with no PICurv headers",
@@ -217,7 +272,11 @@ def main() -> int:
             continue
         for name, _, body_open, body_close, static_inline in find_functions(code):
             seen.add(name)
-            if static_inline or name in EXCLUDED:
+            if name in KERNELS and not static_inline and BEGIN_RE.search(code[body_open + 1 : body_close]):
+                problems.append(f"{rel}:{line_of(text, body_open)}: {name}: is a declared per-particle/per-cell kernel "
+                                "but begins a timer; remove the timer or drop it from KERNELS")
+                continue
+            if static_inline or name in EXCLUDED or name in KERNELS:
                 continue
             for offset, msg in check_function(code, body_open, body_close):
                 problems.append(f"{rel}:{line_of(text, offset)}: {name}: {msg}")
@@ -225,7 +284,7 @@ def main() -> int:
         text = path.read_text(encoding="utf-8")
         for m in FUNCT_RE.finditer(blank_comments_and_strings(text)):
             problems.append(f"{path.relative_to(REPO_ROOT)}:{line_of(text, m.start())}: uses __FUNCT__; use __func__")
-    stale = sorted(set(EXCLUDED) - seen)
+    stale = sorted((set(EXCLUDED) | set(KERNELS)) - seen)
     for name in stale:
         problems.append(f"tests/tooling/audit_profiling_coverage.py: excluded function '{name}' no longer exists")
     for p in problems:

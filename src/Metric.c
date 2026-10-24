@@ -28,7 +28,6 @@ PetscErrorCode MetricGetCellVertices(UserCtx *user,
 {
   (void)user;
   PetscFunctionBeginUser;
-  PROFILE_HELPER_BEGIN;
   for (PetscInt c = 0; c < 8; ++c) {
     PetscInt ii = i + ((c & 1) ? 1 : 0);
     PetscInt jj = j + ((c & 2) ? 1 : 0);
@@ -36,7 +35,6 @@ PetscErrorCode MetricGetCellVertices(UserCtx *user,
     LOG_LOOP_ALLOW(GLOBAL, LOG_VERBOSE,i+j+k,10," ii: %d,jj:%d,kk:%d - Retrieved.\n",ii,jj,kk);
     V[c] = X[kk][jj][ii];
   }
-  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 
@@ -325,7 +323,6 @@ PetscErrorCode MetricGetFacePlaneArrays(UserCtx *user, PetscBool dual, FacePlane
     Vec normals[3], centroids[3];
 
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
     PetscCheck(user->lSearchCellSize, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
                "Particle face planes are not built: MetricComputeFacePlanes() runs in CalculateAllGridMetrics() "
                "for a particle run, collectively, once the grid is final.");
@@ -343,7 +340,6 @@ PetscErrorCode MetricGetFacePlaneArrays(UserCtx *user, PetscBool dual, FacePlane
     }
     arrays->size = NULL;
     if (!dual) PetscCall(VecGetArrayRead(user->lSearchCellSize, &arrays->size));
-    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -358,7 +354,6 @@ PetscErrorCode MetricRestoreFacePlaneArrays(UserCtx *user, FacePlaneArrays *arra
     Vec normals[3], centroids[3];
 
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
     if (arrays->dual) {
         normals[0] = user->lDualPlaneNormalI; normals[1] = user->lDualPlaneNormalJ; normals[2] = user->lDualPlaneNormalK;
         centroids[0] = user->lDualPlaneCentroidI; centroids[1] = user->lDualPlaneCentroidJ; centroids[2] = user->lDualPlaneCentroidK;
@@ -371,7 +366,6 @@ PetscErrorCode MetricRestoreFacePlaneArrays(UserCtx *user, FacePlaneArrays *arra
         PetscCall(VecRestoreArrayRead(centroids[a], (const PetscScalar **)&arrays->centroid[a]));
     }
     if (!arrays->dual) PetscCall(VecRestoreArrayRead(user->lSearchCellSize, &arrays->size));
-    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -384,7 +378,6 @@ PetscErrorCode MetricRestoreFacePlaneArrays(UserCtx *user, FacePlaneArrays *arra
 void MetricGatherCellFacePlanes(const FacePlaneArrays *arrays, const DMDALocalInfo *info,
                                 PetscInt i, PetscInt j, PetscInt k, CellFacePlanes *planes)
 {
-    PROFILE_HELPER_BEGIN;
     static const PetscInt dual_shift[3] = {0, 0, 0};
     static const Face     minus_face[3] = {LEFT, BOTTOM, BACK}, plus_face[3] = {RIGHT, TOP, FRONT};
 
@@ -405,7 +398,6 @@ void MetricGatherCellFacePlanes(const FacePlaneArrays *arrays, const DMDALocalIn
         }
     }
     planes->size = arrays->dual ? 0.0 : arrays->size[MetricCellFacePlanesIndex(info, i + 1, j + 1, k + 1)];
-    PROFILE_HELPER_END;
 }
 
 
@@ -1950,7 +1942,6 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
  */
 static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 {
-  PROFILE_HELPER_BEGIN;
   PetscInt nidx;
   DMDALocalInfo	info = user->info;
 
@@ -1962,7 +1953,6 @@ static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
   
   AOApplicationToPetsc(ao,1,&nidx);
   
-  PROFILE_HELPER_END;
   return (nidx);
 }
 

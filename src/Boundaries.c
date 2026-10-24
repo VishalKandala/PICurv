@@ -119,8 +119,6 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
  */
 PetscBool BoundaryFaceHasWallShear(const BoundaryFaceConfig *face)
 {
-    PROFILE_HELPER_BEGIN;
-    PROFILE_HELPER_END;
     return (PetscBool)(face != NULL && face->mathematical_type == WALL &&
                        face->handler_type != BC_HANDLER_WALL_FREE_SLIP);
 }
@@ -601,7 +599,6 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
 MomentumRowType ClassifyMomentumRow(UserCtx *user, PetscInt i, PetscInt j, PetscInt k,
                                     PetscInt component, PetscInt *ri, PetscInt *rj, PetscInt *rk)
 {
-    PROFILE_HELPER_BEGIN;
     const PetscInt mx = user->info.mx, my = user->info.my, mz = user->info.mz;
     const PetscInt coord[3] = {i, j, k};
     const PetscInt size[3] = {mx, my, mz};
@@ -643,10 +640,9 @@ MomentumRowType ClassifyMomentumRow(UserCtx *user, PetscInt i, PetscInt j, Petsc
         conditioned = tangential_interior;
     }
 
-    if (conditioned) { PROFILE_HELPER_END; return MOM_ROW_FIXED_CONDITIONED; }
-    if (periodic_duplicate) { PROFILE_HELPER_END; return MOM_ROW_PERIODIC_DUPLICATE; }
-    if (residual_zeroed) { PROFILE_HELPER_END; return MOM_ROW_FIXED_HOMOGENEOUS; }
-    PROFILE_HELPER_END;
+    if (conditioned) return MOM_ROW_FIXED_CONDITIONED;
+    if (periodic_duplicate) return MOM_ROW_PERIODIC_DUPLICATE;
+    if (residual_zeroed) return MOM_ROW_FIXED_HOMOGENEOUS;
     return MOM_ROW_PHYSICAL;
 }
 
@@ -2369,11 +2365,9 @@ PetscErrorCode UpdateDummyCells(UserCtx *user, FieldId field_id)
 static BCFace EdgeSeparatingFace(PetscInt tk, PetscInt tj, PetscInt ti,
                                  PetscInt nk, PetscInt nj, PetscInt ni)
 {
-    PROFILE_HELPER_BEGIN;
-    if (nk != tk) { PROFILE_HELPER_END; return (tk == 0) ? BC_FACE_NEG_Z : BC_FACE_POS_Z; }
-    if (nj != tj) { PROFILE_HELPER_END; return (tj == 0) ? BC_FACE_NEG_Y : BC_FACE_POS_Y; }
+    if (nk != tk) return (tk == 0) ? BC_FACE_NEG_Z : BC_FACE_POS_Z;
+    if (nj != tj) return (tj == 0) ? BC_FACE_NEG_Y : BC_FACE_POS_Y;
     (void)ni;
-    PROFILE_HELPER_END;
     return (ti == 0) ? BC_FACE_NEG_X : BC_FACE_POS_X;
 }
 
@@ -2391,7 +2385,6 @@ static void FillEdgeCell(PetscScalar ****f, PetscInt dof, const PetscBool free_s
                          PetscInt ak, PetscInt aj, PetscInt ai,
                          PetscInt bk, PetscInt bj, PetscInt bi)
 {
-    PROFILE_HELPER_BEGIN;
     const BCFace face_a = EdgeSeparatingFace(tk, tj, ti, ak, aj, ai);
     const BCFace face_b = EdgeSeparatingFace(tk, tj, ti, bk, bj, bi);
     PetscInt sk = ak, sj = aj, si = ai;
@@ -2399,7 +2392,6 @@ static void FillEdgeCell(PetscScalar ****f, PetscInt dof, const PetscBool free_s
 
     if (!free_slip[face_a] && !free_slip[face_b]) {
         for (PetscInt c = 0; c < dof; c++) f[tk][tj][ti][c] = 0.5 * (f[ak][aj][ai][c] + f[bk][bj][bi][c]);
-        PROFILE_HELPER_END;
         return;
     }
     if (!free_slip[face_a]) { sk = bk; sj = bj; si = bi; mirror = face_b; }
@@ -2414,7 +2406,6 @@ static void FillEdgeCell(PetscScalar ****f, PetscInt dof, const PetscBool free_s
         f[tk][tj][ti][1] -= 2.0 * normal * n.y;
         f[tk][tj][ti][2] -= 2.0 * normal * n.z;
     }
-    PROFILE_HELPER_END;
 }
 
 /**

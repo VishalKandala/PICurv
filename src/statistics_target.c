@@ -186,9 +186,7 @@ PetscErrorCode SpatialTargetPlanGlobalPointCount(const SpatialTargetPlan *plan, 
  */
 PetscBool SpatialTargetPlanMaskAllows(const SpatialTargetPlan *plan, PetscReal nvert_value)
 {
-    PROFILE_HELPER_BEGIN;
-    if (plan == NULL) { PROFILE_HELPER_END; return PETSC_FALSE; }
-    PROFILE_HELPER_END;
+    if (plan == NULL) return PETSC_FALSE;
     return (PetscBool)(nvert_value < PICURV_STATISTICS_FLUID_THRESHOLD);
 }
 
@@ -202,8 +200,6 @@ static PetscInt SpatialAverageSlot(const PetscBool average_direction[3],
                                    const PetscInt retained_extent[3],
                                    PetscInt i, PetscInt j, PetscInt k)
 {
-    PROFILE_HELPER_BEGIN;
-    PROFILE_HELPER_END;
     return (average_direction[0] ? 0 : i) +
            retained_extent[0] * ((average_direction[1] ? 0 : j) +
            retained_extent[1] *  (average_direction[2] ? 0 : k));

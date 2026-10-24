@@ -15,13 +15,11 @@
  */
 void GenerateGaussianNoise(PetscReal u1, PetscReal u2, PetscReal *n1, PetscReal *n2)
 {
-    PROFILE_HELPER_BEGIN;
     const PetscReal magnitude = PetscSqrtReal(-2.0 * PetscLogReal(u1));
     const PetscReal theta     = 2.0 * PETSC_PI * u2;
 
     *n1 = magnitude * PetscCosReal(theta);
     *n2 = magnitude * PetscSinReal(theta);
-    PROFILE_HELPER_END;
 }
 
 /**
@@ -35,9 +33,8 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, Pets
     uint64_t       hash;
 
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
     displacement->x = displacement->y = displacement->z = 0.0;
-    if (diff_eff <= 1.0e-12) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
+    if (diff_eff <= 1.0e-12) PetscFunctionReturn(0);
 
     /* Keyed on (seed, PID, step) alone, so the increment is independent of rank layout
      * and particle order, and a restart reproduces it. */
@@ -50,7 +47,6 @@ PetscErrorCode CalculateBrownianDisplacement(UserCtx *user, PetscInt64 pid, Pets
     displacement->x = sigma * n[0];
     displacement->y = sigma * n[1];
     displacement->z = sigma * n[2];
-    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 

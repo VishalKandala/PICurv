@@ -151,11 +151,9 @@ static Cmpnts WallNoSlipVelocity(const BoundaryCondition *self, BCFace face_id,
                                  PetscInt i, PetscInt j, PetscInt k,
                                  Cmpnts metric, PetscReal sign, Cmpnts interior)
 {
-    PROFILE_HELPER_BEGIN;
     const Cmpnts rest = {0.0, 0.0, 0.0};
 
     (void)self; (void)face_id; (void)i; (void)j; (void)k; (void)metric; (void)sign; (void)interior;
-    PROFILE_HELPER_END;
     return rest;
 }
 

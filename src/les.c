@@ -149,7 +149,6 @@ static void LESPeriodicAxes(const SimCtx *simCtx, PetscBool periodic[3])
  */
 SymTensor SymTensorSelfOuter(Cmpnts v)
 {
-    PROFILE_HELPER_BEGIN;
     SymTensor t;
 
     t.xx = v.x * v.x;
@@ -158,7 +157,6 @@ SymTensor SymTensorSelfOuter(Cmpnts v)
     t.yy = v.y * v.y;
     t.yz = v.y * v.z;
     t.zz = v.z * v.z;
-    PROFILE_HELPER_END;
     return t;
 }
 
@@ -170,7 +168,6 @@ SymTensor SymTensorSelfOuter(Cmpnts v)
  */
 SymTensor SymTensorCombine(PetscReal a, SymTensor x, PetscReal b, SymTensor y)
 {
-    PROFILE_HELPER_BEGIN;
     SymTensor t;
 
     t.xx = a * x.xx + b * y.xx;
@@ -179,7 +176,6 @@ SymTensor SymTensorCombine(PetscReal a, SymTensor x, PetscReal b, SymTensor y)
     t.yy = a * x.yy + b * y.yy;
     t.yz = a * x.yz + b * y.yz;
     t.zz = a * x.zz + b * y.zz;
-    PROFILE_HELPER_END;
     return t;
 }
 
@@ -191,8 +187,6 @@ SymTensor SymTensorCombine(PetscReal a, SymTensor x, PetscReal b, SymTensor y)
  */
 PetscReal SymTensorTrace(SymTensor t)
 {
-    PROFILE_HELPER_BEGIN;
-    PROFILE_HELPER_END;
     return t.xx + t.yy + t.zz;
 }
 
@@ -204,13 +198,11 @@ PetscReal SymTensorTrace(SymTensor t)
  */
 SymTensor SymTensorDeviator(SymTensor t)
 {
-    PROFILE_HELPER_BEGIN;
     const PetscReal isotropic = SymTensorTrace(t) / 3.0;
 
     t.xx -= isotropic;
     t.yy -= isotropic;
     t.zz -= isotropic;
-    PROFILE_HELPER_END;
     return t;
 }
 
@@ -222,9 +214,7 @@ SymTensor SymTensorDeviator(SymTensor t)
  */
 PetscReal SymTensorContract(SymTensor a, SymTensor b)
 {
-    PROFILE_HELPER_BEGIN;
     // The three off-diagonal components each stand for two entries of the full tensor.
-    PROFILE_HELPER_END;
     return a.xx * b.xx + a.yy * b.yy + a.zz * b.zz +
            2.0 * (a.xy * b.xy + a.xz * b.xz + a.yz * b.yz);
 }
@@ -255,8 +245,6 @@ Cmpnts SymTensorTimesVector(SymTensor t, Cmpnts v)
  */
 PetscReal SymTensorNormSq(SymTensor t)
 {
-    PROFILE_HELPER_BEGIN;
-    PROFILE_HELPER_END;
     return SymTensorContract(t, t);
 }
 
@@ -276,7 +264,6 @@ PetscErrorCode StrainRateFromGradients(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
     SymTensor s;
 
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
 
     s.xx = dudx.x;
     s.xy = 0.5 * (dudx.y + dvdx.x);
@@ -289,7 +276,6 @@ PetscErrorCode StrainRateFromGradients(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
     // |S| = sqrt(2 S_ij S_ij), with the off-diagonal doubling handled by the contraction.
     if (magnitude) *magnitude = PetscSqrtReal(2.0 * SymTensorNormSq(s));
 
-    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -305,7 +291,6 @@ PetscErrorCode ComputeCellFilterWidth(LESFilterWidthModel model, PetscReal aj,
     double dx = 0.0, dy = 0.0, dz = 0.0;
 
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
     PetscCheck(delta != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                "Filter width destination cannot be NULL.");
     PetscCheck(aj > 0.0, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
@@ -315,7 +300,6 @@ PetscErrorCode ComputeCellFilterWidth(LESFilterWidthModel model, PetscReal aj,
         // Cell volume alone: exact for a cube, and increasingly optimistic as the
         // cell is stretched, because it averages the three extents geometrically.
         *delta = PetscPowReal(1.0 / aj, 1.0 / 3.0);
-        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
 
@@ -349,7 +333,6 @@ PetscErrorCode ComputeCellFilterWidth(LESFilterWidthModel model, PetscReal aj,
         break;
     }
 
-    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -365,9 +348,7 @@ PetscErrorCode ComputeCellFilterWidth(LESFilterWidthModel model, PetscReal aj,
  */
 SymTensor LeonardStress(Cmpnts velocity_filtered, SymTensor velocity_product_filtered)
 {
-    PROFILE_HELPER_BEGIN;
     // L_ij = (u_i u_j)^ - u^_i u^_j : the stress carried between the two filter widths.
-    PROFILE_HELPER_END;
     return SymTensorCombine(1.0, velocity_product_filtered,
                             -1.0, SymTensorSelfOuter(velocity_filtered));
 }
@@ -383,7 +364,6 @@ SymTensor GermanoModelTensor(PetscReal delta, PetscReal alpha,
                              SymTensor strain_filtered,
                              SymTensor strain_product_filtered)
 {
-    PROFILE_HELPER_BEGIN;
     // Term one: the model evaluated on the test-filtered strain. Both factors were
     // filtered separately, then multiplied.
     const SymTensor test_scale = SymTensorCombine(alpha * strain_magnitude_filtered,
@@ -400,7 +380,6 @@ SymTensor GermanoModelTensor(PetscReal delta, PetscReal alpha,
 
     // Trace-free, so the Leonard stress's trace cannot enter the contraction through
     // whatever discrete divergence the velocity field carries.
-    PROFILE_HELPER_END;
     return SymTensorDeviator(model);
 }
 
@@ -475,7 +454,6 @@ PetscErrorCode ResolveLESAveragingDirections(UserCtx *user, PetscBool direction[
  */
 PetscReal ClipModelCoefficient(PetscReal coefficient, const LESConfig *config, PetscBool *limited)
 {
-    PROFILE_HELPER_BEGIN;
     PetscReal result = coefficient;
 
     switch (config->clip_mode) {
@@ -494,7 +472,6 @@ PetscReal ClipModelCoefficient(PetscReal coefficient, const LESConfig *config, P
     }
 
     if (limited) *limited = (PetscBool)(result != coefficient);
-    PROFILE_HELPER_END;
     return result;
 }
 
@@ -509,7 +486,6 @@ PetscReal EddyViscosityFromCoefficient(PetscReal coefficient, PetscReal delta,
                                        PetscReal molecular_viscosity,
                                        PetscReal min_viscosity_ratio)
 {
-    PROFILE_HELPER_BEGIN;
     PetscReal nu_t = coefficient * delta * delta * strain_magnitude;
 
     // A negative eddy viscosity is physical up to the point where it would drive the
@@ -517,7 +493,6 @@ PetscReal EddyViscosityFromCoefficient(PetscReal coefficient, PetscReal delta,
     const PetscReal floor = (min_viscosity_ratio - 1.0) * molecular_viscosity;
 
     if (nu_t < floor) nu_t = floor;
-    PROFILE_HELPER_END;
     return nu_t;
 }
 
@@ -604,8 +579,6 @@ PetscReal VremanEddyViscosity(Cmpnts dudx, Cmpnts dvdx, Cmpnts dwdx,
  */
 PetscReal SubgridKineticEnergy(PetscReal yoshizawa_ci, PetscReal delta, PetscReal strain_magnitude)
 {
-    PROFILE_HELPER_BEGIN;
-    PROFILE_HELPER_END;
     return 2.0 * yoshizawa_ci * delta * delta * strain_magnitude * strain_magnitude;
 }
 
@@ -635,10 +608,8 @@ PetscReal SubgridKineticEnergy(PetscReal yoshizawa_ci, PetscReal delta, PetscRea
  */
 static PetscInt LESStrainSampleIndex(PetscInt index, PetscInt extent, PetscBool periodic)
 {
-    PROFILE_HELPER_BEGIN;
-    if (index == 0)          { PROFILE_HELPER_END; return periodic ? -2 : 1; }
-    if (index == extent - 1) { PROFILE_HELPER_END; return periodic ? extent + 1 : extent - 2; }
-    PROFILE_HELPER_END;
+    if (index == 0)          return periodic ? -2 : 1;
+    if (index == extent - 1) return periodic ? extent + 1 : extent - 2;
     return index;
 }
 

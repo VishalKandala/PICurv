@@ -576,8 +576,7 @@ PetscErrorCode TrilinearInterpolation_Scalar(
     PetscReal     a3,
     PetscReal    *val)
 {
-    PetscFunctionBegin;
-    PROFILE_HELPER_BEGIN; // PETSc macro for error/stack tracing
+    PetscFunctionBegin; // PETSc macro for error/stack tracing
 
     // Compute the 8 corner weights
     PetscReal wcorner[8];
@@ -620,7 +619,6 @@ PetscErrorCode TrilinearInterpolation_Scalar(
     //    "TrilinearInterpolation_Scalar: Completed interpolation for field '%s' across local cells.\n",
 	  //    fieldName);
 
-    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 
@@ -640,8 +638,7 @@ PetscErrorCode TrilinearInterpolation_Vector(
     PetscReal     a3,
     Cmpnts       *vec)
 {
-  PetscFunctionBegin;
-  PROFILE_HELPER_BEGIN; // PETSc macro for error/stack tracing
+  PetscFunctionBegin; // PETSc macro for error/stack tracing
 
   // Compute the 8 corner weights
   PetscErrorCode ierr;
@@ -714,7 +711,6 @@ PetscErrorCode TrilinearInterpolation_Vector(
     vec->x = 0.0;  vec->y = 0.0;  vec->z = 0.0;
   }
 
-  PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
 

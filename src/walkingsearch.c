@@ -125,7 +125,6 @@ PetscErrorCode CalculateDistancesToCellFacePlanes(const Cmpnts p, const CellFace
     static const int order[NUM_FACES] = {BACK, FRONT, BOTTOM, TOP, LEFT, RIGHT};
 
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
     for (int n = 0; n < NUM_FACES; ++n) {
         const FacePlane *plane = &planes->face[order[n]];
         if (((PetscInt)planes->degenerate >> order[n]) & 1) {
@@ -135,7 +134,6 @@ PetscErrorCode CalculateDistancesToCellFacePlanes(const Cmpnts p, const CellFace
         d[order[n]] = FacePlaneDistance(plane, p, threshold);
         if (normals) normals[order[n]] = plane->normal;
     }
-    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 

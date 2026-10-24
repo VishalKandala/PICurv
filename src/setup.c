@@ -3012,7 +3012,6 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
     PetscInt GlobalNodesInDim_from_info; // Total number of DA points in this dimension, from DMDALocalInfo.
 
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
 
     // --- 1. Input Validation ---
     if (!info_nodes || !xs_cell_global_out || !xm_cell_local_out) {
@@ -3046,7 +3045,6 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
     if (physical_nodes_in_dim <= 1) {
         *xs_cell_global_out = xs_node_global_rank; // Still report the rank's starting node
         *xm_cell_local_out  = 0;                    // But 0 cells
-        PROFILE_HELPER_END;
         PetscFunctionReturn(0);
     }
 
@@ -3091,7 +3089,6 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
         }
     }
 
-    PROFILE_HELPER_END;
     PetscFunctionReturn(ierr);
 }
 
@@ -3665,7 +3662,6 @@ PetscErrorCode BinarySearchInt64(PetscInt n, const PetscInt64 arr[], PetscInt64 
  */
 static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 {
-  PROFILE_HELPER_BEGIN;
   PetscInt nidx;
   DMDALocalInfo	info = user->info;
 
@@ -3677,7 +3673,6 @@ static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
   
   AOApplicationToPetsc(ao,1,&nidx);
   
-  PROFILE_HELPER_END;
   return (nidx);
 }
 
@@ -3970,7 +3965,6 @@ static void TransformDerivativesToPhysical(PetscReal jacobian, Cmpnts csi_metric
                                            Cmpnts deriv_csi, Cmpnts deriv_eta, Cmpnts deriv_zet,
                                            Cmpnts *dudx, Cmpnts *dvdx, Cmpnts *dwdx)
 {
-    PROFILE_HELPER_BEGIN;
     // Derivatives of the first component (u)
     dudx->x = jacobian * (deriv_csi.x * csi_metrics.x + deriv_eta.x * eta_metrics.x + deriv_zet.x * zet_metrics.x);
     dudx->y = jacobian * (deriv_csi.x * csi_metrics.y + deriv_eta.x * eta_metrics.y + deriv_zet.x * zet_metrics.y);
@@ -3983,7 +3977,6 @@ static void TransformDerivativesToPhysical(PetscReal jacobian, Cmpnts csi_metric
     dwdx->x = jacobian * (deriv_csi.z * csi_metrics.x + deriv_eta.z * eta_metrics.x + deriv_zet.z * zet_metrics.x);
     dwdx->y = jacobian * (deriv_csi.z * csi_metrics.y + deriv_eta.z * eta_metrics.y + deriv_zet.z * zet_metrics.y);
     dwdx->z = jacobian * (deriv_csi.z * csi_metrics.z + deriv_eta.z * eta_metrics.z + deriv_zet.z * zet_metrics.z);
-    PROFILE_HELPER_END;
 }
 
 /**
@@ -4040,7 +4033,6 @@ PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
     Cmpnts ***csi, ***eta, ***zet;
     PetscReal ***jac;
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
 
     // 1. Get read-only access to the necessary metric data arrays
     ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi); CHKERRQ(ierr);
@@ -4073,7 +4065,6 @@ PetscErrorCode ComputeVectorFieldDerivatives(UserCtx *user, PetscInt i, PetscInt
     ierr = DMDAVecRestoreArrayRead(user->fda, user->lZet, &zet); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->da,  user->lAj,  &jac); CHKERRQ(ierr);
 
-    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 

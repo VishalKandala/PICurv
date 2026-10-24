@@ -38,7 +38,6 @@ static double ApplySimpsonRuleHomogeneousFilter(double values[3][3][3])
  */
 static double ApplyVolumeWeightedBoxFilter(double values[3][3][3], double weights[3][3][3])
 {
-    PROFILE_HELPER_BEGIN;
     // v1...v8 store the sum of (value * weight) for each of the 8 sub-cubes.
     // w1...w8 store the sum of (weight) for each of the 8 sub-cubes.
 	double v1, v2, v3, v4, v5, v6, v7, v8;
@@ -104,11 +103,9 @@ static double ApplyVolumeWeightedBoxFilter(double values[3][3][3], double weight
     // Production safety check: avoid division by zero if all weights are zero
     // (e.g., if the stencil is entirely inside a solid body).
     if (fabs(total_weight) < 1.0e-12) {
-        PROFILE_HELPER_END;
         return 0.0;
     }
 
-	PROFILE_HELPER_END;
 	return total_weighted_value / total_weight;
 }
 
@@ -125,22 +122,18 @@ static double ApplyVolumeWeightedBoxFilter(double values[3][3][3], double weight
  */
 double ApplyLESTestFilter(LESTestFilterKernel kernel, double values[3][3][3], double weights[3][3][3])
 {
-	PROFILE_HELPER_BEGIN;
 	// This function acts as a dispatcher over the configured stencil.
 	switch (kernel) {
 	case LES_TEST_FILTER_SIMPSON_IK:
 		// The caller has declared the i and k directions homogeneous, so the more
 		// accurate Simpson stencil applies. Volume weights are irrelevant there.
-		PROFILE_HELPER_END;
 		return ApplySimpsonRuleHomogeneousFilter(values);
 	case LES_TEST_FILTER_VOLUME_WEIGHTED_BOX:
 	default:
 		// Default for general, non-uniform, curvilinear grids. The volume-weighted
 		// box filter keeps the average correct when neighbouring cells differ in size.
-		PROFILE_HELPER_END;
 		return ApplyVolumeWeightedBoxFilter(values, weights);
 	}
-	PROFILE_HELPER_END;
 }
 
 /**
@@ -156,7 +149,6 @@ PetscErrorCode ApplyLESTestFilterSymTensor(LESTestFilterKernel kernel, SymTensor
 	double component[6][3][3][3];
 
 	PetscFunctionBeginUser;
-	PROFILE_HELPER_BEGIN;
 	PetscCheck(filtered != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
 	           "Filtered tensor destination cannot be NULL.");
 
@@ -178,6 +170,5 @@ PetscErrorCode ApplyLESTestFilterSymTensor(LESTestFilterKernel kernel, SymTensor
 	filtered->yz = ApplyLESTestFilter(kernel, component[4], weights);
 	filtered->zz = ApplyLESTestFilter(kernel, component[5], weights);
 
-	PROFILE_HELPER_END;
 	PetscFunctionReturn(0);
 }

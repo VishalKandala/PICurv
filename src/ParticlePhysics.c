@@ -20,7 +20,6 @@ PetscErrorCode UpdateParticleField(ParticleFieldId field_id,
                                    PetscReal C_model)
 {
     PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
 
     if (field_id == PARTICLE_FIELD_ID_PSI) {
         // Guard the LES mixing time scale against degenerate or cut-cell volumes.
@@ -35,7 +34,6 @@ PetscErrorCode UpdateParticleField(ParticleFieldId field_id,
         *psi_io = mean_val + (psi_old - mean_val) * decay;
     }
 
-    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 

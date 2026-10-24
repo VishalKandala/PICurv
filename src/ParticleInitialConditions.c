@@ -468,11 +468,9 @@ PetscErrorCode PicurvExpressionCompile(const char *text, const char *const *name
  */
 uint64_t PicurvMix64(uint64_t z)
 {
-    PROFILE_HELPER_BEGIN;
     z += 0x9E3779B97F4A7C15ULL;
     z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
     z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
-    PROFILE_HELPER_END;
     return z ^ (z >> 31);
 }
 
@@ -482,8 +480,6 @@ uint64_t PicurvMix64(uint64_t z)
  */
 PetscReal PicurvUnitFromHash(uint64_t hash)
 {
-    PROFILE_HELPER_BEGIN;
-    PROFILE_HELPER_END;
     return (PetscReal)(hash >> 11) * (1.0 / 9007199254740992.0);
 }
 
@@ -494,12 +490,10 @@ PetscReal PicurvUnitFromHash(uint64_t hash)
 uint64_t PicurvParticleDrawHash(PetscInt64 seed, PicurvDrawSpace space, uint64_t stream,
                                 PetscInt64 pid, PetscInt64 salt)
 {
-    PROFILE_HELPER_BEGIN;
     uint64_t hash = PicurvMix64((uint64_t)seed);
     hash = PicurvMix64(hash ^ (uint64_t)space);
     hash = PicurvMix64(hash ^ stream);
     hash = PicurvMix64(hash ^ (uint64_t)pid);
-    PROFILE_HELPER_END;
     return PicurvMix64(hash ^ (uint64_t)salt);
 }
 
@@ -723,8 +717,6 @@ static PetscErrorCode DomainBounds(const SimCtx *simCtx, Cmpnts *lower, Cmpnts *
 /** @brief Position within the domain along one axis, in [0, 1]; 0 across a flat axis. */
 static PetscReal Normalized(PetscReal value, PetscReal lower, PetscReal upper)
 {
-    PROFILE_HELPER_BEGIN;
-    PROFILE_HELPER_END;
     return (upper > lower) ? (value - lower) / (upper - lower) : 0.0;
 }
 

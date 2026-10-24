@@ -74,12 +74,10 @@ static const FieldId POISSON_FACE_AJ_FIELDS[3] = {FIELD_ID_IAJ, FIELD_ID_JAJ, FI
  */
 static PetscInt PoissonOperator_StencilSlot(const PetscInt d[3])
 {
-    PROFILE_HELPER_BEGIN;
     for (PetscInt s = 0; s < 19; s++) {
         if (POISSON_STENCIL_OFFSETS[s][0] == d[0] && POISSON_STENCIL_OFFSETS[s][1] == d[1] &&
-            POISSON_STENCIL_OFFSETS[s][2] == d[2]) { PROFILE_HELPER_END; return s; }
+            POISSON_STENCIL_OFFSETS[s][2] == d[2]) return s;
     }
-    PROFILE_HELPER_END;
     return -1;
 }
 
@@ -113,7 +111,6 @@ static PoissonTransverseDifference PoissonOperator_TransverseDifference(
     const PetscReal ***nvert, const PetscInt c[3], PetscInt n, PetscInt t,
     const PetscInt m[3], const PetscBool periodic[3])
 {
-    PROFILE_HELPER_BEGIN;
     PoissonTransverseDifference diff = {0, 0, 0.0};
     PetscInt plus[3] = {0, 0, 0}, plus_n[3] = {0, 0, 0};
     PetscInt minus[3] = {0, 0, 0}, minus_n[3] = {0, 0, 0};
@@ -135,7 +132,6 @@ static PoissonTransverseDifference PoissonOperator_TransverseDifference(
     } else {
         diff.lo = -1; diff.hi = 1; diff.weight = 0.25;
     }
-    PROFILE_HELPER_END;
     return diff;
 }
 
@@ -147,7 +143,6 @@ static PoissonFaceGradient PoissonOperator_FaceGradientStencil(
     const PoissonFaceMetrics *metrics, const PetscReal ***nvert, const PetscInt c[3],
     PetscInt n, const PetscInt m[3], const PetscBool periodic[3])
 {
-    PROFILE_HELPER_BEGIN;
     PoissonFaceGradient face;
     const Cmpnts normal = metrics->metric[n][n][c[2]][c[1]][c[0]];
 
@@ -161,7 +156,6 @@ static PoissonFaceGradient PoissonOperator_FaceGradientStencil(
             face.diff[b] = PoissonOperator_TransverseDifference(nvert, c, n, b, m, periodic);
         }
     }
-    PROFILE_HELPER_END;
     return face;
 }
 
@@ -226,7 +220,6 @@ static inline PetscInt PoissonOperator_NeighborIndex(PetscInt v, PetscInt d, Pet
 static void PoissonOperator_AddFaceFlux(const PoissonFaceGradient *face, const PetscInt own[3],
                                         PetscInt n, PetscReal sign, PetscScalar coefficients[19])
 {
-    PROFILE_HELPER_BEGIN;
     for (PetscInt b = 0; b < 3; b++) {
         const PetscReal g = face->dot[b] * face->aj;
         PetscInt lower[3] = {own[0], own[1], own[2]};
@@ -251,7 +244,6 @@ static void PoissonOperator_AddFaceFlux(const PoissonFaceGradient *face, const P
         coefficients[PoissonOperator_StencilSlot(lo_lower)] += sign * (-term);
         coefficients[PoissonOperator_StencilSlot(lo_upper)] += sign * (-term);
     }
-    PROFILE_HELPER_END;
 }
 
 /**
@@ -604,17 +596,14 @@ static PetscErrorCode PoissonMultigrid_RemoveNullSpace(MatNullSpace nullsp, Vec 
 static void PoissonMultigrid_InterpolationParent(PetscInt f, PetscInt m, PetscInt semi,
                                                  PetscInt *coarse, PetscInt *direction)
 {
-    PROFILE_HELPER_BEGIN;
     if (semi) {
         *coarse = f;
         *direction = 0;
-        PROFILE_HELPER_END;
         return;
     }
     *coarse = (f + 1) / 2;
     *direction = (f - 2 * (*coarse)) == 0 ? 1 : -1;
     if (f == 1 || f == m - 2) *direction = 0;
-    PROFILE_HELPER_END;
 }
 
 /**

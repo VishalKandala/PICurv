@@ -2099,8 +2099,8 @@ PetscErrorCode WriteSwarmField(UserCtx *user, const char *field_name, const char
   Vec            fieldVec;
   DM     swarm;  
 
-  PetscFunctionBeginUser;
-  PROFILE_FUNCTION_BEGIN; /* PETSc macro indicating start of function */
+  PetscFunctionBeginUser; /* PETSc macro indicating start of function */
+  PROFILE_FUNCTION_BEGIN;
 
   /* 
    * 1) Retrieve the PetscSwarm from the user context.

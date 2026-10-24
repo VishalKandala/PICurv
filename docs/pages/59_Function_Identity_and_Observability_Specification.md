@@ -33,9 +33,17 @@ A missed END leaves the function's PETSc event open; its later calls are then no
 `make audit-profiling` (also run by `make check`) enforces both rules and the absence of
 `__FUNCT__`, against the declared exclusions in `tests/tooling/audit_profiling_coverage.py`:
 `main`, the asynchronous signal handler, the logging filter itself (`get_log_level`,
-`is_function_allowed`, `set_allowed_functions`), the profiler's own functions, and two
+`is_function_allowed`, `set_allowed_functions`), the profiler's own functions, two
 dependency-free leaf modules, `src/checksum.c` and `src/statistics_moments.c`, which include
-only `petscsys.h`.
+only `petscsys.h`, and the declared arithmetic kernels below.
+
+**Arithmetic kernels.** A function run at least about 0.5 times per particle or per cell per
+step (the hash and Gaussian draws, trilinear weights, face-plane gathers, the symmetric-tensor
+algebra of the LES models, the Poisson stencil slots, momentum-row classification) carries no
+timer: even a switched-off timer adds a registration check and a PETSc call to every call, and
+timing all of them cost 10-15% of particle step time on an optimized build. The list, with each kernel's measured rate,
+is `KERNELS` in the audit; the audit also rejects a timer added to a listed kernel. A kernel's
+time appears in its caller's timer.
 
 Each timer is a PETSc log event named by `__func__`, registered on the function's first call
 and cached at the call site. Registration waits for `PetscInitialize` and stops after
