@@ -1,0 +1,1 @@
+- Experimental: `io.write_initial_checkpoint` and `io.write_final_checkpoint` in monitor.yml (default true) can turn off the checkpoint of a run's first and last states, which dominates the wall time of short large benchmarks; cadence and early-stop checkpoints are unaffected.
