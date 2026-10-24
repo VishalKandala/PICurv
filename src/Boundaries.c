@@ -92,8 +92,8 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
 
       LOG_ALLOW(LOCAL, LOG_TRACE,
       "[Rank %d] Check Service for Inlet %s:\n"
-      "    - Local Domain: starts at cell (%d,%d,%d), has (%d,%d,%d) cells.\n"
-      "    - Global Domain: has (%d,%d,%d) nodes, so last cell is (%d,%d,%d).\n",
+      "    - Local Domain: starts at cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "), has (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") cells.\n"
+      "    - Global Domain: has (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") nodes, so last cell is (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ").\n",
       rank_for_logging,
       BCFaceToString((BCFace)user->identifiedInletBCFace),
       owned_start_cell_i, owned_start_cell_j, owned_start_cell_k,
@@ -101,7 +101,7 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
       IM_nodes_global, JM_nodes_global, KM_nodes_global,
       last_global_cell_idx_i, last_global_cell_idx_j, last_global_cell_idx_k);
 
-      LOG_ALLOW(LOCAL, LOG_INFO,"[Rank %d] Inlet Face %s Service Check Result: %s | Owned Cells (I,J,K): (%d,%d,%d) | Starts at Cell (%d,%d,%d)\n",
+      LOG_ALLOW(LOCAL, LOG_INFO,"[Rank %d] Inlet Face %s Service Check Result: %s | Owned Cells (I,J,K): (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") | Starts at Cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",
                 rank_for_logging,
                 BCFaceToString((BCFace)user->identifiedInletBCFace),
                 (*can_service_inlet_out) ? "CAN SERVICE" : "CANNOT SERVICE",
@@ -240,7 +240,7 @@ PetscErrorCode GetDeterministicFaceGridLocation(
     const PetscInt grid_layers = 2;
 
     LOG_ALLOW(LOCAL, LOG_DEBUG,
-        "[Rank %d] Placing particle %lld on face %s with grid_layers=%d in global domain (%d,%d,%d) cells.\n",
+        "[Rank %d] Placing particle %lld on face %s with grid_layers=%" PetscInt_FMT " in global domain (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") cells.\n",
         rank_for_logging, (long long)particle_global_id, BCFaceToString(user->identifiedInletBCFace), grid_layers,
         IM_cells_global, JM_cells_global, KM_cells_global);
 
@@ -250,32 +250,32 @@ PetscErrorCode GetDeterministicFaceGridLocation(
     // The total layers from opposite faces (2 * grid_layers) must be less than the domain size.
     switch (user->identifiedInletBCFace) {
         case BC_FACE_NEG_X: case BC_FACE_POS_X:
-            if (JM_cells_global <= 1 || KM_cells_global <= 1) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Cannot place grid on face %s for a 2D/1D domain (J-cells=%d, K-cells=%d).", face_name, JM_cells_global, KM_cells_global);
-            if (2 * grid_layers >= JM_cells_global || 2 * grid_layers >= KM_cells_global) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Grid layers (%d) from opposing J/K faces would overlap in this domain (J-cells=%d, K-cells=%d).", grid_layers, JM_cells_global, KM_cells_global);
+            if (JM_cells_global <= 1 || KM_cells_global <= 1) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Cannot place grid on face %s for a 2D/1D domain (J-cells=%" PetscInt_FMT ", K-cells=%" PetscInt_FMT ").", face_name, JM_cells_global, KM_cells_global);
+            if (2 * grid_layers >= JM_cells_global || 2 * grid_layers >= KM_cells_global) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Grid layers (%" PetscInt_FMT ") from opposing J/K faces would overlap in this domain (J-cells=%" PetscInt_FMT ", K-cells=%" PetscInt_FMT ").", grid_layers, JM_cells_global, KM_cells_global);
             break;
         case BC_FACE_NEG_Y: case BC_FACE_POS_Y:
-            if (IM_cells_global <= 1 || KM_cells_global <= 1) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Cannot place grid on face %s for a 2D/1D domain (I-cells=%d, K-cells=%d).", face_name, IM_cells_global, KM_cells_global);
-            if (2 * grid_layers >= IM_cells_global || 2 * grid_layers >= KM_cells_global) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Grid layers (%d) from opposing I/K faces would overlap in this domain (I-cells=%d, K-cells=%d).", grid_layers, IM_cells_global, KM_cells_global);
+            if (IM_cells_global <= 1 || KM_cells_global <= 1) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Cannot place grid on face %s for a 2D/1D domain (I-cells=%" PetscInt_FMT ", K-cells=%" PetscInt_FMT ").", face_name, IM_cells_global, KM_cells_global);
+            if (2 * grid_layers >= IM_cells_global || 2 * grid_layers >= KM_cells_global) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Grid layers (%" PetscInt_FMT ") from opposing I/K faces would overlap in this domain (I-cells=%" PetscInt_FMT ", K-cells=%" PetscInt_FMT ").", grid_layers, IM_cells_global, KM_cells_global);
             break;
         case BC_FACE_NEG_Z: case BC_FACE_POS_Z:
-            if (IM_cells_global <= 1 || JM_cells_global <= 1) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Cannot place grid on face %s for a 2D/1D domain (I-cells=%d, J-cells=%d).", face_name, IM_cells_global, JM_cells_global);
-            if (2 * grid_layers >= IM_cells_global || 2 * grid_layers >= JM_cells_global) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Grid layers (%d) from opposing I/J faces would overlap in this domain (I-cells=%d, J-cells=%d).", grid_layers, IM_cells_global, JM_cells_global);
+            if (IM_cells_global <= 1 || JM_cells_global <= 1) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Cannot place grid on face %s for a 2D/1D domain (I-cells=%" PetscInt_FMT ", J-cells=%" PetscInt_FMT ").", face_name, IM_cells_global, JM_cells_global);
+            if (2 * grid_layers >= IM_cells_global || 2 * grid_layers >= JM_cells_global) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Grid layers (%" PetscInt_FMT ") from opposing I/J faces would overlap in this domain (I-cells=%" PetscInt_FMT ", J-cells=%" PetscInt_FMT ").", grid_layers, IM_cells_global, JM_cells_global);
             break;
         default: SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Invalid identifiedInletBCFace specified: %d", user->identifiedInletBCFace);
     }
 
     const PetscInt num_lines_total = 4 * grid_layers;
     if (simCtx->np < num_lines_total) {
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "Warning: Total particle count (%lld) is less than the number of grid lines requested (%d). Some lines may be empty.\n", (long long)simCtx->np, num_lines_total);
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "Warning: Total particle count (%lld) is less than the number of grid lines requested (%" PetscInt_FMT "). Some lines may be empty.\n", (long long)simCtx->np, num_lines_total);
     }
     if (simCtx->np > 0 && simCtx->np % num_lines_total != 0) {
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "Warning: Total particle count (%lld) is not evenly divisible by the number of grid lines (%d). Distribution will be uneven.\n", (long long)simCtx->np, num_lines_total);
+        LOG_ALLOW(GLOBAL, LOG_WARNING, "Warning: Total particle count (%lld) is not evenly divisible by the number of grid lines (%" PetscInt_FMT "). Distribution will be uneven.\n", (long long)simCtx->np, num_lines_total);
     }
 
     // --- Step 2: Map global particle ID to a line and a point on that line ---
     if (simCtx->np == 0) { PROFILE_HELPER_END; PetscFunctionReturn(0); } // Nothing to do
 
-    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Distributing %lld particles over %d lines on face %s.\n",
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Distributing %lld particles over %" PetscInt_FMT " lines on face %s.\n",
         rank_for_logging, (long long)simCtx->np, num_lines_total, face_name);
 
     const PetscInt points_per_line = PetscMax(1, simCtx->np / num_lines_total);
@@ -351,7 +351,7 @@ PetscErrorCode GetDeterministicFaceGridLocation(
     }
 
     LOG_ALLOW(LOCAL, LOG_TRACE,
-        "[Rank %d] Particle %lld assigned to line %d (edge group %d, layer %d) with variable_coord=%.4f.\n"
+        "[Rank %d] Particle %lld assigned to line %" PetscInt_FMT " (edge group %" PetscInt_FMT ", layer %" PetscInt_FMT ") with variable_coord=%.4f.\n"
         "    -> Global logical coords: (i,j,k) = (%.6f, %.6f, %.6f)\n",
         rank_for_logging, (long long)particle_global_id, line_index, edge_group, layer_index, variable_coord,
         global_logic_i, global_logic_j, global_logic_k);
@@ -387,7 +387,7 @@ PetscErrorCode GetDeterministicFaceGridLocation(
         (*placement_successful_out ? "SUCCESSFUL" : "NOT ON THIS RANK"));
 
     if(*placement_successful_out){    
-        LOG_ALLOW(LOCAL,LOG_TRACE,"Local cell origin node: (I,J,K) = (%d,%d,%d), intra-cell logicals: (xi,eta,zta)=(%.6f,%.6f,%.6f)\n",
+        LOG_ALLOW(LOCAL,LOG_TRACE,"Local cell origin node: (I,J,K) = (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "), intra-cell logicals: (xi,eta,zta)=(%.6f,%.6f,%.6f)\n",
                     *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out,
                     *xi_metric_logic_out, *eta_metric_logic_out, *zta_metric_logic_out);
         }
@@ -441,13 +441,13 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
     PetscInt last_global_cell_idx_k = (KM_nodes_global > 1) ? (KM_nodes_global - 2) : -1;
     
     LOG_ALLOW(LOCAL, LOG_INFO, "PARTICLE_INIT_DEBUG Rank %d: Inlet face %s.\n"
-        "  Owned cells (i,j,k): (%d,%d,%d)\n"
-        "  Global nodes (I,J,K): (%d,%d,%d)\n"
-        "  info->xs,ys,zs (first owned node GLOBAL): (%d,%d,%d)\n"
-        "  info->xm,ym,zm (num owned nodes GLOBAL): (%d,%d,%d)\n"
-        "  xs_gnode_rank,ys_gnode_rank,zs_gnode_rank (DMDAGetCorners): (%d,%d,%d)\n"
-        "  owned_start_cell (i,j,k) GLOBAL: (%d,%d,%d)\n"
-        "  last_global_cell_idx (i,j,k): (%d,%d,%d)\n",
+        "  Owned cells (i,j,k): (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n"
+        "  Global nodes (I,J,K): (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n"
+        "  info->xs,ys,zs (first owned node GLOBAL): (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n"
+        "  info->xm,ym,zm (num owned nodes GLOBAL): (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n"
+        "  xs_gnode_rank,ys_gnode_rank,zs_gnode_rank (DMDAGetCorners): (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n"
+        "  owned_start_cell (i,j,k) GLOBAL: (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n"
+        "  last_global_cell_idx (i,j,k): (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",
         rank_for_logging, BCFaceToString((BCFace)user->identifiedInletBCFace),
         num_owned_cells_on_rank_i,num_owned_cells_on_rank_j,num_owned_cells_on_rank_k,
         IM_nodes_global,JM_nodes_global,KM_nodes_global,
@@ -576,7 +576,7 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
         *eta_metric_logic_out = PetscMin(PetscMax(0.0, *eta_metric_logic_out), 1.0 - eps);
     }
     
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "Rank %d: Target Cell Node =(%d,%d,%d). (xi,et,zt)=(%.2e,%.2f,%.2f). \n",
+    LOG_ALLOW(LOCAL, LOG_VERBOSE, "Rank %d: Target Cell Node =(%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "). (xi,et,zt)=(%.2e,%.2f,%.2f). \n",
         rank_for_logging, *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out,
         *xi_metric_logic_out, *eta_metric_logic_out, *zta_metric_logic_out);
 
@@ -711,7 +711,7 @@ PetscErrorCode EnforceRHSBoundaryConditions(UserCtx *user)
     // --- Release the pointer to the local data ---
     ierr = DMDAVecRestoreArray(user->fda, user->Rhs, &rhs); CHKERRQ(ierr);
 
-    LOG_ALLOW(LOCAL, LOG_TRACE, "Rank %d, Block %d: Finished enforcing RHS boundary conditions.\n",
+    LOG_ALLOW(LOCAL, LOG_TRACE, "Rank %d, Block %" PetscInt_FMT ": Finished enforcing RHS boundary conditions.\n",
               user->simCtx->rank, user->_this);
 
     PROFILE_FUNCTION_END;
@@ -1010,7 +1010,7 @@ PetscErrorCode PropagateBoundaryConfigToCoarserLevels(SimCtx *simCtx)
             UserCtx *user_coarse = &usermg->mgctx[level].user[bi];
             UserCtx *user_fine   = &usermg->mgctx[level + 1].user[bi];
             
-            LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Copying BC config from level %d to level %d, block %d\n",
+            LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Copying BC config from level %" PetscInt_FMT " to level %" PetscInt_FMT ", block %" PetscInt_FMT "\n",
                           simCtx->rank, level + 1, level, bi);
             
             // Copy the 6 boundary face configurations
@@ -1161,7 +1161,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         user->simCtx->FluxInSum = global_inflow_post;
         
         LOG_ALLOW(GLOBAL, LOG_INFO, 
-                  "  (INLETS): %d Prestep(s), %d Application(s), %d Poststep(s), FluxInSum = %.6e\n",
+                  "  (INLETS): %" PetscInt_FMT " Prestep(s), %" PetscInt_FMT " Application(s), %" PetscInt_FMT " Poststep(s), FluxInSum = %.6e\n",
                   num_handlers[0],num_handlers[1],num_handlers[2], global_inflow_post);
     
     // =========================================================================
@@ -1268,7 +1268,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
             user->simCtx->FarFluxOutSum = global_farfield_out_post;
             
             LOG_ALLOW(GLOBAL, LOG_INFO, 
-                      "  (FARFIELD): %d Prestep(s), %d Application(s), %d Poststep(s) , InFlux=%.6e, OutFlux=%.6e\n",
+                      "  (FARFIELD): %" PetscInt_FMT " Prestep(s), %" PetscInt_FMT " Application(s), %" PetscInt_FMT " Poststep(s) , InFlux=%.6e, OutFlux=%.6e\n",
                       num_handlers[0],num_handlers[1],num_handlers[2], global_farfield_in_post, global_farfield_out_post);
         } else {
             // No farfield handlers - zero out the fluxes
@@ -1351,7 +1351,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
         
         // No global communication needed for walls
         
-        LOG_ALLOW(GLOBAL, LOG_INFO, "  (WALLS): %d Prestep(s), %d Application(s), %d Poststep(s) applied.\n",
+        LOG_ALLOW(GLOBAL, LOG_INFO, "  (WALLS): %" PetscInt_FMT " Prestep(s), %" PetscInt_FMT " Application(s), %" PetscInt_FMT " Poststep(s) applied.\n",
                   num_handlers[0],num_handlers[1],num_handlers[2]);
     
     
@@ -1455,7 +1455,7 @@ PetscErrorCode BoundarySystem_ExecuteStep(UserCtx *user)
                                    flux_error / total_inflow : flux_error;
         
         LOG_ALLOW(GLOBAL, LOG_INFO, 
-                  "  (OUTLETS): %d Prestep(s), %d Application(s), %d Poststep(s), FluxOutSum = %.6e\n",
+                  "  (OUTLETS): %" PetscInt_FMT " Prestep(s), %" PetscInt_FMT " Application(s), %" PetscInt_FMT " Poststep(s), FluxOutSum = %.6e\n",
                   num_handlers[0],num_handlers[1],num_handlers[2], global_outflow_post);
         LOG_ALLOW(GLOBAL, LOG_INFO, 
                   "    Conservation: Total In=%.6e, Total Out=%.6e, Error=%.3e (%.2e)%%)\n",

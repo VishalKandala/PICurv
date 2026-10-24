@@ -731,7 +731,7 @@ PetscErrorCode ComputeSmagorinskyConstant(UserCtx *user)
         PetscCall(FinalizeSmagorinskyConstantField(user));
         user->les_diagnostics = (LESDiagnosticsState){0.0, 0.0, 0.0, 0.0, 0.0, PETSC_FALSE};
         LOG_ALLOW(GLOBAL, LOG_DEBUG,
-                  "Holding the dynamic coefficient at zero for the opening steps (step=%d).\n",
+                  "Holding the dynamic coefficient at zero for the opening steps (step=%" PetscInt_FMT ").\n",
                   simCtx->step);
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);

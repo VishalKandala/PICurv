@@ -509,8 +509,8 @@ PetscErrorCode FieldStatisticsUpdateWindows(SimCtx *simCtx, PetscInt step, Petsc
                                                  &user->fieldStatisticsStorage[window_index], weight));
             }
             LOG_ALLOW(GLOBAL, LOG_DEBUG,
-                      "Statistics window '%s' accepted step %d at t=%.6g with weight %.6g "
-                      "(samples=%d, represented=%.6g).\n",
+                      "Statistics window '%s' accepted step %" PetscInt_FMT " at t=%.6g with weight %.6g "
+                      "(samples=%" PetscInt_FMT ", represented=%.6g).\n",
                       window->definition.name, step, (double)time, (double)weight,
                       window->sample_count, (double)window->represented_time);
         } else if (window->state == PICURV_WINDOW_ACTIVE) {
@@ -518,14 +518,14 @@ PetscErrorCode FieldStatisticsUpdateWindows(SimCtx *simCtx, PetscInt step, Petsc
              * zero-length interval. Both are expected, so this is the level that
              * explains a sample count without implying anything is wrong. */
             LOG_ALLOW(GLOBAL, LOG_DEBUG,
-                      "Statistics window '%s' did not sample step %d at t=%.6g "
-                      "(last accepted t=%.6g, samples=%d).\n",
+                      "Statistics window '%s' did not sample step %" PetscInt_FMT " at t=%.6g "
+                      "(last accepted t=%.6g, samples=%" PetscInt_FMT ").\n",
                       window->definition.name, step, (double)time,
                       (double)window->last_accepted_time, window->sample_count);
         }
         if (before != PICURV_WINDOW_COMPLETE && window->state == PICURV_WINDOW_COMPLETE) {
             LOG_ALLOW(GLOBAL, LOG_INFO,
-                      "Statistics window '%s' complete: %d sample(s), total weight %.6g, "
+                      "Statistics window '%s' complete: %" PetscInt_FMT " sample(s), total weight %.6g, "
                       "represented time %.6g.\n",
                       window->definition.name, window->sample_count,
                       (double)window->total_weight, (double)window->represented_time);

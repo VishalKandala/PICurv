@@ -300,7 +300,7 @@ do {                                                                            
         if (is_function_allowed(__func__) && (int)(level) <= (int)get_log_level()) { \
             if ((iterVar) % (interval) == 0) {                                 \
                 MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
-                PetscPrintf(comm, "[%s] [%s=%d] " fmt,                       \
+                PetscPrintf(comm, "[%s] [%s=%" PetscInt_FMT "] " fmt,                       \
                             __func__, #iterVar, (iterVar), ##__VA_ARGS__);               \
             }                                                                  \
         }                                                                      \
@@ -340,7 +340,7 @@ do {                                                                            
             if ((var) == (val)) {                                              \
                 MPI_Comm comm = ((scope) == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
                 /* Print the standard prefix, then the user's custom message. */ \
-                PetscPrintf(comm, "[%s] [%s=%d] " fmt,                          \
+                PetscPrintf(comm, "[%s] [%s=%" PetscInt_FMT "] " fmt,                          \
                     __func__, #var, (var), ##__VA_ARGS__);                      \
             }                                                                  \
         }                                                                      \

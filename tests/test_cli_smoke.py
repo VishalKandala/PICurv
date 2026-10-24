@@ -130,6 +130,7 @@ def write_eulerian_checkpoint(
     lines = [
         "-checkpoint_format picurv-checkpoint",
         "-checkpoint_version 1",
+        f"-checkpoint_petsc_index_bytes {petsc_index_bytes()}",
         f"-checkpoint_step {step}",
         f"-checkpoint_time {step * 0.1:.17g}",
         "-checkpoint_dt 0.1",
@@ -302,9 +303,25 @@ def write_petsc_vec_binary(path: Path, values) -> Path:
     """
     values = [float(value) for value in values]
     with path.open("wb") as fout:
-        fout.write(struct.pack(">ii", 1211214, len(values)))
+        fout.write(struct.pack(">ii" if petsc_index_bytes() == 4 else ">qq", 1211214, len(values)))
         fout.write(struct.pack(">" + "d" * len(values), *values))
     return path
+
+
+def petsc_index_bytes() -> int:
+    """!
+    @brief PetscInt width of the solver under test, which staged and fixture files must use.
+    @return 4 or 8.
+    """
+    return load_picurv_module().runtime_petsc_index_bytes()
+
+
+def petsc_index_args() -> list:
+    """!
+    @brief Generator arguments naming the build's PetscInt width, as the conductor passes them.
+    @return Argument list.
+    """
+    return load_picurv_module().petsc_index_arguments(petsc_index_bytes())
 
 
 def write_fake_ic_generator(path: Path, require_grid_run: bool = False) -> Path:
@@ -324,6 +341,7 @@ def write_fake_ic_generator(path: Path, require_grid_run: bool = False) -> Path:
         "p.add_argument('--grid')\n"
         "p.add_argument('--length-ref', type=float, default=1.0)\n"
         "p.add_argument('--velocity-ref', type=float, default=1.0)\n"
+        "p.add_argument('--petsc-index-bytes', type=int, default=4)\n"
         "a=p.parse_args()\n"
         + grid_assertion +
         "shutil.copy2(a.c, a.output)\n",
@@ -1915,10 +1933,11 @@ def read_petsc_vec_binary(path: Path):
     @return Flat tuple of scalar values.
     """
     data = path.read_bytes()
-    class_id, count = struct.unpack(">ii", data[:8])
+    word = petsc_index_bytes()
+    class_id, count = struct.unpack(">ii" if word == 4 else ">qq", data[:2 * word])
     assert class_id == 1211214
-    assert len(data) == 8 + count * 8
-    return struct.unpack(">" + "d" * count, data[8:])
+    assert len(data) == 2 * word + count * 8
+    return struct.unpack(">" + "d" * count, data[2 * word:])
 
 
 def test_ic_gen_ucat_uses_stretched_grid_cell_and_dummy_centers(tmp_path):
@@ -1934,7 +1953,7 @@ def test_ic_gen_ucat_uses_stretched_grid_cell_and_dummy_centers(tmp_path):
 
     result = subprocess.run(
         [sys.executable, str(IC_GEN), "-c", str(config), "--field", "Ucat",
-         "--grid", str(grid), "--output", str(output)],
+         "--grid", str(grid), "--output", str(output), *petsc_index_args()],
         cwd=str(REPO_ROOT), text=True, capture_output=True, timeout=60, check=False,
     )
 
@@ -1962,7 +1981,7 @@ def test_ic_gen_ucont_uses_component_face_centers_and_zero_dummy_entries(tmp_pat
 
     result = subprocess.run(
         [sys.executable, str(IC_GEN), "-c", str(config), "--field", "Ucont",
-         "--grid", str(grid), "--output", str(output)],
+         "--grid", str(grid), "--output", str(output), *petsc_index_args()],
         cwd=str(REPO_ROOT), text=True, capture_output=True, timeout=60, check=False,
     )
 
@@ -1985,7 +2004,7 @@ def test_ic_gen_rejects_unsafe_expression(tmp_path):
     config.write_text("[expression]\nu = __import__('os')\nv = 0\nw = 0\n", encoding="utf-8")
     result = subprocess.run(
         [sys.executable, str(IC_GEN), "-c", str(config), "--field", "Ucat",
-         "--grid", str(grid), "--output", str(tmp_path / "unsafe.dat")],
+         "--grid", str(grid), "--output", str(tmp_path / "unsafe.dat"), *petsc_index_args()],
         cwd=str(REPO_ROOT), text=True, capture_output=True, timeout=60, check=False,
     )
     assert result.returncode == 1
@@ -2140,6 +2159,7 @@ def test_profile_gen_field_slice_cli_projects_ucat_to_picslice(tmp_path):
             "--expected-dims",
             "2",
             "2",
+            *petsc_index_args(),
         ],
         text=True,
         capture_output=True,
@@ -2197,6 +2217,7 @@ def test_profile_gen_field_slice_cli_supports_axis_index_selector(tmp_path):
             "--expected-dims",
             "2",
             "2",
+            *petsc_index_args(),
         ],
         text=True,
         capture_output=True,
@@ -2242,6 +2263,7 @@ def test_profile_gen_field_slice_rejects_bad_orientation_sign(tmp_path):
             "opposite",
             "--velocity-scale",
             "1.0",
+            *petsc_index_args(),
         ],
         text=True,
         capture_output=True,
@@ -4373,6 +4395,9 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
 
     original_resolve = picurv.resolve_runtime_executable
     original_execute = picurv.execute_command
+    original_index_bytes = picurv.runtime_petsc_index_bytes
+    # The fake binaries carry no stamp; keep the width the fixture checkpoint was written at.
+    picurv.runtime_petsc_index_bytes = lambda: petsc_index_bytes()
     picurv.resolve_runtime_executable = fake_resolve_runtime_executable
     picurv.execute_command = fake_execute_command
 
@@ -4394,6 +4419,7 @@ def test_post_process_run_dir_accepts_null_source_data_mapping(tmp_path):
         picurv.run_workflow(args)
     finally:
         picurv.resolve_runtime_executable = original_resolve
+        picurv.runtime_petsc_index_bytes = original_index_bytes
         picurv.execute_command = original_execute
 
     assert len(calls) == 1

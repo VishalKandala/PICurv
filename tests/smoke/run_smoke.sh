@@ -104,7 +104,9 @@ create_mock_committed_checkpoint_series() {
   local first_step="$2"
   local last_step="$3"
 
-  python3 - "${output_root}" "${first_step}" "${last_step}" <<'PY'
+  local index_bytes=4
+  if "${simulator_exe}" --version 2>/dev/null | grep -q " int64 "; then index_bytes=8; fi
+  python3 - "${output_root}" "${first_step}" "${last_step}" "${index_bytes}" <<'PY'
 import hashlib
 import pathlib
 import sys
@@ -112,6 +114,7 @@ import sys
 output_root = pathlib.Path(sys.argv[1])
 first_step = int(sys.argv[2])
 last_step = int(sys.argv[3])
+index_bytes = int(sys.argv[4])  # the PetscInt width of the build under test
 fields = ("Ucat", "Ucont", "Ucont_rm1", "P", "Nvert")
 
 for step in range(first_step, last_step + 1):
@@ -128,6 +131,7 @@ for step in range(first_step, last_step + 1):
     lines = [
         "-checkpoint_format picurv-checkpoint",
         "-checkpoint_version 1",
+        f"-checkpoint_petsc_index_bytes {index_bytes}",
         f"-checkpoint_step {step}",
         f"-checkpoint_time {step * 0.1:.17g}",
         "-checkpoint_dt 0.1",
@@ -1696,17 +1700,24 @@ from pathlib import Path
 unit_run, scaled_run = (Path(arg) for arg in sys.argv[1:3])
 LENGTH_SCALE = 2.0  # scaled run's L_ref; the unit run's is 1
 
-def vec(path):
+def header(path):
+    # PETSc stores the class id and count as PetscInt, as wide as the bundle records.
+    meta = next(p / "checkpoint.meta" for p in path.parents if (p / "checkpoint.meta").is_file())
+    word = int(dict(line.split(None, 1) for line in meta.read_text().splitlines() if line.strip())
+               .get("-checkpoint_petsc_index_bytes", "4"))
     data = path.read_bytes()
-    _, count = struct.unpack(">ii", data[:8])
-    return struct.unpack(f">{count}d", data[8:8 + 8 * count])
+    _, count = struct.unpack(">ii" if word == 4 else ">qq", data[:2 * word])
+    return data, count, 2 * word
+
+def vec(path):
+    data, count, start = header(path)
+    return struct.unpack(f">{count}d", data[start:start + 8 * count])
 
 def ints(path):
-    data = path.read_bytes()
-    _, count = struct.unpack(">ii", data[:8])
-    width = (len(data) - 8) // max(count, 1)
+    data, count, start = header(path)
+    width = (len(data) - start) // max(count, 1)
     fmt = ">q" if width == 8 else ">i"
-    return [struct.unpack(fmt, data[8 + i * width:8 + (i + 1) * width])[0] for i in range(count)]
+    return [struct.unpack(fmt, data[start + i * width:start + (i + 1) * width])[0] for i in range(count)]
 
 def positions(run):
     step = sorted((run / "output" / "checkpoints").glob("step_*"))[-1] / "particles"
@@ -1817,9 +1828,17 @@ module = importlib.util.module_from_spec(importlib.util.spec_from_loader("picurv
 loader.exec_module(module)
 numpy = module.require_numpy()
 
+def read_payload(path):
+    # Read at the PetscInt width the payload's checkpoint recorded, as the conductor does.
+    import pathlib
+    meta = next(p / "checkpoint.meta" for p in pathlib.Path(path).parents if (p / "checkpoint.meta").is_file())
+    options = dict(line.split(None, 1) for line in meta.read_text().splitlines() if line.strip())
+    module.PETSC_INDEX_BYTES = int(options.get("-checkpoint_petsc_index_bytes", "4"))
+    return module.read_petsc_vec_binary(path)
+
 def load(run, nodes, field, components):
     path = glob.glob(f"{run}/output/checkpoints/step_000000000003/eulerian/block_0000/{field}.dat")[0]
-    return module.extract_interior_cells(module.read_petsc_vec_binary(path), nodes, components)
+    return module.extract_interior_cells(read_payload(path), nodes, components)
 
 for field, components, tolerance in (("Ucat", 3, 1e-11), ("P", 1, 1e-9)):
     full = load(full_run, (5, 17, 17), field, components)
@@ -1900,17 +1919,24 @@ import struct
 import sys
 from pathlib import Path
 
-def vec(path):
+def header(path):
+    # PETSc stores the class id and count as PetscInt, as wide as the bundle records.
+    meta = next(p / "checkpoint.meta" for p in path.parents if (p / "checkpoint.meta").is_file())
+    word = int(dict(line.split(None, 1) for line in meta.read_text().splitlines() if line.strip())
+               .get("-checkpoint_petsc_index_bytes", "4"))
     data = path.read_bytes()
-    _, count = struct.unpack(">ii", data[:8])
-    return struct.unpack(f">{count}d", data[8:8 + 8 * count])
+    _, count = struct.unpack(">ii" if word == 4 else ">qq", data[:2 * word])
+    return data, count, 2 * word
+
+def vec(path):
+    data, count, start = header(path)
+    return struct.unpack(f">{count}d", data[start:start + 8 * count])
 
 def ints(path):
-    data = path.read_bytes()
-    _, count = struct.unpack(">ii", data[:8])
-    width = (len(data) - 8) // max(count, 1)
+    data, count, start = header(path)
+    width = (len(data) - start) // max(count, 1)
     fmt = ">q" if width == 8 else ">i"
-    return [struct.unpack(fmt, data[8 + i * width:8 + (i + 1) * width])[0] for i in range(count)]
+    return [struct.unpack(fmt, data[start + i * width:start + (i + 1) * width])[0] for i in range(count)]
 
 def positions(run):
     step = Path(run) / "output" / "checkpoints" / "step_000000000004" / "particles"
@@ -1976,9 +2002,17 @@ module = importlib.util.module_from_spec(importlib.util.spec_from_loader("picurv
 loader.exec_module(module)
 numpy = module.require_numpy()
 
+def read_payload(path):
+    # Read at the PetscInt width the payload's checkpoint recorded, as the conductor does.
+    import pathlib
+    meta = next(p / "checkpoint.meta" for p in pathlib.Path(path).parents if (p / "checkpoint.meta").is_file())
+    options = dict(line.split(None, 1) for line in meta.read_text().splitlines() if line.strip())
+    module.PETSC_INDEX_BYTES = int(options.get("-checkpoint_petsc_index_bytes", "4"))
+    return module.read_petsc_vec_binary(path)
+
 def ucat(run):
     path = glob.glob(f"{run}/output/checkpoints/step_000000000003/eulerian/block_0000/Ucat.dat")[0]
-    return module.extract_interior_cells(module.read_petsc_vec_binary(path), (17, 17, 17), 3)
+    return module.extract_interior_cells(read_payload(path), (17, 17, 17), 3)
 
 picard, nk = ucat(picard_run), ucat(nk_run)
 error = float(numpy.abs(picard - nk).max() / numpy.abs(picard).max())

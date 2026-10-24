@@ -296,7 +296,7 @@ static PetscErrorCode MaybeRequestRuntimeWalltimeGuardShutdown(SimCtx *simCtx, c
     LOG_ALLOW(
         GLOBAL,
         LOG_WARNING,
-        "[T=%.4f, Step=%d] AUTO_WALLTIME_GUARD requested at %s: remaining walltime %.1f s <= required headroom %.1f s "
+        "[T=%.4f, Step=%" PetscInt_FMT "] AUTO_WALLTIME_GUARD requested at %s: remaining walltime %.1f s <= required headroom %.1f s "
         "(warmup avg %.1f s, ewma %.1f s, latest %.1f s).\n",
         simCtx->ti,
         simCtx->step,
@@ -325,7 +325,7 @@ static PetscErrorCode WriteForcedTerminationOutput(SimCtx *simCtx, UserCtx *user
     ierr = RuntimeMemoryLogSample(simCtx, simCtx->step, "Shutdown", RuntimeShutdownReasonName()); CHKERRQ(ierr);
 
     LOG(GLOBAL, LOG_WARNING,
-        "[T=%.4f, Step=%d] Shutdown requested by %s during %s. Writing final output outside the normal cadence before exiting.\n",
+        "[T=%.4f, Step=%" PetscInt_FMT "] Shutdown requested by %s during %s. Writing final output outside the normal cadence before exiting.\n",
         simCtx->ti, simCtx->step, RuntimeShutdownReasonName(), phase);
 
     ierr = WriteCheckpointBundle(simCtx, "signal"); CHKERRQ(ierr);
@@ -352,7 +352,7 @@ PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user, PetscBool preserve_prev
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: Updating solver history vectors.\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %" PetscInt_FMT ": Updating solver history vectors.\n",
               simCtx->rank, user->_this);
 
     // --- Primary Contravariant Velocity History ---
@@ -365,13 +365,13 @@ PetscErrorCode UpdateSolverHistoryVectors(UserCtx *user, PetscBool preserve_prev
     // 2. Then, move the new n state (Ucont) to the n-1 slot (Ucont_o).
     ierr = VecCopy(user->Ucont, user->Ucont_o); CHKERRQ(ierr);
 
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "Rank %d, Block %d, Ucont history updated.\n",simCtx->rank,user->_this); 
+    LOG_ALLOW(LOCAL,LOG_DEBUG, "Rank %d, Block %" PetscInt_FMT ", Ucont history updated.\n",simCtx->rank,user->_this); 
     
     // --- Update History for Other Fields ---
     // These are typically only needed at the n-1 state.
     ierr = VecCopy(user->Ucat, user->Ucat_o); CHKERRQ(ierr);
     ierr = VecCopy(user->P, user->P_o); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "Rank %d, Block %d, Ucat & P  history updated.\n",simCtx->rank,user->_this); 
+    LOG_ALLOW(LOCAL,LOG_DEBUG, "Rank %d, Block %" PetscInt_FMT ", Ucat & P  history updated.\n",simCtx->rank,user->_this); 
     
     if (simCtx->immersed) {
         ierr = VecCopy(user->Nvert, user->Nvert_o); CHKERRQ(ierr);
@@ -405,7 +405,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     
-    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Performing initial particle setup procedures.\n", simCtx->ti, simCtx->step);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Performing initial particle setup procedures.\n", simCtx->ti, simCtx->step);
 
     // --- 0. Loop over all blocks to compute Eulerian diffusivity.
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
@@ -416,25 +416,25 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     // --- 1. Initial Particle Settlement (Location and Migration) ---
     // Seeding records each particle's cell where it knows it; particles whose cell another rank
     // owns (a point source) go straight to that owner first, as restarted particles do.
-    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Initial Settlement: Locating and migrating all particles...\n", simCtx->ti, simCtx->step);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Initial Settlement: Locating and migrating all particles...\n", simCtx->ti, simCtx->step);
     ierr = MigrateRestartParticlesUsingCellID(user); CHKERRQ(ierr);
     ierr = LocateAllParticlesInGrid(user, bboxlist); CHKERRQ(ierr);
 
     if(get_log_level() >= LOG_DEBUG && is_function_allowed(__func__)==true){
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%d] Particle field states after Initial settlement...\n", simCtx->ti, simCtx->step);
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%" PetscInt_FMT "] Particle field states after Initial settlement...\n", simCtx->ti, simCtx->step);
         ierr = LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency); CHKERRQ(ierr);
     }
 
     // --- 2. Re-initialize Particles on Inlet Surface (if applicable) ---
     if ((simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM ||
          simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_EDGES) && user->inletFaceDefined) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Re-initializing particles on inlet surface...\n", simCtx->ti, simCtx->step);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Re-initializing particles on inlet surface...\n", simCtx->ti, simCtx->step);
         ierr = ReinitializeParticlesOnInletSurface(user, simCtx->ti, simCtx->step); CHKERRQ(ierr);
 
-        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Resetting statuses for post-reinitialization settlement.\n", simCtx->ti, simCtx->step);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Resetting statuses for post-reinitialization settlement.\n", simCtx->ti, simCtx->step);
         ierr = ResetAllParticleStatuses(user); CHKERRQ(ierr);
     
-        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Post-Reinitialization Settlement...\n", simCtx->ti, simCtx->step);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Post-Reinitialization Settlement...\n", simCtx->ti, simCtx->step);
         ierr = LocateAllParticlesInGrid(user, bboxlist); CHKERRQ(ierr);
 
     }
@@ -453,7 +453,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     }
 
     // --- 3. Finalize State for t=0 ---
-    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Interpolating initial fields to settled particles.\n", simCtx->ti, simCtx->step);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Interpolating initial fields to settled particles.\n", simCtx->ti, simCtx->step);
     ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
     ierr = RefreshScatteredParticleState(user); CHKERRQ(ierr);
 
@@ -465,7 +465,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     }
 
     {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Writing initialized checkpoint.\n", simCtx->ti, simCtx->step);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Writing initialized checkpoint.\n", simCtx->ti, simCtx->step);
         ierr = WriteCheckpointBundle(simCtx, simCtx->StartStep == 0 ? "initial" : "branch_start"); CHKERRQ(ierr);
         ierr = LOG_SCATTER_METRICS(user); CHKERRQ(ierr);
     }
@@ -507,11 +507,11 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     ierr = LocateAllParticlesInGrid(user, simCtx->bboxlist); CHKERRQ(ierr);
 
     if(get_log_level() == LOG_DEBUG){
-        LOG(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%d] Particle field states after locating loaded particles...\n", simCtx->ti, simCtx->step);
+        LOG(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%" PetscInt_FMT "] Particle field states after locating loaded particles...\n", simCtx->ti, simCtx->step);
         ierr = LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency); CHKERRQ(ierr);
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Interpolating initial fields to settled particles.\n", simCtx->ti, simCtx->step);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Interpolating initial fields to settled particles.\n", simCtx->ti, simCtx->step);
 
     // 2. Ensure particles have velocity from the authoritative loaded grid for consistency.
     ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
@@ -527,7 +527,7 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     }
 
     {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%d] Writing restored checkpoint.\n", simCtx->ti, simCtx->step);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Writing restored checkpoint.\n", simCtx->ti, simCtx->step);
         ierr = WriteCheckpointBundle(simCtx, "branch_start"); CHKERRQ(ierr);
         ierr = LOG_SCATTER_METRICS(user); CHKERRQ(ierr);
     }
@@ -551,7 +551,7 @@ PetscErrorCode FinalizeRestartState(SimCtx *simCtx)
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Finalizing RESTART from state (step=%d, t=%.4f) ---\n", simCtx->StartStep, simCtx->ti);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Finalizing RESTART from state (step=%" PetscInt_FMT ", t=%.4f) ---\n", simCtx->StartStep, simCtx->ti);
 
     // This function only needs to handle the particle finalization logic.
     // The Eulerian state is assumed to be fully loaded and consistent at this point.
@@ -609,7 +609,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting main time-marching loop: %d steps from step %d (t=%.4f), dt=%.4f\n",
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting main time-marching loop: %" PetscInt_FMT " steps from step %" PetscInt_FMT " (t=%.4f), dt=%.4f\n",
               StepsToRun, StartStep, simCtx->StartTime, dt);
 
     // --- Main Time-Marching Loop ---
@@ -631,7 +631,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         simCtx->step = step + 1;
         simCtx->ti   += simCtx->dt; //simCtx->StartTime + step * simCtx->dt;
 
-        LOG_ALLOW(GLOBAL, LOG_INFO, "--- Advancing Step %d (To t=%.4f) ---\n", simCtx->step, simCtx->ti);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "--- Advancing Step %" PetscInt_FMT " (To t=%.4f) ---\n", simCtx->step, simCtx->ti);
         
 
         // For particles, reset their status to prepare for the new advection/location cycle
@@ -657,7 +657,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Eulerian Field ...\n");
         if(strcmp(simCtx->eulerianSource,"load")==0){
             //LOAD mode: Read pre-computed fields for the current step.
-            LOG_ALLOW(GLOBAL,LOG_INFO,"Eulerian Source 'load': Reading fields (t=%.4f,step=%d)...\n",simCtx->ti,simCtx->step);
+            LOG_ALLOW(GLOBAL,LOG_INFO,"Eulerian Source 'load': Reading fields (t=%.4f,step=%" PetscInt_FMT ")...\n",simCtx->ti,simCtx->step);
             for(PetscInt bi = 0; bi < simCtx->block_number;bi++){
                 ierr = ReadSimulationFields(&user[bi],simCtx->step); CHKERRQ(ierr);
             }
@@ -737,10 +737,10 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             simCtx->particlesLostCumulative += removed_global_lost;
             simCtx->particlesExitedCumulative += simCtx->particlesExitedLastStep;
             if (removed_global_lost > 0) {
-                LOG_ALLOW(GLOBAL, LOG_WARNING, "Removed %d particles whose search failed (LOST) this step.\n", removed_global_lost);
+                LOG_ALLOW(GLOBAL, LOG_WARNING, "Removed %" PetscInt_FMT " particles whose search failed (LOST) this step.\n", removed_global_lost);
             }
             if (simCtx->particlesExitedLastStep > 0) {
-                LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %d particles that left the domain this step.\n", simCtx->particlesExitedLastStep);
+                LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %" PetscInt_FMT " particles that left the domain this step.\n", simCtx->particlesExitedLastStep);
             }
 
             // e. Interpolate the NEW fluid velocity (just computed by FlowSolver) onto the
@@ -793,7 +793,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         
         // Handle periodic file output
         if (ShouldWriteDataOutput(simCtx, simCtx->step)) {
-            LOG_ALLOW(GLOBAL, LOG_INFO, "Writing output for step %d.\n",simCtx->step);
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Writing output for step %" PetscInt_FMT ".\n",simCtx->step);
             ierr = WriteCheckpointBundle(simCtx, "cadence"); CHKERRQ(ierr);
             if (simCtx->np > 0) {
                 if (strcmp(simCtx->eulerianSource, "analytical") == 0 &&
@@ -848,7 +848,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
 
     if (terminated_early) {
         LOG_ALLOW(GLOBAL, LOG_WARNING,
-                  "Time marching stopped early after %s. Final retained state is step %d at t=%.4f.\n",
+                  "Time marching stopped early after %s. Final retained state is step %" PetscInt_FMT " at t=%.4f.\n",
                   RuntimeShutdownReasonName(), simCtx->step, simCtx->ti);
     } else {
         if (StepsToRun > 0) {

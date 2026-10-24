@@ -481,3 +481,17 @@ def test_wall_provider_routes_and_rejects_incompatible_boundaries():
     bcs[2]['handler'] = 'slip'
     with pytest.raises(ValueError, match='no-slip'):
         CORE.resolve_initial_condition_config(cfg,[bcs], scales={"length_ref": 1.0, "velocity_ref": 1.0})
+
+
+def test_writer_uses_the_requested_petsc_index_width(tmp_path, monkeypatch):
+    """!
+    @brief The generated Vec carries 8-byte PetscInt sizes when the reading solver is 64-bit.
+    @param[in] tmp_path Pytest temporary directory.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    field = np.arange(6.0).reshape(2, 3)
+    monkeypatch.setattr(IC, "PETSC_INDEX_BYTES", 8)
+    IC.write_petsc_vec_binary(str(tmp_path / "wide.dat"), field)
+    raw = (tmp_path / "wide.dat").read_bytes()
+    assert struct.unpack(">qq", raw[:16]) == (IC.PETSC_VEC_CLASS_ID, 6)
+    assert len(raw) == 16 + 6 * 8

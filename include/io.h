@@ -257,7 +257,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
  * @param comm MPI communicator used by the write operation.
  * @return Integer value produced by `CreateVTKFileFromMetadata()`.
  */
-PetscInt CreateVTKFileFromMetadata(const char       *filename,
+PetscErrorCode CreateVTKFileFromMetadata(const char       *filename,
                                    const VTKMetaData *meta,
                                    MPI_Comm           comm);
 

@@ -661,16 +661,22 @@ def generate_ucont(nodes, config):
     return _apply_controls(field, config)
 
 
+#: Bytes of a PetscInt in the PETSc that will read the output; set from `--petsc-index-bytes`.
+PETSC_INDEX_BYTES = 4
+
+
 def write_petsc_vec_binary(path: str, field) -> None:
     """!
     @brief Write a big-endian real64 PETSc Vec binary.
+    @details The class id and count are PetscInt of PETSC_INDEX_BYTES, so the reading solver's
+             PETSc, which does not detect the width, reads them as it wrote its own.
     @param[in] path Output path.
     @param[in] field Full field array.
     """
     values = np.asarray(field, dtype=">f8").reshape(-1)
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "wb") as fout:
-        fout.write(struct.pack(">ii", PETSC_VEC_CLASS_ID, values.size))
+        fout.write(struct.pack(">ii" if PETSC_INDEX_BYTES == 4 else ">qq", PETSC_VEC_CLASS_ID, values.size))
         fout.write(values.tobytes())
 
 
@@ -1669,6 +1675,8 @@ def build_parser():
                         help="Reference length: expressions see physical coordinates, grid * length_ref.")
     parser.add_argument("--velocity-ref", type=float, default=1.0,
                         help="Reference velocity: expression values are physical and are written in solver units.")
+    parser.add_argument("--petsc-index-bytes", type=int, choices=(4, 8), default=4,
+                        help="Bytes of a PetscInt in the PETSc that will read the output (4 or 8).")
     return parser
 
 
@@ -1705,6 +1713,8 @@ def main(argv=None) -> int:
     @return Process exit code.
     """
     args = build_parser().parse_args(argv)
+    global PETSC_INDEX_BYTES
+    PETSC_INDEX_BYTES = args.petsc_index_bytes
     try:
         grid_path = args.grid or os.path.join(os.path.dirname(os.path.abspath(args.output)), "grid.run")
         dims, nodes = read_picgrid(grid_path)

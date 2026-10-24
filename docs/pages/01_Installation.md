@@ -226,6 +226,30 @@ make all
 make check
 ```
 
+@subsection p01_petsc_index_sub 5.1 64-bit Indices For Very Large Particle Counts
+
+PETSc's default `PetscInt` is 32-bit, so one vector holds at most 2,147,483,647 entries. A
+particle field of three components therefore limits a run to about 7.16 x 10^8 particles; the
+solver refuses a larger `-numParticles` at setup and names the limit. Above it, build a second
+PETSc with `--with-64-bit-indices` added to the same configure options, and build PICurv
+against it in its own checkout. Keep the 32-bit build as the default: 64-bit indices double
+the size of every index array, mainly in the flow solver's sparse matrices.
+
+The width is fixed when PETSc is configured; a `module load` cannot change it. `picurv
+version` shows each executable's width (`PETSc: 3.20.3 optimized, 64-bit indices`), and each
+checkout's `picurv` drives the executables of that checkout, so a run staged by the 64-bit
+checkout's `picurv` restarts and post-processes with the 64-bit executables. To call it by
+name, place a small wrapper on `PATH`, for example `picurv64` containing
+`exec /path/to/PICurv64/bin/picurv "$@"`; a symlink does not work, because the launcher locates
+its checkout from its own path.
+
+Checkpoints are not portable between the two widths: PETSc binary files store their sizes as
+`PetscInt` without recording the width. `checkpoint.meta` records it, and restart and
+post-processing refuse a checkpoint written by the other width. Files the conductor writes for
+the solver (generated initial conditions) use the width of the solver it drives. A replacement
+generator script must accept `--petsc-index-bytes 8`, which the conductor passes only to a
+64-bit solver.
+
 Official references:
 
 - https://petsc.org/release/install/
@@ -313,7 +337,7 @@ postprocessor --version
 ```
 
 All three must report the same release. Each executable's second line names the PETSc it
-was built against; under it `picurv version` shows the `libpetsc` this shell would load,
+was built against, including its index width (`int32` or `int64`); under it `picurv version` shows the `libpetsc` this shell would load,
 marked when it is not that PETSc. `picurv version --format json` also reports the Git
 commit, dirty-tree state, active workspace, and optional workspace requirement.
 

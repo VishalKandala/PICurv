@@ -476,7 +476,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev smoke-driven-periodic unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-post-eulerian-vtk-mpi unit-post-particle-vtk-mpi unit-post-compute-mpi unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-les unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-full check-stress audit-build build-docs docs-xref open-docs tags audit-ingress audit-docs-expansion audit-docs-site preview-docs docs-inventory docs-topology audit-capability audit-contracts audit-path-literals audit-profiling audit-family-census audit-page-types audit-inline-choices audit-subsystems audit-freshness audit-agent-setup sync-agent-skills docs-cli-reference audit-cli-reference scaffold review-packet certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev smoke-driven-periodic unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-post-eulerian-vtk-mpi unit-post-particle-vtk-mpi unit-post-compute-mpi unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-les unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-alt-petsc check-full check-stress audit-build build-docs docs-xref open-docs tags audit-ingress audit-docs-expansion audit-docs-site preview-docs docs-inventory docs-topology audit-capability audit-contracts audit-path-literals audit-profiling audit-family-census audit-page-types audit-inline-choices audit-subsystems audit-freshness audit-agent-setup sync-agent-skills docs-cli-reference audit-cli-reference scaffold review-packet certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -842,6 +842,29 @@ check-mpi: check
 check-mpi-matrix: check
 	@$(MAKE) --no-print-directory smoke-mpi-matrix SYSTEM=$(SYSTEM)
 	@$(MAKE) --no-print-directory unit-mpi SYSTEM=$(SYSTEM)
+
+## @target check-alt-petsc
+## @brief Builds the committed HEAD against a second PETSc (e.g. 64-bit indices) and runs `unit`,
+##        `unit-mpi`, `smoke`, `smoke-mpi` and the Python tests on it.
+## @details The build happens in a detached worktree outside the repository (ALT_WORKTREE), so this
+##          checkout's bin/ and obj/ keep their own PETSc. Uncommitted changes are not included.
+##          Usage: make check-alt-petsc ALT_PETSC_ARCH=arch-linux-c-debug-int64 [ALT_PETSC_DIR=...]
+ALT_PETSC_DIR ?= $(PETSC_DIR)
+ALT_WORKTREE  ?= $(or $(TMPDIR),/tmp)/picurv-alt-petsc-$(ALT_PETSC_ARCH)
+check-alt-petsc:
+	@test -n "$(ALT_PETSC_ARCH)" || { echo "check-alt-petsc: set ALT_PETSC_ARCH to the second PETSc's arch."; exit 2; }
+	@git diff --quiet HEAD || echo "check-alt-petsc: note - uncommitted changes are not tested; only HEAD is."
+	@if git -C "$(ALT_WORKTREE)" rev-parse --git-dir >/dev/null 2>&1; then \
+	  git -C "$(ALT_WORKTREE)" checkout -q --detach "$$(git rev-parse HEAD)"; \
+	else \
+	  git worktree add -q --detach "$(ALT_WORKTREE)" HEAD; \
+	fi
+	@echo "check-alt-petsc: testing $$(git rev-parse --short HEAD) against $(ALT_PETSC_DIR)/$(ALT_PETSC_ARCH) in $(ALT_WORKTREE)"
+	@$(MAKE) --no-print-directory -C "$(ALT_WORKTREE)" PETSC_DIR="$(ALT_PETSC_DIR)" PETSC_ARCH="$(ALT_PETSC_ARCH)" \
+	  all unit unit-mpi smoke smoke-mpi
+	@# The documentation-site audit reads a built site, which the scratch worktree never has
+	@# and which no PETSc build can change.
+	@cd "$(ALT_WORKTREE)" && python3 -m pytest -q -k "not audit_docs_site"
 
 ## @target check-full
 ## @brief Runs `check` plus all MPI validation layers (`unit-mpi`, `smoke-mpi`, `smoke-mpi-matrix`).

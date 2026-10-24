@@ -310,6 +310,29 @@ static PetscErrorCode TestUnsolvedFlowUsesOneGridLevel(void)
 }
 
 /**
+ * @brief Ensures setup refuses a particle count whose widest swarm field PetscInt cannot index.
+ * @details Particle fields have up to three components, so the limit is PETSC_MAX_INT / 3
+ *          particles; with 64-bit indices no representable -numParticles reaches it.
+ */
+static PetscErrorCode TestParticleCountMustFitPetscInt(void)
+{
+    char tmpdir[PETSC_MAX_PATH_LEN], line[64];
+    SimCtx *simCtx = NULL;
+    PetscErrorCode setup_ierr = 0;
+
+    PetscFunctionBeginUser;
+    if (sizeof(PetscInt) > 4) PetscFunctionReturn(0);
+    PetscCall(PetscSNPrintf(line, sizeof(line), "-numParticles %" PetscInt_FMT "\n", (PetscInt)(PETSC_MAX_INT / 3) + 1));
+    PetscCall(TryContextWithExtraLines(line, &simCtx, &setup_ierr, tmpdir, sizeof(tmpdir)));
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_OUTOFRANGE, setup_ierr,
+                                   "a particle count past PETSC_MAX_INT / 3 must be refused with 32-bit indices"));
+    PetscCall(FreeLifecycleContext(&simCtx));
+    PetscCall(PetscOptionsClear(NULL));
+    PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Ensures setup propagates invalid post intervals before either executable can loop.
  */
 static PetscErrorCode TestSetupRejectsNonpositivePostInterval(void)
@@ -1058,6 +1081,7 @@ int main(int argc, char **argv)
         {"setup-rejects-unimplemented-feature-flags", TestSetupRejectsUnimplementedFeatureFlags},
         {"iem-constant-is-configurable", TestIEMConstantIsConfigurable},
         {"unsolved-flow-uses-one-grid-level", TestUnsolvedFlowUsesOneGridLevel},
+        {"particle-count-must-fit-petscint", TestParticleCountMustFitPetscInt},
         {"setup-rejects-nonpositive-post-interval", TestSetupRejectsNonpositivePostInterval},
         {"configured-iem-updates-swarm", TestConfiguredIEMUpdatesSwarm},
         {"configured-particle-initial-value", TestConfiguredParticleInitialValue},

@@ -58,7 +58,7 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
         PetscFunctionReturn(0);
     }
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: Applying driven flow momentum source in '%c' direction.\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %" PetscInt_FMT ": Applying driven flow momentum source in '%c' direction.\n",
               simCtx->rank, user->_this, drivenDirection);
     LOG_ALLOW(LOCAL, LOG_DEBUG, "  - Received Bulk Velocity Correction: %le\n", bulkVelocityCorrection);
 
@@ -126,7 +126,7 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
 
                             // Log details for the very first point where force is applied on this rank.
                             if (!hasLoggedApplication) {
-                                LOG_ALLOW(LOCAL, LOG_DEBUG,"Body Force %le added at (%d,%d,%d)\n",momentumSource, k, j, i);
+                                LOG_ALLOW(LOCAL, LOG_DEBUG,"Body Force %le added at (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",momentumSource, k, j, i);
                                 hasLoggedApplication = PETSC_TRUE;
                             }
                                 break;
@@ -137,7 +137,7 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
                             
                             // Log details for the very first point where force is applied on this rank.
                             if (!hasLoggedApplication) {
-                                LOG_ALLOW(LOCAL, LOG_DEBUG,"Body Force %le added at (%d,%d,%d)\n",momentumSource, k, j, i);
+                                LOG_ALLOW(LOCAL, LOG_DEBUG,"Body Force %le added at (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",momentumSource, k, j, i);
                                 hasLoggedApplication = PETSC_TRUE;
                             }
                             break;
@@ -148,7 +148,7 @@ PetscErrorCode ComputeDrivenChannelFlowSource(UserCtx *user, Vec Rct)
 
                             // Log details for the very first point where force is applied on this rank.
                             if (!hasLoggedApplication) {
-                                LOG_ALLOW(LOCAL, LOG_DEBUG,"Body Force %le added at (%d,%d,%d)\n",momentumSource, k, j, i);
+                                LOG_ALLOW(LOCAL, LOG_DEBUG,"Body Force %le added at (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",momentumSource, k, j, i);
                                 hasLoggedApplication = PETSC_TRUE;
                             }
                             break;

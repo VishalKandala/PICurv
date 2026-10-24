@@ -219,7 +219,7 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector(
     PetscInt KM = info.mz - 1; // Total nodes in k-direction
 
     LOG_ALLOW_SYNC(GLOBAL,LOG_VERBOSE,
-        "[Rank %d] Starting -- Node ownership k=%d..%d, j=%d..%d, i=%d..%d\n",
+        "[Rank %d] Starting -- Node ownership k=%" PetscInt_FMT "..%" PetscInt_FMT ", j=%" PetscInt_FMT "..%" PetscInt_FMT ", i=%" PetscInt_FMT "..%" PetscInt_FMT "\n",
         rank, zs_node, ze_node-1, ys_node, ye_node-1, xs_node, xe_node-1);
 
     // Loop over the GLOBAL indices of the NODES owned by this processor
@@ -268,7 +268,7 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector(
                             {
                                     Cmpnts cell_val = centfield_arr[global_cell_k + 1][global_cell_j + 1][global_cell_i + 1];
 
-                                    LOG_LOOP_ALLOW_EXACT(LOCAL, LOG_VERBOSE,k,49,"[Rank %d] successful read from [%d][%d][%d] -> (%.2f, %.2f, %.2f)\n",
+                                    LOG_LOOP_ALLOW_EXACT(LOCAL, LOG_VERBOSE,k,49,"[Rank %d] successful read from [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] -> (%.2f, %.2f, %.2f)\n",
                                         rank,global_cell_k,global_cell_j,global_cell_i,cell_val.x, cell_val.y, cell_val.z);
                     
                                     sum.x += cell_val.x;
@@ -352,7 +352,7 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(
     PetscInt KM = info.mz - 1; // Total nodes in k-direction
 
     LOG_ALLOW_SYNC(GLOBAL,LOG_VERBOSE,
-        "[Rank %d] Starting -- Node ownership k=%d..%d, j=%d..%d, i=%d..%d\n",
+        "[Rank %d] Starting -- Node ownership k=%" PetscInt_FMT "..%" PetscInt_FMT ", j=%" PetscInt_FMT "..%" PetscInt_FMT ", i=%" PetscInt_FMT "..%" PetscInt_FMT "\n",
         rank, zs_node, ze_node-1, ys_node, ye_node-1, xs_node, xe_node-1);
 
     // Loop over the GLOBAL indices of the NODES owned by this processor
@@ -401,7 +401,7 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(
                             {
                                     PetscReal cell_val = centfield_arr[global_cell_k + 1][global_cell_j + 1][global_cell_i + 1];
 
-                                    LOG_LOOP_ALLOW_EXACT(LOCAL, LOG_VERBOSE,k,49,"[Rank %d] successful read from [%d][%d][%d] -> (%.2f)\n",
+                                    LOG_LOOP_ALLOW_EXACT(LOCAL, LOG_VERBOSE,k,49,"[Rank %d] successful read from [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] -> (%.2f)\n",
                                         rank,global_cell_k,global_cell_j,global_cell_i,cell_val);
                     
                                     sum += cell_val;
@@ -467,7 +467,7 @@ PetscErrorCode PieceWiseLinearInterpolation_Scalar(
   
   // Optional logging
   LOG_ALLOW(LOCAL, LOG_VERBOSE,
-      "Field '%s' at (i=%d, j=%d, k=%d) => val=%.6f\n",
+      "Field '%s' at (i=%" PetscInt_FMT ", j=%" PetscInt_FMT ", k=%" PetscInt_FMT ") => val=%.6f\n",
       fieldName, iCell, jCell, kCell, *val);
 
   PROFILE_HELPER_END;
@@ -494,7 +494,7 @@ PetscErrorCode PieceWiseLinearInterpolation_Vector(
 
   // Optional logging
   LOG_ALLOW(LOCAL, LOG_VERBOSE,
-      "Field '%s' at (i=%d, j=%d, k=%d) => (x=%.6f, y=%.6f, z=%.6f)\n",
+      "Field '%s' at (i=%" PetscInt_FMT ", j=%" PetscInt_FMT ", k=%" PetscInt_FMT ") => (x=%.6f, y=%.6f, z=%.6f)\n",
       fieldName, iCell, jCell, kCell, vec->x, vec->y, vec->z);
 
   PROFILE_HELPER_END;
@@ -611,7 +611,7 @@ PetscErrorCode TrilinearInterpolation_Scalar(
 
     // Logging (optional)
     LOG_ALLOW(LOCAL, LOG_VERBOSE,
-        "Field '%s' at (i=%d, j=%d, k=%d), "
+        "Field '%s' at (i=%" PetscInt_FMT ", j=%" PetscInt_FMT ", k=%" PetscInt_FMT "), "
         "a1=%.6f, a2=%.6f, a3=%.6f -> val=%.6f.\n",
         fieldName, i, j, k, a1, a2, a3, *val);
 
@@ -650,7 +650,7 @@ PetscErrorCode TrilinearInterpolation_Vector(
   LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d] Computing Trilinear Weights.\n",rank);
   ComputeTrilinearWeights(a1, a2, a3, wcorner);
   
-  LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]  Trilinear weights computed for local cell %d,%d,%d.\n",rank,i,j,k);
+  LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]  Trilinear weights computed for local cell %" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ".\n",rank,i,j,k);
 
   // For partial interpolation, we'll keep track of how many corners are valid
   // and how much sum of weights is used. Then we do a final normalization.
@@ -693,7 +693,7 @@ PetscErrorCode TrilinearInterpolation_Vector(
 
     */
 
-    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d] %s[%d][%d][%d] = (%.4f,%.4f,%.4f).\n",rank,fieldName,kC,jC,iC,fieldVec[kC][jC][iC].x,fieldVec[kC][jC][iC].y,fieldVec[kC][jC][iC].z);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d] %s[%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] = (%.4f,%.4f,%.4f).\n",rank,fieldName,kC,jC,iC,fieldVec[kC][jC][iC].x,fieldVec[kC][jC][iC].y,fieldVec[kC][jC][iC].z);
     
     // Otherwise, accumulate
     accum.x += wcorner[c] * fieldVec[kC][jC][iC].x;
@@ -740,8 +740,8 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
 
   // Optional logging at start
   LOG_ALLOW(LOCAL, LOG_VERBOSE,
-    "field='%s', blockSize=%d, "
-    "cell IDs=(%d,%d,%d), weights=(%.4f,%.4f,%.4f)\n",
+    "field='%s', blockSize=%" PetscInt_FMT ", "
+    "cell IDs=(%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "), weights=(%.4f,%.4f,%.4f)\n",
     fieldName, blockSize, iCell, jCell, kCell, a1, a2, a3);
 
   /*
@@ -772,7 +772,7 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
 
     LOG_ALLOW(LOCAL, LOG_VERBOSE,
       "field='%s', result=%.6f "
-      "stored at swarmOut index p=%d.\n", fieldName, val, (PetscInt)p);
+      "stored at swarmOut index p=%" PetscInt_FMT ".\n", fieldName, val, (PetscInt)p);
   }
   else if (blockSize == 3) {
     /* Vector field: Cast fieldPtr to (Cmpnts ***). */
@@ -803,7 +803,7 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
 
     LOG_ALLOW(LOCAL, LOG_VERBOSE,
       "field='%s', result=(%.6f,%.6f,%.6f) "
-      "stored at swarmOut[3p..3p+2], p=%d.\n",
+      "stored at swarmOut[3p..3p+2], p=%" PetscInt_FMT ".\n",
       fieldName, vec.x, vec.y, vec.z, (PetscInt)p);
 
     /*
@@ -815,7 +815,7 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
   else {
     /* If blockSize isn't 1 or 3, we raise an error. */
     SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP,
-      "InterpolateEulerFieldToSwarmForParticle: only blockSize=1 or 3 supported, got %d.",
+      "InterpolateEulerFieldToSwarmForParticle: only blockSize=1 or 3 supported, got %" PetscInt_FMT ".",
       (PetscInt)blockSize);
   }
 
@@ -945,7 +945,7 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
         {
             for (PetscInt t = 0; t < ntargets; ++t) {
                 LOG_ALLOW(LOCAL, LOG_WARNING,
-                    "[Rank %d] Particle PID %lld: dual cell (%d,%d,%d) out of ghosted region. Zeroing '%s'.\n",
+                    "[Rank %d] Particle PID %lld: dual cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") out of ghosted region. Zeroing '%s'.\n",
                     rank, (long long)particle.PID, bi, bj, bk, targets[t].field_name);
                 for (PetscInt c = 0; c < targets[t].bs; ++c) targets[t].swarm_out[targets[t].bs * p + c] = 0.0;
             }
@@ -967,7 +967,7 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
         if (needs_unclamped) ComputeTrilinearWeightsUnclamped(a1_new, a2_new, a3_new, w);
 
         LOG_ALLOW(LOCAL, LOG_VERBOSE,
-            "[Rank %d] PID %lld: dual base=(%d,%d,%d), new weights=(%.4f,%.4f,%.4f), unclamped=%d\n",
+            "[Rank %d] PID %lld: dual base=(%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "), new weights=(%.4f,%.4f,%.4f), unclamped=%d\n",
             rank, (long long)particle.PID, bi, bj, bk, a1_new, a2_new, a3_new, (int)needs_unclamped);
 
         /* Step 8: Call TrilinearInterpolation directly with shifted dual-cell indices.
@@ -1083,7 +1083,7 @@ static PetscErrorCode InterpolateEulerVelocityFromFacesToSwarm(UserCtx *user, co
             j - 1 < info.gys || j >= info.gys + info.gym ||
             k - 1 < info.gzs || k >= info.gzs + info.gzm) {
             LOG_ALLOW(LOCAL, LOG_WARNING,
-                "[Rank %d] Particle PID %lld: host cell (%d,%d,%d) faces out of ghosted region. Zeroing '%s'.\n",
+                "[Rank %d] Particle PID %lld: host cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") faces out of ghosted region. Zeroing '%s'.\n",
                 rank, (long long)pids[p], i - 1, j - 1, k - 1, swarmOutFieldName);
             velocity[3*p + 0] = velocity[3*p + 1] = velocity[3*p + 2] = 0.0;
             continue;
@@ -1175,25 +1175,25 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
 
     PetscInt size; 
     ierr = VecGetSize(cornerGlobal, &size); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Corner global vector size for field '%s': %d.\n", rank, fieldName, (PetscInt)size);
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Corner global vector size for field '%s': %" PetscInt_FMT ".\n", rank, fieldName, (PetscInt)size);
     
     size = 0;
 
     ierr = VecGetSize(cornerLocal, &size); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Corner local vector size for field '%s': %d.\n", rank, fieldName, (PetscInt)size);
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Corner local vector size for field '%s': %" PetscInt_FMT ".\n", rank, fieldName, (PetscInt)size);
 
     size = 0;
     
     ierr = VecGetSize(fieldLocal_cellCentered, &size); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Cell-centered local vector size for field '%s': %d.\n", rank, fieldName, (PetscInt)size);
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Cell-centered local vector size for field '%s': %" PetscInt_FMT ".\n", rank, fieldName, (PetscInt)size);
     
     PetscInt xs,ys,zs,gxs,gys,gzs;
     
     ierr  = DMDAGetCorners(dm_corner,&xs,&ys,&zs,NULL,NULL,NULL); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] DMDAGetCorners for field '%s': xs=%d, ys=%d, zs=%d.\n", rank, fieldName, (PetscInt)xs, (PetscInt)ys, (PetscInt)zs);
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] DMDAGetCorners for field '%s': xs=%" PetscInt_FMT ", ys=%" PetscInt_FMT ", zs=%" PetscInt_FMT ".\n", rank, fieldName, (PetscInt)xs, (PetscInt)ys, (PetscInt)zs);
 
     ierr  = DMDAGetGhostCorners(dm_corner,&gxs,&gys,&gzs,NULL,NULL,NULL); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] DMDAGetGhostCorners for field '%s': gxs=%d, gys=%d, gzs=%d.\n", rank, fieldName, (PetscInt)gxs, (PetscInt)gys, (PetscInt)gzs);
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] DMDAGetGhostCorners for field '%s': gxs=%" PetscInt_FMT ", gys=%" PetscInt_FMT ", gzs=%" PetscInt_FMT ".\n", rank, fieldName, (PetscInt)gxs, (PetscInt)gys, (PetscInt)gzs);
     
     // DEBUG: Inspect Ucat ghost cells before interpolation
     /*
@@ -1346,7 +1346,7 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, swarmOutFieldName, NULL, NULL, &swarmOut); CHKERRQ(ierr);
 
-    LOG_ALLOW(LOCAL,LOG_TRACE," Rank %d holds data upto & including %d,%d,%d.\n",rank,info.gxs + info.gxm,info.gys+info.gym,info.gzs+info.gzm);
+    LOG_ALLOW(LOCAL,LOG_TRACE," Rank %d holds data upto & including %" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ".\n",rank,info.gxs + info.gxm,info.gys+info.gym,info.gzs+info.gzm);
 
     // (G) Loop over each local particle
     for (PetscInt p = 0; p < nLocal; p++) {
@@ -1356,7 +1356,7 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
         ierr = UnpackSwarmFields(p,pids,weights,pos,cellIDs,NULL,status,NULL,NULL,NULL,&particle); CHKERRQ(ierr);
         
         LOG_ALLOW(LOCAL, LOG_VERBOSE,
-          "[Rank %d] Particle PID %lld: global cell=(%d,%d,%d), weights=(%.4f,%.4f,%.4f)\n",
+          "[Rank %d] Particle PID %lld: global cell=(%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "), weights=(%.4f,%.4f,%.4f)\n",
           rank, (long long)particle.PID, particle.cell[0], particle.cell[1], particle.cell[2],
           particle.weights.x, particle.weights.y, particle.weights.z);
         // Safety check: Ensure the entire 8-node stencil is within the valid memory
@@ -1367,7 +1367,7 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
             particle.cell[2] < info.gzs || particle.cell[2] >= info.gzs + info.gzm - 1)
         {
             LOG_ALLOW(LOCAL, LOG_WARNING,
-                      "[Rank %d] Particle PID %lld in global cell (%d,%d,%d) is in an un-interpolatable region (requires ghosts of ghosts or is out of bounds). Zeroing field '%s'.\n",
+                      "[Rank %d] Particle PID %lld in global cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") is in an un-interpolatable region (requires ghosts of ghosts or is out of bounds). Zeroing field '%s'.\n",
                       rank, (long long)particle.PID, particle.cell[0], particle.cell[1], particle.cell[2], fieldName);
             if (bs == 3) {
                 ((PetscReal*)swarmOut)[3*p + 0] = 0.0;
@@ -1425,7 +1425,7 @@ static PetscErrorCode ResolveInterpolationPair(UserCtx *user, FieldId source_fie
                (*target_descriptor)->canonical_name);
     PetscCheck(source_view->descriptor->dof == (*target_descriptor)->components,
                PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP,
-               "Eulerian source '%s' has %d components but particle destination '%s' has %d.",
+               "Eulerian source '%s' has %" PetscInt_FMT " components but particle destination '%s' has %" PetscInt_FMT ".",
                source_view->descriptor->canonical_name, source_view->descriptor->dof,
                (*target_descriptor)->canonical_name, (*target_descriptor)->components);
     PROFILE_FUNCTION_END;
@@ -1618,7 +1618,7 @@ PetscErrorCode AccumulateParticleField(DM swarm, ParticleFieldId particle_field_
         
         if (vecSize != expectedLocalSize) {
             PetscSNPrintf(msg, sizeof(msg), 
-                "Vector dimension mismatch! Expected Ghosted Local Vector size %d (gxm*gym*gzm*dof), got %d. "
+                "Vector dimension mismatch! Expected Ghosted Local Vector size %" PetscInt_FMT " (gxm*gym*gzm*dof), got %" PetscInt_FMT ". "
                 "Did you pass a Global Vector instead of a Local Vector?", 
                 expectedLocalSize, vecSize);
             SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "%s", msg);
@@ -1638,7 +1638,7 @@ PetscErrorCode AccumulateParticleField(DM swarm, ParticleFieldId particle_field_
     } else if (dof == 3) {
         ierr = DMDAVecGetArrayDOF(gridSumDM, localAccumulatorVec, &arr_3d); CHKERRQ(ierr);
     } else {
-         PetscSNPrintf(msg, sizeof(msg), "Unsupported DOF=%d. AccumulateParticleField supports DOF 1 or 3.", dof);
+         PetscSNPrintf(msg, sizeof(msg), "Unsupported DOF=%" PetscInt_FMT ". AccumulateParticleField supports DOF 1 or 3.", dof);
          SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP, "%s", msg);
     }
 
@@ -1716,8 +1716,8 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
     // --- Validation ---
     ierr = DMDAGetInfo(countDM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &count_dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
     ierr = DMDAGetInfo(dataDM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &data_dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
-    if (count_dof != 1) { PetscSNPrintf(msg, sizeof(msg), "countDM must have DOF=1, got %d.", count_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "%s", msg); }
-    if (data_dof != 1 && data_dof != 3) { PetscSNPrintf(msg, sizeof(msg), "dataDM DOF must be 1 or 3, got %d.", data_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "%s", msg); }
+    if (count_dof != 1) { PetscSNPrintf(msg, sizeof(msg), "countDM must have DOF=1, got %" PetscInt_FMT ".", count_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "%s", msg); }
+    if (data_dof != 1 && data_dof != 3) { PetscSNPrintf(msg, sizeof(msg), "dataDM DOF must be 1 or 3, got %" PetscInt_FMT ".", data_dof); SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "%s", msg); }
 
     // --- Get Array Access using appropriate DMDA accessors ---
     ierr = DMDAVecGetArrayRead(countDM, countVec, &count_arr_3d); CHKERRQ(ierr);
@@ -1735,7 +1735,7 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
     ierr = DMDAGetCorners(countDM, &xs, &ys, &zs, &xm, &ym, &zm); CHKERRQ(ierr);
 
     // --- Normalize Over Owned Cells ---
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "(Rank %d): Normalizing DOF=%d data over owned range [%d:%d, %d:%d, %d:%d].\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "(Rank %d): Normalizing DOF=%" PetscInt_FMT " data over owned range [%" PetscInt_FMT ":%" PetscInt_FMT ", %" PetscInt_FMT ":%" PetscInt_FMT ", %" PetscInt_FMT ":%" PetscInt_FMT "].\n",
               rank, data_dof, xs, xs+xm, ys, ys+ym, zs, zs+zm);
 
     // Loop using GLOBAL indices (i, j, k) over the range owned by this process
@@ -1781,7 +1781,7 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
     }
 
     // --- Assemble Final Average Vector ---
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Assembling final average vector (DOF=%d).\n", data_dof);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Assembling final average vector (DOF=%" PetscInt_FMT ").\n", data_dof);
     ierr = VecAssemblyBegin(avgVec); CHKERRQ(ierr);
     ierr = VecAssemblyEnd(avgVec); CHKERRQ(ierr);
 
@@ -1826,7 +1826,7 @@ static PetscErrorCode ScatterParticleFieldToEulerField_Internal(UserCtx *user,
     ierr = DMDAGetInfo(targetDM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &target_dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
     if (target_dof != expected_dof) {
         PetscSNPrintf(msg, sizeof(msg),
-                      "Field '%s' expects DOF %d but targetDM reports DOF %d.",
+                      "Field '%s' expects DOF %" PetscInt_FMT " but targetDM reports DOF %" PetscInt_FMT ".",
                       particleFieldName, expected_dof, target_dof);
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "%s", msg);
     }
@@ -1923,7 +1923,7 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
     expected_dof = particle_descriptor->components;
     ierr = FieldGetDescriptor(particle_descriptor->eulerian_scatter_target, &eulerian_descriptor); CHKERRQ(ierr);
     PetscCheck(eulerian_descriptor->dof == expected_dof, PETSC_COMM_SELF, PETSC_ERR_PLIB,
-               "Particle field '%s' has %d components but Eulerian target '%s' has %d.",
+               "Particle field '%s' has %" PetscInt_FMT " components but Eulerian target '%s' has %" PetscInt_FMT ".",
                particleFieldName, expected_dof, eulerian_descriptor->canonical_name, eulerian_descriptor->dof);
     ierr = FieldGetView(user, particle_descriptor->eulerian_scatter_target, &target_view); CHKERRQ(ierr);
     targetDM = target_view.dm;
@@ -1950,13 +1950,13 @@ PetscErrorCode ScatterParticleFieldToEulerField(UserCtx *user,
     }
     // Compare the vector's DOF with the one expected for the field name
     if (vec_dof != expected_dof) {
-         PetscSNPrintf(msg, sizeof(msg), "Field '%s' requires DOF %d, but provided eulerFieldAverageVec has DOF %d.", particleFieldName, expected_dof, vec_dof);
+         PetscSNPrintf(msg, sizeof(msg), "Field '%s' requires DOF %" PetscInt_FMT ", but provided eulerFieldAverageVec has DOF %" PetscInt_FMT ".", particleFieldName, expected_dof, vec_dof);
          SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "%s", msg);
     }
 
     // --- Perform Scatter using Internal Helper ---
     // Log intent before calling the core logic
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Scattering field '%s' (DOF=%d).\n", particleFieldName, expected_dof);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Scattering field '%s' (DOF=%" PetscInt_FMT ").\n", particleFieldName, expected_dof);
     ierr = ScatterParticleFieldToEulerField_Internal(user, // Pass user context
                                                      particle_field_id,
                                                      targetDM, // Determined target DM (da or fda)

@@ -109,7 +109,7 @@ PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm,
 
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Executing explicit momentum solver (Runge-Kutta) for %d block(s).\n",simCtx->block_number);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Executing explicit momentum solver (Runge-Kutta) for %" PetscInt_FMT " block(s).\n",simCtx->block_number);
 
     // --- 1. Pre-Loop Initialization (Legacy Logic) ---
     // This block prepares boundary conditions and allocates the RHS vector for all blocks
@@ -141,7 +141,7 @@ PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNodes *ibm,
         // Loop over each block to perform the RK stages
         for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
             for (istage = 0; istage < 4; istage++) {
-                LOG_ALLOW(LOCAL, LOG_DEBUG, "  Block %d, RK Stage %d (alpha=%.4f)...\n", bi, istage, alfa[istage]);
+                LOG_ALLOW(LOCAL, LOG_DEBUG, "  Block %" PetscInt_FMT ", RK Stage %" PetscInt_FMT " (alpha=%.4f)...\n", bi, istage, alfa[istage]);
 
                 // a. Calculate the Right-Hand Side (RHS) of the momentum equation.
                 ierr = ComputeRHS(&user[bi], user[bi].Rhs); CHKERRQ(ierr);
@@ -836,7 +836,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Executing Dual-Time Momentum Solver for %d block(s).\n", block_number);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Executing Dual-Time Momentum Solver for %" PetscInt_FMT " block(s).\n", block_number);
 
     // --- Allocate metric arrays ---
     ierr = PetscMalloc2(block_number, &delta_sol_norm_init, block_number, &delta_sol_norm_prev); CHKERRQ(ierr);
@@ -892,7 +892,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         delta_sol_norm_prev[bi] = 1000.0;
         /* pseudo_dtau[bi] is set after ComputeGlobalSpectralRadiusEstimate below. */
 
-	    LOG_ALLOW(GLOBAL,LOG_INFO," Block %d | Max RHS = %.6f | initial pseudo-CFL = %.4f .\n", bi, resid_norm_init[bi], cfl);
+	    LOG_ALLOW(GLOBAL,LOG_INFO," Block %" PetscInt_FMT " | Max RHS = %.6f | initial pseudo-CFL = %.4f .\n", bi, resid_norm_init[bi], cfl);
     }
 
     /* --- Spectral Radius Estimate (computed once per physical timestep) ---
@@ -941,7 +941,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
     LOG_ALLOW(GLOBAL, LOG_INFO,
         "Dual-time solver: lambda_max=%.4e [1/s]  resid_ref=%.4e  dtau_init=%.4e  dtau range [%.4e, %.4e]  "
         "CFL range [%.4f, %.4f]  rejection_threshold=%.3f (EMA alpha=%.2f)  "
-        "growth=%.3f  reduction=%.3f  max_accepted=%d.\n",
+        "growth=%.3f  reduction=%.3f  max_accepted=%" PetscInt_FMT ".\n",
         lambda_max, resid_ref, cfl / lambda_max, dtau_min, dtau_max,
         simCtx->min_pseudo_cfl, simCtx->max_pseudo_cfl,
         simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor,
@@ -977,7 +977,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
             // === 4-Stage Jameson RK Smoothing Loop ===
             for (istage = 0; istage < 4; istage++) {
                 
-                LOG_ALLOW(GLOBAL,LOG_TRACE," Pseudo-Iter: %d | RK-Stage: %d\n", pseudo_iter, istage);
+                LOG_ALLOW(GLOBAL,LOG_TRACE," Pseudo-Iter: %" PetscInt_FMT " | RK-Stage: %" PetscInt_FMT "\n", pseudo_iter, istage);
                 
                 /* RK Update: U_new = U_old + (dtau * alpha) * Residual
                  * pseudo_dtau[bi] IS dtau [physical time] — no further multiplication by dt.
@@ -1053,7 +1053,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         }
         ierr = PetscTime(&te); CHKERRQ(ierr);
         cput = te - ts;
-        LOG_ALLOW(GLOBAL, LOG_INFO, "  Pseudo-Iter(k) %d: |dUk|=%e, |dUk|/|dU0| = %e, |Rk|/|R0| = %e, CPU=%.2fs\n",
+        LOG_ALLOW(GLOBAL, LOG_INFO, "  Pseudo-Iter(k) %" PetscInt_FMT ": |dUk|=%e, |dUk|/|dU0| = %e, |Rk|/|R0| = %e, CPU=%.2fs\n",
               pseudo_iter, global_norm_delta, global_rel_delta, global_rel_resid, cput);
 
         // === Adaptive Pseudo-CFL Trial Acceptance and Rollback ===
@@ -1103,7 +1103,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                            + (1.0 - simCtx->mom_ratio_ema_alpha) * smoothed_trial_ratio;
         }
         LOG_ALLOW(GLOBAL, LOG_DEBUG,
-                  "    [k=%d] raw_ratio=%.4e smoothed_ratio=%.4e (threshold=%.3f) | "
+                  "    [k=%" PetscInt_FMT "] raw_ratio=%.4e smoothed_ratio=%.4e (threshold=%.3f) | "
                   "|R_prev|=%.6e | |R_curr|=%.6e | CFL=%.6f\n",
                   pseudo_iter, global_trial_ratio, trial_smoothed,
                   simCtx->mom_dt_jameson_residual_norm_noise_allowance_factor,
@@ -1138,7 +1138,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                 pseudo_dtau[bi] = next_dtau;
             }
             LOG_ALLOW(GLOBAL, LOG_WARNING,
-                      "  Trial %d REJECTED (raw_ratio=%.4e, smoothed=%.4e, nonfinite=%d); "
+                      "  Trial %" PetscInt_FMT " REJECTED (raw_ratio=%.4e, smoothed=%.4e, nonfinite=%d); "
                       "dtau %.4e -> %.4e (cfl_eff %.4f -> %.4f)%s\n",
                       pseudo_iter, global_trial_ratio, trial_smoothed, (int)global_nonfinite,
                       old_dtau, next_dtau, old_dtau * lambda_max, next_dtau * lambda_max,
@@ -1149,7 +1149,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                     FILE *f;
                     char filen[PETSC_MAX_PATH_LEN + 128];
                     ierr = PetscSNPrintf(filen, sizeof(filen),
-                        "%s/Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_%1d.log",
+                        "%s/Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_%1" PetscInt_FMT ".log",
                         simCtx->log_dir, bi); CHKERRQ(ierr);
                     if (simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1 && !simCtx->continueMode)
                         f = fopen(filen, "w");
@@ -1179,7 +1179,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                 /* Finite rejection at the dtau floor: reducing further is impossible.
                    Break instead of retrying bit-identically until max_pseudo_steps. */
                 LOG_ALLOW(GLOBAL, LOG_WARNING,
-                          "  Trial %d REJECTED (ratio=%.4e) at minimum dtau (%.4e, cfl_eff=%.4f) "
+                          "  Trial %" PetscInt_FMT " REJECTED (ratio=%.4e) at minimum dtau (%.4e, cfl_eff=%.4f) "
                           "with no further reduction possible; breaking retry loop.\n",
                           pseudo_iter, global_trial_ratio, old_dtau, old_dtau * lambda_max);
                 break;
@@ -1229,7 +1229,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         for (PetscInt bi = 0; bi < block_number; bi++) pseudo_dtau[bi] = next_dtau;
 
         LOG_ALLOW(GLOBAL, LOG_DEBUG,
-                  "  Trial %d ACCEPTED (raw_ratio=%.4e, smoothed=%.4e); |dU|=%.6e | "
+                  "  Trial %" PetscInt_FMT " ACCEPTED (raw_ratio=%.4e, smoothed=%.4e); |dU|=%.6e | "
                   "dtau %.4e -> %.4e (cfl_eff %.4f -> %.4f)\n",
                   pseudo_iter, global_trial_ratio, trial_smoothed, global_norm_delta,
                   old_dtau, next_dtau, old_dtau * lambda_max, next_dtau * lambda_max);
@@ -1240,7 +1240,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                 FILE *f;
                 char filen[PETSC_MAX_PATH_LEN + 128];
                 ierr = PetscSNPrintf(filen, sizeof(filen),
-                    "%s/Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_%1d.log",
+                    "%s/Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_%1" PetscInt_FMT ".log",
                     simCtx->log_dir, bi); CHKERRQ(ierr);
                 if (simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1 && !simCtx->continueMode)
                     f = fopen(filen, "w");
@@ -1329,7 +1329,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
 
     if (!rank) {
         LOG_ALLOW(GLOBAL, LOG_INFO,
-                  "  Step %d finished: dtau=%.4e  cfl_eff=%.4f  lambda_max=%.4e [1/s]. "
+                  "  Step %" PetscInt_FMT " finished: dtau=%.4e  cfl_eff=%.4f  lambda_max=%.4e [1/s]. "
                   "Next step warm-starts at cfl=%.4f.\n",
                   simCtx->step, next_dtau_start, next_cfl_warmstart, lambda_max, next_cfl_warmstart);
     }
@@ -1356,7 +1356,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
     simCtx->mom_last_converged = converged;
     if (!converged) {
         PetscPrintf(PETSC_COMM_WORLD,
-            "[WARNING] Momentum solver step %d: reached %d total attempts (%d accepted, %d rejected) "
+            "[WARNING] Momentum solver step %d: reached %" PetscInt_FMT " total attempts (%" PetscInt_FMT " accepted, %" PetscInt_FMT " rejected) "
             "without convergence; continuing from last accepted finite state.\n",
             (int)ti, pseudo_iter, accepted_iter, rejected_iter);
     }
@@ -1366,7 +1366,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
             "retaining physical-step entry state.\n", (int)ti);
     }
     LOG_ALLOW(GLOBAL, LOG_INFO,
-              "Momentum solver finished: %d attempts (%d accepted, %d rejected) of %d max accepted / %d hard cap, "
+              "Momentum solver finished: %" PetscInt_FMT " attempts (%" PetscInt_FMT " accepted, %" PetscInt_FMT " rejected) of %" PetscInt_FMT " max accepted / %" PetscInt_FMT " hard cap, "
               "converged=%s, last accepted |R|=%.6e, last accepted |dU|=%.6e, "
               "next_dtau=%.4e (cfl=%.4f).\n",
               pseudo_iter, accepted_iter, rejected_iter, max_pseudo_steps, max_total_attempts,

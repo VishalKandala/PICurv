@@ -90,9 +90,14 @@ def read_picgrid_blocks(path: str) -> list:
     return blocks
 
 
+#: Bytes of a PetscInt in the PETSc that wrote the payloads; set from `--petsc-index-bytes`.
+PETSC_INDEX_BYTES = 4
+
+
 def read_petsc_vec_binary(path: str):
     """!
     @brief Read a PETSc binary VecView payload written by PICurv.
+    @details Sizes are PetscInt of PETSC_INDEX_BYTES, the reading solver's width (`--petsc-index-bytes`).
     @param[in] path PETSc binary vector path.
     @return NumPy array of scalar values.
     """
@@ -100,25 +105,27 @@ def read_petsc_vec_binary(path: str):
     if not os.path.isfile(path):
         raise ValueError(f"field file not found: {path}")
     data = open(path, "rb").read()
-    if len(data) < 8:
+    word, code = PETSC_INDEX_BYTES, "i" if PETSC_INDEX_BYTES == 4 else "q"
+    if len(data) < 2 * word:
         raise ValueError(f"field file '{path}' is too short to be a PETSc Vec binary.")
     candidates = []
     for endian in (">", "<"):
         try:
-            _class_id, vec_size = struct.unpack(endian + "ii", data[:8])
+            _class_id, vec_size = struct.unpack(endian + 2 * code, data[:2 * word])
         except struct.error:
             continue
-        if vec_size > 0 and len(data) == 8 + vec_size * 8:
-            candidates.append((endian, vec_size, 8))
+        if vec_size > 0 and len(data) == 2 * word + vec_size * 8:
+            candidates.append((endian, vec_size, 2 * word))
         try:
-            (vec_size_no_class,) = struct.unpack(endian + "i", data[:4])
+            (vec_size_no_class,) = struct.unpack(endian + code, data[:word])
         except struct.error:
             continue
-        if vec_size_no_class > 0 and len(data) == 4 + vec_size_no_class * 8:
-            candidates.append((endian, vec_size_no_class, 4))
+        if vec_size_no_class > 0 and len(data) == word + vec_size_no_class * 8:
+            candidates.append((endian, vec_size_no_class, word))
     if not candidates:
         raise ValueError(
-            f"field file '{path}' does not match supported PETSc real64 Vec binary layouts."
+            f"field file '{path}' does not match a PETSc real64 Vec binary with "
+            f"{PETSC_INDEX_BYTES}-byte indices; a file from the other index width does not fit."
         )
     endian, vec_size, offset = candidates[0]
     values = numpy.frombuffer(data, dtype=numpy.dtype(endian + "f8"), count=vec_size, offset=offset)
@@ -478,6 +485,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     shell = argparse.ArgumentParser(add_help=False)
     shell.add_argument("--field-file", required=True, help="PETSc binary Ucat field file.")
+    shell.add_argument("--petsc-index-bytes", type=int, choices=(4, 8), default=4,
+                        help="Bytes of a PetscInt in the PETSc that wrote the field files (4 or 8).")
     shell.add_argument("--source-grid", required=True, help="Canonical PICGRID path.")
     shell.add_argument("--block", type=int, default=0, help="Block index within the PICGRID.")
     shell.add_argument("--symbol", choices=("continuum", "discrete"), default="continuum",
@@ -508,6 +517,8 @@ def main(argv=None) -> int:
     """
     parser = build_parser()
     args = parser.parse_args(argv)
+    global PETSC_INDEX_BYTES
+    PETSC_INDEX_BYTES = getattr(args, "petsc_index_bytes", 4)
     try:
         if args.command in ("shell-spectrum", "plane-spectrum", "line-spectrum"):
             summary = generate_spectrum(

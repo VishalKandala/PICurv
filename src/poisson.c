@@ -341,7 +341,7 @@ PetscErrorCode AssemblePoissonOperator(UserCtx *user)
     PetscCall(MatAssemblyBegin(user->A, MAT_FINAL_ASSEMBLY));
     PetscCall(MatAssemblyEnd(user->A, MAT_FINAL_ASSEMBLY));
 
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Poisson operator assembled on level %d.\n", user->thislevel);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Poisson operator assembled on level %" PetscInt_FMT ".\n", user->thislevel);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -806,7 +806,7 @@ static PetscErrorCode PoissonMultigrid_Build(UserMG *usermg, PetscInt bi)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Block %d: building the multigrid Poisson solver on %d levels.\n", bi, levels);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Block %" PetscInt_FMT ": building the multigrid Poisson solver on %" PetscInt_FMT " levels.\n", bi, levels);
 
     for (PetscInt l = levels - 1; l >= 0; l--) PetscCall(AssemblePoissonOperator(&mgctx[l].user[bi]));
 
@@ -918,7 +918,7 @@ static PetscErrorCode PoissonMultigrid_OpenConvergenceLog(KSP ksp, SimCtx *simCt
         char filename[PETSC_MAX_PATH_LEN + 128];
 
         PetscCall(PetscSNPrintf(filename, sizeof(filename),
-                                "%s/Poisson_Solver_Convergence_History_Block_%d.log", simCtx->log_dir, bi));
+                                "%s/Poisson_Solver_Convergence_History_Block_%" PetscInt_FMT ".log", simCtx->log_dir, bi));
         monitor->file_handle = fopen(filename, (first_step && !simCtx->continueMode) ? "w" : "a");
         PetscCheck(monitor->file_handle, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
                    "Could not open KSP monitor log file: %s", filename);
@@ -927,7 +927,7 @@ static PetscErrorCode PoissonMultigrid_OpenConvergenceLog(KSP ksp, SimCtx *simCt
                                    "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep));
         }
         PetscCall(PetscFPrintf(PETSC_COMM_SELF, monitor->file_handle,
-                               "--- Convergence for Timestep %d, Block %d ---\n", (int)simCtx->step, bi));
+                               "--- Convergence for Timestep %d, Block %" PetscInt_FMT " ---\n", (int)simCtx->step, bi));
     }
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

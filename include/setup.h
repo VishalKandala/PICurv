@@ -26,7 +26,8 @@
 /**
  * @brief Print the shared native build identity when a version flag is present.
  * @details Prints two lines: `<name> <release>+g<commit>[.dirty]`, then the PETSc this
- *          binary was compiled against, `petsc <version> <debug|optimized> <arch> <dir>`.
+ *          binary was compiled against, `petsc <version> <debug|optimized> <int32|int64> <arch> <dir>`,
+ *          the third field being the width of PetscInt.
  *          The second line is also kept in the binary behind a `PICURV_PETSC_BUILD:`
  *          marker, so the conductor can read it from a binary that cannot start.
  * @param[in] argc Native executable argument count.
@@ -450,7 +451,7 @@ static inline PetscErrorCode ContravariantToCartesianInCell(Cmpnts ***lucont, Cm
                     mat[0][2] * (mat[1][0] * mat[2][1] - mat[1][1] * mat[2][0]);
 
     if (PetscAbsReal(det) < 1.0e-18) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FLOP_COUNT, "Transformation matrix determinant is near zero at cell (%d,%d,%d) \n", i, j, k);
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FLOP_COUNT, "Transformation matrix determinant is near zero at cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") \n", i, j, k);
     }
 
     PetscReal det_inv = 1.0 / det;

@@ -461,7 +461,7 @@ PetscErrorCode ComputeWindowStatisticsSummary(UserCtx *user, PetscInt window_ind
             fprintf(csv, "step,state,samples,total_weight,represented_time,"
                          "valid_fraction_min,valid_fraction_max,mean_tke\n");
         }
-        fprintf(csv, "%" PetscInt_FMT ",%s,%d,%.10e,%.10e,%.6f,%.6f,",
+        fprintf(csv, "%" PetscInt_FMT ",%s,%" PetscInt_FMT ",%.10e,%.10e,%.6f,%.6f,",
                 ti, PicurvWindowStateName(window->state), window->sample_count,
                 (double)(window->total_weight * weight_scale),
                 (double)(window->represented_time * time_scale),

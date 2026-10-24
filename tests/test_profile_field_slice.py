@@ -75,6 +75,18 @@ def test_expected_length_follows_the_cell_centered_dmda(tmp_path):
         )
 
 
+def test_a_64_bit_index_payload_reads_only_at_its_width(tmp_path, monkeypatch):
+    """! @brief A payload written with 8-byte PetscInt sizes is read at that width and refused at 4. @param[in] tmp_path Temp dir. @param[in] monkeypatch Fixture. """
+    values = np.arange(6, dtype=">f8")
+    path = tmp_path / "wide.dat"
+    path.write_bytes(struct.pack(">qq", 1211214, values.size) + values.tobytes())
+    monkeypatch.setattr(PROFILE, "PETSC_INDEX_BYTES", 8)
+    assert list(PROFILE.read_petsc_vec_binary(str(path))) == list(range(6))
+    monkeypatch.setattr(PROFILE, "PETSC_INDEX_BYTES", 4)
+    with pytest.raises(ValueError, match="4-byte indices"):
+        PROFILE.read_petsc_vec_binary(str(path))
+
+
 def test_dummy_layers_are_never_sampled(tmp_path):
     """! @brief Poisoned dummy layers must not reach the extracted profile. @param[in] tmp_path Temp dir. """
     im, jm, km = NODES

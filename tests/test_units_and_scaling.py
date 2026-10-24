@@ -204,6 +204,26 @@ def test_expressions_see_physical_coordinates_and_write_solver_units():
     assert np.allclose(interior, 1.0 / 16.0)
 
 
+def test_petsc_vec_validation_follows_the_index_width(core, tmp_path):
+    """!
+    @brief A Vec file is validated at the reading build's PetscInt width; the other width is refused.
+    @param[in] core Loaded conductor core.
+    @param[in] tmp_path Pytest temporary directory.
+    @return None.
+    """
+    import struct
+
+    narrow, wide = tmp_path / "narrow.dat", tmp_path / "wide.dat"
+    narrow.write_bytes(struct.pack(">ii", 1211214, 2) + struct.pack(">2d", 1.0, 2.0))
+    wide.write_bytes(struct.pack(">qq", 1211214, 2) + struct.pack(">2d", 1.0, 2.0))
+    assert core.validate_petsc_vec_binary(str(narrow), 4)["scalar_count"] == 2
+    assert core.validate_petsc_vec_binary(str(wide), 8)["scalar_count"] == 2
+    for path, width in ((narrow, 8), (wide, 4)):
+        with pytest.raises(ValueError, match=f"{width}-byte indices"):
+            core.validate_petsc_vec_binary(str(path), width)
+    assert core.petsc_index_arguments(4) == [] and core.petsc_index_arguments(8) == ["--petsc-index-bytes", "8"]
+
+
 def test_file_initial_condition_is_staged_in_solver_units(core, tmp_path):
     """!
     @brief A physical payload is divided by U; another run's field is rescaled between runs.
@@ -214,7 +234,8 @@ def test_file_initial_condition_is_staged_in_solver_units(core, tmp_path):
     import struct
 
     source = tmp_path / "velocity.dat"
-    source.write_bytes(struct.pack(">ii", 1211214, 3) + struct.pack(">3d", 1.0, 2.0, 3.0))
+    header = ">ii" if core.runtime_petsc_index_bytes() == 4 else ">qq"
+    source.write_bytes(struct.pack(header, 1211214, 3) + struct.pack(">3d", 1.0, 2.0, 3.0))
     case_path = tmp_path / "case.yml"
     case_path.write_text("{}\n", encoding="utf-8")
 
@@ -228,7 +249,7 @@ def test_file_initial_condition_is_staged_in_solver_units(core, tmp_path):
         resolved = core.resolve_initial_condition_config(ic, [], SCALES)
         summary = core.stage_initial_condition_file(str(tmp_path / run), str(case_path), resolved)
         data = Path(summary["staged"]).read_bytes()
-        return struct.unpack(">3d", data[8:])
+        return struct.unpack(">3d", data[2 * core.runtime_petsc_index_bytes():])
 
     physical = {"mode": "file", "field": "Ucat", "source_file": str(source)}
     assert staged_values(physical, "physical") == pytest.approx((0.25, 0.5, 0.75))

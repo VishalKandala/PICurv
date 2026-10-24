@@ -269,10 +269,10 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user)
     PetscCall(DMDAGetInfo(user->fda, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                            &velocity_dof, NULL, NULL, NULL, NULL, NULL));
     PetscCheck(velocity_dof == 3, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
-               "Newton Krylov requires a three-component velocity DMDA (got dof=%d).",
+               "Newton Krylov requires a three-component velocity DMDA (got dof=%" PetscInt_FMT ").",
                velocity_dof);
     PetscCheck(simCtx->block_number == 1, PETSC_COMM_WORLD, PETSC_ERR_SUP,
-               "Newton Krylov version one supports exactly one block (got %d).",
+               "Newton Krylov version one supports exactly one block (got %" PetscInt_FMT ").",
                simCtx->block_number);
     PetscCheck(!simCtx->immersed, PETSC_COMM_WORLD, PETSC_ERR_SUP,
                "Newton Krylov version one does not support immersed boundaries.");
@@ -311,7 +311,7 @@ static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user)
                 break;
         }
         PetscCheck(supported, PETSC_COMM_WORLD, PETSC_ERR_SUP,
-                   "Newton Krylov version one does not support boundary face %d with mathematical type %d and handler %d.",
+                   "Newton Krylov version one does not support boundary face %" PetscInt_FMT " with mathematical type %" PetscInt_FMT " and handler %" PetscInt_FMT ".",
                    face, (PetscInt)cfg->mathematical_type, (PetscInt)cfg->handler_type);
     }
 
@@ -1404,7 +1404,7 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
     restore_entry = PETSC_FALSE;
 
     LOG_ALLOW(GLOBAL, LOG_INFO,
-              "Newton Krylov momentum solve: reason=%s (%d), Newton iterations=%d, residual evaluations=%d, Krylov iterations=%d, final norm=%.6e, state=%s.\n",
+              "Newton Krylov momentum solve: reason=%s (%" PetscInt_FMT "), Newton iterations=%" PetscInt_FMT ", residual evaluations=%" PetscInt_FMT ", Krylov iterations=%" PetscInt_FMT ", final norm=%.6e, state=%s.\n",
               SNESConvergedReasons[reason], (PetscInt)reason, nonlinear_its, function_evals,
               linear_its, (double)final_norm,
               !committed ? "rolled back" : converged ? "committed" : "committed, not converged");

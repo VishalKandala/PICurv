@@ -1176,7 +1176,7 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 
     PetscFunctionBeginUser;
 	PROFILE_FUNCTION_BEGIN;
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: Computing RHS (FormFunction1)...\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %" PetscInt_FMT ": Computing RHS (FormFunction1)...\n",
               simCtx->rank, user->_this);
 
     // --- Get all necessary array pointers ---
@@ -1843,7 +1843,7 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     ierr = VecDestroy(&Rct); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Temporary work vectors destroyed successfully! .\n");
     
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %d: RHS computation complete.\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %" PetscInt_FMT ": RHS computation complete.\n",
               simCtx->rank, user->_this);
 
 	PROFILE_FUNCTION_END;		  

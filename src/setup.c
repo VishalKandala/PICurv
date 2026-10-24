@@ -23,6 +23,11 @@
 #else
 #define PICURV_PETSC_MODE "optimized"
 #endif
+#if defined(PETSC_USE_64BIT_INDICES)
+#define PICURV_PETSC_INDICES "int64"
+#else
+#define PICURV_PETSC_INDICES "int32"
+#endif
 #ifndef PETSC_ARCH
 #define PETSC_ARCH ""
 #endif
@@ -37,7 +42,7 @@
 static const char picurv_petsc_build_stamp[] =
     PICURV_PETSC_STAMP_MARKER "petsc "
     PICURV_STRINGIZE(PETSC_VERSION_MAJOR) "." PICURV_STRINGIZE(PETSC_VERSION_MINOR) "."
-    PICURV_STRINGIZE(PETSC_VERSION_SUBMINOR) " " PICURV_PETSC_MODE " " PETSC_ARCH " " PETSC_DIR;
+    PICURV_STRINGIZE(PETSC_VERSION_SUBMINOR) " " PICURV_PETSC_MODE " " PICURV_PETSC_INDICES " " PETSC_ARCH " " PETSC_DIR;
 
 #define PICURV_BUILD_STAMP_MARKER "PICURV_BUILD:"
 
@@ -766,7 +771,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetReal(NULL, NULL, "-walltime_guard_estimator_alpha", &simCtx->walltimeGuardEstimatorAlpha, NULL); CHKERRQ(ierr);
 
     if (simCtx->walltimeGuardWarmupSteps <= 0) {
-      SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -walltime_guard_warmup_steps: %d. Must be > 0.", simCtx->walltimeGuardWarmupSteps);
+      SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -walltime_guard_warmup_steps: %" PetscInt_FMT ". Must be > 0.", simCtx->walltimeGuardWarmupSteps);
     }
     if (simCtx->walltimeGuardMultiplier <= 0.0 || simCtx->walltimeGuardMultiplier > 5.0) {
       SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG, "Invalid value for -walltime_guard_multiplier: %.6f. Must be in (0, 5].", (double)simCtx->walltimeGuardMultiplier);
@@ -1181,6 +1186,22 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
      //  --- Group 9
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 9:  Particle / DMSwarm Data & Settings \n");
     ierr = PetscOptionsGetInt(NULL, NULL, "-numParticles", &simCtx->np, NULL); CHKERRQ(ierr);
+    /* Each swarm field is one PETSc vector of np x components entries, so the widest field must
+       fit in PetscInt; past it, a 32-bit build corrupts the field's sizes and its checkpoint header. */
+    {
+        PetscInt widest = 1;
+        for (PetscInt id = 0; id < (PetscInt)PARTICLE_FIELD_ID_COUNT; ++id) {
+            const ParticleFieldDescriptor *descriptor = NULL;
+            ierr = ParticleFieldGetDescriptor((ParticleFieldId)id, &descriptor); CHKERRQ(ierr);
+            widest = PetscMax(widest, descriptor->components);
+        }
+        PetscCheck((PetscInt64)simCtx->np * widest <= (PetscInt64)PETSC_MAX_INT, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+                   "-numParticles %" PetscInt_FMT " needs %" PetscInt_FMT "-component particle fields of %" PetscInt64_FMT
+                   " entries, beyond the %" PetscInt_FMT " this PETSc's %d-byte PetscInt can index; use a PETSc built with "
+                   "--with-64-bit-indices (at most %" PetscInt_FMT " particles here).",
+                   simCtx->np, widest, (PetscInt64)simCtx->np * widest, (PetscInt)PETSC_MAX_INT, (int)sizeof(PetscInt),
+                   (PetscInt)(PETSC_MAX_INT / widest));
+    }
     PetscInt temp_pinit = (PetscInt)PARTICLE_INIT_SURFACE_RANDOM;
     ierr = PetscOptionsGetInt(NULL, NULL, "-pinit", &temp_pinit, NULL); CHKERRQ(ierr);
     simCtx->ParticleInitialization = (ParticleInitializationType)temp_pinit;
@@ -1221,7 +1242,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-logfreq", &simCtx->LoggingFrequency, NULL); CHKERRQ(ierr);
 
     if (simCtx->num_bcs_files != simCtx->block_number) {
-      SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP, "Number of BC files (%d) does not match number of blocks (%d). Use -bcs_files \"file1.dat,file2.dat,...\".", simCtx->num_bcs_files, simCtx->block_number);
+      SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP, "Number of BC files (%" PetscInt_FMT ") does not match number of blocks (%" PetscInt_FMT "). Use -bcs_files \"file1.dat,file2.dat,...\".", simCtx->num_bcs_files, simCtx->block_number);
     }
     
     // --- Group 12
@@ -1238,29 +1259,29 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->step = simCtx->StartStep;
 
     // === 5. Log Summary and Finalize Setup ==================================
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "-- Console Output Functions [Total : %d] : --\n", simCtx->nAllowed);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "-- Console Output Functions [Total : %" PetscInt_FMT "] : --\n", simCtx->nAllowed);
     for (PetscInt i = 0; i < simCtx->nAllowed; ++i) {
-      LOG_ALLOW(GLOBAL, LOG_DEBUG, "   [%2d] «%s»\n", i, simCtx->allowedFuncs[i]);
+      LOG_ALLOW(GLOBAL, LOG_DEBUG, "   [%2" PetscInt_FMT "] «%s»\n", i, simCtx->allowedFuncs[i]);
     }
     
     LOG_ALLOW(GLOBAL, LOG_INFO, "Configuration complete. Key parameters:\n");
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Run mode: %s\n", simCtx->OnlySetup ? "SETUP ONLY" : "Full Simulation");
-    LOG_ALLOW(GLOBAL, LOG_INFO, "  - Time steps: %d (from %d to %d)\n", simCtx->StepsToRun, simCtx->StartStep, simCtx->StartStep + simCtx->StepsToRun);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "  - Time steps: %" PetscInt_FMT " (from %" PetscInt_FMT " to %" PetscInt_FMT ")\n", simCtx->StepsToRun, simCtx->StartStep, simCtx->StartStep + simCtx->StepsToRun);
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Time step size (dt): %g\n", simCtx->dt);
     if (simCtx->tiout > 0) {
-      LOG_ALLOW(GLOBAL, LOG_INFO, "  - Field/restart output cadence: every %d step(s)\n", simCtx->tiout);
+      LOG_ALLOW(GLOBAL, LOG_INFO, "  - Field/restart output cadence: every %" PetscInt_FMT " step(s)\n", simCtx->tiout);
     } else {
       LOG_ALLOW(GLOBAL, LOG_INFO, "  - Field/restart output cadence: DISABLED\n");
     }
     LOG_ALLOW(GLOBAL, LOG_INFO, "  - Immersed Boundary: %s\n", simCtx->immersed ? "ENABLED" : "DISABLED");
-    LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particles: %d\n", simCtx->np);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particles: %" PetscInt_FMT "\n", simCtx->np);
     if (simCtx->np > 0) {
       if (simCtx->particleConsoleOutputFreq > 0) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console cadence: every %d step(s)\n", simCtx->particleConsoleOutputFreq);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console cadence: every %" PetscInt_FMT " step(s)\n", simCtx->particleConsoleOutputFreq);
       } else {
         LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console cadence: DISABLED\n");
       }
-      LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console row subsampling: every %d particle(s)\n", simCtx->LoggingFrequency);
+      LOG_ALLOW(GLOBAL, LOG_INFO, "  - Particle console row subsampling: every %" PetscInt_FMT " particle(s)\n", simCtx->LoggingFrequency);
     }
     if (simCtx->StartStep > 0 && simCtx->np > 0) {
       LOG_ALLOW(GLOBAL, LOG_INFO, "    - Particle Restart Mode: %s\n", simCtx->particleRestartMode);
@@ -1780,7 +1801,7 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
     }
     for (PetscInt i = 0; i < simCtx->num_bcs_files; i++) {
         char desc[128];
-        ierr = PetscSNPrintf(desc, sizeof(desc), "BCS file #%d", i + 1); CHKERRQ(ierr);
+        ierr = PetscSNPrintf(desc, sizeof(desc), "BCS file #%" PetscInt_FMT "", i + 1); CHKERRQ(ierr);
         ierr = VerifyPathExistence(simCtx->bcs_files[i], PETSC_FALSE, PETSC_FALSE, desc, &exists); CHKERRQ(ierr);
     }
 
@@ -1979,7 +2000,7 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Allocating context hierarchy for %d levels and %d blocks...\n", simCtx->mglevels, nblk);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Allocating context hierarchy for %" PetscInt_FMT " levels and %" PetscInt_FMT " blocks...\n", simCtx->mglevels, nblk);
 
     // Store the number of levels in the UserMG struct itself
     usermg->mglevels = simCtx->mglevels;
@@ -1989,7 +2010,7 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
     // Zero-initialize to ensure all pointers (especially packer) are NULL
     ierr = PetscMemzero(usermg->mgctx, usermg->mglevels * sizeof(MGCtx)); CHKERRQ(ierr);
     mgctx = usermg->mgctx;
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Allocated MGCtx array of size %d.\n", simCtx->rank, usermg->mglevels);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Allocated MGCtx array of size %" PetscInt_FMT ".\n", simCtx->rank, usermg->mglevels);
     
     // --- 2. Parse semi-coarsening options (logic from MG_Initial) ---
     // These flags determine if a dimension is coarsened in the multigrid hierarchy.
@@ -2014,7 +2035,7 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
     // --- 3. Loop over levels and blocks to allocate UserCtx arrays ---
     for (PetscInt level = 0; level < simCtx->mglevels; level++) {
 
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Setting up MG Level %d...\n", simCtx->rank, level);        
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Setting up MG Level %" PetscInt_FMT "...\n", simCtx->rank, level);        
         // Allocate the array of UserCtx structs for this level
         ierr = PetscMalloc(nblk * sizeof(UserCtx), &mgctx[level].user); CHKERRQ(ierr);
         // It's good practice to zero out the memory to avoid uninitialized values
@@ -2023,7 +2044,7 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
 
         for (PetscInt bi = 0; bi < nblk; bi++) {
             UserCtx *currentUser = &mgctx[level].user[bi];
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   Initializing UserCtx for Level %d, Block %d.\n", simCtx->rank, level, bi);
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   Initializing UserCtx for Level %" PetscInt_FMT ", Block %" PetscInt_FMT ".\n", simCtx->rank, level, bi);
 	    
             // --- CRITICAL STEP: Set the back-pointer to the master context ---
             currentUser->simCtx = simCtx;
@@ -2053,7 +2074,7 @@ static PetscErrorCode AllocateContextHierarchy(SimCtx *simCtx)
     if (get_log_level() >= LOG_DEBUG && nblk > 0) {
         LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Final semi-coarsening configuration view:\n", simCtx->rank);
         for (PetscInt bi = 0; bi < nblk; ++bi) {
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   Block %d: i-semi=%d, j-semi=%d, k-semi=%d\n", simCtx->rank, bi, isc[bi], jsc[bi], ksc[bi]);
+            LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   Block %" PetscInt_FMT ": i-semi=%" PetscInt_FMT ", j-semi=%" PetscInt_FMT ", k-semi=%" PetscInt_FMT "\n", simCtx->rank, bi, isc[bi], jsc[bi], ksc[bi]);
         }
     }
 
@@ -2125,7 +2146,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
               SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "DMs not properly initialized in UserCtx before vector creation.");
             }
 
-            LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Creating vectors for level %d, block %d\n", simCtx->rank, level, bi);
+            LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Creating vectors for level %" PetscInt_FMT ", block %" PetscInt_FMT "\n", simCtx->rank, level, bi);
 
 	    // --- Group A: Primary Flow Fields (Global and Local) ---
             // These are the core solution variables.
@@ -2264,7 +2285,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
         // Scalar field to hold particle scalar property (e.g., temperature, concentration)
 	      ierr = DMCreateGlobalVector(user->da,&user->Psi); CHKERRQ(ierr); ierr = VecSet(user->Psi,0.0); CHKERRQ(ierr);
         ierr = DMCreateLocalVector(user->da,&user->lPsi); CHKERRQ(ierr); ierr = VecSet(user->lPsi,0.0); CHKERRQ(ierr);
-	      LOG_ALLOW(GLOBAL,LOG_DEBUG,"ParticleCount & Scalar(Psi) created for %d particles.\n",simCtx->np);
+	      LOG_ALLOW(GLOBAL,LOG_DEBUG,"ParticleCount & Scalar(Psi) created for %" PetscInt_FMT " particles.\n",simCtx->np);
 	      }
 	    }
 	    // --- Group I: Boundary Condition vectors ---
@@ -2286,7 +2307,7 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx)
 	                       &user->fieldStatisticsStorage[w]); CHKERRQ(ierr);
 	        }
 	        LOG_ALLOW(LOCAL, LOG_INFO,
-	                  "Allocated accumulators for %d statistics window(s).\n",
+	                  "Allocated accumulators for %" PetscInt_FMT " statistics window(s).\n",
 	                  simCtx->fieldStatisticsWindowCount);
 	    }
 
@@ -2697,11 +2718,11 @@ PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id)
                    j_int >= info_check.ys && j_int < info_check.ys + info_check.ym &&
                    i_int >= info_check.xs && i_int < info_check.xs + info_check.xm)
                {
-                  LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Attempting test read OWNED INTERIOR [%d][%d][%d] (Global)\n", rank_test, k_int, j_int, i_int);
+                  LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Attempting test read OWNED INTERIOR [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] (Global)\n", rank_test, k_int, j_int, i_int);
                   Cmpnts test_val_owned_interior = lUcat_arr_test[k_int][j_int][i_int];
                   LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: SUCCESS reading owned interior: x=%g\n", rank_test, test_val_owned_interior.x);
                } else {
-                  LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Skipping interior test read for non-owned index [%d][%d][%d].\n", rank_test, k_int, j_int, i_int);
+                  LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Skipping interior test read for non-owned index [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "].\n", rank_test, k_int, j_int, i_int);
                }
 
 
@@ -2709,7 +2730,7 @@ PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id)
                PetscInt k_bnd = info_check.zs; // Global k index
                PetscInt j_bnd = info_check.ys; // Global j index
                PetscInt i_bnd = info_check.xs; // Global i index
-               LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Attempting test read OWNED BOUNDARY [%d][%d][%d] (Global)\n", rank_test, k_bnd, j_bnd, i_bnd);
+               LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Attempting test read OWNED BOUNDARY [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] (Global)\n", rank_test, k_bnd, j_bnd, i_bnd);
                Cmpnts test_val_owned_boundary = lUcat_arr_test[k_bnd][j_bnd][i_bnd];
                LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: SUCCESS reading owned boundary: x=%g\n", rank_test, test_val_owned_boundary.x);
 
@@ -2719,7 +2740,7 @@ PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id)
                    PetscInt k_ghost = info_check.zs - 1;
                    PetscInt j_ghost = info_check.ys; // Use start of owned y, simple example
                    PetscInt i_ghost = info_check.xs; // Use start of owned x, simple example
-                   LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Attempting test read GHOST [%d][%d][%d] (Global)\n", rank_test, k_ghost, j_ghost, i_ghost);
+                   LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Attempting test read GHOST [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] (Global)\n", rank_test, k_ghost, j_ghost, i_ghost);
                    Cmpnts test_val_ghost = lUcat_arr_test[k_ghost][j_ghost][i_ghost];
                    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: SUCCESS reading ghost: x=%g\n", rank_test, test_val_ghost.x);
                } else {
@@ -2755,11 +2776,11 @@ PetscErrorCode SetupBoundaryConditions(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL,LOG_INFO,"Parsing BC configuration files and initializing boundary condition data structures.\n");
     UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels-1].user;
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-        LOG_ALLOW(GLOBAL,LOG_DEBUG, "  -> Processing Block %d:\n", bi);
+        LOG_ALLOW(GLOBAL,LOG_DEBUG, "  -> Processing Block %" PetscInt_FMT ":\n", bi);
 
 	// --- Generate the filename for the current block ---
 	const char *current_bc_filename = simCtx->bcs_files[bi];
-	LOG_ALLOW(GLOBAL,LOG_DEBUG,"  -> Processing Block %d using config file '%s'\n", bi, current_bc_filename);
+	LOG_ALLOW(GLOBAL,LOG_DEBUG,"  -> Processing Block %" PetscInt_FMT " using config file '%s'\n", bi, current_bc_filename);
        // This will populate user_finest[bi].boundary_faces
 
         //ierr = ParseAllBoundaryConditions(&user_finest[bi],current_bc_filename); CHKERRQ(ierr);
@@ -2906,7 +2927,7 @@ PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny,
   /* Step 1: Allocate memory for nz layer pointers (zeroed) */
   ierr = PetscCalloc1(nz, &data); CHKERRQ(ierr);
 
-  LOG_ALLOW(LOCAL,LOG_DEBUG," [Rank %d] memory allocated for outermost layer (%d k-layer pointers).\n",rank,nz);
+  LOG_ALLOW(LOCAL,LOG_DEBUG," [Rank %d] memory allocated for outermost layer (%" PetscInt_FMT " k-layer pointers).\n",rank,nz);
   
   /* Step 2: Allocate memory for all row pointers (nz * ny pointers) */
   ierr = PetscCalloc1(nz * ny, &data[0]); CHKERRQ(ierr);
@@ -2914,12 +2935,12 @@ PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny,
     data[k] = data[0] + k * ny;
   }
 
-  LOG_ALLOW(LOCAL,LOG_DEBUG,"[Rank %d] memory allocated for %dx%d row pointers.\n",rank,nz,ny);
+  LOG_ALLOW(LOCAL,LOG_DEBUG,"[Rank %d] memory allocated for %" PetscInt_FMT "x%" PetscInt_FMT " row pointers.\n",rank,nz,ny);
   
   /* Step 3: Allocate one contiguous block for nz*ny*nx Cmpnts structures (zeroed) */
   ierr = PetscCalloc1(nz * ny * nx, &dataContiguous); CHKERRQ(ierr);
 
-  LOG_ALLOW(GLOBAL,LOG_DEBUG,"[Rank %d] memory allocated for contigous block of %dx%dx%d Cmpnts structures).\n",rank,nz,ny,nx); 
+  LOG_ALLOW(GLOBAL,LOG_DEBUG,"[Rank %d] memory allocated for contigous block of %" PetscInt_FMT "x%" PetscInt_FMT "x%" PetscInt_FMT " Cmpnts structures).\n",rank,nz,ny,nx); 
 
   /* Build the 3D pointer structure for vector data */
   for (k = 0; k < nz; k++) {
@@ -3040,7 +3061,7 @@ PetscErrorCode GetOwnedCellRange(const DMDALocalInfo *info_nodes,
         num_nodes_owned_rank     = info_nodes->zm;
         GlobalNodesInDim_from_info = info_nodes->mz;
     } else {
-      SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Invalid dimension %d in GetOwnedCellRange. Must be 0, 1, or 2.", dim);
+      SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Invalid dimension %" PetscInt_FMT " in GetOwnedCellRange. Must be 0, 1, or 2.", dim);
     }
 
     // --- 3. Correct for User-Defined Ghost Node ---
@@ -3253,13 +3274,13 @@ PetscErrorCode SetDMDAProcLayout(DM dm, UserCtx *user)
     if (px_set && py_set && pz_set) {
         if (px * py * pz != size) {
              SETERRQ(PetscObjectComm((PetscObject)dm), PETSC_ERR_ARG_INCOMP,
-                     "Specified processor layout %d x %d x %d = %d does not match MPI size %d",
+                     "Specified processor layout %" PetscInt_FMT " x %" PetscInt_FMT " x %" PetscInt_FMT " = %" PetscInt_FMT " does not match MPI size %d",
                      px, py, pz, px * py * pz, size);
         }
-         LOG_ALLOW(GLOBAL, LOG_INFO, "Using specified processor layout: %d x %d x %d\n", px, py, pz);
+         LOG_ALLOW(GLOBAL, LOG_INFO, "Using specified processor layout: %" PetscInt_FMT " x %" PetscInt_FMT " x %" PetscInt_FMT "\n", px, py, pz);
     } else if (px_set || py_set || pz_set) {
          // If only some are set, PETSC_DECIDE will be used for others
-         LOG_ALLOW(GLOBAL, LOG_INFO, "Using partially specified processor layout: %d x %d x %d (PETSC_DECIDE for unspecified)\n", px, py, pz);
+         LOG_ALLOW(GLOBAL, LOG_INFO, "Using partially specified processor layout: %" PetscInt_FMT " x %" PetscInt_FMT " x %" PetscInt_FMT " (PETSC_DECIDE for unspecified)\n", px, py, pz);
     } else {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Using fully automatic processor layout (PETSC_DECIDE x PETSC_DECIDE x PETSC_DECIDE)\n");
     }
@@ -3271,7 +3292,7 @@ PetscErrorCode SetDMDAProcLayout(DM dm, UserCtx *user)
 
     // --- Apply the layout to the DMDA ---
     ierr = DMDASetNumProcs(dm, px, py, pz); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Rank %d: DMDASetNumProcs called with px=%d, py=%d, pz=%d.\n", rank, px, py, pz);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Rank %d: DMDASetNumProcs called with px=%" PetscInt_FMT ", py=%" PetscInt_FMT ", pz=%" PetscInt_FMT ".\n", rank, px, py, pz);
 
     // --- Store the values in UserCtx (Optional) ---
     // Note: If PETSC_DECIDE was used, PETSc calculates the actual values during DMSetUp.
@@ -3304,7 +3325,7 @@ PetscErrorCode SetupDomainRankInfo(SimCtx *simCtx)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting full rank communication setup for %d block(s).\n", nblk);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting full rank communication setup for %" PetscInt_FMT " block(s).\n", nblk);
 
     UserCtx *user_finest = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
 
@@ -3595,7 +3616,7 @@ PetscErrorCode SetupDomainCellDecompositionMap(UserCtx *user)
     ierr = GetOwnedCellRange(&local_node_info, 2, &my_cell_info.zs_cell, &my_cell_info.zm_cell); CHKERRQ(ierr);
     
     // Log the calculated local ownership for debugging purposes.
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Owns cells: i[%d, %d), j[%d, %d), k[%d, %d)\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Owns cells: i[%" PetscInt_FMT ", %" PetscInt_FMT "), j[%" PetscInt_FMT ", %" PetscInt_FMT "), k[%" PetscInt_FMT ", %" PetscInt_FMT ")\n",
               rank, my_cell_info.xs_cell, my_cell_info.xs_cell + my_cell_info.xm_cell,
               my_cell_info.ys_cell, my_cell_info.ys_cell + my_cell_info.ym_cell,
               my_cell_info.zs_cell, my_cell_info.zs_cell + my_cell_info.zm_cell);
@@ -3741,7 +3762,7 @@ PetscErrorCode ComputeDivergence(UserCtx *user )
               }
 
 	    if (k==10 && j==10 && i==mx-3)
-     	      LOG_ALLOW(LOCAL,LOG_INFO,"Pressure[10][10][%d] =  %f | Pressure[10][10][%d] =  %f  \n ",mx-2,p[k][j][mx-2],mx-1,p[k][j][mx-1]);
+     	      LOG_ALLOW(LOCAL,LOG_INFO,"Pressure[10][10][%" PetscInt_FMT "] =  %f | Pressure[10][10][%" PetscInt_FMT "] =  %f  \n ",mx-2,p[k][j][mx-2],mx-1,p[k][j][mx-1]);
    		}
 	}
     }
@@ -3821,7 +3842,7 @@ PetscErrorCode ComputeDivergence(UserCtx *user )
   
   VecMax(Div, &MaxFlatIndex, &maxdiv);
 
-  LOG_ALLOW(GLOBAL,LOG_INFO,"[Step %d]] The Maximum Divergence is %e at flat index %d.\n",ti,maxdiv,MaxFlatIndex); 
+  LOG_ALLOW(GLOBAL,LOG_INFO,"[Step %" PetscInt_FMT "]] The Maximum Divergence is %e at flat index %" PetscInt_FMT ".\n",ti,maxdiv,MaxFlatIndex); 
 
   user->simCtx->MaxDivFlatArg = MaxFlatIndex;
   user->simCtx->MaxDiv = maxdiv;
@@ -3830,7 +3851,7 @@ PetscErrorCode ComputeDivergence(UserCtx *user )
     for (j=ys; j<ye; j++) {
       for (i=xs; i<xe; i++) {
 	if (Gidx(i,j,k,user) == MaxFlatIndex) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"[Step %d] The Maximum Divergence(%e) is at location [%d][%d][%d]. \n", ti, maxdiv,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"[Step %" PetscInt_FMT "] The Maximum Divergence(%e) is at location [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "]. \n", ti, maxdiv,k,j,i);
 	  user->simCtx->MaxDivz = k;
 	  user->simCtx->MaxDivy = j;
 	  user->simCtx->MaxDivx = i;
@@ -4249,7 +4270,7 @@ PetscErrorCode DestroyUserContext(UserCtx *user)
         PetscFunctionReturn(0);
     }
 
-    LOG_ALLOW(LOCAL, LOG_INFO, "Destroying UserCtx at level %d...\n", user->thislevel);
+    LOG_ALLOW(LOCAL, LOG_INFO, "Destroying UserCtx at level %" PetscInt_FMT "...\n", user->thislevel);
 
     // --- Step 1: Destroy Boundary Condition System ---
     // This handles all BC handlers and their private data.
@@ -4317,7 +4338,7 @@ PetscErrorCode DestroyUserContext(UserCtx *user)
         LOG_ALLOW(LOCAL, LOG_DEBUG, "  RankCellInfoMap freed.\n");
     }
 
-    LOG_ALLOW(LOCAL, LOG_INFO, "UserCtx at level %d fully destroyed.\n", user->thislevel);
+    LOG_ALLOW(LOCAL, LOG_INFO, "UserCtx at level %" PetscInt_FMT " fully destroyed.\n", user->thislevel);
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
@@ -4353,14 +4374,14 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
     ierr = ParticleFieldPlanDestroy(&simCtx->particleFieldPlan); CHKERRQ(ierr);
 
     if (simCtx->usermg.mgctx) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Destroying multigrid hierarchy (%d levels)...\n",
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Destroying multigrid hierarchy (%" PetscInt_FMT " levels)...\n",
                   simCtx->usermg.mglevels);
 
         // Destroy each UserCtx from finest to coarsest (reverse order is safer)
         for (PetscInt level = simCtx->usermg.mglevels - 1; level >= 0; level--) {
             UserCtx *user = simCtx->usermg.mgctx[level].user;
             if (user) {
-                LOG_ALLOW(LOCAL, LOG_INFO, "  Destroying level %d of %d...\n",
+                LOG_ALLOW(LOCAL, LOG_INFO, "  Destroying level %" PetscInt_FMT " of %" PetscInt_FMT "...\n",
                           level, simCtx->usermg.mglevels - 1);
                 ierr = DestroyUserContext(user); CHKERRQ(ierr);
 
@@ -4372,7 +4393,7 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
             // Destroy the MGCtx-level packer DM
             if (simCtx->usermg.mgctx[level].packer) {
                 ierr = DMDestroy(&simCtx->usermg.mgctx[level].packer); CHKERRQ(ierr);
-                LOG_ALLOW(LOCAL, LOG_DEBUG, "  MGCtx[%d].packer destroyed.\n", level);
+                LOG_ALLOW(LOCAL, LOG_DEBUG, "  MGCtx[%" PetscInt_FMT "].packer destroyed.\n", level);
             }
         }
 
@@ -4430,7 +4451,7 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
         }
         ierr = PetscFree(simCtx->bcs_files); CHKERRQ(ierr);
         simCtx->bcs_files = NULL;
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "  bcs_files array freed (%d files).\n", simCtx->num_bcs_files);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  bcs_files array freed (%" PetscInt_FMT " files).\n", simCtx->num_bcs_files);
     }
 
     // --- Post-Processing Parameters ---
@@ -4466,7 +4487,7 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
         }
         ierr = PetscFree(simCtx->allowedFuncs); CHKERRQ(ierr);
         simCtx->allowedFuncs = NULL;
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "  allowedFuncs array freed (%d functions).\n", simCtx->nAllowed);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  allowedFuncs array freed (%" PetscInt_FMT " functions).\n", simCtx->nAllowed);
     }
 
     // --- Profiling Critical Functions (Array of strings) ---
@@ -4478,7 +4499,7 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
         }
         ierr = PetscFree(simCtx->profilingSelectedFuncs); CHKERRQ(ierr);
         simCtx->profilingSelectedFuncs = NULL;
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "  profilingSelectedFuncs array freed (%d functions).\n", simCtx->nProfilingSelectedFuncs);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  profilingSelectedFuncs array freed (%" PetscInt_FMT " functions).\n", simCtx->nProfilingSelectedFuncs);
     }
     if (simCtx->profilingHelpers) {
         for (PetscInt i = 0; i < simCtx->nProfilingHelpers; i++) {

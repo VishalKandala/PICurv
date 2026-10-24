@@ -573,6 +573,7 @@ identity.
 | Turbulence model | **no** | — | enforced — part of the case identity |
 | Physical properties | **no** | — | enforced — part of the case identity |
 | Grid dimensions or geometry | **no** | — | enforced — part of the case identity |
+| PETSc index width (32- vs 64-bit `PetscInt`) | **no** | — | enforced — `checkpoint.meta` records `-checkpoint_petsc_index_bytes`, and both the conductor and the solver refuse a checkpoint of the other width; PETSc binary files store their sizes as `PetscInt` and cannot be read across widths |
 | MPI rank count or `da_processors` layout | yes | yes | enforced — the layout is excluded from the identity hash (`test_continue_accepts_a_changed_domain_decomposition`); a 25 x 25 x 97 channel continued from 2 ranks (1 x 1 x 2) to 2 ranks (2 x 1 x 1) and then to 4 (2 x 1 x 2) on 2026-10-09, with divergence at the 1e-8 level of the first segment |
 
 @note Anything reachable through `solver.yml`, `monitor.yml`, or `post.yml` is
@@ -593,6 +594,7 @@ A new run carries its own identity, so the case-identity guard does not apply.
 | MPI rank count | yes | yes | tested — the field-statistics suite covers a changed rank count across restart |
 | Physical properties | yes | treat as a new study | enforced (accepted); the seeded field is no longer consistent with the new physics |
 | Grid dimensions or geometry | **no** | — | enforced — the checkpoint cannot be interpreted on a different grid |
+| PETSc index width (32- vs 64-bit `PetscInt`) | **no** | — | enforced — as for continuation; restart and post-process with the build that wrote the run (see @ref p01_petsc_index_sub) |
 
 @subsection p52_compat_exact_sub 8.4 Restart Is Not Bit-Exact
 

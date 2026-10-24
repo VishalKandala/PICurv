@@ -348,7 +348,8 @@ def test_sampled_spectra_real_staging_and_checkpoint_dispatch(tmp_path, monkeypa
     # the generator subprocess and result writer run without mocks.
     monkeypatch.setattr(core,'_scan_committed_checkpoint_steps',lambda *a:{0})
     monkeypatch.setattr(core,'validate_committed_checkpoint',lambda *a:{
-        'bundle':str(tmp_path),'metadata':{'checkpoint_time':'0'},'payloads':[
+        'bundle':str(tmp_path),'metadata':{'checkpoint_time':'0',
+                                           'checkpoint_petsc_index_bytes':str(core.runtime_petsc_index_bytes())},'payloads':[
             {'kind':'eulerian','field':'Ucat','block':'0','path':'inputs/initial_condition/ufield00000_0.dat'}]})
     report=core.run_post_spectra_stage(str(tmp_path),{'spectra':{'tasks':params_wall['initial_spectra']}}, {},str(tmp_path),[0],quiet=True)
     import csv

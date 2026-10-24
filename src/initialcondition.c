@@ -288,7 +288,7 @@ static PetscErrorCode SetInitialFluidState_FreshStart(SimCtx *simCtx)
     PROFILE_FUNCTION_BEGIN;
 
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-        LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d, Block %d: Setting t=0 state.\n", simCtx->rank, bi);
+        LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d, Block %" PetscInt_FMT ": Setting t=0 state.\n", simCtx->rank, bi);
 
         // 1. Set an initial guess for the INTERIOR of the domain.
         //    Replaces the legacy `if(InitialGuessOne)` block.
@@ -332,7 +332,7 @@ static PetscErrorCode SetInitialFluidState_Load(SimCtx *simCtx)
     PROFILE_FUNCTION_BEGIN;
 
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-        LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d, Block %d: Reading restart files for step %d.\n",
+        LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d, Block %" PetscInt_FMT ": Reading restart files for step %" PetscInt_FMT ".\n",
                   simCtx->rank, bi, simCtx->StartStep);
 
         // ReadSimulationFields handles all file I/O for one block.
@@ -369,11 +369,11 @@ PetscErrorCode InitializeEulerianState(SimCtx *simCtx)
 
     if (simCtx->StartStep > 0) {
         if(strcmp(simCtx->eulerianSource,"analytical")==0){
-            LOG_ALLOW(GLOBAL,LOG_INFO,"Initializing Analytical Solution type: %s (t=%.4f, step=%d).\n",simCtx->AnalyticalSolutionType,simCtx->StartTime,simCtx->StartStep);
+            LOG_ALLOW(GLOBAL,LOG_INFO,"Initializing Analytical Solution type: %s (t=%.4f, step=%" PetscInt_FMT ").\n",simCtx->AnalyticalSolutionType,simCtx->StartTime,simCtx->StartStep);
             ierr = AnalyticalSolutionEngine(simCtx);
         }
         else{
-            LOG_ALLOW(GLOBAL, LOG_INFO, "Starting from RESTART files (t=%.4f, step=%d).\n",
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Starting from RESTART files (t=%.4f, step=%" PetscInt_FMT ").\n",
                     simCtx->StartTime, simCtx->StartStep);
             ierr = SetInitialFluidState_Load(simCtx); CHKERRQ(ierr);
         }
@@ -386,11 +386,11 @@ PetscErrorCode InitializeEulerianState(SimCtx *simCtx)
         if(strcmp(simCtx->eulerianSource,"solve")==0){
             ierr = SetInitialFluidState_FreshStart(simCtx); CHKERRQ(ierr);
         }else if(strcmp(simCtx->eulerianSource,"load")==0){
-            LOG_ALLOW(GLOBAL,LOG_INFO,"FRESH START in LOAD mode. Reading files (t=%.4f,step=%d).\n",
+            LOG_ALLOW(GLOBAL,LOG_INFO,"FRESH START in LOAD mode. Reading files (t=%.4f,step=%" PetscInt_FMT ").\n",
                       simCtx->StartTime,simCtx->StartStep);
             ierr=SetInitialFluidState_Load(simCtx);CHKERRQ(ierr);
         }else if(strcmp(simCtx->eulerianSource,"analytical")==0){
-            LOG_ALLOW(GLOBAL,LOG_INFO,"FRESH START in ANALYTICAL mode. Initializing Analytical Solution type: %s (t=%.4f,step=%d).\n",
+            LOG_ALLOW(GLOBAL,LOG_INFO,"FRESH START in ANALYTICAL mode. Initializing Analytical Solution type: %s (t=%.4f,step=%" PetscInt_FMT ").\n",
                       simCtx->AnalyticalSolutionType,simCtx->StartTime,simCtx->StartStep);
             ierr=AnalyticalSolutionEngine(simCtx);CHKERRQ(ierr);
         }

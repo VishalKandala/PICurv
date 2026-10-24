@@ -1580,6 +1580,14 @@ def _read_checkpoint_options(metadata_path: str) -> dict:
     return options
 
 
+class CheckpointIndexWidthError(ValueError):
+    """!
+    @brief A committed checkpoint written by a PETSc of the other index width than the driven solver's.
+    @details Raised instead of a plain ValueError so a scan for usable checkpoints reports it
+             rather than skipping the checkpoint as if it were incomplete.
+    """
+
+
 def validate_committed_checkpoint(source_dir: str, step: int, require_particles: bool = False) -> dict:
     """!
     @brief Validate one committed bundle using the same manifest contract as C.
@@ -1617,6 +1625,13 @@ def validate_committed_checkpoint(source_dir: str, step: int, require_particles:
         raise ValueError(f"Unsupported checkpoint format/version: {metadata_path}")
     if saved_step != step:
         raise ValueError(f"Checkpoint records step {saved_step}, expected {step}: {bundle}")
+    saved_index_bytes = int(options.get("checkpoint_petsc_index_bytes", "4"))
+    solver_index_bytes = runtime_petsc_index_bytes()
+    if saved_index_bytes != solver_index_bytes:
+        raise CheckpointIndexWidthError(
+            f"Checkpoint {bundle} was written by a PETSc with {8 * saved_index_bytes}-bit indices, but this "
+            f"picurv drives a {8 * solver_index_bytes}-bit-index build ({resolve_runtime_executable('simulator')}). "
+            f"Restart or post-process it with the PICurv built on a {8 * saved_index_bytes}-bit-index PETSc.")
     if payload_count <= 0 or particle_count < 0 or block_count <= 0:
         raise ValueError(f"Checkpoint inventory counts are invalid: {metadata_path}")
 
@@ -1686,6 +1701,8 @@ def _scan_committed_checkpoint_steps(source_dir: str, require_particles: bool = 
         step = int(match.group(1))
         try:
             validate_committed_checkpoint(source_dir, step, require_particles=require_particles)
+        except CheckpointIndexWidthError:
+            raise
         except ValueError:
             continue
         steps.add(step)
@@ -1812,8 +1829,10 @@ _BINARY_VERSION_PATTERN = re.compile(
 )
 #: Second `--version` line: the PETSc the executable was compiled against (src/setup.c).
 _BINARY_PETSC_PATTERN = re.compile(
-    r"^petsc (?P<version>\S+) (?P<mode>debug|optimized) (?P<arch>\S*) (?P<dir>.*)$"
+    r"^petsc (?P<version>\S+) (?P<mode>debug|optimized)(?: (?P<indices>int32|int64))? (?P<arch>\S*) (?P<dir>.*)$"
 )
+#: Bytes of a PetscInt for each index width a PETSc stamp can name.
+PETSC_INDEX_BYTES = {"int32": 4, "int64": 8}
 #: Marker in front of the same text inside the executable, readable without running it.
 _BINARY_PETSC_STAMP_MARKER = b"PICURV_PETSC_BUILD:"
 #: Marker of the build-identity stamp in an executable (src/setup.c, picurv_build_stamp).
@@ -1823,13 +1842,18 @@ _BINARY_BUILD_STAMP_MARKER = b"PICURV_BUILD:"
 def _parse_binary_petsc_line(line: str) -> "dict | None":
     """!
     @brief Parse the PETSc build line a native executable reports.
-    @param[in] line `petsc <version> <debug|optimized> <arch> <dir>`.
-    @return Mapping with version, mode, arch, and dir, or None when the line is not one.
+    @param[in] line `petsc <version> <debug|optimized> [int32|int64] <arch> <dir>`.
+    @return Mapping with version, mode, indices, arch, and dir, or None when the line is not
+            one. A binary built before the index width was stamped is 32-bit; `indices_stamped`
+            records whether the line named it, so the line can be rebuilt exactly.
     """
     match = _BINARY_PETSC_PATTERN.match((line or "").strip())
     if not match:
         return None
-    return {key: match.group(key) for key in ("version", "mode", "arch", "dir")}
+    parsed = {key: match.group(key) for key in ("version", "mode", "arch", "dir")}
+    parsed["indices_stamped"] = match.group("indices") is not None
+    parsed["indices"] = match.group("indices") or "int32"
+    return parsed
 
 
 def read_binary_petsc_stamp(executable_path: str) -> "dict | None":
@@ -1924,7 +1948,8 @@ def _read_binary_build_stamp(executable_path: str) -> "dict | None":
     # Exactly what `--version` prints (src/setup.c), which the job-start check compares with.
     name = os.path.basename(executable_path)
     version_line = (f"{name} {release}+g{commit}{'.dirty' if dirty else ''}\n"
-                    f"petsc {petsc['version']} {petsc['mode']} {petsc['arch']} {petsc['dir']}")
+                    f"petsc {petsc['version']} {petsc['mode']}"
+                    f"{' ' + petsc['indices'] if petsc.get('indices_stamped') else ''} {petsc['arch']} {petsc['dir']}")
     return {
         "available": True,
         "path": executable_path,
@@ -4087,6 +4112,7 @@ def run_post_spectra_stage(run_dir: str, post_cfg: dict, monitor_cfg: dict,
                 cmd.extend(["--axes", *task_cfg["axes"], "--fixed-indices", json.dumps(task_cfg["fixed_indices"])])
             cmd.extend(_spectra_mean_arguments(task_cfg, bundle, mean_bundle))
             cmd.extend(scale_arguments)
+            cmd.extend(petsc_index_arguments(int(bundle["metadata"].get("checkpoint_petsc_index_bytes", "4"))))
             result = subprocess.run(cmd, text=True, capture_output=True)
             if result.returncode != 0:
                 details = (result.stderr or result.stdout or "").strip()
@@ -5688,6 +5714,8 @@ def detect_post_source_frontier(source_dir: str, monitor_cfg: dict, post_cfg: di
                 source_dir, step,
                 require_particles=source_scan.get('require_particles', False),
             )
+        except CheckpointIndexWidthError:
+            raise
         except ValueError:
             expected_paths = _expected_source_paths_for_step(step, source_scan, post_cfg)
             diagnostic['first_incomplete_step'] = step
@@ -6564,6 +6592,8 @@ def validate_load_mode_step_range(source_output: str, start_step: int, total_ste
     for step in range(start_step, start_step + total_steps + 1):
         try:
             validate_eulerian_checkpoint(source_output, step, monitor_cfg)
+        except CheckpointIndexWidthError:
+            raise
         except ValueError:
             missing.append(step)
 
@@ -6637,6 +6667,8 @@ def resolve_latest_restart_run(case_cfg: dict, case_path: str, start_step: int) 
         output_root = candidate / CANONICAL_RUN_PATHS["output"]
         try:
             validate_committed_checkpoint(str(output_root), start_step)
+        except CheckpointIndexWidthError:
+            raise
         except (OSError, ValueError):
             continue
         ordering = manifest.get("updated_at") or manifest.get("created_at") or ""
@@ -6957,6 +6989,8 @@ def prepare_case_for_continuation(run_dir: str, case_id: str, last_step: int,
         checkpoint_has_particles = validate_committed_checkpoint(
             output_dir, last_step, require_particles=True
         )["has_particles"]
+    except CheckpointIndexWidthError:
+        raise
     except ValueError:
         checkpoint_has_particles = False
     if particles_cfg is not None and checkpoint_has_particles:
@@ -7606,6 +7640,7 @@ def generate_field_slice_picslice(output_path: str, expected_dims: tuple, source
         "--expected-dims",
         str(n1),
         str(n2),
+        *petsc_index_arguments(payload_petsc_index_bytes(field_file)),
     ]
     if "face" in slice_cfg:
         cmd.append(f"--slice-face={slice_cfg['face']}")
@@ -14801,43 +14836,87 @@ def resolve_initial_condition_config(ic: dict, prepared_blocks, scales: dict, pr
     cli_params.pop("ic_coordinate_system", None)
     return {"finit": finit_code, "cli_params": cli_params, "kind": "builtin", "label": generator}
 
-def validate_petsc_vec_binary(path: str) -> dict:
+def runtime_petsc_index_bytes() -> int:
+    """!
+    @brief Bytes of a PetscInt in the PETSc the solver this conductor drives was built on.
+    @details PETSc binary files store their sizes as PetscInt and do not record the width, so
+             a file staged for the solver must use the solver's (PETSc's own PetscBinaryIO
+             reads it from the build configuration the same way). An unbuilt or unstamped
+             solver counts as 32-bit, PETSc's default.
+    @return 4 or 8.
+    """
+    petsc = read_binary_petsc_stamp(resolve_runtime_executable("simulator")) or {}
+    return PETSC_INDEX_BYTES.get(petsc.get("indices", "int32"), 4)
+
+
+def payload_petsc_index_bytes(path: str) -> int:
+    """!
+    @brief PetscInt width of a PETSc payload: as its checkpoint recorded it, else the driven solver's.
+    @details A committed checkpoint's `checkpoint.meta` records the width it was written with
+             (`-checkpoint_petsc_index_bytes`; absent in checkpoints written before it existed,
+             which are 32-bit). A payload outside any checkpoint is read as the driven solver
+             would read it.
+    @param[in] path Payload path.
+    @return 4 or 8.
+    """
+    directory = os.path.dirname(os.path.abspath(path))
+    for _ in range(4):
+        metadata = os.path.join(directory, "checkpoint.meta")
+        if os.path.isfile(metadata):
+            return int(_read_checkpoint_options(metadata).get("checkpoint_petsc_index_bytes", "4"))
+        directory = os.path.dirname(directory)
+    return runtime_petsc_index_bytes()
+
+
+def petsc_index_arguments(index_bytes: int) -> list:
+    """!
+    @brief Generator arguments naming a PetscInt width; none for PETSc's default 32-bit.
+    @details Kept empty at 4 bytes so a user's replacement generator script that predates the
+             option keeps working for every 32-bit build.
+    @param[in] index_bytes 4 or 8.
+    @return Argument list.
+    """
+    return [] if index_bytes == 4 else ["--petsc-index-bytes", str(index_bytes)]
+
+
+def validate_petsc_vec_binary(path: str, index_bytes: "int | None" = None) -> dict:
     """!
     @brief Validate the basic PETSc binary VecView envelope used by ReadFieldData.
     @param[in] path PETSc binary vector path.
-    @return Summary containing the absolute path and scalar count.
+    @param[in] index_bytes PetscInt width of the reading build; the driven solver's when None.
+    @return Summary containing the absolute path, scalar count and index width.
     """
     import struct
+    index_bytes = index_bytes or runtime_petsc_index_bytes()
+    header_bytes = 2 * index_bytes
     with open(path, "rb") as fin:
-        header = fin.read(8)
-        if len(header) != 8:
+        header = fin.read(header_bytes)
+        if len(header) != header_bytes:
             raise ValueError(f"PETSc Vec file is too short: {path}")
-        class_id, scalar_count = struct.unpack(">ii", header)
-        if class_id != 1211214 or scalar_count < 0:
-            raise ValueError(f"Invalid PETSc Vec header in {path}.")
+        class_id, scalar_count = struct.unpack(">ii" if index_bytes == 4 else ">qq", header)
         payload = fin.read()
-    if len(payload) != scalar_count * 8:
+    if class_id != 1211214 or scalar_count < 0 or len(payload) != scalar_count * 8:
         raise ValueError(
-            f"PETSc Vec payload size mismatch in {path}: expected {scalar_count * 8} bytes, found {len(payload)}."
-        )
-    return {"path": os.path.abspath(path), "scalar_count": scalar_count}
+            f"Invalid PETSc Vec file {path} for a PETSc with {index_bytes}-byte indices; a file "
+            f"written for the other index width (or truncated) does not fit its header.")
+    return {"path": os.path.abspath(path), "scalar_count": scalar_count, "index_bytes": index_bytes}
 
 
 def write_scaled_petsc_vec_binary(source: str, destination: str, divisor: float) -> dict:
     """!
     @brief Copy a PETSc binary Vec, dividing every scalar by one factor.
     @details Used to stage a physical payload in solver units. The envelope is the one
-             `validate_petsc_vec_binary()` accepts: a big-endian class id and count,
-             followed by big-endian doubles.
+             `validate_petsc_vec_binary()` accepts: a big-endian class id and count of the
+             solver's index width, followed by big-endian doubles.
     @param[in] source Validated PETSc binary vector path.
     @param[in] destination Path to write the scaled vector to.
     @param[in] divisor Reference scale the payload is divided by.
     @return Summary of the destination, as `validate_petsc_vec_binary()` reports it.
     """
     from array import array
-    validate_petsc_vec_binary(source)
+    index_bytes = validate_petsc_vec_binary(source)["index_bytes"]
     with open(source, "rb") as fin:
-        header = fin.read(8)
+        header = fin.read(2 * index_bytes)
         values = array("d")
         values.frombytes(fin.read())
     if sys.byteorder == "little":
@@ -14849,7 +14928,7 @@ def write_scaled_petsc_vec_binary(source: str, destination: str, divisor: float)
     with open(destination, "wb") as fout:
         fout.write(header)
         fout.write(values.tobytes())
-    return validate_petsc_vec_binary(destination)
+    return validate_petsc_vec_binary(destination, index_bytes)
 
 def initial_condition_diagnostic_paths(run_dir, resolved_ic):
     """!
@@ -14892,7 +14971,7 @@ def run_initial_spectrum_generator(field_path: str, staged_grid: str,
     command = task_cfg["task"].replace("_", "-") if task_cfg else "shell-spectrum"
     cmd = [sys.executable, script, command,
            "--field-file", field_path, "--source-grid", staged_grid,
-           "--spectrum-csv", spectrum_path]
+           "--spectrum-csv", spectrum_path, *petsc_index_arguments(runtime_petsc_index_bytes())]
     if task_cfg:
         cmd.extend(["--axes", *task_cfg["axes"], "--fixed-indices", json.dumps(task_cfg["fixed_indices"]),
                     "--subtract-mean", task_cfg["subtract_mean"], "--summary-json", os.path.splitext(spectrum_path)[0]+".json"])
@@ -14944,7 +15023,7 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
                "--grid", staged_grid, "--output", output_path,
                "--params-json", json.dumps(provider_params, sort_keys=True),
                "--context-json", json.dumps(provider_context, sort_keys=True),
-               "--summary-json", summary_path]
+               "--summary-json", summary_path, *petsc_index_arguments(runtime_petsc_index_bytes())]
         result = subprocess.run(cmd, cwd=case_dir, text=True, capture_output=True)
         if result.returncode != 0:
             details = (result.stderr or result.stdout or "").strip()
@@ -14972,7 +15051,7 @@ def run_initial_condition_generator(case_path: str, run_dir: str, resolved_ic: d
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     cmd = [sys.executable, script, "-c", config_file, "--field",
            "Ucat" if resolved_ic["field_code"] == 0 else "Ucont",
-           "--output", output_path]
+           "--output", output_path, *petsc_index_arguments(runtime_petsc_index_bytes())]
     staged_grid = os.path.join(run_dir, "inputs", "grid", "grid.run")
     if os.path.isfile(staged_grid):
         cmd.extend(["--grid", staged_grid])
@@ -25924,7 +26003,8 @@ def _print_petsc_build(identity: dict) -> None:
         print(f"  {'':<14}  PETSc: not recorded (built before PETSc stamping)")
         return
     location = ", ".join(part for part in (petsc.get("arch"), petsc.get("dir")) if part)
-    print(f"  {'':<14}  PETSc: {petsc['version']} {petsc['mode']} ({location})")
+    bits = 8 * PETSC_INDEX_BYTES[petsc.get("indices", "int32")]
+    print(f"  {'':<14}  PETSc: {petsc['version']} {petsc['mode']}, {bits}-bit indices ({location})")
     library = identity.get("petsc_library")
     if library:
         flag = ("  <- NOT the PETSc it was built against; load that PETSc's module, "

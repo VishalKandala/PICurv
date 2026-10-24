@@ -27,7 +27,7 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
     usermg = &simCtx->usermg;
     level  = usermg->mglevels - 1;
     user   = usermg->mgctx[level].user;
-    LOG_ALLOW(GLOBAL, LOG_INFO, "[Step %d] Entering orchestrator...\n", simCtx->step);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "[Step %" PetscInt_FMT "] Entering orchestrator...\n", simCtx->step);
 
     /*
     // ========================================================================
@@ -79,7 +79,7 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
             // its own cadence. The constant model's coefficient never changes.
             if (simCtx->les == DYNAMIC_SMAGORINSKY &&
                 simCtx->step % simCtx->les_config.dynamic_frequency == 0) {
-                LOG_ALLOW(LOCAL, LOG_DEBUG, "  Computing dynamic coefficient for block %d.\n", bi);
+                LOG_ALLOW(LOCAL, LOG_DEBUG, "  Computing dynamic coefficient for block %" PetscInt_FMT ".\n", bi);
                 ierr = ComputeSmagorinskyConstant(&user[bi]); CHKERRQ(ierr);
             }
 
@@ -114,13 +114,13 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
 // This step enforces the continuity equation (incompressibility) by solving
 // for a pressure correction field.
     
- LOG_ALLOW(GLOBAL, LOG_INFO, "Beginning pressure-Poisson solve (Poisson Flag = %d)...\n", simCtx->poisson);
+ LOG_ALLOW(GLOBAL, LOG_INFO, "Beginning pressure-Poisson solve (Poisson Flag = %" PetscInt_FMT ")...\n", simCtx->poisson);
     
  if (simCtx->poisson == 0) {
    ierr = PoissonSolver_Multigrid(usermg); CHKERRQ(ierr);
  } else {
    SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
-           "Unsupported Poisson solver type %d. The current runtime supports only the multigrid path (poisson = 0).",
+           "Unsupported Poisson solver type %" PetscInt_FMT ". The current runtime supports only the multigrid path (poisson = 0).",
            simCtx->poisson);
  }
     
@@ -133,11 +133,11 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Applying velocity correction/projection step...\n");
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         ierr = UpdatePressure(&user[bi]); CHKERRQ(ierr);
-	LOG_ALLOW(GLOBAL,LOG_INFO," Pressure Updated for Block %d.\n",bi);
+	LOG_ALLOW(GLOBAL,LOG_INFO," Pressure Updated for Block %" PetscInt_FMT ".\n",bi);
 	
         ierr = ProjectVelocity(&user[bi]); CHKERRQ(ierr);
 	
-        LOG_ALLOW(GLOBAL,LOG_INFO," Velocity corrected for Block %d.\n",bi);
+        LOG_ALLOW(GLOBAL,LOG_INFO," Velocity corrected for Block %" PetscInt_FMT ".\n",bi);
 
 	// Ensure local ghost cells for the final pressure field are correct
 	ierr = UpdateLocalGhosts(&user[bi], FIELD_ID_P);
@@ -150,7 +150,7 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
     // ========================================================================
     
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Finalizing state & Diagnostics for block %d...\n", bi);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Finalizing state & Diagnostics for block %" PetscInt_FMT "...\n", bi);
         
         // --- Perform Divergence Check ---
         // This is a diagnostic to verify the quality of the velocity correction.
@@ -179,7 +179,7 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
         // }
     }
     
-    LOG_ALLOW(GLOBAL, LOG_INFO, "orchestrator finished for step %d.\n", simCtx->step);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "orchestrator finished for step %" PetscInt_FMT ".\n", simCtx->step);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

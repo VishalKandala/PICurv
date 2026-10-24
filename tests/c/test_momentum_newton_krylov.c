@@ -929,7 +929,7 @@ static PetscErrorCode TestWholeOperatorDirectJacobian(void)
         PetscCall(VecNorm(error_vec, NORM_2, &error));
         PetscCall(VecNorm(dense_v[which], NORM_2, &reference));
         PetscCheck(error <= 2.0e-5 * PetscMax(1.0, reference), PETSC_COMM_WORLD, PETSC_ERR_PLIB,
-                   "Independent dense FD Jv differs from PETSc MFFD action %d: error=%g reference=%g.",
+                   "Independent dense FD Jv differs from PETSc MFFD action %" PetscInt_FMT ": error=%g reference=%g.",
                    which, (double)error, (double)reference);
     }
 
@@ -947,7 +947,7 @@ static PetscErrorCode TestWholeOperatorDirectJacobian(void)
         }
         PetscCall(VecNorm(dense_v[which], NORM_2, &reference));
         PetscCheck(best <= 2.0e-5 * PetscMax(1.0, reference), PETSC_COMM_WORLD, PETSC_ERR_PLIB,
-                   "Direct directional differences show no accuracy plateau for vector %d (best=%g).",
+                   "Direct directional differences show no accuracy plateau for vector %" PetscInt_FMT " (best=%g).",
                    which, (double)best);
     }
 

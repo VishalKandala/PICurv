@@ -892,8 +892,12 @@ def test_binary_petsc_build_is_read_from_version_output_and_from_a_binary_that_c
     identity = core.read_binary_build_identity(str(current))
     assert identity["available"] is True
     assert identity["build_id"] == "0.2.0+gabcdef123456"
+    # A line without the index width predates it and is a 32-bit build.
     assert identity["petsc"] == {"version": "3.20.3", "mode": "debug", "arch": "arch-dbg",
-                                 "dir": "/opt/petsc"}
+                                 "dir": "/opt/petsc", "indices": "int32", "indices_stamped": False}
+    assert core._parse_binary_petsc_line("petsc 3.20.3 optimized int64 arch-opt /opt/petsc") == {
+        "version": "3.20.3", "mode": "optimized", "arch": "arch-opt", "dir": "/opt/petsc",
+        "indices": "int64", "indices_stamped": True}
 
     older = _fake_binary(tmp_path / "postprocessor", "postprocessor 0.2.0+gabcdef123456")
     assert core.read_binary_build_identity(str(older))["petsc"] is None

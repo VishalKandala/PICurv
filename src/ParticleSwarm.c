@@ -39,7 +39,7 @@ PetscErrorCode RegisterSwarmField(DM swarm, const char *fieldName, PetscInt fiel
     
     ierr = DMSwarmRegisterPetscDatatypeField(swarm, fieldName, fieldDim, dtype); CHKERRQ(ierr);
     // PetscDataTypes is an extern char* [] defined in petscsystypes.h that gives string names for PetscDataType enums
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field '%s' with dimension=%d, type=%s.\n",
+    LOG_ALLOW(LOCAL,LOG_DEBUG,"Registered field '%s' with dimension=%" PetscInt_FMT ", type=%s.\n",
             fieldName, fieldDim, PetscDataTypes[dtype]);
     
     PROFILE_FUNCTION_END;
@@ -209,7 +209,7 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
         *cj_metric_lnode_out = ys_gnode + local_owned_cell_idx_j;
         *ck_metric_lnode_out = zs_gnode + local_owned_cell_idx_k;
 
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Selected Cell (Owned Idx: %d,%d,%d -> LNodeStart: %d,%d,%d). OwnedCells(i,j,k): (%d,%d,%d). GhostNodeStarts(xs,ys,zs): (%d,%d,%d) \n",
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Selected Cell (Owned Idx: %" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT " -> LNodeStart: %" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "). OwnedCells(i,j,k): (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "). GhostNodeStarts(xs,ys,zs): (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") \n",
                 rank_for_logging, local_owned_cell_idx_i, local_owned_cell_idx_j, local_owned_cell_idx_k,
                 *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out,
                 num_owned_cells_on_rank_i, num_owned_cells_on_rank_j, num_owned_cells_on_rank_k,
@@ -232,7 +232,7 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
             ierr = PetscRandomGetValueReal(*rand_logic_j_ptr, &u); CHKERRQ(ierr);
             if (u * cell_bound[lo] <= detJ) break;
             if (attempt == 999) {
-                LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: 1000 rejected draws in cell (%d,%d,%d); accepting the last one.\n",
+                LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: 1000 rejected draws in cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "); accepting the last one.\n",
                           rank_for_logging, *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out);
             }
         }
@@ -241,7 +241,7 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
         // This rank does not own any 3D cells (e.g., in a 1D or 2D decomposition,
         // or if the global domain itself is not 3D in terms of cells).
         // *can_place_in_volume_out remains PETSC_FALSE.
-        LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: Cannot place particle volumetrically. Rank has zero owned cells in at least one dimension (owned cells i,j,k: %d,%d,%d).\n",
+        LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: Cannot place particle volumetrically. Rank has zero owned cells in at least one dimension (owned cells i,j,k: %" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ").\n",
                 rank_for_logging, num_owned_cells_on_rank_i, num_owned_cells_on_rank_j, num_owned_cells_on_rank_k);
     }
 
@@ -307,7 +307,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     const PetscInt JM_cells_global = JM_nodes_global > 0 ? JM_nodes_global - 1 : 0;
     const PetscInt KM_cells_global = KM_nodes_global > 0 ? KM_nodes_global - 1 : 0;
 
-    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Initializing %d particles. Mode: %s.\n",
+    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Initializing %" PetscInt_FMT " particles. Mode: %s.\n",
             rank, particlesPerProcess, ParticleInitializationToString(simCtx->ParticleInitialization));
 
     // --- 2. Pre-computation for Surface Initialization (PARTICLE_INIT_SURFACE_RANDOM and PARTICLE_INIT_SURFACE_EDGES) ---
@@ -327,7 +327,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
         PetscReal owned_volume;
         ierr = BuildOwnedCellVolumeTable(user, coor_nodes_local_array, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
                                          &cell_cdf, &cell_bound, &n_cells, &owned_volume); CHKERRQ(ierr);
-        LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Seeding %d particles uniformly over %d owned cells of total volume %.6e.\n",
+        LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Seeding %" PetscInt_FMT " particles uniformly over %" PetscInt_FMT " owned cells of total volume %.6e.\n",
                   rank, particlesPerProcess, n_cells, (double)owned_volume);
     }
 
@@ -366,7 +366,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
         if (owner < size) {
             if (rank == owner) { point_cell[0] = probe.cell[0]; point_cell[1] = probe.cell[1]; point_cell[2] = probe.cell[2]; }
             ierr = MPI_Bcast(point_cell, 3, MPIU_INT, owner, PETSC_COMM_WORLD); CHKERRMPI(ierr);
-            LOG_ALLOW(GLOBAL, LOG_INFO, "Point source (%.6e, %.6e, %.6e) lies in cell (%d,%d,%d) on rank %d.\n",
+            LOG_ALLOW(GLOBAL, LOG_INFO, "Point source (%.6e, %.6e, %.6e) lies in cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") on rank %d.\n",
                       simCtx->psrc_x, simCtx->psrc_y, simCtx->psrc_z, point_cell[0], point_cell[1], point_cell[2], owner);
         } else {
             LOG_ALLOW(GLOBAL, LOG_WARNING, "Point source (%.6e, %.6e, %.6e) was not located on any rank; its particles will be searched for.\n",
@@ -478,7 +478,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
         // --- 5.d. Logging for this particle ---
         if (particle_placed_by_this_rank) {
             LOG_LOOP_ALLOW(LOCAL, LOG_VERBOSE, idx, user->simCtx->LoggingFrequency,//(particlesPerProcess > 20 ? particlesPerProcess/10 : 1), 
-                "Rank %d: PID %lld (idx %ld) PLACED. Mode %s. Embedded Cell:(%d,%d,%d). Logical Coords: (%.2e,%.2f,%.2f).\n Final Coords: (%.6f,%.6f,%.6f).\n",
+                "Rank %d: PID %lld (idx %ld) PLACED. Mode %s. Embedded Cell:(%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "). Logical Coords: (%.2e,%.2f,%.2f).\n Final Coords: (%.6f,%.6f,%.6f).\n",
                 rank, (long long)particleIDs[p], (long)p, ParticleInitializationToString(simCtx->ParticleInitialization), 
                 ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
                 xi_metric_logic, eta_metric_logic, zta_metric_logic, 
@@ -501,7 +501,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     ierr = PetscFree(cell_cdf); CHKERRQ(ierr);
     ierr = PetscFree(cell_bound); CHKERRQ(ierr);
 
-    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Completed processing for %d particles.\n",
+    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Completed processing for %" PetscInt_FMT " particles.\n",
             rank, particlesPerProcess);
 
     PROFILE_FUNCTION_END;
@@ -561,7 +561,7 @@ static PetscErrorCode AssignInitialFieldToSwarm(UserCtx *user, ParticleFieldId f
 
     // Get the number of local particles
     ierr = DMSwarmGetLocalSize(swarm, &nLocal); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_INFO, "%d local particles found.\n", nLocal);
+    LOG_ALLOW(LOCAL,LOG_INFO, "%" PetscInt_FMT " local particles found.\n", nLocal);
 
     // Retrieve the swarm field pointer for the specified fieldName
     ierr = DMSwarmGetField(swarm, fieldName, NULL, NULL, (void**)&fieldData); CHKERRQ(ierr);
@@ -575,7 +575,7 @@ static PetscErrorCode AssignInitialFieldToSwarm(UserCtx *user, ParticleFieldId f
         for (PetscInt d = 0; d < descriptor->components; d++) {
     disp_data[d] = fieldData[descriptor->components * p + d];
         }
-        LOG_LOOP_ALLOW(LOCAL,LOG_VERBOSE,p, 100," Particle %d: %s[%d] = [%.6f, ...,%.6f].\n", p,fieldName,descriptor->components,disp_data[0],disp_data[descriptor->components-1]);
+        LOG_LOOP_ALLOW(LOCAL,LOG_VERBOSE,p, 100," Particle %" PetscInt_FMT ": %s[%" PetscInt_FMT "] = [%.6f, ...,%.6f].\n", p,fieldName,descriptor->components,disp_data[0],disp_data[descriptor->components-1]);
     }
     
     // Restore the swarm field pointer
@@ -617,7 +617,7 @@ PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null input detected.");
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Initializing swarm with %d particles per process. Mode: %s.\n",
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Initializing swarm with %" PetscInt_FMT " particles per process. Mode: %s.\n",
             particlesPerProcess, ParticleInitializationToString(simCtx->ParticleInitialization));
 
     // --- 1. Parse BCS File for Inlet Information (if surface initialization) ---
@@ -695,9 +695,9 @@ PetscErrorCode DistributeParticles(PetscInt numParticles, PetscMPIInt rank, Pets
     // Distribute the remainder particles to the first 'remainder' ranks
     if (rank < *remainder) {
         *particlesPerProcess += 1;
-        LOG_ALLOW_SYNC(GLOBAL,LOG_INFO,"Rank %d receives an extra particle. Total: %d\n", rank, *particlesPerProcess);
+        LOG_ALLOW_SYNC(GLOBAL,LOG_INFO,"Rank %d receives an extra particle. Total: %" PetscInt_FMT "\n", rank, *particlesPerProcess);
     } else {
-        LOG_ALLOW_SYNC(GLOBAL,LOG_INFO, "Rank %d receives %d particles.\n", rank, *particlesPerProcess);
+        LOG_ALLOW_SYNC(GLOBAL,LOG_INFO, "Rank %d receives %" PetscInt_FMT " particles.\n", rank, *particlesPerProcess);
     }
 
     PROFILE_FUNCTION_END;
@@ -799,7 +799,7 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
     PROFILE_FUNCTION_BEGIN;
     // Validate input parameters
     if (numParticles <= 0) {
-    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Number of particles must be positive. Given: %d\n", numParticles);
+    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Number of particles must be positive. Given: %" PetscInt_FMT "\n", numParticles);
         PROFILE_FUNCTION_END;
         return PETSC_ERR_ARG_OUTOFRANGE;
     }
@@ -839,7 +839,7 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
     // local count; PETSc reallocates beyond it). Every resize zeroes the whole spare region, so a
     // buffer sized to the global count would cost each rank memory and work of order numParticles.
     ierr = DMSwarmSetLocalSizes(user->swarm, *particlesPerProcess, *particlesPerProcess / 10); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_INFO, "Set local swarm size: %d particles.\n", *particlesPerProcess);
+    LOG_ALLOW(GLOBAL,LOG_INFO, "Set local swarm size: %" PetscInt_FMT " particles.\n", *particlesPerProcess);
 
     // Optionally, LOG_ALLOW detailed DM info in debug mode
     if (get_log_level() == LOG_DEBUG && is_function_allowed(__func__)) {
@@ -882,26 +882,26 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
     }
     
     // logging the start of particle initialization
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d]Unpacking Particle [%d] with PID: %ld.\n",rank, i, PIDs[i]);
+    LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d]Unpacking Particle [%" PetscInt_FMT "] with PID: %ld.\n",rank, i, PIDs[i]);
     
     // Initialize PID
     if(PIDs == NULL){
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input PIDs pointer is NULL.\n");
     }
     particle->PID = PIDs[i];
-    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%d] PID set to: %ld.\n", rank,i, particle->PID);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%" PetscInt_FMT "] PID set to: %ld.\n", rank,i, particle->PID);
     
     // Initialize weights
     if(weights == NULL){
         particle->weights.x = 1.0;
         particle->weights.y = 1.0;
         particle->weights.z = 1.0;
-        LOG_ALLOW(LOCAL,LOG_WARNING, "[Rank %d]Particle [%d] weights pointer is NULL. Defaulting weights to (1.0, 1.0, 1.0).\n", rank,i);
+        LOG_ALLOW(LOCAL,LOG_WARNING, "[Rank %d]Particle [%" PetscInt_FMT "] weights pointer is NULL. Defaulting weights to (1.0, 1.0, 1.0).\n", rank,i);
     }else{
     particle->weights.x = weights[3 * i];
     particle->weights.y = weights[3 * i + 1];
     particle->weights.z = weights[3 * i + 2];
-    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%d] weights set to: (%.6f, %.6f, %.6f).\n", 
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%" PetscInt_FMT "] weights set to: (%.6f, %.6f, %.6f).\n", 
         rank,i, particle->weights.x, particle->weights.y, particle->weights.z);
     }
     // Initialize locations
@@ -911,7 +911,7 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
     particle->loc.x = positions[3 * i];
     particle->loc.y = positions[3 * i + 1];
     particle->loc.z = positions[3 * i + 2];
-    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%d] location set to: (%.6f, %.6f, %.6f).\n", 
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%" PetscInt_FMT "] location set to: (%.6f, %.6f, %.6f).\n", 
         rank,i, particle->loc.x, particle->loc.y, particle->loc.z);
     
     // Initialize velocities (assuming default zero; modify if necessary)
@@ -919,12 +919,12 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
         particle->vel.x = 0.0;
         particle->vel.y = 0.0;
         particle->vel.z = 0.0;
-        LOG_ALLOW(LOCAL,LOG_WARNING, "[Rank %d]Particle [%d] velocities pointer is NULL. Defaulting velocities to (0.0, 0.0, 0.0).\n", rank,i);
+        LOG_ALLOW(LOCAL,LOG_WARNING, "[Rank %d]Particle [%" PetscInt_FMT "] velocities pointer is NULL. Defaulting velocities to (0.0, 0.0, 0.0).\n", rank,i);
     }else{
     particle->vel.x = velocities[3 * i];
     particle->vel.y = velocities[3 * i + 1];
     particle->vel.z = velocities[3 * i + 2];
-    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%d] velocities unpacked to: [%.6f,%.6f,%.6f].\n",rank, i,particle->vel.x,particle->vel.y,particle->vel.z);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%" PetscInt_FMT "] velocities unpacked to: [%.6f,%.6f,%.6f].\n",rank, i,particle->vel.x,particle->vel.y,particle->vel.z);
     }
     
     // Initialize diffusivity
@@ -933,20 +933,20 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
     }else{
         particle->diffusivity = diffusivity[i];
     }
-    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%d] diffusivity set to: %.6f.\n",rank,i, particle->diffusivity);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%" PetscInt_FMT "] diffusivity set to: %.6f.\n",rank,i, particle->diffusivity);
     
     // Initialize diffusivity gradient
     if(diffusivitygradient == NULL){
         particle->diffusivitygradient.x = 0.0;
         particle->diffusivitygradient.y = 0.0;
         particle->diffusivitygradient.z = 0.0;
-        LOG_ALLOW(LOCAL,LOG_WARNING, "[Rank %d]Particle [%d] diffusivity gradient pointer is NULL. Defaulting to (0.0, 0.0, 0.0).\n", rank,i);
+        LOG_ALLOW(LOCAL,LOG_WARNING, "[Rank %d]Particle [%" PetscInt_FMT "] diffusivity gradient pointer is NULL. Defaulting to (0.0, 0.0, 0.0).\n", rank,i);
     }else{
         particle->diffusivitygradient.x = diffusivitygradient[i].x;
         particle->diffusivitygradient.y = diffusivitygradient[i].y;
         particle->diffusivitygradient.z = diffusivitygradient[i].z;
     }
-    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%d] diffusivity gradient set to: (%.6f, %.6f, %.6f).\n", rank,i,particle->diffusivitygradient.x,particle->diffusivitygradient.y,particle->diffusivitygradient.z);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%" PetscInt_FMT "] diffusivity gradient set to: (%.6f, %.6f, %.6f).\n", rank,i,particle->diffusivitygradient.x,particle->diffusivitygradient.y,particle->diffusivitygradient.z);
 
     // Initialize psi
     if(psi == NULL){
@@ -954,7 +954,7 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
     }else{
     particle->psi = psi[i];
     }        
-    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%d] psi set to: %.6f.\n",rank,i, particle->psi);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%" PetscInt_FMT "] psi set to: %.6f.\n",rank,i, particle->psi);
     
     // Initialize cell indices
     if(cellIndices == NULL){
@@ -963,21 +963,21 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
     particle->cell[0] = cellIndices[3 * i];
     particle->cell[1] = cellIndices[3 * i + 1];
     particle->cell[2] = cellIndices[3 * i + 2];
-    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%d] cell indices set to: [%d, %d, %d].\n",rank,i, particle->cell[0], particle->cell[1], particle->cell[2]);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%" PetscInt_FMT "] cell indices set to: [%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT "].\n",rank,i, particle->cell[0], particle->cell[1], particle->cell[2]);
 
     if(LocStatus == NULL){
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input LocStatus pointer is NULL.\n");
     }
     // Initialize location status
     particle->location_status = (ParticleLocationStatus)LocStatus[i];
-    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%d] Status set to: %d.\n",rank, i, particle->location_status);
+    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%" PetscInt_FMT "] Status set to: %d.\n",rank, i, particle->location_status);
 
     // The destination_rank is only set by the location search, not read from the swarm,
     // so we initialize it to a known invalid state.
     particle->destination_rank = MPI_PROC_NULL;
     
     // logging the completion of particle initialization
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"[Rank %d]Completed initialization of Particle [%d]. \n", rank,i);
+    LOG_ALLOW(LOCAL,LOG_DEBUG,"[Rank %d]Completed initialization of Particle [%" PetscInt_FMT "]. \n", rank,i);
     
 
     PROFILE_FUNCTION_END;
@@ -1129,7 +1129,7 @@ PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle) {
     for (PetscInt i = LEFT; i < NUM_FACES; i++) {
         if (d[i] <= INTERPOLATION_DISTANCE_TOLERANCE) {
             LOG_ALLOW(LOCAL, LOG_WARNING,
-                "face distance d[%d] = %f <= %f; "
+                "face distance d[%" PetscInt_FMT "] = %f <= %f; "
                 "clamping to 1e-14 to avoid zero/negative.\n",
                 i, (double)d[i], INTERPOLATION_DISTANCE_TOLERANCE);
             d[i] = INTERPOLATION_DISTANCE_TOLERANCE;
@@ -1173,7 +1173,7 @@ PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting particle swarm setup for %d particles.\n", simCtx->np);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Starting particle swarm setup for %" PetscInt_FMT " particles.\n", simCtx->np);
 
     // --- Phase 1: Create the DMSwarm Object (Always required) ---
     // This creates the container and registers the fields. It does not add particles yet.
@@ -1211,7 +1211,7 @@ PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
     } else {
         // --- PATH B: Load particle population from restart files ---
         // This path is only taken if simCtx->StartStep > 0 AND simCtx->particleRestartMode == "load"
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Mode: LOAD. Loading particle population from files for step %d.\n", simCtx->StartStep);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Mode: LOAD. Loading particle population from files for step %" PetscInt_FMT ".\n", simCtx->StartStep);
 
         ierr = PreCheckAndResizeSwarm(user, simCtx->StartStep, "dat"); CHKERRQ(ierr);
 

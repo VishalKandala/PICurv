@@ -22,19 +22,19 @@ static PetscErrorCode ParseAndSetGridInputs(UserCtx *user)
     } else if (simCtx->generate_grid) {
         if (strcmp(simCtx->eulerianSource, "analytical") == 0) {
             LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
-                           "Rank %d: Analytical type '%s' uses programmatic grid ingestion for block %d.\n",
+                           "Rank %d: Analytical type '%s' uses programmatic grid ingestion for block %" PetscInt_FMT ".\n",
                            simCtx->rank, simCtx->AnalyticalSolutionType, user->_this);
         } else {
-            LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %d is programmatically generated. Calling generation parser.\n", simCtx->rank, user->_this);
+            LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %" PetscInt_FMT " is programmatically generated. Calling generation parser.\n", simCtx->rank, user->_this);
         }
         ierr = ReadGridGenerationInputs(user); CHKERRQ(ierr);
     } else {
         if (strcmp(simCtx->eulerianSource, "analytical") == 0) {
             LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG,
-                           "Rank %d: Analytical type '%s' uses file-based grid ingestion for block %d.\n",
+                           "Rank %d: Analytical type '%s' uses file-based grid ingestion for block %" PetscInt_FMT ".\n",
                            simCtx->rank, simCtx->AnalyticalSolutionType, user->_this);
         } else {
-            LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %d is file-based. Calling file parser.\n", simCtx->rank, user->_this);
+            LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Block %" PetscInt_FMT " is file-based. Calling file parser.\n", simCtx->rank, user->_this);
         }
         ierr = ReadGridFile(user); CHKERRQ(ierr);
     }
@@ -65,7 +65,7 @@ PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
     // Get the UserCtx array for the finest grid level
     finest_users = simCtx->usermg.mgctx[simCtx->usermg.mglevels - 1].user;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Defining grid dimensions for %d blocks...\n", nblk);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Defining grid dimensions for %" PetscInt_FMT " blocks...\n", nblk);
     if (AnalyticalRunUsesCustomGeometry(simCtx)) {
         LOG_ALLOW(GLOBAL, LOG_INFO,
                   "Analytical type '%s' requires custom geometry; preloading finest-grid IM/JM/KM once.\n",
@@ -75,11 +75,11 @@ PetscErrorCode DefineAllGridDimensions(SimCtx *simCtx)
 
     // Loop over each block to configure its grid dimensions and geometry.
     for (PetscInt bi = 0; bi < nblk; bi++) {
-        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: --- Configuring Geometry for Block %d ---\n", simCtx->rank, bi);
+        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: --- Configuring Geometry for Block %" PetscInt_FMT " ---\n", simCtx->rank, bi);
 
         // Before calling any helpers, set the block index in the context.
         // This makes the UserCtx self-aware of which block it represents.
-        LOG_ALLOW(GLOBAL,LOG_DEBUG,"finest_users->_this = %d, bi = %d\n",finest_users[bi]._this,bi);
+        LOG_ALLOW(GLOBAL,LOG_DEBUG,"finest_users->_this = %" PetscInt_FMT ", bi = %" PetscInt_FMT "\n",finest_users[bi]._this,bi);
         //finest_user[bi]._this = bi;
 
         // Call the helper function for this specific block. It can now derive
@@ -188,10 +188,10 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
 
     if (coarse_user) {
         // --- This is a FINE grid; it must be aligned with the COARSE grid ---
-        LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: [Aligning DM] for block %d level %d (size %dx%dx%d) with level %d\n", simCtx->rank, user->_this, user->thislevel, user->IM, user->JM, user->KM, coarse_user->thislevel);
+        LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: [Aligning DM] for block %" PetscInt_FMT " level %" PetscInt_FMT " (size %" PetscInt_FMT "x%" PetscInt_FMT "x%" PetscInt_FMT ") with level %" PetscInt_FMT "\n", simCtx->rank, user->_this, user->thislevel, user->IM, user->JM, user->KM, coarse_user->thislevel);
 
         DMDAGetInfo(coarse_user->da, NULL, NULL, NULL, NULL, &m, &n, &p, NULL, NULL, NULL, NULL, NULL, NULL);
-        LOG_ALLOW_SYNC(LOCAL, LOG_TRACE, "Rank %d:   Coarse grid processor decomposition is %d x %d x %d\n", simCtx->rank, m, n, p);
+        LOG_ALLOW_SYNC(LOCAL, LOG_TRACE, "Rank %d:   Coarse grid processor decomposition is %" PetscInt_FMT " x %" PetscInt_FMT " x %" PetscInt_FMT "\n", simCtx->rank, m, n, p);
 
         // This is the core logic from MGDACreate to ensure processor alignment.
         PetscInt *lx_contrib, *ly_contrib, *lz_contrib;
@@ -238,7 +238,7 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
             else if (ze == mz) lz_contrib[proc_k] = user->KM + 1 - (2 * zs - 1);
             else lz_contrib[proc_k] = (ze - zs) * 2;
         }
-        LOG_ALLOW_SYNC(LOCAL, LOG_VERBOSE, "Rank %d:   Calculated this rank's node contribution to fine grid: lx=%d, ly=%d, lz=%d\n", simCtx->rank, lx_contrib[proc_i], ly_contrib[proc_j], lz_contrib[proc_k]);
+        LOG_ALLOW_SYNC(LOCAL, LOG_VERBOSE, "Rank %d:   Calculated this rank's node contribution to fine grid: lx=%" PetscInt_FMT ", ly=%" PetscInt_FMT ", lz=%" PetscInt_FMT "\n", simCtx->rank, lx_contrib[proc_i], ly_contrib[proc_j], lz_contrib[proc_k]);
 
         // Allocate the final distribution arrays and Allreduce to get the global distribution
         ierr = PetscMalloc3(m, &lx, n, &ly, p, &lz); CHKERRQ(ierr);
@@ -252,7 +252,7 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
         // --- CASE 2: This is the COARSEST grid; use default or user-specified decomposition ---
         if(simCtx->exec_mode == EXEC_MODE_SOLVER){
 
-            LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Creating coarsest DM for block %d level %d (size %dx%dx%d)\n", simCtx->rank, user->_this, user->thislevel, user->IM, user->JM, user->KM);
+            LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Creating coarsest DM for block %" PetscInt_FMT " level %" PetscInt_FMT " (size %" PetscInt_FMT "x%" PetscInt_FMT "x%" PetscInt_FMT ")\n", simCtx->rank, user->_this, user->thislevel, user->IM, user->JM, user->KM);
             m = simCtx->da_procs_x;
             n = simCtx->da_procs_y;
             p = simCtx->da_procs_z;
@@ -297,7 +297,7 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
     }
     ierr = DMDASetUniformCoordinates(user->da, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0); CHKERRQ(ierr);
     ierr = DMDAGetLocalInfo(user->da, &user->info); CHKERRQ(ierr);
-    LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d:   DM creation for block %d level %d complete.\n", simCtx->rank, user->_this, user->thislevel);
+    LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d:   DM creation for block %" PetscInt_FMT " level %" PetscInt_FMT " complete.\n", simCtx->rank, user->_this, user->thislevel);
 
     PROFILE_FUNCTION_END;
 
@@ -336,7 +336,7 @@ PetscErrorCode InitializeAllGridDMs(SimCtx *simCtx)
             user_coarse->JM = user_fine->jsc ? user_fine->JM : (user_fine->JM + 1) / 2;
             user_coarse->KM = user_fine->ksc ? user_fine->KM : (user_fine->KM + 1) / 2;
 
-            LOG_ALLOW_SYNC(LOCAL, LOG_TRACE, "Rank %d: Block %d, Level %d dims calculated: %d x %d x %d\n",
+            LOG_ALLOW_SYNC(LOCAL, LOG_TRACE, "Rank %d: Block %" PetscInt_FMT ", Level %" PetscInt_FMT " dims calculated: %" PetscInt_FMT " x %" PetscInt_FMT " x %" PetscInt_FMT "\n",
                       simCtx->rank, bi, level, user_coarse->IM, user_coarse->JM, user_coarse->KM);
 
             // Validation check from legacy MGDACreate to ensure coarsening is possible
@@ -348,14 +348,14 @@ PetscErrorCode InitializeAllGridDMs(SimCtx *simCtx)
 	      //      SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONG,
 	      //           "Grid at level %d, block %d cannot be coarsened from %dx%dx%d to %dx%dx%d with the given semi-coarsening flags. Check grid dimensions.",
               //          level, bi, user_fine->IM, user_fine->JM, user_fine->KM, user_coarse->IM, user_coarse->JM, user_coarse->KM);
-	      LOG(GLOBAL,LOG_WARNING,"WARNING: Grid at level %d, block %d can't be consistently coarsened further.\n", level, bi);
+	      LOG(GLOBAL,LOG_WARNING,"WARNING: Grid at level %" PetscInt_FMT ", block %" PetscInt_FMT " can't be consistently coarsened further.\n", level, bi);
             }
         }
     }
 
     // --- Part 2: Create DMs from Coarse to Fine for each Block ---
     for (PetscInt bi = 0; bi < nblk; bi++) {
-        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "--- Creating DMs for Block %d ---\n", bi);
+        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "--- Creating DMs for Block %" PetscInt_FMT " ---\n", bi);
 
         // Create the coarsest level DM first (passing NULL for the coarse_user)
         ierr = InitializeSingleGridDM(&mgctx[0].user[bi], NULL); CHKERRQ(ierr);
@@ -368,7 +368,7 @@ PetscErrorCode InitializeAllGridDMs(SimCtx *simCtx)
 
     // --- Optional: View the finest DM for debugging verification ---
     if (get_log_level() >= LOG_DEBUG) {
-        LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "--- Viewing Finest DMDA (Level %d, Block 0) ---\n", usermg->mglevels - 1);
+        LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "--- Viewing Finest DMDA (Level %" PetscInt_FMT ", Block 0) ---\n", usermg->mglevels - 1);
         ierr = DMView(mgctx[usermg->mglevels - 1].user[0].da, PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
     }
 
@@ -402,11 +402,11 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Assigning physical coordinates to all grid DMs...\n");
 
     // --- Part 1: Populate the Finest Grid Level ---
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Setting coordinates for the finest grid level (%d)...\n", usermg->mglevels - 1);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Setting coordinates for the finest grid level (%" PetscInt_FMT ")...\n", usermg->mglevels - 1);
     for (PetscInt bi = 0; bi < nblk; bi++) {
         UserCtx *fine_user = &usermg->mgctx[usermg->mglevels - 1].user[bi];
         ierr = SetFinestLevelCoordinates(fine_user); CHKERRQ(ierr);
-        LOG_ALLOW(GLOBAL,LOG_TRACE,"The Finest level coordinates for block %d have been set.\n",bi);
+        LOG_ALLOW(GLOBAL,LOG_TRACE,"The Finest level coordinates for block %" PetscInt_FMT " have been set.\n",bi);
         if(get_log_level()==LOG_VERBOSE && is_function_allowed(__func__)==true){
             ierr = LOG_FIELD_MIN_MAX(fine_user, FIELD_ID_COORDINATES);
         }
@@ -421,7 +421,7 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
             UserCtx *fine_user   = &usermg->mgctx[level + 1].user[bi];
             ierr = RestrictCoordinates(coarse_user, fine_user); CHKERRQ(ierr);
 
-            LOG_ALLOW(GLOBAL,LOG_TRACE,"Coordinates restricted to block %d level %d.\n",bi,level);
+            LOG_ALLOW(GLOBAL,LOG_TRACE,"Coordinates restricted to block %" PetscInt_FMT " level %" PetscInt_FMT ".\n",bi,level);
             if(get_log_level()==LOG_VERBOSE && is_function_allowed(__func__)==true) {
                 ierr = LOG_FIELD_MIN_MAX(coarse_user, FIELD_ID_COORDINATES);
             }
@@ -484,8 +484,8 @@ PetscErrorCode ValidatePeriodicGeometry(UserCtx *user)
                    axis_names[axis]);
         const PetscInt axis_size = axis == 0 ? info.mx : (axis == 1 ? info.my : info.mz);
         PetscCheck(axis_size >= 5, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
-                   "%c-periodic geometry on block %d level %d requires at least four physical "
-                   "nodes in that direction; found %d.",
+                   "%c-periodic geometry on block %" PetscInt_FMT " level %" PetscInt_FMT " requires at least four physical "
+                   "nodes in that direction; found %" PetscInt_FMT ".",
                    axis_names[axis], user->_this, user->thislevel, axis_size - 1);
 
         PetscCall(DMDAVecGetArrayRead(user->fda, lcoor, &coor));
@@ -557,13 +557,13 @@ PetscErrorCode ValidatePeriodicGeometry(UserCtx *user)
             PetscSqr(translation[0]) + PetscSqr(translation[1]) + PetscSqr(translation[2]));
 
         PetscCheck(max_mismatch <= tolerance, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
-                   "Unsupported %c-periodic geometry on block %d level %d: opposite physical "
+                   "Unsupported %c-periodic geometry on block %" PetscInt_FMT " level %" PetscInt_FMT ": opposite physical "
                    "surfaces are not related by one constant translation. Maximum component "
                    "mismatch is %.12e (tolerance %.12e).",
                    axis_names[axis], user->_this, user->thislevel,
                    (double)max_mismatch, (double)tolerance);
         PetscCheck(magnitude > tolerance, PETSC_COMM_WORLD, PETSC_ERR_USER_INPUT,
-                   "Unsupported %c-periodic geometry on block %d level %d: seam translation "
+                   "Unsupported %c-periodic geometry on block %" PetscInt_FMT " level %" PetscInt_FMT ": seam translation "
                    "magnitude %.12e is zero or too small.",
                    axis_names[axis], user->_this, user->thislevel, (double)magnitude);
 
@@ -571,7 +571,7 @@ PetscErrorCode ValidatePeriodicGeometry(UserCtx *user)
             (Cmpnts){translation[0], translation[1], translation[2]};
         user->periodic_translation_valid[axis] = PETSC_TRUE;
         LOG_ALLOW(GLOBAL, LOG_INFO,
-                  "Validated %c-periodic geometry for block %d level %d with translation "
+                  "Validated %c-periodic geometry for block %" PetscInt_FMT " level %" PetscInt_FMT " with translation "
                   "(%.12e, %.12e, %.12e).\n",
                   axis_names[axis], user->_this, user->thislevel,
                   (double)translation[0], (double)translation[1], (double)translation[2]);
@@ -594,7 +594,7 @@ static PetscErrorCode SetFinestLevelCoordinates(UserCtx *user)
 
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Setting finest level coordinates for block %d...\n", simCtx->rank, user->_this);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Setting finest level coordinates for block %" PetscInt_FMT "...\n", simCtx->rank, user->_this);
 
     if (simCtx->generate_grid) {
         ierr = GenerateAndSetCoordinates(user); CHKERRQ(ierr);
@@ -615,7 +615,7 @@ static PetscErrorCode SetFinestLevelCoordinates(UserCtx *user)
 	    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Unexpected EOF while skipping grid header");
 	  }
 	}
-	LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank 0: Skipped %d header lines, now at coordinate data.\n", headerLines);
+	LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank 0: Skipped %" PetscInt_FMT " header lines, now at coordinate data.\n", headerLines);
       }
 
       // We now call the coordinate reader, passing the file handle.
@@ -629,7 +629,7 @@ static PetscErrorCode SetFinestLevelCoordinates(UserCtx *user)
     }
     
     // Populate local ghost coordinates from the owned global coordinates.
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   Scattering coordinates to update ghost nodes for block %d...\n", simCtx->rank, user->_this);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d:   Scattering coordinates to update ghost nodes for block %" PetscInt_FMT "...\n", simCtx->rank, user->_this);
     ierr = UpdateLocalGhosts(user, FIELD_ID_COORDINATES); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
@@ -664,7 +664,7 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
 
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Generating coordinates for block %d...\n", user->simCtx->rank, user->_this);
+    LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Generating coordinates for block %" PetscInt_FMT "...\n", user->simCtx->rank, user->_this);
     
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
     ierr = DMGetCoordinates(user->da, &gCoor); CHKERRQ(ierr);
@@ -673,10 +673,10 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
     PetscInt ys = info.ys, ye = info.ys + info.ym;
     PetscInt zs = info.zs, ze = info.zs + info.zm;
 
-    LOG_ALLOW_SYNC(LOCAL, LOG_TRACE, "Rank %d: Local Info for block %d - X range - [%d,%d], Y range - [%d,%d], Z range - [%d,%d]\n",
+    LOG_ALLOW_SYNC(LOCAL, LOG_TRACE, "Rank %d: Local Info for block %" PetscInt_FMT " - X range - [%" PetscInt_FMT ",%" PetscInt_FMT "], Y range - [%" PetscInt_FMT ",%" PetscInt_FMT "], Z range - [%" PetscInt_FMT ",%" PetscInt_FMT "]\n",
               user->simCtx->rank, user->_this, xs, xe, ys, ye, zs, ze);
     
-    LOG_ALLOW_SYNC(LOCAL, LOG_TRACE, "Rank %d: Local Info for block %d - X domain - [%.4f,%.4f], Y range - [%.4f,%.4f], Z range - [%.4f,%.4f]\n",
+    LOG_ALLOW_SYNC(LOCAL, LOG_TRACE, "Rank %d: Local Info for block %" PetscInt_FMT " - X domain - [%.4f,%.4f], Y range - [%.4f,%.4f], Z range - [%.4f,%.4f]\n",
               user->simCtx->rank, user->_this, user->Min_X,user->Max_X,user->Min_Y,user->Max_Y,user->Min_Z,user->Max_Z);          
               
     ierr = VecSet(gCoor, 0.0); CHKERRQ(ierr);
@@ -736,7 +736,7 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
 
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Reading interleaved coordinates from file for block %d...\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Reading interleaved coordinates from file for block %" PetscInt_FMT "...\n",
               simCtx->rank, block_index);
 
     // 1. Allocate the buffer on ALL ranks to receive the broadcast data.
@@ -754,7 +754,7 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
                 for (PetscInt i = 0; i < IM; i++) {
                     PetscInt base_index = 3 * ((k * (JM) + j) * (IM) + i);
                     if (fscanf(fd, "%le %le %le\n", &gc[base_index], &gc[base_index + 1], &gc[base_index + 2]) != 3) {
-                        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Error reading coordinates for node (i,j,k)=(%d,%d,%d) in block %d", i, j, k, block_index);
+                        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Error reading coordinates for node (i,j,k)=(%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") in block %" PetscInt_FMT "", i, j, k, block_index);
                     }
                 }
             }
@@ -809,7 +809,7 @@ static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_us
 
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Restricting coords from level %d to level %d for block %d\n",
+    LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Restricting coords from level %" PetscInt_FMT " to level %" PetscInt_FMT " for block %" PetscInt_FMT "\n",
                    fine_user->simCtx->rank, fine_user->thislevel, coarse_user->thislevel, coarse_user->_this);
 
     ierr = DMDAGetLocalInfo(coarse_user->da, &c_info); CHKERRQ(ierr);
@@ -947,7 +947,7 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     minCoords.x = minCoords.y = minCoords.z = PETSC_MAX_REAL;
     maxCoords.x = maxCoords.y = maxCoords.z = PETSC_MIN_REAL;
 
-    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Grid indices (Including Ghosts): xs=%d, xe=%d, ys=%d, ye=%d, zs=%d, ze=%d.\n",rank, xs, xe, ys, ye, zs, ze);
+    LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] Grid indices (Including Ghosts): xs=%" PetscInt_FMT ", xe=%" PetscInt_FMT ", ys=%" PetscInt_FMT ", ye=%" PetscInt_FMT ", zs=%" PetscInt_FMT ", ze=%" PetscInt_FMT ".\n",rank, xs, xe, ys, ye, zs, ze);
 
     // Iterate over the local grid to find min and max coordinates
     for (k = zs; k < ze; k++) {

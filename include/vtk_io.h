@@ -18,7 +18,7 @@
  * @param[in]  comm      The communicator all of whose ranks call this.
  * @return 0 on success, or a PETSc error.
  */
-PetscInt CreateVTKFileFromMetadata(const char *filename, const VTKMetaData *meta, MPI_Comm comm);
+PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData *meta, MPI_Comm comm);
 
 /**
  * @brief Copies this rank's part of the output grid's coordinates.

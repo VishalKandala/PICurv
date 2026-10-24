@@ -122,7 +122,7 @@ PetscErrorCode SetAnalyticalGridInfo(UserCtx *user)
     }
 
     if (strcmp(simCtx->AnalyticalSolutionType, "TGV3D") == 0) {
-        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Configuring grid for TGV3D analytical solution, block %d.\n", simCtx->rank, block_index);
+        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "Rank %d: Configuring grid for TGV3D analytical solution, block %" PetscInt_FMT ".\n", simCtx->rank, block_index);
 
         if (nblk == 1) {
             // --- Single Block Case ---
@@ -141,12 +141,12 @@ PetscErrorCode SetAnalyticalGridInfo(UserCtx *user)
                 SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
                          "\n\n*** CONFIGURATION ERROR FOR TGV3D ***\n"
                          "For multi-block TGV3D cases, the number of blocks must be a perfect square (e.g., 4, 9, 16).\n"
-                         "You have specified %d blocks. Please adjust `-block_number`.\n", nblk);
+                         "You have specified %" PetscInt_FMT " blocks. Please adjust `-block_number`.\n", nblk);
             }
             PetscInt blocks_per_dim = (PetscInt)s;
 
             if (block_index == 0) {
-                 LOG_ALLOW(GLOBAL, LOG_INFO, "%d blocks detected. Decomposing domain into a %d x %d grid in the X-Y plane.\n", nblk, blocks_per_dim, blocks_per_dim);
+                 LOG_ALLOW(GLOBAL, LOG_INFO, "%" PetscInt_FMT " blocks detected. Decomposing domain into a %" PetscInt_FMT " x %" PetscInt_FMT " grid in the X-Y plane.\n", nblk, blocks_per_dim, blocks_per_dim);
             }
 
             // Determine the (row, col) position of this block in the 2D decomposition
@@ -184,9 +184,9 @@ PetscErrorCode SetAnalyticalGridInfo(UserCtx *user)
     // For simplicity, we assume uniform grid unless specified.
     user->rx = 1.0; user->ry = 1.0; user->rz = 1.0;
     
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %d grid resolution set: IM=%d, JM=%d, KM=%d\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %" PetscInt_FMT " grid resolution set: IM=%" PetscInt_FMT ", JM=%" PetscInt_FMT ", KM=%" PetscInt_FMT "\n",
               simCtx->rank, block_index, user->IM, user->JM, user->KM);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %d final bounds: X=[%.4f, %.4f], Y=[%.4f, %.4f], Z=[%.4f, %.4f]\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %" PetscInt_FMT " final bounds: X=[%.4f, %.4f], Y=[%.4f, %.4f], Z=[%.4f, %.4f]\n",
               simCtx->rank, block_index, user->Min_X, user->Max_X, user->Min_Y, user->Max_Y, user->Min_Z, user->Max_Z);
 
     PROFILE_FUNCTION_END;
@@ -666,7 +666,7 @@ PetscErrorCode SetAnalyticalScalarFieldOnParticles(UserCtx *user, ParticleFieldI
     ierr = ParticleFieldGetDescriptor(particle_field_id, &descriptor); CHKERRQ(ierr);
     PetscCheck(descriptor->components == 1 && descriptor->data_type == PETSC_REAL,
                PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP,
-               "Analytical scalar assignment requires a one-component PETSC_REAL particle field; '%s' has %d components and type %s.",
+               "Analytical scalar assignment requires a one-component PETSC_REAL particle field; '%s' has %" PetscInt_FMT " components and type %s.",
                descriptor->canonical_name, descriptor->components, PetscDataTypes[descriptor->data_type]);
     swarm_field_name = descriptor->canonical_name;
 

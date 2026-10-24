@@ -32,7 +32,7 @@ PetscErrorCode MetricGetCellVertices(UserCtx *user,
     PetscInt ii = i + ((c & 1) ? 1 : 0);
     PetscInt jj = j + ((c & 2) ? 1 : 0);
     PetscInt kk = k + ((c & 4) ? 1 : 0);
-    LOG_LOOP_ALLOW(GLOBAL, LOG_VERBOSE,i+j+k,10," ii: %d,jj:%d,kk:%d - Retrieved.\n",ii,jj,kk);
+    LOG_LOOP_ALLOW(GLOBAL, LOG_VERBOSE,i+j+k,10," ii: %" PetscInt_FMT ",jj:%" PetscInt_FMT ",kk:%" PetscInt_FMT " - Retrieved.\n",ii,jj,kk);
     V[c] = X[kk][jj][ii];
   }
   PetscFunctionReturn(0);
@@ -1259,7 +1259,7 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
 
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing cell centers and spacing for level %d block %d...\n", user->simCtx->rank, user->thislevel, user->_this);
+    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing cell centers and spacing for level %" PetscInt_FMT " block %" PetscInt_FMT "...\n", user->simCtx->rank, user->thislevel, user->_this);
 
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
     ierr = DMGetCoordinatesLocal(user->da, &lCoords); CHKERRQ(ierr);
@@ -1362,7 +1362,7 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
 
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing i-face metrics for level %d block %d...\n", user->simCtx->rank, user->thislevel, user->_this);
+    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing i-face metrics for level %" PetscInt_FMT " block %" PetscInt_FMT "...\n", user->simCtx->rank, user->thislevel, user->_this);
 
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
     PetscInt xs = info.xs, xe = info.xs + info.xm, mx = info.mx;
@@ -1571,7 +1571,7 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
 
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing j-face metrics for level %d block %d...\n", user->simCtx->rank, user->thislevel, user->_this);
+    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing j-face metrics for level %" PetscInt_FMT " block %" PetscInt_FMT "...\n", user->simCtx->rank, user->thislevel, user->_this);
 
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
     PetscInt xs = info.xs, xe = info.xs + info.xm, mx = info.mx;
@@ -1764,7 +1764,7 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
 
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing k-face metrics for level %d block %d...\n", user->simCtx->rank, user->thislevel, user->_this);
+    LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing k-face metrics for level %" PetscInt_FMT " block %" PetscInt_FMT "...\n", user->simCtx->rank, user->thislevel, user->_this);
 
     ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
     PetscInt xs = info.xs, xe = info.xs + info.xm, mx = info.mx;
@@ -2102,7 +2102,7 @@ PetscErrorCode ComputeMetricNorms(UserCtx *user)
   VecMax(user->lJAj,&JAjMaxArg,&JAjMax);
   VecMax(user->lKAj,&KAjMaxArg,&KAjMax);
 
-  LOG_ALLOW(GLOBAL,LOG_INFO," Metric Norms for MG level %d .\n",user->thislevel);
+  LOG_ALLOW(GLOBAL,LOG_INFO," Metric Norms for MG level %" PetscInt_FMT " .\n",user->thislevel);
   
   LOG_ALLOW(GLOBAL,LOG_INFO,"The Max Metric Values are: CsiMax = %le, EtaMax = %le, ZetMax = %le.\n",CsiMax,EtaMax,ZetMax);
   LOG_ALLOW(GLOBAL,LOG_INFO,"The Max Metric Values are: ICsiMax = %le, IEtaMax = %le, IZetMax = %le.\n",ICsiMax,IEtaMax,IZetMax);
@@ -2114,52 +2114,52 @@ PetscErrorCode ComputeMetricNorms(UserCtx *user)
     for (j=ys; j<ye; j++) {
       for (i=xs; i<xe; i++) {
 	if (Gidx(i,j,k,user) == CsiMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Csi = %le is at [%d][%d][%d] \n", CsiMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Csi = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", CsiMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == EtaMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Eta = %le is at [%d][%d][%d] \n", EtaMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Eta = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", EtaMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == ZetMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Zet = %le is at [%d][%d][%d] \n", ZetMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Zet = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", ZetMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == ICsiMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max ICsi = %le is at [%d][%d][%d] \n", ICsiMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max ICsi = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", ICsiMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == IEtaMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max IEta = %le is at [%d][%d][%d] \n", IEtaMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max IEta = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", IEtaMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == IZetMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max IZet = %le is at [%d][%d][%d] \n", IZetMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max IZet = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", IZetMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == JCsiMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JCsi = %le is at [%d][%d][%d] \n", JCsiMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JCsi = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", JCsiMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == JEtaMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JEta = %le is at [%d][%d][%d] \n", JEtaMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JEta = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", JEtaMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == JZetMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JZet = %le is at [%d][%d][%d] \n", JZetMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JZet = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", JZetMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == KCsiMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KCsi = %le is at [%d][%d][%d] \n", KCsiMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KCsi = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", KCsiMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == KEtaMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KEta = %le is at [%d][%d][%d] \n", KEtaMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KEta = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", KEtaMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == KZetMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KZet = %le is at [%d][%d][%d] \n", KZetMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KZet = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", KZetMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == AjMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Aj = %le is at [%d][%d][%d] \n", AjMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Aj = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", AjMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == IAjMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max IAj = %le is at [%d][%d][%d] \n", IAjMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max IAj = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", IAjMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == JAjMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JAj = %le is at [%d][%d][%d] \n", JAjMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JAj = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", JAjMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == KAjMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KAj = %le is at [%d][%d][%d] \n", KAjMax,k,j,i);
+	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KAj = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", KAjMax,k,j,i);
 	}
       }
     }
@@ -2197,7 +2197,7 @@ PetscErrorCode CalculateAllGridMetrics(SimCtx *simCtx)
     for (PetscInt level = usermg->mglevels -1 ; level >=0; level--) {
         for (PetscInt bi = 0; bi < nblk; bi++) {
             UserCtx *user = &mgctx[level].user[bi];
-            LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Calculating metrics for level %d, block %d\n", simCtx->rank, level, bi);
+            LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Calculating metrics for level %" PetscInt_FMT ", block %" PetscInt_FMT "\n", simCtx->rank, level, bi);
 
             // Call the modern, modular helper functions for each UserCtx.
             // These functions are self-contained and operate on the data within the provided context.

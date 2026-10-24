@@ -368,6 +368,16 @@ static PetscErrorCode ValidateCheckpointBundle(SimCtx *simCtx, UserCtx *user,
     PetscCheck(found && version == PICURV_CHECKPOINT_VERSION, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
                "Unsupported checkpoint version %" PetscInt_FMT " in '%s'; expected %d.",
                version, metadata_path, PICURV_CHECKPOINT_VERSION);
+    /* PETSc binary files store sizes as PetscInt, so a payload is readable only by a build with
+       the same index width; a checkpoint written before the width was recorded is 32-bit. */
+    {
+        PetscInt index_bytes = 4;
+        PetscCall(PetscOptionsGetInt(options, NULL, "-checkpoint_petsc_index_bytes", &index_bytes, NULL));
+        PetscCheck(index_bytes == (PetscInt)sizeof(PetscInt), PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP,
+                   "Checkpoint '%s' was written by a PETSc with %" PetscInt_FMT "-byte indices; this build uses "
+                   "%d-byte indices. Restart or post-process it with a PICurv built on a %" PetscInt_FMT "-bit-index PETSc.",
+                   checkpoint_directory, index_bytes, (int)sizeof(PetscInt), 8 * index_bytes);
+    }
     PetscCall(PetscOptionsGetInt(options, NULL, "-checkpoint_step", &saved_step, &found));
     PetscCheck(found && saved_step == expected_step, PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
                "Checkpoint step is %" PetscInt_FMT ", expected %" PetscInt_FMT ".",
@@ -518,10 +528,10 @@ PetscErrorCode ReadGridGenerationInputs(UserCtx *user)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Reading generated grid inputs for block %d.\n", simCtx->rank, block_index);
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Reading generated grid inputs for block %" PetscInt_FMT ".\n", simCtx->rank, block_index);
 
     if (block_index >= nblk) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Block index %d is out of range for nblk=%d", block_index, nblk);
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Block index %" PetscInt_FMT " is out of range for nblk=%" PetscInt_FMT "", block_index, nblk);
     }
 
     // --- Allocate temporary storage for all array options ---
@@ -580,9 +590,9 @@ PetscErrorCode ReadGridGenerationInputs(UserCtx *user)
     user->rz = rzs[block_index];
     user->cgrid = cgrids[block_index];
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %d grid generation inputs set: IM=%d, JM=%d, KM=%d\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %" PetscInt_FMT " grid generation inputs set: IM=%" PetscInt_FMT ", JM=%" PetscInt_FMT ", KM=%" PetscInt_FMT "\n",
               simCtx->rank, block_index, user->IM, user->JM, user->KM);
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %d bounds after L_ref=%.4g: X=[%.4g, %.4g], "
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Block %" PetscInt_FMT " bounds after L_ref=%.4g: X=[%.4g, %.4g], "
               "Y=[%.4g, %.4g], Z=[%.4g, %.4g]\n",
               simCtx->rank, block_index, (double)length_ref,
               user->Min_X, user->Max_X, user->Min_Y, user->Max_Y, user->Min_Z, user->Max_Z);
@@ -614,7 +624,7 @@ PetscErrorCode PopulateFinestUserGridResolutionFromOptions(UserCtx *finest_users
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "finest_users cannot be NULL.");
     }
     if (nblk <= 0) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "nblk must be positive. Got %d.", nblk);
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "nblk must be positive. Got %" PetscInt_FMT ".", nblk);
     }
     simCtx = finest_users[0].simCtx;
 
@@ -634,7 +644,7 @@ PetscErrorCode PopulateFinestUserGridResolutionFromOptions(UserCtx *finest_users
         finest_users[bi].KM = KMs[bi];
         if (simCtx) {
             LOG_ALLOW(LOCAL, LOG_DEBUG,
-                      "Rank %d: Preloaded analytical grid resolution for block %d: IM=%d, JM=%d, KM=%d\n",
+                      "Rank %d: Preloaded analytical grid resolution for block %" PetscInt_FMT ": IM=%" PetscInt_FMT ", JM=%" PetscInt_FMT ", KM=%" PetscInt_FMT "\n",
                       simCtx->rank, bi, finest_users[bi].IM, finest_users[bi].JM, finest_users[bi].KM);
         }
     }
@@ -675,23 +685,23 @@ PetscErrorCode ReadGridFile(UserCtx *user)
             if (strcmp(firstTok, "PICGRID") != 0)
                 SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ,
                         "Grid file %s must begin with the canonical PICGRID header.", simCtx->grid_file);
-            if (fscanf(fd, "%d", &g_nblk_from_file) != 1)
+            if (fscanf(fd, "%" PetscInt_FMT, &g_nblk_from_file) != 1)
                 SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Expected number of blocks after \"PICGRID\" in %s", simCtx->grid_file);
             if (g_nblk_from_file != nblk) {
-                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_UNEXPECTED, "Mismatch: -nblk is %d but grid file specifies %d blocks.", nblk, g_nblk_from_file);
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_UNEXPECTED, "Mismatch: -nblk is %" PetscInt_FMT " but grid file specifies %" PetscInt_FMT " blocks.", nblk, g_nblk_from_file);
             }
 
             ierr = PetscMalloc3(nblk, &g_IMs_from_file, nblk, &g_JMs_from_file, nblk, &g_KMs_from_file); CHKERRQ(ierr);
             for (PetscInt i = 0; i < nblk; ++i) {
-                if (fscanf(fd, "%d %d %d\n", &g_IMs_from_file[i], &g_JMs_from_file[i], &g_KMs_from_file[i]) != 3) {
-                    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Expected 3 integers for block %d in %s", i, simCtx->grid_file);
+                if (fscanf(fd, "%" PetscInt_FMT " %" PetscInt_FMT " %" PetscInt_FMT "\n", &g_IMs_from_file[i], &g_JMs_from_file[i], &g_KMs_from_file[i]) != 3) {
+                    SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ, "Expected 3 integers for block %" PetscInt_FMT " in %s", i, simCtx->grid_file);
                 }
             }
             fclose(fd);
         }
 
         // Broadcast nblk to verify (optional, good practice)
-        ierr = MPI_Bcast(&g_nblk_from_file, 1, MPI_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+        ierr = MPI_Bcast(&g_nblk_from_file, 1, MPIU_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
 
         // Allocate on other ranks before receiving the broadcast
         if (rank != 0) {
@@ -699,9 +709,9 @@ PetscErrorCode ReadGridFile(UserCtx *user)
         }
         
         // Broadcast the data arrays
-        ierr = MPI_Bcast(g_IMs_from_file, nblk, MPI_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
-        ierr = MPI_Bcast(g_JMs_from_file, nblk, MPI_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
-        ierr = MPI_Bcast(g_KMs_from_file, nblk, MPI_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+        ierr = MPI_Bcast(g_IMs_from_file, nblk, MPIU_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+        ierr = MPI_Bcast(g_JMs_from_file, nblk, MPIU_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
+        ierr = MPI_Bcast(g_KMs_from_file, nblk, MPIU_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
         
         g_file_has_been_read = PETSC_TRUE;
         LOG_ALLOW(GLOBAL, LOG_INFO, "Grid file header read and broadcast complete.\n");
@@ -712,7 +722,7 @@ PetscErrorCode ReadGridFile(UserCtx *user)
     user->JM = g_JMs_from_file[block_index];
     user->KM = g_KMs_from_file[block_index];
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Set file inputs for Block %d: IM=%d, JM=%d, KM=%d\n",
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Set file inputs for Block %" PetscInt_FMT ": IM=%" PetscInt_FMT ", JM=%" PetscInt_FMT ", KM=%" PetscInt_FMT "\n",
               simCtx->rank, block_index, user->IM, user->JM, user->KM);
 
     PROFILE_FUNCTION_END;
@@ -1059,7 +1069,7 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
         if (rank == 0) { // On rank 0, count the number of parameters to send
             for (BC_Param *p = user->boundary_faces[i].params; p; p = p->next) n_params++;
         }
-        ierr = MPI_Bcast(&n_params, 1, MPI_INT, 0, PETSC_COMM_WORLD);CHKERRQ(ierr);
+        ierr = MPI_Bcast(&n_params, 1, MPIU_INT, 0, PETSC_COMM_WORLD);CHKERRQ(ierr);
         
         if (rank != 0) { // Non-root ranks need to receive and build the list
             FreeBC_ParamList(user->boundary_faces[i].params); // Ensure list is empty before building
@@ -1145,10 +1155,10 @@ PetscErrorCode DeterminePeriodicity(SimCtx *simCtx)
     // --- Part 1: Collectively verify all BCS files exist before proceeding ---
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
         const char *bcs_filename = simCtx->bcs_files[bi];
-        if (!bcs_filename) SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_NULL, "BCS filename for block %d is not set in SimCtx.", bi);
+        if (!bcs_filename) SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_NULL, "BCS filename for block %" PetscInt_FMT " is not set in SimCtx.", bi);
         char desc_buf[256];
         PetscBool file_exists;
-        snprintf(desc_buf, sizeof(desc_buf), "BCS file for block %d", bi);
+        snprintf(desc_buf, sizeof(desc_buf), "BCS file for block %" PetscInt_FMT "", bi);
         ierr = VerifyPathExistence(bcs_filename, PETSC_FALSE, PETSC_FALSE, desc_buf, &file_exists); CHKERRQ(ierr);
     }
 
@@ -1189,11 +1199,11 @@ PetscErrorCode DeterminePeriodicity(SimCtx *simCtx)
 
             // --- Validate consistency within this file ---
             if (face_is_periodic[BC_FACE_NEG_X] != face_is_periodic[BC_FACE_POS_X])
-                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "Inconsistent X-periodicity in file '%s' for block %d. Both -Xi and +Xi must be periodic or neither.", bcs_filename, bi);
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "Inconsistent X-periodicity in file '%s' for block %" PetscInt_FMT ". Both -Xi and +Xi must be periodic or neither.", bcs_filename, bi);
             if (face_is_periodic[BC_FACE_NEG_Y] != face_is_periodic[BC_FACE_POS_Y])
-                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "Inconsistent Y-periodicity in file '%s' for block %d. Both -Eta and +Eta must be periodic or neither.", bcs_filename, bi);
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "Inconsistent Y-periodicity in file '%s' for block %" PetscInt_FMT ". Both -Eta and +Eta must be periodic or neither.", bcs_filename, bi);
             if (face_is_periodic[BC_FACE_NEG_Z] != face_is_periodic[BC_FACE_POS_Z])
-                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "Inconsistent Z-periodicity in file '%s' for block %d. Both -Zeta and +Zeta must be periodic or neither.", bcs_filename, bi);
+                SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP, "Inconsistent Z-periodicity in file '%s' for block %" PetscInt_FMT ". Both -Zeta and +Zeta must be periodic or neither.", bcs_filename, bi);
 
             PetscBool local_is_periodic[3] = {face_is_periodic[BC_FACE_NEG_X], face_is_periodic[BC_FACE_NEG_Y], face_is_periodic[BC_FACE_NEG_Z]};
 
@@ -1206,7 +1216,7 @@ PetscErrorCode DeterminePeriodicity(SimCtx *simCtx)
             } else {
                 if (global_is_periodic[0] != local_is_periodic[0] || global_is_periodic[1] != local_is_periodic[1] || global_is_periodic[2] != local_is_periodic[2]) {
                     SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP,
-                            "Periodicity mismatch between blocks. Block 0 requires (I:%d, J:%d, K:%d), but block %d (file '%s') has (I:%d, J:%d, K:%d).",
+                            "Periodicity mismatch between blocks. Block 0 requires (I:%d, J:%d, K:%d), but block %" PetscInt_FMT " (file '%s') has (I:%d, J:%d, K:%d).",
                             (int)global_is_periodic[0], (int)global_is_periodic[1], (int)global_is_periodic[2],
                             bi, bcs_filename,
                             (int)local_is_periodic[0], (int)local_is_periodic[1], (int)local_is_periodic[2]);
@@ -1218,7 +1228,7 @@ PetscErrorCode DeterminePeriodicity(SimCtx *simCtx)
         periodic_flags[1] = (global_is_periodic[1]) ? 1 : 0;
         periodic_flags[2] = (global_is_periodic[2]) ? 1 : 0;
 
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Global periodicity determined: I-periodic=%d, J-periodic=%d, K-periodic=%d\n",
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Global periodicity determined: I-periodic=%" PetscInt_FMT ", J-periodic=%" PetscInt_FMT ", K-periodic=%" PetscInt_FMT "\n",
                   periodic_flags[0], periodic_flags[1], periodic_flags[2]);
     }
 
@@ -1455,7 +1465,7 @@ PetscErrorCode ReadSimulationFields(UserCtx *user,PetscInt ti)
         PetscCall(RestoreDrivenFluxTarget(simCtx, user, checkpoint_directory));
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Reading Eulerian checkpoint fields for block %d from '%s'.\n",
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Reading Eulerian checkpoint fields for block %" PetscInt_FMT " from '%s'.\n",
               user->_this, checkpoint_directory);
     PetscCall(PetscSNPrintf(simCtx->_io_context_buffer, sizeof(simCtx->_io_context_buffer),
                             "%s/%s/block_%04" PetscInt_FMT,
@@ -1651,7 +1661,7 @@ PetscErrorCode RestoreFieldStatisticsState(SimCtx *simCtx, PetscInt ti)
     if (!FieldStatisticsIsActive(simCtx)) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
     if (!simCtx->fieldStatisticsContinue) {
         LOG_ALLOW(GLOBAL, LOG_INFO,
-                  "Statistics continuation was not requested; %d window(s) start from zero.\n",
+                  "Statistics continuation was not requested; %" PetscInt_FMT " window(s) start from zero.\n",
                   simCtx->fieldStatisticsWindowCount);
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
@@ -1696,7 +1706,7 @@ PetscErrorCode RestoreFieldStatisticsState(SimCtx *simCtx, PetscInt ti)
     }
     PetscCall(PetscOptionsDestroy(&options));
     if (!user) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Statistics continuation check passed: %d window(s) can continue from '%s'.\n",
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Statistics continuation check passed: %" PetscInt_FMT " window(s) can continue from '%s'.\n",
                   simCtx->fieldStatisticsWindowCount, checkpoint_directory);
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
@@ -1729,8 +1739,8 @@ PetscErrorCode RestoreFieldStatisticsState(SimCtx *simCtx, PetscInt ti)
         const PicurvWindow *state = &simCtx->fieldStatisticsWindows[window];
 
         LOG_ALLOW(GLOBAL, LOG_INFO,
-                  "Statistics window '%s' continued from '%s': state %s, %d sample(s), "
-                  "total weight %.6g, represented time %.6g, restart segment %d.\n",
+                  "Statistics window '%s' continued from '%s': state %s, %" PetscInt_FMT " sample(s), "
+                  "total weight %.6g, represented time %.6g, restart segment %" PetscInt_FMT ".\n",
                   state->definition.name, checkpoint_directory,
                   PicurvWindowStateName(state->state), state->sample_count,
                   (double)state->total_weight, (double)state->represented_time,
@@ -1855,10 +1865,10 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
   PetscFunctionBeginUser;
   PROFILE_HELPER_BEGIN;
   PetscCall(DMSwarmGetSize(user->swarm, &nGlobal));
-  LOG_ALLOW(GLOBAL, LOG_INFO, "Reading DMSwarm fields for timestep %d (swarm size is %d).\n", ti, nGlobal);
+  LOG_ALLOW(GLOBAL, LOG_INFO, "Reading DMSwarm fields for timestep %" PetscInt_FMT " (swarm size is %" PetscInt_FMT ").\n", ti, nGlobal);
 
   if (nGlobal == 0) {
-      LOG_ALLOW(GLOBAL, LOG_INFO, "Swarm is empty for timestep %d. Nothing to read.\n", ti);
+      LOG_ALLOW(GLOBAL, LOG_INFO, "Swarm is empty for timestep %" PetscInt_FMT ". Nothing to read.\n", ti);
       PROFILE_HELPER_END;
       PetscFunctionReturn(0);
   }
@@ -1892,7 +1902,7 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti)
 
   simCtx->current_io_directory = NULL;
 
-  LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading DMSwarm fields for timestep %d.\n", ti);
+  LOG_ALLOW(GLOBAL, LOG_INFO, "Finished reading DMSwarm fields for timestep %" PetscInt_FMT ".\n", ti);
   PROFILE_HELPER_END;
   PetscFunctionReturn(0);
 }
@@ -2329,6 +2339,7 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
                            "-checkpoint_picurv_release %s\n"
                            "-checkpoint_picurv_commit %s\n"
                            "-checkpoint_picurv_dirty %s\n"
+                           "-checkpoint_petsc_index_bytes %d\n"
                            "-checkpoint_step %" PetscInt_FMT "\n"
                            "-checkpoint_time %.17g\n"
                            "-checkpoint_dt %.17g\n"
@@ -2341,7 +2352,7 @@ static PetscErrorCode WriteCheckpointManifest(SimCtx *simCtx, UserCtx *user,
                            "-checkpoint_payload_count %" PetscInt_FMT "\n",
                            PICURV_CHECKPOINT_FORMAT, PICURV_CHECKPOINT_VERSION,
                            PICURV_RELEASE_VERSION, PICURV_GIT_COMMIT, PICURV_BUILD_DIRTY,
-                           simCtx->step, (double)simCtx->ti, (double)simCtx->dt,
+                           (int)sizeof(PetscInt), simCtx->step, (double)simCtx->ti, (double)simCtx->dt,
                            reason, geometry_digest, simCtx->block_number,
                            simCtx->np > 0 ? "true" : "false",
                            particle_count,
@@ -2574,7 +2585,7 @@ PetscErrorCode WriteCheckpointBundle(SimCtx *simCtx, const char *reason)
                    PETSC_COMM_WORLD, PETSC_ERR_FILE_UNEXPECTED,
                    "Committed checkpoint step %" PetscInt_FMT " has time %.17g, current state has time %.17g.",
                    simCtx->step, (double)saved_time, (double)simCtx->ti);
-        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Checkpoint step %d is already committed; skipping duplicate write.\n",
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Checkpoint step %" PetscInt_FMT " is already committed; skipping duplicate write.\n",
                   simCtx->step);
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
@@ -2650,7 +2661,7 @@ PetscErrorCode WriteCheckpointBundle(SimCtx *simCtx, const char *reason)
     }
     PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
     LOG_ALLOW(GLOBAL, LOG_INFO,
-              "Committed checkpoint step %d at t=%.17g (%s): %s\n",
+              "Committed checkpoint step %" PetscInt_FMT " at t=%.17g (%s): %s\n",
               simCtx->step, (double)simCtx->ti, reason, final_directory);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -2735,8 +2746,8 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         ierr = PetscPrintf(PETSC_COMM_SELF, "=============================================================\n"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, "                          CASE SUMMARY                       \n"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, "=============================================================\n"); CHKERRQ(ierr);
-        ierr = PetscPrintf(PETSC_COMM_SELF, " Grid Points     : %d X %d X %d\n", user->IM, user->JM, user->KM); CHKERRQ(ierr);
-	    ierr = PetscPrintf(PETSC_COMM_SELF, " Cells           : %d X %d X %d\n", user->IM - 1, user->JM - 1, user->KM - 1); CHKERRQ(ierr);
+        ierr = PetscPrintf(PETSC_COMM_SELF, " Grid Points     : %" PetscInt_FMT " X %" PetscInt_FMT " X %" PetscInt_FMT "\n", user->IM, user->JM, user->KM); CHKERRQ(ierr);
+	    ierr = PetscPrintf(PETSC_COMM_SELF, " Cells           : %" PetscInt_FMT " X %" PetscInt_FMT " X %" PetscInt_FMT "\n", user->IM - 1, user->JM - 1, user->KM - 1); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Global Domain Bounds (X)    : %.6f to %.6f\n", (double)global_min_coords.x, (double)global_max_coords.x); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Global Domain Bounds (Y)    : %.6f to %.6f\n", (double)global_min_coords.y, (double)global_max_coords.y); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Global Domain Bounds (Z)    : %.6f to %.6f\n", (double)global_min_coords.z, (double)global_max_coords.z); CHKERRQ(ierr);
@@ -2807,21 +2818,21 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         ierr = PetscPrintf(PETSC_COMM_SELF, " Run Mode                   : %s\n", simCtx->OnlySetup ? "SETUP ONLY" : "Full Simulation"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Start Time                  : %.4f\n", (double)StartTime); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Timestep Size               : %.4f\n", (double)simCtx->dt); CHKERRQ(ierr);
-        ierr = PetscPrintf(PETSC_COMM_SELF, " Starting Step               : %d\n", StartStep); CHKERRQ(ierr);
-        ierr = PetscPrintf(PETSC_COMM_SELF, " Total Steps to Run          : %d\n", StepsToRun); CHKERRQ(ierr);
-        ierr = PetscPrintf(PETSC_COMM_SELF, " Ending Step                : %d\n", StartStep + StepsToRun); CHKERRQ(ierr);
+        ierr = PetscPrintf(PETSC_COMM_SELF, " Starting Step               : %" PetscInt_FMT "\n", StartStep); CHKERRQ(ierr);
+        ierr = PetscPrintf(PETSC_COMM_SELF, " Total Steps to Run          : %" PetscInt_FMT "\n", StepsToRun); CHKERRQ(ierr);
+        ierr = PetscPrintf(PETSC_COMM_SELF, " Ending Step                : %" PetscInt_FMT "\n", StartStep + StepsToRun); CHKERRQ(ierr);
         if (simCtx->tiout > 0) {
-            ierr = PetscPrintf(PETSC_COMM_SELF, " Field/Restart Cadence      : every %d step(s)\n", simCtx->tiout); CHKERRQ(ierr);
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Field/Restart Cadence      : every %" PetscInt_FMT " step(s)\n", simCtx->tiout); CHKERRQ(ierr);
         } else {
             ierr = PetscPrintf(PETSC_COMM_SELF, " Field/Restart Cadence      : DISABLED\n"); CHKERRQ(ierr);
         }
         /* Recorded whether or not statistics are configured, so a log says plainly
          * whether monitoring was active rather than leaving its absence ambiguous. */
         if (FieldStatisticsIsActive(simCtx) && simCtx->statisticsConsoleOutputFreq > 0) {
-            ierr = PetscPrintf(PETSC_COMM_SELF, " Statistics Console Cadence : every %d step(s), %d window(s)\n",
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Statistics Console Cadence : every %" PetscInt_FMT " step(s), %" PetscInt_FMT " window(s)\n",
                                simCtx->statisticsConsoleOutputFreq, simCtx->fieldStatisticsWindowCount); CHKERRQ(ierr);
         } else if (FieldStatisticsIsActive(simCtx)) {
-            ierr = PetscPrintf(PETSC_COMM_SELF, " Statistics Console Cadence : DISABLED (%d window(s) accumulating)\n",
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Statistics Console Cadence : DISABLED (%" PetscInt_FMT " window(s) accumulating)\n",
                                simCtx->fieldStatisticsWindowCount); CHKERRQ(ierr);
         } else {
             ierr = PetscPrintf(PETSC_COMM_SELF, " Statistics Console Cadence : DISABLED (no window configured)\n"); CHKERRQ(ierr);
@@ -2830,7 +2841,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         if (simCtx->walltimeGuardEnabled) {
             ierr = PetscPrintf(
                 PETSC_COMM_SELF,
-                " Runtime Walltime Guard     : %s (warmup=%d, multiplier=%.2f, min=%.1f s, alpha=%.2f)\n",
+                " Runtime Walltime Guard     : %s (warmup=%" PetscInt_FMT ", multiplier=%.2f, min=%.1f s, alpha=%.2f)\n",
                 simCtx->walltimeGuardActive ? "ENABLED" : "CONFIGURED BUT INACTIVE",
                 simCtx->walltimeGuardWarmupSteps,
                 (double)simCtx->walltimeGuardMultiplier,
@@ -2851,16 +2862,16 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         ierr = PetscPrintf(PETSC_COMM_SELF, " Solution Convergence Log    : %s\n",
                            simCtx->solutionConvergenceEnabled ? "ENABLED" : "DISABLED"); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Number of MPI Processes     : %d\n", num_mpi_procs); CHKERRQ(ierr);
-        ierr = PetscPrintf(PETSC_COMM_WORLD," Number of Particles         : %d\n", total_num_particles); CHKERRQ(ierr);
+        ierr = PetscPrintf(PETSC_COMM_WORLD," Number of Particles         : %" PetscInt_FMT "\n", total_num_particles); CHKERRQ(ierr);
         if (simCtx->np > 0) {
             const char *particle_init_str = ParticleInitializationToString(simCtx->ParticleInitialization);
 
             if (simCtx->particleConsoleOutputFreq > 0) {
-                ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Console Cadence   : every %d step(s)\n", simCtx->particleConsoleOutputFreq); CHKERRQ(ierr);
+                ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Console Cadence   : every %" PetscInt_FMT " step(s)\n", simCtx->particleConsoleOutputFreq); CHKERRQ(ierr);
             } else {
                 ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Console Cadence   : DISABLED\n"); CHKERRQ(ierr);
             }
-            ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Log Row Sampling  : every %d particle(s)\n", simCtx->LoggingFrequency); CHKERRQ(ierr);
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Log Row Sampling  : every %" PetscInt_FMT " particle(s)\n", simCtx->LoggingFrequency); CHKERRQ(ierr);
             if (simCtx->StartStep > 0) {
                 ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Restart Mode      : %s\n", simCtx->particleRestartMode); CHKERRQ(ierr);
             }
@@ -2894,7 +2905,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                     ierr = PetscPrintf(PETSC_COMM_WORLD," Pseudo-CFL Adaptation       : growth=%le, reduction=%le, backtrack=%s\n",
                                        simCtx->pseudo_cfl_growth_factor, simCtx->pseudo_cfl_reduction_factor,
                                        simCtx->no_pseudo_cfl_backtrack ? "DISABLED" : "ENABLED"); CHKERRQ(ierr);
-                    ierr = PetscPrintf(PETSC_COMM_WORLD," Pseudo-Time Iteration Limit : %d\n", simCtx->mom_max_pseudo_steps); CHKERRQ(ierr);
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," Pseudo-Time Iteration Limit : %" PetscInt_FMT "\n", simCtx->mom_max_pseudo_steps); CHKERRQ(ierr);
                 } else if (simCtx->mom_solver_type == MOMENTUM_SOLVER_NEWTON_KRYLOV) {
                     ierr = PetscPrintf(PETSC_COMM_WORLD," Newton-Krylov PETSc Controls: SNES/KSP options (mom_nk_*)\n"); CHKERRQ(ierr);
                     ierr = PetscPrintf(PETSC_COMM_WORLD," Newton-Krylov History Log   : %s\n", simCtx->mom_nk_monitor_history ? "ENABLED" : "DISABLED"); CHKERRQ(ierr);
@@ -2903,9 +2914,9 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                 }
                 ierr = PetscPrintf(PETSC_COMM_WORLD," Solution Convergence Mode   : %s\n", convergence_mode_name); CHKERRQ(ierr);
                 if (simCtx->solutionConvergenceMode == SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC) {
-                    ierr = PetscPrintf(PETSC_COMM_WORLD," Convergence Period          : %d step(s)\n", simCtx->solutionConvergencePeriodSteps); CHKERRQ(ierr);
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," Convergence Period          : %" PetscInt_FMT " step(s)\n", simCtx->solutionConvergencePeriodSteps); CHKERRQ(ierr);
                 } else if (simCtx->solutionConvergenceMode == SOLUTION_CONVERGENCE_STATISTICAL_STEADY) {
-                    ierr = PetscPrintf(PETSC_COMM_WORLD," Convergence Window          : %d step(s)\n", simCtx->solutionConvergenceWindowSteps); CHKERRQ(ierr);
+                    ierr = PetscPrintf(PETSC_COMM_WORLD," Convergence Window          : %" PetscInt_FMT " step(s)\n", simCtx->solutionConvergenceWindowSteps); CHKERRQ(ierr);
                 }
                 ierr = PetscPrintf(PETSC_COMM_WORLD," Large Eddy Simulation Model : %s\n", LESModelToString(simCtx->les)); CHKERRQ(ierr);
                 if (simCtx->les != NO_LES_MODEL) {
@@ -2993,7 +3004,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                 ierr = PetscPrintf(PETSC_COMM_SELF, " Eulerian State Source       : load (%s)\n",
                                    simCtx->restart_dir); CHKERRQ(ierr);
             } else if (simCtx->StartStep > 0) {
-                ierr = PetscPrintf(PETSC_COMM_SELF, " Eulerian State Source       : restart step %d (%s)\n",
+                ierr = PetscPrintf(PETSC_COMM_SELF, " Eulerian State Source       : restart step %" PetscInt_FMT " (%s)\n",
                                    simCtx->StartStep, simCtx->restart_dir); CHKERRQ(ierr);
             } else {
                 const char* field_init_str = InitialConditionModeToString(simCtx->initialConditionMode);
@@ -3284,7 +3295,7 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
         pps->endTime = pps->startTime;
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Post-processing configured to run from t=%d to t=%d with step %d. Particle output: %s.\n",
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Post-processing configured to run from t=%" PetscInt_FMT " to t=%" PetscInt_FMT " with step %" PetscInt_FMT ". Particle output: %s.\n",
               pps->startTime, pps->endTime, pps->timeStep, pps->outputParticles ? "TRUE" : "FALSE");
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Process Pipeline: %s\n", pps->process_pipeline);
@@ -3293,7 +3304,7 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Output Prefix: %s\n", pps->particle_output_prefix);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Fields: %s\n", pps->particle_fields);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Pipeline: %s\n", pps->particle_pipeline);
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Output Frequency: %d\n", pps->particle_output_freq);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Output Frequency: %" PetscInt_FMT "\n", pps->particle_output_freq);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Post input extensions: Eulerian='.%s', Particle='.%s'\n", pps->eulerianExt, pps->particleExt);
     PetscCall(ParsePostStatisticsEnsembles(simCtx));
 
@@ -3392,7 +3403,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
 
     /* STEP 2: Broadcast file existence to all ranks. */
     // In ReadDataFileToArray:
-    ierr = MPI_Bcast(&fileExistsFlag, 1, MPI_INT, 0, comm); CHKERRQ(ierr);
+    ierr = MPI_Bcast(&fileExistsFlag, 1, MPIU_INT, 0, comm); CHKERRQ(ierr);
 
     if (!fileExistsFlag) {
         /* If file does not exist, log & return. */
@@ -3425,7 +3436,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
         }
 
         LOG_ALLOW(GLOBAL, LOG_DEBUG,
-                  "File '%s' has %d lines.\n",
+                  "File '%s' has %" PetscInt_FMT " lines.\n",
                   filename, N);
 
         /* (3b) Allocate array on rank 0. */
@@ -3453,12 +3464,12 @@ PetscInt ReadDataFileToArray(const char   *filename,
         fclose(fp);
 
         LOG_ALLOW(GLOBAL, LOG_INFO,
-                  "Successfully read %d values from '%s'.\n",
+                  "Successfully read %" PetscInt_FMT " values from '%s'.\n",
                   N, filename);
     }
 
     /* STEP 4: Broadcast the integer N to all ranks. */
-    ierr = MPI_Bcast(&N, 1, MPI_INT, 0, comm); CHKERRQ(ierr);
+    ierr = MPI_Bcast(&N, 1, MPIU_INT, 0, comm); CHKERRQ(ierr);
 
     /* STEP 5: Each rank allocates an array to receive the broadcast if rank>0. */
     if (rank) {
@@ -3480,7 +3491,7 @@ PetscInt ReadDataFileToArray(const char   *filename,
     *Nout     = N;
 
     LOG_ALLOW(GLOBAL, LOG_DEBUG,
-              "Done. Provided array of length=%d to all ranks.\n",
+              "Done. Provided array of length=%" PetscInt_FMT " to all ranks.\n",
               N);
     PROFILE_HELPER_END;
     return 0; /* success */

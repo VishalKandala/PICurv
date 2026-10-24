@@ -294,7 +294,7 @@ static void Int64ToStr(PetscInt64 value, char *buf, size_t bufsize)
 static void CellToStr(const PetscInt *cell, char *buf, size_t bufsize)
 {
     PROFILE_HELPER_BEGIN;
-    snprintf(buf, bufsize, "(%d, %d, %d)", cell[0], cell[1], cell[2]);
+    snprintf(buf, bufsize, "(%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ")", cell[0], cell[1], cell[2]);
     PROFILE_HELPER_END;
 }
 
@@ -401,7 +401,7 @@ static void BuildRowFormatString(PetscMPIInt wRank, PetscInt wPID, PetscInt wCel
     // We assume that the Rank is an int (%d), PID is a 64-bit int (%ld)
     // and the remaining columns are strings (which have been formatted already).
     snprintf(fmtStr, bufSize,
-             "| %%-%dd | %%-%dd | %%-%ds | %%-%ds | %%-%ds | %%-%ds |\n",
+             "| %%-%dd | %%-%" PetscInt_FMT "d | %%-%" PetscInt_FMT "s | %%-%" PetscInt_FMT "s | %%-%" PetscInt_FMT "s | %%-%" PetscInt_FMT "s |\n",
              wRank, wPID, wCell, wPos, wVel, wWt);
     PROFILE_HELPER_END;
 }
@@ -447,7 +447,7 @@ PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval)
     LOG_ALLOW(LOCAL,LOG_INFO, "Rank %d is retrieving particle data.\n", rank);
 
     ierr = DMSwarmGetLocalSize(swarm, &localNumParticles); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Rank %d has %d particles.\n", rank, localNumParticles);
+    LOG_ALLOW(LOCAL,LOG_DEBUG,"Rank %d has %" PetscInt_FMT " particles.\n", rank, localNumParticles);
 
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&positions); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&particleIDs); CHKERRQ(ierr);
@@ -601,7 +601,7 @@ PetscErrorCode EmitParticleConsoleSnapshot(UserCtx *user, SimCtx *simCtx, PetscI
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    LOG(GLOBAL, LOG_INFO, "Particle states at step %d:\n", step);
+    LOG(GLOBAL, LOG_INFO, "Particle states at step %" PetscInt_FMT ":\n", step);
     ierr = LOG_PARTICLE_FIELDS(user, simCtx->LoggingFrequency); CHKERRQ(ierr);
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
@@ -2822,7 +2822,7 @@ static PetscErrorCode LogFieldAnatomyView(UserCtx *user, const char *field_name,
     PetscCheck(dm != NULL && vec_local != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
                "Field '%s' has no available DM/local vector for anatomy logging.", field_name);
     PetscCheck(dof == 1 || dof == 3, PETSC_COMM_SELF, PETSC_ERR_SUP,
-               "Field anatomy logging supports one- or three-component fields; '%s' has %d.",
+               "Field anatomy logging supports one- or three-component fields; '%s' has %" PetscInt_FMT ".",
                field_name, dof);
 
     if (layout == FIELD_LAYOUT_I_FACE) dominant_dir = 'x';
@@ -2867,11 +2867,11 @@ static PetscErrorCode LogFieldAnatomyView(UserCtx *user, const char *field_name,
             else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f, %.5f, %.5f)\n", ((const Cmpnts***)l_arr)[k_mid][j_mid][1].x, ((const Cmpnts***)l_arr)[k_mid][j_mid][1].y, ((const Cmpnts***)l_arr)[k_mid][j_mid][1].z);
         }
         if (info.xs + info.xm == info.mx) { // Rank on +Xi boundary
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Value for Cell[k][j][%d]) = ", rank, im_phys - 1, im_phys - 2);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2" PetscInt_FMT " (Value for Cell[k][j][%" PetscInt_FMT "]) = ", rank, im_phys - 1, im_phys - 2);
             if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f)\n", ((const PetscReal***)l_arr)[k_mid][j_mid][im_phys - 1]);
             else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f, %.5f, %.5f)\n", ((const Cmpnts***)l_arr)[k_mid][j_mid][im_phys - 1].x, ((const Cmpnts***)l_arr)[k_mid][j_mid][im_phys - 1].y, ((const Cmpnts***)l_arr)[k_mid][j_mid][im_phys - 1].z);
 
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Ghost for Cell[k][j][%d]) = ", rank, im_phys, im_phys - 2);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2" PetscInt_FMT " (Ghost for Cell[k][j][%" PetscInt_FMT "]) = ", rank, im_phys, im_phys - 2);
             if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f)\n", ((const PetscReal***)l_arr)[k_mid][j_mid][im_phys]);
             else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f, %.5f, %.5f)\n", ((const Cmpnts***)l_arr)[k_mid][j_mid][im_phys].x, ((const Cmpnts***)l_arr)[k_mid][j_mid][im_phys].y, ((const Cmpnts***)l_arr)[k_mid][j_mid][im_phys].z);
         } 
@@ -2888,11 +2888,11 @@ static PetscErrorCode LogFieldAnatomyView(UserCtx *user, const char *field_name,
         }
 
         if (info.ys + info.ym == info.my) { // Rank on +Eta boundary
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (Value for Cell[k][%d][i]) = ", rank, jm_phys - 1, jm_phys - 2);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2" PetscInt_FMT " (Value for Cell[k][%" PetscInt_FMT "][i]) = ", rank, jm_phys - 1, jm_phys - 2);
             if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f)\n", ((const PetscReal***)l_arr)[k_mid][jm_phys - 1][i_mid]);
             else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f, %.5f, %.5f)\n", ((const Cmpnts***)l_arr)[k_mid][jm_phys - 1][i_mid].x, ((const Cmpnts***)l_arr)[k_mid][jm_phys - 1][i_mid].y, ((const Cmpnts***)l_arr)[k_mid][jm_phys - 1][i_mid].z);
 
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (Ghost for Cell[k][%d][i]) = ", rank, jm_phys, jm_phys - 2);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2" PetscInt_FMT " (Ghost for Cell[k][%" PetscInt_FMT "][i]) = ", rank, jm_phys, jm_phys - 2);
             if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f)\n", ((const PetscReal***)l_arr)[k_mid][jm_phys][i_mid]);
             else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f, %.5f, %.5f)\n", ((const Cmpnts***)l_arr)[k_mid][jm_phys][i_mid].x, ((const Cmpnts***)l_arr)[k_mid][jm_phys][i_mid].y, ((const Cmpnts***)l_arr)[k_mid][jm_phys][i_mid].z);
         }
@@ -2907,10 +2907,10 @@ static PetscErrorCode LogFieldAnatomyView(UserCtx *user, const char *field_name,
             else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f, %.5f, %.5f)\n", ((const Cmpnts***)l_arr)[1][j_mid][i_mid].x, ((const Cmpnts***)l_arr)[1][j_mid][i_mid].y, ((const Cmpnts***)l_arr)[1][j_mid][i_mid].z);
         }
         if (info.zs + info.zm == info.mz) { // Rank on +Zeta boundary
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (Value for Cell[%d][j][i]) = ", rank, km_phys - 1, km_phys - 2);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2" PetscInt_FMT " (Value for Cell[%" PetscInt_FMT "][j][i]) = ", rank, km_phys - 1, km_phys - 2);
             if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f)\n", ((const PetscReal***)l_arr)[km_phys - 1][j_mid][i_mid]);
             else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f, %.5f, %.5f)\n", ((const Cmpnts***)l_arr)[km_phys - 1][j_mid][i_mid].x, ((const Cmpnts***)l_arr)[km_phys - 1][j_mid][i_mid].y, ((const Cmpnts***)l_arr)[km_phys - 1][j_mid][i_mid].z);
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (Ghost for Cell[%d][j][i]) = ", rank, km_phys, km_phys - 2);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2" PetscInt_FMT " (Ghost for Cell[%" PetscInt_FMT "][j][i]) = ", rank, km_phys, km_phys - 2);
             if(dof==1) PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f)\n", ((const PetscReal***)l_arr)[km_phys][j_mid][i_mid]);
             else       PetscSynchronizedPrintf(PETSC_COMM_WORLD, "(%.5f, %.5f, %.5f)\n", ((const Cmpnts***)l_arr)[km_phys][j_mid][i_mid].x, ((const Cmpnts***)l_arr)[km_phys][j_mid][i_mid].y, ((const Cmpnts***)l_arr)[km_phys][j_mid][i_mid].z);
         }
@@ -2939,14 +2939,14 @@ static PetscErrorCode LogFieldAnatomyView(UserCtx *user, const char *field_name,
         }
         if (info.xs + info.xm == info.mx) { // Rank on +Xi boundary
             if (dominant_dir == 'x') { // Node-like in I-dir
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Last Phys. X-Face)  = (%.5f, %.5f, %.5f)\n", rank, im_phys - 1, l_arr[k_mid][j_mid][im_phys - 1].x, l_arr[k_mid][j_mid][im_phys-1].y, l_arr[k_mid][j_mid][im_phys - 1].z);
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Ghost Location)     = (%.5f, %.5f, %.5f)\n", rank, im_phys, l_arr[k_mid][j_mid][im_phys].x, l_arr[k_mid][j_mid][im_phys].y, l_arr[k_mid][j_mid][im_phys].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2" PetscInt_FMT " (Last Phys. X-Face)  = (%.5f, %.5f, %.5f)\n", rank, im_phys - 1, l_arr[k_mid][j_mid][im_phys - 1].x, l_arr[k_mid][j_mid][im_phys-1].y, l_arr[k_mid][j_mid][im_phys - 1].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2" PetscInt_FMT " (Ghost Location)     = (%.5f, %.5f, %.5f)\n", rank, im_phys, l_arr[k_mid][j_mid][im_phys].x, l_arr[k_mid][j_mid][im_phys].y, l_arr[k_mid][j_mid][im_phys].z);
             } else if (dominant_dir == 'y' || dominant_dir == 'z') { // Cell-like in I-dir
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Value for Cell[k][j][%d]) = (%.5f, %.5f, %.5f)\n", rank, im_phys - 1, im_phys - 2, l_arr[k_mid][j_mid][im_phys - 1].x, l_arr[k_mid][j_mid][im_phys - 1].y, l_arr[k_mid][j_mid][im_phys-1].z);
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Ghost for Cell[k][j][%d]) = (%.5f, %.5f, %.5f)\n", rank, im_phys, im_phys - 2, l_arr[k_mid][j_mid][im_phys].x, l_arr[k_mid][j_mid][im_phys].y, l_arr[k_mid][j_mid][im_phys].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2" PetscInt_FMT " (Value for Cell[k][j][%" PetscInt_FMT "]) = (%.5f, %.5f, %.5f)\n", rank, im_phys - 1, im_phys - 2, l_arr[k_mid][j_mid][im_phys - 1].x, l_arr[k_mid][j_mid][im_phys - 1].y, l_arr[k_mid][j_mid][im_phys-1].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2" PetscInt_FMT " (Ghost for Cell[k][j][%" PetscInt_FMT "]) = (%.5f, %.5f, %.5f)\n", rank, im_phys, im_phys - 2, l_arr[k_mid][j_mid][im_phys].x, l_arr[k_mid][j_mid][im_phys].y, l_arr[k_mid][j_mid][im_phys].z);
             } else if (dominant_dir == 'm') { // Ucont: Mixed
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: u-comp @ Idx %2d (Last X-Face)   = %.5f\n", rank, im_phys - 1, l_arr[k_mid][j_mid][im_phys - 1].x);
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: u-comp @ Idx %2d (Ghost Location)    = %.5f\n", rank, im_phys, l_arr[k_mid][j_mid][im_phys].x);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: u-comp @ Idx %2" PetscInt_FMT " (Last X-Face)   = %.5f\n", rank, im_phys - 1, l_arr[k_mid][j_mid][im_phys - 1].x);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: u-comp @ Idx %2" PetscInt_FMT " (Ghost Location)    = %.5f\n", rank, im_phys, l_arr[k_mid][j_mid][im_phys].x);
             }
         }
 
@@ -2963,14 +2963,14 @@ static PetscErrorCode LogFieldAnatomyView(UserCtx *user, const char *field_name,
         }
         if (info.ys + info.ym == info.my) { // Rank on +Eta boundary
              if (dominant_dir == 'y') { // Node-like in J-dir
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (Last Phys. Y-Face)  = (%.5f, %.5f, %.5f)\n", rank, jm_phys - 1, l_arr[k_mid][jm_phys - 1][i_mid].x, l_arr[k_mid][jm_phys - 1][i_mid].y, l_arr[k_mid][jm_phys - 1][i_mid].z);
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (Ghost Location)     = (%.5f, %.5f, %.5f)\n", rank, jm_phys, l_arr[k_mid][jm_phys][i_mid].x, l_arr[k_mid][jm_phys][i_mid].y, l_arr[k_mid][jm_phys][i_mid].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2" PetscInt_FMT " (Last Phys. Y-Face)  = (%.5f, %.5f, %.5f)\n", rank, jm_phys - 1, l_arr[k_mid][jm_phys - 1][i_mid].x, l_arr[k_mid][jm_phys - 1][i_mid].y, l_arr[k_mid][jm_phys - 1][i_mid].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2" PetscInt_FMT " (Ghost Location)     = (%.5f, %.5f, %.5f)\n", rank, jm_phys, l_arr[k_mid][jm_phys][i_mid].x, l_arr[k_mid][jm_phys][i_mid].y, l_arr[k_mid][jm_phys][i_mid].z);
             } else if (dominant_dir == 'x' || dominant_dir == 'z') { // Cell-like in J-dir
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (Value for Cell[k][%d][i]) = (%.5f, %.5f, %.5f)\n", rank, jm_phys-1, jm_phys-2, l_arr[k_mid][jm_phys - 1][i_mid].x, l_arr[k_mid][jm_phys - 1][i_mid].y, l_arr[k_mid][jm_phys - 1][i_mid].z);
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (Ghost for Cell[k][%d][i]) = (%.5f, %.5f, %.5f)\n", rank, jm_phys, jm_phys-2, l_arr[k_mid][jm_phys][i_mid].x, l_arr[k_mid][jm_phys][i_mid].y, l_arr[k_mid][jm_phys][i_mid].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2" PetscInt_FMT " (Value for Cell[k][%" PetscInt_FMT "][i]) = (%.5f, %.5f, %.5f)\n", rank, jm_phys-1, jm_phys-2, l_arr[k_mid][jm_phys - 1][i_mid].x, l_arr[k_mid][jm_phys - 1][i_mid].y, l_arr[k_mid][jm_phys - 1][i_mid].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2" PetscInt_FMT " (Ghost for Cell[k][%" PetscInt_FMT "][i]) = (%.5f, %.5f, %.5f)\n", rank, jm_phys, jm_phys-2, l_arr[k_mid][jm_phys][i_mid].x, l_arr[k_mid][jm_phys][i_mid].y, l_arr[k_mid][jm_phys][i_mid].z);
             } else if (dominant_dir == 'm') { // Ucont: Mixed
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: v-comp @ Jdx %2d (Last Y-Face)    = %.5f\n", rank, jm_phys - 1, l_arr[k_mid][jm_phys - 1][i_mid].y); 
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: v-comp @ Jdx %2d (Ghost Location)   = %.5f\n", rank, jm_phys, l_arr[k_mid][jm_phys][i_mid].y);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: v-comp @ Jdx %2" PetscInt_FMT " (Last Y-Face)    = %.5f\n", rank, jm_phys - 1, l_arr[k_mid][jm_phys - 1][i_mid].y); 
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: v-comp @ Jdx %2" PetscInt_FMT " (Ghost Location)   = %.5f\n", rank, jm_phys, l_arr[k_mid][jm_phys][i_mid].y);
             }
         }
 
@@ -2987,14 +2987,14 @@ static PetscErrorCode LogFieldAnatomyView(UserCtx *user, const char *field_name,
         }
         if (info.zs + info.zm == info.mz) { // Rank on +Zeta boundary
              if (dominant_dir == 'z') { // Node-like in K-dir
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2d (Last Phys. Z-Face)  = (%.5f, %.5f, %.5f)\n", rank, km_phys - 1, l_arr[km_phys - 1][j_mid][i_mid].x, l_arr[km_phys - 1][j_mid][i_mid].y, l_arr[km_phys - 1][j_mid][i_mid].z);
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2d (Ghost Location)     = (%.5f, %.5f, %.5f)\n", rank, km_phys, l_arr[km_phys][j_mid][i_mid].x, l_arr[km_phys][j_mid][i_mid].y, l_arr[km_phys][j_mid][i_mid].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2" PetscInt_FMT " (Last Phys. Z-Face)  = (%.5f, %.5f, %.5f)\n", rank, km_phys - 1, l_arr[km_phys - 1][j_mid][i_mid].x, l_arr[km_phys - 1][j_mid][i_mid].y, l_arr[km_phys - 1][j_mid][i_mid].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2" PetscInt_FMT " (Ghost Location)     = (%.5f, %.5f, %.5f)\n", rank, km_phys, l_arr[km_phys][j_mid][i_mid].x, l_arr[km_phys][j_mid][i_mid].y, l_arr[km_phys][j_mid][i_mid].z);
             } else if (dominant_dir == 'x' || dominant_dir == 'y') { // Cell-like in K-dir
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2d (Value for Cell[%d][j][i]) = (%.5f, %.5f, %.5f)\n", rank, km_phys-1, km_phys-2, l_arr[km_phys-1][j_mid][i_mid].x, l_arr[km_phys-1][j_mid][i_mid].y, l_arr[km_phys - 1][j_mid][i_mid].z);
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2d (Ghost for Cell[%d][j][i]) = (%.5f, %.5f, %.5f)\n", rank, km_phys, km_phys-2, l_arr[km_phys][j_mid][i_mid].x, l_arr[km_phys][j_mid][i_mid].y, l_arr[km_phys][j_mid][i_mid].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2" PetscInt_FMT " (Value for Cell[%" PetscInt_FMT "][j][i]) = (%.5f, %.5f, %.5f)\n", rank, km_phys-1, km_phys-2, l_arr[km_phys-1][j_mid][i_mid].x, l_arr[km_phys-1][j_mid][i_mid].y, l_arr[km_phys - 1][j_mid][i_mid].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Idx %2" PetscInt_FMT " (Ghost for Cell[%" PetscInt_FMT "][j][i]) = (%.5f, %.5f, %.5f)\n", rank, km_phys, km_phys-2, l_arr[km_phys][j_mid][i_mid].x, l_arr[km_phys][j_mid][i_mid].y, l_arr[km_phys][j_mid][i_mid].z);
             } else if (dominant_dir == 'm') { // Ucont: Mixed
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: w-comp @ Idx %2d (Last Z-Face) = %.5f\n", rank, km_phys - 1, l_arr[km_phys - 1][j_mid][i_mid].z);
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: w-comp @ Idx %2d (Ghost Loc.) = %.5f\n", rank, km_phys, l_arr[km_phys][j_mid][i_mid].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: w-comp @ Idx %2" PetscInt_FMT " (Last Z-Face) = %.5f\n", rank, km_phys - 1, l_arr[km_phys - 1][j_mid][i_mid].z);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: w-comp @ Idx %2" PetscInt_FMT " (Ghost Loc.) = %.5f\n", rank, km_phys, l_arr[km_phys][j_mid][i_mid].z);
 
             }
         }
@@ -3011,20 +3011,20 @@ static PetscErrorCode LogFieldAnatomyView(UserCtx *user, const char *field_name,
             if (info.xs == 0)
                 PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (First Phys. Node) = %.5f\n", rank, 0, l_arr[k_mid][j_mid][0]);
             if (info.xs + info.xm == info.mx) {
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Last Phys. Node)  = %.5f\n", rank, im_phys - 1, l_arr[k_mid][j_mid][im_phys - 1]);
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Unused/Ghost Loc) = %.5f\n", rank, im_phys, l_arr[k_mid][j_mid][im_phys]);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2" PetscInt_FMT " (Last Phys. Node)  = %.5f\n", rank, im_phys - 1, l_arr[k_mid][j_mid][im_phys - 1]);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2" PetscInt_FMT " (Unused/Ghost Loc) = %.5f\n", rank, im_phys, l_arr[k_mid][j_mid][im_phys]);
             }
             if (info.ys == 0)
                 PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (First Phys. Node) = %.5f\n", rank, 0, l_arr[k_mid][0][i_mid]);
             if (info.ys + info.ym == info.my) {
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (Last Phys. Node)  = %.5f\n", rank, jm_phys - 1, l_arr[k_mid][jm_phys - 1][i_mid]);
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (Unused/Ghost Loc) = %.5f\n", rank, jm_phys, l_arr[k_mid][jm_phys][i_mid]);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2" PetscInt_FMT " (Last Phys. Node)  = %.5f\n", rank, jm_phys - 1, l_arr[k_mid][jm_phys - 1][i_mid]);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2" PetscInt_FMT " (Unused/Ghost Loc) = %.5f\n", rank, jm_phys, l_arr[k_mid][jm_phys][i_mid]);
             }
             if (info.zs == 0)
                 PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (First Phys. Node) = %.5f\n", rank, 0, l_arr[0][j_mid][i_mid]);
             if (info.zs + info.zm == info.mz) {
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (Last Phys. Node)  = %.5f\n", rank, km_phys - 1, l_arr[km_phys - 1][j_mid][i_mid]);
-                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (Unused/Ghost Loc) = %.5f\n", rank, km_phys, l_arr[km_phys][j_mid][i_mid]);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2" PetscInt_FMT " (Last Phys. Node)  = %.5f\n", rank, km_phys - 1, l_arr[km_phys - 1][j_mid][i_mid]);
+                PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2" PetscInt_FMT " (Unused/Ghost Loc) = %.5f\n", rank, km_phys, l_arr[km_phys][j_mid][i_mid]);
             }
             ierr = DMDAVecRestoreArrayRead(dm, vec_local, (void*)&l_arr); CHKERRQ(ierr);
         } else {
@@ -3036,24 +3036,24 @@ static PetscErrorCode LogFieldAnatomyView(UserCtx *user, const char *field_name,
             PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (First Phys. Node) = (%.5f, %.5f, %.5f)\n", rank, 0, l_arr[k_mid][j_mid][0].x, l_arr[k_mid][j_mid][0].y, l_arr[k_mid][j_mid][0].z);
         }
         if (info.xs + info.xm == info.mx) {
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Last Phys. Node)  = (%.5f, %.5f, %.5f)\n", rank, im_phys - 1, l_arr[k_mid][j_mid][im_phys - 1].x, l_arr[k_mid][j_mid][im_phys - 1].y, l_arr[k_mid][j_mid][im_phys - 1].z);
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2d (Unused/Ghost Loc) = (%.5f, %.5f, %.5f)\n", rank, im_phys, l_arr[k_mid][j_mid][im_phys].x, l_arr[k_mid][j_mid][im_phys].y, l_arr[k_mid][j_mid][im_phys].z);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2" PetscInt_FMT " (Last Phys. Node)  = (%.5f, %.5f, %.5f)\n", rank, im_phys - 1, l_arr[k_mid][j_mid][im_phys - 1].x, l_arr[k_mid][j_mid][im_phys - 1].y, l_arr[k_mid][j_mid][im_phys - 1].z);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, I-DIR]: Idx %2" PetscInt_FMT " (Unused/Ghost Loc) = (%.5f, %.5f, %.5f)\n", rank, im_phys, l_arr[k_mid][j_mid][im_phys].x, l_arr[k_mid][j_mid][im_phys].y, l_arr[k_mid][j_mid][im_phys].z);
         }
         // --- J-Direction Boundaries ---
         if (info.ys == 0) {
             PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (First Phys. Node) = (%.5f, %.5f, %.5f)\n", rank, 0, l_arr[k_mid][0][i_mid].x, l_arr[k_mid][0][i_mid].y, l_arr[k_mid][0][i_mid].z);
         }
         if (info.ys + info.ym == info.my) {
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (Last Phys. Node)  = (%.5f, %.5f, %.5f)\n", rank, jm_phys - 1, l_arr[k_mid][jm_phys - 1][i_mid].x, l_arr[k_mid][jm_phys - 1][i_mid].y, l_arr[k_mid][jm_phys - 1][i_mid].z);
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2d (Unused/Ghost Loc) = (%.5f, %.5f, %.5f)\n", rank, jm_phys, l_arr[k_mid][jm_phys][i_mid].x, l_arr[k_mid][jm_phys][i_mid].y, l_arr[k_mid][jm_phys][i_mid].z);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2" PetscInt_FMT " (Last Phys. Node)  = (%.5f, %.5f, %.5f)\n", rank, jm_phys - 1, l_arr[k_mid][jm_phys - 1][i_mid].x, l_arr[k_mid][jm_phys - 1][i_mid].y, l_arr[k_mid][jm_phys - 1][i_mid].z);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, J-DIR]: Jdx %2" PetscInt_FMT " (Unused/Ghost Loc) = (%.5f, %.5f, %.5f)\n", rank, jm_phys, l_arr[k_mid][jm_phys][i_mid].x, l_arr[k_mid][jm_phys][i_mid].y, l_arr[k_mid][jm_phys][i_mid].z);
         }
         // --- K-Direction Boundaries ---
         if (info.zs == 0) {
             PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (First Phys. Node) = (%.5f, %.5f, %.5f)\n", rank, 0, l_arr[0][j_mid][i_mid].x, l_arr[0][j_mid][i_mid].y, l_arr[0][j_mid][i_mid].z);
         }
         if(info.zs + info.zm == info.mz) {
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (Last Phys. Node)  = (%.5f, %.5f, %.5f)\n", rank, km_phys - 1, l_arr[km_phys - 1][j_mid][i_mid].x, l_arr[km_phys - 1][j_mid][i_mid].y, l_arr[km_phys - 1][j_mid][i_mid].z);
-            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2d (Unused/Ghost Loc) = (%.5f, %.5f, %.5f)\n", rank, km_phys, l_arr[km_phys][j_mid][i_mid].x, l_arr[km_phys][j_mid][i_mid].y, l_arr[km_phys][j_mid][i_mid].z);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2" PetscInt_FMT " (Last Phys. Node)  = (%.5f, %.5f, %.5f)\n", rank, km_phys - 1, l_arr[km_phys - 1][j_mid][i_mid].x, l_arr[km_phys - 1][j_mid][i_mid].y, l_arr[km_phys - 1][j_mid][i_mid].z);
+            PetscSynchronizedPrintf(PETSC_COMM_WORLD, "[Rank %d, K-DIR]: Kdx %2" PetscInt_FMT " (Unused/Ghost Loc) = (%.5f, %.5f, %.5f)\n", rank, km_phys, l_arr[km_phys][j_mid][i_mid].x, l_arr[km_phys][j_mid][i_mid].y, l_arr[km_phys][j_mid][i_mid].z);
         }
             ierr = DMDAVecRestoreArrayRead(dm, vec_local, (void*)&l_arr); CHKERRQ(ierr);
         }
@@ -3124,7 +3124,7 @@ PetscErrorCode EmitStatisticsConsoleSnapshot(UserCtx *user, const SimCtx *simCtx
     PetscCheck(simCtx != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "SimCtx cannot be NULL.");
     if (!IsStatisticsConsoleSnapshotEnabled(simCtx)) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
-    LOG(GLOBAL, LOG_INFO, "Statistics windows at step %d (%d window(s)):\n",
+    LOG(GLOBAL, LOG_INFO, "Statistics windows at step %" PetscInt_FMT " (%" PetscInt_FMT " window(s)):\n",
         step, simCtx->fieldStatisticsWindowCount);
     for (PetscInt w = 0; w < simCtx->fieldStatisticsWindowCount; ++w) {
         const PicurvWindow *window = &simCtx->fieldStatisticsWindows[w];
@@ -3153,7 +3153,7 @@ PetscErrorCode EmitStatisticsConsoleSnapshot(UserCtx *user, const SimCtx *simCtx
         }
 
         LOG(GLOBAL, LOG_INFO,
-            "  %-24s %-8s samples=%-8d weight=%-12.6g represented=%-12.6g progress=%s%s\n",
+            "  %-24s %-8s samples=%-8" PetscInt_FMT " weight=%-12.6g represented=%-12.6g progress=%s%s\n",
             window->definition.name, PicurvWindowStateName(window->state),
             window->sample_count, (double)window->total_weight,
             (double)window->represented_time, progress, coverage);
@@ -3710,7 +3710,7 @@ PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user)
     ierr = MPI_Allreduce(&local_occupied_cells, &global_occupied_cells, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
     simCtx->occupiedCellCount = global_occupied_cells;
 
-    LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "[Rank %d] Advanced Metrics: Imbalance=%.2f, OccupiedCells=%d\n", rank, simCtx->particleLoadImbalance, simCtx->occupiedCellCount);
+    LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "[Rank %d] Advanced Metrics: Imbalance=%.2f, OccupiedCells=%" PetscInt_FMT "\n", rank, simCtx->particleLoadImbalance, simCtx->occupiedCellCount);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

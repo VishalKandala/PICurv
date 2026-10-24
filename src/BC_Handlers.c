@@ -829,7 +829,7 @@ static PetscErrorCode GetProfileFileExpectedDims(UserCtx *user, BCFace face_id,
     }
     if (*n1 <= 0 || *n2 <= 0) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
-                "Invalid inlet profile dimensions (%d, %d) for grid (%d, %d, %d).",
+                "Invalid inlet profile dimensions (%" PetscInt_FMT ", %" PetscInt_FMT ") for grid (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ").",
                 *n1, *n2, user->IM, user->JM, user->KM);
     }
     PROFILE_HELPER_END;
@@ -868,7 +868,7 @@ static PetscErrorCode ReadPicSliceProfile(const char *source_file, PetscInt expe
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ,
                 "PICSLICE inlet profile file %s must begin with PICSLICE header.", source_file);
     }
-    if (fscanf(fd, "%d", &frame_count) != 1) {
+    if (fscanf(fd, "%" PetscInt_FMT, &frame_count) != 1) {
         fclose(fd);
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ,
                 "PICSLICE inlet profile file %s missing frame count.", source_file);
@@ -876,10 +876,10 @@ static PetscErrorCode ReadPicSliceProfile(const char *source_file, PetscInt expe
     if (frame_count != 1) {
         fclose(fd);
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_UNEXPECTED,
-                "PICSLICE inlet profile file %s has %d frames; static handler requires 1.",
+                "PICSLICE inlet profile file %s has %" PetscInt_FMT " frames; static handler requires 1.",
                 source_file, frame_count);
     }
-    if (fscanf(fd, "%d %d", &n1, &n2) != 2) {
+    if (fscanf(fd, "%" PetscInt_FMT " %" PetscInt_FMT, &n1, &n2) != 2) {
         fclose(fd);
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ,
                 "PICSLICE inlet profile file %s missing slice dimensions.", source_file);
@@ -887,7 +887,7 @@ static PetscErrorCode ReadPicSliceProfile(const char *source_file, PetscInt expe
     if (n1 != expected_n1 || n2 != expected_n2) {
         fclose(fd);
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_UNEXPECTED,
-                "PICSLICE inlet profile dimensions mismatch for %s: expected (%d, %d), found (%d, %d).",
+                "PICSLICE inlet profile dimensions mismatch for %s: expected (%" PetscInt_FMT ", %" PetscInt_FMT "), found (%" PetscInt_FMT ", %" PetscInt_FMT ").",
                 source_file, expected_n1, expected_n2, n1, n2);
     }
 
@@ -902,13 +902,13 @@ static PetscErrorCode ReadPicSliceProfile(const char *source_file, PetscInt expe
         if (fscanf(fd, "%le", &value) != 1) {
             fclose(fd);
             SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_READ,
-                    "PICSLICE inlet profile file %s ended early: expected %d values.",
+                    "PICSLICE inlet profile file %s ended early: expected %" PetscInt_FMT " values.",
                     source_file, n1 * n2);
         }
         if (PetscIsInfOrNanReal(value) || value < 0.0) {
             fclose(fd);
             SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_UNEXPECTED,
-                    "PICSLICE inlet profile file %s contains invalid speed %.6e at flat index %d.",
+                    "PICSLICE inlet profile file %s contains invalid speed %.6e at flat index %" PetscInt_FMT ".",
                     source_file, (double)value, idx);
         }
         data->profile[idx] = value;
@@ -920,7 +920,7 @@ static PetscErrorCode ReadPicSliceProfile(const char *source_file, PetscInt expe
     if (fscanf(fd, "%63s", extra) == 1) {
         fclose(fd);
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_UNEXPECTED,
-                "PICSLICE inlet profile file %s has extra token after %d values: %s",
+                "PICSLICE inlet profile file %s has extra token after %" PetscInt_FMT " values: %s",
                 source_file, n1 * n2, extra);
     }
     fclose(fd);
@@ -1222,7 +1222,7 @@ static PetscErrorCode Initialize_InletProfileFromFile(BoundaryCondition *self, B
     ierr = ReadPicSliceProfile(source_file, expected_n1, expected_n2, data); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL, LOG_INFO,
-              "  Inlet Face %d (Prescribed Flow): source=%s dims=(%d,%d) speed[min,max]=[%.6e, %.6e]\n",
+              "  Inlet Face %d (Prescribed Flow): source=%s dims=(%" PetscInt_FMT ",%" PetscInt_FMT ") speed[min,max]=[%.6e, %.6e]\n",
               face_id, data->source_file, data->n1, data->n2,
               (double)data->min_speed, (double)data->max_speed);
 
