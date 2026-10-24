@@ -11154,15 +11154,17 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
             list_val = io_cfg.get(list_key)
             if list_val is not None and not isinstance(list_val, list):
                 errors.append(f"  {post_path}: 'io.{list_key}' must be a list when provided.")
-        # Qcrit is computed at cell centres, and a .vts carries point data only: written
-        # directly it would sit half a cell away from the node the file assigns it.
+        # The nodal_average inputs are computed at cell centres, and a .vts carries point data
+        # only: the writer skips them, so a listed one would silently never reach the file.
         eulerian_fields = io_cfg.get('eulerian_fields')
-        if isinstance(eulerian_fields, list) and 'Qcrit' in eulerian_fields:
-            errors.append(
-                f"  {post_path}: 'io.eulerian_fields' lists 'Qcrit', which is cell-centred and cannot be "
-                "written as point data. Add a nodal_average task (input_field: Qcrit, output_field: "
-                "Qcrit_nodal) after q_criterion and write 'Qcrit_nodal'."
-            )
+        for cell_field in ('Ucat', 'P', 'Psi', 'Qcrit'):
+            if isinstance(eulerian_fields, list) and cell_field in eulerian_fields:
+                after = " after q_criterion" if cell_field == 'Qcrit' else ""
+                errors.append(
+                    f"  {post_path}: 'io.eulerian_fields' lists '{cell_field}', which is cell-centred and "
+                    f"cannot be written as point data. Add a nodal_average task (input_field: {cell_field}, "
+                    f"output_field: {cell_field}_nodal){after} and write '{cell_field}_nodal'."
+                )
 
     # --- Check eulerian_pipeline entries have 'task' key ---
     eulerian_pipeline = post_cfg.get('eulerian_pipeline', [])

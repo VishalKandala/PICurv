@@ -10775,6 +10775,28 @@ def test_post_refuses_cell_centred_qcrit_output(tmp_path, capsys):
     picurv.validate_post_config(post_cfg, str(tmp_path / "post.yml"), _monitor_with_output_cadence(100))
 
 
+@pytest.mark.parametrize("field", ["Ucat", "P", "Psi"])
+def test_post_refuses_every_cell_centred_eulerian_output(tmp_path, capsys, field):
+    """!
+    @brief Every nodal_average input is cell-centred, and the writer skips it without one.
+
+    The temporal mixing layer recipe listed Ucat and P and wrote coordinates only.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] capsys Pytest capture fixture.
+    @param[in] field Cell-centred field name.
+    @return None.
+    """
+    picurv = load_picurv_module()
+    post_cfg = _post_with_window(0, 100, 100)
+    post_cfg["io"]["eulerian_fields"] = [field]
+    with pytest.raises(SystemExit):
+        picurv.validate_post_config(post_cfg, str(tmp_path / "post.yml"), _monitor_with_output_cadence(100))
+    assert f"{field}_nodal" in capsys.readouterr().err
+    post_cfg["eulerian_pipeline"] = [{"task": "nodal_average", "input_field": field, "output_field": f"{field}_nodal"}]
+    post_cfg["io"]["eulerian_fields"] = [f"{field}_nodal"]
+    picurv.validate_post_config(post_cfg, str(tmp_path / "post.yml"), _monitor_with_output_cadence(100))
+
+
 def test_monitor_function_lists_translate_renamed_poisson_functions(tmp_path, capsys):
     """!
     @brief Test that monitor.yml function lists follow the Poisson rewrite's renames.

@@ -3,6 +3,10 @@
 # a cross-stream profile per ensemble, and profile_series turns those into histories.
 run_control: {start_step: 0, end_step: 100, step_interval: 4}
 global_operations: {dimensionalize: true}
+# The .vts holds point data, so the cell-centred fields are averaged onto the nodes first.
+eulerian_pipeline:
+  - {task: nodal_average, input_field: Ucat, output_field: Ucat_nodal}
+  - {task: nodal_average, input_field: P, output_field: P_nodal}
 field_statistics:
   ensembles:
     # The FDF: each cell's particles. Its mean profile is the paper's <A>_L, and
@@ -30,6 +34,6 @@ reducers:
       source: fdf
 io:
   output_filename_prefix: tml
-  eulerian_fields: [Ucat, P]
+  eulerian_fields: [Ucat_nodal, P_nodal]
   output_particles: false
   input_extensions: {eulerian: dat, particle: dat}

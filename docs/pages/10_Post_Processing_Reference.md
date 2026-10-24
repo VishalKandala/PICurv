@@ -185,7 +185,7 @@ once when dimensionalized.
 
 **Identity.** `eulerian_pipeline: [{task: nodal_average, input_field: X, output_field: Y}]` -> `CellToNodeAverage:X>Y`.
 
-**What it does.** Averages a cell-centred field onto grid nodes, writing the result as a separate named field. Accepted inputs are `P`, `Ucat`, `Psi`, and `Qcrit`, written to `P_nodal`, `Ucat_nodal`, `Psi_nodal`, and `Qcrit_nodal`; a `.vts` carries point data only, so a cell-centred field reaches the file through this task.
+**What it does.** Averages a cell-centred field onto grid nodes, writing the result as a separate named field. Accepted inputs are `P`, `Ucat`, `Psi`, and `Qcrit`, written to `P_nodal`, `Ucat_nodal`, `Psi_nodal`, and `Qcrit_nodal`; a `.vts` carries point data only, so a cell-centred field reaches the file through this task, and validation refuses `Ucat`, `P`, `Psi` or `Qcrit` listed in `io.eulerian_fields`, naming the `_nodal` field to write instead.
 
 **When to choose it.** When a downstream consumer expects nodal data - some visualisation filters and line-extraction tools interpolate badly from cell data - or when comparing against a reference that is defined at nodes. Leave cell fields alone otherwise: averaging is a smoothing operation and loses information.
 
