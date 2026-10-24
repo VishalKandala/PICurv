@@ -1158,26 +1158,6 @@ PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle) {
 }
 
 /**
- * @brief Initializes or loads the particle swarm based on the simulation context.
- *
- * This function is the central point for setting up the DMSwarm. Its behavior
- * depends on the simulation context (simCtx):
- *
- * 1.  **Fresh Start (simCtx->StartStep == 0):** A new particle population is
- *     generated according to the specified initial conditions.
- *
- * 2.  **Restart (simCtx->StartStep > 0):**
- *     - If `simCtx->particleRestartMode` is "init", a new particle population
- *       is generated, just like a fresh start. This allows injecting fresh
- *       particles into a pre-computed flow field.
- *     - If `simCtx->particleRestartMode` is "load", the particle state is loaded
- *       from restart files corresponding to the StartStep.
- *
- * @param[in,out] simCtx Pointer to the main SimulationContext, which contains all
- *                       configuration and provides access to the UserCtx.
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- */
-/**
  * @brief Implementation of \ref InitializeParticleSwarm().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/ParticleSwarm.h`.

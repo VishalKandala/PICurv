@@ -1040,19 +1040,6 @@ PetscErrorCode DualMonitorDestroy(void **ctx)
 }
 
 /**
- * @brief A custom KSP monitor that logs the true residual to a file and optionally to the console.
- *
- * This function replicates the behavior of KSPMonitorTrueResidualNorm by calculating
- * the true residual norm ||b - Ax|| itself. It unconditionally logs to a file
- * viewer and conditionally logs to the console based on a flag in the context.
- *
- * @param ksp   The Krylov subspace context.
- * @param it    The current iteration number.
- * @param rnorm The preconditioned residual norm (ignored, we compute our own).
- * @param ctx   A pointer to the DualMonitorCtx structure.
- * @return      PetscErrorCode 0 on success.
- */
-/**
  * @brief Implementation of \ref DualKSPMonitor().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/logging.h`.
@@ -1983,18 +1970,6 @@ PetscErrorCode LOG_SOLUTION_CONVERGENCE(SimCtx *simCtx)
     PetscFunctionReturn(0);
 }
 
-/**
- * @brief Logs continuity metrics for a single block to a file.
- *
- * This function should be called for each block, once per timestep. It opens a
- * central log file in append mode. To ensure the header is written only once,
- * it checks if it is processing block 0 on the simulation's start step.
- *
- * @param user A pointer to the UserCtx for the specific block whose metrics
- *             are to be logged. The function accesses both global (SimCtx)
- *             and local (user->...) data.
- * @return     PetscErrorCode 0 on success.
- */
 /**
  * @brief Implementation of \ref LOG_CONTINUITY_METRICS().
  * @details Full API contract (arguments, ownership, side effects) is documented with
