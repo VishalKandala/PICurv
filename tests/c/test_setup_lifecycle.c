@@ -283,6 +283,33 @@ static PetscErrorCode TestIEMConstantIsConfigurable(void)
 }
 
 /**
+ * @brief Ensures a run that solves no pressure builds one grid level whatever -mg_level asks,
+ *        and a solved flow keeps the levels it asks for.
+ */
+static PetscErrorCode TestUnsolvedFlowUsesOneGridLevel(void)
+{
+    const char *cases[] = {"-mg_level 3\n", "-mg_level 3\n-euler_field_source analytical\n",
+                           "-mg_level 3\n-euler_field_source load\n"};
+    const PetscInt expected[] = {3, 1, 1};
+
+    PetscFunctionBeginUser;
+    for (size_t n = 0; n < sizeof(cases) / sizeof(cases[0]); ++n) {
+        char tmpdir[PETSC_MAX_PATH_LEN];
+        SimCtx *simCtx = NULL;
+        PetscErrorCode setup_ierr = 0;
+
+        PetscCall(TryContextWithExtraLines(cases[n], &simCtx, &setup_ierr, tmpdir, sizeof(tmpdir)));
+        PetscCall(PicurvAssertIntEqual(0, setup_ierr, "the multigrid level options must be accepted"));
+        PetscCall(PicurvAssertIntEqual(expected[n], simCtx->mglevels,
+                                       "only a solved flow keeps its coarse grid levels"));
+        PetscCall(FreeLifecycleContext(&simCtx));
+        PetscCall(PetscOptionsClear(NULL));
+        PetscCall(PicurvRemoveTempDir(tmpdir));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Ensures setup propagates invalid post intervals before either executable can loop.
  */
 static PetscErrorCode TestSetupRejectsNonpositivePostInterval(void)
@@ -1030,6 +1057,7 @@ int main(int argc, char **argv)
         {"setup-lifecycle-cleanup-across-initialization-states", TestSetupLifecycleCleanupAcrossInitializationStates},
         {"setup-rejects-unimplemented-feature-flags", TestSetupRejectsUnimplementedFeatureFlags},
         {"iem-constant-is-configurable", TestIEMConstantIsConfigurable},
+        {"unsolved-flow-uses-one-grid-level", TestUnsolvedFlowUsesOneGridLevel},
         {"setup-rejects-nonpositive-post-interval", TestSetupRejectsNonpositivePostInterval},
         {"configured-iem-updates-swarm", TestConfiguredIEMUpdatesSwarm},
         {"configured-particle-initial-value", TestConfiguredParticleInitialValue},

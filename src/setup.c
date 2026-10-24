@@ -907,6 +907,14 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
 
     // --- Multigrid Options ---
     ierr = PetscOptionsGetInt(NULL, NULL, "-mg_level", &simCtx->mglevels, NULL); CHKERRQ(ierr);
+    /* Coarse levels exist only for the pressure solve. Without one they would only constrain the
+       finest split: rank boundaries refined from a coarse level land on every 2^(levels-1)-th node,
+       so e.g. 128 cells on 4 ranks at 3 levels own 33/32/32/31 instead of 32 each. */
+    if (strcmp(simCtx->eulerianSource, "solve") != 0 && simCtx->mglevels != 1) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Eulerian source '%s' solves no pressure: using 1 grid level instead of %d.\n",
+                  simCtx->eulerianSource, (int)simCtx->mglevels);
+        simCtx->mglevels = 1;
+    }
     ierr = PetscOptionsGetInt(NULL, NULL, "-mg_pre_it", &simCtx->mg_preItr, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetInt(NULL, NULL, "-mg_post_it", &simCtx->mg_poItr, NULL); CHKERRQ(ierr);
 

@@ -758,7 +758,9 @@ Mappings:
 - `max_iterations` -> `-ps_ksp_max_it`
 - `gmres.restart` -> `-ps_ksp_gmres_restart`; valid only with `method: fgmres`
 - `preconditioner.type` -> `-ps_pc_type`; currently only `multigrid` is supported
-- `multigrid.levels` -> `-mg_level`
+- `multigrid.levels` -> `-mg_level`; with `operation_mode.eulerian_field_source` `load` or
+  `analytical` the solver builds one level instead, since coarse levels serve only the pressure
+  solve and would pin the finest-level rank split (e.g. 33/32/32/31 cells instead of 32 each)
 - `multigrid.pre_sweeps` -> `-mg_pre_it`
 - `multigrid.post_sweeps` -> `-mg_post_it`
 - `multigrid.semi_coarsening.i/j/k` -> `-mg_i_semi/-mg_j_semi/-mg_k_semi`
