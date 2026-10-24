@@ -287,10 +287,12 @@ PetscErrorCode CreateCompatibleBlockDM(DM source, PetscInt dof, DM *result);
  *          each refinement maps a coarse rank boundary at node c to 2c - 1, so a boundary
  *          at coarsest node c lands at finest node 2^R (c - 1) + 1. Refining PETSc's default
  *          coarsest split compounds its remainder, e.g. 128 cells on 4 ranks at 3 levels own
- *          33/36/32/27 cells. This keeps PETSc's widths (floor and floor + 1, so every
- *          stencil-width check on the default split still holds) and chooses which ranks take
- *          the + 1 to minimise the largest finest-level share, by dynamic programming over
- *          (rank, + 1s used so far): O(ranks^2) once per axis at setup.
+ *          33/36/32/27 cells. A rank owns the cells whose lower-corner node it owns, and the
+ *          last node is padding. Every rank keeps at least PETSc's floor width, so every
+ *          stencil-width check on the default split still holds, and the spare points go where
+ *          they minimise the largest finest-level share, by dynamic programming over (rank,
+ *          spare points used so far): O(ranks x spare^2) once per axis at setup. A rank may take
+ *          several: unrefined, 128 cells on 4 ranks split 32/32/32/34 nodes, 32 cells each.
  * @param[in]  coarse_nodes Coarsest-level DA points on the axis.
  * @param[in]  fine_cells   Finest-level physical cells on the axis.
  * @param[in]  refinements  Refinements of the axis between the coarsest and finest levels.

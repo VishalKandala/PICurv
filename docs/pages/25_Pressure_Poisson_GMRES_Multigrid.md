@@ -346,10 +346,12 @@ the next coarser level's, a coarse rank boundary at node `c` landing at `2c - 1`
 the finest level's balance, and PETSc's choice of the first ranks compounds it: 128 cells
 on 4 ranks at three levels would own 33, 36, 32 and 27 cells per axis, so a 4 x 4 x 4
 layout carries 1.42 times the mean cell count on its busiest rank. Grid setup
-(`BalanceCoarsestOwnership` in `src/grid.c`) therefore keeps PETSc's point counts,
-`floor(M / P)` and one more, so the constraint above is unchanged, and picks which ranks
-take the extra point to minimise the largest finest-level share: 33, 32, 32 and 31 for
-the same grid. It applies when the full rank layout is known, which `picurv run` always
+(`BalanceCoarsestOwnership` in `src/grid.c`) therefore gives every rank at least PETSc's
+`floor(M / P)` points, so the constraint above is unchanged, and places the spare points,
+several on one rank if that helps, to minimise the largest finest-level share: 33, 32, 32
+and 31 for the same grid, the best that refinement's boundary spacing allows. A rank owns
+the cells whose lower-corner node it owns and the last node is padding, so at a single
+level the same 128 cells split 32 each, with the last rank holding 34 nodes. It applies when the full rank layout is known, which `picurv run` always
 supplies; an axis under `semi_coarsening` is not refined and keeps PETSc's split.
 
 Two consequences worth planning around:

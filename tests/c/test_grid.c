@@ -149,12 +149,13 @@ static PetscErrorCode TestReadGridGenerationInputsNonDimensionalizesBounds(void)
 /**
  * @brief Tests that the coarsest split puts each refined finest-level boundary nearest its share.
  * @details 128 cells on 4 ranks at 3 levels: PETSc's even coarsest split (9,9,8,8 of 34
- *          points) refines to finest owned cells 33/36/32/27; 9,8,8,9 refines to 33/32/32/31.
- *          An axis that is never refined keeps PETSc's own split.
+ *          points) refines to finest owned cells 33/36/32/27; 9,8,8,9 refines to 33/32/32/31,
+ *          the best refinement allows. Unrefined, the last rank takes both spare points of 130,
+ *          32/32/32/34, so each owns 32 cells, which PETSc's 33/33/32/32 does not.
  */
 static PetscErrorCode TestBalanceCoarsestOwnershipBalancesFinestLevel(void)
 {
-    const PetscInt refined[4] = {9, 8, 8, 9}, unrefined[4] = {25, 25, 25, 24};
+    const PetscInt refined[4] = {9, 8, 8, 9}, unrefined[4] = {25, 25, 25, 24}, one_level[4] = {32, 32, 32, 34};
     PetscInt       l[4];
 
     PetscFunctionBeginUser;
@@ -162,6 +163,8 @@ static PetscErrorCode TestBalanceCoarsestOwnershipBalancesFinestLevel(void)
     for (PetscInt r = 0; r < 4; ++r) PetscCall(PicurvAssertIntEqual(refined[r], l[r], "3-level coarsest split"));
     PetscCall(BalanceCoarsestOwnership(99, 97, 0, 4, l));
     for (PetscInt r = 0; r < 4; ++r) PetscCall(PicurvAssertIntEqual(unrefined[r], l[r], "unrefined axis keeps PETSc's split"));
+    PetscCall(BalanceCoarsestOwnership(130, 128, 0, 4, l));
+    for (PetscInt r = 0; r < 4; ++r) PetscCall(PicurvAssertIntEqual(one_level[r], l[r], "one level gives the last rank both spare points"));
     PetscFunctionReturn(0);
 }
 

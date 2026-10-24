@@ -136,8 +136,8 @@ PetscErrorCode BalanceCoarsestOwnership(PetscInt coarse_nodes, PetscInt fine_cel
                                         PetscInt ranks, PetscInt *l)
 {
     const PetscInt width = coarse_nodes / ranks, extras = coarse_nodes % ranks, cols = extras + 1;
-    PetscInt      *worst = NULL;  // [r * cols + e]: least largest share over ranks 0..r using e + 1s
-    PetscBool     *wide = NULL;   // [r * cols + e]: whether rank r takes a + 1 on that optimum
+    PetscInt      *worst = NULL;  // [r * cols + e]: least largest share over ranks 0..r using e spare points
+    PetscInt      *wide = NULL;   // [r * cols + e]: how many spare points rank r takes on that optimum
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -146,20 +146,20 @@ PetscErrorCode BalanceCoarsestOwnership(PetscInt coarse_nodes, PetscInt fine_cel
     for (PetscInt r = 0; r < ranks; ++r) {
         for (PetscInt e = 0; e < cols; ++e) {
             worst[r * cols + e] = PETSC_MAX_INT;
-            for (PetscInt w = 0; w <= 1 && w <= e; ++w) {
+            for (PetscInt w = 0; w <= e; ++w) {
                 const PetscInt before = e - w;
                 if (r == 0 ? before != 0 : worst[(r - 1) * cols + before] == PETSC_MAX_INT) continue;
                 const PetscInt start = PICURV_FINE_NODE(r * width + before);
                 const PetscInt end = (r == ranks - 1) ? fine_cells : PICURV_FINE_NODE((r + 1) * width + e);
                 const PetscInt share = PetscMax(end - start, r ? worst[(r - 1) * cols + before] : 0);
-                if (share < worst[r * cols + e]) { worst[r * cols + e] = share; wide[r * cols + e] = (PetscBool)w; }
+                if (share < worst[r * cols + e]) { worst[r * cols + e] = share; wide[r * cols + e] = w; }
             }
         }
     }
     #undef PICURV_FINE_NODE
     for (PetscInt r = ranks - 1, e = extras; r >= 0; --r) {
-        l[r] = width + (wide[r * cols + e] ? 1 : 0);
-        e -= wide[r * cols + e] ? 1 : 0;
+        l[r] = width + wide[r * cols + e];
+        e -= wide[r * cols + e];
     }
     PetscCall(PetscFree2(worst, wide));
     PROFILE_FUNCTION_END;
