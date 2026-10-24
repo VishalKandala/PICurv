@@ -22,7 +22,6 @@ import argparse
 import csv
 import json
 import os
-import struct
 import sys
 
 _GENERATORS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -96,40 +95,12 @@ PETSC_INDEX_BYTES = 4
 
 def read_petsc_vec_binary(path: str):
     """!
-    @brief Read a PETSc binary VecView payload written by PICurv.
-    @details Sizes are PetscInt of PETSC_INDEX_BYTES, the reading solver's width (`--petsc-index-bytes`).
+    @brief Read a PETSc binary VecView payload written by PICurv, at PETSC_INDEX_BYTES.
     @param[in] path PETSc binary vector path.
     @return NumPy array of scalar values.
     """
-    numpy = require_numpy()
-    if not os.path.isfile(path):
-        raise ValueError(f"field file not found: {path}")
-    data = open(path, "rb").read()
-    word, code = PETSC_INDEX_BYTES, "i" if PETSC_INDEX_BYTES == 4 else "q"
-    if len(data) < 2 * word:
-        raise ValueError(f"field file '{path}' is too short to be a PETSc Vec binary.")
-    candidates = []
-    for endian in (">", "<"):
-        try:
-            _class_id, vec_size = struct.unpack(endian + 2 * code, data[:2 * word])
-        except struct.error:
-            continue
-        if vec_size > 0 and len(data) == 2 * word + vec_size * 8:
-            candidates.append((endian, vec_size, 2 * word))
-        try:
-            (vec_size_no_class,) = struct.unpack(endian + code, data[:word])
-        except struct.error:
-            continue
-        if vec_size_no_class > 0 and len(data) == word + vec_size_no_class * 8:
-            candidates.append((endian, vec_size_no_class, word))
-    if not candidates:
-        raise ValueError(
-            f"field file '{path}' does not match a PETSc real64 Vec binary with "
-            f"{PETSC_INDEX_BYTES}-byte indices; a file from the other index width does not fit."
-        )
-    endian, vec_size, offset = candidates[0]
-    values = numpy.frombuffer(data, dtype=numpy.dtype(endian + "f8"), count=vec_size, offset=offset)
-    return values.astype(float, copy=False)
+    from petsc_binary import read_petsc_vec_binary as read  # beside this script, on sys.path above
+    return read(path, require_numpy(), PETSC_INDEX_BYTES, "field file")
 
 
 def extract_interior_cells(values, node_dims, components=3):

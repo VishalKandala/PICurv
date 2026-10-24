@@ -22,6 +22,9 @@ configuration.
   axes that `ic.gen` and `spectra.gen` share (grid validation, continuum and
   PICurv-discrete symbols, resampling and filtering). Both scripts import it from
   beside themselves.
+- `petsc_binary.py`: not a command - the PETSc binary Vec reader `profile.gen` and
+  `spectra.gen` share, at the PetscInt width their `--petsc-index-bytes` names. `ic.gen`
+  keeps its own writer so a copy of it used as a custom generator stays self-contained.
 - `plot.gen`: normalized scalar-history, iterative-convergence, and spectrum
   report rendering.
 
