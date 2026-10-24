@@ -1,0 +1,1 @@
+- Fix: rank ownership balancing may give one rank several spare grid points, so a single-level split (load or analytical flow) is exact, e.g. 32 cells per rank instead of 32/33/32/31; multi-level splits are unchanged.
