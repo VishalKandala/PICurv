@@ -176,6 +176,26 @@ static PetscErrorCode GatherVectorToRankZero(Vec field_vec, Vec *sequential_vec)
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Open a PETSc binary viewer for one field payload, reading or writing through MPI-IO.
+ * @details Every rank reads or writes its own contiguous part of the file collectively, instead
+ *          of rank 0 relaying each rank's share; the file is the same PETSc binary file (header,
+ *          then the values in vector order) either way. No `.info` sidecar is read or written.
+ */
+static PetscErrorCode OpenFieldPayloadViewer(MPI_Comm comm, const char *filename, PetscFileMode mode, PetscViewer *viewer)
+{
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(PetscViewerCreate(comm, viewer));
+    PetscCall(PetscViewerSetType(*viewer, PETSCVIEWERBINARY));
+    PetscCall(PetscViewerFileSetMode(*viewer, mode));
+    PetscCall(PetscViewerBinarySetUseMPIIO(*viewer, PETSC_TRUE));
+    PetscCall(PetscViewerBinarySetSkipInfo(*viewer, PETSC_TRUE));
+    PetscCall(PetscViewerFileSetName(*viewer, filename));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
 /** @brief Compute and cache a rank-count-independent hash of the active grid geometry. */
 static PetscErrorCode ComputeCheckpointGeometrySHA256(SimCtx *simCtx, UserCtx *user, char digest_hex[65])
 {
@@ -195,13 +215,23 @@ static PetscErrorCode ComputeCheckpointGeometrySHA256(SimCtx *simCtx, UserCtx *u
     if (simCtx->rank == 0) PicurvSHA256Init(&hash_context);
     for (PetscInt block = 0; block < simCtx->block_number; ++block) {
         FieldView coordinates;
-        Vec sequential_vec = NULL;
+        Vec natural_vec = NULL, ordered_vec = NULL;
+        const PetscScalar *values = NULL;
+        PetscInt value_count = 0, local_count = 0, max_count = 0;
+        PetscMPIInt size;
 
+        // The hash covers the coordinates in natural order. Each rank holds a contiguous run of
+        // that order, so rank 0 hashes its own and then each rank's in turn, holding one rank's
+        // share at a time: the bytes hashed are those of the whole gathered vector.
         PetscCall(FieldGetView(&user[block], FIELD_ID_COORDINATES, &coordinates));
-        PetscCall(GatherVectorToRankZero(coordinates.global_vec, &sequential_vec));
+        PetscCall(NaturalOrderedVector(coordinates.global_vec, &natural_vec, &ordered_vec));
+        PetscCall(VecGetSize(ordered_vec, &value_count));
+        PetscCall(VecGetLocalSize(ordered_vec, &local_count));
+        PetscCall(VecGetArrayRead(ordered_vec, &values));
+        PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
+        PetscCallMPI(MPI_Allreduce(&local_count, &max_count, 1, MPIU_INT, MPI_MAX, PETSC_COMM_WORLD));
         if (simCtx->rank == 0) {
-            const PetscScalar *values = NULL;
-            PetscInt value_count = 0;
+            PetscScalar *chunk = NULL;
             size_t metadata_length = 0;
 
             PetscCall(PetscSNPrintf(metadata, sizeof(metadata),
@@ -211,13 +241,22 @@ static PetscErrorCode ComputeCheckpointGeometrySHA256(SimCtx *simCtx, UserCtx *u
                                     (int)simCtx->i_periodic, (int)simCtx->j_periodic, (int)simCtx->k_periodic));
             PetscCall(PetscStrlen(metadata, &metadata_length));
             PicurvSHA256Update(&hash_context, metadata, metadata_length);
-            PetscCall(VecGetSize(sequential_vec, &value_count));
             PicurvSHA256Update(&hash_context, &value_count, sizeof(value_count));
-            PetscCall(VecGetArrayRead(sequential_vec, &values));
-            PicurvSHA256Update(&hash_context, values, (size_t)value_count * sizeof(*values));
-            PetscCall(VecRestoreArrayRead(sequential_vec, &values));
+            PicurvSHA256Update(&hash_context, values, (size_t)local_count * sizeof(*values));
+            PetscCall(PetscMalloc1(max_count + 1, &chunk));
+            for (PetscMPIInt r = 1; r < size; ++r) {
+                PetscInt count = 0;
+                PetscCallMPI(MPI_Recv(&count, 1, MPIU_INT, r, 0, PETSC_COMM_WORLD, MPI_STATUS_IGNORE));
+                PetscCallMPI(MPI_Recv(chunk, (int)count, MPIU_SCALAR, r, 1, PETSC_COMM_WORLD, MPI_STATUS_IGNORE));
+                PicurvSHA256Update(&hash_context, chunk, (size_t)count * sizeof(*chunk));
+            }
+            PetscCall(PetscFree(chunk));
+        } else {
+            PetscCallMPI(MPI_Send(&local_count, 1, MPIU_INT, 0, 0, PETSC_COMM_WORLD));
+            PetscCallMPI(MPI_Send((void *)values, (int)local_count, MPIU_SCALAR, 0, 1, PETSC_COMM_WORLD));
         }
-        PetscCall(VecDestroy(&sequential_vec));
+        PetscCall(VecRestoreArrayRead(ordered_vec, &values));
+        PetscCall(VecDestroy(&natural_vec));
     }
 
     if (simCtx->rank == 0) PicurvSHA256FinalHex(&hash_context, digest_hex);
@@ -1287,196 +1326,58 @@ PetscErrorCode ReadFieldData(UserCtx *user,
    ierr = MPI_Comm_rank(comm,&rank);CHKERRQ(ierr);
    ierr = MPI_Comm_size(comm,&size);CHKERRQ(ierr);
 
-   const char *source_path = NULL;
-   source_path = simCtx->current_io_directory;
-
-   if(!source_path){
-    SETERRQ(PETSC_COMM_SELF,PETSC_ERR_ARG_WRONGSTATE, "source_path was not set for the current execution mode.");
-   }
+   const char *source_path = simCtx->current_io_directory;
    ierr = PetscSNPrintf(filename, sizeof(filename), "%s/%s.%s",
                         source_path, field_name, ext); CHKERRQ(ierr);
+   LOG_ALLOW(GLOBAL,LOG_DEBUG, "Attempting to read <%s> on rank %d/%d\n", filename,(int)rank,(int)size);
 
-   LOG_ALLOW(GLOBAL,LOG_DEBUG,
-             "Attempting to read <%s> on rank %d/%d\n",
-             filename,(int)rank,(int)size);
-
-   /* ======================================================================
-    * 1.  SERIAL JOB  – just hand the Vec to VecLoad()
-    * ==================================================================== */
-   if(size==1)
-   {
-      PetscViewer viewer;
-      PetscBool   found;
-      Vec temp_vec;
-      PetscInt expectedSize,loadedSize;
-
-      ierr = PetscTestFile(filename,'r',&found);CHKERRQ(ierr);
-      if(!found) SETERRQ(comm,PETSC_ERR_FILE_OPEN,
-                         "Restart/Source file not found: %s",filename);
-
-      ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF,filename,FILE_MODE_READ,&viewer);CHKERRQ(ierr);
-// ---- START MODIFICATION ----
-      // DO NOT load directly into field_vec, as this can resize it, which is
-      // illegal for DMSwarm "view" vectors. Instead, load into a temporary vector.
-      ierr = VecCreate(PETSC_COMM_SELF, &temp_vec); CHKERRQ(ierr);
-      ierr = VecLoad(temp_vec,viewer);CHKERRQ(ierr);
-      ierr = PetscViewerDestroy(&viewer);CHKERRQ(ierr);
-
-      // Sanity check: ensure the file size matches the expected vector size.
-      ierr = VecGetSize(field_vec, &expectedSize);CHKERRQ(ierr);
-      ierr = VecGetSize(temp_vec, &loadedSize);CHKERRQ(ierr);
-      if (loadedSize != expectedSize) {
-         SETERRQ(comm,PETSC_ERR_FILE_UNEXPECTED,
-                 "File %s holds %d entries – expected %d for field '%s'",
-                 filename, loadedSize, expectedSize, field_name);
+   // Check the payload's length against the field from its header, on rank 0, before reading it.
+   PetscInt expected = 0, header[2] = {0, -1}; // classid, entries; entries -1 when missing
+   ierr = VecGetSize(field_vec, &expected); CHKERRQ(ierr);
+   if (rank == 0) {
+      PetscBool found = PETSC_FALSE;
+      ierr = PetscTestFile(filename, 'r', &found); CHKERRQ(ierr);
+      if (found) {
+         int fd;
+         PetscInt count = 0;
+         ierr = PetscBinaryOpen(filename, FILE_MODE_READ, &fd); CHKERRQ(ierr);
+         ierr = PetscBinaryRead(fd, header, 2, &count, PETSC_INT); CHKERRQ(ierr);
+         ierr = PetscBinaryClose(fd); CHKERRQ(ierr);
+         if (count != 2) header[1] = -2;
       }
-
-      // Now, safely copy the data from the temporary vector to the final destination.
-      ierr = VecCopy(temp_vec, field_vec);CHKERRQ(ierr);
-
-      // Clean up the temporary vector.
-      ierr = VecDestroy(&temp_vec);CHKERRQ(ierr);
-
-      // ---- END MODIFICATION ----
-      
-      /* create EMPTY sequential Vec – VecLoad() will size it correctly   */
-      /*
-      ierr = VecCreate(PETSC_COMM_SELF,&seq_vec);CHKERRQ(ierr);
-      ierr = VecSetType(seq_vec,VECSEQ);CHKERRQ(ierr);
-
-      ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF,filename,
-                                   FILE_MODE_READ,&viewer);CHKERRQ(ierr);
-
-      ierr = VecLoad(field_vec,viewer);CHKERRQ(ierr);
-      ierr = PetscViewerDestroy(&viewer);CHKERRQ(ierr);
-      */
-      LOG_ALLOW(GLOBAL,LOG_INFO,
-                "Loaded <%s> (serial path)\n",filename);
-
-      PROFILE_FUNCTION_END;          
-      PetscFunctionReturn(0);
    }
+   ierr = MPI_Bcast(header, 2, MPIU_INT, 0, comm); CHKERRMPI(ierr);
+   if (header[1] == -1) SETERRQ(comm, PETSC_ERR_FILE_OPEN, "Restart/Source file not found: %s", filename);
+   if (header[1] != expected)
+      SETERRQ(comm, PETSC_ERR_FILE_UNEXPECTED, "File %s holds %" PetscInt_FMT " entries - expected %" PetscInt_FMT " for field '%s'",
+              filename, header[1], expected, field_name);
 
-   /* ======================================================================
-    * 2.  PARALLEL JOB
-    * ==================================================================== */
-   PetscInt globalSize;
-   ierr = VecGetSize(field_vec,&globalSize);CHKERRQ(ierr);
-
-   DM         dm = NULL;
+   // Every rank reads its own part (MPI-IO). A DMDA payload is in natural order and is read into a
+   // natural vector, then permuted; any other vector (a swarm field) is in rank order and is read
+   // into a vector of its layout, then copied, since loading into a DMSwarm view could resize it.
+   DM          dm = NULL;
    const char *dmtype = NULL;
-   Vec        nat = NULL;                 /* Natural-ordered vector for DMDA */
-
-   /* -------------------- rank-0 : read the sequential file -------------- */
-   Vec            seq_vec = NULL;      /* only valid on rank-0            */
-   const PetscScalar *seqArray = NULL; /* borrowed pointer on rank-0 only */
-
-   if(rank==0)
-   {
-      PetscViewer viewer;
-      PetscBool   found;
-
-      ierr = PetscTestFile(filename,'r',&found);CHKERRQ(ierr);
-      if(!found) SETERRQ(PETSC_COMM_SELF,PETSC_ERR_FILE_OPEN,
-                         "Restart file not found: %s",filename);
-
-      /* create EMPTY sequential Vec – VecLoad() will size it correctly   */
-      ierr = VecCreate(PETSC_COMM_SELF,&seq_vec);CHKERRQ(ierr);
-      ierr = VecSetType(seq_vec,VECSEQ);CHKERRQ(ierr);
-
-      ierr = PetscViewerBinaryOpen(PETSC_COMM_SELF,filename,
-                                   FILE_MODE_READ,&viewer);CHKERRQ(ierr);
-      ierr = VecLoad(seq_vec,viewer);CHKERRQ(ierr);
-      ierr = PetscViewerDestroy(&viewer);CHKERRQ(ierr);
-
-      /* size sanity-check */
-      PetscInt loaded;
-      ierr = VecGetSize(seq_vec,&loaded);CHKERRQ(ierr);
-      if(loaded != globalSize)
-         SETERRQ(comm,PETSC_ERR_FILE_UNEXPECTED,
-                 "File %s holds %d entries – expected %d",
-                 filename,loaded,globalSize);
-
-      /* borrow array for later Bcast */
-      ierr = VecGetArrayRead(seq_vec,&seqArray);CHKERRQ(ierr);
-
-      LOG_ALLOW(GLOBAL,LOG_TRACE,
-                "Rank 0 successfully loaded <%s>\n",filename);
-   }
-
-   /* -------------------- Check if this is a DMDA vector ----------------- */
+   Vec         staged = NULL;
+   PetscViewer viewer = NULL;
    ierr = VecGetDM(field_vec, &dm); CHKERRQ(ierr);
    if (dm) { ierr = DMGetType(dm, &dmtype); CHKERRQ(ierr); }
-
-   if (dmtype && !strcmp(dmtype, DMDA)) {
-      /* ==================================================================
-       * DMDA PATH: File is in natural ordering, need to convert to global
-       * ================================================================== */
-
-      /* Create natural vector */
-      ierr = DMDACreateNaturalVector(dm, &nat); CHKERRQ(ierr);
-
-      /* Scatter from rank 0's seq_vec to all ranks' natural vector */
-      VecScatter scatter;
-      Vec nat_seq = NULL;  /* Sequential natural vector on rank 0 */
-
-      ierr = VecScatterCreateToZero(nat, &scatter, &nat_seq); CHKERRQ(ierr);
-
-      /* Reverse scatter: from rank 0 to all ranks */
-      ierr = VecScatterBegin(scatter, (rank == 0 ? seq_vec : nat_seq), nat,
-                             INSERT_VALUES, SCATTER_REVERSE); CHKERRQ(ierr);
-      ierr = VecScatterEnd(scatter, (rank == 0 ? seq_vec : nat_seq), nat,
-                           INSERT_VALUES, SCATTER_REVERSE); CHKERRQ(ierr);
-
-      /* Convert natural → global ordering */
-      ierr = DMDANaturalToGlobalBegin(dm, nat, INSERT_VALUES, field_vec); CHKERRQ(ierr);
-      ierr = DMDANaturalToGlobalEnd(dm, nat, INSERT_VALUES, field_vec); CHKERRQ(ierr);
-
-      /* Cleanup */
-      ierr = VecScatterDestroy(&scatter); CHKERRQ(ierr);
-      ierr = VecDestroy(&nat_seq); CHKERRQ(ierr);
-      ierr = VecDestroy(&nat); CHKERRQ(ierr);
-
+   const PetscBool natural = (PetscBool)(dmtype && !strcmp(dmtype, DMDA));
+   if (natural) { ierr = DMDACreateNaturalVector(dm, &staged); CHKERRQ(ierr); }
+   else         { ierr = VecDuplicate(field_vec, &staged); CHKERRQ(ierr); }
+   ierr = OpenFieldPayloadViewer(comm, filename, FILE_MODE_READ, &viewer); CHKERRQ(ierr);
+   ierr = VecLoad(staged, viewer); CHKERRQ(ierr);
+   ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
+   if (natural) {
+      ierr = DMDANaturalToGlobalBegin(dm, staged, INSERT_VALUES, field_vec); CHKERRQ(ierr);
+      ierr = DMDANaturalToGlobalEnd(dm, staged, INSERT_VALUES, field_vec); CHKERRQ(ierr);
    } else {
-      /* ==================================================================
-       * NON-DMDA PATH: Use broadcast and direct copy (assumes global ordering)
-       * ================================================================== */
-
-      PetscScalar *buffer = NULL;
-      if (rank == 0) {
-         buffer = (PetscScalar *)seqArray;
-      } else {
-         ierr = PetscMalloc1(globalSize, &buffer); CHKERRQ(ierr);
-      }
-
-      ierr = MPI_Bcast(buffer, (int)globalSize, MPIU_SCALAR, 0, comm); CHKERRQ(ierr);
-
-      /* Copy slice based on ownership range */
-      PetscInt rstart, rend, loc;
-      PetscScalar *locArray;
-
-      ierr = VecGetOwnershipRange(field_vec, &rstart, &rend); CHKERRQ(ierr);
-      loc = rend - rstart;
-
-      ierr = VecGetArray(field_vec, &locArray); CHKERRQ(ierr);
-      ierr = PetscMemcpy(locArray, buffer + rstart, loc * sizeof(PetscScalar)); CHKERRQ(ierr);
-      ierr = VecRestoreArray(field_vec, &locArray); CHKERRQ(ierr);
-
-      if (rank != 0) {
-         ierr = PetscFree(buffer); CHKERRQ(ierr);
-      }
+      ierr = VecCopy(staged, field_vec); CHKERRQ(ierr);
    }
+   ierr = VecDestroy(&staged); CHKERRQ(ierr);
 
-   /* -------------------- tidy up ---------------------------------------- */
-   if (rank == 0) {
-      ierr = VecRestoreArrayRead(seq_vec, &seqArray); CHKERRQ(ierr);
-      ierr = VecDestroy(&seq_vec); CHKERRQ(ierr);
-   }
+   LOG_ALLOW(GLOBAL,LOG_INFO, "Loaded <%s>\n",filename);
 
-   LOG_ALLOW(GLOBAL,LOG_INFO,
-             "Loaded <%s> (parallel path)\n",filename);
-
-   PROFILE_FUNCTION_END;          
+   PROFILE_FUNCTION_END;
    PetscFunctionReturn(0);
 }
 
@@ -2088,9 +1989,9 @@ PetscErrorCode WriteFieldData(UserCtx *user,
     PetscCall(PetscSNPrintf(filename, sizeof(filename), "%s/%s.%s",
                             simCtx->current_io_directory, field_name, ext));
 
-    // A parallel binary viewer writes the same file a sequential one does - the header, then
-    // the values in global order - while holding one rank's share at a time, so no rank
-    // gathers the whole field: at 1e9 particles a field is tens of GB.
+    // Every rank writes its own part of the file (MPI-IO), the same file a sequential write
+    // makes - the header, then the values in natural order - so no rank gathers or relays the
+    // field: at 1e9 particles a field is tens of GB.
     PetscCall(NaturalOrderedVector(field_vec, &natural_vec, &ordered_vec));
     if ((int)get_log_level() >= (int)LOG_DEBUG) {
         PetscReal vmin, vmax;
@@ -2099,8 +2000,7 @@ PetscErrorCode WriteFieldData(UserCtx *user,
         PetscCall(VecMax(ordered_vec, NULL, &vmax));
         LOG_ALLOW(GLOBAL,LOG_DEBUG, " <%s> range = [%.4e … %.4e]\n", field_name,(double)vmin,(double)vmax);
     }
-    PetscCall(PetscViewerBinaryOpen(comm, filename, FILE_MODE_WRITE, &viewer));
-    PetscCall(PetscViewerBinarySetSkipInfo(viewer, PETSC_TRUE));
+    PetscCall(OpenFieldPayloadViewer(comm, filename, FILE_MODE_WRITE, &viewer));
     PetscCall(VecView(ordered_vec, viewer));
     PetscCall(PetscViewerDestroy(&viewer));
     PetscCall(VecDestroy(&natural_vec));
