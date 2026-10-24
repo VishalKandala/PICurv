@@ -16798,9 +16798,18 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     except ValueError as e:
         print(f"[FATAL] Invalid monitor.yml solver_monitoring settings: {e}", file=sys.stderr)
         sys.exit(1)
-    if solver_flags.get('-mom_solver_type') != '"newton_krylov"':
-        # The momentum monitors are Newton-Krylov's; a monitor.yml shared with a Picard
-        # profile would otherwise hand PETSc options nothing reads.
+    # Monitors for a solver that does not run would hand PETSc options nothing reads: the
+    # momentum ones are Newton-Krylov's, and neither momentum nor Poisson solves when the
+    # Eulerian field is loaded or analytical.
+    solves_flow = solver_flags.get('-euler_field_source', '"solve"') == '"solve"'
+    if not solves_flow:
+        inactive = [flag for flag in (*SOLVER_MONITORING_MOMENTUM_FLAG_MAP.values(),
+                                      *SOLVER_MONITORING_POISSON_FLAG_MAP.values())
+                    if solver_monitoring_flags.pop(flag, None) is not None]
+        if inactive:
+            print("[INFO] monitor.yml solver_monitoring applies to solved flow only; not passed "
+                  "with a loaded or analytical Eulerian field.")
+    elif solver_flags.get('-mom_solver_type') != '"newton_krylov"':
         inactive = [flag for flag in SOLVER_MONITORING_MOMENTUM_FLAG_MAP.values()
                     if solver_monitoring_flags.pop(flag, None) is not None]
         if inactive:

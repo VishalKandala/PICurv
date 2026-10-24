@@ -473,6 +473,9 @@ Rules:
 - The `momentum.*` keys apply only when `strategy.momentum_solver` is
   `Newton Krylov`. Under another momentum solver they are not emitted, so one
   `monitor.yml` can serve a Picard and a Newton-Krylov profile of the same case.
+- Neither the `momentum.*` nor the `poisson.*` keys are emitted when
+  `operation_mode.eulerian_field_source` is `load` or `analytical`: no flow solve runs, so
+  there is nothing for them to monitor. Explicit `petsc_passthrough_options` are still passed.
 - `momentum.newton_krylov_history` writes PICurv's own rank-zero history files
   rather than enabling a PETSc stdout monitor: one row per Newton iteration and
   one row per Krylov iteration. The per-Krylov row carries the requested

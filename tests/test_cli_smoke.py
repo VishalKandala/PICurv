@@ -6949,6 +6949,19 @@ def test_structured_solver_monitoring_emits_prefixed_poisson_flags(tmp_path):
     assert "-ps_ksp_converged_reason" in content
     assert "-ps_ksp_view" in content
     assert "-ps_pc_svd_monitor" in content
+    # With a loaded Eulerian field neither solver runs, so none of their monitors is passed;
+    # explicit PETSc passthrough options are the user's and are kept.
+    solver_cfg.setdefault("operation_mode", {})["eulerian_field_source"] = "load"
+    load_content = Path(picurv.generate_solver_control_file(
+        str(run_dir), "demo_run",
+        {"case": case_cfg, "case_path": str(valid / "case.yml"), "solver": solver_cfg,
+         "solver_path": str(valid / "solver.yml"), "monitor": monitor_cfg,
+         "monitor_path": str(valid / "monitor.yml")},
+        1, monitor_files)).read_text(encoding="utf-8")
+    for flag in (*nk_flags, "-ps_ksp_pic_monitor_true_residual", "-ps_ksp_monitor_true_residual",
+                 "-ps_ksp_converged_reason", "-ps_ksp_view"):
+        assert flag not in load_content
+    assert "-ps_pc_svd_monitor" in load_content
 
 
 def test_structured_solver_monitoring_false_emits_no_newton_switches():
