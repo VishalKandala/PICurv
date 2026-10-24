@@ -1,0 +1,1 @@
+- Solver monitors in monitor.yml are not passed when the Eulerian field is loaded or analytical, since no flow solve runs.

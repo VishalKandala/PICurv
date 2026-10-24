@@ -1,0 +1,1 @@
+- Experimental: checkpoint and restart field files are written and read through MPI-IO, every rank handling its own part, instead of passing through rank 0; restart and frozen-field reads no longer grow with the global grid on rank 0, and the checkpoint geometry hash no longer gathers the grid onto rank 0. Files are unchanged.
