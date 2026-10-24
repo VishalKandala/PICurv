@@ -1,0 +1,1 @@
+- Fix: post validation refuses any cell-centred field (`Ucat`, `P`, `Psi`, `Qcrit`) in `io.eulerian_fields`, naming the `_nodal` field to write after a `nodal_average` task; before, all but `Qcrit` were skipped by the writer and never reached the `.vts`. The `temporal_mixing_layer` example now writes `Ucat_nodal` and `P_nodal`.
