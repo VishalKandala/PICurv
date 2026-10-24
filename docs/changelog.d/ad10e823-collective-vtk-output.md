@@ -1,0 +1,1 @@
+- Experimental: post-processing VTK files are written collectively through MPI-IO, each rank writing its own nodes or kept particles, so no rank gathers a whole field; files are byte-identical across rank counts and now declare `header_type="UInt64"`, lifting the old 4 GiB-per-array limit that the previous writer exceeded silently.

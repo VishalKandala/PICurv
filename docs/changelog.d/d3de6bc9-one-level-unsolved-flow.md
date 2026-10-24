@@ -1,0 +1,1 @@
+- Experimental: with `eulerian_field_source` `load` or `analytical` the solver builds one grid level, since coarse levels serve only the pressure solve; the finest-level rank split is then exact instead of carrying the multigrid alignment's extra cell on edge ranks (about 1.10x the mean particle load at 3 levels).
