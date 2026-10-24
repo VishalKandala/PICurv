@@ -2589,9 +2589,9 @@ run_multi_rank_runtime_smoke() {
 }
 
 # Restart a run under a different MPI rank count than the one that wrote the
-# checkpoint. Committed Eulerian payloads are stored in DMDA natural ordering via
-# GatherVectorToRankZero, so persisted state must be independent of the
-# decomposition that wrote it.
+# checkpoint. Committed Eulerian payloads are stored in DMDA natural ordering (each
+# rank writes its part through MPI-IO), so persisted state must be independent of
+# the decomposition that wrote it.
 #
 # The assertion is split in two because a restart does not simply echo what it
 # read: re-establishing a boundary-consistent state at branch_start recomputes

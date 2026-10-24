@@ -18,21 +18,23 @@ static PetscErrorCode TestPrepareOutputCoordinatesSubsamplesInteriorGrid(void)
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
     PetscScalar *coords = NULL;
-    PetscInt nx = 0, ny = 0, nz = 0, npoints = 0;
+    PetscInt nx = 0, ny = 0, nz = 0, npoints = 0, local_start[3], local_size[3];
     PetscReal expected_last_coord = 0.0;
 
     PetscFunctionBeginUser;
     PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
     expected_last_coord = (PetscReal)(user->IM - 1) / (PetscReal)user->IM;
 
-    PetscCall(PrepareOutputCoordinates(user, &coords, &nx, &ny, &nz, &npoints));
+    PetscCall(PrepareOutputCoordinates(user, &coords, &nx, &ny, &nz, &npoints, local_start, local_size));
     PetscCall(PicurvAssertIntEqual(4, nx, "PrepareOutputCoordinates should output nx based on the production IM+1 DA"));
     PetscCall(PicurvAssertIntEqual(4, ny, "PrepareOutputCoordinates should output ny based on the production JM+1 DA"));
     PetscCall(PicurvAssertIntEqual(4, nz, "PrepareOutputCoordinates should output nz based on the production KM+1 DA"));
     PetscCall(PicurvAssertIntEqual(64, npoints, "PrepareOutputCoordinates should output the full physical-node lattice"));
 
-    if (simCtx->rank == 0) {
-        PetscCall(PicurvAssertBool((PetscBool)(coords != NULL), "PrepareOutputCoordinates should allocate coordinates on rank 0"));
+    if (simCtx->size == 1) {
+        PetscCall(PicurvAssertIntEqual(64, local_size[0] * local_size[1] * local_size[2],
+                                       "One rank should hold the whole output grid"));
+        PetscCall(PicurvAssertBool((PetscBool)(coords != NULL), "PrepareOutputCoordinates should allocate this rank's coordinates"));
         PetscCall(PicurvAssertRealNear(0.0, PetscRealPart(coords[0]), 1.0e-12, "First coordinate x should be 0"));
         PetscCall(PicurvAssertRealNear(0.0, PetscRealPart(coords[1]), 1.0e-12, "First coordinate y should be 0"));
         PetscCall(PicurvAssertRealNear(0.0, PetscRealPart(coords[2]), 1.0e-12, "First coordinate z should be 0"));
@@ -40,9 +42,8 @@ static PetscErrorCode TestPrepareOutputCoordinatesSubsamplesInteriorGrid(void)
         PetscCall(PicurvAssertRealNear(expected_last_coord, PetscRealPart(coords[3 * (npoints - 1) + 0]), 1.0e-12, "Last output coordinate x should be the normalized physical-node domain end"));
         PetscCall(PicurvAssertRealNear(expected_last_coord, PetscRealPart(coords[3 * (npoints - 1) + 1]), 1.0e-12, "Last output coordinate y should be the normalized physical-node domain end"));
         PetscCall(PicurvAssertRealNear(expected_last_coord, PetscRealPart(coords[3 * (npoints - 1) + 2]), 1.0e-12, "Last output coordinate z should be the normalized physical-node domain end"));
-
-        PetscCall(PetscFree(coords));
     }
+    PetscCall(PetscFree(coords));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
@@ -69,14 +70,14 @@ static PetscErrorCode TestPrepareOutputEulerianFieldDataSubsamplesScalar(void)
     PetscCall(VecAssemblyEnd(user->P_nodal));
 
     PetscCall(PrepareOutputEulerianFieldData(user, user->P_nodal, 1, &field_out));
-    if (simCtx->rank == 0) {
+    if (simCtx->size == 1) {
         PetscCall(PicurvAssertBool((PetscBool)(field_out != NULL),
-                                   "PrepareOutputEulerianFieldData should allocate subsampled data on rank 0"));
+                                   "PrepareOutputEulerianFieldData should allocate this rank's data"));
         PetscCall(PicurvAssertRealNear(0.0, PetscRealPart(field_out[0]), 1.0e-12, "Subsampled first value should map to source index 0"));
         PetscCall(PicurvAssertRealNear(93.0, PetscRealPart(field_out[63]), 1.0e-12,
                                        "Subsampled last value should map to source index (3,3,3)=93 in the production-sized DA"));
-        PetscCall(PetscFree(field_out));
     }
+    PetscCall(PetscFree(field_out));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
@@ -118,7 +119,7 @@ static PetscErrorCode TestPrepareOutputParticleDataSubsampling(void)
     PetscCall(DMSwarmRestoreField(user->swarm, "velocity", NULL, NULL, (void *)&velocity));
 
     PetscCall(PrepareOutputParticleData(user, &pps, &meta, &n_total));
-    if (simCtx->rank == 0) {
+    if (simCtx->size == 1) {
         PetscCall(PicurvAssertIntEqual(5, n_total, "PrepareOutputParticleData should report total particles before subsampling"));
         PetscCall(PicurvAssertIntEqual(3, meta.npoints, "Stride-2 subsampling over 5 particles should keep 3 output particles"));
         PetscCall(PicurvAssertIntEqual(VTK_POLYDATA, meta.fileType, "Particle output metadata should be PolyData"));
@@ -129,14 +130,13 @@ static PetscErrorCode TestPrepareOutputParticleDataSubsampling(void)
         PetscCall(PicurvAssertRealNear(0.0, PetscRealPart(meta.coords[0]), 1.0e-12, "First exported particle should be index 0"));
         PetscCall(PicurvAssertRealNear(2.0, PetscRealPart(meta.coords[3]), 1.0e-12, "Second exported particle should be index 2"));
         PetscCall(PicurvAssertRealNear(4.0, PetscRealPart(meta.coords[6]), 1.0e-12, "Third exported particle should be index 4"));
-
-        PetscCall(PetscFree(meta.coords));
-        for (PetscInt f = 0; f < meta.num_point_data_fields; ++f) {
-            PetscCall(PetscFree(meta.point_data_fields[f].data));
-        }
-        PetscCall(PetscFree(meta.connectivity));
-        PetscCall(PetscFree(meta.offsets));
     }
+    PetscCall(PetscFree(meta.coords));
+    for (PetscInt f = 0; f < meta.num_point_data_fields; ++f) {
+        PetscCall(PetscFree(meta.point_data_fields[f].data));
+    }
+    PetscCall(PetscFree(meta.connectivity));
+    PetscCall(PetscFree(meta.offsets));
 
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
@@ -164,6 +164,7 @@ static PetscErrorCode TestCreateVTKFileFromMetadataWritesStructuredGrid(void)
     meta.my = 2;
     meta.mz = 2;
     meta.npoints = 8;
+    meta.local_size[0] = meta.local_size[1] = meta.local_size[2] = 2; /* one rank holds the whole grid */
     meta.num_point_data_fields = 1;
 
     PetscCall(PetscMalloc1(3 * meta.npoints, &meta.coords));

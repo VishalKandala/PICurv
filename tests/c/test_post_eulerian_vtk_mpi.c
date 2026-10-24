@@ -29,7 +29,7 @@ static PetscBool ValidateEulerianVTKFile(const char *path, PetscInt mx, PetscInt
     PetscBool saw_velocity = PETSC_FALSE;
     PetscBool saw_qcrit = PETSC_FALSE;
     PetscBool saw_extent = PETSC_FALSE;
-    uint32_t block_size = 0;
+    uint64_t block_size = 0;
     PetscInt npoints = mx * my * mz;
     PetscScalar *coords = NULL;
     PetscScalar *pressure = NULL;
@@ -54,28 +54,28 @@ static PetscBool ValidateEulerianVTKFile(const char *path, PetscInt mx, PetscInt
 
     /* Coordinates. */
     if (fread(&block_size, sizeof(block_size), 1, file) != 1 ||
-        block_size != (uint32_t)(3 * npoints * (PetscInt)sizeof(PetscScalar))) goto cleanup;
+        block_size != (uint64_t)(3 * npoints * (PetscInt)sizeof(PetscScalar))) goto cleanup;
     coords = malloc((size_t)(3 * npoints) * sizeof(*coords));
     if (!coords ||
         fread(coords, sizeof(PetscScalar), (size_t)(3 * npoints), file) != (size_t)(3 * npoints)) goto cleanup;
 
     /* P_nodal. */
     if (fread(&block_size, sizeof(block_size), 1, file) != 1 ||
-        block_size != (uint32_t)(npoints * (PetscInt)sizeof(PetscScalar))) goto cleanup;
+        block_size != (uint64_t)(npoints * (PetscInt)sizeof(PetscScalar))) goto cleanup;
     pressure = malloc((size_t)npoints * sizeof(*pressure));
     if (!pressure ||
         fread(pressure, sizeof(PetscScalar), (size_t)npoints, file) != (size_t)npoints) goto cleanup;
 
     /* Ucat_nodal. */
     if (fread(&block_size, sizeof(block_size), 1, file) != 1 ||
-        block_size != (uint32_t)(3 * npoints * (PetscInt)sizeof(PetscScalar))) goto cleanup;
+        block_size != (uint64_t)(3 * npoints * (PetscInt)sizeof(PetscScalar))) goto cleanup;
     velocity = malloc((size_t)(3 * npoints) * sizeof(*velocity));
     if (!velocity ||
         fread(velocity, sizeof(PetscScalar), (size_t)(3 * npoints), file) != (size_t)(3 * npoints)) goto cleanup;
 
     /* Qcrit_nodal. */
     if (fread(&block_size, sizeof(block_size), 1, file) != 1 ||
-        block_size != (uint32_t)(npoints * (PetscInt)sizeof(PetscScalar))) goto cleanup;
+        block_size != (uint64_t)(npoints * (PetscInt)sizeof(PetscScalar))) goto cleanup;
     qcrit = malloc((size_t)npoints * sizeof(*qcrit));
     if (!qcrit ||
         fread(qcrit, sizeof(PetscScalar), (size_t)npoints, file) != (size_t)npoints) goto cleanup;

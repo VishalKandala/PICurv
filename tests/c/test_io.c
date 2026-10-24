@@ -160,6 +160,20 @@ static PetscErrorCode WriteAndReadSimulationFields(PetscBool write_mpiio, PetscB
     PetscCall(PicurvAssertRealNear(0.35, simCtx->ti, 1.0e-12,
                                    "checkpoint physical time should be authoritative"));
 
+    /* A payload of the wrong length is refused: the scalar P file cannot load into vector Ucat. */
+    {
+        PetscErrorCode load_ierr;
+
+        PetscCall(PetscSNPrintf(path, sizeof(path), "%s/checkpoints/step_000000000001/eulerian/block_0000", tmpdir));
+        simCtx->current_io_directory = path;
+        PetscCall(PetscPushErrorHandler(PetscReturnErrorHandler, NULL));
+        load_ierr = ReadFieldData(user, "P", user->Ucat, "dat");
+        PetscCall(PetscPopErrorHandler());
+        simCtx->current_io_directory = NULL;
+        PetscCall(PicurvAssertIntEqual(PETSC_ERR_FILE_UNEXPECTED, load_ierr,
+                                       "a payload of the wrong length must be refused"));
+    }
+
     PetscCall(PetscOptionsClearValue(NULL, "-viewer_binary_mpiio"));
     PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
     if (simCtx->rank == 0) PetscCall(PicurvRemoveTempDir(tmpdir));

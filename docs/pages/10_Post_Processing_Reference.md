@@ -1145,6 +1145,11 @@ Mappings:
 - `<run.visualization>/<recipe_id>/` + `particle_filename_prefix` -> `particle_output_prefix`
 - `output_particles` -> `output_particles`
 - `particle_subsampling_frequency` -> `particle_output_freq`
+  (every N-th particle in rank order is written; the kept set and the file are the same at
+  any rank count). Every rank writes its own grid nodes and particles into the one `.vts` or
+  `.vtp` through MPI-IO, so no rank holds a whole field. Files declare
+  `header_type="UInt64"`, so a data array may exceed 4 GiB (179M particle positions); what
+  limits a large particle file is the memory of the machine viewing it.
 - `eulerian_fields` -> `output_fields_instantaneous`
 - `particle_fields` -> `particle_fields_instantaneous` — **must be non-empty when `output_particles: true`**; an empty list produces no particle VTP output even if particle output is enabled. Standard swarm field names: `position`, `velocity`, `pid`, `CellID`, `weight`.
 - `input_extensions.eulerian/particle`, when present, must be `dat`; committed

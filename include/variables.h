@@ -852,10 +852,19 @@ typedef enum {
     VTK_POLYDATA
 } VTKFileType;
 
+/**
+ * @brief One VTK file being assembled collectively.
+ * @details `mx`/`my`/`mz` and `npoints` describe the whole file and agree on every rank. The
+ *          arrays hold only this rank's points: for a structured grid the box of `local_size`
+ *          points starting at `local_start` (i fastest), for polydata the `local_size[0]`
+ *          consecutive output points starting at `local_start[0]`.
+ */
 typedef struct VTKMetaData {
     VTKFileType     fileType;
     PetscInt        mx, my, mz;
     PetscInt        npoints;
+    PetscInt        local_start[3];
+    PetscInt        local_size[3];
     PetscScalar*    coords;
     VTKFieldInfo    point_data_fields[MAX_POINT_DATA_FIELDS];
     PetscInt        num_point_data_fields;

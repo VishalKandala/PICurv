@@ -262,198 +262,12 @@ PetscErrorCode WriteEulerianFile(UserCtx* user, PostProcessParams* pps, PetscInt
             // --- Add field to metadata ---
             ierr = AppendStructuredVTKField(user, &meta, field_name, field_vec, num_components); CHKERRQ(ierr);
             
-            /*
-            // *** DEBUG: Dump Ucat_nodal details and add scalar companions Ux, Uy, Uz for easier visualization ***
-            
-            // If this is Ucat_nodal, dump a few tuples and add scalar companions 
-            if (!strcasecmp(field_name, "Ucat_nodal")) {
-                const PetscInt npts = meta.npoints;
-                const PetscScalar *a = (const PetscScalar*)current_field->data;
-
-                LOG_ALLOW(GLOBAL, LOG_INFO, "DBG Ucat_nodal: ptr=%p  npoints=%" PetscInt_FMT "  num_components=%" PetscInt_FMT "\n",
-                          (void*)a, npts, current_field->num_components);
-
-                if (a && current_field->num_components == 3 && npts > 0) {
-                    const PetscInt nshow = (npts < 5) ? npts : 5;
-                    LOG_ALLOW(GLOBAL, LOG_INFO, "DBG Ucat_nodal: showing first %d of %" PetscInt_FMT " tuples (AoS x,y,z):\n",
-                              (int)nshow, npts);
-                    for (PetscInt t = 0; t < nshow; ++t) {
-                        LOG_ALLOW(GLOBAL, LOG_INFO, "  Ucat_nodal[%3" PetscInt_FMT "] = (%g, %g, %g)\n",
-                                  t, (double)a[3*t+0], (double)a[3*t+1], (double)a[3*t+2]);
-                    }
-                    if (npts > 10) {
-                        PetscInt mid = npts / 2;
-                        LOG_ALLOW(GLOBAL, LOG_INFO, "  Ucat_nodal[mid=%" PetscInt_FMT "] = (%g, %g, %g)\n",
-                                  mid, (double)a[3*mid+0], (double)a[3*mid+1], (double)a[3*mid+2]);
-                    }
-
-                    // Add scalar companions from the AoS we just created 
-                    PetscScalar *Ux=NULL,*Uy=NULL,*Uz=NULL;
-                    ierr = PetscMalloc1(meta.npoints, &Ux); CHKERRQ(ierr);
-                    ierr = PetscMalloc1(meta.npoints, &Uy); CHKERRQ(ierr);
-                    ierr = PetscMalloc1(meta.npoints, &Uz); CHKERRQ(ierr);
-                    for (PetscInt i = 0; i < meta.npoints; ++i) {
-                        Ux[i] = a[3*i+0]; Uy[i] = a[3*i+1]; Uz[i] = a[3*i+2];
-                    }
-
-                    if (meta.num_point_data_fields + 3 <= MAX_POINT_DATA_FIELDS) {
-                        VTKFieldInfo *fx = &meta.point_data_fields[++meta.num_point_data_fields];
-                        strncpy(fx->name, "Ux_debug", MAX_VTK_FIELD_NAME_LENGTH-1);
-                        fx->name[MAX_VTK_FIELD_NAME_LENGTH-1] = '\0';
-                        fx->num_components = 1; fx->data = Ux;
-
-                        VTKFieldInfo *fy = &meta.point_data_fields[++meta.num_point_data_fields];
-                        strncpy(fy->name, "Uy_debug", MAX_VTK_FIELD_NAME_LENGTH-1);
-                        fy->name[MAX_VTK_FIELD_NAME_LENGTH-1] = '\0';
-                        fy->num_components = 1; fy->data = Uy;
-
-                        VTKFieldInfo *fz = &meta.point_data_fields[++meta.num_point_data_fields];
-                        strncpy(fz->name, "Uz_debug", MAX_VTK_FIELD_NAME_LENGTH-1);
-                        fz->name[MAX_VTK_FIELD_NAME_LENGTH-1] = '\0';
-                        fz->num_components = 1; fz->data = Uz;
-
-                        LOG_ALLOW(GLOBAL, LOG_INFO, "DBG: Added scalar companions Ux_debug, Uy_debug, Uz_debug.\n");
-                    } else {
-                        LOG_ALLOW(GLOBAL, LOG_WARNING, "DBG: Not enough slots to add Ux/Uy/Uz debug fields.\n");
-                        PetscFree(Ux); PetscFree(Uy); PetscFree(Uz);
-                    }
-
-                    // Mid-plane CSV + AoS vs NATURAL compare (component X) 
-                    
-                    // Gather NATURAL again (small cost, but isolated and clear) 
-                    PetscInt   Ng = 0;
-                    double    *nat_d = NULL;
-                    DM         dmU = NULL;
-                    DMDALocalInfo infU;
-                    ierr = VecGetDM(field_vec, &dmU); CHKERRQ(ierr);
-                    ierr = DMDAGetLocalInfo(dmU, &infU); CHKERRQ(ierr);
-
-                    const PetscInt M=infU.mx, N=infU.my, P=infU.mz;
-                    const PetscInt mx = meta.mx, my = meta.my, mz = meta.mz;
-                    const PetscInt iInnerMid = mx/2; // interior index [0..mx-1] 
-                    const PetscInt iGlob     = iInnerMid;
-
-                    ierr = VecToArrayOnRank0(field_vec, &Ng, &nat_d); CHKERRQ(ierr);
-
-                    if (nat_d) {
-                        const PetscScalar *nar = (const PetscScalar*)nat_d;
-                        const char *base = pps->output_prefix;
-                        char fn[512], fnc[512];
-                        snprintf(fn,  sizeof(fn),  "%s_%05" PetscInt_FMT "_iMid.csv",       base, ti);
-                        snprintf(fnc, sizeof(fnc), "%s_%05" PetscInt_FMT "_iMid_compare.csv", base, ti);
-
-                        FILE *fp  = fopen(fn,  "w");
-                        FILE *fpc = fopen(fnc, "w");
-                        if (fp)  fprintf(fp,  "jInner,kInner,Ux,Uy,Uz\n");
-                        if (fpc) fprintf(fpc, "jInner,kInner,Ux_AoS,Ux_NAT,abs_diff\n");
-
-                        double maxAbsDiff = 0.0, sumAbs = 0.0;
-                        PetscInt count = 0;
-
-                        for (PetscInt kInner = 0; kInner < mz; ++kInner) {
-                            const PetscInt k = kInner;
-                            for (PetscInt jInner = 0; jInner < my; ++jInner) {
-                                const PetscInt j = jInner;
-
-                                // AoS tuple index 
-                                const PetscInt t = iInnerMid + mx * (jInner + my * kInner);
-                                const PetscScalar ux = a[3*t+0], uy = a[3*t+1], uz = a[3*t+2];
-
-                                if (fp) fprintf(fp, "%d,%d,%.15e,%.15e,%.15e\n",
-                                                (int)jInner,(int)kInner,(double)ux,(double)uy,(double)uz);
-
-                                // NATURAL base for (iGlob,j,k) 
-                                const PetscInt baseNat = 3 * (((k)*N + j)*M + iGlob);
-                                const PetscScalar uxN = nar[baseNat + 0];
-
-                                const double diff = fabs((double)ux - (double)uxN);
-                                if (diff > maxAbsDiff) maxAbsDiff = diff;
-                                sumAbs += diff; ++count;
-
-                                if (fpc) fprintf(fpc, "%d,%d,%.15e,%.15e,%.15e\n",
-                                                    (int)jInner,(int)kInner,(double)ux,(double)uxN,diff);
-                            } // for jInner
-                        } // for kInner
-                        if (fp)  fclose(fp);
-                        if (fpc) fclose(fpc);
-
-                        if (count > 0) {
-                            const double meanAbs = sumAbs / (double)count;
-                            LOG_ALLOW(GLOBAL, LOG_INFO,
-                                        "PETSc-Vec vs AoS (i-mid, Ux): max|Δ|=%.6e, mean|Δ|=%.6e  -> CSV: %s\n",
-                                        maxAbsDiff, meanAbs, fnc);
-                            LOG_ALLOW(GLOBAL, LOG_INFO, "Wrote i-mid plane CSV: %s\n", fn);
-                        } // if count>0
-
-                        ierr = PetscFree(nat_d); CHKERRQ(ierr);
-                        
-                        
-                    } // if nat_d
-
-                } // if a && num_components==3 && npts>0
-            } // if Ucat_nodal        
-            // --- END DEBUG BLOCK (Ucat_nodal) ---
-            */
             
             field_name = strtok(NULL, ",");
         }
 
         ierr = PetscFree(fields_copy); CHKERRQ(ierr);
 
-        // --- DEBUG: Add sanity fields i_idx, j_idx, k_idx and x_pos, y_pos, z_pos ---
-        // These are the logical indices and physical coordinates of each point in the subsampled grid.
-        // They can be used to verify the grid structure and orientation in visualization tools.
-        // They are added as scalar fields with names "i_idx", "j_idx", "k_idx" and "x_pos", "y_pos", "z_pos".
-        // Note: these are only added if there is room in the MAX_POINT_DATA_FIELDS limit.
-        // They are allocated and owned here, and will be freed below.
-        // They are in the same linearization order as meta.coords (AoS x,y,z by point).
-        /*
-        // Append sanity fields i/j/k indices and coordinates 
-
-        // Build i/j/k and x/y/z (length = npoints); these match the same linearization as coords 
-        const PetscInt n = meta.npoints;
-        PetscScalar *i_idx=NULL,*j_idx=NULL,*k_idx=NULL,*x_pos=NULL,*y_pos=NULL,*z_pos=NULL;
-
-        ierr = PetscMalloc1(n, &i_idx); CHKERRQ(ierr);
-        ierr = PetscMalloc1(n, &j_idx); CHKERRQ(ierr);
-        ierr = PetscMalloc1(n, &k_idx); CHKERRQ(ierr);
-        ierr = PetscMalloc1(n, &x_pos); CHKERRQ(ierr);
-        ierr = PetscMalloc1(n, &y_pos); CHKERRQ(ierr);
-        ierr = PetscMalloc1(n, &z_pos); CHKERRQ(ierr);
-
-        // coords is length 3*n, AoS: (x,y,z) by point 
-        const PetscScalar *c = (const PetscScalar*)meta.coords;
-        for (PetscInt k = 0; k < meta.mz; ++k) {
-            for (PetscInt j = 0; j < meta.my; ++j) {
-                for (PetscInt i = 0; i < meta.mx; ++i) {
-                    const PetscInt t = i + meta.mx * (j + meta.my * k);
-                    i_idx[t] = (PetscScalar)i;
-                    j_idx[t] = (PetscScalar)j;
-                    k_idx[t] = (PetscScalar)k;
-                    x_pos[t] = c[3*t+0];
-                    y_pos[t] = c[3*t+1];
-                    z_pos[t] = c[3*t+2];
-                }
-            }
-        }
-
-        const char *nf[6] = {"i_idx","j_idx","k_idx","x_pos","y_pos","z_pos"};
-        PetscScalar *arrs[6] = {i_idx,j_idx,k_idx,x_pos,y_pos,z_pos};
-        for (int s=0; s<6; ++s) {
-            if (meta.num_point_data_fields < MAX_POINT_DATA_FIELDS) {
-                VTKFieldInfo *f = &meta.point_data_fields[meta.num_point_data_fields++];
-                strncpy(f->name, nf[s], MAX_VTK_FIELD_NAME_LENGTH-1);
-                f->name[MAX_VTK_FIELD_NAME_LENGTH-1] = '\0';
-                f->num_components = 1;
-                f->data = arrs[s];
-            } else {
-                LOG_ALLOW(GLOBAL, LOG_WARNING, "Sanity field '%s' dropped: MAX_POINT_DATA_FIELDS reached.\n", nf[s]);
-                PetscFree(arrs[s]);
-            }
-        }
-        LOG_ALLOW(GLOBAL, LOG_INFO, "DBG: Added sanity fields i_idx/j_idx/k_idx and x_pos/y_pos/z_pos.\n");
-        */
-        // --- END DEBUG BLOCK (sanity fields) ---
 
         if (user->simCtx->rank == 0) {
             /* Field summary */
@@ -845,33 +659,23 @@ PetscErrorCode WriteParticleFile(UserCtx* user, PostProcessParams* pps, PetscInt
     // --- 1. PREPARE (Collective Call) ---
     ierr = PrepareOutputParticleData(user, pps, &part_meta, &n_total_particles_before_subsample); CHKERRQ(ierr);
 
-    // --- 2. WRITE and CLEANUP (Rank 0 only) ---
-    if (user->simCtx->rank == 0) {
-        if (part_meta.npoints > 0) {
-            LOG_ALLOW(GLOBAL, LOG_INFO, "--- Starting VTP Particle File Writing for ti = %" PetscInt_FMT " (writing %" PetscInt_FMT " of %" PetscInt_FMT " particles) ---\n",
-                      ti, part_meta.npoints, n_total_particles_before_subsample);
-
-            /* Field summary */
-            LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Data fields to write: %d\n", (int)part_meta.num_point_data_fields);
-            for (PetscInt ii=0; ii<part_meta.num_point_data_fields; ++ii) {
-                LOG_ALLOW(GLOBAL, LOG_INFO, "  # %2" PetscInt_FMT "  Field Name = %s  Components = %d\n",
-                          ii, part_meta.point_data_fields[ii].name, (int)part_meta.point_data_fields[ii].num_components);
-            }
-
-            ierr = PetscSNPrintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vtp", pps->particle_output_prefix, ti); CHKERRQ(ierr);
-            ierr = CreateVTKFileFromMetadata(filename, &part_meta, PETSC_COMM_WORLD); CHKERRQ(ierr);
-
-        } else {
-            LOG_ALLOW(GLOBAL, LOG_DEBUG, "No particles to write at ti=%" PetscInt_FMT " after subsampling. Skipping.\n", ti);
-        }
-
-        for (PetscInt field = 0; field < part_meta.num_point_data_fields; ++field) {
-            ierr = PetscFree(part_meta.point_data_fields[field].data); CHKERRQ(ierr);
-        }
-        ierr = PetscFree(part_meta.coords); CHKERRQ(ierr);
-        ierr = PetscFree(part_meta.connectivity); CHKERRQ(ierr);
-        ierr = PetscFree(part_meta.offsets); CHKERRQ(ierr);
+    // --- 2. WRITE (Collective) and CLEANUP ---
+    LOG_ALLOW(GLOBAL, LOG_INFO, "--- Starting VTP Particle File Writing for ti = %" PetscInt_FMT " (writing %" PetscInt_FMT " of %" PetscInt_FMT " particles) ---\n",
+              ti, part_meta.npoints, n_total_particles_before_subsample);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Particle Data fields to write: %d\n", (int)part_meta.num_point_data_fields);
+    for (PetscInt ii=0; ii<part_meta.num_point_data_fields; ++ii) {
+        LOG_ALLOW(GLOBAL, LOG_INFO, "  # %2" PetscInt_FMT "  Field Name = %s  Components = %d\n",
+                  ii, part_meta.point_data_fields[ii].name, (int)part_meta.point_data_fields[ii].num_components);
     }
+    ierr = PetscSNPrintf(filename, sizeof(filename), "%s_%05" PetscInt_FMT ".vtp", pps->particle_output_prefix, ti); CHKERRQ(ierr);
+    ierr = CreateVTKFileFromMetadata(filename, &part_meta, PETSC_COMM_WORLD); CHKERRQ(ierr);
+
+    for (PetscInt field = 0; field < part_meta.num_point_data_fields; ++field) {
+        ierr = PetscFree(part_meta.point_data_fields[field].data); CHKERRQ(ierr);
+    }
+    ierr = PetscFree(part_meta.coords); CHKERRQ(ierr);
+    ierr = PetscFree(part_meta.connectivity); CHKERRQ(ierr);
+    ierr = PetscFree(part_meta.offsets); CHKERRQ(ierr);
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Particle File Writing for ti = %" PetscInt_FMT " Complete ---\n", ti);
     PROFILE_FUNCTION_END;

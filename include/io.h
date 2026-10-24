@@ -262,37 +262,6 @@ PetscInt CreateVTKFileFromMetadata(const char       *filename,
                                    MPI_Comm           comm);
 
 /**
- * @brief Gathers the contents of a distributed PETSc Vec into a single array on rank 0.
- *
- * @param[in]  inVec       The input (possibly distributed) Vec.
- * @param[out] N           The global size of the vector.
- * @param[out] arrayOut    On rank 0, points to the newly allocated array holding all data.
- *                         On other ranks, it is set to NULL.
- *
- * @return PetscErrorCode  Return 0 on success, nonzero on failure.
- */
-PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut);
-
-/**
- * @brief Gathers any DMSwarm field from all ranks to a single, contiguous array on rank 0.
- *
- * This is a generic, type-aware version of SwarmFieldToArrayOnRank0.
- * It is a COLLECTIVE operation.
- *
- * @param[in]  swarm             The DMSwarm to gather from.
- * @param[in]  field_name        The name of the field to gather.
- * @param[out] n_total_particles Total number of particles in the global swarm on every rank.
- * @param[out] n_components      Number of components for the field on every rank.
- * @param[out] field_type_out     PETSc storage type for the field on all ranks.
- * @param[out] gathered_array    On rank 0, a newly allocated array containing the full, gathered data; NULL elsewhere.
- *                               The caller is responsible for freeing this memory and for casting it to the correct type.
- * @return PetscErrorCode
- */
-PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name,
-                                        PetscInt *n_total_particles, PetscInt *n_components,
-                                        PetscDataType *field_type_out, void **gathered_array);
-
-/**
  * @brief Reads data from a file into a specified field of a PETSc DMSwarm.
  *
  * This function is the counterpart to WriteSwarmField(). It creates a global PETSc vector 
@@ -351,46 +320,6 @@ PetscErrorCode ReadAllSwarmFields(UserCtx *user, PetscInt ti);
  * @return Zero on success or a checkpoint-validation error.
  */
 PetscErrorCode ReadCheckpointParticleCount(UserCtx *user, PetscInt ti, PetscInt *particle_count);
-
-/**
- * @brief Reads coordinate data (for particles)  from file into a PETSc Vec, then gathers it to rank 0.
- *
- * This function uses \c ReadFieldData to fill a PETSc Vec with coordinate data,
- * then leverages \c VecToArrayOnRank0 to gather that data into a contiguous array
- * (valid on rank 0 only).
- *
- * @param[in]  timeIndex    The time index used to construct file names.
- * @param[in]  user         Pointer to the user context.
- * @param[out] coordsArray  On rank 0, will point to a newly allocated array holding the coordinates.
- * @param[out] Ncoords      On rank 0, the length of \p coordsArray. On other ranks, 0.
- *
- * @return PetscErrorCode  Returns 0 on success, or non-zero on failures.
- */
-PetscErrorCode ReadPositionsFromFile(PetscInt timeIndex,
-                                      UserCtx *user,
-                                      double **coordsArray,
-				     PetscInt *Ncoords);
-
-
-/**
- * @brief Reads a named field from file into a PETSc Vec, then gathers it to rank 0.
- *
- * This function wraps \c ReadFieldData and \c VecToArrayOnRank0 into a single step.
- * The gathered data is stored in \p scalarArray on rank 0, with its length in \p Nscalars.
- *
- * @param[in]  timeIndex     The time index used to construct file names.
- * @param[in]  fieldName     Name of the field to be read (e.g., "velocity").
- * @param[in]  user          Pointer to the user context.
- * @param[out] scalarArray   On rank 0, a newly allocated array holding the field data.
- * @param[out] Nscalars      On rank 0, length of \p scalarArray. On other ranks, 0.
- *
- * @return PetscErrorCode  Returns 0 on success, or non-zero on failures.
- */
-PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
-                                           const char *fieldName,
-                                           UserCtx *user,
-                                           double **scalarArray,
-				    PetscInt *Nscalars);
 
 /**
  * @brief Displays a structured banner summarizing the simulation configuration.

@@ -154,28 +154,6 @@ static PetscErrorCode NaturalOrderedVector(Vec field_vec, Vec *natural_vec, Vec 
     PetscFunctionReturn(0);
 }
 
-/** @brief Gather a vector in decomposition-independent natural ordering onto rank zero. */
-static PetscErrorCode GatherVectorToRankZero(Vec field_vec, Vec *sequential_vec)
-{
-    Vec natural_vec = NULL, ordered_vec = NULL;
-    VecScatter scatter = NULL;
-
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-    PetscCheck(field_vec != NULL && sequential_vec != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
-               "A source vector and output vector pointer are required.");
-    *sequential_vec = NULL;
-    PetscCall(NaturalOrderedVector(field_vec, &natural_vec, &ordered_vec));
-
-    PetscCall(VecScatterCreateToZero(ordered_vec, &scatter, sequential_vec));
-    PetscCall(VecScatterBegin(scatter, ordered_vec, *sequential_vec, INSERT_VALUES, SCATTER_FORWARD));
-    PetscCall(VecScatterEnd(scatter, ordered_vec, *sequential_vec, INSERT_VALUES, SCATTER_FORWARD));
-    PetscCall(VecScatterDestroy(&scatter));
-    PetscCall(VecDestroy(&natural_vec));
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
 /**
  * @brief Open a PETSc binary viewer for one field payload, reading or writing through MPI-IO.
  * @details Every rank reads or writes its own contiguous part of the file collectively, instead
@@ -1335,26 +1313,11 @@ PetscErrorCode ReadFieldData(UserCtx *user,
                         source_path, field_name, ext); CHKERRQ(ierr);
    LOG_ALLOW(GLOBAL,LOG_DEBUG, "Attempting to read <%s> on rank %d/%d\n", filename,(int)rank,(int)size);
 
-   // Check the payload's length against the field from its header, on rank 0, before reading it.
-   PetscInt expected = 0, header[2] = {0, -1}; // classid, entries; entries -1 when missing
-   ierr = VecGetSize(field_vec, &expected); CHKERRQ(ierr);
-   if (rank == 0) {
-      PetscBool found = PETSC_FALSE;
-      ierr = PetscTestFile(filename, 'r', &found); CHKERRQ(ierr);
-      if (found) {
-         int fd;
-         PetscInt count = 0;
-         ierr = PetscBinaryOpen(filename, FILE_MODE_READ, &fd); CHKERRQ(ierr);
-         ierr = PetscBinaryRead(fd, header, 2, &count, PETSC_INT); CHKERRQ(ierr);
-         ierr = PetscBinaryClose(fd); CHKERRQ(ierr);
-         if (count != 2) header[1] = -2;
-      }
-   }
-   ierr = MPI_Bcast(header, 2, MPIU_INT, 0, comm); CHKERRMPI(ierr);
-   if (header[1] == -1) SETERRQ(comm, PETSC_ERR_FILE_OPEN, "Restart/Source file not found: %s", filename);
-   if (header[1] != expected)
-      SETERRQ(comm, PETSC_ERR_FILE_UNEXPECTED, "File %s holds %" PetscInt_FMT " entries - expected %" PetscInt_FMT " for field '%s'",
-              filename, header[1], expected, field_name);
+   // Rank 0 checks the file exists, so a missing one is named; VecLoad checks its length.
+   PetscBool found = PETSC_FALSE;
+   if (rank == 0) { ierr = PetscTestFile(filename, 'r', &found); CHKERRQ(ierr); }
+   ierr = MPI_Bcast(&found, 1, MPIU_BOOL, 0, comm); CHKERRMPI(ierr);
+   if (!found) SETERRQ(comm, PETSC_ERR_FILE_OPEN, "Restart/Source file not found: %s", filename);
 
    // Every rank reads its own part (MPI-IO). A DMDA payload is in natural order and is read into a
    // natural vector, then permuted; any other vector (a swarm field) is in rank order and is read
@@ -1369,7 +1332,8 @@ PetscErrorCode ReadFieldData(UserCtx *user,
    if (natural) { ierr = DMDACreateNaturalVector(dm, &staged); CHKERRQ(ierr); }
    else         { ierr = VecDuplicate(field_vec, &staged); CHKERRQ(ierr); }
    ierr = OpenFieldPayloadViewer(comm, filename, FILE_MODE_READ, &viewer); CHKERRQ(ierr);
-   ierr = VecLoad(staged, viewer); CHKERRQ(ierr);
+   ierr = VecLoad(staged, viewer);
+   if (ierr) SETERRQ(comm, PETSC_ERR_FILE_UNEXPECTED, "Could not load '%s' into field '%s'.", filename, field_name);
    ierr = PetscViewerDestroy(&viewer); CHKERRQ(ierr);
    if (natural) {
       ierr = DMDANaturalToGlobalBegin(dm, staged, INSERT_VALUES, field_vec); CHKERRQ(ierr);
@@ -2693,134 +2657,6 @@ PetscErrorCode WriteCheckpointBundle(SimCtx *simCtx, const char *reason)
 }
 
 /**
- * @brief Internal helper implementation: `VecToArrayOnRank0()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode VecToArrayOnRank0(Vec inVec, PetscInt *N, double **arrayOut)
-{
-    MPI_Comm comm;
-    PetscMPIInt rank;
-    Vec sequential_vec = NULL;
-
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-    PetscCheck(inVec != NULL && N != NULL && arrayOut != NULL,
-               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
-               "Vector, size output, and array output are required.");
-    PetscCall(PetscObjectGetComm((PetscObject)inVec, &comm));
-    PetscCallMPI(MPI_Comm_rank(comm, &rank));
-    PetscCall(VecGetSize(inVec, N));
-    *arrayOut = NULL;
-
-    PetscCall(GatherVectorToRankZero(inVec, &sequential_vec));
-    if (rank == 0) {
-        const PetscScalar *values = NULL;
-        PetscInt local_size = 0;
-
-        PetscCall(VecGetLocalSize(sequential_vec, &local_size));
-        PetscCall(PetscMalloc1(local_size, arrayOut));
-        PetscCall(VecGetArrayRead(sequential_vec, &values));
-        for (PetscInt index = 0; index < local_size; ++index) {
-            (*arrayOut)[index] = (double)PetscRealPart(values[index]);
-        }
-        PetscCall(VecRestoreArrayRead(sequential_vec, &values));
-    }
-    PetscCall(VecDestroy(&sequential_vec));
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Internal helper implementation: `SwarmFieldToArrayOnRank0()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode SwarmFieldToArrayOnRank0(DM swarm, const char *field_name,
-                                        PetscInt *n_total_particles, PetscInt *n_components,
-                                        PetscDataType *field_type_out, void **gathered_array)
-{
-    PetscErrorCode ierr;
-    PetscMPIInt    rank, size;
-    PetscInt       nlocal, nglobal, bs;
-    PetscDataType  field_type;
-    void           *local_array_void;
-    size_t         element_size = 0;
-
-    PetscFunctionBeginUser;
-    PROFILE_HELPER_BEGIN;
-
-    PetscCheck(swarm != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "DMSwarm cannot be NULL.");
-    PetscCheck(field_name != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Swarm field name cannot be NULL.");
-    PetscCheck(n_total_particles != NULL && n_components != NULL && field_type_out != NULL && gathered_array != NULL,
-               PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
-               "Swarm gather output pointers cannot be NULL.");
-
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
-
-    // All ranks get swarm properties to determine send/receive counts
-    ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
-    ierr = DMSwarmGetSize(swarm, &nglobal); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, field_name, &bs, &field_type, &local_array_void); CHKERRQ(ierr);
-    
-    // Determine the size of one element of the field's data type
-    if (field_type == PETSC_INT64) element_size = sizeof(PetscInt64);
-    else if (field_type == PETSC_INT) element_size = sizeof(PetscInt);
-    else if (field_type == PETSC_REAL) element_size = sizeof(PetscReal);
-#if defined(PETSC_USE_COMPLEX)
-    else if (field_type == PETSC_SCALAR) element_size = sizeof(PetscScalar);
-#endif
-    else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP,
-                 "Swarm field '%s' uses unsupported gathered data type %s.",
-                 field_name, PetscDataTypes[field_type]);
-
-    *field_type_out = field_type;
-    *n_total_particles = nglobal;
-    *n_components = bs;
-    *gathered_array = NULL;
-
-    if (size == 1) { // Serial case is a simple copy
-        if (rank == 0) {
-            ierr = PetscMalloc(nglobal * bs * element_size, gathered_array); CHKERRQ(ierr);
-            ierr = PetscMemcpy(*gathered_array, local_array_void, nglobal * bs * element_size); CHKERRQ(ierr);
-        }
-    } else { // Parallel case: use MPI_Gatherv
-        PetscInt *recvcounts = NULL, *displs = NULL;
-        if (rank == 0) {
-            ierr = PetscMalloc1(size, &recvcounts); CHKERRQ(ierr);
-            ierr = PetscMalloc1(size, &displs); CHKERRQ(ierr);
-        }
-        PetscInt sendcount = nlocal * bs;
-        
-        // Gather the number of elements (not bytes) from each rank
-        ierr = MPI_Gather(&sendcount, 1, MPIU_INT, recvcounts, 1, MPIU_INT, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
-
-        if (rank == 0) {
-            displs[0] = 0;
-            // Convert counts and calculate displacements in terms of BYTES
-            for (PetscMPIInt i = 0; i < size; i++) recvcounts[i] *= element_size;
-            for (PetscMPIInt i = 1; i < size; i++) displs[i] = displs[i-1] + recvcounts[i-1];
-            
-            ierr = PetscMalloc(nglobal * bs * element_size, gathered_array); CHKERRQ(ierr);
-        }
-        
-        // Use Gatherv with MPI_BYTE to handle any data type generically
-        ierr = MPI_Gatherv(local_array_void, nlocal * bs * element_size, MPI_BYTE,
-                           *gathered_array, recvcounts, displs, MPI_BYTE,
-                           0, PETSC_COMM_WORLD); CHKERRQ(ierr);
-
-        if (rank == 0) {
-            ierr = PetscFree(recvcounts); CHKERRQ(ierr);
-            ierr = PetscFree(displs); CHKERRQ(ierr);
-        }
-    }
-
-    ierr = DMSwarmRestoreField(swarm, field_name, &bs, NULL, &local_array_void); CHKERRQ(ierr);
-
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(0);
-}
-
-/**
  * @brief Emit the rank-zero startup summary from the effective simulation context.
  * @details Reports only configuration that applies to the selected run mode. In
  *          particular, pseudo-CFL is a Dual Time Picard--Jameson RK control and
@@ -3650,84 +3486,3 @@ PetscInt ReadDataFileToArray(const char   *filename,
     return 0; /* success */
 }
 
-/**
- * @brief Internal helper implementation: `ReadPositionsFromFile()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode ReadPositionsFromFile(PetscInt timeIndex,
-                                      UserCtx *user,
-                                      double **coordsArray,
-                                      PetscInt *Ncoords)
-{
-  PetscFunctionBeginUser;
-  PROFILE_HELPER_BEGIN;
-
-  PetscErrorCode ierr;
-  Vec            coordsVec;
-
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Creating coords Vec.\n");
-  ierr = VecCreate(PETSC_COMM_WORLD, &coordsVec);CHKERRQ(ierr);
-  ierr = VecSetFromOptions(coordsVec);CHKERRQ(ierr);
-
-  // For example: "position" is the name of the coordinate data
-  ierr = ReadFieldData(user, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), coordsVec, "dat");
-  if (ierr) {
-    LOG_ALLOW(GLOBAL, LOG_ERROR,
-              "Error reading position data (ti=%d).\n",
-              timeIndex);
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(ierr);
-  }
-
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "ReadPositions - Gathering coords Vec to rank 0.\n");
-  ierr = VecToArrayOnRank0(coordsVec, Ncoords, coordsArray);CHKERRQ(ierr);
-
-  ierr = VecDestroy(&coordsVec);CHKERRQ(ierr);
-
-  LOG_ALLOW(GLOBAL, LOG_DEBUG,
-            "Successfully gathered coordinates. Ncoords=%d.\n", *Ncoords);
-  PROFILE_HELPER_END;
-  PetscFunctionReturn(0);
-}
-
-
-/**
- * @brief Internal helper implementation: `ReadFieldDataToRank0()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode ReadFieldDataToRank0(PetscInt timeIndex,
-                                           const char *fieldName,
-                                           UserCtx *user,
-                                           double **scalarArray,
-                                           PetscInt *Nscalars)
-{
-  PetscFunctionBeginUser;
-  PROFILE_HELPER_BEGIN;
-
-  PetscErrorCode ierr;
-  Vec            fieldVec;
-
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Creating field Vec.\n");
-  ierr = VecCreate(PETSC_COMM_WORLD, &fieldVec);CHKERRQ(ierr);
-  ierr = VecSetFromOptions(fieldVec);CHKERRQ(ierr);
-
-  ierr = ReadFieldData(user, fieldName, fieldVec, "dat");
-  if (ierr) {
-    LOG_ALLOW(GLOBAL, LOG_ERROR,
-              "Error reading field '%s' (ti=%d).\n",
-              fieldName, timeIndex);
-    PROFILE_HELPER_END;
-    PetscFunctionReturn(ierr);
-  }
-
-  LOG_ALLOW(GLOBAL, LOG_DEBUG, "Gathering field Vec to rank 0.\n");
-  ierr = VecToArrayOnRank0(fieldVec, Nscalars, scalarArray);CHKERRQ(ierr);
-
-  ierr = VecDestroy(&fieldVec);CHKERRQ(ierr);
-
-  LOG_ALLOW(GLOBAL, LOG_DEBUG,
-            "Successfully gathered field '%s'. Nscalars=%d.\n",
-            fieldName, *Nscalars);
-  PROFILE_HELPER_END;
-  PetscFunctionReturn(0);
-}

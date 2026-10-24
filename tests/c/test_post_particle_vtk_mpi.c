@@ -25,11 +25,11 @@ static PetscBool ScalarMatches(PetscScalar actual, PetscReal expected)
 /** @brief Read one length-prefixed raw appended-data block. */
 static PetscBool ReadBlock(FILE *file, void *data, size_t count, size_t element_size)
 {
-    uint32_t block_size = 0;
+    uint64_t block_size = 0;
     const size_t expected_size = count * element_size;
 
     if (expected_size > UINT32_MAX) return PETSC_FALSE;
-    if (fread(&block_size, sizeof(block_size), 1, file) != 1 || block_size != (uint32_t)expected_size) {
+    if (fread(&block_size, sizeof(block_size), 1, file) != 1 || block_size != (uint64_t)expected_size) {
         return PETSC_FALSE;
     }
     return (PetscBool)(fread(data, element_size, count, file) == count);

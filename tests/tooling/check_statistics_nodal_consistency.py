@@ -75,14 +75,16 @@ def read_vts_point_arrays(path):
     if marker < 0:
         raise ValueError(f"{path}: no appended data section.")
     start = raw.find(b"_", marker) + 1
+    wide = 'header_type="UInt64"' in head
+    count_type, count_bytes = ("<u8", 8) if wide else ("<u4", 4)
     arrays = {}
     for match in re.finditer(
         r'Name="([^"]+)" NumberOfComponents="(\d+)" format="appended" offset="(\d+)"', head
     ):
         name, ncomp, offset = match.group(1), int(match.group(2)), int(match.group(3))
         base = start + offset
-        nbytes = int(numpy.frombuffer(raw, dtype="<u4", count=1, offset=base)[0])
-        values = numpy.frombuffer(raw, dtype="<f8", count=nbytes // 8, offset=base + 4)
+        nbytes = int(numpy.frombuffer(raw, dtype=count_type, count=1, offset=base)[0])
+        values = numpy.frombuffer(raw, dtype="<f8", count=nbytes // 8, offset=base + count_bytes)
         arrays[name] = values.reshape(-1, ncomp) if ncomp > 1 else values
     return nodes, arrays
 

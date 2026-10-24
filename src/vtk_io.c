@@ -5,27 +5,15 @@
 //                 STATIC (PRIVATE) HELPER FUNCTION PROTOTYPES
 //================================================================================
 
-static PetscErrorCode WriteVTKAppendedBlock(FILE *fp, const void *data, PetscInt num_elements, size_t element_size);
 static PetscErrorCode WriteVTSXMLHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset);
 static PetscErrorCode WriteVTPXMLHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset);
 static PetscErrorCode WriteVTKFileHeader(FILE *fp, const VTKMetaData *meta, PetscInt *boffset);
-static PetscErrorCode WriteVTKFileFooter(FILE *fp, const VTKMetaData *meta);
+static PetscErrorCode CopyOwnedOutputBox(Vec vec, const PetscInt extent[3], PetscInt start[3], PetscInt size[3],
+                                         PetscScalar **out);
 
 //================================================================================
 //                 IMPLEMENTATION OF PRIVATE HELPERS
 //================================================================================
-
-/**
- * @brief Write one binary data block in VTK appended-data format.
- */
-static PetscErrorCode WriteVTKAppendedBlock(FILE *fp, const void *data, PetscInt num_elements, size_t element_size) {
-    PROFILE_FUNCTION_BEGIN;
-    uint32_t block_size = num_elements * (uint32_t)element_size;
-    if (fwrite(&block_size, sizeof(uint32_t), 1, fp) != 1) { PROFILE_FUNCTION_END; return PETSC_ERR_FILE_WRITE; }
-    if (fwrite(data, element_size, num_elements, fp) != (size_t)num_elements) { PROFILE_FUNCTION_END; return PETSC_ERR_FILE_WRITE; }
-    PROFILE_FUNCTION_END;
-    return 0;
-}
 
 /**
  * @brief Write the XML header for a VTK structured-grid (`.vts`) file.
@@ -36,10 +24,10 @@ static PetscErrorCode WriteVTSXMLHeader(FILE *fp, const VTKMetaData *meta, Petsc
     const char *byte_order = "LittleEndian";
     const char *precision  = "Float64";
 
-    const PetscInt header = (PetscInt)sizeof(uint32_t);
+    const PetscInt header = (PetscInt)sizeof(uint64_t);
 
     fprintf(fp, "<?xml version=\"1.0\"?>\n");
-    fprintf(fp, "<VTKFile type=\"StructuredGrid\" version=\"1.0\" byte_order=\"%s\">\n", byte_order);
+    fprintf(fp, "<VTKFile type=\"StructuredGrid\" version=\"1.0\" byte_order=\"%s\" header_type=\"UInt64\">\n", byte_order);
     fprintf(fp, "  <StructuredGrid WholeExtent=\"0 %" PetscInt_FMT " 0 %" PetscInt_FMT " 0 %" PetscInt_FMT "\">\n", meta->mx - 1, meta->my - 1, meta->mz - 1);
     fprintf(fp, "    <Piece Extent=\"0 %" PetscInt_FMT " 0 %" PetscInt_FMT " 0 %" PetscInt_FMT "\">\n", meta->mx - 1, meta->my - 1, meta->mz - 1);
 
@@ -77,10 +65,10 @@ static PetscErrorCode WriteVTPXMLHeader(FILE *fp, const VTKMetaData *meta, Petsc
     const char *byte_order = "LittleEndian";
     const char *precision     = "Float64";
     const char *int_type_str  = (sizeof(PetscInt) == 8) ? "Int64" : "Int32";
-    const PetscInt header = (PetscInt)sizeof(uint32_t);
+    const PetscInt header = (PetscInt)sizeof(uint64_t);
 
     fprintf(fp, "<?xml version=\"1.0\"?>\n");
-    fprintf(fp, "<VTKFile type=\"PolyData\" version=\"1.0\" byte_order=\"%s\">\n", byte_order);
+    fprintf(fp, "<VTKFile type=\"PolyData\" version=\"1.0\" byte_order=\"%s\" header_type=\"UInt64\">\n", byte_order);
     fprintf(fp, "  <PolyData>\n");
     fprintf(fp, "    <Piece NumberOfPoints=\"%" PetscInt_FMT "\" NumberOfVerts=\"%" PetscInt_FMT "\" NumberOfLines=\"0\" NumberOfStrips=\"0\" NumberOfPolys=\"0\">\n",
             meta->npoints, meta->npoints);
@@ -105,10 +93,10 @@ static PetscErrorCode WriteVTPXMLHeader(FILE *fp, const VTKMetaData *meta, Petsc
     fprintf(fp, "      <Verts>\n");
     fprintf(fp, "        <DataArray type=\"%s\" Name=\"connectivity\" format=\"appended\" offset=\"%" PetscInt_FMT "\" />\n",
             int_type_str, *boffset);
-    *boffset += (uint32_t)sizeof(uint32_t) + meta->npoints * (PetscInt)sizeof(PetscInt);
+    *boffset += header + meta->npoints * (PetscInt)sizeof(PetscInt);
     fprintf(fp, "        <DataArray type=\"%s\" Name=\"offsets\" format=\"appended\" offset=\"%" PetscInt_FMT "\" />\n",
             int_type_str, *boffset);
-    *boffset += (uint32_t)sizeof(uint32_t) + meta->npoints * (PetscInt)sizeof(PetscInt);
+    *boffset += header + meta->npoints * (PetscInt)sizeof(PetscInt);
     fprintf(fp, "      </Verts>\n");
 
     fprintf(fp, "    </Piece>\n");
@@ -137,16 +125,39 @@ static PetscErrorCode WriteVTKFileHeader(FILE *fp, const VTKMetaData *meta, Pets
 }
 
 /**
- * @brief Close a VTK XML document after all appended data have been written.
+ * @brief Copy this rank's part of the output grid out of a DMDA global vector.
+ * @details The output grid is the first `extent` nodes on each axis (the last DA node is a
+ *          dummy). This rank's part is its owned box clipped to that grid, copied point by
+ *          point (i fastest) with the vector's components interleaved.
  */
-static PetscErrorCode WriteVTKFileFooter(FILE *fp, const VTKMetaData *meta)
+static PetscErrorCode CopyOwnedOutputBox(Vec vec, const PetscInt extent[3], PetscInt start[3], PetscInt size[3],
+                                         PetscScalar **out)
 {
+    DM                 dm = NULL;
+    DMDALocalInfo      info;
+    const PetscScalar *values = NULL;
+    PetscInt           p = 0;
+
+    PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    (void)meta;
-    fprintf(fp, "\n  </AppendedData>\n");
-    fprintf(fp, "</VTKFile>\n");
+    PetscCall(VecGetDM(vec, &dm));
+    PetscCheck(dm != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "VTK output needs a vector attached to a DMDA.");
+    PetscCall(DMDAGetLocalInfo(dm, &info));
+    const PetscInt owned_start[3] = {info.xs, info.ys, info.zs}, owned[3] = {info.xm, info.ym, info.zm};
+    for (int d = 0; d < 3; ++d) {
+        start[d] = owned_start[d];
+        size[d]  = PetscMax(0, PetscMin(owned_start[d] + owned[d], extent[d]) - owned_start[d]);
+    }
+    PetscCall(PetscMalloc1(info.dof * size[0] * size[1] * size[2], out));
+    PetscCall(VecGetArrayRead(vec, &values));
+    for (PetscInt k = 0; k < size[2]; ++k)
+        for (PetscInt j = 0; j < size[1]; ++j)
+            for (PetscInt i = 0; i < size[0]; ++i)
+                for (PetscInt c = 0; c < info.dof; ++c)
+                    (*out)[p++] = values[((k * owned[1] + j) * owned[0] + i) * info.dof + c];
+    PetscCall(VecRestoreArrayRead(vec, &values));
     PROFILE_FUNCTION_END;
-    return 0;
+    PetscFunctionReturn(0);
 }
 
 
@@ -160,97 +171,80 @@ static PetscErrorCode WriteVTKFileFooter(FILE *fp, const VTKMetaData *meta)
 
 PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData *meta, MPI_Comm comm)
 {
+    static const char  footer[] = "\n  </AppendedData>\n</VTKFile>\n";
+    const PetscBool    structured = (PetscBool)(meta->fileType == VTK_STRUCTURED);
+    char               tmp_filename[PETSC_MAX_PATH_LEN];
+    PetscMPIInt        rank;
+    long long          header_bytes = 0; /* -1: rank 0 could not write the header */
+    MPI_File           fh;
+    MPI_Offset         position;
+    PetscInt           blocks = 0, local_points = 1, boffset = 0;
+    struct VTKBlock { PetscInt components; MPI_Datatype type; size_t size; const void *data; } block[MAX_POINT_DATA_FIELDS + 3];
+
+    PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    PetscMPIInt rank;
-    MPI_Comm_rank(comm, &rank);
-    PetscErrorCode ierr = 0;
+    PetscCheck(structured || meta->fileType == VTK_POLYDATA, comm, PETSC_ERR_ARG_WRONG, "Unknown VTK file type.");
+    PetscCallMPI(MPI_Comm_rank(comm, &rank));
+    PetscCall(PetscSNPrintf(tmp_filename, sizeof(tmp_filename), "%s.tmp", filename));
 
-    if (!rank) {
-        char tmp_filename[PETSC_MAX_PATH_LEN];
-        FILE *fp = NULL;
-
-        ierr = PetscSNPrintf(tmp_filename, sizeof(tmp_filename), "%s.tmp", filename);CHKERRQ(ierr);
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Rank 0 writing combined VTK file '%s'.\n", filename);
-        fp = fopen(tmp_filename, "wb");
-        if (!fp) {
-            LOG_ALLOW(GLOBAL, LOG_ERROR, "fopen failed for %s.\n", tmp_filename);
-            PROFILE_FUNCTION_END;
-            return PETSC_ERR_FILE_OPEN;
-        }
-
-        PetscInt boffset = 0;
-
-        ierr = WriteVTKFileHeader(fp, meta, &boffset);
-        if (ierr) {
-            fclose(fp);
-            remove(tmp_filename);
-            PROFILE_FUNCTION_END;
-            return ierr;
-        }
-
-        if (meta->coords) {
-            ierr = WriteVTKAppendedBlock(fp, meta->coords, 3 * meta->npoints, sizeof(PetscScalar));
-            if (ierr) {
-                fclose(fp);
-                remove(tmp_filename);
-                PROFILE_FUNCTION_END;
-                return ierr;
-            }
-        }
-
-        for (PetscInt i = 0; i < meta->num_point_data_fields; i++) {
-            const VTKFieldInfo *field = &meta->point_data_fields[i];
-            if (field->data) {
-                ierr = WriteVTKAppendedBlock(fp, field->data, field->num_components * meta->npoints, sizeof(PetscScalar));
-                if (ierr) {
-                    fclose(fp);
-                    remove(tmp_filename);
-                    PROFILE_FUNCTION_END;
-                    return ierr;
-                }
-            }
-        }
-        if (meta->fileType == VTK_POLYDATA) {
-            if (meta->connectivity) {
-                ierr = WriteVTKAppendedBlock(fp, meta->connectivity, meta->npoints, sizeof(PetscInt));
-                if (ierr) {
-                    fclose(fp);
-                    remove(tmp_filename);
-                    PROFILE_FUNCTION_END;
-                    return ierr;
-                }
-            }
-            if (meta->offsets) {
-                ierr = WriteVTKAppendedBlock(fp, meta->offsets, meta->npoints, sizeof(PetscInt));
-                if (ierr) {
-                    fclose(fp);
-                    remove(tmp_filename);
-                    PROFILE_FUNCTION_END;
-                    return ierr;
-                }
-            }
-        }
-        ierr = WriteVTKFileFooter(fp, meta);
-        if (ierr) {
-            fclose(fp);
-            remove(tmp_filename);
-            PROFILE_FUNCTION_END;
-            return ierr;
-        }
-        if (fclose(fp) != 0) {
-            remove(tmp_filename);
-            PROFILE_FUNCTION_END;
-            return PETSC_ERR_FILE_WRITE;
-        }
-        if (rename(tmp_filename, filename) != 0) {
-            remove(tmp_filename);
-            PROFILE_FUNCTION_END;
-            return PETSC_ERR_FILE_WRITE;
-        }
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Rank 0 finished writing VTK file '%s'.\n", filename);
+    /* The appended blocks, in the order the header declares them. */
+    block[blocks++] = (struct VTKBlock){3, MPIU_SCALAR, sizeof(PetscScalar), meta->coords};
+    for (PetscInt f = 0; f < meta->num_point_data_fields; ++f)
+        block[blocks++] = (struct VTKBlock){meta->point_data_fields[f].num_components, MPIU_SCALAR, sizeof(PetscScalar),
+                                             meta->point_data_fields[f].data};
+    if (!structured) {
+        block[blocks++] = (struct VTKBlock){1, MPIU_INT, sizeof(PetscInt), meta->connectivity};
+        block[blocks++] = (struct VTKBlock){1, MPIU_INT, sizeof(PetscInt), meta->offsets};
     }
+    for (int d = 0; d < (structured ? 3 : 1); ++d) local_points *= meta->local_size[d];
+
+    if (rank == 0) {
+        FILE *fp = fopen(tmp_filename, "wb");
+        if (!fp || WriteVTKFileHeader(fp, meta, &boffset)) header_bytes = -1;
+        else header_bytes = (long long)ftell(fp);
+        if (fp && fclose(fp)) header_bytes = -1;
+    }
+    PetscCallMPI(MPI_Bcast(&header_bytes, 1, MPI_LONG_LONG, 0, comm));
+    PetscCheck(header_bytes >= 0, comm, PETSC_ERR_FILE_OPEN, "Could not write the VTK header of '%s'.", tmp_filename);
+
+    /* Rank 0 writes each block's byte count; every rank writes its own points into the block. */
+    PetscCallMPI(MPI_File_open(comm, tmp_filename, MPI_MODE_WRONLY, MPI_INFO_NULL, &fh));
+    position = (MPI_Offset)header_bytes;
+    for (PetscInt b = 0; b < blocks; ++b) {
+        const uint64_t bytes = (uint64_t)block[b].components * (uint64_t)meta->npoints * block[b].size;
+        MPI_Datatype   point, view;
+        PetscMPIInt    count;
+
+        PetscCallMPI(MPI_File_set_view(fh, 0, MPI_BYTE, MPI_BYTE, "native", MPI_INFO_NULL));
+        if (rank == 0) PetscCallMPI(MPI_File_write_at(fh, position, &bytes, (int)sizeof(bytes), MPI_BYTE, MPI_STATUS_IGNORE));
+        position += (MPI_Offset)sizeof(bytes);
+
+        PetscCallMPI(MPI_Type_contiguous((PetscMPIInt)block[b].components, block[b].type, &point));
+        PetscCallMPI(MPI_Type_commit(&point));
+        view = point;
+        if (structured && local_points > 0) {
+            const PetscMPIInt sizes[3]    = {(PetscMPIInt)meta->mz, (PetscMPIInt)meta->my, (PetscMPIInt)meta->mx};
+            const PetscMPIInt subsizes[3] = {(PetscMPIInt)meta->local_size[2], (PetscMPIInt)meta->local_size[1], (PetscMPIInt)meta->local_size[0]};
+            const PetscMPIInt starts[3]   = {(PetscMPIInt)meta->local_start[2], (PetscMPIInt)meta->local_start[1], (PetscMPIInt)meta->local_start[0]};
+            PetscCallMPI(MPI_Type_create_subarray(3, sizes, subsizes, starts, MPI_ORDER_C, point, &view));
+            PetscCallMPI(MPI_Type_commit(&view));
+        }
+        PetscCallMPI(MPI_File_set_view(fh, position, point, view, "native", MPI_INFO_NULL));
+        PetscCall(PetscMPIIntCast(local_points, &count));
+        if (structured) PetscCallMPI(MPI_File_write_all(fh, block[b].data, count, point, MPI_STATUS_IGNORE));
+        else PetscCallMPI(MPI_File_write_at_all(fh, (MPI_Offset)meta->local_start[0], block[b].data, count, point, MPI_STATUS_IGNORE));
+        if (view != point) PetscCallMPI(MPI_Type_free(&view));
+        PetscCallMPI(MPI_Type_free(&point));
+        position += (MPI_Offset)bytes;
+    }
+    PetscCallMPI(MPI_File_set_view(fh, 0, MPI_BYTE, MPI_BYTE, "native", MPI_INFO_NULL));
+    if (rank == 0) PetscCallMPI(MPI_File_write_at(fh, position, footer, (int)strlen(footer), MPI_BYTE, MPI_STATUS_IGNORE));
+    PetscCallMPI(MPI_File_close(&fh));
+    if (rank == 0) PetscCheck(rename(tmp_filename, filename) == 0, PETSC_COMM_SELF, PETSC_ERR_FILE_WRITE,
+                              "Could not move '%s' to '%s'.", tmp_filename, filename);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Wrote VTK file '%s'.\n", filename);
     PROFILE_FUNCTION_END;
-    return 0;
+    PetscFunctionReturn(0);
 }
 
 //================================================================================
@@ -261,64 +255,22 @@ PetscErrorCode CreateVTKFileFromMetadata(const char *filename, const VTKMetaData
  * @brief Internal helper implementation: `PrepareOutputCoordinates()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords, PetscInt* out_nx, PetscInt* out_ny, PetscInt* out_nz, PetscInt* out_npoints)
+PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords, PetscInt* out_nx, PetscInt* out_ny, PetscInt* out_nz,
+                                        PetscInt* out_npoints, PetscInt local_start[3], PetscInt local_size[3])
 {
-    PetscErrorCode ierr;
-    Vec            coords_global;
-    PetscInt       IM, JM, KM;
-    PetscInt       N_full_coords;
-    PetscScalar    *full_coords_arr = NULL;
+    Vec      coords_global;
+    PetscInt IM, JM, KM;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = DMDAGetInfo(user->da, NULL, &IM, &JM, &KM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
-
-    // Set the dimensions of the output grid
+    PetscCall(DMDAGetInfo(user->da, NULL, &IM, &JM, &KM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL));
     *out_nx = IM - 1;
     *out_ny = JM - 1;
     *out_nz = KM - 1;
     *out_npoints = (*out_nx) * (*out_ny) * (*out_nz);
-
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Preparing subsampled coordinates for a %" PetscInt_FMT "x%" PetscInt_FMT "x%" PetscInt_FMT " grid.\n", *out_nx, *out_ny, *out_nz);
-
-    // --- Step 1: Gather the full coordinate vector to rank 0 ---
-    ierr = DMGetCoordinates(user->da, &coords_global); CHKERRQ(ierr);
-    // Reuse of your existing, proven utility function's logic
-    ierr = VecToArrayOnRank0(coords_global, &N_full_coords, &full_coords_arr); CHKERRQ(ierr);
-
-    // --- Step 2: On rank 0, subsample the gathered array ---
-    if (user->simCtx->rank == 0) {
-        // We expect N_full_coords to be IM * JM * KM * 3
-        if (N_full_coords != IM * JM * KM * 3) {
-            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_UNEXPECTED, "Gathered coordinate array has wrong size. Expected %" PetscInt_FMT ", got %" PetscInt_FMT, IM * JM * KM * 3, N_full_coords);
-        }
-
-        // Allocate the smaller output C array
-        ierr = PetscMalloc1(3 * (*out_npoints), out_coords); CHKERRQ(ierr);
-
-        // Loop over the smaller grid dimensions and copy data
-        PetscInt p_out = 0; // Index for the small output array
-        for (PetscInt k = 0; k < *out_nz; k++) {
-            for (PetscInt j = 0; j < *out_ny; j++) {
-                for (PetscInt i = 0; i < *out_nx; i++) {
-                    // Calculate the index in the full, 1D source array
-                    PetscInt p_in = 3 * (k * (JM * IM) + j * IM + i);
-                    
-                    (*out_coords)[p_out++] = full_coords_arr[p_in + 0]; // x
-                    (*out_coords)[p_out++] = full_coords_arr[p_in + 1]; // y
-                    (*out_coords)[p_out++] = full_coords_arr[p_in + 2]; // z
-                }
-            }
-        }
-        // Free the temporary full array that was allocated by VecToArrayOnRank0
-        ierr = PetscFree(full_coords_arr); CHKERRQ(ierr);
-    } else {
-        // On other ranks, the output pointer is NULL
-        *out_coords = NULL;
-    }
-
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Subsampled coordinates prepared on rank 0 with total %" PetscInt_FMT " points.\n", *out_npoints);
-
+    const PetscInt extent[3] = {*out_nx, *out_ny, *out_nz};
+    PetscCall(DMGetCoordinates(user->da, &coords_global));
+    PetscCall(CopyOwnedOutputBox(coords_global, extent, local_start, local_size, out_coords));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -339,7 +291,7 @@ PetscErrorCode BeginStructuredVTKOutput(UserCtx *user, VTKMetaData *meta)
     PetscCall(PetscMemzero(meta, sizeof(*meta)));
     meta->fileType = VTK_STRUCTURED;
     PetscCall(PrepareOutputCoordinates(user, &meta->coords, &meta->mx, &meta->my, &meta->mz,
-                                       &meta->npoints));
+                                       &meta->npoints, meta->local_start, meta->local_size));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -408,110 +360,20 @@ PetscErrorCode FinishStructuredVTKOutput(VTKMetaData *meta, const char *filename
 
 PetscErrorCode PrepareOutputEulerianFieldData(UserCtx *user, Vec field_vec, PetscInt num_components, PetscScalar** out_data)
 {
-    PetscErrorCode ierr;
-    PetscInt       IM, JM, KM, nx, ny, nz, npoints;
-    PetscInt       N_full_field = 0;
-    PetscScalar   *full_field_arr = NULL;
+    PetscInt IM, JM, KM, dof, start[3], size[3];
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = DMDAGetInfo(user->da, NULL, &IM, &JM, &KM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
-    nx = IM - 1; ny = JM - 1; nz = KM - 1;
-    npoints = nx * ny * nz;
-
-    LOG_ALLOW(GLOBAL, LOG_DEBUG,
-              "Preparing subsampled field data (dof=%" PetscInt_FMT ") for a %" PetscInt_FMT "x%" PetscInt_FMT "x%" PetscInt_FMT " grid.\n",
-              num_components, nx, ny, nz);
-
-    // --- Step 1: Gather the full field vector to rank 0 ---
-    ierr = VecToArrayOnRank0(field_vec, &N_full_field, &full_field_arr); CHKERRQ(ierr);
-
-    // --- Step 2: On rank 0, subsample the gathered array ---
-    if (user->simCtx->rank == 0) {
-        // Sanity check the size of the gathered array
-        if (N_full_field != IM * JM * KM * num_components) {
-            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_UNEXPECTED,
-                    "Gathered field array has wrong size. Expected %" PetscInt_FMT ", got %" PetscInt_FMT,
-                    IM * JM * KM * num_components, N_full_field);
-        }
-
-        // Allocate the smaller output C array (AoS layout expected by your writer)
-        ierr = PetscMalloc1(num_components * npoints, out_data); CHKERRQ(ierr);
-
-        /*
-        // ======== Layout diagnostics (rank 0 only, read-only) ========
-        if (num_components > 1 && full_field_arr) {
-            const PetscInt n_full = IM * JM * KM;
-
-            // Choose a safe interior probe point and its +i neighbor
-            const PetscInt ic = (IM > 4) ? IM/2 : 1;
-            const PetscInt jc = (JM > 4) ? JM/2 : 1;
-            const PetscInt kc = (KM > 4) ? KM/2 : 1;
-            const PetscInt ic1 = (ic + 1 < IM-1) ? (ic + 1) : ic; // stay interior
-
-            const PetscInt t_full_c  = (kc * JM + jc) * IM + ic;
-            const PetscInt t_full_c1 = (kc * JM + jc) * IM + ic1;
-
-            // If source were AoS:  full[num_components * t + comp]
-            PetscScalar aos_c0   = full_field_arr[num_components * t_full_c  + 0];
-            PetscScalar aos_c1   = full_field_arr[num_components * t_full_c1 + 0];
-            PetscScalar aos_c0_y = (num_components > 1) ? full_field_arr[num_components * t_full_c + 1] : 0.0;
-            PetscScalar aos_c0_z = (num_components > 2) ? full_field_arr[num_components * t_full_c + 2] : 0.0;
-
-            // If source were SoA:  full[comp * n_full + t]
-            PetscScalar soa_c0   = full_field_arr[0 * n_full + t_full_c];
-            PetscScalar soa_c1   = full_field_arr[0 * n_full + t_full_c1];
-            PetscScalar soa_c0_y = (num_components > 1) ? full_field_arr[1 * n_full + t_full_c] : 0.0;
-            PetscScalar soa_c0_z = (num_components > 2) ? full_field_arr[2 * n_full + t_full_c] : 0.0;
-
-            double dAOS = fabs((double)(aos_c1 - aos_c0)); // spatial delta along +i
-            double dSOA = fabs((double)(soa_c1 - soa_c0));
-
-            const char *verdict = (dSOA < dAOS) ? "LIKELY SoA (component-major)" : "LIKELY AoS (interleaved)";
-
-            LOG_ALLOW(GLOBAL, LOG_INFO,
-                "Layout probe @ (i=%" PetscInt_FMT ", j=%" PetscInt_FMT ", k=%" PetscInt_FMT ") vs +i neighbor:\n"
-                "  AoS-candidate:  Ux(center)=%.6e  Ux(+i)=%.6e  |Δ|=%.6e ; Uy(center)=%.6e  Uz(center)=%.6e\n"
-                "  SoA-candidate:  Ux(center)=%.6e  Ux(+i)=%.6e  |Δ|=%.6e ; Uy(center)=%.6e  Uz(center)=%.6e\n"
-                "  Verdict: %s\n",
-                ic, jc, kc,
-                (double)aos_c0,  (double)aos_c1,  dAOS, (double)aos_c0_y, (double)aos_c0_z,
-                (double)soa_c0,  (double)soa_c1,  dSOA, (double)soa_c0_y, (double)soa_c0_z,
-                verdict
-            );
-        } else if (num_components == 1) {
-            LOG_ALLOW(GLOBAL, LOG_INFO, "Layout probe: scalar field (dof=1) — no component interleave to detect.\n");
-        }
-        // ======== END diagnostics ========
-        */
-
-        // --- PACK: assumes source is already AoS ---
-        {
-            PetscInt p_out = 0;
-            for (PetscInt k = 0; k < nz; k++) {
-                for (PetscInt j = 0; j < ny; j++) {
-                    for (PetscInt i = 0; i < nx; i++) {
-                        const PetscInt p_in_start = num_components * (k * (JM * IM) + j * IM + i);
-                        for (PetscInt c = 0; c < num_components; c++) {
-                            (*out_data)[p_out++] = full_field_arr[p_in_start + c];
-                        }
-                    }
-                }
-            }
-        }
-
-        // Free temporary gathered array
-        ierr = PetscFree(full_field_arr); CHKERRQ(ierr);
-    } else {
-        // Other ranks: no allocation
-        *out_data = NULL;
-    }
-
-    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Subsampled field data prepared on rank 0 with total %" PetscInt_FMT " points.\n", npoints);
-
+    PetscCall(DMDAGetInfo(user->da, NULL, &IM, &JM, &KM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL));
+    PetscCall(VecGetBlockSize(field_vec, &dof));
+    PetscCheck(dof == num_components, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+               "Field has %" PetscInt_FMT " components per node, not the %" PetscInt_FMT " requested.", dof, num_components);
+    const PetscInt extent[3] = {IM - 1, JM - 1, KM - 1};
+    PetscCall(CopyOwnedOutputBox(field_vec, extent, start, size, out_data));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
+
 
 /**
  * @brief Internal helper implementation: `PrepareOutputParticleData()`.
@@ -519,181 +381,107 @@ PetscErrorCode PrepareOutputEulerianFieldData(UserCtx *user, Vec field_vec, Pets
  */
 PetscErrorCode PrepareOutputParticleData(UserCtx* user, PostProcessParams* pps, VTKMetaData* meta, PetscInt* p_n_total)
 {
-    PetscErrorCode ierr;
-    PetscInt n_total_particles, n_components;
-    PetscInt stride = pps->particle_output_freq > 0 ? pps->particle_output_freq : 1;
+    const PetscInt stride = pps->particle_output_freq > 0 ? pps->particle_output_freq : 1;
+    PetscInt       nlocal = 0, first = 0, before = 0, kept = 0, bs = 0;
+    PetscDataType  type;
+    PetscReal     *position = NULL;
+    char          *fields_copy = NULL, *field_name = NULL;
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
 
-    // Initialize output parameters on all ranks
-    *p_n_total = 0;
+    /* Particles are numbered in rank order; output keeps every stride-th one, so this rank
+       keeps its particles from local index `first` on, written from output point `before`. */
+    PetscCall(DMSwarmGetLocalSize(user->swarm, &nlocal));
+    PetscCallMPI(MPI_Exscan(&nlocal, &before, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD));
+    if (user->simCtx->rank == 0) before = 0;
+    PetscCall(DMSwarmGetSize(user->swarm, p_n_total));
+    if (*p_n_total == 0) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
+    first = (stride - before % stride) % stride;
+    kept  = first < nlocal ? (nlocal - 1 - first) / stride + 1 : 0;
 
-    // --- The entire preparation process is a series of collective gathers followed by rank-0 processing ---
+    meta->fileType       = VTK_POLYDATA;
+    meta->npoints        = (*p_n_total - 1) / stride + 1;
+    meta->local_start[0] = (before + first) / stride;
+    meta->local_size[0]  = kept;
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Subsampling %" PetscInt_FMT " particles with stride %" PetscInt_FMT " -> %" PetscInt_FMT " output particles.\n",
+              *p_n_total, stride, meta->npoints);
 
-    // --- Step 1: Gather Full Coordinates from SOURCE Swarm (Collective) ---
-    // This establishes the ground truth for particle positions and total count.
-    PetscReal *full_coords_arr = NULL;
-    PetscDataType coordinate_type;
-    // NOTE: This assumes SwarmFieldToArrayOnRank0 exists and works for PetscScalar fields.
-    // If not, it may need to be generalized like the logic below.
-    ierr = SwarmFieldToArrayOnRank0(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),
-                                    &n_total_particles, &n_components, &coordinate_type,
-                                    (void**)&full_coords_arr); CHKERRQ(ierr);
-    PetscCheck(coordinate_type == PETSC_REAL,
-               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
-               "Particle position field must use PETSC_REAL storage, not %s.",
-               PetscDataTypes[coordinate_type]);
+    PetscCall(DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), &bs, &type, (void **)&position));
+    PetscCheck(type == PETSC_REAL && bs == 3, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
+               "Particle position field must be 3 PETSC_REAL components, not %" PetscInt_FMT " of %s.", bs, PetscDataTypes[type]);
+    PetscCall(PetscMalloc1(3 * kept, &meta->coords));
+    for (PetscInt i = 0; i < kept; ++i)
+        for (int d = 0; d < 3; ++d) meta->coords[3 * i + d] = position[3 * (first + i * stride) + d];
+    PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), &bs, &type, (void **)&position));
 
-    *p_n_total = n_total_particles;
-    if (n_total_particles == 0) {
-        ierr = PetscFree(full_coords_arr); CHKERRQ(ierr);
-        PROFILE_HELPER_END;
-        PetscFunctionReturn(0);
-    }
-    PetscCheck(n_components == 3,
-               PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG,
-               "Coordinate field position must have 3 components, but has %" PetscInt_FMT,
-               n_components);
-
-    // --- Step 2: Prepare and Subsample Coordinates (Rank 0 Only) ---
-    if (user->simCtx->rank == 0) {
-        // --- Subsampling Calculation ---
-        meta->npoints = (n_total_particles > 0) ? (n_total_particles - 1) / stride + 1 : 0;
-
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "Subsampling %" PetscInt_FMT " total particles with stride %" PetscInt_FMT " -> %" PetscInt_FMT " output particles.\n",
-                  n_total_particles, stride, meta->npoints);
-
-        // --- Prepare Final Coordinates Array ---
-        ierr = PetscMalloc1(3 * meta->npoints, &meta->coords); CHKERRQ(ierr);
-        for (PetscInt i = 0; i < meta->npoints; i++) {
-            PetscInt source_idx = i * stride;
-            for (int d = 0; d < 3; d++) meta->coords[3 * i + d] = full_coords_arr[3 * source_idx + d];
-        }
-    }
-    ierr = PetscFree(full_coords_arr); CHKERRQ(ierr);
-
-    // --- Step 3: Gather Fields (Collective), then Subsample and Store (Rank 0 Only) ---
-    char *fields_copy, *field_name;
-    PetscInt num_fields = 0;
-    ierr = PetscStrallocpy(pps->particle_fields, &fields_copy); CHKERRQ(ierr);
-    field_name = strtok(fields_copy, ",");
-    while (field_name && num_fields < MAX_POINT_DATA_FIELDS) {
-        TrimWhitespace(field_name);
-        if (!*field_name || strcasecmp(field_name, "position") == 0) {
-            field_name = strtok(NULL, ","); continue;
-        }
-
-        // A. Determine which swarm is the source for this field on every rank.
-        DM swarm_to_use = user->swarm; // Default to the main solver swarm.
-        const char* internal_name = field_name; // Default internal name to user-facing name.
-
+    PetscCall(PetscStrallocpy(pps->particle_fields, &fields_copy));
+    for (field_name = strtok(fields_copy, ","); field_name && meta->num_point_data_fields < MAX_POINT_DATA_FIELDS;
+         field_name = strtok(NULL, ",")) {
+        DM             swarm_to_use = user->swarm;
+        const char    *internal_name = field_name;
         PetscErrorCode check_ierr;
-        ierr = PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL); CHKERRQ(ierr);
+        PetscInt       field_local = 0, field_total = 0;
+        void          *source = NULL;
+
+        TrimWhitespace(field_name);
+        if (!*field_name || strcasecmp(field_name, "position") == 0) continue;
+
+        /* A field registered on the post-processing swarm comes from there, otherwise from the solver swarm. */
+        PetscCall(PetscPushErrorHandler(PetscIgnoreErrorHandler, NULL));
         check_ierr = DMSwarmGetField(user->post_swarm, field_name, NULL, NULL, NULL);
-        ierr = PetscPopErrorHandler(); CHKERRQ(ierr);
+        PetscCall(PetscPopErrorHandler());
         if (!check_ierr) {
             swarm_to_use = user->post_swarm;
-            ierr = DMSwarmRestoreField(user->post_swarm, field_name, NULL, NULL, NULL); CHKERRQ(ierr);
-            if (user->simCtx->rank == 0) {
-                LOG_ALLOW(LOCAL, LOG_DEBUG, "Field '%s' will be sourced from the post-processing swarm.\n", field_name);
-            }
+            PetscCall(DMSwarmRestoreField(user->post_swarm, field_name, NULL, NULL, NULL));
+            LOG_ALLOW(GLOBAL, LOG_DEBUG, "Field '%s' will be sourced from the post-processing swarm.\n", field_name);
         } else {
-            if (user->simCtx->rank == 0) {
-                LOG_ALLOW(LOCAL, LOG_DEBUG, "Field '%s' will be sourced from the main solver swarm.\n", field_name);
-            }
+            LOG_ALLOW(GLOBAL, LOG_DEBUG, "Field '%s' will be sourced from the main solver swarm.\n", field_name);
             if (strcasecmp(field_name, "pid") == 0) internal_name = "DMSwarm_pid";
             else if (strcasecmp(field_name, "CellID") == 0) internal_name = "DMSwarm_CellID";
             else if (strcasecmp(field_name, "Migration Status") == 0) internal_name = "DMSwarm_location_status";
         }
-
-        // B. Gather the complete field on rank 0 before applying the output stride.
-        // SwarmFieldToArrayOnRank0 handles both scalar and vector field layouts.
-        void* full_field_arr_void = NULL;
-        PetscInt field_total_particles, field_num_components;
-        PetscDataType field_data_type;
-
-        ierr = SwarmFieldToArrayOnRank0(swarm_to_use, internal_name,
-                                        &field_total_particles, &field_num_components,
-                                        &field_data_type, &full_field_arr_void); CHKERRQ(ierr);
-
-        if (field_total_particles != n_total_particles) {
-            if (user->simCtx->rank == 0) {
-                LOG_ALLOW(LOCAL, LOG_WARNING, "Field '%s' has %" PetscInt_FMT " particles, but expected %" PetscInt_FMT ". Skipping.\n", field_name, field_total_particles, n_total_particles);
-            }
-            ierr = PetscFree(full_field_arr_void); CHKERRQ(ierr);
-            field_name = strtok(NULL, ","); continue;
+        PetscCall(DMSwarmGetLocalSize(swarm_to_use, &field_local));
+        PetscCall(DMSwarmGetSize(swarm_to_use, &field_total));
+        if (field_total != *p_n_total) {
+            LOG_ALLOW(GLOBAL, LOG_WARNING, "Field '%s' has %" PetscInt_FMT " particles, but expected %" PetscInt_FMT ". Skipping.\n",
+                      field_name, field_total, *p_n_total);
+            continue;
         }
+        PetscCheck(field_local == nlocal, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
+                   "Field '%s' holds %" PetscInt_FMT " particles on this rank, the solver swarm %" PetscInt_FMT ".",
+                   field_name, field_local, nlocal);
 
-        if (user->simCtx->rank == 0) {
-            // C. Allocate final array (ALWAYS as PetscScalar) and copy/cast subsampled data.
-            VTKFieldInfo* current_field = &meta->point_data_fields[meta->num_point_data_fields];
-            strncpy(current_field->name, field_name, MAX_VTK_FIELD_NAME_LENGTH - 1);
-            current_field->name[MAX_VTK_FIELD_NAME_LENGTH - 1] = '\0';
-            current_field->num_components = field_num_components;
-            ierr = PetscMalloc1(current_field->num_components * meta->npoints, (PetscScalar**)&current_field->data); CHKERRQ(ierr);
-
-            PetscScalar* final_data_arr = (PetscScalar*)current_field->data;
-
-            // D. Perform the subsampling and potential casting
-            if (field_data_type == PETSC_INT64) {
-                PetscInt64* source_arr = (PetscInt64*)full_field_arr_void;
-                for (PetscInt i = 0; i < meta->npoints; i++) {
-                    final_data_arr[i] = (PetscScalar)source_arr[i * stride];
-                }
-            } else if (field_data_type == PETSC_INT) {
-                PetscInt* source_arr = (PetscInt*)full_field_arr_void;
-                for (PetscInt i = 0; i < meta->npoints; i++) {
-                    PetscInt source_idx = i * stride;
-                    for (PetscInt c = 0; c < current_field->num_components; c++) {
-                        final_data_arr[current_field->num_components * i + c] = (PetscScalar)source_arr[current_field->num_components * source_idx + c];
-                    }
-                }
-            } else if (field_data_type == PETSC_REAL) {
-                PetscReal* source_arr = (PetscReal*)full_field_arr_void;
-                for (PetscInt i = 0; i < meta->npoints; i++) {
-                    PetscInt source_idx = i * stride;
-                    for (PetscInt c = 0; c < current_field->num_components; c++) {
-                        final_data_arr[current_field->num_components * i + c] = source_arr[current_field->num_components * source_idx + c];
-                    }
-                }
+        VTKFieldInfo *current = &meta->point_data_fields[meta->num_point_data_fields];
+        PetscCall(DMSwarmGetField(swarm_to_use, internal_name, &bs, &type, &source));
+        PetscCall(PetscStrncpy(current->name, field_name, MAX_VTK_FIELD_NAME_LENGTH));
+        current->num_components = bs;
+        PetscCall(PetscMalloc1(bs * kept, &current->data));
+        for (PetscInt i = 0; i < kept; ++i) {
+            const PetscInt from = first + i * stride;
+            for (PetscInt c = 0; c < bs; ++c) {
+                PetscScalar *to = &current->data[bs * i + c];
+                if (type == PETSC_INT64) *to = (PetscScalar)((PetscInt64 *)source)[bs * from + c];
+                else if (type == PETSC_INT) *to = (PetscScalar)((PetscInt *)source)[bs * from + c];
+                else if (type == PETSC_REAL) *to = ((PetscReal *)source)[bs * from + c];
 #if defined(PETSC_USE_COMPLEX)
-            } else if (field_data_type == PETSC_SCALAR) {
-                PetscScalar* source_arr = (PetscScalar*)full_field_arr_void;
-                for (PetscInt i = 0; i < meta->npoints; i++) {
-                    PetscInt source_idx = i * stride;
-                    for (PetscInt c = 0; c < current_field->num_components; c++) {
-                        final_data_arr[current_field->num_components * i + c] = source_arr[current_field->num_components * source_idx + c];
-                    }
-                }
+                else if (type == PETSC_SCALAR) *to = ((PetscScalar *)source)[bs * from + c];
 #endif
-            } else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP,
-                           "VTK particle output does not support field '%s' with PETSc type %s.",
-                           field_name, PetscDataTypes[field_data_type]);
-
-            meta->num_point_data_fields++;
-        }
-        ierr = PetscFree(full_field_arr_void); CHKERRQ(ierr);
-        num_fields++;
-        field_name = strtok(NULL, ",");
-    }
-    ierr = PetscFree(fields_copy); CHKERRQ(ierr);
-
-    // --- Step 4: Finalize VTK MetaData for PolyData (Rank 0 Only) ---
-    if (user->simCtx->rank == 0) {
-        if (meta->npoints > 0) {
-            meta->fileType = VTK_POLYDATA;
-            ierr = PetscMalloc1(meta->npoints, &meta->connectivity); CHKERRQ(ierr);
-            ierr = PetscMalloc1(meta->npoints, &meta->offsets); CHKERRQ(ierr);
-            for (PetscInt i = 0; i < meta->npoints; i++) {
-                meta->connectivity[i] = i;
-                meta->offsets[i] = i + 1;
+                else SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP, "VTK particle output does not support field '%s' with PETSc type %s.",
+                             field_name, PetscDataTypes[type]);
             }
         }
+        PetscCall(DMSwarmRestoreField(swarm_to_use, internal_name, &bs, &type, &source));
+        meta->num_point_data_fields++;
     }
+    PetscCall(PetscFree(fields_copy));
 
-    ierr = MPI_Barrier(PETSC_COMM_WORLD); CHKERRQ(ierr);
-
+    PetscCall(PetscMalloc1(kept, &meta->connectivity));
+    PetscCall(PetscMalloc1(kept, &meta->offsets));
+    for (PetscInt i = 0; i < kept; ++i) {
+        meta->connectivity[i] = meta->local_start[0] + i;
+        meta->offsets[i]      = meta->local_start[0] + i + 1;
+    }
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
