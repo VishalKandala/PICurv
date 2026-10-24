@@ -1,0 +1,1 @@
+- Experimental: every C function that is not `static inline` is now profiled. Functions called rarely are timed always; per-particle and per-cell ones are off unless `profiling.helpers` names them, so they cost almost nothing. Functions are named by `__func__` in profiling, logging filters and error traces alike, and `make audit-profiling` keeps the coverage complete.
