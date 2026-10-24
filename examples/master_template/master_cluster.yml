@@ -33,6 +33,9 @@ execution:
   module_setup:
     - "module purge"
     - "module restore petsc-setup"
+    # Open MPI 4.1 on Lustre: ROMIO reads and writes checkpoint files faster than the default
+    # OMPIO driver when OMPIO has no Lustre component (see the Monitor Reference, io section).
+    # - "export OMPI_MCA_io=romio321"
 
   # Launcher and args are batch-specific overrides.
   # If your site uses the same launcher tokens for login-node and batch runs,

@@ -91,6 +91,13 @@ Semantics:
   without its final checkpoint a run resumes (`--continue`) or branches from its last cadence
   checkpoint, and without the initial one there is no step-0 state to post-process. A run
   stopped early by a signal or the walltime guard still checkpoints its last good state.
+- Every rank writes and reads its own part of each checkpoint field file through MPI-IO; the
+  file format is the same as the rank-0 relay's, so either kind of build reads the other's
+  checkpoints. PETSc's `-viewer_binary_mpiio false` (via `petsc_passthrough_options`) moves
+  the files through rank 0 instead. On Open MPI 4.1 over Lustre, `export OMPI_MCA_io=romio321`
+  in the cluster profile's `execution.module_setup` was measured 19% faster on cold reads and
+  7-15% faster on writes than the default OMPIO driver, which there has no Lustre support
+  (64 ranks, one case, TAMU Grace).
 - Checkpoint-internal `eulerian/`, `particles/`, and `statistics/` names are
   fixed and are not user configuration. See @ref p58_checkpoint_sec.
 - `statistics_console_output_frequency` controls how often field-statistics window

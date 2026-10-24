@@ -181,15 +181,19 @@ static PetscErrorCode GatherVectorToRankZero(Vec field_vec, Vec *sequential_vec)
  * @details Every rank reads or writes its own contiguous part of the file collectively, instead
  *          of rank 0 relaying each rank's share; the file is the same PETSc binary file (header,
  *          then the values in vector order) either way. No `.info` sidecar is read or written.
+ *          PETSc's own `-viewer_binary_mpiio false` switches to the rank-0 relay for both.
  */
 static PetscErrorCode OpenFieldPayloadViewer(MPI_Comm comm, const char *filename, PetscFileMode mode, PetscViewer *viewer)
 {
+    PetscBool use_mpiio = PETSC_TRUE;
+
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
+    PetscCall(PetscOptionsGetBool(NULL, NULL, "-viewer_binary_mpiio", &use_mpiio, NULL));
     PetscCall(PetscViewerCreate(comm, viewer));
     PetscCall(PetscViewerSetType(*viewer, PETSCVIEWERBINARY));
     PetscCall(PetscViewerFileSetMode(*viewer, mode));
-    PetscCall(PetscViewerBinarySetUseMPIIO(*viewer, PETSC_TRUE));
+    PetscCall(PetscViewerBinarySetUseMPIIO(*viewer, use_mpiio));
     PetscCall(PetscViewerBinarySetSkipInfo(*viewer, PETSC_TRUE));
     PetscCall(PetscViewerFileSetName(*viewer, filename));
     PROFILE_FUNCTION_END;

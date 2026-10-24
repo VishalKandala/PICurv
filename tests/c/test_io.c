@@ -103,10 +103,10 @@ static PetscErrorCode TestBoundaryCheckpointsCanBeSkipped(void)
 }
 
 /**
- * @brief Tests writing and reloading core Eulerian field vectors.
+ * @brief Writes a checkpoint and reloads its core Eulerian fields, each side optionally
+ *        through PETSc's rank-0 relay (`-viewer_binary_mpiio false`) instead of MPI-IO.
  */
-
-static PetscErrorCode TestWriteAndReadSimulationFields(void)
+static PetscErrorCode WriteAndReadSimulationFields(PetscBool write_mpiio, PetscBool read_mpiio)
 {
     SimCtx *simCtx = NULL;
     UserCtx *user = NULL;
@@ -130,7 +130,9 @@ static PetscErrorCode TestWriteAndReadSimulationFields(void)
     simCtx->ti = 0.35;
     PetscCall(PicurvPopulateIdentityMetrics(user));
 
+    PetscCall(PetscOptionsSetValue(NULL, "-viewer_binary_mpiio", write_mpiio ? "true" : "false"));
     PetscCall(WriteCheckpointBundle(simCtx, "test"));
+    PetscCall(PetscOptionsSetValue(NULL, "-viewer_binary_mpiio", read_mpiio ? "true" : "false"));
     PetscCall(PetscSNPrintf(path, sizeof(path),
                             "%s/checkpoints/step_000000000001/checkpoint.meta", tmpdir));
     PetscCall(PetscTestFile(path, 'r', &exists));
@@ -158,10 +160,33 @@ static PetscErrorCode TestWriteAndReadSimulationFields(void)
     PetscCall(PicurvAssertRealNear(0.35, simCtx->ti, 1.0e-12,
                                    "checkpoint physical time should be authoritative"));
 
+    PetscCall(PetscOptionsClearValue(NULL, "-viewer_binary_mpiio"));
     PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
     if (simCtx->rank == 0) PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCallMPI(MPI_Barrier(PETSC_COMM_WORLD));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests writing and reloading core Eulerian field vectors through MPI-IO.
+ */
+static PetscErrorCode TestWriteAndReadSimulationFields(void)
+{
+    PetscFunctionBeginUser;
+    PetscCall(WriteAndReadSimulationFields(PETSC_TRUE, PETSC_TRUE));
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Tests that payloads written through the rank-0 relay load through MPI-IO and back:
+ *        `-viewer_binary_mpiio` changes how a file is moved, never its format.
+ */
+static PetscErrorCode TestFieldPayloadsAreTransportIndependent(void)
+{
+    PetscFunctionBeginUser;
+    PetscCall(WriteAndReadSimulationFields(PETSC_FALSE, PETSC_TRUE));
+    PetscCall(WriteAndReadSimulationFields(PETSC_TRUE, PETSC_FALSE));
     PetscFunctionReturn(0);
 }
 
@@ -1164,6 +1189,7 @@ int main(int argc, char **argv)
         {"verify-path-existence", TestVerifyPathExistence},
         {"write-and-read-simulation-fields", TestWriteAndReadSimulationFields},
         {"boundary-checkpoints-can-be-skipped", TestBoundaryCheckpointsCanBeSkipped},
+        {"field-payloads-are-transport-independent", TestFieldPayloadsAreTransportIndependent},
         {"postprocessor-read-scales-each-load-once", TestPostprocessorReadScalesEachLoadOnce},
         {"checkpoint-same-step-rewrite-rejected", TestCheckpointSameStepRewriteIsRejected},
         {"display-banner-reports-statistics-cadence", TestDisplayBannerReportsStatisticsCadence},

@@ -156,6 +156,7 @@
     "-verification_scalar_profile",
     "-verification_scalar_slope_x",
     "-verification_scalar_value",
+    "-viewer_binary_mpiio",
     "-wall_roughness",
     "-wallfunction",
     "-walltime_guard_enabled",
