@@ -11797,7 +11797,7 @@ def build_spectra_follow_command(run_dir: str, post_path: str, post_cfg: dict,
 def executable_petsc_library_dir(executable_path: str) -> "str | None":
     """!
     @brief The lib/ directory of the PETSc an executable was built against, from its stamp.
-    @details Both PETSc index widths name their library libpetsc.so.<version>, so the loader
+    @details Both PETSc index widths name their library libpetsc.so.MAJOR.MINOR, so the loader
              takes whichever comes first on LD_LIBRARY_PATH; launching with this directory first
              gives each executable its own PETSc whatever modules the job loaded.
     @param[in] executable_path Path to `simulator`, `postprocessor` or their 64-bit pair.

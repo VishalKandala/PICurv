@@ -39,7 +39,7 @@ int PicurvHandleVersionArgument(int argc, char **argv, const char *executable_na
 
 /**
  * @brief Refuse to start when the loaded libpetsc's PetscInt width differs from this build's.
- * @details The 32- and 64-bit-index PETSc builds share the library name libpetsc.so.<version>,
+ * @details The 32- and 64-bit-index PETSc builds share the library name libpetsc.so.MAJOR.MINOR,
  *          so another build's library first on LD_LIBRARY_PATH (a PETSc module, say) is loaded
  *          without complaint and corrupts every size it is handed. The library reports its own
  *          width through PetscDataTypeGetSize(PETSC_INT), whose signature does not depend on it,
