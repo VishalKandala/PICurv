@@ -1,0 +1,1 @@
+- Fix: the PETSc-width refusal names `simulator64`/`postprocessor64` as launched, and `picurv version` reports the `libpetsc` a picurv launch loads instead of flagging a 64-bit executable under a 32-bit PETSc module.

@@ -1,0 +1,1 @@
+- Fix: smoke runs export their launcher's `-mca` settings as `OMPI_MCA_*`, so 1-rank runs started without the launcher no longer hang in `MPI_Init` where Open MPI's `btl/ofi` deadlocks; the cluster template and troubleshooting page show the same exports for cluster profiles.
