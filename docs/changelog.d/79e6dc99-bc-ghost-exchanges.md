@@ -1,0 +1,1 @@
+- Performance: the boundary-condition pass skips ghost updates that repeat one with nothing changed in between, 11-30% fewer exchanges per call depending on the boundary types; results are bit-identical.
