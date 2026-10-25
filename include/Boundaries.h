@@ -462,9 +462,12 @@ PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user);
  * string dispatchers and invoking them from this orchestrator.
  *
  * @param user The main UserCtx struct.
+ * @param final_cell_update PETSC_FALSE leaves the cell fields' last ghost update to the
+ *        caller, which must update `Ucat`, `P` and `Nvert` before anything reads their
+ *        local vectors; PETSC_TRUE leaves them current.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode ApplyPeriodicBCs(UserCtx *user);
+PetscErrorCode ApplyPeriodicBCs(UserCtx *user, PetscBool final_cell_update);
 
 /**
  * @brief Fills the dummy cells on the non-periodic faces of one cell-centred field.

@@ -1661,22 +1661,26 @@ static PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, FieldId fi
 }
 
 /**
- * @brief Body of SynchronizePeriodicCellFields(), optionally without its leading ghost update.
+ * @brief Body of SynchronizePeriodicCellFields(), optionally without its first or last ghost update.
  * @details UpdateLocalGhosts() rebuilds the whole local vector from the global one, so it is
  *          an exact no-op on a field whose global vector has not been written since its last
  *          update. A caller that knows this from its own call sequence passes locals_current
- *          and skips that leading exchange; the per-direction transfers and their updates
- *          always run.
+ *          and skips that leading exchange. A caller that updates every listed field again
+ *          before anything reads its local vector passes final_update = PETSC_FALSE and skips
+ *          the update after the last direction's transfers, leaving the local vectors stale
+ *          until then. The transfers themselves always run.
  * @param[in,out] user Block context owning the fields.
  * @param[in] num_fields Number of cell fields to synchronize.
  * @param[in] field_ids Field identifiers.
  * @param[in] locals_current PETSC_TRUE when every listed field's local vector is already
  *            the ghost update of its current global vector.
+ * @param[in] final_update PETSC_FALSE to leave the last direction's update to the caller.
  * @return 0 on success.
  */
 static PetscErrorCode SynchronizePeriodicCellFieldsFrom(UserCtx *user, PetscInt num_fields,
                                                         const FieldId field_ids[],
-                                                        PetscBool locals_current)
+                                                        PetscBool locals_current,
+                                                        PetscBool final_update)
 {
     PetscErrorCode ierr;
     PetscBool      periodic_i;
@@ -1712,7 +1716,7 @@ static PetscErrorCode SynchronizePeriodicCellFieldsFrom(UserCtx *user, PetscInt 
         for (PetscInt field = 0; field < num_fields; field++) {
             ierr = TransferPeriodicFieldByDirection(user, field_ids[field], 'i'); CHKERRQ(ierr);
         }
-        for (PetscInt field = 0; field < num_fields; field++) {
+        for (PetscInt field = 0; (final_update || periodic_j || periodic_k) && field < num_fields; field++) {
             ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
         }
     }
@@ -1721,7 +1725,7 @@ static PetscErrorCode SynchronizePeriodicCellFieldsFrom(UserCtx *user, PetscInt 
         for (PetscInt field = 0; field < num_fields; field++) {
             ierr = TransferPeriodicFieldByDirection(user, field_ids[field], 'j'); CHKERRQ(ierr);
         }
-        for (PetscInt field = 0; field < num_fields; field++) {
+        for (PetscInt field = 0; (final_update || periodic_k) && field < num_fields; field++) {
             ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
         }
     }
@@ -1730,7 +1734,7 @@ static PetscErrorCode SynchronizePeriodicCellFieldsFrom(UserCtx *user, PetscInt 
         for (PetscInt field = 0; field < num_fields; field++) {
             ierr = TransferPeriodicFieldByDirection(user, field_ids[field], 'k'); CHKERRQ(ierr);
         }
-        for (PetscInt field = 0; field < num_fields; field++) {
+        for (PetscInt field = 0; final_update && field < num_fields; field++) {
             ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
         }
     }
@@ -1750,7 +1754,7 @@ PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields,
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    ierr = SynchronizePeriodicCellFieldsFrom(user, num_fields, field_ids, PETSC_FALSE); CHKERRQ(ierr);
+    ierr = SynchronizePeriodicCellFieldsFrom(user, num_fields, field_ids, PETSC_FALSE, PETSC_TRUE); CHKERRQ(ierr);
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
@@ -2267,7 +2271,7 @@ PetscErrorCode ApplyMetricsPeriodicBCs(UserCtx *user)
  * @brief Internal helper implementation: `ApplyPeriodicBCs()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode ApplyPeriodicBCs(UserCtx *user)
+PetscErrorCode ApplyPeriodicBCs(UserCtx *user, PetscBool final_cell_update)
 {
     PetscErrorCode ierr;
     PetscBool is_any_periodic = PETSC_FALSE;
@@ -2293,7 +2297,7 @@ PetscErrorCode ApplyPeriodicBCs(UserCtx *user)
 
     // STEP 1: Synchronize periodic cell-centered fields in deterministic direction order.
     const FieldId cell_fields[] = {FIELD_ID_UCAT, FIELD_ID_P, FIELD_ID_NVERT};
-    ierr = SynchronizePeriodicCellFields(user, 3, cell_fields); CHKERRQ(ierr);
+    ierr = SynchronizePeriodicCellFieldsFrom(user, 3, cell_fields, PETSC_FALSE, final_cell_update); CHKERRQ(ierr);
 
     /* A future temperature field must be catalogued before requesting its typed ghost update. */
 
@@ -3383,17 +3387,13 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
         // (c) Convert updated Contravariant velocities to Cartesian velocities.
         ierr = Contra2Cart(user); CHKERRQ(ierr);
 
-        // (d) Synchronize the updated Cartesian velocities across all processors
-        //     to ensure all ucat values are current before updating the dummy cells.
-        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+        // (d) Ucat's ghosts are not updated here: the wall function, the dummy and corner
+        //     updates read only global Ucat, and (g) or (i) updates it before any local read.
 
         // (e) If Wall functions are enabled, apply them now to adjust near-wall velocities.
         if(user->simCtx->wallfunction){
           // Apply wall function adjustments to the boundary velocities.
           ierr = ApplyWallFunction(user); CHKERRQ(ierr);
-
-          // Synchronize the updated Cartesian velocities after wall function adjustments.
-          ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
 
           LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Wall Function Applied at Walls.\n");
         }
@@ -3407,8 +3407,9 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
 
         // (g) Handle all periodic boundaries. This is a parallel direct copy
         // that sets the absolute constraints for the rest of the solve.
-        // There is a Ghost update happening inside this function.
-        ierr = ApplyPeriodicBCs(user); CHKERRQ(ierr);
+        // There is a Ghost update happening inside this function. Its last cell-field update
+        // is left to (j): (h) and the staggered transfers do not read local Ucat, P or Nvert.
+        ierr = ApplyPeriodicBCs(user, PETSC_FALSE); CHKERRQ(ierr);
 
         // (h) Update the corner and edge ghost nodes. This routine calculates
         // values for corners/edges by averaging their neighbors, which have been
@@ -3419,17 +3420,20 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
         // (i) Synchronize the updated edge and corner cells across all processors to ensure
         //     consistency before the next iteration or finalization.
         //     Ucont was last written before (g)'s synchronization, or, with no periodic
-        //     face, before (b)'s update unless the wall function wrote it since.
-        ierr = UpdateLocalGhosts(user, FIELD_ID_P); CHKERRQ(ierr);
-        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+        //     face, before (b)'s update unless the wall function wrote it since. With a
+        //     periodic face, (j) updates P and Ucat first, so they are not updated here.
+        if (!any_periodic) {
+            ierr = UpdateLocalGhosts(user, FIELD_ID_P); CHKERRQ(ierr);
+            ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+        }
         ierr = SynchronizePeriodicStaggeredFieldsFrom(user, 1, staggered_fields,
                    (PetscBool)(any_periodic || !user->simCtx->wallfunction)); CHKERRQ(ierr);
 
         // (j) Ensure All the corners are synchronized with  a well defined protocol  in case of Periodic boundary conditions
         // To avoid race conditions.
-        //     Ucat and P were updated in (i) and Nvert at the end of (g), none written since.
+        //     Its leading update also completes (g)'s, which was left to it.
         const FieldId all_fields[] = {FIELD_ID_UCAT, FIELD_ID_P, FIELD_ID_NVERT};
-        ierr = SynchronizePeriodicCellFieldsFrom(user, 3, all_fields, PETSC_TRUE); CHKERRQ(ierr);
+        ierr = SynchronizePeriodicCellFieldsFrom(user, 3, all_fields, PETSC_FALSE, PETSC_TRUE); CHKERRQ(ierr);
 
     }
 
