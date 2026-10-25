@@ -54,10 +54,28 @@ const char picurv_build_stamp[] =
     PICURV_BUILD_STAMP_MARKER PICURV_RELEASE_VERSION " " PICURV_GIT_COMMIT " " PICURV_BUILD_DIRTY;
 
 /**
+ * @brief The name an executable reports itself by: the basename of argv[0].
+ * @details The conductor stages each executable under its own file name (`simulator64`, say),
+ *          so messages and the version line use that name rather than the program's role.
+ * @param[in] argc Native executable argument count.
+ * @param[in] argv Native executable argument vector.
+ * @param[in] fallback Name used when argv[0] is absent or empty.
+ * @return A pointer into argv[0], or fallback.
+ */
+static const char *PicurvExecutableName(int argc, char **argv, const char *fallback)
+{
+    PROFILE_HELPER_BEGIN;
+    const char *name = (argc > 0 && argv && argv[0] && argv[0][0]) ? argv[0] : fallback;
+    const char *slash = (name != fallback) ? strrchr(name, '/') : NULL;
+    PROFILE_HELPER_END;
+    return slash ? slash + 1 : name;
+}
+
+/**
  * @brief Implementation of \ref PicurvCheckLinkedPetscIndexWidth().
  * @see PicurvCheckLinkedPetscIndexWidth()
  */
-int PicurvCheckLinkedPetscIndexWidth(const char *executable_name)
+int PicurvCheckLinkedPetscIndexWidth(int argc, char **argv, const char *executable_name)
 {
     size_t linked = 0;
 
@@ -68,7 +86,7 @@ int PicurvCheckLinkedPetscIndexWidth(const char *executable_name)
                 "%d-byte indices: another PETSc build's library is first on LD_LIBRARY_PATH, as when the "
                 "other build's PETSc module is loaded. Launch it through picurv, which puts its own "
                 "PETSc first, or unload that module.\n",
-                executable_name, (int)sizeof(PetscInt), (int)linked);
+                PicurvExecutableName(argc, argv, executable_name), (int)sizeof(PetscInt), (int)linked);
         PROFILE_HELPER_END;
         return 1;
     }
@@ -101,8 +119,7 @@ int PicurvHandleVersionArgument(int argc, char **argv, const char *executable_na
 {
     PROFILE_HELPER_BEGIN;
     /* The file's own name: the conductor stages against the basename it launches. */
-    const char *slash = (argc > 0 && argv[0] && argv[0][0]) ? strrchr(argv[0], '/') : NULL;
-    const char *name = slash ? slash + 1 : ((argc > 0 && argv[0] && argv[0][0]) ? argv[0] : executable_name);
+    const char *name = PicurvExecutableName(argc, argv, executable_name);
     for (int index = 1; index < argc; ++index) {
         if (!strcmp(argv[index], "--version") || !strcmp(argv[index], "-version")) {
             printf("%s %s+g%.12s%s\n", name, PICURV_RELEASE_VERSION,

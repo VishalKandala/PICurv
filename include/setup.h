@@ -45,10 +45,12 @@ int PicurvHandleVersionArgument(int argc, char **argv, const char *executable_na
  *          without complaint and corrupts every size it is handed. The library reports its own
  *          width through PetscDataTypeGetSize(PETSC_INT), whose signature does not depend on it,
  *          so this is safe to call before PetscInitialize().
- * @param[in] executable_name User-facing executable name for the message.
+ * @param[in] argc Native executable argument count.
+ * @param[in] argv Native executable argument vector; the message names argv[0]'s basename.
+ * @param[in] executable_name Name used in the message when argv[0] is absent.
  * @return 0 when the widths agree; nonzero, after a message on stderr, when they do not.
  */
-int PicurvCheckLinkedPetscIndexWidth(const char *executable_name);
+int PicurvCheckLinkedPetscIndexWidth(int argc, char **argv, const char *executable_name);
 
 /**
  * @brief Refuse a PETSc object whose global size this build's PetscInt cannot index.

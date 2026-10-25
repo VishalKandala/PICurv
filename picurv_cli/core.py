@@ -1890,18 +1890,23 @@ def read_binary_petsc_stamp(executable_path: str) -> "dict | None":
 
 def resolved_petsc_library(executable_path: str) -> "str | None":
     """!
-    @brief The PETSc shared library the dynamic loader would give this executable now.
-    @details Uses `ldd`, so it answers for the current shell's library path; returns None
-             where `ldd` is unavailable or the executable links PETSc statically.
+    @brief The PETSc shared library the dynamic loader would give this executable when picurv launches it.
+    @details Uses `ldd` on the current shell's library path with the executable's own PETSc
+             lib/ first, as launches and job scripts put it; returns None where `ldd` is
+             unavailable or the executable links PETSc statically.
     @param[in] executable_path Path to `simulator` or `postprocessor`.
     @return Absolute library path, `not found`, or None.
     """
     ldd = shutil.which("ldd")
     if not ldd:
         return None
+    env = dict(os.environ)
+    library_dir = executable_petsc_library_dir(executable_path)
+    if library_dir:
+        env["LD_LIBRARY_PATH"] = os.pathsep.join(filter(None, (library_dir, env.get("LD_LIBRARY_PATH"))))
     try:
         result = subprocess.run([ldd, executable_path], text=True, capture_output=True,
-                                timeout=20, check=False)
+                                timeout=20, check=False, env=env)
     except (OSError, subprocess.SubprocessError):
         return None
     for line in (result.stdout or "").splitlines():
