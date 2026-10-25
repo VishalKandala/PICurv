@@ -1,0 +1,1 @@
+- Docs: measurement record `particle-weak-scaling-1e9-2026-10-23` documents particle transport at 1.19e9 particles on 729 ranks (no particles lost, rank-count-independent results, 82% weak-scaling efficiency) with its checkpoint, placement and balancing findings and what it does not establish.
