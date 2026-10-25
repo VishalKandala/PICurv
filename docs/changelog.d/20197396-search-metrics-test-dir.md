@@ -1,0 +1,1 @@
+- Fix: the search-metrics logging unit test no longer writes to the filesystem root, so `make unit` passes for users who cannot write to `/`.
