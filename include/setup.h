@@ -32,7 +32,8 @@
  *          marker, so the conductor can read it from a binary that cannot start.
  * @param[in] argc Native executable argument count.
  * @param[in] argv Native executable argument vector.
- * @param[in] executable_name User-facing executable name printed with the identity.
+ * @param[in] executable_name Name printed when argv[0] is absent; otherwise the basename of
+ *            argv[0] is printed, so `simulator64` names itself as the conductor staged it.
  * @return Nonzero when a version flag was handled and execution should stop.
  */
 int PicurvHandleVersionArgument(int argc, char **argv, const char *executable_name);

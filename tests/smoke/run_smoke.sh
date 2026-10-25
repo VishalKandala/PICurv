@@ -279,6 +279,20 @@ run_help_smoke() {
   fi
 }
 
+run_identity_smoke() {
+  local exe="$1"
+  # The job-start check compares this output exactly with what staging read from the file.
+  "${exe}" --version >"${tmp_root}/$(basename "${exe}").version.out" 2>&1 || die "${exe} --version failed."
+  PYTHONPATH="${repo_root}" python3 - "${exe}" "${tmp_root}/$(basename "${exe}").version.out" <<'PY'
+import sys
+from picurv_cli.core import read_binary_build_identity
+printed = open(sys.argv[2]).read().strip()
+staged = read_binary_build_identity(sys.argv[1])["version_line"].strip()
+if printed != staged:
+    raise SystemExit(f"Smoke failure: {sys.argv[1]} --version prints {printed!r}, staging expects {staged!r}.")
+PY
+}
+
 run_case_init_smoke() {
   local case_dir="${tmp_root}/case-from-init"
   "${picurv_exe}" init flat_channel --dest "${case_dir}" >/dev/null
@@ -3190,6 +3204,10 @@ run_help_smoke "${simulator_exe}" "PICurv Simulator"
 
 echo "==> PICurv smoke: postprocessor help"
 run_help_smoke "${postprocessor_exe}" "Unified Post-Processing Tool"
+
+echo "==> PICurv smoke: executable identity matches what staging records"
+run_identity_smoke "${simulator_exe}"
+run_identity_smoke "${postprocessor_exe}"
 
 if [[ "${smoke_mode}" == "periodic" ]]; then
   echo "==> PICurv smoke: geometric-periodic runtime harness"

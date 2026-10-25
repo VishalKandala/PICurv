@@ -100,9 +100,12 @@ PetscErrorCode PicurvCheckPetscIntRange(MPI_Comm comm, PetscInt64 entries, const
 int PicurvHandleVersionArgument(int argc, char **argv, const char *executable_name)
 {
     PROFILE_HELPER_BEGIN;
+    /* The file's own name: the conductor stages against the basename it launches. */
+    const char *slash = (argc > 0 && argv[0] && argv[0][0]) ? strrchr(argv[0], '/') : NULL;
+    const char *name = slash ? slash + 1 : ((argc > 0 && argv[0] && argv[0][0]) ? argv[0] : executable_name);
     for (int index = 1; index < argc; ++index) {
         if (!strcmp(argv[index], "--version") || !strcmp(argv[index], "-version")) {
-            printf("%s %s+g%.12s%s\n", executable_name, PICURV_RELEASE_VERSION,
+            printf("%s %s+g%.12s%s\n", name, PICURV_RELEASE_VERSION,
                    PICURV_GIT_COMMIT,
                    !strcmp(PICURV_BUILD_DIRTY, "true") ? ".dirty" : "");
             printf("%s\n", picurv_petsc_build_stamp + sizeof(PICURV_PETSC_STAMP_MARKER) - 1);
