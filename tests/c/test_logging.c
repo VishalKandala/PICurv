@@ -1407,6 +1407,8 @@ static PetscErrorCode TestSearchMetricsLogging(void)
     PetscCall(SeedLoggingParticleFixture(&simCtx, &user));
     PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
     PetscCall(PetscStrncpy(simCtx->log_dir, tmpdir, sizeof(simCtx->log_dir)));
+    /* The metrics CSV goes to analysis_dir; left empty it would be written at /search_metrics.csv. */
+    PetscCall(PetscStrncpy(simCtx->analysis_dir, tmpdir, sizeof(simCtx->analysis_dir)));
     simCtx->step = 2;
     simCtx->ti = 0.2;
     simCtx->particlesLostLastStep = 1;
