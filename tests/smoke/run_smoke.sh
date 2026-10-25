@@ -3193,6 +3193,14 @@ parse_mpi_launcher "${mpi_launcher}"
 # Export so that 'picurv run' also uses the same MPI launcher
 # (picurv checks PICURV_MPI_LAUNCHER -> MPI_LAUNCHER env -> .picurv-execution.yml -> fallback mpiexec).
 export PICURV_MPI_LAUNCHER="${mpi_launcher}"
+# picurv starts a 1-rank run without the launcher, so its -mca settings would not reach that
+# singleton; Open MPI reads the same settings from OMPI_MCA_<name> (an explicit export wins).
+for ((mca_index = 1; mca_index + 2 < ${#mpi_launcher_cmd[@]}; mca_index++)); do
+  if [[ "${mpi_launcher_cmd[mca_index]}" == "-mca" || "${mpi_launcher_cmd[mca_index]}" == "--mca" ]]; then
+    mca_variable="OMPI_MCA_${mpi_launcher_cmd[mca_index + 1]}"
+    [[ -n "${!mca_variable+set}" ]] || export "${mca_variable}=${mpi_launcher_cmd[mca_index + 2]}"
+  fi
+done
 python3 -c "import yaml" >/dev/null 2>&1 || die "python dependency 'pyyaml' is required for smoke profile mutation."
 case "${smoke_mode}" in
   standard|stress|periodic) ;;

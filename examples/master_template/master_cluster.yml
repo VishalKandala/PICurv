@@ -36,6 +36,9 @@ execution:
     # Open MPI 4.1 on Lustre: ROMIO reads and writes checkpoint files faster than the default
     # OMPIO driver when OMPIO has no Lustre component (see the Monitor Reference, io section).
     # - "export OMPI_MCA_io=romio321"
+    # Open MPI 4.1 where the btl/ofi component can deadlock in MPI_Init: exclude it here, not
+    # only in launcher_args, because picurv starts a 1-rank local run without the launcher.
+    # - "export OMPI_MCA_pml=ucx OMPI_MCA_btl=^uct,ofi OMPI_MCA_mtl=^ofi"
 
   # Launcher and args are batch-specific overrides.
   # If your site uses the same launcher tokens for login-node and batch runs,

@@ -126,6 +126,13 @@ recovered from the PVD itself; restore that run's visualization data.
 6. `undefined symbol: petscstack`, or another symbol error as the executable starts, means
    it was built against a different PETSc than the job loads. `picurv version` shows both;
    see @ref p39_legacy_sec.
+7. A run that sits at 0% CPU with an empty solver log is usually stuck in `MPI_Init`. On
+   Open MPI 4.1 the `btl/ofi` component can deadlock there on some InfiniBand nodes (a stack
+   trace shows `opal_common_ofi_export_memory_monitor`). Excluding it in the launcher
+   arguments covers only processes the launcher starts; picurv starts a 1-rank local run
+   without the launcher, so exclude it in the environment instead, in the cluster profile's
+   `module_setup` (the commented line in `examples/master_template/master_cluster.yml`):
+   `export OMPI_MCA_pml=ucx OMPI_MCA_btl=^uct,ofi OMPI_MCA_mtl=^ofi`.
 
 @section p67_suspicious_sec 8. Results Look Numerically Suspicious
 
