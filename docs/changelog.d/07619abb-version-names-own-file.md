@@ -1,0 +1,1 @@
+- Fix: 64-bit-index jobs (`simulator64`, `postprocessor64`) no longer refuse to start at the job-start identity check; `--version` now names the executable by its own file name, as staging records it.
