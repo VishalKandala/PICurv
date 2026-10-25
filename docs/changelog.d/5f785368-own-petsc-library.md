@@ -1,0 +1,1 @@
+- Fix: each executable runs on the PETSc library it was built against even when a job loads another PETSc module (job scripts and local launches put its own PETSc lib/ first on LD_LIBRARY_PATH), and refuses to start if a library of the other index width is loaded anyway.
