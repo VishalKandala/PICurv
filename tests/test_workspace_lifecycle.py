@@ -988,6 +988,25 @@ def test_index_width_requests_and_restart_sources_decide_the_build(tmp_path, mon
     assert core.select_existing_run_petsc_index_bytes(str(run_dir)) == 8
 
 
+def test_launches_put_the_executables_own_petsc_first_on_the_library_path(tmp_path):
+    """!
+    @brief A job loads the PETSc an executable was built against, whatever module is loaded.
+    @details Both index widths name their library libpetsc.so.<version>; the stamp's PETSc lib/
+             goes first on LD_LIBRARY_PATH, after module setup.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    library_dir = tmp_path / "petsc-int64" / "arch-int64" / "lib"
+    library_dir.mkdir(parents=True)
+    binary = tmp_path / "simulator64"
+    binary.write_text("#!/bin/sh\n# PICURV_PETSC_BUILD:petsc 3.20.3 optimized int64 arch-int64 "
+                      f"{tmp_path / 'petsc-int64'}\n", encoding="utf-8")
+    assert core.executable_petsc_library_dir(str(binary)) == str(library_dir)
+    assert core.petsc_library_path_lines(str(library_dir)) == [
+        f'export LD_LIBRARY_PATH={library_dir}"${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}"']
+    assert core.petsc_library_path_lines(None) == []
+    assert core.executable_petsc_library_dir(str(tmp_path / "missing")) is None
+
+
 def test_selecting_64_bit_indices_refuses_an_unbuilt_64_bit_build(tmp_path, monkeypatch):
     """!
     @brief A run that needs the 64-bit build stops before staging when it is not built.

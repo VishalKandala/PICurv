@@ -20,6 +20,12 @@ export SMOKE_SIMULATOR_NAME="$(basename "${simulator_exe}")"
 export SMOKE_POSTPROCESSOR_NAME="$(basename "${postprocessor_exe}")"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
+# The inline checks run `python3`; use the interpreter picurv itself records, so a batch job
+# whose module Python lacks numpy still runs them.
+picurv_recorded_python="$(sed -n '1p' "${repo_root}/.picurv-python" 2>/dev/null || true)"
+if [[ -n "${picurv_recorded_python}" && -x "${picurv_recorded_python}" ]]; then
+  export PATH="$(dirname "${picurv_recorded_python}"):${PATH}"
+fi
 valid_fixtures_dir="${repo_root}/tests/fixtures/valid"
 tmp_root="$(mktemp -d)"
 LAST_RUN_DIR=""

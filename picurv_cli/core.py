@@ -11794,6 +11794,33 @@ def build_spectra_follow_command(run_dir: str, post_path: str, post_cfg: dict,
     ] + (["--recompute"] if recompute else [])
 
 
+def executable_petsc_library_dir(executable_path: str) -> "str | None":
+    """!
+    @brief The lib/ directory of the PETSc an executable was built against, from its stamp.
+    @details Both PETSc index widths name their library libpetsc.so.<version>, so the loader
+             takes whichever comes first on LD_LIBRARY_PATH; launching with this directory first
+             gives each executable its own PETSc whatever modules the job loaded.
+    @param[in] executable_path Path to `simulator`, `postprocessor` or their 64-bit pair.
+    @return Absolute directory, or None when the stamp does not name one.
+    """
+    petsc = read_binary_petsc_stamp(executable_path) if os.path.isfile(executable_path) else None
+    if not petsc or not petsc.get("dir"):
+        return None
+    library_dir = os.path.join(petsc["dir"], petsc.get("arch") or "", "lib")
+    return os.path.normpath(library_dir) if os.path.isdir(library_dir) else None
+
+
+def petsc_library_path_lines(library_dir: "str | None") -> list:
+    """!
+    @brief Shell lines putting one PETSc's lib/ first on LD_LIBRARY_PATH, after module setup.
+    @param[in] library_dir From `executable_petsc_library_dir()`, or None for no change.
+    @return Script lines.
+    """
+    if not library_dir:
+        return []
+    return [f'export LD_LIBRARY_PATH={shlex.quote(library_dir)}"${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}"']
+
+
 def executable_identity_check_lines(executable: str, expected_version_line: "str | None",
                                     pinned: bool = False) -> list:
     """!
@@ -11940,6 +11967,7 @@ def render_slurm_script(
             lines.append(f"export {key}={shlex.quote(str(value))}")
 
     if identity_check:
+        lines.extend(petsc_library_path_lines(executable_petsc_library_dir(identity_check[0])))
         lines.extend(executable_identity_check_lines(*identity_check))
 
     cmd = " ".join(shlex.quote(str(tok)) for tok in command)
@@ -17213,12 +17241,19 @@ def execute_command(command: list, run_dir: str, log_filename: str, monitor_cfg:
         "encoding": 'utf-8', "errors": 'replace'
     }
 
+    run_env = os.environ.copy()
     if monitor_cfg:
-        run_env = os.environ.copy()
         verbosity = monitor_cfg.get('logging', {}).get('verbosity', 'INFO').upper()
         run_env['LOG_LEVEL'] = verbosity
         print(f"[INFO] Log level: {verbosity}")
-        popen_kwargs['env'] = run_env
+    # The launched executable's own PETSc first, as job scripts do (petsc_library_path_lines()).
+    for token in command:
+        library_dir = executable_petsc_library_dir(str(token)) if os.path.isabs(str(token)) else None
+        if library_dir:
+            run_env["LD_LIBRARY_PATH"] = library_dir + (":" + run_env["LD_LIBRARY_PATH"]
+                                                        if run_env.get("LD_LIBRARY_PATH") else "")
+            break
+    popen_kwargs['env'] = run_env
 
     print("-" * 60)
     try:
@@ -17765,6 +17800,10 @@ def render_slurm_array_stage_script(
         lines.append(str(setup_line))
 
     stage_exe = solver_exe if stage == "solve" else post_exe
+    # A pinned `$RUN_DIR/...` copy is the installation's binary, so its PETSc is the installation's.
+    lines.extend(petsc_library_path_lines(executable_petsc_library_dir(
+        stage_exe if not stage_exe.startswith("$") else
+        resolve_runtime_executable("simulator" if stage == "solve" else "postprocessor"))))
     lines.extend(executable_identity_check_lines(
         stage_exe, expected_version_line, pinned=stage_exe.startswith("$RUN_DIR/")
     ))

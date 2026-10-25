@@ -54,6 +54,29 @@ const char picurv_build_stamp[] =
     PICURV_BUILD_STAMP_MARKER PICURV_RELEASE_VERSION " " PICURV_GIT_COMMIT " " PICURV_BUILD_DIRTY;
 
 /**
+ * @brief Implementation of \ref PicurvCheckLinkedPetscIndexWidth().
+ * @see PicurvCheckLinkedPetscIndexWidth()
+ */
+int PicurvCheckLinkedPetscIndexWidth(const char *executable_name)
+{
+    size_t linked = 0;
+
+    PROFILE_HELPER_BEGIN;
+    if (PetscDataTypeGetSize(PETSC_INT, &linked) || linked != sizeof(PetscInt)) {
+        fprintf(stderr,
+                "[FATAL] %s was built against a PETSc with %d-byte indices, but the libpetsc it loaded has "
+                "%d-byte indices: another PETSc build's library is first on LD_LIBRARY_PATH, as when the "
+                "other build's PETSc module is loaded. Launch it through picurv, which puts its own "
+                "PETSc first, or unload that module.\n",
+                executable_name, (int)sizeof(PetscInt), (int)linked);
+        PROFILE_HELPER_END;
+        return 1;
+    }
+    PROFILE_HELPER_END;
+    return 0;
+}
+
+/**
  * @brief Implementation of \ref PicurvCheckPetscIntRange().
  * @see PicurvCheckPetscIntRange()
  */

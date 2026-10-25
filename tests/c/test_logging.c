@@ -1079,6 +1079,8 @@ static PetscErrorCode TestScatterMetricsLogging(void)
     PetscCall(PicurvCreateSwarmPair(user, 27, "ske"));
     PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
     PetscCall(PetscStrncpy(simCtx->log_dir, tmpdir, sizeof(simCtx->log_dir)));
+    /* The metrics CSV goes to analysis_dir; left empty it would be written at /scatter_metrics.csv. */
+    PetscCall(PetscStrncpy(simCtx->analysis_dir, tmpdir, sizeof(simCtx->analysis_dir)));
     simCtx->np = 27;
     simCtx->step = 3;
     simCtx->ti = 0.3;

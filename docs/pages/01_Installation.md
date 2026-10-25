@@ -253,9 +253,13 @@ outgrows 32-bit indices, and says so; a restart or `--continue` keeps the width 
 checkpoints were written with; post-processing uses the width the run was staged with
 (`<run.config>/active.json`). `--petsc-index-bits 32|64`, or `PICURV_PETSC_INDEX_BITS`, chooses
 explicitly, and is refused against a checkpoint of the other width. A run that needs the 64-bit
-pair stops before staging when it is not built. Both pairs link their own PETSc, so a job must
-not load the other build's PETSc module: `picurv version` shows the `libpetsc` each executable
-would load and marks a mismatch.
+pair stops before staging when it is not built. Both PETSc builds name their library
+`libpetsc.so.<version>`, so whichever is first on `LD_LIBRARY_PATH` would be loaded; job
+scripts and local launches put the launched executable's own PETSc `lib/` first, after the
+cluster profile's `module_setup`, so a job that loads the 32-bit PETSc module still runs the
+64-bit pair on its own library. An executable started by hand against the other width's
+library refuses to start and says why, and `picurv version` shows the `libpetsc` each
+executable would load in the current shell, marking a mismatch.
 
 Checkpoints are not portable between the two widths: PETSc binary files store their sizes as
 `PetscInt` without recording the width. `checkpoint.meta` records it

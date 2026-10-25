@@ -765,6 +765,7 @@ int main(int argc, char **argv)
     SimCtx            *simCtx = NULL;
 
     if (PicurvHandleVersionArgument(argc, argv, "postprocessor")) return 0;
+    if (PicurvCheckLinkedPetscIndexWidth("postprocessor")) return 1;
     // === I. INITIALIZE PETSC & MPI ===========================================
     ierr = PetscInitialize(&argc, &argv, (char *)0, "Unified Post-Processing Tool"); CHKERRQ(ierr);
 
