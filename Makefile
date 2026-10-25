@@ -86,14 +86,26 @@
 # Define the directory layout for the project.
 SRCDIR := src
 INCDIR := include
+# INDEX_BITS=64 builds the same sources against a 64-bit-index PETSc (PETSC_DIR/PETSC_ARCH
+# naming it) into obj-int64/ and bin/simulator64, bin/postprocessor64, bin/tests-int64/, beside
+# the default 32-bit build; the conductor picks the set a run needs.
+INDEX_BITS ?= 32
+ifeq ($(INDEX_BITS),64)
+BUILD_SUFFIX := 64
+OBJDIR := obj-int64
+else ifeq ($(INDEX_BITS),32)
+BUILD_SUFFIX :=
 OBJDIR := obj
+else
+$(error INDEX_BITS must be 32 or 64, not '$(INDEX_BITS)')
+endif
 BINDIR := bin
 LOGDIR := logs
 DOCSDIR := docs
 PICURV_ENTRYPOINT := picurv_cli/picurv
 TESTCDIR := tests/c
 TESTOBJDIR := $(OBJDIR)/tests
-TESTBINDIR := $(BINDIR)/tests
+TESTBINDIR := $(BINDIR)/tests$(if $(BUILD_SUFFIX),-int$(BUILD_SUFFIX))
 SMOKEDIR := tests/smoke
 SMOKE_RUNNER := $(SMOKEDIR)/run_smoke.sh
 DRIVEN_PERIODIC_RUNNER := $(SMOKEDIR)/run_driven_periodic_regression.sh
@@ -124,7 +136,7 @@ SYSTEM ?= local
 PORT ?= 8000
 BIND ?= 127.0.0.1
 
-NO_CONFIG_GOALS := test test-python coverage-python doctor install-check audit-ingress audit-docs-expansion audit-docs-site docs-inventory docs-topology docs-xref audit-capability audit-contracts audit-path-literals audit-profiling audit-family-census audit-page-types audit-inline-choices audit-subsystems audit-freshness audit-agent-setup sync-agent-skills docs-cli-reference audit-cli-reference scaffold review-packet build-docs preview-docs open-docs tags certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit conductor
+NO_CONFIG_GOALS := test test-python coverage-python doctor install-check audit-ingress audit-docs-expansion audit-docs-site docs-inventory docs-topology docs-xref audit-capability audit-contracts audit-path-literals audit-profiling audit-family-census audit-page-types audit-inline-choices audit-subsystems audit-freshness audit-agent-setup sync-agent-skills docs-cli-reference audit-cli-reference scaffold review-packet build-docs preview-docs open-docs tags certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit conductor check-index64
 NEEDS_BUILD_CONFIG := 1
 
 ifneq ($(MAKECMDGOALS),)
@@ -141,6 +153,15 @@ else
     $(error Cannot find configuration file '$(CONFIG_FILE)'. Please create it or specify a valid SYSTEM.)
 endif
 $(info Building for system: $(SYSTEM_NAME))
+# The PETSc a build links decides its PetscInt width; refuse a mismatch with INDEX_BITS so a
+# 32-bit library is never installed under the 64-bit names, or the reverse.
+PETSC_CONF_HEADER := $(firstword $(wildcard $(PETSC_DIR)/$(PETSC_ARCH)/include/petscconf.h $(PETSC_DIR)/include/petscconf.h))
+PETSC_INDEX_BITS := $(if $(shell grep -s "define PETSC_USE_64BIT_INDICES 1" $(PETSC_CONF_HEADER)),64,32)
+ifneq ($(PETSC_CONF_HEADER),)
+ifneq ($(PETSC_INDEX_BITS),$(INDEX_BITS))
+$(error PETSc at $(PETSC_DIR) $(PETSC_ARCH) has $(PETSC_INDEX_BITS)-bit indices, but INDEX_BITS=$(INDEX_BITS); set INDEX_BITS=$(PETSC_INDEX_BITS) or point PETSC_DIR/PETSC_ARCH at a $(INDEX_BITS)-bit-index PETSc)
+endif
+endif
 endif
 
 
@@ -170,8 +191,8 @@ POSTPROCESSOR_OBJS := $(addprefix $(OBJDIR)/, \
 
 # --- 4. Executable Definitions ---
 # Define the final paths for the compiled programs.
-SIMULATOR_EXE     := $(BINDIR)/simulator
-POSTPROCESSOR_EXE := $(BINDIR)/postprocessor
+SIMULATOR_EXE     := $(BINDIR)/simulator$(BUILD_SUFFIX)
+POSTPROCESSOR_EXE := $(BINDIR)/postprocessor$(BUILD_SUFFIX)
 CONDUCTOR_EXE     := $(BINDIR)/picurv
 DOCTOR_EXE        := $(TESTBINDIR)/doctor
 UNIT_GEOMETRY_EXE := $(TESTBINDIR)/unit_geometry
@@ -476,7 +497,7 @@ dirs:
 # ==============================================================================
 # --- 6. Execution, Auxiliary, & Cleanup Targets ---
 # ==============================================================================
-.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev smoke-driven-periodic unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-post-eulerian-vtk-mpi unit-post-particle-vtk-mpi unit-post-compute-mpi unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-les unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-alt-petsc check-full check-stress audit-build build-docs docs-xref open-docs tags audit-ingress audit-docs-expansion audit-docs-site preview-docs docs-inventory docs-topology audit-capability audit-contracts audit-path-literals audit-profiling audit-family-census audit-page-types audit-inline-choices audit-subsystems audit-freshness audit-agent-setup sync-agent-skills docs-cli-reference audit-cli-reference scaffold review-packet certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
+.PHONY: unit-momentum-candidates unit-newton-krylov unit-momentum-newton-boundary-fixedpoint run test test-python coverage coverage-python coverage-c doctor doctor-runner install-check smoke smoke-mpi smoke-mpi-matrix smoke-stress smoke-periodic smoke-periodic-dev smoke-driven-periodic unit unit-simulation unit-geometry unit-setup unit-solver unit-particles unit-statistics unit-statistics-target unit-statistics-window unit-statistics-accumulator unit-statistics-config unit-io unit-logging unit-post unit-post-eulerian-vtk-mpi unit-post-particle-vtk-mpi unit-post-compute-mpi unit-grid unit-metric unit-boundaries unit-poisson-rhs unit-les unit-runtime unit-mpi unit-periodic unit-periodic-dev ctest ctest-geometry ctest-setup ctest-solver ctest-particles ctest-io ctest-logging ctest-post ctest-grid ctest-metric ctest-boundaries ctest-poisson-rhs ctest-runtime ctest-mpi check check-mpi check-mpi-matrix check-index64 check-full check-stress audit-build build-docs docs-xref open-docs tags audit-ingress audit-docs-expansion audit-docs-site preview-docs docs-inventory docs-topology audit-capability audit-contracts audit-path-literals audit-profiling audit-family-census audit-page-types audit-inline-choices audit-subsystems audit-freshness audit-agent-setup sync-agent-skills docs-cli-reference audit-cli-reference scaffold review-packet certify-docs certify-docs-fast install-git-hooks clean-project cleanobj clean-project-docs clean-project-tags clean-unit
 
 ## @target run
 ## @brief Runs the main solver using the system-specific MPI launcher.
@@ -843,28 +864,16 @@ check-mpi-matrix: check
 	@$(MAKE) --no-print-directory smoke-mpi-matrix SYSTEM=$(SYSTEM)
 	@$(MAKE) --no-print-directory unit-mpi SYSTEM=$(SYSTEM)
 
-## @target check-alt-petsc
-## @brief Builds the committed HEAD against a second PETSc (e.g. 64-bit indices) and runs `unit`,
-##        `unit-mpi`, `smoke`, `smoke-mpi` and the Python tests on it.
-## @details The build happens in a detached worktree outside the repository (ALT_WORKTREE), so this
-##          checkout's bin/ and obj/ keep their own PETSc. Uncommitted changes are not included.
-##          Usage: make check-alt-petsc ALT_PETSC_ARCH=arch-linux-c-debug-int64 [ALT_PETSC_DIR=...]
-ALT_PETSC_DIR ?= $(PETSC_DIR)
-ALT_WORKTREE  ?= $(or $(TMPDIR),/tmp)/picurv-alt-petsc-$(ALT_PETSC_ARCH)
-check-alt-petsc:
-	@test -n "$(ALT_PETSC_ARCH)" || { echo "check-alt-petsc: set ALT_PETSC_ARCH to the second PETSc's arch."; exit 2; }
-	@git diff --quiet HEAD || echo "check-alt-petsc: note - uncommitted changes are not tested; only HEAD is."
-	@if git -C "$(ALT_WORKTREE)" rev-parse --git-dir >/dev/null 2>&1; then \
-	  git -C "$(ALT_WORKTREE)" checkout -q --detach "$$(git rev-parse HEAD)"; \
-	else \
-	  git worktree add -q --detach "$(ALT_WORKTREE)" HEAD; \
-	fi
-	@echo "check-alt-petsc: testing $$(git rev-parse --short HEAD) against $(ALT_PETSC_DIR)/$(ALT_PETSC_ARCH) in $(ALT_WORKTREE)"
-	@$(MAKE) --no-print-directory -C "$(ALT_WORKTREE)" PETSC_DIR="$(ALT_PETSC_DIR)" PETSC_ARCH="$(ALT_PETSC_ARCH)" \
-	  all unit unit-mpi smoke smoke-mpi
-	@# The documentation-site audit reads a built site, which the scratch worktree never has
-	@# and which no PETSc build can change.
-	@cd "$(ALT_WORKTREE)" && python3 -m pytest -q -k "not audit_docs_site"
+## @target check-index64
+## @brief Builds the 64-bit-index set (INDEX_BITS=64) in this checkout and runs `unit`, `unit-mpi`,
+##        `smoke` and `smoke-mpi` on it.
+## @details Pass the 64-bit-index PETSc: make check-index64 PETSC_DIR=... [PETSC_ARCH=...]. The set
+##          builds into obj-int64/ and bin/{simulator64,postprocessor64,tests-int64/}, so the 32-bit
+##          build is untouched. The smoke runs drive the conductor on the 64-bit pair end to end;
+##          the conductor's width selection and both PETSc header widths are covered by `make
+##          check` whatever the build, so the Python suite is not repeated here.
+check-index64:
+	@$(MAKE) --no-print-directory INDEX_BITS=64 all unit unit-mpi smoke smoke-mpi
 
 ## @target check-full
 ## @brief Runs `check` plus all MPI validation layers (`unit-mpi`, `smoke-mpi`, `smoke-mpi-matrix`).

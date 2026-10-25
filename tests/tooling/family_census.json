@@ -224,6 +224,10 @@
       "classification": "parameter_of_entry",
       "reason": "The outputs written when a recipe names none: every value of the registered family post.field_statistics_output except the opt-in point_variance. It is a default subset of that family, not a second menu; page 10 states which outputs are opt-in.",
       "owner": "post.field_statistics_output"
+    },
+    "picurv_cli.core::PETSC_INDEX_BITS_CHOICES": {
+      "classification": "cli_inventory_sufficient",
+      "reason": "`--petsc-index-bits 32|64` on run and sweep (also PICURV_PETSC_INDEX_BITS) picks which executable pair, simulator or simulator64, a run launches. It selects a build of the same code, not a model or method: results are identical within PETSc's own index range. The generated CLI reference lists the flag and its choices, and Installation section 5.1 gives the when-to-use answer (the conductor already chooses 64 when a field outgrows 32-bit indices)."
     }
   }
 }

@@ -226,29 +226,43 @@ make all
 make check
 ```
 
-@subsection p01_petsc_index_sub 5.1 64-bit Indices For Very Large Particle Counts
+@subsection p01_petsc_index_sub 5.1 64-bit Indices For Very Large Runs
 
-PETSc's default `PetscInt` is 32-bit, so one vector holds at most 2,147,483,647 entries. A
-particle field of three components therefore limits a run to about 7.16 x 10^8 particles; the
-solver refuses a larger `-numParticles` at setup and names the limit. Above it, build a second
-PETSc with `--with-64-bit-indices` added to the same configure options, and build PICurv
-against it in its own checkout. Keep the 32-bit build as the default: 64-bit indices double
-the size of every index array, mainly in the flow solver's sparse matrices.
+PETSc's default `PetscInt` is 32-bit, so one vector or matrix holds at most 2,147,483,647
+entries. In PICurv that limits a run to about 7.16 x 10^8 particles (a 3-component particle
+field), or to a grid of about 716M nodes (3-component fields; about 358M nodes with field
+statistics, whose workspace has 6). The solver refuses a larger run when it creates the field,
+naming the limit. The width is fixed when PETSc is configured; a `module load` cannot change
+it.
 
-The width is fixed when PETSc is configured; a `module load` cannot change it. `picurv
-version` shows each executable's width (`PETSc: 3.20.3 optimized, 64-bit indices`), and each
-checkout's `picurv` drives the executables of that checkout, so a run staged by the 64-bit
-checkout's `picurv` restarts and post-processes with the 64-bit executables. To call it by
-name, place a small wrapper on `PATH`, for example `picurv64` containing
-`exec /path/to/PICurv64/bin/picurv "$@"`; a symlink does not work, because the launcher locates
-its checkout from its own path.
+Above the limit, build a second set of executables in the same checkout against a PETSc
+configured with `--with-64-bit-indices` (the same options otherwise):
+
+```bash
+picurv build INDEX_BITS=64 PETSC_DIR=/path/to/petsc-int64 [PETSC_ARCH=...]
+```
+
+That builds into `obj-int64/` and installs `bin/simulator64` and `bin/postprocessor64` beside
+the 32-bit pair; the build refuses a PETSc whose width does not match `INDEX_BITS`. `picurv
+version` lists all four executables with their widths (`PETSc: 3.20.3 optimized, 64-bit
+indices`). Keep the 32-bit pair as the default: 64-bit indices double the size of every index
+array, mainly in the assembled Poisson matrices.
+
+`picurv run` chooses the set: a new run uses the 64-bit pair only when a particle or grid field
+outgrows 32-bit indices, and says so; a restart or `--continue` keeps the width its source
+checkpoints were written with; post-processing uses the width the run was staged with
+(`<run.config>/active.json`). `--petsc-index-bits 32|64`, or `PICURV_PETSC_INDEX_BITS`, chooses
+explicitly, and is refused against a checkpoint of the other width. A run that needs the 64-bit
+pair stops before staging when it is not built. Both pairs link their own PETSc, so a job must
+not load the other build's PETSc module: `picurv version` shows the `libpetsc` each executable
+would load and marks a mismatch.
 
 Checkpoints are not portable between the two widths: PETSc binary files store their sizes as
-`PetscInt` without recording the width. `checkpoint.meta` records it, and restart and
-post-processing refuse a checkpoint written by the other width. Files the conductor writes for
-the solver (generated initial conditions) use the width of the solver it drives. A replacement
-generator script must accept `--petsc-index-bytes 8`, which the conductor passes only to a
-64-bit solver.
+`PetscInt` without recording the width. `checkpoint.meta` records it
+(`-checkpoint_petsc_index_bytes`), and the solver and the conductor refuse a checkpoint of the
+other width. Files the conductor writes for the solver (generated initial conditions) use the
+width of the set it selected. A replacement generator script must accept
+`--petsc-index-bytes 8`, which the conductor passes only to a 64-bit run.
 
 Official references:
 

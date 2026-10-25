@@ -344,11 +344,13 @@ Useful env knobs:
 - `doctor`, `unit-*`, `smoke*`, `check*`, and `coverage-c` require PETSc/MPI tooling.
 - `check-full` is the single-command comprehensive gate (`check` + `unit-mpi` + `smoke-mpi` + `smoke-mpi-matrix`).
 - `check-stress` extends `check-full` with the opt-in `smoke-stress` layer.
-- `check-alt-petsc ALT_PETSC_ARCH=<arch>` builds the committed HEAD against a second PETSc in a
-  worktree outside the repository and runs `unit`, `unit-mpi`, `smoke`, `smoke-mpi` and
-  the Python tests there (less the built-site audit). Run it against a 64-bit-index PETSc after changing C I/O, MPI calls or
-  printed `PetscInt` values, or Python code that reads or writes PETSc binary files: a `%d` for a
-  `PetscInt`, `MPI_INT` for a `PetscInt`, or a fixed 4-byte header is silent on 32-bit builds.
+- `check-index64 PETSC_DIR=<64-bit-index PETSc> [PETSC_ARCH=...]` builds the 64-bit-index set
+  (`make INDEX_BITS=64`: `obj-int64/`, `bin/simulator64`, `bin/postprocessor64`,
+  `bin/tests-int64/`) in this checkout and runs `unit`, `unit-mpi`, `smoke` and `smoke-mpi` on it;
+  the smoke runs drive the conductor on the 64-bit pair end to end. Run it after
+  changing C I/O, MPI calls or printed `PetscInt` values, or Python code that reads or writes
+  PETSc binary files: a `%d` for a `PetscInt`, `MPI_INT` for a `PetscInt`, or a fixed 4-byte
+  header is silent on 32-bit builds.
 - geometric-periodic harnesses are included in the standard gates.
 - compatibility aliases (`install-check`, `ctest-*`) still exist, but canonical names are preferred in docs and CI.
 

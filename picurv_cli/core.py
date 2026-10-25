@@ -1625,8 +1625,10 @@ def validate_committed_checkpoint(source_dir: str, step: int, require_particles:
         raise ValueError(f"Unsupported checkpoint format/version: {metadata_path}")
     if saved_step != step:
         raise ValueError(f"Checkpoint records step {saved_step}, expected {step}: {bundle}")
+    # Checked once the command has selected its build; restart resolution validates before
+    # selecting, and selection then takes this checkpoint's width, so the two agree.
     saved_index_bytes = int(options.get("checkpoint_petsc_index_bytes", "4"))
-    solver_index_bytes = runtime_petsc_index_bytes()
+    solver_index_bytes = _SELECTED_PETSC_INDEX_BYTES or saved_index_bytes
     if saved_index_bytes != solver_index_bytes:
         raise CheckpointIndexWidthError(
             f"Checkpoint {bundle} was written by a PETSc with {8 * saved_index_bytes}-bit indices, but this "
@@ -1811,12 +1813,21 @@ def build_walltime_guard_exports(cluster_cfg: "dict | None") -> dict:
         WALLTIME_GUARD_ENV_LIMIT_SECONDS: str(walltime_limit_seconds),
     }
 
+#: PetscInt width of the build the current command drives, chosen once per command by
+#: `select_petsc_index_bytes()`; None keeps the default 32-bit `simulator`/`postprocessor`.
+_SELECTED_PETSC_INDEX_BYTES = None
+
+
 def resolve_runtime_executable(executable_name: str) -> str:
     """!
     @brief Resolve solver/post executable path, preferring local sibling binaries.
-    @param[in] executable_name Argument passed to `resolve_runtime_executable()`.
-    @return Value returned by `resolve_runtime_executable()`.
+    @details A command that selected the 64-bit-index build resolves `simulator64` and
+             `postprocessor64`, which `make INDEX_BITS=64` installs beside the 32-bit pair.
+    @param[in] executable_name `simulator` or `postprocessor`.
+    @return Absolute executable path.
     """
+    if _SELECTED_PETSC_INDEX_BYTES == 8 and executable_name in RUN_EXECUTABLE_NAMES:
+        executable_name += "64"
     local_candidate = os.path.join(INVOKED_SCRIPT_DIR, executable_name)
     if os.path.isfile(local_candidate):
         return os.path.abspath(local_candidate)
@@ -2024,14 +2035,22 @@ def runtime_build_identities(source_identity: "dict | None" = None,
     @brief Read the build identity of every native executable a run would launch.
     @param[in] source_identity Source identity to compare against; defaults to the
                                identity this process computed at startup.
-    @param[in] run_dir Run whose pinned executables are read; the installation's when None.
+    @param[in] run_dir Run whose pinned executables are read; the installation's when None,
+                       which also lists the 64-bit-index pair (`simulator64`,
+                       `postprocessor64`) when it is built.
     @return Mapping of executable name to its identity, each carrying `matches_source`.
     """
     source_identity = source_identity or picurv_build()
     identities = {}
     source_commit = str(source_identity.get("git_commit") or "")
-    for name in RUN_EXECUTABLE_NAMES:
-        identity = read_binary_build_identity(run_executable_path(run_dir, name))
+    paths = {name: run_executable_path(run_dir, name) for name in RUN_EXECUTABLE_NAMES}
+    if run_dir is None and _SELECTED_PETSC_INDEX_BYTES is None:
+        for name in RUN_EXECUTABLE_NAMES:
+            wide = os.path.join(os.path.dirname(paths[name]), name + "64")
+            if os.path.isfile(wide):
+                paths[name + "64"] = wide
+    for name, path in paths.items():
+        identity = read_binary_build_identity(path)
         if identity.get("available"):
             # The stamped commit is abbreviated, so compare on the prefix it carries.
             identity["matches_source"] = bool(
@@ -14847,8 +14866,169 @@ def runtime_petsc_index_bytes() -> int:
              solver counts as 32-bit, PETSc's default.
     @return 4 or 8.
     """
+    if _SELECTED_PETSC_INDEX_BYTES is not None:
+        return _SELECTED_PETSC_INDEX_BYTES
     petsc = read_binary_petsc_stamp(resolve_runtime_executable("simulator")) or {}
     return PETSC_INDEX_BYTES.get(petsc.get("indices", "int32"), 4)
+
+
+#: PetscInt widths, in bits, a PICurv build can use (`make INDEX_BITS=...`, `--petsc-index-bits`).
+PETSC_INDEX_BITS_CHOICES = ("32", "64")
+#: Largest PetscInt of a 32-bit-index PETSc; any one object past it needs the 64-bit build.
+PETSC_MAX_INT_32BIT = 2**31 - 1
+#: Widest per-particle field (particle_field_catalog.c) and per-node grid field PICurv creates:
+#: coordinates and velocities have 3 components, the statistics workspace 6 (grid.c, fda6).
+PARTICLE_FIELD_MAX_COMPONENTS = 3
+GRID_FIELD_MAX_COMPONENTS = 3
+STATISTICS_FIELD_COMPONENTS = 6
+
+
+def requested_petsc_index_bytes(args=None) -> "int | None":
+    """!
+    @brief The index width a command was told to use: `--petsc-index-bits`, else `PICURV_PETSC_INDEX_BITS`.
+    @param[in] args Parsed command arguments, or None.
+    @return 4, 8, or None when neither names one.
+    """
+    bits = getattr(args, "petsc_index_bits", None) if args is not None else None
+    bits = bits or os.environ.get("PICURV_PETSC_INDEX_BITS") or None
+    if bits is None:
+        return None
+    if str(bits).strip() not in PETSC_INDEX_BITS_CHOICES:
+        raise ValueError(f"PETSc index bits must be 32 or 64, not {bits!r}.")
+    return 4 if str(bits).strip() == "32" else 8
+
+
+def required_petsc_index_bytes(case_cfg: dict, case_path: str, monitor_cfg: "dict | None",
+                               staged_grid: "str | None" = None) -> "tuple[int, str]":
+    """!
+    @brief The PetscInt width a new run needs, from its particle count and grid size.
+    @details One PETSc object of more than PETSC_MAX_INT_32BIT entries needs 64-bit indices:
+             a particle field (particles x 3) or a grid field (DA nodes x 3, or x 6 with field
+             statistics). The solver checks the same limits when it creates them, so an
+             underestimate here is refused at setup rather than run.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] case_path Path to case.yml.
+    @param[in] monitor_cfg Parsed monitor configuration, for field statistics.
+    @param[in] staged_grid Staged PICGRID, if any.
+    @return (4 or 8, reason).
+    """
+    particles = (((case_cfg.get("models") or {}).get("physics") or {}).get("particles") or {})
+    particle_entries = int(particles.get("count", 0) or 0) * PARTICLE_FIELD_MAX_COMPONENTS
+    statistics = bool(monitor_cfg) and normalize_field_statistics_config(monitor_cfg, case_cfg)["enabled"]
+    components = STATISTICS_FIELD_COMPONENTS if statistics else GRID_FIELD_MAX_COMPONENTS
+    grid_entries = max([(im + 1) * (jm + 1) * (km + 1) * components
+                        for im, jm, km in resolve_grid_node_dims(case_cfg, case_path, staged_grid) or []] or [0])
+    if particle_entries > PETSC_MAX_INT_32BIT:
+        return 8, f"{particle_entries:,} particle-field entries exceed the 32-bit limit {PETSC_MAX_INT_32BIT:,}"
+    if grid_entries > PETSC_MAX_INT_32BIT:
+        return 8, f"{grid_entries:,} grid-field entries exceed the 32-bit limit {PETSC_MAX_INT_32BIT:,}"
+    return 4, "particle and grid fields fit 32-bit indices"
+
+
+def checkpoint_source_petsc_index_bytes(source_dir: str) -> "int | None":
+    """!
+    @brief PetscInt width the committed checkpoints under a run output root were written with.
+    @details Every checkpoint of a run shares its build's width; one written before the width
+             was recorded is 32-bit.
+    @param[in] source_dir Run output root holding `checkpoints/`.
+    @return 4 or 8, or None when it holds no committed checkpoint.
+    """
+    root = os.path.join(os.path.abspath(source_dir), "checkpoints")
+    for name in sorted(os.listdir(root), reverse=True) if os.path.isdir(root) else []:
+        metadata = os.path.join(root, name, "checkpoint.meta")
+        if os.path.isfile(os.path.join(root, name, "COMMITTED")) and os.path.isfile(metadata):
+            return int(_read_checkpoint_options(metadata).get("checkpoint_petsc_index_bytes", "4"))
+    return None
+
+
+def select_petsc_index_bytes(index_bytes: int, reason: str) -> int:
+    """!
+    @brief Make the current command drive the build of one PetscInt width.
+    @details `resolve_runtime_executable()` and `runtime_petsc_index_bytes()` follow it, so the
+             executables staged, pinned and launched, and every PETSc file the conductor writes
+             or validates for them, agree. Refuses a width whose executables are not built.
+    @param[in] index_bytes 4 or 8.
+    @param[in] reason Why, for the message.
+    @return index_bytes.
+    """
+    global _SELECTED_PETSC_INDEX_BYTES
+    _SELECTED_PETSC_INDEX_BYTES = index_bytes
+    if index_bytes == 8:
+        missing = [path for path in (resolve_runtime_executable(name) for name in RUN_EXECUTABLE_NAMES)
+                   if not os.path.isfile(path)]
+        if missing:
+            raise ValueError(
+                f"This run needs the 64-bit-index build ({reason}), which is not built: missing "
+                f"{', '.join(missing)}. Build it with `make INDEX_BITS=64 PETSC_DIR=<64-bit-index PETSc> "
+                f"[PETSC_ARCH=...] all`.")
+        # stderr, so a dry-run's JSON plan on stdout stays parseable.
+        print(f"[INFO] Using the 64-bit-index build: {reason}.", file=sys.stderr)
+    return index_bytes
+
+
+def select_run_petsc_index_bytes(args, case_cfg: dict, case_path: str, monitor_cfg: "dict | None",
+                                 restart_source_dir: "str | None" = None) -> int:
+    """!
+    @brief Choose and select the PetscInt width a run's solve stage needs.
+    @details A restart or continuation keeps the width its source checkpoint was written with;
+             a new run uses 32-bit unless a particle or grid field outgrows it. An explicit
+             `--petsc-index-bits` or `PICURV_PETSC_INDEX_BITS` wins, except against a checkpoint.
+    @param[in] args Parsed command arguments.
+    @param[in] case_cfg Parsed case configuration.
+    @param[in] case_path Path to case.yml.
+    @param[in] monitor_cfg Parsed monitor configuration.
+    @param[in] restart_source_dir Restart source output root, if any.
+    @return 4 or 8.
+    """
+    requested = requested_petsc_index_bytes(args)
+    if restart_source_dir:
+        recorded = checkpoint_source_petsc_index_bytes(restart_source_dir)
+        if recorded is not None:
+            if requested is not None and requested != recorded:
+                raise ValueError(
+                    f"--petsc-index-bits {8 * requested} conflicts with the restart source {restart_source_dir}, "
+                    f"whose checkpoints were written with {8 * recorded}-bit indices.")
+            return select_petsc_index_bytes(recorded, f"its restart source was written with {8 * recorded}-bit indices")
+    needed, reason = required_petsc_index_bytes(case_cfg, case_path, monitor_cfg)
+    if requested == 4 and needed == 8:
+        raise ValueError(f"--petsc-index-bits 32 cannot run this case: {reason}.")
+    if requested is not None:
+        return select_petsc_index_bytes(requested, f"{8 * requested}-bit indices were requested")
+    return select_petsc_index_bytes(needed, reason)
+
+
+def select_existing_run_petsc_index_bytes(run_dir: str, args=None) -> int:
+    """!
+    @brief Select the PetscInt width an existing run was staged with, for its later stages.
+    @details The width staging recorded in `config/active.json`, else its checkpoints' width,
+             else 32-bit. A conflicting explicit request is refused.
+    @param[in] run_dir Run directory.
+    @param[in] args Parsed command arguments, or None.
+    @return 4 or 8.
+    """
+    active = _read_json_if_exists(os.path.join(os.path.abspath(run_dir), "config", "active.json")) or {}
+    recorded = active.get("petsc_index_bytes")
+    if recorded is None:
+        recorded = checkpoint_source_petsc_index_bytes(os.path.join(run_dir, CANONICAL_RUN_PATHS["output"]))
+    requested = requested_petsc_index_bytes(args)
+    if recorded is not None and requested is not None and requested != int(recorded):
+        raise ValueError(f"--petsc-index-bits {8 * requested} conflicts with {run_dir}, staged with "
+                         f"{8 * int(recorded)}-bit indices.")
+    width = int(recorded) if recorded is not None else (requested or 4)
+    return select_petsc_index_bytes(width, f"{run_dir} was staged with {8 * width}-bit indices")
+
+
+def record_run_petsc_index_bytes(run_dir: str) -> None:
+    """!
+    @brief Record in `config/active.json` the PetscInt width the current command selected.
+    @param[in] run_dir Run directory.
+    @return None.
+    """
+    active_path = os.path.join(os.path.abspath(run_dir), "config", "active.json")
+    active = _read_json_if_exists(active_path)
+    if isinstance(active, dict):
+        active["petsc_index_bytes"] = _SELECTED_PETSC_INDEX_BYTES or 4
+        write_json_file(active_path, active)
 
 
 def payload_petsc_index_bytes(path: str) -> int:
@@ -18413,6 +18593,8 @@ def build_run_dry_plan(args) -> dict:
                 materialize=False,
             )
             plan["lineage"] = planned_lineage or {"relationship": "root"}
+            planned_index_bytes = select_run_petsc_index_bytes(
+                args, loaded_case_cfg, case_path, loaded_monitor_cfg, resolved_restart_source_dir)
         except ValueError as e:
             emit_structured_error(
                 ERROR_CODE_CFG_INCONSISTENT_COMBO,
@@ -18556,6 +18738,7 @@ def build_run_dry_plan(args) -> dict:
                 "launch_command_string": _command_to_string(solver_cmd),
             }
         plan["stages"]["solve"]["executable_pinning"] = executable_plan["pinning"]
+        plan["stages"]["solve"]["petsc_index_bits"] = 8 * planned_index_bytes
         if resolved_restart_source_dir:
             plan["stages"]["solve"]["restart_source_directory"] = resolved_restart_source_dir
         if is_continue:
@@ -18611,6 +18794,12 @@ def build_run_dry_plan(args) -> dict:
         if args.solve:
             post_exe = executable_plan["paths"]["postprocessor"]
         else:
+            try:
+                select_existing_run_petsc_index_bytes(run_dir, args)
+            except ValueError as e:
+                emit_structured_error(ERROR_CODE_CFG_INCONSISTENT_COMBO, key="petsc_index_bits",
+                                      file_path=run_dir, message=str(e))
+                sys.exit(1)
             post_exe = run_executable_path(run_dir, "postprocessor")
         post_plan = build_post_execution_plan(
             run_dir,
@@ -20301,6 +20490,8 @@ def run_workflow(args):
             resolved_restart_source_dir, is_continue, run_lineage = resolve_restart_source(
                 args, configs["case"], configs["solver"], configs["monitor"], run_dir
             )
+            select_run_petsc_index_bytes(args, configs["case"], configs["case_path"], configs["monitor"],
+                                         resolved_restart_source_dir)
         except ValueError as e:
             # Restart resolution is the first thing that can refuse a run, and the
             # skeleton is already on disk. Leaving it behind puts an empty directory in
@@ -20342,6 +20533,7 @@ def run_workflow(args):
         # Pinned before the asset lock and manifest are written, so both record the
         # executables this run will launch rather than the installation's.
         had_pinned_executables = bool(load_run_executables(run_dir))
+        record_run_petsc_index_bytes(run_dir)
         try:
             apply_run_executable_pinning(run_dir, active_config["revision"], args, workspace_root)
         except ValueError as exc:
@@ -20572,6 +20764,8 @@ def run_workflow(args):
         recompute = bool(getattr(args, 'recompute_post', False))
         post_stages = resolve_post_stage_selection(getattr(args, 'only', None))
         try:
+            if not args.solve:
+                select_existing_run_petsc_index_bytes(run_dir, args)
             post_exe = run_executable_path(run_dir, "postprocessor")
         except ValueError as exc:
             post_exe = None
@@ -21045,6 +21239,30 @@ def sweep_workflow(args):
     case_entries = []
     case_index_file = os.path.join(scheduler_dir, "case_index.tsv")
 
+    # One array script launches every member, so the study runs on one PetscInt width: the
+    # widest any member needs, unless one was requested.
+    member_widths = []
+    for combo in combinations:
+        member = {"case": copy.deepcopy(base_case), "monitor": copy.deepcopy(base_monitor),
+                  "solver": {}, "post": {}}
+        for full_key, value in combo.items():
+            root, nested = full_key.split(".", 1)
+            _deep_set(member[root], nested, value)
+        absolutize_case_external_paths(member["case"], base_paths["case"])
+        member_widths.append(required_petsc_index_bytes(member["case"], base_paths["case"], member["monitor"]))
+    try:
+        requested = requested_petsc_index_bytes(args)
+        widest = max(member_widths, default=(4, "particle and grid fields fit 32-bit indices"))
+        if requested == 4 and widest[0] == 8:
+            raise ValueError(f"--petsc-index-bits 32 cannot run every study member: {widest[1]}.")
+        if requested is not None:
+            select_petsc_index_bytes(requested, f"{8 * requested}-bit indices were requested")
+        else:
+            select_petsc_index_bytes(*widest)
+    except ValueError as exc:
+        print(f"[FATAL] {exc}", file=sys.stderr)
+        sys.exit(1)
+
     for idx, combo in enumerate(combinations):
         case_id = f"case_{idx:04d}"
         run_dir = os.path.join(cases_dir, case_id)
@@ -21082,6 +21300,7 @@ def sweep_workflow(args):
                 "monitor": "config/monitor.yml",
             },
         })
+        record_run_petsc_index_bytes(run_dir)
         if resolve_executable_pinning(args, workspace_root):
             try:
                 pin_run_executables(run_dir, "initial")

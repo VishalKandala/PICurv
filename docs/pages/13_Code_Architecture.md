@@ -176,6 +176,14 @@ Not all option consumption is explicit `PetscOptionsGet*`; PETSc dynamic ingesti
   `PROFILE_FUNCTION_BEGIN` (once per step or pass) or `PROFILE_HELPER_BEGIN` (per particle or
   cell) and a `PROFILE_FUNCTION_END` before every return; names come from `__func__`, never
   `__FUNCT__`. `make audit-profiling` checks it (@ref 59_Function_Identity_and_Observability_Specification).
+- New solver, Jacobian or other PETSc object: create grid fields through `grid.c`
+  (`CreateCompatibleBlockDM()` for a field of any width), which refuses a field that 32-bit
+  `PetscInt` cannot index. A vector or matrix sized some other way (a monolithic multi-field
+  system, a custom swarm field) passes its 64-bit global entry count to
+  `PicurvCheckPetscIntRange()` before it is created; if it can be wider than the widest field
+  the conductor assumes (`GRID_FIELD_MAX_COMPONENTS`, `STATISTICS_FIELD_COMPONENTS`,
+  `PARTICLE_FIELD_MAX_COMPONENTS` in `picurv_cli/core.py`), raise that bound so automatic
+  selection of the 64-bit-index build stays exact (@ref p01_petsc_index_sub).
 
 @section p13_next_steps_sec 8. Next Steps
 

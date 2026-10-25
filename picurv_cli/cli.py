@@ -26,9 +26,10 @@ WORKSPACE_INPUT_MODES = ("copy", "reflink", "hardlink", "reference")
 
 def _add_executable_pinning_arguments(parser):
     """!
-    @brief Attach the paired executable-pinning switches to a staging parser.
-    @details Unset means the workspace's `reproducibility.pin_executables` decides; without
-             it the run launches the installation's executables.
+    @brief Attach the executable-selection switches to a staging parser: pinning and index width.
+    @details Unset pinning means the workspace's `reproducibility.pin_executables` decides; without
+             it the run launches the installation's executables. Unset index width means the
+             conductor chooses from the run's particle and grid sizes, or its restart source.
     @param[in] parser Parser or argument group receiving the switches.
     @return None.
     """
@@ -44,6 +45,12 @@ def _add_executable_pinning_arguments(parser):
         help="Launch the installation's executables even when the workspace sets\n"
              "reproducibility.pin_executables. Slurm jobs still check at start that they\n"
              "report the build identity read at staging.",
+    )
+    parser.add_argument(
+        "--petsc-index-bits", dest="petsc_index_bits", choices=PETSC_INDEX_BITS_CHOICES, default=None,
+        help="Run on the 32- or 64-bit-index PETSc build (simulator64/postprocessor64, from\n"
+             "`make INDEX_BITS=64`). Default: 64 only when a particle or grid field outgrows\n"
+             "32-bit indices; a restart keeps its source's width. Also PICURV_PETSC_INDEX_BITS.",
     )
 
 
@@ -621,6 +628,7 @@ def _add_build_parser(subparsers):
             "  picurv build SYSTEM=cluster\n"
             "  picurv build all SYSTEM=cluster\n"
             "  picurv build postprocessor\n"
+            "  picurv build INDEX_BITS=64 PETSC_DIR=$HOME/sw/petsc-int64   # simulator64/postprocessor64\n"
             "  ./picurv build clean-project   # from an initialized case directory"
         ),
         epilog="Next: run `picurv --help` or `picurv run --help` for execution commands.",

@@ -1,6 +1,7 @@
 bin/
 docs_build/
 obj/
+obj-int64/
 /.claude/settings.local.json
 stubs/
 __pycache__/

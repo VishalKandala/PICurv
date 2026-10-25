@@ -116,6 +116,12 @@ PetscErrorCode CreateCompatibleBlockDM(DM source, PetscInt dof, DM *result)
     ierr = DMDAGetInfo(source, &dim, &M, &N, &P, &m, &n, &p, &source_dof, &stencil_width,
                        &bx, &by, &bz, &stencil_type); CHKERRQ(ierr);
     ierr = DMDAGetOwnershipRanges(source, &lx, &ly, &lz); CHKERRQ(ierr);
+    {
+        char object[96];
+        ierr = PetscSNPrintf(object, sizeof(object), "A %" PetscInt_FMT "x%" PetscInt_FMT "x%" PetscInt_FMT
+                             " grid field of %" PetscInt_FMT " components", M, N, P, dof); CHKERRQ(ierr);
+        ierr = PicurvCheckPetscIntRange(PetscObjectComm((PetscObject)source), (PetscInt64)M * N * P * dof, object); CHKERRQ(ierr);
+    }
     ierr = DMDACreate3d(PetscObjectComm((PetscObject)source), bx, by, bz, stencil_type,
                         M, N, P, m, n, p, dof, stencil_width, lx, ly, lz, result); CHKERRQ(ierr);
     ierr = DMSetUp(*result); CHKERRQ(ierr);
@@ -276,6 +282,15 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
     }
 
     // --- Create the DMDA for the current UserCtx ---
+    /* The coordinate DM PETSc derives from this one carries 3 components per node; a wider
+       field is checked where CreateCompatibleBlockDM() creates it. */
+    {
+        char object[96];
+        ierr = PetscSNPrintf(object, sizeof(object), "The %" PetscInt_FMT "x%" PetscInt_FMT "x%" PetscInt_FMT
+                             " grid's 3-component fields", user->IM + 1, user->JM + 1, user->KM + 1); CHKERRQ(ierr);
+        ierr = PicurvCheckPetscIntRange(PETSC_COMM_WORLD, (PetscInt64)(user->IM + 1) * (user->JM + 1) * (user->KM + 1) * 3,
+                                        object); CHKERRQ(ierr);
+    }
     LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d:   Calling DMDACreate3d...\n", simCtx->rank);
     ierr = DMDACreate3d(PETSC_COMM_WORLD, xperiod, yperiod, zperiod, DMDA_STENCIL_BOX,
                           user->IM + 1, user->JM + 1, user->KM + 1,

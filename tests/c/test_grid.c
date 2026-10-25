@@ -169,6 +169,37 @@ static PetscErrorCode TestBalanceCoarsestOwnershipBalancesFinestLevel(void)
 }
 
 /**
+ * @brief Tests that a grid too large for 32-bit PetscInt is refused before its DMs are created.
+ * @details 1300^3 cells give 1301^3 nodes, whose 3-component fields need about 6.6e9 entries.
+ *          A 64-bit-index build indexes them, so the test applies to 32-bit builds only.
+ */
+static PetscErrorCode TestOversizedGridIsRefusedOn32BitIndices(void)
+{
+    SimCtx        *simCtx = NULL;
+    char           tmpdir[PETSC_MAX_PATH_LEN] = "";
+    PetscErrorCode setup_ierr;
+
+    PetscFunctionBeginUser;
+    if (sizeof(PetscInt) > 4) PetscFunctionReturn(0);
+    PetscCall(PetscPushErrorHandler(PetscReturnErrorHandler, NULL));
+    PetscCall(PicurvCheckPetscIntRange(PETSC_COMM_WORLD, (PetscInt64)PETSC_MAX_INT, "an object at the limit"));
+    setup_ierr = PicurvCheckPetscIntRange(PETSC_COMM_WORLD, (PetscInt64)PETSC_MAX_INT + 1, "an object past the limit");
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_OUTOFRANGE, setup_ierr, "one entry past PETSC_MAX_INT must be refused"));
+
+    PetscCall(PetscPushErrorHandler(PetscReturnErrorHandler, NULL));
+    setup_ierr = PicurvBuildTinyRuntimeContextWithOptions(NULL, PETSC_FALSE, "-im 1300\n-jm 1300\n-km 1300\n-mg_level 1\n",
+                                                          &simCtx, NULL, tmpdir, sizeof(tmpdir));
+    PetscCall(PetscPopErrorHandler());
+    PetscCall(PicurvAssertIntEqual(PETSC_ERR_ARG_OUTOFRANGE, setup_ierr,
+                                   "grid setup must refuse a grid whose fields outgrow 32-bit PetscInt"));
+    if (simCtx) PetscCall(PicurvDestroyRuntimeContext(&simCtx));
+    if (tmpdir[0]) PetscCall(PicurvRemoveTempDir(tmpdir));
+    PetscCall(PetscOptionsClear(NULL));
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Runs the unit-grid PETSc test binary.
  */
 
@@ -181,6 +212,7 @@ int main(int argc, char **argv)
         {"read-grid-generation-inputs-nondimensionalizes-bounds",
          TestReadGridGenerationInputsNonDimensionalizesBounds},
         {"balance-coarsest-ownership-balances-finest-level", TestBalanceCoarsestOwnershipBalancesFinestLevel},
+        {"oversized-grid-is-refused-on-32-bit-indices", TestOversizedGridIsRefusedOn32BitIndices},
     };
 
     ierr = PetscInitialize(&argc, &argv, NULL, "PICurv grid tests");

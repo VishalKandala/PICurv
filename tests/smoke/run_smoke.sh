@@ -10,6 +10,14 @@ mpi_launcher="${3:?missing MPI launcher}"
 nprocs="${4:-1}"
 smoke_mode="${5:-standard}"
 picurv_exe="$(dirname "${simulator_exe}")/picurv"
+# Given the 64-bit-index pair (make INDEX_BITS=64), the conductor must drive it too, not
+# the 32-bit pair it would choose for these small cases.
+if [[ "$(basename "${simulator_exe}")" == *64 ]]; then
+  export PICURV_PETSC_INDEX_BITS=64
+fi
+# The names the launch-command checks expect: simulator, or simulator64 for that set.
+export SMOKE_SIMULATOR_NAME="$(basename "${simulator_exe}")"
+export SMOKE_POSTPROCESSOR_NAME="$(basename "${postprocessor_exe}")"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
 valid_fixtures_dir="${repo_root}/tests/fixtures/valid"
@@ -434,9 +442,11 @@ for template_name in templates:
             fail(f"{label}: dry-run payload missing solve/post-process stages: {payload}")
         solve_launch = stages["solve"].get("launch_command", [])
         post_launch = stages["post-process"].get("launch_command", [])
-        if not solve_launch or not any(str(token).endswith("simulator") for token in solve_launch):
+        simulator_name = os.environ.get("SMOKE_SIMULATOR_NAME", "simulator")
+        postprocessor_name = os.environ.get("SMOKE_POSTPROCESSOR_NAME", "postprocessor")
+        if not solve_launch or not any(str(token).endswith(simulator_name) for token in solve_launch):
             fail(f"{label}: solve launch command does not target simulator: {solve_launch}")
-        if not post_launch or not any(str(token).endswith("postprocessor") for token in post_launch):
+        if not post_launch or not any(str(token).endswith(postprocessor_name) for token in post_launch):
             fail(f"{label}: post launch command does not target postprocessor: {post_launch}")
 
 print("template matrix smoke validated: " + ", ".join(checked_bundles))
@@ -478,6 +488,7 @@ PY
     --format json >"${plan_json}"
 
   python3 - "${plan_json}" <<'PY'
+import os
 import json
 import sys
 path = sys.argv[1]
@@ -487,8 +498,8 @@ assert payload.get("mode") == "dry-run"
 stages = payload.get("stages", {})
 assert "solve" in stages
 assert "post-process" in stages
-assert any(str(token).endswith("simulator") for token in stages["solve"]["launch_command"])
-assert any(str(token).endswith("postprocessor") for token in stages["post-process"]["launch_command"])
+assert any(str(token).endswith(os.environ.get("SMOKE_SIMULATOR_NAME", "simulator")) for token in stages["solve"]["launch_command"])
+assert any(str(token).endswith(os.environ.get("SMOKE_POSTPROCESSOR_NAME", "postprocessor")) for token in stages["post-process"]["launch_command"])
 solve_launch = [str(token) for token in stages["solve"]["launch_command"]]
 assert "-malloc_debug" in solve_launch
 assert "-log_view" in solve_launch
@@ -3054,6 +3065,7 @@ run_stress_smoke() {
       --format json >"${tmp_root}/flat_periodic_flux_stress_plan.json"
   )
   python3 - "${tmp_root}/flat_periodic_flux_stress_plan.json" <<'PY'
+import os
 import json
 import sys
 path = sys.argv[1]
@@ -3064,8 +3076,8 @@ assert payload.get("mode") == "dry-run"
 assert "solve" in stages and "post-process" in stages
 solve_launch = [str(item) for item in stages["solve"].get("launch_command", [])]
 post_launch = [str(item) for item in stages["post-process"].get("launch_command", [])]
-assert any(item.endswith("simulator") for item in solve_launch)
-assert any(item.endswith("postprocessor") for item in post_launch)
+assert any(item.endswith(os.environ.get("SMOKE_SIMULATOR_NAME", "simulator")) for item in solve_launch)
+assert any(item.endswith(os.environ.get("SMOKE_POSTPROCESSOR_NAME", "postprocessor")) for item in post_launch)
 PY
 
   nprocs="${stress_mpi_nprocs}"

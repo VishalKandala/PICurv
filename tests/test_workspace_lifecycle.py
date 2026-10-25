@@ -915,6 +915,96 @@ def test_binary_petsc_build_is_read_from_version_output_and_from_a_binary_that_c
     assert identity["petsc"]["dir"] == "/opt/petsc"
 
 
+def _index_case(particles: int, cells: int) -> dict:
+    """!
+    @brief A minimal case with a programmatic grid and a particle count, for width selection.
+    @param[in] particles Particle count.
+    @param[in] cells Cells per axis the programmatic grid declares.
+    @return Case mapping.
+    """
+    return {"grid": {"mode": "programmatic_c", "programmatic_settings": {"im": cells, "jm": cells, "km": cells}},
+            "models": {"physics": {"particles": {"count": particles}}}}
+
+
+def test_a_new_run_needs_64_bit_indices_only_when_a_field_outgrows_32_bit(tmp_path):
+    """!
+    @brief 64-bit indices are chosen exactly when one particle or grid field passes the limit.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    """
+    case_path = str(tmp_path / "case.yml")
+    limit = core.PETSC_MAX_INT_32BIT
+    assert core.required_petsc_index_bytes(_index_case(limit // 3, 64), case_path, None)[0] == 4
+    assert core.required_petsc_index_bytes(_index_case(limit // 3 + 1, 64), case_path, None)[0] == 8
+    # 892 programmatic cells are 893 nodes and a 894^3 DA: x 3 components fits; 893 cells does not.
+    assert core.required_petsc_index_bytes(_index_case(0, 892), case_path, None)[0] == 4
+    width, reason = core.required_petsc_index_bytes(_index_case(0, 893), case_path, None)
+    assert width == 8 and "grid-field" in reason
+
+
+def test_index_width_requests_and_restart_sources_decide_the_build(tmp_path, monkeypatch):
+    """!
+    @brief An explicit width wins for a new run; a restart keeps its checkpoints' width.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name in ("simulator", "postprocessor", "simulator64", "postprocessor64"):
+        _fake_binary(bin_dir / name, f"{name} 0.2.0+gabcdef123456")
+    monkeypatch.setattr(core, "INVOKED_SCRIPT_DIR", str(bin_dir))
+    monkeypatch.setattr(core, "_SELECTED_PETSC_INDEX_BYTES", None)
+    monkeypatch.delenv("PICURV_PETSC_INDEX_BITS", raising=False)
+    case, case_path = _index_case(1000, 16), str(tmp_path / "case.yml")
+
+    assert core.select_run_petsc_index_bytes(SimpleNamespace(petsc_index_bits=None), case, case_path, None) == 4
+    assert core.resolve_runtime_executable("simulator") == str(bin_dir / "simulator")
+    assert core.select_run_petsc_index_bytes(SimpleNamespace(petsc_index_bits="64"), case, case_path, None) == 8
+    assert core.resolve_runtime_executable("postprocessor") == str(bin_dir / "postprocessor64")
+    monkeypatch.setenv("PICURV_PETSC_INDEX_BITS", "64")
+    assert core.select_run_petsc_index_bytes(SimpleNamespace(petsc_index_bits=None), case, case_path, None) == 8
+    monkeypatch.delenv("PICURV_PETSC_INDEX_BITS")
+    with pytest.raises(ValueError, match="32 or 64"):
+        core.requested_petsc_index_bytes(SimpleNamespace(petsc_index_bits="48"))
+    with pytest.raises(ValueError, match="cannot run this case"):
+        core.select_run_petsc_index_bytes(SimpleNamespace(petsc_index_bits="32"),
+                                          _index_case(core.PETSC_MAX_INT_32BIT, 16), case_path, None)
+
+    source = tmp_path / "source" / "output"
+    bundle = source / "checkpoints" / "step_000000000010"
+    bundle.mkdir(parents=True)
+    (bundle / "checkpoint.meta").write_text("-checkpoint_petsc_index_bytes 8\n", encoding="utf-8")
+    (bundle / "COMMITTED").write_text("x\n", encoding="utf-8")
+    assert core.select_run_petsc_index_bytes(SimpleNamespace(petsc_index_bits=None), case, case_path, None,
+                                             str(source)) == 8
+    with pytest.raises(ValueError, match="conflicts with the restart source"):
+        core.select_run_petsc_index_bytes(SimpleNamespace(petsc_index_bits="32"), case, case_path, None, str(source))
+
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+    (run_dir / "config" / "active.json").write_text(json.dumps({"revision": "initial"}), encoding="utf-8")
+    core.record_run_petsc_index_bytes(str(run_dir))
+    assert json.loads((run_dir / "config" / "active.json").read_text())["petsc_index_bytes"] == 8
+    monkeypatch.setattr(core, "_SELECTED_PETSC_INDEX_BYTES", None)
+    assert core.select_existing_run_petsc_index_bytes(str(run_dir)) == 8
+
+
+def test_selecting_64_bit_indices_refuses_an_unbuilt_64_bit_build(tmp_path, monkeypatch):
+    """!
+    @brief A run that needs the 64-bit build stops before staging when it is not built.
+    @param[in] tmp_path Pytest temporary-directory fixture.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name in ("simulator", "postprocessor"):
+        _fake_binary(bin_dir / name, f"{name} 0.2.0+gabcdef123456")
+    monkeypatch.setattr(core, "INVOKED_SCRIPT_DIR", str(bin_dir))
+    monkeypatch.setattr(core, "DEFAULT_BIN_DIR", str(bin_dir))
+    monkeypatch.setattr(core, "_SELECTED_PETSC_INDEX_BYTES", None)
+    with pytest.raises(ValueError, match="make INDEX_BITS=64"):
+        core.select_petsc_index_bytes(8, "test")
+
+
 def test_petsc_library_the_loader_resolves_is_compared_with_the_build(tmp_path, monkeypatch):
     """!
     @brief `ldd`'s libpetsc is flagged when it lies outside the PETSc the binary was built against.

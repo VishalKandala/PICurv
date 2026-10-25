@@ -594,7 +594,7 @@ A new run carries its own identity, so the case-identity guard does not apply.
 | MPI rank count | yes | yes | tested — the field-statistics suite covers a changed rank count across restart |
 | Physical properties | yes | treat as a new study | enforced (accepted); the seeded field is no longer consistent with the new physics |
 | Grid dimensions or geometry | **no** | — | enforced — the checkpoint cannot be interpreted on a different grid |
-| PETSc index width (32- vs 64-bit `PetscInt`) | **no** | — | enforced — as for continuation; restart and post-process with the build that wrote the run (see @ref p01_petsc_index_sub) |
+| PETSc index width (32- vs 64-bit `PetscInt`) | **no** | — | enforced — as for continuation; the conductor restarts and post-processes with the executables of the width the source was written with (see @ref p01_petsc_index_sub) |
 
 @subsection p52_compat_exact_sub 8.4 Restart Is Not Bit-Exact
 

@@ -54,6 +54,22 @@ const char picurv_build_stamp[] =
     PICURV_BUILD_STAMP_MARKER PICURV_RELEASE_VERSION " " PICURV_GIT_COMMIT " " PICURV_BUILD_DIRTY;
 
 /**
+ * @brief Implementation of \ref PicurvCheckPetscIntRange().
+ * @see PicurvCheckPetscIntRange()
+ */
+PetscErrorCode PicurvCheckPetscIntRange(MPI_Comm comm, PetscInt64 entries, const char *object)
+{
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCheck(entries <= (PetscInt64)PETSC_MAX_INT, comm, PETSC_ERR_ARG_OUTOFRANGE,
+               "%s needs %" PetscInt64_FMT " entries, beyond the %" PetscInt64_FMT " this PETSc's %d-byte PetscInt "
+               "can index; use a PICurv built on a PETSc configured with --with-64-bit-indices.",
+               object, entries, (PetscInt64)PETSC_MAX_INT, (int)sizeof(PetscInt));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Implementation of \ref PicurvHandleVersionArgument().
  * @details The public argument and return contract is documented in `include/setup.h`.
  * @see PicurvHandleVersionArgument()
@@ -1195,12 +1211,11 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
             ierr = ParticleFieldGetDescriptor((ParticleFieldId)id, &descriptor); CHKERRQ(ierr);
             widest = PetscMax(widest, descriptor->components);
         }
-        PetscCheck((PetscInt64)simCtx->np * widest <= (PetscInt64)PETSC_MAX_INT, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
-                   "-numParticles %" PetscInt_FMT " needs %" PetscInt_FMT "-component particle fields of %" PetscInt64_FMT
-                   " entries, beyond the %" PetscInt_FMT " this PETSc's %d-byte PetscInt can index; use a PETSc built with "
-                   "--with-64-bit-indices (at most %" PetscInt_FMT " particles here).",
-                   simCtx->np, widest, (PetscInt64)simCtx->np * widest, (PetscInt)PETSC_MAX_INT, (int)sizeof(PetscInt),
-                   (PetscInt)(PETSC_MAX_INT / widest));
+        char object[128];
+        ierr = PetscSNPrintf(object, sizeof(object), "-numParticles %" PetscInt_FMT " (a %" PetscInt_FMT
+                             "-component particle field; at most %" PetscInt_FMT " particles here)",
+                             simCtx->np, widest, (PetscInt)(PETSC_MAX_INT / widest)); CHKERRQ(ierr);
+        ierr = PicurvCheckPetscIntRange(PETSC_COMM_WORLD, (PetscInt64)simCtx->np * widest, object); CHKERRQ(ierr);
     }
     PetscInt temp_pinit = (PetscInt)PARTICLE_INIT_SURFACE_RANDOM;
     ierr = PetscOptionsGetInt(NULL, NULL, "-pinit", &temp_pinit, NULL); CHKERRQ(ierr);

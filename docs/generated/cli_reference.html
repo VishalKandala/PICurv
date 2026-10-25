@@ -100,6 +100,9 @@ re-pins it to the current build.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--no-pin-executables</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Launch the installation's executables even when the workspace sets
 reproducibility.pin_executables. Slurm jobs still check at start that they
 report the build identity read at staging.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--petsc-index-bits</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>32</code>, <code>64</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Run on the 32- or 64-bit-index PETSc build (simulator64/postprocessor64, from
+`make INDEX_BITS=64`). Default: 64 only when a particle or grid field outgrows
+32-bit indices; a restart keeps its source's width. Also PICURV_PETSC_INDEX_BITS.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--dry-run</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Resolve and print planned commands/artifacts, including diagnostic flags and log paths, without writing files.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--format</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>json</code>, <code>text</code></td><td class="markdownTableBodyNone"><code>text</code></td><td class="markdownTableBodyNone">Output format for --dry-run (default: text).</td></tr>
 </table>
@@ -369,6 +372,9 @@ re-pins it to the current build.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--no-pin-executables</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Launch the installation's executables even when the workspace sets
 reproducibility.pin_executables. Slurm jobs still check at start that they
 report the build identity read at staging.</td></tr>
+<tr><td class="markdownTableBodyNone"><code>--petsc-index-bits</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone"><code>32</code>, <code>64</code></td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Run on the 32- or 64-bit-index PETSc build (simulator64/postprocessor64, from
+`make INDEX_BITS=64`). Default: 64 only when a particle or grid field outgrows
+32-bit indices; a restart keeps its source's width. Also PICURV_PETSC_INDEX_BITS.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--study-dir</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone">Path to an existing study directory (for --continue/--reaggregate).</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--continue</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Continue a partially-completed study. Requires --study-dir.</td></tr>
 <tr><td class="markdownTableBodyNone"><code>--reaggregate</code></td><td class="markdownTableBodyNone">no</td><td class="markdownTableBodyNone">&#8212;</td><td class="markdownTableBodyNone"><code>False</code></td><td class="markdownTableBodyNone">Re-run metrics aggregation on a completed study. Requires --study-dir.</td></tr>

@@ -581,6 +581,21 @@
             "required": false
           },
           {
+            "choices": [
+              "32",
+              "64"
+            ],
+            "default": null,
+            "dest": "petsc_index_bits",
+            "flags": [
+              "--petsc-index-bits"
+            ],
+            "help": "Run on the 32- or 64-bit-index PETSc build (simulator64/postprocessor64, from\n`make INDEX_BITS=64`). Default: 64 only when a particle or grid field outgrows\n32-bit indices; a restart keeps its source's width. Also PICURV_PETSC_INDEX_BITS.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
             "choices": [],
             "default": "False",
             "dest": "dry_run",
@@ -2833,6 +2848,21 @@
             "help": "Launch the installation's executables even when the workspace sets\nreproducibility.pin_executables. Slurm jobs still check at start that they\nreport the build identity read at staging.",
             "is_flag": false,
             "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [
+              "32",
+              "64"
+            ],
+            "default": null,
+            "dest": "petsc_index_bits",
+            "flags": [
+              "--petsc-index-bits"
+            ],
+            "help": "Run on the 32- or 64-bit-index PETSc build (simulator64/postprocessor64, from\n`make INDEX_BITS=64`). Default: 64 only when a particle or grid field outgrows\n32-bit indices; a restart keeps its source's width. Also PICURV_PETSC_INDEX_BITS.",
+            "is_flag": false,
+            "nargs": null,
             "required": false
           },
           {

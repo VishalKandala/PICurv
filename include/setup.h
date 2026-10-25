@@ -37,6 +37,20 @@
  */
 int PicurvHandleVersionArgument(int argc, char **argv, const char *executable_name);
 
+/**
+ * @brief Refuse a PETSc object whose global size this build's PetscInt cannot index.
+ * @details A vector's or matrix's global size, and every index into it, is a PetscInt. Past
+ *          PETSC_MAX_INT a 32-bit-index build overflows silently, corrupting sizes, ownership
+ *          ranges and checkpoint headers, so every object PICurv sizes passes through here
+ *          before it is created: particle fields at setup, each grid DM where grid.c creates
+ *          it, and so every solver's vectors and matrices built on those DMs.
+ * @param[in] comm    Communicator on which the refusal is raised (collective when it is).
+ * @param[in] entries Global entries the object needs, computed in 64 bits.
+ * @param[in] object  What the object is, for the message (e.g. "a 3-component grid DM").
+ * @return 0, or PETSC_ERR_ARG_OUTOFRANGE naming the remedy (a 64-bit-index PETSc build).
+ */
+PetscErrorCode PicurvCheckPetscIntRange(MPI_Comm comm, PetscInt64 entries, const char *object);
+
 
 /* Macro to automatically select the correct allocation function */
 #define Allocate3DArray(array, nz, ny, nx)  \
