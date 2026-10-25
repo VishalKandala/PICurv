@@ -1661,11 +1661,22 @@ static PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, FieldId fi
 }
 
 /**
- * @brief Implementation of \ref SynchronizePeriodicCellFields().
- * @details Full API contract is documented with the header declaration in
- *          `include/Boundaries.h`.
+ * @brief Body of SynchronizePeriodicCellFields(), optionally without its leading ghost update.
+ * @details UpdateLocalGhosts() rebuilds the whole local vector from the global one, so it is
+ *          an exact no-op on a field whose global vector has not been written since its last
+ *          update. A caller that knows this from its own call sequence passes locals_current
+ *          and skips that leading exchange; the per-direction transfers and their updates
+ *          always run.
+ * @param[in,out] user Block context owning the fields.
+ * @param[in] num_fields Number of cell fields to synchronize.
+ * @param[in] field_ids Field identifiers.
+ * @param[in] locals_current PETSC_TRUE when every listed field's local vector is already
+ *            the ghost update of its current global vector.
+ * @return 0 on success.
  */
-PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields, const FieldId field_ids[])
+static PetscErrorCode SynchronizePeriodicCellFieldsFrom(UserCtx *user, PetscInt num_fields,
+                                                        const FieldId field_ids[],
+                                                        PetscBool locals_current)
 {
     PetscErrorCode ierr;
     PetscBool      periodic_i;
@@ -1693,7 +1704,7 @@ PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields,
 
     if (!periodic_i && !periodic_j && !periodic_k) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
-    for (PetscInt field = 0; field < num_fields; field++) {
+    for (PetscInt field = 0; !locals_current && field < num_fields; field++) {
         ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
     }
 
@@ -1724,6 +1735,22 @@ PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields,
         }
     }
 
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref SynchronizePeriodicCellFields().
+ * @details Full API contract is documented with the header declaration in
+ *          `include/Boundaries.h`.
+ */
+PetscErrorCode SynchronizePeriodicCellFields(UserCtx *user, PetscInt num_fields, const FieldId field_ids[])
+{
+    PetscErrorCode ierr;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    ierr = SynchronizePeriodicCellFieldsFrom(user, num_fields, field_ids, PETSC_FALSE); CHKERRQ(ierr);
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
@@ -2035,10 +2062,20 @@ static PetscErrorCode TransferPeriodicStaggeredFieldByDirection(UserCtx *user, F
 }
 
 /**
- * @brief Implementation of \ref SynchronizePeriodicStaggeredFields().
+ * @brief Body of SynchronizePeriodicStaggeredFields(), optionally without its leading ghost update.
+ * @details As for SynchronizePeriodicCellFieldsFrom(): locals_current skips only the leading
+ *          UpdateLocalGhosts(), an exact no-op when no global vector was written since its
+ *          last update; the per-direction transfers and their updates always run.
+ * @param[in,out] user Block context owning the fields.
+ * @param[in] num_fields Number of staggered fields to synchronize.
+ * @param[in] field_ids Field identifiers.
+ * @param[in] locals_current PETSC_TRUE when every listed field's local vector is already
+ *            the ghost update of its current global vector.
+ * @return 0 on success.
  */
-PetscErrorCode SynchronizePeriodicStaggeredFields(UserCtx *user, PetscInt num_fields,
-                                                  const FieldId field_ids[])
+static PetscErrorCode SynchronizePeriodicStaggeredFieldsFrom(UserCtx *user, PetscInt num_fields,
+                                                             const FieldId field_ids[],
+                                                             PetscBool locals_current)
 {
     PetscErrorCode ierr;
     const char periodic_directions[3] = {'i', 'j', 'k'};
@@ -2057,7 +2094,7 @@ PetscErrorCode SynchronizePeriodicStaggeredFields(UserCtx *user, PetscInt num_fi
         DM dm;
         Vec global_vec, local_vec;
         PetscCall(GetPersistentStaggeredField(user, field_ids[field], &dm, &global_vec, &local_vec));
-        ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
+        if (!locals_current) { ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr); }
     }
 
     for (PetscInt direction = 0; direction < 3; direction++) {
@@ -2075,6 +2112,21 @@ PetscErrorCode SynchronizePeriodicStaggeredFields(UserCtx *user, PetscInt num_fi
         }
     }
 
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref SynchronizePeriodicStaggeredFields().
+ */
+PetscErrorCode SynchronizePeriodicStaggeredFields(UserCtx *user, PetscInt num_fields,
+                                                  const FieldId field_ids[])
+{
+    PetscErrorCode ierr;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    ierr = SynchronizePeriodicStaggeredFieldsFrom(user, num_fields, field_ids, PETSC_FALSE); CHKERRQ(ierr);
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
@@ -3301,10 +3353,17 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
 {
     PetscErrorCode ierr;
     const FieldId staggered_fields[] = {FIELD_ID_UCONT};
+    PetscBool any_periodic = PETSC_FALSE;
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL,LOG_TRACE,"Boundary Condition Application begins.\n");
+
+    for (int face = 0; face < 6; face++) {
+        if (user->boundary_faces[face].mathematical_type == PERIODIC) any_periodic = PETSC_TRUE;
+    }
+    /* A ghost update depends only on its global vector, so the leading updates skipped
+     * below repeat one with no write to that global vector since; results are unchanged. */
 
     // STEP 1: Main iteration loop for applying and converging non-periodic BCs.
     // The number of iterations (e.g., 3) allows information to propagate
@@ -3359,23 +3418,24 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
         
         // (i) Synchronize the updated edge and corner cells across all processors to ensure
         //     consistency before the next iteration or finalization.
+        //     Ucont was last written before (g)'s synchronization, or, with no periodic
+        //     face, before (b)'s update unless the wall function wrote it since.
         ierr = UpdateLocalGhosts(user, FIELD_ID_P); CHKERRQ(ierr);
         ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
-        ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
+        ierr = SynchronizePeriodicStaggeredFieldsFrom(user, 1, staggered_fields,
+                   (PetscBool)(any_periodic || !user->simCtx->wallfunction)); CHKERRQ(ierr);
 
         // (j) Ensure All the corners are synchronized with  a well defined protocol  in case of Periodic boundary conditions
         // To avoid race conditions.
+        //     Ucat and P were updated in (i) and Nvert at the end of (g), none written since.
         const FieldId all_fields[] = {FIELD_ID_UCAT, FIELD_ID_P, FIELD_ID_NVERT};
-        ierr = SynchronizePeriodicCellFields(user, 3, all_fields); CHKERRQ(ierr);
+        ierr = SynchronizePeriodicCellFieldsFrom(user, 3, all_fields, PETSC_TRUE); CHKERRQ(ierr);
 
     }
 
-    // STEP 3: Final ghost node synchronization. This ensures all changes made
-    // to the global vectors are reflected in the local ghost regions of all
-    // processors, making the state fully consistent before the next solver stage.
-    ierr = UpdateLocalGhosts(user, FIELD_ID_P); CHKERRQ(ierr);
-    ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
-    ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
+    // STEP 3: Final staggered periodic synchronization. The last pass already left Ucat, P
+    // and Ucont's local vectors current with their global ones, so only the transfers run.
+    ierr = SynchronizePeriodicStaggeredFieldsFrom(user, 1, staggered_fields, PETSC_TRUE); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
