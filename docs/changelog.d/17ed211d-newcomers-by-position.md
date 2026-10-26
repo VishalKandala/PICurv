@@ -1,0 +1,1 @@
+- Performance: migration newcomers are flagged by their position after the survivors instead of by sorting and searching every local particle ID, bit-identical; `-picurv_verify_ghost_updates` cross-checks it against the PID snapshot.
