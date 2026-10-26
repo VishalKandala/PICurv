@@ -1,0 +1,1 @@
+- Performance: periodic synchronizations refresh only the local entries mirroring each direction's transferred end planes instead of every ghost, bit-identical and with about a third of the exchange volume; `-picurv_verify_ghost_updates` checks each partial refresh against a full one.
