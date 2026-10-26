@@ -23,7 +23,10 @@ Order inside the coupled step, as implemented in @ref AdvanceSimulation
 2. advect particle positions using the velocity interpolated at the **previous**
    step: @ref UpdateAllParticlePositions
 3. settle particles - locate new host cells and migrate across ranks:
-   @ref LocateAllParticlesInGrid
+   @ref LocateAllParticlesInGrid. After each migration the particles that stayed come first
+   and the received ones follow, so the newcomers flagged for the next pass are the tail
+   (@ref FlagNewcomersForLocation); `-picurv_verify_ghost_updates` cross-checks that against
+   a sorted PID snapshot
 4. remove particles that are now lost or outside the global domain:
    @ref CheckAndRemoveLostParticles
 5. store the particles in host-cell order, so the per-particle loops that follow read

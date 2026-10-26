@@ -144,13 +144,15 @@ PetscErrorCode SetMigrationRanks(UserCtx* user, const MigrationInfo *migrationLi
  * Assumes SetMigrationRanks has already been called to mark particles with their target ranks.
  * Calls DMSwarmMigrate to execute the communication while keeping the sent particles, then
  * removes them in one pass with `RemoveFlaggedParticles`. The resulting local order is the
- * one DMSwarmMigrate's own removal produces.
+ * one DMSwarmMigrate's own removal produces: the particles that stayed occupy the first
+ * `*n_survivors` entries and the received ones follow them.
  *
  * @param user Pointer to the UserCtx structure containing the swarm.
+ * @param[out] n_survivors Number of local particles that stayed, or NULL when not wanted.
  *
  * @return PetscErrorCode 0 on success, non-zero on failure.
  */
-PetscErrorCode PerformMigration(UserCtx *user);
+PetscErrorCode PerformMigration(UserCtx *user, PetscInt *n_survivors);
 
 /**
  * @brief Removes flagged swarm points in one pass, preserving the one-at-a-time removal order.
@@ -313,23 +315,17 @@ PetscErrorCode AddToMigrationList(MigrationInfo **migration_list_p,
  * newly arrived particles are processed by the expensive location algorithm, preventing
  * redundant work on particles that are already settled on the current rank.
  *
- * The identification is done by comparing the PIDs of particles currently on the rank
- * against a "snapshot" of PIDs taken *before* the migration occurred.
+ * PerformMigration() leaves the particles that stayed first and the received ones after
+ * them, so the newcomers are exactly the entries from `first_newcomer` on: no PID lookup
+ * is needed, whatever order the particles are stored in.
  *
- * @param[in] swarm            The DMSwarm object, which has just completed a migration.
- * @param[in] n_local_before   The number of particles that were on this rank *before* the
- *                             migration was performed.
- * @param[in] pids_before      A pre-sorted array of the PIDs that were on this rank before
- *                             the migration. This is used for fast lookups.
+ * @param[in] swarm          The DMSwarm object, which has just completed a migration.
+ * @param[in] first_newcomer Index of the first received particle: the survivor count
+ *                           PerformMigration() reported.
  *
  * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
- *
- * @note This function assumes the `pids_before` array is sorted in ascending order to
- *       enable the use of an efficient binary search.
  */
-PetscErrorCode FlagNewcomersForLocation(DM swarm,
-                                        PetscInt n_local_before,
-                                        const PetscInt64 pids_before[]);
+PetscErrorCode FlagNewcomersForLocation(DM swarm, PetscInt first_newcomer);
 
 
 /**

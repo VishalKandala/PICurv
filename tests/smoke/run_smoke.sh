@@ -3185,7 +3185,8 @@ PY
   require_file_contains "${LAST_SOLVER_LOG}" "initial condition (Streamwise Constant)" "streamwise-IC banner source"
 
   # Plane-only periodic ghost refreshes and skipped leading updates are checked against a full
-  # update on a nonuniform field across rank boundaries; any mismatch stops the solver.
+  # update on a nonuniform field across rank boundaries, and migration newcomers against a PID
+  # snapshot; any mismatch stops the solver.
   local verify_case="${tmp_root}/ghost-update-verification"
   "${picurv_exe}" init decaying_isotropic_turbulence --dest "${verify_case}" >/dev/null
   python3 - "${verify_case}" <<'PY'
@@ -3200,6 +3201,8 @@ grid.write_text(grid.read_text().replace("ncells_i = 64", "ncells_i = 16")
 case_cfg = yaml.safe_load((case_dir / "case.yml").read_text())
 case_cfg["run_control"]["total_steps"] = 2
 case_cfg["properties"]["initial_conditions"]["params"]["spectrum"].update(k0=2.0, k_cut=4.0)
+# Particles crossing the rank boundary exercise the migration-newcomer cross-check too.
+case_cfg["models"]["physics"]["particles"].update(count=2000, init_mode="Volume")
 (case_dir / "case.yml").write_text(yaml.safe_dump(case_cfg, sort_keys=False))
 solver_cfg = yaml.safe_load((case_dir / "solver.yml").read_text())
 solver_cfg["poisson_solver"]["multigrid"]["levels"] = 2

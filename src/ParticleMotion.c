@@ -504,7 +504,7 @@ PetscErrorCode SortParticlesByCell(DM swarm)
  *          the header declaration in `include/ParticleMotion.h`.
  * @see PerformMigration()
  */
-PetscErrorCode PerformMigration(UserCtx *user)
+PetscErrorCode PerformMigration(UserCtx *user, PetscInt *n_survivors)
 {
     PetscErrorCode ierr;
     DM swarm = user->swarm;
@@ -527,7 +527,12 @@ PetscErrorCode PerformMigration(UserCtx *user)
     // Remove every particle that was sent away (rank field not this rank) in one pass.
     ierr = PetscMalloc1(nlocal_before, &sent); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_RANK), NULL, NULL, (void **)&rank_p); CHKERRQ(ierr);
-    for (PetscInt p = 0; p < nlocal_before; ++p) sent[p] = (PetscBool)(rank_p[p] != rank);
+    PetscInt n_sent = 0;
+    for (PetscInt p = 0; p < nlocal_before; ++p) {
+        sent[p] = (PetscBool)(rank_p[p] != rank);
+        if (sent[p]) n_sent++;
+    }
+    if (n_survivors) *n_survivors = nlocal_before - n_sent;
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_RANK), NULL, NULL, (void **)&rank_p); CHKERRQ(ierr);
     ierr = RemoveFlaggedParticles(swarm, nlocal_before, sent, PETSC_FALSE); CHKERRQ(ierr);
     ierr = PetscFree(sent); CHKERRQ(ierr);
@@ -1115,93 +1120,59 @@ PetscErrorCode AddToMigrationList(MigrationInfo **migration_list_p,
 
 
 /**
+ * @brief Requires the position-identified newcomers to be exactly the PID-identified ones, when -picurv_verify_ghost_updates is set.
+ * @details A particle is a newcomer by PID when its PID is absent from the sorted pre-migration
+ *          snapshot, and by position when it lies at or after the survivor count. The two must
+ *          agree for every local particle.
+ * @param[in] user           Block context owning the swarm.
+ * @param[in] n_before       Number of local particles before the migration.
+ * @param[in] pids_before    Sorted PIDs of those particles (NULL when the check is off or n_before is 0).
+ * @param[in] first_newcomer Survivor count reported by PerformMigration().
+ * @return 0 when the check is off or passes; an error otherwise.
+ */
+static PetscErrorCode VerifyNewcomersAgainstPIDs(UserCtx *user, PetscInt n_before, const PetscInt64 pids_before[],
+                                                 PetscInt first_newcomer)
+{
+    PetscInt    n_after, mismatches = 0;
+    PetscInt64 *pid = NULL;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    if (!user->simCtx->verifyGhostUpdates) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
+    PetscCall(DMSwarmGetLocalSize(user->swarm, &n_after));
+    PetscCall(DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pid));
+    for (PetscInt p = 0; p < n_after; ++p) {
+        PetscBool was_here = PETSC_FALSE;
+        if (n_before > 0) PetscCall(BinarySearchInt64(n_before, pids_before, pid[p], &was_here));
+        if ((PetscBool)(p >= first_newcomer) == was_here) mismatches++;
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pid));
+    PetscCheck(mismatches == 0, PETSC_COMM_SELF, PETSC_ERR_PLIB,
+               "Newcomer verification failed: %" PetscInt_FMT " of %" PetscInt_FMT " local particles disagree between position (first newcomer %" PetscInt_FMT ") and PID snapshot.",
+               mismatches, n_after, first_newcomer);
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Internal helper implementation: `FlagNewcomersForLocation()`.
  * @details Local to this translation unit.
  */
-PetscErrorCode FlagNewcomersForLocation(DM swarm,
-                                        PetscInt n_local_before,
-                                        const PetscInt64 pids_before[])
+PetscErrorCode FlagNewcomersForLocation(DM swarm, PetscInt first_newcomer)
 {
-    PetscErrorCode ierr;
-    PetscMPIInt    rank;
-    PetscInt       n_local_after;
-    PetscInt       newcomer_count = 0;
-    
-    // Pointers to the swarm data fields we will read and modify
-    PetscInt64 *pid_field_after    = NULL;
-    PetscInt   *status_field_after = NULL;
-    PetscInt   *cell_field_after = NULL;
+    PetscInt  n_local_after;
+    PetscInt *status = NULL;
 
     PetscFunctionBeginUser;
-
     PROFILE_FUNCTION_BEGIN;
-
-    // --- 1. Input Validation and Basic Setup ---
-    if (!swarm) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Input DMSwarm is NULL in FlagNewcomersForLocation.");
-    }
-    // If n_local_before > 0, the corresponding PID array must not be null.
-    if (n_local_before > 0 && !pids_before) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input pids_before array is NULL for n_local_before > 0.");
-    }
-
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    
-    // Get the number of particles on this rank *after* the migration.
-    ierr = DMSwarmGetLocalSize(swarm, &n_local_after); CHKERRQ(ierr);
-    
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d]: Checking for newcomers. Size before: %" PetscInt_FMT ", Size after: %" PetscInt_FMT "\n",
-              rank, n_local_before, n_local_after);
-
-    // If there are no particles now, there's nothing to do.
-    if (n_local_after == 0) {
-        PROFILE_FUNCTION_END;
-        PetscFunctionReturn(0);
-    }
-    
-    // --- 2. Access Swarm Data ---
-    // Get read-only access to the PIDs and read-write access to the status field.
-    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void**)&pid_field_after); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status_field_after); CHKERRQ(ierr);
-    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID),          NULL, NULL, (void**)&cell_field_after); CHKERRQ(ierr);
-    if (!pid_field_after || !status_field_after) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Failed to get required swarm fields in FlagNewcomersForLocation.");
-    }
-
-    // --- 3. Identify and Flag Newcomers ---
-    // Loop through all particles currently on this rank.
-    for (PetscInt p_idx = 0; p_idx < n_local_after; ++p_idx) {
-        PetscInt64 current_pid = pid_field_after[p_idx];
-        PetscBool  is_found_in_before_list;
-
-        // Use our custom, efficient helper function for the lookup.
-        ierr = BinarySearchInt64(n_local_before, pids_before, current_pid, &is_found_in_before_list); CHKERRQ(ierr);
-
-        // If the PID was NOT found in the "before" list, it must be a newcomer.
-        if (!is_found_in_before_list) {
-          // Flag it for processing in the next pass of the migration loop.
-          status_field_after[p_idx] = NEEDS_LOCATION;
-	  // cell_field_after[3*p_idx+0] = -1;
-	  // cell_field_after[3*p_idx+1] = -1; 
-	  // cell_field_after[3*p_idx+2] = -1; 
-            newcomer_count++;
-            
-            LOG_ALLOW(LOCAL, LOG_VERBOSE, "[Rank %d]: Flagged newcomer PID %ld at local index %" PetscInt_FMT " as NEEDS_LOCATION.\n",
-                      rank, current_pid, p_idx);
-        }
-    }
-
-    // --- 4. Restore Swarm Fields ---
-    // Release the locks on the swarm data arrays.
-    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void**)&pid_field_after); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status_field_after); CHKERRQ(ierr);
-    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID),          NULL, NULL, (void**)&cell_field_after); CHKERRQ(ierr);
-
-    if (newcomer_count > 0) {
-        LOG_ALLOW(LOCAL, LOG_INFO, "[Rank %d]: Identified and flagged %" PetscInt_FMT " newcomers.\n", rank, newcomer_count);
-    }
-
-
+    PetscCheck(swarm, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Input DMSwarm is NULL in FlagNewcomersForLocation.");
+    PetscCall(DMSwarmGetLocalSize(swarm, &n_local_after));
+    PetscCheck(first_newcomer >= 0 && first_newcomer <= n_local_after, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
+               "First newcomer index %" PetscInt_FMT " outside the %" PetscInt_FMT " local particles.", first_newcomer, n_local_after);
+    PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void **)&status));
+    for (PetscInt p = first_newcomer; p < n_local_after; ++p) status[p] = NEEDS_LOCATION;
+    PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void **)&status));
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Flagged %" PetscInt_FMT " newcomers for location.\n", n_local_after - first_newcomer);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -1271,7 +1242,7 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
     if (global_migration_count > 0) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "Fast restart migration: Directly migrating %" PetscInt_FMT " particles using CellIDs.\n", global_migration_count);
         ierr = SetMigrationRanks(user, migrationList, local_migration_count); CHKERRQ(ierr);
-        ierr = PerformMigration(user); CHKERRQ(ierr);
+        ierr = PerformMigration(user, NULL); CHKERRQ(ierr);
         /* We do NOT flag newcomers here. We trust their loaded status (ACTIVE_AND_LOCATED) */
         /* is valid for their destination rank. */
     } else {
@@ -1458,9 +1429,11 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
             ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void**)&pid_p);      CHKERRQ(ierr);
             ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status_p);   CHKERRQ(ierr);
 
-            // Create a sorted snapshot of current PIDs to identify newcomers after migration.
-            // This helper requires a raw pointer, which we just acquired.
-            ierr = GetLocalPIDSnapshot(pid_p, nlocal_before, &pids_before_snapshot); CHKERRQ(ierr);
+            // Newcomers are identified by position after migration; the sorted PID snapshot is
+            // taken only to cross-check that under -picurv_verify_ghost_updates.
+            if (user->simCtx->verifyGhostUpdates) {
+                ierr = GetLocalPIDSnapshot(pid_p, nlocal_before, &pids_before_snapshot); CHKERRQ(ierr);
+            }
 
             for (PetscInt p_idx = 0; p_idx < nlocal_before; p_idx++) {
 
@@ -1609,12 +1582,14 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
             LOG_ALLOW(GLOBAL, LOG_INFO, "Pass %" PetscInt_FMT ": Migrating %" PetscInt_FMT " particles globally.\n", passes, global_migrations_this_pass);
                 
                 ierr = SetMigrationRanks(user, migrationList, local_migration_count); CHKERRQ(ierr);
-                ierr = PerformMigration(user); CHKERRQ(ierr);
+                PetscInt n_survivors = 0;
+                ierr = PerformMigration(user, &n_survivors); CHKERRQ(ierr);
 
                 // --- STAGE 4: POST-MIGRATION RESET ---
-                // Identify newly arrived particles and flag them with NEEDS_LOCATION so they are
-                // processed in the next pass. This uses the snapshot taken in STAGE 2.
-                ierr = FlagNewcomersForLocation(user->swarm, nlocal_before, pids_before_snapshot); CHKERRQ(ierr);
+                // The received particles follow the survivors; flag them with NEEDS_LOCATION so
+                // they are processed in the next pass.
+                ierr = FlagNewcomersForLocation(user->swarm, n_survivors); CHKERRQ(ierr);
+                ierr = VerifyNewcomersAgainstPIDs(user, nlocal_before, pids_before_snapshot, n_survivors); CHKERRQ(ierr);
         }
         // --- STAGE 5: LOOP SYNCHRONIZATION AND CLEANUP ---
 
