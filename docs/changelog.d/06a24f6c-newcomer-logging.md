@@ -1,0 +1,1 @@
+- Fix: `FlagNewcomersForLocation` logs its per-rank newcomer count (INFO), sizes (DEBUG) and per-newcomer PIDs (VERBOSE) again, as before the position-based rewrite.
