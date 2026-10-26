@@ -742,6 +742,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetString(NULL, NULL, "-profiling_timestep_mode", simCtx->profilingTimestepMode, sizeof(simCtx->profilingTimestepMode), NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetString(NULL, NULL, "-profiling_timestep_file", simCtx->profilingTimestepFile, PETSC_MAX_PATH_LEN, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-profiling_final_summary", &simCtx->profilingFinalSummary, NULL); CHKERRQ(ierr);
+    ierr = PetscOptionsGetBool(NULL, NULL, "-picurv_verify_ghost_updates", &simCtx->verifyGhostUpdates, NULL); CHKERRQ(ierr);
     if (strcmp(simCtx->profilingTimestepMode, "off") != 0 &&
         strcmp(simCtx->profilingTimestepMode, "selected") != 0 &&
         strcmp(simCtx->profilingTimestepMode, "all") != 0) {
@@ -2631,38 +2632,17 @@ static PetscErrorCode RepairPeriodicNormalFaceGhosts(UserCtx *user, DM dm, Vec l
 }
 
 /**
- * @brief Updates a catalogued field's local ghost representation.
- * @details Resolves the typed field view, performs the existing PETSc scatter,
- *          and applies the established periodic normal-face repair when needed.
+ * @brief Implementation of \ref RepairPeriodicFieldGhosts().
+ * @see RepairPeriodicFieldGhosts()
  */
-PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id)
+PetscErrorCode RepairPeriodicFieldGhosts(UserCtx *user, const FieldView *view, Vec local_vec)
 {
-    PetscErrorCode ierr;
-    PetscMPIInt    rank;
-    FieldView      field_view;
-    const char    *field_name;
-    Vec            globalVec;
-    Vec            localVec;
-    DM             dm;
-    PetscInt       dof;
-    char           face_direction = '\0';
-    PetscBool      component_staggered = PETSC_FALSE;
+    char      face_direction = '\0';
+    PetscBool component_staggered = PETSC_FALSE;
 
-    PetscFunctionBeginUser; // Use User version for application code
-    PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    ierr = FieldGetView(user, field_id, &field_view); CHKERRQ(ierr);
-    PetscCheck((field_view.descriptor->capabilities & FIELD_CAPABILITY_GHOST_UPDATE) != 0u,
-               PETSC_COMM_SELF, PETSC_ERR_SUP,
-               "Field '%s' does not support ghost updates.",
-               field_view.descriptor->canonical_name);
-    field_name = field_view.descriptor->canonical_name;
-    globalVec = field_view.global_vec;
-    localVec = field_view.local_vec;
-    dm = field_view.dm;
-    dof = field_view.descriptor->dof;
-
-    switch (field_view.descriptor->sync_class) {
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    switch (view->descriptor->sync_class) {
         case FIELD_SYNC_I_FACE:
             face_direction = 'i';
             break;
@@ -2679,8 +2659,41 @@ PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id)
             break;
         default:
             SETERRQ(PETSC_COMM_SELF, PETSC_ERR_PLIB,
-                    "Field '%s' has an invalid ghost synchronization class.", field_name);
+                    "Field '%s' has an invalid ghost synchronization class.", view->descriptor->canonical_name);
     }
+    PetscCall(RepairPeriodicNormalFaceGhosts(user, view->dm, local_vec, view->descriptor->dof, face_direction,
+                                             component_staggered));
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Updates a catalogued field's local ghost representation.
+ * @details Resolves the typed field view, performs the existing PETSc scatter,
+ *          and applies the established periodic normal-face repair when needed.
+ */
+PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id)
+{
+    PetscErrorCode ierr;
+    PetscMPIInt    rank;
+    FieldView      field_view;
+    const char    *field_name;
+    Vec            globalVec;
+    Vec            localVec;
+    DM             dm;
+
+    PetscFunctionBeginUser; // Use User version for application code
+    PROFILE_FUNCTION_BEGIN;
+    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    ierr = FieldGetView(user, field_id, &field_view); CHKERRQ(ierr);
+    PetscCheck((field_view.descriptor->capabilities & FIELD_CAPABILITY_GHOST_UPDATE) != 0u,
+               PETSC_COMM_SELF, PETSC_ERR_SUP,
+               "Field '%s' does not support ghost updates.",
+               field_view.descriptor->canonical_name);
+    field_name = field_view.descriptor->canonical_name;
+    globalVec = field_view.global_vec;
+    localVec = field_view.local_vec;
+    dm = field_view.dm;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Rank %d: Starting ghost update for field '%s'.\n", rank, field_name);
 
@@ -2704,8 +2717,7 @@ PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id)
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Calling DMGlobalToLocalBegin/End for '%s'.\n", rank, field_name);
     ierr = DMGlobalToLocalBegin(dm, globalVec, INSERT_VALUES, localVec); CHKERRQ(ierr);
     ierr = DMGlobalToLocalEnd(dm, globalVec, INSERT_VALUES, localVec); CHKERRQ(ierr);
-    ierr = RepairPeriodicNormalFaceGhosts(user, dm, localVec, dof, face_direction,
-                                          component_staggered); CHKERRQ(ierr);
+    ierr = RepairPeriodicFieldGhosts(user, &field_view, localVec); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Completed DMGlobalToLocalBegin/End for '%s'.\n", rank, field_name);
 
     // --- 5. Optional Debugging: Norm After Update ---

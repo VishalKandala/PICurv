@@ -1661,6 +1661,142 @@ static PetscErrorCode TransferPeriodicFieldByDirection(UserCtx *user, FieldId fi
 }
 
 /**
+ * @brief Requires a field's local vector to equal a full ghost update, when -picurv_verify_ghost_updates is set.
+ * @details Rebuilds the update UpdateLocalGhosts() would make (scatter, then periodic repair)
+ *          into a scratch vector and compares every local entry bitwise. The periodic
+ *          synchronizers call it where they rely on an update they did not perform: a caller's
+ *          locals_current claim and every plane-only refresh.
+ * @param[in] user Block context owning the field.
+ * @param[in] field_id Field whose local vector is checked.
+ * @param[in] where Short description of the claim, for the error message.
+ * @return 0 when the check is off or passes; an error naming the field otherwise.
+ */
+static PetscErrorCode VerifyLocalGhostsCurrent(UserCtx *user, FieldId field_id, const char *where)
+{
+    FieldView          view;
+    Vec                full;
+    const PetscScalar *expected, *actual;
+    PetscInt           n;
+    PetscInt64         differing = 0, total = 0;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    if (!user->simCtx->verifyGhostUpdates) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
+    PetscCall(FieldGetView(user, field_id, &view));
+    PetscCall(VecDuplicate(view.local_vec, &full));
+    PetscCall(DMGlobalToLocalBegin(view.dm, view.global_vec, INSERT_VALUES, full));
+    PetscCall(DMGlobalToLocalEnd(view.dm, view.global_vec, INSERT_VALUES, full));
+    PetscCall(RepairPeriodicFieldGhosts(user, &view, full));
+    PetscCall(VecGetLocalSize(full, &n));
+    PetscCall(VecGetArrayRead(full, &expected));
+    PetscCall(VecGetArrayRead(view.local_vec, &actual));
+    for (PetscInt entry = 0; entry < n; entry++) {
+        if (memcmp(&expected[entry], &actual[entry], sizeof(PetscScalar))) differing++;
+    }
+    PetscCall(VecRestoreArrayRead(view.local_vec, &actual));
+    PetscCall(VecRestoreArrayRead(full, &expected));
+    PetscCall(VecDestroy(&full));
+    PetscCallMPI(MPI_Allreduce(&differing, &total, 1, MPIU_INT64, MPI_SUM, PetscObjectComm((PetscObject)view.dm)));
+    PetscCheck(total == 0, PetscObjectComm((PetscObject)view.dm), PETSC_ERR_PLIB,
+               "Ghost-update verification failed for '%s' %s: %" PetscInt64_FMT " local entries differ from a full update.",
+               view.descriptor->canonical_name, where, total);
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief The scatter that refreshes only the local entries mirroring a DM's two end planes in one direction.
+ * @details A periodic transfer in direction d writes only the global planes 0 and M_d-1. The
+ *          scatter is the DMDA's global-to-local scatter restricted to the leaves whose periodic
+ *          (wrapped) index along d is one of those planes: the owners' copies and every ghost
+ *          copy, including those across the seam. Built on first use, collectively since every
+ *          rank synchronizes the same DMs, and kept on the DM, which owns it.
+ * @param[in] dm DMDA of the field being synchronized.
+ * @param[in] direction 'i', 'j' or 'k'.
+ * @param[out] plane The scatter, or NULL when the DM is not periodic along direction.
+ * @return 0 on success.
+ */
+static PetscErrorCode GetPeriodicPlaneScatter(DM dm, char direction, VecScatter *plane)
+{
+    const PetscInt     axis = direction - 'i';
+    char               key[] = "PICurvPeriodicPlaneScatter_?";
+    PetscObject        cached = NULL;
+    DMBoundaryType     boundary[3];
+    PetscInt           size[3], dof, gs[3], gm[3], nleaves, maxleaf, nselected = 0, *selected = NULL;
+    const PetscInt    *ilocal;
+    const PetscSFNode *iremote;
+    VecScatter         gtol, embedded;
+    PetscBool          per_point;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCheck(axis >= 0 && axis < 3, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Invalid direction '%c'", direction);
+    *plane = NULL;
+    PetscCall(DMDAGetInfo(dm, NULL, &size[0], &size[1], &size[2], NULL, NULL, NULL, &dof, NULL,
+                          &boundary[0], &boundary[1], &boundary[2], NULL));
+    if (boundary[axis] != DM_BOUNDARY_PERIODIC) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
+    key[sizeof(key) - 2] = direction;
+    PetscCall(PetscObjectQuery((PetscObject)dm, key, &cached));
+    if (cached) { *plane = (VecScatter)cached; PROFILE_HELPER_END; PetscFunctionReturn(0); }
+
+    PetscCall(DMDAGetGhostCorners(dm, &gs[0], &gs[1], &gs[2], &gm[0], &gm[1], &gm[2]));
+    PetscCall(DMDAGetScatter(dm, &gtol, NULL));
+    PetscCall(PetscSFGetGraph(gtol, NULL, &nleaves, &ilocal, &iremote));
+    PetscCall(PetscSFGetLeafRange(gtol, NULL, &maxleaf));
+    /* Leaves index whole points when the scatter moves dof-sized blocks, single entries otherwise. */
+    per_point = (PetscBool)(dof == 1 || maxleaf < gm[0] * gm[1] * gm[2]);
+    PetscCall(PetscMalloc1(nleaves, &selected));
+    for (PetscInt edge = 0; edge < nleaves; edge++) {
+        const PetscInt leaf  = ilocal ? ilocal[edge] : edge;
+        const PetscInt point = per_point ? leaf : leaf / dof;
+        const PetscInt index[3] = {gs[0] + point % gm[0], gs[1] + (point / gm[0]) % gm[1], gs[2] + point / (gm[0] * gm[1])};
+        const PetscInt wrapped = ((index[axis] % size[axis]) + size[axis]) % size[axis];
+        if (wrapped == 0 || wrapped == size[axis] - 1) selected[nselected++] = edge;
+    }
+    PetscCall(PetscSFCreateEmbeddedLeafSF(gtol, nselected, selected, &embedded));
+    PetscCall(PetscFree(selected));
+    PetscCall(PetscObjectCompose((PetscObject)dm, key, (PetscObject)embedded));
+    PetscCall(PetscSFDestroy(&embedded));
+    PetscCall(PetscObjectQuery((PetscObject)dm, key, &cached));
+    *plane = (VecScatter)cached;
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Brings a field's local vector up to date after a periodic transfer along one direction.
+ * @details Precondition: the local vector was the ghost update of the global vector before the
+ *          transfer. The transfer wrote only the end planes along direction, so rescattering the
+ *          entries that mirror those planes and reapplying the periodic repair leaves exactly what
+ *          UpdateLocalGhosts() would. Static so that only the periodic synchronizers below, which
+ *          establish the precondition, can call it; -picurv_verify_ghost_updates checks each call.
+ * @param[in,out] user Block context owning the field.
+ * @param[in] field_id Field just transferred.
+ * @param[in] direction Direction of that transfer.
+ * @return 0 on success.
+ */
+static PetscErrorCode RefreshPeriodicPlaneGhosts(UserCtx *user, FieldId field_id, char direction)
+{
+    FieldView  view;
+    VecScatter plane;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCall(FieldGetView(user, field_id, &view));
+    PetscCall(GetPeriodicPlaneScatter(view.dm, direction, &plane));
+    if (!plane) {
+        PetscCall(UpdateLocalGhosts(user, field_id));
+    } else {
+        PetscCall(VecScatterBegin(plane, view.global_vec, view.local_vec, INSERT_VALUES, SCATTER_FORWARD));
+        PetscCall(VecScatterEnd(plane, view.global_vec, view.local_vec, INSERT_VALUES, SCATTER_FORWARD));
+        PetscCall(RepairPeriodicFieldGhosts(user, &view, view.local_vec));
+    }
+    PetscCall(VerifyLocalGhostsCurrent(user, field_id, "after a plane-only refresh"));
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Body of SynchronizePeriodicCellFields(), optionally without its first or last ghost update.
  * @details UpdateLocalGhosts() rebuilds the whole local vector from the global one, so it is
  *          an exact no-op on a field whose global vector has not been written since its last
@@ -1708,16 +1844,19 @@ static PetscErrorCode SynchronizePeriodicCellFieldsFrom(UserCtx *user, PetscInt 
 
     if (!periodic_i && !periodic_j && !periodic_k) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
-    for (PetscInt field = 0; !locals_current && field < num_fields; field++) {
-        ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
+    for (PetscInt field = 0; field < num_fields; field++) {
+        if (locals_current) { ierr = VerifyLocalGhostsCurrent(user, field_ids[field], "claimed current by the caller"); CHKERRQ(ierr); }
+        else { ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr); }
     }
 
+    /* Each transfer writes only the end planes of its direction, and the local vectors are
+     * current before it, so a plane-only refresh restores exactly a full update. */
     if (periodic_i) {
         for (PetscInt field = 0; field < num_fields; field++) {
             ierr = TransferPeriodicFieldByDirection(user, field_ids[field], 'i'); CHKERRQ(ierr);
         }
         for (PetscInt field = 0; (final_update || periodic_j || periodic_k) && field < num_fields; field++) {
-            ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
+            ierr = RefreshPeriodicPlaneGhosts(user, field_ids[field], 'i'); CHKERRQ(ierr);
         }
     }
 
@@ -1726,7 +1865,7 @@ static PetscErrorCode SynchronizePeriodicCellFieldsFrom(UserCtx *user, PetscInt 
             ierr = TransferPeriodicFieldByDirection(user, field_ids[field], 'j'); CHKERRQ(ierr);
         }
         for (PetscInt field = 0; (final_update || periodic_k) && field < num_fields; field++) {
-            ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
+            ierr = RefreshPeriodicPlaneGhosts(user, field_ids[field], 'j'); CHKERRQ(ierr);
         }
     }
 
@@ -1735,7 +1874,7 @@ static PetscErrorCode SynchronizePeriodicCellFieldsFrom(UserCtx *user, PetscInt 
             ierr = TransferPeriodicFieldByDirection(user, field_ids[field], 'k'); CHKERRQ(ierr);
         }
         for (PetscInt field = 0; final_update && field < num_fields; field++) {
-            ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
+            ierr = RefreshPeriodicPlaneGhosts(user, field_ids[field], 'k'); CHKERRQ(ierr);
         }
     }
 
@@ -2098,7 +2237,8 @@ static PetscErrorCode SynchronizePeriodicStaggeredFieldsFrom(UserCtx *user, Pets
         DM dm;
         Vec global_vec, local_vec;
         PetscCall(GetPersistentStaggeredField(user, field_ids[field], &dm, &global_vec, &local_vec));
-        if (!locals_current) { ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr); }
+        if (locals_current) { ierr = VerifyLocalGhostsCurrent(user, field_ids[field], "claimed current by the caller"); CHKERRQ(ierr); }
+        else { ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr); }
     }
 
     for (PetscInt direction = 0; direction < 3; direction++) {
@@ -2111,8 +2251,10 @@ static PetscErrorCode SynchronizePeriodicStaggeredFieldsFrom(UserCtx *user, Pets
             ierr = TransferPeriodicStaggeredFieldByDirection(user, field_ids[field],
                                                              periodic_directions[direction]); CHKERRQ(ierr);
         }
+        /* As in SynchronizePeriodicCellFieldsFrom(): the transfer wrote only this direction's
+         * end planes into current local vectors, so a plane-only refresh suffices. */
         for (PetscInt field = 0; field < num_fields; field++) {
-            ierr = UpdateLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
+            ierr = RefreshPeriodicPlaneGhosts(user, field_ids[field], periodic_directions[direction]); CHKERRQ(ierr);
         }
     }
 

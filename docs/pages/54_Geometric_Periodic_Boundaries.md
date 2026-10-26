@@ -54,6 +54,15 @@ Face-center and cell-center coordinate ghosts are wrapped and shifted by the
 validated translation. Higher-depth QUICK stencil preparation is handled
 separately from ordinary local ghost refresh.
 
+A periodic synchronization (`SynchronizePeriodicCellFields()`,
+`SynchronizePeriodicStaggeredFields()`) refreshes the local vectors once in full, then,
+after each direction's transfer, refreshes only the local entries that mirror the two end
+planes that transfer wrote. Because the local vectors were current before the transfer,
+the result is bitwise the one a full `UpdateLocalGhosts()` gives, at a small fraction of
+its communication. The solver option `-picurv_verify_ghost_updates` checks every such
+partial refresh, and every caller's claim that the local vectors are already current,
+against a full update and stops the run on a mismatch; it is slow, and meant for tests.
+
 @section p54_config_sec 4. Configuration
 
 Configure both faces of an axis as periodic:

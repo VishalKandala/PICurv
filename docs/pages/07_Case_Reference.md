@@ -1292,6 +1292,7 @@ Optional escape hatch for flags not yet exposed in structured schema:
 ```yaml
 solver_parameters:
   -mom_stability_shadow: true   # diagnostic-only momentum stability estimate
+  -picurv_verify_ghost_updates: true   # test-only: check partial periodic ghost updates against full ones
 ```
 
 Use sparingly and prefer structured keys when available.

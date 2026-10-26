@@ -3183,6 +3183,40 @@ PY
     "${streamwise_case}/post.yml" \
     "constant_streamwise_geometric_periodic"
   require_file_contains "${LAST_SOLVER_LOG}" "initial condition (Streamwise Constant)" "streamwise-IC banner source"
+
+  # Plane-only periodic ghost refreshes and skipped leading updates are checked against a full
+  # update on a nonuniform field across rank boundaries; any mismatch stops the solver.
+  local verify_case="${tmp_root}/ghost-update-verification"
+  "${picurv_exe}" init decaying_isotropic_turbulence --dest "${verify_case}" >/dev/null
+  python3 - "${verify_case}" <<'PY'
+import pathlib
+import sys
+import yaml
+
+case_dir = pathlib.Path(sys.argv[1]) / "config"
+grid = case_dir / "grids" / "isotropic_box_64.cfg"
+grid.write_text(grid.read_text().replace("ncells_i = 64", "ncells_i = 16")
+                .replace("ncells_j = 64", "ncells_j = 16").replace("ncells_k = 64", "ncells_k = 16"))
+case_cfg = yaml.safe_load((case_dir / "case.yml").read_text())
+case_cfg["run_control"]["total_steps"] = 2
+case_cfg["properties"]["initial_conditions"]["params"]["spectrum"].update(k0=2.0, k_cut=4.0)
+(case_dir / "case.yml").write_text(yaml.safe_dump(case_cfg, sort_keys=False))
+solver_cfg = yaml.safe_load((case_dir / "solver.yml").read_text())
+solver_cfg["poisson_solver"]["multigrid"]["levels"] = 2
+solver_cfg["petsc_passthrough_options"] = dict(solver_cfg.get("petsc_passthrough_options") or {},
+                                               **{"-picurv_verify_ghost_updates": True})
+(case_dir / "solver.yml").write_text(yaml.safe_dump(solver_cfg, sort_keys=False))
+PY
+  nprocs=2
+  run_case_workflow \
+    "${verify_case}" \
+    "${verify_case}/config/case.yml" \
+    "${verify_case}/config/solver.yml" \
+    "${verify_case}/config/monitor.yml" \
+    "${verify_case}/config/post.yml" \
+    "ghost_update_verification"
+  require_file_contains "${LAST_RUN_DIR}/config/$(basename "${LAST_RUN_DIR}").control" \
+    "-picurv_verify_ghost_updates" "ghost-update verification enabled"
   nprocs="${saved_nprocs}"
 }
 

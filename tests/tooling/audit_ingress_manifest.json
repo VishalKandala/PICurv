@@ -99,6 +99,7 @@
     "-particle_console_output_freq",
     "-particle_random_seed",
     "-particle_restart_mode",
+    "-picurv_verify_ghost_updates",
     "-pinit",
     "-poisson",
     "-postprocessing_config_file",

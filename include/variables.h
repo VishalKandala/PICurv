@@ -1089,6 +1089,7 @@ typedef struct SimCtx {
     char      profilingTimestepMode[32];
     char      profilingTimestepFile[PETSC_MAX_PATH_LEN];
     PetscBool profilingFinalSummary;
+    PetscBool verifyGhostUpdates;  ///< -picurv_verify_ghost_updates: check each skipped or partial periodic ghost update against a full one.
     PetscBool walltimeGuardEnabled;
     PetscBool walltimeGuardActive;
     PetscInt  walltimeGuardWarmupSteps;

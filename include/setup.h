@@ -201,6 +201,20 @@ PetscErrorCode CreateAndInitializeAllVectors(SimCtx *simCtx);
 PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id);
 
 /**
+ * @brief Applies a catalogued field's periodic normal-face ghost repair to a local vector.
+ * @details The step UpdateLocalGhosts() runs after its scatter: for single-face-family and
+ *          component-staggered fields, each active periodic face's adjacent normal ghost is
+ *          rewritten from the deeper PETSc ghost; other fields are left unchanged. The result
+ *          depends only on the local vector's scattered entries, so it may be reapplied after
+ *          any partial rescatter of them.
+ * @param user Block context owning the field's boundary metadata.
+ * @param view Field view from FieldGetView(); its DM lays out local_vec.
+ * @param local_vec Local vector to repair: the field's own, or a scratch copy of it.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode RepairPeriodicFieldGhosts(UserCtx *user, const FieldView *view, Vec local_vec);
+
+/**
  * @brief (Orchestrator) Sets up all boundary conditions for the simulation.
  *
  * @param simCtx Simulation context controlling the operation.
