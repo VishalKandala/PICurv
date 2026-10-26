@@ -26,10 +26,14 @@ Order inside the coupled step, as implemented in @ref AdvanceSimulation
    @ref LocateAllParticlesInGrid
 4. remove particles that are now lost or outside the global domain:
    @ref CheckAndRemoveLostParticles
-5. interpolate the newly computed Eulerian velocity onto the settled positions:
+5. store the particles in host-cell order, so the per-particle loops that follow read
+   neighbouring grid data: @ref SortParticlesByCell. Each particle's values are untouched;
+   only sums over particles (the scatter, and the IEM cell means built from it) are taken
+   in the new order, which can change them in the last bit
+6. interpolate the newly computed Eulerian velocity onto the settled positions:
    @ref InterpolateAllFieldsToSwarm
-6. update particle physics fields: @ref UpdateAllParticleFields
-7. scatter particle fields back to Eulerian storage:
+7. update particle physics fields: @ref UpdateAllParticleFields
+8. scatter particle fields back to Eulerian storage:
    @ref CalculateParticleCountPerCell and @ref ScatterAllParticleFieldsToEulerFields
 
 The advect-then-interpolate ordering is deliberate and is the single most

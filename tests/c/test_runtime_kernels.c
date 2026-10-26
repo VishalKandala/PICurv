@@ -1094,6 +1094,59 @@ static PetscErrorCode TestCheckAndRemoveLostParticlesRemovesLostEntries(void)
     PetscFunctionReturn(0);
 }
 /**
+ * @brief Tests that sorting by host cell orders points k-slowest, keeps ties and every field together, and puts unlocated points last.
+ */
+static PetscErrorCode TestSortParticlesByCellKeepsEachPointWhole(void)
+{
+    SimCtx    *simCtx = NULL;
+    UserCtx   *user = NULL;
+    PetscInt  *cell = NULL;
+    PetscInt64 *pid = NULL;
+    PetscReal *psi = NULL, *pos = NULL;
+    /* Cells (i,j,k) per point; point 4 has no cell. Expected order by (k,j,i), stable:
+     * p3 (0,0,0), p1 (1,0,0), p5 (1,0,0), p0 (2,1,0), p2 (0,0,1), p4 unlocated. */
+    const PetscInt  cells_in[6][3] = {{2, 1, 0}, {1, 0, 0}, {0, 0, 1}, {0, 0, 0}, {-1, -1, -1}, {1, 0, 0}};
+    const PetscInt  expected[6] = {3, 1, 5, 0, 2, 4};
+
+    PetscFunctionBeginUser;
+    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
+    PetscCall(PicurvCreateSwarmPair(user, 6, "ske"));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&pos));
+    for (PetscInt p = 0; p < 6; ++p) {
+        for (int d = 0; d < 3; ++d) { cell[3 * p + d] = cells_in[p][d]; pos[3 * p + d] = 10.0 * p + d; }
+        pid[p] = 100 + p;
+        psi[p] = 0.5 + p;
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&pos));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+
+    PetscCall(SortParticlesByCell(user->swarm));
+
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+    PetscCall(DMSwarmGetField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+    PetscCall(DMSwarmGetField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmGetField(user->swarm, "position", NULL, NULL, (void **)&pos));
+    for (PetscInt q = 0; q < 6; ++q) {
+        const PetscInt p = expected[q];
+        PetscCall(PicurvAssertIntEqual(100 + p, (PetscInt)pid[q], "points must come out in (k,j,i) cell order, ties and unlocated points stable"));
+        PetscCall(PicurvAssertRealNear(0.5 + p, psi[q], 0.0, "Psi must move with its point"));
+        PetscCall(PicurvAssertRealNear(10.0 * p + 2, pos[3 * q + 2], 0.0, "position must move with its point"));
+        PetscCall(PicurvAssertIntEqual(cells_in[p][0], cell[3 * q], "CellID must move with its point"));
+    }
+    PetscCall(DMSwarmRestoreField(user->swarm, "position", NULL, NULL, (void **)&pos));
+    PetscCall(DMSwarmRestoreField(user->swarm, "Psi", NULL, NULL, (void **)&psi));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_pid", NULL, NULL, (void **)&pid));
+    PetscCall(DMSwarmRestoreField(user->swarm, "DMSwarm_CellID", NULL, NULL, (void **)&cell));
+
+    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
+    PetscFunctionReturn(0);
+}
+/**
  * @brief Tests that a Brownian increment is a function of (seed, PID, step) alone.
  *
  * The same key reproduces the increment whatever was drawn before it, which is what
@@ -1889,6 +1942,7 @@ int main(int argc, char **argv)
         {"reset-all-particle-statuses-leaves-lost-particles-untouched", TestResetAllParticleStatusesLeavesLostParticlesUntouched},
         {"check-and-remove-out-of-bounds-particles-removes-escaped-particle", TestCheckAndRemoveOutOfBoundsParticlesRemovesEscapedParticle},
         {"check-and-remove-lost-particles-removes-lost-entries", TestCheckAndRemoveLostParticlesRemovesLostEntries},
+        {"sort-particles-by-cell-keeps-each-point-whole", TestSortParticlesByCellKeepsEachPointWhole},
         {"brownian-displacement-keyed-on-seed-particle-step", TestBrownianDisplacementIsKeyedOnSeedParticleAndStep},
         {"brownian-displacement-moments", TestBrownianDisplacementMoments},
         {"update-all-particle-positions-moves-swarm-entries", TestUpdateAllParticlePositionsMovesSwarmEntries},

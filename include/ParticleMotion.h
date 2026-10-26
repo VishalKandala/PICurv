@@ -172,6 +172,24 @@ PetscErrorCode PerformMigration(UserCtx *user);
 PetscErrorCode RemoveFlaggedParticles(DM swarm, PetscInt n_scan, PetscBool remove[], PetscBool scan_backward);
 
 /**
+ * @brief Reorders the local swarm points so that points in the same host cell are contiguous.
+ *
+ * Points are ordered by their `DMSwarm_CellID` with k slowest and i fastest, stably, so points
+ * sharing a cell keep their relative order; points without a valid cell go last. Every field
+ * in the particle field catalog (which lists every field the swarm registers, PETSc's pid and
+ * rank included) is permuted together, so each point keeps all of its values. Interpolation,
+ * location and the other per-point loops then read neighbouring grid data for consecutive
+ * points. Per-point results do not depend on the order; sums over points (the Eulerian
+ * scatter, and the IEM cell means built from it) are taken in the new order and can differ
+ * in rounding.
+ *
+ * @param[in,out] swarm The DMSwarm. No field may be held (DMSwarmGetField) on entry.
+ *
+ * @return PetscErrorCode 0 on success, non-zero on failure.
+ */
+PetscErrorCode SortParticlesByCell(DM swarm);
+
+/**
  * @brief Counts particles in each cell of the DMDA 'da' and stores the result in user->ParticleCount.
  *
  * Assumes user->ParticleCount is a pre-allocated global vector associated with user->da

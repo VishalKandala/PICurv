@@ -414,6 +414,89 @@ PetscErrorCode RemoveFlaggedParticles(DM swarm, PetscInt n_scan, PetscBool remov
     PetscFunctionReturn(0);
 }
 
+/**
+ * @brief Implementation of \ref SortParticlesByCell().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/ParticleMotion.h`.
+ * @see SortParticlesByCell()
+ */
+PetscErrorCode SortParticlesByCell(DM swarm)
+{
+    PetscInt   n_local, lo[3] = {PETSC_MAX_INT, PETSC_MAX_INT, PETSC_MAX_INT}, hi[3] = {-1, -1, -1};
+    PetscInt  *cells = NULL, *order = NULL, *key = NULL;
+    PetscInt64 extent[3], nbuckets, *start = NULL;
+    PetscBool  sorted = PETSC_TRUE;
+    char      *buffer = NULL;
+    size_t     max_bytes = 0;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(DMSwarmGetLocalSize(swarm, &n_local));
+    if (n_local < 2) { PROFILE_FUNCTION_END; PetscFunctionReturn(0); }
+
+    // Bucket key: the cell's offset in the bounding box of the local cells, i fastest; a point
+    // without a valid cell takes the bucket after the last.
+    PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cells));
+    for (PetscInt p = 0; p < n_local; ++p) {
+        const PetscInt *c = &cells[3 * p];
+        if (c[0] < 0 || c[1] < 0 || c[2] < 0) continue;
+        for (int d = 0; d < 3; ++d) { lo[d] = PetscMin(lo[d], c[d]); hi[d] = PetscMax(hi[d], c[d]); }
+    }
+    for (int d = 0; d < 3; ++d) extent[d] = (hi[d] >= lo[d]) ? (PetscInt64)(hi[d] - lo[d] + 1) : 0;
+    nbuckets = extent[0] * extent[1] * extent[2] + 1;
+    PetscCall(PetscMalloc2(n_local, &key, n_local, &order));
+    PetscCall(PetscCalloc1(nbuckets + 1, &start));
+    for (PetscInt p = 0; p < n_local; ++p) {
+        const PetscInt *c = &cells[3 * p];
+        const PetscInt64 b = (c[0] < 0 || c[1] < 0 || c[2] < 0) ? nbuckets - 1
+            : ((PetscInt64)(c[2] - lo[2]) * extent[1] + (c[1] - lo[1])) * extent[0] + (c[0] - lo[0]);
+        key[p] = (PetscInt)b;
+        if (p > 0 && key[p] < key[p - 1]) sorted = PETSC_FALSE;
+        start[b + 1]++;
+    }
+    PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void **)&cells));
+    if (sorted) {
+        PetscCall(PetscFree(start));
+        PetscCall(PetscFree2(key, order));
+        PROFILE_FUNCTION_END;
+        PetscFunctionReturn(0);
+    }
+
+    // Stable counting sort: order[new position] = old position.
+    for (PetscInt64 b = 0; b < nbuckets; ++b) start[b + 1] += start[b];
+    for (PetscInt p = 0; p < n_local; ++p) order[start[key[p]]++] = p;
+    PetscCall(PetscFree(start));
+
+    // Permute every catalogued field through one buffer sized for the widest.
+    for (PetscInt id = 0; id < PARTICLE_FIELD_ID_COUNT; ++id) {
+        PetscInt      bs;
+        PetscDataType type;
+        size_t        type_bytes;
+        void         *data;
+        PetscCall(DMSwarmGetField(swarm, ParticleFieldName((ParticleFieldId)id), &bs, &type, &data));
+        PetscCall(PetscDataTypeGetSize(type, &type_bytes));
+        max_bytes = PetscMax(max_bytes, (size_t)bs * type_bytes);
+        PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName((ParticleFieldId)id), &bs, &type, &data));
+    }
+    PetscCall(PetscMalloc1((size_t)n_local * max_bytes, &buffer));
+    for (PetscInt id = 0; id < PARTICLE_FIELD_ID_COUNT; ++id) {
+        PetscInt      bs;
+        PetscDataType type;
+        size_t        type_bytes, bytes;
+        char         *data;
+        PetscCall(DMSwarmGetField(swarm, ParticleFieldName((ParticleFieldId)id), &bs, &type, (void **)&data));
+        PetscCall(PetscDataTypeGetSize(type, &type_bytes));
+        bytes = (size_t)bs * type_bytes;
+        for (PetscInt p = 0; p < n_local; ++p) memcpy(buffer + (size_t)p * bytes, data + (size_t)order[p] * bytes, bytes);
+        memcpy(data, buffer, (size_t)n_local * bytes);
+        PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName((ParticleFieldId)id), &bs, &type, (void **)&data));
+    }
+    PetscCall(PetscFree(buffer));
+    PetscCall(PetscFree2(key, order));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
 
 /**
  * @brief Implementation of \ref PerformMigration().

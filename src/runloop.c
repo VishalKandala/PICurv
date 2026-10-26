@@ -743,6 +743,10 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
                 LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %" PetscInt_FMT " particles that left the domain this step.\n", simCtx->particlesExitedLastStep);
             }
 
+            // d2. Store the particles in host-cell order, so the per-particle loops below and in
+            //     the next step read neighbouring grid data for consecutive particles.
+            ierr = SortParticlesByCell(user->swarm); CHKERRQ(ierr);
+
             // e. Interpolate the NEW fluid velocity (just computed by FlowSolver) onto the
             //    particles' new positions. This gives them V_p(t_{n+1}) for the *next* advection step.
             ierr = InterpolateAllFieldsToSwarm(user); CHKERRQ(ierr);
