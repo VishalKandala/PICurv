@@ -1705,6 +1705,59 @@ static PetscErrorCode VerifyLocalGhostsCurrent(UserCtx *user, FieldId field_id, 
 }
 
 /**
+ * @brief Requires the boundary pass's fields to be finite, when -picurv_verify_ghost_updates is set.
+ * @details The companion of PoisonStaleLocalGhosts(): a stale local vector it filled with NaN
+ *          and something then read would leave non-finite values in these fields.
+ * @param[in] user Block context after ApplyBoundaryConditions().
+ * @return 0 when the check is off or passes; an error naming the field otherwise.
+ */
+static PetscErrorCode VerifyBoundaryPassFinite(UserCtx *user)
+{
+    const FieldId fields[] = {FIELD_ID_UCAT, FIELD_ID_P, FIELD_ID_UCONT};
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    if (!user->simCtx->verifyGhostUpdates) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
+    for (size_t f = 0; f < sizeof(fields) / sizeof(fields[0]); f++) {
+        FieldView view;
+        PetscReal global_norm, local_norm;
+        PetscCall(FieldGetView(user, fields[f], &view));
+        PetscCall(VecNorm(view.global_vec, NORM_1, &global_norm));
+        PetscCall(VecNorm(view.local_vec, NORM_1, &local_norm));
+        PetscCheck(PetscIsNormalReal(global_norm) || global_norm == 0.0, PetscObjectComm((PetscObject)view.dm), PETSC_ERR_PLIB,
+                   "Ghost-update verification failed: '%s' is not finite after the boundary pass; a stale local vector was read.",
+                   view.descriptor->canonical_name);
+        PetscCheck(PetscIsNormalReal(local_norm) || local_norm == 0.0, PetscObjectComm((PetscObject)view.dm), PETSC_ERR_PLIB,
+                   "Ghost-update verification failed: local '%s' is not finite after the boundary pass; a stale local vector was left.",
+                   view.descriptor->canonical_name);
+    }
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Fills a field's local vector with NaN, when -picurv_verify_ghost_updates is set.
+ * @details Marks a local vector the boundary pass leaves out of date because a later full
+ *          UpdateLocalGhosts() rewrites all of it before any read. If anything reads it in
+ *          between, the NaN reaches the solution and the run's output.
+ * @param[in] user Block context owning the field.
+ * @param[in] field_id Field whose local vector is left stale.
+ * @return 0 on success.
+ */
+static PetscErrorCode PoisonStaleLocalGhosts(UserCtx *user, FieldId field_id)
+{
+    FieldView view;
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    if (!user->simCtx->verifyGhostUpdates) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
+    PetscCall(FieldGetView(user, field_id, &view));
+    PetscCall(VecSet(view.local_vec, (PetscScalar)NAN));
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief The scatter that refreshes only the local entries mirroring a DM's two end planes in one direction.
  * @details A periodic transfer in direction d writes only the global planes 0 and M_d-1. The
  *          scatter is the DMDA's global-to-local scatter restricted to the leaves whose periodic
@@ -1876,6 +1929,9 @@ static PetscErrorCode SynchronizePeriodicCellFieldsFrom(UserCtx *user, PetscInt 
         for (PetscInt field = 0; final_update && field < num_fields; field++) {
             ierr = RefreshPeriodicPlaneGhosts(user, field_ids[field], 'k'); CHKERRQ(ierr);
         }
+    }
+    for (PetscInt field = 0; !final_update && field < num_fields; field++) {
+        ierr = PoisonStaleLocalGhosts(user, field_ids[field]); CHKERRQ(ierr);
     }
 
     PROFILE_HELPER_END;
@@ -3531,6 +3587,7 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
 
         // (d) Ucat's ghosts are not updated here: the wall function, the dummy and corner
         //     updates read only global Ucat, and (g) or (i) updates it before any local read.
+        ierr = PoisonStaleLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
 
         // (e) If Wall functions are enabled, apply them now to adjust near-wall velocities.
         if(user->simCtx->wallfunction){
@@ -3582,6 +3639,7 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
     // STEP 3: Final staggered periodic synchronization. The last pass already left Ucat, P
     // and Ucont's local vectors current with their global ones, so only the transfers run.
     ierr = SynchronizePeriodicStaggeredFieldsFrom(user, 1, staggered_fields, PETSC_TRUE); CHKERRQ(ierr);
+    ierr = VerifyBoundaryPassFinite(user); CHKERRQ(ierr);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

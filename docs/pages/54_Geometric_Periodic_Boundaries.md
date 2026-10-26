@@ -61,7 +61,10 @@ planes that transfer wrote. Because the local vectors were current before the tr
 the result is bitwise the one a full `UpdateLocalGhosts()` gives, at a small fraction of
 its communication. The solver option `-picurv_verify_ghost_updates` checks every such
 partial refresh, and every caller's claim that the local vectors are already current,
-against a full update and stops the run on a mismatch; it is slow, and meant for tests.
+against a full update. It also fills each local vector the boundary pass deliberately
+leaves out of date (because a later full update rewrites it before any read) with NaN,
+and requires the pass's fields to be finite afterwards, so a read of a stale vector stops
+the run. It is slow, and meant for tests.
 
 @section p54_config_sec 4. Configuration
 
