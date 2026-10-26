@@ -1,0 +1,1 @@
+- Performance: particles are stored in host-cell order after each step's location, so interpolation and the other per-particle loops read neighbouring grid data; each particle's values are unchanged, and sums over particles (scatter, IEM cell means) can differ in the last bit.
