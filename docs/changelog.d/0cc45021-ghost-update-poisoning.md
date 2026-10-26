@@ -1,0 +1,1 @@
+- Testing: `-picurv_verify_ghost_updates` also NaN-poisons the local vectors the boundary pass leaves stale and requires its fields to be finite afterwards, so a read of a skipped exchange's stale copy stops the run.
