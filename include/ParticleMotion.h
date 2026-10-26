@@ -320,12 +320,13 @@ PetscErrorCode AddToMigrationList(MigrationInfo **migration_list_p,
  * is needed, whatever order the particles are stored in.
  *
  * @param[in] swarm          The DMSwarm object, which has just completed a migration.
+ * @param[in] n_local_before Number of local particles before the migration, for the log.
  * @param[in] first_newcomer Index of the first received particle: the survivor count
  *                           PerformMigration() reported.
  *
  * @return PetscErrorCode 0 on success, or a non-zero PETSc error code on failure.
  */
-PetscErrorCode FlagNewcomersForLocation(DM swarm, PetscInt first_newcomer);
+PetscErrorCode FlagNewcomersForLocation(DM swarm, PetscInt n_local_before, PetscInt first_newcomer);
 
 
 /**
