@@ -30,8 +30,10 @@
 #include "solvers.h"
 
 #define MomentumSolver_NewtonKrylov MomentumSolver_NewtonKrylov_BoundaryFixedpointPrivateCopy
+#define MomentumSolver_NewtonKrylov_Destroy MomentumSolver_NewtonKrylov_Destroy_BoundaryFixedpointPrivateCopy
 #include "../../src/momentum_newton_krylov.c"
 #undef MomentumSolver_NewtonKrylov
+#undef MomentumSolver_NewtonKrylov_Destroy
 
 /* ======================================================================== */
 /*  Persistent-state snapshot machinery (solve-entry restore).              */
@@ -449,11 +451,12 @@ static PetscErrorCode TestNewtonKrylovProductionRegression(void)
     PetscCall(RunProductionFullSolve(user, &entry, X0, PETSC_FALSE, "CGS-default", &res_cgs));
 
     /* Also drive the ACTUAL production solver wrapper (default GS) and take X_final
-     * from it. The wrapper requires user->Rhs unallocated on entry. */
+     * from it. The wrapper allocates user->Rhs when it is unallocated and keeps it on a
+     * committed step; a failed step releases it. */
     PetscCall(FpRestore(user, &entry));
     PetscCall(VecDestroy(&user->Rhs));
     prod_ierr = MomentumSolver_NewtonKrylov_BoundaryFixedpointPrivateCopy(user, NULL, NULL);
-    PetscCall(VecDuplicate(user->Ucont, &user->Rhs));
+    if (!user->Rhs) PetscCall(VecDuplicate(user->Ucont, &user->Rhs));
     PetscCall(VecDuplicate(user->Ucont, &Xfinal)); PetscCall(VecCopy(user->Ucont, Xfinal));
     PetscCall(PetscPrintf(PETSC_COMM_WORLD,
         "PROD_SOLVER ierr=%d mom_last_converged=%d\n",

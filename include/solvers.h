@@ -24,4 +24,16 @@
  */
 PetscErrorCode FlowSolver(SimCtx *simCtx);
 
+/**
+ * @brief Releases the solver objects FlowSolver() keeps for the run.
+ *
+ * The Newton--Krylov momentum solve context lives here because only the simulator links the
+ * momentum solvers; FinalizeSimulation(), shared with the post-processor, releases the rest.
+ * Call it before FinalizeSimulation(). Blocks that never built one are skipped.
+ *
+ * @param simCtx The master simulation context.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode FlowSolver_Destroy(SimCtx *simCtx);
+
 #endif // SOLVERS_H

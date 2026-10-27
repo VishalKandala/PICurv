@@ -9,6 +9,7 @@
 #include "io.h"
 #include "setup.h"
 #include "Metric.h"
+#include "solvers.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -901,6 +902,7 @@ PetscErrorCode PicurvDestroyRuntimeContext(SimCtx **simCtx_ptr)
 {
     PetscFunctionBeginUser;
     if (simCtx_ptr && *simCtx_ptr) {
+        PetscCall(FlowSolver_Destroy(*simCtx_ptr));
         PetscCall(FinalizeSimulation(*simCtx_ptr));
         *simCtx_ptr = NULL;
     }
@@ -984,6 +986,7 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
         PetscCall(DestroyVecIfSet(&user->Rhs));
         PetscCall(DestroyVecIfSet(&user->dUcont));
         PetscCall(DestroyVecIfSet(&user->pUcont));
+        PetscCall(DestroyVecIfSet(&user->pRhs));
         PetscCall(DestroyVecIfSet(&user->CellScalarAtCorner));
         PetscCall(DestroyVecIfSet(&user->lCellScalarAtCorner));
         PetscCall(DestroyVecIfSet(&user->CellVectorAtCorner));
@@ -1004,6 +1007,7 @@ PetscErrorCode PicurvDestroyMinimalContexts(SimCtx **simCtx_ptr, UserCtx **user_
         PetscCall(DestroyVecIfSet(&user->Ucat_nodal));
         PetscCall(DestroyVecIfSet(&user->Bcs.Ubcs));
         PetscCall(DestroyVecIfSet(&user->Bcs.Uch));
+        PetscCall(MomentumSolver_NewtonKrylov_Destroy(user));
         PetscCall(DestroyMatIfSet(&user->A));
         PetscCall(DestroyKSPIfSet(&user->ksp));
         PetscCall(DestroyNullSpaceIfSet(&user->nullsp));

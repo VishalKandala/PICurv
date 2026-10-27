@@ -782,7 +782,6 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
      * Actual dtau = cfl / lambda_max, computed after the spectral radius estimate below. */
     const PetscReal cfl = simCtx->pseudo_cfl;
     const PetscReal alfa[] = {0.25, 1.0/3.0, 0.5, 1.0}; // Jameson RK smoothing coefficients
-    Vec *pRhs; // Per-block backup of Rhs at last accepted pseudo-state.
 
     // State flags
     PetscBool force_restart = PETSC_FALSE;
@@ -845,7 +844,6 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
     ierr = PetscMalloc2(block_number, &resid_norm_curr,     block_number, &pseudo_dtau); CHKERRQ(ierr);
     ierr = PetscMalloc1(block_number, &resid_rel_curr); CHKERRQ(ierr);
     ierr = PetscMalloc1(block_number, &trial_ratio_log); CHKERRQ(ierr);
-    ierr = PetscMalloc1(block_number, &pRhs); CHKERRQ(ierr);
     last_accepted_resid = 0.0;
 
     ierr = PetscTime(&ts); CHKERRQ(ierr);
@@ -861,11 +859,14 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         
         // Immersed boundary interpolation (if enabled)
 
-        // Allocate workspace
-        ierr = VecDuplicate(user[bi].Ucont, &user[bi].Rhs); CHKERRQ(ierr);
-        ierr = VecDuplicate(user[bi].Rhs, &pRhs[bi]); CHKERRQ(ierr);
-        ierr = VecDuplicate(user[bi].Ucont, &user[bi].dUcont); CHKERRQ(ierr);
-        ierr = VecDuplicate(user[bi].Ucont, &user[bi].pUcont); CHKERRQ(ierr);
+        // Workspace, allocated on the first step and kept for the run. pRhs is the backup of Rhs
+        // at the last accepted pseudo-state; zeroing Rhs gives each step the fresh workspace it
+        // used to get, and the others are overwritten before they are read.
+        if (!user[bi].Rhs) { ierr = VecDuplicate(user[bi].Ucont, &user[bi].Rhs); CHKERRQ(ierr); }
+        if (!user[bi].pRhs) { ierr = VecDuplicate(user[bi].Ucont, &user[bi].pRhs); CHKERRQ(ierr); }
+        if (!user[bi].dUcont) { ierr = VecDuplicate(user[bi].Ucont, &user[bi].dUcont); CHKERRQ(ierr); }
+        if (!user[bi].pUcont) { ierr = VecDuplicate(user[bi].Ucont, &user[bi].pUcont); CHKERRQ(ierr); }
+        ierr = VecZeroEntries(user[bi].Rhs); CHKERRQ(ierr);
         
         // Initialize Backup (pUcont) with current state
         ierr = VecCopy(user[bi].Ucont, user[bi].pUcont); CHKERRQ(ierr);
@@ -874,7 +875,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         ierr = ComputeTotalResidual(&user[bi]); CHKERRQ(ierr);
 
         // Backup Rhs with current state
-        ierr = VecCopy(user[bi].Rhs, pRhs[bi]); CHKERRQ(ierr);
+        ierr = VecCopy(user[bi].Rhs, user[bi].pRhs); CHKERRQ(ierr);
 
         // Compute Initial Norms
         ierr = VecNorm(user[bi].Rhs, NORM_INFINITY, &resid_norm_init[bi]); CHKERRQ(ierr);
@@ -966,7 +967,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         // Every attempt starts from the last globally accepted state.
         for (PetscInt bi = 0; bi < block_number; bi++) {
             ierr = VecCopy(user[bi].pUcont, user[bi].Ucont); CHKERRQ(ierr);
-            ierr = VecCopy(pRhs[bi], user[bi].Rhs); CHKERRQ(ierr);
+            ierr = VecCopy(user[bi].pRhs, user[bi].Rhs); CHKERRQ(ierr);
             const FieldId staggered_fields[] = {FIELD_ID_UCONT};
             ierr = SynchronizePeriodicStaggeredFields(&user[bi], 1, staggered_fields); CHKERRQ(ierr);
             ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
@@ -1131,7 +1132,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
             recovery_streak = 0;
             for (PetscInt bi = 0; bi < block_number; bi++) {
                 ierr = VecCopy(user[bi].pUcont, user[bi].Ucont); CHKERRQ(ierr);
-                ierr = VecCopy(pRhs[bi], user[bi].Rhs); CHKERRQ(ierr);
+                ierr = VecCopy(user[bi].pRhs, user[bi].Rhs); CHKERRQ(ierr);
                 const FieldId staggered_fields[] = {FIELD_ID_UCONT};
                 ierr = SynchronizePeriodicStaggeredFields(&user[bi], 1, staggered_fields); CHKERRQ(ierr);
                 ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
@@ -1193,7 +1194,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
         last_accepted_resid  = resid_norm_curr[0]; /* track for final summary */
         for (PetscInt bi = 0; bi < block_number; bi++) {
             ierr = VecCopy(user[bi].Ucont, user[bi].pUcont); CHKERRQ(ierr);
-            ierr = VecCopy(user[bi].Rhs, pRhs[bi]); CHKERRQ(ierr);
+            ierr = VecCopy(user[bi].Rhs, user[bi].pRhs); CHKERRQ(ierr);
             resid_norm_prev[bi] = resid_norm_curr[bi];
             delta_sol_norm_prev[bi] = delta_sol_norm_curr[bi];
         }
@@ -1344,7 +1345,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
     if (accepted_iter == 0) {
         for (PetscInt bi = 0; bi < block_number; bi++) {
             ierr = VecCopy(user[bi].pUcont, user[bi].Ucont); CHKERRQ(ierr);
-            ierr = VecCopy(pRhs[bi], user[bi].Rhs); CHKERRQ(ierr);
+            ierr = VecCopy(user[bi].pRhs, user[bi].Rhs); CHKERRQ(ierr);
         }
     }
     for (PetscInt bi = 0; bi < block_number; bi++) {
@@ -1376,13 +1377,6 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
               next_dtau_start, next_cfl_warmstart);
 
     // --- Final Cleanup ---
-    for (PetscInt bi = 0; bi < block_number; bi++) {
-        ierr = VecDestroy(&user[bi].Rhs); CHKERRQ(ierr);
-        ierr = VecDestroy(&user[bi].dUcont); CHKERRQ(ierr);
-        ierr = VecDestroy(&user[bi].pUcont); CHKERRQ(ierr);
-        ierr = VecDestroy(&pRhs[bi]); CHKERRQ(ierr);
-    }
-    ierr = PetscFree(pRhs); CHKERRQ(ierr);
 
     ierr = PetscFree2(delta_sol_norm_init, delta_sol_norm_prev);CHKERRQ(ierr);
     ierr = PetscFree2(delta_sol_norm_curr, delta_sol_rel_curr);CHKERRQ(ierr);

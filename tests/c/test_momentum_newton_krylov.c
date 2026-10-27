@@ -9,11 +9,13 @@
 #include "test_support.h"
 #include "initialcondition.h"
 
-/* Rename only the included public entry point. Private callback tests use this
+/* Rename only the included public entry points. Private callback tests use this
  * copy, while lifecycle tests below call the separately linked production object. */
 #define MomentumSolver_NewtonKrylov MomentumSolver_NewtonKrylov_PrivateCopy
+#define MomentumSolver_NewtonKrylov_Destroy MomentumSolver_NewtonKrylov_Destroy_PrivateCopy
 #include "../../src/momentum_newton_krylov.c"
 #undef MomentumSolver_NewtonKrylov
+#undef MomentumSolver_NewtonKrylov_Destroy
 
 static const char *geometric_periodic_bcs =
     "-Xi PERIODIC geometric\n"
@@ -1029,7 +1031,8 @@ static PetscErrorCode TestSmallSolveAndRollback(void)
     simCtx->mom_nk_monitor_history = PETSC_TRUE;
     PetscCall(MomentumSolver_NewtonKrylov(user, NULL, NULL));
     PetscCall(PicurvAssertBool(simCtx->mom_last_converged, "small Newton solve must converge"));
-    PetscCall(PicurvAssertBool((PetscBool)(user->Rhs == NULL), "successful solve must release Rhs"));
+    PetscCall(PicurvAssertBool((PetscBool)(user->Rhs != NULL && user->momentumNewtonKrylov != NULL),
+                               "successful solve must keep its workspace for the next step"));
     PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path),
                             "%s/Momentum_Solver_Newton_Krylov_Summary_Block_0.log", simCtx->log_dir));
     PetscCall(PetscSNPrintf(history_path, sizeof(history_path),
@@ -1060,12 +1063,15 @@ static PetscErrorCode TestSmallSolveAndRollback(void)
     PetscCall(VecNorm(delta, NORM_INFINITY, &norm));
     PetscCall(PicurvAssertRealNear(0.0, norm, 1.0e-12,
                                    "a zero-iteration failure must commit the unchanged entry state"));
-    PetscCall(PicurvAssertBool((PetscBool)(user->Rhs == NULL), "unconverged solve must release Rhs"));
+    PetscCall(PicurvAssertBool((PetscBool)(user->Rhs != NULL && user->momentumNewtonKrylov != NULL),
+                               "committed unconverged solve must keep its workspace for the next step"));
     PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path),
                             "%s/Momentum_Solver_Newton_Krylov_Summary_Block_0.log", simCtx->log_dir));
     PetscCall(AssertNewtonLog(summary_path, 1, "reason_code: -", "state: committed_unconverged"));
 
-    /* A non-finite residual is the one failure that must still roll back and stop the run. */
+    /* A non-finite residual is the one failure that must still roll back and stop the run.
+       Options are read when the solve context is built, so release it to apply the new limit. */
+    PetscCall(MomentumSolver_NewtonKrylov_Destroy(user));
     PetscCall(PetscOptionsSetValue(NULL, "-mom_nk_snes_max_it", "20"));
     PetscCall(VecSet(user->Ucont, PETSC_MAX_REAL));
     PetscCall(SynchronizePeriodicStaggeredFields(user, 1, fields));
@@ -1288,6 +1294,10 @@ static PetscErrorCode TestUnsupportedConfigurationFailsBeforeAllocation(void)
     solve_ierr = MomentumSolver_NewtonKrylov(user, NULL, NULL);
     PetscCall(PicurvAssertBool((PetscBool)(solve_ierr == PETSC_SUCCESS),
                                "a fully masked domain must resolve to identity rows, not a rejection"));
+    /* That solve kept a context built for the all-solid mask; release it so the remaining
+       checks see the fixture's unallocated workspace again. */
+    PetscCall(MomentumSolver_NewtonKrylov_Destroy(user));
+    PetscCall(VecDestroy(&user->Rhs));
     PetscCall(VecSet(user->Nvert, 0.0));
     PetscCall(VecSet(user->lNvert, 0.0));
     PetscCall(VecSet(user->Nvert, 0.0));

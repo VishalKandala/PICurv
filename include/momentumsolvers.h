@@ -33,8 +33,11 @@ extern PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNode
  * preconditioning slot and PCNONE is derived. The optional provisional
  * frozen-momentum, point-block model approximates same-cell frozen coupling,
  * owns a separate matrix, and derives a block-Jacobi PETSc backend. It does
- * not relax the version-one physics or boundary-condition restrictions. All
- * PETSc solver objects are local to this call. Rows removed
+ * not relax the version-one physics or boundary-condition restrictions. The
+ * PETSc solver objects are built on the first call and kept for the run in
+ * UserCtx::momentumNewtonKrylov (MomentumSolver_NewtonKrylov_Destroy() releases
+ * them), with UserCtx::Rhs; a step that fails releases both, so the next call
+ * builds afresh. Rows removed
  * by legacy boundary residual enforcement are made explicit: conditioned normal
  * rows use X-Uconditioned, untouched dummy/tangential rows use X, and periodic
  * duplicates use Xdup-Xrepresentative. Unsupported masked, interface, and
@@ -49,6 +52,14 @@ extern PetscErrorCode MomentumSolver_Explicit_RungeKutta4(UserCtx *user, IBMNode
  *         when that residual is non-finite or grew.
  */
 PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo *fsi);
+
+/**
+ * @brief Releases the Newton--Krylov solve context MomentumSolver_NewtonKrylov() keeps for the run.
+ *
+ * @param user Block context; a no-op when it holds no solve context.
+ * @return PetscErrorCode 0 on success.
+ */
+PetscErrorCode MomentumSolver_NewtonKrylov_Destroy(UserCtx *user);
 
 /**
  * @brief Solves the momentum equations using dual-time Picard iteration with Jameson RK smoothing.

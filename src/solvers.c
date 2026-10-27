@@ -183,3 +183,25 @@ PetscErrorCode FlowSolver(SimCtx *simCtx)
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
+
+/**
+ * @brief Implementation of \ref FlowSolver_Destroy().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/solvers.h`.
+ * @see FlowSolver_Destroy()
+ */
+PetscErrorCode FlowSolver_Destroy(SimCtx *simCtx)
+{
+    UserMG *usermg = &simCtx->usermg;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    if (usermg->mgctx && usermg->mgctx[usermg->mglevels - 1].user) {
+        UserCtx *user = usermg->mgctx[usermg->mglevels - 1].user;
+        for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
+            PetscCall(MomentumSolver_NewtonKrylov_Destroy(&user[bi]));
+        }
+    }
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}

@@ -1174,7 +1174,9 @@ typedef struct UserCtx {
 
     // --- Time-Stepping & Solver Workspace Fields ---
     Vec Ucont_o, lUcont_o, Ucat_o, P_o, Nvert_o, lNvert_o;
-    Vec Ucont_rm1, lUcont_rm1, Rhs, dUcont, pUcont;
+    /* Rhs, dUcont, pUcont and pRhs are the implicit momentum solvers' workspaces: allocated on
+       a solver's first call and kept for the run (Rhs is zeroed on each step's entry). */
+    Vec Ucont_rm1, lUcont_rm1, Rhs, dUcont, pUcont, pRhs;
     Vec *solutionConvergencePeriodicUcatRef;
     Vec *solutionConvergencePeriodicPRef;
     /* Corner-staging workspace, one pair per block size, so neither the DM nor
@@ -1198,6 +1200,11 @@ typedef struct UserCtx {
     Mat A; KSP ksp; MatNullSpace nullsp;
     Vec B,R;
     Mat MR, MP;
+
+    // --- Newton-Krylov Momentum System ---
+    /* Built by MomentumSolver_NewtonKrylov() on its first call (finest level) and kept for the
+       run; released by MomentumSolver_NewtonKrylov_Destroy(). */
+    struct MomentumNewtonKrylovContext *momentumNewtonKrylov;
   
   
     // --- Grid Metrics (Global and Local) ---

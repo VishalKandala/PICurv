@@ -4311,10 +4311,11 @@ PetscErrorCode DestroyUserVectors(UserCtx *user)
     if (user->PostVectorNodal) { ierr = VecDestroy(&user->PostVectorNodal); CHKERRQ(ierr); }
     if (user->lCellVectorAtCorner) { ierr = VecDestroy(&user->lCellVectorAtCorner); CHKERRQ(ierr); }
 
-    // --- Group L: Implicit Solver Temporary Vectors (Destroyed after use, but check anyway) ---
+    // --- Group L: Implicit Solver Workspaces (kept for the run by the momentum solvers) ---
     if (user->Rhs) { ierr = VecDestroy(&user->Rhs); CHKERRQ(ierr); }
     if (user->dUcont) { ierr = VecDestroy(&user->dUcont); CHKERRQ(ierr); }
     if (user->pUcont) { ierr = VecDestroy(&user->pUcont); CHKERRQ(ierr); }
+    if (user->pRhs) { ierr = VecDestroy(&user->pRhs); CHKERRQ(ierr); }
 
     // --- Group M: Poisson Solver Vectors (kept for the run by PoissonSolver_Multigrid) ---
     if (user->B) { ierr = VecDestroy(&user->B); CHKERRQ(ierr); }

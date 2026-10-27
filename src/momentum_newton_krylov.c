@@ -45,17 +45,20 @@ typedef struct {
     const char *petsc_pc_type;
 } MomentumPreconditionerEngine;
 
-typedef struct {
+typedef struct MomentumNewtonKrylovContext {
     UserCtx *user;
     SNES snes;
     FILE *history_file;
     FILE *linear_history_file;
     PetscBool have_initial_norm;
     PetscReal initial_norm;
-    /* These objects are owned by the solve context.  They are deliberately
-     * kept here (rather than in UserCtx) because an SNES is per physical solve. */
+    /* These objects are owned by the solve context, which MomentumSolver_NewtonKrylov() builds
+     * on its first call and keeps for the run (UserCtx::momentumNewtonKrylov): nothing they are
+     * built from changes between steps. The point-block pattern follows Nvert, which is fixed
+     * for the run; an immersed boundary that moves would need it rebuilt. */
     MomentumNewtonJacobian jacobian;
     MomentumPreconditionerEngine preconditioning_engine;
+    Vec solution, entry_backup;
 } MomentumNewtonKrylovContext;
 
 static PetscErrorCode MomentumNewtonKrylov_Validate(UserCtx *user);
@@ -1223,6 +1226,69 @@ static PetscErrorCode MomentumNewtonKrylov_FormResidual(SNES snes, Vec X, Vec F,
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
+/** @brief Builds the solve context MomentumSolver_NewtonKrylov() keeps for the run. */
+static PetscErrorCode MomentumNewtonKrylov_Build(UserCtx *user)
+{
+    MomentumNewtonKrylovContext      *ctx;
+    MomentumPreconditionerDescription preconditioner_description = {0};
+    KSP                               ksp = NULL;
+    PC                                pc = NULL;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    PetscCall(PetscNew(&user->momentumNewtonKrylov));
+    ctx = user->momentumNewtonKrylov;
+    ctx->user = user;
+    PetscCall(VecDuplicate(user->Ucont, &ctx->solution));
+    PetscCall(VecDuplicate(user->Ucont, &ctx->entry_backup));
+    PetscCall(SNESCreate(PetscObjectComm((PetscObject)user->Ucont), &ctx->snes));
+    PetscCall(MomentumNewtonKrylov_ReadLinearizationConfig(&ctx->jacobian, &preconditioner_description));
+    PetscCall(SNESSetOptionsPrefix(ctx->snes, "mom_nk_"));
+    PetscCall(SNESSetType(ctx->snes, SNESNEWTONLS));
+    PetscCall(SNESSetDM(ctx->snes, user->fda));
+    PetscCall(SNESSetFunction(ctx->snes, NULL, MomentumNewtonKrylov_FormResidual, ctx));
+    PetscCall(MomentumNewtonJacobian_Create(ctx->snes, &ctx->jacobian));
+    PetscCall(MomentumPreconditionerEngine_Create(user, ctx->jacobian.jacobian_operator,
+                                                  &preconditioner_description,
+                                                  &ctx->preconditioning_engine));
+    PetscCall(MomentumNewtonJacobian_Register(ctx->snes, &ctx->jacobian,
+                                              &ctx->preconditioning_engine, ctx));
+    PetscCall(SNESGetKSP(ctx->snes, &ksp));
+    PetscCall(KSPSetType(ksp, KSPGMRES));
+    PetscCall(KSPGetPC(ksp, &pc));
+    PetscCall(MomentumPreconditionerEngine_ConfigurePetscPC(&ctx->preconditioning_engine, pc));
+    PetscCall(SNESSetFromOptions(ctx->snes));
+    PetscCall(SNESMonitorSet(ctx->snes, MomentumNewtonKrylov_Monitor, ctx, NULL));
+    PetscCall(KSPMonitorSet(ksp, MomentumNewtonKrylov_LinearMonitor, ctx, NULL));
+    PetscCall(MomentumPreconditionerEngine_ValidatePetscPC(&ctx->preconditioning_engine, pc));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+/**
+ * @brief Implementation of \ref MomentumSolver_NewtonKrylov_Destroy().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/momentumsolvers.h`.
+ * @see MomentumSolver_NewtonKrylov_Destroy()
+ */
+PetscErrorCode MomentumSolver_NewtonKrylov_Destroy(UserCtx *user)
+{
+    MomentumNewtonKrylovContext *ctx = user->momentumNewtonKrylov;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    if (ctx) {
+        PetscCall(VecDestroy(&ctx->entry_backup));
+        PetscCall(VecDestroy(&ctx->solution));
+        PetscCall(MomentumPreconditionerEngine_Destroy(&ctx->preconditioning_engine));
+        PetscCall(MomentumNewtonJacobian_Destroy(&ctx->jacobian));
+        PetscCall(SNESDestroy(&ctx->snes));
+        PetscCall(PetscFree(user->momentumNewtonKrylov));
+    }
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 /**
  * @brief Measure the residual at the iterate a failed SNES solve holds, for the
  *        failure policy in MomentumSolver_NewtonKrylov().
@@ -1265,9 +1331,9 @@ static PetscErrorCode MomentumNewtonKrylov_AssessIterate(MomentumNewtonKrylovCon
 }
 
 /*
- * Runs one per-call matrix-free Newton--Krylov momentum solve. The public
- * header owns the rendered API contract; this definition retains the detailed
- * lifecycle and rollback behavior below.
+ * Runs one matrix-free Newton--Krylov momentum solve, with the solve context built on the
+ * first call and kept for the run. The public header owns the rendered API contract; this
+ * definition retains the detailed lifecycle and rollback behavior below.
  */
 PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo *fsi)
 {
@@ -1275,18 +1341,14 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
     SimCtx        *simCtx;
     SNES           snes = NULL;
     Vec            solution = NULL, entry_backup = NULL;
-    KSP            ksp = NULL;
-    PC             pc = NULL;
-    MomentumPreconditionerDescription preconditioner_description = {0};
+    MomentumNewtonKrylovContext *ctx = NULL;
     PetscBool      restore_entry = PETSC_FALSE;
-    PetscBool      rhs_created = PETSC_FALSE;
     PetscBool      solve_started = PETSC_FALSE;
     PetscBool      committed = PETSC_FALSE;
     PetscBool      converged = PETSC_FALSE;
     SNESConvergedReason reason = SNES_CONVERGED_ITERATING;
     PetscInt       nonlinear_its = 0, function_evals = 0, linear_its = 0;
     PetscReal      final_norm = PETSC_MAX_REAL;
-    MomentumNewtonKrylovContext ctx = {0};
     const FieldId staggered_fields[] = {FIELD_ID_UCONT};
 
     PetscFunctionBeginUser;
@@ -1294,54 +1356,39 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
     PetscCall(MomentumNewtonKrylov_Validate(user));
     PetscCheck(ibm == NULL && fsi == NULL, PETSC_COMM_WORLD, PETSC_ERR_SUP,
                "Newton Krylov version one does not accept IBM or FSI objects.");
-    PetscCheck(user->Rhs == NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
-               "Newton Krylov requires UserCtx::Rhs to be unallocated on entry.");
     simCtx = user->simCtx;
 
-    ierr = VecDuplicate(user->Ucont, &solution); if (ierr) goto cleanup;
-    ierr = VecDuplicate(user->Ucont, &entry_backup); if (ierr) goto cleanup;
-    ierr = VecDuplicate(user->Ucont, &user->Rhs); if (ierr) goto cleanup;
-    rhs_created = PETSC_TRUE;
-    ierr = SNESCreate(PetscObjectComm((PetscObject)user->Ucont), &snes); if (ierr) goto cleanup;
+    /* Rhs is kept for the run; zeroing it gives each step the fresh workspace it used to get. */
+    if (!user->Rhs) { ierr = VecDuplicate(user->Ucont, &user->Rhs); if (ierr) goto cleanup; }
+    ierr = VecZeroEntries(user->Rhs); if (ierr) goto cleanup;
 
     ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); if (ierr) goto cleanup;
     ierr = ApplyBoundaryConditions(user); if (ierr) goto cleanup;
+    if (!user->momentumNewtonKrylov) { ierr = MomentumNewtonKrylov_Build(user); if (ierr) goto cleanup; }
+    ctx = user->momentumNewtonKrylov;
+    ctx->have_initial_norm = PETSC_FALSE;
+    ctx->initial_norm = 0.0;
+    snes = ctx->snes;
+    /* The residual and Jacobian callbacks live on fda's DMSNES, which every SNES on fda shares;
+       registering them again keeps another solver on fda from leaving its own in place. */
+    ierr = SNESSetFunction(snes, NULL, MomentumNewtonKrylov_FormResidual, ctx); if (ierr) goto cleanup;
+    ierr = MomentumNewtonJacobian_Register(snes, &ctx->jacobian,
+                                            &ctx->preconditioning_engine, ctx); if (ierr) goto cleanup;
+    solution = ctx->solution;
+    entry_backup = ctx->entry_backup;
     ierr = VecCopy(user->Ucont, entry_backup); if (ierr) goto cleanup;
     restore_entry = PETSC_TRUE;
     ierr = VecCopy(user->Ucont, solution); if (ierr) goto cleanup;
-
-    ctx.user = user;
-    ctx.snes = snes;
-    ierr = MomentumNewtonKrylov_ReadLinearizationConfig(
-        &ctx.jacobian, &preconditioner_description); if (ierr) goto cleanup;
-    ierr = SNESSetOptionsPrefix(snes, "mom_nk_"); if (ierr) goto cleanup;
-    ierr = SNESSetType(snes, SNESNEWTONLS); if (ierr) goto cleanup;
-    ierr = SNESSetDM(snes, user->fda); if (ierr) goto cleanup;
-    ierr = SNESSetFunction(snes, NULL, MomentumNewtonKrylov_FormResidual, &ctx); if (ierr) goto cleanup;
-    ierr = MomentumNewtonJacobian_Create(snes, &ctx.jacobian); if (ierr) goto cleanup;
-    ierr = MomentumPreconditionerEngine_Create(user, ctx.jacobian.jacobian_operator,
-                                                &preconditioner_description,
-                                                &ctx.preconditioning_engine); if (ierr) goto cleanup;
-    ierr = MomentumNewtonJacobian_Register(snes, &ctx.jacobian,
-                                            &ctx.preconditioning_engine, &ctx); if (ierr) goto cleanup;
-    ierr = SNESGetKSP(snes, &ksp); if (ierr) goto cleanup;
-    ierr = KSPSetType(ksp, KSPGMRES); if (ierr) goto cleanup;
-    ierr = KSPGetPC(ksp, &pc); if (ierr) goto cleanup;
-    ierr = MomentumPreconditionerEngine_ConfigurePetscPC(&ctx.preconditioning_engine, pc); if (ierr) goto cleanup;
-    ierr = SNESSetFromOptions(snes); if (ierr) goto cleanup;
-    ierr = SNESMonitorSet(snes, MomentumNewtonKrylov_Monitor, &ctx, NULL); if (ierr) goto cleanup;
-    ierr = KSPMonitorSet(ksp, MomentumNewtonKrylov_LinearMonitor, &ctx, NULL); if (ierr) goto cleanup;
-    ierr = MomentumPreconditionerEngine_ValidatePetscPC(&ctx.preconditioning_engine, pc); if (ierr) goto cleanup;
 
     LOG_ALLOW(GLOBAL, LOG_INFO,
               "Newton Krylov Jacobian: finite_difference / matrix_free; "
               "Preconditioner: %s; PETSc Jacobian matrix type: MATMFFD; "
               "PETSc PC type: %s.\n",
-              ctx.preconditioning_engine.description.model == MOM_NK_PC_MODEL_NONE ?
+              ctx->preconditioning_engine.description.model == MOM_NK_PC_MODEL_NONE ?
                   "none" : "frozen_momentum_jacobian / point_block",
-              ctx.preconditioning_engine.petsc_pc_type);
+              ctx->preconditioning_engine.petsc_pc_type);
 
-    MomentumNewtonKrylov_OpenHistory(&ctx);
+    MomentumNewtonKrylov_OpenHistory(ctx);
     solve_started = PETSC_TRUE;
     ierr = SNESSolve(snes, NULL, solution);
     if (ierr) goto cleanup;
@@ -1360,10 +1407,10 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
         converged = PETSC_TRUE;
     } else {
         PetscReal held_residual = 0.0, held_residual_2 = 0.0, held_reference = 0.0;
-        ierr = MomentumNewtonKrylov_AssessIterate(&ctx, solution, &held_residual, &held_residual_2,
+        ierr = MomentumNewtonKrylov_AssessIterate(ctx, solution, &held_residual, &held_residual_2,
                                                   &held_reference, &converged); if (ierr) goto cleanup;
-        committed = (PetscBool)(!PetscIsInfOrNanReal(held_residual_2) && ctx.have_initial_norm &&
-                                held_residual_2 <= ctx.initial_norm);
+        committed = (PetscBool)(!PetscIsInfOrNanReal(held_residual_2) && ctx->have_initial_norm &&
+                                held_residual_2 <= ctx->initial_norm);
         if (!committed) converged = PETSC_FALSE;
         if (converged) {
             LOG(GLOBAL, LOG_WARNING,
@@ -1378,14 +1425,14 @@ PetscErrorCode MomentumSolver_NewtonKrylov(UserCtx *user, IBMNodes *ibm, FSInfo 
                 "entry, so the step continues from the SNES iterate, not converged.\n",
                 simCtx->step, SNESConvergedReasons[reason], (double)held_residual,
                 (double)simCtx->mom_resid_atol, (double)held_reference,
-                (double)held_residual_2, (double)ctx.initial_norm);
+                (double)held_residual_2, (double)ctx->initial_norm);
         } else {
-            if (ctx.have_initial_norm) {
+            if (ctx->have_initial_norm) {
                 LOG(GLOBAL, LOG_ERROR,
                     "Newton Krylov step %" PetscInt_FMT ": SNES reported %s and |R|_2 at its iterate is "
                     "%.3e against %.3e at entry; the step is rolled back.\n",
                     simCtx->step, SNESConvergedReasons[reason], (double)held_residual_2,
-                    (double)ctx.initial_norm);
+                    (double)ctx->initial_norm);
             } else {
                 LOG(GLOBAL, LOG_ERROR,
                     "Newton Krylov step %" PetscInt_FMT ": SNES reported %s before an entry residual norm "
@@ -1429,27 +1476,24 @@ cleanup:
         simCtx->mom_last_converged = PETSC_FALSE;
         committed = PETSC_FALSE;
     }
-    if (ctx.history_file) {
-        (void)fclose(ctx.history_file);
-        ctx.history_file = NULL;
+    if (ctx && ctx->history_file) {
+        (void)fclose(ctx->history_file);
+        ctx->history_file = NULL;
     }
-    if (ctx.linear_history_file) {
-        (void)fclose(ctx.linear_history_file);
-        ctx.linear_history_file = NULL;
+    if (ctx && ctx->linear_history_file) {
+        (void)fclose(ctx->linear_history_file);
+        ctx->linear_history_file = NULL;
     }
     if (solve_started) {
-        MomentumNewtonKrylov_WriteSummary(&ctx, reason, nonlinear_its, function_evals,
+        MomentumNewtonKrylov_WriteSummary(ctx, reason, nonlinear_its, function_evals,
                                           linear_its, final_norm, committed);
     }
-    if (rhs_created) {
-        cleanup_ierr = VecDestroy(&user->Rhs);
-        if (!ierr) ierr = cleanup_ierr;
+    /* A failed step, or a failed first build, releases what the solver holds, so the next call
+       starts afresh, as every call once did; a committed step keeps it for the next. */
+    if (ierr) {
+        cleanup_ierr = VecDestroy(&user->Rhs); if (!ierr) ierr = cleanup_ierr;
+        cleanup_ierr = MomentumSolver_NewtonKrylov_Destroy(user); if (!ierr) ierr = cleanup_ierr;
     }
-    cleanup_ierr = VecDestroy(&entry_backup); if (!ierr) ierr = cleanup_ierr;
-    cleanup_ierr = VecDestroy(&solution); if (!ierr) ierr = cleanup_ierr;
-    cleanup_ierr = MomentumPreconditionerEngine_Destroy(&ctx.preconditioning_engine); if (!ierr) ierr = cleanup_ierr;
-    cleanup_ierr = MomentumNewtonJacobian_Destroy(&ctx.jacobian); if (!ierr) ierr = cleanup_ierr;
-    cleanup_ierr = SNESDestroy(&snes); if (!ierr) ierr = cleanup_ierr;
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(ierr);
 }
