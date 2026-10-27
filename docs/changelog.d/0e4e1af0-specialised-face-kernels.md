@@ -1,0 +1,1 @@
+- Performance: the momentum residual's face kernels compile to specialised straight-line code again (forced inlining, constant directions, one transverse-stencil selector); `ComputeRHS` is now faster than before the `rhs.c` rewrite, with byte-identical results to it.
