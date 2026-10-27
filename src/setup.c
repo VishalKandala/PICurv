@@ -46,12 +46,12 @@ static const char picurv_petsc_build_stamp[] =
 
 #define PICURV_BUILD_STAMP_MARKER "PICURV_BUILD:"
 
-/* The release, commit and dirty state, in the file for the conductor to read without
+/* The version (release and commits since its tag), commit and dirty state, in the file for the conductor to read without
  * running the binary: --version initializes nothing, but the dynamic loader and a login
  * node's filesystem still make a start cost tens of seconds. External linkage keeps the
  * otherwise unreferenced array in the executable. */
 const char picurv_build_stamp[] =
-    PICURV_BUILD_STAMP_MARKER PICURV_RELEASE_VERSION " " PICURV_GIT_COMMIT " " PICURV_BUILD_DIRTY;
+    PICURV_BUILD_STAMP_MARKER PICURV_BUILD_VERSION " " PICURV_GIT_COMMIT " " PICURV_BUILD_DIRTY;
 
 /**
  * @brief The name an executable reports itself by: the basename of argv[0].
@@ -122,7 +122,7 @@ int PicurvHandleVersionArgument(int argc, char **argv, const char *executable_na
     const char *name = PicurvExecutableName(argc, argv, executable_name);
     for (int index = 1; index < argc; ++index) {
         if (!strcmp(argv[index], "--version") || !strcmp(argv[index], "-version")) {
-            printf("%s %s+g%.12s%s\n", name, PICURV_RELEASE_VERSION,
+            printf("%s %s+g%.12s%s\n", name, PICURV_BUILD_VERSION,
                    PICURV_GIT_COMMIT,
                    !strcmp(PICURV_BUILD_DIRTY, "true") ? ".dirty" : "");
             printf("%s\n", picurv_petsc_build_stamp + sizeof(PICURV_PETSC_STAMP_MARKER) - 1);

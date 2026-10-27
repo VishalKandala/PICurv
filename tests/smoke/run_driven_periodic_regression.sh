@@ -100,7 +100,7 @@ run_case() {
       --monitor "${dest}/monitor.yml" "$@" ) > "${dest}/run.log" 2>&1 \
     || { cat "${dest}/run.log" >&2; die "solver run failed (see log above)."; }
   local run_dir
-  run_dir="$(sed -n 's|^  Run directory  : ||p' "${dest}/run.log" | tail -1)"
+  run_dir="$(sed -n 's|^  Run directory   : ||p' "${dest}/run.log" | tail -1)"
   [[ -n "${run_dir}" ]] || die "could not determine the run directory from ${dest}/run.log."
   echo "${tmp_root}/${run_dir}"
 }

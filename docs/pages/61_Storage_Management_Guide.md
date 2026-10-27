@@ -50,7 +50,8 @@ There are two archival actions:
 What remains after `offload` is selected by a semantic policy. `metadata-only`
 retains configuration, scheduler metadata, logs, and the storage marker;
 `restart-ready` also retains run inputs and the newest committed checkpoint;
-`analysis-ready` retains analysis and visualization products. An explicit
+`analysis-ready` retains analysis and visualization products in addition to what
+`metadata-only` keeps, but no inputs or checkpoint. An explicit
 `--keep-latest-checkpoint` can add the newest checkpoint to another policy. Whole-study
 offload applies the same component classification inside each numbered member.
 
@@ -77,10 +78,11 @@ picurv storage setup \
   --compression auto \
   --chunk-size-gib 8 \
   --workers 16 \
-  --offload-policy metadata-only
+  --policy metadata-only
 ```
 
-This verifies remote access, creates the remote `objects/` directory if necessary, and writes `.picurv-storage.yml`:
+`--policy` is the same option `plan`, `protect` and `offload` take; `setup` also accepts its
+older spelling, `--offload-policy`. This verifies remote access, creates the remote `objects/` directory if necessary, and writes `.picurv-storage.yml`:
 
 ```yaml
 default_profile: archive
@@ -303,6 +305,9 @@ picurv storage restore \
   --checkpoint 500 \
   --checkpoint 600
 ```
+
+A range of steps is one `--checkpoint-range START:END[:STRIDE]`, also repeatable and
+inclusive; `--checkpoints` is its older spelling.
 
 The result is `PARTIAL`. Restart and continuation proceed when their required checkpoint is present. Post-processing proceeds when the checkpoint of every requested step whose output is missing or stale is present; a step whose output is up to date is not read. Otherwise PICurv prints the exact selective or full restore command to run.
 

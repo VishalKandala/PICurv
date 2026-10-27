@@ -868,3 +868,41 @@ def test_pull_source_refuses_a_detached_checkout(tmp_path, capsys):
     finally:
         picurv.pull_all_source_branches = original_pull_all
         picurv.execute_command = original_execute
+
+
+def test_case_dir_commands_refuse_a_missing_case_dir_instead_of_the_working_case(tmp_path):
+    """!
+    @brief A `--case-dir` that does not exist is refused; the case in the working directory is untouched.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    source_root = make_fake_source_repo(tmp_path / "source")
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    seeded = run_picurv(["sync-config", "--case-dir", str(case_dir), "--source-root", str(source_root),
+                         "--template-name", "demo"], cwd=tmp_path)
+    assert seeded.returncode == 0, seeded.stderr
+    before = sorted(path.relative_to(case_dir) for path in case_dir.rglob("*"))
+    missing = tmp_path / "missing"
+    for command in (["sync-config", "--overwrite"], ["status-source"], ["pull-source"], ["build"]):
+        result = run_picurv(command + ["--case-dir", str(missing)], cwd=case_dir)
+        assert result.returncode == 1, command
+        assert f"Case directory does not exist: {missing}" in result.stderr, command
+    assert sorted(path.relative_to(case_dir) for path in case_dir.rglob("*")) == before
+
+
+def test_explicit_case_dir_without_metadata_is_not_resolved_to_the_working_case(tmp_path):
+    """!
+    @brief An explicit `--case-dir` is the only place case metadata is searched for.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    source_root = make_fake_source_repo(tmp_path / "source")
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    assert run_picurv(["sync-config", "--case-dir", str(case_dir), "--source-root", str(source_root),
+                       "--template-name", "demo"], cwd=tmp_path).returncode == 0
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    result = run_picurv(["status-source", "--case-dir", str(plain), "--source-root", str(source_root),
+                         "--format", "json"], cwd=case_dir)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["case_dir"] == str(plain)

@@ -1277,6 +1277,15 @@ def storage_workflow(args) -> None:
         raise SystemExit(1)
 
 
+#: Help for --compression, from the policies in STORAGE_COMPRESSION_POLICIES.
+COMPRESSION_HELP = ("Archive compression: none, fast (gzip 1), balanced (gzip 6), maximum (xz 9), "
+                    "or auto (by archive size)")
+#: Help for --policy, from the policies in STORAGE_OFFLOAD_POLICIES.
+POLICY_HELP = ("What offload keeps local: metadata-only (configuration, scheduler metadata, logs), "
+               "restart-ready (metadata-only plus inputs and the newest checkpoint), or "
+               "analysis-ready (metadata-only plus analysis and visualization).")
+
+
 def add_storage_parser(subparsers) -> argparse.ArgumentParser:
     """!
     @brief Attach the nested storage command parser to PICurv's top-level parser.
@@ -1306,15 +1315,20 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
     setup.add_argument("--remote", required=True, help="Rclone remote and base path, such as labstore:picurv-data.")
     setup.add_argument("--profile", default=DEFAULT_PROFILE_NAME, help="Profile name (default: archive).")
     setup.add_argument("--storage-config", help=f"Storage YAML path (default: ./{STORAGE_CONFIG_FILENAME}).")
-    setup.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES), default="auto")
-    setup.add_argument("--chunk-size-gib", type=float, default=DEFAULT_CHUNK_SIZE_GIB)
+    setup.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES), default="auto",
+                       help=COMPRESSION_HELP + " (default: auto).")
+    setup.add_argument("--chunk-size-gib", type=float, default=DEFAULT_CHUNK_SIZE_GIB,
+                       help=f"Target archive chunk size in GiB (default: {DEFAULT_CHUNK_SIZE_GIB:g}); "
+                            "a larger file stays one chunk.")
     setup.add_argument("--workers", type=int, default=DEFAULT_STORAGE_WORKERS,
                        help="CPU workers for compression and restoration.")
-    setup.add_argument("--offload-policy", choices=list(STORAGE_OFFLOAD_POLICIES), default="metadata-only")
+    setup.add_argument("--policy", "--offload-policy", dest="offload_policy",
+                       choices=list(STORAGE_OFFLOAD_POLICIES), default="metadata-only",
+                       help=POLICY_HELP + " The profile default (default: metadata-only).")
     setup.add_argument("--keep-latest-checkpoint", action="store_true",
                        help="Retain the newest committed checkpoint after offload.")
     setup.add_argument("--staging-directory", help="Optional local directory for one archive chunk at a time.")
-    setup.add_argument("--dry-run", action="store_true")
+    setup.add_argument("--dry-run", action="store_true", help="Print the profile without writing it.")
 
     def add_profile_options(action_parser):
         """!
@@ -1367,18 +1381,23 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
 
     status = actions.add_parser("status", help="Show local, protected, cold, and busy artifact state.")
     add_local_target(status)
-    status.add_argument("--format", dest="output_format", choices=list(CLI_OUTPUT_FORMATS), default="text")
+    status.add_argument("--format", dest="output_format", choices=list(CLI_OUTPUT_FORMATS), default="text",
+                        help="Output format (default: text).")
 
     plan = actions.add_parser("plan", help="Show packaging, dependencies, and safety checks without writing.")
     add_local_target(plan)
     add_profile_options(plan)
-    plan.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES))
-    plan.add_argument("--policy", choices=list(STORAGE_OFFLOAD_POLICIES))
+    plan.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES),
+                      help=COMPRESSION_HELP + "; defaults to the profile's.")
+    plan.add_argument("--policy", choices=list(STORAGE_OFFLOAD_POLICIES),
+                      help=POLICY_HELP + " Defaults to the profile's.")
     add_retention_options(plan)
-    plan.add_argument("--workers", type=int)
+    plan.add_argument("--workers", type=int, help="CPU workers; defaults to the profile's.")
     plan_checkpoint = plan.add_mutually_exclusive_group()
-    plan_checkpoint.add_argument("--keep-latest-checkpoint", dest="keep_latest_checkpoint", action="store_true")
-    plan_checkpoint.add_argument("--drop-all-checkpoints", dest="keep_latest_checkpoint", action="store_false")
+    plan_checkpoint.add_argument("--keep-latest-checkpoint", dest="keep_latest_checkpoint", action="store_true",
+                                 help="Keep the newest committed checkpoint local under any policy.")
+    plan_checkpoint.add_argument("--drop-all-checkpoints", dest="keep_latest_checkpoint", action="store_false",
+                                 help="Keep no checkpoint local, overriding the profile.")
     plan.set_defaults(keep_latest_checkpoint=None)
 
     for name, help_text in (
@@ -1397,15 +1416,20 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
             "--notes", help="Free-text note recorded with the archive and shown by `show`."
         )
         action_parser.add_argument("--tag", dest="tags", action="append", help="Repeatable KEY=VALUE catalog tag.")
-        action_parser.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES))
-        action_parser.add_argument("--policy", choices=list(STORAGE_OFFLOAD_POLICIES))
+        action_parser.add_argument("--compression", choices=list(STORAGE_COMPRESSION_POLICIES),
+                                   help=COMPRESSION_HELP + "; defaults to the profile's.")
+        action_parser.add_argument("--policy", choices=list(STORAGE_OFFLOAD_POLICIES),
+                                   help=POLICY_HELP + " Defaults to the profile's.")
         add_retention_options(action_parser)
-        action_parser.add_argument("--workers", type=int)
+        action_parser.add_argument("--workers", type=int, help="CPU workers; defaults to the profile's.")
         checkpoint_group = action_parser.add_mutually_exclusive_group()
-        checkpoint_group.add_argument("--keep-latest-checkpoint", dest="keep_latest_checkpoint", action="store_true")
-        checkpoint_group.add_argument("--drop-all-checkpoints", dest="keep_latest_checkpoint", action="store_false")
+        checkpoint_group.add_argument("--keep-latest-checkpoint", dest="keep_latest_checkpoint", action="store_true",
+                                      help="Keep the newest committed checkpoint local under any policy.")
+        checkpoint_group.add_argument("--drop-all-checkpoints", dest="keep_latest_checkpoint", action="store_false",
+                                      help="Keep no checkpoint local, overriding the profile.")
         action_parser.set_defaults(keep_latest_checkpoint=None)
-        action_parser.add_argument("--dry-run", action="store_true")
+        action_parser.add_argument("--dry-run", action="store_true",
+                                   help="Show the plan and safety checks without uploading.")
 
     restore = actions.add_parser("restore", help="Restore a complete archive or selected checkpoints.")
     restore_source = restore.add_mutually_exclusive_group(required=True)
@@ -1415,7 +1439,8 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
     )
     restore_source.add_argument("--run-dir", help="Cold run containing a local storage marker.")
     restore_source.add_argument("--study-dir", help="Cold study containing a local storage marker.")
-    restore.add_argument("--case-id", dest="case_ids", action="append")
+    restore.add_argument("--case-id", dest="case_ids", action="append",
+                         help="With --study-dir, one numbered member to restore; repeat to select several.")
     add_profile_options(restore)
     restore.add_argument("--to", dest="destination", help="Optional alternate restore destination.")
     restore.add_argument(
@@ -1423,7 +1448,7 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
         help="One committed step; repeat to select several.",
     )
     restore.add_argument(
-        "--checkpoints", dest="checkpoint_ranges", action="append",
+        "--checkpoint-range", "--checkpoints", dest="checkpoint_ranges", action="append",
         help="An inclusive step range as START:END or START:END:STRIDE; repeatable.",
     )
     restore.add_argument(
@@ -1451,11 +1476,12 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
 
     verify = actions.add_parser("verify", help="Verify a remote archive completion marker and chunk checksums.")
     verify_source = verify.add_mutually_exclusive_group(required=True)
-    verify_source.add_argument("--archive-id")
-    verify_source.add_argument("--run-dir")
-    verify_source.add_argument("--study-dir")
+    verify_source.add_argument("--archive-id", help="Remote archive ID to verify.")
+    verify_source.add_argument("--run-dir", help="Run whose recorded archive to verify.")
+    verify_source.add_argument("--study-dir", help="Study whose recorded archive to verify.")
     verify_source.add_argument("--workspace", help="Workspace whose own archive to verify.")
-    verify.add_argument("--case-id", dest="case_ids", action="append")
+    verify.add_argument("--case-id", dest="case_ids", action="append",
+                        help="With --study-dir, one numbered member to verify; repeat to select several.")
     add_profile_options(verify)
 
     list_parser = actions.add_parser("list", help="List/search remote archives without local directories.")
@@ -1464,9 +1490,10 @@ def add_storage_parser(subparsers) -> argparse.ArgumentParser:
     list_parser.add_argument(
         "--workspace-label", help="Show only archives belonging to this workspace identity."
     )
-    list_parser.add_argument("--format", dest="output_format", choices=list(CLI_OUTPUT_FORMATS), default="text")
+    list_parser.add_argument("--format", dest="output_format", choices=list(CLI_OUTPUT_FORMATS), default="text",
+                             help="Output format (default: text).")
 
     show = actions.add_parser("show", help="Print the complete manifest for one archive.")
-    show.add_argument("--archive-id", required=True)
+    show.add_argument("--archive-id", required=True, help="Remote archive ID to show.")
     add_profile_options(show)
     return parser

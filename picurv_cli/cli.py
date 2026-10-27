@@ -131,8 +131,9 @@ def _add_run_parser(subparsers):
     post_group.add_argument("--post", help="Path to the post-processing recipe file (e.g., post.yml).")
     post_group.add_argument(
         "--only",
-        help="Comma-separated post stages to run: 'fields' (the field post-processor)\n"
-             "and/or 'spectra'. Defaults to every stage.\n"
+        help="Comma-separated post stages to run: 'fields' (the field post-processor),\n"
+             "'spectra', and 'reducers' (the post.yml reducers tasks, on profiles the\n"
+             "field stage wrote). Defaults to every stage.\n"
              "Use --only spectra to measure spectra without running the field stage.",
     )
     post_group.add_argument(
@@ -271,7 +272,8 @@ def _add_validate_parser(subparsers):
     p_validate.add_argument("--case", help="Path to case.yml")
     p_validate.add_argument("--solver", help="Path to solver.yml")
     p_validate.add_argument("--monitor", help="Path to monitor.yml (logging, diagnostics, profiling, and I/O)")
-    p_validate.add_argument("--restart-from", help="Path to a run directory to validate restart from.")
+    p_validate.add_argument("--restart-from", "--from", dest="restart_from",
+                            help="Path to a run directory to validate restart from.")
     p_validate.add_argument("--continue", action="store_true", dest="continue_run", help="Validate continue-in-place mode. Requires --run-dir.")
     p_validate.add_argument("--run-dir", help="Path to an existing run directory (for --continue validation).")
     p_validate.add_argument("--post", help="Path to post.yml")
@@ -344,7 +346,7 @@ def _add_version_parsers(subparsers):
     """
     p_version = subparsers.add_parser(
         "version",
-        help="Report the active PICurv release and build identity.",
+        help="Report the build identity of the conductor and every native executable.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
             "Report the build identity shared by the Python conductor and the native\n"
@@ -361,7 +363,8 @@ def _add_version_parsers(subparsers):
         "version_action", nargs="?", choices=["status"], default=None,
         help="'status' validates conductor/executable/workspace coherence and exits 1 on disagreement.",
     )
-    p_version.add_argument("--format", dest="output_format", choices=list(CLI_OUTPUT_FORMATS), default="text")
+    p_version.add_argument("--format", dest="output_format", choices=list(CLI_OUTPUT_FORMATS), default="text",
+                           help="Output format (default: text).")
 
     p_versions = subparsers.add_parser("versions", help="List, install, or activate PICurv source versions.")
     actions = p_versions.add_subparsers(dest="versions_action", required=True)
@@ -374,14 +377,14 @@ def _add_version_parsers(subparsers):
     for parser in (p_install, p_activate):
         parser.add_argument(
             "make_args", nargs=argparse.REMAINDER,
-            help="Make variables and options passed to the build, as with 'picurv build' "
-                 "(for example SYSTEM=cluster). Place them after every picurv option.",
+            help="Make variables passed to the build, as with 'picurv build' (for example "
+                 "SYSTEM=cluster); make options go after '--'. Place them after every picurv option.",
         )
 
     p_source = subparsers.add_parser("source", help="Manage the source checkout used by PICurv.")
     source_actions = p_source.add_subparsers(dest="source_action", required=True)
     p_update = source_actions.add_parser("update", help="Fetch source updates without changing the active version.")
-    p_update.add_argument("--remote", default="origin")
+    p_update.add_argument("--remote", default="origin", help="Git remote to fetch from (default: origin).")
     return p_version, p_versions, p_source
 
 
@@ -537,8 +540,9 @@ def _add_submit_parser(subparsers):
         help="Execute or submit previously staged artifacts from an existing run or study directory.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
-            "Consume an existing artifact set created by picurv --no-submit and\n"
-            "execute/submit it later without regenerating configs or scripts.\n"
+            "Consume an existing artifact set created by 'picurv run ... --no-submit' or\n"
+            "'picurv sweep ... --no-submit' and execute/submit it later without\n"
+            "regenerating configs or scripts.\n"
             "A post-process job decides when it starts which steps need work, so\n"
             "submitting it again skips output that is already up to date.\n\n"
             "Examples:\n"
@@ -555,7 +559,7 @@ def _add_submit_parser(subparsers):
         "--stage",
         choices=list(RUN_STAGE_CHOICES),
         default="all",
-        help="Which staged job(s) to submit (default: all).",
+        help="Which staged job(s) to submit (default: all, every stage the target staged).",
     )
     p_submit.add_argument(
         "--force",
@@ -603,7 +607,9 @@ def _add_init_parser(subparsers):
         "--pin-binaries",
         action="store_true",
         default=False,
-        help="Copy simulator and postprocessor into the case directory.\nUse this to freeze specific binary versions for reproducibility\nor to protect running jobs from concurrent rebuilds.",
+        help="(Legacy) Copy simulator and postprocessor into the case directory, used only when\n"
+             "that directory's own picurv is invoked. To freeze the executables a run uses,\n"
+             "use 'picurv run --pin-executables'.",
     )
     return p_init
 
@@ -621,13 +627,15 @@ def _add_build_parser(subparsers):
         description=(
             "Calls the project's Makefile directly through `make`.\n"
             "If you do not pass an explicit make target, `picurv build` runs `make all`.\n"
-            "Any arguments provided after 'build' are passed directly to make.\n\n"
+            "Targets and variables after 'build' are passed directly to make; make options\n"
+            "such as -j8 go after '--'.\n\n"
             "Examples:\n"
             "  picurv build\n"
             "  picurv build clean-project\n"
             "  picurv build SYSTEM=cluster\n"
             "  picurv build all SYSTEM=cluster\n"
             "  picurv build postprocessor\n"
+            "  picurv build -- -j8 all\n"
             "  picurv build INDEX_BITS=64 PETSC_DIR=$HOME/sw/petsc-int64   # simulator64/postprocessor64\n"
             "  ./picurv build clean-project   # from an initialized case directory"
         ),
@@ -644,7 +652,7 @@ def _add_build_parser(subparsers):
     p_build.add_argument(
         "make_args",
         nargs=argparse.REMAINDER,
-        help="Arguments to pass directly to the make command (e.g., 'clean-project').",
+        help="Targets and variables passed to make (e.g., 'clean-project'); make options go after '--'.",
     )
     return p_build
 
@@ -695,7 +703,7 @@ def _add_pull_source_parser(subparsers):
     """
     p_pull = subparsers.add_parser(
         "pull-source",
-        help="(Legacy) Refresh source branches from an initialized case directory.",
+        help="(Legacy; use 'source update') Refresh source branches from a case directory.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
             "Legacy maintenance command; new workspaces use `picurv source update` and\n"
@@ -732,7 +740,7 @@ def _add_status_source_parser(subparsers):
     """
     p_status = subparsers.add_parser(
         "status-source",
-        help="(Legacy) Report source/case drift for an initialized case directory.",
+        help="(Legacy; use 'version status') Report source/case drift for a case directory.",
         formatter_class=argparse.RawTextHelpFormatter,
         description=(
             "Legacy maintenance command; `picurv version status` reports build coherence for\n"
@@ -743,7 +751,7 @@ def _add_status_source_parser(subparsers):
             "  ./picurv status-source --format json\n"
             "  ./bin/picurv status-source --case-dir my_case"
         ),
-        epilog="Next: use `pull-source`, `build`, or `sync-config` based on the reported drift.",
+        epilog="Next: use `source update`, `build`, or `sync-config` based on the reported drift.",
     )
     p_status.add_argument("--case-dir", help="Optional case directory used to resolve .picurv-origin.json.")
     p_status.add_argument("--source-root", help="Optional override for the PICurv source repository root.")
@@ -791,7 +799,11 @@ def build_main_parser():
             "  - Run cancellation: picurv cancel --run-dir ...; use --graceful for solver final-output shutdown"
         ),
     )
-    parser.add_argument("-v", "--version", action=_LazyVersionAction)
+    parser.add_argument(
+        "-v", "--version", action=_LazyVersionAction,
+        help="Print the conductor's build identity and exit. 'picurv version' also reports\n"
+             "each native executable and the PETSc it uses.",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
     _add_run_parser(subparsers)
     _add_sweep_parser(subparsers)
@@ -823,8 +835,16 @@ def dispatch_command(args):
             fail_cli_usage("--solve requires --case, --solver, and --monitor.")
         if args.post_process and not args.post:
             fail_cli_usage("--post-process requires --post.")
+        if args.post_process and not args.solve and not args.run_dir:
+            fail_cli_usage("--post-process requires --run-dir when not used with --solve.")
+        if args.continue_run and not args.run_dir:
+            fail_cli_usage(RESTART_RUN_DIR_REQUIRED_MESSAGE)
         if getattr(args, "only", None) and not args.post_process:
             fail_cli_usage("--only selects post-processing stages and requires --post-process.")
+        try:
+            resolve_post_stage_selection(getattr(args, "only", None))
+        except ValueError as exc:
+            fail_cli_usage(str(exc))
         if getattr(args, "recompute_post", False) and not args.post_process:
             fail_cli_usage("--recompute regenerates post-processing output and requires --post-process.")
         if args.scheduler and not args.cluster:
@@ -862,6 +882,7 @@ def dispatch_command(args):
                 key="precompute",
                 file_path=getattr(args, "case", "-"),
                 message=str(e),
+                hint="'picurv precompute --help' lists the asset kinds --only accepts.",
             )
             sys.exit(1)
         return

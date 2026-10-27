@@ -245,15 +245,19 @@ Each run processes only the steps of the window whose output is missing or stale
 After `init`, you can operate on the original source repo from anywhere using `picurv` on PATH:
 
 ```bash
-picurv status-source --case-dir my_case  # inspect code/template drift before syncing
+picurv version status                    # check the conductor and executables are one build
+picurv source update                     # fetch source updates without changing the active version
 picurv build                             # rebuild in the source repo (defaults to `make all`)
+picurv build -- -j8 all                  # make options go after `--`
 picurv build clean-project               # clean in the source repo
 make audit-build                         # rebuild with repo-level logging under `logs/`
-picurv pull-source --case-dir my_case    # git pull --rebase in the source repo
 picurv sync-config --case-dir my_case    # copy updated template files, preserve modified files
 picurv sync-config --case-dir my_case --overwrite
 picurv sync-config --case-dir my_case --prune  # remove stale template-managed files
 ```
+
+`picurv pull-source` and `picurv status-source` are legacy forms of `source update` and
+`version status`, kept for older cases.
 
 If the case predates `.picurv-origin.json`, pass `--source-root /path/to/PICurv`.
 If `sync-config` cannot infer the template, also pass `--template-name <example_name>`.

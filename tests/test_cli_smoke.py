@@ -8831,40 +8831,33 @@ def test_submit_local_run_stage_all_executes_solve_then_post(tmp_path):
     assert submission["stages"]["post-process"]["executed"] is True
 
 
-def test_submit_local_run_stage_all_solve_only_hint_suggests_solve_stage(tmp_path):
+def test_submit_local_run_stage_all_selects_the_staged_stages(tmp_path):
     """!
-    @brief Test that submit all on a solve-only local staged run gives an actionable hint.
+    @brief Test that submit all on a one-stage local staged run selects that stage alone.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
-    run_dir = create_staged_run_dir(
-        tmp_path,
-        launch_mode="local",
-        solve_meta={"command": ["fake-solver"], "log_file": "scheduler/solve.log"},
-        post_meta=False,
-    )
-    result = run_picurv(["submit", "--run-dir", str(run_dir), "--dry-run"], cwd=tmp_path)
-    assert result.returncode == 1
-    assert "--stage all requests solve and post-process" in result.stderr
-    assert "records only solve" in result.stderr
-    assert "--stage solve" in result.stderr
+    for name, solve_meta, post_meta, staged in (
+        ("solve_only", {"command": ["fake-solver"], "log_file": "scheduler/solve.log"}, False, "solve"),
+        ("post_only", False, {"command": ["fake-post"], "log_file": "scheduler/post.log"}, "post-process"),
+    ):
+        run_dir = create_staged_run_dir(
+            tmp_path, name=name, launch_mode="local", solve_meta=solve_meta, post_meta=post_meta,
+        )
+        result = run_picurv(["submit", "--run-dir", str(run_dir), "--dry-run"], cwd=tmp_path)
+        assert result.returncode == 0, result.stderr
+        assert f"Requested stages    : {staged}\n" in result.stdout
 
 
-def test_submit_local_run_stage_all_post_only_hint_suggests_post_stage(tmp_path):
+def test_submit_run_stage_all_with_nothing_staged_names_the_restage_commands(tmp_path):
     """!
-    @brief Test that submit all on a post-only local staged run gives an actionable hint.
+    @brief Test that submit all on a target that staged no stage says how to stage one.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
-    run_dir = create_staged_run_dir(
-        tmp_path,
-        launch_mode="local",
-        solve_meta=False,
-        post_meta={"command": ["fake-post"], "log_file": "scheduler/post.log"},
-    )
+    run_dir = create_staged_run_dir(tmp_path, launch_mode="local", solve_meta=False, post_meta=False)
     result = run_picurv(["submit", "--run-dir", str(run_dir), "--dry-run"], cwd=tmp_path)
     assert result.returncode == 1
-    assert "--stage all requests solve and post-process" in result.stderr
-    assert "records only post-process" in result.stderr
-    assert "--stage post-process" in result.stderr
+    assert "submission metadata records none" in result.stderr
+    assert "picurv run --solve ... --no-submit" in result.stderr
 
 
 def test_submit_local_run_explicit_absent_stage_hint_names_requested_stage(tmp_path):
@@ -9033,24 +9026,20 @@ def test_submit_run_stage_all_adds_post_dependency_on_new_solve_job(tmp_path):
     assert submission["stages"]["post-process"]["dependency"] == "afterok:601"
 
 
-def test_submit_run_stage_all_slurm_missing_stage_metadata_has_targeted_hint(tmp_path):
+def test_submit_run_stage_all_slurm_selects_the_staged_stages(tmp_path):
     """!
-    @brief Test that Slurm submit all reports stages absent from submission metadata.
+    @brief Test that Slurm submit all on a one-stage staged run selects that stage alone.
     @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
     """
     solve_only_run_dir = create_staged_run_dir(tmp_path, name="slurm_solve_only", post_meta=False)
     solve_only_result = run_picurv(["submit", "--run-dir", str(solve_only_run_dir), "--dry-run"], cwd=tmp_path)
-    assert solve_only_result.returncode == 1
-    assert "does not record stage 'post-process'" in solve_only_result.stderr
-    assert "records only solve" in solve_only_result.stderr
-    assert "--stage solve" in solve_only_result.stderr
+    assert solve_only_result.returncode == 0, solve_only_result.stderr
+    assert "Requested stages    : solve\n" in solve_only_result.stdout
 
     post_only_run_dir = create_staged_run_dir(tmp_path, name="slurm_post_only", solve_meta=False)
     post_only_result = run_picurv(["submit", "--run-dir", str(post_only_run_dir), "--dry-run"], cwd=tmp_path)
-    assert post_only_result.returncode == 1
-    assert "does not record stage 'solve'" in post_only_result.stderr
-    assert "records only post-process" in post_only_result.stderr
-    assert "--stage post-process" in post_only_result.stderr
+    assert post_only_result.returncode == 0, post_only_result.stderr
+    assert "Requested stages    : post-process\n" in post_only_result.stdout
 
 
 def test_submit_post_process_waits_only_for_a_staged_solve(tmp_path):
@@ -10919,3 +10908,115 @@ def test_restart_grid_inputs_warn_only_on_a_geometric_change(tmp_path, capsys):
     refined = {**case, "grid": {**case["grid"], "programmatic_settings": {"im": 8, "jm": 8, "km": 16}}}
     assert picurv.warn_on_restart_grid_change(source, picurv.restart_grid_inputs(str(tmp_path), refined)) == ["grid"]
     assert "grid inputs differ from the source run's (grid)" in capsys.readouterr().err
+
+
+def test_unknown_post_stage_is_a_usage_error_not_a_traceback(tmp_path):
+    """!
+    @brief An unknown `--only` stage is refused at dispatch, before the run directory is touched.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    result = run_picurv(["run", "--post-process", "--run-dir", str(tmp_path), "--post", "post.yml",
+                         "--only", "bogus"], cwd=tmp_path)
+    assert result.returncode == 2
+    assert "ERROR CLI_USAGE_INVALID" in result.stderr
+    assert "unknown post stage(s) ['bogus']" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert "picurv run --help" in result.stderr
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_post_process_without_run_dir_is_a_usage_error(tmp_path):
+    """!
+    @brief A post-only run without `--run-dir` is a structured usage error with exit code 2.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    result = run_picurv(["run", "--post-process", "--post", "post.yml"], cwd=tmp_path)
+    assert result.returncode == 2
+    assert "--post-process requires --run-dir when not used with --solve." in result.stderr
+
+
+def test_continue_without_run_dir_is_refused_before_validation(tmp_path):
+    """!
+    @brief `--continue` without `--run-dir` is a usage error raised before any config is read.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    result = run_picurv(["run", "--solve", "--continue", "--case", "missing.yml", "--solver", "missing.yml",
+                         "--monitor", "missing.yml"], cwd=tmp_path)
+    assert result.returncode == 2
+    assert "--continue --run-dir <run_dir>" in result.stderr
+    assert "Validating configuration files" not in result.stdout
+    validate = run_picurv(["validate", "--continue"], cwd=tmp_path)
+    assert validate.returncode == 2
+    assert "--continue --run-dir <run_dir>" in validate.stderr
+
+
+def test_make_options_before_double_dash_name_the_double_dash_form(tmp_path):
+    """!
+    @brief A make option given to `picurv build` is reported by build, with the `--` form.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    result = run_picurv(["build", "-j8"], cwd=tmp_path)
+    assert result.returncode == 2
+    assert "usage: picurv build" in result.stderr
+    assert "pass make options after '--', as in 'picurv build -- -j8'" in result.stderr
+
+
+def test_double_dash_is_dropped_before_make_arguments(monkeypatch):
+    """!
+    @brief `picurv build -- -j8 all` forwards `-j8 all` to make, without the separator.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    sys.path.insert(0, str(REPO_ROOT))
+    import picurv_cli.main as entry
+    dispatched = []
+    monkeypatch.setattr(entry, "dispatch_command", dispatched.append)
+    monkeypatch.setattr(sys, "argv", ["picurv", "build", "--", "-j8", "all"])
+    entry.main()
+    assert dispatched[0].make_args == ["-j8", "all"]
+
+
+def test_rebuild_command_names_the_build_each_executable_needs():
+    """!
+    @brief The 64-bit pair is rebuilt with INDEX_BITS=64 and its own PETSc; the 32-bit pair plainly.
+    """
+    picurv = load_picurv_module()
+    assert picurv.rebuild_command("simulator", {}) == "picurv build"
+    assert picurv.rebuild_command(
+        "simulator64", {"petsc": {"dir": "/opt/petsc", "arch": "arch-int64"}}
+    ) == "picurv build INDEX_BITS=64 PETSC_DIR=/opt/petsc PETSC_ARCH=arch-int64"
+    assert picurv.rebuild_command("postprocessor64", {"petsc": {"dir": "/opt/petsc-int64", "arch": ""}}) == (
+        "picurv build INDEX_BITS=64 PETSC_DIR=/opt/petsc-int64")
+
+
+def test_binary_identity_carries_the_conductors_development_version(tmp_path):
+    """!
+    @brief A stamp and a version line with `.dev<N>` give the conductor's build id; older ones still parse.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    binary = tmp_path / "simulator"
+    binary.write_bytes(b"\x7fELF-not-really\0PICURV_BUILD:1.2.3.dev7 0123456789abcdef0123 false\0"
+                       b"PICURV_PETSC_BUILD:petsc 3.20.3 optimized arch-x /opt/petsc\0")
+    binary.chmod(0o755)
+    identity = picurv.read_binary_build_identity(str(binary))
+    assert identity["build_id"] == "1.2.3.dev7+g0123456789ab"
+    assert identity["release_version"] == "1.2.3"
+    assert identity["version_line"].startswith("simulator 1.2.3.dev7+g0123456789ab\n")
+    for line, version in (("simulator 1.2.3.dev7+gabc.dirty", "1.2.3.dev7"), ("simulator 1.2.3+gabc", "1.2.3")):
+        match = picurv._BINARY_VERSION_PATTERN.match(line)
+        assert match.group("version") == version and match.group("release") == "1.2.3"
+
+
+def test_staged_run_summary_reports_planned_steps_not_steps_run(tmp_path):
+    """!
+    @brief A `--no-submit` solve stage is reported as staged, with the steps it plans to run.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    result = run_picurv(["run", "--solve", "--case", str(valid / "case.yml"), "--solver", str(valid / "solver.yml"),
+                         "--monitor", str(valid / "monitor.yml"), "--no-submit"], cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "  Stages staged   : solve" in result.stdout
+    assert "  Steps planned   :" in result.stdout
+    assert "Steps run" not in result.stdout
+    assert "[SUCCESS] Staged local solve stage; run it with 'picurv submit --run-dir runs/" in result.stdout

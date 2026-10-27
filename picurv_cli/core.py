@@ -1834,9 +1834,10 @@ def resolve_runtime_executable(executable_name: str) -> str:
     return os.path.join(DEFAULT_BIN_DIR, executable_name)
 
 
-#: Identity a native executable prints for `--version`: `<name> <release>+g<commit>[.dirty]`.
+#: Identity a native executable prints for `--version`:
+#: `<name> <release>[.dev<N>]+g<commit>[.dirty]`; executables built before the `.dev<N>` stamp omit it.
 _BINARY_VERSION_PATTERN = re.compile(
-    r"^(?P<name>\S+)\s+(?P<release>[^+\s]+)\+g(?P<commit>[0-9a-f]+)(?P<dirty>\.dirty)?\s*$"
+    r"^(?P<name>\S+)\s+(?P<version>(?P<release>[^+\s]+?)(?:\.dev\d+)?)\+g(?P<commit>[0-9a-f]+)(?P<dirty>\.dirty)?\s*$"
 )
 #: Second `--version` line: the PETSc the executable was compiled against (src/setup.c).
 _BINARY_PETSC_PATTERN = re.compile(
@@ -1938,7 +1939,7 @@ def petsc_library_mismatch(petsc: "dict | None", library: "str | None") -> bool:
 def _read_binary_build_stamp(executable_path: str) -> "dict | None":
     """!
     @brief Read the build identity stamped into an executable's bytes, without running it.
-    @details src/setup.c stores `PICURV_BUILD:<release> <commit> <dirty>` beside the PETSc
+    @details src/setup.c stores `PICURV_BUILD:<version> <commit> <dirty>` beside the PETSc
              stamp. Running `--version` on a login node starts the dynamic loader against a
              cold filesystem, tens of seconds; reading the file costs one read.
     @param[in] executable_path Path to `simulator` or `postprocessor`.
@@ -1957,13 +1958,14 @@ def _read_binary_build_stamp(executable_path: str) -> "dict | None":
         "utf-8", errors="replace").split()
     if len(fields) != 3 or not re.fullmatch(r"[0-9a-f]+", fields[1]) or fields[2] not in ("true", "false"):
         return None
-    release, commit, dirty = fields[0], fields[1][:12], fields[2] == "true"
+    version, commit, dirty = fields[0], fields[1][:12], fields[2] == "true"
+    release = re.sub(r"\.dev\d+$", "", version)
     petsc = read_binary_petsc_stamp(executable_path)
     if petsc is None:
         return None
     # Exactly what `--version` prints (src/setup.c), which the job-start check compares with.
     name = os.path.basename(executable_path)
-    version_line = (f"{name} {release}+g{commit}{'.dirty' if dirty else ''}\n"
+    version_line = (f"{name} {version}+g{commit}{'.dirty' if dirty else ''}\n"
                     f"petsc {petsc['version']} {petsc['mode']}"
                     f"{' ' + petsc['indices'] if petsc.get('indices_stamped') else ''} {petsc['arch']} {petsc['dir']}")
     return {
@@ -1973,7 +1975,7 @@ def _read_binary_build_stamp(executable_path: str) -> "dict | None":
         "release_version": release,
         "git_commit": commit,
         "dirty": dirty,
-        "build_id": f"{release}+g{commit}{'.dirty' if dirty else ''}",
+        "build_id": f"{version}+g{commit}{'.dirty' if dirty else ''}",
         "petsc": petsc,
         "identity_source": "stamp",
     }
@@ -2027,7 +2029,7 @@ def read_binary_build_identity(executable_path: str) -> dict:
         "git_commit": match.group("commit"),
         "dirty": bool(match.group("dirty")),
         "build_id": (
-            f"{match.group('release')}+g{match.group('commit')}"
+            f"{match.group('version')}+g{match.group('commit')}"
             f"{'.dirty' if match.group('dirty') else ''}"
         ),
         "petsc": _parse_binary_petsc_line(lines[1]) if len(lines) > 1 else None,
@@ -2067,6 +2069,22 @@ def runtime_build_identities(source_identity: "dict | None" = None,
     return identities
 
 
+def rebuild_command(name: str, identity: dict) -> str:
+    """!
+    @brief The command that rebuilds one native executable.
+    @details The 64-bit-index pair needs `INDEX_BITS=64` and its own PETSc, named from the
+             executable's PETSc stamp when it has one; a plain build makes the 32-bit pair.
+    @param[in] name Executable name, such as `simulator64`.
+    @param[in] identity Identity mapping from `read_binary_build_identity()`.
+    @return Shell command text.
+    """
+    if not name.endswith("64"):
+        return "picurv build"
+    petsc = identity.get("petsc") or {}
+    command = f"picurv build INDEX_BITS=64 PETSC_DIR={petsc.get('dir') or '<64-bit PETSc>'}"
+    return command + (f" PETSC_ARCH={petsc['arch']}" if petsc.get("arch") else "")
+
+
 def build_identity_problems(identities: dict, workspace_requirement=None,
                             source_identity: "dict | None" = None) -> list:
     """!
@@ -2088,12 +2106,12 @@ def build_identity_problems(identities: dict, workspace_requirement=None,
         if not identity.get("available"):
             problems.append(
                 f"{name}: no build identity available ({identity.get('reason', 'unknown')}); "
-                "rebuild with 'make all'."
+                f"rebuild with '{rebuild_command(name, identity)}'."
             )
         elif not identity.get("matches_source"):
             problems.append(
                 f"{name}: built from {identity['build_id']}, but the active source is "
-                f"{source_identity['build_id']}; rebuild with 'make all'."
+                f"{source_identity['build_id']}; rebuild with '{rebuild_command(name, identity)}'."
             )
     if workspace_requirement not in (None, ""):
         try:
@@ -2131,7 +2149,7 @@ def warn_on_stale_runtime_binaries(identities: dict) -> list:
         print(
             f"[WARNING] {name} was built from {identities[name]['build_id']}, but the active "
             f"source is {picurv_build()['build_id']}. Checkpoints will record the binary's "
-            "identity, not the source's. Run 'picurv build' to rebuild.",
+            f"identity, not the source's. Rebuild with '{rebuild_command(name, identities[name])}'.",
             file=sys.stderr,
         )
     for name, identity in sorted(identities.items()):
@@ -2173,6 +2191,11 @@ _ERROR_HINTS = {
     ERROR_CODE_CFG_INCONSISTENT_COMBO: "Fix conflicting options/keys so the configuration is internally consistent.",
     ERROR_CODE_DEPENDENCY_MISSING: "Install the named optional dependency for the Python interpreter used by picurv.",
 }
+#: Hint for a refused restart: the flags and the case key that choose its source and step.
+_RESTART_HINT = ("Check --restart-from, --continue and --run-dir against the source run's committed "
+                 "checkpoints and run_control.start_step in case.yml.")
+#: Hint for a --study-dir that is not a study `picurv sweep` created.
+_STUDY_DIR_HINT = "Pass a study directory that 'picurv sweep' created (studies/<study_id>)."
 
 
 def _sanitize_error_field(value) -> str:
@@ -2216,15 +2239,18 @@ def emit_structured_error(code: str, key: str = "-", file_path: str = "-",
 def fail_cli_usage(message: str, hint: str = None):
     """!
     @brief Emit a structured CLI usage error and exit with code 2.
+    @details Without a @p hint, the default names the command the user ran.
     @param[in] message Argument passed to `fail_cli_usage()`.
     @param[in] hint Argument passed to `fail_cli_usage()`.
     """
+    command = next((token for token in sys.argv[1:] if not token.startswith("-")), "")
     emit_structured_error(
         ERROR_CODE_CLI_USAGE_INVALID,
         key="-",
         file_path="-",
         message=message,
-        hint=hint or _ERROR_HINTS[ERROR_CODE_CLI_USAGE_INVALID],
+        hint=hint or _ERROR_HINTS[ERROR_CODE_CLI_USAGE_INVALID].replace(
+            "<command>", command if re.fullmatch(r"[a-z][a-z-]*", command) else "<command>"),
     )
     sys.exit(2)
 
@@ -2513,11 +2539,16 @@ def discover_local_project_root(*extra_anchors):
 def find_case_origin_metadata_file(case_dir_hint: str = None):
     """!
     @brief Find the nearest case-origin metadata file from known runtime anchors.
+    @details An explicit case directory is the only anchor searched, so a wrong one cannot
+             fall back to the case in the working directory.
     @param[in] case_dir_hint Argument passed to `find_case_origin_metadata_file()`.
     @return Value returned by `find_case_origin_metadata_file()`.
+    @throws ValueError when @p case_dir_hint is given but is not a directory.
     """
+    if case_dir_hint and not os.path.isdir(case_dir_hint):
+        raise ValueError(f"Case directory does not exist: {os.path.abspath(case_dir_hint)}")
     search_roots = []
-    for candidate in (case_dir_hint, os.getcwd(), INVOKED_SCRIPT_DIR):
+    for candidate in (case_dir_hint,) if case_dir_hint else (os.getcwd(), INVOKED_SCRIPT_DIR):
         if not candidate:
             continue
         abs_candidate = os.path.abspath(candidate)
@@ -3157,7 +3188,7 @@ def print_case_source_status(status: dict):
     @brief Render human-readable source/case drift details.
     @param[in] status Argument passed to `print_case_source_status()`.
     """
-    print(f"[INFO] Case directory      : {status['case_dir']}")
+    print(f"[INFO] Case directory     : {status['case_dir']}")
     print(f"[INFO] Source repo        : {status['source_repo_root']}")
     print(f"[INFO] Template           : {status.get('template_name') or '(unknown)'}")
     if status.get("last_known_source_git_commit"):
@@ -3167,30 +3198,32 @@ def print_case_source_status(status: dict):
     print(f"[INFO] Source changed     : {'yes' if status.get('source_commit_changed') else 'no'}")
 
     binaries = status["binaries"]
-    if binaries["source_bin_present"]:
+    if binaries["source_bin_present"] and not (binaries["case_bin_current"] or binaries["case_bin_different"]):
+        print("[INFO] Binaries           : not pinned (the installation's executables are used)")
+    elif binaries["source_bin_present"]:
         print(
-            f"[INFO] Binaries          : current={len(binaries['case_bin_current'])} "
+            f"[INFO] Binaries           : current={len(binaries['case_bin_current'])} "
             f"changed={len(binaries['case_bin_different'])} missing={len(binaries['case_bin_missing'])}"
         )
     else:
-        print("[INFO] Binaries          : source bin/ unavailable")
+        print("[INFO] Binaries           : source bin/ unavailable")
 
     config = status["config"]
     if config["template_available"]:
         print(
-            f"[INFO] Template files    : current={len(config['case_current_files'])} "
+            f"[INFO] Template files     : current={len(config['case_current_files'])} "
             f"modified={len(config['case_modified_files'])} missing={len(config['case_missing_files'])}"
         )
         if config["tracking_available"]:
-            print(f"[INFO] Prune candidates  : {len(config['template_removed_since_last_sync'])}")
+            print(f"[INFO] Prune candidates   : {len(config['template_removed_since_last_sync'])}")
         else:
-            print("[INFO] Prune candidates  : tracking unavailable")
+            print("[INFO] Prune candidates   : tracking unavailable")
     elif status.get("template_name"):
-        print("[INFO] Template files    : template unavailable in source repo")
+        print("[INFO] Template files     : template unavailable in source repo")
 
     runtime_cfg = status.get("runtime_execution", {})
     print(
-        f"[INFO] Runtime config    : case={'yes' if runtime_cfg.get('case_config_present') else 'no'} "
+        f"[INFO] Runtime config     : case={'yes' if runtime_cfg.get('case_config_present') else 'no'} "
         f"repo-seed={'yes' if runtime_cfg.get('repo_seed_present') else 'no'} "
         f"matches-repo-seed={'yes' if runtime_cfg.get('case_matches_repo_seed') else 'no'}"
     )
@@ -6752,6 +6785,9 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
     if restart_from and continue_run:
         raise ValueError("--restart-from and --continue are mutually exclusive.")
 
+    # The named run must exist before its start step can mean anything.
+    if continue_run and getattr(args, 'run_dir', None) and not os.path.isdir(args.run_dir):
+        raise ValueError(f"--run-dir does not exist: {os.path.abspath(args.run_dir)}")
     if continue_run and start_step <= 0:
         raise ValueError(
             "--continue with --solve requires run_control.start_step > 0; "
@@ -6851,8 +6887,6 @@ def resolve_restart_source(args, case_cfg: dict, solver_cfg: dict, monitor_cfg: 
         if not continue_run_dir:
             raise ValueError(RESTART_RUN_DIR_REQUIRED_MESSAGE)
         continue_run_dir = os.path.abspath(continue_run_dir)
-        if not os.path.isdir(continue_run_dir):
-            raise ValueError(f"--run-dir does not exist: {continue_run_dir}")
         try:
             require_storage_payload_local(continue_run_dir, "--continue", checkpoint=start_step)
         except StorageError as exc:
@@ -18645,6 +18679,7 @@ def build_run_dry_plan(args) -> dict:
                 key="restart",
                 file_path=case_path,
                 message=str(e),
+                hint=_RESTART_HINT,
             )
             sys.exit(1)
 
@@ -19141,15 +19176,15 @@ def render_run_dry_plan(plan: dict, output_format: str = "text"):
     print("\n" + "=" * 60)
     print("                      DRY-RUN PLAN")
     print("=" * 60)
-    print(f"  Launch mode    : {plan.get('launch_mode')}")
-    print(f"  Created at     : {plan.get('created_at')}")
+    print(f"  Launch mode     : {plan.get('launch_mode')}")
+    print(f"  Created at      : {plan.get('created_at')}")
     if plan.get("run_id_preview"):
-        print(f"  Run ID preview : {plan.get('run_id_preview')}")
+        print(f"  Run ID preview  : {plan.get('run_id_preview')}")
     if plan.get("run_dir_preview"):
-        print(f"  Run dir preview: {plan.get('run_dir_preview')}")
+        print(f"  Run dir preview : {plan.get('run_dir_preview')}")
     lineage = plan.get("lineage") or {}
     if lineage.get("relationship") == "branch":
-        print(f"  Branched from  : {lineage.get('parent_run_id')} "
+        print(f"  Branched from   : {lineage.get('parent_run_id')} "
               f"@ step {lineage.get('checkpoint_step')} "
               f"(statistics: {lineage.get('statistics_state')})")
     print(f"  Solver MPI procs: {plan.get('solver_num_procs_effective')}")
@@ -19158,7 +19193,7 @@ def render_run_dry_plan(plan: dict, output_format: str = "text"):
         if plan.get(key):
             print(f"  {label} {plan[key]['summary']}")
     if plan.get("warnings"):
-        print("  Warnings       :")
+        print("  Warnings        :")
         for warning in plan["warnings"]:
             print(f"    - {warning}")
 
@@ -19204,6 +19239,8 @@ def validate_workflow(args):
     case_path = None
     cluster_path = None
 
+    if getattr(args, 'continue_run', False) and not getattr(args, 'run_dir', None):
+        fail_cli_usage(RESTART_RUN_DIR_REQUIRED_MESSAGE)
     if not any_group_selected:
         fail_cli_usage(
             "validate requires at least one config group. Provide solver trio and/or --post/--cluster/--study.",
@@ -19223,8 +19260,6 @@ def validate_workflow(args):
         if continue_run:
             print("[WARNING] --continue validates a solve continued in place and needs "
                   "--case/--solver/--monitor; it is ignored here.", file=sys.stderr)
-    if continue_run and not run_dir_val:
-        fail_cli_usage(RESTART_RUN_DIR_REQUIRED_MESSAGE)
 
     monitor_cfg = None
     case_cfg = None
@@ -20424,22 +20459,26 @@ def run_workflow(args):
         validate_cluster_config(cluster_cfg, cluster_path)
         scheduler_type = str(cluster_cfg.get("scheduler", {}).get("type", "slurm")).lower()
         if args.scheduler and args.scheduler.lower() != scheduler_type:
-            print(
-                f"[FATAL] --scheduler={args.scheduler} does not match cluster.yml scheduler.type={scheduler_type}.",
-                file=sys.stderr
+            emit_structured_error(
+                ERROR_CODE_CFG_INCONSISTENT_COMBO, key="scheduler.type", file_path=cluster_path,
+                message=f"--scheduler={args.scheduler} does not match cluster.yml scheduler.type={scheduler_type}.",
+                hint="Omit --scheduler, or give the scheduler cluster.yml names.",
             )
             sys.exit(1)
         if scheduler_type != "slurm":
-            print(f"[FATAL] Unsupported scheduler '{scheduler_type}'. Only Slurm is supported.", file=sys.stderr)
+            emit_structured_error(
+                ERROR_CODE_CFG_INVALID_VALUE, key="scheduler.type", file_path=cluster_path,
+                message=f"Unsupported scheduler '{scheduler_type}'. Only Slurm is supported.",
+                hint="Set scheduler.type: slurm in cluster.yml.",
+            )
             sys.exit(1)
         cluster_tasks = get_cluster_total_tasks(cluster_cfg)
         if (args.solve or args.post_process) and args.num_procs not in (1, cluster_tasks):
-            print(
-                "[FATAL] In cluster mode, --num-procs must be "
+            fail_cli_usage(
+                "In cluster mode, --num-procs must be "
                 f"1 (auto) or exactly nodes*ntasks_per_node ({cluster_tasks}).",
-                file=sys.stderr
+                hint="Omit -n to use the task count cluster.yml sets.",
             )
-            sys.exit(1)
         if args.solve:
             solver_num_procs_effective = cluster_tasks
         if args.post_process:
@@ -20456,9 +20495,6 @@ def run_workflow(args):
             print(f"[INFO] Cluster mode enabled (Slurm). Solver uses {solver_num_procs_effective} MPI tasks from cluster.yml.")
         else:
             print(f"[INFO] Cluster mode enabled (Slurm). Post stage uses {post_num_procs_effective} MPI tasks from cluster.yml.")
-    elif getattr(args, "scheduler", None):
-        print("[FATAL] --scheduler requires --cluster in this version.", file=sys.stderr)
-        sys.exit(1)
 
     # --- Guard: restart flags without --solve ---
     if not args.solve:
@@ -20547,6 +20583,7 @@ def run_workflow(args):
                 key="restart",
                 file_path=args.case,
                 message=str(e),
+                hint=_RESTART_HINT,
             )
             sys.exit(1)
 
@@ -20733,7 +20770,8 @@ def run_workflow(args):
                 "decomposition": _decomposition_record(configs.get("decomposition_resolved")),
             }
             if args.no_submit:
-                print(f"[SUCCESS] Staged local solver command: {solver_log}")
+                print(f"[SUCCESS] Staged local solve stage; run it with "
+                      f"'picurv submit --run-dir {os.path.relpath(run_dir)}'.")
             else:
                 try:
                     with runtime_stage_lock(run_dir, "solver"):
@@ -20757,15 +20795,13 @@ def run_workflow(args):
         if args.run_dir:
             run_dir = os.path.abspath(args.run_dir)
             if not os.path.isdir(run_dir):
-                print(f"[FATAL] Specified run directory not found: {run_dir}", file=sys.stderr)
+                emit_structured_error(ERROR_CODE_CFG_FILE_NOT_FOUND, key="run_dir", file_path=run_dir,
+                                      message="Run directory not found.")
                 sys.exit(1)
             print(f"[INFO] Operating on existing run directory: {os.path.relpath(run_dir)}")
             adopt_relocated_artifact(run_dir)
             enforce_run_directory_structure(run_dir)
             run_id = read_artifact_identity(run_dir)["run_id"]
-        elif not args.solve:
-            print("[FATAL] --post-process requires --run-dir when not used with --solve.", file=sys.stderr)
-            sys.exit(1)
 
         print("\n" + "="*20 + " POST-PROCESSING STAGE " + "="*20)
         config_dir = os.path.join(run_dir, "config")
@@ -21130,11 +21166,13 @@ def run_workflow(args):
         print("\n" + "=" * 60)
         print("                       RUN SUMMARY")
         print("=" * 60)
-        print(f"  Run ID         : {run_id}")
-        print(f"  Run directory  : {os.path.relpath(run_dir)}")
-        print(f"  Wall-clock     : {time_str}")
-        print(f"  Stages         : {', '.join(stages_completed)}")
-        print(f"  Launch mode    : {'slurm' if cluster_mode else 'local'}")
+        print(f"  Run ID          : {run_id}")
+        print(f"  Run directory   : {os.path.relpath(run_dir)}")
+        # A staged or Slurm-submitted stage has not run yet when this prints.
+        staged = bool(cluster_mode or args.no_submit)
+        print(f"  Wall-clock      : {time_str}")
+        print(f"  {'Stages staged' if staged else 'Stages':<16}: {', '.join(stages_completed)}")
+        print(f"  Launch mode     : {'slurm' if cluster_mode else 'local'}")
         if args.solve:
             print(f"  Solver MPI procs: {solver_num_procs_effective}")
         if args.post_process:
@@ -21142,12 +21180,12 @@ def run_workflow(args):
         if args.solve and configs:
             total_steps = configs['case'].get('run_control', {}).get('total_steps', '?')
             result_dir = os.path.join(run_dir, CANONICAL_RUN_PATHS['output'])
-            print(f"  Steps run      : {total_steps}")
-            print(f"  Solver output  : {os.path.relpath(result_dir)}")
+            print(f"  {'Steps planned' if staged else 'Steps run':<16}: {total_steps}")
+            print(f"  Solver output   : {os.path.relpath(result_dir)}")
         if 'post-process' in stages_completed and output_dir_abs:
-            print(f"  Post output    : {os.path.relpath(output_dir_abs)}")
+            print(f"  Post output     : {os.path.relpath(output_dir_abs)}")
         for stats_path in statistics_output_paths:
-            print(f"  Stats output   : {os.path.relpath(stats_path)}")
+            print(f"  Stats output    : {os.path.relpath(stats_path)}")
         # Report the configured log directory, not the default. An authorized external
         # path is exactly the case where the two differ, and it is the case where the
         # reader most needs to know where the logs actually went.
@@ -21155,11 +21193,11 @@ def run_workflow(args):
         relative_log = os.path.relpath(log_display)
         # A relative path that climbs out of the working directory is harder to read
         # than the absolute one it stands for.
-        print(f"  Logs           : "
+        print(f"  Logs            : "
               f"{log_display if relative_log.startswith('..') else relative_log}")
         if cluster_mode or submission_meta.get("stages"):
             submission_file = os.path.join(run_dir, "scheduler", "submission.json")
-            print(f"  Submission meta: {os.path.relpath(submission_file)}")
+            print(f"  Submission meta : {os.path.relpath(submission_file)}")
         print("=" * 60)
 
 
@@ -21576,7 +21614,8 @@ def sweep_continue_workflow(args):
     study_dir = os.path.abspath(args.study_dir)
     manifest_path = os.path.join(study_dir, "study_manifest.json")
     if not os.path.isfile(manifest_path):
-        print(f"[FATAL] Study manifest not found: {manifest_path}", file=sys.stderr)
+        emit_structured_error(ERROR_CODE_CFG_FILE_NOT_FOUND, key="study_dir", file_path=manifest_path,
+                              message="Study manifest not found.", hint=_STUDY_DIR_HINT)
         sys.exit(1)
     adopt_relocated_artifact(study_dir, kind="study")
     manifest = _read_json_if_exists(manifest_path)
@@ -21841,7 +21880,8 @@ def sweep_reaggregate_workflow(args):
     study_dir = os.path.abspath(args.study_dir)
     study_path = os.path.join(study_dir, "study.yml")
     if not os.path.isfile(study_path):
-        print(f"[FATAL] Study config not found: {study_path}", file=sys.stderr)
+        emit_structured_error(ERROR_CODE_CFG_FILE_NOT_FOUND, key="study_dir", file_path=study_path,
+                              message="Study config not found.", hint=_STUDY_DIR_HINT)
         sys.exit(1)
     adopt_relocated_artifact(study_dir, kind="study")
     study_cfg = read_yaml_file(study_path)
@@ -24947,6 +24987,9 @@ def summarize_workflow(args):
                 key="plot",
                 file_path=context["log_dir"],
                 message=str(exc),
+                hint=("--list-plot-series names the scalar histories this run recorded."
+                      if plot_spectrum is None else
+                      "Spectra are measured by 'picurv run --post-process --only spectra'."),
             )
             sys.exit(1)
 
@@ -25155,15 +25198,6 @@ def _get_recorded_submission_stages(target_context: dict) -> list:
     return recorded
 
 
-def _format_stage_list(stage_names: list) -> str:
-    """!
-    @brief Format a human-readable stage list for submit diagnostics.
-    @param[in] stage_names Argument passed to `_format_stage_list()`.
-    @return Value returned by `_format_stage_list()`.
-    """
-    return ", ".join(stage_names) if stage_names else "none"
-
-
 def _build_submit_missing_stage_hint(target_context: dict, requested_stage: str, selected_stages: list) -> str:
     """!
     @brief Build an actionable hint for requested submit stages missing from metadata.
@@ -25175,9 +25209,6 @@ def _build_submit_missing_stage_hint(target_context: dict, requested_stage: str,
     recorded_stages = _get_recorded_submission_stages(target_context)
     recorded_set = set(recorded_stages)
     selected_set = set(selected_stages)
-    target_flag = "--run-dir" if target_context["target_kind"] == "run" else "--study-dir"
-    target_path = os.path.relpath(target_context["root_dir"])
-    submit_prefix = f"picurv submit {target_flag} {target_path}"
     solve_stage_command = (
         "picurv run --solve ... --no-submit"
         if target_context["target_kind"] == "run"
@@ -25194,26 +25225,11 @@ def _build_submit_missing_stage_hint(target_context: dict, requested_stage: str,
         else "picurv sweep --cluster <cluster.yml> ... --no-submit"
     )
 
-    if requested_stage == "all":
-        if recorded_set == {"solve"}:
-            return (
-                "--stage all requests solve and post-process, but this target records only solve. "
-                f"Use `{submit_prefix} --stage solve`, or re-stage with post-processing enabled "
-                f"(`{solve_post_command}`)."
-            )
-        if recorded_set == {"post-process"}:
-            return (
-                "--stage all requests solve and post-process, but this target records only post-process. "
-                f"Use `{submit_prefix} --stage post-process`, or re-stage including the solve stage "
-                f"(`{solve_stage_command}`)."
-            )
-        missing = [stage for stage in selected_stages if stage not in recorded_set]
-        if missing:
-            return (
-                "--stage all requests solve and post-process, but submission metadata records "
-                f"{_format_stage_list(recorded_stages)}. Re-stage the missing stage(s): "
-                f"{_format_stage_list(missing)}."
-            )
+    if requested_stage == "all" and not recorded_set:
+        return (
+            "--stage all submits every staged stage, but submission metadata records none. "
+            f"Re-stage with `{solve_stage_command}` or `{post_stage_command}`."
+        )
 
     if selected_set == {"solve"} and "solve" not in recorded_set:
         return (
@@ -25442,10 +25458,13 @@ def submit_staged_jobs(args):
             sys.exit(1)
     stage_order = ["solve", "post-process"]
     requested_stage = args.stage
-    selected_stages = stage_order if requested_stage == "all" else [requested_stage]
+    # `all` is every stage the target staged; with none staged, both, so the error names them.
+    recorded_stages = _get_recorded_submission_stages(target_context)
+    selected_stages = ([requested_stage] if requested_stage != "all"
+                       else recorded_stages or stage_order)
 
     print(f"[INFO] {target_context['display_label']:<20}: {os.path.relpath(target_context['root_dir'])}")
-    print(f"[INFO] Submission metadata  : {os.path.relpath(target_context['submission_path'])}")
+    print(f"[INFO] Submission metadata : {os.path.relpath(target_context['submission_path'])}")
     print(f"[INFO] Requested stages    : {', '.join(selected_stages)}")
 
     if target_context.get("launch_mode") == "local":
@@ -26239,21 +26258,19 @@ def version_workflow(args):
     print("\nNative executables")
     for name, identity in sorted(payload["binaries"].items()):
         if not identity.get("available"):
-            print(f"  {name:<14}: unavailable ({identity.get('reason', 'unknown')})")
+            print(f"  {name:<15}: unavailable ({identity.get('reason', 'unknown')})")
         else:
             agreement = "matches source" if identity["matches_source"] else "STALE - rebuild"
-            print(f"  {name:<14}: {identity['build_id']} ({agreement})")
+            print(f"  {name:<15}: {identity['build_id']} ({agreement})")
         _print_petsc_build(identity)
-    if not validating:
-        warn_on_stale_runtime_binaries(payload["binaries"])
-        return
     if not problems:
         print("\nBuild identity is coherent.")
         return
     print("\nBuild identity is NOT coherent:", file=sys.stderr)
     for problem in problems:
         print(f"  - {problem}", file=sys.stderr)
-    sys.exit(1)
+    if validating:
+        sys.exit(1)
 
 
 def _print_petsc_build(identity: dict) -> None:
@@ -26265,16 +26282,16 @@ def _print_petsc_build(identity: dict) -> None:
     """
     petsc = identity.get("petsc")
     if not petsc:
-        print(f"  {'':<14}  PETSc: not recorded (built before PETSc stamping)")
+        print(f"  {'':<15}  PETSc: not recorded (built before PETSc stamping)")
         return
     location = ", ".join(part for part in (petsc.get("arch"), petsc.get("dir")) if part)
     bits = 8 * PETSC_INDEX_BYTES[petsc.get("indices", "int32")]
-    print(f"  {'':<14}  PETSc: {petsc['version']} {petsc['mode']}, {bits}-bit indices ({location})")
+    print(f"  {'':<15}  PETSc: {petsc['version']} {petsc['mode']}, {bits}-bit indices ({location})")
     library = identity.get("petsc_library")
     if library:
         flag = ("  <- NOT the PETSc it was built against; load that PETSc's module, "
                 "or rebuild under this one") if identity["petsc_library_mismatch"] else ""
-        print(f"  {'':<14}  loads: {library}{flag}")
+        print(f"  {'':<15}  loads: {library}{flag}")
 
 
 def _require_clean_source_checkout(action: str) -> None:

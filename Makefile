@@ -124,6 +124,14 @@ BUILD_AUDIT_GOALS ?= cleanobj clean-unit all unit
 PICURV_RELEASE_VERSION := $(strip $(shell test -f VERSION && cat VERSION || echo 0.0.0))
 PICURV_GIT_COMMIT := $(strip $(shell git rev-parse HEAD 2>/dev/null || echo unknown))
 PICURV_BUILD_DIRTY := $(if $(strip $(shell git status --porcelain --untracked-files=no 2>/dev/null)),true,false)
+# Commits since the release tag, as the conductor counts them (picurv_cli/core.py,
+# _source_build_identity), so an executable reports the same version as `picurv --version`.
+PICURV_DEV_DISTANCE := $(strip $(shell git describe --tags --long --match v$(PICURV_RELEASE_VERSION) 2>/dev/null \
+  | sed -n 's/^v.*-\([0-9][0-9]*\)-g[0-9a-f]*$$/\1/p' || true))
+ifeq ($(PICURV_DEV_DISTANCE),)
+PICURV_DEV_DISTANCE := $(strip $(shell git rev-list --count HEAD 2>/dev/null))
+endif
+PICURV_BUILD_VERSION := $(PICURV_RELEASE_VERSION)$(if $(filter-out 0,$(PICURV_DEV_DISTANCE)),.dev$(PICURV_DEV_DISTANCE))
 # The identity is delivered through a generated header rather than -D flags so that
 # the ordinary -MMD dependency tracking rebuilds the two translation units that
 # consume it when the commit or dirty state changes. Passed on the command line it is
@@ -342,12 +350,13 @@ build-identity:
 	  '#ifndef PICURV_BUILD_IDENTITY_H' \
 	  '#define PICURV_BUILD_IDENTITY_H' \
 	  '#define PICURV_RELEASE_VERSION "$(PICURV_RELEASE_VERSION)"' \
+	  '#define PICURV_BUILD_VERSION "$(PICURV_BUILD_VERSION)"' \
 	  '#define PICURV_GIT_COMMIT "$(PICURV_GIT_COMMIT)"' \
 	  '#define PICURV_BUILD_DIRTY "$(PICURV_BUILD_DIRTY)"' \
 	  '#endif' > $(PICURV_IDENTITY_HEADER).tmp
 	@if ! cmp -s $(PICURV_IDENTITY_HEADER).tmp $(PICURV_IDENTITY_HEADER); then \
 	  mv $(PICURV_IDENTITY_HEADER).tmp $(PICURV_IDENTITY_HEADER); \
-	  echo "--- Build identity: $(PICURV_RELEASE_VERSION)+g$(PICURV_GIT_COMMIT) (dirty=$(PICURV_BUILD_DIRTY)) ---"; \
+	  echo "--- Build identity: $(PICURV_BUILD_VERSION)+g$(PICURV_GIT_COMMIT) (dirty=$(PICURV_BUILD_DIRTY)) ---"; \
 	else \
 	  rm -f $(PICURV_IDENTITY_HEADER).tmp; \
 	fi

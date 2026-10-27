@@ -112,7 +112,9 @@ Behavior:
 - calls the top-level `Makefile` via `make`,
 - defaults to `make all` when you do not provide an explicit make target,
 - resolves the source repo from `.picurv-origin.json` when run from an initialized case,
-- passes any trailing arguments directly through to the Make/build layer,
+- passes trailing targets and variables directly through to the Make/build layer; make
+  options such as `-j8` go after `--` (`picurv build -- -j8 all`), and an option given
+  before it is refused with that form,
 - can rebuild or clean the source repo without leaving a copied case directory,
 - writes the streamed build output to `<repo>/logs/build.log` in the source repo,
 - is the recommended command for normal users instead of invoking `make` manually.
@@ -136,6 +138,7 @@ Examples:
 ./picurv_cli/picurv build clean-project
 ./picurv_cli/picurv build SYSTEM=cluster
 ./picurv_cli/picurv build postprocessor
+./picurv_cli/picurv build -- -j8 all
 make audit-build
 ```
 
@@ -149,7 +152,10 @@ conductor's own identity is resolved only by commands that record or print it, s
 `--help`, `validate` and `init` run no git. Those two identities are not the same fact:
 the conductor's says which source staged a run, the binaries' says which build produced
 its checkpoints, and an edited C tree that was never rebuilt makes them disagree. The
-run manifest records both, and `run` warns at staging when a binary is stale.
+run manifest records both, and `run` warns at staging when a binary is stale. Both use
+one version string, `<release>[.dev<N>]+g<commit>[.dirty]`, where `N` counts commits since
+the release tag, so `picurv --version` and `simulator --version` print the same text for
+one build. `picurv --version` prints only the conductor's line.
 
 Each executable's `--version` has a second line naming the PETSc it was compiled against,
 `petsc <version> <debug|optimized> <arch> <dir>`, taken from PETSc's own headers. The same
@@ -162,14 +168,18 @@ PETSc the binary was built against. Binaries built before the stamp show
 
 `picurv version status` reports the same thing and then *validates* it, exiting 1 when
 the conductor, either executable, or the workspace's `software.picurv` requirement
-disagree, and naming each disagreement. Bare `picurv version` always exits 0: it is an
-informational surface, and a job script that must refuse an incoherent build should ask
-for the validating form explicitly. Both accept `--format json`, which adds `coherent`
+disagree, and naming each disagreement with the command that rebuilds it: `picurv build`
+for the 32-bit pair, and `picurv build INDEX_BITS=64 PETSC_DIR=... PETSC_ARCH=...`, naming
+the PETSc it was built against, for `simulator64` and `postprocessor64`. Bare
+`picurv version` prints the same list and always exits 0: it is an informational
+surface, and a job script that must refuse an incoherent build should ask for the
+validating form explicitly. Both accept `--format json`, which adds `coherent`
 and `problems` to the payload.
 
 `make` delivers the identity through a generated `include/picurv_build_identity.h`
 rather than command-line defines, so ordinary header-dependency tracking rebuilds the
-two translation units that stamp it whenever the commit or dirty state changes. A
+two translation units that stamp it whenever the commit, its distance from the release
+tag, or the dirty state changes. A
 binary reporting release `0.0.0` was built outside `make` and carries no identity.
 
 `picurv source update` fetches branches and tags without changing the active checkout.
@@ -242,7 +252,11 @@ picurv sync-config --case-dir my_case --overwrite
 picurv sync-config --case-dir my_case --prune
 ```
 
-Run from inside the workspace, `--case-dir` can be omitted.
+Run from inside the workspace, `--case-dir` can be omitted. Without it, the case is found
+from the working directory, or from the directory of the `picurv` that was invoked. With
+it, only that directory and its parents are searched, and a directory that does not exist
+is refused: a mistyped path never falls back to the case you are standing in. This holds
+for `build`, `sync-config`, `pull-source` and `status-source`.
 
 `--prune` is conservative: it removes only files previously recorded as template-managed
 that no longer exist in the source template. User-created case files are not pruned.
@@ -263,7 +277,8 @@ picurv pull-source --case-dir my_case --remote origin --branch main
 
 `status-source` inspects source commit drift, copied binary drift, and template-file drift
 before you decide what to sync. Template files are compared the same way `sync-config`
-compares them, so a file reported modified is one `sync-config` would skip:
+compares them, so a file reported modified is one `sync-config` would skip. A case that
+never pinned executables reports them as not pinned, since it runs the installation's:
 
 ```bash
 picurv status-source --case-dir my_case
@@ -582,8 +597,9 @@ Behavior:
 
 - consumes existing `--no-submit` artifacts without regenerating configs or scripts,
 - reads `<run.scheduler>/submission.json` to locate staged Slurm scripts or local command tokens,
-- executes/submits `solve`, `post-process`, or both,
-- wires the post stage dependency automatically for Slurm when `all` is selected,
+- executes/submits `solve`, `post-process`, or both; the default `--stage all` selects
+  every stage the target staged, so a solve-only staged run submits its solve,
+- wires the post stage dependency automatically for Slurm when `all` selects both stages,
 - executes local staged stages in order when `launch_mode: local`,
 - refuses re-submission unless `--force` is explicitly provided,
 - refuses a local post-process stage while a solve staged in the same set has not run; a post staged on its own is accepted,

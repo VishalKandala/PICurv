@@ -47,7 +47,7 @@
             "default": null,
             "dest": "make_args",
             "flags": [],
-            "help": "Arguments to pass directly to the make command (e.g., 'clean-project').",
+            "help": "Targets and variables passed to make (e.g., 'clean-project'); make options go after '--'.",
             "is_flag": false,
             "nargs": "...",
             "required": true
@@ -179,7 +179,7 @@
             "flags": [
               "--pin-binaries"
             ],
-            "help": "Copy simulator and postprocessor into the case directory.\nUse this to freeze specific binary versions for reproducibility\nor to protect running jobs from concurrent rebuilds.",
+            "help": "(Legacy) Copy simulator and postprocessor into the case directory, used only when\nthat directory's own picurv is invoked. To freeze the executables a run uses,\nuse 'picurv run --pin-executables'.",
             "is_flag": true,
             "nargs": "0",
             "required": false
@@ -655,7 +655,7 @@
             "flags": [
               "--only"
             ],
-            "help": "Comma-separated post stages to run: 'fields' (the field post-processor)\nand/or 'spectra'. Defaults to every stage.\nUse --only spectra to measure spectra without running the field stage.",
+            "help": "Comma-separated post stages to run: 'fields' (the field post-processor),\n'spectra', and 'reducers' (the post.yml reducers tasks, on profiles the\nfield stage wrote). Defaults to every stage.\nUse --only spectra to measure spectra without running the field stage.",
             "is_flag": false,
             "nargs": null,
             "required": false
@@ -850,7 +850,7 @@
                 "flags": [
                   "--remote"
                 ],
-                "help": "",
+                "help": "Git remote to fetch from (default: origin).",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1031,7 +1031,7 @@
                 "flags": [
                   "--format"
                 ],
-                "help": "",
+                "help": "Output format (default: text).",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1203,7 +1203,7 @@
                 "flags": [
                   "--compression"
                 ],
-                "help": "",
+                "help": "Archive compression: none, fast (gzip 1), balanced (gzip 6), maximum (xz 9), or auto (by archive size); defaults to the profile's.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1219,7 +1219,7 @@
                 "flags": [
                   "--policy"
                 ],
-                "help": "",
+                "help": "What offload keeps local: metadata-only (configuration, scheduler metadata, logs), restart-ready (metadata-only plus inputs and the newest checkpoint), or analysis-ready (metadata-only plus analysis and visualization). Defaults to the profile's.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1255,7 +1255,7 @@
                 "flags": [
                   "--workers"
                 ],
-                "help": "",
+                "help": "CPU workers; defaults to the profile's.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1267,7 +1267,7 @@
                 "flags": [
                   "--keep-latest-checkpoint"
                 ],
-                "help": "",
+                "help": "Keep the newest committed checkpoint local under any policy.",
                 "is_flag": true,
                 "nargs": "0",
                 "required": false
@@ -1279,7 +1279,7 @@
                 "flags": [
                   "--drop-all-checkpoints"
                 ],
-                "help": "",
+                "help": "Keep no checkpoint local, overriding the profile.",
                 "is_flag": true,
                 "nargs": "0",
                 "required": false
@@ -1291,7 +1291,7 @@
                 "flags": [
                   "--dry-run"
                 ],
-                "help": "",
+                "help": "Show the plan and safety checks without uploading.",
                 "is_flag": true,
                 "nargs": "0",
                 "required": false
@@ -1415,7 +1415,7 @@
                 "flags": [
                   "--compression"
                 ],
-                "help": "",
+                "help": "Archive compression: none, fast (gzip 1), balanced (gzip 6), maximum (xz 9), or auto (by archive size); defaults to the profile's.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1431,7 +1431,7 @@
                 "flags": [
                   "--policy"
                 ],
-                "help": "",
+                "help": "What offload keeps local: metadata-only (configuration, scheduler metadata, logs), restart-ready (metadata-only plus inputs and the newest checkpoint), or analysis-ready (metadata-only plus analysis and visualization). Defaults to the profile's.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1467,7 +1467,7 @@
                 "flags": [
                   "--workers"
                 ],
-                "help": "",
+                "help": "CPU workers; defaults to the profile's.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1479,7 +1479,7 @@
                 "flags": [
                   "--keep-latest-checkpoint"
                 ],
-                "help": "",
+                "help": "Keep the newest committed checkpoint local under any policy.",
                 "is_flag": true,
                 "nargs": "0",
                 "required": false
@@ -1491,7 +1491,7 @@
                 "flags": [
                   "--drop-all-checkpoints"
                 ],
-                "help": "",
+                "help": "Keep no checkpoint local, overriding the profile.",
                 "is_flag": true,
                 "nargs": "0",
                 "required": false
@@ -1663,7 +1663,7 @@
                 "flags": [
                   "--compression"
                 ],
-                "help": "",
+                "help": "Archive compression: none, fast (gzip 1), balanced (gzip 6), maximum (xz 9), or auto (by archive size); defaults to the profile's.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1679,7 +1679,7 @@
                 "flags": [
                   "--policy"
                 ],
-                "help": "",
+                "help": "What offload keeps local: metadata-only (configuration, scheduler metadata, logs), restart-ready (metadata-only plus inputs and the newest checkpoint), or analysis-ready (metadata-only plus analysis and visualization). Defaults to the profile's.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1715,7 +1715,7 @@
                 "flags": [
                   "--workers"
                 ],
-                "help": "",
+                "help": "CPU workers; defaults to the profile's.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1727,7 +1727,7 @@
                 "flags": [
                   "--keep-latest-checkpoint"
                 ],
-                "help": "",
+                "help": "Keep the newest committed checkpoint local under any policy.",
                 "is_flag": true,
                 "nargs": "0",
                 "required": false
@@ -1739,7 +1739,7 @@
                 "flags": [
                   "--drop-all-checkpoints"
                 ],
-                "help": "",
+                "help": "Keep no checkpoint local, overriding the profile.",
                 "is_flag": true,
                 "nargs": "0",
                 "required": false
@@ -1751,7 +1751,7 @@
                 "flags": [
                   "--dry-run"
                 ],
-                "help": "",
+                "help": "Show the plan and safety checks without uploading.",
                 "is_flag": true,
                 "nargs": "0",
                 "required": false
@@ -1927,7 +1927,7 @@
                 "flags": [
                   "--case-id"
                 ],
-                "help": "",
+                "help": "With --study-dir, one numbered member to restore; repeat to select several.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -1985,6 +1985,7 @@
                 "default": null,
                 "dest": "checkpoint_ranges",
                 "flags": [
+                  "--checkpoint-range",
                   "--checkpoints"
                 ],
                 "help": "An inclusive step range as START:END or START:END:STRIDE; repeatable.",
@@ -2109,7 +2110,7 @@
                 "flags": [
                   "--compression"
                 ],
-                "help": "",
+                "help": "Archive compression: none, fast (gzip 1), balanced (gzip 6), maximum (xz 9), or auto (by archive size) (default: auto).",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -2121,7 +2122,7 @@
                 "flags": [
                   "--chunk-size-gib"
                 ],
-                "help": "",
+                "help": "Target archive chunk size in GiB (default: 8); a larger file stays one chunk.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -2147,9 +2148,10 @@
                 "default": "metadata-only",
                 "dest": "offload_policy",
                 "flags": [
+                  "--policy",
                   "--offload-policy"
                 ],
-                "help": "",
+                "help": "What offload keeps local: metadata-only (configuration, scheduler metadata, logs), restart-ready (metadata-only plus inputs and the newest checkpoint), or analysis-ready (metadata-only plus analysis and visualization). The profile default (default: metadata-only).",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -2185,7 +2187,7 @@
                 "flags": [
                   "--dry-run"
                 ],
-                "help": "",
+                "help": "Print the profile without writing it.",
                 "is_flag": true,
                 "nargs": "0",
                 "required": false
@@ -2219,7 +2221,7 @@
                 "flags": [
                   "--archive-id"
                 ],
-                "help": "",
+                "help": "Remote archive ID to show.",
                 "is_flag": false,
                 "nargs": null,
                 "required": true
@@ -2340,7 +2342,7 @@
                 "flags": [
                   "--format"
                 ],
-                "help": "",
+                "help": "Output format (default: text).",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -2374,7 +2376,7 @@
                 "flags": [
                   "--archive-id"
                 ],
-                "help": "",
+                "help": "Remote archive ID to verify.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -2386,7 +2388,7 @@
                 "flags": [
                   "--run-dir"
                 ],
-                "help": "",
+                "help": "Run whose recorded archive to verify.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -2398,7 +2400,7 @@
                 "flags": [
                   "--study-dir"
                 ],
-                "help": "",
+                "help": "Study whose recorded archive to verify.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -2422,7 +2424,7 @@
                 "flags": [
                   "--case-id"
                 ],
-                "help": "",
+                "help": "With --study-dir, one numbered member to verify; repeat to select several.",
                 "is_flag": false,
                 "nargs": null,
                 "required": false
@@ -2510,7 +2512,7 @@
             "flags": [
               "--stage"
             ],
-            "help": "Which staged job(s) to submit (default: all).",
+            "help": "Which staged job(s) to submit (default: all, every stage the target staged).",
             "is_flag": false,
             "nargs": null,
             "required": false
@@ -2541,7 +2543,7 @@
           }
         ]
       },
-      "help": "Consume an existing artifact set created by picurv --no-submit and",
+      "help": "Consume an existing artifact set created by 'picurv run ... --no-submit' or",
       "name": "submit",
       "subcommands": {}
     },
@@ -3058,7 +3060,8 @@
             "default": null,
             "dest": "restart_from",
             "flags": [
-              "--restart-from"
+              "--restart-from",
+              "--from"
             ],
             "help": "Path to a run directory to validate restart from.",
             "is_flag": false,
@@ -3169,7 +3172,7 @@
             "flags": [
               "--format"
             ],
-            "help": "",
+            "help": "Output format (default: text).",
             "is_flag": false,
             "nargs": null,
             "required": false
@@ -3260,7 +3263,7 @@
                 "default": null,
                 "dest": "make_args",
                 "flags": [],
-                "help": "Make variables and options passed to the build, as with 'picurv build' (for example SYSTEM=cluster). Place them after every picurv option.",
+                "help": "Make variables passed to the build, as with 'picurv build' (for example SYSTEM=cluster); make options go after '--'. Place them after every picurv option.",
                 "is_flag": false,
                 "nargs": "...",
                 "required": true
@@ -3304,7 +3307,7 @@
                 "default": null,
                 "dest": "make_args",
                 "flags": [],
-                "help": "Make variables and options passed to the build, as with 'picurv build' (for example SYSTEM=cluster). Place them after every picurv option.",
+                "help": "Make variables passed to the build, as with 'picurv build' (for example SYSTEM=cluster); make options go after '--'. Place them after every picurv option.",
                 "is_flag": false,
                 "nargs": "...",
                 "required": true
