@@ -1,0 +1,1 @@
+- Performance: grid, flow, setup, particle and post-processing code read the block's stored local grid info and the stored MPI rank and size instead of querying PETSc on every call (the particle search did so several times per particle per walk step), and disabled log-level and helper-timer checks no longer cost a function call; results are byte-identical.
