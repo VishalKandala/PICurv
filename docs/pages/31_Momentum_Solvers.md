@@ -161,7 +161,10 @@ Both momentum solvers are built on one residual implementation:
 ```
 ComputeTotalResidual()            (src/momentumsolvers.c)
   └─ ComputeRHS()                 (src/rhs.c)
-       └─ ComputeBodyForces()     → individual body forces
+       ├─ ComputeConvection(), ComputeViscous()
+       ├─ ComputeBodyForces()     → individual body forces
+       └─ pressure gradient       → PoissonOperator_FaceGradientFlux() (include/poisson.h),
+                                    the face gradient the projection also applies
 ```
 
 Picard reaches it once per Jameson RK stage; Newton--Krylov reaches it once per

@@ -245,7 +245,7 @@ Full contract: **@subpage 64_Documentation_Extension_Framework**.
   - option parsing in @ref CreateSimulationContext
 - Runtime:
   - `src/verification_sources.c`
-  - thin delegation from `src/rhs.c` for diffusivity
+  - thin delegation from `ComputeEulerianDiffusivity` (`src/ParticlePhysics.c`) for diffusivity
   - analytical scalar truth in `src/AnalyticalSolutions.c`
   - gated particle-physics bypass in `src/ParticlePhysics.c`
   - runtime metric writer in `src/logging.c` (`<run.analysis.metrics>/scatter_metrics.csv`)
