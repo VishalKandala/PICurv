@@ -33,7 +33,7 @@ PetscErrorCode DimensionalizeField(UserCtx *user, const char *field_name)
     // --- 1. Resolve the field in either catalog; its entry records its dimension ---
     ierr = FieldTryIdFromName(field_name, &field_id, &found); CHKERRQ(ierr);
     if (found && field_id == FIELD_ID_COORDINATES) {
-        ierr = DMGetCoordinates(user->da, &target_vec); CHKERRQ(ierr);
+        target_vec = user->Coor;
     } else if (found) {
         FieldView view;
 

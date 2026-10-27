@@ -241,7 +241,7 @@ static PetscErrorCode TestLocateParticleWrapsThroughOffAxisSeam(void)
                 coor[k][j][i].y = s * q.x + c * q.y;
             }
     PetscCall(DMDAVecRestoreArray(user->fda, gcoor, &coor));
-    PetscCall(DMSetCoordinates(user->da, gcoor));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_COORDINATES)); /* As the grid builders refresh them */
     PetscCall(MetricDestroyFacePlanes(user)); /* The grid moved: its search planes are rebuilt */
     PetscCall(MetricComputeFacePlanes(user));
     PetscCall(ValidatePeriodicGeometry(user));

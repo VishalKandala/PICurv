@@ -311,6 +311,8 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
         ierr = CreateCompatibleBlockDM(user->da, 6, &user->fda6); CHKERRQ(ierr);
     }
     ierr = DMDASetUniformCoordinates(user->da, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0); CHKERRQ(ierr);
+    ierr = DMGetCoordinates(user->da, &user->Coor); CHKERRQ(ierr);
+    ierr = DMGetCoordinatesLocal(user->da, &user->lCoor); CHKERRQ(ierr);
     ierr = DMDAGetLocalInfo(user->da, &user->info); CHKERRQ(ierr);
     LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d:   DM creation for block %" PetscInt_FMT " level %" PetscInt_FMT " complete.\n", simCtx->rank, user->_this, user->thislevel);
 
@@ -477,7 +479,7 @@ PetscErrorCode ValidatePeriodicGeometry(UserCtx *user)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     info = user->info;
-    PetscCall(DMGetCoordinatesLocal(user->da, &lcoor));
+    lcoor = user->lCoor;
     PetscCheck(lcoor != NULL, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
                "Cannot validate periodic geometry before local coordinates are assigned.");
     for (PetscInt axis = 0; axis < 3; axis++) {
@@ -682,7 +684,7 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
     LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Generating coordinates for block %" PetscInt_FMT "...\n", user->simCtx->rank, user->_this);
     
     info = user->info;
-    ierr = DMGetCoordinates(user->da, &gCoor); CHKERRQ(ierr);
+    gCoor = user->Coor;
 
     PetscInt xs = info.xs, xe = info.xs + info.xm;
     PetscInt ys = info.ys, ye = info.ys + info.ym;
@@ -782,7 +784,7 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
     
     // 4. Each rank populates its owned portion of the global coordinate vector.
     info = user->info;
-    ierr = DMGetCoordinates(user->da, &gCoor); CHKERRQ(ierr);
+    gCoor = user->Coor;
     ierr = VecSet(gCoor, 0.0); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, gCoor, &coor); CHKERRQ(ierr);
 
@@ -829,8 +831,8 @@ static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_us
 
     c_info = coarse_user->info;
 
-    ierr = DMGetCoordinates(coarse_user->da, &c_gCoor); CHKERRQ(ierr);
-    ierr = DMGetCoordinatesLocal(fine_user->da, &f_lCoor); CHKERRQ(ierr);
+    c_gCoor = coarse_user->Coor;
+    f_lCoor = fine_user->lCoor;
     
     ierr = VecSet(c_gCoor, 0.0); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(coarse_user->fda, c_gCoor, &c_coor); CHKERRQ(ierr);
@@ -918,12 +920,7 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     rank = PetscGlobalRank;
 
     // Get the local coordinates vector from the DMDA
-    ierr = DMGetCoordinatesLocal(user->da, &coordinates);
-    if (ierr) {
-        LOG_ALLOW(LOCAL, LOG_ERROR, "Error getting local coordinates vector.\n");
-        PROFILE_FUNCTION_END;
-        return ierr;
-    }
+    coordinates = user->lCoor;
 
     if (!coordinates) {
         LOG_ALLOW(LOCAL, LOG_ERROR, "Coordinates vector is NULL.\n");
@@ -1306,7 +1303,7 @@ PetscErrorCode CalculateFaceCenterAndArea(UserCtx *user, BCFace face_id,
         // ========================================================================
         // Step 2: Get read-only array access for all required fields
         // ========================================================================
-        ierr = DMGetCoordinatesLocal(user->da, &lCoor); CHKERRQ(ierr);
+        lCoor = user->lCoor;
         ierr = DMDAVecGetArrayRead(user->fda, lCoor, &coor); CHKERRQ(ierr);
         ierr = DMDAVecGetArrayRead(user->da, user->lNvert, &nvert); CHKERRQ(ierr);
         ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi); CHKERRQ(ierr);

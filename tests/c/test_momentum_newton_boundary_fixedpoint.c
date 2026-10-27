@@ -302,7 +302,7 @@ static PetscErrorCode CreateProductionSNES(UserCtx *user, MomentumNewtonKrylovCo
 static PetscErrorCode RunProductionFullSolve(UserCtx *user, const FpSnapshot *entry, Vec X0,
                                              PetscBool use_mgs, const char *label, SolveResult *res)
 {
-    MomentumNewtonKrylovContext pctx = {user, NULL, PETSC_FALSE, 0.0};
+    MomentumNewtonKrylovContext pctx = {.user = user}; /* Every other member starts zeroed */
     SNES snes = NULL; Mat J = NULL; KSP ksp = NULL; Vec solution = NULL;
     SolveMonitorCtx m;
     PetscFunctionBeginUser;

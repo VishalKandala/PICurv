@@ -860,7 +860,7 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     ierr = CanRankServiceInletFace(user, &info, IM_nodes_global, JM_nodes_global, KM_nodes_global, &can_this_rank_service_inlet); CHKERRQ(ierr);
 
     // Get coordinate array and swarm fields for modification
-    ierr = DMGetCoordinatesLocal(user->da, &Coor_local); CHKERRQ(ierr);
+    Coor_local = user->lCoor;
     ierr = DMDAVecGetArrayRead(user->fda, Coor_local, (void*)&coor_nodes_local_array); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),    NULL, NULL, (void**)&particleIDs);    CHKERRQ(ierr); // For logging

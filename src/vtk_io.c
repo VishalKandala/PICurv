@@ -269,7 +269,7 @@ PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords,
     *out_nz = KM - 1;
     *out_npoints = (*out_nx) * (*out_ny) * (*out_nz);
     const PetscInt extent[3] = {*out_nx, *out_ny, *out_nz};
-    PetscCall(DMGetCoordinates(user->da, &coords_global));
+    coords_global = user->Coor;
     PetscCall(CopyOwnedOutputBox(coords_global, extent, local_start, local_size, out_coords));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

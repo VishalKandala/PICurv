@@ -6,7 +6,6 @@
 #include "field_catalog.h"
 #include "logging.h"
 
-#define FIELD_NO_VEC_OFFSET ((size_t)-1)
 
 #define FIELD_ENTRY(field_id_, name_, alias1_, alias2_, dof_, dm_, layout_, sync_, availability_, capabilities_, global_member_, local_member_, dimension_) \
     [field_id_] = {                                                                                                                                 \
@@ -14,16 +13,10 @@
         offsetof(UserCtx, global_member_), offsetof(UserCtx, local_member_), dimension_                                                             \
     }
 
-#define FIELD_COORDINATE_ENTRY(field_id_, name_, dof_, layout_, capabilities_, dimension_) \
-    [field_id_] = {                                                                           \
-        field_id_, name_, NULL, NULL, dof_, FIELD_DM_COORDINATES, layout_,                     \
-        FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS, capabilities_,                         \
-        FIELD_NO_VEC_OFFSET, FIELD_NO_VEC_OFFSET, dimension_                                   \
-    }
-
 static const FieldDescriptor gFieldCatalog[FIELD_ID_COUNT] = {
-    FIELD_COORDINATE_ENTRY(FIELD_ID_COORDINATES, "Coordinates", 3, FIELD_LAYOUT_NODE_CENTERED,
-                           FIELD_CAPABILITY_GHOST_UPDATE, FIELD_DIM_LENGTH),
+    FIELD_ENTRY(FIELD_ID_COORDINATES, "Coordinates", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_NODE_CENTERED,
+                FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS, FIELD_CAPABILITY_GHOST_UPDATE, Coor, lCoor,
+                FIELD_DIM_LENGTH),
     FIELD_ENTRY(FIELD_ID_UCAT, "Ucat", NULL, NULL, 3, FIELD_DM_FDA, FIELD_LAYOUT_CELL_CENTERED,
                 FIELD_SYNC_STANDARD, FIELD_AVAILABILITY_ALWAYS,
                 FIELD_CAPABILITY_GHOST_UPDATE | FIELD_CAPABILITY_PERIODIC_CELL_SYNC |
@@ -472,22 +465,13 @@ PetscErrorCode FieldGetView(UserCtx *user, FieldId field_id, FieldView *view)
         case FIELD_DM_FDA:
             view->dm = user->fda;
             break;
-        case FIELD_DM_COORDINATES:
-            view->dm = user->fda;
-            PetscCheck(user->da != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
-                       "Coordinate DM is unavailable for field '%s'.", descriptor->canonical_name);
-            PetscCall(DMGetCoordinates(user->da, &view->global_vec));
-            PetscCall(DMGetCoordinatesLocal(user->da, &view->local_vec));
-            break;
         default:
             SETERRQ(PETSC_COMM_SELF, PETSC_ERR_PLIB,
                     "Field '%s' has an invalid DM selector.", descriptor->canonical_name);
     }
 
-    if (descriptor->dm_kind != FIELD_DM_COORDINATES) {
-        view->global_vec = *(Vec *)((char *)user + descriptor->global_vec_offset);
-        view->local_vec = *(Vec *)((char *)user + descriptor->local_vec_offset);
-    }
+    view->global_vec = *(Vec *)((char *)user + descriptor->global_vec_offset);
+    view->local_vec = *(Vec *)((char *)user + descriptor->local_vec_offset);
 
     PetscCheck(view->dm != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
                "DM for field '%s' is unavailable in this UserCtx.", descriptor->canonical_name);
@@ -500,6 +484,4 @@ PetscErrorCode FieldGetView(UserCtx *user, FieldId field_id, FieldView *view)
     PetscFunctionReturn(0);
 }
 
-#undef FIELD_COORDINATE_ENTRY
 #undef FIELD_ENTRY
-#undef FIELD_NO_VEC_OFFSET

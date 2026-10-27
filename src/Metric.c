@@ -169,7 +169,7 @@ PetscErrorCode MetricComputeFacePlanes(UserCtx *user)
     PetscCall(VecSet(user->lSearchCellSize, 0.0));
     PetscCall(VecGetArray(user->lSearchCellSize, &size));
 
-    PetscCall(DMGetCoordinatesLocal(user->da, &Coor));
+    Coor = user->lCoor;
     PetscCall(VecGetArrayRead(Coor, &src_flat[0]));
     PetscCall(VecGetArrayRead(user->lCent, &src_flat[1]));
     const PetscBool periodic[3] = {(PetscBool)(user->simCtx->i_periodic != 0), (PetscBool)(user->simCtx->j_periodic != 0),
@@ -908,8 +908,8 @@ PetscErrorCode ComputeFaceMetrics(UserCtx *user)
     info = user->info;
 
     // --- 1. Get Nodal Physical Coordinates (Local Ghosted Array directly) ---
-    ierr = DMGetCoordinatesLocal(user->da, &localCoords_from_dm); CHKERRQ(ierr);
-    if (!localCoords_from_dm) SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "DMGetCoordinatesLocal failed to return a coordinate vector. \n");
+    localCoords_from_dm = user->lCoor;
+    if (!localCoords_from_dm) SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE, "user->lCoor is NULL: grid coordinates are not set up.\n");
     ierr = DMDAVecGetArrayRead(user->fda, localCoords_from_dm, &nodal_coords_arr); CHKERRQ(ierr);
 
     // --- 2. Get arrays for output global Vecs from UserCtx ---
@@ -1114,7 +1114,7 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user)
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting calculation, extrapolation, and update for Aj.\n");
 
     // --- 1. Get Nodal Coordinates and Output Array ---
-    ierr = DMGetCoordinatesLocal(user->da, &localCoords_from_dm); CHKERRQ(ierr);
+    localCoords_from_dm = user->lCoor;
     ierr = DMDAVecGetArrayRead(user->fda, localCoords_from_dm, &nodal_coords_arr); CHKERRQ(ierr);
     info = user->info;
     ierr = DMDAVecGetArray(user->da, user->Aj, &aj_arr); CHKERRQ(ierr);
@@ -1262,7 +1262,7 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing cell centers and spacing for level %" PetscInt_FMT " block %" PetscInt_FMT "...\n", user->simCtx->rank, user->thislevel, user->_this);
 
     info = user->info;
-    ierr = DMGetCoordinatesLocal(user->da, &lCoords); CHKERRQ(ierr);
+    lCoords = user->lCoor;
     ierr = DMDAVecGetArrayRead(user->fda, lCoords, &coor); CHKERRQ(ierr);
 
     ierr = DMDAVecGetArray(user->fda, user->Cent, &cent); CHKERRQ(ierr);
@@ -1380,7 +1380,7 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
     if (ze==mz) lze=ze-1;
 
     // --- Part 1: Calculate the location of i-face centers (Centx) ---
-    ierr = DMGetCoordinatesLocal(user->da, &lCoords); CHKERRQ(ierr);
+    lCoords = user->lCoor;
     ierr = DMDAVecGetArrayRead(user->fda, lCoords, &coor); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->Centx, &centx); CHKERRQ(ierr);
     //  ierr = DMDAVecGetArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
@@ -1589,7 +1589,7 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
     if (ze==mz) lze=ze-1;
 
     // --- Part 1: Calculate the location of i-face centers (Centx) ---
-    ierr = DMGetCoordinatesLocal(user->da, &lCoords); CHKERRQ(ierr);
+    lCoords = user->lCoor;
     ierr = DMDAVecGetArrayRead(user->fda, lCoords, &coor); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->Centy, &centy); CHKERRQ(ierr);
     //  ierr = DMDAVecGetArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);
@@ -1782,7 +1782,7 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
     if (ze==mz) lze=ze-1;
 
     // --- Part 1: Calculate the location of i-face centers (Centx) ---
-    ierr = DMGetCoordinatesLocal(user->da, &lCoords); CHKERRQ(ierr);
+    lCoords = user->lCoor;
     ierr = DMDAVecGetArrayRead(user->fda, lCoords, &coor); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, user->Centz, &centz); CHKERRQ(ierr);
     //  ierr = DMDAVecGetArray(user->fda, user->lGridSpace,&gs); CHKERRQ(ierr);

@@ -451,6 +451,8 @@ PetscErrorCode PicurvCreateMinimalContextsWithPeriodicity(SimCtx **simCtx_out,
     PetscCall(VecSet(user->PostVectorNodal, 0.0));
     PetscCall(PetscObjectReference((PetscObject)user->fda));
     PetscCall(DMDASetUniformCoordinates(user->da, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0));
+    PetscCall(DMGetCoordinates(user->da, &user->Coor));
+    PetscCall(DMGetCoordinatesLocal(user->da, &user->lCoor));
     PetscCall(DMDAGetLocalInfo(user->da, &user->info));
     PetscCall(ComputeLocalBoundingBox(user, &user->bbox));
     PetscCall(GatherAllBoundingBoxes(user, &boxes));

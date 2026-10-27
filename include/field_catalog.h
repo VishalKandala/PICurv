@@ -94,8 +94,7 @@ typedef enum {
 /** @brief UserCtx DM family used to store a field. */
 typedef enum {
     FIELD_DM_DA = 0,
-    FIELD_DM_FDA,
-    FIELD_DM_COORDINATES
+    FIELD_DM_FDA
 } FieldDMKind;
 
 /** @brief Extra repair required after the normal PETSc global-to-local scatter. */

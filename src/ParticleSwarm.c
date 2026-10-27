@@ -293,8 +293,8 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     size = simCtx->size;
 
     // Get DMDA information for the node-centered coordinate grid (user->da)
-    ierr = DMGetCoordinatesLocal(user->da, &Coor_local); CHKERRQ(ierr);
-    if (!Coor_local) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_PLIB, "DMGetCoordinatesLocal for user->da returned NULL Coor_local.");
+    Coor_local = user->lCoor;
+    if (!Coor_local) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_PLIB, "user->lCoor is NULL: grid coordinates are not set up.");
     ierr = DMDAVecGetArrayRead(user->fda, Coor_local, (void*)&coor_nodes_local_array); CHKERRQ(ierr);
     info = user->info;
     xs_gnode_rank = info.xs; ys_gnode_rank = info.ys; zs_gnode_rank = info.zs;
@@ -757,7 +757,7 @@ static PetscErrorCode DistributeParticlesByOwnedVolume(UserCtx *user, PetscInt n
     PROFILE_FUNCTION_BEGIN;
     rank = user->simCtx->rank;
     size = user->simCtx->size;
-    PetscCall(DMGetCoordinatesLocal(user->da, &coor_local));
+    coor_local = user->lCoor;
     PetscCall(DMDAVecGetArrayRead(user->fda, coor_local, (void *)&coor));
     xs = user->info.xs; ys = user->info.ys; zs = user->info.zs;
     PetscCall(BuildOwnedCellVolumeTable(user, coor, xs, ys, zs, NULL, NULL, &n_cells, &owned));

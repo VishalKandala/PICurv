@@ -145,7 +145,7 @@ PetscErrorCode TestCornerToCenterInterpolation(UserCtx *user)
     ierr = VecDuplicate(user->Cent, &TestCent); CHKERRQ(ierr);
 
     // 2. Get the input (corner coordinates) and output (our test vector) arrays.
-    ierr = DMGetCoordinatesLocal(user->da, &lCoords); CHKERRQ(ierr);
+    lCoords = user->lCoor;
     ierr = DMDAVecGetArrayRead(user->fda, lCoords, &coor_arr); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, TestCent, &test_cent_arr); CHKERRQ(ierr);
 

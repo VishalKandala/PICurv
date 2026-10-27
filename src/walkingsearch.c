@@ -513,7 +513,7 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
     // Called once per walk step per particle, so read the ghosted local coordinates as a flat
     // array: DMDAVecGetArrayRead would rebuild a pointer array over the whole local grid on
     // every call. The indices are ghosted global node indices, as for that 3D view.
-    ierr = DMGetCoordinatesLocal(user->da, &Coor); CHKERRQ(ierr);
+    Coor = user->lCoor;
     gxs = user->info.gxs; gys = user->info.gys; gzs = user->info.gzs; // fda shares da's decomposition
     gxm = user->info.gxm; gym = user->info.gym;
     ierr = VecGetArrayRead(Coor, &coor_flat); CHKERRQ(ierr);
