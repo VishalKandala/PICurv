@@ -459,7 +459,7 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
        treatment) -- they do not make the estimate incomplete. */
     rep->estimate_incomplete = (PetscBool)(simCtx->les_gradient_model);
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
 
     /* Per-candidate local maxima; selected candidate also tracks the controlling cell. */
     PetscReal locmaxB = 0.0, locmaxC = 0.0, locmaxD = 0.0, sel_max = 0.0;
@@ -724,7 +724,7 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
        Portable owner pick: lowest rank whose local sel_max equals the global max. */
     const PetscReal sel_global = glo3[(int)candidate];
     PetscMPIInt nproc, claim, owner;
-    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &nproc); CHKERRQ(ierr);
+    nproc = user->simCtx->size;
     claim = (sel_max == sel_global) ? rank : nproc;
     ierr = MPI_Allreduce(&claim, &owner, 1, MPI_INT, MPI_MIN, PETSC_COMM_WORLD); CHKERRQ(ierr);
     if (owner == nproc) owner = 0;   /* no active cell anywhere: deterministic fallback owner */
@@ -835,7 +835,7 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
     LOG_ALLOW(GLOBAL, LOG_INFO, "Executing Dual-Time Momentum Solver for %" PetscInt_FMT " block(s).\n", block_number);
 
     // --- Allocate metric arrays ---

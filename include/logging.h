@@ -268,7 +268,7 @@ do {                                                                            
     /* Decide whether *this* rank should actually print.                   */      \
     /* ------------------------------------------------------------------ */      \
     PetscBool _doPrint =                                                          \
-        is_function_allowed(__func__) && ((int)(level) <= (int)get_log_level());   \
+        ((int)(level) <= (int)get_log_level()) && is_function_allowed(__func__);   \
                                                                                    \
     if (_doPrint) {                                                                \
         PetscSynchronizedPrintf(_comm, "[%s] " fmt, __func__, ##__VA_ARGS__);      \
@@ -297,7 +297,7 @@ do {                                                                            
  */
 #define LOG_LOOP_ALLOW(scope, level, iterVar, interval, fmt, ...)              \
     do {                                                                       \
-        if (is_function_allowed(__func__) && (int)(level) <= (int)get_log_level()) { \
+        if ((int)(level) <= (int)get_log_level() && is_function_allowed(__func__)) { \
             if ((iterVar) % (interval) == 0) {                                 \
                 MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
                 PetscPrintf(comm, "[%s] [%s=%" PetscInt_FMT "] " fmt,                       \
@@ -308,7 +308,7 @@ do {                                                                            
 /*
 #define LOG_LOOP_ALLOW(scope,level, iterVar, interval, fmt, ...)              \
     do {                                                                       \
-        if (is_function_allowed(__func__) && (int)(level) <= (int)get_log_level()) { \
+        if ((int)(level) <= (int)get_log_level() && is_function_allowed(__func__)) { \
             if ((iterVar) % (interval) == 0) {                                 \
                 MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
                 PetscPrintf(comm, "[%s] [Iter=%d] " fmt,                       \
@@ -335,7 +335,7 @@ do {                                                                            
 #define LOG_LOOP_ALLOW_EXACT(scope, level, var, val, fmt, ...)                  \
     do {                                                                       \
         /* First, perform the cheap, standard gatekeeper checks. */            \
-        if (is_function_allowed(__func__) && (int)(level) <= (int)get_log_level()) { \
+        if ((int)(level) <= (int)get_log_level() && is_function_allowed(__func__)) { \
             /* Only if those pass, check the user's specific condition. */      \
             if ((var) == (val)) {                                              \
                 MPI_Comm comm = ((scope) == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
@@ -363,7 +363,7 @@ do {                                                                            
  */
 #define LOG_ARRAY_ELEMENT_ALLOW(scope,level, arr, length, idx, fmt)          \
     do {                                                                      \
-        if (is_function_allowed(__func__) && (int)(level) <= (int)get_log_level()) { \
+        if ((int)(level) <= (int)get_log_level() && is_function_allowed(__func__)) { \
             if ((idx) >= 0 && (idx) < (length)) {                             \
                 MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
                 PetscPrintf(comm, "[%s] arr[%d] = " fmt "\n",                 \
@@ -387,7 +387,7 @@ do {                                                                            
  */
 #define LOG_ARRAY_SUBRANGE_ALLOW(scope,level, arr, length, start, end, fmt)  \
     do {                                                                      \
-        if (is_function_allowed(__func__) && (int)(level) <= (int)get_log_level()) { \
+        if ((int)(level) <= (int)get_log_level() && is_function_allowed(__func__)) { \
             MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
             PetscInt _start = (start) < 0 ? 0 : (start);                      \
             PetscInt _end   = (end) >= (length) ? (length) - 1 : (end);       \
@@ -400,15 +400,34 @@ do {                                                                            
 // --------------------- Function Declarations ---------------------
 
 /**
+ * @brief Read-only view of the cached logging level; -1 until the first get_log_level() call.
+ * @details Only logging.c writes the level. The view lets get_log_level() be inlined into every
+ *          logging macro, so a disabled message in a per-particle loop costs a load and a
+ *          compare rather than a function call.
+ */
+extern const LogLevel *const _picurv_log_level;
+
+/**
+ * @brief Internal hook: read `LOG_LEVEL` from the environment and cache it, once.
+ * @details Supported levels are "ERROR", "WARNING", "INFO", "DEBUG", "TRACE", and "VERBOSE".
+ *          Unset or unrecognized values default to "ERROR". Call get_log_level() instead.
+ * @return LogLevel The cached logging level.
+ */
+LogLevel _ResolveLogLevel(void);
+
+/**
  * @brief Retrieves the current logging level from the environment variable `LOG_LEVEL`.
  *
- * The function checks the `LOG_LEVEL` environment variable and sets the logging level accordingly.
- * Supported levels are "ERROR", "WARNING", "INFO", "DEBUG", "TRACE", and "VERBOSE".
- * Unset or unrecognized values default to "ERROR".
+ * The first call reads `LOG_LEVEL` (see _ResolveLogLevel()); every later call returns the
+ * cached value.
  *
  * @return LogLevel The current logging level.
  */
-LogLevel get_log_level();
+static inline LogLevel get_log_level(void)
+{
+    const LogLevel level = *_picurv_log_level;
+    return PetscLikely((int)level != -1) ? level : _ResolveLogLevel();
+}
 
 /**
  * @brief Prints the current logging level to the console.
@@ -900,6 +919,13 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx);
 void _ProfilingRegister(const char *func_name, PetscBool helper, PetscLogEvent *event);
 
 /**
+ * @brief Read-only view: whether `profiling.helpers` enables any helper timer.
+ * @details False until ProfilingInitialize() applies a non-empty list. While it is false every
+ *          helper event is switched off, so PROFILE_HELPER_BEGIN skips PETSc's per-event check.
+ */
+extern const PetscBool *const _picurv_profile_helpers_on;
+
+/**
  * @brief Marks the beginning of a profiled function: an always-on aggregate timer.
  *
  * Place this macro at the very beginning of a function called once or a few times per step
@@ -910,31 +936,34 @@ void _ProfilingRegister(const char *func_name, PetscBool helper, PetscLogEvent *
 #define PROFILE_FUNCTION_BEGIN \
     static PetscLogEvent _picurv_profile_event = -1; \
     if (PetscUnlikely(_picurv_profile_event < 0)) _ProfilingRegister(__func__, PETSC_FALSE, &_picurv_profile_event); \
-    if (_picurv_profile_event >= 0) (void)PetscLogEventBegin(_picurv_profile_event, 0, 0, 0, 0)
+    const PetscBool _picurv_profile_timed = (PetscBool)(_picurv_profile_event >= 0); \
+    if (_picurv_profile_timed) (void)PetscLogEventBegin(_picurv_profile_event, 0, 0, 0, 0)
 
 /**
  * @brief Marks the beginning of a profiled helper: timed only when enabled by name.
  *
  * For functions called per particle or per cell. The event (class `PICurvHelper`) is off
- * unless `profiling.helpers` names it (or is `all`); off, a call costs one flag test.
+ * unless `profiling.helpers` names it (or is `all`). With no helper enabled, a call costs one
+ * flag test; with some enabled, PETSc's per-event check decides.
  * End it with PROFILE_FUNCTION_END (or its alias PROFILE_HELPER_END).
  */
 #define PROFILE_HELPER_BEGIN \
     static PetscLogEvent _picurv_profile_event = -1; \
     if (PetscUnlikely(_picurv_profile_event < 0)) _ProfilingRegister(__func__, PETSC_TRUE, &_picurv_profile_event); \
-    if (_picurv_profile_event >= 0) (void)PetscLogEventBegin(_picurv_profile_event, 0, 0, 0, 0)
+    const PetscBool _picurv_profile_timed = (PetscBool)(*_picurv_profile_helpers_on && _picurv_profile_event >= 0); \
+    if (_picurv_profile_timed) (void)PetscLogEventBegin(_picurv_profile_event, 0, 0, 0, 0)
 
 /**
  * @brief Marks the end of a profiled code block.
  *
  * Place this macro just before every return point in a function that starts with
  * PROFILE_FUNCTION_BEGIN or PROFILE_HELPER_BEGIN. A missed one leaves the PETSc event open,
- * and the function's later calls are then not recorded. It reads the event the BEGIN macro
- * declares, so it must sit in that macro's scope; a function that ends a timer it never began
- * does not compile.
+ * and the function's later calls are then not recorded. It ends the event only if the BEGIN
+ * macro began it, and reads the state that macro declares, so it must sit in that macro's
+ * scope; a function that ends a timer it never began does not compile.
  */
 #define PROFILE_FUNCTION_END \
-    do { if (_picurv_profile_event >= 0) (void)PetscLogEventEnd(_picurv_profile_event, 0, 0, 0, 0); } while (0)
+    do { if (_picurv_profile_timed) (void)PetscLogEventEnd(_picurv_profile_event, 0, 0, 0, 0); } while (0)
 
 /** @brief Alias of PROFILE_FUNCTION_END for a function that began with PROFILE_HELPER_BEGIN. */
 #define PROFILE_HELPER_END PROFILE_FUNCTION_END

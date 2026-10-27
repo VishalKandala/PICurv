@@ -231,7 +231,7 @@ PetscErrorCode PicurvSpatialRatioAverage(UserCtx *user, const SpatialTargetPlan 
                "Context, plan, numerator, and direction selector are required.");
 
     da = user->da;
-    PetscCall(DMDAGetLocalInfo(da, &info));
+    info = user->info;
     /* The numerator's own DM supplies its component count; every component shares the
      * scalar denominator, inclusion mask and solid mask. */
     PetscCall(VecGetDM(numerator, &numerator_dm));

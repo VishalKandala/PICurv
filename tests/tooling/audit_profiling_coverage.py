@@ -27,7 +27,7 @@ SOURCES = sorted((REPO_ROOT / "src").glob("*.c"))
 EXCLUDED = {
     "main": "process entry; runs before PetscInitialize and after PetscFinalize",
     "RuntimeShutdownSignalHandler": "asynchronous signal handler; PETSc calls are not async-signal-safe",
-    "get_log_level": "read by every logging macro; a timer would tax every log site",
+    "_ResolveLogLevel": "first read of the level by every logging macro; a timer would tax every log site",
     "is_function_allowed": "read by every logging macro that passes the level check",
     "set_allowed_functions": "configures logging before the profiler exists",
     "_ProfilingRegister": "the profiler itself",

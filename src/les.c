@@ -630,7 +630,7 @@ static PetscErrorCode ComputeStrainRateField(UserCtx *user, Cmpnts ***ucat,
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
-    PetscCall(DMDAGetLocalInfo(da, &info));
+    info = user->info;
     PetscCall(LESResolveDomain(user, &plan));
     LESPeriodicAxes(user->simCtx, periodic);
 

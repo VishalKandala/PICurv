@@ -743,7 +743,7 @@ PetscErrorCode CheckAndFixGridOrientation(UserCtx *user)
     PROFILE_FUNCTION_BEGIN;
 
     /* ---------------- step 1: global extrema of Aj ---------------- */
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
 
     ierr = VecMin(user->Aj, NULL, &aj_min); CHKERRQ(ierr);  /* already global */
     ierr = VecMax(user->Aj, NULL, &aj_max); CHKERRQ(ierr);
@@ -905,7 +905,7 @@ PetscErrorCode ComputeFaceMetrics(UserCtx *user)
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting calculation and update for Csi, Eta, Zet.\n");
 
-    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    info = user->info;
 
     // --- 1. Get Nodal Physical Coordinates (Local Ghosted Array directly) ---
     ierr = DMGetCoordinatesLocal(user->da, &localCoords_from_dm); CHKERRQ(ierr);
@@ -1116,7 +1116,7 @@ PetscErrorCode ComputeCellCenteredJacobianInverse(UserCtx *user)
     // --- 1. Get Nodal Coordinates and Output Array ---
     ierr = DMGetCoordinatesLocal(user->da, &localCoords_from_dm); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, localCoords_from_dm, &nodal_coords_arr); CHKERRQ(ierr);
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
+    info = user->info;
     ierr = DMDAVecGetArray(user->da, user->Aj, &aj_arr); CHKERRQ(ierr);
 
     // Define owned node ranges (global indices)
@@ -1261,7 +1261,7 @@ PetscErrorCode ComputeCellCentersAndSpacing(UserCtx *user)
 
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing cell centers and spacing for level %" PetscInt_FMT " block %" PetscInt_FMT "...\n", user->simCtx->rank, user->thislevel, user->_this);
 
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
+    info = user->info;
     ierr = DMGetCoordinatesLocal(user->da, &lCoords); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, lCoords, &coor); CHKERRQ(ierr);
 
@@ -1364,7 +1364,7 @@ PetscErrorCode ComputeIFaceMetrics(UserCtx *user)
 
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing i-face metrics for level %" PetscInt_FMT " block %" PetscInt_FMT "...\n", user->simCtx->rank, user->thislevel, user->_this);
 
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
+    info = user->info;
     PetscInt xs = info.xs, xe = info.xs + info.xm, mx = info.mx;
     PetscInt ys = info.ys, ye = info.ys + info.ym, my = info.my;
     PetscInt zs = info.zs, ze = info.zs + info.zm, mz = info.mz;
@@ -1573,7 +1573,7 @@ PetscErrorCode ComputeJFaceMetrics(UserCtx *user)
 
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing j-face metrics for level %" PetscInt_FMT " block %" PetscInt_FMT "...\n", user->simCtx->rank, user->thislevel, user->_this);
 
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
+    info = user->info;
     PetscInt xs = info.xs, xe = info.xs + info.xm, mx = info.mx;
     PetscInt ys = info.ys, ye = info.ys + info.ym, my = info.my;
     PetscInt zs = info.zs, ze = info.zs + info.zm, mz = info.mz;
@@ -1766,7 +1766,7 @@ PetscErrorCode ComputeKFaceMetrics(UserCtx *user)
 
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Computing k-face metrics for level %" PetscInt_FMT " block %" PetscInt_FMT "...\n", user->simCtx->rank, user->thislevel, user->_this);
 
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
+    info = user->info;
     PetscInt xs = info.xs, xe = info.xs + info.xm, mx = info.mx;
     PetscInt ys = info.ys, ye = info.ys + info.ym, my = info.my;
     PetscInt zs = info.zs, ze = info.zs + info.zm, mz = info.mz;

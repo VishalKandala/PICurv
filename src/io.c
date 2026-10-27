@@ -210,7 +210,7 @@ static PetscErrorCode ComputeCheckpointGeometrySHA256(SimCtx *simCtx, UserCtx *u
         PetscCall(VecGetSize(ordered_vec, &value_count));
         PetscCall(VecGetLocalSize(ordered_vec, &local_count));
         PetscCall(VecGetArrayRead(ordered_vec, &values));
-        PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
+        size = simCtx->size;
         PetscCallMPI(MPI_Allreduce(&local_count, &max_count, 1, MPIU_INT, MPI_MAX, PETSC_COMM_WORLD));
         if (simCtx->rank == 0) {
             PetscScalar *chunk = NULL;
@@ -967,7 +967,7 @@ PetscErrorCode ParseAllBoundaryConditions(UserCtx *user, const char *bcs_input_f
     
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = PetscGlobalRank;
 
     if (rank == 0) {
         FILE *file;
@@ -1150,7 +1150,7 @@ PetscErrorCode DeterminePeriodicity(SimCtx *simCtx)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = simCtx->rank;
 
     // --- Part 1: Collectively verify all BCS files exist before proceeding ---
     for (PetscInt bi = 0; bi < simCtx->block_number; bi++) {
@@ -2716,7 +2716,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
     }
     global_min_coords = user->bbox.min_coords;
     global_max_coords = user->bbox.max_coords;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = simCtx->rank;
 
     if (rank == 0) {
         // If global_domain_bbox is not pre-populated in UserCtx, compute it here from bboxlist_on_rank0

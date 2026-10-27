@@ -314,9 +314,10 @@ Every profiled PICurv function is a PETSc log event, so these timings, PETSc's o
   always timed.
 - **Helpers**, called per particle or per cell (`UnpackSwarmFields`, `CheckCellWithinLocalGrid`,
   `LocateParticleOrFindMigrationTarget`, `MetricJacobian`, ...), are timed only when
-  `helpers` names them. Off, a helper costs one flag test per call; on, a call costs about
-  100 ns on an optimized PETSc build, which at about 19 helper calls per particle per step adds
-  noticeably to a large particle run. `helpers: all` turns every helper on, for a short
+  `helpers` names them. While `helpers` names none, a helper costs one flag test per call;
+  once it names any, an unnamed helper also costs PETSc's per-event check, and a named one
+  about 100 ns per call on an optimized PETSc build, which at about 19 helper calls per
+  particle per step adds noticeably to a large particle run. `helpers: all` turns every helper on, for a short
   diagnostic run.
 
 Which functions are aggregates or helpers, how a new function is instrumented, and the

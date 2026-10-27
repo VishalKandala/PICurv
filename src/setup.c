@@ -1845,7 +1845,7 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = simCtx->rank;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Setting up simulation environment ---\n");
 
@@ -2478,7 +2478,7 @@ static PetscErrorCode RepairPeriodicNormalFaceGhosts(UserCtx *user, DM dm, Vec l
     PROFILE_HELPER_BEGIN;
     if (!face_direction && !component_staggered) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
 
-    PetscCall(DMDAGetLocalInfo(dm, &info));
+    info = user->info; // dm is user->da or user->fda, which share one decomposition
     xs = info.xs; xe = info.xs + info.xm;
     ys = info.ys; ye = info.ys + info.ym;
     zs = info.zs; ze = info.zs + info.zm;
@@ -2684,7 +2684,7 @@ PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id)
 
     PetscFunctionBeginUser; // Use User version for application code
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
     ierr = FieldGetView(user, field_id, &field_view); CHKERRQ(ierr);
     PetscCheck((field_view.descriptor->capabilities & FIELD_CAPABILITY_GHOST_UPDATE) != 0u,
                PETSC_COMM_SELF, PETSC_ERR_SUP,
@@ -2732,11 +2732,11 @@ PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id)
         //    (Keep this conditional if it's only for specific debug scenarios)
         if (field_id == FIELD_ID_UCAT) { // Only do detailed checks for Ucat for now
            PetscMPIInt rank_test;
-           MPI_Comm_rank(PETSC_COMM_WORLD, &rank_test);
+           rank_test = user->simCtx->rank;
 
            // Get Local Info needed for indexing checks
            DMDALocalInfo info_check;
-           ierr = DMDAGetLocalInfo(dm, &info_check); CHKERRQ(ierr); // Use the correct dm
+           info_check = user->info; // dm is user->da or user->fda, which share one decomposition
 
            // Buffer for array pointer
            Cmpnts ***lUcat_arr_test = NULL;
@@ -2992,7 +2992,7 @@ PetscErrorCode Allocate3DArrayVector(Cmpnts ****array, PetscInt nz, PetscInt ny,
   PetscFunctionBegin;
   PROFILE_HELPER_BEGIN;
 
-  ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);
+  rank = PetscGlobalRank;
   
   /* Step 1: Allocate memory for nz layer pointers (zeroed) */
   ierr = PetscCalloc1(nz, &data); CHKERRQ(ierr);
@@ -3204,8 +3204,8 @@ PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr); // Get MPI size for validation
+    rank = PetscGlobalRank;
+    size = PetscGlobalSize; // Get MPI size for validation
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Rank %d: Computing DMDA neighbor ranks.\n", rank);
 
@@ -3473,7 +3473,7 @@ PetscErrorCode Contra2Cart(UserCtx *user)
     // --- 1. Get DMDA Info and Check for Valid Inputs ---
     // All inputs (lUcont, lCsi, etc.) and outputs (Ucat) are on DMs from the UserCtx.
     // We get local info from fda, which governs the layout of most arrays here.
-    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    info = user->info;
     if (!user->lUcont || !user->lCsi || !user->lEta || !user->lZet || !user->lNvert || !user->Ucat) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Contra2Cart requires lUcont, lCsi/Eta/Zet, lNvert, and Ucat to be non-NULL.");
     }
@@ -3549,7 +3549,7 @@ PetscErrorCode Cart2Contra(UserCtx *user)
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
-    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    info = user->info;
     ierr = DMDAVecGetArrayRead(user->fda, user->lUcat, &ucat_arr); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi_arr); CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta_arr); CHKERRQ(ierr);
@@ -3616,7 +3616,7 @@ PetscErrorCode UniformCart2Contra(UserCtx *user, PetscReal u, PetscReal v, Petsc
     Cmpnts         ***ucont_arr;
     const Cmpnts   ***csi_arr, ***eta_arr, ***zet_arr;
 
-    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    info = user->info;
     ierr = DMDAVecGetArray(user->fda, user->Ucont, &ucont_arr);        CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, user->lCsi, &csi_arr);       CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, user->lEta, &eta_arr);       CHKERRQ(ierr);
@@ -3669,14 +3669,14 @@ PetscErrorCode SetupDomainCellDecompositionMap(UserCtx *user)
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "user->da is not initialized in SetupDomainCellDecompositionMap.");
     }
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
+    rank = PetscGlobalRank;
+    size = PetscGlobalSize;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Setting up domain cell decomposition map for %d ranks.\n", size);
 
     // --- 2. Determine Local Cell Ownership ---
     // Get the local node ownership information from the primary DMDA.
-    ierr = DMDAGetLocalInfo(user->da, &local_node_info); CHKERRQ(ierr);
+    local_node_info = user->info;
 
     // Use the robust helper function to convert node ownership to cell ownership.
     // A cell's index is defined by its origin node.
@@ -3952,7 +3952,7 @@ PetscErrorCode InitializeRandomGenerators(UserCtx* user, PetscRandom *randx, Pet
     PetscMPIInt rank;
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+    rank = user->simCtx->rank;
 
     // Initialize RNG for x-coordinate
     ierr = PetscRandomCreate(PETSC_COMM_SELF, randx); CHKERRQ(ierr);
@@ -3996,7 +3996,7 @@ PetscErrorCode InitializeLogicalSpaceRNGs(PetscInt base_seed, PetscRandom *rand_
 
     PROFILE_FUNCTION_BEGIN;
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = PetscGlobalRank;
 
     // --- RNG for i-logical dimension ---
     ierr = PetscRandomCreate(PETSC_COMM_SELF, rand_logic_i); CHKERRQ(ierr);

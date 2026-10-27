@@ -32,7 +32,7 @@ PetscErrorCode SetInitialInteriorField(UserCtx *user, FieldId field_id)
 
     // --- 1. Get DMDA info and grid dimensions ---
     DMDALocalInfo info;
-    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    info = user->info;
 
     const PetscInt im_phys = info.mx - 1;
     const PetscInt jm_phys = info.my - 1;

@@ -703,7 +703,7 @@ PetscErrorCode ResolvePostProcessingSteps(PostProcessParams *pps, PetscInt **ste
         PetscFunctionReturn(0);
     }
 
-    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
+    rank = PetscGlobalRank;
     /* Rank 0 reads; a failure is broadcast as a negative count so every rank stops
        together instead of the others waiting in the broadcast. */
     PetscInt n = 0, capacity = 0;

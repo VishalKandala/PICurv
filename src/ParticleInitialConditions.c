@@ -699,7 +699,7 @@ static PetscErrorCode DomainBounds(const SimCtx *simCtx, Cmpnts *lower, Cmpnts *
     PROFILE_FUNCTION_BEGIN;
     PetscCheck(simCtx->bboxlist, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
                "Rank bounding boxes are needed before a particle initial value is applied.");
-    PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
+    size = simCtx->size;
     *lower = simCtx->bboxlist[0].min_coords;
     *upper = simCtx->bboxlist[0].max_coords;
     for (PetscInt r = 1; r < (PetscInt)size * simCtx->block_number; ++r) {

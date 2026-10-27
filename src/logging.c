@@ -18,6 +18,8 @@
  */
 static LogLevel current_log_level = -1;
 
+const LogLevel *const _picurv_log_level = &current_log_level;
+
 // --------------------- Static Variables for Allow-List -------------------
 
 /**
@@ -91,12 +93,12 @@ static void SearchMetricsReduceOp(void *invec, void *inoutvec, int *len, MPI_Dat
 // --------------------- Function Implementations ---------------------
 
 /**
- * @brief Implementation of \ref get_log_level().
+ * @brief Implementation of \ref _ResolveLogLevel().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/logging.h`.
- * @see get_log_level()
+ * @see _ResolveLogLevel()
  */
-LogLevel get_log_level() {
+LogLevel _ResolveLogLevel(void) {
     if (current_log_level == -1) { // Log level not set yet
         const char *env = getenv("LOG_LEVEL");
         if (!env) {
@@ -138,7 +140,7 @@ PetscErrorCode print_log_level(void)
   PetscFunctionBeginUser;
   PROFILE_HELPER_BEGIN;
   /* get MPI rank */
-  ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRMPI(ierr);
+  rank = PetscGlobalRank;
 
   /* decide level name */
   level       = get_log_level();
@@ -443,7 +445,7 @@ PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval)
     PetscReal *velocities = NULL;
     PetscMPIInt rank;
     
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
     LOG_ALLOW(LOCAL,LOG_INFO, "Rank %d is retrieving particle data.\n", rank);
 
     ierr = DMSwarmGetLocalSize(swarm, &localNumParticles); CHKERRQ(ierr);
@@ -1028,7 +1030,7 @@ PetscErrorCode DualMonitorDestroy(void **ctx)
     
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank); CHKERRQ(ierr);
+    rank = PetscGlobalRank;
     if(!rank && monctx->file_handle){
       fclose(monctx->file_handle);
     }
@@ -1057,7 +1059,7 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx)
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank); CHKERRQ(ierr);
+    rank = PetscGlobalRank;
 
     // 1. Calculate the true residual norm.
     ierr = KSPBuildResidual(ksp, NULL, NULL, &r); CHKERRQ(ierr);
@@ -1856,7 +1858,7 @@ PetscErrorCode LOG_SOLUTION_CONVERGENCE(SimCtx *simCtx)
             SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Unknown solution convergence mode %d.", (int)simCtx->solutionConvergenceMode);
     }
 
-    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
+    rank = simCtx->rank;
     if (rank == 0) {
         char log_path[PETSC_MAX_PATH_LEN + 32];
         FILE *f = NULL;
@@ -1987,7 +1989,7 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = simCtx->rank;
 
     // Only rank 0 performs file I/O.
     if (!rank) {
@@ -2067,6 +2069,8 @@ static PetscClassId    g_profile_class_helper   = 0;  // "PICurvHelper"
 static char          **g_profile_helpers  = NULL;     // Helpers enabled by name (owned by SimCtx)
 static PetscInt        g_profile_nhelpers = 0;
 static PetscBool       g_profile_all_helpers = PETSC_FALSE;
+static PetscBool       g_profile_any_helpers = PETSC_FALSE;
+const PetscBool *const _picurv_profile_helpers_on = &g_profile_any_helpers;
 static char          **g_profile_selected  = NULL;    // timestep_output 'selected' names (owned by SimCtx)
 static PetscInt        g_profile_nselected = 0;
 static PetscLogDouble *g_profile_step_time  = NULL;   // Running totals at the last step boundary,
@@ -2160,6 +2164,7 @@ PetscErrorCode ProfilingInitialize(SimCtx *simCtx)
     g_profile_helpers     = simCtx->profilingHelpers;
     g_profile_nhelpers    = simCtx->nProfilingHelpers;
     g_profile_all_helpers = simCtx->profilingAllHelpers;
+    g_profile_any_helpers = (PetscBool)(g_profile_all_helpers || g_profile_nhelpers > 0);
     // Helpers that ran before this (during setup) registered switched off; apply the list to them.
     PetscCall(PetscLogGetState(&state));
     PetscCall(PetscLogStateGetNumEvents(state, &nevents));
@@ -2449,8 +2454,8 @@ static PetscErrorCode _ProfilingReduceSection(FILE *f, const char *banner, Petsc
     long long  *local_calls = NULL, *sum_calls = NULL;
 
     PetscFunctionBeginUser;
-    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
-    PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
+    rank = PetscGlobalRank;
+    size = PetscGlobalSize;
 
     // --- Union of the recorded names over ranks, in name order ---
     for (PetscInt i = 0; i < nlocal; ++i) local_len += (PetscMPIInt)strlen(names[i]) + 1;
@@ -2696,7 +2701,7 @@ PetscErrorCode LOG_FIELD_MIN_MAX(UserCtx *user, FieldId field_id)
     data_layout = FieldLayoutName(layout);
     fieldVec = (layout == FIELD_LAYOUT_COMPONENT_STAGGERED) ? view.local_vec : view.global_vec;
 
-    ierr = DMDAGetLocalInfo(dm, &info); CHKERRQ(ierr);
+    info = user->info; // dm is user->da or user->fda, which share one decomposition
 
     // --- 2. Define Architecture-Aware Loop Bounds ---
     PetscInt i_start, i_end, j_start, j_end, k_start, k_end;
@@ -2814,7 +2819,7 @@ static PetscErrorCode LogFieldAnatomyView(UserCtx *user, const char *field_name,
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
 
     PetscCheck(user != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx cannot be NULL.");
     PetscCheck(field_name != NULL && stage_name != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
@@ -2831,7 +2836,7 @@ static PetscErrorCode LogFieldAnatomyView(UserCtx *user, const char *field_name,
     else if (layout == FIELD_LAYOUT_COMPONENT_STAGGERED) dominant_dir = 'm';
 
     // --- 2. Get Grid Info and Array Pointers ---
-    ierr = DMDAGetLocalInfo(dm, &info); CHKERRQ(ierr);
+    info = user->info; // dm is user->da or user->fda, which share one decomposition
 
     ierr = PetscBarrier(NULL);
     PetscPrintf(PETSC_COMM_WORLD, "\n--- Field Anatomy Log: [%s] | Stage: [%s] | Layout: [%s] ---\n", field_name, stage_name, data_layout);
@@ -3676,8 +3681,8 @@ PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    size = simCtx->size;
+    rank = simCtx->rank;
 
     // --- 1. Particle Load Imbalance ---
     PetscInt nLocal, nGlobal, nLocalMax;
@@ -3731,7 +3736,7 @@ PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = simCtx->rank;
 
     PetscInt totalParticles;
     ierr = DMSwarmGetSize(user->swarm, &totalParticles); CHKERRQ(ierr);

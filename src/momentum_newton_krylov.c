@@ -938,7 +938,7 @@ static PetscErrorCode MomentumPreconditionerEngine_CreateExactPointBlockMatrix(
                "Point-block matrix output is NULL.");
     *preconditioning_matrix = NULL;
     comm = PetscObjectComm((PetscObject)user->fda);
-    PetscCall(DMDAGetLocalInfo(user->fda, &info));
+    info = user->info;
     PetscCall(VecGetLocalSize(user->Ucont, &local_size));
     PetscCall(VecGetSize(user->Ucont, &global_size));
     PetscCall(VecGetOwnershipRange(user->Ucont, &ownership_start, &ownership_end));
@@ -947,10 +947,8 @@ static PetscErrorCode MomentumPreconditionerEngine_CreateExactPointBlockMatrix(
     ierr = PetscCalloc2(local_size, &diagonal_nnz,
                         local_size, &offdiagonal_nnz); if (ierr) goto cleanup;
     ierr = DMGetLocalToGlobalMapping(user->fda, &local_to_global); if (ierr) goto cleanup;
-    ierr = DMDAGetGhostCorners(user->fda,
-                               &ghost_starts[0], &ghost_starts[1], &ghost_starts[2],
-                               &ghost_sizes[0], &ghost_sizes[1], &ghost_sizes[2]);
-    if (ierr) goto cleanup;
+    ghost_starts[0] = info.gxs; ghost_starts[1] = info.gys; ghost_starts[2] = info.gzs;
+    ghost_sizes[0] = info.gxm; ghost_sizes[1] = info.gym; ghost_sizes[2] = info.gzm;
     ierr = DMDAVecGetArrayRead(user->da, user->lNvert, &nvert); if (ierr) goto cleanup;
 
     for (PetscInt k = info.zs; k < info.zs + info.zm; ++k) {

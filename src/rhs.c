@@ -41,7 +41,7 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 
   PROFILE_FUNCTION_BEGIN;
 
-  DMDAGetLocalInfo(da, &info);
+  info = user->info;
   mx = info.mx; my = info.my; mz = info.mz;
   xs = info.xs; xe = xs + info.xm;
   ys = info.ys; ye = ys + info.ym;
@@ -509,7 +509,7 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 
   DMDAVecGetArray(da, user->lAj, &aj);
 
-  DMDAGetLocalInfo(da, &info);
+  info = user->info;
   
   mx = info.mx; my = info.my; mz = info.mz;
   xs = info.xs; xe = xs + info.xm;
@@ -1910,7 +1910,7 @@ PetscErrorCode ComputeEulerianDiffusivity(UserCtx *user)
     
     // Get local grid boundaries
 	DMDALocalInfo info;
-    ierr = DMDAGetLocalInfo(da, &info); CHKERRQ(ierr);
+    info = user->info;
 
 	xs = info.xs; ys = info.ys; zs = info.zs;
 	xm = info.xm; ym = info.ym; zm = info.zm;

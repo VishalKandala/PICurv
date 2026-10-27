@@ -32,8 +32,8 @@ Every function defined in `src/*.c` that is not `static inline` times itself:
 A missed END leaves the function's PETSc event open; its later calls are then not recorded.
 `make audit-profiling` (also run by `make check`) enforces both rules and the absence of
 `__FUNCT__`, against the declared exclusions in `tests/tooling/audit_profiling_coverage.py`:
-`main`, the asynchronous signal handler, the logging filter itself (`get_log_level`,
-`is_function_allowed`, `set_allowed_functions`), the profiler's own functions, two
+`main`, the asynchronous signal handler, the logging filter itself (`_ResolveLogLevel`, the
+first read behind the inline `get_log_level`, `is_function_allowed`, `set_allowed_functions`), the profiler's own functions, two
 dependency-free leaf modules, `src/checksum.c` and `src/statistics_moments.c`, which include
 only `petscsys.h`, and the declared arithmetic kernels below.
 

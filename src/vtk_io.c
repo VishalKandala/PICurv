@@ -263,7 +263,7 @@ PetscErrorCode PrepareOutputCoordinates(UserCtx* user, PetscScalar** out_coords,
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    PetscCall(DMDAGetInfo(user->da, NULL, &IM, &JM, &KM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL));
+    IM = user->info.mx; JM = user->info.my; KM = user->info.mz;
     *out_nx = IM - 1;
     *out_ny = JM - 1;
     *out_nz = KM - 1;
@@ -364,7 +364,7 @@ PetscErrorCode PrepareOutputEulerianFieldData(UserCtx *user, Vec field_vec, Pets
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    PetscCall(DMDAGetInfo(user->da, NULL, &IM, &JM, &KM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL));
+    IM = user->info.mx; JM = user->info.my; KM = user->info.mz;
     PetscCall(VecGetBlockSize(field_vec, &dof));
     PetscCheck(dof == num_components, PETSC_COMM_SELF, PETSC_ERR_ARG_SIZ,
                "Field has %" PetscInt_FMT " components per node, not the %" PetscInt_FMT " requested.", dof, num_components);

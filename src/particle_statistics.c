@@ -140,7 +140,7 @@ PetscErrorCode ComputeParticleMSD(UserCtx *user, const char *stats_prefix, Petsc
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = simCtx->rank;
 
     /* ------------------------------------------------------------------ *
      * Physics parameters                                                   *

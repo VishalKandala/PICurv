@@ -207,13 +207,13 @@ static PetscErrorCode InitializeSingleGridDM(UserCtx *user, UserCtx *coarse_user
         ierr = PetscMemzero(lz_contrib, p * sizeof(PetscInt)); CHKERRQ(ierr);
 
         DMDALocalInfo info;
-        DMDAGetLocalInfo(coarse_user->da, &info);
+        info = coarse_user->info;
         PetscInt xs = info.xs, xe = info.xs + info.xm, mx = info.mx;
         PetscInt ys = info.ys, ye = info.ys + info.ym, my = info.my;
         PetscInt zs = info.zs, ze = info.zs + info.zm, mz = info.mz;
         
         PetscMPIInt rank;
-        ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+        rank = simCtx->rank;
         PetscInt proc_i = rank % m;
         PetscInt proc_j = (rank / m) % n;
         PetscInt proc_k = rank / (m * n);
@@ -476,7 +476,7 @@ PetscErrorCode ValidatePeriodicGeometry(UserCtx *user)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    PetscCall(DMDAGetLocalInfo(user->da, &info));
+    info = user->info;
     PetscCall(DMGetCoordinatesLocal(user->da, &lcoor));
     PetscCheck(lcoor != NULL, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
                "Cannot validate periodic geometry before local coordinates are assigned.");
@@ -681,7 +681,7 @@ static PetscErrorCode GenerateAndSetCoordinates(UserCtx *user)
 
     LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Generating coordinates for block %" PetscInt_FMT "...\n", user->simCtx->rank, user->_this);
     
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
+    info = user->info;
     ierr = DMGetCoordinates(user->da, &gCoor); CHKERRQ(ierr);
 
     PetscInt xs = info.xs, xe = info.xs + info.xm;
@@ -781,7 +781,7 @@ static PetscErrorCode ReadAndSetCoordinates(UserCtx *user, FILE *fd)
     ierr = MPI_Bcast(gc, 3 * n_nodes, MPIU_REAL, 0, PETSC_COMM_WORLD); CHKERRQ(ierr);
     
     // 4. Each rank populates its owned portion of the global coordinate vector.
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
+    info = user->info;
     ierr = DMGetCoordinates(user->da, &gCoor); CHKERRQ(ierr);
     ierr = VecSet(gCoor, 0.0); CHKERRQ(ierr);
     ierr = DMDAVecGetArray(user->fda, gCoor, &coor); CHKERRQ(ierr);
@@ -827,7 +827,7 @@ static PetscErrorCode RestrictCoordinates(UserCtx *coarse_user, UserCtx *fine_us
     LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Rank %d: Restricting coords from level %" PetscInt_FMT " to level %" PetscInt_FMT " for block %" PetscInt_FMT "\n",
                    fine_user->simCtx->rank, fine_user->thislevel, coarse_user->thislevel, coarse_user->_this);
 
-    ierr = DMDAGetLocalInfo(coarse_user->da, &c_info); CHKERRQ(ierr);
+    c_info = coarse_user->info;
 
     ierr = DMGetCoordinates(coarse_user->da, &c_gCoor); CHKERRQ(ierr);
     ierr = DMGetCoordinatesLocal(fine_user->da, &f_lCoor); CHKERRQ(ierr);
@@ -915,7 +915,7 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     }
 
     // Get MPI rank
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = PetscGlobalRank;
 
     // Get the local coordinates vector from the DMDA
     ierr = DMGetCoordinatesLocal(user->da, &coordinates);
@@ -940,7 +940,7 @@ PetscErrorCode ComputeLocalBoundingBox(UserCtx *user, BoundingBox *localBBox)
     }
 
     // Get the local grid information (indices and sizes)
-    ierr = DMDAGetLocalInfo(user->da, &info);
+    info = user->info;
     if (ierr) {
         LOG_ALLOW(LOCAL, LOG_ERROR, "Error getting DMDA local info.\n");
         PROFILE_FUNCTION_END;
@@ -1046,8 +1046,8 @@ PetscErrorCode GatherAllBoundingBoxes(UserCtx *user, BoundingBox **allBBoxes)
   if (!user || !allBBoxes) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                                     "GatherAllBoundingBoxes: NULL pointer");
 
-  ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRMPI(ierr);
-  ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRMPI(ierr);
+  rank = PetscGlobalRank;
+  size = PetscGlobalSize;
 
   /* Compute local bbox */
   ierr = ComputeLocalBoundingBox(user, &localBBox); CHKERRQ(ierr);
@@ -1104,8 +1104,8 @@ PetscErrorCode BroadcastAllBoundingBoxes(UserCtx *user, BoundingBox **bboxlist)
   if (!bboxlist) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
                           "BroadcastAllBoundingBoxes: NULL pointer");
 
-  ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRMPI(ierr);
-  ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRMPI(ierr);
+  rank = user->simCtx->rank;
+  size = user->simCtx->size;
 
   /* Non-root ranks must allocate before the Bcast */
   if (rank != 0) {

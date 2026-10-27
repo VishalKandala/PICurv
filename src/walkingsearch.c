@@ -291,7 +291,7 @@ PetscErrorCode GetCellVerticesFromGrid(Cmpnts ***coor, PetscInt idx, PetscInt id
 PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, PetscInt *idx, PetscInt *idy, PetscInt *idz, PetscInt *traversal_steps)
 {
     PetscErrorCode ierr;
-    DMDALocalInfo info;
+    const DMDALocalInfo *info;
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
@@ -302,8 +302,8 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "One or more input pointers are NULL.");
     }
 
-    // Get grid information (needed for fallback start and potentially validation)
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
+    // Grid information stored at setup (the decomposition never changes), for the fallback start.
+    info = &user->info;
 
     // --- Check if the particle has a valid previous cell ID ---
     // Assuming particle->cell stores the *global* indices
@@ -327,9 +327,9 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
         // SAFE FALLBACK: The check failed! The handoff cell is NOT safe.
         // Discard the unsafe handoff cell and revert to starting at the
         // guaranteed-safe local corner.
-        *idx = info.xs;
-        *idy = info.ys;
-        *idz = info.zs;
+        *idx = info->xs;
+        *idy = info->ys;
+        *idz = info->zs;
       }
     } else {
         // No valid previous cell ID (e.g., -1,-1,-1 or first time).
@@ -348,28 +348,28 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
                                           "Y-max face", "Z-min face", "Z-max face", "Volume center"};
 
         // Calculate middle indices for each dimension
-        PetscInt mid_i = info.xs + (info.xm - 1) / 2;
-        PetscInt mid_j = info.ys + (info.ym - 1) / 2;
-        PetscInt mid_k = info.zs + (info.zm - 1) / 2;
-        PetscInt max_i = info.xs + info.xm - 2;
-        PetscInt max_j = info.ys + info.ym - 2;
-        PetscInt max_k = info.zs + info.zm - 2;
+        PetscInt mid_i = info->xs + (info->xm - 1) / 2;
+        PetscInt mid_j = info->ys + (info->ym - 1) / 2;
+        PetscInt mid_k = info->zs + (info->zm - 1) / 2;
+        PetscInt max_i = info->xs + info->xm - 2;
+        PetscInt max_j = info->ys + info->ym - 2;
+        PetscInt max_k = info->zs + info->zm - 2;
 
         // Clamp max indices to ensure valid cells
-        if (max_i < info.xs) max_i = info.xs;
-        if (max_j < info.ys) max_j = info.ys;
-        if (max_k < info.zs) max_k = info.zs;
+        if (max_i < info->xs) max_i = info->xs;
+        if (max_j < info->ys) max_j = info->ys;
+        if (max_k < info->zs) max_k = info->zs;
 
         // X-min face center (i=min, j=mid, k=mid)
-        candidates[0][0] = info.xs; candidates[0][1] = mid_j; candidates[0][2] = mid_k;
+        candidates[0][0] = info->xs; candidates[0][1] = mid_j; candidates[0][2] = mid_k;
         // X-max face center (i=max, j=mid, k=mid)
         candidates[1][0] = max_i; candidates[1][1] = mid_j; candidates[1][2] = mid_k;
         // Y-min face center (i=mid, j=min, k=mid)
-        candidates[2][0] = mid_i; candidates[2][1] = info.ys; candidates[2][2] = mid_k;
+        candidates[2][0] = mid_i; candidates[2][1] = info->ys; candidates[2][2] = mid_k;
         // Y-max face center (i=mid, j=max, k=mid)
         candidates[3][0] = mid_i; candidates[3][1] = max_j; candidates[3][2] = mid_k;
         // Z-min face center (i=mid, j=mid, k=min)
-        candidates[4][0] = mid_i; candidates[4][1] = mid_j; candidates[4][2] = info.zs;
+        candidates[4][0] = mid_i; candidates[4][1] = mid_j; candidates[4][2] = info->zs;
         // Z-max face center (i=mid, j=mid, k=max)
         candidates[5][0] = mid_i; candidates[5][1] = mid_j; candidates[5][2] = max_k;
         // Volume center (i=mid, j=mid, k=mid)
@@ -432,8 +432,7 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
  */
 PetscErrorCode CheckCellWithinLocalGrid(UserCtx *user, PetscInt idx, PetscInt idy, PetscInt idz, PetscBool *is_within)
 {
-    PetscErrorCode ierr;
-    DMDALocalInfo info_nodes; // Node information from the DMDA that defines ghost regions (user->fda)
+    const DMDALocalInfo *info_nodes; // Node decomposition, shared by user->da and user->fda
 
     PetscFunctionBeginUser; // Assuming this is part of your PETSc style
     PROFILE_HELPER_BEGIN;
@@ -443,28 +442,25 @@ PetscErrorCode CheckCellWithinLocalGrid(UserCtx *user, PetscInt idx, PetscInt id
         LOG_ALLOW(LOCAL, LOG_ERROR, "Input pointer is NULL.\n");
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input pointer is NULL in CheckCellWithinLocalGrid.");
     }
-    if (user->fda == NULL) {
-        LOG_ALLOW(LOCAL, LOG_ERROR, "user->fda is NULL.Cannot get ghost info.\n");
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "user->fda is NULL. Cannot get ghost info.");
-    }
 
-    // Get node info from user->fda (this DMDA has the ghost layer information for nodes)
-    ierr = DMDAGetLocalInfo(user->fda, &info_nodes); CHKERRQ(ierr);
+    // Ghosted node ranges stored at grid setup; user->fda is built compatible with user->da, so
+    // they are its ranges too.
+    info_nodes = &user->info;
 
     // Determine the range of GLOBAL CELL INDICES that are covered by this rank's ghosted NODAL region.
     // A cell C(i,j,k) has origin node N(i,j,k).
-    // The ghosted nodal region starts at global node index info_nodes.gxs and has info_nodes.gxm nodes.
+    // The ghosted nodal region starts at global node index info_nodes->gxs and has info_nodes->gxm nodes.
 
     // Global starting index of the first cell whose origin node is within the ghosted nodal region.
-    PetscInt gxs_cell_global_start = info_nodes.gxs;
-    PetscInt gys_cell_global_start = info_nodes.gys;
-    PetscInt gzs_cell_global_start = info_nodes.gzs;
+    PetscInt gxs_cell_global_start = info_nodes->gxs;
+    PetscInt gys_cell_global_start = info_nodes->gys;
+    PetscInt gzs_cell_global_start = info_nodes->gzs;
 
     // Number of cells that can be formed starting from nodes within the ghosted nodal region.
-    // If there are N ghosted nodes (info_nodes.gxm), they can be origins for N-1 cells.
-    PetscInt gxm_cell_local_count = (info_nodes.gxm > 0) ? info_nodes.gxm - 1 : 0;
-    PetscInt gym_cell_local_count = (info_nodes.gym > 0) ? info_nodes.gym - 1 : 0;
-    PetscInt gzm_cell_local_count = (info_nodes.gzm > 0) ? info_nodes.gzm - 1 : 0;
+    // If there are N ghosted nodes (info_nodes->gxm), they can be origins for N-1 cells.
+    PetscInt gxm_cell_local_count = (info_nodes->gxm > 0) ? info_nodes->gxm - 1 : 0;
+    PetscInt gym_cell_local_count = (info_nodes->gym > 0) ? info_nodes->gym - 1 : 0;
+    PetscInt gzm_cell_local_count = (info_nodes->gzm > 0) ? info_nodes->gzm - 1 : 0;
 
     // Global exclusive end index for cells whose origins are in the ghosted nodal region. 
     PetscInt gxe_cell_global_end_exclusive = gxs_cell_global_start + gxm_cell_local_count;
@@ -503,7 +499,7 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
     PetscErrorCode ierr;
     Vec Coor;
     const PetscScalar *coor_flat;
-    PetscInt gxs, gys, gzs, gxm, gym, gzm;
+    PetscInt gxs, gys, gzs, gxm, gym;
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
@@ -518,7 +514,8 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
     // array: DMDAVecGetArrayRead would rebuild a pointer array over the whole local grid on
     // every call. The indices are ghosted global node indices, as for that 3D view.
     ierr = DMGetCoordinatesLocal(user->da, &Coor); CHKERRQ(ierr);
-    ierr = DMDAGetGhostCorners(user->fda, &gxs, &gys, &gzs, &gxm, &gym, &gzm); CHKERRQ(ierr);
+    gxs = user->info.gxs; gys = user->info.gys; gzs = user->info.gzs; // fda shares da's decomposition
+    gxm = user->info.gxm; gym = user->info.gym;
     ierr = VecGetArrayRead(Coor, &coor_flat); CHKERRQ(ierr);
     {
         const Cmpnts *coor = (const Cmpnts *)coor_flat;
@@ -873,7 +870,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
     if (user && user->simCtx) {
         user->simCtx->searchMetrics.searchAttempts++;
         if (user->simCtx->searchMetrics.currentSettlementPass > 1) {

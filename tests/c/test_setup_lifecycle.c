@@ -668,6 +668,36 @@ static PetscErrorCode TestSharedRuntimeFixtureContracts(void)
 }
 
 /**
+ * @brief Asserts that one block's stored local info matches what its DMs report.
+ * @details Grid, rank and particle code read user->info in place of DMDAGetLocalInfo on
+ *          user->da and user->fda, which relies on both DMs sharing one decomposition.
+ */
+static PetscErrorCode AssertStoredLocalInfoMatchesDMs(UserCtx *user)
+{
+    DMDALocalInfo dm_info[2];
+    const char   *names[2] = {"da", "fda"};
+
+    PetscFunctionBeginUser;
+    PetscCall(DMDAGetLocalInfo(user->da, &dm_info[0]));
+    PetscCall(DMDAGetLocalInfo(user->fda, &dm_info[1]));
+    for (PetscInt d = 0; d < 2; ++d) {
+        const DMDALocalInfo *a = &dm_info[d], *b = &user->info;
+        const PetscInt got[15]  = {a->mx, a->my, a->mz, a->xs, a->ys, a->zs, a->xm, a->ym, a->zm,
+                                   a->gxs, a->gys, a->gzs, a->gxm, a->gym, a->gzm};
+        const PetscInt want[15] = {b->mx, b->my, b->mz, b->xs, b->ys, b->zs, b->xm, b->ym, b->zm,
+                                   b->gxs, b->gys, b->gzs, b->gxm, b->gym, b->gzm};
+        char msg[128];
+        for (PetscInt f = 0; f < 15; ++f) {
+            PetscCall(PetscSNPrintf(msg, sizeof(msg), "user->info range %" PetscInt_FMT " should match %s", f, names[d]));
+            PetscCall(PicurvAssertIntEqual(want[f], got[f], msg));
+        }
+        PetscCall(PicurvAssertBool((PetscBool)(a->bx == b->bx && a->by == b->by && a->bz == b->bz),
+                                   "user->info boundary types should match the DM"));
+    }
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Tests the core setup lifecycle through environment, grid, BC, rank-info, and Eulerian-state initialization.
  */
 static PetscErrorCode TestSetupLifecycleCoreSolverSetup(void)
@@ -688,6 +718,11 @@ static PetscErrorCode TestSetupLifecycleCoreSolverSetup(void)
     PetscCall(PicurvAssertBool((PetscBool)(user->da != NULL), "SetupGridAndSolvers should allocate da"));
     PetscCall(PicurvAssertBool((PetscBool)(user->fda != NULL), "SetupGridAndSolvers should allocate coordinate DM"));
     PetscCall(PicurvAssertIntEqual(user->IM + 1, user->info.mx, "DM node count should match IM+1"));
+    for (PetscInt level = 0; level < simCtx->usermg.mglevels; ++level) {
+        for (PetscInt bi = 0; bi < simCtx->block_number; ++bi) {
+            PetscCall(AssertStoredLocalInfoMatchesDMs(&simCtx->usermg.mgctx[level].user[bi]));
+        }
+    }
     PetscCall(PicurvAssertBool(user->inletFaceDefined, "SetupBoundaryConditions should identify the inlet face"));
     PetscCall(PicurvAssertIntEqual(BC_FACE_NEG_Z, user->identifiedInletBCFace, "NEG_Z should be the configured inlet face"));
     PetscCall(PicurvAssertBool((PetscBool)(simCtx->bboxlist != NULL), "SetupDomainRankInfo should build bboxlist"));

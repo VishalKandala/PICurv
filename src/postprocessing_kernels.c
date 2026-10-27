@@ -136,7 +136,7 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
 
     // --- 3. Get DMDA info and array pointers ---
     DMDALocalInfo info;
-    ierr = DMDAGetLocalInfo(dm_out, &info); CHKERRQ(ierr);
+    info = user->info; // dm_out is user->da or user->fda, which share one decomposition
     /* Every owned output point is valid except the global high layout plane.
      * A rank interface is not a boundary: its +1 source value is in the halo. */
     const PetscInt i_end = PetscMin(info.xs + info.xm, info.mx - 1);
@@ -282,7 +282,7 @@ PetscErrorCode ComputeWindowStatisticsProfile(UserCtx *user, const PicurvWindowD
     PetscCall(PicurvWindowDerivedCount(definition, &reduced, outputs, &derived_count));
     PetscCall(SpatialTargetPlanCreate(user, (FieldId)definition->fields[0].field_id,
                                       PICURV_STATISTICS_MASK_FLUID, &plan));
-    PetscCall(DMDAGetLocalInfo(user->da, &info));
+    info = user->info;
     extent[0] = average_direction[0] ? 1 : info.mx;
     extent[1] = average_direction[1] ? 1 : info.my;
     extent[2] = average_direction[2] ? 1 : info.mz;
@@ -504,7 +504,7 @@ PetscErrorCode ComputeQCriterion(UserCtx* user)
     ierr = UpdateLocalGhosts(user, FIELD_ID_NVERT); CHKERRQ(ierr);
 
     // --- 2. Get DMDA info and array pointers ---
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
+    info = user->info;
     
     ierr = DMDAVecGetArrayRead(user->fda, user->lUcat,  (void*)&lucat);   CHKERRQ(ierr);
     ierr = DMDAVecGetArrayRead(user->fda, user->lCsi,   (void*)&lcsi);    CHKERRQ(ierr);
@@ -658,7 +658,7 @@ PetscErrorCode NormalizeRelativeField(UserCtx* user, const char* relative_field_
     }
 
     // --- 2. Read the logical reference point from whichever rank owns it ---
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
+    info = user->info;
     PetscCheck(ip >= 0 && ip < info.mx && jp >= 0 && jp < info.my &&
                kp >= 0 && kp < info.mz,
                PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,

@@ -25,13 +25,12 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Vector(
     Cmpnts ***centfield_arr, /* Output: Array view for cell-centered data (global indices) */
     UserCtx *user)
 {
-    PetscErrorCode ierr;
     DMDALocalInfo  info;
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
 
-    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    info = user->info;
 
     // Get local and global grid dimensions
     PetscInt xs = info.xs, xe = info.xs + info.xm;
@@ -86,13 +85,12 @@ PetscErrorCode InterpolateFieldFromCornerToCenter_Scalar(
     PetscReal ***centfield_arr, /* Output: Array view for cell-centered data (global indices) */
     UserCtx *user)
 {
-    PetscErrorCode ierr;
     DMDALocalInfo  info;
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
 
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
+    info = user->info;
     
     // Get local and global grid dimensions
     PetscInt xs = info.xs, xe = info.xs + info.xm;
@@ -196,12 +194,11 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Vector(
     Cmpnts ***corner_arr,    /* Output: global array from Vec (write) */
     UserCtx *user)
 {
-    PetscErrorCode ierr;
     DMDALocalInfo  info;
     PetscMPIInt    rank;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);
-    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
+    info = user->info;
 
     // Node ownership range (GLOBAL indices)
     PetscInt xs_node = info.xs, xm_node = info.xm, xe_node = xs_node + xm_node;
@@ -329,12 +326,11 @@ PetscErrorCode InterpolateFieldFromCenterToCorner_Scalar(
     PetscReal ***corner_arr,    /* Output: global array from Vec (write) */
     UserCtx *user)
 {
-    PetscErrorCode ierr;
     DMDALocalInfo  info;
     PetscMPIInt    rank;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);
-    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
+    info = user->info;
 
     // Node ownership range (GLOBAL indices)
     PetscInt xs_node = info.xs, xm_node = info.xm, xe_node = xs_node + xm_node;
@@ -641,11 +637,10 @@ PetscErrorCode TrilinearInterpolation_Vector(
   PetscFunctionBegin; // PETSc macro for error/stack tracing
 
   // Compute the 8 corner weights
-  PetscErrorCode ierr;
   PetscReal wcorner[8];
   PetscMPIInt rank;
 
-  ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);CHKERRQ(ierr);
+  rank = PetscGlobalRank;
   
   LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d] Computing Trilinear Weights.\n",rank);
   ComputeTrilinearWeights(a1, a2, a3, wcorner);
@@ -867,8 +862,8 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
 
     PetscFunctionBegin;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
+    info = user->info;
     FacePlaneArrays dual_arrays;
     ierr = MetricGetFacePlaneArrays(user, PETSC_TRUE, &dual_arrays); CHKERRQ(ierr);
 
@@ -1059,8 +1054,8 @@ static PetscErrorCode InterpolateEulerVelocityFromFacesToSwarm(UserCtx *user, co
 
     PetscFunctionBegin;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
+    info = user->info;
     LOG_ALLOW(GLOBAL, LOG_INFO, "Starting face-flux velocity interpolation into '%s'...\n", swarmOutFieldName);
 
     ierr = DMDAVecGetArrayRead(user->fda, user->lUcont, (void *)&lucont); CHKERRQ(ierr);
@@ -1122,7 +1117,6 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     const char *swarmOutFieldName)
 {
     PetscErrorCode ierr;
-    DM             fda = user->fda;
     DM             swarm = user->swarm;
     PetscInt       bs;
     DMDALocalInfo  info;
@@ -1143,8 +1137,8 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
 
     PetscFunctionBegin;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    ierr = DMDAGetLocalInfo(fda, &info); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
+    info = user->info;
     ierr = VecGetBlockSize(fieldLocal_cellCentered, &bs); CHKERRQ(ierr);
     if (bs != 1 && bs != 3) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP, "BlockSize must be 1 or 3.");
 
@@ -1189,10 +1183,10 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     
     PetscInt xs,ys,zs,gxs,gys,gzs;
     
-    ierr  = DMDAGetCorners(dm_corner,&xs,&ys,&zs,NULL,NULL,NULL); CHKERRQ(ierr);
+    xs = user->info.xs; ys = user->info.ys; zs = user->info.zs; // dm_corner shares da's decomposition
     LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] DMDAGetCorners for field '%s': xs=%" PetscInt_FMT ", ys=%" PetscInt_FMT ", zs=%" PetscInt_FMT ".\n", rank, fieldName, (PetscInt)xs, (PetscInt)ys, (PetscInt)zs);
 
-    ierr  = DMDAGetGhostCorners(dm_corner,&gxs,&gys,&gzs,NULL,NULL,NULL); CHKERRQ(ierr);
+    gxs = user->info.gxs; gys = user->info.gys; gzs = user->info.gzs;
     LOG_ALLOW(LOCAL, LOG_TRACE, "[Rank %d] DMDAGetGhostCorners for field '%s': gxs=%" PetscInt_FMT ", gys=%" PetscInt_FMT ", gzs=%" PetscInt_FMT ".\n", rank, fieldName, (PetscInt)gxs, (PetscInt)gys, (PetscInt)gzs);
     
     // DEBUG: Inspect Ucat ghost cells before interpolation
@@ -1314,7 +1308,7 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     // wrapper will ensure the output from each rank is printed sequentially.
     if (is_function_allowed(__func__) && (int)(LOG_DEBUG) <= (int)get_log_level()) {
         PetscMPIInt rank_d;
-        ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_d); CHKERRQ(ierr);
+        rank_d = user->simCtx->rank;
         
         // Use a synchronized print to create a clean header for each rank's output
         PetscSynchronizedPrintf(PETSC_COMM_WORLD, "\n--- cornerLocal (Rank %d) ---\n", rank_d);
@@ -1507,7 +1501,7 @@ PetscErrorCode  InterpolateAllFieldsToSwarm(UserCtx *user)
 
   PROFILE_FUNCTION_BEGIN;
 
-  ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank); CHKERRQ(ierr);
+  rank = user->simCtx->rank;
 
   LOG_ALLOW(LOCAL, LOG_DEBUG,
 			 " Interpolation of ucat to velocity begins on rank %d.\n",rank);
@@ -1585,15 +1579,12 @@ PetscErrorCode AccumulateParticleField(DM swarm, ParticleFieldId particle_field_
     
     // Ghosted dimension variables
     PetscInt          gxs, gys, gzs, gxm, gym, gzm;
-    PetscMPIInt       rank;
     char              msg[ERROR_MSG_BUFFER_SIZE];
     const ParticleFieldDescriptor *descriptor = NULL;
     const char        *particleFieldName = NULL;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
 
     ierr = ParticleFieldGetDescriptor(particle_field_id, &descriptor); CHKERRQ(ierr);
     PetscCheck(descriptor->data_type == PETSC_REAL, PETSC_COMM_SELF, PETSC_ERR_ARG_INCOMP,
@@ -1711,7 +1702,7 @@ PetscErrorCode NormalizeGridVectorByCount(DM countDM, Vec countVec,
 
     PROFILE_FUNCTION_BEGIN;
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = PetscGlobalRank;
 
     // --- Validation ---
     ierr = DMDAGetInfo(countDM, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &count_dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
@@ -2055,7 +2046,7 @@ PetscErrorCode InterpolateCornerToFaceCenter_Scalar(
 
     PROFILE_FUNCTION_BEGIN;
 
-    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    info = user->info;
 
     // Determine owned-cell ranges based on corner-node ownership
     PetscInt xs, xm, ys, ym, zs, zm;
@@ -2144,11 +2135,11 @@ PetscErrorCode InterpolateCornerToFaceCenter_Vector(
 
     PROFILE_FUNCTION_BEGIN;
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
     LOG_ALLOW_SYNC(GLOBAL, LOG_TRACE,
                    "Rank %d starting InterpolateFieldFromCornerToFaceCenter_Vector.\n", rank);
     
-    ierr = DMDAGetLocalInfo(user->fda, &info); CHKERRQ(ierr);
+    info = user->info;
 
     PetscInt xs, xm, ys, ym, zs, zm;
     ierr = GetOwnedCellRange(&info, 0, &xs, &xm); CHKERRQ(ierr);

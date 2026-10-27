@@ -15,7 +15,7 @@ PetscErrorCode CanRankServiceInletFace(UserCtx *user, const DMDALocalInfo *info,
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr);
+    rank_for_logging = PetscGlobalRank;
 
     *can_service_inlet_out = PETSC_FALSE; // Default to no service
 
@@ -139,7 +139,7 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_g
 
     PROFILE_FUNCTION_BEGIN;
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr);
+    rank_for_logging = PetscGlobalRank;
 
     *can_service_out = PETSC_FALSE; // Default to no service
 
@@ -225,12 +225,11 @@ PetscErrorCode GetDeterministicFaceGridLocation(
 {
     SimCtx *simCtx = user->simCtx;
     PetscReal global_logic_i = 0.0, global_logic_j = 0.0, global_logic_k = 0.0;
-    PetscErrorCode ierr;
     PetscMPIInt rank_for_logging;
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr);
+    rank_for_logging = simCtx->rank;
 
     *placement_successful_out = PETSC_FALSE; // Default to failure
 
@@ -419,7 +418,7 @@ PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
 
     PROFILE_HELPER_BEGIN;
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr);
+    rank_for_logging = user->simCtx->rank;
 
     // Get number of cells this rank owns in each dimension (tangential to the face mainly)
     PetscInt owned_start_cell_i, num_owned_cells_on_rank_i;
@@ -827,8 +826,7 @@ PetscErrorCode BoundarySystem_Validate(UserCtx *user)
     PROFILE_FUNCTION_BEGIN;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "Validating parsed boundary condition configuration...\n");
-    ierr = DMDAGetInfo(user->da, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                       &bx, &by, &bz, NULL); CHKERRQ(ierr);
+    bx = user->info.bx; by = user->info.by; bz = user->info.bz;
     dm_periodic[0] = (PetscBool)(bx == DM_BOUNDARY_PERIODIC);
     dm_periodic[1] = (PetscBool)(by == DM_BOUNDARY_PERIODIC);
     dm_periodic[2] = (PetscBool)(bz == DM_BOUNDARY_PERIODIC);
@@ -2017,7 +2015,7 @@ static PetscErrorCode TranslatePeriodicFaceCenterGhosts(UserCtx *user, Vec local
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    PetscCall(DMDAGetLocalInfo(user->fda, &info));
+    info = user->info;
     PetscCall(DMDAVecGetArray(user->fda, local_vec, &array));
 
     for (PetscInt axis = 0; axis < 3; axis++) {

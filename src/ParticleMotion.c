@@ -97,7 +97,7 @@ PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
   PetscInt64       *pid = NULL;
   PetscMPIInt rank;
  
-  ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank);
+  rank = user->simCtx->rank;
 
   PetscFunctionBeginUser;  // PETSc macro for error/stack tracing
   
@@ -190,8 +190,8 @@ PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
+    size = user->simCtx->size;
     LOG_ALLOW(LOCAL, LOG_INFO, "[Rank %d] Checking for out-of-bounds particles...", rank);
 
     // Initialize output parameters to ensure clean state
@@ -278,7 +278,7 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Checking for and removing LOST and EXITED particles...\n", rank);
 
     // Initialize output parameters to ensure clean state
@@ -515,7 +515,7 @@ PetscErrorCode PerformMigration(UserCtx *user, PetscInt *n_survivors)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
     LOG_ALLOW(GLOBAL, LOG_INFO, "Rank %d: Starting DMSwarmMigrate...\n", rank);
     ierr = DMSwarmGetLocalSize(swarm, &nlocal_before); CHKERRQ(ierr);
 
@@ -568,7 +568,7 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
 
     // --- Input Validation ---
     if (!da) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx->da is NULL.");
@@ -576,7 +576,7 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     if (!countVec) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "UserCtx->ParticleCount is NULL.");
     // Check DOF of da
     PetscInt count_dof;
-    ierr = DMDAGetInfo(da, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &count_dof, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
+    count_dof = user->info.dof;
     if (count_dof != 1) {
         PetscSNPrintf(msg, sizeof(msg), "countDM must have DOF=1, got %" PetscInt_FMT ".", count_dof);
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "%s", msg);
@@ -597,7 +597,8 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
 
     // Get local owned + ghosted range for writing into ghost slots.
     PetscInt gxs, gys, gzs, gxm, gym, gzm;
-    ierr = DMDAGetGhostCorners(da, &gxs, &gys, &gzs, &gxm, &gym, &gzm); CHKERRQ(ierr);
+    gxs = user->info.gxs; gys = user->info.gys; gzs = user->info.gzs;
+    gxm = user->info.gxm; gym = user->info.gym; gzm = user->info.gzm;
 
     // --- Accumulate Counts Locally ---
     LOG_ALLOW(LOCAL, LOG_DEBUG, "CalculateParticleCountPerCell (Rank %d): Processing %" PetscInt_FMT " local particles using GLOBAL CellIDs.\n",rank,nlocal);
@@ -672,8 +673,8 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
     if (max_idx_global >= 0) { // Check if VecMax found a location
          // Need to convert the flat global index back to 3D global index (I, J, K)
          // Get global grid dimensions (Nodes, NOT Cells IM/JM/KM)
-         PetscInt M, N, P;
-         ierr = DMDAGetInfo(da, NULL, &M, &N, &P, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL); CHKERRQ(ierr);
+         PetscInt M, N;
+         M = user->info.mx; N = user->info.my;
          // Note: Assuming DOF=1 for countVec, index mapping uses node dimensions M,N,P from DMDA creation (IM+1, etc)
          // Re-check if your DMDA uses cell counts (IM) or node counts (IM+1) for Vec layout. Let's assume Node counts M,N,P.
          PetscInt Kmax = max_idx_global / (M * N);
@@ -688,7 +689,8 @@ PetscErrorCode CalculateParticleCountPerCell(UserCtx *user) {
         ierr = DMDAVecGetArrayRead(da, countVec, &count_arr_for_check); CHKERRQ(ierr);
         // Check bounds before accessing - crucial if using global indices
         PetscInt xs, ys, zs, xm, ym, zm;
-        ierr = DMDAGetCorners(da, &xs, &ys, &zs, &xm, &ym, &zm); CHKERRQ(ierr);
+        xs = user->info.xs; ys = user->info.ys; zs = user->info.zs;
+        xm = user->info.xm; ym = user->info.ym; zm = user->info.zm;
         if (0 >= xs && 0 < xs+xm && 0 >= ys && 0 < ys+ym && 0 >= zs && 0 < zs+zm) {
              count_at_origin = count_arr_for_check[0][0][0]; // Access using global index (0,0,0)
         } else {
@@ -830,7 +832,7 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
         PetscFunctionReturn(0);
     }
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
     ierr = DMSwarmGetLocalSize(swarm, &nlocal_current); CHKERRQ(ierr);
 
     // If no particles on this rank, nothing to do.
@@ -841,9 +843,9 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     }
 
     // Get DMDA information for the node-centered coordinate grid (user->da)
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
-    ierr = DMDAGetInfo(user->da, NULL, &IM_nodes_global, &JM_nodes_global, &KM_nodes_global, NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL); CHKERRQ(ierr);
-    ierr = DMDAGetCorners(user->da, &xs_gnode_rank, &ys_gnode_rank, &zs_gnode_rank, NULL, NULL, NULL); CHKERRQ(ierr);
+    info = user->info;
+    IM_nodes_global = info.mx; JM_nodes_global = info.my; KM_nodes_global = info.mz;
+    xs_gnode_rank = info.xs; ys_gnode_rank = info.ys; zs_gnode_rank = info.zs;
 
     // Modification to IM_nodes_global etc. to account for 1-cell halo in each direction.
     IM_nodes_global -= 1; JM_nodes_global -= 1; KM_nodes_global -= 1; 
@@ -1034,7 +1036,7 @@ PetscErrorCode GetLocalPIDSnapshot(const PetscInt64 pid_field[],
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input pid_field pointer is NULL for n_local > 0.");
     }
     
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = PetscGlobalRank;
     LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d]: Creating PID snapshot for %" PetscInt_FMT " local particles.\n", rank, n_local);
 
     // If there are no local particles, the snapshot is empty (NULL).
@@ -1098,7 +1100,7 @@ PetscErrorCode AddToMigrationList(MigrationInfo **migration_list_p,
         
         *capacity_p = new_capacity; // Update the capacity tracker
 
-        ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+        rank = PetscGlobalRank;
         LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d]: Reallocated migrationList capacity from %" PetscInt_FMT " to %" PetscInt_FMT ".\n",
                   rank, old_capacity, new_capacity);
     }
@@ -1168,7 +1170,7 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm, PetscInt n_local_before, Petsc
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     PetscCheck(swarm, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Input DMSwarm is NULL in FlagNewcomersForLocation.");
-    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
+    rank = PetscGlobalRank;
     PetscCall(DMSwarmGetLocalSize(swarm, &n_local_after));
     LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d]: Checking for newcomers. Size before: %" PetscInt_FMT ", Size after: %" PetscInt_FMT "\n",
               rank, n_local_before, n_local_after);
@@ -1210,7 +1212,7 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
 
     ierr = DMSwarmGetLocalSize(swarm, &nlocal); CHKERRQ(ierr);
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Checking %" PetscInt_FMT " restart particles for direct migration using CellIDs.\n", nlocal);
@@ -1281,7 +1283,6 @@ static PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
                                                  const BoundingBox *bboxlist,
                                                  PetscMPIInt *guess_rank_out)
 {
-    PetscErrorCode  ierr;
     PetscMPIInt     rank, size;
     const RankNeighbors *neighbors = &user->neighbors; // Use a direct pointer for clarity
     const BoundingBox   *localBBox = &user->bbox;
@@ -1298,8 +1299,8 @@ static PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE, "Required user->bboxl or user->neighbors is not initialized.");
     }
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
+    size = user->simCtx->size;
     
     *guess_rank_out = MPI_PROC_NULL; // Default to "not found"
 
@@ -1403,7 +1404,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
     ierr = ResetSearchMetrics(user->simCtx); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "LocateAllParticlesInGrid (Orchestrator) - Beginning particle settlement process.\n");
 

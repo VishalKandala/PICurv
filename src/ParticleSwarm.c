@@ -172,7 +172,7 @@ static PetscErrorCode DetermineVolumetricInitializationParameters(
 
     PROFILE_HELPER_BEGIN;
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank_for_logging); CHKERRQ(ierr);
+    rank_for_logging = user->simCtx->rank;
 
     *can_place_in_volume_out = PETSC_FALSE; // Default to: cannot place
 
@@ -289,16 +289,16 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     if (!user || !rand_logic_i || !rand_logic_j || !rand_logic_k) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null user or RNG pointer.");
     }
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    ierr = MPI_Comm_size(PETSC_COMM_WORLD,&size);  CHKERRQ(ierr);
+    rank = simCtx->rank;
+    size = simCtx->size;
 
     // Get DMDA information for the node-centered coordinate grid (user->da)
     ierr = DMGetCoordinatesLocal(user->da, &Coor_local); CHKERRQ(ierr);
     if (!Coor_local) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_PLIB, "DMGetCoordinatesLocal for user->da returned NULL Coor_local.");
     ierr = DMDAVecGetArrayRead(user->fda, Coor_local, (void*)&coor_nodes_local_array); CHKERRQ(ierr);
-    ierr = DMDAGetLocalInfo(user->da, &info); CHKERRQ(ierr);
-    ierr = DMDAGetCorners(user->da, &xs_gnode_rank, &ys_gnode_rank, &zs_gnode_rank, NULL, NULL, NULL); CHKERRQ(ierr);
-    ierr = DMDAGetInfo(user->da, NULL, &IM_nodes_global, &JM_nodes_global, &KM_nodes_global, NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL); CHKERRQ(ierr);
+    info = user->info;
+    xs_gnode_rank = info.xs; ys_gnode_rank = info.ys; zs_gnode_rank = info.zs;
+    IM_nodes_global = info.mx; JM_nodes_global = info.my; KM_nodes_global = info.mz;
 
     // Modification to IM_nodes_global etc. to account for 1-cell halo in each direction.
     IM_nodes_global -= 1; JM_nodes_global -= 1; KM_nodes_global -= 1; 
@@ -755,11 +755,11 @@ static PetscErrorCode DistributeParticlesByOwnedVolume(UserCtx *user, PetscInt n
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    PetscCallMPI(MPI_Comm_rank(PETSC_COMM_WORLD, &rank));
-    PetscCallMPI(MPI_Comm_size(PETSC_COMM_WORLD, &size));
+    rank = user->simCtx->rank;
+    size = user->simCtx->size;
     PetscCall(DMGetCoordinatesLocal(user->da, &coor_local));
     PetscCall(DMDAVecGetArrayRead(user->fda, coor_local, (void *)&coor));
-    PetscCall(DMDAGetCorners(user->da, &xs, &ys, &zs, NULL, NULL, NULL));
+    xs = user->info.xs; ys = user->info.ys; zs = user->info.zs;
     PetscCall(BuildOwnedCellVolumeTable(user, coor, xs, ys, zs, NULL, NULL, &n_cells, &owned));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, coor_local, (void *)&coor));
     PetscCall(PetscMalloc3(size, &volumes, size, &count, size, &frac));
@@ -805,8 +805,8 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
     }
     
     // Retrieve MPI rank and size
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD, &rank); CHKERRQ(ierr);
-    ierr = MPI_Comm_size(PETSC_COMM_WORLD, &size); CHKERRQ(ierr);
+    rank = user->simCtx->rank;
+    size = user->simCtx->size;
     LOG_ALLOW(GLOBAL,LOG_INFO," Domain dimensions: [%.2f,%.2f],[%.2f,%.2f],[%.2f,%.2f] \n", 
         user->Min_X,user->Max_X,user->Min_Y,user->Max_Y, user->Min_Z,user->Max_Z);
     LOG_ALLOW_SYNC(GLOBAL,LOG_DEBUG, "[Rank %d] Local Bounding Box: [%.2f,%.2f],[%.2f,%.2f],[%.2f,%.2f] \n", 
@@ -873,9 +873,8 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
     PROFILE_HELPER_BEGIN;
 
     PetscMPIInt rank;
-    PetscErrorCode ierr;
 
-    ierr = MPI_Comm_rank(PETSC_COMM_WORLD,&rank); CHKERRQ(ierr);
+    rank = PetscGlobalRank;
     
     if (particle == NULL) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output Particle pointer is NULL. \n");
