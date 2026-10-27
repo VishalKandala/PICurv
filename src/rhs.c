@@ -1,4 +1,5 @@
 #include "rhs.h"
+#include "poisson.h"   /* the face gradient shared with the projection */
 #include "verification_sources.h"
 #include "les.h"   /* SymTensor kernels for the gradient (Clark) closure term */
 
@@ -1145,710 +1146,214 @@ PetscErrorCode ComputeBodyForces(UserCtx *user, Vec Rct)
     PetscFunctionReturn(0); 
 }
 
-/**
- * @brief Internal helper implementation: `ComputeRHS()`.
- * @details Local to this translation unit.
- */
-PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
+/** @brief Owned-cell bounds of the residual: interior cells, excluding the dummy layers. */
+static inline void RHSInteriorBounds(const DMDALocalInfo *info, PetscInt lo[3], PetscInt hi[3])
 {
-    PetscErrorCode ierr;
-    SimCtx *simCtx = user->simCtx;
-    DM da = user->da, fda = user->fda;
-    DMDALocalInfo info = user->info;
-    PetscInt i,j,k;
-    // --- Local Grid Indices and Parameters ---
-    PetscInt xs = info.xs, xe = xs + info.xm, mx = info.mx;
-    PetscInt ys = info.ys, ye = ys + info.ym, my = info.my;
-    PetscInt zs = info.zs, ze = zs + info.zm, mz = info.mz;
-    PetscInt lxs = (xs==0) ? xs+1 : xs;
-    PetscInt lys = (ys==0) ? ys+1 : ys;
-    PetscInt lzs = (zs==0) ? zs+1 : zs;
-    PetscInt lxe = (xe==mx) ? xe-1 : xe;
-    PetscInt lye = (ye==my) ? ye-1 : ye;
-    PetscInt lze = (ze==mz) ? ze-1 : ze;
+    const PetscInt m[3] = {info->mx, info->my, info->mz};
+    const PetscInt start[3] = {info->xs, info->ys, info->zs};
+    const PetscInt end[3] = {info->xs + info->xm, info->ys + info->ym, info->zs + info->zm};
 
-    // --- Array Pointers ---
-    Cmpnts ***csi, ***eta, ***zet, ***icsi, ***ieta, ***izet, ***jcsi, ***jeta, ***jzet, ***kcsi, ***keta, ***kzet;
-    PetscReal ***p, ***iaj, ***jaj, ***kaj, ***aj, ***nvert;
-    Cmpnts ***rhs, ***rc, ***rct;
-    
-    // --- Temporary Vectors ---
-    Vec Conv, Visc, Rc, Rct;
+    for (PetscInt a = 0; a < 3; a++) {
+        lo[a] = (start[a] == 0) ? 1 : start[a];
+        hi[a] = (end[a] == m[a]) ? m[a] - 1 : end[a];
+    }
+}
+
+/**
+ * @brief Contravariant cell-centre components of the spatial terms, `Rct = aj F_n . (Visc - Conv)`,
+ *        with each base vector `F_n` averaged from its two faces to the cell centre.
+ */
+static PetscErrorCode RHSContravariantSpatialTerms(UserCtx *user, Vec Conv, Vec Visc, Vec Rct)
+{
+    PetscInt         lo[3], hi[3];
+    const Cmpnts  ***csi, ***eta, ***zet, ***conv, ***visc;
+    const PetscReal ***aj;
+    Cmpnts        ***rct;
 
     PetscFunctionBeginUser;
-	PROFILE_FUNCTION_BEGIN;
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %" PetscInt_FMT ": Computing RHS (FormFunction1)...\n",
-              simCtx->rank, user->_this);
-
-    // --- Get all necessary array pointers ---
-    ierr = DMDAVecGetArrayRead(fda, user->lCsi, &csi); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(fda, user->lEta, &eta); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(fda, user->lZet, &zet); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(da,  user->lAj,  &aj);  CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(fda, user->lICsi, &icsi); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(fda, user->lIEta, &ieta); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(fda, user->lIZet, &izet); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(fda, user->lJCsi, &jcsi); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(fda, user->lJEta, &jeta); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(fda, user->lJZet, &jzet); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(fda, user->lKCsi, &kcsi); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(fda, user->lKEta, &keta); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(fda, user->lKZet, &kzet); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(da, user->lIAj, &iaj); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(da, user->lJAj, &jaj); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(da, user->lKAj, &kaj); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(da, user->lP, &p); CHKERRQ(ierr);
-    ierr = DMDAVecGetArrayRead(da, user->lNvert, &nvert); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(fda, Rhs, &rhs); CHKERRQ(ierr);
-
-    // --- Create temporary work vectors ---
-    // Work vectors from fda's pool, zeroed as the fresh duplicates they replace were: a residual
-    // evaluation runs many times per step, and allocating them each time costs more than the zeroing.
-    ierr = DMGetLocalVector(fda, &Rc); CHKERRQ(ierr);   ierr = VecZeroEntries(Rc); CHKERRQ(ierr);
-    ierr = DMGetLocalVector(fda, &Rct); CHKERRQ(ierr);  ierr = VecZeroEntries(Rct); CHKERRQ(ierr);
-    ierr = DMGetLocalVector(fda, &Conv); CHKERRQ(ierr); ierr = VecZeroEntries(Conv); CHKERRQ(ierr);
-    ierr = DMGetLocalVector(fda, &Visc); CHKERRQ(ierr); ierr = VecZeroEntries(Visc); CHKERRQ(ierr);
-
-    // ========================================================================
-    //   CORE LOGIC (UNCHANGED FROM LEGACY CODE)
-    // ========================================================================
-
-    // 1. Obtain Cartesian velocity from Contravariant velocity
-    ierr = Contra2Cart(user); CHKERRQ(ierr);
-    {
-        const FieldId cell_fields[] = {FIELD_ID_UCAT};
-        ierr = SynchronizePeriodicCellFields(user, 1, cell_fields); CHKERRQ(ierr);
-    }
-    ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
-
-    // 2. Compute Convective term
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Calculating convective terms...\n");
-    if (simCtx->moveframe || simCtx->rotateframe) {
-      // ierr = Convection_MV(user, user->lUcont, user->lUcat, Conv); CHKERRQ(ierr);
-    } else {
-        ierr = Convection(user, user->lUcont, user->lUcat, Conv); CHKERRQ(ierr);
-    }
-
-    // 3. Compute Viscous term
-    if (simCtx->invicid) {
-        ierr = VecSet(Visc, 0.0); CHKERRQ(ierr);
-    } else {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "  Calculating viscous terms...\n");
-        ierr = Viscous(user, user->lUcont, user->lUcat, Visc); CHKERRQ(ierr);
-    }
-
-    // 4. Combine terms to get Cartesian RHS: Rc = Visc - Conv
-    ierr = VecWAXPY(Rc, -1.0, Conv, Visc); CHKERRQ(ierr);
-
-    // 5. Convert Cartesian RHS (Rc) to Contravariant RHS (Rct)
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Converting Cartesian RHS to Contravariant RHS...\n");
-    ierr = DMDAVecGetArray(fda, Rct, &rct); CHKERRQ(ierr);
-    ierr = DMDAVecGetArray(fda, Rc, &rc); CHKERRQ(ierr);
-    
-    for (k = lzs; k < lze; k++) {
-        for (j = lys; j < lye; j++) {
-            for (i = lxs; i < lxe; i++) {
+    PROFILE_FUNCTION_BEGIN;
+    RHSInteriorBounds(&user->info, lo, hi);
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCsi, (void *)&csi));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lEta, (void *)&eta));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lZet, (void *)&zet));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lAj, (void *)&aj));
+    PetscCall(DMDAVecGetArrayRead(user->fda, Conv, (void *)&conv));
+    PetscCall(DMDAVecGetArrayRead(user->fda, Visc, (void *)&visc));
+    PetscCall(DMDAVecGetArray(user->fda, Rct, &rct));
+    for (PetscInt k = lo[2]; k < hi[2]; k++) {
+        for (PetscInt j = lo[1]; j < hi[1]; j++) {
+            for (PetscInt i = lo[0]; i < hi[0]; i++) {
+                const Cmpnts rc = {visc[k][j][i].x - conv[k][j][i].x,
+                                   visc[k][j][i].y - conv[k][j][i].y,
+                                   visc[k][j][i].z - conv[k][j][i].z};
                 rct[k][j][i].x = aj[k][j][i] *
-                    (0.5 * (csi[k][j][i].x + csi[k][j][i-1].x) * rc[k][j][i].x +
-                     0.5 * (csi[k][j][i].y + csi[k][j][i-1].y) * rc[k][j][i].y +
-                     0.5 * (csi[k][j][i].z + csi[k][j][i-1].z) * rc[k][j][i].z);
+                    (0.5 * (csi[k][j][i].x + csi[k][j][i-1].x) * rc.x +
+                     0.5 * (csi[k][j][i].y + csi[k][j][i-1].y) * rc.y +
+                     0.5 * (csi[k][j][i].z + csi[k][j][i-1].z) * rc.z);
                 rct[k][j][i].y = aj[k][j][i] *
-                    (0.5 * (eta[k][j][i].x + eta[k][j-1][i].x) * rc[k][j][i].x +
-                     0.5 * (eta[k][j][i].y + eta[k][j-1][i].y) * rc[k][j][i].y +
-                     0.5 * (eta[k][j][i].z + eta[k][j-1][i].z) * rc[k][j][i].z);
+                    (0.5 * (eta[k][j][i].x + eta[k][j-1][i].x) * rc.x +
+                     0.5 * (eta[k][j][i].y + eta[k][j-1][i].y) * rc.y +
+                     0.5 * (eta[k][j][i].z + eta[k][j-1][i].z) * rc.z);
                 rct[k][j][i].z = aj[k][j][i] *
-                    (0.5 * (zet[k][j][i].x + zet[k-1][j][i].x) * rc[k][j][i].x +
-                     0.5 * (zet[k][j][i].y + zet[k-1][j][i].y) * rc[k][j][i].y +
-                     0.5 * (zet[k][j][i].z + zet[k-1][j][i].z) * rc[k][j][i].z);
+                    (0.5 * (zet[k][j][i].x + zet[k-1][j][i].x) * rc.x +
+                     0.5 * (zet[k][j][i].y + zet[k-1][j][i].y) * rc.y +
+                     0.5 * (zet[k][j][i].z + zet[k-1][j][i].z) * rc.z);
             }
         }
     }
-    ierr = DMDAVecRestoreArray(fda, Rct, &rct); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArray(fda, Rc, &rc); CHKERRQ(ierr);
+    PetscCall(DMDAVecRestoreArray(user->fda, Rct, &rct));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, Visc, (void *)&visc));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, Conv, (void *)&conv));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lAj, (void *)&aj));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lZet, (void *)&zet));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lEta, (void *)&eta));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCsi, (void *)&csi));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
 
-    PetscBarrier(NULL);
+/**
+ * @brief Face residual from the ghosted cell-centre terms: the average of @p Rct over the two
+ *        cells beside each face, less the pressure-gradient flux through it.
+ *
+ * The flux is the projection's face gradient (PoissonOperator_FaceGradientFlux()) applied to
+ * `P`. Every interior face is set, and on a periodic axis also the seam face at index 0.
+ */
+static PetscErrorCode RHSFaceTermsWithPressureGradient(UserCtx *user, Vec Rct, Vec Rhs)
+{
+    const DMDALocalInfo *info = &user->info;
+    const PetscInt       m[3] = {info->mx, info->my, info->mz};
+    const PetscInt       start[3] = {info->xs, info->ys, info->zs};
+    PetscBool            periodic[3];
+    PetscInt             interior_lo[3], interior_hi[3];
+    PoissonFaceMetrics   metrics;
+    const PetscReal   ***nvert, ***p;
+    const Cmpnts      ***rct;
+    Cmpnts            ***rhs;
 
-	// Compute and Add Body Force term if applicable.
-	ierr = ComputeBodyForces(user,Rct); CHKERRQ(ierr);
-    ierr = SynchronizePeriodicLocalStaggeredField(user, Rct); CHKERRQ(ierr);
-    
-    // 6. Add Pressure Gradient Term and Finalize RHS
-    // This involves calculating pressure derivatives (dpdc, dpde, dpdz) and using
-    // them to adjust the contravariant RHS. The full stencil logic is preserved.
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    RHSInteriorBounds(info, interior_lo, interior_hi);
+    PoissonOperator_PeriodicAxes(user, periodic);
+    PetscCall(PoissonOperator_GetFaceMetrics(user, &metrics));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lP, (void *)&p));
+    PetscCall(DMDAVecGetArrayRead(user->fda, Rct, (void *)&rct));
+    PetscCall(DMDAVecGetArray(user->fda, Rhs, &rhs));
+    for (PetscInt n = 0; n < 3; n++) {
+        PetscInt lo[3] = {interior_lo[0], interior_lo[1], interior_lo[2]};
+        PetscInt across[3] = {0, 0, 0};
+
+        if (periodic[n] && start[n] == 0) lo[n] = 0;
+        across[n] = 1;
+        for (PetscInt k = lo[2]; k < interior_hi[2]; k++) {
+            for (PetscInt j = lo[1]; j < interior_hi[1]; j++) {
+                for (PetscInt i = lo[0]; i < interior_hi[0]; i++) {
+                    const PetscInt   c[3] = {i, j, k};
+                    const PetscReal *own = &rct[k][j][i].x;
+                    const PetscReal *next = &rct[k + across[2]][j + across[1]][i + across[0]].x;
+
+                    (&rhs[k][j][i].x)[n] = 0.5 * (own[n] + next[n]) -
+                        PoissonOperator_FaceGradientFlux(&metrics, nvert, p, c, n, m, periodic);
+                }
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, Rhs, &rhs));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, Rct, (void *)&rct));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lP, (void *)&p));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(PoissonOperator_RestoreFaceMetrics(user, &metrics));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Zeroes the residual rows that carry no unknown: the component a 2D run disables, every
+ *        component of a solid cell, and each face component whose far cell is solid.
+ */
+static PetscErrorCode RHSZeroInactiveRows(UserCtx *user, Vec Rhs)
+{
+    const PetscInt     two_d = user->simCtx->TwoD;
+    PetscInt           lo[3], hi[3];
+    const PetscReal ***nvert;
+    Cmpnts          ***rhs;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    RHSInteriorBounds(&user->info, lo, hi);
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecGetArray(user->fda, Rhs, &rhs));
+    for (PetscInt k = lo[2]; k < hi[2]; k++) {
+        for (PetscInt j = lo[1]; j < hi[1]; j++) {
+            for (PetscInt i = lo[0]; i < hi[0]; i++) {
+                if (two_d == 1)      rhs[k][j][i].x = 0.0;
+                else if (two_d == 2) rhs[k][j][i].y = 0.0;
+                else if (two_d == 3) rhs[k][j][i].z = 0.0;
+                if (nvert[k][j][i] > 0.1) {
+                    rhs[k][j][i].x = 0.0; rhs[k][j][i].y = 0.0; rhs[k][j][i].z = 0.0;
+                }
+                if (nvert[k][j][i+1] > 0.1) rhs[k][j][i].x = 0.0;
+                if (nvert[k][j+1][i] > 0.1) rhs[k][j][i].y = 0.0;
+                if (nvert[k+1][j][i] > 0.1) rhs[k][j][i].z = 0.0;
+            }
+        }
+    }
+    PetscCall(DMDAVecRestoreArray(user->fda, Rhs, &rhs));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief Implementation of \ref ComputeRHS().
+ * @details Full API contract (arguments, ownership, side effects) is documented with
+ *          the header declaration in `include/rhs.h`.
+ * @see ComputeRHS()
+ */
+PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
+{
+    const FieldId cell_fields[] = {FIELD_ID_UCAT};
+    Vec           Conv, Visc, Rct;
+
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %" PetscInt_FMT ": Computing RHS (FormFunction1)...\n",
+              user->simCtx->rank, user->_this);
+    /* Work vectors from fda's pool, zeroed as fresh vectors would be: the residual is evaluated
+       many times per step, and allocating them each time costs more than the zeroing. */
+    PetscCall(DMGetLocalVector(user->fda, &Conv)); PetscCall(VecZeroEntries(Conv));
+    PetscCall(DMGetLocalVector(user->fda, &Visc)); PetscCall(VecZeroEntries(Visc));
+    PetscCall(DMGetLocalVector(user->fda, &Rct));  PetscCall(VecZeroEntries(Rct));
+
+    /* Cartesian velocity, with its periodic copies and ghosts, from the contravariant flux. */
+    PetscCall(Contra2Cart(user));
+    PetscCall(SynchronizePeriodicCellFields(user, 1, cell_fields));
+    PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
+
+    /* Spatial terms in Cartesian components at cell centres, then contravariant. */
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Calculating convective terms...\n");
+    PetscCall(Convection(user, user->lUcont, user->lUcat, Conv));
+    if (!user->simCtx->invicid) {
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "  Calculating viscous terms...\n");
+        PetscCall(Viscous(user, user->lUcont, user->lUcat, Visc));
+    }
+    LOG_ALLOW(LOCAL, LOG_DEBUG, "  Converting Cartesian RHS to Contravariant RHS...\n");
+    PetscCall(RHSContravariantSpatialTerms(user, Conv, Visc, Rct));
+    PetscCall(ComputeBodyForces(user, Rct));
+    PetscCall(SynchronizePeriodicLocalStaggeredField(user, Rct));
+
+    /* Face residual: averaged spatial terms less the pressure gradient, then inactive rows. */
     LOG_ALLOW(LOCAL, LOG_DEBUG, "  Adding pressure gradient term to RHS...\n");
-    
-    ierr = DMDAVecGetArray(fda, Rct, &rct); CHKERRQ(ierr);
+    PetscCall(RHSFaceTermsWithPressureGradient(user, Rct, Rhs));
+    PetscCall(RHSZeroInactiveRows(user, Rhs));
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Final cleanup and edge-cases complete .\n");
 
-    for (k = lzs; k < lze; k++) {
-        for (j = lys; j < lye; j++) {
-            for (i = lxs; i < lxe; i++) {
-                PetscReal dpdc = 0.0, dpde = 0.0, dpdz = 0.0;
-	dpdc = p[k][j][i+1] - p[k][j][i];
-
-	if ((j==my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
-	    dpde = (p[k][j  ][i] + p[k][j  ][i+1] -
-		    p[k][j-1][i] - p[k][j-1][i+1]) * 0.5;
-	  }
-	}
-	else if ((j==my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1) {
-	    dpde = (p[k][j  ][i] + p[k][j  ][i+1] -
-		    p[k][j-1][i] - p[k][j-1][i+1]) * 0.5;
-	  }
-	}
-	else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) || nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
-	  if (nvert[k][j+1][i] + nvert[k][j+1][i+1] < 0.1) {
-	    dpde = (p[k][j+1][i] + p[k][j+1][i+1] -
-		    p[k][j  ][i] - p[k][j  ][i+1]) * 0.5;
-	  }
-	}
-	else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
-	  if (nvert[k][j+1][i] + nvert[k][j+1][i+1] < 0.1) {
-	    dpde = (p[k][j+1][i] + p[k][j+1][i+1] -
-		    p[k][j  ][i] - p[k][j  ][i+1]) * 0.5;
-	  }
-	}
-	else {
-	  dpde = (p[k][j+1][i] + p[k][j+1][i+1] -
-		  p[k][j-1][i] - p[k][j-1][i+1]) * 0.25;
-	}
-
-	if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) || nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) {
-	    dpdz = (p[k  ][j][i] + p[k  ][j][i+1] -
-		    p[k-1][j][i] - p[k-1][j][i+1]) * 0.5;
-	  }
-	}
-	else  if ((k == mz-2 || k==1) &&  user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1) {
-	    dpdz = (p[k  ][j][i] + p[k  ][j][i+1] -
-		    p[k-1][j][i] - p[k-1][j][i+1]) * 0.5;
-	  }
-	}
-	else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
-	  if (nvert[k+1][j][i] + nvert[k+1][j][i+1] < 0.1) {
-	    dpdz = (p[k+1][j][i] + p[k+1][j][i+1] -
-		    p[k  ][j][i] - p[k  ][j][i+1]) * 0.5;
-	  }
-	}
-	else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
-	  if (nvert[k+1][j][i] + nvert[k+1][j][i+1] < 0.1) {
-	    dpdz = (p[k+1][j][i] + p[k+1][j][i+1] -
-		    p[k  ][j][i] - p[k  ][j][i+1]) * 0.5;
-	  }
-	}
-	else {
-	  dpdz = (p[k+1][j][i] + p[k+1][j][i+1] -
-		  p[k-1][j][i] - p[k-1][j][i+1]) * 0.25;
-	}
-	    
-	rhs[k][j][i].x =0.5 * (rct[k][j][i].x + rct[k][j][i+1].x);
-	
-	
-	rhs[k][j][i].x -=
-	  (dpdc * (icsi[k][j][i].x * icsi[k][j][i].x +
-		   icsi[k][j][i].y * icsi[k][j][i].y +
-		   icsi[k][j][i].z * icsi[k][j][i].z)+
-	   dpde * (ieta[k][j][i].x * icsi[k][j][i].x +
-		   ieta[k][j][i].y * icsi[k][j][i].y +
-		   ieta[k][j][i].z * icsi[k][j][i].z)+
-	   dpdz * (izet[k][j][i].x * icsi[k][j][i].x +
-		   izet[k][j][i].y * icsi[k][j][i].y +
-		   izet[k][j][i].z * icsi[k][j][i].z)) * iaj[k][j][i];
-
-	if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC) || nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
-	    dpdc = (p[k][j][i  ] + p[k][j+1][i  ] -
-		    p[k][j][i-1] - p[k][j+1][i-1]) * 0.5;
-	  }
-	}
-	else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1) {
-	    dpdc = (p[k][j][i  ] + p[k][j+1][i  ] -
-		    p[k][j][i-1] - p[k][j+1][i-1]) * 0.5;
-	  }
-	}
-	else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
-	  if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) {
-	    dpdc = (p[k][j][i+1] + p[k][j+1][i+1] -
-		    p[k][j][i  ] - p[k][j+1][i  ]) * 0.5;
-	  }
-	}
-	else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
-	  if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) {
-	    dpdc = (p[k][j][i+1] + p[k][j+1][i+1] -
-		    p[k][j][i] - p[k][j+1][i]) * 0.5;
-	  }
-	}
-	else {
-	  dpdc = (p[k][j][i+1] + p[k][j+1][i+1] -
-		  p[k][j][i-1] - p[k][j+1][i-1]) * 0.25;
-	}
-	
-	dpde = p[k][j+1][i] - p[k][j][i];
-	
-	if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) {
-	    dpdz = (p[k  ][j][i] + p[k  ][j+1][i] -
-		    p[k-1][j][i] - p[k-1][j+1][i]) * 0.5;
-	  }
-	}
-	else if ((k == mz-2 || k==1) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1) {
-	    dpdz = (p[k  ][j][i] + p[k  ][j+1][i] -
-		    p[k-1][j][i] - p[k-1][j+1][i]) * 0.5;
-	  }
-	}
-	else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
-	  if (nvert[k+1][j][i] + nvert[k+1][j+1][i] < 0.1) {
-	    dpdz = (p[k+1][j][i] + p[k+1][j+1][i] -
-		    p[k  ][j][i] - p[k  ][j+1][i]) * 0.5;
-	  }
-	}
-	else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
-	  if (nvert[k+1][j][i] + nvert[k+1][j+1][i] < 0.1) {
-	    dpdz = (p[k+1][j][i] + p[k+1][j+1][i] -
-		    p[k  ][j][i] - p[k  ][j+1][i]) * 0.5;
-	  }
-	}
-	else {
-	  dpdz = (p[k+1][j][i] + p[k+1][j+1][i] -
-		  p[k-1][j][i] - p[k-1][j+1][i]) * 0.25;
-	}
-
-	rhs[k][j][i].y =0.5 * (rct[k][j][i].y + rct[k][j+1][i].y);
-	  
-	  
-	rhs[k][j][i].y -=
-	  (dpdc * (jcsi[k][j][i].x * jeta[k][j][i].x +
-		   jcsi[k][j][i].y * jeta[k][j][i].y +
-		   jcsi[k][j][i].z * jeta[k][j][i].z) +
-	   dpde * (jeta[k][j][i].x * jeta[k][j][i].x +
-		   jeta[k][j][i].y * jeta[k][j][i].y +
-		   jeta[k][j][i].z * jeta[k][j][i].z) +
-	   dpdz * (jzet[k][j][i].x * jeta[k][j][i].x +
-		   jzet[k][j][i].y * jeta[k][j][i].y +
-		   jzet[k][j][i].z * jeta[k][j][i].z)) * jaj[k][j][i];
-
-	if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
-	    dpdc = (p[k][j][i  ] + p[k+1][j][i  ] -
-		    p[k][j][i-1] - p[k+1][j][i-1]) * 0.5;
-	  }
-	}
-	else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1) {
-	    dpdc = (p[k][j][i  ] + p[k+1][j][i  ] -
-		    p[k][j][i-1] - p[k+1][j][i-1]) * 0.5;
-	  }
-	}
-	else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
-	  if (nvert[k][j][i+1] + nvert[k+1][j][i+1] < 0.1) {
-	    dpdc = (p[k][j][i+1] + p[k+1][j][i+1] -
-		    p[k][j][i  ] - p[k+1][j][i  ]) * 0.5;
-	  }
-	}
-	else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
-	  if (nvert[k][j][i+1] + nvert[k+1][j][i+1] < 0.1) {
-	    dpdc = (p[k][j][i+1] + p[k+1][j][i+1] -
-		    p[k][j][i  ] - p[k+1][j][i  ]) * 0.5;
-	  }
-	}
-	else {
-	  dpdc = (p[k][j][i+1] + p[k+1][j][i+1] -
-		  p[k][j][i-1] - p[k+1][j][i-1]) * 0.25;
-	}
-
-	if ((j == my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
-	    dpde = (p[k][j  ][i] + p[k+1][j  ][i] -
-		    p[k][j-1][i] - p[k+1][j-1][i]) * 0.5;
-	  }
-	}
-	else  if ((j == my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1) {
-	    dpde = (p[k][j  ][i] + p[k+1][j  ][i] -
-		    p[k][j-1][i] - p[k+1][j-1][i]) * 0.5;
-	  }
-	}
-	else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
-	  if (nvert[k][j+1][i] + nvert[k+1][j+1][i] < 0.1) {
-	    dpde = (p[k][j+1][i] + p[k+1][j+1][i] -
-		    p[k][j  ][i] - p[k+1][j  ][i]) * 0.5;
-	  }
-	}
-	else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
-	  if (nvert[k][j+1][i] + nvert[k+1][j+1][i] < 0.1) {
-	    dpde = (p[k][j+1][i] + p[k+1][j+1][i] -
-		    p[k][j  ][i] - p[k+1][j  ][i]) * 0.5;
-	  }
-	}
-	else {
-	  dpde = (p[k][j+1][i] + p[k+1][j+1][i] -
-		  p[k][j-1][i] - p[k+1][j-1][i]) * 0.25;
-	}
-
-	dpdz = (p[k+1][j][i] - p[k][j][i]);
-	
-	rhs[k][j][i].z =0.5 * (rct[k][j][i].z + rct[k+1][j][i].z);
-	
-	rhs[k][j][i].z -=
-	  (dpdc * (kcsi[k][j][i].x * kzet[k][j][i].x +
-		   kcsi[k][j][i].y * kzet[k][j][i].y +
-		   kcsi[k][j][i].z * kzet[k][j][i].z) +
-	   dpde * (keta[k][j][i].x * kzet[k][j][i].x +
-		   keta[k][j][i].y * kzet[k][j][i].y +
-		   keta[k][j][i].z * kzet[k][j][i].z) +
-	   dpdz * (kzet[k][j][i].x * kzet[k][j][i].x +
-		   kzet[k][j][i].y * kzet[k][j][i].y +
-		   kzet[k][j][i].z * kzet[k][j][i].z)) * kaj[k][j][i];
-	
-      }
-    }
-  }
-  
-  
-  //Mohsen March 2012//
-  
-  // rhs.x at boundaries for periodic bc at i direction//
-  if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && xs==0){
-    for (k=lzs; k<lze; k++) {
-      for (j=lys; j<lye; j++) {	  
-	i=xs;
-	PetscReal dpdc = 0.0, dpde = 0.0, dpdz = 0.0;
-
-	dpdc = p[k][j][i+1] - p[k][j][i];
-	
-	if ((j==my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
-	    dpde = (p[k][j  ][i] + p[k][j  ][i+1] -
-		    p[k][j-1][i] - p[k][j-1][i+1]) * 0.5;
-	  }
-	}
-	else if ((j==my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i]+nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k][j-1][i+1] < 0.1) {
-	    dpde = (p[k][j  ][i] + p[k][j  ][i+1] -
-		    p[k][j-1][i] - p[k][j-1][i+1]) * 0.5;
-	  }
-	}
-	else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC) || nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
-	  if (nvert[k][j+1][i] + nvert[k][j+1][i+1] < 0.1) {
-	    dpde = (p[k][j+1][i] + p[k][j+1][i+1] -
-		    p[k][j  ][i] - p[k][j  ][i+1]) * 0.5;
-	  }
-	}
-	else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k][j-1][i+1] > 0.1) {
-	  if (nvert[k][j+1][i] + nvert[k][j+1][i+1] < 0.1) {
-	    dpde = (p[k][j+1][i] + p[k][j+1][i+1] -
-		    p[k][j  ][i] - p[k][j  ][i+1]) * 0.5;
-	  }
-	}
-	else {
-	  dpde = (p[k][j+1][i] + p[k][j+1][i+1] -
-		  p[k][j-1][i] - p[k][j-1][i+1]) * 0.25;
-	}
-
-	if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC) || nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) {
-	    dpdz = (p[k  ][j][i] + p[k  ][j][i+1] -
-		    p[k-1][j][i] - p[k-1][j][i+1]) * 0.5;
-	  }
-	}
-	else  if ((k == mz-2 || k==1) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j][i+1] < 0.1) {
-	    dpdz = (p[k  ][j][i] + p[k  ][j][i+1] -
-		    p[k-1][j][i] - p[k-1][j][i+1]) * 0.5;
-	  }
-	}
-	else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
-	  if (nvert[k+1][j][i] + nvert[k+1][j][i+1] < 0.1) {
-	    dpdz = (p[k+1][j][i] + p[k+1][j][i+1] -
-		    p[k  ][j][i] - p[k  ][j][i+1]) * 0.5;
-	  }
-	}
-	else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j][i+1] > 0.1) {
-	  if (nvert[k+1][j][i] + nvert[k+1][j][i+1] < 0.1) {
-	    dpdz = (p[k+1][j][i] + p[k+1][j][i+1] -
-		    p[k  ][j][i] - p[k  ][j][i+1]) * 0.5;
-	  }
-	}
-	else {
-	  dpdz = (p[k+1][j][i] + p[k+1][j][i+1] -
-		  p[k-1][j][i] - p[k-1][j][i+1]) * 0.25;
-	}
-
-	rhs[k][j][i].x =0.5 * (rct[k][j][i].x + rct[k][j][i+1].x);
-	rhs[k][j][i].x -=
-	  (dpdc * (icsi[k][j][i].x * icsi[k][j][i].x +
-		   icsi[k][j][i].y * icsi[k][j][i].y +
-		   icsi[k][j][i].z * icsi[k][j][i].z)+
-	   dpde * (ieta[k][j][i].x * icsi[k][j][i].x +
-		   ieta[k][j][i].y * icsi[k][j][i].y +
-		   ieta[k][j][i].z * icsi[k][j][i].z)+
-	   dpdz * (izet[k][j][i].x * icsi[k][j][i].x +
-		   izet[k][j][i].y * icsi[k][j][i].y +
-		   izet[k][j][i].z * icsi[k][j][i].z)) * iaj[k][j][i];
-      }
-    }
-  }
-  
-// rhs.y at boundaries for periodic bc at j direction//
-  if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && ys==0){
-    for (k=lzs; k<lze; k++) {
-      for (i=lxs; i<lxe; i++) {	  
-
-	j=ys;
-	PetscReal dpdc = 0.0, dpde = 0.0, dpdz = 0.0;
-
-	if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC) || nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
-	    dpdc = (p[k][j][i  ] + p[k][j+1][i  ] -
-		    p[k][j][i-1] - p[k][j+1][i-1]) * 0.5;
-	  }
-	}
-	else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k][j+1][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k][j+1][i-1] < 0.1) {
-	    dpdc = (p[k][j][i  ] + p[k][j+1][i  ] -
-		    p[k][j][i-1] - p[k][j+1][i-1]) * 0.5;
-	  }
-	}
-	else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
-	  if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) {
-	    dpdc = (p[k][j][i+1] + p[k][j+1][i+1] -
-		    p[k][j][i  ] - p[k][j+1][i  ]) * 0.5;
-	  }
-	}
-	else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k][j+1][i-1] > 0.1) {
-	  if (nvert[k][j][i+1] + nvert[k][j+1][i+1] < 0.1) {
-	    dpdc = (p[k][j][i+1] + p[k][j+1][i+1] -
-		    p[k][j][i  ] - p[k][j+1][i  ]) * 0.5;
-	  }
-	}
-	else {
-	  dpdc = (p[k][j][i+1] + p[k][j+1][i+1] -
-		  p[k][j][i-1] - p[k][j+1][i-1]) * 0.25;
-	}
-
-	dpde = p[k][j+1][i] - p[k][j][i];
-
-	if ((k == mz-2 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1 && (k!=1 || (k==1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC))) {
-	    dpdz = (p[k  ][j][i] + p[k  ][j+1][i] -
-		    p[k-1][j][i] - p[k-1][j+1][i]) * 0.5;
-	  }
-	}
-	else if ((k == mz-2 || k==1 ) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k+1][j][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k-1][j][i] + nvert[k-1][j+1][i] < 0.1) {
-	    dpdz = (p[k  ][j][i] + p[k  ][j+1][i] -
-		    p[k-1][j][i] - p[k-1][j+1][i]) * 0.5;
-	  }
-	}
-	else if ((k == 1 && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type != PERIODIC)|| nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
-	  if (nvert[k+1][j][i] + nvert[k+1][j+1][i] < 0.1) {
-	    dpdz = (p[k+1][j][i] + p[k+1][j+1][i] -
-		    p[k  ][j][i] - p[k  ][j+1][i]) * 0.5;
-	  }
-	}
-	else if ((k == 1 || k==mz-2) && user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && nvert[k-1][j][i] + nvert[k-1][j+1][i] > 0.1) {
-	  if (nvert[k+1][j][i] + nvert[k+1][j+1][i] < 0.1) {
-	    dpdz = (p[k+1][j][i] + p[k+1][j+1][i] -
-		    p[k  ][j][i] - p[k  ][j+1][i]) * 0.5;
-	  }
-	}
-	else {
-	  dpdz = (p[k+1][j][i] + p[k+1][j+1][i] -
-		  p[k-1][j][i] - p[k-1][j+1][i]) * 0.25;
-	}
-
-	rhs[k][j][i].y =0.5 * (rct[k][j][i].y + rct[k][j+1][i].y);
-	 
-       	rhs[k][j][i].y -=
-	  (dpdc * (jcsi[k][j][i].x * jeta[k][j][i].x +
-		   jcsi[k][j][i].y * jeta[k][j][i].y +
-		   jcsi[k][j][i].z * jeta[k][j][i].z)+
-	   dpde * (jeta[k][j][i].x * jeta[k][j][i].x +
-		   jeta[k][j][i].y * jeta[k][j][i].y +
-		   jeta[k][j][i].z * jeta[k][j][i].z)+
-	   dpdz * (jzet[k][j][i].x * jeta[k][j][i].x +
-		   jzet[k][j][i].y * jeta[k][j][i].y +
-		   jzet[k][j][i].z * jeta[k][j][i].z)) * jaj[k][j][i];
-
-      }
-    }
-  }
-  
-  // rhs.z at boundaries for periodic bc at k direction//
-  if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC&& zs==0){
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-
-	k=zs; 
-	PetscReal dpdc = 0.0, dpde = 0.0, dpdz = 0.0;
-
-	if ((i == mx-2 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1 && (i!=1 || (i==1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC))) {
-	    dpdc = (p[k][j][i  ] + p[k+1][j][i  ] -
-		    p[k][j][i-1] - p[k+1][j][i-1]) * 0.5;
-	  }
-	}
-	else if ((i == mx-2 || i==1) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i+1] + nvert[k+1][j][i+1] > 0.1) {
-	  if (nvert[k][j][i-1] + nvert[k+1][j][i-1] < 0.1) {
-	    dpdc = (p[k][j][i  ] + p[k+1][j][i  ] -
-		    p[k][j][i-1] - p[k+1][j][i-1]) * 0.5;
-	  }
-	}
-	else if ((i == 1 && user->boundary_faces[BC_FACE_NEG_X].mathematical_type != PERIODIC)|| nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
-	  if (nvert[k][j][i+1] + nvert[k+1][j][i+1] < 0.1) {
-	    dpdc = (p[k][j][i+1] + p[k+1][j][i+1] -
-		    p[k][j][i  ] - p[k+1][j][i  ]) * 0.5;
-	  }
-	}
-	else if ((i == 1 || i==mx-2) && user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && nvert[k][j][i-1] + nvert[k+1][j][i-1] > 0.1) {
-	  if (nvert[k][j][i+1] + nvert[k+1][j][i+1] < 0.1) {
-	    dpdc = (p[k][j][i+1] + p[k+1][j][i+1] -
-		    p[k][j][i  ] - p[k+1][j][i  ]) * 0.5;
-	  }
-	}
-	else {
-	  dpdc = (p[k][j][i+1] + p[k+1][j][i+1] -
-		  p[k][j][i-1] - p[k+1][j][i-1]) * 0.25;
-	}
-
-	if ((j == my-2 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1 && (j!=1 || (j==1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC))) {
-	    dpde = (p[k][j  ][i] + p[k+1][j  ][i] -
-		    p[k][j-1][i] - p[k+1][j-1][i]) * 0.5;
-	  }
-	}
-	else  if ((j == my-2 || j==1) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j+1][i] + nvert[k+1][j+1][i] > 0.1) {
-	  if (nvert[k][j-1][i] + nvert[k+1][j-1][i] < 0.1) {
-	    dpde = (p[k][j  ][i] + p[k+1][j  ][i] -
-		    p[k][j-1][i] - p[k+1][j-1][i]) * 0.5;
-	  }
-	}
-	else if ((j == 1 && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type != PERIODIC)|| nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
-	  if (nvert[k][j+1][i] + nvert[k+1][j+1][i] < 0.1) {
-	    dpde = (p[k][j+1][i] + p[k+1][j+1][i] -
-		    p[k][j  ][i] - p[k+1][j  ][i]) * 0.5;
-	  }
-	}
-	else if ((j == 1 || j==my-2) && user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && nvert[k][j-1][i] + nvert[k+1][j-1][i] > 0.1) {
-	  if (nvert[k][j+1][i] + nvert[k+1][j+1][i] < 0.1) {
-	    dpde = (p[k][j+1][i] + p[k+1][j+1][i] -
-		    p[k][j  ][i] - p[k+1][j  ][i]) * 0.5;
-	  }
-	}
-	else {
-	  dpde = (p[k][j+1][i] + p[k+1][j+1][i] -
-		  p[k][j-1][i] - p[k+1][j-1][i]) * 0.25;
-	}
-
-	dpdz = (p[k+1][j][i] - p[k][j][i]);
-	
-	rhs[k][j][i].z =0.5 * (rct[k][j][i].z + rct[k+1][j][i].z);
-	
-	rhs[k][j][i].z -=
-	  (dpdc * (kcsi[k][j][i].x * kzet[k][j][i].x +
-		   kcsi[k][j][i].y * kzet[k][j][i].y +
-		   kcsi[k][j][i].z * kzet[k][j][i].z)+
-	   dpde * (keta[k][j][i].x * kzet[k][j][i].x +
-		   keta[k][j][i].y * kzet[k][j][i].y +
-		   keta[k][j][i].z * kzet[k][j][i].z)+
-	   dpdz * (kzet[k][j][i].x * kzet[k][j][i].x +
-		   kzet[k][j][i].y * kzet[k][j][i].y +
-		   kzet[k][j][i].z * kzet[k][j][i].z)) * kaj[k][j][i];
-	
-      }
-    }
-  }
-    
-    ierr = DMDAVecRestoreArray(fda, Rct, &rct); CHKERRQ(ierr);
-
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Pressure Gradient added to RHS .\n");
-    PetscInt TwoD = simCtx->TwoD;
-
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Final cleanup and edge-cases initiated .\n");
-    
-    // 7. Final clean-up for immersed boundaries and 2D cases
-      for (k=lzs; k<lze; k++) {
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	if (TwoD==1)
-	  rhs[k][j][i].x =0.;
-	else if (TwoD==2)
-	  rhs[k][j][i].y =0.;
-	else if (TwoD==3)
-	  rhs[k][j][i].z =0.;
-	
-	if (nvert[k][j][i]>0.1) {
-	  rhs[k][j][i].x = 0;
-	  rhs[k][j][i].y = 0;
-	  rhs[k][j][i].z = 0;
-	}
-	if (nvert[k][j][i+1]>0.1) {
-	  rhs[k][j][i].x=0;
-	}
-	if (nvert[k][j+1][i]>0.1) {
-	  rhs[k][j][i].y=0;
-	}
-	if (nvert[k+1][j][i]>0.1) {
-	  rhs[k][j][i].z=0;
-	}
-      }
-    }
-  }
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Final cleanup and edge-cases complete .\n");
-
-      // ========================================================================
-
-    // --- Restore all PETSc array pointers ---
-    // DMDAVecRestoreArray(fda, user->lUcont, &ucont);   
-    ierr = DMDAVecRestoreArray(fda, Rhs, &rhs); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Rhs restored successfully! .\n");
-    
-    ierr = DMDAVecRestoreArrayRead(fda, user->lCsi, &csi); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(fda, user->lEta, &eta); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(fda, user->lZet, &zet); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(da,  user->lAj,  &aj);  CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Face metrics restored successfully! .\n");
-    
-    ierr = DMDAVecRestoreArrayRead(fda, user->lICsi, &icsi); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(fda, user->lIEta, &ieta); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(fda, user->lIZet, &izet); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(da, user->lIAj, &iaj); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"I Face metrics restored successfully! .\n");
-    
-    ierr = DMDAVecRestoreArrayRead(fda, user->lJCsi, &jcsi); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(fda, user->lJEta, &jeta); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(fda, user->lJZet, &jzet); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(da, user->lJAj, &jaj); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"J Face metrics restored successfully! .\n");
-  
-    ierr = DMDAVecRestoreArrayRead(fda, user->lKCsi, &kcsi); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(fda, user->lKEta, &keta); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(fda, user->lKZet, &kzet); CHKERRQ(ierr);
-    ierr = DMDAVecRestoreArrayRead(da, user->lKAj, &kaj); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"K Face metrics restored successfully! .\n");
-  
-    ierr = DMDAVecRestoreArrayRead(da, user->lP, &p); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Pressure restored successfully! .\n");
-
-    ierr = DMDAVecRestoreArrayRead(da, user->lNvert, &nvert); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Nvert restored successfully! .\n");
-
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Cell Centered scalars restored successfully! .\n");
-    
-    // --- Destroy temporary work vectors ---
-    ierr = DMRestoreLocalVector(fda, &Conv); CHKERRQ(ierr);
-    ierr = DMRestoreLocalVector(fda, &Visc); CHKERRQ(ierr);
-    ierr = DMRestoreLocalVector(fda, &Rc); CHKERRQ(ierr);
-    ierr = DMRestoreLocalVector(fda, &Rct); CHKERRQ(ierr);
-    LOG_ALLOW(GLOBAL,LOG_DEBUG,"Temporary work vectors destroyed successfully! .\n");
-    
+    PetscCall(DMRestoreLocalVector(user->fda, &Rct));
+    PetscCall(DMRestoreLocalVector(user->fda, &Visc));
+    PetscCall(DMRestoreLocalVector(user->fda, &Conv));
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %" PetscInt_FMT ": RHS computation complete.\n",
-              simCtx->rank, user->_this);
-
-	PROFILE_FUNCTION_END;		  
+              user->simCtx->rank, user->_this);
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
