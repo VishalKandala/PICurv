@@ -62,15 +62,43 @@ typedef struct {
  * @param[in] d     Displacement (di, dj, dk).
  * @return The value at `c + d`.
  */
-static inline PetscReal PoissonOperator_At(const PetscReal ***field, const PetscInt c[3],
+static PICURV_ALWAYS_INLINE PetscReal PoissonOperator_At(const PetscReal ***field, const PetscInt c[3],
                                           const PetscInt d[3])
 {
     return field[c[2] + d[2]][c[1] + d[1]][c[0] + d[0]];
 }
 
+/** @brief The transverse stencils a face gradient can use; see PoissonOperator_TransverseKind(). */
+typedef enum {
+    POISSON_TRANSVERSE_NONE = 0,  /**< Neither side available: the transverse term vanishes. */
+    POISSON_TRANSVERSE_LOWER,     /**< One-sided over rows -1 and 0, weight 0.5. */
+    POISSON_TRANSVERSE_UPPER,     /**< One-sided over rows 0 and +1, weight 0.5. */
+    POISSON_TRANSVERSE_CENTRAL    /**< Central over rows -1 and +1, weight 0.25. */
+} PoissonTransverseKind;
+
 /**
- * @brief Chooses the transverse difference along axis @p t at the face between cell
- *        @p c and `c + e_n`.
+ * @brief Value of a cell-centred array at `c + p e_b + q e_n`.
+ *
+ * With @p b, @p n, @p p and @p q constants every offset is a constant, so the per-face stencils
+ * below compile to straight-line loads.
+ *
+ * @param[in] field Ghosted cell-centred array, indexed [k][j][i].
+ * @param[in] c     Cell (i, j, k).
+ * @param[in] b     First axis.
+ * @param[in] p     Displacement along @p b.
+ * @param[in] n     Second axis.
+ * @param[in] q     Displacement along @p n.
+ * @return The value at the displaced cell.
+ */
+static PICURV_ALWAYS_INLINE PetscReal PoissonOperator_AtBN(const PetscReal ***field, const PetscInt c[3],
+                                                           PetscInt b, PetscInt p, PetscInt n, PetscInt q)
+{
+    return field[c[2] + (b == 2) * p + (n == 2) * q][c[1] + (b == 1) * p + (n == 1) * q][c[0] + (b == 0) * p + (n == 0) * q];
+}
+
+/**
+ * @brief Chooses the transverse stencil along axis @p t at the face between cell @p c and
+ *        `c + e_n`.
  *
  * The central difference averages the two cells beside the face over rows -1 and +1.
  * When the +1 row is a non-periodic boundary layer or touches a solid cell, the difference
@@ -83,34 +111,84 @@ static inline PetscReal PoissonOperator_At(const PetscReal ***field, const Petsc
  * @param[in] t        Transverse axis, not @p n.
  * @param[in] m        Grid sizes (mx, my, mz).
  * @param[in] periodic Whether each axis is periodic.
+ * @return The stencil to use.
+ */
+static PICURV_ALWAYS_INLINE PoissonTransverseKind PoissonOperator_TransverseKind(
+    const PetscReal ***nvert, const PetscInt c[3], PetscInt n, PetscInt t,
+    const PetscInt m[3], const PetscBool periodic[3])
+{
+    const PetscInt  s = c[t];
+    const PetscReal solid_plus  = PoissonOperator_AtBN(nvert, c, t, 1, n, 0) + PoissonOperator_AtBN(nvert, c, t, 1, n, 1);
+    const PetscReal solid_minus = PoissonOperator_AtBN(nvert, c, t, -1, n, 0) + PoissonOperator_AtBN(nvert, c, t, -1, n, 1);
+
+    if ((s == m[t] - 2 && !periodic[t]) || solid_plus > POISSON_SOLID_THRESHOLD) {
+        return (solid_minus < POISSON_SOLID_THRESHOLD && (s != 1 || periodic[t])) ? POISSON_TRANSVERSE_LOWER
+                                                                                  : POISSON_TRANSVERSE_NONE;
+    }
+    if ((s == 1 && !periodic[t]) || solid_minus > POISSON_SOLID_THRESHOLD) {
+        return (solid_plus < POISSON_SOLID_THRESHOLD) ? POISSON_TRANSVERSE_UPPER : POISSON_TRANSVERSE_NONE;
+    }
+    return POISSON_TRANSVERSE_CENTRAL;
+}
+
+/**
+ * @brief The rows and weight of the transverse difference along axis @p t at the face between
+ *        cell @p c and `c + e_n`, for operator assembly; PoissonOperator_TransverseKind() chooses.
+ *
+ * @param[in] nvert    Ghosted solid field.
+ * @param[in] c        Cell on the low side of the face.
+ * @param[in] n        Face orientation (0, 1, 2 for i, j, k).
+ * @param[in] t        Transverse axis, not @p n.
+ * @param[in] m        Grid sizes (mx, my, mz).
+ * @param[in] periodic Whether each axis is periodic.
  * @return The rows and weight of the difference.
  */
-static inline PoissonTransverseDifference PoissonOperator_TransverseDifference(
+static PICURV_ALWAYS_INLINE PoissonTransverseDifference PoissonOperator_TransverseDifference(
     const PetscReal ***nvert, const PetscInt c[3], PetscInt n, PetscInt t,
     const PetscInt m[3], const PetscBool periodic[3])
 {
     PoissonTransverseDifference diff = {0, 0, 0.0};
-    PetscInt plus[3] = {0, 0, 0}, plus_n[3] = {0, 0, 0};
-    PetscInt minus[3] = {0, 0, 0}, minus_n[3] = {0, 0, 0};
-    const PetscInt s = c[t];
 
-    plus[t] = 1;  plus_n[t] = 1;  plus_n[n] = 1;
-    minus[t] = -1; minus_n[t] = -1; minus_n[n] = 1;
-    const PetscReal solid_plus  = PoissonOperator_At(nvert, c, plus)  + PoissonOperator_At(nvert, c, plus_n);
-    const PetscReal solid_minus = PoissonOperator_At(nvert, c, minus) + PoissonOperator_At(nvert, c, minus_n);
-
-    if ((s == m[t] - 2 && !periodic[t]) || solid_plus > POISSON_SOLID_THRESHOLD) {
-        if (solid_minus < POISSON_SOLID_THRESHOLD && (s != 1 || periodic[t])) {
-            diff.lo = -1; diff.hi = 0; diff.weight = 0.5;
-        }
-    } else if ((s == 1 && !periodic[t]) || solid_minus > POISSON_SOLID_THRESHOLD) {
-        if (solid_plus < POISSON_SOLID_THRESHOLD) {
-            diff.lo = 0; diff.hi = 1; diff.weight = 0.5;
-        }
-    } else {
-        diff.lo = -1; diff.hi = 1; diff.weight = 0.25;
+    switch (PoissonOperator_TransverseKind(nvert, c, n, t, m, periodic)) {
+        case POISSON_TRANSVERSE_LOWER:   diff.lo = -1; diff.hi = 0; diff.weight = 0.5;  break;
+        case POISSON_TRANSVERSE_UPPER:   diff.lo = 0;  diff.hi = 1; diff.weight = 0.5;  break;
+        case POISSON_TRANSVERSE_CENTRAL: diff.lo = -1; diff.hi = 1; diff.weight = 0.25; break;
+        case POISSON_TRANSVERSE_NONE:    break;
     }
     return diff;
+}
+
+/**
+ * @brief Transverse difference of @p field along axis @p t at the face between cell @p c and
+ *        `c + e_n`: `(sum of the row-pair hi - sum of the row-pair lo) * weight`.
+ *
+ * @param[in] nvert    Ghosted solid field.
+ * @param[in] field    Ghosted cell-centred field.
+ * @param[in] c        Cell on the low side of the face.
+ * @param[in] n        Face orientation (0, 1, 2 for i, j, k).
+ * @param[in] t        Transverse axis, not @p n.
+ * @param[in] m        Grid sizes (mx, my, mz).
+ * @param[in] periodic Whether each axis is periodic.
+ * @return The weighted difference, 0 when no side is available.
+ */
+static PICURV_ALWAYS_INLINE PetscReal PoissonOperator_TransverseFieldDifference(
+    const PetscReal ***nvert, const PetscReal ***field, const PetscInt c[3], PetscInt n, PetscInt t,
+    const PetscInt m[3], const PetscBool periodic[3])
+{
+    switch (PoissonOperator_TransverseKind(nvert, c, n, t, m, periodic)) {
+        case POISSON_TRANSVERSE_LOWER:
+            return (PoissonOperator_AtBN(field, c, t, 0, n, 0) + PoissonOperator_AtBN(field, c, t, 0, n, 1) -
+                    PoissonOperator_AtBN(field, c, t, -1, n, 0) - PoissonOperator_AtBN(field, c, t, -1, n, 1)) * 0.5;
+        case POISSON_TRANSVERSE_UPPER:
+            return (PoissonOperator_AtBN(field, c, t, 1, n, 0) + PoissonOperator_AtBN(field, c, t, 1, n, 1) -
+                    PoissonOperator_AtBN(field, c, t, 0, n, 0) - PoissonOperator_AtBN(field, c, t, 0, n, 1)) * 0.5;
+        case POISSON_TRANSVERSE_CENTRAL:
+            return (PoissonOperator_AtBN(field, c, t, 1, n, 0) + PoissonOperator_AtBN(field, c, t, 1, n, 1) -
+                    PoissonOperator_AtBN(field, c, t, -1, n, 0) - PoissonOperator_AtBN(field, c, t, -1, n, 1)) * 0.25;
+        case POISSON_TRANSVERSE_NONE:
+        default:
+            return 0.0;
+    }
 }
 
 /**
@@ -125,7 +203,7 @@ static inline PoissonTransverseDifference PoissonOperator_TransverseDifference(
  * @param[in] periodic Whether each axis is periodic.
  * @return The face's metric products, inverse Jacobian and transverse differences.
  */
-static inline PoissonFaceGradient PoissonOperator_FaceGradientStencil(
+static PICURV_ALWAYS_INLINE PoissonFaceGradient PoissonOperator_FaceGradientStencil(
     const PoissonFaceMetrics *metrics, const PetscReal ***nvert, const PetscInt c[3],
     PetscInt n, const PetscInt m[3], const PetscBool periodic[3])
 {
@@ -161,32 +239,24 @@ static inline PoissonFaceGradient PoissonOperator_FaceGradientStencil(
  * @param[in] periodic Whether each axis is periodic.
  * @return The gradient flux through the face.
  */
-static inline PetscReal PoissonOperator_FaceGradientFlux(
+static PICURV_ALWAYS_INLINE PetscReal PoissonOperator_FaceGradientFlux(
     const PoissonFaceMetrics *metrics, const PetscReal ***nvert, const PetscReal ***field,
     const PetscInt c[3], PetscInt n, const PetscInt m[3], const PetscBool periodic[3])
 {
-    const PoissonFaceGradient face = PoissonOperator_FaceGradientStencil(metrics, nvert, c, n, m, periodic);
-    PetscInt  across[3] = {0, 0, 0};
-    PetscReal difference[3];
+    const Cmpnts    normal = metrics->metric[n][n][c[2]][c[1]][c[0]];
+    const PetscReal aj = metrics->aj[n][c[2]][c[1]][c[0]];
+    PetscReal       dot[3], difference[3];
 
-    across[n] = 1;
     for (PetscInt b = 0; b < 3; b++) {
-        if (b == n) {
-            difference[b] = PoissonOperator_At(field, c, across) - field[c[2]][c[1]][c[0]];
-            continue;
-        }
-        const PoissonTransverseDifference diff = face.diff[b];
-        PetscInt hi_lower[3] = {0, 0, 0}, hi_upper[3] = {0, 0, 0};
-        PetscInt lo_lower[3] = {0, 0, 0}, lo_upper[3] = {0, 0, 0};
-        hi_lower[b] = diff.hi; hi_upper[b] = diff.hi; hi_upper[n] = 1;
-        lo_lower[b] = diff.lo; lo_upper[b] = diff.lo; lo_upper[n] = 1;
-        difference[b] = (diff.weight == 0.0) ? 0.0 :
-            (PoissonOperator_At(field, c, hi_lower) + PoissonOperator_At(field, c, hi_upper) -
-             PoissonOperator_At(field, c, lo_lower) - PoissonOperator_At(field, c, lo_upper)) * diff.weight;
+        const Cmpnts base = metrics->metric[n][b][c[2]][c[1]][c[0]];
+        dot[b] = base.x * normal.x + base.y * normal.y + base.z * normal.z;
     }
-    return difference[0] * face.dot[0] * face.aj +
-           difference[1] * face.dot[1] * face.aj +
-           difference[2] * face.dot[2] * face.aj;
+    difference[n] = PoissonOperator_AtBN(field, c, n, 0, n, 1) - field[c[2]][c[1]][c[0]];
+    difference[(n + 1) % 3] = PoissonOperator_TransverseFieldDifference(nvert, field, c, n, (n + 1) % 3, m, periodic);
+    difference[(n + 2) % 3] = PoissonOperator_TransverseFieldDifference(nvert, field, c, n, (n + 2) % 3, m, periodic);
+    return difference[0] * dot[0] * aj +
+           difference[1] * dot[1] * aj +
+           difference[2] * dot[2] * aj;
 }
 
 /**

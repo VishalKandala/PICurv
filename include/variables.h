@@ -53,6 +53,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/** Forces inlining of a per-cell or per-face kernel whose size defeats the compiler's inlining
+ *  heuristics, so a call with constant arguments compiles to specialised straight-line code. */
+#if defined(__GNUC__) || defined(__clang__)
+#define PICURV_ALWAYS_INLINE inline __attribute__((always_inline))
+#else
+#define PICURV_ALWAYS_INLINE inline
+#endif
 #include <unistd.h>
 
 // --- C++ Specific Includes ---

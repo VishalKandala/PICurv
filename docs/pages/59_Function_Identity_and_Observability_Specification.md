@@ -19,7 +19,7 @@ hand-written name could drift from the function it labels, which is how
 
 @section p59_profiling_sec 2. Profiling Contract
 
-Every function defined in `src/*.c` that is not `static inline` times itself:
+Every function defined in `src/*.c` that is not `static inline` (or `static PICURV_ALWAYS_INLINE`, the forced-inline form for per-face kernels) times itself:
 
 - it begins one timer, `PROFILE_FUNCTION_BEGIN` or `PROFILE_HELPER_BEGIN`, as its first
   statement after `PetscFunctionBeginUser` (an early return placed before the timer, such

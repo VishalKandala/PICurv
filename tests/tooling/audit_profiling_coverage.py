@@ -2,7 +2,7 @@
 """Enforce that every eligible C function in src/ is profiled and closes its timer on every return.
 
 Rules (docs/pages/09_Monitor_Reference.md, profiling):
-- every function defined in src/*.c that is not `static inline` and is not on the exclusion
+- every function defined in src/*.c that is not `static inline` (or `static PICURV_ALWAYS_INLINE`) and is not on the exclusion
   list below begins exactly one timer, PROFILE_FUNCTION_BEGIN or PROFILE_HELPER_BEGIN;
 - every explicit `return` and `PetscFunctionReturn`/`PetscFunctionReturnVoid` after the timer's
   BEGIN is immediately preceded by PROFILE_FUNCTION_END or PROFILE_HELPER_END, and a function whose
@@ -182,7 +182,8 @@ def find_functions(code: str):
                         j += 1
                     sig = head[: m.start()]
                     words = set(re.findall(r"\b\w+\b", sig))
-                    functions.append((m.group(1), stmt_start, i, j - 1, "static" in words and "inline" in words))
+                    inline = "inline" in words or "PICURV_ALWAYS_INLINE" in words
+                    functions.append((m.group(1), stmt_start, i, j - 1, "static" in words and inline))
                     i, stmt_start = j, j
                     continue
             depth += 1

@@ -304,6 +304,11 @@ def _collect_c_signatures(path: Path, require_terminator: str) -> list[tuple[int
             signature += " " + lines[line_index].strip()
 
         if require_terminator == ";" and ";" in signature:
+            # An inline definition in a header: the signature ends at its body, not at the
+            # first statement inside it.
+            brace = signature.find("{")
+            if 0 <= brace < signature.index(";"):
+                signature = signature[:brace]
             signatures.append((start_line, symbol, signature))
         elif require_terminator == "{" and "{" in signature and ";" not in signature.split("{", 1)[0]:
             signatures.append((start_line, symbol, signature))

@@ -197,59 +197,67 @@ PetscErrorCode ComputeConvection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 
 
 /** @brief Whether a cell is a blanked solid cell, which one-sided viscous differences avoid. */
-static inline PetscBool RHSIsBlankedSolid(PetscReal nvert)
+static PICURV_ALWAYS_INLINE PetscBool RHSIsBlankedSolid(PetscReal nvert)
 {
     return (PetscBool)(nvert > 0.5 && nvert < RHS_INNER_BLANK);
 }
 
-/** @brief Cartesian velocity at cell @p c displaced by @p d. */
-static inline Cmpnts RHSVelocityAtOffset(const Cmpnts ***ucat, const PetscInt c[3], const PetscInt d[3])
+/** @brief Velocity at `c + p e_b + q e_n`, for the transverse stencils below. */
+static PICURV_ALWAYS_INLINE Cmpnts RHSVelocityAtBN(const Cmpnts ***ucat, const PetscInt c[3],
+                                                   PetscInt b, PetscInt p, PetscInt n, PetscInt q)
 {
-    return ucat[c[2] + d[2]][c[1] + d[1]][c[0] + d[0]];
+    return ucat[c[2] + (b == 2) * p + (n == 2) * q][c[1] + (b == 1) * p + (n == 1) * q][c[0] + (b == 0) * p + (n == 0) * q];
+}
+
+/** @brief Solid field at `c + p e_b + q e_n`. */
+static PICURV_ALWAYS_INLINE PetscReal RHSNvertAtBN(const PetscReal ***nvert, const PetscInt c[3],
+                                                   PetscInt b, PetscInt p, PetscInt n, PetscInt q)
+{
+    return nvert[c[2] + (b == 2) * p + (n == 2) * q][c[1] + (b == 1) * p + (n == 1) * q][c[0] + (b == 0) * p + (n == 0) * q];
+}
+
+/** @brief `(u(c+hi e_b+e_n) + u(c+hi e_b) - u(c+lo e_b+e_n) - u(c+lo e_b)) * weight`. */
+static PICURV_ALWAYS_INLINE Cmpnts RHSTransverseVelocityDifference(const Cmpnts ***ucat, const PetscInt c[3],
+                                                                   PetscInt n, PetscInt b, PetscInt lo,
+                                                                   PetscInt hi, PetscReal weight)
+{
+    const Cmpnts a1 = RHSVelocityAtBN(ucat, c, b, hi, n, 1), a0 = RHSVelocityAtBN(ucat, c, b, hi, n, 0);
+    const Cmpnts b1 = RHSVelocityAtBN(ucat, c, b, lo, n, 1), b0 = RHSVelocityAtBN(ucat, c, b, lo, n, 0);
+    Cmpnts       d;
+
+    d.x = (a1.x + a0.x - b1.x - b0.x) * weight;
+    d.y = (a1.y + a0.y - b1.y - b0.y) * weight;
+    d.z = (a1.z + a0.z - b1.z - b0.z) * weight;
+    return d;
+}
+
+/**
+ * @brief Velocity difference along transverse axis @p b on the face between cell @p c and
+ *        `c + e_n`: the average over the two cells beside the face, one-sided away from a
+ *        blanked solid cell. Each branch has constant offsets once @p n and @p b are constants.
+ */
+static PICURV_ALWAYS_INLINE Cmpnts RHSTransverseFaceDifference(const Cmpnts ***ucat, const PetscReal ***nvert,
+                                                               const PetscInt c[3], PetscInt n, PetscInt b)
+{
+    if (RHSIsBlankedSolid(RHSNvertAtBN(nvert, c, b, 1, n, 0)) || RHSIsBlankedSolid(RHSNvertAtBN(nvert, c, b, 1, n, 1)))
+        return RHSTransverseVelocityDifference(ucat, c, n, b, -1, 0, 0.5);
+    if (RHSIsBlankedSolid(RHSNvertAtBN(nvert, c, b, -1, n, 0)) || RHSIsBlankedSolid(RHSNvertAtBN(nvert, c, b, -1, n, 1)))
+        return RHSTransverseVelocityDifference(ucat, c, n, b, 0, 1, 0.5);
+    return RHSTransverseVelocityDifference(ucat, c, n, b, -1, 1, 0.25);
 }
 
 /**
  * @brief Velocity differences on the face between cell @p c and `c + e_n`, one per
- *        computational direction: across the face along n, and along each transverse axis b
- *        the average over the two cells beside the face, one-sided away from a blanked solid
- *        cell.
+ *        computational direction: across the face along n, and along each transverse axis.
  */
-static inline void RHSFaceVelocityDifferences(const Cmpnts ***ucat, const PetscReal ***nvert,
-                                              const PetscInt c[3], PetscInt n, Cmpnts d[3])
+static PICURV_ALWAYS_INLINE void RHSFaceVelocityDifferences(const Cmpnts ***ucat, const PetscReal ***nvert,
+                                                            const PetscInt c[3], PetscInt n, Cmpnts d[3])
 {
-    PetscInt across[3] = {0, 0, 0};
+    const Cmpnts u0 = RHSVelocityAtBN(ucat, c, n, 0, n, 0), u1 = RHSVelocityAtBN(ucat, c, n, 0, n, 1);
 
-    across[n] = 1;
-    {
-        const Cmpnts u0 = ucat[c[2]][c[1]][c[0]], u1 = RHSVelocityAtOffset(ucat, c, across);
-        d[n].x = u1.x - u0.x; d[n].y = u1.y - u0.y; d[n].z = u1.z - u0.z;
-    }
-    for (PetscInt b = 0; b < 3; b++) {
-        PetscInt  up[3] = {0, 0, 0}, up_n[3] = {0, 0, 0}, dn[3] = {0, 0, 0}, dn_n[3] = {0, 0, 0};
-        PetscInt  lo = -1, hi = 1;
-        PetscReal weight = 0.25;
-
-        if (b == n) continue;
-        up[b] = 1;  up_n[b] = 1;  up_n[n] = 1;
-        dn[b] = -1; dn_n[b] = -1; dn_n[n] = 1;
-        if (RHSIsBlankedSolid(nvert[c[2] + up[2]][c[1] + up[1]][c[0] + up[0]]) ||
-            RHSIsBlankedSolid(nvert[c[2] + up_n[2]][c[1] + up_n[1]][c[0] + up_n[0]])) {
-            lo = -1; hi = 0; weight = 0.5;
-        } else if (RHSIsBlankedSolid(nvert[c[2] + dn[2]][c[1] + dn[1]][c[0] + dn[0]]) ||
-                   RHSIsBlankedSolid(nvert[c[2] + dn_n[2]][c[1] + dn_n[1]][c[0] + dn_n[0]])) {
-            lo = 0; hi = 1; weight = 0.5;
-        }
-        {
-            PetscInt     hi_0[3] = {0, 0, 0}, hi_1[3] = {0, 0, 0}, lo_0[3] = {0, 0, 0}, lo_1[3] = {0, 0, 0};
-            hi_0[b] = hi; hi_1[b] = hi; hi_1[n] = 1;
-            lo_0[b] = lo; lo_1[b] = lo; lo_1[n] = 1;
-            const Cmpnts a1 = RHSVelocityAtOffset(ucat, c, hi_1), a0 = RHSVelocityAtOffset(ucat, c, hi_0);
-            const Cmpnts b1 = RHSVelocityAtOffset(ucat, c, lo_1), b0 = RHSVelocityAtOffset(ucat, c, lo_0);
-            d[b].x = (a1.x + a0.x - b1.x - b0.x) * weight;
-            d[b].y = (a1.y + a0.y - b1.y - b0.y) * weight;
-            d[b].z = (a1.z + a0.z - b1.z - b0.z) * weight;
-        }
-    }
+    d[n].x = u1.x - u0.x; d[n].y = u1.y - u0.y; d[n].z = u1.z - u0.z;
+    d[(n + 1) % 3] = RHSTransverseFaceDifference(ucat, nvert, c, n, (n + 1) % 3);
+    d[(n + 2) % 3] = RHSTransverseFaceDifference(ucat, nvert, c, n, (n + 2) % 3);
 }
 
 /**
@@ -262,7 +270,7 @@ static inline void RHSFaceVelocityDifferences(const Cmpnts ***ucat, const PetscR
  * LES is on, and the molecular viscosity @p nu is added; with the gradient (Clark) model the
  * tensor `sum_b d_b d_b^T` contracted with N, over 12, is subtracted.
  */
-static inline Cmpnts RHSViscousFaceFlux(const PoissonFaceMetrics *metrics, const Cmpnts d[3],
+static PICURV_ALWAYS_INLINE Cmpnts RHSViscousFaceFlux(const PoissonFaceMetrics *metrics, const Cmpnts d[3],
                                         const PetscInt c[3], PetscInt n, PetscReal nu,
                                         PetscReal nu_t, PetscBool les, PetscBool clark)
 {
@@ -315,6 +323,49 @@ static inline Cmpnts RHSViscousFaceFlux(const PoissonFaceMetrics *metrics, const
 }
 
 /**
+ * @brief Viscous stresses on every face of orientation @p n of the owned cells, from the face
+ *        below the first cell; @p n is a constant at each call, so each expands to its own loop.
+ */
+static PICURV_ALWAYS_INLINE void RHSViscousFluxesAlong(const UserCtx *user, const PoissonFaceMetrics *metrics,
+                                                       const Cmpnts ***ucat, const PetscReal ***nvert,
+                                                       const PetscReal ***lnu_t, const PetscReal ***lnu_wall,
+                                                       const PetscInt lo[3], const PetscInt hi[3],
+                                                       const PetscInt m[3], PetscInt n, PetscBool les,
+                                                       PetscBool clark, Cmpnts ***fp)
+{
+    const PetscBool wall_lo = BoundaryFaceHasWallShear(&user->boundary_faces[2 * n]);
+    const PetscBool wall_hi = BoundaryFaceHasWallShear(&user->boundary_faces[2 * n + 1]);
+    const PetscReal ren = user->simCtx->ren;
+    PetscInt        flo[3] = {lo[0], lo[1], lo[2]};
+    PetscInt        across[3] = {0, 0, 0};
+
+    flo[n] -= 1;
+    across[n] = 1;
+    for (PetscInt k = flo[2]; k < hi[2]; k++) {
+        for (PetscInt j = flo[1]; j < hi[1]; j++) {
+            for (PetscInt i = flo[0]; i < hi[0]; i++) {
+                const PetscInt c[3] = {i, j, k};
+                double         nu = 1./ren, nu_t = 0;
+                Cmpnts         d[3];
+
+                if (les) {
+                    nu_t = 0.5 * (lnu_t[k][j][i] + lnu_t[k + across[2]][j + across[1]][i + across[0]]);
+                    /* Zero suits a wall-resolved run, where the subgrid stress vanishes at the
+                       wall; with a wall model this face is where the modelled stress enters. */
+                    if ((wall_lo && c[n] == 0) || (wall_hi && c[n] == m[n] - 2)) {
+                        PetscInt w[3] = {i, j, k};
+                        w[n] = (c[n] == 0) ? 1 : m[n] - 2;
+                        nu_t = lnu_wall ? lnu_wall[w[2]][w[1]][w[0]] : 0.0;
+                    }
+                }
+                RHSFaceVelocityDifferences(ucat, nvert, c, n, d);
+                fp[k][j][i] = RHSViscousFaceFlux(metrics, d, c, n, nu, nu_t, les, clark);
+            }
+        }
+    }
+}
+
+/**
  * @brief Implementation of \ref ComputeViscous().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/rhs.h`.
@@ -353,38 +404,10 @@ PetscErrorCode ComputeViscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
     if (simCtx->wallfunction) PetscCall(DMDAVecGetArrayRead(user->da, user->lNu_Wall, (void *)&lnu_wall));
     PetscCall(DMDAVecGetArray(user->fda, Visc, &visc));
 
-    /* Stresses on every face of the owned cells: along n, from the face below the first cell. */
-    for (PetscInt n = 0; n < 3; n++) {
-        const PetscBool wall_lo = BoundaryFaceHasWallShear(&user->boundary_faces[2 * n]);
-        const PetscBool wall_hi = BoundaryFaceHasWallShear(&user->boundary_faces[2 * n + 1]);
-        PetscInt        flo[3] = {lo[0], lo[1], lo[2]};
-        PetscInt        across[3] = {0, 0, 0};
-
-        flo[n] -= 1;
-        across[n] = 1;
-        for (PetscInt k = flo[2]; k < hi[2]; k++) {
-            for (PetscInt j = flo[1]; j < hi[1]; j++) {
-                for (PetscInt i = flo[0]; i < hi[0]; i++) {
-                    const PetscInt c[3] = {i, j, k};
-                    double         nu = 1./simCtx->ren, nu_t = 0;
-                    Cmpnts         d[3];
-
-                    if (les) {
-                        nu_t = 0.5 * (lnu_t[k][j][i] + lnu_t[k + across[2]][j + across[1]][i + across[0]]);
-                        /* Zero suits a wall-resolved run, where the subgrid stress vanishes at the
-                           wall; with a wall model this face is where the modelled stress enters. */
-                        if ((wall_lo && c[n] == 0) || (wall_hi && c[n] == m[n] - 2)) {
-                            PetscInt w[3] = {i, j, k};
-                            w[n] = (c[n] == 0) ? 1 : m[n] - 2;
-                            nu_t = lnu_wall ? lnu_wall[w[2]][w[1]][w[0]] : 0.0;
-                        }
-                    }
-                    RHSFaceVelocityDifferences(ucat, nvert, c, n, d);
-                    fp[n][k][j][i] = RHSViscousFaceFlux(&metrics, d, c, n, nu, nu_t, les, clark);
-                }
-            }
-        }
-    }
+    /* Stresses on every face of the owned cells, one constant direction per call. */
+    RHSViscousFluxesAlong(user, &metrics, ucat, nvert, lnu_t, lnu_wall, lo, hi, m, 0, les, clark, fp[0]);
+    RHSViscousFluxesAlong(user, &metrics, ucat, nvert, lnu_t, lnu_wall, lo, hi, m, 1, les, clark, fp[1]);
+    RHSViscousFluxesAlong(user, &metrics, ucat, nvert, lnu_t, lnu_wall, lo, hi, m, 2, les, clark, fp[2]);
 
     /* Viscous term in Cartesian components: the net stress out of each cell. */
     for (PetscInt k = lo[2]; k < hi[2]; k++) {
@@ -502,6 +525,18 @@ static PetscErrorCode RHSContravariantSpatialTerms(UserCtx *user, Vec Conv, Vec 
     PetscFunctionReturn(0);
 }
 
+/** @brief Face residual of component @p n at cell @p c: the two-cell average of @p rct less
+ *         the pressure-gradient flux through the face. */
+static PICURV_ALWAYS_INLINE PetscReal RHSFaceTerm(const PoissonFaceMetrics *metrics, const PetscReal ***nvert,
+                                    const PetscReal ***p, const Cmpnts ***rct, const PetscInt c[3],
+                                    PetscInt n, const PetscInt m[3], const PetscBool periodic[3])
+{
+    const PetscReal *own = &rct[c[2]][c[1]][c[0]].x;
+    const PetscReal *next = &rct[c[2] + (n == 2)][c[1] + (n == 1)][c[0] + (n == 0)].x;
+
+    return 0.5 * (own[n] + next[n]) - PoissonOperator_FaceGradientFlux(metrics, nvert, p, c, n, m, periodic);
+}
+
 /**
  * @brief Face residual from the ghosted cell-centre terms: the average of @p Rct over the two
  *        cells beside each face, less the pressure-gradient flux through it.
@@ -530,24 +565,40 @@ static PetscErrorCode RHSFaceTermsWithPressureGradient(UserCtx *user, Vec Rct, V
     PetscCall(DMDAVecGetArrayRead(user->da, user->lP, (void *)&p));
     PetscCall(DMDAVecGetArrayRead(user->fda, Rct, (void *)&rct));
     PetscCall(DMDAVecGetArray(user->fda, Rhs, &rhs));
-    for (PetscInt n = 0; n < 3; n++) {
-        PetscInt lo[3] = {interior_lo[0], interior_lo[1], interior_lo[2]};
-        PetscInt across[3] = {0, 0, 0};
+    /* One pass over the owned cells sets all three face components; with each direction a
+       constant, every call below compiles to its own straight-line stencil. */
+    for (PetscInt k = interior_lo[2]; k < interior_hi[2]; k++) {
+        for (PetscInt j = interior_lo[1]; j < interior_hi[1]; j++) {
+            for (PetscInt i = interior_lo[0]; i < interior_hi[0]; i++) {
+                const PetscInt c[3] = {i, j, k};
 
-        if (periodic[n] && start[n] == 0) lo[n] = 0;
-        across[n] = 1;
-        for (PetscInt k = lo[2]; k < interior_hi[2]; k++) {
-            for (PetscInt j = lo[1]; j < interior_hi[1]; j++) {
-                for (PetscInt i = lo[0]; i < interior_hi[0]; i++) {
-                    const PetscInt   c[3] = {i, j, k};
-                    const PetscReal *own = &rct[k][j][i].x;
-                    const PetscReal *next = &rct[k + across[2]][j + across[1]][i + across[0]].x;
-
-                    (&rhs[k][j][i].x)[n] = 0.5 * (own[n] + next[n]) -
-                        PoissonOperator_FaceGradientFlux(&metrics, nvert, p, c, n, m, periodic);
-                }
+                rhs[k][j][i].x = RHSFaceTerm(&metrics, nvert, p, rct, c, 0, m, periodic);
+                rhs[k][j][i].y = RHSFaceTerm(&metrics, nvert, p, rct, c, 1, m, periodic);
+                rhs[k][j][i].z = RHSFaceTerm(&metrics, nvert, p, rct, c, 2, m, periodic);
             }
         }
+    }
+    /* On a periodic axis the seam face at index 0 also carries an unknown. */
+    if (periodic[0] && start[0] == 0) {
+        for (PetscInt k = interior_lo[2]; k < interior_hi[2]; k++)
+            for (PetscInt j = interior_lo[1]; j < interior_hi[1]; j++) {
+                const PetscInt c[3] = {0, j, k};
+                rhs[k][j][0].x = RHSFaceTerm(&metrics, nvert, p, rct, c, 0, m, periodic);
+            }
+    }
+    if (periodic[1] && start[1] == 0) {
+        for (PetscInt k = interior_lo[2]; k < interior_hi[2]; k++)
+            for (PetscInt i = interior_lo[0]; i < interior_hi[0]; i++) {
+                const PetscInt c[3] = {i, 0, k};
+                rhs[k][0][i].y = RHSFaceTerm(&metrics, nvert, p, rct, c, 1, m, periodic);
+            }
+    }
+    if (periodic[2] && start[2] == 0) {
+        for (PetscInt j = interior_lo[1]; j < interior_hi[1]; j++)
+            for (PetscInt i = interior_lo[0]; i < interior_hi[0]; i++) {
+                const PetscInt c[3] = {i, j, 0};
+                rhs[0][j][i].z = RHSFaceTerm(&metrics, nvert, p, rct, c, 2, m, periodic);
+            }
     }
     PetscCall(DMDAVecRestoreArray(user->fda, Rhs, &rhs));
     PetscCall(DMDAVecRestoreArrayRead(user->fda, Rct, (void *)&rct));
