@@ -196,699 +196,229 @@ PetscErrorCode ComputeConvection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 }
 
 
+/** @brief Whether a cell is a blanked solid cell, which one-sided viscous differences avoid. */
+static inline PetscBool RHSIsBlankedSolid(PetscReal nvert)
+{
+    return (PetscBool)(nvert > 0.5 && nvert < RHS_INNER_BLANK);
+}
+
+/** @brief Cartesian velocity at cell @p c displaced by @p d. */
+static inline Cmpnts RHSVelocityAtOffset(const Cmpnts ***ucat, const PetscInt c[3], const PetscInt d[3])
+{
+    return ucat[c[2] + d[2]][c[1] + d[1]][c[0] + d[0]];
+}
+
 /**
- * @brief Implementation of \ref Viscous().
+ * @brief Velocity differences on the face between cell @p c and `c + e_n`, one per
+ *        computational direction: across the face along n, and along each transverse axis b
+ *        the average over the two cells beside the face, one-sided away from a blanked solid
+ *        cell.
+ */
+static inline void RHSFaceVelocityDifferences(const Cmpnts ***ucat, const PetscReal ***nvert,
+                                              const PetscInt c[3], PetscInt n, Cmpnts d[3])
+{
+    PetscInt across[3] = {0, 0, 0};
+
+    across[n] = 1;
+    {
+        const Cmpnts u0 = ucat[c[2]][c[1]][c[0]], u1 = RHSVelocityAtOffset(ucat, c, across);
+        d[n].x = u1.x - u0.x; d[n].y = u1.y - u0.y; d[n].z = u1.z - u0.z;
+    }
+    for (PetscInt b = 0; b < 3; b++) {
+        PetscInt  up[3] = {0, 0, 0}, up_n[3] = {0, 0, 0}, dn[3] = {0, 0, 0}, dn_n[3] = {0, 0, 0};
+        PetscInt  lo = -1, hi = 1;
+        PetscReal weight = 0.25;
+
+        if (b == n) continue;
+        up[b] = 1;  up_n[b] = 1;  up_n[n] = 1;
+        dn[b] = -1; dn_n[b] = -1; dn_n[n] = 1;
+        if (RHSIsBlankedSolid(nvert[c[2] + up[2]][c[1] + up[1]][c[0] + up[0]]) ||
+            RHSIsBlankedSolid(nvert[c[2] + up_n[2]][c[1] + up_n[1]][c[0] + up_n[0]])) {
+            lo = -1; hi = 0; weight = 0.5;
+        } else if (RHSIsBlankedSolid(nvert[c[2] + dn[2]][c[1] + dn[1]][c[0] + dn[0]]) ||
+                   RHSIsBlankedSolid(nvert[c[2] + dn_n[2]][c[1] + dn_n[1]][c[0] + dn_n[0]])) {
+            lo = 0; hi = 1; weight = 0.5;
+        }
+        {
+            PetscInt     hi_0[3] = {0, 0, 0}, hi_1[3] = {0, 0, 0}, lo_0[3] = {0, 0, 0}, lo_1[3] = {0, 0, 0};
+            hi_0[b] = hi; hi_1[b] = hi; hi_1[n] = 1;
+            lo_0[b] = lo; lo_1[b] = lo; lo_1[n] = 1;
+            const Cmpnts a1 = RHSVelocityAtOffset(ucat, c, hi_1), a0 = RHSVelocityAtOffset(ucat, c, hi_0);
+            const Cmpnts b1 = RHSVelocityAtOffset(ucat, c, lo_1), b0 = RHSVelocityAtOffset(ucat, c, lo_0);
+            d[b].x = (a1.x + a0.x - b1.x - b0.x) * weight;
+            d[b].y = (a1.y + a0.y - b1.y - b0.y) * weight;
+            d[b].z = (a1.z + a0.z - b1.z - b0.z) * weight;
+        }
+    }
+}
+
+/**
+ * @brief Viscous stress through the face between cell @p c and `c + e_n`, in Cartesian
+ *        components, from the face differences @p d and the face metrics.
+ *
+ * With F_b the contravariant base vectors on the face and N = F_n its normal, the flux of each
+ * velocity component U is `(sum_b (F_b . N) dU/dxi_b + sum_c (sum_b dU_c/dxi_b F_b) . e_U N_c)
+ * aj`: the full stress, gradient plus transpose. The eddy viscosity @p nu_t carries it when
+ * LES is on, and the molecular viscosity @p nu is added; with the gradient (Clark) model the
+ * tensor `sum_b d_b d_b^T` contracted with N, over 12, is subtracted.
+ */
+static inline Cmpnts RHSViscousFaceFlux(const PoissonFaceMetrics *metrics, const Cmpnts d[3],
+                                        const PetscInt c[3], PetscInt n, PetscReal nu,
+                                        PetscReal nu_t, PetscBool les, PetscBool clark)
+{
+    const Cmpnts    F0 = metrics->metric[n][0][c[2]][c[1]][c[0]];
+    const Cmpnts    F1 = metrics->metric[n][1][c[2]][c[1]][c[0]];
+    const Cmpnts    F2 = metrics->metric[n][2][c[2]][c[1]][c[0]];
+    const Cmpnts    N = (n == 0) ? F0 : (n == 1) ? F1 : F2;
+    const PetscReal ajc = metrics->aj[n][c[2]][c[1]][c[0]];
+    const PetscReal g0 = F0.x * N.x + F0.y * N.y + F0.z * N.z;
+    const PetscReal g1 = F1.x * N.x + F1.y * N.y + F1.z * N.z;
+    const PetscReal g2 = F2.x * N.x + F2.y * N.y + F2.z * N.z;
+    /* r_<velocity component><Cartesian axis> = sum_b dU/dxi_b F_b[axis] */
+    const PetscReal r11 = d[0].x * F0.x + d[1].x * F1.x + d[2].x * F2.x;
+    const PetscReal r21 = d[0].y * F0.x + d[1].y * F1.x + d[2].y * F2.x;
+    const PetscReal r31 = d[0].z * F0.x + d[1].z * F1.x + d[2].z * F2.x;
+    const PetscReal r12 = d[0].x * F0.y + d[1].x * F1.y + d[2].x * F2.y;
+    const PetscReal r22 = d[0].y * F0.y + d[1].y * F1.y + d[2].y * F2.y;
+    const PetscReal r32 = d[0].z * F0.y + d[1].z * F1.y + d[2].z * F2.y;
+    const PetscReal r13 = d[0].x * F0.z + d[1].x * F1.z + d[2].x * F2.z;
+    const PetscReal r23 = d[0].y * F0.z + d[1].y * F1.z + d[2].y * F2.z;
+    const PetscReal r33 = d[0].z * F0.z + d[1].z * F1.z + d[2].z * F2.z;
+    const PetscReal ex = g0 * d[0].x + g1 * d[1].x + g2 * d[2].x + r11 * N.x + r21 * N.y + r31 * N.z;
+    const PetscReal ey = g0 * d[0].y + g1 * d[1].y + g2 * d[2].y + r12 * N.x + r22 * N.y + r32 * N.z;
+    const PetscReal ez = g0 * d[0].z + g1 * d[1].z + g2 * d[2].z + r13 * N.x + r23 * N.y + r33 * N.z;
+    Cmpnts          f = {0.0, 0.0, 0.0};
+
+    if (les) {
+        f.x = ex * ajc * (nu_t);
+        f.y = ey * ajc * (nu_t);
+        f.z = ez * ajc * (nu_t);
+    }
+    f.x += ex * ajc * (nu);
+    f.y += ey * ajc * (nu);
+    f.z += ez * ajc * (nu);
+    if (clark) {
+        /* d_b is the velocity difference between neighbouring cells along direction b, so it
+           already carries that direction's spacing: sum_b d_b d_b^T is Delta_k^2 du_i/dx_k
+           du_j/dx_k as it stands, and no further cell extent belongs in it. */
+        const SymTensor gradient_tensor =
+            SymTensorCombine(1.0, SymTensorSelfOuter(d[0]), 1.0,
+                             SymTensorCombine(1.0, SymTensorSelfOuter(d[1]),
+                                              1.0, SymTensorSelfOuter(d[2])));
+        const Cmpnts gradient_flux = SymTensorTimesVector(gradient_tensor, N);
+
+        f.x -= gradient_flux.x / 12.;
+        f.y -= gradient_flux.y / 12.;
+        f.z -= gradient_flux.z / 12.;
+    }
+    return f;
+}
+
+/**
+ * @brief Implementation of \ref ComputeViscous().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/rhs.h`.
- * @see Viscous()
+ * @see ComputeViscous()
  */
-
-PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
+PetscErrorCode ComputeViscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 {
-  
-  Vec		Csi = user->lCsi, Eta = user->lEta, Zet = user->lZet;
+    const SimCtx        *simCtx = user->simCtx;
+    const DMDALocalInfo *info = &user->info;
+    const PetscInt       m[3] = {info->mx, info->my, info->mz};
+    const PetscBool      les = (PetscBool)(simCtx->les != 0);
+    const PetscBool      clark = (PetscBool)(simCtx->les_gradient_model != 0);
+    PetscInt             lo[3], hi[3];
+    PoissonFaceMetrics   metrics;
+    Vec                  Fp[3];
+    Cmpnts            ***fp[3], ***visc;
+    const Cmpnts      ***ucat;
+    const PetscReal   ***nvert, ***lnu_t = NULL, ***lnu_wall = NULL;
 
-  Cmpnts	***ucont, ***ucat;
-
-  Cmpnts	***csi, ***eta, ***zet;
-  Cmpnts	***icsi, ***ieta, ***izet;
-  Cmpnts	***jcsi, ***jeta, ***jzet;
-  Cmpnts	***kcsi, ***keta, ***kzet;
-
-  PetscReal	***nvert;
-
-  DM		da = user->da, fda = user->fda;
-  DMDALocalInfo	info;
-  PetscInt	xs, xe, ys, ye, zs, ze; // Local grid information
-  PetscInt	mx, my, mz; // Dimensions in three directions
-  PetscInt	i, j, k;
-  Vec		Fp1, Fp2, Fp3;
-  Cmpnts	***fp1, ***fp2, ***fp3;
-  Cmpnts	***visc;
-  PetscReal	***aj, ***iaj, ***jaj, ***kaj;
-
-  PetscInt	lxs, lxe, lys, lye, lzs, lze;
-
-  PetscReal     ajc;
-
-  PetscReal	dudc, dude, dudz, dvdc, dvde, dvdz, dwdc, dwde, dwdz;
-  PetscReal	csi0, csi1, csi2, eta0, eta1, eta2, zet0, zet1, zet2;
-  PetscReal	g11, g21, g31;
-  PetscReal	r11, r21, r31, r12, r22, r32, r13, r23, r33;
-
-  PetscScalar	solid,innerblank;
-
-  // --- CONTEXT ACQUISITION BLOCK ---
-  // Get the master simulation context from the UserCtx.
-  SimCtx *simCtx = user->simCtx;
-
-  // Create local variables to mirror the legacy globals for minimal code changes.
-  const LESModelType les = simCtx->les;
-  const	PetscReal ren = simCtx->ren;
-  const PetscInt clark = simCtx->les_gradient_model;
-  solid = 0.5;
-  innerblank = 7.;
-
-  PROFILE_FUNCTION_BEGIN;
-  
-  DMDAVecGetArray(fda, Ucont, &ucont);
-  DMDAVecGetArray(fda, Ucat,  &ucat);
-  DMDAVecGetArray(fda, Visc,  &visc);
-
-  DMDAVecGetArray(fda, Csi, &csi);
-  DMDAVecGetArray(fda, Eta, &eta);
-  DMDAVecGetArray(fda, Zet, &zet);
-
-  DMDAVecGetArray(fda, user->lICsi, &icsi);
-  DMDAVecGetArray(fda, user->lIEta, &ieta);
-  DMDAVecGetArray(fda, user->lIZet, &izet);
-
-  DMDAVecGetArray(fda, user->lJCsi, &jcsi);
-  DMDAVecGetArray(fda, user->lJEta, &jeta);
-  DMDAVecGetArray(fda, user->lJZet, &jzet);
-
-  DMDAVecGetArray(fda, user->lKCsi, &kcsi);
-  DMDAVecGetArray(fda, user->lKEta, &keta);
-  DMDAVecGetArray(fda, user->lKZet, &kzet);
-
-  DMDAVecGetArray(da, user->lNvert, &nvert);
-
-  // Pooled work vectors, zeroed as the fresh duplicates they replace were (see ComputeRHS()).
-  DMGetLocalVector(fda, &Fp1); VecZeroEntries(Fp1);
-  DMGetLocalVector(fda, &Fp2); VecZeroEntries(Fp2);
-  DMGetLocalVector(fda, &Fp3); VecZeroEntries(Fp3);
-
-  DMDAVecGetArray(fda, Fp1, &fp1);
-  DMDAVecGetArray(fda, Fp2, &fp2);
-  DMDAVecGetArray(fda, Fp3, &fp3);
-
-  DMDAVecGetArray(da, user->lAj, &aj);
-
-  info = user->info;
-  
-  mx = info.mx; my = info.my; mz = info.mz;
-  xs = info.xs; xe = xs + info.xm;
-  ys = info.ys; ye = ys + info.ym;
-  zs = info.zs; ze = zs + info.zm;
-
-  /* First we calculate the flux on cell surfaces. Stored on the upper integer
-     node. For example, along i direction, the flux are stored at node 0:mx-2*/
-  lxs = xs; lxe = xe;
-  lys = ys; lye = ye;
-  lzs = zs; lze = ze;
-
-  if (xs==0) lxs = xs+1;
-  if (ys==0) lys = ys+1;
-  if (zs==0) lzs = zs+1;
-
-
-  if (xe==mx) lxe=xe-1;
-  if (ye==my) lye=ye-1;
-  if (ze==mz) lze=ze-1;
- 
-  VecSet(Visc,0.0);
-  
-  PetscReal ***lnu_t;
- 
-  PetscReal ***lnu_wall = NULL;
-
-  if(les) {
-    DMDAVecGetArray(da, user->lNu_t, &lnu_t);
-  }
-  /* A wall model replaces the subgrid viscosity at its own face rather than adding to
-     it, so the flux there carries the stress the model computed instead of the
-     molecular fraction of it. */
-  if (user->simCtx->wallfunction) {
-    DMDAVecGetArray(da, user->lNu_Wall, &lnu_wall);
-  }
-
-  /* The visc flux on each surface center is stored at previous integer node */
-
-  DMDAVecGetArray(da, user->lIAj, &iaj);
- /*  for (k=zs; k<ze; k++) { */
-/*     for (j=ys; j<ye; j++) { */
-/*       for (i=xs; i<xe; i++) { */
-/* 	if (i==1 && (j==0 ||j==1 || j==2) && (k==21 || k==22|| k==20)) */
-/* 	  PetscPrintf(PETSC_COMM_SELF, "@ i= %d j=%d k=%d u is %.15le v is %.15le  w is %.15le \n",i,j,k,ucat[k][j][i].x,ucat[k][j][i].y,ucat[k][j][i].z ); */
-/*       } */
-/*     } */
-/*   } */
-  // i direction
-  for (k=lzs; k<lze; k++) {
-    for (j=lys; j<lye; j++) {
-      for (i=lxs-1; i<lxe; i++) {
-	
-	dudc = ucat[k][j][i+1].x - ucat[k][j][i].x;
-	dvdc = ucat[k][j][i+1].y - ucat[k][j][i].y;
-	dwdc = ucat[k][j][i+1].z - ucat[k][j][i].z;
-	
-	if ((nvert[k][j+1][i  ]> solid && nvert[k][j+1][i  ]<innerblank)  ||
-	    (nvert[k][j+1][i+1]> solid && nvert[k][j+1][i+1]<innerblank)) {
-	  dude = (ucat[k][j  ][i+1].x + ucat[k][j  ][i].x -
-		  ucat[k][j-1][i+1].x - ucat[k][j-1][i].x) * 0.5;
-	  dvde = (ucat[k][j  ][i+1].y + ucat[k][j  ][i].y -
-		  ucat[k][j-1][i+1].y - ucat[k][j-1][i].y) * 0.5;
-	  dwde = (ucat[k][j  ][i+1].z + ucat[k][j  ][i].z -
-		  ucat[k][j-1][i+1].z - ucat[k][j-1][i].z) * 0.5;
-	}
-	else if  ((nvert[k][j-1][i  ]> solid && nvert[k][j-1][i  ]<innerblank)  ||
-		  (nvert[k][j-1][i+1]> solid && nvert[k][j-1][i+1]<innerblank)) {
-	  dude = (ucat[k][j+1][i+1].x + ucat[k][j+1][i].x -
-		  ucat[k][j  ][i+1].x - ucat[k][j  ][i].x) * 0.5;
-	  dvde = (ucat[k][j+1][i+1].y + ucat[k][j+1][i].y -
-		  ucat[k][j  ][i+1].y - ucat[k][j  ][i].y) * 0.5;
-	  dwde = (ucat[k][j+1][i+1].z + ucat[k][j+1][i].z -
-		  ucat[k][j  ][i+1].z - ucat[k][j  ][i].z) * 0.5;
-	}
-	else {
-	  dude = (ucat[k][j+1][i+1].x + ucat[k][j+1][i].x -
-		  ucat[k][j-1][i+1].x - ucat[k][j-1][i].x) * 0.25;
-	  dvde = (ucat[k][j+1][i+1].y + ucat[k][j+1][i].y -
-		  ucat[k][j-1][i+1].y - ucat[k][j-1][i].y) * 0.25;
-	  dwde = (ucat[k][j+1][i+1].z + ucat[k][j+1][i].z -
-		  ucat[k][j-1][i+1].z - ucat[k][j-1][i].z) * 0.25;
-	}
-	
-	if ((nvert[k+1][j][i  ]> solid && nvert[k+1][j][i  ]<innerblank)||
-	    (nvert[k+1][j][i+1]> solid && nvert[k+1][j][i+1]<innerblank)) {
-	  dudz = (ucat[k  ][j][i+1].x + ucat[k  ][j][i].x -
-		  ucat[k-1][j][i+1].x - ucat[k-1][j][i].x) * 0.5;
-	  dvdz = (ucat[k  ][j][i+1].y + ucat[k  ][j][i].y -
-		  ucat[k-1][j][i+1].y - ucat[k-1][j][i].y) * 0.5;
-	  dwdz = (ucat[k  ][j][i+1].z + ucat[k  ][j][i].z -
-		  ucat[k-1][j][i+1].z - ucat[k-1][j][i].z) * 0.5;
-	}
-	else if ((nvert[k-1][j][i  ]> solid && nvert[k-1][j][i  ]<innerblank) ||
-		 (nvert[k-1][j][i+1]> solid && nvert[k-1][j][i+1]<innerblank)) {
-
-	  dudz = (ucat[k+1][j][i+1].x + ucat[k+1][j][i].x -
-		  ucat[k  ][j][i+1].x - ucat[k  ][j][i].x) * 0.5;
-	  dvdz = (ucat[k+1][j][i+1].y + ucat[k+1][j][i].y -
-		  ucat[k  ][j][i+1].y - ucat[k  ][j][i].y) * 0.5;
-	  dwdz = (ucat[k+1][j][i+1].z + ucat[k+1][j][i].z -
-		  ucat[k  ][j][i+1].z - ucat[k  ][j][i].z) * 0.5;
-	}
-	else {
-	  dudz = (ucat[k+1][j][i+1].x + ucat[k+1][j][i].x -
-		  ucat[k-1][j][i+1].x - ucat[k-1][j][i].x) * 0.25;
-	  dvdz = (ucat[k+1][j][i+1].y + ucat[k+1][j][i].y -
-		  ucat[k-1][j][i+1].y - ucat[k-1][j][i].y) * 0.25;
-	  dwdz = (ucat[k+1][j][i+1].z + ucat[k+1][j][i].z -
-		  ucat[k-1][j][i+1].z - ucat[k-1][j][i].z) * 0.25;
-	}
-
- 	csi0 = icsi[k][j][i].x;
-	csi1 = icsi[k][j][i].y;
-	csi2 = icsi[k][j][i].z;
-
-	eta0 = ieta[k][j][i].x;
-	eta1 = ieta[k][j][i].y;
-	eta2 = ieta[k][j][i].z;
-	
-	zet0 = izet[k][j][i].x;
-	zet1 = izet[k][j][i].y;
-	zet2 = izet[k][j][i].z;
-
-	g11 = csi0 * csi0 + csi1 * csi1 + csi2 * csi2;
-	g21 = eta0 * csi0 + eta1 * csi1 + eta2 * csi2;
-	g31 = zet0 * csi0 + zet1 * csi1 + zet2 * csi2;
-
-	r11 = dudc * csi0 + dude * eta0 + dudz * zet0;
-	r21 = dvdc * csi0 + dvde * eta0 + dvdz * zet0;
-	r31 = dwdc * csi0 + dwde * eta0 + dwdz * zet0;
-
-	r12 = dudc * csi1 + dude * eta1 + dudz * zet1;
-	r22 = dvdc * csi1 + dvde * eta1 + dvdz * zet1;
-	r32 = dwdc * csi1 + dwde * eta1 + dwdz * zet1;
-
-	r13 = dudc * csi2 + dude * eta2 + dudz * zet2;
-	r23 = dvdc * csi2 + dvde * eta2 + dvdz * zet2;
-	r33 = dwdc * csi2 + dwde * eta2 + dwdz * zet2;
-
-	ajc = iaj[k][j][i]; 
-
-	double nu = 1./ren, nu_t=0;
-	
-	if( les ) {
-	  //nu_t = pow( 0.5 * ( sqrt(lnu_t[k][j][i]) + sqrt(lnu_t[k][j][i+1]) ), 2.0) * Sabs;
-	  nu_t = 0.5 * (lnu_t[k][j][i] + lnu_t[k][j][i+1]);
-	  /* Zero is right for a wall-resolved run, where the subgrid stress vanishes at
-	     the wall. With a wall model the same face is where the modelled stress has to
-	     enter, so it takes the model's effective viscosity instead. */
-	  if ( BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_NEG_X]) && i==0 ) nu_t = lnu_wall ? lnu_wall[k][j][1] : 0.0;
-	  if ( BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_POS_X]) && i==mx-2 ) nu_t = lnu_wall ? lnu_wall[k][j][mx-2] : 0.0;    
-	  fp1[k][j][i].x = (g11 * dudc + g21 * dude + g31 * dudz + r11 * csi0 + r21 * csi1 + r31 * csi2) * ajc * (nu_t); 
-	  fp1[k][j][i].y = (g11 * dvdc + g21 * dvde + g31 * dvdz + r12 * csi0 + r22 * csi1 + r32 * csi2) * ajc * (nu_t);
-	  fp1[k][j][i].z = (g11 * dwdc + g21 * dwde + g31 * dwdz + r13 * csi0 + r23 * csi1 + r33 * csi2) * ajc * (nu_t);
-	}
-	else {
-	  fp1[k][j][i].x = 0;
-	  fp1[k][j][i].y = 0;
-	  fp1[k][j][i].z = 0;
-	}
-
-	fp1[k][j][i].x += (g11 * dudc + g21 * dude + g31 * dudz+ r11 * csi0 + r21 * csi1 + r31 * csi2 ) * ajc * (nu);
-	fp1[k][j][i].y += (g11 * dvdc + g21 * dvde + g31 * dvdz+ r12 * csi0 + r22 * csi1 + r32 * csi2 ) * ajc * (nu);
-	fp1[k][j][i].z += (g11 * dwdc + g21 * dwde + g31 * dwdz+ r13 * csi0 + r23 * csi1 + r33 * csi2 ) * ajc * (nu);
-
-
-	if(clark) {
-	  /* dudc, dude, dudz are differences between neighbouring cells along each grid
-	     direction, so each already equals that direction's spacing times the physical
-	     derivative. Their outer products are therefore Delta_k^2 du_i/dx_k du_j/dx_k
-	     as they stand. Multiplying by a squared cell extent as well - which this term
-	     did, carried over from the legacy - made the stress scale as Delta^4 and left
-	     it smaller than intended by Delta^2, 1e-4 to 1e-6 on a production mesh; the
-	     extents were also Cartesian, so they did not belong to the directions they
-	     were paired with once the grid turned. */
-	  
-	  /* The gradient-model tensor is the sum over the three computational
-	     directions of the per-cell velocity difference's outer product with itself;
-	     the cell's own extent in each direction is already inside that difference.
-	     It is symmetric by construction, so it is carried as one. */
-	  const Cmpnts grad_csi = { dudc, dvdc, dwdc };
-	  const Cmpnts grad_eta = { dude, dvde, dwde };
-	  const Cmpnts grad_zet = { dudz, dvdz, dwdz };
-	  const SymTensor gradient_tensor =
-	      SymTensorCombine(1.0, SymTensorSelfOuter(grad_csi), 1.0,
-	                       SymTensorCombine(1.0, SymTensorSelfOuter(grad_eta),
-	                                        1.0, SymTensorSelfOuter(grad_zet)));
-	  
-	  {
-	    const Cmpnts face_normal = { csi0, csi1, csi2 };
-	    const Cmpnts gradient_flux = SymTensorTimesVector(gradient_tensor, face_normal);
-
-	    fp1[k][j][i].x -= gradient_flux.x / 12.;
-	    fp1[k][j][i].y -= gradient_flux.y / 12.;
-	    fp1[k][j][i].z -= gradient_flux.z / 12.;
-	  }
-	}
-
-      }
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    (void)Ucont;
+    RHSInteriorBounds(info, lo, hi);
+    PetscCall(VecSet(Visc, 0.0));
+    for (PetscInt n = 0; n < 3; n++) {
+        PetscCall(DMGetLocalVector(user->fda, &Fp[n]));
+        PetscCall(VecZeroEntries(Fp[n]));
+        PetscCall(DMDAVecGetArray(user->fda, Fp[n], &fp[n]));
     }
-  }
-  DMDAVecRestoreArray(da, user->lIAj, &iaj);  
- 
+    PetscCall(PoissonOperator_GetFaceMetrics(user, &metrics));
+    PetscCall(DMDAVecGetArrayRead(user->fda, Ucat, (void *)&ucat));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
+    if (les) PetscCall(DMDAVecGetArrayRead(user->da, user->lNu_t, (void *)&lnu_t));
+    /* A wall model replaces the subgrid viscosity at its own face rather than adding to it, so
+       the flux there carries the stress the model computed instead of the molecular fraction. */
+    if (simCtx->wallfunction) PetscCall(DMDAVecGetArrayRead(user->da, user->lNu_Wall, (void *)&lnu_wall));
+    PetscCall(DMDAVecGetArray(user->fda, Visc, &visc));
 
-  // j direction
-  DMDAVecGetArray(da, user->lJAj, &jaj);
-  for (k=lzs; k<lze; k++) {
-    for (j=lys-1; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
- 
-	if ((nvert[k][j  ][i+1]> solid && nvert[k][j  ][i+1]<innerblank)||
-	    (nvert[k][j+1][i+1]> solid && nvert[k][j+1][i+1]<innerblank)) {
-	  dudc = (ucat[k][j+1][i  ].x + ucat[k][j][i  ].x -
-		  ucat[k][j+1][i-1].x - ucat[k][j][i-1].x) * 0.5;
-	  dvdc = (ucat[k][j+1][i  ].y + ucat[k][j][i  ].y -
-		  ucat[k][j+1][i-1].y - ucat[k][j][i-1].y) * 0.5;
-	  dwdc = (ucat[k][j+1][i  ].z + ucat[k][j][i  ].z -
-		  ucat[k][j+1][i-1].z - ucat[k][j][i-1].z) * 0.5;
-	}
-	else if ((nvert[k][j  ][i-1]> solid && nvert[k][j  ][i-1]<innerblank) ||
-		 (nvert[k][j+1][i-1]> solid && nvert[k][j+1][i-1]<innerblank)) {
-	  dudc = (ucat[k][j+1][i+1].x + ucat[k][j][i+1].x -
-		  ucat[k][j+1][i  ].x - ucat[k][j][i  ].x) * 0.5;
-	  dvdc = (ucat[k][j+1][i+1].y + ucat[k][j][i+1].y -
-		  ucat[k][j+1][i  ].y - ucat[k][j][i  ].y) * 0.5;
-	  dwdc = (ucat[k][j+1][i+1].z + ucat[k][j][i+1].z -
-		  ucat[k][j+1][i  ].z - ucat[k][j][i  ].z) * 0.5;
-	}
-	else {
-	  dudc = (ucat[k][j+1][i+1].x + ucat[k][j][i+1].x -
-		  ucat[k][j+1][i-1].x - ucat[k][j][i-1].x) * 0.25;
-	  dvdc = (ucat[k][j+1][i+1].y + ucat[k][j][i+1].y -
-		  ucat[k][j+1][i-1].y - ucat[k][j][i-1].y) * 0.25;
-	  dwdc = (ucat[k][j+1][i+1].z + ucat[k][j][i+1].z -
-		  ucat[k][j+1][i-1].z - ucat[k][j][i-1].z) * 0.25;
-	}
+    /* Stresses on every face of the owned cells: along n, from the face below the first cell. */
+    for (PetscInt n = 0; n < 3; n++) {
+        const PetscBool wall_lo = BoundaryFaceHasWallShear(&user->boundary_faces[2 * n]);
+        const PetscBool wall_hi = BoundaryFaceHasWallShear(&user->boundary_faces[2 * n + 1]);
+        PetscInt        flo[3] = {lo[0], lo[1], lo[2]};
+        PetscInt        across[3] = {0, 0, 0};
 
-	dude = ucat[k][j+1][i].x - ucat[k][j][i].x;
-	dvde = ucat[k][j+1][i].y - ucat[k][j][i].y;
-	dwde = ucat[k][j+1][i].z - ucat[k][j][i].z;
+        flo[n] -= 1;
+        across[n] = 1;
+        for (PetscInt k = flo[2]; k < hi[2]; k++) {
+            for (PetscInt j = flo[1]; j < hi[1]; j++) {
+                for (PetscInt i = flo[0]; i < hi[0]; i++) {
+                    const PetscInt c[3] = {i, j, k};
+                    double         nu = 1./simCtx->ren, nu_t = 0;
+                    Cmpnts         d[3];
 
-	if ((nvert[k+1][j  ][i]> solid && nvert[k+1][j  ][i]<innerblank)||
-	    (nvert[k+1][j+1][i]> solid && nvert[k+1][j+1][i]<innerblank)) {
-	  dudz = (ucat[k  ][j+1][i].x + ucat[k  ][j][i].x -
-		  ucat[k-1][j+1][i].x - ucat[k-1][j][i].x) * 0.5;
-	  dvdz = (ucat[k  ][j+1][i].y + ucat[k  ][j][i].y -
-		  ucat[k-1][j+1][i].y - ucat[k-1][j][i].y) * 0.5;
-	  dwdz = (ucat[k  ][j+1][i].z + ucat[k  ][j][i].z -
-		  ucat[k-1][j+1][i].z - ucat[k-1][j][i].z) * 0.5;
-	}
-	else if ((nvert[k-1][j  ][i]> solid && nvert[k-1][j  ][i]<innerblank)||
-		 (nvert[k-1][j+1][i]> solid && nvert[k-1][j+1][i]<innerblank)) {
-	  dudz = (ucat[k+1][j+1][i].x + ucat[k+1][j][i].x -
-		  ucat[k  ][j+1][i].x - ucat[k  ][j][i].x) * 0.5;
-	  dvdz = (ucat[k+1][j+1][i].y + ucat[k+1][j][i].y -
-		  ucat[k  ][j+1][i].y - ucat[k  ][j][i].y) * 0.5;
-	  dwdz = (ucat[k+1][j+1][i].z + ucat[k+1][j][i].z -
-		  ucat[k  ][j+1][i].z - ucat[k  ][j][i].z) * 0.5;
-	}
-	else {
-	  dudz = (ucat[k+1][j+1][i].x + ucat[k+1][j][i].x -
-		  ucat[k-1][j+1][i].x - ucat[k-1][j][i].x) * 0.25;
-	  dvdz = (ucat[k+1][j+1][i].y + ucat[k+1][j][i].y -
-		  ucat[k-1][j+1][i].y - ucat[k-1][j][i].y) * 0.25;
-	  dwdz = (ucat[k+1][j+1][i].z + ucat[k+1][j][i].z -
-		  ucat[k-1][j+1][i].z - ucat[k-1][j][i].z) * 0.25;
-	}
-
- 	csi0 = jcsi[k][j][i].x;
-	csi1 = jcsi[k][j][i].y;
-	csi2 = jcsi[k][j][i].z;
-
-	eta0 = jeta[k][j][i].x;
-	eta1 = jeta[k][j][i].y;
-	eta2 = jeta[k][j][i].z;
-	
-	zet0 = jzet[k][j][i].x;
-	zet1 = jzet[k][j][i].y;
-	zet2 = jzet[k][j][i].z;
-
-
-	g11 = csi0 * eta0 + csi1 * eta1 + csi2 * eta2;
-	g21 = eta0 * eta0 + eta1 * eta1 + eta2 * eta2;
-	g31 = zet0 * eta0 + zet1 * eta1 + zet2 * eta2;
-
-	r11 = dudc * csi0 + dude * eta0 + dudz * zet0;
-	r21 = dvdc * csi0 + dvde * eta0 + dvdz * zet0;
-	r31 = dwdc * csi0 + dwde * eta0 + dwdz * zet0;
-
-	r12 = dudc * csi1 + dude * eta1 + dudz * zet1;
-	r22 = dvdc * csi1 + dvde * eta1 + dvdz * zet1;
-	r32 = dwdc * csi1 + dwde * eta1 + dwdz * zet1;
-
-	r13 = dudc * csi2 + dude * eta2 + dudz * zet2;
-	r23 = dvdc * csi2 + dvde * eta2 + dvdz * zet2;
-	r33 = dwdc * csi2 + dwde * eta2 + dwdz * zet2;
-
-	//	if (i==1 && j==0 && k==21) PetscPrintf(PETSC_COMM_SELF, "@ i=%d j=%d k=%d dvdc is %.15le dvde is %.15le dvdz is %.15le \n",i,j,k,dvdc,dvde,dvdz);
-	//	if (i==1 && j==0 && k==21) PetscPrintf(PETSC_COMM_SELF, "@ i=%d j=%d k=%d dwdc is %.15le dwde is %.15le dwdz is %.15le \n",i,j,k,dwdc,dwde,dwdz);
-	//	if (i==1 && j==0 && k==21) PetscPrintf(PETSC_COMM_SELF, "@ i=%d j=%d k=%d jcsi is %.15le jeta is %.15le jzet is %.15le \n",i,j,k,jcsi[k][j][i].z,jeta[k][j][i].z,jzet[k][j][i].z);
-	//	if (i==1 && j==0 && k==21) PetscPrintf(PETSC_COMM_SELF, "@ i=%d j=%d k=%d r13 is %.15le r23 is %.15le r33 is %.15le \n",i,j,k,r13,r23,r33);
-
-
-
-	ajc = jaj[k][j][i];
-
-	double nu = 1./ren, nu_t = 0;
-		
-	if( les ) {
-	  //nu_t = pow( 0.5 * ( sqrt(lnu_t[k][j][i]) + sqrt(lnu_t[k][j+1][i]) ), 2.0) * Sabs;
-	  nu_t = 0.5 * (lnu_t[k][j][i] + lnu_t[k][j+1][i]);
-	  /* Zero is right for a wall-resolved run, where the subgrid stress vanishes at
-	     the wall. With a wall model the same face is where the modelled stress has to
-	     enter, so it takes the model's effective viscosity instead. */
-	  if ( BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_NEG_Y]) && j==0 ) nu_t = lnu_wall ? lnu_wall[k][1][i] : 0.0;
-	  if ( BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_POS_Y]) && j==my-2 ) nu_t = lnu_wall ? lnu_wall[k][my-2][i] : 0.0;
-		
-	  fp2[k][j][i].x = (g11 * dudc + g21 * dude + g31 * dudz + r11 * eta0 + r21 * eta1 + r31 * eta2) * ajc * (nu_t);
-	  fp2[k][j][i].y = (g11 * dvdc + g21 * dvde + g31 * dvdz + r12 * eta0 + r22 * eta1 + r32 * eta2) * ajc * (nu_t);
-	  fp2[k][j][i].z = (g11 * dwdc + g21 * dwde + g31 * dwdz + r13 * eta0 + r23 * eta1 + r33 * eta2) * ajc * (nu_t);
-	}
-	else {
-	  fp2[k][j][i].x = 0;
-	  fp2[k][j][i].y = 0;
-	  fp2[k][j][i].z = 0;
-	}
-		
-	fp2[k][j][i].x += (g11 * dudc + g21 * dude + g31 * dudz+ r11 * eta0 + r21 * eta1 + r31 * eta2 ) * ajc * (nu);
-	fp2[k][j][i].y += (g11 * dvdc + g21 * dvde + g31 * dvdz+ r12 * eta0 + r22 * eta1 + r32 * eta2 ) * ajc * (nu);
-	fp2[k][j][i].z += (g11 * dwdc + g21 * dwde + g31 * dwdz+ r13 * eta0 + r23 * eta1 + r33 * eta2 ) * ajc * (nu);
-		
-	if(clark) {
-	  /* dudc, dude, dudz are differences between neighbouring cells along each grid
-	     direction, so each already equals that direction's spacing times the physical
-	     derivative. Their outer products are therefore Delta_k^2 du_i/dx_k du_j/dx_k
-	     as they stand. Multiplying by a squared cell extent as well - which this term
-	     did, carried over from the legacy - made the stress scale as Delta^4 and left
-	     it smaller than intended by Delta^2, 1e-4 to 1e-6 on a production mesh; the
-	     extents were also Cartesian, so they did not belong to the directions they
-	     were paired with once the grid turned. */
-			
-	  /* The gradient-model tensor is the sum over the three computational
-	     directions of the per-cell velocity difference's outer product with itself;
-	     the cell's own extent in each direction is already inside that difference.
-	     It is symmetric by construction, so it is carried as one. */
-	  const Cmpnts grad_csi = { dudc, dvdc, dwdc };
-	  const Cmpnts grad_eta = { dude, dvde, dwde };
-	  const Cmpnts grad_zet = { dudz, dvdz, dwdz };
-	  const SymTensor gradient_tensor =
-	      SymTensorCombine(1.0, SymTensorSelfOuter(grad_csi), 1.0,
-	                       SymTensorCombine(1.0, SymTensorSelfOuter(grad_eta),
-	                                        1.0, SymTensorSelfOuter(grad_zet)));
-			
-	  {
-	    const Cmpnts face_normal = { eta0, eta1, eta2 };
-	    const Cmpnts gradient_flux = SymTensorTimesVector(gradient_tensor, face_normal);
-
-	    fp2[k][j][i].x -= gradient_flux.x / 12.;
-	    fp2[k][j][i].y -= gradient_flux.y / 12.;
-	    fp2[k][j][i].z -= gradient_flux.z / 12.;
-	  }
-	}
-      }
+                    if (les) {
+                        nu_t = 0.5 * (lnu_t[k][j][i] + lnu_t[k + across[2]][j + across[1]][i + across[0]]);
+                        /* Zero suits a wall-resolved run, where the subgrid stress vanishes at the
+                           wall; with a wall model this face is where the modelled stress enters. */
+                        if ((wall_lo && c[n] == 0) || (wall_hi && c[n] == m[n] - 2)) {
+                            PetscInt w[3] = {i, j, k};
+                            w[n] = (c[n] == 0) ? 1 : m[n] - 2;
+                            nu_t = lnu_wall ? lnu_wall[w[2]][w[1]][w[0]] : 0.0;
+                        }
+                    }
+                    RHSFaceVelocityDifferences(ucat, nvert, c, n, d);
+                    fp[n][k][j][i] = RHSViscousFaceFlux(&metrics, d, c, n, nu, nu_t, les, clark);
+                }
+            }
+        }
     }
-  }
 
-  DMDAVecRestoreArray(da, user->lJAj, &jaj);
-  // k direction
-
-  DMDAVecGetArray(da, user->lKAj, &kaj);
-  for (k=lzs-1; k<lze; k++) {
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	if ((nvert[k  ][j][i+1]> solid && nvert[k  ][j][i+1]<innerblank)||
-	    (nvert[k+1][j][i+1]> solid && nvert[k+1][j][i+1]<innerblank)) {
-	  dudc = (ucat[k+1][j][i  ].x + ucat[k][j][i  ].x -
-		  ucat[k+1][j][i-1].x - ucat[k][j][i-1].x) * 0.5;
-	  dvdc = (ucat[k+1][j][i  ].y + ucat[k][j][i  ].y -
-		  ucat[k+1][j][i-1].y - ucat[k][j][i-1].y) * 0.5;
-	  dwdc = (ucat[k+1][j][i  ].z + ucat[k][j][i  ].z -
-		  ucat[k+1][j][i-1].z - ucat[k][j][i-1].z) * 0.5;
-	}
-	else if ((nvert[k  ][j][i-1]> solid && nvert[k  ][j][i-1]<innerblank) ||
-		 (nvert[k+1][j][i-1]> solid && nvert[k+1][j][i-1]<innerblank)) {
-	  dudc = (ucat[k+1][j][i+1].x + ucat[k][j][i+1].x -
-		  ucat[k+1][j][i  ].x - ucat[k][j][i  ].x) * 0.5;
-	  dvdc = (ucat[k+1][j][i+1].y + ucat[k][j][i+1].y -
-		  ucat[k+1][j][i  ].y - ucat[k][j][i  ].y) * 0.5;
-	  dwdc = (ucat[k+1][j][i+1].z + ucat[k][j][i+1].z -
-		  ucat[k+1][j][i  ].z - ucat[k][j][i  ].z) * 0.5;
-	}
-	else {
-	  dudc = (ucat[k+1][j][i+1].x + ucat[k][j][i+1].x -
-		  ucat[k+1][j][i-1].x - ucat[k][j][i-1].x) * 0.25;
-	  dvdc = (ucat[k+1][j][i+1].y + ucat[k][j][i+1].y -
-		  ucat[k+1][j][i-1].y - ucat[k][j][i-1].y) * 0.25;
-	  dwdc = (ucat[k+1][j][i+1].z + ucat[k][j][i+1].z -
-		  ucat[k+1][j][i-1].z - ucat[k][j][i-1].z) * 0.25;
-	}
-	  
-	if ((nvert[k  ][j+1][i]> solid && nvert[k  ][j+1][i]<innerblank)||
-	    (nvert[k+1][j+1][i]> solid && nvert[k+1][j+1][i]<innerblank)) {
-	  dude = (ucat[k+1][j  ][i].x + ucat[k][j  ][i].x -
-		  ucat[k+1][j-1][i].x - ucat[k][j-1][i].x) * 0.5;
-	  dvde = (ucat[k+1][j  ][i].y + ucat[k][j  ][i].y -
-		  ucat[k+1][j-1][i].y - ucat[k][j-1][i].y) * 0.5;
-	  dwde = (ucat[k+1][j  ][i].z + ucat[k][j  ][i].z -
-		  ucat[k+1][j-1][i].z - ucat[k][j-1][i].z) * 0.5;
-	}
-	else if ((nvert[k  ][j-1][i]> solid && nvert[k  ][j-1][i]<innerblank) ||
-		 (nvert[k+1][j-1][i]> solid && nvert[k+1][j-1][i]<innerblank)){
-	  dude = (ucat[k+1][j+1][i].x + ucat[k][j+1][i].x -
-		  ucat[k+1][j  ][i].x - ucat[k][j  ][i].x) * 0.5;
-	  dvde = (ucat[k+1][j+1][i].y + ucat[k][j+1][i].y -
-		  ucat[k+1][j  ][i].y - ucat[k][j  ][i].y) * 0.5;
-	  dwde = (ucat[k+1][j+1][i].z + ucat[k][j+1][i].z -
-		  ucat[k+1][j  ][i].z - ucat[k][j  ][i].z) * 0.5;
-	}
-	else {
-	  dude = (ucat[k+1][j+1][i].x + ucat[k][j+1][i].x -
-		  ucat[k+1][j-1][i].x - ucat[k][j-1][i].x) * 0.25;
-	  dvde = (ucat[k+1][j+1][i].y + ucat[k][j+1][i].y -
-		  ucat[k+1][j-1][i].y - ucat[k][j-1][i].y) * 0.25;
-	  dwde = (ucat[k+1][j+1][i].z + ucat[k][j+1][i].z -
-		  ucat[k+1][j-1][i].z - ucat[k][j-1][i].z) * 0.25;
-	}
-
-	dudz = ucat[k+1][j][i].x - ucat[k][j][i].x;
-	dvdz = ucat[k+1][j][i].y - ucat[k][j][i].y;
-	dwdz = ucat[k+1][j][i].z - ucat[k][j][i].z;
-
-
- 	csi0 = kcsi[k][j][i].x;
-	csi1 = kcsi[k][j][i].y;
-	csi2 = kcsi[k][j][i].z;
-
-	eta0 = keta[k][j][i].x;
-	eta1 = keta[k][j][i].y;
-	eta2 = keta[k][j][i].z;
-	
-	zet0 = kzet[k][j][i].x;
-	zet1 = kzet[k][j][i].y;
-	zet2 = kzet[k][j][i].z;
-
-
-	g11 = csi0 * zet0 + csi1 * zet1 + csi2 * zet2;
-	g21 = eta0 * zet0 + eta1 * zet1 + eta2 * zet2;
-	g31 = zet0 * zet0 + zet1 * zet1 + zet2 * zet2;
-
-	r11 = dudc * csi0 + dude * eta0 + dudz * zet0;
-	r21 = dvdc * csi0 + dvde * eta0 + dvdz * zet0;
-	r31 = dwdc * csi0 + dwde * eta0 + dwdz * zet0;
-
-	r12 = dudc * csi1 + dude * eta1 + dudz * zet1;
-	r22 = dvdc * csi1 + dvde * eta1 + dvdz * zet1;
-	r32 = dwdc * csi1 + dwde * eta1 + dwdz * zet1;
-
-	r13 = dudc * csi2 + dude * eta2 + dudz * zet2;
-	r23 = dvdc * csi2 + dvde * eta2 + dvdz * zet2;
-	r33 = dwdc * csi2 + dwde * eta2 + dwdz * zet2;
-
-	ajc = kaj[k][j][i];
-
-	double nu = 1./ren, nu_t =0;
-		
-	if( les ) {
-	  //nu_t = pow( 0.5 * ( sqrt(lnu_t[k][j][i]) + sqrt(lnu_t[k+1][j][i]) ), 2.0) * Sabs;
-	  nu_t = 0.5 * (lnu_t[k][j][i] + lnu_t[k+1][j][i]);
-	  /* Zero is right for a wall-resolved run, where the subgrid stress vanishes at
-	     the wall. With a wall model the same face is where the modelled stress has to
-	     enter, so it takes the model's effective viscosity instead. */
-	  if ( BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_NEG_Z]) && k==0 ) nu_t = lnu_wall ? lnu_wall[1][j][i] : 0.0;
-	  if ( BoundaryFaceHasWallShear(&user->boundary_faces[BC_FACE_POS_Z]) && k==mz-2 ) nu_t = lnu_wall ? lnu_wall[mz-2][j][i] : 0.0;
-		
-	  fp3[k][j][i].x = (g11 * dudc + g21 * dude + g31 * dudz + r11 * zet0 + r21 * zet1 + r31 * zet2) * ajc * (nu_t);
-	  fp3[k][j][i].y = (g11 * dvdc + g21 * dvde + g31 * dvdz + r12 * zet0 + r22 * zet1 + r32 * zet2) * ajc * (nu_t);
-	  fp3[k][j][i].z = (g11 * dwdc + g21 * dwde + g31 * dwdz + r13 * zet0 + r23 * zet1 + r33 * zet2) * ajc * (nu_t);
-	}
-	else {
-	  fp3[k][j][i].x = 0;
-	  fp3[k][j][i].y = 0;
-	  fp3[k][j][i].z = 0;
-	}
-	fp3[k][j][i].x += (g11 * dudc + g21 * dude + g31 * dudz + r11 * zet0 + r21 * zet1 + r31 * zet2) * ajc * (nu);//
-	fp3[k][j][i].y += (g11 * dvdc + g21 * dvde + g31 * dvdz + r12 * zet0 + r22 * zet1 + r32 * zet2) * ajc * (nu);//
-	fp3[k][j][i].z += (g11 * dwdc + g21 * dwde + g31 * dwdz + r13 * zet0 + r23 * zet1 + r33 * zet2) * ajc * (nu);//
-
-	if(clark) {
-	  /* dudc, dude, dudz are differences between neighbouring cells along each grid
-	     direction, so each already equals that direction's spacing times the physical
-	     derivative. Their outer products are therefore Delta_k^2 du_i/dx_k du_j/dx_k
-	     as they stand. Multiplying by a squared cell extent as well - which this term
-	     did, carried over from the legacy - made the stress scale as Delta^4 and left
-	     it smaller than intended by Delta^2, 1e-4 to 1e-6 on a production mesh; the
-	     extents were also Cartesian, so they did not belong to the directions they
-	     were paired with once the grid turned. */
-			
-	  /* The gradient-model tensor is the sum over the three computational
-	     directions of the per-cell velocity difference's outer product with itself;
-	     the cell's own extent in each direction is already inside that difference.
-	     It is symmetric by construction, so it is carried as one. */
-	  const Cmpnts grad_csi = { dudc, dvdc, dwdc };
-	  const Cmpnts grad_eta = { dude, dvde, dwde };
-	  const Cmpnts grad_zet = { dudz, dvdz, dwdz };
-	  const SymTensor gradient_tensor =
-	      SymTensorCombine(1.0, SymTensorSelfOuter(grad_csi), 1.0,
-	                       SymTensorCombine(1.0, SymTensorSelfOuter(grad_eta),
-	                                        1.0, SymTensorSelfOuter(grad_zet)));
-			
-	  {
-	    const Cmpnts face_normal = { zet0, zet1, zet2 };
-	    const Cmpnts gradient_flux = SymTensorTimesVector(gradient_tensor, face_normal);
-
-	    fp3[k][j][i].x -= gradient_flux.x / 12.;
-	    fp3[k][j][i].y -= gradient_flux.y / 12.;
-	    fp3[k][j][i].z -= gradient_flux.z / 12.;
-	  }
-	}
-      }
+    /* Viscous term in Cartesian components: the net stress out of each cell. */
+    for (PetscInt k = lo[2]; k < hi[2]; k++) {
+        for (PetscInt j = lo[1]; j < hi[1]; j++) {
+            for (PetscInt i = lo[0]; i < hi[0]; i++) {
+                visc[k][j][i].x =
+                    (fp[0][k][j][i].x - fp[0][k][j][i-1].x +
+                     fp[1][k][j][i].x - fp[1][k][j-1][i].x +
+                     fp[2][k][j][i].x - fp[2][k-1][j][i].x);
+                visc[k][j][i].y =
+                    (fp[0][k][j][i].y - fp[0][k][j][i-1].y +
+                     fp[1][k][j][i].y - fp[1][k][j-1][i].y +
+                     fp[2][k][j][i].y - fp[2][k-1][j][i].y);
+                visc[k][j][i].z =
+                    (fp[0][k][j][i].z - fp[0][k][j][i-1].z +
+                     fp[1][k][j][i].z - fp[1][k][j-1][i].z +
+                     fp[2][k][j][i].z - fp[2][k-1][j][i].z);
+            }
+        }
     }
-  }
 
-  DMDAVecRestoreArray(da, user->lKAj, &kaj);
-  
-  for (k=lzs; k<lze; k++) {
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	visc[k][j][i].x =
-	  (fp1[k][j][i].x - fp1[k][j][i-1].x +
-	   fp2[k][j][i].x - fp2[k][j-1][i].x +
-	   fp3[k][j][i].x - fp3[k-1][j][i].x);
-	
-	visc[k][j][i].y =
-	  (fp1[k][j][i].y - fp1[k][j][i-1].y +
-	   fp2[k][j][i].y - fp2[k][j-1][i].y +
-	   fp3[k][j][i].y - fp3[k-1][j][i].y);
-
-	visc[k][j][i].z =
-	  (fp1[k][j][i].z - fp1[k][j][i-1].z +
-	   fp2[k][j][i].z - fp2[k][j-1][i].z +
-	   fp3[k][j][i].z - fp3[k-1][j][i].z);
-			
-      }
+    PetscCall(DMDAVecRestoreArray(user->fda, Visc, &visc));
+    if (lnu_wall) PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNu_Wall, (void *)&lnu_wall));
+    if (lnu_t) PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNu_t, (void *)&lnu_t));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, Ucat, (void *)&ucat));
+    PetscCall(PoissonOperator_RestoreFaceMetrics(user, &metrics));
+    for (PetscInt n = 0; n < 3; n++) {
+        PetscCall(DMDAVecRestoreArray(user->fda, Fp[n], &fp[n]));
+        PetscCall(DMRestoreLocalVector(user->fda, &Fp[n]));
     }
-  }
-/*   for (k=zs; k<ze; k++) { */
-/*     for (j=ys; j<ye; j++) { */
-/*       for (i=xs; i<xe; i++) { */
-/* 	if (i==1 && j==1 && k==21) PetscPrintf(PETSC_COMM_SELF, "@ i= %d j=%d k=%d  fp1.z is %.15le \n",i,j,k,fp1[k][j][i].z); */
-/* 	if (i==0 && j==1 && k==21) PetscPrintf(PETSC_COMM_SELF, "@ i= %d j=%d k=%d  fp1.z is %.15le \n",i,j,k,fp1[k][j][i].z); */
-/* 	if (i==1 && j==1 && k==21) PetscPrintf(PETSC_COMM_SELF, "@ i= %d j=%d k=%d  fp2.z is %.15le \n",i,j,k,fp2[k][j][i].z); */
-/* 	if (i==1 && j==0 && k==21) PetscPrintf(PETSC_COMM_SELF, "@ i= %d j=%d k=%d  fp2.z is %.15le \n",i,j,k,fp2[k][j][i].z); */
-/* 	if (i==1 && j==1 && k==21) PetscPrintf(PETSC_COMM_SELF, "@ i= %d j=%d k=%d  fp3.z is %.15le \n",i,j,k,fp3[k][j][i].z); */
-/* 	if (i==1 && j==1 && k==20) PetscPrintf(PETSC_COMM_SELF, "@ i= %d j=%d k=%d  fp3.z is %.15le \n",i,j,k,fp3[k][j][i].z); */
-	 
-/*       } */
-/*     } */
-/*   }  */
-  DMDAVecRestoreArray(fda, Ucont, &ucont);
-  DMDAVecRestoreArray(fda, Ucat,  &ucat);
-  DMDAVecRestoreArray(fda, Visc,  &visc);
-
-  DMDAVecRestoreArray(fda, Csi, &csi);
-  DMDAVecRestoreArray(fda, Eta, &eta);
-  DMDAVecRestoreArray(fda, Zet, &zet);
-
-  DMDAVecRestoreArray(fda, Fp1, &fp1);
-  DMDAVecRestoreArray(fda, Fp2, &fp2);
-  DMDAVecRestoreArray(fda, Fp3, &fp3);
-
-  DMDAVecRestoreArray(da, user->lAj, &aj);
-
-  DMDAVecRestoreArray(fda, user->lICsi, &icsi);
-  DMDAVecRestoreArray(fda, user->lIEta, &ieta);
-  DMDAVecRestoreArray(fda, user->lIZet, &izet);
-
-  DMDAVecRestoreArray(fda, user->lJCsi, &jcsi);
-  DMDAVecRestoreArray(fda, user->lJEta, &jeta);
-  DMDAVecRestoreArray(fda, user->lJZet, &jzet);
-
-  DMDAVecRestoreArray(fda, user->lKCsi, &kcsi);
-  DMDAVecRestoreArray(fda, user->lKEta, &keta);
-  DMDAVecRestoreArray(fda, user->lKZet, &kzet);
-
-  DMDAVecRestoreArray(da, user->lNvert, &nvert);
-
-  if(les) {
-    DMDAVecRestoreArray(da, user->lNu_t, &lnu_t);
-  }
-  /* Opened independently of the turbulence model, so closed independently of it. */
-  if (lnu_wall) DMDAVecRestoreArray(da, user->lNu_Wall, &lnu_wall);
- 
-
-  DMRestoreLocalVector(fda, &Fp1);
-  DMRestoreLocalVector(fda, &Fp2);
-  DMRestoreLocalVector(fda, &Fp3);
-
-
-  LOG_ALLOW(GLOBAL,LOG_DEBUG,"Viscous terms calculated .\n");
-
-  PROFILE_FUNCTION_END;
-  
-  return(0);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Viscous terms calculated .\n");
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
 }
 
 /**
@@ -1096,7 +626,7 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     PetscCall(ComputeConvection(user, user->lUcont, user->lUcat, Conv));
     if (!user->simCtx->invicid) {
         LOG_ALLOW(LOCAL, LOG_DEBUG, "  Calculating viscous terms...\n");
-        PetscCall(Viscous(user, user->lUcont, user->lUcat, Visc));
+        PetscCall(ComputeViscous(user, user->lUcont, user->lUcat, Visc));
     }
     LOG_ALLOW(LOCAL, LOG_DEBUG, "  Converting Cartesian RHS to Contravariant RHS...\n");
     PetscCall(RHSContravariantSpatialTerms(user, Conv, Visc, Rct));

@@ -438,7 +438,7 @@ static PetscReal FrozenMomentumJacobian_MetricNormSquared(Cmpnts metric)
  * @brief Returns the face-averaged eddy viscosity the residual uses on one face.
  *
  * The preconditioner has to reproduce the operator it preconditions, so the interior
- * face average here tracks `Viscous()`.
+ * face average here tracks `ComputeViscous()`.
  *
  * The WALL branch below does not, and is retained only because it cannot currently
  * change an assembled entry. It is unreachable by construction, not by configuration:
@@ -451,7 +451,7 @@ static PetscReal FrozenMomentumJacobian_MetricNormSquared(Cmpnts metric)
  * check in `BoundarySystem_Validate()`. Both rules state the same boundary
  * fact: the wall-normal flux at a no-slip wall is not an unknown.
  *
- * `Viscous()` substitutes the wall-model eddy viscosity `lnu_wall` on a wall face and
+ * `ComputeViscous()` substitutes the wall-model eddy viscosity `lnu_wall` on a wall face and
  * falls back to zero only when `simCtx->wallfunction` is unset, so this branch is
  * already wrong for a wall-modelled run -- it simply has no way to express that yet.
  * Widening the stencil makes it reachable and therefore wrong in effect: an interior

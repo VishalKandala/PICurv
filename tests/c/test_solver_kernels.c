@@ -1029,7 +1029,7 @@ static PetscErrorCode TestMomentumStabilityCandidateDShear(void)
     PetscFunctionReturn(0);
 }
 
-/* A3.5-6c. Wall faces suppress eddy viscosity exactly as in Viscous(). */
+/* A3.5-6c. Wall faces suppress eddy viscosity exactly as in ComputeViscous(). */
 static PetscErrorCode TestMomentumStabilityWallSuppression(void)
 {
     SimCtx *simCtx = NULL; UserCtx *user = NULL; MomStabilityReport rep;

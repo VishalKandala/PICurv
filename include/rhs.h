@@ -19,7 +19,7 @@
  * @param[out] Visc  Output vector receiving the viscous RHS contribution.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc);
+PetscErrorCode ComputeViscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc);
 
 /**
  * @brief Computes the convective contribution to the contravariant momentum RHS.

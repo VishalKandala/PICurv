@@ -208,7 +208,7 @@ static PetscErrorCode TestViscousUniformField(void)
     PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
     PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
 
-    PetscCall(Viscous(user, user->lUcont, user->lUcat, visc));
+    PetscCall(ComputeViscous(user, user->lUcont, user->lUcat, visc));
     PetscCall(PicurvAssertVecConstant(visc, 0.0, 1.0e-12, "Viscous should vanish for a uniform field"));
 
     PetscCall(VecDestroy(&visc));
@@ -246,8 +246,8 @@ static PetscErrorCode ScaleMinimalMetricsToSpacing(UserCtx *user, PetscReal h)
  *
  * @details The field is u_x = x^2 on cubic cells of edge h, so du/dx = 2x and the exact
  *          gradient-model stress tau_11 = (h^2/12)(du/dx)^2 varies along x. Both the
- *          model's and viscosity's contributions leave Viscous() through the same flux
- *          differences, so their ratio does not depend on how Viscous() normalizes its
+ *          model's and viscosity's contributions leave ComputeViscous() through the same flux
+ *          differences, so their ratio does not depend on how ComputeViscous() normalizes its
  *          output.
  */
 static PetscErrorCode ClarkToMolecularRatioPerX(PetscReal h, PetscInt probe, PetscReal *ratio_per_x)
@@ -279,9 +279,9 @@ static PetscErrorCode ClarkToMolecularRatioPerX(PetscReal h, PetscInt probe, Pet
     PetscCall(VecDuplicate(user->lUcont, &molecular));
     PetscCall(VecDuplicate(user->lUcont, &with_clark));
     simCtx->les_gradient_model = 0;
-    PetscCall(Viscous(user, user->lUcont, user->lUcat, molecular));
+    PetscCall(ComputeViscous(user, user->lUcont, user->lUcat, molecular));
     simCtx->les_gradient_model = 1;
-    PetscCall(Viscous(user, user->lUcont, user->lUcat, with_clark));
+    PetscCall(ComputeViscous(user, user->lUcont, user->lUcat, with_clark));
 
     PetscCall(DMDAVecGetArrayRead(user->fda, molecular, &visc0));
     PetscCall(DMDAVecGetArrayRead(user->fda, with_clark, &visc1));

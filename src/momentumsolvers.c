@@ -310,7 +310,7 @@ static PetscErrorCode ComputeGlobalSpectralRadiusEstimate(
 
 /* Absolute metric-row sum for one face: |N.N| + |A.N| + |B.N|, where N is the
    face's own normal-metric vector and A,B are the other two face-metric vectors.
-   Mirrors the g11/g21/g31 rows assembled per face in Viscous(). */
+   Mirrors the g11/g21/g31 rows assembled per face in ComputeViscous(). */
 static inline PetscReal MomFaceGabs(Cmpnts N, Cmpnts A, Cmpnts B)
 {
     const PetscReal NN = N.x*N.x + N.y*N.y + N.z*N.z;
@@ -321,7 +321,7 @@ static inline PetscReal MomFaceGabs(Cmpnts N, Cmpnts A, Cmpnts B)
 
 /* nvert bands matching the physical operator:
  *   SKIP    : cell excluded from the estimate (solid/blanked), nvert > 0.1.
- *   VISC1S  : Viscous() one-sided cross-derivative trigger band, (0.5, 7).
+ *   VISC1S  : ComputeViscous() one-sided cross-derivative trigger band, (0.5, 7).
  *   QUICKBLK: ComputeConvection() QUICK-modifier band, [0.1, 7] (mirrors NOT(<0.1 || >innerblank)). */
 #define MOM_SKIP_SOLID(v)    ((v) > 0.1)
 #define MOM_VISC_ONESIDED(v) ((v) > 0.5 && (v) < 7.0)
@@ -329,7 +329,7 @@ static inline PetscReal MomFaceGabs(Cmpnts N, Cmpnts A, Cmpnts B)
 
 /* Read-only: does ANY of the six viscous faces entering cell (k,j,i) use an
  * nvert-selected one-sided cross-derivative? Conservative solid-band check over
- * the full 3x3x3 neighborhood that the per-face Viscous() predicates can reach.
+ * the full 3x3x3 neighborhood that the per-face ComputeViscous() predicates can reach.
  * Indices i +/- 1, j +/- 1, k +/- 1 are always valid on the interior loop range. */
 static PetscBool MomCellUsesOneSidedViscousStencil(PetscReal ***nvert, PetscInt k, PetscInt j, PetscInt i)
 {

@@ -403,7 +403,7 @@ axis, and the two coordinates that trigger the branch are exactly the ones
 `ClassifyMomentumRow()` classifies as boundary-pinned - those rows take an identity
 stamp and never assemble a block at all. Both rules restate one boundary fact: the
 wall-normal flux at a no-slip wall is not an unknown. It does not match the residual
-because `Viscous()` substitutes the wall-model eddy viscosity `lnu_wall` there and
+because `ComputeViscous()` substitutes the wall-model eddy viscosity `lnu_wall` there and
 falls back to zero only when no wall model is active. Widening the stencil breaks the
 first of those and exposes the second, because an interior row would then need the
 eddy viscosity on the wall face to build its off-diagonal. Issue #8 tracks fixing it
