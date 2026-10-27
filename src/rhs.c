@@ -469,7 +469,6 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 
   // Create local variables to mirror the legacy globals for minimal code changes.
   const LESModelType les = simCtx->les;
-  const PetscInt ti = simCtx->step; // Assuming simCtx->step is the new integer time counter
   const	PetscReal ren = simCtx->ren;
   const PetscInt clark = simCtx->les_gradient_model;
   solid = 0.5;

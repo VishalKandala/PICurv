@@ -11,25 +11,6 @@
 #include "setup.h"
 
 /**
- * @brief Appends one key/value pair to a linked list of boundary-condition parameters.
- */
-static PetscErrorCode AppendBCParam(BC_Param **head, const char *key, const char *value)
-{
-    BC_Param *node = NULL;
-    BC_Param **cursor = head;
-
-    PetscFunctionBeginUser;
-    PetscCheck(head != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "BC param list head cannot be NULL.");
-    PetscCall(PetscCalloc1(1, &node));
-    PetscCall(PetscStrallocpy(key, &node->key));
-    PetscCall(PetscStrallocpy(value, &node->value));
-    while (*cursor) {
-        cursor = &(*cursor)->next;
-    }
-    *cursor = node;
-    PetscFunctionReturn(0);
-}
-/**
  * @brief Destroys one boundary-condition handler allocated by a periodic test.
  */
 static PetscErrorCode DestroyBoundaryHandler(BoundaryCondition **bc_ptr)

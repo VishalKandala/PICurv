@@ -958,7 +958,7 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
         PetscReal a1_new = d[LEFT]   / (d[LEFT]   + d[RIGHT]);
         PetscReal a2_new = d[BOTTOM] / (d[BOTTOM] + d[TOP]);
         PetscReal a3_new = d[BACK]   / (d[FRONT]  + d[BACK]);
-        PetscReal w[8];
+        PetscReal w[8] = {0}; /* Read only when needs_unclamped, which also fills it */
         if (needs_unclamped) ComputeTrilinearWeightsUnclamped(a1_new, a2_new, a3_new, w);
 
         LOG_ALLOW(LOCAL, LOG_VERBOSE,

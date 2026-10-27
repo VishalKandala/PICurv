@@ -402,7 +402,7 @@ static PetscErrorCode ConfigureCandidateFixture(SimCtx *simCtx, UserCtx *user)
     for (int f = 0; f < 6; f++) user->boundary_faces[f].mathematical_type = PERIODIC;
     simCtx->dt = 0.1; simCtx->step = 5; simCtx->StartStep = 0;     /* BDF2 -> a0=1.5 */
     simCtx->ren = 1.0e6; simCtx->invicid = 1; simCtx->les = 0;
-    simCtx->central = 1; simCtx->clark = 0; simCtx->TwoD = 0; simCtx->block_number = 1;
+    simCtx->central = 1; simCtx->les_gradient_model = 0; simCtx->TwoD = 0; simCtx->block_number = 1;
     simCtx->bulkVelocityCorrection = 0.0; simCtx->moveframe = 0; simCtx->rotateframe = 0;
     if (!user->lNu_t) PetscCall(DMCreateLocalVector(user->da, &user->lNu_t));
     PetscCall(VecSet(user->P, 0.0)); PetscCall(UpdateLocalGhosts(user, FIELD_ID_P));

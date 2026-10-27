@@ -560,21 +560,6 @@ static PetscErrorCode TestDrivenChannelFlowSource(void)
  * ===================================================================== */
 
 /**
- * @brief Sets the mathematical BC type on all six faces of a test UserCtx.
- * @param user Test user context.
- * @param t    BCType to assign to every face (e.g. PERIODIC, INLET).
- */
-static void MomSetAllBC(UserCtx *user, BCType t)
-{
-    user->boundary_faces[BC_FACE_NEG_X].mathematical_type = t;
-    user->boundary_faces[BC_FACE_POS_X].mathematical_type = t;
-    user->boundary_faces[BC_FACE_NEG_Y].mathematical_type = t;
-    user->boundary_faces[BC_FACE_POS_Y].mathematical_type = t;
-    user->boundary_faces[BC_FACE_NEG_Z].mathematical_type = t;
-    user->boundary_faces[BC_FACE_POS_Z].mathematical_type = t;
-}
-
-/**
  * @brief Fills a local Cmpnts vector (ghosts included) with a uniform vector value.
  * @param fda  Vector DM owning lvec.
  * @param lvec Local Cmpnts vector to fill.

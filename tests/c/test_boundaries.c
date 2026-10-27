@@ -239,6 +239,8 @@ static PetscErrorCode GetParabolicSampleSlots(const UserCtx *user,
             *wall_k = user->info.mz - 2; *wall_j = 1; *wall_i = 1;
             *ubcs_center_k = user->info.mz - 1; *ubcs_center_j = 3; *ubcs_center_i = 3;
             break;
+        default:
+            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "Unknown boundary face %d.", (int)face);
     }
     PetscFunctionReturn(0);
 }

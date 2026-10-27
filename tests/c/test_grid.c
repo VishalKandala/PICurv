@@ -175,12 +175,16 @@ static PetscErrorCode TestBalanceCoarsestOwnershipBalancesFinestLevel(void)
  */
 static PetscErrorCode TestOversizedGridIsRefusedOn32BitIndices(void)
 {
+#if defined(PETSC_USE_64BIT_INDICES)
+    /* Nothing outgrows a 64-bit PetscInt, and PETSC_MAX_INT + 1 would overflow. */
+    PetscFunctionBeginUser;
+    PetscFunctionReturn(0);
+#else
     SimCtx        *simCtx = NULL;
     char           tmpdir[PETSC_MAX_PATH_LEN] = "";
     PetscErrorCode setup_ierr;
 
     PetscFunctionBeginUser;
-    if (sizeof(PetscInt) > 4) PetscFunctionReturn(0);
     PetscCall(PetscPushErrorHandler(PetscReturnErrorHandler, NULL));
     PetscCall(PicurvCheckPetscIntRange(PETSC_COMM_WORLD, (PetscInt64)PETSC_MAX_INT, "an object at the limit"));
     setup_ierr = PicurvCheckPetscIntRange(PETSC_COMM_WORLD, (PetscInt64)PETSC_MAX_INT + 1, "an object past the limit");
@@ -197,6 +201,7 @@ static PetscErrorCode TestOversizedGridIsRefusedOn32BitIndices(void)
     if (tmpdir[0]) PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PetscOptionsClear(NULL));
     PetscFunctionReturn(0);
+#endif
 }
 
 /**
