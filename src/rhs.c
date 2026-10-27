@@ -53,9 +53,10 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
   DMDAVecGetArray(fda, Conv,  &conv);
   DMDAVecGetArray(da, user->lAj, &aj);
 
-  VecDuplicate(Ucont, &Fp1);
-  VecDuplicate(Ucont, &Fp2);
-  VecDuplicate(Ucont, &Fp3);
+  // Pooled work vectors, zeroed as the fresh duplicates they replace were (see ComputeRHS()).
+  DMGetLocalVector(fda, &Fp1); VecZeroEntries(Fp1);
+  DMGetLocalVector(fda, &Fp2); VecZeroEntries(Fp2);
+  DMGetLocalVector(fda, &Fp3); VecZeroEntries(Fp3);
 
   DMDAVecGetArray(fda, Fp1, &fp1);
   DMDAVecGetArray(fda, Fp2, &fp2);
@@ -409,9 +410,9 @@ PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
   DMDAVecRestoreArray(fda, Fp3, &fp3);
   DMDAVecRestoreArray(da, user->lNvert, &nvert);
 
-  VecDestroy(&Fp1);
-  VecDestroy(&Fp2);
-  VecDestroy(&Fp3);
+  DMRestoreLocalVector(fda, &Fp1);
+  DMRestoreLocalVector(fda, &Fp2);
+  DMRestoreLocalVector(fda, &Fp3);
 
 
   LOG_ALLOW(GLOBAL,LOG_DEBUG,"Convective term calculated .\n");
@@ -498,9 +499,10 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
 
   DMDAVecGetArray(da, user->lNvert, &nvert);
 
-  VecDuplicate(Ucont, &Fp1);
-  VecDuplicate(Ucont, &Fp2);
-  VecDuplicate(Ucont, &Fp3);
+  // Pooled work vectors, zeroed as the fresh duplicates they replace were (see ComputeRHS()).
+  DMGetLocalVector(fda, &Fp1); VecZeroEntries(Fp1);
+  DMGetLocalVector(fda, &Fp2); VecZeroEntries(Fp2);
+  DMGetLocalVector(fda, &Fp3); VecZeroEntries(Fp3);
 
   DMDAVecGetArray(fda, Fp1, &fp1);
   DMDAVecGetArray(fda, Fp2, &fp2);
@@ -1103,9 +1105,9 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc)
   if (lnu_wall) DMDAVecRestoreArray(da, user->lNu_Wall, &lnu_wall);
  
 
-  VecDestroy(&Fp1);
-  VecDestroy(&Fp2);
-  VecDestroy(&Fp3);
+  DMRestoreLocalVector(fda, &Fp1);
+  DMRestoreLocalVector(fda, &Fp2);
+  DMRestoreLocalVector(fda, &Fp3);
 
 
   LOG_ALLOW(GLOBAL,LOG_DEBUG,"Viscous terms calculated .\n");
@@ -1200,10 +1202,12 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     ierr = DMDAVecGetArray(fda, Rhs, &rhs); CHKERRQ(ierr);
 
     // --- Create temporary work vectors ---
-    ierr = VecDuplicate(user->lUcont, &Rc); CHKERRQ(ierr);
-    ierr = VecDuplicate(Rc, &Rct); CHKERRQ(ierr);
-    ierr = VecDuplicate(Rct, &Conv); CHKERRQ(ierr);
-    ierr = VecDuplicate(Rct, &Visc); CHKERRQ(ierr);
+    // Work vectors from fda's pool, zeroed as the fresh duplicates they replace were: a residual
+    // evaluation runs many times per step, and allocating them each time costs more than the zeroing.
+    ierr = DMGetLocalVector(fda, &Rc); CHKERRQ(ierr);   ierr = VecZeroEntries(Rc); CHKERRQ(ierr);
+    ierr = DMGetLocalVector(fda, &Rct); CHKERRQ(ierr);  ierr = VecZeroEntries(Rct); CHKERRQ(ierr);
+    ierr = DMGetLocalVector(fda, &Conv); CHKERRQ(ierr); ierr = VecZeroEntries(Conv); CHKERRQ(ierr);
+    ierr = DMGetLocalVector(fda, &Visc); CHKERRQ(ierr); ierr = VecZeroEntries(Visc); CHKERRQ(ierr);
 
     // ========================================================================
     //   CORE LOGIC (UNCHANGED FROM LEGACY CODE)
@@ -1836,10 +1840,10 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Cell Centered scalars restored successfully! .\n");
     
     // --- Destroy temporary work vectors ---
-    ierr = VecDestroy(&Conv); CHKERRQ(ierr);
-    ierr = VecDestroy(&Visc); CHKERRQ(ierr);
-    ierr = VecDestroy(&Rc); CHKERRQ(ierr);
-    ierr = VecDestroy(&Rct); CHKERRQ(ierr);
+    ierr = DMRestoreLocalVector(fda, &Conv); CHKERRQ(ierr);
+    ierr = DMRestoreLocalVector(fda, &Visc); CHKERRQ(ierr);
+    ierr = DMRestoreLocalVector(fda, &Rc); CHKERRQ(ierr);
+    ierr = DMRestoreLocalVector(fda, &Rct); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Temporary work vectors destroyed successfully! .\n");
     
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d, Block %" PetscInt_FMT ": RHS computation complete.\n",

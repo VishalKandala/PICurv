@@ -1034,6 +1034,8 @@ PetscErrorCode DualMonitorDestroy(void **ctx)
     if(!rank && monctx->file_handle){
       fclose(monctx->file_handle);
     }
+    ierr = VecDestroy(&monctx->residual_work[0]); CHKERRQ(ierr);
+    ierr = VecDestroy(&monctx->residual_work[1]); CHKERRQ(ierr);
     
     ierr = PetscFree(monctx); CHKERRQ(ierr);
     *ctx = NULL;
@@ -1061,10 +1063,17 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx)
     PROFILE_HELPER_BEGIN;
     rank = PetscGlobalRank;
 
-    // 1. Calculate the true residual norm.
-    ierr = KSPBuildResidual(ksp, NULL, NULL, &r); CHKERRQ(ierr);
+    // 1. Calculate the true residual norm. Both workspaces are fully overwritten on each call, so
+    //    they are kept rather than created and destroyed every iteration.
+    if (!monctx->residual_work[0]) {
+        Vec b, x;
+        ierr = KSPGetRhs(ksp, &b); CHKERRQ(ierr);
+        ierr = KSPGetSolution(ksp, &x); CHKERRQ(ierr);
+        ierr = VecDuplicate(x, &monctx->residual_work[0]); CHKERRQ(ierr);
+        ierr = VecDuplicate(b, &monctx->residual_work[1]); CHKERRQ(ierr);
+    }
+    ierr = KSPBuildResidual(ksp, monctx->residual_work[0], monctx->residual_work[1], &r); CHKERRQ(ierr);
     ierr = VecNorm(r, NORM_2, &trnorm); CHKERRQ(ierr);
-    ierr = VecDestroy(&r); CHKERRQ(ierr);
 
     // 2. On the first iteration, compute and store the norm of the RHS vector `b`.
     if (it == 0) {
@@ -2259,8 +2268,8 @@ PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step)
             PetscBool ran = PETSC_FALSE;
             for (PetscLogEvent e = 0; e < nevents && !ran; ++e) {
                 PetscLogEventInfo info;
-                PetscLogDouble    time;
-                int               count;
+                PetscLogDouble    time = 0.0;
+                int               count = 0;
                 PetscCall(PetscLogStateEventGetInfo(state, e, &info));
                 if (!_ProfilingIsPicurvClass(info.classid) || strcmp(info.name, g_profile_selected[i]) != 0) continue;
                 PetscCall(_ProfilingEventTotals(e, &time, &count));
@@ -2277,8 +2286,8 @@ PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step)
 
     for (PetscLogEvent e = 0; e < nevents; ++e) {
         PetscLogEventInfo info;
-        PetscLogDouble    time, since_time;
-        int               count, since_count;
+        PetscLogDouble    time = 0.0, since_time;
+        int               count = 0, since_count;
         PetscCall(PetscLogStateEventGetInfo(state, e, &info));
         if (!_ProfilingIsPicurvClass(info.classid)) continue;
         if (!all && !_ProfilingNameListed(info.name, g_profile_selected, g_profile_nselected)) continue;
@@ -2583,8 +2592,8 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
     PetscCall(PetscMalloc3(nevents + 1, &petsc_names, nevents + 1, &petsc_times, nevents + 1, &petsc_counts));
     for (PetscLogEvent e = 0; e < nevents; ++e) {
         PetscLogEventInfo info;
-        PetscLogDouble    time;
-        int               count;
+        PetscLogDouble    time = 0.0;
+        int               count = 0;
         PetscCall(PetscLogStateEventGetInfo(state, e, &info));
         PetscCall(_ProfilingEventTotals(e, &time, &count));
         if (count <= 0) continue;

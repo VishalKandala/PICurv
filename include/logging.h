@@ -59,6 +59,7 @@ typedef struct {
     PetscReal   bnorm;            // Stores the norm of the initial RHS vector.
     PetscInt    step;             // Timestep
     PetscInt    block_id;         // the ID of the block this monitor is for.   
+    Vec         residual_work[2]; // KSPBuildResidual() workspaces, created on first use and kept with the KSP.
 } DualMonitorCtx;
 
 // --------------------- Logging Macros ---------------------
