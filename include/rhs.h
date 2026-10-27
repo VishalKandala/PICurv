@@ -34,7 +34,7 @@ PetscErrorCode Viscous(UserCtx *user, Vec Ucont, Vec Ucat, Vec Visc);
  * @param[out] Conv  Output vector receiving the convection RHS contribution.
  * @return PetscErrorCode 0 on success.
  */
-PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv);
+PetscErrorCode ComputeConvection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv);
 
 /**
  * @brief General dispatcher for applying all active body forces (momentum sources).

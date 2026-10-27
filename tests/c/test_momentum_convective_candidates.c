@@ -1220,7 +1220,7 @@ static PetscErrorCode TraceStateAResidualStages(UserCtx *user, Vec Ubase, Vec Rh
     PetscCall(Contra2Cart(user));
     PetscCall(UpdateLocalGhosts(user, FIELD_ID_UCAT));
     PetscCall(ComputeLocalDuplicateMismatch(user, user->lUcat, seam_ucat));
-    PetscCall(Convection(user, user->lUcont, user->lUcat, Conv));
+    PetscCall(ComputeConvection(user, user->lUcont, user->lUcat, Conv));
     PetscCall(VecNorm(Conv, NORM_2, &conv2));
     PetscCall(VecNorm(Conv, NORM_INFINITY, &convinf));
     PetscCall(EvalConvResidual(user, Upert, Rhs, map, ract));
@@ -1242,7 +1242,7 @@ static PetscErrorCode TraceStateAResidualStages(UserCtx *user, Vec Ubase, Vec Rh
         "  --- observable State A residual trace (mixed perturbation, amp=1e-6) ---\n"
         "    after Ucont periodic sync duplicate mismatch (x,y,z)=%.3e %.3e %.3e\n"
         "    after Contra2Cart Ucat duplicate mismatch       (x,y,z)=%.3e %.3e %.3e\n"
-        "    direct Convection() Cartesian norm: ||Conv||2=%.6e ||Conv||inf=%.6e\n"
+        "    direct ComputeConvection() Cartesian norm: ||Conv||2=%.6e ||Conv||inf=%.6e\n"
         "    final active ComputeRHS() norm:     ||R||2=%.6e ||R||inf=%.6e\n"
         "    active-row mask counts by component: u=%d v=%d w=%d discarded=%d\n"
         "    final active-space skewness defect already reported from J: %.3e\n",
@@ -1762,7 +1762,7 @@ static PetscErrorCode EvalResidualStage(UserCtx *user, Vec Ucont_in, Vec Rhs,
     PetscCall(VecDuplicate(user->lUcont, &Conv));
     PetscCall(VecDuplicate(user->lUcont, &Rc));
     PetscCall(VecDuplicate(user->lUcont, &Rct));
-    PetscCall(Convection(user, user->lUcont, user->lUcat, Conv));
+    PetscCall(ComputeConvection(user, user->lUcont, user->lUcat, Conv));
     PetscCall(VecSet(Rc, 0.0));
     PetscCall(VecAXPY(Rc, -1.0, Conv));
     if (stage == STAGE_CART_RESID) PetscCall(ExtractLocalActiveVector(user, Rc, map, out));

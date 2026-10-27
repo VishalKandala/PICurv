@@ -3,423 +3,196 @@
 #include "verification_sources.h"
 #include "les.h"   /* SymTensor kernels for the gradient (Clark) closure term */
 
+/** @brief Owned-cell bounds of the residual: interior cells, excluding the dummy layers. */
+static inline void RHSInteriorBounds(const DMDALocalInfo *info, PetscInt lo[3], PetscInt hi[3])
+{
+    const PetscInt m[3] = {info->mx, info->my, info->mz};
+    const PetscInt start[3] = {info->xs, info->ys, info->zs};
+    const PetscInt end[3] = {info->xs + info->xm, info->ys + info->ym, info->zs + info->zm};
+
+    for (PetscInt a = 0; a < 3; a++) {
+        lo[a] = (start[a] == 0) ? 1 : start[a];
+        hi[a] = (end[a] == m[a]) ? m[a] - 1 : end[a];
+    }
+}
+
+/** Cells whose `nvert` exceeds this are blanked inner-body cells, which convect as fluid. */
+#define RHS_INNER_BLANK 7.0
+
+/** @brief Whether a cell takes part in convection: fluid, or a blanked inner-body cell. */
+static inline PetscBool RHSConvectsAsFluid(PetscReal nvert)
+{
+    return (PetscBool)(nvert < 0.1 || nvert > RHS_INNER_BLANK);
+}
+
+/** @brief Cartesian velocity at cell @p c displaced by @p d along axis @p n. */
+static inline Cmpnts RHSVelocityAt(const Cmpnts ***ucat, const PetscInt c[3], PetscInt n, PetscInt d)
+{
+    PetscInt cc[3] = {c[0], c[1], c[2]};
+
+    cc[n] += d;
+    return ucat[cc[2]][cc[1]][cc[0]];
+}
+
 /**
- * @brief Implementation of \ref Convection().
+ * @brief QUICK flux through the face between cell @p c and `c + e_n`, upwinded by the sign of
+ *        @p ucon. @p m1 and @p p2 are the offsets used for the far upwind cells, -1 and +2 in
+ *        the interior; a one-sided face substitutes 0 or +1 for the side it cannot reach.
+ */
+static inline Cmpnts RHSQuickFlux(const Cmpnts ***ucat, const PetscInt c[3], PetscInt n,
+                                  PetscReal ucon, PetscInt m1, PetscInt p2)
+{
+    const PetscReal coef = 0.125;
+    const PetscReal up = ucon + fabs(ucon), um = ucon - fabs(ucon);
+    const Cmpnts    u0 = RHSVelocityAt(ucat, c, n, 0), u1 = RHSVelocityAt(ucat, c, n, 1);
+    const Cmpnts    um1 = RHSVelocityAt(ucat, c, n, m1), up2 = RHSVelocityAt(ucat, c, n, p2);
+    Cmpnts          f;
+
+    f.x = um * (coef * (-up2.x -2. * u1.x +3. * u0.x) +u1.x) +
+          up * (coef * (-um1.x -2. * u0.x +3. * u1.x) +u0.x);
+    f.y = um * (coef * (-up2.y -2. * u1.y +3. * u0.y) +u1.y) +
+          up * (coef * (-um1.y -2. * u0.y +3. * u1.y) +u0.y);
+    f.z = um * (coef * (-up2.z -2. * u1.z +3. * u0.z) +u1.z) +
+          up * (coef * (-um1.z -2. * u0.z +3. * u1.z) +u0.z);
+    return f;
+}
+
+/** @brief Central flux through the face between cell @p c and `c + e_n`. */
+static inline Cmpnts RHSCentralFlux(const Cmpnts ***ucat, const PetscInt c[3], PetscInt n, PetscReal ucon)
+{
+    const Cmpnts u0 = RHSVelocityAt(ucat, c, n, 0), u1 = RHSVelocityAt(ucat, c, n, 1);
+    Cmpnts       f;
+
+    f.x = ucon * ( u0.x + u1.x );
+    f.y = ucon * ( u0.y + u1.y );
+    f.z = ucon * ( u0.z + u1.z );
+    return f;
+}
+
+/**
+ * @brief Convective flux of Cartesian momentum through the face between cell @p c and
+ *        `c + e_n`, carried by half the contravariant flux on that face.
+ *
+ * Interior faces use the central flux when @p central (central differencing or LES) and QUICK
+ * otherwise; with central differencing the two end faces of an axis are central as well. A face
+ * at the low end of an axis or behind a solid cell is QUICK one-sided toward +n, and one at the
+ * high end or ahead of a solid cell one-sided toward -n, except across a periodic seam, which
+ * keeps the full stencil. A face meeting none of these carries no flux.
+ */
+static inline Cmpnts RHSConvectiveFaceFlux(const Cmpnts ***ucat, const PetscReal ***nvert,
+                                           const PetscInt c[3], PetscInt n, PetscReal ucon,
+                                           PetscInt m, PetscBool periodic, PetscBool central)
+{
+    const PetscInt  s = c[n];
+    const PetscReal nv_0 = nvert[c[2]][c[1]][c[0]];
+    const PetscReal nv_p = nvert[c[2] + (n == 2)][c[1] + (n == 1)][c[0] + (n == 0)];
+    const Cmpnts    zero = {0.0, 0.0, 0.0};
+    /* The cell below exists in the local array everywhere but at s = 0 on a bounded axis. */
+    const PetscBool has_m = (PetscBool)(s > 0 || periodic);
+    const PetscReal nv_m = has_m ? nvert[c[2] - (n == 2)][c[1] - (n == 1)][c[0] - (n == 0)] : 0.0;
+    const PetscBool full_seam = (PetscBool)(periodic && nv_m < 0.1 && nv_p < 0.1);
+
+    if (s > 0 && s < m - 2 && RHSConvectsAsFluid(nv_p) && RHSConvectsAsFluid(nv_m)) {
+        return central ? RHSCentralFlux(ucat, c, n, ucon) : RHSQuickFlux(ucat, c, n, ucon, -1, 2);
+    }
+    if (central && (s == 0 || s == m - 2) && RHSConvectsAsFluid(nv_p) && RHSConvectsAsFluid(nv_0)) {
+        return RHSCentralFlux(ucat, c, n, ucon);
+    }
+    if (s < m - 2 && (s == 0 || nv_m > 0.1)) {
+        return RHSQuickFlux(ucat, c, n, ucon, (full_seam && s == 0) ? -1 : 0, 2);
+    }
+    if (s > 0 && (s == m - 2 || nv_p > 0.1)) {
+        return RHSQuickFlux(ucat, c, n, ucon, -1, (full_seam && s == m - 2) ? 2 : 1);
+    }
+    return zero;
+}
+
+/**
+ * @brief Implementation of \ref ComputeConvection().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/rhs.h`.
- * @see Convection()
+ * @see ComputeConvection()
  */
-
-PetscErrorCode Convection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
+PetscErrorCode ComputeConvection(UserCtx *user, Vec Ucont, Vec Ucat, Vec Conv)
 {
-  PetscErrorCode ierr;
+    const SimCtx        *simCtx = user->simCtx;
+    const DMDALocalInfo *info = &user->info;
+    const PetscInt       m[3] = {info->mx, info->my, info->mz};
+    const PetscBool      central = (PetscBool)(simCtx->les || simCtx->central);
+    PetscBool            periodic[3];
+    PetscInt             lo[3], hi[3];
+    Vec                  Fp[3];
+    Cmpnts            ***fp[3], ***conv;
+    const Cmpnts      ***ucont, ***ucat;
+    const PetscReal   ***nvert;
 
-  // --- CONTEXT ACQUISITION BLOCK ---
-  // Get the master simulation context from the UserCtx.
-  SimCtx *simCtx = user->simCtx;
-
-  // Create local variables to mirror the legacy globals for minimal code changes.
-  const LESModelType les = simCtx->les;
-  const PetscInt central = simCtx->central; // Get this from SimCtx now
-  // --- END CONTEXT ACQUISITION BLOCK ---
- 
-  Cmpnts	***ucont, ***ucat;
-  DM		da = user->da, fda = user->fda;
-  DMDALocalInfo	info;
-  PetscInt	xs, xe, ys, ye, zs, ze; // Local grid information
-  PetscInt	mx, my, mz; // Dimensions in three directions
-  PetscInt	i, j, k;
-  Vec		Fp1, Fp2, Fp3;
-  Cmpnts	***fp1, ***fp2, ***fp3;
-  Cmpnts	***conv;
- 
-  PetscReal	ucon, up, um;
-  PetscReal	coef = 0.125, innerblank=7.;
-
-  PetscInt	lxs, lxe, lys, lye, lzs, lze;
-
-  PetscReal	***nvert,***aj;
-
-  PROFILE_FUNCTION_BEGIN;
-
-  info = user->info;
-  mx = info.mx; my = info.my; mz = info.mz;
-  xs = info.xs; xe = xs + info.xm;
-  ys = info.ys; ye = ys + info.ym;
-  zs = info.zs; ze = zs + info.zm;
-  ierr = PreparePeriodicQuickStencilFields(user, Ucat, user->lNvert); CHKERRQ(ierr);
-
-  DMDAVecGetArray(fda, Ucont, &ucont);
-  DMDAVecGetArray(fda, Ucat,  &ucat);
-  DMDAVecGetArray(fda, Conv,  &conv);
-  DMDAVecGetArray(da, user->lAj, &aj);
-
-  // Pooled work vectors, zeroed as the fresh duplicates they replace were (see ComputeRHS()).
-  DMGetLocalVector(fda, &Fp1); VecZeroEntries(Fp1);
-  DMGetLocalVector(fda, &Fp2); VecZeroEntries(Fp2);
-  DMGetLocalVector(fda, &Fp3); VecZeroEntries(Fp3);
-
-  DMDAVecGetArray(fda, Fp1, &fp1);
-  DMDAVecGetArray(fda, Fp2, &fp2);
-  DMDAVecGetArray(fda, Fp3, &fp3);
-
-  DMDAVecGetArray(da, user->lNvert, &nvert);
-  
-
-  /* We have two different sets of node: 1. grid node, the physical points
-     where grid lines intercross; 2. storage node, where we store variables.
-     All node without explicitly specified as "grid node" refers to
-     storage node.
-
-     The integer node is defined at cell center while half node refers to
-     the actual grid node. (The reason to choose this arrangement is we need
-     ghost node, which is half node away from boundaries, to specify boundary
-     conditions. By using this storage arrangement, the actual storage need
-     is (IM+1) * (JM + 1) * (KM+1) where IM, JM, & KM refer to the number of
-     grid nodes along i, j, k directions.)
-
-     DA, the data structure used to define the storage of 3D arrays, is defined
-     as mx * my * mz. mx = IM+1, my = JM+1, mz = KM+1.
-
-     Staggered grid arrangement is used in this solver.
-     Pressure is stored at interger node (hence the cell center) and volume
-     fluxes defined on the center of each surface of a given control volume
-     is stored on the cloest upper integer node. */
-
-  /* First we calculate the flux on cell surfaces. Stored on the upper integer
-     node. For example, along i direction, the flux are stored at node 0:mx-2*/
-
-  lxs = xs; lxe = xe;
-  lys = ys; lye = ye;
-  lzs = zs; lze = ze;
-
-  if (xs==0) lxs = xs+1;
-  if (ys==0) lys = ys+1;
-  if (zs==0) lzs = zs+1;
-  
-  if (xe==mx) lxe=xe-1;
-  if (ye==my) lye=ye-1;
-  if (ze==mz) lze=ze-1;
-  
-  VecSet(Conv, 0.0);
- 
- /* Calculating the convective terms on cell centers.
-    First calcualte the contribution from i direction
-    The flux is evaluated by QUICK scheme */
-
-  for (k=lzs; k<lze; k++){
-    for (j=lys; j<lye; j++){
-      for (i=lxs-1; i<lxe; i++){
-       
-       
-	ucon = ucont[k][j][i].x * 0.5;
-       
-	up = ucon + fabs(ucon);
-	um = ucon - fabs(ucon);
-	
-	if (i>0  && i<mx-2 &&
-		 (nvert[k][j][i+1] < 0.1 || nvert[k][j][i+1]>innerblank) &&
-		 (nvert[k][j][i-1] < 0.1 || nvert[k][j][i-1]>innerblank)) { // interial nodes
-	  if ((les || central)) {
-	    fp1[k][j][i].x =  ucon * ( ucat[k][j][i].x + ucat[k][j][i+1].x );
-	    fp1[k][j][i].y =  ucon * ( ucat[k][j][i].y + ucat[k][j][i+1].y );
-	    fp1[k][j][i].z =  ucon * ( ucat[k][j][i].z + ucat[k][j][i+1].z );
-
-	  } else {
-	  fp1[k][j][i].x =  
-	    um * (coef * (-ucat[k][j][i+2].x -2.* ucat[k][j][i+1].x +3.* ucat[k][j][i  ].x) +ucat[k][j][i+1].x) +
-	    up * (coef * (-ucat[k][j][i-1].x -2.* ucat[k][j][i  ].x +3.* ucat[k][j][i+1].x) +ucat[k][j][i  ].x);
-	  fp1[k][j][i].y = 
-	    um * (coef * (-ucat[k][j][i+2].y -2.* ucat[k][j][i+1].y +3.* ucat[k][j][i  ].y) +ucat[k][j][i+1].y) +
-	    up * (coef * (-ucat[k][j][i-1].y -2.* ucat[k][j][i  ].y +3.* ucat[k][j][i+1].y) +ucat[k][j][i  ].y);
-	  fp1[k][j][i].z = 
-	    um * (coef * (-ucat[k][j][i+2].z -2.* ucat[k][j][i+1].z +3.* ucat[k][j][i  ].z) +ucat[k][j][i+1].z) +
-	    up * (coef * (-ucat[k][j][i-1].z -2.* ucat[k][j][i  ].z +3.* ucat[k][j][i+1].z) +ucat[k][j][i  ].z);
-	  }
-	}
-	else  if ((les || central) && (i==0 || i==mx-2) &&
-		  (nvert[k][j][i+1] < 0.1 || nvert[k][j][i+1]>innerblank) &&
-		  (nvert[k][j][i  ] < 0.1 || nvert[k][j][i  ]>innerblank)) 
-	  {
-	    fp1[k][j][i].x =  ucon * ( ucat[k][j][i].x + ucat[k][j][i+1].x );
-	    fp1[k][j][i].y =  ucon * ( ucat[k][j][i].y + ucat[k][j][i+1].y );
-	    fp1[k][j][i].z =  ucon * ( ucat[k][j][i].z + ucat[k][j][i+1].z );
-	  }
-	else if (i==0 ||(nvert[k][j][i-1] > 0.1) ) {
-	  if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && i==0 && (nvert[k][j][i-1]<0.1 && nvert[k][j][i+1]<0.1)){//Mohsen Feb 12 
-	    fp1[k][j][i].x =  
-	      um * (coef * (-ucat[k][j][i+2].x -2.* ucat[k][j][i+1].x +3.* ucat[k][j][i  ].x) +ucat[k][j][i+1].x) +
-	      up * (coef * (-ucat[k][j][i-1].x -2.* ucat[k][j][i  ].x +3.* ucat[k][j][i+1].x) +ucat[k][j][i  ].x);
-	    fp1[k][j][i].y = 
-	      um * (coef * (-ucat[k][j][i+2].y -2.* ucat[k][j][i+1].y +3.* ucat[k][j][i  ].y) +ucat[k][j][i+1].y) +
-	      up * (coef * (-ucat[k][j][i-1].y -2.* ucat[k][j][i  ].y +3.* ucat[k][j][i+1].y) +ucat[k][j][i  ].y);
-	    fp1[k][j][i].z = 
-	      um * (coef * (-ucat[k][j][i+2].z -2.* ucat[k][j][i+1].z +3.* ucat[k][j][i  ].z) +ucat[k][j][i+1].z) +
-	      up * (coef * (-ucat[k][j][i-1].z -2.* ucat[k][j][i  ].z +3.* ucat[k][j][i+1].z) +ucat[k][j][i  ].z);
-	  }else{
-	    fp1[k][j][i].x = 
-	      um * (coef * (-ucat[k][j][i+2].x -2.* ucat[k][j][i+1].x +3.* ucat[k][j][i  ].x) +ucat[k][j][i+1].x) +
-	      up * (coef * (-ucat[k][j][i  ].x -2.* ucat[k][j][i  ].x +3.* ucat[k][j][i+1].x) +ucat[k][j][i  ].x);
-	    fp1[k][j][i].y = 
-	      um * (coef * (-ucat[k][j][i+2].y -2.* ucat[k][j][i+1].y +3.* ucat[k][j][i  ].y) +ucat[k][j][i+1].y) +
-	      up * (coef * (-ucat[k][j][i  ].y -2.* ucat[k][j][i  ].y +3.* ucat[k][j][i+1].y) +ucat[k][j][i  ].y);
-	    fp1[k][j][i].z = 
-	      um * (coef * (-ucat[k][j][i+2].z -2.* ucat[k][j][i+1].z +3.* ucat[k][j][i  ].z) +ucat[k][j][i+1].z) +
-	      up * (coef * (-ucat[k][j][i  ].z -2.* ucat[k][j][i  ].z +3.* ucat[k][j][i+1].z) +ucat[k][j][i  ].z);	  
-	  }
-	}
-	else if (i==mx-2 ||(nvert[k][j][i+1]) > 0.1) {
-	  if (user->boundary_faces[BC_FACE_NEG_X].mathematical_type == PERIODIC && i==mx-2 &&(nvert[k][j][i-1]<0.1 && nvert[k][j][i+1]<0.1)){//Mohsen Feb 12 
-	    fp1[k][j][i].x =  
-	    um * (coef * (-ucat[k][j][i+2].x -2.* ucat[k][j][i+1].x +3.* ucat[k][j][i  ].x) +ucat[k][j][i+1].x) +
-	    up * (coef * (-ucat[k][j][i-1].x -2.* ucat[k][j][i  ].x +3.* ucat[k][j][i+1].x) +ucat[k][j][i  ].x);
-	  fp1[k][j][i].y = 
-	    um * (coef * (-ucat[k][j][i+2].y -2.* ucat[k][j][i+1].y +3.* ucat[k][j][i  ].y) +ucat[k][j][i+1].y) +
-	    up * (coef * (-ucat[k][j][i-1].y -2.* ucat[k][j][i  ].y +3.* ucat[k][j][i+1].y) +ucat[k][j][i  ].y);
-	  fp1[k][j][i].z = 
-	    um * (coef * (-ucat[k][j][i+2].z -2.* ucat[k][j][i+1].z +3.* ucat[k][j][i  ].z) +ucat[k][j][i+1].z) +
-	    up * (coef * (-ucat[k][j][i-1].z -2.* ucat[k][j][i  ].z +3.* ucat[k][j][i+1].z) +ucat[k][j][i  ].z);
-	  }else{
-	  fp1[k][j][i].x = 
-	    um * (coef * (-ucat[k][j][i+1].x -2. * ucat[k][j][i+1].x +3. * ucat[k][j][i  ].x) +ucat[k][j][i+1].x) +
-	    up * (coef * (-ucat[k][j][i-1].x -2. * ucat[k][j][i  ].x +3. * ucat[k][j][i+1].x) +ucat[k][j][i  ].x);
-	  fp1[k][j][i].y = 
-	    um * (coef * (-ucat[k][j][i+1].y -2. * ucat[k][j][i+1].y +3. * ucat[k][j][i  ].y) +ucat[k][j][i+1].y) +
-	    up * (coef * (-ucat[k][j][i-1].y -2. * ucat[k][j][i  ].y +3. * ucat[k][j][i+1].y) +ucat[k][j][i  ].y);
-	  fp1[k][j][i].z = 
-	    um * (coef * (-ucat[k][j][i+1].z -2. * ucat[k][j][i+1].z +3. * ucat[k][j][i  ].z) +ucat[k][j][i+1].z) +
-	    up * (coef * (-ucat[k][j][i-1].z -2. * ucat[k][j][i  ].z +3. * ucat[k][j][i+1].z) +ucat[k][j][i  ].z);
-	  }
-	}
-      }
+    PetscFunctionBeginUser;
+    PROFILE_FUNCTION_BEGIN;
+    RHSInteriorBounds(info, lo, hi);
+    PoissonOperator_PeriodicAxes(user, periodic);
+    PetscCall(PreparePeriodicQuickStencilFields(user, Ucat, user->lNvert));
+    PetscCall(VecSet(Conv, 0.0));
+    /* Face fluxes per axis, from fda's pool and zeroed as fresh vectors would be: faces that
+       carry no flux must read as zero. */
+    for (PetscInt n = 0; n < 3; n++) {
+        PetscCall(DMGetLocalVector(user->fda, &Fp[n]));
+        PetscCall(VecZeroEntries(Fp[n]));
+        PetscCall(DMDAVecGetArray(user->fda, Fp[n], &fp[n]));
     }
-  }
+    PetscCall(DMDAVecGetArrayRead(user->fda, Ucont, (void *)&ucont));
+    PetscCall(DMDAVecGetArrayRead(user->fda, Ucat, (void *)&ucat));
+    PetscCall(DMDAVecGetArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecGetArray(user->fda, Conv, &conv));
 
-  /* j direction */
-  for (k=lzs; k<lze; k++) {
-    for(j=lys-1; j<lye; j++) {
-      for(i=lxs; i<lxe; i++) {
-	ucon = ucont[k][j][i].y * 0.5;
+    /* Fluxes on every face of the owned cells: along n, from the face below the first cell. */
+    for (PetscInt n = 0; n < 3; n++) {
+        PetscInt flo[3] = {lo[0], lo[1], lo[2]};
 
-	up = ucon + fabs(ucon);
-	um = ucon - fabs(ucon);
+        flo[n] -= 1;
+        for (PetscInt k = flo[2]; k < hi[2]; k++) {
+            for (PetscInt j = flo[1]; j < hi[1]; j++) {
+                for (PetscInt i = flo[0]; i < hi[0]; i++) {
+                    const PetscInt  c[3] = {i, j, k};
+                    const PetscReal ucon = (&ucont[k][j][i].x)[n] * 0.5;
 
-	if (j>0 && j<my-2 &&
-	    (nvert[k][j+1][i] < 0.1 || nvert[k][j+1][i] > innerblank) &&
-	    (nvert[k][j-1][i] < 0.1 || nvert[k][j-1][i] > innerblank))  {
-	  if ((les || central)) {
-	    fp2[k][j][i].x =  ucon * ( ucat[k][j][i].x + ucat[k][j+1][i].x );
-	    fp2[k][j][i].y =  ucon * ( ucat[k][j][i].y + ucat[k][j+1][i].y );
-	    fp2[k][j][i].z =  ucon * ( ucat[k][j][i].z + ucat[k][j+1][i].z );
-
-	  } else {
-	  fp2[k][j][i].x = 
-	    um * (coef * (-ucat[k][j+2][i].x -2. * ucat[k][j+1][i].x +3. * ucat[k][j  ][i].x) +ucat[k][j+1][i].x) +		     
-	    up * (coef * (-ucat[k][j-1][i].x -2. * ucat[k][j  ][i].x +3. * ucat[k][j+1][i].x) +ucat[k][j  ][i].x);		     
-	  fp2[k][j][i].y = 				     
-	    um * (coef * (-ucat[k][j+2][i].y -2. * ucat[k][j+1][i].y +3. * ucat[k][j  ][i].y) +ucat[k][j+1][i].y) +		     
-	    up * (coef * (-ucat[k][j-1][i].y -2. * ucat[k][j  ][i].y +3. * ucat[k][j+1][i].y) +ucat[k][j  ][i].y);		     
-	  fp2[k][j][i].z = 				     
-	    um * (coef * (-ucat[k][j+2][i].z -2. * ucat[k][j+1][i].z +3. * ucat[k][j  ][i].z) +ucat[k][j+1][i].z) +		     
-	    up * (coef * (-ucat[k][j-1][i].z -2. * ucat[k][j  ][i].z +3. * ucat[k][j+1][i].z) +ucat[k][j  ][i].z);
-	  }
-	}
-	else  if ((les || central) && (j==0 || j==my-2) &&
-		  (nvert[k][j+1][i] < 0.1 || nvert[k][j+1][i]>innerblank) &&
-		  (nvert[k][j  ][i] < 0.1 || nvert[k][j  ][i]>innerblank)) 
-	  {
-	    fp2[k][j][i].x =  ucon * ( ucat[k][j][i].x + ucat[k][j+1][i].x );
-	    fp2[k][j][i].y =  ucon * ( ucat[k][j][i].y + ucat[k][j+1][i].y );
-	    fp2[k][j][i].z =  ucon * ( ucat[k][j][i].z + ucat[k][j+1][i].z );
-	  }
-	else if (j==0 || (nvert[k][j-1][i]) > 0.1) {
-	  if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && j==0 && (nvert[k][j-1][i]<0.1 && nvert[k][j+1][i]<0.1 )){//Mohsen Feb 12 //
-	    fp2[k][j][i].x = 
-	    um * (coef * (-ucat[k][j+2][i].x -2. * ucat[k][j+1][i].x +3. * ucat[k][j  ][i].x) +ucat[k][j+1][i].x) +		     
-	    up * (coef * (-ucat[k][j-1][i].x -2. * ucat[k][j  ][i].x +3. * ucat[k][j+1][i].x) +ucat[k][j  ][i].x);		     
-	  fp2[k][j][i].y = 				     
-	    um * (coef * (-ucat[k][j+2][i].y -2. * ucat[k][j+1][i].y +3. * ucat[k][j  ][i].y) +ucat[k][j+1][i].y) +		     
-	    up * (coef * (-ucat[k][j-1][i].y -2. * ucat[k][j  ][i].y +3. * ucat[k][j+1][i].y) +ucat[k][j  ][i].y);		     
-	  fp2[k][j][i].z = 				     
-	    um * (coef * (-ucat[k][j+2][i].z -2. * ucat[k][j+1][i].z +3. * ucat[k][j  ][i].z) +ucat[k][j+1][i].z) +		     
-	    up * (coef * (-ucat[k][j-1][i].z -2. * ucat[k][j  ][i].z +3. * ucat[k][j+1][i].z) +ucat[k][j  ][i].z);
-	  }else{
-	  fp2[k][j][i].x = 
-	    um * (coef * (-ucat[k][j+2][i].x -2. * ucat[k][j+1][i].x +3. * ucat[k][j  ][i].x) +ucat[k][j+1][i].x) +		     
-	    up * (coef * (-ucat[k][j  ][i].x -2. * ucat[k][j  ][i].x +3. * ucat[k][j+1][i].x) +ucat[k][j  ][i].x);		     
-	  fp2[k][j][i].y = 				     
-	    um * (coef * (-ucat[k][j+2][i].y -2. * ucat[k][j+1][i].y +3. * ucat[k][j  ][i].y) +ucat[k][j+1][i].y) +		     
-	    up * (coef * (-ucat[k][j  ][i].y -2. * ucat[k][j  ][i].y +3. * ucat[k][j+1][i].y) +ucat[k][j  ][i].y);		     
-	  fp2[k][j][i].z = 				     
-	    um * (coef * (-ucat[k][j+2][i].z -2. * ucat[k][j+1][i].z +3. * ucat[k][j  ][i].z) +ucat[k][j+1][i].z) +		     
-	    up * (coef * (-ucat[k][j  ][i].z -2. * ucat[k][j  ][i].z +3. * ucat[k][j+1][i].z) +ucat[k][j  ][i].z);
-	}
-	}
-	else if (j==my-2 ||(nvert[k][j+1][i]) > 0.1) {
-	  if (user->boundary_faces[BC_FACE_NEG_Y].mathematical_type == PERIODIC && j==my-2 && (nvert[k][j-1][i]<0.1 && nvert[k][j+1][i]<0.1 )){//Mohsen Feb 12// 
-	    fp2[k][j][i].x = 
-	    um * (coef * (-ucat[k][j+2][i].x -2. * ucat[k][j+1][i].x +3. * ucat[k][j  ][i].x) +ucat[k][j+1][i].x) +		     
-	    up * (coef * (-ucat[k][j-1][i].x -2. * ucat[k][j  ][i].x +3. * ucat[k][j+1][i].x) +ucat[k][j  ][i].x);		     
-	  fp2[k][j][i].y = 				     
-	    um * (coef * (-ucat[k][j+2][i].y -2. * ucat[k][j+1][i].y +3. * ucat[k][j  ][i].y) +ucat[k][j+1][i].y) +		     
-	    up * (coef * (-ucat[k][j-1][i].y -2. * ucat[k][j  ][i].y +3. * ucat[k][j+1][i].y) +ucat[k][j  ][i].y);		     
-	  fp2[k][j][i].z = 				     
-	    um * (coef * (-ucat[k][j+2][i].z -2. * ucat[k][j+1][i].z +3. * ucat[k][j  ][i].z) +ucat[k][j+1][i].z) +		     
-	    up * (coef * (-ucat[k][j-1][i].z -2. * ucat[k][j  ][i].z +3. * ucat[k][j+1][i].z) +ucat[k][j  ][i].z);
-	  }else{
-	  fp2[k][j][i].x = 
-	    um * (coef * (-ucat[k][j+1][i].x -2. * ucat[k][j+1][i].x +3. * ucat[k][j  ][i].x) +ucat[k][j+1][i].x) +		     
-	    up * (coef * (-ucat[k][j-1][i].x -2. * ucat[k][j  ][i].x +3. * ucat[k][j+1][i].x) +ucat[k][j  ][i].x);		     
-	  fp2[k][j][i].y = 				     
-	    um * (coef * (-ucat[k][j+1][i].y -2. * ucat[k][j+1][i].y +3. * ucat[k][j  ][i].y) +ucat[k][j+1][i].y) +		     
-	    up * (coef * (-ucat[k][j-1][i].y -2. * ucat[k][j  ][i].y +3. * ucat[k][j+1][i].y) +ucat[k][j][i  ].y);		     
-	  fp2[k][j][i].z = 				     
-	    um * (coef * (-ucat[k][j+1][i].z -2. * ucat[k][j+1][i].z +3. * ucat[k][j  ][i].z) +ucat[k][j+1][i].z) +		     
-	    up * (coef * (-ucat[k][j-1][i].z -2. * ucat[k][j  ][i].z +3. * ucat[k][j+1][i].z) +ucat[k][j][i  ].z);
-	  }
-	}
-      }
+                    fp[n][k][j][i] = RHSConvectiveFaceFlux(ucat, (const PetscReal ***)nvert, c, n, ucon,
+                                                           m[n], periodic[n], central);
+                }
+            }
+        }
     }
-  }
- 
 
-  /* k direction */
-  for (k=lzs-1; k<lze; k++) {
-    for(j=lys; j<lye; j++) {
-      for(i=lxs; i<lxe; i++) {
-	ucon = ucont[k][j][i].z * 0.5;
-       
-	up = ucon + fabs(ucon);
-	um = ucon - fabs(ucon);
-
-	if (k>0 && k<mz-2 &&
-	    (nvert[k+1][j][i] < 0.1 || nvert[k+1][j][i] > innerblank) &&
-	    (nvert[k-1][j][i] < 0.1 || nvert[k-1][j][i] > innerblank)) {
-	  if ((les || central)) {
-	    fp3[k][j][i].x =  ucon * ( ucat[k][j][i].x + ucat[k+1][j][i].x );
-	    fp3[k][j][i].y =  ucon * ( ucat[k][j][i].y + ucat[k+1][j][i].y );
-	    fp3[k][j][i].z =  ucon * ( ucat[k][j][i].z + ucat[k+1][j][i].z );
-
-	  } else {
-	  fp3[k][j][i].x = 
-	    um * (coef * (-ucat[k+2][j][i].x -2. * ucat[k+1][j][i].x +3. * ucat[k  ][j][i].x) +ucat[k+1][j][i].x)   +		     
-	    up * (coef * (-ucat[k-1][j][i].x -2. * ucat[k  ][j][i].x +3. * ucat[k+1][j][i].x) +ucat[k  ][j][i].x);  		     
-	  fp3[k][j][i].y = 	       			     
-	    um * (coef * (-ucat[k+2][j][i].y -2. * ucat[k+1][j][i].y +3. * ucat[k  ][j][i].y) +ucat[k+1][j][i].y)   +		     
-	    up * (coef * (-ucat[k-1][j][i].y -2. * ucat[k  ][j][i].y +3. * ucat[k+1][j][i].y) +ucat[k  ][j][i].y);  		     
-	  fp3[k][j][i].z = 	       			     
-	    um * (coef * (-ucat[k+2][j][i].z -2. * ucat[k+1][j][i].z +3. * ucat[k  ][j][i].z) +ucat[k+1][j][i].z)   +		     
-	    up * (coef * (-ucat[k-1][j][i].z -2. * ucat[k  ][j][i].z +3. * ucat[k+1][j][i].z) +ucat[k  ][j][i].z);
-	  }
-	}
-	else if ((les || central) && (k==0 || k==mz-2) &&
-		 (nvert[k+1][j][i] < 0.1 || nvert[k+1][j][i]>innerblank) &&
-		 (nvert[k  ][j][i] < 0.1 || nvert[k  ][j][i]>innerblank)) 
-	  {
-	    fp3[k][j][i].x =  ucon * ( ucat[k][j][i].x + ucat[k+1][j][i].x );
-	    fp3[k][j][i].y =  ucon * ( ucat[k][j][i].y + ucat[k+1][j][i].y );
-	    fp3[k][j][i].z =  ucon * ( ucat[k][j][i].z + ucat[k+1][j][i].z );
-	  }
-	else if (k<mz-2 && (k==0 ||(nvert[k-1][j][i]) > 0.1)) {
-	  if(user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && k==0 && (nvert[k-1][j][i]<0.1 && nvert[k+1][j][i]<0.1)){//Mohsen Feb 12//
-	    fp3[k][j][i].x = 
-	    um * (coef * (-ucat[k+2][j][i].x -2. * ucat[k+1][j][i].x +3. * ucat[k  ][j][i].x) +ucat[k+1][j][i].x)   +		     
-	    up * (coef * (-ucat[k-1][j][i].x -2. * ucat[k  ][j][i].x +3. * ucat[k+1][j][i].x) +ucat[k  ][j][i].x);  		     
-	  fp3[k][j][i].y = 	       			     
-	    um * (coef * (-ucat[k+2][j][i].y -2. * ucat[k+1][j][i].y +3. * ucat[k  ][j][i].y) +ucat[k+1][j][i].y)   +		     
-	    up * (coef * (-ucat[k-1][j][i].y -2. * ucat[k  ][j][i].y +3. * ucat[k+1][j][i].y) +ucat[k  ][j][i].y);  		     
-	  fp3[k][j][i].z = 	       			     
-	    um * (coef * (-ucat[k+2][j][i].z -2. * ucat[k+1][j][i].z +3. * ucat[k  ][j][i].z) +ucat[k+1][j][i].z)   +		     
-	    up * (coef * (-ucat[k-1][j][i].z -2. * ucat[k  ][j][i].z +3. * ucat[k+1][j][i].z) +ucat[k  ][j][i].z);
-	  }else{
-	  fp3[k][j][i].x = 
-	    um * (coef * (-ucat[k+2][j][i].x -2. * ucat[k+1][j][i].x +3. * ucat[k  ][j][i].x) +ucat[k+1][j][i].x)   +		     
-	    up * (coef * (-ucat[k  ][j][i].x -2. * ucat[k  ][j][i].x +3. * ucat[k+1][j][i].x) +ucat[k][j][i  ].x);  		     
-	  fp3[k][j][i].y = 	       			     
-	    um * (coef * (-ucat[k+2][j][i].y -2. * ucat[k+1][j][i].y +3. * ucat[k  ][j][i].y) +ucat[k+1][j][i].y)   +		     
-	    up * (coef * (-ucat[k  ][j][i].y -2. * ucat[k  ][j][i].y +3. * ucat[k+1][j][i].y) +ucat[k][j][i  ].y);  		     
-	  fp3[k][j][i].z = 	       			     
-	    um * (coef * (-ucat[k+2][j][i].z -2. * ucat[k+1][j][i].z +3. * ucat[k  ][j][i].z) +ucat[k+1][j][i].z)   +		     
-	    up * (coef * (-ucat[k  ][j][i].z -2. * ucat[k  ][j][i].z +3. * ucat[k+1][j][i].z) +ucat[k][j][i  ].z);
-	  }
-	}
-	else if (k>0 && (k==mz-2 ||(nvert[k+1][j][i]) > 0.1)) {
-	  if (user->boundary_faces[BC_FACE_NEG_Z].mathematical_type == PERIODIC && k==mz-2 && (nvert[k-1][j][i]<0.1 && nvert[k+1][j][i]<0.1)){//Mohsen Feb 12//
-	    fp3[k][j][i].x = 
-	    um * (coef * (-ucat[k+2][j][i].x -2. * ucat[k+1][j][i].x +3. * ucat[k  ][j][i].x) +ucat[k+1][j][i].x)   +		     
-	    up * (coef * (-ucat[k-1][j][i].x -2. * ucat[k  ][j][i].x +3. * ucat[k+1][j][i].x) +ucat[k  ][j][i].x);  		     
-	  fp3[k][j][i].y = 	       			     
-	    um * (coef * (-ucat[k+2][j][i].y -2. * ucat[k+1][j][i].y +3. * ucat[k  ][j][i].y) +ucat[k+1][j][i].y)   +		     
-	    up * (coef * (-ucat[k-1][j][i].y -2. * ucat[k  ][j][i].y +3. * ucat[k+1][j][i].y) +ucat[k  ][j][i].y);  		     
-	  fp3[k][j][i].z = 	       			     
-	    um * (coef * (-ucat[k+2][j][i].z -2. * ucat[k+1][j][i].z +3. * ucat[k  ][j][i].z) +ucat[k+1][j][i].z)   +		     
-	    up * (coef * (-ucat[k-1][j][i].z -2. * ucat[k  ][j][i].z +3. * ucat[k+1][j][i].z) +ucat[k  ][j][i].z);
-	  }else{
-	  fp3[k][j][i].x = 
-	    um * (coef * (-ucat[k+1][j][i].x -2. * ucat[k+1][j][i].x +3. * ucat[k  ][j][i].x) +ucat[k+1][j][i].x)   +		     
-	    up * (coef * (-ucat[k-1][j][i].x -2. * ucat[k  ][j][i].x +3. * ucat[k+1][j][i].x) +ucat[k][j][i  ].x);  		     
-	  fp3[k][j][i].y = 	       			     
-	    um * (coef * (-ucat[k+1][j][i].y -2. * ucat[k+1][j][i].y +3. * ucat[k  ][j][i].y) +ucat[k+1][j][i].y)   +		     
-	    up * (coef * (-ucat[k-1][j][i].y -2. * ucat[k  ][j][i].y +3. * ucat[k+1][j][i].y) +ucat[k][j][i  ].y);  		     
-	  fp3[k][j][i].z = 	       			     
-	    um * (coef * (-ucat[k+1][j][i].z -2. * ucat[k+1][j][i].z +3. * ucat[k  ][j][i].z) +ucat[k+1][j][i].z)   +		     
-	    up * (coef * (-ucat[k-1][j][i].z -2. * ucat[k  ][j][i].z +3. * ucat[k+1][j][i].z) +ucat[k][j][i  ].z);
-	  }
-	}
-      }
+    /* Convective term in Cartesian components: the net flux out of each cell. */
+    for (PetscInt k = lo[2]; k < hi[2]; k++) {
+        for (PetscInt j = lo[1]; j < hi[1]; j++) {
+            for (PetscInt i = lo[0]; i < hi[0]; i++) {
+                conv[k][j][i].x =
+                    fp[0][k][j][i].x - fp[0][k][j][i-1].x +
+                    fp[1][k][j][i].x - fp[1][k][j-1][i].x +
+                    fp[2][k][j][i].x - fp[2][k-1][j][i].x;
+                conv[k][j][i].y =
+                    fp[0][k][j][i].y - fp[0][k][j][i-1].y +
+                    fp[1][k][j][i].y - fp[1][k][j-1][i].y +
+                    fp[2][k][j][i].y - fp[2][k-1][j][i].y;
+                conv[k][j][i].z =
+                    fp[0][k][j][i].z - fp[0][k][j][i-1].z +
+                    fp[1][k][j][i].z - fp[1][k][j-1][i].z +
+                    fp[2][k][j][i].z - fp[2][k-1][j][i].z;
+            }
+        }
     }
-  }
- 
-  /* Calculate the convective terms under cartesian coordinates */
 
-  for (k=lzs; k<lze; k++) {
-    for (j=lys; j<lye; j++) {
-      for (i=lxs; i<lxe; i++) {
-	conv[k][j][i].x = 
-	  fp1[k][j][i].x - fp1[k][j][i-1].x +
-	  fp2[k][j][i].x - fp2[k][j-1][i].x +
-	  fp3[k][j][i].x - fp3[k-1][j][i].x;
-
-	conv[k][j][i].y = 
-	  fp1[k][j][i].y - fp1[k][j][i-1].y +
-	  fp2[k][j][i].y - fp2[k][j-1][i].y +
-	  fp3[k][j][i].y - fp3[k-1][j][i].y;
-
-	conv[k][j][i].z =
-	  fp1[k][j][i].z - fp1[k][j][i-1].z +
-	  fp2[k][j][i].z - fp2[k][j-1][i].z +
-	  fp3[k][j][i].z - fp3[k-1][j][i].z;
-      }
+    PetscCall(DMDAVecRestoreArray(user->fda, Conv, &conv));
+    PetscCall(DMDAVecRestoreArrayRead(user->da, user->lNvert, (void *)&nvert));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, Ucat, (void *)&ucat));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, Ucont, (void *)&ucont));
+    for (PetscInt n = 0; n < 3; n++) {
+        PetscCall(DMDAVecRestoreArray(user->fda, Fp[n], &fp[n]));
+        PetscCall(DMRestoreLocalVector(user->fda, &Fp[n]));
     }
-  } 
-  /* for (k=zs; k<ze; k++) { */
-/*     for (j=ys; j<ye; j++) { */
-/*       for (i=xs; i<xe; i++) { */
-/* 	if (i==1 && (j==1) && (k==1 || k==21 || k==22|| k==200)) */
-/* 	  PetscPrintf(PETSC_COMM_SELF, "@ i= %d j=%d k=%d conv.y is %.15le  conv.z is %.15le \n",i,j,k,conv[k][j][i].y,conv[k][j][i].z); */
-/*       } */
-/*     } */
-/*   }  */
-
-  DMDAVecRestoreArray(fda, Ucont, &ucont);
-  DMDAVecRestoreArray(fda, Ucat,  &ucat);
-  DMDAVecRestoreArray(fda, Conv,  &conv);
-  DMDAVecRestoreArray(da, user->lAj, &aj);
-
-  DMDAVecRestoreArray(fda, Fp1, &fp1);
-  DMDAVecRestoreArray(fda, Fp2, &fp2);
-  DMDAVecRestoreArray(fda, Fp3, &fp3);
-  DMDAVecRestoreArray(da, user->lNvert, &nvert);
-
-  DMRestoreLocalVector(fda, &Fp1);
-  DMRestoreLocalVector(fda, &Fp2);
-  DMRestoreLocalVector(fda, &Fp3);
-
-
-  LOG_ALLOW(GLOBAL,LOG_DEBUG,"Convective term calculated .\n");
-  
-  PROFILE_FUNCTION_END;
-  return (0);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Convective term calculated .\n");
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
 }
 
 
@@ -1146,19 +919,6 @@ PetscErrorCode ComputeBodyForces(UserCtx *user, Vec Rct)
     PetscFunctionReturn(0); 
 }
 
-/** @brief Owned-cell bounds of the residual: interior cells, excluding the dummy layers. */
-static inline void RHSInteriorBounds(const DMDALocalInfo *info, PetscInt lo[3], PetscInt hi[3])
-{
-    const PetscInt m[3] = {info->mx, info->my, info->mz};
-    const PetscInt start[3] = {info->xs, info->ys, info->zs};
-    const PetscInt end[3] = {info->xs + info->xm, info->ys + info->ym, info->zs + info->zm};
-
-    for (PetscInt a = 0; a < 3; a++) {
-        lo[a] = (start[a] == 0) ? 1 : start[a];
-        hi[a] = (end[a] == m[a]) ? m[a] - 1 : end[a];
-    }
-}
-
 /**
  * @brief Contravariant cell-centre components of the spatial terms, `Rct = aj F_n . (Visc - Conv)`,
  *        with each base vector `F_n` averaged from its two faces to the cell centre.
@@ -1333,7 +1093,7 @@ PetscErrorCode ComputeRHS(UserCtx *user, Vec Rhs)
 
     /* Spatial terms in Cartesian components at cell centres, then contravariant. */
     LOG_ALLOW(LOCAL, LOG_DEBUG, "  Calculating convective terms...\n");
-    PetscCall(Convection(user, user->lUcont, user->lUcat, Conv));
+    PetscCall(ComputeConvection(user, user->lUcont, user->lUcat, Conv));
     if (!user->simCtx->invicid) {
         LOG_ALLOW(LOCAL, LOG_DEBUG, "  Calculating viscous terms...\n");
         PetscCall(Viscous(user, user->lUcont, user->lUcat, Visc));

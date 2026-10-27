@@ -41,7 +41,7 @@ Mappings:
 - `momentum_solver` -> `-mom_solver_type` (`picurv` accepts `Explicit RK4`, `Dual Time Picard Jameson RK`, or `Newton Krylov`)
 - `central_diff` -> `-central`
 
-`central_diff` selects the convective flux in `Convection()` (`src/rhs.c`). `false` uses
+`central_diff` selects the convective flux in `ComputeConvection()` (`src/rhs.c`). `false` uses
 the upwind-biased QUICK scheme, whose interpolation switches on the sign of the face flux;
 `true` uses the central average of the two neighbouring cells. **Any LES model selects the
 central flux regardless of this key**, because the branch is taken on `les || central`.

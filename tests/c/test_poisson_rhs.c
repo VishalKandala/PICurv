@@ -181,7 +181,7 @@ static PetscErrorCode TestConvectionZeroField(void)
     PetscCall(DMGlobalToLocalBegin(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
     PetscCall(DMGlobalToLocalEnd(user->fda, user->Ucat, INSERT_VALUES, user->lUcat));
 
-    PetscCall(Convection(user, user->lUcont, user->lUcat, conv));
+    PetscCall(ComputeConvection(user, user->lUcont, user->lUcat, conv));
     PetscCall(PicurvAssertVecConstant(conv, 0.0, 1.0e-12, "Convection should vanish for a quiescent field"));
 
     PetscCall(VecDestroy(&conv));

@@ -322,7 +322,7 @@ static inline PetscReal MomFaceGabs(Cmpnts N, Cmpnts A, Cmpnts B)
 /* nvert bands matching the physical operator:
  *   SKIP    : cell excluded from the estimate (solid/blanked), nvert > 0.1.
  *   VISC1S  : Viscous() one-sided cross-derivative trigger band, (0.5, 7).
- *   QUICKBLK: Convection() QUICK-modifier band, [0.1, 7] (mirrors NOT(<0.1 || >innerblank)). */
+ *   QUICKBLK: ComputeConvection() QUICK-modifier band, [0.1, 7] (mirrors NOT(<0.1 || >innerblank)). */
 #define MOM_SKIP_SOLID(v)    ((v) > 0.1)
 #define MOM_VISC_ONESIDED(v) ((v) > 0.5 && (v) < 7.0)
 #define MOM_QUICK_BLOCKS(v)  ((v) >= 0.1 && (v) <= 7.0)
