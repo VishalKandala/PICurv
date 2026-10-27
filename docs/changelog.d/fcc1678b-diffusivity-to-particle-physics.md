@@ -1,0 +1,1 @@
+- Refactor: the particle-diffusivity kernels (`ComputeEulerianDiffusivity`, `ComputeEulerianDiffusivityGradient`) move from `rhs.c` to `ParticlePhysics.c`; behaviour is unchanged.

@@ -1,0 +1,1 @@
+- Refactor: `Viscous` becomes `ComputeViscous`, one direction-generic face-stress kernel reading the shared face metrics; byte-identical.

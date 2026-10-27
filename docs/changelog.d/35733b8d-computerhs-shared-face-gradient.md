@@ -1,0 +1,1 @@
+- Refactor: `ComputeRHS` is a short orchestrator whose pressure-gradient term is the projection's face gradient (`PoissonOperator_FaceGradientFlux`, now shared through `poisson.h`), replacing a hand-written copy; one work vector, one grid pass and a per-evaluation global barrier go. Results differ from before only at round-off on curvilinear grids (identical on Cartesian ones).

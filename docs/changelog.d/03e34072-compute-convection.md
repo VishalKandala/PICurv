@@ -1,0 +1,1 @@
+- Refactor: `Convection` becomes `ComputeConvection`, one direction-generic face-flux kernel in place of nine copies; byte-identical. Along i and j a one-sided face at an axis end next to a solid cell now follows the k direction's guarded rule (no current case reaches it).
