@@ -450,8 +450,8 @@ PetscErrorCode ComputeBodyForces(UserCtx *user, Vec Rct)
 }
 
 /**
- * @brief Contravariant cell-centre components of the spatial terms, `Rct = aj F_n . (Visc - Conv)`,
- *        with each base vector `F_n` averaged from its two faces to the cell centre.
+ * @brief Contravariant cell-centre components of the spatial terms, Rct = aj F_n . (Visc - Conv),
+ *        with each base vector F_n averaged from its two faces to the cell centre.
  */
 static PetscErrorCode RHSContravariantSpatialTerms(UserCtx *user, Vec Conv, Vec Visc, Vec Rct)
 {
