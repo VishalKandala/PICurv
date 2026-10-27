@@ -1,0 +1,1 @@
+- Performance: the momentum residual takes its ten work vectors from the DM pool instead of allocating them on every evaluation, and the Poisson monitor keeps its residual vectors; results are byte-identical.
