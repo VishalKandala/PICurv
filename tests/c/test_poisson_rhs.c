@@ -7,6 +7,7 @@
 
 #include "poisson.h"
 #include "rhs.h"
+#include "ParticlePhysics.h"
 #include "setup.h"
 #include "verification_sources.h"
 /**

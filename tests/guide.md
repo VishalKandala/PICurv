@@ -232,7 +232,7 @@ is a test-local routine.
 - `test_boundaries.c`: boundary factory, direct handler-behavior checks, wall-model dispatch across the log law, Werner-Wengle, and Cabot, and each cell field's dummy-cell rule (`UpdateDummyCells`, `UpdateCornerNodes`)
 - `test_les.c`: LES closure kernels - symmetric-tensor algebra, strain rate, filter widths (including the Scotti closed form and independence from cell orientation), the Germano model tensor and Leonard stress, coefficient clipping and the viscosity floor, homogeneous-direction resolution, the WALE and Vreman kernels against independent evaluations, and cell edge vectors recovered from metrics
 - `test_periodic_dev.c`: gating geometric-periodic boundary and synchronization harness
-- `test_poisson_rhs.c`: pressure update, RHS, projection, body-force and diffusivity helpers, and the Clark gradient term's scaling and coefficient on non-unit cells
+- `test_poisson_rhs.c`: pressure update, RHS, projection, body-force and diffusivity helpers (the last in `ParticlePhysics.c`), and the Clark gradient term's scaling and coefficient on non-unit cells
 - `test_runtime_kernels.c`: setup/runloop/particle/interpolation/scatter/wall/walltime-guard/LES helper contracts
 - `test_mpi_kernels.c`: multi-rank particle distribution, bbox collectives, and restart migration behavior
 - `test_momentum_newton_krylov.c`: matrix-free Newton-Krylov momentum callbacks and helper contracts
