@@ -1,0 +1,1 @@
+- Performance: the Newton-Krylov momentum solver keeps its SNES, Krylov solver, Jacobian, preconditioner matrix and work vectors for the run instead of rebuilding them every step, and the Picard dual-time solver keeps its work vectors; results are byte-identical.

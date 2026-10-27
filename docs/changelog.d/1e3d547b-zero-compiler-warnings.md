@@ -1,0 +1,1 @@
+- Build: every binary (simulator, postprocessor, doctor and all tests, opt-in ones included) now compiles without a warning with 32- and 64-bit indices and at -O3; the opt-in momentum-candidates test compiles again.
