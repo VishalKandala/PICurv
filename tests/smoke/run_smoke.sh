@@ -491,7 +491,7 @@ cfg["diagnostics"] = {
     },
     "runtime_memory_log": {
         "enabled": True,
-        "file": "Runtime_Memory.log",
+        "file": "Runtime_Memory.csv",
     },
 }
 with open(monitor_path, "w", encoding="utf-8") as f:
@@ -524,7 +524,7 @@ solve_launch = [str(token) for token in stages["solve"]["launch_command"]]
 assert "-malloc_debug" in solve_launch
 assert "-log_view" in solve_launch
 artifacts = [str(item) for item in payload.get("artifacts", [])]
-assert any(item.endswith("Runtime_Memory.log") for item in artifacts)
+assert any(item.endswith("Runtime_Memory.csv") for item in artifacts)
 assert any(item.endswith("PETSc_LogView_Solver.log") for item in artifacts)
 PY
 }
@@ -565,7 +565,7 @@ monitor_cfg["diagnostics"] = {
     },
     "runtime_memory_log": {
         "enabled": True,
-        "file": "Runtime_Memory.log",
+        "file": "Runtime_Memory.csv",
     },
 }
 
@@ -605,7 +605,7 @@ PY
     die "PETSc diagnostics smoke completed but no solver runtime log was found."
   fi
 
-  require_file "${created_run}/logs/Runtime_Memory.log" "diagnostics runtime memory log"
+  require_file "${created_run}/logs/Runtime_Memory.csv" "diagnostics runtime memory log"
   malloc_view_log="$(find "${created_run}/logs" -maxdepth 1 -type f -name 'PETSc_MallocView_Solver.log*' | sort | head -n 1)"
   if [[ -z "${malloc_view_log}" ]]; then
     die "missing PETSc malloc view log under '${created_run}/logs'."
@@ -616,7 +616,7 @@ PY
   require_file "${created_run}/logs/PETSc_Info_Solver.log.0" "PETSc info log"
   require_file_contains "${created_run}/logs/PETSc_Info_Solver.log.0" "<ksp" "PETSc info records from the solve"
   require_file_contains "${created_run}/logs/PETSc_LogView_Solver.log" "Event Stage" "PETSc log view event table"
-  require_file_contains "${created_run}/logs/Runtime_Memory.log" "Process Current MB Max" "runtime memory log header"
+  require_file_contains "${created_run}/logs/Runtime_Memory.csv" "Process Current MB Max" "runtime memory log header"
   require_file_not_contains "${solver_log}" "Memory corruption" "PETSc malloc debug corruption report"
   require_file_not_contains "${solver_log}" "Bad location or corrupted memory" "PETSc malloc debug bad-location report"
   if grep -Eq '^\[[[:space:]]*[0-9]+\][[:space:]]+[0-9]+ bytes' "${solver_log}"; then
@@ -1662,8 +1662,8 @@ PY
         "da_processors = " "postprocessor MPI decomposition in the post recipe"
     fi
   fi
-  require_file "${created_run}/logs/Runtime_Memory.log" "runtime memory log"
-  require_file_contains "${created_run}/logs/Runtime_Memory.log" "Process Current MB Max" "runtime memory log header"
+  require_file "${created_run}/logs/Runtime_Memory.csv" "runtime memory log"
+  require_file_contains "${created_run}/logs/Runtime_Memory.csv" "Process Current MB Max" "runtime memory log header"
 }
 
 run_units_equivalence_smoke() {

@@ -408,6 +408,7 @@ def _add_summarize_parser(subparsers):
             "  picurv summarize --run-dir runs/my_run --monitor --step 500\n"
             "  picurv summarize --run-dir runs/my_run --list-plot-series\n"
             "  picurv summarize --run-dir runs/my_run --plot momentum.residual_norm --last 100\n"
+            "  picurv summarize --run-dir runs/my_run --table poisson --last 10\n"
             "  picurv summarize --run-dir runs/my_run --latest --format json"
         ),
         epilog="Next: use `picurv run ...` to create runs or `picurv sweep ...` for multi-case studies.",
@@ -449,7 +450,23 @@ def _add_summarize_parser(subparsers):
              "task-name substring when the recipe measured more than one spectrum\n"
              "(requires matplotlib).",
     )
-    p_summarize.add_argument("--last", dest="last_n", type=int, help="Plot only the last N chronological records per line.")
+    plot_group.add_argument(
+        "--table",
+        dest="table",
+        help="Print the last rows of one of the run's CSV records as aligned columns, such as\n"
+             "continuity, poisson, search or memory; a per-block record takes ':<block>'.",
+    )
+    plot_group.add_argument(
+        "--list-tables",
+        dest="list_tables",
+        action="store_true",
+        help="List the CSV records this run has, for --table.",
+    )
+    p_summarize.add_argument("--columns", dest="table_columns",
+                             help="With --table: comma-separated columns to show (the first column is always kept).")
+    p_summarize.add_argument("--last", dest="last_n", type=int,
+                             help="With --plot: only the last N chronological records per line.\n"
+                                  "With --table: the last N rows (default 20).")
     p_summarize.add_argument("--plot-output", help="Save the plot to this path instead of opening an interactive window.")
     p_summarize.add_argument("--linear-y", action="store_true", help="Force linear y-axis scaling instead of automatic residual/norm log scaling.")
     step_group = p_summarize.add_mutually_exclusive_group()

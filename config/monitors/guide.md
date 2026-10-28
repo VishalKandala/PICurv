@@ -11,7 +11,7 @@ This directory stores reusable `monitor.yml` profiles for solver observability. 
 - scientific field-statistics windows and their console reporting cadence,
 - structured diagnostics under `diagnostics`:
   - PETSc initialization diagnostics such as malloc/log/object reporting,
-  - PICurv's compact `Runtime_Memory.log`,
+  - PICurv's compact `Runtime_Memory.csv`,
 - PETSc monitor passthrough options.
 
 ## 2. Included Profiles

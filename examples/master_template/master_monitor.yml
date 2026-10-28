@@ -95,7 +95,7 @@ diagnostics:
     # This custom PICurv log is emitted from the runtime through control-file
     # flags, independent of PETSc-native diagnostics above.
     enabled: true
-    file: "Runtime_Memory.log"
+    file: "Runtime_Memory.csv"
 
   # Per-step LES coefficient statistics appended to output/analysis/metrics/les_coefficient.csv:
   # the effective Cs, its spread, eddy-viscosity levels, the modelled subgrid energy, and

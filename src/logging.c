@@ -2245,7 +2245,7 @@ PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char 
         /* CSV: the header once per file, the continuation marker on a continued run's first sample. */
         if (ftell(f) == 0) {
             fprintf(f, "step,event,process_current_mb_max,process_peak_mb_max,petsc_allocated_mb_max,"
-                       "petsc_peak_allocated_mb_max,process_change_mb_max,reason\n");
+                       "petsc_peak_allocated_mb_max,process_change_mb_max,reason,step_wall_s\n");
         }
         if (!simCtx->runtimeMemoryLogStarted) {
             if (simCtx->continueMode) {
@@ -2254,11 +2254,14 @@ PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char 
             simCtx->runtimeMemoryLogStarted = PETSC_TRUE;
         }
 
-        fprintf(f, "%" PetscInt_FMT ",%s,%.3f,%.3f,%.3f,%.3f,%.3f,%s\n",
+        fprintf(f, "%" PetscInt_FMT ",%s,%.3f,%.3f,%.3f,%.3f,%.3f,%s,",
                 step, event ? event : "-",
                 (double)global_values[0], (double)global_values[1], (double)global_values[2],
                 (double)global_values[3], (double)global_values[4],
                 (reason && reason[0]) ? reason : "-");
+        /* The step's slowest-rank wall time, on the per-step sample only. */
+        if (event && strcmp(event, "Step") == 0) fprintf(f, "%.6f", (double)simCtx->lastStepWallSeconds);
+        fprintf(f, "\n");
         if ((event && (strcmp(event, "Shutdown") == 0 || strcmp(event, "Final") == 0))) {
             fflush(f);
         }

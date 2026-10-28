@@ -372,7 +372,7 @@ Monitor profiles also own diagnostics and option I/O. Use
 malloc checks, `log_view`, `log_trace`, and object dumps; PICurv passes these on
 the solver/postprocessor command line so PETSc sees them during
 `PetscInitialize()`. Use `diagnostics.runtime_memory_log` for the compact
-rank-reduced `<run.runtime_logs>/Runtime_Memory.log`. Use `solver_monitoring.poisson` for
+rank-reduced `<run.runtime_logs>/Runtime_Memory.csv`. Use `solver_monitoring.poisson` for
 readable solver-time Poisson monitor controls such as `pic_true_residual` and
 `converged_reason`; PICurv maps them to the prefixed KSP flags written into the
 generated `.control` file. Keep raw one-off PETSc options under

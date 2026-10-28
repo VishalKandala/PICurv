@@ -1129,6 +1129,7 @@ typedef struct SimCtx {
     PetscBool runtimeMemoryLogStarted;               /**< True after rank 0 writes the log header. */
     PetscBool runtimeMemoryLogHasPrevious;           /**< True after the first process-memory sample. */
     PetscReal runtimeMemoryLogPreviousProcessMB;     /**< Previous local process memory sample in MB. */
+    PetscReal lastStepWallSeconds;                   /**< Slowest rank's wall time of the last completed step (0 before one). */
     //================ Group 12: Post-Processing =================================================
     char      PostprocessingControlFile[PETSC_MAX_PATH_LEN];
     PostProcessParams *pps;

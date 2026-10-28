@@ -12808,7 +12808,7 @@ def resolve_diagnostics_config(monitor_cfg: dict, run_dir: "str | None" = None, 
     memory_enabled = memory_raw.get("enabled", True)
     if not isinstance(memory_enabled, bool):
         raise ValueError("monitor.diagnostics.runtime_memory_log.enabled must be boolean.")
-    memory_file = str(memory_raw.get("file", "Runtime_Memory.log")).strip()
+    memory_file = str(memory_raw.get("file", "Runtime_Memory.csv")).strip()
     if not memory_file:
         raise ValueError("monitor.diagnostics.runtime_memory_log.file must be a non-empty string.")
 
@@ -17060,7 +17060,7 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     diagnostics_cfg = resolve_diagnostics_config(monitor_cfg)
     memory_log_cfg = diagnostics_cfg["runtime_memory_log"]
     control_lines.append(f"-runtime_memory_log_enabled {str(bool(memory_log_cfg.get('enabled', True))).lower()}")
-    control_lines.append(f"-runtime_memory_log_file {memory_log_cfg.get('file', 'Runtime_Memory.log')}")
+    control_lines.append(f"-runtime_memory_log_file {memory_log_cfg.get('file', 'Runtime_Memory.csv')}")
 
     walltime_guard_policy = configs.get("walltime_guard_policy")
     if walltime_guard_policy is not None:
@@ -19309,7 +19309,7 @@ def render_run_dry_plan(plan: dict, output_format: str = "text"):
         for item in plan["asset_actions"]:
             print(f"    - {item['kind']}: {item['action']} ({item['provider']})")
 
-    diagnostics_artifacts = [item for item in plan.get("artifacts", []) if "PETSc_" in os.path.basename(str(item)) or os.path.basename(str(item)) == "Runtime_Memory.log"]
+    diagnostics_artifacts = [item for item in plan.get("artifacts", []) if "PETSc_" in os.path.basename(str(item)) or os.path.basename(str(item)) == "Runtime_Memory.csv"]
     if diagnostics_artifacts:
         print("\n  Diagnostics artifacts:")
         for artifact in diagnostics_artifacts:
@@ -22436,187 +22436,60 @@ def _build_monitor_overview(context: dict) -> dict:
     }
 
 
-def _parse_continuity_metrics_log(filepath: str) -> "tuple[dict, list[int]]":
+def _parse_continuity_metrics_log(log_dir: str) -> "tuple[dict, list[int]]":
     """!
-    @brief Parse Continuity_Metrics.log into latest rows by step plus observed order.
-    @param[in] filepath Argument passed to `_parse_continuity_metrics_log()`.
-    @return Value returned by `_parse_continuity_metrics_log()`.
+    @brief Read the continuity record into rows by step (one per block) plus observed order.
+    @param[in] log_dir Run log directory.
+    @return Mapping step -> list of block rows, and the order steps first appeared.
     """
-    rows_by_step = {}
-    step_order = []
-    active_step = None
-    if not os.path.isfile(filepath):
-        return rows_by_step, step_order
-
-    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line or line.startswith("-") or line.startswith("Timestep"):
-                continue
-            parts = [part.strip() for part in raw_line.split("|")]
-            if len(parts) < 8:
-                continue
-            step = _parse_int_loose(parts[0])
-            block = _parse_int_loose(parts[1])
-            max_div = _parse_float_loose(parts[2])
-            rhs_sum = _parse_float_loose(parts[4])
-            flux_in = _parse_float_loose(parts[5])
-            flux_out = _parse_float_loose(parts[6])
-            net_flux = _parse_float_loose(parts[7])
-            if step is None or block is None:
-                continue
-            if step != active_step:
-                active_step = step
-                step_order.append(step)
-                rows_by_step[step] = {}
-            rows_by_step.setdefault(step, {})[block] = {
-                "block": block,
-                "max_divergence": max_div,
-                "max_divergence_location": parts[3],
-                "rhs_sum": rhs_sum,
-                "flux_in": flux_in,
-                "flux_out": flux_out,
-                "net_flux": net_flux,
-            }
-    return {step: list(block_rows.values()) for step, block_rows in rows_by_step.items()}, step_order
-
-
-def _parse_particle_metrics_log(filepath: str) -> "tuple[dict, list[int]]":
-    """!
-    @brief Parse Particle_Metrics.log into latest rows by step plus observed order.
-    @param[in] filepath Argument passed to `_parse_particle_metrics_log()`.
-    @return Value returned by `_parse_particle_metrics_log()`.
-    """
-    rows_by_step = {}
-    step_order = []
-    if not os.path.isfile(filepath):
-        return rows_by_step, step_order
-
-    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line or line.startswith("-") or line.startswith("Stage"):
-                continue
-            parts = [part.strip() for part in raw_line.split("|")]
-            if len(parts) < 8:
-                continue
-            step = _parse_int_loose(parts[1])
-            if step is None:
-                continue
-            row = {
-                "stage": parts[0],
-                "total_particles": _parse_int_loose(parts[2]),
-                "lost_particles": _parse_int_loose(parts[3]),
-                "lost_particles_cumulative": None,
-                "migrated_particles": None,
-                "occupied_cells": None,
-                "load_imbalance": None,
-                "migration_passes": None,
-                "exited_particles": None,
-                "exited_particles_cumulative": None,
-            }
-            if len(parts) >= 9:
-                row.update(
-                    {
-                        "lost_particles_cumulative": _parse_int_loose(parts[4]),
-                        "migrated_particles": _parse_int_loose(parts[5]),
-                        "occupied_cells": _parse_int_loose(parts[6]),
-                        "load_imbalance": _parse_float_loose(parts[7]),
-                        "migration_passes": _parse_int_loose(parts[8]),
-                    }
-                )
-            else:
-                row.update(
-                    {
-                        "migrated_particles": _parse_int_loose(parts[4]),
-                        "occupied_cells": _parse_int_loose(parts[5]),
-                        "load_imbalance": _parse_float_loose(parts[6]),
-                        "migration_passes": _parse_int_loose(parts[7]),
-                    }
-                )
-            if len(parts) >= 11:
-                row.update(
-                    {
-                        "exited_particles": _parse_int_loose(parts[9]),
-                        "exited_particles_cumulative": _parse_int_loose(parts[10]),
-                    }
-                )
-            rows_by_step[step] = row
+    rows_by_step, step_order = {}, []
+    for _, row in _continuity_rows(log_dir)[1]:
+        step = row["step"]
+        if step not in rows_by_step:
             step_order.append(step)
+            rows_by_step[step] = {}
+        rows_by_step[step][row["block"]] = {key: value for key, value in row.items() if key != "step"}
+    return {step: list(blocks.values()) for step, blocks in rows_by_step.items()}, step_order
+
+
+def _parse_particle_metrics_log(log_dir: str, metrics_dir: str) -> "tuple[dict, list[int]]":
+    """!
+    @brief Read the per-step particle record into rows by step plus observed order.
+    @param[in] log_dir Run log directory.
+    @param[in] metrics_dir Run analysis metrics directory.
+    @return Mapping step -> row, and the steps in file order.
+    """
+    rows_by_step, step_order = {}, []
+    for _, row in _particle_step_rows(log_dir, metrics_dir)[1]:
+        rows_by_step[row["step"]] = {key: value for key, value in row.items() if key != "step"}
+        step_order.append(row["step"])
     return rows_by_step, step_order
 
 
 def _parse_momentum_convergence_logs(log_dir: str) -> "tuple[dict, dict, list[int]]":
     """!
-    @brief Parse per-block momentum convergence logs.
-    @param[in] log_dir Argument passed to `_parse_momentum_convergence_logs()`.
-    @return Value returned by `_parse_momentum_convergence_logs()`.
+    @brief Read the per-block momentum records (Picard history, Newton summary) into rows by step.
+    @param[in] log_dir Run log directory.
+    @return Rows by step and block, source path per block, and step order.
     """
-    rows_by_step = {}
-    sources = {}
-    step_order = []
-    patterns = [
-        os.path.join(log_dir, "Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_*.log"),
-        os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log"),
-    ]
-    # Log format (Phase 3+): dtau [physical time] and cfl_eff [dimensionless Courant number].
-    # cfl_eff = dtau * lambda_max; this is the value controlled by pseudo_cfl.* YAML keys.
-    regex = re.compile(
-        r"Step:\s*(?P<step>\d+)\s*\|\s*PseudoIter\(k\):\s*(?P<pseudo_iter>\d+)\s*\|"
-        r"\s*dtau:\s*(?P<dtau>[-+0-9.eE]+)\s*\|\s*cfl_eff:\s*(?P<cfl_eff>[-+0-9.eE]+)\s*\|"
-        r"\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
-        r"\s*\|dUk\|/\|dU0\|:\s*(?P<delta_rel>[-+0-9.eE]+)\s*\|\s*\|Rk\|:\s*(?P<resid>[-+0-9.eE]+)\s*\|"
-        r"\s*\|Rk\|/\|R0\|:\s*(?P<resid_rel>[-+0-9.eE]+)"
-        r"(?:\s*\|\s*trial_ratio:\s*(?P<trial_ratio>[-+0-9.eE]+)"
-        r"(?:\s*\|\s*smoothed_ratio:\s*(?P<smoothed_ratio>[-+0-9.eE]+))?"
-        r"\s*\|\s*status:\s*(?P<status>\w+)\s*\|\s*dtau_after:\s*(?P<dtau_after>[-+0-9.eE]+)"
-        r"(?:\s*\|\s*cfl_eff_after:\s*(?P<cfl_eff_after>[-+0-9.eE]+))?)?"
-    )
-
-    # Per (step, block): track accepted/rejected counts and last committed state.
-    _state = {}
-
-    for path in sorted(path for pattern in patterns for path in glob.glob(pattern)):
-        block_match = re.search(r"Block_(\d+)\.log$", path)
-        if not block_match:
-            continue
-        block = int(block_match.group(1))
+    rows_by_step, sources, step_order = {}, {}, []
+    # Per (step, block): accepted/rejected trial counts and the last committed state.
+    state = {}
+    for block, path, rows in _picard_history_rows(log_dir):
         sources[block] = path
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            for raw_line in f:
-                match = regex.search(raw_line)
-                if not match:
-                    continue
-                step = int(match.group("step"))
-                step_order.append(step)
-                key = (step, block)
-                if key not in _state:
-                    _state[key] = {"accepted_count": 0, "rejected_count": 0, "last_accepted": None, "last_rejected": None}
-                entry = _state[key]
-                status = match.group("status")
-                row = {
-                    "block": block,
-                    "pseudo_iterations": int(match.group("pseudo_iter")),
-                    "dtau": _parse_float_loose(match.group("dtau")),
-                    "cfl_eff": _parse_float_loose(match.group("cfl_eff")),
-                    "dtau_after": _parse_float_loose(match.group("dtau_after")),
-                    "cfl_eff_after": _parse_float_loose(match.group("cfl_eff_after")),
-                    "delta_norm": float(match.group("delta")),
-                    "delta_rel": float(match.group("delta_rel")),
-                    "residual_norm": float(match.group("resid")),
-                    "residual_rel": float(match.group("resid_rel")),
-                    "trial_ratio": _parse_float_loose(match.group("trial_ratio")),
-                    "smoothed_ratio": _parse_float_loose(match.group("smoothed_ratio")),
-                    "status": status,
-                }
-                if status == "accepted":
-                    entry["accepted_count"] += 1
-                    entry["last_accepted"] = row
-                else:
-                    entry["rejected_count"] += 1
-                    entry["last_rejected"] = row
-
-    for (step, block), entry in _state.items():
+        for _, row in rows:
+            step = row["step"]
+            step_order.append(step)
+            entry = state.setdefault((step, block), {"accepted_count": 0, "rejected_count": 0,
+                                                    "last_accepted": None, "last_rejected": None})
+            display = {key: value for key, value in row.items() if key != "step"}
+            if row.get("status") == "accepted":
+                entry["accepted_count"] += 1
+                entry["last_accepted"] = display
+            else:
+                entry["rejected_count"] += 1
+                entry["last_rejected"] = display
+    for (step, block), entry in state.items():
         display_row = entry["last_accepted"] or entry["last_rejected"]
         if display_row:
             rows_by_step.setdefault(step, {})[block] = {
@@ -22624,87 +22497,28 @@ def _parse_momentum_convergence_logs(log_dir: str) -> "tuple[dict, dict, list[in
                 "accepted_count": entry["accepted_count"],
                 "rejected_count": entry["rejected_count"],
             }
-
-    newton_pattern = os.path.join(log_dir, "Momentum_Solver_Newton_Krylov_Summary_Block_*.log")
-    newton_regex = re.compile(
-        r"step:\s*(?P<step>\d+)\s*\|\s*block:\s*(?P<block>\d+)\s*\|"
-        r"\s*solver:\s*(?P<solver>[^|]+?)\s*\|"
-        # The runtime includes Jacobian and preconditioner descriptions here.
-        # Keep these optional so summaries can also read the original compact logs.
-        r"(?:\s*Jacobian:\s*[^|]+?\s*\|\s*Preconditioner:\s*[^|]+?\s*\|)?"
-        r"\s*reason:\s*(?P<reason>\S+)\s*\|"
-        r"\s*reason_code:\s*(?P<reason_code>-?\d+)\s*\|\s*newton:\s*(?P<newton>\d+)\s*\|"
-        r"\s*evals:\s*(?P<evals>\d+)\s*\|\s*krylov:\s*(?P<krylov>\d+)\s*\|"
-        r"\s*initial:\s*(?P<initial>[-+0-9.eE]+|unavailable)\s*\|"
-        r"\s*final:\s*(?P<final>[-+0-9.eE]+)\s*\|\s*state:\s*(?P<state>\w+)"
-    )
-    for path in sorted(glob.glob(newton_pattern)):
-        block_match = re.search(r"Block_(\d+)\.log$", path)
-        if not block_match:
-            continue
-        file_block = int(block_match.group(1))
+    for file_block, path, rows in _newton_summary_rows(log_dir):
         sources[file_block] = path
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            for raw_line in f:
-                match = newton_regex.search(raw_line)
-                if not match:
-                    continue
-                step = int(match.group("step"))
-                block = int(match.group("block"))
-                initial_text = match.group("initial")
-                step_order.append(step)
-                rows_by_step.setdefault(step, {})[block] = {
-                    "block": block,
-                    "solver": match.group("solver").strip(),
-                    "reason": match.group("reason"),
-                    "reason_code": int(match.group("reason_code")),
-                    "newton_iterations": int(match.group("newton")),
-                    "residual_evaluations": int(match.group("evals")),
-                    "krylov_iterations": int(match.group("krylov")),
-                    "initial_norm": None if initial_text == "unavailable" else float(initial_text),
-                    "final_norm": float(match.group("final")),
-                    "state": match.group("state"),
-                }
-
+        for _, row in rows:
+            step_order.append(row["step"])
+            rows_by_step.setdefault(row["step"], {})[row["block"]] = {
+                key: value for key, value in row.items() if key != "step"}
     return rows_by_step, sources, step_order
 
 
 def _parse_poisson_convergence_logs(log_dir: str) -> "tuple[dict, dict, list[int]]":
     """!
-    @brief Parse per-block Poisson convergence logs.
-    @param[in] log_dir Argument passed to `_parse_poisson_convergence_logs()`.
-    @return Value returned by `_parse_poisson_convergence_logs()`.
+    @brief Read the per-block Poisson histories into each step's last iteration.
+    @param[in] log_dir Run log directory.
+    @return Rows by step and block, source path per block, and step order.
     """
-    rows_by_step = {}
-    sources = {}
-    step_order = []
-    pattern = os.path.join(log_dir, "Poisson_Solver_Convergence_History_Block_*.log")
-    regex = re.compile(
-        r"ts:\s*(?P<step>\d+)\s*\|\s*block:\s*(?P<block>\d+)\s*\|\s*iter:\s*(?P<iter>\d+)\s*\|"
-        r"\s*Unprecond Norm:\s*(?P<unpre>[-+0-9.eE]+)\s*\|\s*True Norm:\s*(?P<true>[-+0-9.eE]+)"
-        r"(?:\s*\|\s*Rel Norm:\s*(?P<rel>[-+0-9.eE]+))?"
-    )
-
-    for path in sorted(glob.glob(pattern)):
-        block_match = re.search(r"Block_(\d+)\.log$", path)
-        if not block_match:
-            continue
-        block = int(block_match.group(1))
+    rows_by_step, sources, step_order = {}, {}, []
+    for block, path, rows in _poisson_history_rows(log_dir):
         sources[block] = path
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            for raw_line in f:
-                match = regex.search(raw_line)
-                if not match:
-                    continue
-                step = int(match.group("step"))
-                step_order.append(step)
-                rows_by_step.setdefault(step, {})[block] = {
-                    "block": block,
-                    "iterations": int(match.group("iter")),
-                    "unpreconditioned_norm": float(match.group("unpre")),
-                    "true_norm": float(match.group("true")),
-                    "relative_norm": _parse_float_loose(match.group("rel")),
-                }
+        for _, row in rows:
+            step_order.append(row["step"])
+            rows_by_step.setdefault(row["step"], {})[block] = {
+                key: value for key, value in row.items() if key not in ("step",)}
     return rows_by_step, sources, step_order
 
 
@@ -22742,119 +22556,50 @@ def _parse_profiling_timestep_csv(filepath: str) -> "tuple[dict, list[int]]":
 
 def _parse_runtime_memory_log(filepath: str) -> "tuple[dict, list[int], dict]":
     """!
-    @brief Parse Runtime_Memory.log into latest rows by step and final status.
+    @brief Read the runtime memory record into rows by step and its final status.
     @param[in] filepath Runtime memory log path.
     @return Tuple of rows by step, observed step order, and final/shutdown metadata.
     """
-    rows_by_step = {}
-    step_order = []
-    final_row = None
-    latest_sample_row = None
-    max_process_change_mb = None
+    rows_by_step, step_order = {}, []
+    final_row = latest_sample_row = max_process_change_mb = None
+    step_walls = []
     if not os.path.isfile(filepath):
         return rows_by_step, step_order, {"available": False}
-
-    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line or line.startswith("#") or line.startswith("Step"):
-                continue
-            parts = line.split()
-            if len(parts) < 8:
-                continue
-            step = _parse_int_loose(parts[0])
-            if step is None:
-                continue
-            row = {
-                "step": step,
-                "event": parts[1],
-                "process_current_mb_max": _parse_float_loose(parts[2]),
-                "process_peak_mb_max": _parse_float_loose(parts[3]),
-                "petsc_allocated_mb_max": _parse_float_loose(parts[4]),
-                "petsc_peak_allocated_mb_max": _parse_float_loose(parts[5]),
-                "process_change_mb_max": _parse_float_loose(parts[6]),
-                "reason": parts[7],
-            }
-            if row["process_change_mb_max"] is not None:
-                max_process_change_mb = (
-                    row["process_change_mb_max"]
-                    if max_process_change_mb is None
-                    else max(max_process_change_mb, row["process_change_mb_max"])
-                )
-            if row["event"] in {"Step", "Post"}:
-                rows_by_step[step] = row
-                step_order.append(step)
-                latest_sample_row = row
-            elif row["event"] in {"Shutdown", "Final"}:
-                final_row = row
-
+    for _, row in _runtime_memory_rows(filepath):
+        if row.get("step_wall_s") is not None:
+            step_walls.append(row["step_wall_s"])
+        change = row.get("process_change_mb_max")
+        if change is not None:
+            max_process_change_mb = change if max_process_change_mb is None else max(max_process_change_mb, change)
+        if row["event"] in {"Step", "Post"}:
+            rows_by_step[row["step"]] = row
+            step_order.append(row["step"])
+            latest_sample_row = row
+        elif row["event"] in {"Shutdown", "Final"}:
+            final_row = row
     meta = {
         "available": bool(rows_by_step or final_row),
         "source": filepath,
         "final_event": final_row.get("event") if final_row else None,
         "final_reason": final_row.get("reason") if final_row else None,
         "max_process_change_mb": max_process_change_mb,
+        "mean_step_wall_s": (sum(step_walls) / len(step_walls)) if step_walls else None,
         "latest_sample_row": latest_sample_row,
         "final_row": final_row,
     }
     return rows_by_step, step_order, meta
 
 
-def _parse_solution_convergence_log(filepath: str) -> "tuple[dict, list[int]]":
+def _parse_solution_convergence_log(log_dir: str) -> "tuple[dict, list[int]]":
     """!
-    @brief Parse solution_convergence.log into latest rows by step plus observed order.
-
-    The log format uses pipe-delimited aligned columns. The first line of the
-    file is a banner (starts with '=') containing the mode tag; the second line
-    is the column header; the third line is a separator (starts with '-').
-    Subsequent lines are one data row per timestep.
-
-    @param[in] filepath Path to solution_convergence.log.
-    @return Mapping of step number to a dict of column values.
+    @brief Read the solution-convergence record into rows by step plus observed order.
+    @param[in] log_dir Run log directory.
+    @return Mapping step -> row of every column, and the steps in file order.
     """
-    rows_by_step = {}
-    step_order = []
-    if not os.path.isfile(filepath):
-        return rows_by_step, step_order
-
-    mode = None
-    col_names = None
-
-    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line:
-                continue
-            if line.startswith("="):
-                m = re.search(r"\[mode:\s*([\w_]+)", line)
-                if m:
-                    mode = m.group(1)
-                continue
-            if line.startswith("-"):
-                continue
-            if col_names is None:
-                col_names = [p.strip() for p in raw_line.split("|")]
-                continue
-            parts = [p.strip() for p in raw_line.split("|")]
-            if len(parts) < 4 or col_names is None:
-                continue
-            step = _parse_int_loose(parts[0]) if col_names[0] == "step" else None
-            if step is None:
-                continue
-            step_order.append(step)
-            row = {"mode": mode}
-            for name, val in zip(col_names, parts):
-                if not name:
-                    continue
-                float_val = _parse_float_loose(val)
-                int_val = _parse_int_loose(val)
-                if float_val is not None and ("." in val or "e" in val.lower()):
-                    row[name] = float_val
-                elif int_val is not None:
-                    row[name] = int_val
-                else:
-                    row[name] = val
-            rows_by_step[step] = row
+    rows_by_step, step_order = {}, []
+    for _, row in _solution_convergence_rows(log_dir)[1]:
+        rows_by_step[row["step"]] = row
+        step_order.append(row["step"])
     return rows_by_step, step_order
 
 
@@ -23339,11 +23084,14 @@ def build_run_summary_payload(run_dir: str, step: "int | None" = None, snapshot_
     """
     context = _build_summary_context(run_dir)
     log_dir = context["log_dir"]
-    continuity_path = os.path.join(log_dir, "Continuity_Metrics.log")
-    particle_metrics_path = os.path.join(log_dir, "Particle_Metrics.log")
+    metrics_dir = context["metrics_dir"]
+    continuity_path = (_log_family_path(log_dir, "Continuity_Metrics")
+                       or os.path.join(log_dir, "Continuity_Metrics.csv"))
+    particle_metrics_path = (_particle_step_rows(log_dir, metrics_dir)[0]
+                             or os.path.join(metrics_dir, "search_metrics.csv"))
 
-    continuity_rows, continuity_order = _parse_continuity_metrics_log(continuity_path)
-    particle_rows, particle_order = _parse_particle_metrics_log(particle_metrics_path)
+    continuity_rows, continuity_order = _parse_continuity_metrics_log(log_dir)
+    particle_rows, particle_order = _parse_particle_metrics_log(log_dir, metrics_dir)
     momentum_rows, momentum_sources, momentum_order = _parse_momentum_convergence_logs(log_dir)
     poisson_rows, poisson_sources, poisson_order = _parse_poisson_convergence_logs(log_dir)
 
@@ -23354,12 +23102,13 @@ def build_run_summary_payload(run_dir: str, step: "int | None" = None, snapshot_
         profiling_rows, profiling_order = _parse_profiling_timestep_csv(profiling_path)
 
     diagnostics_cfg = resolve_diagnostics_config(context["monitor_cfg"])
-    memory_log_file = diagnostics_cfg["runtime_memory_log"].get("file", "Runtime_Memory.log")
+    memory_log_file = diagnostics_cfg["runtime_memory_log"].get("file", "Runtime_Memory.csv")
     memory_path = os.path.join(log_dir, memory_log_file)
     memory_rows, memory_order, memory_meta = _parse_runtime_memory_log(memory_path)
 
-    convergence_log_path = os.path.join(log_dir, "solution_convergence.log")
-    convergence_rows, convergence_order = _parse_solution_convergence_log(convergence_log_path)
+    convergence_log_path = (_log_family_path(log_dir, "solution_convergence")
+                            or os.path.join(log_dir, "solution_convergence.csv"))
+    convergence_rows, convergence_order = _parse_solution_convergence_log(log_dir)
     step_orders = _order_summary_step_orders(
         [
             (continuity_order, continuity_path),
@@ -23444,6 +23193,7 @@ def build_run_summary_payload(run_dir: str, step: "int | None" = None, snapshot_
         memory_summary.update(memory_rows[resolved_step])
         memory_summary["source"] = memory_path
         memory_summary["max_process_change_mb"] = memory_meta.get("max_process_change_mb")
+        memory_summary["mean_step_wall_s"] = memory_meta.get("mean_step_wall_s")
         memory_summary["final_event"] = memory_meta.get("final_event")
         memory_summary["final_reason"] = memory_meta.get("final_reason")
         memory_summary["selected_step"] = resolved_step
@@ -23659,6 +23409,9 @@ def render_run_summary(payload: dict, output_format: str = "text"):
         print(f"    process max   : {_format_summary_float(memory.get('process_current_mb_max'), '.3f')} MB current, {_format_summary_float(memory.get('process_peak_mb_max'), '.3f')} MB peak")
         print(f"    PETSc max     : {_format_summary_float(memory.get('petsc_allocated_mb_max'), '.3f')} MB allocated, {_format_summary_float(memory.get('petsc_peak_allocated_mb_max'), '.3f')} MB peak")
         print(f"    max change    : {_format_summary_float(memory.get('max_process_change_mb'), '.3f')} MB")
+        if memory.get("step_wall_s") is not None or memory.get("mean_step_wall_s") is not None:
+            print(f"    step time     : {_format_summary_float(memory.get('step_wall_s'), '.4g')} s this step, "
+                  f"{_format_summary_float(memory.get('mean_step_wall_s'), '.4g')} s mean (slowest rank)")
         if memory.get("final_reason"):
             print(f"    final reason  : {memory.get('final_reason')}")
     else:
@@ -24224,15 +23977,17 @@ def _summary_physical_time(context: dict, record: dict) -> "float | None":
 
 def _read_runtime_diagnostics_csv(path):
     """!
-    @brief Yields `(segment, row)` for each data line of a runtime diagnostics CSV.
+    @brief Yields `(segment, row)` for each data line of one of the solver's CSV records.
 
-    The solver's runtime CSVs share one shape: a `step,...` header written once, data
-    rows appended across the run, and a comment marker at each seam where a continuation
-    resumed. Rows before the header, or whose width disagrees with it, are skipped rather
-    than guessed at. `segment` counts the continuations seen so far, so a caller can keep
-    restarts as separate series instead of drawing a line across the seam.
+    Every per-step file the solver writes shares one shape: a header (the first line that is
+    not a comment) written once, data rows appended across the run, `#` comment lines, and a
+    `# Continuation from step N` marker at each seam where a continuation resumed. A row with
+    fewer fields than the header is skipped rather than guessed at; one with more keeps the
+    header's columns, since columns are only ever appended. `segment` counts the
+    continuations seen so far, so a caller can keep restarts as separate series instead of
+    drawing a line across the seam.
 
-    @param path Diagnostics CSV to read.
+    @param path CSV to read.
     @return Generator of `(segment_index, {column: text})` pairs.
     """
     segment = 0
@@ -24242,13 +23997,491 @@ def _read_runtime_diagnostics_csv(path):
             if _is_summary_plot_continuation_marker(raw_line):
                 segment += 1
                 continue
-            if raw_line.lstrip().startswith("step,"):
-                header = [name.strip() for name in raw_line.strip().split(",")]
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith("#"):
                 continue
-            parts = [part.strip() for part in raw_line.strip().split(",")]
-            if not header or len(parts) != len(header):
+            parts = [part.strip() for part in stripped.split(",")]
+            if not header:
+                header = parts
+                continue
+            if len(parts) < len(header):
                 continue
             yield segment, dict(zip(header, parts))
+
+
+def _log_family_path(log_dir: str, base: str) -> "str | None":
+    """!
+    @brief Return a solver record's CSV, or the text log an older run wrote instead.
+    @param[in] log_dir Run log directory.
+    @param[in] base File name without extension, such as `Continuity_Metrics`.
+    @return Existing path, preferring `.csv`; None when neither exists.
+    """
+    for extension in (".csv", ".log"):
+        path = os.path.join(log_dir, base + extension)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _block_family_paths(log_dir: str, *bases: str) -> "list[tuple[int, str]]":
+    """!
+    @brief Return `(block, path)` for each per-block solver record, CSV preferred per block.
+    @param[in] log_dir Run log directory.
+    @param[in] bases File-name stems before `_Block_<n>`, newest naming first.
+    @return Sorted `(block, path)` pairs.
+    """
+    chosen = {}
+    for base in bases:
+        for extension in (".csv", ".log"):
+            for path in glob.glob(os.path.join(log_dir, f"{base}_Block_*{extension}")):
+                match = re.search(r"_Block_(\d+)\.(csv|log)$", path)
+                if match and int(match.group(1)) not in chosen:
+                    chosen[int(match.group(1))] = path
+    return sorted(chosen.items())
+
+
+def _continuity_rows(log_dir: str) -> "tuple[str | None, list]":
+    """!
+    @brief Return the continuity record's path and its `(segment, row)` pairs.
+    @param[in] log_dir Run log directory.
+    @return Path (or None) and rows keyed step, block, max_divergence, max_divergence_location,
+            rhs_sum, flux_in, flux_out, net_flux.
+    """
+    path = _log_family_path(log_dir, "Continuity_Metrics")
+    rows = []
+    if path is None:
+        return None, rows
+    if path.endswith(".csv"):
+        for segment, row in _read_runtime_diagnostics_csv(path):
+            step, block = _parse_int_loose(row.get("step")), _parse_int_loose(row.get("block"))
+            if step is None or block is None:
+                continue
+            rows.append((segment, {
+                "step": step, "block": block,
+                "max_divergence": _parse_float_loose(row.get("max_divergence")),
+                "max_divergence_location": "([{}][{}][{}] = {})".format(
+                    row.get("max_divergence_k"), row.get("max_divergence_j"),
+                    row.get("max_divergence_i"), row.get("max_divergence_index")),
+                "rhs_sum": _parse_float_loose(row.get("poisson_source_imbalance")),
+                "flux_in": _parse_float_loose(row.get("flux_in")),
+                "flux_out": _parse_float_loose(row.get("flux_out")),
+                "net_flux": _parse_float_loose(row.get("net_flux")),
+            }))
+        return path, rows
+    segment = 0
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for raw_line in f:
+            if _is_summary_plot_continuation_marker(raw_line):
+                segment += 1
+                continue
+            line = raw_line.strip()
+            if not line or line.startswith("-") or line.startswith("Timestep"):
+                continue
+            parts = [part.strip() for part in raw_line.split("|")]
+            if len(parts) < 8:
+                continue
+            step, block = _parse_int_loose(parts[0]), _parse_int_loose(parts[1])
+            if step is None or block is None:
+                continue
+            rows.append((segment, {
+                "step": step, "block": block,
+                "max_divergence": _parse_float_loose(parts[2]),
+                "max_divergence_location": parts[3],
+                "rhs_sum": _parse_float_loose(parts[4]),
+                "flux_in": _parse_float_loose(parts[5]),
+                "flux_out": _parse_float_loose(parts[6]),
+                "net_flux": _parse_float_loose(parts[7]),
+            }))
+    return path, rows
+
+
+def _particle_step_rows(log_dir: str, metrics_dir: str) -> "tuple[str | None, list]":
+    """!
+    @brief Return the per-step particle record's path and its `(segment, row)` pairs.
+
+    `search_metrics.csv` carries the step's particle counts; a run that predates it in that
+    role wrote `Particle_Metrics.log`, read when the CSV is absent.
+
+    @param[in] log_dir Run log directory.
+    @param[in] metrics_dir Run analysis metrics directory.
+    @return Path (or None) and rows keyed step, total_particles, lost_particles,
+            lost_particles_cumulative, migrated_particles, occupied_cells, load_imbalance,
+            migration_passes, exited_particles, exited_particles_cumulative.
+    """
+    rows = []
+    csv_path = os.path.join(metrics_dir, "search_metrics.csv") if metrics_dir else None
+    if csv_path and os.path.isfile(csv_path):
+        for segment, row in _read_runtime_diagnostics_csv(csv_path):
+            step = _parse_int_loose(row.get("step"))
+            if step is None:
+                continue
+            rows.append((segment, {
+                "step": step,
+                "total_particles": _parse_int_loose(row.get("total_particles")),
+                "lost_particles": _parse_int_loose(row.get("lost")),
+                "lost_particles_cumulative": _parse_int_loose(row.get("lost_cumulative")),
+                "migrated_particles": _parse_int_loose(row.get("migrated")),
+                "occupied_cells": _parse_int_loose(row.get("occupied_cells")),
+                "load_imbalance": _parse_float_loose(row.get("load_imbalance")),
+                "migration_passes": _parse_int_loose(row.get("migration_passes")),
+                "exited_particles": _parse_int_loose(row.get("exited")),
+                "exited_particles_cumulative": _parse_int_loose(row.get("exited_cumulative")),
+            }))
+        return csv_path, rows
+    path = os.path.join(log_dir, "Particle_Metrics.log")
+    if not os.path.isfile(path):
+        return None, rows
+    segment = 0
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for raw_line in f:
+            if _is_summary_plot_continuation_marker(raw_line):
+                segment += 1
+                continue
+            line = raw_line.strip()
+            if not line or line.startswith("-") or line.startswith("Stage"):
+                continue
+            parts = [part.strip() for part in raw_line.split("|")]
+            if len(parts) < 8:
+                continue
+            step = _parse_int_loose(parts[1])
+            if step is None:
+                continue
+            offset = 1 if len(parts) >= 9 else 0
+            rows.append((segment, {
+                "step": step,
+                "total_particles": _parse_int_loose(parts[2]),
+                "lost_particles": _parse_int_loose(parts[3]),
+                "lost_particles_cumulative": _parse_int_loose(parts[4]) if offset else None,
+                "migrated_particles": _parse_int_loose(parts[4 + offset]),
+                "occupied_cells": _parse_int_loose(parts[5 + offset]),
+                "load_imbalance": _parse_float_loose(parts[6 + offset]),
+                "migration_passes": _parse_int_loose(parts[7 + offset]),
+                "exited_particles": _parse_int_loose(parts[9]) if len(parts) >= 11 else None,
+                "exited_particles_cumulative": _parse_int_loose(parts[10]) if len(parts) >= 11 else None,
+            }))
+    return path, rows
+
+
+_LEGACY_PICARD_REGEX = re.compile(
+    r"Step:\s*(?P<step>\d+)\s*\|\s*PseudoIter\(k\):\s*(?P<pseudo_iter>\d+)\s*\|"
+    r"\s*dtau:\s*(?P<dtau>[-+0-9.eE]+)\s*\|\s*cfl_eff:\s*(?P<cfl_eff>[-+0-9.eE]+)\s*\|"
+    r"\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
+    r"\s*\|dUk\|/\|dU0\|:\s*(?P<delta_rel>[-+0-9.eE]+)\s*\|\s*\|Rk\|:\s*(?P<resid>[-+0-9.eE]+)\s*\|"
+    r"\s*\|Rk\|/\|R0\|:\s*(?P<resid_rel>[-+0-9.eE]+)"
+    r"(?:\s*\|\s*trial_ratio:\s*(?P<trial_ratio>[-+0-9.eE]+)"
+    r"(?:\s*\|\s*smoothed_ratio:\s*(?P<smoothed_ratio>[-+0-9.eE]+))?"
+    r"\s*\|\s*status:\s*(?P<status>\w+)\s*\|\s*dtau_after:\s*(?P<dtau_after>[-+0-9.eE]+)"
+    r"(?:\s*\|\s*cfl_eff_after:\s*(?P<cfl_eff_after>[-+0-9.eE]+))?)?"
+)
+
+
+def _picard_history_rows(log_dir: str) -> "list[tuple[int, str, list]]":
+    """!
+    @brief Return `(block, path, [(segment, row)])` for each Picard momentum history.
+    @param[in] log_dir Run log directory.
+    @return Rows keyed step, block, pseudo_iterations, dtau, cfl_eff, delta_norm, delta_rel,
+            residual_norm, residual_rel, trial_ratio, smoothed_ratio, status, dtau_after,
+            cfl_eff_after; dtau is solver time and cfl_eff = dtau * lambda_max.
+    """
+    out = []
+    for block, path in _block_family_paths(log_dir, "Momentum_Solver_DualTime_Picard_Jameson_RK_History",
+                                           "Momentum_Solver_Convergence_History"):
+        rows = []
+        if path.endswith(".csv"):
+            for segment, row in _read_runtime_diagnostics_csv(path):
+                step = _parse_int_loose(row.get("step"))
+                if step is None:
+                    continue
+                rows.append((segment, {
+                    "step": step, "block": block,
+                    "pseudo_iterations": _parse_int_loose(row.get("pseudo_iter")),
+                    "dtau": _parse_float_loose(row.get("dtau")),
+                    "cfl_eff": _parse_float_loose(row.get("cfl_eff")),
+                    "delta_norm": _parse_float_loose(row.get("delta_norm")),
+                    "delta_rel": _parse_float_loose(row.get("delta_rel")),
+                    "residual_norm": _parse_float_loose(row.get("residual_norm")),
+                    "residual_rel": _parse_float_loose(row.get("residual_rel")),
+                    "trial_ratio": _parse_float_loose(row.get("trial_ratio")),
+                    "smoothed_ratio": _parse_float_loose(row.get("smoothed_ratio")),
+                    "status": row.get("status") or None,
+                    "dtau_after": _parse_float_loose(row.get("dtau_after")),
+                    "cfl_eff_after": _parse_float_loose(row.get("cfl_eff_after")),
+                }))
+        else:
+            segment = 0
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                for raw_line in f:
+                    if _is_summary_plot_continuation_marker(raw_line):
+                        segment += 1
+                        continue
+                    match = _LEGACY_PICARD_REGEX.search(raw_line)
+                    if not match:
+                        continue
+                    rows.append((segment, {
+                        "step": int(match.group("step")), "block": block,
+                        "pseudo_iterations": int(match.group("pseudo_iter")),
+                        "dtau": _parse_float_loose(match.group("dtau")),
+                        "cfl_eff": _parse_float_loose(match.group("cfl_eff")),
+                        "delta_norm": float(match.group("delta")),
+                        "delta_rel": float(match.group("delta_rel")),
+                        "residual_norm": float(match.group("resid")),
+                        "residual_rel": float(match.group("resid_rel")),
+                        "trial_ratio": _parse_float_loose(match.group("trial_ratio")),
+                        "smoothed_ratio": _parse_float_loose(match.group("smoothed_ratio")),
+                        "status": match.group("status"),
+                        "dtau_after": _parse_float_loose(match.group("dtau_after")),
+                        "cfl_eff_after": _parse_float_loose(match.group("cfl_eff_after")),
+                    }))
+        out.append((block, path, rows))
+    return out
+
+
+_LEGACY_NEWTON_HISTORY_REGEX = re.compile(
+    r"step:\s*(?P<step>\d+)\s*\|\s*block:\s*(?P<block>\d+)\s*\|"
+    r"\s*newton:\s*(?P<newton>\d+)\s*\|\s*nonlinear_norm:\s*(?P<norm>[-+0-9.eE]+)"
+)
+_LEGACY_NEWTON_SUMMARY_REGEX = re.compile(
+    r"step:\s*(?P<step>\d+)\s*\|\s*block:\s*(?P<block>\d+)\s*\|"
+    r"\s*solver:\s*(?P<solver>[^|]+?)\s*\|"
+    r"(?:\s*Jacobian:\s*[^|]+?\s*\|\s*Preconditioner:\s*[^|]+?\s*\|)?"
+    r"\s*reason:\s*(?P<reason>\S+)\s*\|"
+    r"\s*reason_code:\s*(?P<reason_code>-?\d+)\s*\|\s*newton:\s*(?P<newton>\d+)\s*\|"
+    r"\s*evals:\s*(?P<evals>\d+)\s*\|\s*krylov:\s*(?P<krylov>\d+)\s*\|"
+    r"\s*initial:\s*(?P<initial>[-+0-9.eE]+|unavailable)\s*\|"
+    r"\s*final:\s*(?P<final>[-+0-9.eE]+)\s*\|\s*state:\s*(?P<state>\w+)"
+)
+
+
+def _newton_history_rows(log_dir: str) -> "list[tuple[int, str, list]]":
+    """!
+    @brief Return `(block, path, [(segment, row)])` for each Newton iteration history.
+    @param[in] log_dir Run log directory.
+    @return Rows keyed step, block, newton_iterations, residual_norm.
+    """
+    out = []
+    for block, path in _block_family_paths(log_dir, "Momentum_Solver_Newton_Krylov_History"):
+        rows = []
+        if path.endswith(".csv"):
+            for segment, row in _read_runtime_diagnostics_csv(path):
+                step = _parse_int_loose(row.get("step"))
+                if step is not None:
+                    rows.append((segment, {"step": step, "block": _parse_int_loose(row.get("block")),
+                                           "newton_iterations": _parse_int_loose(row.get("newton")),
+                                           "residual_norm": _parse_float_loose(row.get("nonlinear_norm"))}))
+        else:
+            segment = 0
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                for raw_line in f:
+                    if _is_summary_plot_continuation_marker(raw_line):
+                        segment += 1
+                        continue
+                    match = _LEGACY_NEWTON_HISTORY_REGEX.search(raw_line)
+                    if match:
+                        rows.append((segment, {"step": int(match.group("step")), "block": int(match.group("block")),
+                                               "newton_iterations": int(match.group("newton")),
+                                               "residual_norm": float(match.group("norm"))}))
+        out.append((block, path, rows))
+    return out
+
+
+def _newton_summary_rows(log_dir: str) -> "list[tuple[int, str, list]]":
+    """!
+    @brief Return `(block, path, [(segment, row)])` for each Newton per-step summary.
+    @param[in] log_dir Run log directory.
+    @return Rows keyed step, block, solver, reason, reason_code, newton_iterations,
+            residual_evaluations, krylov_iterations, initial_norm, final_norm, state.
+    """
+    out = []
+    for block, path in _block_family_paths(log_dir, "Momentum_Solver_Newton_Krylov_Summary"):
+        rows = []
+        if path.endswith(".csv"):
+            for segment, row in _read_runtime_diagnostics_csv(path):
+                step = _parse_int_loose(row.get("step"))
+                if step is None:
+                    continue
+                rows.append((segment, {
+                    "step": step, "block": _parse_int_loose(row.get("block")),
+                    "solver": row.get("solver"), "reason": row.get("reason"),
+                    "reason_code": _parse_int_loose(row.get("reason_code")),
+                    "newton_iterations": _parse_int_loose(row.get("newton")),
+                    "residual_evaluations": _parse_int_loose(row.get("evals")),
+                    "krylov_iterations": _parse_int_loose(row.get("krylov")),
+                    "initial_norm": _parse_float_loose(row.get("initial_norm")),
+                    "final_norm": _parse_float_loose(row.get("final_norm")),
+                    "state": row.get("state"),
+                }))
+        else:
+            segment = 0
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                for raw_line in f:
+                    if _is_summary_plot_continuation_marker(raw_line):
+                        segment += 1
+                        continue
+                    match = _LEGACY_NEWTON_SUMMARY_REGEX.search(raw_line)
+                    if not match:
+                        continue
+                    initial_text = match.group("initial")
+                    rows.append((segment, {
+                        "step": int(match.group("step")), "block": int(match.group("block")),
+                        "solver": match.group("solver").strip(), "reason": match.group("reason"),
+                        "reason_code": int(match.group("reason_code")),
+                        "newton_iterations": int(match.group("newton")),
+                        "residual_evaluations": int(match.group("evals")),
+                        "krylov_iterations": int(match.group("krylov")),
+                        "initial_norm": None if initial_text == "unavailable" else float(initial_text),
+                        "final_norm": float(match.group("final")),
+                        "state": match.group("state"),
+                    }))
+        out.append((block, path, rows))
+    return out
+
+
+_LEGACY_POISSON_REGEX = re.compile(
+    r"ts:\s*(?P<step>\d+)\s*\|\s*block:\s*(?P<block>\d+)\s*\|\s*iter:\s*(?P<iter>\d+)\s*\|"
+    r"\s*Unprecond Norm:\s*(?P<unpre>[-+0-9.eE]+)\s*\|\s*True Norm:\s*(?P<true>[-+0-9.eE]+)"
+    r"(?:\s*\|\s*Rel Norm:\s*(?P<rel>[-+0-9.eE]+))?"
+)
+
+
+def _poisson_history_rows(log_dir: str) -> "list[tuple[int, str, list]]":
+    """!
+    @brief Return `(block, path, [(segment, row)])` for each Poisson iteration history.
+    @param[in] log_dir Run log directory.
+    @return Rows keyed step, block, iterations, unpreconditioned_norm, true_norm, relative_norm;
+            true_norm and relative_norm are None unless the run computed the true residual.
+    """
+    out = []
+    for block, path in _block_family_paths(log_dir, "Poisson_Solver_Convergence_History"):
+        rows = []
+        if path.endswith(".csv"):
+            for segment, row in _read_runtime_diagnostics_csv(path):
+                step = _parse_int_loose(row.get("step"))
+                if step is not None:
+                    rows.append((segment, {"step": step, "block": _parse_int_loose(row.get("block")),
+                                           "iterations": _parse_int_loose(row.get("iter")),
+                                           "unpreconditioned_norm": _parse_float_loose(row.get("unpreconditioned_norm")),
+                                           "true_norm": _parse_float_loose(row.get("true_norm")),
+                                           "relative_norm": _parse_float_loose(row.get("relative_norm"))}))
+        else:
+            segment = 0
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                for raw_line in f:
+                    if _is_summary_plot_continuation_marker(raw_line):
+                        segment += 1
+                        continue
+                    match = _LEGACY_POISSON_REGEX.search(raw_line)
+                    if match:
+                        rows.append((segment, {"step": int(match.group("step")), "block": int(match.group("block")),
+                                               "iterations": int(match.group("iter")),
+                                               "unpreconditioned_norm": float(match.group("unpre")),
+                                               "true_norm": float(match.group("true")),
+                                               "relative_norm": _parse_float_loose(match.group("rel"))}))
+        out.append((block, path, rows))
+    return out
+
+
+def _runtime_memory_rows(path: str) -> list:
+    """!
+    @brief Return the runtime memory record's `(segment, row)` pairs (CSV, or an older run's text log).
+    @param[in] path Runtime memory log path as configured.
+    @return Rows keyed step, event, process_current_mb_max, process_peak_mb_max,
+            petsc_allocated_mb_max, petsc_peak_allocated_mb_max, process_change_mb_max, reason.
+    """
+    rows = []
+    if not path or not os.path.isfile(path):
+        return rows
+    keys = ("process_current_mb_max", "process_peak_mb_max", "petsc_allocated_mb_max",
+            "petsc_peak_allocated_mb_max", "process_change_mb_max")
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        first = ""
+        for line in f:
+            if line.strip() and not line.lstrip().startswith("#"):
+                first = line
+                break
+    if first.startswith("step,"):
+        for segment, row in _read_runtime_diagnostics_csv(path):
+            step = _parse_int_loose(row.get("step"))
+            if step is None:
+                continue
+            rows.append((segment, {"step": step, "event": row.get("event"), "reason": row.get("reason"),
+                                   "step_wall_s": _parse_float_loose(row.get("step_wall_s")),
+                                   **{key: _parse_float_loose(row.get(key)) for key in keys}}))
+        return rows
+    segment = 0
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for raw_line in f:
+            if _is_summary_plot_continuation_marker(raw_line):
+                segment += 1
+                continue
+            line = raw_line.strip()
+            if not line or line.startswith("#") or line.startswith("Step"):
+                continue
+            parts = line.split()
+            step = _parse_int_loose(parts[0]) if parts else None
+            if len(parts) < 8 or step is None:
+                continue
+            rows.append((segment, {"step": step, "event": parts[1], "reason": parts[7],
+                                   **{key: _parse_float_loose(parts[2 + i]) for i, key in enumerate(keys)}}))
+    return rows
+
+
+def _solution_convergence_rows(log_dir: str) -> "tuple[str | None, list]":
+    """!
+    @brief Return the solution-convergence record's path and its `(segment, row)` pairs.
+    @param[in] log_dir Run log directory.
+    @return Path (or None) and rows with every column, numbers parsed and `mode` set.
+    """
+    path = _log_family_path(log_dir, "solution_convergence")
+    rows = []
+    if path is None:
+        return None, rows
+
+    def typed(name, text):
+        float_val = _parse_float_loose(text)
+        int_val = _parse_int_loose(text)
+        if float_val is not None and ("." in text or "e" in text.lower()):
+            return float_val
+        if int_val is not None:
+            return int_val
+        return text
+
+    if path.endswith(".csv"):
+        for segment, row in _read_runtime_diagnostics_csv(path):
+            step = _parse_int_loose(row.get("step"))
+            if step is None:
+                continue
+            values = {name: typed(name, text) for name, text in row.items() if name}
+            values["step"] = step
+            rows.append((segment, values))
+        return path, rows
+    mode, col_names, segment = None, None, 0
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if _is_summary_plot_continuation_marker(line):
+                segment += 1
+                continue
+            if not line:
+                continue
+            if line.startswith("="):
+                found = re.search(r"\[mode:\s*([\w_]+)", line)
+                if found:
+                    mode = found.group(1)
+                continue
+            if line.startswith("-"):
+                continue
+            if col_names is None:
+                col_names = [p.strip() for p in raw_line.split("|")]
+                continue
+            parts = [p.strip() for p in raw_line.split("|")]
+            step = _parse_int_loose(parts[0]) if col_names[0] == "step" and len(parts) >= 4 else None
+            if step is None:
+                continue
+            values = {"mode": mode}
+            values.update({name: typed(name, text) for name, text in zip(col_names, parts) if name})
+            values["step"] = step
+            rows.append((segment, values))
+    return path, rows
 
 
 def _append_summary_plot_record(records: list, source: str, step, line: str, values: dict,
@@ -24305,154 +24538,49 @@ def _collect_summary_plot_records(context: dict) -> list:
     # not beside the text logs; PicurvOpenDiagnosticsCsv() owns that placement.
     metrics_dir = context["metrics_dir"]
 
-    continuity_path = os.path.join(log_dir, "Continuity_Metrics.log")
-    if os.path.isfile(continuity_path):
-        segment = 0
-        with open(continuity_path, "r", encoding="utf-8", errors="replace") as f:
-            for raw_line in f:
-                if _is_summary_plot_continuation_marker(raw_line):
-                    segment += 1
-                    continue
-                parts = [part.strip() for part in raw_line.split("|")]
-                if len(parts) < 8:
-                    continue
-                step, block = _parse_int_loose(parts[0]), _parse_int_loose(parts[1])
-                _append_summary_plot_record(
-                    records, "continuity", step, f"block {block}",
-                    {
-                        "max_divergence": _parse_float_loose(parts[2]),
-                        "rhs_sum": _parse_float_loose(parts[4]),
-                        "flux_in": _parse_float_loose(parts[5]),
-                        "flux_out": _parse_float_loose(parts[6]),
-                        "net_flux": _parse_float_loose(parts[7]),
-                    },
-                    continuity_path, segment,
-                )
+    continuity_path, continuity_rows = _continuity_rows(log_dir)
+    for segment, row in continuity_rows:
+        _append_summary_plot_record(
+            records, "continuity", row["step"], f"block {row['block']}",
+            {key: row[key] for key in ("max_divergence", "rhs_sum", "flux_in", "flux_out", "net_flux")},
+            continuity_path, segment,
+        )
 
-    particle_path = os.path.join(log_dir, "Particle_Metrics.log")
-    if os.path.isfile(particle_path):
-        segment = 0
-        with open(particle_path, "r", encoding="utf-8", errors="replace") as f:
-            for raw_line in f:
-                if _is_summary_plot_continuation_marker(raw_line):
-                    segment += 1
-                    continue
-                parts = [part.strip() for part in raw_line.split("|")]
-                if len(parts) < 8:
-                    continue
-                step = _parse_int_loose(parts[1])
-                offset = 1 if len(parts) >= 9 else 0
-                _append_summary_plot_record(
-                    records, "particles", step, "particles",
-                    {
-                        "total_particles": _parse_int_loose(parts[2]),
-                        "lost_particles": _parse_int_loose(parts[3]),
-                        "lost_particles_cumulative": _parse_int_loose(parts[4]) if offset else None,
-                        "migrated_particles": _parse_int_loose(parts[4 + offset]),
-                        "occupied_cells": _parse_int_loose(parts[5 + offset]),
-                        "load_imbalance": _parse_float_loose(parts[6 + offset]),
-                        "migration_passes": _parse_int_loose(parts[7 + offset]),
-                        "exited_particles": _parse_int_loose(parts[9]) if len(parts) >= 11 else None,
-                        "exited_particles_cumulative": _parse_int_loose(parts[10]) if len(parts) >= 11 else None,
-                    },
-                    particle_path, segment,
-                )
+    particle_path, particle_rows = _particle_step_rows(log_dir, metrics_dir)
+    for segment, row in particle_rows:
+        _append_summary_plot_record(
+            records, "particles", row["step"], "particles",
+            {key: value for key, value in row.items() if key != "step"},
+            particle_path, segment,
+        )
 
-    # Phase 3+: dtau [physical time] + cfl_eff [dimensionless Courant number].
-    momentum_regex = re.compile(
-        r"Step:\s*(?P<step>\d+)\s*\|\s*PseudoIter\(k\):\s*(?P<pseudo_iter>\d+)\s*\|"
-        r"\s*dtau:\s*(?P<dtau>[-+0-9.eE]+)\s*\|\s*cfl_eff:\s*(?P<cfl_eff>[-+0-9.eE]+)\s*\|"
-        r"\s*\|dUk\|:\s*(?P<delta>[-+0-9.eE]+)\s*\|"
-        r"\s*\|dUk\|/\|dU0\|:\s*(?P<delta_rel>[-+0-9.eE]+)\s*\|\s*\|Rk\|:\s*(?P<resid>[-+0-9.eE]+)\s*\|"
-        r"\s*\|Rk\|/\|R0\|:\s*(?P<resid_rel>[-+0-9.eE]+)"
-        r"(?:\s*\|\s*trial_ratio:\s*(?P<trial_ratio>[-+0-9.eE]+)"
-        r"(?:\s*\|\s*smoothed_ratio:\s*(?P<smoothed_ratio>[-+0-9.eE]+))?"
-        r"\s*\|\s*status:\s*(?P<status>\w+)\s*\|\s*dtau_after:\s*(?P<dtau_after>[-+0-9.eE]+)"
-        r"(?:\s*\|\s*cfl_eff_after:\s*(?P<cfl_eff_after>[-+0-9.eE]+))?)?"
-    )
-    jameson_patterns = [
-        os.path.join(log_dir, "Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_*.log"),
-        os.path.join(log_dir, "Momentum_Solver_Convergence_History_Block_*.log"),
-    ]
-    for path in sorted(path for pattern in jameson_patterns for path in glob.glob(pattern)):
-        block_match = re.search(r"Block_(\d+)\.log$", path)
-        if not block_match:
-            continue
-        segment = 0
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            for raw_line in f:
-                if _is_summary_plot_continuation_marker(raw_line):
-                    segment += 1
-                    continue
-                match = momentum_regex.search(raw_line)
-                if match:
-                    _append_summary_plot_record(
-                        records, "momentum", int(match.group("step")), f"block {block_match.group(1)}",
-                        {
-                            "pseudo_iterations": int(match.group("pseudo_iter")),
-                            "dtau": _parse_float_loose(match.group("dtau")),
-                            "cfl_eff": _parse_float_loose(match.group("cfl_eff")),
-                            "delta_norm": float(match.group("delta")),
-                            "delta_rel": float(match.group("delta_rel")),
-                            "residual_norm": float(match.group("resid")),
-                            "residual_rel": float(match.group("resid_rel")),
-                            "trial_ratio": _parse_float_loose(match.group("trial_ratio")),
-                            "smoothed_ratio": _parse_float_loose(match.group("smoothed_ratio")),
-                            "dtau_after": _parse_float_loose(match.group("dtau_after")),
-                            "cfl_eff_after": _parse_float_loose(match.group("cfl_eff_after")),
-                        },
-                        path, segment,
-                        coordinates={"solver_iteration": int(match.group("pseudo_iter"))},
-                    )
+    # dtau is solver time; cfl_eff = dtau * lambda_max, the Courant number pseudo_cfl.* controls.
+    for block, path, rows in _picard_history_rows(log_dir):
+        for segment, row in rows:
+            _append_summary_plot_record(
+                records, "momentum", row["step"], f"block {block}",
+                {key: value for key, value in row.items() if key not in ("step", "block", "status")},
+                path, segment,
+                coordinates={"solver_iteration": row["pseudo_iterations"]},
+            )
 
-    newton_history_regex = re.compile(
-        r"step:\s*(?P<step>\d+)\s*\|\s*block:\s*(?P<block>\d+)\s*\|"
-        r"\s*newton:\s*(?P<newton>\d+)\s*\|\s*nonlinear_norm:\s*(?P<norm>[-+0-9.eE]+)"
-    )
-    for path in sorted(glob.glob(os.path.join(log_dir, "Momentum_Solver_Newton_Krylov_History_Block_*.log"))):
-        segment = 0
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            for raw_line in f:
-                if _is_summary_plot_continuation_marker(raw_line):
-                    segment += 1
-                    continue
-                match = newton_history_regex.search(raw_line)
-                if match:
-                    _append_summary_plot_record(
-                        records, "momentum", int(match.group("step")), f"block {match.group('block')}",
-                        {
-                            "newton_iterations": int(match.group("newton")),
-                            "residual_norm": float(match.group("norm")),
-                        },
-                        path, segment,
-                        coordinates={"solver_iteration": int(match.group("newton"))},
-                    )
+    for block, path, rows in _newton_history_rows(log_dir):
+        for segment, row in rows:
+            _append_summary_plot_record(
+                records, "momentum", row["step"], f"block {row['block']}",
+                {"newton_iterations": row["newton_iterations"], "residual_norm": row["residual_norm"]},
+                path, segment,
+                coordinates={"solver_iteration": row["newton_iterations"]},
+            )
 
-    poisson_regex = re.compile(
-        r"ts:\s*(?P<step>\d+)\s*\|\s*block:\s*(?P<block>\d+)\s*\|\s*iter:\s*(?P<iter>\d+)\s*\|"
-        r"\s*Unprecond Norm:\s*(?P<unpre>[-+0-9.eE]+)\s*\|\s*True Norm:\s*(?P<true>[-+0-9.eE]+)"
-        r"(?:\s*\|\s*Rel Norm:\s*(?P<rel>[-+0-9.eE]+))?"
-    )
-    for path in sorted(glob.glob(os.path.join(log_dir, "Poisson_Solver_Convergence_History_Block_*.log"))):
-        segment = 0
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            for raw_line in f:
-                if _is_summary_plot_continuation_marker(raw_line):
-                    segment += 1
-                    continue
-                match = poisson_regex.search(raw_line)
-                if match:
-                    _append_summary_plot_record(
-                        records, "poisson", int(match.group("step")), f"block {match.group('block')}",
-                        {
-                            "iterations": int(match.group("iter")),
-                            "unpreconditioned_norm": float(match.group("unpre")),
-                            "true_norm": float(match.group("true")),
-                            "relative_norm": _parse_float_loose(match.group("rel")),
-                        },
-                        path, segment,
-                        coordinates={"solver_iteration": int(match.group("iter"))},
-                    )
+    for block, path, rows in _poisson_history_rows(log_dir):
+        for segment, row in rows:
+            _append_summary_plot_record(
+                records, "poisson", row["step"], f"block {row['block']}",
+                {key: row[key] for key in ("iterations", "unpreconditioned_norm", "true_norm", "relative_norm")},
+                path, segment,
+                coordinates={"solver_iteration": row["iterations"]},
+            )
 
     # The LES coefficient history. cs_effective is the curve an LES run is judged on:
     # on the HOM02 benchmark at 64^3 it settles at 0.18-0.19 (page 72, section 10).
@@ -24538,56 +24666,24 @@ def _collect_summary_plot_records(context: dict) -> list:
                 )
 
     diagnostics = resolve_diagnostics_config(context["monitor_cfg"])
-    memory_path = os.path.join(log_dir, diagnostics["runtime_memory_log"].get("file", "Runtime_Memory.log"))
-    if os.path.isfile(memory_path):
-        segment = 0
-        with open(memory_path, "r", encoding="utf-8", errors="replace") as f:
-            for raw_line in f:
-                if _is_summary_plot_continuation_marker(raw_line):
-                    segment += 1
-                    continue
-                parts = raw_line.split()
-                if len(parts) >= 8 and parts[1] in {"Step", "Post"}:
-                    _append_summary_plot_record(
-                        records, "memory", _parse_int_loose(parts[0]), "memory",
-                        {
-                            "process_current_mb_max": _parse_float_loose(parts[2]),
-                            "process_peak_mb_max": _parse_float_loose(parts[3]),
-                            "petsc_allocated_mb_max": _parse_float_loose(parts[4]),
-                            "petsc_peak_allocated_mb_max": _parse_float_loose(parts[5]),
-                            "process_change_mb_max": _parse_float_loose(parts[6]),
-                        },
-                        memory_path, segment,
-                    )
+    memory_path = os.path.join(log_dir, diagnostics["runtime_memory_log"].get("file", "Runtime_Memory.csv"))
+    for segment, row in _runtime_memory_rows(memory_path):
+        if row["event"] in {"Step", "Post"}:
+            _append_summary_plot_record(
+                records, "memory", row["step"], "memory",
+                {key: value for key, value in row.items() if key not in ("step", "event", "reason")},
+                memory_path, segment,
+            )
 
-    convergence_path = os.path.join(log_dir, "solution_convergence.log")
-    if os.path.isfile(convergence_path):
-        columns = None
-        segment = 0
-        with open(convergence_path, "r", encoding="utf-8", errors="replace") as f:
-            for raw_line in f:
-                line = raw_line.strip()
-                if _is_summary_plot_continuation_marker(line):
-                    segment += 1
-                    continue
-                if not line or line.startswith(("=", "-")):
-                    continue
-                if columns is None:
-                    columns = [part.strip() for part in raw_line.split("|")]
-                    continue
-                parts = [part.strip() for part in raw_line.split("|")]
-                step = _parse_int_loose(parts[0])
-                row = dict(zip(columns, parts))
-                values = {
-                    name: _parse_float_loose(value)
-                    for name, value in row.items()
-                    if name not in {"step", "time", "mode", "ref", "ph", "per", "win"}
-                }
-                _append_summary_plot_record(
-                    records, "convergence", step, "convergence", values,
-                    convergence_path, segment,
-                    coordinates={"time": _parse_float_loose(row.get("time"))},
-                )
+    convergence_path, convergence_rows = _solution_convergence_rows(log_dir)
+    for segment, row in convergence_rows:
+        _append_summary_plot_record(
+            records, "convergence", row["step"], "convergence",
+            {name: value for name, value in row.items()
+             if name not in {"step", "time", "mode", "ref", "ph", "per", "win"}},
+            convergence_path, segment,
+            coordinates={"time": row.get("time") if isinstance(row.get("time"), (int, float)) else None},
+        )
 
     records.extend(_collect_spectra_plot_records(context))
     records.extend(_collect_profile_plot_records(context))
@@ -24999,6 +25095,128 @@ def _render_summary_plot_catalog(catalog: list, output_format: str):
         print(f"    source: {', '.join(os.path.relpath(path) for path in item['source_paths'])}")
 
 
+# The run's CSV records `summarize --table` prints, by name: (directory key, file name).
+# Per-block solver histories take a `:<block>` suffix (block 0 by default).
+SUMMARY_TABLES = {
+    "continuity": ("log_dir", "Continuity_Metrics.csv"),
+    "convergence": ("log_dir", "solution_convergence.csv"),
+    "memory": ("log_dir", None),  # monitor.yml -> diagnostics.runtime_memory_log.file
+    "profiling": ("log_dir", "ProfilingSummary_Solver.csv"),
+    "profiling-post": ("log_dir", "ProfilingSummary_PostProcessor.csv"),
+    "profiling-steps": ("log_dir", None),  # monitor.yml -> profiling.timestep_output.file
+    "picard": ("log_dir", "Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_{block}.csv"),
+    "newton": ("log_dir", "Momentum_Solver_Newton_Krylov_Summary_Block_{block}.csv"),
+    "newton-history": ("log_dir", "Momentum_Solver_Newton_Krylov_History_Block_{block}.csv"),
+    "newton-linear": ("log_dir", "Momentum_Solver_Newton_Krylov_Linear_History_Block_{block}.csv"),
+    "poisson": ("log_dir", "Poisson_Solver_Convergence_History_Block_{block}.csv"),
+    "search": ("metrics_dir", "search_metrics.csv"),
+    "scatter": ("metrics_dir", "scatter_metrics.csv"),
+    "interpolation-error": ("metrics_dir", "interpolation_error.csv"),
+    "les": ("metrics_dir", "les_coefficient.csv"),
+    "wall-model": ("metrics_dir", "wall_model.csv"),
+    "driven-flow": ("metrics_dir", "driven_flow.csv"),
+    "particle-initial-fields": ("metrics_dir", "particle_initial_fields.csv"),
+}
+
+
+def _summary_table_path(context: dict, name: str) -> str:
+    """!
+    @brief Resolve a `summarize --table` name to the CSV it prints.
+    @param[in] context Summary context returned by `_build_summary_context()`.
+    @param[in] name Table name from SUMMARY_TABLES, optionally `:<block>`.
+    @return Path to the CSV (it may not exist).
+    @throws ValueError When the name is unknown or the block is not an integer.
+    """
+    base, _, block = name.partition(":")
+    if base not in SUMMARY_TABLES:
+        raise ValueError(f"Unknown table '{base}'. Known tables: {', '.join(sorted(SUMMARY_TABLES))}.")
+    if block and not block.isdigit():
+        raise ValueError(f"Table block '{block}' must be a non-negative integer.")
+    directory_key, file_name = SUMMARY_TABLES[base]
+    if base == "memory":
+        file_name = resolve_diagnostics_config(context["monitor_cfg"])["runtime_memory_log"].get("file", "Runtime_Memory.csv")
+    elif base == "profiling-steps":
+        file_name = context["profiling_cfg"].get("timestep_file", "Profiling_Timestep_Summary.csv")
+    elif "{block}" in file_name:
+        file_name = file_name.format(block=int(block or 0))
+    elif block:
+        raise ValueError(f"Table '{base}' is not per-block; drop ':{block}'.")
+    return os.path.join(context[directory_key], file_name)
+
+
+def _list_summary_tables(context: dict, output_format: str):
+    """!
+    @brief Print the `summarize --table` names whose CSV this run has, with row counts.
+    @param[in] context Summary context returned by `_build_summary_context()`.
+    @param[in] output_format Text or JSON output format.
+    """
+    found = []
+    for name in sorted(SUMMARY_TABLES):
+        names = [name]
+        if "{block}" in (SUMMARY_TABLES[name][1] or ""):
+            pattern = os.path.join(context["log_dir"], SUMMARY_TABLES[name][1].format(block="*"))
+            blocks = sorted(int(re.search(r"_Block_(\d+)\.csv$", path).group(1)) for path in glob.glob(pattern))
+            names = [name if b == 0 else f"{name}:{b}" for b in blocks]
+        for table in names:
+            path = _summary_table_path(context, table)
+            if os.path.isfile(path):
+                rows = list(_read_runtime_diagnostics_csv(path))
+                columns = len(rows[0][1]) if rows else 0
+                found.append({"table": table, "rows": len(rows), "columns": columns, "path": path})
+    if output_format == "json":
+        print(json.dumps({"available_tables": found}, indent=2, sort_keys=True))
+        return
+    if not found:
+        raise ValueError("No CSV records were found in the run (a run older than the CSV records keeps text logs).")
+    print("\nAVAILABLE TABLES")
+    print("=" * 78)
+    for item in found:
+        print(f"  {item['table']:<26} rows={item['rows']:<7} columns={item['columns']:<3} {os.path.relpath(item['path'])}")
+
+
+def _render_summary_table(context: dict, name: str, last_n, columns, output_format: str):
+    """!
+    @brief Print the last rows of one of the run's CSV records as aligned columns (or JSON).
+    @param[in] context Summary context returned by `_build_summary_context()`.
+    @param[in] name Table name (`summarize --list-tables`).
+    @param[in] last_n Rows to show from the end; None shows the last 20.
+    @param[in] columns Comma-separated column names to keep, or None for all.
+    @param[in] output_format Text or JSON output format.
+    @throws ValueError When the table is unknown, absent, or a requested column is missing.
+    """
+    path = _summary_table_path(context, name)
+    if not os.path.isfile(path):
+        raise ValueError(f"Table '{name}' has no file at {os.path.relpath(path)}; --list-tables names the ones this run has.")
+    rows = list(_read_runtime_diagnostics_csv(path))
+    if not rows:
+        raise ValueError(f"Table '{name}' has no data rows yet.")
+    header = list(rows[0][1].keys())
+    if columns:
+        wanted = [column.strip() for column in columns.split(",") if column.strip()]
+        missing = [column for column in wanted if column not in header]
+        if missing:
+            raise ValueError(f"Table '{name}' has no column(s) {', '.join(missing)}; its columns are: {', '.join(header)}.")
+        keep = ([header[0]] if header[0] not in wanted else []) + wanted
+    else:
+        keep = header
+    shown = rows[-(last_n or 20):]
+    if output_format == "json":
+        print(json.dumps({"table": name, "path": path, "columns": keep,
+                          "rows": [{"segment": segment, **{key: row.get(key) for key in keep}} for segment, row in shown]},
+                         indent=2))
+        return
+    widths = {key: max(len(key), *(len(row.get(key) or "") for _, row in shown)) for key in keep}
+    print(f"\n{name}: {os.path.relpath(path)} (last {len(shown)} of {len(rows)} rows)")
+    print("  ".join(key.rjust(widths[key]) for key in keep))
+    print("  ".join("-" * widths[key] for key in keep))
+    previous_segment = shown[0][0]
+    for segment, row in shown:
+        if segment != previous_segment:
+            print(f"# continuation segment {segment}")
+            previous_segment = segment
+        print("  ".join((row.get(key) or "").rjust(widths[key]) for key in keep))
+
+
 def _invoke_plot_gen(request: dict):
     """!
     @brief Invoke standalone plot.gen with one normalized request over stdin.
@@ -25038,7 +25256,10 @@ def summarize_workflow(args):
     last_n = getattr(args, "last_n", None)
     plot_output = getattr(args, "plot_output", None)
     linear_y = bool(getattr(args, "linear_y", False))
-    plot_mode = bool(plot_series or list_plot_series or plot_spectrum is not None)
+    table = getattr(args, "table", None)
+    list_tables = bool(getattr(args, "list_tables", False))
+    table_columns = getattr(args, "table_columns", None)
+    plot_mode = bool(plot_series or list_plot_series or plot_spectrum is not None or table or list_tables)
     existing_selectors = any(
         [
             getattr(args, "overview", False),
@@ -25052,14 +25273,33 @@ def summarize_workflow(args):
     )
     if plot_mode and existing_selectors:
         fail_cli_usage("Plot discovery and --plot cannot be combined with config or selected-step selectors.")
-    if not plot_series and last_n is not None:
-        fail_cli_usage("--last requires --plot.")
+    if not plot_series and not table and last_n is not None:
+        fail_cli_usage("--last requires --plot or --table.")
+    if table_columns and not table:
+        fail_cli_usage("--columns requires --table.")
     if not plot_series and plot_spectrum is None and (plot_output or linear_y):
         fail_cli_usage("--plot-output and --linear-y require --plot or --plot-spectrum.")
     if last_n is not None and last_n < 1:
         fail_cli_usage("--last must be a positive integer.")
     if plot_series and args.output_format == "json":
         fail_cli_usage("--plot does not support --format json; use --list-plot-series --format json for structured discovery.")
+    if table or list_tables:
+        context = _build_summary_context(args.run_dir)
+        try:
+            if list_tables:
+                _list_summary_tables(context, args.output_format)
+            else:
+                _render_summary_table(context, table, last_n, table_columns, args.output_format)
+        except ValueError as exc:
+            emit_structured_error(
+                ERROR_CODE_CFG_INVALID_VALUE,
+                key="table",
+                file_path=context["log_dir"],
+                message=str(exc),
+                hint="--list-tables names the CSV records this run has.",
+            )
+            sys.exit(1)
+        return
     if plot_mode:
         context = _build_summary_context(args.run_dir)
         try:

@@ -841,13 +841,14 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         }
 
         ProfilingLogTimestepSummary(simCtx, simCtx->step);
-        ierr = RuntimeMemoryLogSample(simCtx, simCtx->step, "Step", "-"); CHKERRQ(ierr);
 
         step_elapsed_local = MPI_Wtime() - step_start_seconds;
         step_elapsed_max   = step_elapsed_local;
         ierr               = MPI_Allreduce(&step_elapsed_local, &step_elapsed_max, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD); CHKERRMPI(ierr);
         steps_timed++;
         steps_elapsed_sum += step_elapsed_max;
+        simCtx->lastStepWallSeconds = step_elapsed_max;
+        ierr = RuntimeMemoryLogSample(simCtx, simCtx->step, "Step", "-"); CHKERRQ(ierr);
 
         // Update Progress Bar: the slowest rank's mean step time, and the run's lost particles.
         if(simCtx->rank == 0) {

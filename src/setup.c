@@ -665,6 +665,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->walltimeGuardEWMASeconds = 0.0;
     simCtx->walltimeGuardLatestStepSeconds = 0.0;
     simCtx->runtimeMemoryLogEnabled = PETSC_TRUE;
+    simCtx->lastStepWallSeconds = 0.0;
     strcpy(simCtx->runtimeMemoryLogFile, "Runtime_Memory.csv");
     simCtx->runtimeMemoryLogStarted = PETSC_FALSE;
     simCtx->runtimeMemoryLogHasPrevious = PETSC_FALSE;
