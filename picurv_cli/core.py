@@ -8990,7 +8990,7 @@ def _validate_yaml_schema_keys(cfg, schema: dict, file_path: str, errors: list, 
         # (models.physics.turbulence.les, io.paraview_series). So are list items, some of
         # which accept a scalar shorthand (a study metric name).
         errors.append(
-            f"  {file_path}: {_schema_path_text(path)} must be a mapping, not "
+            f"  {file_path}: '{_schema_path_text(path)}' must be a mapping, not "
             f"{type(cfg).__name__} {cfg!r}."
         )
     elif isinstance(cfg, list):

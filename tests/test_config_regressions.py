@@ -3114,3 +3114,23 @@ def test_a_recipe_repeating_another_recipes_fields_is_warned(tmp_path, capsys):
     picurv.warn_overlapping_post_recipes(str(run_dir), disjoint, plan, {"fields"})
     picurv.warn_overlapping_post_recipes(str(run_dir), first, plan, {"fields"})
     assert capsys.readouterr().err == ""
+
+
+def test_a_section_given_as_a_scalar_is_a_structured_type_error(tmp_path):
+    """!
+    @brief `models: <string>` names the section in the structured error, not the value.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = REPO_ROOT / "tests" / "fixtures" / "valid"
+    case = yaml.safe_load((valid / "case.yml").read_text(encoding="utf-8"))
+    case["models"] = "bogus"
+    case_path = tmp_path / "case.yml"
+    case_path.write_text(yaml.safe_dump(case), encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "picurv_cli" / "picurv"), "validate", "--case", str(case_path),
+         "--solver", str(valid / "solver.yml"), "--monitor", str(valid / "monitor.yml")],
+        text=True, capture_output=True, check=False, timeout=120,
+    )
+    assert result.returncode == 1
+    assert "ERROR CFG_INVALID_TYPE | key=models |" in result.stderr
+    assert "Traceback" not in result.stderr
