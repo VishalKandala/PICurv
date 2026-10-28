@@ -186,8 +186,9 @@ before it rather than of the solution. Two things break:
 
 The rule is to gate every such update on `simCtx->step` and reuse the resolved
 value for the rest of the step. The same hazard applies to boundary handlers,
-because `ApplyBoundaryConditions()` runs each handler's `PreStep` three times per
-call and is itself called from inside both solvers' iteration loops.
+because `ApplyBoundaryConditions()` runs each handler's `PreStep` once per boundary pass,
+up to three passes per call (@ref p44_c_pipeline_sec), and is itself called from inside
+both solvers' iteration loops.
 
 **Worked example.** The driven periodic flow controller had this defect in two
 places at once, and fixing only the first was not enough:

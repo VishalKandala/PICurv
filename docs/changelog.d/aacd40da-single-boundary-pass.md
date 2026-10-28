@@ -1,0 +1,1 @@
+- Performance: a boundary-condition application runs one pass instead of three when no face needs more, about a third of the boundary-condition time on periodic and no-slip-wall cases. Free-slip walls, conserving outlets, seam-enforcing driven faces and wall functions keep three passes. Results are unchanged.

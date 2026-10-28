@@ -129,9 +129,10 @@ two sensors.
 
 These two corrections are refreshed on deliberately different cadences.
 
-`ApplyBoundaryConditions()` runs the handler sweep three times per call, and it
-is itself called once per Jameson RK stage under the Picard solver and once per
-residual evaluation under Newton-Krylov. "Once per `PreStep`" is therefore very
+`ApplyBoundaryConditions()` runs the handler sweep once per boundary pass - three
+passes when a face needs them, such as a driven face enforcing the seam flux, one
+otherwise (@ref p44_c_pipeline_sec) - and it is itself called once per Jameson RK stage
+under the Picard solver and once per residual evaluation under Newton-Krylov. "Once per `PreStep`" is therefore very
 far from "once per timestep".
 
 - **`bulkVelocityCorrection` is computed once per physical timestep** and held

@@ -75,8 +75,8 @@ leaves the applied force walking toward its target across evaluations. With both
 gated, every residual evaluation in the Newton solve sees the same body force.
 
 This is worth stating explicitly because it is not automatic.
-@ref ApplyBoundaryConditions runs the handler `PreStep` sweep three times per
-call, and the residual callback calls it on **every** evaluation - so a handler
+@ref ApplyBoundaryConditions runs the handler `PreStep` sweep once per boundary pass
+(up to three per call), and the residual callback calls it on **every** evaluation - so a handler
 that recomputed its source in `PreStep` would let that source drift with the
 trial vector, silently changing the operator the Newton solve is converging on
 and invalidating the finite-difference Jacobian action. The per-timestep freeze
@@ -159,9 +159,10 @@ One residual evaluation (@ref MomentumNewtonKrylov_FormResidual) performs, in or
 2. synchronize periodic staggered `Ucont` and refresh local `lUcont` ghosts;
 3. **deterministic Cartesian seed** (Section 5): reconstruct `Ucat` from the
    current `lUcont`, finalize periodic `Ucat`, and refresh `lUcat` ghosts;
-4. @ref ApplyBoundaryConditions — the standard **three internal boundary passes**
-   (inlet/farfield/wall/conservation-outlet handlers, then Cartesian
-   reconstruction, dummy/periodic/corner updates) per call. Note that this
+4. @ref ApplyBoundaryConditions — its internal boundary passes (inlet/farfield/
+   wall/conservation-outlet handlers, then Cartesian reconstruction,
+   dummy/periodic/corner updates): three when a face needs them, one otherwise
+   (@ref p44_c_pipeline_sec). Note that this
    includes each handler's `PreStep`, so a handler carrying per-timestep
    controller state must guard it against being advanced here; see
    @ref p55_driven_ssec;
@@ -207,7 +208,7 @@ X / Ucont
   -> Contra2Cart:                 reconstruct global Ucat from lUcont
   -> SynchronizePeriodicCellFields("Ucat"):  finalize periodic Ucat planes
   -> UpdateLocalGhosts("Ucat"):   refresh lUcat ghosts (outlet reads lUcat)
-  -> ApplyBoundaryConditions (three internal passes)
+  -> ApplyBoundaryConditions (one or three internal passes)
 ```
 
 Important subtleties, all captured in the source comment above the seed:
@@ -216,7 +217,7 @@ Important subtleties, all captured in the source comment above the seed:
   global `Ucat` but does not refresh `lUcat` (nor `lUcont`), and the outlet reads
   the local ghosted `lUcat`.
 - The reconstruction that already happens **inside** `ApplyBoundaryConditions()`
-  runs *after* each handler sweep, so it prepares passes two and three — it cannot
+  runs *after* each handler sweep, so it prepares any later pass — it cannot
   prepare the very first outlet read of pass one.
 - `SynchronizePeriodicCellFields("Ucat")` must run before the ghost scatter so
   periodic duplicate planes are finalized consistently (it is a no-op when no

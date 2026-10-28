@@ -854,6 +854,18 @@ body blanks. The inlet modes align their speed with the signed unit metric norma
 no-slip wall is at rest; the free-slip wall takes the adjacent velocity's tangential
 part, whose flux is zero by construction.
 
+@ref ApplyBoundaryConditions runs one boundary pass (the handlers, Cartesian
+reconstruction, wall function, dummy, periodic and corner updates) per call, or three when
+some face's handler sets `needs_repeat_pass` or a wall function is active. A handler sets it
+when its `Apply()` reads state the same pass changes after it runs, so that a second pass can
+change the result: the free-slip wall and the conserving outlet copy the adjacent `Ucat`,
+which the pass refreshes after the handlers, and a driven periodic face that enforces the
+seam flux re-measures and adds a trim each pass. The no-slip wall, the inlets and the plain
+periodic faces write values the pass does not change. A new handler states which it is in
+its `Create_*()` function. In verify mode (`-picurv_verify_ghost_updates`) a single-pass call
+runs the two further passes as well and stops the run if they change `Ucont`, `Ucat`, `P` or
+the boundary values, which catches a handler that should have set the flag.
+
 `boundary_faces` is the canonical in-memory representation. Do not restore or
 maintain duplicate persistent legacy BC arrays in `UserCtx`. If a future
 low-level integration genuinely needs a translated view, add a narrow
