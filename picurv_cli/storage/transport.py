@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import uuid
 from pathlib import Path
 import yaml
@@ -71,6 +72,28 @@ def _blob_remote(profile: dict, digest: str) -> str:
     return _remote_join(profile["remote"], REMOTE_BLOBS_DIRECTORY, digest[:2], digest)
 
 
+#: Remote blob directories this process has created, and the lock that serializes creating them.
+_CREATED_BLOB_DIRECTORIES = set()
+_BLOB_DIRECTORY_LOCK = threading.Lock()
+
+
+def _ensure_blob_directory(profile: dict, digest: str) -> None:
+    """!
+    @brief Create the directory a blob is stored in, once, before any upload into it.
+    @details Google Drive allows several folders with one name. Parallel uploads that each
+             create a missing directory leave duplicates, and a later lookup by path sees
+             only one of them, so a stored blob reads as missing. Creating each directory
+             once, serially, gives every upload the same folder.
+    @param[in] profile Active storage profile.
+    @param[in] digest Payload SHA-256 whose blob directory is needed.
+    """
+    directory = _remote_join(profile["remote"], REMOTE_BLOBS_DIRECTORY, digest[:2])
+    with _BLOB_DIRECTORY_LOCK:
+        if directory not in _CREATED_BLOB_DIRECTORIES:
+            _run_rclone(["mkdir", directory])
+            _CREATED_BLOB_DIRECTORIES.add(directory)
+
+
 def _chunk_remote_path(profile: dict, archive_id: str, chunk: dict) -> str:
     """!
     @brief Resolve where one manifest chunk's payload lives on the remote.
@@ -105,6 +128,21 @@ def _remote_blob_present(profile: dict, digest: str) -> bool:
         return False
 
 
+def _rclone_error_detail(text: str) -> str:
+    """!
+    @brief The lines of rclone output that report the failure.
+    @details rclone prints advisories, such as a shared client ID's deprecation, as NOTICE
+             lines ahead of the error, and reports some failures as NOTICE lines too
+             ("Failed to cat"), so the lines kept are those naming a failure or error.
+    @param[in] text rclone stderr or stdout.
+    @return The failure lines, else the non-NOTICE lines, else the whole text.
+    """
+    lines = [line for line in text.strip().splitlines() if line.strip()]
+    failures = [line for line in lines if re.search(r"\bERROR\b|\bFailed\b|\berror\b", line)]
+    other = [line for line in lines if " NOTICE: " not in line]
+    return "\n".join(failures or other or lines)
+
+
 def _run_rclone(arguments: list, check: bool = True) -> subprocess.CompletedProcess:
     """!
     @brief Invoke rclone through the same argv-based subprocess boundary as other PICurv tools.
@@ -122,7 +160,7 @@ def _run_rclone(arguments: list, check: bool = True) -> subprocess.CompletedProc
         check=False,
     )
     if check and result.returncode != 0:
-        detail = (result.stderr or result.stdout or "unknown rclone error").strip()
+        detail = _rclone_error_detail(result.stderr or result.stdout or "unknown rclone error")
         raise StorageError(f"rclone {' '.join(str(item) for item in arguments[:2])} failed: {detail}")
     return result
 
@@ -159,11 +197,16 @@ def _upload_verified(local_path: str, remote_path: str) -> dict:
     return {"sha256": local_digest, "stored_bytes": os.path.getsize(local_path)}
 
 
+#: rclone exit codes for a missing directory or file.
+_RCLONE_NOT_FOUND_CODES = (3, 4)
+
+
 def _read_remote_bytes(remote_path: str) -> bytes:
     """!
     @brief Read a small remote catalog object through rclone.
     @param[in] remote_path Value supplied through the `remote_path` argument.
     @return Result produced by this operation.
+    @throws FileNotFoundError when the object does not exist, so callers can name what is missing.
     """
     executable = shutil.which("rclone")
     if not executable:
@@ -171,8 +214,11 @@ def _read_remote_bytes(remote_path: str) -> bytes:
     result = subprocess.run(
         [executable, "cat", remote_path], capture_output=True, check=False
     )
+    if result.returncode in _RCLONE_NOT_FOUND_CODES:
+        raise FileNotFoundError(remote_path)
     if result.returncode != 0:
-        detail = (result.stderr or result.stdout or b"unknown rclone error").decode("utf-8", "replace").strip()
+        detail = _rclone_error_detail(
+            (result.stderr or result.stdout or b"unknown rclone error").decode("utf-8", "replace"))
         raise StorageError(f"Unable to read remote object {remote_path}: {detail}")
     return result.stdout
 
@@ -187,9 +233,17 @@ def _load_remote_manifest(profile: dict, archive_id: str, require_complete: bool
     """
     if not ARCHIVE_ID_PATTERN.fullmatch(str(archive_id)):
         raise StorageError(f"Invalid archive ID: {archive_id!r}.")
-    manifest_bytes = _read_remote_bytes(_object_remote(profile, archive_id, REMOTE_MANIFEST_FILENAME))
+    try:
+        manifest_bytes = _read_remote_bytes(_object_remote(profile, archive_id, REMOTE_MANIFEST_FILENAME))
+    except FileNotFoundError:
+        raise StorageError(
+            f"No archive {archive_id} on {profile['remote']}; 'picurv storage list' shows the archives there."
+        ) from None
     if require_complete:
-        complete = _read_remote_bytes(_object_remote(profile, archive_id, REMOTE_COMPLETE_FILENAME))
+        try:
+            complete = _read_remote_bytes(_object_remote(profile, archive_id, REMOTE_COMPLETE_FILENAME))
+        except FileNotFoundError:
+            raise StorageError(f"Archive {archive_id} has no valid completion marker.") from None
         recorded = complete.decode("ascii", "replace").strip().lower()
         actual = hashlib.sha256(manifest_bytes).hexdigest()
         if recorded != actual:

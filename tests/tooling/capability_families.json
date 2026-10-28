@@ -508,7 +508,7 @@
     {
       "id": "eulerian.field_source",
       "title": "Eulerian Field Source",
-      "selector": "solver.yml -> operation_mode.eulerian_source",
+      "selector": "solver.yml -> operation_mode.eulerian_field_source",
       "public_surface": {
         "kind": "python_normalizer",
         "module": "picurv_cli.core",

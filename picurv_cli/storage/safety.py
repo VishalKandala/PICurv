@@ -71,8 +71,12 @@ def require_storage_payload_local(
         required_steps.update(int(step) for step in checkpoints)
     restored = set(state.get("restored_components") or [])
     restored.update(state.get("retained_components") or [])
+    # A step the archive does not hold was never committed, so restoring cannot supply it;
+    # the consuming workflow reports it. Markers older than this record name no steps.
+    archived = state.get("archived_checkpoints")
     missing_steps = sorted(
-        step for step in required_steps if f"checkpoint:{step}" not in restored
+        step for step in required_steps
+        if f"checkpoint:{step}" not in restored and (archived is None or step in archived)
     )
     if required_steps and not missing_steps:
         return

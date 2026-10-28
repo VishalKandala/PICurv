@@ -63,8 +63,16 @@ Request a solver final-output shutdown instead of an immediate hard cancel:
 ```
 
 `--graceful` sends `SIGUSR1` to the solver process tree so PICurv can write the latest safe
-off-cadence step at the next runtime checkpoint. If the job is wedged or not
-reaching checkpoints, use plain `picurv cancel --run-dir ... --stage solve`.
+off-cadence step at the next runtime checkpoint. Every rank stops at the same step: the
+ranks agree on the request before each step and after it, so a signal that reaches them at
+slightly different times cannot leave one rank writing while another solves. If the job is
+wedged or not reaching checkpoints, use plain `picurv cancel --run-dir ... --stage solve`.
+
+A graceful solve exits with status 0, so a post job submitted with `afterok` on it still
+runs, on the checkpoints the solver wrote. To stop it as well, cancel it with
+`picurv cancel --run-dir ... --stage post-process`. A recorded job that has already ended is
+reported with its end state and not sent to `scancel`, which exits 0 for such a job on
+some sites.
 
 Explicit scheduler cross-check (optional):
 
@@ -121,6 +129,8 @@ This allows consistent local dry-run and cluster production flow from the same i
   - warmup: first 10 completed steps
   - estimator: `max(warmup_avg, ewma, latest_step)`
   - cutoff: `max(60 s, 2.0 * estimator)`
+  - only the solver evaluates it; the post job reads the same control file but exports no
+    job clock and does not warn about one.
 - Override that policy in `cluster.yml -> execution.walltime_guard` only when the defaults do not fit your timestep variability or filesystem overhead.
 - Keep an early signal in `cluster.yml -> execution.extra_sbatch.signal` as fallback protection: `signal: "USR1@300"` for `srun`, or `signal: "B:USR1@300"` plus `exec mpirun ...` for direct `mpirun` batch launches.
 - Solver and field postprocessor stages use `cluster.yml` resources directly.
@@ -135,7 +145,7 @@ This allows consistent local dry-run and cluster production flow from the same i
   Sweeps apply the cluster decomposition to every member.
 - `--num-procs` in cluster mode is a consistency guard, not an independent rank selector:
   - allowed values are `1` (auto) or exactly `nodes * ntasks_per_node`.
-  - any other value is rejected as an inconsistent configuration combo.
+  - any other value is rejected as a usage error (`CLI_USAGE_INVALID`, exit code 2).
 - use `picurv run --dry-run --format json` before submission when integrating with external launch wrappers.
 - for new profiles, the safest operational loop is `--dry-run`, then `--no-submit`, then `submit --run-dir ...`.
 

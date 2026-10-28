@@ -349,7 +349,7 @@
         "status": "supported"
       }
     },
-    "selector": "solver.yml -> operation_mode.eulerian_source",
+    "selector": "solver.yml -> operation_mode.eulerian_field_source",
     "title": "Eulerian Field Source"
   },
   {

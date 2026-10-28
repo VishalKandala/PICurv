@@ -249,7 +249,7 @@ Three further selector families live in `solver.yml`. Their generated inventorie
 
 @anchor p08_cap_src_solve
 
-**Identity.** `operation_mode.eulerian_source: solve` -> the run evolves the Eulerian
+**Identity.** `operation_mode.eulerian_field_source: solve` -> the run evolves the Eulerian
 fields numerically through @ref FlowSolver.
 
 **What it does.** Advances velocity and pressure by integrating the governing equations
@@ -279,7 +279,7 @@ when the flow field is not the object of study.
 
 @anchor p08_cap_src_load
 
-**Identity.** `operation_mode.eulerian_source: load` -> fields are read from previously
+**Identity.** `operation_mode.eulerian_field_source: load` -> fields are read from previously
 written output rather than evolved.
 
 **What it does.** Replays Eulerian state from an existing run's checkpoints: at each
@@ -312,7 +312,7 @@ step by step.
 
 @anchor p08_cap_src_analytical
 
-**Identity.** `operation_mode.eulerian_source: analytical` -> `-analytical_type` selects
+**Identity.** `operation_mode.eulerian_field_source: analytical` -> `-analytical_type` selects
 a closed-form field.
 
 **What it does.** Supplies an exact analytical velocity field instead of solving for one.

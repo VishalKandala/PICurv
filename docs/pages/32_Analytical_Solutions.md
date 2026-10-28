@@ -24,7 +24,7 @@ observed is attributable to the term under test, not to the flow.
 
 **Parameters it owns.** None.
 
-**Interactions.** Requires `eulerian_source: analytical`. No flow solve runs. It zeroes `Ucat`
+**Interactions.** Requires `eulerian_field_source: analytical`. No flow solve runs. It zeroes `Ucat`
 only, so `interpolation.method: FaceFlux`, which reads the face fluxes, is refused with it.
 
 **Diagnostics.** The startup banner reports the analytical mode.
@@ -49,7 +49,7 @@ particle trajectory trivially predictable, which is what turns a run into a test
 
 **Parameters it owns.** The uniform velocity components.
 
-**Interactions.** Requires `eulerian_source: analytical`. Supported on file grids as well
+**Interactions.** Requires `eulerian_field_source: analytical`. Supported on file grids as well
 as programmatic ones.
 
 **Diagnostics.** Startup banner; particle displacement should match velocity times
@@ -78,7 +78,7 @@ gradients, where a uniform flow would test nothing.
 
 **Parameters it owns.** None beyond the analytical selector.
 
-**Interactions.** Requires `eulerian_source: analytical`. Unlike the two simpler modes it
+**Interactions.** Requires `eulerian_field_source: analytical`. Unlike the two simpler modes it
 is not supported on the file-grid path. It sets `Ucat` only, so `interpolation.method:
 FaceFlux`, which reads the face fluxes, is refused with it (@ref p08_cap_interp_faceflux).
 

@@ -691,7 +691,10 @@ def _finite_number(value, path, *, positive=False, nonnegative=False):
     """
     if isinstance(value, bool):
         raise ValueError(f"{path} must be numeric, not boolean.")
-    parsed = float(value)
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{path} must be numeric (got {value!r}).") from None
     valid = np.isfinite(parsed)
     valid = valid and (not positive or parsed > 0.0)
     valid = valid and (not nonnegative or parsed >= 0.0)
@@ -1456,7 +1459,7 @@ def validate_stability_mode_params(raw):
     if raw.get("field", "Ucat") != "Ucat":
         raise ValueError("stability_mode_velocity requires field: Ucat.")
     stream, cross = raw.get("streamwise_axis", "k"), raw.get("cross_axis", "j")
-    if stream not in "ijk" or cross not in "ijk" or len(stream) != 1 or len(cross) != 1 or stream == cross:
+    if stream not in ("i", "j", "k") or cross not in ("i", "j", "k") or stream == cross:
         raise ValueError("streamwise_axis and cross_axis must be two different axes of i, j, k.")
     if raw.get("equation", "rayleigh") != "rayleigh":
         raise ValueError("stability_mode_velocity supports only equation: rayleigh.")

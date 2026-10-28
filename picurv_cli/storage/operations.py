@@ -338,6 +338,7 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
                             "sha256": digest, "stored_bytes": os.path.getsize(local_chunk),
                         }
                     else:
+                        _transport._ensure_blob_directory(profile, digest)
                         verified = _transport._upload_verified(local_chunk, _blob_remote(profile, digest))
                     return {
                         "name": filename,
@@ -426,6 +427,7 @@ def archive_artifact(target: dict, profile: dict, label: str = None, tags=None,
             "remote": profile["remote"],
             "label": manifest["label"],
             "archived_at": manifest["created_at"],
+            "archived_checkpoints": manifest.get("checkpoint_steps") or [],
             "local_pruned": False,
             "restored_components": [],
             "retained_components": [],
@@ -477,6 +479,7 @@ def _register_existing_archive(target: dict, profile: dict, manifest: dict,
         "remote": profile["remote"],
         "label": label or manifest.get("label") or os.path.basename(target["root_path"]),
         "archived_at": manifest.get("created_at"),
+        "archived_checkpoints": manifest.get("checkpoint_steps") or [],
         "reused_existing_archive": True,
         "local_pruned": False,
         "restored_components": [],
@@ -830,6 +833,7 @@ def restore_archive(profile: dict, archive_id: str, destination: str = None,
             "remote": profile["remote"],
             "label": manifest.get("label"),
             "archived_at": manifest.get("created_at"),
+            "archived_checkpoints": manifest.get("checkpoint_steps") or [],
             "restored_at": _utc_now(),
             "local_pruned": bool(selected_steps or selected_components),
             "restored_components": sorted(set(prior_restored) | set(newly_restored)),
@@ -941,8 +945,9 @@ def report_storage_configuration(profile: dict) -> dict:
     """
     config_path = profile.get("config_path")
     origin = storage_config_origin(config_path)
-    print(f"[INFO] Storage config : {config_path}")
-    print(f"[INFO] Storage profile: {profile['name']} -> {profile['remote']}")
+    # Provenance, not output: stderr keeps `list --format json` and `show` parseable.
+    print(f"[INFO] Storage config : {config_path}", file=sys.stderr)
+    print(f"[INFO] Storage profile: {profile['name']} -> {profile['remote']}", file=sys.stderr)
     if origin == "shared":
         print(
             f"[WARNING] That configuration is outside this workspace; it is shared with "

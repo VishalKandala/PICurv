@@ -846,27 +846,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     if(strcmp(simCtx->eulerianSource,"solve")!= 0 && strcmp(simCtx->eulerianSource,"load") != 0 && strcmp(simCtx->eulerianSource,"analytical")!=0){
       SETERRQ(PETSC_COMM_WORLD,PETSC_ERR_ARG_WRONG,"Invalid value for -euler_field_source. Must be 'load','analytical' or 'solve'. You provided '%s'.",simCtx->eulerianSource);
     }
-    if (simCtx->walltimeGuardEnabled) {
-      const char *job_start_env = getenv("PICURV_JOB_START_EPOCH");
-      const char *limit_env = getenv("PICURV_WALLTIME_LIMIT_SECONDS");
-      PetscBool job_start_ok = RuntimeWalltimeGuardParsePositiveSeconds(job_start_env, &simCtx->walltimeGuardJobStartEpochSeconds);
-      PetscBool limit_ok = RuntimeWalltimeGuardParsePositiveSeconds(limit_env, &simCtx->walltimeGuardLimitSeconds);
-
-      if (!job_start_ok || !limit_ok) {
-        simCtx->walltimeGuardActive = PETSC_FALSE;
-        simCtx->walltimeGuardJobStartEpochSeconds = 0.0;
-        simCtx->walltimeGuardLimitSeconds = 0.0;
-        LOG_ALLOW(
-          GLOBAL,
-          LOG_WARNING,
-          "Runtime walltime guard enabled but %s/%s are missing or invalid. Falling back to external shutdown signals only.\n",
-          "PICURV_JOB_START_EPOCH",
-          "PICURV_WALLTIME_LIMIT_SECONDS"
-        );
-      } else {
-        simCtx->walltimeGuardActive = PETSC_TRUE;
-      }
-    }
 
     //  --- Group 3
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 3: High-Level Physics & Model Selection Flags\n");    
@@ -1848,6 +1827,30 @@ PetscErrorCode SetupSimulationEnvironment(SimCtx *simCtx)
     rank = simCtx->rank;
 
     LOG_ALLOW(GLOBAL, LOG_INFO, "--- Setting up simulation environment ---\n");
+
+    /* The walltime guard bounds the solver's time loop. The postprocessor reads the same
+     * control file but never runs that loop, so only the solver resolves the job clock. */
+    if (simCtx->exec_mode == EXEC_MODE_SOLVER && simCtx->walltimeGuardEnabled) {
+      const char *job_start_env = getenv("PICURV_JOB_START_EPOCH");
+      const char *limit_env = getenv("PICURV_WALLTIME_LIMIT_SECONDS");
+      PetscBool job_start_ok = RuntimeWalltimeGuardParsePositiveSeconds(job_start_env, &simCtx->walltimeGuardJobStartEpochSeconds);
+      PetscBool limit_ok = RuntimeWalltimeGuardParsePositiveSeconds(limit_env, &simCtx->walltimeGuardLimitSeconds);
+
+      if (!job_start_ok || !limit_ok) {
+        simCtx->walltimeGuardActive = PETSC_FALSE;
+        simCtx->walltimeGuardJobStartEpochSeconds = 0.0;
+        simCtx->walltimeGuardLimitSeconds = 0.0;
+        LOG_ALLOW(
+          GLOBAL,
+          LOG_WARNING,
+          "Runtime walltime guard enabled but %s/%s are missing or invalid. Falling back to external shutdown signals only.\n",
+          "PICURV_JOB_START_EPOCH",
+          "PICURV_WALLTIME_LIMIT_SECONDS"
+        );
+      } else {
+        simCtx->walltimeGuardActive = PETSC_TRUE;
+      }
+    }
 
     /* =====================================================================
      *  Phase 1: Check for all required and optional INPUT files.

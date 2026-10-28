@@ -58,7 +58,9 @@ offload applies the same component classification inside each numbered member.
 The local state shown by `status` and `summarize` is:
 
 - `LOCAL`: no PICurv archive marker exists;
-- `PROTECTED`: a verified archive exists and all local files remain;
+- `PROTECTED`: a verified archive exists and all local files remain; files written after it
+  was made, such as new post output, are not in it until the next `protect` (an `offload`
+  of a changed artifact archives it again before pruning);
 - `COLD`: heavy local payload was pruned;
 - `PARTIAL`: selected checkpoints were restored, but the complete archive is not local;
 - `BUSY`: a known local stage or Slurm job is active;
@@ -68,6 +70,11 @@ The local state shown by `status` and `summarize` is:
 @section p61_setup_sec 2. One-Time Setup
 
 Install `rclone`, configure credentials with `rclone config`, and test the remote using `rclone` itself. PICurv never stores cloud passwords, tokens, or access keys. Its workspace file contains only a remote path and storage policy.
+
+Google Drive allows several folders with one name. PICurv creates each archive folder once
+before its parallel workers upload into it, so its own uploads leave one folder per name. A
+Drive remote that already holds duplicate folders (`rclone dedupe list <remote:path>`
+lists them) can be merged with `rclone dedupe --dedupe-mode merge <remote:path>`.
 
 From the workspace root:
 
@@ -81,8 +88,8 @@ picurv storage setup \
   --policy metadata-only
 ```
 
-`--policy` is the same option `plan`, `protect` and `offload` take; `setup` also accepts its
-older spelling, `--offload-policy`. This verifies remote access, creates the remote `objects/` directory if necessary, and writes `.picurv-storage.yml`:
+`--policy` is the same option `plan`, `protect` and `offload` take (`setup` also accepts
+`--offload-policy`). This verifies remote access, creates the remote `objects/` directory if necessary, and writes `.picurv-storage.yml`:
 
 ```yaml
 default_profile: archive
@@ -307,9 +314,13 @@ picurv storage restore \
 ```
 
 A range of steps is one `--checkpoint-range START:END[:STRIDE]`, also repeatable and
-inclusive; `--checkpoints` is its older spelling.
+inclusive (also accepted as `--checkpoints`).
 
-The result is `PARTIAL`. Restart and continuation proceed when their required checkpoint is present. Post-processing proceeds when the checkpoint of every requested step whose output is missing or stale is present; a step whose output is up to date is not read. Otherwise PICurv prints the exact selective or full restore command to run.
+The result is `PARTIAL`. Restart and continuation proceed when their required checkpoint is present. Post-processing proceeds when the checkpoint of every requested step whose output is missing or stale is present; a step whose output is up to date is not read. Otherwise PICurv prints the exact selective or full restore command to run. The command
+names only steps the archive holds: a requested step the run never committed cannot be
+restored, and post-processing reports it as without a committed checkpoint instead. An
+archive ID with no manifest on the remote is reported as missing, with a pointer to
+`picurv storage list`.
 
 `--force` permits a restore to merge into an existing directory that is not already the matching cold artifact. Because matching archived files can be replaced, use it only after inspecting the destination. Prefer a new `--to` path for recovery experiments.
 

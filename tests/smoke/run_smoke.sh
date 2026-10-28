@@ -2653,6 +2653,53 @@ run_multi_rank_runtime_smoke() {
   require_file_contains "${LAST_SOLVER_LOG}" "Number of MPI Processes     : ${nprocs}" "MPI restart-init rank count in runtime summary"
 }
 
+# A shutdown signal that reaches one rank must stop every rank at the same step. A rank
+# that stopped alone would enter the collective termination output while the others
+# entered the next step's solves, and the run would hang. Only one rank is signalled.
+run_single_rank_signal_smoke() {
+  local case_dir="${tmp_root}/signal-one-rank"
+  local output_log="${tmp_root}/signal_one_rank.log"
+  "${picurv_exe}" init flat_channel --dest "${case_dir}" >/dev/null
+  sed -i 's/total_steps: [0-9]*/total_steps: 400/' "${case_dir}/config/case.yml"
+  sed -i 's/data_output_frequency: [0-9]*/data_output_frequency: 200/' "${case_dir}/config/monitor.yml"
+  (
+    cd "${case_dir}"
+    "${picurv_exe}" run --solve -n "${nprocs}" --case config/case.yml --solver config/solver.yml \
+      --monitor config/monitor.yml </dev/null >"${output_log}" 2>&1
+  ) &
+  local conductor=$!
+  local ranks=() waited=0
+  while [[ ${#ranks[@]} -lt ${nprocs} || -z "$(find "${case_dir}/runs" -path '*step_000000000000/COMMITTED' 2>/dev/null)" ]]; do
+    ranks=()
+    for pid in $(pgrep -x "$(basename "${simulator_exe}")"); do
+      [[ "$(readlink "/proc/${pid}/cwd")" == "${case_dir}"/* ]] && ranks+=("${pid}")
+    done
+    waited=$((waited + 1))
+    [[ ${waited} -gt 120 ]] && { kill -9 "${ranks[@]}" 2>/dev/null; die "single-rank signal smoke: the solver did not start."; }
+    sleep 1
+  done
+  sleep 2
+  kill -USR1 "${ranks[-1]}"
+  waited=0
+  while kill -0 "${ranks[@]}" 2>/dev/null; do
+    waited=$((waited + 1))
+    if [[ ${waited} -gt 120 ]]; then
+      kill -9 "${ranks[@]}" 2>/dev/null
+      die "single-rank signal smoke: the ranks did not all stop after one was sent SIGUSR1."
+    fi
+    sleep 1
+  done
+  wait "${conductor}" || true
+  local run_dir solver_log stop_step
+  run_dir="$(find "${case_dir}/runs" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+  solver_log="$(find "${run_dir}/scheduler" -maxdepth 1 -name '*_solver.log' | head -n 1)"
+  require_file_contains "${solver_log}" "Shutdown requested by SIGUSR1" "single-rank signal shutdown reason"
+  stop_step="$(find "${run_dir}/output/checkpoints" -path '*/COMMITTED' | sed 's|.*/step_0*\([0-9][0-9]*\)/COMMITTED|\1|' | sort -n | tail -n 1)"
+  if [[ -z "${stop_step}" || "${stop_step}" -eq 0 || $((stop_step % 200)) -eq 0 ]]; then
+    die "single-rank signal smoke: no committed off-cadence checkpoint (latest step '${stop_step}')."
+  fi
+}
+
 # Restart a run under a different MPI rank count than the one that wrote the
 # checkpoint. Committed Eulerian payloads are stored in DMDA natural ordering (each
 # rank writes its part through MPI-IO), so persisted state must be independent of
@@ -3288,6 +3335,8 @@ run_brownian_continuation_smoke
 if [[ "${nprocs}" -gt 1 ]]; then
   echo "==> PICurv smoke: multi-rank runtime sequences (flat+bent)"
   run_multi_rank_runtime_smoke
+  echo "==> PICurv smoke: a signal to one rank stops every rank at one step"
+  run_single_rank_signal_smoke
   echo "==> PICurv smoke: restart across a changed MPI rank count"
   run_rank_change_restart_smoke
   echo "==> PICurv smoke: field statistics across a changed MPI rank count"

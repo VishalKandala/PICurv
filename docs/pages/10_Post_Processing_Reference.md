@@ -740,8 +740,10 @@ picurv run --post-process --only spectra --run-dir runs/my_run --post post.yml
 ```
 
 `--only` selects among the post stages, `fields` (the field post-processor),
-`spectra` and `reducers` (@ref p10_reducers_sec), and defaults to all three. Re-measuring a spectrum is cheap; rebuilding the
-field output is not, so the analysis loop belongs behind `--only spectra`.
+`spectra` and `reducers` (@ref p10_reducers_sec), and defaults to all three. An unknown stage
+name is a usage error, and selecting `spectra` or `reducers` when the recipe defines no tasks
+for it prints a warning, since there is nothing to measure. Re-measuring a spectrum is cheap;
+rebuilding the field output is not, so the analysis loop belongs behind `--only spectra`.
 
 Each task's spectrum and history CSVs accumulate across invocations of one recipe. Like
 field output, a step is measured only when its rows are missing, its spectra settings

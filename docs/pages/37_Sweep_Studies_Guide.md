@@ -95,7 +95,8 @@ Expected study outputs include:
 - `studies/<study_id>/scheduler/solver_<array_jobid>_<taskid>.out/.err` after submission
 - `studies/<study_id>/scheduler/post_<array_jobid>_<taskid>.out/.err` after submission
 - `studies/<study_id>/scheduler/submission.json` (when jobs are submitted)
-- `studies/<study_id>/output/analysis/metrics_table.csv`
+- `studies/<study_id>/output/analysis/metrics_table.csv` (created at submission with empty
+  metric columns, which `sweep` reports as initialized; the metrics job fills it)
 - `studies/<study_id>/output/analysis/plots/*` (when plotting is enabled and matplotlib is available)
 - `studies/<study_id>/study_manifest.json`
 

@@ -371,8 +371,8 @@ def test_selective_checkpoint_restore_leaves_partial_marker(tmp_path, local_rclo
     assert not (run / "output" / "visualization" / "Field-0123456789ab" / "Field_00010.vts").exists()
     assert storage.storage_state_summary(str(run))["state"] == "PARTIAL"
     storage.require_storage_payload_local(str(run), "post-processing", checkpoints=[10])
-    with pytest.raises(storage.StorageError, match=r"--checkpoint 20"):
-        storage.require_storage_payload_local(str(run), "post-processing", checkpoints=[10, 20])
+    # Step 20 was never committed, so no restore can supply it; the consumer reports it.
+    storage.require_storage_payload_local(str(run), "post-processing", checkpoints=[10, 20])
     # Only the requested step may appear. Directory entries used to be swept into the
     # metadata chunk regardless of component, so restoring one checkpoint recreated the
     # empty tree of every other one and a partial run listed steps it did not hold.
@@ -1486,7 +1486,7 @@ def test_a_configuration_inherited_from_above_the_workspace_is_named(tmp_path, m
     profile = storage.load_reported_storage_profile(SimpleNamespace(profile=None, storage_config=None))
     assert profile["config_path"] == str(shared)
     captured = capsys.readouterr()
-    assert str(shared) in captured.out
+    assert str(shared) in captured.err
     assert "outside this workspace" in captured.err
 
     # A workspace holding its own configuration is reported without the warning.
@@ -1494,7 +1494,7 @@ def test_a_configuration_inherited_from_above_the_workspace_is_named(tmp_path, m
     profile = storage.load_reported_storage_profile(SimpleNamespace(profile=None, storage_config=None))
     assert profile["config_path"] == str(own)
     captured = capsys.readouterr()
-    assert str(own) in captured.out
+    assert str(own) in captured.err
     assert "outside this workspace" not in captured.err
 
 
@@ -1695,3 +1695,69 @@ def test_a_restore_does_not_download_what_is_already_local(tmp_path, local_rclon
     assert "Already local, not downloaded again:" in output and "checkpoint:10" in output
     assert all(f"Restoring chunk" not in line or "checkpoint:10" not in line for line in output.splitlines())
     assert (run / "output" / "checkpoints" / "step_000000000010" / "checkpoint.meta").is_file()
+
+
+def test_restore_suggestion_names_only_archived_checkpoints(tmp_path: Path) -> None:
+    """!
+    @brief A required step the archive never held is not put in the suggested restore command.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    """
+    run = tmp_path / "run"
+    run.mkdir()
+    state = {"archive_id": "a" * 32, "local_pruned": True, "restored_components": [],
+             "retained_components": [], "archived_checkpoints": [4, 8]}
+    (run / storage.STORAGE_STATE_FILENAME).write_text(json.dumps(state), encoding="utf-8")
+    with pytest.raises(storage.StorageError) as refused:
+        storage.require_storage_payload_local(str(run), "post-processing", checkpoints=[4, 8, 12])
+    assert "--checkpoint 4 --checkpoint 8" in str(refused.value)
+    assert "--checkpoint 12" not in str(refused.value)
+    # Only never-committed steps: nothing to restore, so the consumer reports them itself.
+    storage.require_storage_payload_local(str(run), "post-processing", checkpoints=[12])
+    # A marker written before archived checkpoints were recorded keeps the old behaviour.
+    del state["archived_checkpoints"]
+    (run / storage.STORAGE_STATE_FILENAME).write_text(json.dumps(state), encoding="utf-8")
+    with pytest.raises(storage.StorageError, match="--checkpoint 12"):
+        storage.require_storage_payload_local(str(run), "post-processing", checkpoints=[12])
+
+
+def test_unknown_archive_id_is_reported_as_missing(tmp_path: Path, monkeypatch) -> None:
+    """!
+    @brief An archive ID with no manifest on the remote says so, instead of passing rclone's error through.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    def missing(remote_path):
+        """! @brief Report every remote object as absent. @param[in] remote_path Object path. """
+        raise FileNotFoundError(remote_path)
+
+    monkeypatch.setattr(storage.transport, "_read_remote_bytes", missing)
+    with pytest.raises(storage.StorageError,
+                       match=r"No archive 0{32} on fake:picurv-data; 'picurv storage list'"):
+        storage.transport._load_remote_manifest(_profile(tmp_path), "0" * 32)
+
+
+def test_rclone_error_detail_keeps_the_failure_and_drops_advisories() -> None:
+    """!
+    @brief An rclone failure reported as a NOTICE survives; a client-ID advisory before it does not.
+    """
+    text = ("2026/10/27 18:41:48 NOTICE: Config file has a client_id that will be retired.\n"
+            "2026/10/27 18:41:49 NOTICE: Failed to hashsum: directory not found\n")
+    assert storage.transport._rclone_error_detail(text) == (
+        "2026/10/27 18:41:49 NOTICE: Failed to hashsum: directory not found")
+
+
+def test_blob_directory_is_created_once_before_parallel_uploads(tmp_path: Path, monkeypatch) -> None:
+    """!
+    @brief Each blob directory is made once, serially, whatever the number of uploads into it.
+    @param[in] tmp_path Value supplied through the `tmp_path` argument.
+    @param[in] monkeypatch Pytest monkeypatch fixture.
+    """
+    import concurrent.futures
+    calls = []
+    monkeypatch.setattr(storage.transport, "_CREATED_BLOB_DIRECTORIES", set())
+    monkeypatch.setattr(storage.transport, "_run_rclone", lambda arguments, check=True: calls.append(arguments))
+    profile = _profile(tmp_path)
+    digests = ["ab" + "0" * 62, "ab" + "1" * 62, "cd" + "0" * 62] * 8
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(lambda digest: storage.transport._ensure_blob_directory(profile, digest), digests))
+    assert sorted(calls) == [["mkdir", "fake:picurv-data/blobs/ab"], ["mkdir", "fake:picurv-data/blobs/cd"]]

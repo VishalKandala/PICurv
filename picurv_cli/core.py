@@ -593,12 +593,13 @@ def enforce_reproducibility_policy(workspace_root: str) -> dict:
                 "Commit and tag the release, or clear the policy for exploratory work."
             )
     if policy.get("pin_executables"):
+        identities = runtime_build_identities()
         stale = [
-            name for name, identity in sorted(runtime_build_identities().items())
+            name for name, identity in sorted(identities.items())
             if identity.get("available") and not identity.get("matches_source")
         ]
         unavailable = [
-            name for name, identity in sorted(runtime_build_identities().items())
+            name for name, identity in sorted(identities.items())
             if not identity.get("available")
         ]
         if stale or unavailable:
@@ -607,10 +608,12 @@ def enforce_reproducibility_policy(workspace_root: str) -> dict:
                 detail.append("built from another revision: " + ", ".join(stale))
             if unavailable:
                 detail.append("no build identity available: " + ", ".join(unavailable))
+            commands = sorted({rebuild_command(name, identities[name]) for name in stale + unavailable})
             raise ValueError(
                 f"{WORKSPACE_CONFIG_FILENAME} sets reproducibility.pin_executables, but "
                 "the executables do not match the active source (" + "; ".join(detail) + ").\n"
-                "Run 'make all' so the run records the build that produced it."
+                "Rebuild with " + " and ".join(f"'{command}'" for command in commands)
+                + " so the run records the build that produced it."
             )
     return dict(policy)
 
@@ -1433,6 +1436,17 @@ def build_run_manifest(run_dir: str, run_id: str, *, workspace_root=None,
     """
     existing = _read_json_if_exists(os.path.join(run_dir, "manifest.json")) or {}
     created_at = existing.get("created_at") or datetime.now().astimezone().isoformat()
+    # The manifest describes the run, not the latest invocation: a post-only pass over a
+    # solved run keeps the solve it records, and each stage keeps the rank count it ran on.
+    requested_now = dict(stages_requested or {})
+    stages_requested = {stage: bool(requested_now.get(stage) or (existing.get("stages_requested") or {}).get(stage))
+                        for stage in {**(existing.get("stages_requested") or {}), **requested_now}}
+    stages_completed = list(dict.fromkeys(
+        list(existing.get("stages_completed_or_submitted") or []) + list(stages_completed or [])))
+    if not requested_now.get("solve") and "solver_num_procs" in existing:
+        num_procs = existing["solver_num_procs"]
+    if not requested_now.get("post_process") and "post_num_procs" in existing:
+        post_num_procs = existing["post_num_procs"]
     payload = {
         "schema_version": RUN_MANIFEST_SCHEMA_VERSION,
         "artifact_type": artifact_type,
@@ -2194,6 +2208,9 @@ _ERROR_HINTS = {
 #: Hint for a refused restart: the flags and the case key that choose its source and step.
 _RESTART_HINT = ("Check --restart-from, --continue and --run-dir against the source run's committed "
                  "checkpoints and run_control.start_step in case.yml.")
+#: Hint for a workflow refused because the payload it reads is in cold storage.
+_STORAGE_RESTORE_HINT = ("Run the restore command in the message; 'picurv storage status' shows "
+                         "what is local.")
 #: Hint for a --study-dir that is not a study `picurv sweep` created.
 _STUDY_DIR_HINT = "Pass a study directory that 'picurv sweep' created (studies/<study_id>)."
 
@@ -3784,7 +3801,7 @@ def normalize_post_spectra_config(post_cfg: dict) -> dict:
         if not isinstance(entry, dict):
             raise ValueError(f"spectra task {position}: each task must be a mapping.")
         name = entry.get("task")
-        if name not in POST_SPECTRA_TASKS:
+        if not isinstance(name, str) or name not in POST_SPECTRA_TASKS:
             raise ValueError(
                 f"spectra task {position}: unknown task {name!r}. "
                 f"Available tasks: {sorted(POST_SPECTRA_TASKS)}."
@@ -4266,12 +4283,12 @@ def normalize_post_reducers_config(post_cfg: dict) -> dict:
         if not isinstance(entry, dict):
             raise ValueError(f"'reducers.tasks[{index}]' must be a mapping.")
         name = entry.get("task")
-        if name not in POST_REDUCER_TASKS:
+        if not isinstance(name, str) or name not in POST_REDUCER_TASKS:
             raise ValueError(f"reducer task {name!r} is unknown. Available tasks: {sorted(POST_REDUCER_TASKS)}.")
         spec = POST_REDUCER_TASKS[name]
         label = f"reducer '{name}'"
         source = entry.get("source")
-        if source not in owners:
+        if not isinstance(source, str) or source not in owners:
             raise ValueError(f"{label}: 'source' must name a field_statistics window or ensemble of this "
                              f"recipe (got {source!r}; available: {sorted(owners)}).")
         if "csv" not in statistics["formats"] or len(retained) != spec["retains"]:
@@ -8963,6 +8980,19 @@ def _validate_yaml_schema_keys(cfg, schema: dict, file_path: str, errors: list, 
             return
         for key, value in cfg.items():
             _validate_yaml_schema_keys(value, schema, file_path, errors, path + (key,))
+    elif isinstance(cfg, list) and _lookup_allowed_schema_keys(schema, path + ("[]",)) is not False:
+        for item in cfg:
+            _validate_yaml_schema_keys(item, schema, file_path, errors, path + ("[]",))
+    elif (isinstance(cfg, (str, int, float, list)) and not isinstance(cfg, bool)
+          and path and path[-1] != "[]" and _lookup_allowed_schema_keys(schema, path) is not False):
+        # A section given as a string, number or list would reach code that reads it as a
+        # mapping. A boolean is left alone: several sections take true/false as shorthand
+        # (models.physics.turbulence.les, io.paraview_series). So are list items, some of
+        # which accept a scalar shorthand (a study metric name).
+        errors.append(
+            f"  {file_path}: {_schema_path_text(path)} must be a mapping, not "
+            f"{type(cfg).__name__} {cfg!r}."
+        )
     elif isinstance(cfg, list):
         for item in cfg:
             _validate_yaml_schema_keys(item, schema, file_path, errors, path + ("[]",))
@@ -10150,7 +10180,8 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         solver_cfg, solver_path, "solver petsc_passthrough_options"))
     eulerian_source_mode = "solve"
 
-    legacy_statistics = (case_cfg.get("models", {}) or {}).get("statistics") if isinstance(case_cfg, dict) else None
+    legacy_models = case_cfg.get("models") if isinstance(case_cfg, dict) else None
+    legacy_statistics = legacy_models.get("statistics") if isinstance(legacy_models, dict) else None
     if legacy_statistics is not None:
         errors.append(
             f"  {case_path}: 'models.statistics' was removed with the legacy averaging system. "
@@ -10197,18 +10228,27 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
             errors.append(f"  {case_path}: missing key 'run_control.{k}'.")
 
     # --- Physical sanity checks ---
-    try:
-        density = float(props.get('fluid', {}).get('density', 0))
-        viscosity = float(props.get('fluid', {}).get('viscosity', 0))
-        dt = float(rc.get('dt_physical', 0))
-        if density <= 0:
-            errors.append(f"  {case_path}: 'properties.fluid.density' must be positive (got {density}).")
-        if viscosity < 0:
-            errors.append(f"  {case_path}: 'properties.fluid.viscosity' must be non-negative (got {viscosity}).")
-        if dt <= 0:
-            errors.append(f"  {case_path}: 'run_control.dt_physical' must be positive (got {dt}).")
-    except (TypeError, ValueError):
-        pass  # Will be caught later during processing
+    # Each value is checked for its type here: later stages convert them with int()/float()
+    # and would otherwise stop with a Python error instead of naming the key.
+    for key, value, positive in (
+        ('properties.fluid.density', props.get('fluid', {}).get('density', 0), True),
+        ('properties.fluid.viscosity', props.get('fluid', {}).get('viscosity', 0), False),
+        ('run_control.dt_physical', rc.get('dt_physical', 0), True),
+    ):
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            errors.append(f"  {case_path}: '{key}' must be a number (got {value!r}).")
+        elif positive and value <= 0:
+            errors.append(f"  {case_path}: '{key}' must be positive (got {value}).")
+        elif value < 0:
+            errors.append(f"  {case_path}: '{key}' must be non-negative (got {value}).")
+    particles_count = (((case_cfg.get('models') or {}).get('physics') or {}).get('particles') or {}).get('count', 0)
+    for key, value in (('run_control.start_step', rc.get('start_step', 0)),
+                       ('run_control.total_steps', rc.get('total_steps', 0)),
+                       ('models.physics.particles.count', particles_count)):
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            errors.append(f"  {case_path}: '{key}' must be a non-negative integer (got {value!r}).")
+    if errors:
+        _print_validation_errors(errors)
 
     # --- case.yml: grid mode ---
     grid_cfg = case_cfg.get('grid', {})
@@ -11210,8 +11250,9 @@ def validate_post_config(post_cfg: dict, post_path: str, monitor_cfg: dict = Non
 
         for list_key in ('eulerian_fields', 'particle_fields'):
             list_val = io_cfg.get(list_key)
-            if list_val is not None and not isinstance(list_val, list):
-                errors.append(f"  {post_path}: 'io.{list_key}' must be a list when provided.")
+            if list_val is not None and (not isinstance(list_val, list)
+                                         or not all(isinstance(item, str) for item in list_val)):
+                errors.append(f"  {post_path}: 'io.{list_key}' must be a list of field names when provided.")
         # The nodal_average inputs are computed at cell centres, and a .vts carries point data
         # only: the writer skips them, so a listed one would silently never reach the file.
         eulerian_fields = io_cfg.get('eulerian_fields')
@@ -12995,7 +13036,7 @@ def _normalize_statistics_requests(label: str, fields_raw, covariances_raw, elig
         if not isinstance(field_entry, dict):
             raise ValueError(f"{label}: each 'fields' entry must be a mapping.")
         field_name = field_entry.get("field")
-        if field_name not in eligible:
+        if not isinstance(field_name, str) or field_name not in eligible:
             raise ValueError(
                 f"{label}: field {field_name!r} cannot be accumulated. "
                 f"Available fields: {sorted(eligible)}."
@@ -13038,7 +13079,7 @@ def _normalize_statistics_requests(label: str, fields_raw, covariances_raw, elig
             )
         first, second = pair
         for member in (first, second):
-            if member not in eligible:
+            if not isinstance(member, str) or member not in eligible:
                 raise ValueError(
                     f"{label}: covariance member {member!r} cannot be "
                     f"accumulated. Available fields: {sorted(eligible)}."
@@ -17027,12 +17068,12 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
                 print(f"[FATAL] Failed to process grid file '{source_grid}': {e}", file=sys.stderr)
                 sys.exit(1)
     elif grid_mode == 'grid_gen':
-        print("[INFO] Grid Mode: Generating external grid via grid.gen...")
         nondim_grid_path = os.path.join(run_dir, "inputs", "grid", "grid.run")
         if os.path.isfile(nondim_grid_path):
-            print(f"[INFO] Reusing locked grid asset: {os.path.relpath(nondim_grid_path)}")
+            print(f"[INFO] Grid Mode: grid.gen, reusing locked grid asset: {os.path.relpath(nondim_grid_path)}")
             control_lines.append(f"-grid_file {nondim_grid_path}")
         else:
+            print("[INFO] Grid Mode: Generating external grid via grid.gen...")
             try:
                 # grid.gen already converts ncells_* inputs into node-count PICGRID dims.
                 generated_grid = run_grid_generator(
@@ -18192,7 +18233,13 @@ def aggregate_study_metrics(study_cfg: dict, cases: list, results_dir: str) -> s
         writer = csv.DictWriter(f, fieldnames=all_keys)
         writer.writeheader()
         writer.writerows(rows)
-    print(f"[SUCCESS] Aggregated metrics table: {os.path.relpath(out_csv)}")
+    metric_names = [spec.get("name", "metric") for spec in normalized_specs]
+    if any(row.get(name) is not None for row in rows for name in metric_names):
+        print(f"[SUCCESS] Aggregated metrics table: {os.path.relpath(out_csv)}")
+    else:
+        # At submission no member has run; the metrics job fills the table later.
+        print(f"[INFO] Initialized metrics table (no member has produced metrics yet): "
+              f"{os.path.relpath(out_csv)}")
     return out_csv
 
 _STUDY_REPORT_COLORS = (
@@ -18679,7 +18726,7 @@ def build_run_dry_plan(args) -> dict:
                 key="restart",
                 file_path=case_path,
                 message=str(e),
-                hint=_RESTART_HINT,
+                hint=_STORAGE_RESTORE_HINT if isinstance(e.__cause__, StorageError) else _RESTART_HINT,
             )
             sys.exit(1)
 
@@ -18818,6 +18865,10 @@ def build_run_dry_plan(args) -> dict:
             }
         plan["stages"]["solve"]["executable_pinning"] = executable_plan["pinning"]
         plan["stages"]["solve"]["petsc_index_bits"] = 8 * planned_index_bytes
+        planned_run_control = loaded_case_cfg.get("run_control") or {}
+        plan["stages"]["solve"]["start_step"] = int(planned_run_control.get("start_step", 0) or 0)
+        plan["stages"]["solve"]["end_step"] = (plan["stages"]["solve"]["start_step"]
+                                               + int(planned_run_control.get("total_steps", 0) or 0))
         if resolved_restart_source_dir:
             plan["stages"]["solve"]["restart_source_directory"] = resolved_restart_source_dir
         if is_continue:
@@ -19187,8 +19238,14 @@ def render_run_dry_plan(plan: dict, output_format: str = "text"):
         print(f"  Branched from   : {lineage.get('parent_run_id')} "
               f"@ step {lineage.get('checkpoint_step')} "
               f"(statistics: {lineage.get('statistics_state')})")
-    print(f"  Solver MPI procs: {plan.get('solver_num_procs_effective')}")
-    print(f"  Post MPI procs  : {plan.get('post_num_procs_effective')}")
+    planned_stages = plan.get("stages") or {}
+    if "solve" in planned_stages:
+        print(f"  Solver MPI procs: {plan.get('solver_num_procs_effective')}")
+        if "start_step" in planned_stages["solve"]:
+            print(f"  Solver steps    : {planned_stages['solve']['start_step']} -> "
+                  f"{planned_stages['solve']['end_step']}")
+    if "post-process" in planned_stages:
+        print(f"  Post MPI procs  : {plan.get('post_num_procs_effective')}")
     for key, label in (("decomposition", "Solver"), ("post_decomposition", "Post")):
         if plan.get(key):
             print(f"  {label} {plan[key]['summary']}")
@@ -20583,7 +20640,7 @@ def run_workflow(args):
                 key="restart",
                 file_path=args.case,
                 message=str(e),
-                hint=_RESTART_HINT,
+                hint=_STORAGE_RESTORE_HINT if isinstance(e.__cause__, StorageError) else _RESTART_HINT,
             )
             sys.exit(1)
 
@@ -20874,6 +20931,7 @@ def run_workflow(args):
                     key="storage",
                     file_path=run_dir,
                     message=str(exc),
+                    hint=_STORAGE_RESTORE_HINT,
                 )
                 sys.exit(1)
 
@@ -20883,6 +20941,13 @@ def run_workflow(args):
         )
         if post_stages != set(POST_STAGE_NAMES):
             print(f"[INFO] Post stages selected: {','.join(sorted(post_stages))}")
+            # A stage the recipe gives no tasks has nothing to do; say so rather than
+            # report success for work that was never possible.
+            for stage, tasks in (("spectra", normalize_post_spectra_config(post_cfg)["tasks"]),
+                                 ("reducers", normalize_post_reducers_config(post_cfg)["tasks"])):
+                if stage in post_stages and not tasks:
+                    print(f"[WARNING] --only selects {stage}, but {args.post} defines no {stage} "
+                          "tasks; nothing is measured for it.", file=sys.stderr)
 
         print(f"[INFO] Post recipe: {recipe_id}")
         print(f"[INFO] Post-processor source data: {os.path.relpath(post_plan['source_data_directory'])}")
@@ -21171,7 +21236,8 @@ def run_workflow(args):
         # A staged or Slurm-submitted stage has not run yet when this prints.
         staged = bool(cluster_mode or args.no_submit)
         print(f"  Wall-clock      : {time_str}")
-        print(f"  {'Stages staged' if staged else 'Stages':<16}: {', '.join(stages_completed)}")
+        stages_label = "Stages staged" if args.no_submit else "Stages submitted" if staged else "Stages"
+        print(f"  {stages_label:<16}: {', '.join(stages_completed)}")
         print(f"  Launch mode     : {'slurm' if cluster_mode else 'local'}")
         if args.solve:
             print(f"  Solver MPI procs: {solver_num_procs_effective}")
@@ -23410,13 +23476,13 @@ def render_run_summary(payload: dict, output_format: str = "text"):
     print("\n" + "=" * 60)
     print("                     RUN STEP SUMMARY")
     print("=" * 60)
-    print(f"  Run ID         : {payload.get('run_id')}")
-    print(f"  Run directory  : {os.path.relpath(payload.get('run_dir'))}")
-    print(f"  Step           : {payload.get('step')} ({payload.get('selected_via')})")
+    print(f"  Run ID          : {payload.get('run_id')}")
+    print(f"  Run directory   : {os.path.relpath(payload.get('run_dir'))}")
+    print(f"  Step            : {payload.get('step')} ({payload.get('selected_via')})")
     if payload.get("launch_mode"):
-        print(f"  Launch mode    : {payload.get('launch_mode')}")
+        print(f"  Launch mode     : {payload.get('launch_mode')}")
     if payload.get("created_at"):
-        print(f"  Created at     : {payload.get('created_at')}")
+        print(f"  Created at      : {payload.get('created_at')}")
 
     continuity = payload.get("continuity", {})
     print("\n  Continuity:")
@@ -24645,8 +24711,8 @@ def _build_spectrum_plot_request(context: dict, task: str, reference: bool,
         candidates.sort()
     if not candidates:
         raise ValueError(
-            "No spectra were found for this run. Measure them first with "
-            "'picurv run --post-process --only spectra --run-dir <run> --post <post.yml>'."
+            "No spectra were found for this run. Measure them with a post.yml that defines "
+            "spectra tasks: 'picurv run --post-process --only spectra --run-dir <run> --post <post.yml>'."
         )
     matches = [name for name in candidates if task in name] if task else candidates
     if len(matches) != 1:
@@ -24989,7 +25055,7 @@ def summarize_workflow(args):
                 message=str(exc),
                 hint=("--list-plot-series names the scalar histories this run recorded."
                       if plot_spectrum is None else
-                      "Spectra are measured by 'picurv run --post-process --only spectra'."),
+                      "Spectra come from the spectra tasks of a post.yml (see the post-processing reference)."),
             )
             sys.exit(1)
 
@@ -25789,15 +25855,15 @@ def cancel_run_jobs(args):
 
     if not job_to_stages:
         print(f"[INFO] Run directory       : {os.path.relpath(run_dir)}")
-        print(f"[INFO] Submission metadata: {os.path.relpath(submission_path)}")
+        print(f"[INFO] Submission metadata : {os.path.relpath(submission_path)}")
         for stage_name, reason in skipped:
             print(f"[INFO] Skipping stage '{stage_name}': {reason}")
         print("[FATAL] No submitted Slurm job IDs were found for the requested stage selection.", file=sys.stderr)
         sys.exit(1)
 
     print(f"[INFO] Run directory       : {os.path.relpath(run_dir)}")
-    print(f"[INFO] Submission metadata: {os.path.relpath(submission_path)}")
-    print(f"[INFO] Requested stages   : {', '.join(selected_stages)}")
+    print(f"[INFO] Submission metadata : {os.path.relpath(submission_path)}")
+    print(f"[INFO] Requested stages    : {', '.join(selected_stages)}")
 
     if skipped:
         for stage_name, reason in skipped:
@@ -25819,6 +25885,14 @@ def cancel_run_jobs(args):
 
         if args.dry_run:
             print(f"[DRY-RUN] Would run: {' '.join(scancel_cmd)}  # stage(s): {joined_stage_names}")
+            continue
+
+        # scancel exits 0 for a job that already ended, so ask Slurm before claiming a cancel.
+        status, end_state = slurm_job_end_state(job_id)
+        # Every status but "active" with a recorded end state is a job Slurm has finished.
+        if end_state and status != "active":
+            print(f"[INFO] Slurm job {job_id} for stage(s) {joined_stage_names} already ended "
+                  f"({end_state}); nothing to cancel.")
             continue
 
         result = subprocess.run(scancel_cmd, text=True, capture_output=True, check=False)

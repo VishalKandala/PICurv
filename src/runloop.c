@@ -69,6 +69,30 @@ static PetscErrorCode RefreshScatteredParticleState(UserCtx *user)
 }
 
 /**
+ * @brief Agree across ranks on whether to stop, and on why.
+ * @details A forwarded signal reaches the ranks at slightly different times, and the walltime
+ *          guard reads each rank's own clock. A rank that stopped alone would enter the
+ *          collective termination output while the others entered the next step's solves, so
+ *          the loop stops on every rank or on none; every rank then reports the same reason.
+ * @param[out] requested Whether any rank has a shutdown request.
+ * @return PetscErrorCode 0 on success.
+ */
+static PetscErrorCode RuntimeShutdownSynchronize(PetscBool *requested)
+{
+    int local[2] = {(int)g_runtime_shutdown_signal, g_runtime_shutdown_auto_requested ? 1 : 0};
+    int global[2] = {0, 0};
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCallMPI(MPI_Allreduce(local, global, 2, MPI_INT, MPI_MAX, PETSC_COMM_WORLD));
+    if (global[0] != 0 && g_runtime_shutdown_signal == 0) g_runtime_shutdown_signal = global[0];
+    if (global[1] != 0) g_runtime_shutdown_auto_requested = PETSC_TRUE;
+    *requested = (PetscBool)(global[0] != 0 || global[1] != 0);
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Translate a recorded termination signal into a user-facing signal name.
  */
 static const char *RuntimeShutdownSignalName(PetscInt signum)
@@ -605,6 +629,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
     PetscInt removed_local_lost, removed_global_lost;
     PetscReal removed_scalar_lost = 0.0;
     PetscBool terminated_early = PETSC_FALSE;
+    PetscBool shutdown_requested = PETSC_FALSE;
     PetscInt  last_completed_loop_index = StartStep - 1;
 
     PetscFunctionBeginUser;
@@ -615,7 +640,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
     // --- Main Time-Marching Loop ---
     for (PetscInt step = StartStep; step < StartStep + StepsToRun; step++) {
         ierr = MaybeRequestRuntimeWalltimeGuardShutdown(simCtx, "pre-step checkpoint"); CHKERRQ(ierr);
-        if (RuntimeShutdownRequested()) {
+        ierr = RuntimeShutdownSynchronize(&shutdown_requested); CHKERRQ(ierr);
+        if (shutdown_requested) {
             ierr = WriteForcedTerminationOutput(simCtx, user, "pre-step checkpoint"); CHKERRQ(ierr);
             terminated_early = PETSC_TRUE;
             break;
@@ -831,7 +857,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = MaybeRequestRuntimeWalltimeGuardShutdown(simCtx, "post-step checkpoint"); CHKERRQ(ierr);
         }
 
-        if (RuntimeShutdownRequested()) {
+        ierr = RuntimeShutdownSynchronize(&shutdown_requested); CHKERRQ(ierr);
+        if (shutdown_requested) {
             ierr = WriteForcedTerminationOutput(simCtx, user, "post-step checkpoint"); CHKERRQ(ierr);
             terminated_early = PETSC_TRUE;
             break;

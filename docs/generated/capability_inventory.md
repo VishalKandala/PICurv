@@ -69,7 +69,7 @@ Selector: `case.yml -> models.physics.turbulence.les.model`
 
 ### Eulerian Field Source
 
-Selector: `solver.yml -> operation_mode.eulerian_source`
+Selector: `solver.yml -> operation_mode.eulerian_field_source`
 
 | Value | Maps to |
 |---|---|

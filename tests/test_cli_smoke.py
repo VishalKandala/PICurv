@@ -5746,7 +5746,7 @@ def test_summarize_text_output_renders_human_readable_sections(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert "RUN STEP SUMMARY" in result.stdout
-    assert "Step           : 10 (latest_available)" in result.stdout
+    assert "Step            : 10 (latest_available)" in result.stdout
     assert "Particle Snapshot (sampled):" in result.stdout
     assert "lost(step/total)=2/7" in result.stdout
     assert "Profiling:" in result.stdout
@@ -11020,3 +11020,46 @@ def test_staged_run_summary_reports_planned_steps_not_steps_run(tmp_path):
     assert "  Steps planned   :" in result.stdout
     assert "Steps run" not in result.stdout
     assert "[SUCCESS] Staged local solve stage; run it with 'picurv submit --run-dir runs/" in result.stdout
+
+
+def test_post_only_manifest_keeps_the_runs_solve_history(tmp_path):
+    """!
+    @brief A post-only pass over a solved run keeps the solve it records and the solver rank count.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    solved = picurv.build_run_manifest(str(run_dir), "run", num_procs=4, post_num_procs=4,
+                                       stages_requested={"solve": True, "post_process": False},
+                                       stages_completed=["solve"])
+    (run_dir / "manifest.json").write_text(json.dumps(solved), encoding="utf-8")
+    posted = picurv.build_run_manifest(str(run_dir), "run", num_procs=2, post_num_procs=2,
+                                       stages_requested={"solve": False, "post_process": True},
+                                       stages_completed=["post-process"])
+    assert posted["stages_requested"] == {"solve": True, "post_process": True}
+    assert posted["stages_completed_or_submitted"] == ["solve", "post-process"]
+    assert posted["solver_num_procs"] == 4 and posted["post_num_procs"] == 2
+    assert posted["components"]["checkpoints"]["state"] == "planned"
+
+
+def test_cancel_reports_an_already_ended_job_instead_of_canceling_it(tmp_path):
+    """!
+    @brief A recorded job Slurm no longer queues is reported with its end state, not "canceled".
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        solve_meta={"submitted": True, "job_id": "911"},
+        post_meta={"submitted": True, "job_id": "922"},
+    )
+    env, log_path = make_fake_scancel_env(tmp_path)
+    bin_dir = Path(env["PATH"].split(os.pathsep)[0])
+    # squeue lists only 922; sacct says 911 completed.
+    write_executable(bin_dir / "squeue", "#!/bin/sh\ncase \"$*\" in *922*) echo RUNNING;; esac\n")
+    write_executable(bin_dir / "sacct", "#!/bin/sh\necho COMPLETED\n")
+    result = run_picurv(["cancel", "--run-dir", str(run_dir)], cwd=tmp_path, env=env)
+    assert result.returncode == 0, result.stderr
+    assert "Slurm job 911 for stage(s) solve already ended (COMPLETED); nothing to cancel." in result.stdout
+    assert "Canceled Slurm job 922 for stage(s): post-process" in result.stdout
+    assert log_path.read_text(encoding="utf-8").split() == ["922"]

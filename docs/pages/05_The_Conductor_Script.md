@@ -895,6 +895,7 @@ Additional stage fields:
 - `command` / `command_string` (local staged command tokens/display string)
 - `source_data_directory` (post stage source directory resolution)
 - `restart_source_directory` (solve stage, when restart source is resolved)
+- `start_step` / `end_step` (solve stage: the step it starts from and the step it ends on)
 
 Dry-run guarantees:
 - no run directory creation,

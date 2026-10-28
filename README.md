@@ -256,8 +256,8 @@ picurv sync-config --case-dir my_case --overwrite
 picurv sync-config --case-dir my_case --prune  # remove stale template-managed files
 ```
 
-`picurv pull-source` and `picurv status-source` are legacy forms of `source update` and
-`version status`, kept for older cases.
+`picurv pull-source` and `picurv status-source` are legacy commands; `source update` and
+`version status` cover the same ground for new workspaces.
 
 If the case predates `.picurv-origin.json`, pass `--source-root /path/to/PICurv`.
 If `sync-config` cannot infer the template, also pass `--template-name <example_name>`.

@@ -201,7 +201,7 @@ def _add_sweep_parser(subparsers):
         ),
         epilog=(
             "Study files support either `parameters` cross-product expansion or explicit `parameter_sets`.\n"
-            "Next: inspect studies/<study_id>/results/metrics_table.csv for aggregated metrics."
+            "Next: inspect studies/<study_id>/output/analysis/metrics_table.csv for aggregated metrics."
         ),
     )
     p_sweep.add_argument("--study", help="Path to study.yml defining either a `parameters` cross-product expansion or explicit parameter_sets, plus metrics.")
