@@ -16,17 +16,13 @@ PetscErrorCode UpdateParticleField(ParticleFieldId field_id,
                                    PetscReal *psi_io,
                                    PetscReal diffusivity,
                                    PetscReal mean_val,
-                                   PetscReal cell_vol,
+                                   PetscReal delta2,
                                    PetscReal C_model)
 {
     PetscFunctionBeginUser;
 
     if (field_id == PARTICLE_FIELD_ID_PSI) {
-        // Guard the LES mixing time scale against degenerate or cut-cell volumes.
-        if (cell_vol < 1.0e-14) cell_vol = 1.0e-14;
-
         // The IEM model relaxes Psi exponentially toward the cell mean over dt.
-        PetscReal delta2 = PetscPowReal(cell_vol, 0.6666667);
         PetscReal omega = C_model * diffusivity / delta2;
         PetscReal decay = PetscExpReal(-omega * dt);
 
@@ -101,10 +97,13 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
         accessed_eulerian = PETSC_TRUE;
     }
 
+    // The filter width depends only on the cell, and the particles are stored in cell order,
+    // so it is recomputed only when the cell changes.
+    PetscInt  width_cell[3] = {-1, -1, -1};
+    PetscReal p_delta2      = 1.0;
     for (PetscInt p = 0; p < n_local; ++p) {
         PetscReal p_diff = 0.0;
         PetscReal p_mean = 0.0;
-        PetscReal p_vol  = 1.0;
 
         if (field_id == PARTICLE_FIELD_ID_PSI) {
             // Cell IDs are 0-based geometric indices; cell-centred storage starts at index 1
@@ -116,12 +115,18 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
             p_diff = diff_arr[p];
             p_mean = grid_mean[k][j][i];
 
-            // Aj is the reciprocal cell volume in the curvilinear-grid representation.
-            PetscReal jac = grid_aj[k][j][i];
-            p_vol = (jac > 1.0e-14) ? (1.0 / jac) : 1.0e-14;
+            if (i != width_cell[0] || j != width_cell[1] || k != width_cell[2]) {
+                // Aj is the reciprocal cell volume in the curvilinear-grid representation.
+                PetscReal jac   = grid_aj[k][j][i];
+                PetscReal p_vol = (jac > 1.0e-14) ? (1.0 / jac) : 1.0e-14;
+                // Guard the LES mixing time scale against degenerate or cut-cell volumes.
+                if (p_vol < 1.0e-14) p_vol = 1.0e-14;
+                p_delta2 = PetscPowReal(p_vol, 0.6666667);
+                width_cell[0] = i; width_cell[1] = j; width_cell[2] = k;
+            }
         }
 
-        ierr = UpdateParticleField(field_id, dt, &psi_arr[p], p_diff, p_mean, p_vol, C_IEM);
+        ierr = UpdateParticleField(field_id, dt, &psi_arr[p], p_diff, p_mean, p_delta2, C_IEM);
         CHKERRQ(ierr);
     }
 

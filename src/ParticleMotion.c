@@ -415,6 +415,17 @@ PetscErrorCode RemoveFlaggedParticles(DM swarm, PetscInt n_scan, PetscBool remov
 }
 
 /**
+ * @brief Copies `n` fixed-size records into `out` in the order `order[]` gives (out[p] = in[order[p]]).
+ * @details Always inlined, so a literal `bytes` at the call site becomes a fixed-size copy.
+ *          Local to this translation unit.
+ */
+static PICURV_ALWAYS_INLINE void GatherSwarmRecords(char *out, const char *in,
+                                                    const PetscInt *order, PetscInt n, size_t bytes)
+{
+    for (PetscInt p = 0; p < n; ++p) memcpy(out + (size_t)p * bytes, in + (size_t)order[p] * bytes, bytes);
+}
+
+/**
  * @brief Implementation of \ref SortParticlesByCell().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/ParticleMotion.h`.
@@ -487,7 +498,15 @@ PetscErrorCode SortParticlesByCell(DM swarm)
         PetscCall(DMSwarmGetField(swarm, ParticleFieldName((ParticleFieldId)id), &bs, &type, (void **)&data));
         PetscCall(PetscDataTypeGetSize(type, &type_bytes));
         bytes = (size_t)bs * type_bytes;
-        for (PetscInt p = 0; p < n_local; ++p) memcpy(buffer + (size_t)p * bytes, data + (size_t)order[p] * bytes, bytes);
+        // A size known at compile time lets each record copy compile to a few loads and stores
+        // instead of a library call per particle; these are the sizes the particle fields use.
+        switch (bytes) {
+            case 4:  GatherSwarmRecords(buffer, data, order, n_local, 4);  break;
+            case 8:  GatherSwarmRecords(buffer, data, order, n_local, 8);  break;
+            case 12: GatherSwarmRecords(buffer, data, order, n_local, 12); break;
+            case 24: GatherSwarmRecords(buffer, data, order, n_local, 24); break;
+            default: GatherSwarmRecords(buffer, data, order, n_local, bytes); break;
+        }
         memcpy(data, buffer, (size_t)n_local * bytes);
         PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName((ParticleFieldId)id), &bs, &type, (void **)&data));
     }
@@ -1442,6 +1461,9 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
             ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID),          NULL, NULL, (void**)&cell_p);     CHKERRQ(ierr);
             ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void**)&pid_p);      CHKERRQ(ierr);
             ierr = DMSwarmGetField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status_p);   CHKERRQ(ierr);
+            // Opened once for the pass rather than by each particle's walk.
+            FacePlaneArrays plane_arrays;
+            ierr = MetricGetFacePlaneArrays(user, PETSC_FALSE, &plane_arrays); CHKERRQ(ierr);
 
             // Newcomers are identified by position after migration; the sorted PID snapshot is
             // taken only to cross-check that under -picurv_verify_ghost_updates.
@@ -1488,7 +1510,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
                 // It has moved, so we only need to run the robust walk from its last known location.
                 if (walk_from_prior_cell) {
 		            LOG_ALLOW(LOCAL, LOG_VERBOSE, "[PID %ld] has valid prior cell. Strategy: Robust Walk from previous cell.\n", current_particle.PID);
-		            ierr = LocateParticleOrFindMigrationTarget(user, &current_particle, &final_status); CHKERRQ(ierr);
+		            ierr = LocateParticleOrFindMigrationTarget(user, &plane_arrays, &current_particle, &final_status); CHKERRQ(ierr);
                 } 
 
 		/*		
@@ -1509,7 +1531,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
                 if (final_status == NEEDS_LOCATION  || UNINITIALIZED) {
                     LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld] Not resolved by guess, starting robust walk.\n", current_particle.PID);
                     // This function will update the particle's status and destination rank internally.
-		     ierr = LocateParticleOrFindMigrationTarget(user, &current_particle, &final_status); CHKERRQ(ierr);
+		     ierr = LocateParticleOrFindMigrationTarget(user, &plane_arrays, &current_particle, &final_status); CHKERRQ(ierr);
                     destination_rank = current_particle.destination_rank; // Retrieve the result
                 }
 
@@ -1551,7 +1573,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 		      LOG_ALLOW(LOCAL, LOG_WARNING, "[PID %ld] Guess FAILED to find an owner. Proceeding to robust walk for definitive search.\n", current_particle.PID);
 		    }
                         
-		    ierr = LocateParticleOrFindMigrationTarget(user, &current_particle, &final_status); CHKERRQ(ierr);
+		    ierr = LocateParticleOrFindMigrationTarget(user, &plane_arrays, &current_particle, &final_status); CHKERRQ(ierr);
 		  }
                 }
 		
@@ -1579,6 +1601,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
             ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID),          NULL, NULL, (void**)&cell_p);     CHKERRQ(ierr);
             ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID),             NULL, NULL, (void**)&pid_p);      CHKERRQ(ierr);
             ierr = DMSwarmRestoreField(user->swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status_p);   CHKERRQ(ierr);
+            ierr = MetricRestoreFacePlaneArrays(user, &plane_arrays); CHKERRQ(ierr);
         }
 
         // --- STAGE 3: ACTION & MPI COMMUNICATION ---

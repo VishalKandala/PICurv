@@ -146,7 +146,7 @@ static PetscErrorCode TestLocateParticleWrapsThroughPeriodicFace(void)
     particle.PID = 51;
     particle.cell[0] = 0; particle.cell[1] = 1; particle.cell[2] = 1;
     particle.loc.x = x0 - 0.01 * T; particle.loc.y = yc; particle.loc.z = zc;
-    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(LocateParticleOrFindMigrationTarget(user, NULL, &particle, &status));
     PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a wrapped particle should be located"));
     PetscCall(PicurvAssertRealNear(x0 + 0.99 * T, particle.loc.x, 1.0e-12, "x shifts forward by the seam translation"));
     PetscCall(PicurvAssertIntEqual(user->IM - 2, particle.cell[0], "the particle lands in the last cell"));
@@ -156,7 +156,7 @@ static PetscErrorCode TestLocateParticleWrapsThroughPeriodicFace(void)
     particle.PID = 52;
     particle.cell[0] = user->IM - 2; particle.cell[1] = 1; particle.cell[2] = 1;
     particle.loc.x = x0 + 1.01 * T; particle.loc.y = yc; particle.loc.z = zc;
-    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(LocateParticleOrFindMigrationTarget(user, NULL, &particle, &status));
     PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a wrapped particle should be located"));
     PetscCall(PicurvAssertRealNear(x0 + 0.01 * T, particle.loc.x, 1.0e-12, "x shifts back by the seam translation"));
     PetscCall(PicurvAssertIntEqual(0, particle.cell[0], "the particle lands in the first cell"));
@@ -166,7 +166,7 @@ static PetscErrorCode TestLocateParticleWrapsThroughPeriodicFace(void)
     particle.PID = 53;
     particle.cell[0] = 0; particle.cell[1] = 0; particle.cell[2] = 1;
     particle.loc.x = x0 - 0.01 * T; particle.loc.y = y0 - 0.01 * Ty; particle.loc.z = zc;
-    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(LocateParticleOrFindMigrationTarget(user, NULL, &particle, &status));
     PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a corner-wrapped particle should be located"));
     PetscCall(PicurvAssertRealNear(x0 + 0.99 * T, particle.loc.x, 1.0e-12, "x shifts forward at the corner"));
     PetscCall(PicurvAssertRealNear(y0 + 0.99 * Ty, particle.loc.y, 1.0e-12, "y shifts forward at the corner"));
@@ -240,7 +240,7 @@ static PetscErrorCode TestLocateParticleWrapsThroughOffAxisSeam(void)
     particle.cell[0] = 0; particle.cell[1] = 1; particle.cell[2] = 1;
     p0.x = x0 - 0.01 * T0; p0.y = yc; p0.z = zc;
     particle.loc.x = c * p0.x - s * p0.y; particle.loc.y = s * p0.x + c * p0.y; particle.loc.z = p0.z;
-    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(LocateParticleOrFindMigrationTarget(user, NULL, &particle, &status));
     PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a particle wrapped through an off-axis seam should be located"));
     PetscCall(PicurvAssertRealNear(c * (p0.x + T0) - s * p0.y, particle.loc.x, 1.0e-12, "x shifts along the rotated translation"));
     PetscCall(PicurvAssertRealNear(s * (p0.x + T0) + c * p0.y, particle.loc.y, 1.0e-12, "y shifts along the rotated translation"));

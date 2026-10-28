@@ -849,6 +849,7 @@ PetscErrorCode PlaceParticleInsideCell(const Cell *cell, Cmpnts *p, PetscBool *p
  * @see LocateParticleOrFindMigrationTarget()
  */
 PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
+                                                        const FacePlaneArrays *planes,
                                                         Particle *particle,
                                                         ParticleLocationStatus *status_out)
 {
@@ -883,8 +884,13 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
     const PetscBool guard_blocked_walk = (PetscBool)(particle->cell[0] >= 0 && user->simCtx->searchMetrics.currentSettlementPass <= 1);
 
     // --- 1. Initialize the Search ---
-    FacePlaneArrays plane_arrays;
-    ierr = MetricGetFacePlaneArrays(user, PETSC_FALSE, &plane_arrays); CHKERRQ(ierr);
+    FacePlaneArrays own_arrays;
+    const FacePlaneArrays *plane_arrays = planes;
+    if (!planes) {
+        ierr = MetricGetFacePlaneArrays(user, PETSC_FALSE, &own_arrays); CHKERRQ(ierr);
+        plane_arrays = &own_arrays;
+    }
+    PetscCheck(!plane_arrays->dual, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "The walk needs the primal face planes, not the dual ones.");
     ierr = InitializeTraversalParameters(user, particle, &idx, &idy, &idz, &traversal_steps); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL,LOG_VERBOSE, " The Threshold for considering a particle to be at a face is %.16f.\n",DISTANCE_THRESHOLD);
@@ -971,7 +977,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                     PetscInt final_position; // Dummy variable
                     
                     CellFacePlanes final_planes;
-                    MetricGatherCellFacePlanes(&plane_arrays, &user->info, idx, idy, idz, &final_planes);
+                    MetricGatherCellFacePlanes(plane_arrays, &user->info, idx, idy, idz, &final_planes);
                     ierr = EvaluateParticlePositionInPlanes(&final_planes, final_d, particle->loc, &final_position, DISTANCE_THRESHOLD);
                     
                     if (ierr == 0) { // If evaluation succeeded
@@ -998,7 +1004,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
 
         // --- 2d. Geometric Evaluation ---
         CellFacePlanes current_planes_storage;
-        MetricGatherCellFacePlanes(&plane_arrays, &user->info, idx, idy, idz, &current_planes_storage);
+        MetricGatherCellFacePlanes(plane_arrays, &user->info, idx, idy, idz, &current_planes_storage);
         const CellFacePlanes *current_planes = &current_planes_storage;
         PetscReal distances[NUM_FACES];
         PetscInt  position_in_cell;
@@ -1142,7 +1148,7 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
 
     // --- 4. Report the Final Outcome ---
     ierr = ReportSearchOutcome(particle, *status_out, traversal_steps); CHKERRQ(ierr);
-    ierr = MetricRestoreFacePlaneArrays(user, &plane_arrays); CHKERRQ(ierr);
+    if (!planes) { ierr = MetricRestoreFacePlaneArrays(user, &own_arrays); CHKERRQ(ierr); }
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

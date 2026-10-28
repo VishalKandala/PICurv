@@ -360,7 +360,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
         probe.PID = -1;
         probe.cell[0] = -1; probe.cell[1] = -1; probe.cell[2] = -1;
         probe.loc.x = simCtx->psrc_x; probe.loc.y = simCtx->psrc_y; probe.loc.z = simCtx->psrc_z;
-        ierr = LocateParticleOrFindMigrationTarget(user, &probe, &probe_status); CHKERRQ(ierr);
+        ierr = LocateParticleOrFindMigrationTarget(user, NULL, &probe, &probe_status); CHKERRQ(ierr);
         candidate = (probe_status == ACTIVE_AND_LOCATED) ? rank : size;
         ierr = MPI_Allreduce(&candidate, &owner, 1, MPI_INT, MPI_MIN, PETSC_COMM_WORLD); CHKERRMPI(ierr);
         if (owner < size) {

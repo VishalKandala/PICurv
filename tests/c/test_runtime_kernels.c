@@ -235,14 +235,14 @@ static PetscErrorCode TestUpdateParticleFieldIEMRelaxation(void)
     PetscReal unchanged = 7.0;
 
     PetscFunctionBeginUser;
-    PetscCall(UpdateParticleField(PARTICLE_FIELD_ID_PSI, dt, &psi, diffusivity, mean_val, cell_vol, c_model));
+    PetscCall(UpdateParticleField(PARTICLE_FIELD_ID_PSI, dt, &psi, diffusivity, mean_val, PetscPowReal(cell_vol, 0.6666667), c_model));
     PetscCall(PicurvAssertRealNear(
         mean_val + (1.0 - mean_val) * PetscExpReal(-(c_model * diffusivity / PetscPowReal(cell_vol, 0.6666667)) * dt),
         psi,
         1.0e-12,
         "IEM update should match analytical relaxation"));
 
-    PetscCall(UpdateParticleField(PARTICLE_FIELD_ID_VELOCITY, dt, &unchanged, diffusivity, mean_val, cell_vol, c_model));
+    PetscCall(UpdateParticleField(PARTICLE_FIELD_ID_VELOCITY, dt, &unchanged, diffusivity, mean_val, PetscPowReal(cell_vol, 0.6666667), c_model));
     PetscCall(PicurvAssertRealNear(7.0, unchanged, 1.0e-12, "unknown field should remain unchanged"));
     PetscFunctionReturn(0);
 }
@@ -1423,7 +1423,7 @@ static PetscErrorCode TestLocateParticleOrFindMigrationTargetCountsReSearch(void
     particle.weights.y = 0.5;
     particle.weights.z = 0.5;
 
-    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(LocateParticleOrFindMigrationTarget(user, NULL, &particle, &status));
 
     PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "direct re-search test should locate the particle"));
     PetscCall(PicurvAssertIntEqual(1, (PetscInt)simCtx->searchMetrics.searchAttempts, "direct re-search test should record one robust walk"));
@@ -1454,7 +1454,7 @@ static PetscErrorCode TestLocateParticleOrFindMigrationTargetReflectsAtWall(void
     particle.PID = 41;
     particle.cell[0] = 0; particle.cell[1] = 1; particle.cell[2] = 1;
     particle.loc.x = -0.05; particle.loc.y = 0.375; particle.loc.z = 0.375;
-    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(LocateParticleOrFindMigrationTarget(user, NULL, &particle, &status));
     PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a reflected particle should be located"));
     PetscCall(PicurvAssertRealNear(0.05, particle.loc.x, 1.0e-14, "x should mirror about the -Xi plane"));
     PetscCall(PicurvAssertIntEqual(0, particle.cell[0], "the particle stays in the boundary cell column"));
@@ -1466,7 +1466,7 @@ static PetscErrorCode TestLocateParticleOrFindMigrationTargetReflectsAtWall(void
     particle.PID = 42;
     particle.cell[0] = 0; particle.cell[1] = 1; particle.cell[2] = 1;
     particle.loc.x = -0.05; particle.loc.y = 0.625; particle.loc.z = 0.375;
-    PetscCall(LocateParticleOrFindMigrationTarget(user, &particle, &status));
+    PetscCall(LocateParticleOrFindMigrationTarget(user, NULL, &particle, &status));
     PetscCall(PicurvAssertIntEqual(ACTIVE_AND_LOCATED, status, "a tangential crossing should also be located"));
     PetscCall(PicurvAssertRealNear(0.05, particle.loc.x, 1.0e-14, "x should mirror about the -Xi plane"));
     PetscCall(PicurvAssertIntEqual(2, particle.cell[1], "the reflection happens in the boundary cell that holds the particle tangentially"));

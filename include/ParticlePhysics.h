@@ -31,7 +31,8 @@
  * @param psi_io Pointer
  * @param diffusivity Particle
  * @param mean_val Local
- * @param cell_vol Volume
+ * @param delta2 Squared mixing length: the host cell volume to the power 2/3, the volume
+ *               floored at 1e-14 first.
  * @param C_model Model
  * @return PetscErrorCode 0 on success.
  */
@@ -40,7 +41,7 @@ PetscErrorCode UpdateParticleField(ParticleFieldId field_id,
                                    PetscReal *psi_io,
                                    PetscReal diffusivity,
                                    PetscReal mean_val,
-                                   PetscReal cell_vol,
+                                   PetscReal delta2,
                                    PetscReal C_model);
 
 

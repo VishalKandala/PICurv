@@ -349,6 +349,9 @@ PetscErrorCode PlaceParticleInsideCell(const Cell *cell, Cmpnts *p, PetscBool *p
  * extreme of that axis, the same test the boundary-condition handlers use.
  *
  * @param[in]     user         Pointer to the UserCtx containing all grid and domain info.
+ * @param[in]     planes       The block's primal face-plane arrays, already open with
+ *                             `MetricGetFacePlaneArrays()`, or NULL to open and close them here.
+ *                             A caller searching many particles opens them once and passes them.
  * @param[in,out] particle     Pointer to the Particle struct. Its fields are updated based
  *                             on the search outcome.
  * @param[out]    status_out   The final, actionable status of the particle after the search.
@@ -361,7 +364,9 @@ PetscErrorCode PlaceParticleInsideCell(const Cell *cell, Cmpnts *p, PetscBool *p
  *       tie-breaker, `LOST`, and `MIGRATING_OUT` outcomes is still part of the
  *       next-gap test backlog.
  */
+struct FacePlaneArrays; /* Metric.h; not included here, since Metric.h includes setup.h, which includes this header */
 PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
+                                                        const struct FacePlaneArrays *planes,
                                                         Particle *particle,
                                                         ParticleLocationStatus *status_out);
 
