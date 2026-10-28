@@ -53,7 +53,7 @@
         "<workspace>/runs/<run_id>/inputs/inlet_profiles",
         "<workspace>/runs/<run_id>/inputs/restart",
         "<workspace>/runs/<run_id>/logs",
-        "<workspace>/runs/<run_id>/logs/Runtime_Memory.log",
+        "<workspace>/runs/<run_id>/logs/Runtime_Memory.csv",
         "<workspace>/runs/<run_id>/manifest.json",
         "<workspace>/runs/<run_id>/output",
         "<workspace>/runs/<run_id>/output/analysis",
@@ -139,7 +139,7 @@
             "<workspace>/runs/<run_id>/logs"
           ],
           "run.runtime_logs.files": [
-            "<workspace>/runs/<run_id>/logs/Runtime_Memory.log"
+            "<workspace>/runs/<run_id>/logs/Runtime_Memory.csv"
           ],
           "run.scheduler": [
             "<workspace>/runs/<run_id>/scheduler"
@@ -187,7 +187,7 @@
         "<workspace>/runs/<run_id>/inputs/inlet_profiles",
         "<workspace>/runs/<run_id>/inputs/restart",
         "<workspace>/runs/<run_id>/logs",
-        "<workspace>/runs/<run_id>/logs/Runtime_Memory.log",
+        "<workspace>/runs/<run_id>/logs/Runtime_Memory.csv",
         "<workspace>/runs/<run_id>/manifest.json",
         "<workspace>/runs/<run_id>/output",
         "<workspace>/runs/<run_id>/output/analysis",
@@ -262,7 +262,7 @@
             "<workspace>/runs/<run_id>/logs"
           ],
           "run.runtime_logs.files": [
-            "<workspace>/runs/<run_id>/logs/Runtime_Memory.log"
+            "<workspace>/runs/<run_id>/logs/Runtime_Memory.csv"
           ],
           "run.scheduler": [
             "<workspace>/runs/<run_id>/scheduler"
@@ -303,7 +303,7 @@
         "<workspace>/runs/<run_id>/inputs/inlet_profiles",
         "<workspace>/runs/<run_id>/inputs/restart",
         "<workspace>/runs/<run_id>/logs",
-        "<workspace>/runs/<run_id>/logs/Runtime_Memory.log",
+        "<workspace>/runs/<run_id>/logs/Runtime_Memory.csv",
         "<workspace>/runs/<run_id>/manifest.json",
         "<workspace>/runs/<run_id>/output",
         "<workspace>/runs/<run_id>/output/analysis",
@@ -389,7 +389,7 @@
             "<workspace>/runs/<run_id>/logs"
           ],
           "run.runtime_logs.files": [
-            "<workspace>/runs/<run_id>/logs/Runtime_Memory.log"
+            "<workspace>/runs/<run_id>/logs/Runtime_Memory.csv"
           ],
           "run.scheduler": [
             "<workspace>/runs/<run_id>/scheduler"
