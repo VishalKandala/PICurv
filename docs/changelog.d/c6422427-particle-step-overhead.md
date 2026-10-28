@@ -1,0 +1,1 @@
+- Performance: the particle step does less per-particle bookkeeping. The cell sort copies records at a fixed size, particle location opens the face-plane arrays once per settlement pass, and the IEM update computes each cell's mixing length once. Results are unchanged.
