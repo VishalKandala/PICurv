@@ -1,0 +1,1 @@
+- Fix: a continued or post-only run keeps the records of its other stages in `<run.scheduler>/submission.json`, so cancel and summarize still see its post job; submit --stage all selects the staged stages not yet submitted.
