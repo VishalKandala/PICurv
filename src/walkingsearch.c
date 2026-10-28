@@ -219,24 +219,19 @@ PetscErrorCode DeterminePointPosition(PetscReal *d, PetscInt *result)
     if(isInside && isOnBoundary) {
       if(IntersectionCount == 1){ 
           *result = 1; // on face
-          LOG_ALLOW(LOCAL,LOG_VERBOSE, "Particle is on a face of the cell.\n");
       }
       else if(IntersectionCount == 2){ 
           *result = 2; // on edge
-          LOG_ALLOW(LOCAL,LOG_VERBOSE, "Particle is on an edge of the cell.\n");
       }
       else if(IntersectionCount >= 3){ 
           *result = 3; // on corner
-          LOG_ALLOW(LOCAL,LOG_VERBOSE, "Particle is on a corner of the cell.\n");
       }
     }
     else if(isInside) {
         *result = 0; // Inside the cell
-        LOG_ALLOW(LOCAL,LOG_VERBOSE, "Particle is inside the cell.\n");
     }
     else {
         *result = -1; // Outside the cell
-        LOG_ALLOW(LOCAL,LOG_VERBOSE, "Particle is outside the cell.\n");
     }
 
     PROFILE_FUNCTION_END;
@@ -320,9 +315,6 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
         *idy = particle->cell[1];
         *idz = particle->cell[2];
 
-	 LOG_ALLOW(LOCAL,LOG_DEBUG, "Particle %lld has previous cell (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT "). Starting search there.\n",
-		   (long long)particle->PID, *idx, *idy, *idz); // Cast id to long long for printing PetscInt64
-	
       } else {
         // SAFE FALLBACK: The check failed! The handoff cell is NOT safe.
         // Discard the unsafe handoff cell and revert to starting at the
@@ -393,9 +385,6 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
             PetscReal dz = particle->loc.z - cell_center.z;
             PetscReal distance = sqrt(dx*dx + dy*dy + dz*dz);
 
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "  Candidate %" PetscInt_FMT " (%s) at cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "): center=(%.3e,%.3e,%.3e), distance=%.3e\n",
-                      i, candidate_names[i], ci, cj, ck, cell_center.x, cell_center.y, cell_center.z, distance);
-
             if (distance < min_distance) {
                 min_distance = distance;
                 best_candidate = i;
@@ -408,16 +397,13 @@ PetscErrorCode InitializeTraversalParameters(UserCtx *user, Particle *particle, 
         // Restore array
         ierr = DMDAVecRestoreArrayRead(user->fda, user->lCent, &cent); CHKERRQ(ierr);
 
-        LOG_ALLOW(LOCAL, LOG_INFO, "Particle %lld has no valid previous cell. Multi-seed search selected %s at cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") with distance %.3e.\n",
-                  (long long)particle->PID, candidate_names[best_candidate], *idx, *idy, *idz, min_distance);
+        LOG_PARTICLE(user->simCtx, particle->PID, "locate",
+                     "no prior cell: walk starts at the %s seed cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "), %.3e from the particle\n",
+                     candidate_names[best_candidate], *idx, *idy, *idz, min_distance);
     }
 
     // Initialize traversal step counter
     *traversal_steps = 0;
-
-    // Log the chosen starting point
-    LOG_ALLOW(LOCAL,LOG_INFO, "Traversal for particle %lld initialized to start at cell (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ").\n",
-               (long long)particle->PID, *idx, *idy, *idz);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -478,13 +464,7 @@ PetscErrorCode CheckCellWithinLocalGrid(UserCtx *user, PetscInt idx, PetscInt id
         *is_within = PETSC_FALSE;
     }
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "Cell (origin node glob idx) (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ") is %s the ghosted local grid (covered cell origins x:[%" PetscInt_FMT "..%" PetscInt_FMT "), y:[%" PetscInt_FMT "..%" PetscInt_FMT "), z:[%" PetscInt_FMT "..%" PetscInt_FMT ")).\n",
-              idx, idy, idz, (*is_within) ? "within" : "outside",
-              gxs_cell_global_start, gxe_cell_global_end_exclusive,
-              gys_cell_global_start, gye_cell_global_end_exclusive,
-              gzs_cell_global_start, gze_cell_global_end_exclusive);
-
-    PROFILE_FUNCTION_END;          
+    PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
@@ -533,9 +513,6 @@ PetscErrorCode RetrieveCurrentCell(UserCtx *user, PetscInt idx, PetscInt idy, Pe
     }
     ierr = VecRestoreArrayRead(Coor, &coor_flat); CHKERRQ(ierr);
 
-    LOG_ALLOW(LOCAL,LOG_VERBOSE, "Cell (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ") vertices \n", idx, idy, idz);
-    ierr = LOG_CELL_VERTICES(cell, user->simCtx->rank); CHKERRQ(ierr);
-
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -555,7 +532,6 @@ PetscErrorCode EvaluateParticlePositionInPlanes(const CellFacePlanes *planes, Pe
     PROFILE_HELPER_BEGIN;
     // Scale the base threshold by the cell size (threshold 1e-6 in a 0.01 cell is 1e-8).
     ierr = CalculateDistancesToCellFacePlanes(p, planes, d, threshold * planes->size, NULL); CHKERRQ(ierr);
-    if(get_log_level() >= LOG_DEBUG && is_function_allowed(__func__)) LOG_FACE_DISTANCES(d);
     // 0 inside, 1 (2 or 3) on a face (edge or corner), -1 outside.
     ierr = DeterminePointPosition(d, position); CHKERRQ(ierr);
     PROFILE_FUNCTION_END;
@@ -607,15 +583,6 @@ PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscI
     czs = info->zs; czm = czs + info->zm - 2; 
   */
 
-  //    LOG_ALLOW(LOCAL, LOG_DEBUG, "Received d: "
-  //    "d[LEFT=%d]=%.3e, d[RIGHT=%d]=%.3e, d[BOTTOM=%d]=%.3e, "
-  //	      "d[TOP=%d]=%.3e, d[FRONT=%d]=%.3e, d[BACK=%d]=%.3e\n",
-		//	      LEFT, d[LEFT], RIGHT, d[RIGHT], BOTTOM, d[BOTTOM],
-		//  TOP, d[TOP], FRONT, d[FRONT], BACK, d[BACK]);
-    //  LOG_ALLOW(LOCAL, LOG_DEBUG, "Raw d: "
-  //	      "[%.3e, %.3e, %.3e, %.3e, %.3e, %.3e]\n",
-  //	      d[0], d[1], d[2], d[3], d[4], d[5]);
-    
     // Validate input pointers
     if (d == NULL) {
       LOG_ALLOW(LOCAL,LOG_ERROR, "'d' is NULL.\n");
@@ -626,37 +593,27 @@ PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscI
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "One or more index pointers are NULL.");
     }
 
-    // Debug: Print current face distances
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "Current Face Distances:\n");
-    if(get_log_level() >= LOG_DEBUG && is_function_allowed(__func__)) LOG_FACE_DISTANCES(d);
-
     // Update k-direction based on FRONT and BACK distances
     if (d[FRONT] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_VERBOSE, "Condition met: d[FRONT] < 0.0, incrementing idz.\n");
         (*idz) += 1;
     }
     else if(d[BACK] < 0.0){
-      LOG_ALLOW(LOCAL,LOG_VERBOSE, "Condition met: d[BACK] < 0.0, decrementing idz.\n");
         (*idz) -= 1;
     }
 
     // Update i-direction based on LEFT and RIGHT distances
     if (d[LEFT] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_VERBOSE, "Condition met: d[LEFT] < 0.0, decrementing idx.\n");
         (*idx) -= 1;
     }
     else if (d[RIGHT] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_VERBOSE, "Condition met: d[RIGHT] < 0.0, incrementing idx.\n");
         (*idx) += 1;
     }
 
     // Update j-direction based on BOTTOM and TOP distances
     if (d[BOTTOM] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_VERBOSE, "Condition met: d[BOTTOM] < 0.0, decrementing idy.\n");
         (*idy) -= 1;
     }
     else if (d[TOP] < 0.0) {
-      LOG_ALLOW(LOCAL,LOG_VERBOSE, "Condition met: d[TOP] < 0.0, incrementing idy.\n");
         (*idy) += 1;
     }
 
@@ -667,8 +624,6 @@ PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscI
     *idy = PetscMax(cys,               PetscMin(*idy, cym));
     *idz = PetscMax(czs,               PetscMin(*idz, czm));
     */
-
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "Updated Indices  - idx, idy, idz: %" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT "\n", *idx, *idy, *idz);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0); // Indicate successful execution
@@ -753,14 +708,6 @@ PetscErrorCode FindOwnerOfCell(UserCtx *user, PetscInt i, PetscInt j, PetscInt k
     if ((i >= info->xs_cell && i < info->xs_cell + info->xm_cell) &&
         (j >= info->ys_cell && j < info->ys_cell + info->ym_cell) &&
         (k >= info->zs_cell && k < info->zs_cell + info->zm_cell)) *owner_rank = (PetscMPIInt)r;
-
-    // --- 3. Logging for Diagnostics ---
-    // This is extremely useful for debugging particle migration issues.
-    if (*owner_rank == -1) {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "No owner found for global cell (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT "). It is likely outside the domain.\n", i, j, k);
-    } else {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "Owner of cell (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ") is Rank %d.\n", i, j, k, *owner_rank);
-    }
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -892,11 +839,8 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
     }
     PetscCheck(!plane_arrays->dual, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "The walk needs the primal face planes, not the dual ones.");
     ierr = InitializeTraversalParameters(user, particle, &idx, &idy, &idz, &traversal_steps); CHKERRQ(ierr);
+    const PetscInt start_cell[3] = {idx, idy, idz};
 
-    LOG_ALLOW(LOCAL,LOG_VERBOSE, " The Threshold for considering a particle to be at a face is %.16f.\n",DISTANCE_THRESHOLD);
-    
-    LOG_ALLOW(LOCAL,LOG_TRACE," [PID %lld]Traversal Initiated at : i = %" PetscInt_FMT ", j = %" PetscInt_FMT ", k = %" PetscInt_FMT ".\n",(long long)particle->PID,idx,idy,idz); 
-    
     // --- 2. Main Walking Search Loop ---
     while (!search_concluded && traversal_steps < MAX_TRAVERSAL) {
         traversal_steps++;
@@ -910,42 +854,36 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
             idx = 0;
             hit_boundary = PETSC_TRUE;
             user->simCtx->searchMetrics.boundaryClampCount++;
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global i-min boundary, clamped to idx=0.\n", (long long)particle->PID);
         }
         if (idx >= (user->IM - 1)) {
             idx = user->IM - 2;
             hit_boundary = PETSC_TRUE;
             user->simCtx->searchMetrics.boundaryClampCount++;
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global i-max boundary, clamped to idx=%" PetscInt_FMT ".\n", (long long)particle->PID, idx);
         }
         if (idy < 0) {
             idy = 0;
             hit_boundary = PETSC_TRUE;
             user->simCtx->searchMetrics.boundaryClampCount++;
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global j-min boundary, clamped to idy=0.\n", (long long)particle->PID);
         }
         if (idy >= (user->JM - 1)) {
             idy = user->JM - 2;
             hit_boundary = PETSC_TRUE;
             user->simCtx->searchMetrics.boundaryClampCount++;
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global j-max boundary, clamped to idy=%" PetscInt_FMT ".\n", (long long)particle->PID, idy);
         }
         if (idz < 0) {
             idz = 0;
             hit_boundary = PETSC_TRUE;
             user->simCtx->searchMetrics.boundaryClampCount++;
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global k-min boundary, clamped to idz=0.\n", (long long)particle->PID);
         }
         if (idz >= (user->KM - 1)) {
             idz = user->KM - 2;
             hit_boundary = PETSC_TRUE;
             user->simCtx->searchMetrics.boundaryClampCount++;
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Hit global k-max boundary, clamped to idz=%" PetscInt_FMT ".\n", (long long)particle->PID, idz);
         }
 
         if (hit_boundary) {
-            LOG_ALLOW(LOCAL, LOG_INFO, "[PID %lld]: Hit GLOBAL domain boundary. Clamped to boundary cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") and continuing search.\n",
-                      (long long)particle->PID, idx, idy, idz);
+            LOG_PARTICLE(user->simCtx, particle->PID, "locate", "walk clamped to boundary cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",
+                         idx, idy, idz);
         }
 
         // --- 2b. LOCAL GHOST REGION CHECK (PREVENTS SEGV) ---
@@ -956,8 +894,8 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
             // We have walked outside the local rank's ghost region.
             // This definitively means the particle belongs to another rank.
             // Conclude the search here; the current (idx,idy,idz) is the handoff cell.
-            LOG_ALLOW(LOCAL, LOG_INFO, "[PID %lld]: Walked outside local ghost region to cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "). Concluding search for handoff.\n",
-                      (long long)particle->PID, idx, idy, idz);
+            LOG_PARTICLE(user->simCtx, particle->PID, "locate", "walk left this rank's ghost region at cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "): handoff\n",
+                         idx, idy, idz);
             search_concluded = PETSC_TRUE;
             continue; // Skip the rest of the loop; proceed to finalization.
         }
@@ -969,8 +907,9 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                 // Only apply tie-breaker if we are stuck for the right reason (on a boundary)
                 if (last_position_result >= 1) {
                     user->simCtx->searchMetrics.tieBreakCount++;
-                    LOG_ALLOW(LOCAL, LOG_WARNING, "[PID %lld]: Stuck on boundary of cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") for %" PetscInt_FMT " steps. Applying enhanced tie-breaker.\n",
-                              (long long)particle->PID, idx, idy, idz, repeatedIndexCount);
+                    // Counted in search_metrics.csv (tie_break_count); a tie-break is a normal outcome.
+                    LOG_PARTICLE(user->simCtx, particle->PID, "locate", "stuck on the boundary of cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") for %" PetscInt_FMT " steps: tie-break accepts it\n",
+                                 idx, idy, idz, repeatedIndexCount);
                     
                     // Re-evaluate at the stuck cell to get definitive weights
                     PetscReal final_d[NUM_FACES];
@@ -1011,6 +950,10 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
 
         ierr = EvaluateParticlePositionInPlanes(current_planes, distances, particle->loc, &position_in_cell, DISTANCE_THRESHOLD); CHKERRQ(ierr);
         last_position_result = position_in_cell;
+        LOG_PARTICLE(user->simCtx, particle->PID, "locate",
+                     "walk step %" PetscInt_FMT " cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") at (%.6e, %.6e, %.6e): position %" PetscInt_FMT " (0 inside, >0 on a face/edge/corner, -1 outside), d L %.3e R %.3e B %.3e T %.3e F %.3e K %.3e\n",
+                     traversal_steps, idx, idy, idz, particle->loc.x, particle->loc.y, particle->loc.z, position_in_cell,
+                     distances[LEFT], distances[RIGHT], distances[BOTTOM], distances[TOP], distances[FRONT], distances[BACK]);
 
         // --- 2e. Decision Making ---
         if (position_in_cell >= 0) { // Particle is INSIDE or ON THE BOUNDARY
@@ -1059,20 +1002,20 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                         if (axis == 1) idy = (sign > 0.0) ? user->JM - 2 : 0;
                         if (axis == 2) idz = (sign > 0.0) ? user->KM - 2 : 0;
                         user->simCtx->searchMetrics.wrapCount++;
-                        LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Wrapped through %s to (%.6e, %.6e, %.6e), cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ").\n",
-                                  (long long)particle->PID, BCFaceToString(face), particle->loc.x, particle->loc.y, particle->loc.z, idx, idy, idz);
+                        LOG_PARTICLE(user->simCtx, particle->PID, "locate", "wrapped through %s to (%.6e, %.6e, %.6e), cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",
+                                     BCFaceToString(face), particle->loc.x, particle->loc.y, particle->loc.z, idx, idy, idz);
                     }
                     repeatedIndexCount = 0; prevIdx = PETSC_MIN_INT; prevIdy = PETSC_MIN_INT; prevIdz = PETSC_MIN_INT;
                 } else if (guard_blocked_walk && -distances[crossed] > BLOCKED_WALK_GUARD_CELLS * cell_size) {
                     blocked = PETSC_TRUE;
                     search_concluded = PETSC_TRUE;
-                    LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: %.3e beyond boundary face %" PetscInt_FMT " of cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "), above the %.1f-cell guard. Walk treated as blocked.\n",
-                              (long long)particle->PID, -distances[crossed], crossed, idx, idy, idz, BLOCKED_WALK_GUARD_CELLS);
+                    LOG_PARTICLE(user->simCtx, particle->PID, "locate", "%.3e beyond boundary face %" PetscInt_FMT " of cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "), above the %.1f-cell guard: walk treated as blocked\n",
+                                 -distances[crossed], crossed, idx, idy, idz, BLOCKED_WALK_GUARD_CELLS);
                 } else if (!reflect) {
                     exited = PETSC_TRUE;
                     search_concluded = PETSC_TRUE;
-                    LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Left the domain through boundary face %" PetscInt_FMT " of cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "), %.3e beyond it.\n",
-                              (long long)particle->PID, crossed, idx, idy, idz, -distances[crossed]);
+                    LOG_PARTICLE(user->simCtx, particle->PID, "locate", "left the domain through boundary face %" PetscInt_FMT " of cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "), %.3e beyond it\n",
+                                 crossed, idx, idy, idz, -distances[crossed]);
                 } else if (reflections < REFLECTION_CAP) {
                     // Mirror about the most-crossed face and evaluate this cell again; an edge or
                     // corner crossing reflects about the next face on the following iteration.
@@ -1080,8 +1023,8 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                     reflections++;
                     user->simCtx->searchMetrics.reflectionCount++;
                     repeatedIndexCount = 0; prevIdx = PETSC_MIN_INT; prevIdy = PETSC_MIN_INT; prevIdz = PETSC_MIN_INT;
-                    LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Reflected about boundary face %" PetscInt_FMT " of cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") to (%.6e, %.6e, %.6e).\n",
-                              (long long)particle->PID, crossed, idx, idy, idz, particle->loc.x, particle->loc.y, particle->loc.z);
+                    LOG_PARTICLE(user->simCtx, particle->PID, "locate", "reflected about boundary face %" PetscInt_FMT " of cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") to (%.6e, %.6e, %.6e)\n",
+                                 crossed, idx, idy, idz, particle->loc.x, particle->loc.y, particle->loc.z);
                 } else {
                     PetscBool placed;
                     Cell      current_cell; // The fallback needs the vertices; it runs once per capped walk
@@ -1090,8 +1033,8 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
                     if (placed) {
                         user->simCtx->searchMetrics.reflectionFallbackCount++;
                         repeatedIndexCount = 0; prevIdx = PETSC_MIN_INT; prevIdy = PETSC_MIN_INT; prevIdz = PETSC_MIN_INT;
-                        LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %lld]: Reflection cap %d reached; placed just inside cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ").\n",
-                                  (long long)particle->PID, REFLECTION_CAP, idx, idy, idz);
+                        LOG_PARTICLE(user->simCtx, particle->PID, "locate", "reflection cap %d reached: placed just inside cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",
+                                     REFLECTION_CAP, idx, idy, idz);
                     } else {
                         idx = -1; // Search failure: the cell cannot hold the fallback (warped beyond its centroid)
                         search_concluded = PETSC_TRUE;
@@ -1127,8 +1070,6 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
         PetscMPIInt owner_rank;
         ierr = FindOwnerOfCell(user, idx, idy, idz, &owner_rank); CHKERRQ(ierr);
 
-	LOG_ALLOW(LOCAL,LOG_TRACE," [PID %ld] Owner rank : %d.\n",particle->PID,owner_rank);
-	
         // Always update the particle's cell index. It's a good guess for the receiving rank.
         particle->cell[0] = idx; particle->cell[1] = idy; particle->cell[2] = idz;
 
@@ -1144,10 +1085,8 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
         }
     }
 
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"[Rank %d][PID %ld] Search complete.\n",rank,particle->PID);
-
     // --- 4. Report the Final Outcome ---
-    ierr = ReportSearchOutcome(particle, *status_out, traversal_steps); CHKERRQ(ierr);
+    ierr = ReportSearchOutcome(user->simCtx, particle, *status_out, start_cell, traversal_steps, reflections); CHKERRQ(ierr);
     if (!planes) { ierr = MetricRestoreFacePlaneArrays(user, &own_arrays); CHKERRQ(ierr); }
 
     PROFILE_FUNCTION_END;
@@ -1161,37 +1100,18 @@ PetscErrorCode LocateParticleOrFindMigrationTarget(UserCtx *user,
  *          the header declaration in `include/walkingsearch.h`.
  * @see ReportSearchOutcome()
  */
-PetscErrorCode ReportSearchOutcome(const Particle *particle,
-                                          ParticleLocationStatus status,
-                                          PetscInt traversal_steps)
+PetscErrorCode ReportSearchOutcome(const SimCtx *simCtx, const Particle *particle,
+                                   ParticleLocationStatus status, const PetscInt start_cell[3],
+                                   PetscInt traversal_steps, PetscInt reflections)
 {
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
-    switch (status) {
-        case ACTIVE_AND_LOCATED:
-            LOG_ALLOW(LOCAL, LOG_INFO, "Search SUCCESS [PID %lld]: Located in global cell (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ") after %" PetscInt_FMT " steps.\n",
-                      (long long)particle->PID, particle->cell[0], particle->cell[1], particle->cell[2], traversal_steps);
-            break;
-        case MIGRATING_OUT:
-            LOG_ALLOW(LOCAL, LOG_INFO, "Search SUCCESS [PID %lld]: Identified for migration to Rank %d. Handoff cell is (%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ") after %" PetscInt_FMT " steps.\n",
-                      (long long)particle->PID, particle->destination_rank, particle->cell[0], particle->cell[1], particle->cell[2], traversal_steps);
-            break;
-        case LOST:
-            LOG_ALLOW(LOCAL, LOG_WARNING, "Search FAILED [PID %lld]: Particle is LOST after %" PetscInt_FMT " steps.\n",
-                      (long long)particle->PID, traversal_steps);
-            break;
-        case EXITED:
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "Search ended [PID %lld]: Particle left the domain after %" PetscInt_FMT " steps.\n",
-                      (long long)particle->PID, traversal_steps);
-            break;
-        case NEEDS_LOCATION:
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "Search ended [PID %lld]: Walk blocked after %" PetscInt_FMT " steps; searching again from scratch.\n",
-                      (long long)particle->PID, traversal_steps);
-            break;
-        default:
-            LOG_ALLOW(LOCAL, LOG_WARNING, "Search ended with unexpected status %d for PID %lld.\n", status, (long long)particle->PID);
-            break;
-    }
+    LOG_PARTICLE(simCtx, particle->PID, "locate",
+                 "%s from cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") to (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") in %" PetscInt_FMT " step(s), %" PetscInt_FMT " reflection(s) | weights (%.6f, %.6f, %.6f) | at (%.6e, %.6e, %.6e) | destination rank %d\n",
+                 ParticleLocationStatusToString(status), start_cell[0], start_cell[1], start_cell[2],
+                 particle->cell[0], particle->cell[1], particle->cell[2], traversal_steps, reflections,
+                 particle->weights.x, particle->weights.y, particle->weights.z,
+                 particle->loc.x, particle->loc.y, particle->loc.z, (int)particle->destination_rank);
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }

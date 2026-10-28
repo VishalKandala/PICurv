@@ -285,6 +285,64 @@ do {                                                                            
 } while (0)
 
 /**
+ * @brief True when `pid` is one of the run's traced particles (`simCtx->tracePIDs`, sorted).
+ * @param[in] simCtx The simulation context holding the traced IDs.
+ * @param[in] pid    The particle ID to test.
+ * @return PETSC_TRUE when the particle is traced.
+ */
+static inline PetscBool ParticleIsTraced(const SimCtx *simCtx, PetscInt64 pid)
+{
+    PetscInt lo = 0, hi = simCtx->nTracePIDs - 1;
+    while (lo <= hi) {
+        const PetscInt mid = lo + (hi - lo) / 2;
+        if (simCtx->tracePIDs[mid] == pid) return PETSC_TRUE;
+        if (simCtx->tracePIDs[mid] < pid) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return PETSC_FALSE;
+}
+
+/** @brief True when the calling function's per-particle lines print for every particle (VERBOSE and allow-listed). */
+#define PARTICLE_LOG_VERBOSE_ENABLED() \
+    (PetscUnlikely((int)get_log_level() >= (int)LOG_VERBOSE) && is_function_allowed(__func__))
+
+/**
+ * @brief True when LOG_PARTICLE() would print for this particle in the calling function.
+ * @details For a stage whose line is costly to assemble (several fields): test this, build the
+ *          text, then emit it with LOG_PARTICLE().
+ */
+#define PARTICLE_LOG_ACTIVE(simCtx, pid) \
+    ((PetscBool)((PetscUnlikely((simCtx)->nTracePIDs > 0) && ParticleIsTraced((simCtx), (pid))) || PARTICLE_LOG_VERBOSE_ENABLED()))
+
+/**
+ * @brief Reports one particle at one stage of a step: the consolidated per-particle line.
+ *
+ * Each stage that processes particles (position update, location, interpolation, model
+ * update, removal) emits at most one such line per particle, carrying every value the stage
+ * computed for it. The line prints, on the rank holding the particle, when either
+ * - the particle is traced (`monitor.yml -> logging.trace_particles`), whatever the log level
+ *   and allow-list, prefixed `[trace pid=<id> step=<n> <stage>]`; or
+ * - the log level is VERBOSE and the calling function is allow-listed, prefixed with the
+ *   function name.
+ * With neither, it costs two loads and two compares.
+ *
+ * @param simCtx The simulation context (`const SimCtx *`).
+ * @param pid    The particle ID (`PetscInt64`).
+ * @param stage  A short stage label, such as "locate".
+ * @param fmt    A `printf`-style format string ending in a newline.
+ */
+#define LOG_PARTICLE(simCtx, pid, stage, fmt, ...)                                                   \
+    do {                                                                                             \
+        const PetscBool _picurv_traced =                                                             \
+            (PetscBool)(PetscUnlikely((simCtx)->nTracePIDs > 0) && ParticleIsTraced((simCtx), (pid))); \
+        if (_picurv_traced || PARTICLE_LOG_VERBOSE_ENABLED()) {                                      \
+            PetscPrintf(PETSC_COMM_SELF, "[%s pid=%lld step=%" PetscInt_FMT " %s] " fmt,             \
+                        _picurv_traced ? "trace" : __func__, (long long)(pid), (simCtx)->step,       \
+                        (stage), ##__VA_ARGS__);                                                     \
+        }                                                                                            \
+    } while (0)
+
+/**
  * @brief Logs a message inside a loop, but only every `interval` iterations.
  *
  * @param scope     LOCAL or GLOBAL.

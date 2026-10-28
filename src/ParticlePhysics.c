@@ -49,6 +49,7 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
     PetscReal       *psi_arr = NULL;
     PetscReal       *diff_arr = NULL;
     PetscInt        *cell_arr = NULL;
+    PetscInt64      *pid_arr = NULL;
 
     PetscReal       ***grid_mean = NULL;
     PetscReal       ***grid_aj = NULL;
@@ -82,6 +83,7 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
     }
 
     ierr = DMSwarmGetField(swarm, fieldName, NULL, NULL, (void**)&psi_arr); CHKERRQ(ierr);
+    ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&pid_arr); CHKERRQ(ierr);
 
     if (field_id == PARTICLE_FIELD_ID_PSI) {
         ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_DIFFUSIVITY), NULL, NULL, (void**)&diff_arr); CHKERRQ(ierr);
@@ -126,10 +128,15 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
             }
         }
 
+        const PetscReal psi_old = psi_arr[p];
         ierr = UpdateParticleField(field_id, dt, &psi_arr[p], p_diff, p_mean, p_delta2, C_IEM);
         CHKERRQ(ierr);
+        LOG_PARTICLE(user->simCtx, pid_arr[p], "mix",
+                     "%s %.10e -> %.10e | cell mean %.10e | diffusivity %.6e mixing length^2 %.6e C %.4f dt %.6e\n",
+                     fieldName, psi_old, psi_arr[p], p_mean, p_diff, p_delta2, C_IEM, dt);
     }
 
+    ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&pid_arr); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, fieldName, NULL, NULL, (void**)&psi_arr); CHKERRQ(ierr);
 
     if (field_id == PARTICLE_FIELD_ID_PSI) {
@@ -142,7 +149,7 @@ PetscErrorCode UpdateFieldForAllParticles(UserCtx *user, ParticleFieldId field_i
         ierr = DMDAVecRestoreArrayRead(da, user->lAj,  &grid_aj);   CHKERRQ(ierr);
     }
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Updated particle physics for field '%s'.\n", fieldName);
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "Updated particle physics for field '%s'.\n", fieldName);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

@@ -132,7 +132,14 @@ PetscErrorCode UpdateAllParticlePositions(UserCtx *user)
     ierr = UnpackSwarmFields(p, pid, weights, pos, cell, vel, status, diffusivity, diffusivitygradient, psi, &particle); CHKERRQ(ierr);
 
     // Update position based on velocity and Brownian motion
+    const Cmpnts old_loc = particle.loc;
     ierr = UpdateParticlePosition(user, &particle); CHKERRQ(ierr);
+    LOG_PARTICLE(user->simCtx, particle.PID, "advect",
+                 "(%.6e, %.6e, %.6e) -> (%.6e, %.6e, %.6e) | vel (%.6e, %.6e, %.6e) | diffusivity %.6e gradient (%.6e, %.6e, %.6e) | dt %.6e\n",
+                 old_loc.x, old_loc.y, old_loc.z, particle.loc.x, particle.loc.y, particle.loc.z,
+                 particle.vel.x, particle.vel.y, particle.vel.z, particle.diffusivity,
+                 particle.diffusivitygradient.x, particle.diffusivitygradient.y, particle.diffusivitygradient.z,
+                 user->simCtx->dt);
     
     // Update swarm fields
     ierr = UpdateSwarmFields(p, &particle, pos, vel, weights, cell, status, diffusivity, diffusivitygradient, psi); CHKERRQ(ierr);
@@ -304,9 +311,9 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
             remove[p] = (PetscBool)(status_p[p] == LOST || status_p[p] == EXITED);
             if (remove[p]) {
                 const PetscInt kind = (status_p[p] == LOST) ? 0 : 1;
-                LOG_ALLOW(LOCAL, LOG_DEBUG, "Rank %d: Removing %s particle [PID %lld] at local index %" PetscInt_FMT ". Position: (%.4f, %.4f, %.4f).\n",
-                          rank, ParticleLocationStatusToString((ParticleLocationStatus)status_p[p]), (long long)pid_p[p], p,
-                          pos_p[3*p], pos_p[3*p+1], pos_p[3*p+2]);
+                LOG_PARTICLE(user->simCtx, pid_p[p], "remove", "%s at (%.6e, %.6e, %.6e) carrying psi %.6e: removed from rank %d\n",
+                             ParticleLocationStatusToString((ParticleLocationStatus)status_p[p]),
+                             pos_p[3*p], pos_p[3*p+1], pos_p[3*p+2], psi_p[p], (int)rank);
                 // The scalar a removed particle carries leaves the domain with it.
                 local_psi[kind] += psi_p[p];
                 local_count[kind]++;
@@ -1182,7 +1189,6 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm, PetscInt n_local_before, Petsc
     PetscMPIInt rank;
     PetscInt    n_local_after;
     PetscInt   *status = NULL;
-    PetscInt64 *pid = NULL;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -1193,17 +1199,14 @@ PetscErrorCode FlagNewcomersForLocation(DM swarm, PetscInt n_local_before, Petsc
               rank, n_local_before, n_local_after);
     PetscCheck(first_newcomer >= 0 && first_newcomer <= n_local_after, PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE,
                "First newcomer index %" PetscInt_FMT " outside the %" PetscInt_FMT " local particles.", first_newcomer, n_local_after);
+    // Each newcomer reports itself in its next locate line, on this rank.
     PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void **)&status));
-    PetscCall(DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pid));
     for (PetscInt p = first_newcomer; p < n_local_after; ++p) {
         status[p] = NEEDS_LOCATION;
-        LOG_ALLOW(LOCAL, LOG_VERBOSE, "[Rank %d]: Flagged newcomer PID %ld at local index %" PetscInt_FMT " as NEEDS_LOCATION.\n",
-                  rank, (long)pid[p], p);
     }
-    PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void **)&pid));
     PetscCall(DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void **)&status));
     if (n_local_after > first_newcomer) {
-        LOG_ALLOW(LOCAL, LOG_INFO, "[Rank %d]: Identified and flagged %" PetscInt_FMT " newcomers.\n", rank, n_local_after - first_newcomer);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d]: Identified and flagged %" PetscInt_FMT " newcomers.\n", rank, n_local_after - first_newcomer);
     }
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
@@ -1259,8 +1262,8 @@ PetscErrorCode MigrateRestartParticlesUsingCellID(UserCtx *user)
                 ierr = AddToMigrationList(&migrationList, &migrationListCapacity, &local_migration_count,
                                           p_idx, owner_rank); CHKERRQ(ierr);
                 
-                LOG_ALLOW(LOCAL, LOG_VERBOSE, "[PID %ld] Direct migration: Cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") belongs to Rank %d (Current: %d).\n",
-                          (long)pid_p[p_idx], ci, cj, ck, owner_rank, rank);
+                LOG_PARTICLE(user->simCtx, pid_p[p_idx], "restart", "saved cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") belongs to rank %d: migrating from rank %d\n",
+                             ci, cj, ck, owner_rank, (int)rank);
             }
         }
 
@@ -1321,15 +1324,11 @@ static PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
     
     *guess_rank_out = MPI_PROC_NULL; // Default to "not found"
 
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld]: Starting guess for particle at (%.3f, %.3f, %.3f).\n",
-              particle->PID, particle->loc.x, particle->loc.y, particle->loc.z);
-
+    // The caller reports the guess's result in the particle's locate line.
     // --- Step 0: Check if the particle is inside the CURRENT rank's bounding box FIRST. ---
     // This handles the common case of initial placement where a particle is "lost" but physically local.
     if (IsParticleInBox(localBBox, &particle->loc)) {
       *guess_rank_out = rank;
-      LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld]: Fast path guess SUCCESS. Particle is within the local (Rank %d) bounding box.\n",
-		particle->PID, rank);
 
       PROFILE_FUNCTION_END;
       PetscFunctionReturn(0); // Found it, we're done.
@@ -1360,46 +1359,23 @@ static PetscErrorCode GuessParticleOwnerWithBBox(UserCtx *user,
     // Note: This does not handle corner/edge neighbors, which is why the fallback is essential.
 
     if (*guess_rank_out != MPI_PROC_NULL) {
-        LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld]: Fast path guess SUCCESS. Found in immediate neighbor Rank %d.\n",
-                  particle->PID, *guess_rank_out);
-
-        PROFILE_FUNCTION_END;          
+        PROFILE_FUNCTION_END;
         PetscFunctionReturn(0); // Found it, we're done.
     }
 
     // --- 3. Robust Fallback: Check All Other Ranks ---
     // If we get here, the particle was not in any of the immediate face neighbors' boxes.
-    LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld]: Not in immediate face neighbors. Starting global fallback search.\n",
-              particle->PID);
-    
     for (PetscMPIInt r = 0; r < size; ++r) {
         if (r == rank) continue; // Don't check ourselves.
 
         if (IsParticleInBox(&bboxlist[r], &particle->loc)) {
-          PetscBool is_in = PETSC_TRUE;
-	  // This detailed, synchronized print will solve the mystery
-	  LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d] Checking PID %lld at (%.4f, %.4f, %.4f) against Rank %d's box: [(%.4f, %.4f, %.4f) to (%.4f, %.4f, %.4f)]. Result: %s\n",
-				  (int)rank, (long long)particle->PID,
-				  particle->loc.x, particle->loc.y, particle->loc.z,
-				  (int)r,
-				  bboxlist[r].min_coords.x, bboxlist[r].min_coords.y, bboxlist[r].min_coords.z,
-				  bboxlist[r].max_coords.x, bboxlist[r].max_coords.y, bboxlist[r].max_coords.z,
-				  is_in ? "INSIDE" : "OUTSIDE");
-	  
             *guess_rank_out = r;
-            LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld]: Fallback search SUCCESS. Found in Rank %d.\n",
-                      particle->PID, *guess_rank_out);
-            
             PROFILE_FUNCTION_END;
             PetscFunctionReturn(0); // Found it, we're done.
         }
     }
 
-    // If the code reaches here, the particle was not found in any rank's bounding box.
-    LOG_ALLOW(LOCAL, LOG_WARNING, "[PID %ld]: Guess FAILED. Particle not found in any rank's bounding box.\n",
-              particle->PID);
-    
-    // The guess_rank_out will remain -1, signaling failure to the caller.
+    // Not in any rank's bounding box: guess_rank_out stays MPI_PROC_NULL, signaling failure to the caller.
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -1471,110 +1447,48 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
 
             for (PetscInt p_idx = 0; p_idx < nlocal_before; p_idx++) {
 
-                // OPTIMIZATION: Skip particles already settled in a previous pass of this do-while loop.
-
-	      LOG_ALLOW(LOCAL,LOG_VERBOSE,
-			"Local Particle idx=%" PetscInt_FMT ", PID=%ld, status=%s, cell=(%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT ")\n",
-			p_idx,
-			(long)pid_p[p_idx],
-			ParticleLocationStatusToString((ParticleLocationStatus)status_p[p_idx]),
-			cell_p[3*p_idx],
-			cell_p[3*p_idx+1],
-			cell_p[3*p_idx+2]);
-
                 // LOST and EXITED are final within one settlement: only pass 1 searches them, so a
                 // particle beyond the boundary is never re-walked and re-migrated pass after pass.
                 if (status_p[p_idx] == ACTIVE_AND_LOCATED ||
                     (passes > 1 && (status_p[p_idx] == LOST || status_p[p_idx] == EXITED))) {
-		  LOG_ALLOW(LOCAL,LOG_VERBOSE," [rank %d][PID %ld] skipped in pass %" PetscInt_FMT " with status %s at (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ").\n",rank,pid_p[p_idx],passes,
-                    ParticleLocationStatusToString((ParticleLocationStatus)status_p[p_idx]),cell_p[3*p_idx],cell_p[3*p_idx + 1],cell_p[3*p_idx + 2]);
                     continue;
                 }
 
                 // UNPACK: Create a temporary C struct for easier processing using our helper.
                 Particle current_particle;
-
-		    //	LOG_ALLOW(LOCAL,LOG_DEBUG,"about to unpack p_idx=%d (PID=%ld)\n",p_idx, (long)pid_p[p_idx]);
-		
                 ierr = UnpackSwarmFields(p_idx, pid_p, weights_p, pos_p, cell_p, vel_p, status_p,NULL,NULL,NULL,&current_particle); CHKERRQ(ierr);
 
-		    //		LOG_ALLOW(LOCAL,LOG_DEBUG,"unpacked p_idx=%d → cell[0]=%d, status=%s\n",p_idx, current_particle.cell[0], ParticleLocationStatusToString((ParticleLocationStatus)current_particle.location_status));
+                ParticleLocationStatus final_status = (ParticleLocationStatus)status_p[p_idx];
+                const PetscBool walk_from_prior_cell = (PetscBool)(current_particle.cell[0] >= 0);
 
-		    ParticleLocationStatus final_status = (ParticleLocationStatus)status_p[p_idx];
-		    const PetscBool walk_from_prior_cell = (PetscBool)(current_particle.cell[0] >= 0);
-
-
-		    // CASE 1: Particle has a valid prior cell index.
+                // CASE 1: Particle has a valid prior cell index.
                 // It has moved, so we only need to run the robust walk from its last known location.
                 if (walk_from_prior_cell) {
-		            LOG_ALLOW(LOCAL, LOG_VERBOSE, "[PID %ld] has valid prior cell. Strategy: Robust Walk from previous cell.\n", current_particle.PID);
-		            ierr = LocateParticleOrFindMigrationTarget(user, &plane_arrays, &current_particle, &final_status); CHKERRQ(ierr);
-                } 
-
-		/*		
-                // --- "GUESS" FAST PATH for lost particles ---
-                if (current_particle.cell[0] < 0) {
-                    LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld] is lost or uninitialzied (cell=%d), attempting fast guess.\n",current_particle.PID, current_particle.cell[0]);
-                    ierr = GuessParticleOwnerWithBBox(user, &current_particle, bboxlist, &destination_rank); CHKERRQ(ierr);
-                    if (destination_rank != MPI_PROC_NULL && destination_rank != rank) {
-                        final_status = MIGRATING_OUT;
-                        // The particle struct's destination rank must be updated for consistency
-                        current_particle.destination_rank = destination_rank;
-                    }
+                    ierr = LocateParticleOrFindMigrationTarget(user, &plane_arrays, &current_particle, &final_status); CHKERRQ(ierr);
                 }
 
-		LOG_ALLOW(LOCAL,LOG_DEBUG,"[PID %ld] Particle status after Initial Guess:%d \n",current_particle.PID,final_status);
-
-                // --- "VERIFY" ROBUST WALK if guess didn't resolve it ---
-                if (final_status == NEEDS_LOCATION  || UNINITIALIZED) {
-                    LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld] Not resolved by guess, starting robust walk.\n", current_particle.PID);
-                    // This function will update the particle's status and destination rank internally.
-		     ierr = LocateParticleOrFindMigrationTarget(user, &plane_arrays, &current_particle, &final_status); CHKERRQ(ierr);
-                    destination_rank = current_particle.destination_rank; // Retrieve the result
-                }
-
-                // --- PROCESS THE FINAL STATUS AND TAKE ACTION ---
-                if (final_status == MIGRATING_OUT) {
-                    status_p[p_idx] = MIGRATING_OUT; // Mark for removal by DMSwarm
-                    ierr = AddToMigrationList(&migrationList, &migrationListCapacity, &local_migration_count, p_idx, destination_rank); CHKERRQ(ierr);
-                    LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld] at local index %d marked for migration to rank %d.\n",current_particle.PID, p_idx, destination_rank);
-                } else {
-                     // Particle's final status is either LOCATED or LOST; update its state in the swarm arrays.
-                     current_particle.location_status = final_status;
-                     // PACK: Use the helper to write results back to the swarm arrays.
-                     ierr = UpdateSwarmFields(p_idx, &current_particle, pos_p, vel_p, weights_p, cell_p, status_p,NULL,NULL,NULL); CHKERRQ(ierr);
-                }
-		*/
                 // CASE 2: Particle has no valid cell (cell = -1), or its walk from the prior cell was
                 // blocked by the domain boundary and is retried here, in the same pass. Strategy: Guess -> Verify.
                 if (!walk_from_prior_cell || final_status == NEEDS_LOCATION) {
-		  LOG_ALLOW(LOCAL, LOG_VERBOSE, "[PID %ld] has invalid cell. Strategy: Guess Owner -> Find Cell.\n",current_particle.PID);
-                    
-		  PetscMPIInt guessed_owner_rank = MPI_PROC_NULL;
-		  ierr = GuessParticleOwnerWithBBox(user, &current_particle, bboxlist, &guessed_owner_rank); CHKERRQ(ierr);
+                    PetscMPIInt guessed_owner_rank = MPI_PROC_NULL;
+                    ierr = GuessParticleOwnerWithBBox(user, &current_particle, bboxlist, &guessed_owner_rank); CHKERRQ(ierr);
 
-		  // If the guess finds a DIFFERENT rank, we can mark for migration and skip the walk.
-		  if (guessed_owner_rank != MPI_PROC_NULL && guessed_owner_rank != rank) {
-		    user->simCtx->searchMetrics.bboxGuessSuccessCount++;
-		    LOG_ALLOW(LOCAL, LOG_VERBOSE, "[PID %ld] Guess SUCCESS: Found migration target Rank %d. Finalizing.\n", current_particle.PID, guessed_owner_rank);
-		    final_status = MIGRATING_OUT;
-		    current_particle.destination_rank = guessed_owner_rank;
-		  } 
-		  else {
-		    user->simCtx->searchMetrics.bboxGuessFallbackCount++;
-
-		    // This block runs if the guess either failed (rank is NULL) or found the particle is local (rank is self).
-		    // In BOTH cases, the situation is unresolved, and we MUST fall back to the robust walk.
-		    if (guessed_owner_rank == rank) {
-		      LOG_ALLOW(LOCAL, LOG_DEBUG, "[PID %ld] Guess determined particle is local. Proceeding to robust walk to find cell.\n", current_particle.PID);
-		    } else { // guessed_owner_rank == MPI_PROC_NULL
-		      LOG_ALLOW(LOCAL, LOG_WARNING, "[PID %ld] Guess FAILED to find an owner. Proceeding to robust walk for definitive search.\n", current_particle.PID);
-		    }
-                        
-		    ierr = LocateParticleOrFindMigrationTarget(user, &plane_arrays, &current_particle, &final_status); CHKERRQ(ierr);
-		  }
+                    // If the guess finds a DIFFERENT rank, we can mark for migration and skip the walk.
+                    if (guessed_owner_rank != MPI_PROC_NULL && guessed_owner_rank != rank) {
+                        user->simCtx->searchMetrics.bboxGuessSuccessCount++;
+                        LOG_PARTICLE(user->simCtx, current_particle.PID, "locate", "pass %" PetscInt_FMT ": bounding box of rank %d holds (%.6e, %.6e, %.6e): migrating there unwalked\n",
+                                     passes, guessed_owner_rank, current_particle.loc.x, current_particle.loc.y, current_particle.loc.z);
+                        final_status = MIGRATING_OUT;
+                        current_particle.destination_rank = guessed_owner_rank;
+                    } else {
+                        // The guess either found no owner or found this rank; either way the walk decides.
+                        user->simCtx->searchMetrics.bboxGuessFallbackCount++;
+                        LOG_PARTICLE(user->simCtx, current_particle.PID, "locate", "pass %" PetscInt_FMT ": bounding-box guess %s; walking\n",
+                                     passes, (guessed_owner_rank == rank) ? "found this rank" : "found no rank");
+                        ierr = LocateParticleOrFindMigrationTarget(user, &plane_arrays, &current_particle, &final_status); CHKERRQ(ierr);
+                    }
                 }
-		
+
                 // --- PROCESS THE FINAL, DEFINITIVE STATUS ---
                 current_particle.location_status = final_status;
                 ierr = UpdateSwarmFields(p_idx, &current_particle, pos_p, vel_p, weights_p, cell_p, status_p,NULL,NULL,NULL); CHKERRQ(ierr);
@@ -1603,7 +1517,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
         }
 
         // --- STAGE 3: ACTION & MPI COMMUNICATION ---
-        LOG_ALLOW(LOCAL, LOG_INFO, "[Rank %d] Pass %" PetscInt_FMT ": Identified %" PetscInt_FMT " particles to migrate out.\n", rank, passes, local_migration_count);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Pass %" PetscInt_FMT ": Identified %" PetscInt_FMT " particles to migrate out.\n", rank, passes, local_migration_count);
 
 	    // --- STAGE 3: SYNCHRONIZE AND DECIDE ---
         // FIRST, determine if any rank wants to migrate. This call is safe because

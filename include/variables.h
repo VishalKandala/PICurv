@@ -64,6 +64,10 @@
 #else
 #define PICURV_ALWAYS_INLINE inline
 #endif
+
+/** @brief Most particle IDs one run can trace (`-picurv_trace_particles`). */
+#define PICURV_MAX_TRACED_PARTICLES 64
+
 #include <unistd.h>
 
 // --- C++ Specific Includes ---
@@ -1081,6 +1085,8 @@ typedef struct SimCtx {
     char      **allowedFuncs;
     PetscInt  nAllowed;
     PetscInt  LoggingFrequency;
+    PetscInt64 *tracePIDs;   ///< Sorted, distinct IDs of the particles whose every stage is reported (-picurv_trace_particles); NULL when none.
+    PetscInt  nTracePIDs;    ///< Number of entries in tracePIDs (at most PICURV_MAX_TRACED_PARTICLES).
     /* Net volume flux into the domain carried by the momentum step's velocity before the
      * pressure correction (inflow minus outflow, through every boundary face): the domain
      * integral of the pressure equation's source. With Neumann pressure boundaries it must

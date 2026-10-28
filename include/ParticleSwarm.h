@@ -159,6 +159,10 @@ PetscErrorCode FinalizeSwarmSetup(PetscRandom *randx, PetscRandom *randy, PetscR
  * @brief Initializes a Particle struct with data from DMSwarm fields.
  *
  * This helper function populates a Particle structure using data retrieved from DMSwarm fields.
+ * `PIDs`, `positions`, `cellIndices` and `LocStatus` are required. Pass NULL for an optional
+ * field the caller does not need; it then takes a default: weights (1, 1, 1), velocity and
+ * diffusivity gradient zero, diffusivity 1, psi 0. It logs nothing: the stage that uses a
+ * particle reports its values.
  *
  * @param[in]     i            Index of the particle in the DMSwarm.
  * @param[in]     PIDs         Pointer to the array of particle IDs.

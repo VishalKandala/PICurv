@@ -635,6 +635,8 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->allowedFuncs = NULL;
     simCtx->nAllowed = 0;
     simCtx->LoggingFrequency = 10;
+    simCtx->tracePIDs = NULL;
+    simCtx->nTracePIDs = 0;
     simCtx->poissonSourceImbalance = 0.0;
     simCtx->MaxDiv = 0.0;
     simCtx->MaxDivFlatArg = 0; simCtx->MaxDivx = 0; simCtx->MaxDivy = 0; simCtx->MaxDivz = 0;
@@ -1278,6 +1280,27 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     // --- Group 11
     LOG_ALLOW(GLOBAL,LOG_DEBUG, "Parsing Group 11: Top-Level Managers & Custom Configuration \n");
     ierr = PetscOptionsGetInt(NULL, NULL, "-logfreq", &simCtx->LoggingFrequency, NULL); CHKERRQ(ierr);
+    {
+        PetscInt  ids[PICURV_MAX_TRACED_PARTICLES + 1];
+        PetscInt  n = PICURV_MAX_TRACED_PARTICLES + 1;
+        PetscBool found = PETSC_FALSE;
+        ierr = PetscOptionsGetIntArray(NULL, NULL, "-picurv_trace_particles", ids, &n, &found); CHKERRQ(ierr);
+        if (found && n > 0) {
+            PetscCheck(n <= PICURV_MAX_TRACED_PARTICLES, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+                       "-picurv_trace_particles accepts at most %d particle IDs.", PICURV_MAX_TRACED_PARTICLES);
+            ierr = PetscMalloc1(n, &simCtx->tracePIDs); CHKERRQ(ierr);
+            for (PetscInt t = 0; t < n; ++t) {
+                PetscCheck(ids[t] >= 0, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE,
+                           "-picurv_trace_particles: particle IDs are non-negative (got %" PetscInt_FMT ").", ids[t]);
+                simCtx->tracePIDs[t] = (PetscInt64)ids[t];
+            }
+            ierr = PetscSortInt64(n, simCtx->tracePIDs); CHKERRQ(ierr);
+            simCtx->nTracePIDs = 1;
+            for (PetscInt t = 1; t < n; ++t) {
+                if (simCtx->tracePIDs[t] != simCtx->tracePIDs[simCtx->nTracePIDs - 1]) simCtx->tracePIDs[simCtx->nTracePIDs++] = simCtx->tracePIDs[t];
+            }
+        }
+    }
 
     if (simCtx->num_bcs_files != simCtx->block_number) {
       SETERRQ(PETSC_COMM_WORLD, PETSC_ERR_ARG_INCOMP, "Number of BC files (%" PetscInt_FMT ") does not match number of blocks (%" PetscInt_FMT "). Use -bcs_files \"file1.dat,file2.dat,...\".", simCtx->num_bcs_files, simCtx->block_number);
@@ -4563,6 +4586,9 @@ PetscErrorCode FinalizeSimulation(SimCtx *simCtx)
         simCtx->allowedFuncs = NULL;
         LOG_ALLOW(LOCAL, LOG_DEBUG, "  allowedFuncs array freed (%" PetscInt_FMT " functions).\n", simCtx->nAllowed);
     }
+
+    ierr = PetscFree(simCtx->tracePIDs); CHKERRQ(ierr);
+    simCtx->nTracePIDs = 0;
 
     // --- Profiling Critical Functions (Array of strings) ---
     if (simCtx->profilingSelectedFuncs) {

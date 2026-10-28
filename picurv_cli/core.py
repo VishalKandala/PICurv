@@ -9159,7 +9159,7 @@ _MONITOR_SCHEMA = {
         "logging", "profiling", "diagnostics", "io", "solver_monitoring", "solution_monitoring",
         "field_statistics",
     },
-    ("logging",): {"verbosity", "enabled_functions"},
+    ("logging",): {"verbosity", "enabled_functions", "trace_particles"},
     ("profiling",): {"timestep_output", "final_summary", "helpers"},
     ("profiling", "timestep_output"): {"mode", "functions", "file"},
     ("profiling", "final_summary"): {"enabled"},
@@ -10931,6 +10931,15 @@ def validate_simulation_configs(case_cfg: dict, solver_cfg: dict, monitor_cfg: d
         for key in ('write_initial_checkpoint', 'write_final_checkpoint'):
             if key in io_cfg and not isinstance(io_cfg[key], bool):
                 errors.append(f"  {monitor_path}: 'io.{key}' must be true or false (got {io_cfg[key]!r}).")
+        try:
+            physics_cfg = (case_cfg.get('models') or {}).get('physics') if isinstance(case_cfg, dict) and isinstance(case_cfg.get('models') or {}, dict) else None
+            particles_cfg = physics_cfg.get('particles') if isinstance(physics_cfg, dict) else None
+            particle_count = particles_cfg.get('count', 0) if isinstance(particles_cfg, dict) else 0
+            if resolve_traced_particle_ids(monitor_cfg) and not particle_count:
+                errors.append(f"  {monitor_path}: 'logging.trace_particles' needs particles; "
+                              "models.physics.particles.count is 0.")
+        except ValueError as e:
+            errors.append(f"  {monitor_path}: {e}")
         particle_console_freq = io_cfg.get('particle_console_output_frequency')
         if particle_console_freq is not None and (not isinstance(particle_console_freq, int) or particle_console_freq < 0):
             errors.append(
@@ -16310,6 +16319,30 @@ def resolve_solver_monitoring_flags(monitor_cfg: dict) -> dict:
     return flags
 
 
+MAX_TRACED_PARTICLES = 64  # PICURV_MAX_TRACED_PARTICLES in include/variables.h
+
+
+def resolve_traced_particle_ids(monitor_cfg: dict) -> list:
+    """!
+    @brief Return the sorted, distinct particle IDs of `logging.trace_particles`.
+    @param[in] monitor_cfg Parsed monitor configuration.
+    @return Sorted list of non-negative integer IDs; empty when tracing is off.
+    @throws ValueError When the value is not a list of at most 64 non-negative integers.
+    """
+    logging_cfg = monitor_cfg.get('logging') if isinstance(monitor_cfg, dict) else None
+    if not isinstance(logging_cfg, dict) or logging_cfg.get('trace_particles') is None:
+        return []
+    raw = logging_cfg['trace_particles']
+    if not isinstance(raw, list) or any(isinstance(pid, bool) or not isinstance(pid, int) or pid < 0 for pid in raw):
+        raise ValueError("'logging.trace_particles' must be a list of non-negative integer particle IDs "
+                         f"(got {raw!r}).")
+    traced = sorted(set(raw))
+    if len(traced) > MAX_TRACED_PARTICLES:
+        raise ValueError(f"'logging.trace_particles' accepts at most {MAX_TRACED_PARTICLES} particle IDs "
+                         f"(got {len(traced)}).")
+    return traced
+
+
 def resolve_particle_console_output_frequency(io_cfg: dict) -> "int | None":
     """!
     @brief Return the effective particle-console snapshot cadence from monitor.yml.
@@ -17203,6 +17236,9 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     if statistics_console_output_freq is not None:
         control_lines.append(f"-statistics_console_output_freq {statistics_console_output_freq}")
     if 'particle_log_interval' in io_cfg: control_lines.append(f"-logfreq {io_cfg['particle_log_interval']}")
+    traced = resolve_traced_particle_ids(monitor_cfg)
+    if traced:
+        control_lines.append(f"-picurv_trace_particles {','.join(str(pid) for pid in traced)}")
     if restart_source_dir:
         expected_restart = os.path.abspath(
             os.path.join(run_dir, CANONICAL_RUN_PATHS["restart"])

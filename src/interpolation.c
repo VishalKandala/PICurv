@@ -503,8 +503,6 @@ PetscErrorCode PieceWiseLinearInterpolation_Vector(
  * @brief Compute the eight trilinear interpolation weights for a particle's local coordinates.
  */
 static inline void ComputeTrilinearWeights(PetscReal a1, PetscReal a2, PetscReal a3, PetscReal *w) {
-    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Computing weights for a1=%f, a2=%f, a3=%f.\n", a1, a2, a3);
-
     // Ensure a1, a2, a3 are within [0,1]
     a1 = PetscMax(0.0, PetscMin(1.0, a1));
     a2 = PetscMax(0.0, PetscMin(1.0, a2));
@@ -522,11 +520,6 @@ static inline void ComputeTrilinearWeights(PetscReal a1, PetscReal a2, PetscReal
     w[5] = a1  * oa2 * a3;   /* cornerOffsets[5] => (1,0,1) */
     w[6] = oa1 * a2  * a3;   /* cornerOffsets[6] => (0,1,1) */
     w[7] = a1  * a2  * a3;   /* cornerOffsets[7] => (1,1,1) */
-
-    // Log the computed weights for debugging
-    LOG_ALLOW(LOCAL,LOG_VERBOSE, "Weights computed - "
-        "w0=%f, w1=%f, w2=%f, w3=%f, w4=%f, w5=%f, w6=%f, w7=%f. \n",
-        w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]);
 }
 
 /**
@@ -536,8 +529,6 @@ static inline void ComputeTrilinearWeights(PetscReal a1, PetscReal a2, PetscReal
  *          extrapolation at non-periodic boundaries. Weights still sum to 1.0.
  */
 static inline void ComputeTrilinearWeightsUnclamped(PetscReal a1, PetscReal a2, PetscReal a3, PetscReal *w) {
-    LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Computing unclamped weights for a1=%f, a2=%f, a3=%f.\n", a1, a2, a3);
-
     const PetscReal oa1 = 1.0 - a1;
     const PetscReal oa2 = 1.0 - a2;
     const PetscReal oa3 = 1.0 - a3;
@@ -550,10 +541,6 @@ static inline void ComputeTrilinearWeightsUnclamped(PetscReal a1, PetscReal a2, 
     w[5] = a1  * oa2 * a3;
     w[6] = oa1 * a2  * a3;
     w[7] = a1  * a2  * a3;
-
-    LOG_ALLOW(LOCAL, LOG_VERBOSE, "Unclamped weights - "
-        "w0=%f, w1=%f, w2=%f, w3=%f, w4=%f, w5=%f, w6=%f, w7=%f.\n",
-        w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]);
 }
 
 
@@ -604,16 +591,7 @@ PetscErrorCode TrilinearInterpolation_Scalar(
     sum += wcorner[7] * fieldScal[k1][j1][i1];
 
     *val = sum;
-
-    // Logging (optional)
-    LOG_ALLOW(LOCAL, LOG_VERBOSE,
-        "Field '%s' at (i=%" PetscInt_FMT ", j=%" PetscInt_FMT ", k=%" PetscInt_FMT "), "
-        "a1=%.6f, a2=%.6f, a3=%.6f -> val=%.6f.\n",
-        fieldName, i, j, k, a1, a2, a3, *val);
-
-    // LOG_ALLOW_SYNC(GLOBAL, LOG_INFO,
-    //    "TrilinearInterpolation_Scalar: Completed interpolation for field '%s' across local cells.\n",
-	  //    fieldName);
+    (void)fieldName; /* The interpolate stage's particle line reports the corners and result. */
 
     PetscFunctionReturn(0);
 }
@@ -638,14 +616,9 @@ PetscErrorCode TrilinearInterpolation_Vector(
 
   // Compute the 8 corner weights
   PetscReal wcorner[8];
-  PetscMPIInt rank;
 
-  rank = PetscGlobalRank;
-  
-  LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d] Computing Trilinear Weights.\n",rank);
   ComputeTrilinearWeights(a1, a2, a3, wcorner);
-  
-  LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]  Trilinear weights computed for local cell %" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ".\n",rank,i,j,k);
+  (void)fieldName; /* The interpolate stage's particle line reports the corners and result. */
 
   // For partial interpolation, we'll keep track of how many corners are valid
   // and how much sum of weights is used. Then we do a final normalization.
@@ -688,8 +661,6 @@ PetscErrorCode TrilinearInterpolation_Vector(
 
     */
 
-    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d] %s[%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] = (%.4f,%.4f,%.4f).\n",rank,fieldName,kC,jC,iC,fieldVec[kC][jC][iC].x,fieldVec[kC][jC][iC].y,fieldVec[kC][jC][iC].z);
-    
     // Otherwise, accumulate
     accum.x += wcorner[c] * fieldVec[kC][jC][iC].x;
     accum.y += wcorner[c] * fieldVec[kC][jC][iC].y;
@@ -731,13 +702,9 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
   PetscReal a2 = particle->weights.y;
   PetscReal a3 = particle->weights.z;
 
-  PROFILE_FUNCTION_BEGIN;
-
-  // Optional logging at start
-  LOG_ALLOW(LOCAL, LOG_VERBOSE,
-    "field='%s', blockSize=%" PetscInt_FMT ", "
-    "cell IDs=(%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "), weights=(%.4f,%.4f,%.4f)\n",
-    fieldName, blockSize, iCell, jCell, kCell, a1, a2, a3);
+  /* Called once per particle: a helper event, timed only when enabled by name. The caller
+   * reports the particle's result in its interpolate line. */
+  PROFILE_HELPER_BEGIN;
 
   /*
      If blockSize=1, we PetscInterpret the fieldPtr as a 3D array of PetscReal (scalar).
@@ -764,10 +731,6 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
 
     // Write the scalar result to the swarm output at index [p].
     ((PetscReal*)swarmOut)[p] = val;
-
-    LOG_ALLOW(LOCAL, LOG_VERBOSE,
-      "field='%s', result=%.6f "
-      "stored at swarmOut index p=%" PetscInt_FMT ".\n", fieldName, val, (PetscInt)p);
   }
   else if (blockSize == 3) {
     /* Vector field: Cast fieldPtr to (Cmpnts ***). */
@@ -796,11 +759,6 @@ static inline PetscErrorCode InterpolateEulerFieldToSwarmForParticle(
     ((PetscReal*)swarmOut)[3*p + 1] = vec.y;
     ((PetscReal*)swarmOut)[3*p + 2] = vec.z;
 
-    LOG_ALLOW(LOCAL, LOG_VERBOSE,
-      "field='%s', result=(%.6f,%.6f,%.6f) "
-      "stored at swarmOut[3p..3p+2], p=%" PetscInt_FMT ".\n",
-      fieldName, vec.x, vec.y, vec.z, (PetscInt)p);
-
     /*
        If you store the vector result as a Cmpnts in the swarm, do instead:
          ((Cmpnts*)swarmOut)[p] = vec;
@@ -827,6 +785,34 @@ typedef struct CenterInterpolationTarget {
     void       *field_ptr;   ///< Source array while the pass runs.
     PetscReal  *swarm_out;   ///< Destination array while the pass runs.
 } CenterInterpolationTarget;
+
+/**
+ * @brief Appends one target's interpolated value and its eight dual-cell corner values to a
+ *        particle's interpolate line; the text is truncated rather than overrun.
+ * @details Corners are listed i fastest, then j, then k, from dual base `(bi, bj, bk)`.
+ *          Local to this translation unit.
+ */
+static void AppendInterpolationTargetText(char *text, size_t size, size_t *used,
+                                          const CenterInterpolationTarget *tg, PetscInt p,
+                                          PetscInt bi, PetscInt bj, PetscInt bk)
+{
+#define PICURV_APPEND(...) do { if (*used < size) { int _n = snprintf(text + *used, size - *used, __VA_ARGS__); \
+                                if (_n > 0) *used = PetscMin(size - 1, *used + (size_t)_n); } } while (0)
+    PICURV_APPEND(" | %s =", tg->field_name);
+    for (PetscInt c = 0; c < tg->bs; ++c) PICURV_APPEND(" %.6e", (double)tg->swarm_out[tg->bs * p + c]);
+    PICURV_APPEND(" from corners");
+    for (PetscInt dk = 1; dk <= 2; ++dk) for (PetscInt dj = 1; dj <= 2; ++dj) for (PetscInt di = 1; di <= 2; ++di) {
+        if (tg->bs == 1) {
+            const PetscReal ***f = (const PetscReal ***)tg->field_ptr;
+            PICURV_APPEND(" %.6e", (double)f[bk + dk][bj + dj][bi + di]);
+        } else {
+            const Cmpnts ***f = (const Cmpnts ***)tg->field_ptr;
+            const Cmpnts v = f[bk + dk][bj + dj][bi + di];
+            PICURV_APPEND(" (%.6e,%.6e,%.6e)", (double)v.x, (double)v.y, (double)v.z);
+        }
+    }
+#undef PICURV_APPEND
+}
 
 
 /**
@@ -882,7 +868,7 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
         CenterInterpolationTarget *tg = &targets[t];
         ierr = VecGetBlockSize(tg->local_vec, &tg->bs); CHKERRQ(ierr);
         if (tg->bs != 1 && tg->bs != 3) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_SUP, "BlockSize must be 1 or 3.");
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Starting direct cell-center interpolation for field '%s'...\n", tg->field_name);
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Starting direct cell-center interpolation for field '%s'...\n", tg->field_name);
         ierr = DMDAVecGetArrayRead((tg->bs == 3) ? user->fda : user->da, tg->local_vec, &tg->field_ptr); CHKERRQ(ierr);
         ierr = DMSwarmGetField(swarm, tg->swarm_name, NULL, NULL, (void **)&tg->swarm_out); CHKERRQ(ierr);
     }
@@ -896,6 +882,7 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status); CHKERRQ(ierr);
 
     /* Loop over each local particle */
+    PetscInt n_outside = 0; /* Particles whose dual cell lies outside the ghosted region */
     for (PetscInt p = 0; p < nLocal; p++) {
 
         Particle particle;
@@ -938,10 +925,11 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
             bj + 1 < info.gys || bj + 1 >= info.gys + info.gym - 1 ||
             bk + 1 < info.gzs || bk + 1 >= info.gzs + info.gzm - 1)
         {
+            n_outside++;
+            LOG_PARTICLE(user->simCtx, particle.PID, "interpolate",
+                         "dual cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") outside the ghosted region: %" PetscInt_FMT " field(s) zeroed\n",
+                         bi, bj, bk, ntargets);
             for (PetscInt t = 0; t < ntargets; ++t) {
-                LOG_ALLOW(LOCAL, LOG_WARNING,
-                    "[Rank %d] Particle PID %lld: dual cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") out of ghosted region. Zeroing '%s'.\n",
-                    rank, (long long)particle.PID, bi, bj, bk, targets[t].field_name);
                 for (PetscInt c = 0; c < targets[t].bs; ++c) targets[t].swarm_out[targets[t].bs * p + c] = 0.0;
             }
             continue;
@@ -960,10 +948,6 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
         PetscReal a3_new = d[BACK]   / (d[FRONT]  + d[BACK]);
         PetscReal w[8] = {0}; /* Read only when needs_unclamped, which also fills it */
         if (needs_unclamped) ComputeTrilinearWeightsUnclamped(a1_new, a2_new, a3_new, w);
-
-        LOG_ALLOW(LOCAL, LOG_VERBOSE,
-            "[Rank %d] PID %lld: dual base=(%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "), new weights=(%.4f,%.4f,%.4f), unclamped=%d\n",
-            rank, (long long)particle.PID, bi, bj, bk, a1_new, a2_new, a3_new, (int)needs_unclamped);
 
         /* Step 8: Call TrilinearInterpolation directly with shifted dual-cell indices.
          * Shifted index: pass (bi+1, bj+1, bk+1) so the kernel accesses
@@ -1009,6 +993,21 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
                 swarmOut[3*p + 2] = vec.z;
             }
         }
+        if (PARTICLE_LOG_ACTIVE(user->simCtx, particle.PID)) {
+            char   text[4096];
+            size_t used = 0;
+            text[0] = '\0';
+            for (PetscInt t = 0; t < ntargets; ++t) AppendInterpolationTargetText(text, sizeof(text), &used, &targets[t], p, bi, bj, bk);
+            LOG_PARTICLE(user->simCtx, particle.PID, "interpolate",
+                         "host cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") dual base (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") weights (%.6f, %.6f, %.6f)%s%s\n",
+                         ci, cj, ck, bi, bj, bk, a1_new, a2_new, a3_new,
+                         needs_unclamped ? " unclamped extrapolation" : "", text);
+        }
+    }
+    if (n_outside > 0) {
+        LOG_ALLOW(LOCAL, LOG_WARNING,
+                  "[Rank %d] %" PetscInt_FMT " particle(s) had their dual cell outside the ghosted region; their interpolated fields were zeroed.\n",
+                  rank, n_outside);
     }
 
     /* Restore arrays and swarm fields */
@@ -1016,7 +1015,7 @@ static PetscErrorCode InterpolateEulerFieldFromCenterToSwarm(
         CenterInterpolationTarget *tg = &targets[t];
         ierr = DMDAVecRestoreArrayRead((tg->bs == 3) ? user->fda : user->da, tg->local_vec, &tg->field_ptr); CHKERRQ(ierr);
         ierr = DMSwarmRestoreField(swarm, tg->swarm_name, NULL, NULL, (void **)&tg->swarm_out); CHKERRQ(ierr);
-        LOG_ALLOW(GLOBAL, LOG_INFO, "Finished direct cell-center interpolation for field '%s'.\n", tg->field_name);
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "Finished direct cell-center interpolation for field '%s'.\n", tg->field_name);
     }
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void**)&weights); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&pids); CHKERRQ(ierr);
@@ -1068,6 +1067,7 @@ static PetscErrorCode InterpolateEulerVelocityFromFacesToSwarm(UserCtx *user, co
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&pids); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, swarmOutFieldName, NULL, NULL, (void**)&velocity); CHKERRQ(ierr);
 
+    PetscInt n_outside = 0; /* Particles whose host-cell faces lie outside the ghosted region */
     for (PetscInt p = 0; p < nLocal; p++) {
         /* Host cell in cell-centred array numbering; its minimum faces are one index below. */
         const PetscInt i = cellIDs[3*p + 0] + 1, j = cellIDs[3*p + 1] + 1, k = cellIDs[3*p + 2] + 1;
@@ -1077,9 +1077,10 @@ static PetscErrorCode InterpolateEulerVelocityFromFacesToSwarm(UserCtx *user, co
         if (i - 1 < info.gxs || i >= info.gxs + info.gxm ||
             j - 1 < info.gys || j >= info.gys + info.gym ||
             k - 1 < info.gzs || k >= info.gzs + info.gzm) {
-            LOG_ALLOW(LOCAL, LOG_WARNING,
-                "[Rank %d] Particle PID %lld: host cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") faces out of ghosted region. Zeroing '%s'.\n",
-                rank, (long long)pids[p], i - 1, j - 1, k - 1, swarmOutFieldName);
+            n_outside++;
+            LOG_PARTICLE(user->simCtx, pids[p], "interpolate",
+                         "host cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") faces outside the ghosted region: '%s' zeroed\n",
+                         i - 1, j - 1, k - 1, swarmOutFieldName);
             velocity[3*p + 0] = velocity[3*p + 1] = velocity[3*p + 2] = 0.0;
             continue;
         }
@@ -1087,6 +1088,16 @@ static PetscErrorCode InterpolateEulerVelocityFromFacesToSwarm(UserCtx *user, co
         velocity[3*p + 0] = u.x;
         velocity[3*p + 1] = u.y;
         velocity[3*p + 2] = u.z;
+        LOG_PARTICLE(user->simCtx, pids[p], "interpolate",
+                     "face-flux '%s' in host cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") weights (%.6f, %.6f, %.6f) from fluxes x %.6e %.6e y %.6e %.6e z %.6e %.6e = (%.6e, %.6e, %.6e)\n",
+                     swarmOutFieldName, i - 1, j - 1, k - 1, w.x, w.y, w.z,
+                     lucont[k][j][i-1].x, lucont[k][j][i].x, lucont[k][j-1][i].y, lucont[k][j][i].y,
+                     lucont[k-1][j][i].z, lucont[k][j][i].z, u.x, u.y, u.z);
+    }
+    if (n_outside > 0) {
+        LOG_ALLOW(LOCAL, LOG_WARNING,
+                  "[Rank %d] %" PetscInt_FMT " particle(s) had their host-cell faces outside the ghosted region; '%s' was zeroed for them.\n",
+                  rank, n_outside, swarmOutFieldName);
     }
 
     ierr = DMSwarmRestoreField(swarm, swarmOutFieldName, NULL, NULL, (void**)&velocity); CHKERRQ(ierr);
@@ -1343,16 +1354,13 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     LOG_ALLOW(LOCAL,LOG_TRACE," Rank %d holds data upto & including %" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ".\n",rank,info.gxs + info.gxm,info.gys+info.gym,info.gzs+info.gzm);
 
     // (G) Loop over each local particle
+    PetscInt n_outside = 0; /* Particles whose corner stencil lies outside the ghosted region */
     for (PetscInt p = 0; p < nLocal; p++) {
         
         Particle particle;
 
         ierr = UnpackSwarmFields(p,pids,weights,pos,cellIDs,NULL,status,NULL,NULL,NULL,&particle); CHKERRQ(ierr);
-        
-        LOG_ALLOW(LOCAL, LOG_VERBOSE,
-          "[Rank %d] Particle PID %lld: global cell=(%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "), weights=(%.4f,%.4f,%.4f)\n",
-          rank, (long long)particle.PID, particle.cell[0], particle.cell[1], particle.cell[2],
-          particle.weights.x, particle.weights.y, particle.weights.z);
+
         // Safety check: Ensure the entire 8-node stencil is within the valid memory
         // region (owned + ghosts) of the local array.
 
@@ -1360,9 +1368,10 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
             particle.cell[1] < info.gys || particle.cell[1] >= info.gys + info.gym - 1 ||
             particle.cell[2] < info.gzs || particle.cell[2] >= info.gzs + info.gzm - 1)
         {
-            LOG_ALLOW(LOCAL, LOG_WARNING,
-                      "[Rank %d] Particle PID %lld in global cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") is in an un-interpolatable region (requires ghosts of ghosts or is out of bounds). Zeroing field '%s'.\n",
-                      rank, (long long)particle.PID, particle.cell[0], particle.cell[1], particle.cell[2], fieldName);
+            n_outside++;
+            LOG_PARTICLE(user->simCtx, particle.PID, "interpolate",
+                         "cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") corner stencil outside the ghosted region: '%s' zeroed\n",
+                         particle.cell[0], particle.cell[1], particle.cell[2], fieldName);
             if (bs == 3) {
                 ((PetscReal*)swarmOut)[3*p + 0] = 0.0;
                 ((PetscReal*)swarmOut)[3*p + 1] = 0.0;
@@ -1379,6 +1388,19 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
                   &particle,
                   swarmOut, p, bs);
         CHKERRQ(ierr);
+        {
+            const PetscReal *out = (const PetscReal *)swarmOut + bs * p;
+            LOG_PARTICLE(user->simCtx, particle.PID, "interpolate",
+                         "corner-averaged '%s' in cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") weights (%.6f, %.6f, %.6f) = %.6e %.6e %.6e\n",
+                         fieldName, particle.cell[0], particle.cell[1], particle.cell[2],
+                         particle.weights.x, particle.weights.y, particle.weights.z,
+                         (double)out[0], (double)(bs == 3 ? out[1] : 0.0), (double)(bs == 3 ? out[2] : 0.0));
+        }
+    }
+    if (n_outside > 0) {
+        LOG_ALLOW(LOCAL, LOG_WARNING,
+                  "[Rank %d] %" PetscInt_FMT " particle(s) had their corner stencil outside the ghosted region; '%s' was zeroed for them.\n",
+                  rank, n_outside, fieldName);
     }
 
     // (H) Restore all retrieved arrays and vectors */

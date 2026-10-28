@@ -872,112 +872,72 @@ PetscErrorCode UnpackSwarmFields(PetscInt i, const PetscInt64 *PIDs, const Petsc
 
     PROFILE_HELPER_BEGIN;
 
-    PetscMPIInt rank;
-
-    rank = PetscGlobalRank;
-    
+    // The particle's values are reported by the stage that uses them, not here: this runs
+    // several times per particle per step.
     if (particle == NULL) {
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Output Particle pointer is NULL. \n");
     }
-    
-    // logging the start of particle initialization
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "[Rank %d]Unpacking Particle [%" PetscInt_FMT "] with PID: %ld.\n",rank, i, PIDs[i]);
-    
-    // Initialize PID
     if(PIDs == NULL){
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input PIDs pointer is NULL.\n");
     }
+    if(positions == NULL){
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input positions pointer is NULL.\n");
+    }
+    if(cellIndices == NULL){
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input cellIndices pointer is NULL.\n");
+    }
+    if(LocStatus == NULL){
+        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input LocStatus pointer is NULL.\n");
+    }
+
     particle->PID = PIDs[i];
-    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%" PetscInt_FMT "] PID set to: %ld.\n", rank,i, particle->PID);
-    
-    // Initialize weights
+
+    // A NULL optional field is one the caller does not need; it takes the default shown.
     if(weights == NULL){
         particle->weights.x = 1.0;
         particle->weights.y = 1.0;
         particle->weights.z = 1.0;
-        LOG_ALLOW(LOCAL,LOG_WARNING, "[Rank %d]Particle [%" PetscInt_FMT "] weights pointer is NULL. Defaulting weights to (1.0, 1.0, 1.0).\n", rank,i);
     }else{
-    particle->weights.x = weights[3 * i];
-    particle->weights.y = weights[3 * i + 1];
-    particle->weights.z = weights[3 * i + 2];
-    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%" PetscInt_FMT "] weights set to: (%.6f, %.6f, %.6f).\n", 
-        rank,i, particle->weights.x, particle->weights.y, particle->weights.z);
+        particle->weights.x = weights[3 * i];
+        particle->weights.y = weights[3 * i + 1];
+        particle->weights.z = weights[3 * i + 2];
     }
-    // Initialize locations
-    if(positions == NULL){
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input positions pointer is NULL.\n");
-    }
+
     particle->loc.x = positions[3 * i];
     particle->loc.y = positions[3 * i + 1];
     particle->loc.z = positions[3 * i + 2];
-    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%" PetscInt_FMT "] location set to: (%.6f, %.6f, %.6f).\n", 
-        rank,i, particle->loc.x, particle->loc.y, particle->loc.z);
-    
-    // Initialize velocities (assuming default zero; modify if necessary)
+
     if(velocities == NULL){
         particle->vel.x = 0.0;
         particle->vel.y = 0.0;
         particle->vel.z = 0.0;
-        LOG_ALLOW(LOCAL,LOG_WARNING, "[Rank %d]Particle [%" PetscInt_FMT "] velocities pointer is NULL. Defaulting velocities to (0.0, 0.0, 0.0).\n", rank,i);
     }else{
-    particle->vel.x = velocities[3 * i];
-    particle->vel.y = velocities[3 * i + 1];
-    particle->vel.z = velocities[3 * i + 2];
-    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%" PetscInt_FMT "] velocities unpacked to: [%.6f,%.6f,%.6f].\n",rank, i,particle->vel.x,particle->vel.y,particle->vel.z);
+        particle->vel.x = velocities[3 * i];
+        particle->vel.y = velocities[3 * i + 1];
+        particle->vel.z = velocities[3 * i + 2];
     }
-    
-    // Initialize diffusivity
-    if(diffusivity == NULL){
-        particle->diffusivity = 1.0; // Default diffusivity
-    }else{
-        particle->diffusivity = diffusivity[i];
-    }
-    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%" PetscInt_FMT "] diffusivity set to: %.6f.\n",rank,i, particle->diffusivity);
-    
-    // Initialize diffusivity gradient
+
+    particle->diffusivity = (diffusivity == NULL) ? 1.0 : diffusivity[i];
+
     if(diffusivitygradient == NULL){
         particle->diffusivitygradient.x = 0.0;
         particle->diffusivitygradient.y = 0.0;
         particle->diffusivitygradient.z = 0.0;
-        LOG_ALLOW(LOCAL,LOG_WARNING, "[Rank %d]Particle [%" PetscInt_FMT "] diffusivity gradient pointer is NULL. Defaulting to (0.0, 0.0, 0.0).\n", rank,i);
     }else{
-        particle->diffusivitygradient.x = diffusivitygradient[i].x;
-        particle->diffusivitygradient.y = diffusivitygradient[i].y;
-        particle->diffusivitygradient.z = diffusivitygradient[i].z;
+        particle->diffusivitygradient = diffusivitygradient[i];
     }
-    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%" PetscInt_FMT "] diffusivity gradient set to: (%.6f, %.6f, %.6f).\n", rank,i,particle->diffusivitygradient.x,particle->diffusivitygradient.y,particle->diffusivitygradient.z);
 
-    // Initialize psi
-    if(psi == NULL){
-        particle->psi = 0.0; // Default psi
-    }else{
-    particle->psi = psi[i];
-    }        
-    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%" PetscInt_FMT "] psi set to: %.6f.\n",rank,i, particle->psi);
-    
-    // Initialize cell indices
-    if(cellIndices == NULL){
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input cellIndices pointer is NULL.\n");
-    }
+    particle->psi = (psi == NULL) ? 0.0 : psi[i];
+
     particle->cell[0] = cellIndices[3 * i];
     particle->cell[1] = cellIndices[3 * i + 1];
     particle->cell[2] = cellIndices[3 * i + 2];
-    LOG_ALLOW(LOCAL,LOG_VERBOSE,"[Rank %d]Particle [%" PetscInt_FMT "] cell indices set to: [%" PetscInt_FMT ", %" PetscInt_FMT ", %" PetscInt_FMT "].\n",rank,i, particle->cell[0], particle->cell[1], particle->cell[2]);
 
-    if(LocStatus == NULL){
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Input LocStatus pointer is NULL.\n");
-    }
-    // Initialize location status
     particle->location_status = (ParticleLocationStatus)LocStatus[i];
-    LOG_ALLOW(LOCAL,LOG_VERBOSE, "[Rank %d]Particle [%" PetscInt_FMT "] Status set to: %d.\n",rank, i, particle->location_status);
 
     // The destination_rank is only set by the location search, not read from the swarm,
     // so we initialize it to a known invalid state.
     particle->destination_rank = MPI_PROC_NULL;
-    
-    // logging the completion of particle initialization
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"[Rank %d]Completed initialization of Particle [%" PetscInt_FMT "]. \n", rank,i);
-    
 
     PROFILE_FUNCTION_END;
 
@@ -1053,8 +1013,6 @@ PetscErrorCode UpdateSwarmFields(PetscInt i, const Particle *particle,
         psi[i] = particle->psi;
     }
 
-    // LOG_LOOP_ALLOW(LOCAL, LOG_VERBOSE, i, 1000, "Updated fields for Particle [%d].\n", i);
-
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -1086,23 +1044,14 @@ PetscBool IsParticleInsideBoundingBox(const BoundingBox *bbox, const Particle *p
     const Cmpnts min_coords = bbox->min_coords;
     const Cmpnts max_coords = bbox->max_coords;
 
-    // LOG_ALLOW the particle location and bounding box coordinates for debugging
-    LOG_ALLOW_SYNC(LOCAL, LOG_VERBOSE, "Particle PID %ld location: (%.6f, %.6f, %.6f).\n",particle->PID, loc.x, loc.y, loc.z);
-    LOG_ALLOW_SYNC(LOCAL, LOG_VERBOSE, "BoundingBox min_coords: (%.6f, %.6f, %.6f), max_coords: (%.6f, %.6f, %.6f).\n", 
-    min_coords.x, min_coords.y, min_coords.z, max_coords.x, max_coords.y, max_coords.z);
-
     // Check if the particle's location is within the bounding box
     if ((loc.x >= min_coords.x && loc.x <= max_coords.x) &&
         (loc.y >= min_coords.y && loc.y <= max_coords.y) &&
         (loc.z >= min_coords.z && loc.z <= max_coords.z)) {
-        // Particle is inside the bounding box
-        LOG_ALLOW_SYNC(LOCAL,LOG_VERBOSE, "Particle PID %ld is inside the bounding box.\n",particle->PID);
         PROFILE_FUNCTION_END;
         return PETSC_TRUE;
     }
 
-    // Particle is outside the bounding box
-    LOG_ALLOW_SYNC(LOCAL, LOG_VERBOSE,"Particle PID %ld is outside the bounding box.\n",particle->PID);
     PROFILE_FUNCTION_END;
     return PETSC_FALSE;
 }
@@ -1127,29 +1076,20 @@ PetscErrorCode UpdateParticleWeights(PetscReal *d, Particle *particle) {
     // Validate distances
     for (PetscInt i = LEFT; i < NUM_FACES; i++) {
         if (d[i] <= INTERPOLATION_DISTANCE_TOLERANCE) {
-            LOG_ALLOW(LOCAL, LOG_WARNING,
-                "face distance d[%" PetscInt_FMT "] = %f <= %f; "
-                "clamping to 1e-14 to avoid zero/negative.\n",
+            // A particle on a face: benign, so reported only to a VERBOSE run of this function.
+            LOG_ALLOW(LOCAL, LOG_VERBOSE,
+                "face distance d[%" PetscInt_FMT "] = %g <= %g; "
+                "clamping to avoid zero/negative.\n",
                 i, (double)d[i], INTERPOLATION_DISTANCE_TOLERANCE);
             d[i] = INTERPOLATION_DISTANCE_TOLERANCE;
         }
     }
-
-    // LOG_ALLOW the input distances
-    LOG_ALLOW(LOCAL, LOG_VERBOSE,
-        "Calculating weights with distances: "
-        "[LEFT=%f, RIGHT=%f, BOTTOM=%f, TOP=%f, FRONT=%f, BACK=%f].\n",
-        d[LEFT], d[RIGHT], d[BOTTOM], d[TOP], d[FRONT], d[BACK]);
 
     // Compute and update the particle's weights
     particle->weights.x = d[LEFT] / (d[LEFT] + d[RIGHT]);
     particle->weights.y = d[BOTTOM] / (d[BOTTOM] + d[TOP]);
     particle->weights.z = d[BACK] / (d[FRONT] + d[BACK]);
 
-    // LOG_ALLOW the updated weights
-    LOG_ALLOW(LOCAL,LOG_VERBOSE,
-        "Updated particle weights: x=%f, y=%f, z=%f.\n",
-        particle->weights.x, particle->weights.y, particle->weights.z);
 
 
     PROFILE_FUNCTION_END;

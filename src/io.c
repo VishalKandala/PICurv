@@ -2872,6 +2872,13 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
                 ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Console Cadence   : DISABLED\n"); CHKERRQ(ierr);
             }
             ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Log Row Sampling  : every %" PetscInt_FMT " particle(s)\n", simCtx->LoggingFrequency); CHKERRQ(ierr);
+            if (simCtx->nTracePIDs > 0) {
+                ierr = PetscPrintf(PETSC_COMM_SELF, " Traced Particles           :"); CHKERRQ(ierr);
+                for (PetscInt t = 0; t < simCtx->nTracePIDs; ++t) {
+                    ierr = PetscPrintf(PETSC_COMM_SELF, " %lld", (long long)simCtx->tracePIDs[t]); CHKERRQ(ierr);
+                }
+                ierr = PetscPrintf(PETSC_COMM_SELF, "\n"); CHKERRQ(ierr);
+            }
             if (simCtx->StartStep > 0) {
                 ierr = PetscPrintf(PETSC_COMM_SELF, " Particle Restart Mode      : %s\n", simCtx->particleRestartMode); CHKERRQ(ierr);
             }
