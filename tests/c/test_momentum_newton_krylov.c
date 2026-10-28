@@ -89,7 +89,7 @@ static PetscErrorCode AssertNewtonLog(const char *path, PetscInt expected_rows,
     PetscCheck(file != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
                "Expected Newton log does not exist: %s", path);
     while (fgets(line, sizeof(line), file)) {
-        if (strncmp(line, "step:", 5) == 0) rows++;
+        if (line[0] >= '0' && line[0] <= '9') rows++; /* CSV data rows; the header and comments are not */
         if (needle_a && strstr(line, needle_a)) found_a = PETSC_TRUE;
         if (needle_b && strstr(line, needle_b)) found_b = PETSC_TRUE;
     }
@@ -100,6 +100,9 @@ static PetscErrorCode AssertNewtonLog(const char *path, PetscInt expected_rows,
     } else {
         PetscCall(PicurvAssertBool((PetscBool)(rows >= -expected_rows),
                                    "enabled Newton history must contain the expected iteration rows"));
+    }
+    if (!found_a || !found_b) {
+        PetscCall(PetscPrintf(PETSC_COMM_SELF, "%s lacks '%s'\n", path, !found_a ? needle_a : needle_b));
     }
     PetscCall(PicurvAssertBool(found_a, "Newton log is missing required structured content"));
     PetscCall(PicurvAssertBool(found_b, "Newton log is missing required structured content"));
@@ -1034,15 +1037,15 @@ static PetscErrorCode TestSmallSolveAndRollback(void)
     PetscCall(PicurvAssertBool((PetscBool)(user->Rhs != NULL && user->momentumNewtonKrylov != NULL),
                                "successful solve must keep its workspace for the next step"));
     PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path),
-                            "%s/Momentum_Solver_Newton_Krylov_Summary_Block_0.log", simCtx->log_dir));
+                            "%s/Momentum_Solver_Newton_Krylov_Summary_Block_0.csv", simCtx->log_dir));
     PetscCall(PetscSNPrintf(history_path, sizeof(history_path),
-                            "%s/Momentum_Solver_Newton_Krylov_History_Block_0.log", simCtx->log_dir));
+                            "%s/Momentum_Solver_Newton_Krylov_History_Block_0.csv", simCtx->log_dir));
     PetscCall(PetscSNPrintf(linear_history_path, sizeof(linear_history_path),
-                            "%s/Momentum_Solver_Newton_Krylov_Linear_History_Block_0.log",
+                            "%s/Momentum_Solver_Newton_Krylov_Linear_History_Block_0.csv",
                             simCtx->log_dir));
-    PetscCall(AssertNewtonLog(summary_path, 1, "solver: Newton Krylov", "state: committed"));
-    PetscCall(AssertNewtonLog(history_path, -2, "newton: 0", "nonlinear_norm:"));
-    PetscCall(AssertNewtonLog(linear_history_path, -2, "krylov: 0", "requested_rtol:"));
+    PetscCall(AssertNewtonLog(summary_path, 1, ",Newton Krylov,", ",committed\n"));
+    PetscCall(AssertNewtonLog(history_path, -2, "step,block,newton,nonlinear_norm", ",0,0,"));
+    PetscCall(AssertNewtonLog(linear_history_path, -2, "krylov,requested_rtol,reported_residual_norm", ",0,0,0,"));
 
     PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));
     tmpdir[0] = '\0';
@@ -1066,8 +1069,8 @@ static PetscErrorCode TestSmallSolveAndRollback(void)
     PetscCall(PicurvAssertBool((PetscBool)(user->Rhs != NULL && user->momentumNewtonKrylov != NULL),
                                "committed unconverged solve must keep its workspace for the next step"));
     PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path),
-                            "%s/Momentum_Solver_Newton_Krylov_Summary_Block_0.log", simCtx->log_dir));
-    PetscCall(AssertNewtonLog(summary_path, 1, "reason_code: -", "state: committed_unconverged"));
+                            "%s/Momentum_Solver_Newton_Krylov_Summary_Block_0.csv", simCtx->log_dir));
+    PetscCall(AssertNewtonLog(summary_path, 1, ",DIVERGED_", ",committed_unconverged\n"));
 
     /* A non-finite residual is the one failure that must still roll back and stop the run.
        Options are read when the solve context is built, so release it to apply the new limit. */
@@ -1089,7 +1092,7 @@ static PetscErrorCode TestSmallSolveAndRollback(void)
     PetscCall(PicurvAssertRealNear(0.0, norm, 1.0e-12,
                                    "failed Newton solve must restore the canonical entry state"));
     PetscCall(PicurvAssertBool((PetscBool)(user->Rhs == NULL), "failed solve must release Rhs"));
-    PetscCall(AssertNewtonLog(summary_path, 2, "reason_code: -", "state: rolled_back"));
+    PetscCall(AssertNewtonLog(summary_path, 2, ",DIVERGED_", ",rolled_back\n"));
 
     PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_snes_rtol"));
     PetscCall(PetscOptionsClearValue(NULL, "-mom_nk_snes_max_it"));
@@ -1118,9 +1121,9 @@ static PetscErrorCode TestZeroIterationStructuredLogging(void)
     PetscCall(ApplyBoundaryConditions(user));
     PetscCall(MomentumSolver_NewtonKrylov(user, NULL, NULL));
     PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path),
-                            "%s/Momentum_Solver_Newton_Krylov_Summary_Block_0.log", simCtx->log_dir));
-    PetscCall(AssertNewtonLog(summary_path, 1, "newton: 0 | evals: 1 | krylov: 0",
-                             "final: 0.0000000000000000e+00 | state: committed"));
+                            "%s/Momentum_Solver_Newton_Krylov_Summary_Block_0.csv", simCtx->log_dir));
+    PetscCall(AssertNewtonLog(summary_path, 1, ",0,1,0,",
+                             ",0.0000000000000000e+00,committed\n"));
     PetscCall(DestroyNewtonFixture(&simCtx, tmpdir));
     PetscFunctionReturn(PETSC_SUCCESS);
 }

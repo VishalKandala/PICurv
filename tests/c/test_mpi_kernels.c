@@ -471,7 +471,7 @@ static PetscErrorCode TestProfilingSummaryReducesOverRanks(void)
     if (rank == 0) {
         PetscBool found = PETSC_FALSE;
         FILE *f;
-        PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path), "%s/ProfilingSummary_Solver.log", tmpdir));
+        PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path), "%s/ProfilingSummary_Solver.csv", tmpdir));
         f = fopen(summary_path, "r");
         PetscCheck(f, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open %s", summary_path);
         while (fgets(line, sizeof(line), f)) {
@@ -481,7 +481,7 @@ static PetscErrorCode TestProfilingSummaryReducesOverRanks(void)
             long long calls;
             double avg_ms, min_calls, max_calls;
             int min_calls_rank, max_calls_rank;
-            if (sscanf(line, "%255s | %lf | %d | %lf | %lf | %d | %lld | %lf | %lf | %d | %lf | %d", name, &max_time,
+            if (sscanf(line, "picurv,%255[^,],%lf,%d,%lf,%lf,%d,%lld,%lf,%lf,%d,%lf,%d", name, &max_time,
                        &max_rank, &mean_time, &min_time, &min_rank, &calls, &avg_ms, &min_calls, &min_calls_rank,
                        &max_calls, &max_calls_rank) == 12 && strcmp(name, "ProfiledOnRankOneOnly") == 0) {
                 found = PETSC_TRUE;

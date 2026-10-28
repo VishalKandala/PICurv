@@ -665,7 +665,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->walltimeGuardEWMASeconds = 0.0;
     simCtx->walltimeGuardLatestStepSeconds = 0.0;
     simCtx->runtimeMemoryLogEnabled = PETSC_TRUE;
-    strcpy(simCtx->runtimeMemoryLogFile, "Runtime_Memory.log");
+    strcpy(simCtx->runtimeMemoryLogFile, "Runtime_Memory.csv");
     simCtx->runtimeMemoryLogStarted = PETSC_FALSE;
     simCtx->runtimeMemoryLogHasPrevious = PETSC_FALSE;
     simCtx->runtimeMemoryLogPreviousProcessMB = 0.0;
@@ -3811,6 +3811,7 @@ static PetscInt Gidx(PetscInt i, PetscInt j, PetscInt k, UserCtx *user)
 
 PetscErrorCode ComputeDivergence(UserCtx *user )
 {
+  PetscErrorCode ierr;
   DM		da = user->da, fda = user->fda;
   DMDALocalInfo	info = user->info;
 
@@ -3928,19 +3929,22 @@ PetscErrorCode ComputeDivergence(UserCtx *user )
   user->simCtx->MaxDivFlatArg = MaxFlatIndex;
   user->simCtx->MaxDiv = maxdiv;
   
+  /* The owning rank finds the location; every rank (rank 0 writes the continuity log) gets it. */
+  PetscInt max_location[3] = {-1, -1, -1};
   for (k=zs; k<ze; k++) {
     for (j=ys; j<ye; j++) {
       for (i=xs; i<xe; i++) {
 	if (Gidx(i,j,k,user) == MaxFlatIndex) {
-	  /* Only the owning rank reaches this, so it prints on its own communicator. */
-	  LOG_ALLOW(LOCAL,LOG_INFO,"[Step %" PetscInt_FMT "] The Maximum Divergence(%e) is at location [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "]. \n", ti, maxdiv,k,j,i);
-	  user->simCtx->MaxDivz = k;
-	  user->simCtx->MaxDivy = j;
-	  user->simCtx->MaxDivx = i;
+	  max_location[0] = k; max_location[1] = j; max_location[2] = i;
 	}
       }
     }
   }
+  ierr = MPI_Allreduce(MPI_IN_PLACE, max_location, 3, MPIU_INT, MPI_MAX, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+  user->simCtx->MaxDivz = max_location[0];
+  user->simCtx->MaxDivy = max_location[1];
+  user->simCtx->MaxDivx = max_location[2];
+  LOG_ALLOW(GLOBAL,LOG_INFO,"[Step %" PetscInt_FMT "] The Maximum Divergence(%e) is at location [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "]. \n", ti, maxdiv, max_location[0], max_location[1], max_location[2]);
 
   
  DMDAVecRestoreArray(da, user->lNvert, &nvert);

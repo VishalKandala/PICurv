@@ -3408,10 +3408,10 @@ PetscErrorCode LogWallModelDiagnostics(UserCtx *user)
         mean_square = global_sum[2] / cells;
         variance    = PetscMax(mean_square - mean * mean, 0.0);
 
-        PetscCall(PicurvOpenDiagnosticsCsv(simCtx, "wall_model.csv",
+        PetscCall(PicurvOpenDiagnosticsCsv(simCtx, simCtx->analysis_dir, "wall_model.csv",
                                            "step,time,wall_cells,u_tau_mean,u_tau_rms,"
                                            "u_tau_min,u_tau_max,y_plus_mean,y_plus_max,"
-                                           "wall_distance_mean,nu_wall_over_nu_mean,physical_time", &file));
+                                           "wall_distance_mean,nu_wall_over_nu_mean,physical_time", PETSC_TRUE, &file));
         PetscReal physical_time = 0.0;
         PetscCall(PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time));
         fprintf(file,

@@ -56,6 +56,7 @@ typedef enum {
 typedef struct {
     FILE        *file_handle;        // C file handling for logging.
     PetscBool   log_to_console;   // Flag to enable console output.
+    PetscBool   true_residual;    // Compute the true residual each iteration (solver_monitoring.poisson.pic_true_residual).
     PetscReal   bnorm;            // Stores the norm of the initial RHS vector.
     PetscInt    step;             // Timestep
     PetscInt    block_id;         // the ID of the block this monitor is for.   
@@ -1154,42 +1155,32 @@ PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user);
  */
 PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user);
 
-/**
- * @brief Logs particle swarm metrics, adapting its behavior based on a boolean flag in SimCtx.
- *
- * This function serves a dual purpose:
- * 1. If simCtx->isInitializationPhase is PETSC_TRUE, it logs settlement
- *    diagnostics to "Initialization_Metrics.log", using the provided stageName.
- * 2. If simCtx->isInitializationPhase is PETSC_FALSE, it logs regular
- *    timestep metrics to "Particle_Metrics.log".
- *
- * @param user      A pointer to the UserCtx.
- * @param stageName A descriptive label recorded in the metrics log (for example,
- *                  initialization stage name or "Timestep Metrics").
- * @return          PetscErrorCode 0 on success.
- */
-PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName);
 
 /**
- * @brief Opens a per-run diagnostics CSV in the run's analysis directory for appending.
+ * @brief Opens one of the run's CSV records (diagnostics or solver history) for appending.
  *
- * The runtime diagnostics files share a lifecycle rather than a schema: they live in
- * `simCtx->analysis_dir`, are appended to across a run, carry their column header only
- * once, and mark the seam where a continuation resumed so a reader can tell a restart
- * from a discontinuity in the data. This owns that lifecycle; the caller owns the
- * columns.
+ * Every per-step file the solver writes shares this lifecycle rather than a schema: it
+ * lives in the run's analysis directory (`simCtx->analysis_dir`, diagnostics) or log
+ * directory (`simCtx->log_dir`, solver histories), is appended to across a run, carries
+ * its column header (starting `step,`) only once, and marks with a
+ * `# Continuation from step N` comment the seam where a continuation resumed, so a reader
+ * can tell a restart from a discontinuity in the data. This owns that lifecycle; the
+ * caller owns the columns.
  *
  * Call on rank 0 only - the file is a serial artifact, and a collective write to it
  * would interleave. The caller closes the handle.
  *
- * @param[in]  simCtx   Simulation context supplying the analysis directory, step, and
- *                      continuation state.
- * @param[in]  filename Basename of the CSV, including the extension.
- * @param[in]  header   Column header written when the file is created, without a
- *                      trailing newline.
- * @param[out] file     Open append handle, never NULL on success.
+ * @param[in]  simCtx            Simulation context supplying the step and continuation state.
+ * @param[in]  dir               Directory of the file (`simCtx->analysis_dir` or `simCtx->log_dir`).
+ * @param[in]  filename          Basename of the CSV, including the extension.
+ * @param[in]  header            Column header written when the file is created, without a
+ *                               trailing newline.
+ * @param[in]  mark_continuation Whether this call may write the continuation marker (on the
+ *                               first step a continuation produces); a file several calls
+ *                               write in one step lets only the first of them mark it.
+ * @param[out] file              Open append handle, never NULL on success.
  * @return PetscErrorCode 0 on success; `PETSC_ERR_FILE_OPEN` if the file cannot be opened.
  */
-PetscErrorCode PicurvOpenDiagnosticsCsv(const SimCtx *simCtx, const char *filename,
-                                        const char *header, FILE **file);
+PetscErrorCode PicurvOpenDiagnosticsCsv(const SimCtx *simCtx, const char *dir, const char *filename,
+                                        const char *header, PetscBool mark_continuation, FILE **file);
 #endif // LOGGING_H

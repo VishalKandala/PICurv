@@ -761,9 +761,11 @@ static PetscErrorCode TestPoissonSolverMultigridReusesItsSolver(void)
     PetscCall(KSPGetConvergedReason(user->ksp, &reason));
     PetscCall(PicurvAssertBool((PetscBool)(reason > 0), "the reused solver should converge"));
 
-    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/Poisson_Solver_Convergence_History_Block_0.log", simCtx->log_dir));
-    PetscCall(CountFileOccurrences(log_path, "--- Convergence for Timestep", &headers));
-    PetscCall(PicurvAssertIntEqual(2, headers, "the convergence log should hold one header per solve"));
+    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/Poisson_Solver_Convergence_History_Block_0.csv", simCtx->log_dir));
+    PetscCall(CountFileOccurrences(log_path, "step,block,iter,", &headers));
+    PetscCall(PicurvAssertIntEqual(1, headers, "the convergence CSV should carry its header once"));
+    PetscCall(CountFileOccurrences(log_path, ",0,0,", &headers));
+    PetscCall(PicurvAssertIntEqual(2, headers, "the convergence CSV should hold an iteration-0 row per solve"));
 
     PetscCall(PicurvDestroyRuntimeContext(&simCtx));
     PetscCall(PicurvRemoveTempDir(tmpdir));

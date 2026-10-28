@@ -793,8 +793,6 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = CalculateAdvancedParticleMetrics(user); CHKERRQ(ierr);
             ierr = LOG_SEARCH_METRICS(user); CHKERRQ(ierr);
 
-            ierr = LOG_PARTICLE_METRICS(user, "Timestep Metrics"); CHKERRQ(ierr);
-
 
             if(get_log_level() >= LOG_VERBOSE && is_function_allowed(__func__)==true){
                 LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Post Lagrangian update field states:\n");

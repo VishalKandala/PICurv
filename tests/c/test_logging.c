@@ -111,7 +111,7 @@ static PetscErrorCode AssertFileNotContains(const char *path, const char *needle
 
 /**
  * @brief Reads the column header and the requested 1-based data row from a
- *        pipe-delimited solution-convergence log file.
+ *        comma-separated solution-convergence CSV.
  *
  * Lines starting with '=' (banner) or '-' (separator) are skipped. The first
  * non-skipped line is treated as the column header; subsequent non-skipped
@@ -139,7 +139,7 @@ static PetscErrorCode ReadLogHeaderAndRow(const char *path,
     PetscCheck(fp != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Failed to open log '%s'.", path);
 
     while (fgets(line, sizeof(line), fp) != NULL) {
-        if (line[0] == '=' || line[0] == '-' || line[0] == '\n' || line[0] == '\r') continue;
+        if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue; /* Comments and blank lines */
         if (!header_found) {
             PetscCall(PetscStrncpy(header, line, header_len));
             header_found = PETSC_TRUE;
@@ -159,7 +159,7 @@ static PetscErrorCode ReadLogHeaderAndRow(const char *path,
 }
 
 /**
- * @brief Returns the zero-based column index for one pipe-delimited header field.
+ * @brief Returns the zero-based column index for one comma-separated header field.
  */
 static PetscErrorCode LogFindColumnIndex(const char *header, const char *column_name, PetscInt *index_out)
 {
@@ -174,7 +174,7 @@ static PetscErrorCode LogFindColumnIndex(const char *header, const char *column_
     PetscCheck(index_out != NULL, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Log column index output cannot be NULL.");
 
     PetscCall(PetscStrncpy(local_header, header, sizeof(local_header)));
-    token = strtok_r(local_header, "|\r\n", &saveptr);
+    token = strtok_r(local_header, ",\r\n", &saveptr);
     while (token != NULL) {
         while (*token == ' ') token++;
         char *end = token + strlen(token) - 1;
@@ -184,14 +184,14 @@ static PetscErrorCode LogFindColumnIndex(const char *header, const char *column_
             *index_out = index;
             PetscFunctionReturn(0);
         }
-        token = strtok_r(NULL, "|\r\n", &saveptr);
+        token = strtok_r(NULL, ",\r\n", &saveptr);
         index++;
     }
     SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Log column '%s' was not found.", column_name);
 }
 
 /**
- * @brief Extracts one pipe-delimited log cell as text by header name.
+ * @brief Extracts one comma-separated log cell as text by header name.
  */
 static PetscErrorCode LogGetColumnText(const char *header,
                                        const char *row,
@@ -212,7 +212,7 @@ static PetscErrorCode LogGetColumnText(const char *header,
     PetscCall(LogFindColumnIndex(header, column_name, &target_index));
     PetscCall(PetscStrncpy(local_row, row, sizeof(local_row)));
 
-    token = strtok_r(local_row, "|\r\n", &saveptr);
+    token = strtok_r(local_row, ",\r\n", &saveptr);
     while (token != NULL) {
         if (index == target_index) {
             while (*token == ' ') token++;
@@ -222,14 +222,14 @@ static PetscErrorCode LogGetColumnText(const char *header,
             PetscCall(PetscStrncpy(value, token, value_len));
             PetscFunctionReturn(0);
         }
-        token = strtok_r(NULL, "|\r\n", &saveptr);
+        token = strtok_r(NULL, ",\r\n", &saveptr);
         index++;
     }
     SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_WRONG, "Log row is missing column '%s'.", column_name);
 }
 
 /**
- * @brief Extracts one pipe-delimited log cell as an integer by header name.
+ * @brief Extracts one comma-separated log cell as an integer by header name.
  */
 static PetscErrorCode LogGetColumnInt(const char *header, const char *row, const char *column_name, PetscInt *value_out)
 {
@@ -247,7 +247,7 @@ static PetscErrorCode LogGetColumnInt(const char *header, const char *row, const
 }
 
 /**
- * @brief Extracts one pipe-delimited log cell as a real by header name.
+ * @brief Extracts one comma-separated log cell as a real by header name.
  */
 static PetscErrorCode LogGetColumnReal(const char *header, const char *row, const char *column_name, PetscReal *value_out)
 {
@@ -772,11 +772,11 @@ static PetscErrorCode TestLoggingContinuityAndFieldDiagnostics(void)
     simCtx->FluxOutSum = 1.0;
     PetscCall(LOG_CONTINUITY_METRICS(user));
 
-    PetscCall(PetscSNPrintf(continuity_path, sizeof(continuity_path), "%s/Continuity_Metrics.log", simCtx->log_dir));
-    PetscCall(PicurvAssertFileExists(continuity_path, "continuity metrics log should be written"));
-    PetscCall(AssertFileContains(continuity_path, "Timestep", "continuity metrics log should include the header"));
-    PetscCall(AssertFileContains(continuity_path, "([3][2][1] = 17)", "continuity metrics log should include the divergence location"));
-    PetscCall(AssertFileContains(continuity_path, "2          | 0", "continuity metrics log should append later timesteps"));
+    PetscCall(PetscSNPrintf(continuity_path, sizeof(continuity_path), "%s/Continuity_Metrics.csv", simCtx->log_dir));
+    PetscCall(PicurvAssertFileExists(continuity_path, "continuity metrics CSV should be written"));
+    PetscCall(AssertFileContains(continuity_path, "step,block,max_divergence,max_divergence_k", "continuity metrics CSV should include the header"));
+    PetscCall(AssertFileContains(continuity_path, "1,0,1.2500000000e+00,3,2,1,17,", "continuity metrics CSV should record the divergence and its [k][j][i] location"));
+    PetscCall(AssertFileContains(continuity_path, "\n2,0,7.5000000000e-01,", "continuity metrics CSV should append later timesteps"));
 
     PetscCall(DMDAVecGetArray(user->da, user->P, &p));
     PetscCall(DMDAVecGetArray(user->fda, user->Ucat, &ucat));
@@ -1234,6 +1234,7 @@ static PetscErrorCode TestParticleMetricsLogging(void)
     PetscCall(SeedLoggingParticleFixture(&simCtx, &user));
     PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
     PetscCall(PetscStrncpy(simCtx->log_dir, tmpdir, sizeof(simCtx->log_dir)));
+    PetscCall(PetscStrncpy(simCtx->analysis_dir, tmpdir, sizeof(simCtx->analysis_dir)));
     simCtx->StartStep = 0;
     simCtx->step = 1;
     simCtx->particlesLostLastStep = 1;
@@ -1243,14 +1244,13 @@ static PetscErrorCode TestParticleMetricsLogging(void)
 
     PetscCall(CalculateParticleCountPerCell(user));
     PetscCall(CalculateAdvancedParticleMetrics(user));
-    PetscCall(LOG_PARTICLE_METRICS(user, "Timestep Metrics"));
+    PetscCall(LOG_SEARCH_METRICS(user));
 
-    PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/Particle_Metrics.log", simCtx->log_dir));
-    PetscCall(PicurvAssertFileExists(metrics_path, "LOG_PARTICLE_METRICS should write Particle_Metrics.log"));
-    PetscCall(AssertFileContains(metrics_path, "Timestep Metrics", "Particle metrics log should include the caller-provided stage label"));
-    PetscCall(AssertFileContains(metrics_path, "Occupied Cells", "Particle metrics log should include the metrics table header"));
-    PetscCall(AssertFileContains(metrics_path, "Lost Total", "Particle metrics log should include the cumulative-loss column"));
-    PetscCall(AssertFileContains(metrics_path, "| 1          | 7          | 2", "Particle metrics log should record both per-step and cumulative loss values"));
+    /* The per-step particle metrics, occupied cells included, are search_metrics.csv's. */
+    PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/search_metrics.csv", simCtx->analysis_dir));
+    PetscCall(PicurvAssertFileExists(metrics_path, "LOG_SEARCH_METRICS should write search_metrics.csv"));
+    PetscCall(AssertFileContains(metrics_path, ",occupied_cells", "search_metrics.csv should carry the occupied-cell count"));
+    PetscCall(AssertFileContains(metrics_path, ",1,7,2,3,", "search_metrics.csv should record lost, cumulative lost, migrated and passes in order"));
     PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
     PetscFunctionReturn(0);
@@ -1389,7 +1389,7 @@ static PetscErrorCode TestProfilingLifecycleHelpers(void)
     PetscCall(ProfilingFinalize(&simCtx));
 
     PetscCall(PetscSNPrintf(timestep_path, sizeof(timestep_path), "%s/%s", simCtx.log_dir, simCtx.profilingTimestepFile));
-    PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path), "%s/ProfilingSummary_Solver.log", simCtx.log_dir));
+    PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path), "%s/ProfilingSummary_Solver.csv", simCtx.log_dir));
     PetscCall(PicurvAssertFileExists(timestep_path, "profiling timestep summary should be written"));
     PetscCall(PicurvAssertFileExists(summary_path, "profiling final summary should be written"));
     PetscCall(AssertFileContains(timestep_path, "step,function,calls,step_time_s",
@@ -1400,18 +1400,18 @@ static PetscErrorCode TestProfilingLifecycleHelpers(void)
                                     "a call before the step interval was reset belongs to no step"));
     PetscCall(AssertFileNotContains(timestep_path, "UnselectedAggregate",
                                     "profiling timestep summary should omit unselected functions in selected mode"));
-    PetscCall(AssertFileContains(summary_path, "FINAL PROFILING SUMMARY",
-                                 "profiling final summary should include its table banner"));
-    PetscCall(AssertFileContains(summary_path, "FlowSolver",
-                                 "profiling final summary should include selected functions"));
+    PetscCall(AssertFileContains(summary_path, "section,function,max_time_s,max_rank",
+                                 "profiling final summary should be a CSV with its header"));
+    PetscCall(AssertFileContains(summary_path, "picurv,ProfiledFlowSolver,",
+                                 "profiling final summary should include selected functions in the picurv section"));
     PetscCall(AssertFileContains(summary_path, "UnselectedAggregate",
                                  "profiling final summary should include total-time entries for unselected functions"));
     PetscCall(AssertFileContains(summary_path, "EnabledHelper",
                                  "a helper named in profiling.helpers is timed"));
     PetscCall(AssertFileNotContains(summary_path, "DisabledHelper",
                                     "a helper not named in profiling.helpers records nothing"));
-    PetscCall(AssertFileContains(summary_path, "PETSC EVENTS",
-                                 "the summary should list PETSc's own events after PICurv's"));
+    PetscCall(AssertFileContains(summary_path, "\npetsc,",
+                                 "the summary should list PETSc's own events in the petsc section"));
     PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscFunctionReturn(0);
 }
@@ -1429,7 +1429,7 @@ static PetscErrorCode TestRuntimeMemoryLogHelpers(void)
     PetscCall(PetscMemzero(&simCtx, sizeof(simCtx)));
     PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
     PetscCall(PetscStrncpy(simCtx.log_dir, tmpdir, sizeof(simCtx.log_dir)));
-    PetscCall(PetscStrncpy(simCtx.runtimeMemoryLogFile, "Runtime_Memory.log", sizeof(simCtx.runtimeMemoryLogFile)));
+    PetscCall(PetscStrncpy(simCtx.runtimeMemoryLogFile, "Runtime_Memory.csv", sizeof(simCtx.runtimeMemoryLogFile)));
     simCtx.rank = 0;
     simCtx.runtimeMemoryLogEnabled = PETSC_TRUE;
     simCtx.runtimeMemoryLogStarted = PETSC_FALSE;
@@ -1442,17 +1442,17 @@ static PetscErrorCode TestRuntimeMemoryLogHelpers(void)
     PetscCall(RuntimeMemoryLogSample(&simCtx, 1, "Final", "Complete"));
     PetscCall(PetscSNPrintf(memory_path, sizeof(memory_path), "%s/%s", simCtx.log_dir, simCtx.runtimeMemoryLogFile));
     PetscCall(PicurvAssertFileExists(memory_path, "runtime memory log should be written"));
-    PetscCall(AssertFileContains(memory_path, "Process Current MB Max",
-                                 "runtime memory log should contain readable column labels"));
-    PetscCall(AssertFileContains(memory_path, "Step",
+    PetscCall(AssertFileContains(memory_path, "step,event,process_current_mb_max,",
+                                 "runtime memory log should be a CSV with its header"));
+    PetscCall(AssertFileContains(memory_path, "\n1,Step,",
                                  "runtime memory log should contain a step row"));
-    PetscCall(AssertFileContains(memory_path, "Final",
+    PetscCall(AssertFileContains(memory_path, "\n1,Final,",
                                  "runtime memory log should contain a final row"));
-    PetscCall(AssertFileContains(memory_path, "Complete",
+    PetscCall(AssertFileContains(memory_path, ",Complete\n",
                                  "runtime memory log should record final reason"));
 
     simCtx.runtimeMemoryLogEnabled = PETSC_FALSE;
-    PetscCall(PetscStrncpy(simCtx.runtimeMemoryLogFile, "Runtime_Memory_Disabled.log", sizeof(simCtx.runtimeMemoryLogFile)));
+    PetscCall(PetscStrncpy(simCtx.runtimeMemoryLogFile, "Runtime_Memory_Disabled.csv", sizeof(simCtx.runtimeMemoryLogFile)));
     PetscCall(RuntimeMemoryLogSample(&simCtx, 2, "Step", "-"));
     PetscCall(PetscSNPrintf(memory_path, sizeof(memory_path), "%s/%s", simCtx.log_dir, simCtx.runtimeMemoryLogFile));
     PetscCall(PicurvAssertBool((PetscBool)(access(memory_path, F_OK) != 0),
@@ -1480,7 +1480,7 @@ static PetscErrorCode TestSolutionConvergenceDisabled(void)
 
     PetscCall(InitializeSolutionConvergenceState(simCtx));
     PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
-    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.log", simCtx->log_dir));
+    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.csv", simCtx->log_dir));
     PetscCall(PetscTestFile(log_path, 'r', &exists));
     PetscCall(PicurvAssertBool((PetscBool)!exists,
                                "disabled solution convergence must not create a log"));
@@ -1543,7 +1543,7 @@ static PetscErrorCode TestSolutionConvergenceSteadyLogging(void)
     PetscCall(DMDAVecRestoreArray(user->fda, user->Ucat, &ucat));
     PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
 
-    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.log", simCtx->log_dir));
+    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.csv", simCtx->log_dir));
     PetscCall(PicurvAssertFileExists(log_path, "steady solution-convergence logging should write the log"));
     PetscCall(ReadLogHeaderAndRow(log_path, 1, header, sizeof(header), row1, sizeof(row1)));
     PetscCall(ReadLogHeaderAndRow(log_path, 2, header, sizeof(header), row2, sizeof(row2)));
@@ -1624,7 +1624,7 @@ static PetscErrorCode TestSolutionConvergencePeriodicLogging(void)
     PetscCall(SetUniformScalarField(user, user->P, 9.0));
     PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
 
-    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.log", simCtx->log_dir));
+    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.csv", simCtx->log_dir));
     PetscCall(PicurvAssertFileExists(log_path, "periodic solution-convergence logging should write the log"));
     PetscCall(ReadLogHeaderAndRow(log_path, 1, header, sizeof(header), row1, sizeof(row1)));
     PetscCall(ReadLogHeaderAndRow(log_path, 2, header, sizeof(header), row2, sizeof(row2)));
@@ -1697,7 +1697,7 @@ static PetscErrorCode TestSolutionConvergenceStatisticalLogging(void)
         PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
     }
 
-    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.log", simCtx->log_dir));
+    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.csv", simCtx->log_dir));
     PetscCall(PicurvAssertFileExists(log_path, "statistical solution-convergence logging should write the log"));
     PetscCall(ReadLogHeaderAndRow(log_path, 4, header, sizeof(header), row, sizeof(row)));
     PetscCall(LogGetColumnInt(header, row, "ref", &has_reference));
@@ -1776,7 +1776,7 @@ static PetscErrorCode TestSolutionConvergenceMeansExcludeGhostLayers(void)
     simCtx->ti = 0.1;
     PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
 
-    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.log", simCtx->log_dir));
+    PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.csv", simCtx->log_dir));
     PetscCall(ReadLogHeaderAndRow(log_path, 1, header, sizeof(header), row, sizeof(row)));
     PetscCall(LogGetColumnReal(header, row, "mean_speed", &mean_speed));
     PetscCall(PicurvAssertRealNear(1.0, mean_speed, 1.0e-12,
@@ -1828,7 +1828,7 @@ static PetscErrorCode TestPeriodicSinusoidalMeanKE(void)
         simCtx->ti = 0.1;
         PetscCall(LOG_SOLUTION_CONVERGENCE(simCtx));
 
-        PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.log", simCtx->log_dir));
+        PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.csv", simCtx->log_dir));
         PetscCall(ReadLogHeaderAndRow(log_path, 1, header, sizeof(header), row, sizeof(row)));
         PetscCall(LogGetColumnReal(header, row, "mean_ke", &mean_ke));
         PetscCall(PicurvAssertRealNear(0.5025, mean_ke, 1.0e-10,

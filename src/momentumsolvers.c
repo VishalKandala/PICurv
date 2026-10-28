@@ -764,6 +764,48 @@ PetscErrorCode ComputeMomentumStabilityEstimate(UserCtx *user, PetscInt block_nu
 
 
 /**
+ * @brief Appends one pseudo-iteration's row per block to the Picard momentum history CSVs.
+ * @details Rank 0 only. `<log_dir>/Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_<b>.csv`,
+ *          one row per trial (accepted or rejected): dtau in solver time, cfl_eff = dtau * lambda_max.
+ *          A fresh run's first row truncates the file; a continued run's first row marks the seam.
+ *          Local to this translation unit.
+ */
+static PetscErrorCode AppendPicardHistoryRows(SimCtx *simCtx, PetscInt block_number, PetscInt pseudo_iter,
+                                              PetscReal dtau, PetscReal dtau_after, PetscReal lambda_max,
+                                              const PetscReal *delta, const PetscReal *delta_rel,
+                                              const PetscReal *resid, const PetscReal *resid_rel,
+                                              const PetscReal *trial_ratio, PetscReal smoothed_ratio,
+                                              const char *status)
+{
+    static PetscBool continuation_marked = PETSC_FALSE;
+    const PetscBool  first_row = (PetscBool)(simCtx->step == simCtx->StartStep + 1 && !continuation_marked);
+
+    PetscFunctionBeginUser;
+    for (PetscInt bi = 0; bi < block_number; bi++) {
+        char  name[128];
+        FILE *f = NULL;
+        PetscCall(PetscSNPrintf(name, sizeof(name), "Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_%" PetscInt_FMT ".csv", bi));
+        if (first_row && !simCtx->continueMode) {
+            char path[PETSC_MAX_PATH_LEN + 160];
+            PetscCall(PetscSNPrintf(path, sizeof(path), "%s/%s", simCtx->log_dir, name));
+            (void)remove(path); /* A fresh run starts its history afresh. */
+        }
+        PetscCall(PicurvOpenDiagnosticsCsv(simCtx, simCtx->log_dir, name,
+                                           "step,pseudo_iter,dtau,cfl_eff,delta_norm,delta_rel,residual_norm,residual_rel,"
+                                           "trial_ratio,smoothed_ratio,status,dtau_after,cfl_eff_after",
+                                           first_row, &f));
+        fprintf(f, "%d,%d,%.6e,%.4f,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%s,%.6e,%.4f\n",
+                (int)simCtx->step, (int)pseudo_iter, (double)dtau, (double)(dtau * lambda_max),
+                (double)delta[bi], (double)delta_rel[bi], (double)resid[bi], (double)resid_rel[bi],
+                (double)trial_ratio[bi], (double)smoothed_ratio, status,
+                (double)dtau_after, (double)(dtau_after * lambda_max));
+        fclose(f);
+    }
+    if (first_row) continuation_marked = PETSC_TRUE;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Internal helper implementation: `MomentumSolver_DualTime_Picard_JamesonRK()`.
  * @details Local to this translation unit.
  */
@@ -1147,31 +1189,9 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                       (old_dtau == next_dtau) ? " [AT FLOOR — no dtau reduction]" : "");
             /* Log rejected trial to file before rolling back. */
             if (!rank) {
-                for (PetscInt bi = 0; bi < block_number; bi++) {
-                    FILE *f;
-                    char filen[PETSC_MAX_PATH_LEN + 128];
-                    ierr = PetscSNPrintf(filen, sizeof(filen),
-                        "%s/Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_%1" PetscInt_FMT ".log",
-                        simCtx->log_dir, bi); CHKERRQ(ierr);
-                    if (simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1 && !simCtx->continueMode)
-                        f = fopen(filen, "w");
-                    else
-                        f = fopen(filen, "a");
-                    if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1)
-                        PetscFPrintf(PETSC_COMM_WORLD, f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
-                    /* Log format: dtau [physical time] + cfl_eff [dimensionless Courant number = dtau*lambda_max] */
-                    PetscFPrintf(PETSC_COMM_WORLD, f,
-                        "Step: %d | PseudoIter(k): %d | dtau: %.6e | cfl_eff: %.4f | |dUk|: %le | "
-                        "|dUk|/|dU0|: %le | |Rk|: %le | |Rk|/|R0|: %le | "
-                        "trial_ratio: %le | smoothed_ratio: %le | status: rejected | "
-                        "dtau_after: %.6e | cfl_eff_after: %.4f\n",
-                        (int)ti, (int)pseudo_iter, old_dtau, old_dtau * lambda_max,
-                        delta_sol_norm_curr[bi], delta_sol_rel_curr[bi],
-                        resid_norm_curr[bi], resid_rel_curr[bi],
-                        trial_ratio_log[bi], trial_smoothed,
-                        next_dtau, next_dtau * lambda_max);
-                    fclose(f);
-                }
+                ierr = AppendPicardHistoryRows(simCtx, block_number, pseudo_iter, old_dtau, next_dtau, lambda_max,
+                                               delta_sol_norm_curr, delta_sol_rel_curr, resid_norm_curr, resid_rel_curr,
+                                               trial_ratio_log, trial_smoothed, "rejected"); CHKERRQ(ierr);
             }
             if (old_dtau <= dtau_min) {
                 if (global_nonfinite) {
@@ -1238,31 +1258,9 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
 
         /* --- Post-decision file logging (one row per accepted trial) --- */
         if (!rank) {
-            for (PetscInt bi = 0; bi < block_number; bi++) {
-                FILE *f;
-                char filen[PETSC_MAX_PATH_LEN + 128];
-                ierr = PetscSNPrintf(filen, sizeof(filen),
-                    "%s/Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_%1" PetscInt_FMT ".log",
-                    simCtx->log_dir, bi); CHKERRQ(ierr);
-                if (simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1 && !simCtx->continueMode)
-                    f = fopen(filen, "w");
-                else
-                    f = fopen(filen, "a");
-                if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1 && pseudo_iter == 1)
-                    PetscFPrintf(PETSC_COMM_WORLD, f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
-                /* Log format: dtau [physical time] + cfl_eff [dimensionless Courant number = dtau*lambda_max] */
-                PetscFPrintf(PETSC_COMM_WORLD, f,
-                    "Step: %d | PseudoIter(k): %d | dtau: %.6e | cfl_eff: %.4f | |dUk|: %le | "
-                    "|dUk|/|dU0|: %le | |Rk|: %le | |Rk|/|R0|: %le | "
-                    "trial_ratio: %le | smoothed_ratio: %le | status: accepted | "
-                    "dtau_after: %.6e | cfl_eff_after: %.4f\n",
-                    (int)ti, (int)pseudo_iter, old_dtau, old_dtau * lambda_max,
-                    delta_sol_norm_curr[bi], delta_sol_rel_curr[bi],
-                    resid_norm_curr[bi], resid_rel_curr[bi],
-                    trial_ratio_log[bi], trial_smoothed,
-                    next_dtau, next_dtau * lambda_max);
-                fclose(f);
-            }
+            ierr = AppendPicardHistoryRows(simCtx, block_number, pseudo_iter, old_dtau, next_dtau, lambda_max,
+                                           delta_sol_norm_curr, delta_sol_rel_curr, resid_norm_curr, resid_rel_curr,
+                                           trial_ratio_log, trial_smoothed, "accepted"); CHKERRQ(ierr);
         }
 
         /* --- Convergence decision ---

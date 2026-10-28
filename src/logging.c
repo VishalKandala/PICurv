@@ -981,7 +981,7 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx)
 {
     DualMonitorCtx *monctx = (DualMonitorCtx*)ctx;
     PetscErrorCode ierr;
-    PetscReal      trnorm, relnorm;
+    PetscReal      trnorm = 0.0, relnorm;
     Vec            r;
     char           norm_buf[256];
     PetscMPIInt    rank;
@@ -990,43 +990,46 @@ PetscErrorCode DualKSPMonitor(KSP ksp, PetscInt it, PetscReal rnorm, void *ctx)
     PROFILE_HELPER_BEGIN;
     rank = PetscGlobalRank;
 
-    // 1. Calculate the true residual norm. Both workspaces are fully overwritten on each call, so
-    //    they are kept rather than created and destroyed every iteration.
-    if (!monctx->residual_work[0]) {
-        Vec b, x;
-        ierr = KSPGetRhs(ksp, &b); CHKERRQ(ierr);
-        ierr = KSPGetSolution(ksp, &x); CHKERRQ(ierr);
-        ierr = VecDuplicate(x, &monctx->residual_work[0]); CHKERRQ(ierr);
-        ierr = VecDuplicate(b, &monctx->residual_work[1]); CHKERRQ(ierr);
-    }
-    ierr = KSPBuildResidual(ksp, monctx->residual_work[0], monctx->residual_work[1], &r); CHKERRQ(ierr);
-    ierr = VecNorm(r, NORM_2, &trnorm); CHKERRQ(ierr);
+    // 1. The true residual, when asked for: it costs a residual build and a norm per iteration.
+    //    Both workspaces are fully overwritten on each call, so they are kept rather than
+    //    created and destroyed every iteration.
+    if (monctx->true_residual) {
+        if (!monctx->residual_work[0]) {
+            Vec b, x;
+            ierr = KSPGetRhs(ksp, &b); CHKERRQ(ierr);
+            ierr = KSPGetSolution(ksp, &x); CHKERRQ(ierr);
+            ierr = VecDuplicate(x, &monctx->residual_work[0]); CHKERRQ(ierr);
+            ierr = VecDuplicate(b, &monctx->residual_work[1]); CHKERRQ(ierr);
+        }
+        ierr = KSPBuildResidual(ksp, monctx->residual_work[0], monctx->residual_work[1], &r); CHKERRQ(ierr);
+        ierr = VecNorm(r, NORM_2, &trnorm); CHKERRQ(ierr);
 
-    // 2. On the first iteration, compute and store the norm of the RHS vector `b`.
-    if (it == 0) {
-        Vec b;
-        ierr = KSPGetRhs(ksp, &b); CHKERRQ(ierr);
-        ierr = VecNorm(b, NORM_2, &monctx->bnorm); CHKERRQ(ierr);
+        // 2. On the first iteration, compute and store the norm of the RHS vector `b`.
+        if (it == 0) {
+            Vec b;
+            ierr = KSPGetRhs(ksp, &b); CHKERRQ(ierr);
+            ierr = VecNorm(b, NORM_2, &monctx->bnorm); CHKERRQ(ierr);
+        }
     }
 
     if(!rank){
-    // 3. Compute the relative norm and format the output string.
-    if (monctx->bnorm > 1.e-15) {
-      relnorm = trnorm / monctx->bnorm;
-      sprintf(norm_buf, "ts: %-5d | block: %-2d | iter: %-3d | Unprecond Norm: %12.5e | True Norm: %12.5e | Rel Norm: %12.5e",(int)monctx->step, (int)monctx->block_id, (int)it, (double)rnorm, (double)trnorm, (double)relnorm);
-    } else {
-      sprintf(norm_buf,"ts: %-5d | block: %-2d | iter: %-3d | Unprecond Norm: %12.5e | True Norm: %12.5e",(int)monctx->step, (int)monctx->block_id, (int)it, (double)rnorm, (double)trnorm);
-    }
+      const PetscBool have_rel = (PetscBool)(monctx->true_residual && monctx->bnorm > 1.e-15);
+      relnorm = have_rel ? trnorm / monctx->bnorm : 0.0;
 
-    // 4. Log to the file viewer (unconditionally).
-    if(monctx->file_handle){
-      ierr = PetscFPrintf(PETSC_COMM_SELF,monctx->file_handle,"%s\n", norm_buf); CHKERRQ(ierr);
-    }
-    // 5. Log to the console (conditionally).
-    if (monctx->log_to_console) {
-      PetscFPrintf(PETSC_COMM_SELF,stdout, "%s\n", norm_buf); CHKERRQ(ierr);
-    }
-
+      // 3. The history file: one CSV row per iteration.
+      if (monctx->file_handle) {
+        ierr = PetscFPrintf(PETSC_COMM_SELF, monctx->file_handle, "%d,%d,%d,%.5e,", (int)monctx->step, (int)monctx->block_id, (int)it, (double)rnorm); CHKERRQ(ierr);
+        if (monctx->true_residual) { ierr = PetscFPrintf(PETSC_COMM_SELF, monctx->file_handle, "%.5e", (double)trnorm); CHKERRQ(ierr); }
+        ierr = PetscFPrintf(PETSC_COMM_SELF, monctx->file_handle, ","); CHKERRQ(ierr);
+        if (have_rel) { ierr = PetscFPrintf(PETSC_COMM_SELF, monctx->file_handle, "%.5e", (double)relnorm); CHKERRQ(ierr); }
+        ierr = PetscFPrintf(PETSC_COMM_SELF, monctx->file_handle, "\n"); CHKERRQ(ierr);
+      }
+      // 4. The console, when asked for: the same values, readable.
+      if (monctx->log_to_console) {
+        if (have_rel) sprintf(norm_buf, "ts: %-5d | block: %-2d | iter: %-3d | Unprecond Norm: %12.5e | True Norm: %12.5e | Rel Norm: %12.5e",(int)monctx->step, (int)monctx->block_id, (int)it, (double)rnorm, (double)trnorm, (double)relnorm);
+        else          sprintf(norm_buf, "ts: %-5d | block: %-2d | iter: %-3d | Unprecond Norm: %12.5e | True Norm: %12.5e",(int)monctx->step, (int)monctx->block_id, (int)it, (double)rnorm, (double)trnorm);
+        PetscFPrintf(PETSC_COMM_SELF,stdout, "%s\n", norm_buf); CHKERRQ(ierr);
+      }
     } //rank
 
     PROFILE_HELPER_END;
@@ -1796,65 +1799,33 @@ PetscErrorCode LOG_SOLUTION_CONVERGENCE(SimCtx *simCtx)
 
     rank = simCtx->rank;
     if (rank == 0) {
-        char log_path[PETSC_MAX_PATH_LEN + 32];
         FILE *f = NULL;
         const char *mode_str = SolutionConvergenceModeToString(simCtx->solutionConvergenceMode);
+        const char *header = NULL;
 
-        PetscCall(PetscSNPrintf(log_path, sizeof(log_path), "%s/solution_convergence.log", simCtx->log_dir));
-        f = fopen(log_path, "a");
-        if (!f) {
-            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open solution convergence log: %s", log_path);
+        /* One mode per run, so one header; every row also names its mode. */
+        switch (simCtx->solutionConvergenceMode) {
+            case SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC:
+                header = "step,time,mode,ref,ph,per,u_abs_l2,u_rel_l2,p_abs_l2,p_rel_l2,"
+                         "mean_speed,spd_ref,spd_abs,spd_rel,mean_ke,ke_ref,ke_abs,ke_rel";
+                break;
+            case SOLUTION_CONVERGENCE_STATISTICAL_STEADY:
+                header = "step,time,mode,ref,win,mean_speed,mean_ke,spd_win,spd_win_prev,spd_win_abs,spd_win_rel,"
+                         "spd_rms_win,spd_rms_abs,spd_rms_rel,ke_win,ke_win_prev,ke_win_abs,ke_win_rel,"
+                         "ke_rms_win,ke_rms_abs,ke_rms_rel";
+                break;
+            default:
+                header = "step,time,mode,ref,u_abs_l2,u_rel_l2,p_abs_l2,p_rel_l2,"
+                         "mean_speed,spd_ref,spd_abs,spd_rel,mean_ke,ke_ref,ke_abs,ke_rel";
+                break;
         }
-
-        if (ftell(f) == 0) {
-            switch (simCtx->solutionConvergenceMode) {
-                case SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC:
-                case SOLUTION_CONVERGENCE_TRANSIENT:
-                    fprintf(f, "==================== Solution Convergence Log [mode: %s] ====================\n", mode_str);
-                    /* 16 columns; header width = 314 chars */
-                    fprintf(f, "%-10s | %-18s | %-22s | %-3s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s\n",
-                            "step", "time", "mode", "ref",
-                            "u_abs_l2", "u_rel_l2", "p_abs_l2", "p_rel_l2",
-                            "mean_speed", "spd_ref", "spd_abs", "spd_rel",
-                            "mean_ke", "ke_ref", "ke_abs", "ke_rel");
-                    fprintf(f, "----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n");
-                    break;
-                case SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC:
-                    fprintf(f, "==================== Solution Convergence Log [mode: %s | period_steps: %d] ====================\n",
-                            mode_str, (int)simCtx->solutionConvergencePeriodSteps);
-                    /* 18 columns; header width = 330 chars */
-                    fprintf(f, "%-10s | %-18s | %-22s | %-3s | %-5s | %-5s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s\n",
-                            "step", "time", "mode", "ref", "ph", "per",
-                            "u_abs_l2", "u_rel_l2", "p_abs_l2", "p_rel_l2",
-                            "mean_speed", "spd_ref", "spd_abs", "spd_rel",
-                            "mean_ke", "ke_ref", "ke_abs", "ke_rel");
-                    fprintf(f, "----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n");
-                    break;
-                case SOLUTION_CONVERGENCE_STATISTICAL_STEADY:
-                    fprintf(f, "==================== Solution Convergence Log [mode: %s | window_steps: %d] ====================\n",
-                            mode_str, (int)simCtx->solutionConvergenceWindowSteps);
-                    /* 21 columns; header width = 406 chars */
-                    fprintf(f, "%-10s | %-18s | %-22s | %-3s | %-5s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s | %-18s\n",
-                            "step", "time", "mode", "ref", "win",
-                            "mean_speed", "mean_ke",
-                            "spd_win", "spd_win_prev", "spd_win_abs", "spd_win_rel",
-                            "spd_rms_win", "spd_rms_abs", "spd_rms_rel",
-                            "ke_win", "ke_win_prev", "ke_win_abs", "ke_win_rel",
-                            "ke_rms_win", "ke_rms_abs", "ke_rms_rel");
-                    fprintf(f, "------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n");
-                    break;
-                default: break;
-            }
-        }
-        if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
-            fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
-        }
+        PetscCall(PicurvOpenDiagnosticsCsv(simCtx, simCtx->log_dir, "solution_convergence.csv", header, PETSC_TRUE, &f));
 
         switch (simCtx->solutionConvergenceMode) {
             case SOLUTION_CONVERGENCE_STEADY_DETERMINISTIC:
             case SOLUTION_CONVERGENCE_TRANSIENT:
                 fprintf(f,
-                        "%-10d | %-18.10e | %-22s | %-3d | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e\n",
+                        "%d,%.10e,%s,%d,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e\n",
                         (int)simCtx->step, (double)simCtx->ti, mode_str, has_reference ? 1 : 0,
                         (double)u_abs_l2, (double)u_rel_l2, (double)p_abs_l2, (double)p_rel_l2,
                         (double)mean_speed, (double)mean_speed_reference,
@@ -1864,7 +1835,7 @@ PetscErrorCode LOG_SOLUTION_CONVERGENCE(SimCtx *simCtx)
                 break;
             case SOLUTION_CONVERGENCE_PERIODIC_DETERMINISTIC:
                 fprintf(f,
-                        "%-10d | %-18.10e | %-22s | %-3d | %-5d | %-5d | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e\n",
+                        "%d,%.10e,%s,%d,%d,%d,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e\n",
                         (int)simCtx->step, (double)simCtx->ti, mode_str, has_reference ? 1 : 0,
                         (int)phase_step, (int)simCtx->solutionConvergencePeriodSteps,
                         (double)u_abs_l2, (double)u_rel_l2, (double)p_abs_l2, (double)p_rel_l2,
@@ -1875,7 +1846,7 @@ PetscErrorCode LOG_SOLUTION_CONVERGENCE(SimCtx *simCtx)
                 break;
             case SOLUTION_CONVERGENCE_STATISTICAL_STEADY:
                 fprintf(f,
-                        "%-10d | %-18.10e | %-22s | %-3d | %-5d | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e | %-18.10e\n",
+                        "%d,%.10e,%s,%d,%d,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e\n",
                         (int)simCtx->step, (double)simCtx->ti, mode_str, has_reference ? 1 : 0,
                         (int)simCtx->solutionConvergenceWindowSteps,
                         (double)mean_speed, (double)mean_ke,
@@ -1927,45 +1898,20 @@ PetscErrorCode LOG_CONTINUITY_METRICS(UserCtx *user)
     PROFILE_HELPER_BEGIN;
     rank = simCtx->rank;
 
-    // Only rank 0 performs file I/O.
+    // Only rank 0 performs file I/O. One row per block per step; only block 0 marks a continuation.
     if (!rank) {
-        FILE *f;
-        char filen[PETSC_MAX_PATH_LEN + 64];
-        ierr = PetscSNPrintf(filen, sizeof(filen), "%s/Continuity_Metrics.log", simCtx->log_dir); CHKERRQ(ierr);
-
-        // Open the log file in append mode.
-        f = fopen(filen, "a");
-        if (!f) {
-            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open log file: %s", filen);
-        }
-
-        // Write a header only when the file is empty and it's the first block (bi=0).
-        // Using ftell() instead of step comparison ensures correctness across continuations.
-        if (ftell(f) == 0 && bi == 0) {
-            PetscFPrintf(PETSC_COMM_SELF, f, "%-10s | %-6s | %-18s | %-30s | %-24s | %-18s | %-18s | %-18s\n",
-                         "Timestep", "Block", "Max Divergence", "Max Divergence Location ([k][j][i]=idx)", "Poisson Source Imbalance","Total Flux In", "Total Flux Out", "Net Flux");
-            PetscFPrintf(PETSC_COMM_SELF, f, "------------------------------------------------------------------------------------------------------------------------------------------\n");
-        }
-        if (simCtx->continueMode && ti == simCtx->StartStep + 1 && bi == 0) {
-            PetscFPrintf(PETSC_COMM_SELF, f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
-        }
-
-        // Prepare the data strings and values for the current block.
-        PetscReal net_flux = simCtx->FluxInSum - simCtx->FluxOutSum;
-        char location_str[64];
-        sprintf(location_str, "([%d][%d][%d] = %d)", (int)simCtx->MaxDivz, (int)simCtx->MaxDivy, (int)simCtx->MaxDivx, (int)simCtx->MaxDivFlatArg);
-
-        // Write the formatted line for the current block.
-        PetscFPrintf(PETSC_COMM_SELF, f, "%-10d | %-6d | %-18.10e | %-39s | %-24.10e | %-18.10e | %-18.10e | %-18.10e\n",
-                     (int)ti,
-                     (int)bi,
-                     (double)simCtx->MaxDiv,
-                     location_str,
-                     (double)simCtx->poissonSourceImbalance,
-		     (double)simCtx->FluxInSum,
-                     (double)simCtx->FluxOutSum,
-                     (double)net_flux);
-
+        FILE     *f = NULL;
+        PetscReal physical_time = 0.0;
+        ierr = PicurvOpenDiagnosticsCsv(simCtx, simCtx->log_dir, "Continuity_Metrics.csv",
+                                        "step,block,max_divergence,max_divergence_k,max_divergence_j,max_divergence_i,"
+                                        "max_divergence_index,poisson_source_imbalance,flux_in,flux_out,net_flux,time,physical_time",
+                                        (PetscBool)(bi == 0), &f); CHKERRQ(ierr);
+        ierr = PicurvPhysicalTime(simCtx, simCtx->ti, &physical_time); CHKERRQ(ierr);
+        fprintf(f, "%d,%d,%.10e,%d,%d,%d,%d,%.10e,%.10e,%.10e,%.10e,%.10e,%.10e\n",
+                (int)ti, (int)bi, (double)simCtx->MaxDiv,
+                (int)simCtx->MaxDivz, (int)simCtx->MaxDivy, (int)simCtx->MaxDivx, (int)simCtx->MaxDivFlatArg,
+                (double)simCtx->poissonSourceImbalance, (double)simCtx->FluxInSum, (double)simCtx->FluxOutSum,
+                (double)(simCtx->FluxInSum - simCtx->FluxOutSum), (double)simCtx->ti, (double)physical_time);
         fclose(f);
     }
 
@@ -2296,38 +2242,23 @@ PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char 
         f = fopen(path, "a");
         if (!f) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open runtime memory log file: %s", path);
 
+        /* CSV: the header once per file, the continuation marker on a continued run's first sample. */
+        if (ftell(f) == 0) {
+            fprintf(f, "step,event,process_current_mb_max,process_peak_mb_max,petsc_allocated_mb_max,"
+                       "petsc_peak_allocated_mb_max,process_change_mb_max,reason\n");
+        }
         if (!simCtx->runtimeMemoryLogStarted) {
-            fprintf(f, "# PICurv runtime memory log\n");
             if (simCtx->continueMode) {
                 fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
             }
-            fprintf(
-                f,
-                "%-8s %-10s %22s %20s %22s %28s %22s %-18s\n",
-                "Step",
-                "Event",
-                "Process Current MB Max",
-                "Process Peak MB Max",
-                "PETSc Allocated MB Max",
-                "PETSc Peak Allocated MB Max",
-                "Process Change MB Max",
-                "Reason"
-            );
             simCtx->runtimeMemoryLogStarted = PETSC_TRUE;
         }
 
-        fprintf(
-            f,
-            "%-8" PetscInt_FMT " %-10s %22.3f %20.3f %22.3f %28.3f %22.3f %-18s\n",
-            step,
-            event ? event : "-",
-            (double)global_values[0],
-            (double)global_values[1],
-            (double)global_values[2],
-            (double)global_values[3],
-            (double)global_values[4],
-            (reason && reason[0]) ? reason : "-"
-        );
+        fprintf(f, "%" PetscInt_FMT ",%s,%.3f,%.3f,%.3f,%.3f,%.3f,%s\n",
+                step, event ? event : "-",
+                (double)global_values[0], (double)global_values[1], (double)global_values[2],
+                (double)global_values[3], (double)global_values[4],
+                (reason && reason[0]) ? reason : "-");
         if ((event && (strcmp(event, "Shutdown") == 0 || strcmp(event, "Final") == 0))) {
             fflush(f);
         }
@@ -2377,7 +2308,7 @@ static int _CompareProfiledFunctionRanks(const void *a, const void *b)
  *          its calls are summed and reduced to their min and max per rank with ranks. Rows with
  *          calls on some rank are printed, slowest rank first.
  */
-static PetscErrorCode _ProfilingReduceSection(FILE *f, const char *banner, PetscInt nlocal, const char **names,
+static PetscErrorCode _ProfilingReduceSection(FILE *f, const char *section, PetscInt nlocal, const char **names,
                                               const PetscLogDouble *times, const long long *counts)
 {
     PetscMPIInt rank, size, local_len = 0, total_len = 0, *lens = NULL, *displs = NULL;
@@ -2432,7 +2363,7 @@ static PetscErrorCode _ProfilingReduceSection(FILE *f, const char *banner, Petsc
 
     if (!rank) {
         ProfiledFunctionRanks *rows = NULL;
-        PetscInt nrows = 0, max_name_len = (PetscInt)strlen("Function");
+        PetscInt nrows = 0;
         PetscCall(PetscMalloc1(nunique + 1, &rows));
         for (PetscInt u = 0; u < nunique; ++u) {
             if (sum_calls[u] == 0) continue;
@@ -2447,40 +2378,19 @@ static PetscErrorCode _ProfilingReduceSection(FILE *f, const char *banner, Petsc
             rows[nrows].min_calls_rank = min_count[u].rank;
             rows[nrows].max_calls      = max_count[u].value;
             rows[nrows].max_calls_rank = max_count[u].rank;
-            max_name_len = PetscMax(max_name_len, (PetscInt)strlen(unique[u]));
             nrows++;
         }
         qsort(rows, nrows, sizeof(ProfiledFunctionRanks), _CompareProfiledFunctionRanks);
-        max_name_len += 2;
-
-        const int time_width = 14, rank_width = 6, count_width = 15, avg_width = 19;
-        PetscFPrintf(PETSC_COMM_SELF, f, "=================================================================================================================\n");
-        PetscFPrintf(PETSC_COMM_SELF, f, "        %s (total time per rank over %d ranks, sorted by the slowest rank)\n", banner, (int)size);
-        PetscFPrintf(PETSC_COMM_SELF, f, "=================================================================================================================\n");
-        PetscFPrintf(PETSC_COMM_SELF, f, "%-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s | %-*s\n",
-                     (int)max_name_len, "Function",
-                     time_width, "Max Time (s)", rank_width, "Rank",
-                     time_width, "Mean Time (s)",
-                     time_width, "Min Time (s)", rank_width, "Rank",
-                     count_width, "Calls (all)",
-                     avg_width, "Avg. Time/Call (ms)",
-                     count_width, "Min Calls/Rank", rank_width, "Rank",
-                     count_width, "Max Calls/Rank", rank_width, "Rank");
-        for (int i = 0; i < (int)max_name_len + 11 * 3 + 3 * time_width + 4 * rank_width + 3 * count_width + avg_width; i++) PetscFPrintf(PETSC_COMM_SELF, f, "-");
-        PetscFPrintf(PETSC_COMM_SELF, f, "\n");
+        /* One CSV row per function, slowest rank first; `section` keeps PICurv's functions and
+         * PETSc's own (inclusive, so not additive with them) apart. */
         for (PetscInt i = 0; i < nrows; ++i) {
             double avg_time_ms = (rows[i].mean_time * size / rows[i].call_count) * 1000.0;
-            PetscFPrintf(PETSC_COMM_SELF, f, "%-*s | %*.*f | %*d | %*.*f | %*.*f | %*d | %*lld | %*.*f | %*.0f | %*d | %*.0f | %*d\n",
-                         (int)max_name_len, rows[i].name,
-                         time_width, 6, rows[i].max_time, rank_width, rows[i].max_rank,
-                         time_width, 6, rows[i].mean_time,
-                         time_width, 6, rows[i].min_time, rank_width, rows[i].min_rank,
-                         count_width, rows[i].call_count,
-                         avg_width, 6, avg_time_ms,
-                         count_width, rows[i].min_calls, rank_width, rows[i].min_calls_rank,
-                         count_width, rows[i].max_calls, rank_width, rows[i].max_calls_rank);
+            PetscFPrintf(PETSC_COMM_SELF, f, "%s,%s,%.6f,%d,%.6f,%.6f,%d,%lld,%.6f,%.0f,%d,%.0f,%d\n",
+                         section, rows[i].name,
+                         rows[i].max_time, rows[i].max_rank, rows[i].mean_time,
+                         rows[i].min_time, rows[i].min_rank, rows[i].call_count, avg_time_ms,
+                         rows[i].min_calls, rows[i].min_calls_rank, rows[i].max_calls, rows[i].max_calls_rank);
         }
-        PetscFPrintf(PETSC_COMM_SELF, f, "==================================================================================================================\n");
         PetscCall(PetscFree(rows));
     }
 
@@ -2536,18 +2446,20 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
         char filen[PETSC_MAX_PATH_LEN + 128];
         if (simCtx->exec_mode == EXEC_MODE_SOLVER) PetscCall(PetscStrncpy(exec_mode_modifier, "Solver", sizeof(exec_mode_modifier)));
         else if (simCtx->exec_mode == EXEC_MODE_POSTPROCESSOR) PetscCall(PetscStrncpy(exec_mode_modifier, "PostProcessor", sizeof(exec_mode_modifier)));
-        PetscCall(PetscSNPrintf(filen, sizeof(filen), "%s/ProfilingSummary_%s.log", simCtx->log_dir, exec_mode_modifier));
-        // Append with a section label in continue mode, truncate otherwise.
+        PetscCall(PetscSNPrintf(filen, sizeof(filen), "%s/ProfilingSummary_%s.csv", simCtx->log_dir, exec_mode_modifier));
+        // Append in continue mode (the continuation's totals follow its marker), truncate otherwise.
         f = fopen(filen, simCtx->continueMode ? "a" : "w");
         if (!f) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open log file: %s", filen);
-        if (simCtx->continueMode) fprintf(f, "\n=== Continuation from step %" PetscInt_FMT " ===\n", simCtx->StartStep);
+        if (ftell(f) == 0) {
+            fprintf(f, "section,function,max_time_s,max_rank,mean_time_s,min_time_s,min_rank,calls,avg_time_per_call_ms,"
+                       "min_calls_per_rank,min_calls_rank,max_calls_per_rank,max_calls_rank\n");
+        }
+        if (simCtx->continueMode) fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
+        fprintf(f, "# Total time per rank over %d rank(s). Section 'petsc' times are inclusive and run inside the "
+                   "'picurv' functions, so the two sections must not be added together.\n", (int)simCtx->size);
     }
-    PetscCall(_ProfilingReduceSection(f, "FINAL PROFILING SUMMARY", npicurv, picurv_names, picurv_times, picurv_counts));
-    if (!simCtx->rank) {
-        PetscFPrintf(PETSC_COMM_SELF, f, "\nPETSc's own events follow. Their times are inclusive and run inside the PICurv functions above,\n"
-                                         "so the two sections must not be added together.\n");
-    }
-    PetscCall(_ProfilingReduceSection(f, "PETSC EVENTS", npetsc, petsc_names, petsc_times, petsc_counts));
+    PetscCall(_ProfilingReduceSection(f, "picurv", npicurv, picurv_names, picurv_times, picurv_counts));
+    PetscCall(_ProfilingReduceSection(f, "petsc", npetsc, petsc_names, petsc_times, petsc_counts));
     if (f) fclose(f);
 
     PetscCall(PetscFree3(picurv_names, picurv_times, picurv_counts));
@@ -3535,14 +3447,14 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
                         "search_population,search_located_count,search_lost_count,traversal_steps_sum,re_search_count,"
                         "max_traversal_fail_count,search_failure_fraction,search_work_index,re_search_fraction,"
                         "physical_time,lost_psi_sum,exited,exited_cumulative,exited_psi_sum,search_exited_count,"
-                        "blocked_walk_retry_count,reflections,reflection_fallbacks,wraps\n");
+                        "blocked_walk_retry_count,reflections,reflection_fallbacks,wraps,occupied_cells\n");
             }
             if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
                 fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
             }
             fprintf(f,
                     "%d,%.6e,%d,%d,%lld,%d,%d,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%.6e,%.6e,%.6e,%.10e,"
-                    "%d,%lld,%.10e,%lld,%lld,%lld,%lld,%lld\n",
+                    "%d,%lld,%.10e,%lld,%lld,%lld,%lld,%lld,%d\n",
                     (int)simCtx->step,
                     (double)simCtx->ti,
                     (int)totalParticles,
@@ -3577,7 +3489,8 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
                     blockedWalkRetryCount,
                     reflectionCount,
                     reflectionFallbackCount,
-                    wrapCount);
+                    wrapCount,
+                    (int)simCtx->occupiedCellCount);
             fclose(f);
         }
     }
@@ -3665,71 +3578,23 @@ PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user)
 }
 
 /**
- * @brief Implementation of \ref LOG_PARTICLE_METRICS().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/logging.h`.
- * @see LOG_PARTICLE_METRICS()
- */
-PetscErrorCode LOG_PARTICLE_METRICS(UserCtx *user, const char *stageName)
-{
-    PetscErrorCode ierr;
-    PetscMPIInt    rank;
-    SimCtx         *simCtx = user->simCtx;
-    const char     *stage_label = (stageName && stageName[0] != '\0') ? stageName : "N/A";
-
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-    rank = simCtx->rank;
-
-    PetscInt totalParticles;
-    ierr = DMSwarmGetSize(user->swarm, &totalParticles); CHKERRQ(ierr);
-
-    if (!rank) {
-        FILE *f;
-        char filen[PETSC_MAX_PATH_LEN + 64];
-        ierr = PetscSNPrintf(filen, sizeof(filen), "%s/Particle_Metrics.log", simCtx->log_dir); CHKERRQ(ierr);
-        f = fopen(filen, "a");
-        if (!f) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open particle log file: %s", filen);
-
-        if (ftell(f) == 0) {
-            PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10s | %-12s | %-10s | %-10s | %-10s | %-15s | %-10s | %-10s | %-10s | %-12s\n",
-                            "Stage", "Timestep", "Total Ptls", "Lost", "Lost Total", "Migrated", "Occupied Cells", "Imbalance", "Mig Passes",
-                            "Exited", "Exited Total");
-            PetscFPrintf(PETSC_COMM_SELF, f, "-------------------------------------------------------------------------------------------------------------------------------------------\n");
-        }
-        if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
-            PetscFPrintf(PETSC_COMM_SELF, f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
-        }
-
-        PetscFPrintf(PETSC_COMM_SELF, f, "%-18s | %-10d | %-12d | %-10d | %-10lld | %-10d | %-15d | %-10.2f | %-10d | %-10d | %-12lld\n",
-                        stage_label, (int)simCtx->step, (int)totalParticles, (int)simCtx->particlesLostLastStep,
-                        (long long)simCtx->particlesLostCumulative, (int)simCtx->particlesMigratedLastStep, (int)simCtx->occupiedCellCount,
-                        (double)simCtx->particleLoadImbalance, (int)simCtx->migrationPassesLastStep,
-                        (int)simCtx->particlesExitedLastStep, (long long)simCtx->particlesExitedCumulative);
-        fclose(f);
-    }
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-/**
  * @brief Implementation of \ref PicurvOpenDiagnosticsCsv().
  * @details Full API contract is documented with the header declaration in
  *          `include/logging.h`.
  */
-PetscErrorCode PicurvOpenDiagnosticsCsv(const SimCtx *simCtx, const char *filename,
-                                        const char *header, FILE **file)
+PetscErrorCode PicurvOpenDiagnosticsCsv(const SimCtx *simCtx, const char *dir, const char *filename,
+                                        const char *header, PetscBool mark_continuation, FILE **file)
 {
     char  path[PETSC_MAX_PATH_LEN + 64];
     FILE *handle = NULL;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    PetscCheck(simCtx && filename && header && file, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
-               "A diagnostics CSV needs a context, a name, a header, and somewhere to "
+    PetscCheck(simCtx && dir && filename && header && file, PETSC_COMM_SELF, PETSC_ERR_ARG_NULL,
+               "A diagnostics CSV needs a context, a directory, a name, a header, and somewhere to "
                "return the handle.");
 
-    PetscCall(PetscSNPrintf(path, sizeof(path), "%s/%s", simCtx->analysis_dir, filename));
+    PetscCall(PetscSNPrintf(path, sizeof(path), "%s/%s", dir, filename));
     handle = fopen(path, "a");
     PetscCheck(handle != NULL, PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN,
                "Unable to open diagnostics file '%s'.", path);
@@ -3737,7 +3602,7 @@ PetscErrorCode PicurvOpenDiagnosticsCsv(const SimCtx *simCtx, const char *filena
     if (ftell(handle) == 0) fprintf(handle, "%s\n", header);
     /* Written once, on the first step a continuation produces, so that a reader can tell
        a resumed run from a jump in the data itself. */
-    if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
+    if (mark_continuation && simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
         fprintf(handle, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
     }
 

@@ -106,8 +106,7 @@ static PetscErrorCode MomentumNewtonKrylov_Monitor(SNES snes, PetscInt iteration
         ctx->have_initial_norm = PETSC_TRUE;
     }
     if (ctx->history_file) {
-        (void)fprintf(ctx->history_file,
-                      "step: %d | block: %d | newton: %d | nonlinear_norm: %.16e\n",
+        (void)fprintf(ctx->history_file, "%d,%d,%d,%.16e\n",
                       (int)simCtx->step, (int)ctx->user->_this, (int)iteration,
                       (double)norm);
         (void)fflush(ctx->history_file);
@@ -134,9 +133,7 @@ static PetscErrorCode MomentumNewtonKrylov_LinearMonitor(KSP ksp, PetscInt itera
     if (!ctx->linear_history_file) { PROFILE_HELPER_END; PetscFunctionReturn(PETSC_SUCCESS); }
     PetscCall(SNESGetIterationNumber(ctx->snes, &newton_iteration));
     PetscCall(KSPGetTolerances(ksp, &relative_tolerance, NULL, NULL, NULL));
-    (void)fprintf(ctx->linear_history_file,
-                  "step: %d | block: %d | newton: %d | krylov: %d | "
-                  "requested_rtol: %.16e | reported_residual_norm: %.16e\n",
+    (void)fprintf(ctx->linear_history_file, "%d,%d,%d,%d,%.16e,%.16e\n",
                   (int)ctx->user->simCtx->step, (int)ctx->user->_this,
                   (int)newton_iteration, (int)iteration,
                   (double)relative_tolerance, (double)norm);
@@ -145,48 +142,42 @@ static PetscErrorCode MomentumNewtonKrylov_LinearMonitor(KSP ksp, PetscInt itera
     PetscFunctionReturn(PETSC_SUCCESS);
 }
 
-/** @brief Opens the optional rank-zero Newton iteration-history file. */
+/**
+ * @brief Opens one of the block's Newton CSV records on rank 0, or returns NULL.
+ * @details A fresh run's first step truncates the file; the header is written to an empty file,
+ *          and a continued run's first step marks the seam. A failure only warns: these files
+ *          are diagnostics, and must not change the solve's error behaviour.
+ */
+static FILE *MomentumNewtonKrylov_OpenCsv(const MomentumNewtonKrylovContext *ctx, const char *kind, const char *header)
+{
+    SimCtx *simCtx = ctx->user->simCtx;
+    char path[PETSC_MAX_PATH_LEN + 128];
+    const PetscBool first_step = (PetscBool)(simCtx->step == simCtx->StartStep + 1);
+    FILE *file;
+
+    if (PetscSNPrintf(path, sizeof(path), "%s/Momentum_Solver_Newton_Krylov_%s_Block_%d.csv",
+                      simCtx->log_dir, kind, (int)ctx->user->_this)) return NULL;
+    file = fopen(path, (first_step && !simCtx->continueMode) ? "w" : "a");
+    if (!file) {
+        LOG(GLOBAL, LOG_WARNING, "Could not open Newton %s log '%s'.\n", kind, path);
+        return NULL;
+    }
+    if (ftell(file) == 0) (void)fprintf(file, "%s\n", header);
+    if (simCtx->continueMode && first_step) (void)fprintf(file, "# Continuation from step %d\n", (int)simCtx->StartStep);
+    return file;
+}
+
+/** @brief Opens the optional rank-zero Newton iteration-history files (per Newton and per Krylov iteration). */
 static void MomentumNewtonKrylov_OpenHistory(MomentumNewtonKrylovContext *ctx)
 {
     PROFILE_FUNCTION_BEGIN;
     SimCtx *simCtx = ctx->user->simCtx;
-    char path[PETSC_MAX_PATH_LEN + 128];
-    const char *mode;
 
     if (!simCtx->mom_nk_monitor_history || simCtx->rank != 0) { PROFILE_FUNCTION_END; return; }
-    if (PetscSNPrintf(path, sizeof(path),
-                     "%s/Momentum_Solver_Newton_Krylov_History_Block_%d.log",
-                     simCtx->log_dir, (int)ctx->user->_this)) { PROFILE_FUNCTION_END; return; }
-    mode = (simCtx->step == simCtx->StartStep + 1 && !simCtx->continueMode) ? "w" : "a";
-    ctx->history_file = fopen(path, mode);
-    if (!ctx->history_file) {
-        LOG(GLOBAL, LOG_WARNING, "Could not open Newton iteration-history log '%s'.\n", path);
-        PROFILE_FUNCTION_END;
-        return;
-    }
-    if (mode[0] == 'w') {
-        (void)fprintf(ctx->history_file,
-                      "# step | block | Newton iteration | nonlinear residual norm\n");
-    } else if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
-        (void)fprintf(ctx->history_file, "# Continuation from step %d\n", (int)simCtx->StartStep);
-    }
-    if (PetscSNPrintf(path, sizeof(path),
-                     "%s/Momentum_Solver_Newton_Krylov_Linear_History_Block_%d.log",
-                     simCtx->log_dir, (int)ctx->user->_this)) { PROFILE_FUNCTION_END; return; }
-    ctx->linear_history_file = fopen(path, mode);
-    if (!ctx->linear_history_file) {
-        LOG(GLOBAL, LOG_WARNING, "Could not open Newton Krylov linear-history log '%s'.\n", path);
-        PROFILE_FUNCTION_END;
-        return;
-    }
-    if (mode[0] == 'w') {
-        (void)fprintf(ctx->linear_history_file,
-                      "# step | block | Newton iteration | Krylov iteration | "
-                      "requested relative tolerance | PETSc-reported residual norm\n");
-    } else if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
-        (void)fprintf(ctx->linear_history_file, "# Continuation from step %d\n",
-                      (int)simCtx->StartStep);
-    }
+    ctx->history_file = MomentumNewtonKrylov_OpenCsv(ctx, "History", "step,block,newton,nonlinear_norm");
+    if (!ctx->history_file) { PROFILE_FUNCTION_END; return; }
+    ctx->linear_history_file = MomentumNewtonKrylov_OpenCsv(ctx, "Linear_History",
+                                                            "step,block,newton,krylov,requested_rtol,reported_residual_norm");
     PROFILE_FUNCTION_END;
 }
 
@@ -205,46 +196,24 @@ static void MomentumNewtonKrylov_WriteSummary(const MomentumNewtonKrylovContext 
 {
     PROFILE_FUNCTION_BEGIN;
     SimCtx *simCtx = ctx->user->simCtx;
-    char path[PETSC_MAX_PATH_LEN + 128];
-    const char *mode;
     const char *reason_name;
     FILE *file;
 
     if (simCtx->rank != 0) { PROFILE_FUNCTION_END; return; }
-    if (PetscSNPrintf(path, sizeof(path),
-                     "%s/Momentum_Solver_Newton_Krylov_Summary_Block_%d.log",
-                     simCtx->log_dir, (int)ctx->user->_this)) { PROFILE_FUNCTION_END; return; }
-    mode = (simCtx->step == simCtx->StartStep + 1 && !simCtx->continueMode) ? "w" : "a";
-    file = fopen(path, mode);
-    if (!file) {
-        LOG(GLOBAL, LOG_WARNING, "Could not open Newton summary log '%s'.\n", path);
-        PROFILE_FUNCTION_END;
-        return;
-    }
-    if (mode[0] == 'w') {
-        (void)fprintf(file,
-                      "# step | block | solver | Jacobian | preconditioner | SNES reason | "
-                      "reason code | Newton iterations | "
-                      "residual evaluations | Krylov iterations | initial nonlinear norm | "
-                      "final nonlinear norm | state\n");
-    } else if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
-        (void)fprintf(file, "# Continuation from step %d\n", (int)simCtx->StartStep);
-    }
+    file = MomentumNewtonKrylov_OpenCsv(ctx, "Summary",
+                                        "step,block,solver,jacobian,preconditioner,reason,reason_code,newton,evals,krylov,"
+                                        "initial_norm,final_norm,state");
+    if (!file) { PROFILE_FUNCTION_END; return; }
     reason_name = reason == SNES_CONVERGED_ITERATING
                     ? "SNES_CONVERGED_ITERATING" : SNESConvergedReasons[reason];
-    (void)fprintf(file,
-                  "step: %d | block: %d | solver: Newton Krylov | "
-                  "Jacobian: finite_difference / matrix_free | Preconditioner: %s | "
-                  "reason: %s | reason_code: %d | "
-                  "newton: %d | evals: %d | krylov: %d | initial: ",
+    (void)fprintf(file, "%d,%d,Newton Krylov,finite_difference / matrix_free,%s,%s,%d,%d,%d,%d,",
                   (int)simCtx->step, (int)ctx->user->_this,
                   ctx->preconditioning_engine.description.model == MOM_NK_PC_MODEL_NONE ?
                       "none" : "frozen_momentum_jacobian / point_block",
                   reason_name, (int)reason,
                   (int)nonlinear_its, (int)function_evals, (int)linear_its);
     if (ctx->have_initial_norm) (void)fprintf(file, "%.16e", (double)ctx->initial_norm);
-    else                        (void)fprintf(file, "unavailable");
-    (void)fprintf(file, " | final: %.16e | state: %s\n", (double)final_norm,
+    (void)fprintf(file, ",%.16e,%s\n", (double)final_norm,
                   !committed ? "rolled_back" :
                   simCtx->mom_last_converged ? "committed" : "committed_unconverged");
     (void)fclose(file);
