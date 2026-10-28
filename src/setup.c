@@ -2706,7 +2706,7 @@ PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id)
     // --- 3. Optional Debugging: Norm Before Update ---
     // Use your logging convention check
     // if (get_log_level() >= LOG_LEVEL_DEBUG && is_function_allowed("UpdateLocalGhosts")) { // Example check
-    if(get_log_level() == LOG_DEBUG && is_function_allowed(__func__)){
+    if(get_log_level() >= LOG_DEBUG && is_function_allowed(__func__)){
         PetscReal norm_global_before;
         ierr = VecNorm(globalVec, NORM_INFINITY, &norm_global_before); CHKERRQ(ierr);
         LOG_ALLOW(GLOBAL, LOG_INFO,"Max norm '%s' (Global) BEFORE Ghost Update: %g\n", field_name, norm_global_before);
@@ -2726,7 +2726,7 @@ PetscErrorCode UpdateLocalGhosts(UserCtx *user, FieldId field_id)
     // --- 5. Optional Debugging: Norm After Update ---
     // Use your logging convention check
     // if (get_log_level() >= LOG_LEVEL_DEBUG && is_function_allowed("UpdateLocalGhosts")) { // Example check
-    if(get_log_level() == LOG_DEBUG && is_function_allowed(__func__)){ // Using your specific check
+    if(get_log_level() >= LOG_DEBUG && is_function_allowed(__func__)){ // Using your specific check
         PetscReal norm_local_after;
         ierr = VecNorm(localVec, NORM_INFINITY, &norm_local_after); CHKERRQ(ierr);
         LOG_ALLOW(GLOBAL, LOG_INFO,"Max norm '%s' (Local) AFTER Ghost Update: %g\n", field_name, norm_local_after);

@@ -555,7 +555,7 @@ PetscErrorCode EvaluateParticlePositionInPlanes(const CellFacePlanes *planes, Pe
     PROFILE_HELPER_BEGIN;
     // Scale the base threshold by the cell size (threshold 1e-6 in a 0.01 cell is 1e-8).
     ierr = CalculateDistancesToCellFacePlanes(p, planes, d, threshold * planes->size, NULL); CHKERRQ(ierr);
-    if(get_log_level() == LOG_DEBUG && is_function_allowed(__func__)) LOG_FACE_DISTANCES(d);
+    if(get_log_level() >= LOG_DEBUG && is_function_allowed(__func__)) LOG_FACE_DISTANCES(d);
     // 0 inside, 1 (2 or 3) on a face (edge or corner), -1 outside.
     ierr = DeterminePointPosition(d, position); CHKERRQ(ierr);
     PROFILE_FUNCTION_END;
@@ -628,7 +628,7 @@ PetscErrorCode UpdateCellIndicesBasedOnDistances( PetscReal d[NUM_FACES], PetscI
 
     // Debug: Print current face distances
     LOG_ALLOW(LOCAL,LOG_DEBUG, "Current Face Distances:\n");
-    if(get_log_level() == LOG_DEBUG && is_function_allowed(__func__)) LOG_FACE_DISTANCES(d);
+    if(get_log_level() >= LOG_DEBUG && is_function_allowed(__func__)) LOG_FACE_DISTANCES(d);
 
     // Update k-direction based on FRONT and BACK distances
     if (d[FRONT] < 0.0) {

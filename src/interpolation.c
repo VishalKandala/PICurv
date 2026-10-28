@@ -1264,7 +1264,7 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     //////////// DEBUG
     /*
         // Log a synchronized header message from all ranks.
-    LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "DEBUG: Dumping cornerGlobal BEFORE ghost exchange...\n");
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "DEBUG: Dumping cornerGlobal BEFORE ghost exchange...\n");
 
     // VecView prints to a PETSc viewer. PETSC_VIEWER_STDOUT_WORLD is a global, synchronized viewer.
     // We only need to call it if logging is active for this function.
@@ -1273,7 +1273,7 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     }
     
     // Log a synchronized footer message.
-    LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "DEBUG: Finished dumping cornerGlobal.\n");
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "DEBUG: Finished dumping cornerGlobal.\n");
     */
     ////////// DEBUG
 
@@ -1301,7 +1301,7 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
     /////// DEBUG
     /*
         // Log a synchronized header message from all ranks.
-    LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "DEBUG: Dumping cornerLocal AFTER ghost exchange...\n");
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "DEBUG: Dumping cornerLocal AFTER ghost exchange...\n");
 
     // Here, we want each rank to print its own local vector.
     // PETSC_VIEWER_STDOUT_SELF is the correct tool for this. The LOG_ALLOW_SYNC
@@ -1322,7 +1322,7 @@ static PetscErrorCode InterpolateEulerFieldFromCornerToSwarm(
         PetscSynchronizedFlush(PETSC_COMM_WORLD, PETSC_STDOUT);
     }
 
-    LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "DEBUG: Finished dumping cornerLocal.\n");
+    LOG_ALLOW(GLOBAL, LOG_DEBUG, "DEBUG: Finished dumping cornerLocal.\n");
     */
     ///// DEBUG
     

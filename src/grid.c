@@ -372,7 +372,7 @@ PetscErrorCode InitializeAllGridDMs(SimCtx *simCtx)
 
     // --- Part 2: Create DMs from Coarse to Fine for each Block ---
     for (PetscInt bi = 0; bi < nblk; bi++) {
-        LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "--- Creating DMs for Block %" PetscInt_FMT " ---\n", bi);
+        LOG_ALLOW(GLOBAL, LOG_DEBUG, "--- Creating DMs for Block %" PetscInt_FMT " ---\n", bi);
 
         // Create the coarsest level DM first (passing NULL for the coarse_user)
         ierr = InitializeSingleGridDM(&mgctx[0].user[bi], NULL); CHKERRQ(ierr);
@@ -385,7 +385,7 @@ PetscErrorCode InitializeAllGridDMs(SimCtx *simCtx)
 
     // --- Optional: View the finest DM for debugging verification ---
     if (get_log_level() >= LOG_DEBUG) {
-        LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "--- Viewing Finest DMDA (Level %" PetscInt_FMT ", Block 0) ---\n", usermg->mglevels - 1);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "--- Viewing Finest DMDA (Level %" PetscInt_FMT ", Block 0) ---\n", usermg->mglevels - 1);
         ierr = DMView(mgctx[usermg->mglevels - 1].user[0].da, PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
     }
 
@@ -424,7 +424,7 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
         UserCtx *fine_user = &usermg->mgctx[usermg->mglevels - 1].user[bi];
         ierr = SetFinestLevelCoordinates(fine_user); CHKERRQ(ierr);
         LOG_ALLOW(GLOBAL,LOG_TRACE,"The Finest level coordinates for block %" PetscInt_FMT " have been set.\n",bi);
-        if(get_log_level()==LOG_VERBOSE && is_function_allowed(__func__)==true){
+        if(get_log_level() >= LOG_VERBOSE && is_function_allowed(__func__)==true){
             ierr = LOG_FIELD_MIN_MAX(fine_user, FIELD_ID_COORDINATES);
         }
     }
@@ -439,7 +439,7 @@ PetscErrorCode AssignAllGridCoordinates(SimCtx *simCtx)
             ierr = RestrictCoordinates(coarse_user, fine_user); CHKERRQ(ierr);
 
             LOG_ALLOW(GLOBAL,LOG_TRACE,"Coordinates restricted to block %" PetscInt_FMT " level %" PetscInt_FMT ".\n",bi,level);
-            if(get_log_level()==LOG_VERBOSE && is_function_allowed(__func__)==true) {
+            if(get_log_level() >= LOG_VERBOSE && is_function_allowed(__func__)==true) {
                 ierr = LOG_FIELD_MIN_MAX(coarse_user, FIELD_ID_COORDINATES);
             }
         }

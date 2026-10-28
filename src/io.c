@@ -670,7 +670,7 @@ PetscErrorCode ReadGridFile(UserCtx *user)
 
     // --- One-Time Read and Broadcast Logic ---
     if (!g_file_has_been_read) {
-        LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "First call to ReadGridFile. Reading and broadcasting grid file header from '%s'...\n", simCtx->grid_file);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "First call to ReadGridFile. Reading and broadcasting grid file header from '%s'...\n", simCtx->grid_file);
         PetscMPIInt rank = simCtx->rank;
         PetscInt    nblk = simCtx->block_number;
 

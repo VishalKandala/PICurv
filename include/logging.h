@@ -239,16 +239,22 @@ typedef struct {
  * function is not in the allow-list (`is_function_allowed(__func__)`) or the
  * requested log level is higher than `get_log_level()`.
  *
+ * With GLOBAL scope every rank prints its own line, in rank order, so the message should
+ * carry per-rank data; a value every rank shares belongs in `LOG_ALLOW(GLOBAL, ...)`, which
+ * prints it once. The flush is collective over the scope's communicator and runs only when
+ * the message is enabled. The level and the allow-list are the same on every rank, so either
+ * every rank of the communicator flushes or none does: a disabled message costs no
+ * communication. Every rank of that communicator must still reach the call.
+ *
  * @param scope  Either LOCAL (MPI_COMM_SELF) or GLOBAL (MPI_COMM_WORLD).
- * @param level  One of LOG_ERROR, LOG_WARNING, LOG_INFO, LOG_DEBUG.
+ * @param level  One of LOG_ERROR, LOG_WARNING, LOG_INFO, LOG_DEBUG, LOG_TRACE, LOG_VERBOSE.
  * @param fmt    A `printf`-style format string (e.g., "Message: %ld\n").
  * @param ...    Variadic arguments to fill in `fmt`.
  *
  * Example usage:
  *
  * \code{.c}
- * LOG_ALLOW_SYNC(LOCAL, LOG_DEBUG, "Debug info: rank = %ld\n", rank);
- * LOG_ALLOW_SYNC(GLOBAL, LOG_INFO,  "Synchronized info in %s\n", __func__);
+ * LOG_ALLOW_SYNC(GLOBAL, LOG_DEBUG, "[Rank %d] owns %d cells\n", rank, ncells);
  * \endcode
  */
 #define LOG_ALLOW_SYNC(scope, level, fmt, ...)                                     \
@@ -273,12 +279,9 @@ do {                                                                            
                                                                                    \
     if (_doPrint) {                                                                \
         PetscSynchronizedPrintf(_comm, "[%s] " fmt, __func__, ##__VA_ARGS__);      \
+        /* Collective; _doPrint has the same value on every rank. */               \
+        PetscSynchronizedFlush(_comm, PETSC_STDOUT);                               \
     }                                                                              \
-                                                                                   \
-    /* ------------------------------------------------------------------ */      \
-    /* ALL ranks call the flush, even if they printed nothing.            */      \
-    /* ------------------------------------------------------------------ */      \
-    PetscSynchronizedFlush(_comm, PETSC_STDOUT);                                   \
 } while (0)
 
 /**

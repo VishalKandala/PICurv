@@ -842,7 +842,7 @@ PetscErrorCode CreateParticleSwarm(UserCtx *user, PetscInt numParticles, PetscIn
     LOG_ALLOW(GLOBAL,LOG_INFO, "Set local swarm size: %" PetscInt_FMT " particles.\n", *particlesPerProcess);
 
     // Optionally, LOG_ALLOW detailed DM info in debug mode
-    if (get_log_level() == LOG_DEBUG && is_function_allowed(__func__)) {
+    if (get_log_level() >= LOG_DEBUG && is_function_allowed(__func__)) {
     LOG_ALLOW(GLOBAL,LOG_DEBUG,"Viewing DMSwarm:\n");
         ierr = DMView(user->swarm, PETSC_VIEWER_STDOUT_WORLD); CHKERRQ(ierr);
     }
@@ -1220,7 +1220,7 @@ PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
         LOG_ALLOW(GLOBAL, LOG_INFO, "Particle data loaded. CellID and status are preserved from file.\n");
     }
 
-    LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "Particle swarm setup complete.\n");
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Particle swarm setup complete.\n");
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

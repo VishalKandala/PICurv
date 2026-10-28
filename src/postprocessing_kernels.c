@@ -130,7 +130,7 @@ PetscErrorCode ComputeNodalAverage(UserCtx* user, const char* in_field_name, con
     ierr = FieldIdFromName(in_field_name, &in_field_id); CHKERRQ(ierr);
     ierr = UpdateLocalGhosts(user, in_field_id); CHKERRQ(ierr);
     /* The boundary node average reads the dummy cells, so show them before averaging. */
-    if (get_log_level() == LOG_VERBOSE && is_function_allowed(__func__)) {
+    if (get_log_level() >= LOG_VERBOSE && is_function_allowed(__func__)) {
         ierr = LOG_FIELD_ANATOMY(user, in_field_id, "PreNodalAverage"); CHKERRQ(ierr);
     }
 

@@ -243,8 +243,7 @@ PetscErrorCode CheckAndRemoveOutOfBoundsParticles(UserCtx *user,
     if (removedCountGlobal) {
         ierr = MPI_Allreduce(&local_removed_count, &global_removed_count_mpi, 1, MPIU_INT, MPI_SUM, PetscObjectComm((PetscObject)swarm)); CHKERRQ(ierr);
         *removedCountGlobal = global_removed_count_mpi;
-        // Use a synchronized log message so only one rank prints the global total.
-        LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "[Rank %d] Removed %" PetscInt_FMT " out-of-bounds particles globally.\n", rank, *removedCountGlobal);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %" PetscInt_FMT " out-of-bounds particles globally.\n", *removedCountGlobal);
     }
 
     PROFILE_HELPER_END;
@@ -333,8 +332,7 @@ PetscErrorCode CheckAndRemoveLostParticles(UserCtx *user,
         ierr = MPI_Allreduce(local_count, global_count, 2, MPIU_INT, MPI_SUM, PetscObjectComm((PetscObject)swarm)); CHKERRMPI(ierr);
         if (removedCountGlobal) *removedCountGlobal = global_count[0];
         if (exitedCountGlobal) *exitedCountGlobal = global_count[1];
-        // Use a synchronized log message so only one rank prints the global total.
-        LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "[Rank %d] Removed %" PetscInt_FMT " LOST and %" PetscInt_FMT " EXITED particles globally.\n", rank, global_count[0], global_count[1]);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Removed %" PetscInt_FMT " LOST and %" PetscInt_FMT " EXITED particles globally.\n", global_count[0], global_count[1]);
     }
     if (removedScalarSumGlobal || exitedScalarSumGlobal) {
         ierr = MPI_Allreduce(local_psi, global_psi, 2, MPIU_REAL, MPI_SUM,
@@ -1432,7 +1430,7 @@ PetscErrorCode LocateAllParticlesInGrid(UserCtx *user,BoundingBox *bboxlist)
     do {
         passes++;
         user->simCtx->searchMetrics.currentSettlementPass = passes;
-        LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "[Rank %d] Starting migration pass %" PetscInt_FMT ".\n", rank, passes);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Starting migration pass %" PetscInt_FMT ".\n", passes);
 
         // --- STAGE 1: PER-PASS INITIALIZATION ---
         MigrationInfo  *migrationList = NULL;

@@ -530,7 +530,7 @@ PetscErrorCode PerformLoadedParticleSetup(SimCtx *simCtx)
     // that are already on the correct rank,
     ierr = LocateAllParticlesInGrid(user, simCtx->bboxlist); CHKERRQ(ierr);
 
-    if(get_log_level() == LOG_DEBUG){
+    if(get_log_level() >= LOG_DEBUG && is_function_allowed(__func__)){
         LOG(GLOBAL, LOG_DEBUG, "[T=%.4f, Step=%" PetscInt_FMT "] Particle field states after locating loaded particles...\n", simCtx->ti, simCtx->step);
         ierr = LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency); CHKERRQ(ierr);
     }
@@ -669,7 +669,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         // =================================================================
         //     2. EULERIAN SOLVER STEP
         // =================================================================
-        if(get_log_level() == LOG_VERBOSE && is_function_allowed(__func__)==true){
+        if(get_log_level() >= LOG_VERBOSE && is_function_allowed(__func__)==true){
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_COORDINATES, "PreFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_CSI, "PreFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_ETA, "PreFlowSolver"); CHKERRQ(ierr);
@@ -698,7 +698,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = FlowSolver(simCtx); CHKERRQ(ierr);
         }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Eulerian Field Updated ...\n");
-        if(get_log_level() == LOG_VERBOSE && is_function_allowed(__func__)==true){
+        if(get_log_level() >= LOG_VERBOSE && is_function_allowed(__func__)==true){
             LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Post FlowSolver field states:\n");
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_UCAT, "PostFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_P, "PostFlowSolver"); CHKERRQ(ierr);
@@ -739,7 +739,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             }
 
             // a.1 (Optional) Log Eulerian Diffusivity min/max and anatomy for debugging.
-            if(get_log_level() == LOG_VERBOSE && is_function_allowed(__func__)==true){
+            if(get_log_level() >= LOG_VERBOSE && is_function_allowed(__func__)==true){
                 LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Updated Diffusivity Min/Max:\n");
                 ierr = LOG_FIELD_MIN_MAX(&user[0], FIELD_ID_DIFFUSIVITY); CHKERRQ(ierr);
                 ierr = LOG_FIELD_MIN_MAX(&user[0], FIELD_ID_DIFFUSIVITY_GRADIENT); CHKERRQ(ierr);
@@ -792,7 +792,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = LOG_PARTICLE_METRICS(user, "Timestep Metrics"); CHKERRQ(ierr);
 
 
-            if(get_log_level() == LOG_VERBOSE && is_function_allowed(__func__)==true){
+            if(get_log_level() >= LOG_VERBOSE && is_function_allowed(__func__)==true){
                 LOG_ALLOW(GLOBAL, LOG_VERBOSE, "Post Lagrangian update field states:\n");
                 ierr = LOG_FIELD_MIN_MAX(&user[0], FIELD_ID_PSI); CHKERRQ(ierr);
                 ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_PSI, "PostScatter"); CHKERRQ(ierr);

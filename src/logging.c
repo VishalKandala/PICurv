@@ -121,6 +121,9 @@ LogLevel _ResolveLogLevel(void) {
         }
         else {
             current_log_level = LOG_ERROR; // Default if unrecognized
+            if (PetscGlobalRank == 0) {
+                fprintf(stderr, "[WARNING] Unrecognized LOG_LEVEL '%s'; using ERROR. Valid levels: ERROR, WARNING, INFO, DEBUG, TRACE, VERBOSE.\n", env);
+            }
         }
     }
     return current_log_level;
@@ -3686,12 +3689,11 @@ PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user)
 {
     PetscErrorCode ierr;
     SimCtx         *simCtx = user->simCtx;
-    PetscMPIInt    size, rank;
+    PetscMPIInt    size;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
     size = simCtx->size;
-    rank = simCtx->rank;
 
     // --- 1. Particle Load Imbalance ---
     PetscInt nLocal, nGlobal, nLocalMax;
@@ -3724,7 +3726,7 @@ PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user)
     ierr = MPI_Allreduce(&local_occupied_cells, &global_occupied_cells, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
     simCtx->occupiedCellCount = global_occupied_cells;
 
-    LOG_ALLOW_SYNC(GLOBAL, LOG_INFO, "[Rank %d] Advanced Metrics: Imbalance=%.2f, OccupiedCells=%" PetscInt_FMT "\n", rank, simCtx->particleLoadImbalance, simCtx->occupiedCellCount);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Advanced Metrics: Imbalance=%.2f, OccupiedCells=%" PetscInt_FMT "\n", simCtx->particleLoadImbalance, simCtx->occupiedCellCount);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
