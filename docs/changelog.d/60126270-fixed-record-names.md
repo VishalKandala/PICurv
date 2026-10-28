@@ -1,0 +1,1 @@
+- Monitor: the runtime memory record is always `<run.runtime_logs>/Runtime_Memory.csv` and the per-step profiling record `<run.runtime_logs>/Profiling_Timestep_Summary.csv`. `diagnostics.runtime_memory_log.file` and `profiling.timestep_output.file` are no longer accepted; remove them from monitor files.
