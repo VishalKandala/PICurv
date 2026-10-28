@@ -150,20 +150,23 @@ static PetscErrorCode MomentumNewtonKrylov_LinearMonitor(KSP ksp, PetscInt itera
  */
 static FILE *MomentumNewtonKrylov_OpenCsv(const MomentumNewtonKrylovContext *ctx, const char *kind, const char *header)
 {
+    PROFILE_HELPER_BEGIN;
     SimCtx *simCtx = ctx->user->simCtx;
     char path[PETSC_MAX_PATH_LEN + 128];
     const PetscBool first_step = (PetscBool)(simCtx->step == simCtx->StartStep + 1);
     FILE *file;
 
     if (PetscSNPrintf(path, sizeof(path), "%s/Momentum_Solver_Newton_Krylov_%s_Block_%d.csv",
-                      simCtx->log_dir, kind, (int)ctx->user->_this)) return NULL;
+                      simCtx->log_dir, kind, (int)ctx->user->_this)) { PROFILE_HELPER_END; return NULL; }
     file = fopen(path, (first_step && !simCtx->continueMode) ? "w" : "a");
     if (!file) {
         LOG(GLOBAL, LOG_WARNING, "Could not open Newton %s log '%s'.\n", kind, path);
+        PROFILE_HELPER_END;
         return NULL;
     }
     if (ftell(file) == 0) (void)fprintf(file, "%s\n", header);
     if (simCtx->continueMode && first_step) (void)fprintf(file, "# Continuation from step %d\n", (int)simCtx->StartStep);
+    PROFILE_HELPER_END;
     return file;
 }
 

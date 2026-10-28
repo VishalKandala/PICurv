@@ -23414,6 +23414,8 @@ def render_run_summary(payload: dict, output_format: str = "text"):
                   f"{_format_summary_float(memory.get('mean_step_wall_s'), '.4g')} s mean (slowest rank)")
         if memory.get("final_reason"):
             print(f"    final reason  : {memory.get('final_reason')}")
+        else:
+            print("    final reason  : none recorded (still running, or stopped without a final row)")
     else:
         print("    unavailable")
 
@@ -24425,6 +24427,26 @@ def _runtime_memory_rows(path: str) -> list:
     return rows
 
 
+# Columns that identify a plot record (its step and line) rather than carry a value; text
+# columns such as a status or an event are dropped by _append_summary_plot_record() itself.
+_PLOT_ROW_IDENTITY_KEYS = ("step", "block")
+
+
+def _typed_csv_value(text: str):
+    """!
+    @brief Return a CSV cell as a float (written with a point or exponent), an int, or the text.
+    @param[in] text Cell text.
+    @return Parsed value.
+    """
+    float_val = _parse_float_loose(text)
+    int_val = _parse_int_loose(text)
+    if float_val is not None and ("." in text or "e" in text.lower()):
+        return float_val
+    if int_val is not None:
+        return int_val
+    return text
+
+
 def _solution_convergence_rows(log_dir: str) -> "tuple[str | None, list]":
     """!
     @brief Return the solution-convergence record's path and its `(segment, row)` pairs.
@@ -24436,21 +24458,12 @@ def _solution_convergence_rows(log_dir: str) -> "tuple[str | None, list]":
     if path is None:
         return None, rows
 
-    def typed(name, text):
-        float_val = _parse_float_loose(text)
-        int_val = _parse_int_loose(text)
-        if float_val is not None and ("." in text or "e" in text.lower()):
-            return float_val
-        if int_val is not None:
-            return int_val
-        return text
-
     if path.endswith(".csv"):
         for segment, row in _read_runtime_diagnostics_csv(path):
             step = _parse_int_loose(row.get("step"))
             if step is None:
                 continue
-            values = {name: typed(name, text) for name, text in row.items() if name}
+            values = {name: _typed_csv_value(text) for name, text in row.items() if name}
             values["step"] = step
             rows.append((segment, values))
         return path, rows
@@ -24478,7 +24491,7 @@ def _solution_convergence_rows(log_dir: str) -> "tuple[str | None, list]":
             if step is None:
                 continue
             values = {"mode": mode}
-            values.update({name: typed(name, text) for name, text in zip(col_names, parts) if name})
+            values.update({name: _typed_csv_value(text) for name, text in zip(col_names, parts) if name})
             values["step"] = step
             rows.append((segment, values))
     return path, rows
@@ -24559,7 +24572,7 @@ def _collect_summary_plot_records(context: dict) -> list:
         for segment, row in rows:
             _append_summary_plot_record(
                 records, "momentum", row["step"], f"block {block}",
-                {key: value for key, value in row.items() if key not in ("step", "block", "status")},
+                {key: value for key, value in row.items() if key not in _PLOT_ROW_IDENTITY_KEYS},
                 path, segment,
                 coordinates={"solver_iteration": row["pseudo_iterations"]},
             )
@@ -24671,7 +24684,7 @@ def _collect_summary_plot_records(context: dict) -> list:
         if row["event"] in {"Step", "Post"}:
             _append_summary_plot_record(
                 records, "memory", row["step"], "memory",
-                {key: value for key, value in row.items() if key not in ("step", "event", "reason")},
+                {key: value for key, value in row.items() if key not in _PLOT_ROW_IDENTITY_KEYS},
                 memory_path, segment,
             )
 

@@ -781,6 +781,7 @@ static PetscErrorCode AppendPicardHistoryRows(SimCtx *simCtx, PetscInt block_num
     const PetscBool  first_row = (PetscBool)(simCtx->step == simCtx->StartStep + 1 && !continuation_marked);
 
     PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
     for (PetscInt bi = 0; bi < block_number; bi++) {
         char  name[128];
         FILE *f = NULL;
@@ -802,6 +803,7 @@ static PetscErrorCode AppendPicardHistoryRows(SimCtx *simCtx, PetscInt block_num
         fclose(f);
     }
     if (first_row) continuation_marked = PETSC_TRUE;
+    PROFILE_HELPER_END;
     PetscFunctionReturn(0);
 }
 

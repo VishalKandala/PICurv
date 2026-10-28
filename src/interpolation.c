@@ -796,6 +796,7 @@ static void AppendInterpolationTargetText(char *text, size_t size, size_t *used,
                                           const CenterInterpolationTarget *tg, PetscInt p,
                                           PetscInt bi, PetscInt bj, PetscInt bk)
 {
+    PROFILE_HELPER_BEGIN;
 #define PICURV_APPEND(...) do { if (*used < size) { int _n = snprintf(text + *used, size - *used, __VA_ARGS__); \
                                 if (_n > 0) *used = PetscMin(size - 1, *used + (size_t)_n); } } while (0)
     PICURV_APPEND(" | %s =", tg->field_name);
@@ -812,6 +813,7 @@ static void AppendInterpolationTargetText(char *text, size_t size, size_t *used,
         }
     }
 #undef PICURV_APPEND
+    PROFILE_HELPER_END;
 }
 
 
