@@ -609,7 +609,7 @@ PY
   require_file "${created_run}/logs/PETSc_Info_Solver.log.0" "PETSc info log"
   require_file_contains "${created_run}/logs/PETSc_Info_Solver.log.0" "<ksp" "PETSc info records from the solve"
   require_file_contains "${created_run}/logs/PETSc_LogView_Solver.log" "Event Stage" "PETSc log view event table"
-  require_file_contains "${created_run}/logs/Runtime_Memory.csv" "Process Current MB Max" "runtime memory log header"
+  require_file_contains "${created_run}/logs/Runtime_Memory.csv" "step,event,process_current_mb_max" "runtime memory log header"
   require_file_not_contains "${solver_log}" "Memory corruption" "PETSc malloc debug corruption report"
   require_file_not_contains "${solver_log}" "Bad location or corrupted memory" "PETSc malloc debug bad-location report"
   if grep -Eq '^\[[[:space:]]*[0-9]+\][[:space:]]+[0-9]+ bytes' "${solver_log}"; then
@@ -1656,7 +1656,7 @@ PY
     fi
   fi
   require_file "${created_run}/logs/Runtime_Memory.csv" "runtime memory log"
-  require_file_contains "${created_run}/logs/Runtime_Memory.csv" "Process Current MB Max" "runtime memory log header"
+  require_file_contains "${created_run}/logs/Runtime_Memory.csv" "step,event,process_current_mb_max" "runtime memory log header"
 }
 
 run_units_equivalence_smoke() {
@@ -2179,9 +2179,9 @@ PY
     require_file_contains "${continue_log}" "Restart source:" "Newton--Krylov ${profile_name} restart staging"
     require_file_contains "${summary_file}" "3,0,Newton Krylov," "Newton--Krylov ${profile_name} continued solve"
     if [[ "${profile_name}" == "pcnone" ]]; then
-      require_file_contains "${summary_file}" ",matrix_free,none," "Newton--Krylov PCNONE summary"
+      require_file_contains "${summary_file}" "/ matrix_free,none," "Newton--Krylov PCNONE summary"
     else
-      require_file_contains "${summary_file}" ",matrix_free,frozen_momentum_jacobian / point_block," "Newton--Krylov frozen point-block summary"
+      require_file_contains "${summary_file}" "/ matrix_free,frozen_momentum_jacobian / point_block," "Newton--Krylov frozen point-block summary"
     fi
   done
   nprocs="${saved_nprocs}"

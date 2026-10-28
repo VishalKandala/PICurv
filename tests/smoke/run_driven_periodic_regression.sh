@@ -7,7 +7,7 @@
 #  1. Poisson multigrid coarse solve (Part A). With a Krylov method at
 #     level_0 the multigrid preconditioner is a nonlinear operator, so the
 #     outer FGMRES tracked residual (unpreconditioned_norm) stops describing the
-#     true residual ("True Norm") and the convergence test passes on a number
+#     true residual (true_norm) and the convergence test passes on a number
 #     that is orders of magnitude smaller than b-Ax. The failure was
 #     rank-dependent: 6 and 10 ranks were clean, 4 and 8 were not. This runs
 #     at 4 and 10 ranks and asserts the two norms agree, plus a divergence
