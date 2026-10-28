@@ -11063,3 +11063,19 @@ def test_cancel_reports_an_already_ended_job_instead_of_canceling_it(tmp_path):
     assert "Slurm job 911 for stage(s) solve already ended (COMPLETED); nothing to cancel." in result.stdout
     assert "Canceled Slurm job 922 for stage(s): post-process" in result.stdout
     assert log_path.read_text(encoding="utf-8").split() == ["922"]
+
+
+def test_submit_stage_all_selects_the_staged_stages_not_yet_submitted(tmp_path):
+    """!
+    @brief After a submitted solve, `submit` (stage all) picks the post stage staged since.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_staged_run_dir(
+        tmp_path,
+        launch_mode="local",
+        solve_meta={"command": ["fake-solver"], "log_file": "scheduler/solve.log", "submitted": True},
+        post_meta={"command": ["fake-post"], "log_file": "scheduler/post.log"},
+    )
+    result = run_picurv(["submit", "--run-dir", str(run_dir), "--dry-run"], cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "Requested stages    : post-process\n" in result.stdout

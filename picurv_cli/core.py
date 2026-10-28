@@ -2209,8 +2209,8 @@ _ERROR_HINTS = {
 _RESTART_HINT = ("Check --restart-from, --continue and --run-dir against the source run's committed "
                  "checkpoints and run_control.start_step in case.yml.")
 #: Hint for a workflow refused because the payload it reads is in cold storage.
-_STORAGE_RESTORE_HINT = ("Run the restore command in the message; 'picurv storage status' shows "
-                         "what is local.")
+_STORAGE_RESTORE_HINT = ("Run the restore command in the message; 'picurv storage status --run-dir "
+                         "<run>' shows what is local.")
 #: Hint for a --study-dir that is not a study `picurv sweep` created.
 _STUDY_DIR_HINT = "Pass a study directory that 'picurv sweep' created (studies/<study_id>)."
 
@@ -21198,7 +21198,12 @@ def run_workflow(args):
         if cluster_mode:
             manifest_inputs["cluster"] = _relative_to_workspace(cluster_path, workspace_root)
         if submission_meta.get("stages"):
-            write_json_file(os.path.join(run_dir, "scheduler", "submission.json"), submission_meta)
+            # A stage this invocation did not stage keeps its record (a continued solve
+            # leaves the run's earlier post job visible to cancel and summarize).
+            submission_path = os.path.join(run_dir, "scheduler", "submission.json")
+            for stage_name, stage_meta in ((_read_json_if_exists(submission_path) or {}).get("stages") or {}).items():
+                submission_meta["stages"].setdefault(stage_name, stage_meta)
+            write_json_file(submission_path, submission_meta)
         asset_lock = read_yaml_file(os.path.join(run_dir, "inputs", "assets.lock.yml")) \
             if os.path.isfile(os.path.join(run_dir, "inputs", "assets.lock.yml")) else {}
         manifest = build_run_manifest(
@@ -25524,10 +25529,13 @@ def submit_staged_jobs(args):
             sys.exit(1)
     stage_order = ["solve", "post-process"]
     requested_stage = args.stage
-    # `all` is every stage the target staged; with none staged, both, so the error names them.
+    # `all` is every staged stage not yet submitted; when each was, every staged stage, so the
+    # refusal names them; with none staged, both, so the error says how to stage one.
     recorded_stages = _get_recorded_submission_stages(target_context)
+    pending_stages = [stage for stage in recorded_stages
+                      if not _get_submission_stage_metadata(target_context, stage).get("submitted")]
     selected_stages = ([requested_stage] if requested_stage != "all"
-                       else recorded_stages or stage_order)
+                       else pending_stages or recorded_stages or stage_order)
 
     print(f"[INFO] {target_context['display_label']:<20}: {os.path.relpath(target_context['root_dir'])}")
     print(f"[INFO] Submission metadata : {os.path.relpath(target_context['submission_path'])}")

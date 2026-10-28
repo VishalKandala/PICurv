@@ -598,7 +598,8 @@ Behavior:
 - consumes existing `--no-submit` artifacts without regenerating configs or scripts,
 - reads `<run.scheduler>/submission.json` to locate staged Slurm scripts or local command tokens,
 - executes/submits `solve`, `post-process`, or both; the default `--stage all` selects
-  every stage the target staged, so a solve-only staged run submits its solve,
+  every staged stage not yet submitted, so a solve-only staged run submits its solve and a
+  post stage staged after a submitted solve submits alone,
 - wires the post stage dependency automatically for Slurm when `all` selects both stages,
 - executes local staged stages in order when `launch_mode: local`,
 - refuses re-submission unless `--force` is explicitly provided,
