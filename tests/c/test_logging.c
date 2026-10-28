@@ -1448,7 +1448,7 @@ static PetscErrorCode TestRuntimeMemoryLogHelpers(void)
                                  "runtime memory log should contain a step row"));
     PetscCall(AssertFileContains(memory_path, "\n1,Final,",
                                  "runtime memory log should contain a final row"));
-    PetscCall(AssertFileContains(memory_path, ",Complete\n",
+    PetscCall(AssertFileContains(memory_path, ",Complete,",
                                  "runtime memory log should record final reason"));
 
     simCtx.runtimeMemoryLogEnabled = PETSC_FALSE;
