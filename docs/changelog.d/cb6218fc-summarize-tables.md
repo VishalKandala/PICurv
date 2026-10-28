@@ -1,0 +1,1 @@
+- Feature: `picurv summarize --table <name> [--columns ...] [--last N]` prints one of a run's CSV records as aligned columns, and `--list-tables` lists them. The runtime memory record carries each step's wall time, which the summary reports.

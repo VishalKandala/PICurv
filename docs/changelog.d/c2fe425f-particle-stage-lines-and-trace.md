@@ -1,0 +1,1 @@
+- Feature: `monitor.yml -> logging.trace_particles` (up to 64 IDs) prints each traced particle's seed, advect, locate (every walk step and boundary event), interpolate (with the corner values), mix and removal lines on whichever rank holds it, at any verbosity. At `VERBOSE` with the function allow-listed the same one-line-per-stage reports cover every particle.

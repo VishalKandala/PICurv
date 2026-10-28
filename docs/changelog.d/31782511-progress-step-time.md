@@ -1,0 +1,1 @@
+- Change: the progress line shows the mean wall time per step, the time remaining and the lost-particle count. Particle console snapshots show at most 32 particles per rank, chosen by ID so successive snapshots show the same particles. Poisson iteration rows reach the console only at INFO or more detail.

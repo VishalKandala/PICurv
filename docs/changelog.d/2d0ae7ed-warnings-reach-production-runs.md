@@ -1,0 +1,1 @@
+- Change: warnings and errors print from every function at `WARNING` and above, without the function allow-list, so production runs see them. Conditions that are normal operation report at INFO or below, and per-particle or per-face warnings are counted and reported once.
