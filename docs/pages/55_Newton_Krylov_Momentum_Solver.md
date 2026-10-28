@@ -326,15 +326,17 @@ Newton--Krylov monitors are enabled under `solver_monitoring.momentum` (see
 Independently of PETSc monitors, the solver writes structured rank-zero logs into
 `log_dir`:
 
-- `Momentum_Solver_Newton_Krylov_History_Block_<b>.log`: one row per Newton
-  iteration (`step | block | newton | nonlinear_norm`);
-- `Momentum_Solver_Newton_Krylov_Linear_History_Block_<b>.log`: one row per KSP
-  iteration (`step | block | newton | krylov | requested_rtol |
-  reported_residual_norm`), including the effective tolerance after any EW update;
-- `Momentum_Solver_Newton_Krylov_Summary_Block_<b>.log`: one row per physical step
-  (the mathematical Jacobian and preconditioner selections, `SNES reason`,
-  Newton iterations, residual evaluations, Krylov iterations, initial/final
-  norm, and `state`: `committed`, `committed_unconverged`, or `rolled_back`).
+- `Momentum_Solver_Newton_Krylov_History_Block_<b>.csv`: one row per Newton
+  iteration (`step,block,newton,nonlinear_norm`);
+- `Momentum_Solver_Newton_Krylov_Linear_History_Block_<b>.csv`: one row per KSP
+  iteration (`step,block,newton,krylov,requested_rtol,reported_residual_norm`),
+  including the effective tolerance after any EW update;
+- `Momentum_Solver_Newton_Krylov_Summary_Block_<b>.csv`: one row per physical step
+  (`step,block,solver,jacobian,preconditioner,reason,reason_code,newton,evals,krylov,initial_norm,final_norm,state`:
+  the mathematical Jacobian and preconditioner selections, the SNES reason, Newton
+  iterations, residual evaluations, Krylov iterations, the initial norm (empty when it
+  was not measured) and final norm, and `state`: `committed`, `committed_unconverged`,
+  or `rolled_back`). `picurv summarize --run-dir <run> --table newton` prints it.
 
 A healthy solve on the validated duct case shows the nonlinear norm dropping by
 several orders of magnitude in about two Newton iterations with accepted line

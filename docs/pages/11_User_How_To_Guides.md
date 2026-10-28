@@ -320,7 +320,22 @@ logging:
 ```
 
 Use this for local diagnosis of instability or boundary anomalies.
-Prefer narrow function lists to keep logs manageable.
+Prefer narrow function lists to keep logs manageable. Warnings and errors print from every
+function at any `verbosity` that admits them; the list selects the `INFO`-and-below
+diagnostics.
+
+To follow individual particles instead, name them; their every stage prints at any
+`verbosity`:
+
+```yaml
+logging:
+  verbosity: "WARNING"
+  trace_particles: [1500, 2999]
+```
+
+The lines start `[trace pid=<id> step=<n> <stage>]` (stages `seed`, `advect`, `locate`,
+`interpolate`, `mix`, `remove`, `restart`); `grep 'trace pid=1500 '` over the solver log gives
+that particle's history. Page 09 lists what each stage reports.
 
 @section p11_post_sec 4. Post-Processing Recipes
 

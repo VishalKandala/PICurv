@@ -69,7 +69,7 @@ Potential low-priority observability improvements worth revisiting:
   samples, dwell windows, and safe-checkpoint final writes before stopping.
 - add an optional boundary-flux summary CSV for inlet/farfield/outlet totals and conservation error when boundary-condition debugging becomes a repeated workflow need.
 - add cadence-based field-extrema summaries (`P`, `|Ucat|`, `Psi`, diffusivity) only if users need compact trend logs instead of verbose anatomy/min-max output.
-- extend particle metrics only when current `Particle_Metrics.log` proves insufficient; prefer compact inventory/health summaries over larger particle state dumps.
+- extend particle metrics only when current `search_metrics.csv` proves insufficient; prefer compact inventory/health summaries over larger particle state dumps.
 
 Observability policy note:
 

@@ -44,7 +44,9 @@ production default. That keeps solver logs quiet while still surfacing runtime
 warnings, graceful-shutdown notices, and the startup banner summary.
 
 Use `INFO` when you want more live progress detail, and reserve high verbosity
-(`DEBUG+`) for short diagnostic runs only.
+(`DEBUG+`) for short diagnostic runs only. To follow a few particles through a
+production run instead, list their IDs under `logging.trace_particles`: their stage
+lines print at any verbosity.
 
 For particle-enabled runs, note that some runtime artifacts are written
 independently of console verbosity. In particular, `<run.analysis.metrics>/search_metrics.csv` is
@@ -56,7 +58,8 @@ always emitted by the runtime when particle tracking is active; allow-listing
 Use structured `diagnostics.petsc` for PETSc options that must be visible at
 `PetscInitialize()` time, such as `malloc_debug`, `malloc_view`, `log_view`,
 `log_trace`, `objects_dump`, and `options_left`. Use
-`diagnostics.runtime_memory_log` for PICurv's rank-reduced runtime memory log.
+`diagnostics.runtime_memory_log` for PICurv's rank-reduced runtime memory record, which
+also carries each step's wall time.
 
 Use `solver_monitoring.momentum.newton_krylov_history` to enable PICurv's
 optional one-row-per-Newton-iteration nonlinear norm history. The compact

@@ -139,7 +139,7 @@ audit would otherwise reject the page that defines the rule:
 
 ```text
 write                                     instead of
-<run.runtime_logs>/Runtime_Memory.log     logs/Runtime_Memory.log
+<run.runtime_logs>/Runtime_Memory.csv     logs/Runtime_Memory.csv
 <run.solver_output>/checkpoints/          output/checkpoints/
 <run.config>/case.yml                     runs/<run_id>/config/case.yml
 <run.runtime_logs>/...                    <run_dir>/logs/...

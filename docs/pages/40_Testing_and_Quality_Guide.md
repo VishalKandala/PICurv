@@ -332,7 +332,7 @@ Current C test files and their main purpose:
 - `tests/c/test_post_eulerian_vtk_mpi.c`: serial/MPI Eulerian VTK equivalence checks
 - `tests/c/test_post_particle_vtk_mpi.c`: serial/MPI particle VTK equivalence checks
 - `tests/c/test_statistics.c`: statistics-kernel checks (MSD CSV behavior)
-- runtime `search_metrics.csv` instrumentation complements `Particle_Metrics.log` for particle-enabled runs and is covered through logging/runtime test surfaces plus the `examples/search_robustness/` bundle
+- runtime `search_metrics.csv` instrumentation, which also carries each step's particle counts, is covered for particle-enabled runs through logging/runtime test surfaces plus the `examples/search_robustness/` bundle
 - `tests/c/test_grid.c`: bounding-box exchange checks
 - `tests/c/test_metric.c`: metric and face-geometry checks
 - `tests/c/test_boundaries.c`: boundary factory plus direct handler-behavior checks

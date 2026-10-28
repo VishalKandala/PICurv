@@ -449,7 +449,7 @@ residual remains.
 the previous step: absolute and relative L2 changes of velocity and of pressure (with its
 mean removed), and the domain-mean speed and kinetic energy with their drift. It judges
 nothing: no tolerance is read and the run is never stopped. Whether the flow has settled
-is read from `<run.runtime_logs>/solution_convergence.log`.
+is read from `<run.runtime_logs>/solution_convergence.csv`.
 
 **When to choose it.** Flows that genuinely reach a steady state - laminar channels and
 ducts below their critical Reynolds number - where a change per step falling toward zero
@@ -818,8 +818,8 @@ default and the only method that also accepts `gmres.restart`.
 method. Stopping at `max_iterations` is its normal mode and stays silent; a non-finite
 residual or a failed preconditioner stops the run.
 
-**Diagnostics.** `solver_monitoring.poisson.pic_true_residual` logs tracked and true
-residuals side by side in `Poisson_Solver_Convergence_History_Block_*.log`.
+**Diagnostics.** `solver_monitoring.poisson.pic_true_residual` records tracked and true
+residuals side by side in `Poisson_Solver_Convergence_History_Block_*.csv`.
 
 **Evidence.** Unit verified - `make unit-poisson-rhs` solves and projects on a
 three-level hierarchy. Integration verified - `make smoke-driven-periodic` asserts the

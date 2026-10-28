@@ -11079,3 +11079,149 @@ def test_submit_stage_all_selects_the_staged_stages_not_yet_submitted(tmp_path):
     result = run_picurv(["submit", "--run-dir", str(run_dir), "--dry-run"], cwd=tmp_path)
     assert result.returncode == 0, result.stderr
     assert "Requested stages    : post-process\n" in result.stdout
+
+
+def write_csv_summary_logs(run_dir: Path) -> None:
+    """!
+    @brief Replace a summary run's text logs with the CSV records the solver writes.
+    @param[in] run_dir Run directory from `create_summary_run_dir()`.
+    """
+    picurv = load_picurv_module()
+    logs = run_dir / "logs"
+    for stale in logs.glob("*.log"):
+        stale.unlink()
+    metrics = run_dir / picurv.CANONICAL_RUN_PATHS["metrics"]
+    (logs / "Continuity_Metrics.csv").write_text(
+        "step,block,max_divergence,max_divergence_k,max_divergence_j,max_divergence_i,max_divergence_index,"
+        "poisson_source_imbalance,flux_in,flux_out,net_flux,time,physical_time\n"
+        "1,0,2.0e-10,3,2,1,17,1.0e-15,0.0,0.0,0.0,0.1,0.1\n"
+        "# Continuation from step 1\n"
+        "2,0,1.0e-10,4,5,6,99,2.0e-15,1.0,0.5,0.5,0.2,0.2\n",
+        encoding="utf-8",
+    )
+    (logs / "Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_0.csv").write_text(
+        "step,pseudo_iter,dtau,cfl_eff,delta_norm,delta_rel,residual_norm,residual_rel,"
+        "trial_ratio,smoothed_ratio,status,dtau_after,cfl_eff_after\n"
+        "2,1,1.0e-01,0.5000,1.0e-02,1.0,2.0e-02,1.0,0.7,0.7,rejected,5.0e-02,0.2500\n"
+        "2,1,5.0e-02,0.2500,5.0e-03,0.5,1.0e-02,0.5,0.4,0.5,accepted,5.5e-02,0.2750\n",
+        encoding="utf-8",
+    )
+    (logs / "Poisson_Solver_Convergence_History_Block_0.csv").write_text(
+        "step,block,iter,unpreconditioned_norm,true_norm,relative_norm\n"
+        "2,0,0,1.0e+00,1.0e+00,1.0e+00\n"
+        "2,0,7,1.2e-09,1.3e-09,1.3e-09\n",
+        encoding="utf-8",
+    )
+    (logs / "solution_convergence.csv").write_text(
+        "step,time,mode,ref,u_abs_l2,u_rel_l2,p_abs_l2,p_rel_l2,mean_speed,spd_ref,spd_abs,spd_rel,"
+        "mean_ke,ke_ref,ke_abs,ke_rel\n"
+        "2,2.0e-01,steady_deterministic,1,1.0e-03,1.0e-04,2.0e-03,2.0e-04,0.9,0.91,1.0e-02,1.1e-02,"
+        "0.4,0.41,1.0e-02,2.4e-02\n",
+        encoding="utf-8",
+    )
+    (logs / "Runtime_Memory.csv").write_text(
+        "step,event,process_current_mb_max,process_peak_mb_max,petsc_allocated_mb_max,"
+        "petsc_peak_allocated_mb_max,process_change_mb_max,reason,step_wall_s\n"
+        "1,Step,10.000,12.000,4.000,5.000,0.000,-,1.500000\n"
+        "2,Step,15.000,16.000,6.000,7.000,5.000,-,2.500000\n"
+        "2,Final,15.000,16.000,6.000,7.000,0.000,Complete,\n",
+        encoding="utf-8",
+    )
+    (metrics / "search_metrics.csv").write_text(
+        "step,time,total_particles,lost,lost_cumulative,migrated,migration_passes,load_imbalance,"
+        "exited,exited_cumulative,occupied_cells\n"
+        "2,0.2,40,1,3,5,2,1.25,2,6,31\n",
+        encoding="utf-8",
+    )
+
+
+def test_summarize_reads_the_solver_csv_records(tmp_path):
+    """!
+    @brief Test the health summary and the plot catalogue read the CSV records.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    run_dir = create_summary_run_dir(tmp_path, include_particle_snapshot=False)
+    write_csv_summary_logs(run_dir)
+
+    payload = picurv.build_run_summary_payload(str(run_dir), step=2, snapshot_rows=5, selection_mode="latest")
+    assert payload["continuity"]["blocks"][0]["max_divergence_location"] == "([4][5][6] = 99)"
+    momentum = payload["momentum"]["blocks"][0]
+    assert momentum["status"] == "accepted" and momentum["rejected_count"] == 1
+    assert payload["poisson"]["blocks"][0]["iterations"] == 7
+    assert payload["particles"]["occupied_cells"] == 31
+    assert payload["particles"]["exited_particles_cumulative"] == 6
+    assert payload["memory"]["step_wall_s"] == pytest.approx(2.5)
+    assert payload["memory"]["mean_step_wall_s"] == pytest.approx(2.0)
+    assert payload["convergence"]["u_rel_l2"] == pytest.approx(1.0e-4)
+
+    records = picurv._collect_summary_plot_records(picurv._build_summary_context(str(run_dir)))
+    continuity = [record for record in records if record["source"] == "continuity"]
+    # The continuation marker starts a new segment, so a plot does not join the seam.
+    assert [record["segment"] for record in continuity] == [0, 1]
+    assert any(record["source"] == "particles" and record["values"]["occupied_cells"] == 31 for record in records)
+
+
+def test_summarize_table_prints_a_csv_record(tmp_path):
+    """!
+    @brief Test --list-tables, --table with --columns/--last, JSON output, and the unknown-name error.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path, include_particle_snapshot=False)
+    write_csv_summary_logs(run_dir)
+
+    listed = run_picurv(["summarize", "--run-dir", str(run_dir), "--list-tables", "--format", "json"], cwd=tmp_path)
+    assert listed.returncode == 0, listed.stderr
+    tables = {item["table"]: item for item in json.loads(listed.stdout)["available_tables"]}
+    assert tables["continuity"]["rows"] == 2 and tables["picard"]["rows"] == 2 and "search" in tables
+
+    shown = run_picurv(["summarize", "--run-dir", str(run_dir), "--table", "poisson",
+                        "--columns", "iter,true_norm", "--last", "1"], cwd=tmp_path)
+    assert shown.returncode == 0, shown.stderr
+    lines = [line for line in shown.stdout.splitlines() if line.strip()]
+    assert lines[1].split() == ["step", "iter", "true_norm"]
+    assert lines[-1].split() == ["2", "7", "1.3e-09"]
+
+    as_json = run_picurv(["summarize", "--run-dir", str(run_dir), "--table", "continuity", "--format", "json"], cwd=tmp_path)
+    rows = json.loads(as_json.stdout)["rows"]
+    assert [row["segment"] for row in rows] == [0, 1]
+
+    unknown = run_picurv(["summarize", "--run-dir", str(run_dir), "--table", "bogus"], cwd=tmp_path)
+    assert unknown.returncode == 1
+    assert "ERROR CFG_INVALID_VALUE" in unknown.stderr and "Known tables" in unknown.stderr
+    no_column = run_picurv(["summarize", "--run-dir", str(run_dir), "--table", "poisson", "--columns", "nope"], cwd=tmp_path)
+    assert no_column.returncode == 1 and "has no column(s) nope" in no_column.stderr
+    stray = run_picurv(["summarize", "--run-dir", str(run_dir), "--columns", "a"], cwd=tmp_path)
+    assert stray.returncode == 2 and "--columns requires --table" in stray.stderr
+
+
+def test_parse_runtime_memory_csv_and_legacy_text_agree(tmp_path):
+    """!
+    @brief Test the memory reader takes the CSV record and an older run's text log alike.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    csv_path = tmp_path / "Runtime_Memory.csv"
+    csv_path.write_text(
+        "step,event,process_current_mb_max,process_peak_mb_max,petsc_allocated_mb_max,"
+        "petsc_peak_allocated_mb_max,process_change_mb_max,reason,step_wall_s\n"
+        "1,Step,10.000,12.000,4.000,5.000,0.000,-,1.0\n"
+        "2,Final,15.000,16.000,6.000,7.000,5.000,Complete,\n",
+        encoding="utf-8",
+    )
+    rows, order, meta = picurv._parse_runtime_memory_log(str(csv_path))
+    assert order == [1] and rows[1]["process_peak_mb_max"] == pytest.approx(12.0)
+    assert meta["final_reason"] == "Complete" and meta["mean_step_wall_s"] == pytest.approx(1.0)
+
+
+def test_trace_particles_is_validated_and_passed_to_the_solver(tmp_path):
+    """!
+    @brief Test logging.trace_particles: sorted distinct IDs reach -picurv_trace_particles; bad values are refused.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    picurv = load_picurv_module()
+    assert picurv.resolve_traced_particle_ids({"logging": {"trace_particles": [9, 2, 9]}}) == [2, 9]
+    assert picurv.resolve_traced_particle_ids({"logging": {}}) == []
+    for bad in ([-1], ["a"], [True], 5, list(range(65))):
+        with pytest.raises(ValueError):
+            picurv.resolve_traced_particle_ids({"logging": {"trace_particles": bad}})

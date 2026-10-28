@@ -28,12 +28,19 @@ logging:
   verbosity: WARNING
 
   # --- Function Allow-List ---
-  # For targeted debugging. If this list is empty, picurv omits the whitelist
+  # For targeted debugging of INFO-and-below diagnostics (warnings and errors print from
+  # every function regardless). If this list is empty, picurv omits the whitelist
   # file so the C runtime falls back to its built-in default allow-list.
   # Example: allow-list LOG_SEARCH_METRICS with DEBUG verbosity when you want
   # compact console summaries in addition to the always-written
   # output/analysis/metrics/search_metrics.csv artifact for particle-enabled runs.
   enabled_functions: []
+
+  # --- Particle Trace ---
+  # Up to 64 particle IDs whose every stage (seed, advect, locate, interpolate, mix,
+  # remove) prints one "[trace pid=<id> step=<n> <stage>]" line at any verbosity.
+  # Needs particles; empty costs nothing.
+  trace_particles: []
 
 # ==============================================================================
 # 2. PROFILING

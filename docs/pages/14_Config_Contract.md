@@ -182,6 +182,7 @@ Verification-pathway rule:
 - `io.data_output_frequency` -> `-tio`
 - `io.particle_console_output_frequency` -> `-particle_console_output_freq` (defaults to `data_output_frequency` when omitted)
 - `io.particle_log_interval` -> `-logfreq`
+- `logging.trace_particles` -> `-picurv_trace_particles` (comma-separated, sorted distinct IDs)
 - run-owned output, restart materialization, logs, and analysis paths are fixed by
   the workspace contract; `io.directories` is rejected
 - checkpoint-internal directory and payload names are fixed; monitor YAML does

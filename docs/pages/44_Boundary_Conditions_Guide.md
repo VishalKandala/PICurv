@@ -619,7 +619,7 @@ diffuse upstream, or a wall you deliberately treat as absorbing.
 without a `particle_policy` token means. A corner where one crossed face
 removes and another reflects removes the particle.
 
-**Diagnostics.** `search_metrics.csv` and `Particle_Metrics.log` report `exited`,
+**Diagnostics.** `search_metrics.csv` reports `exited`,
 `exited_cumulative` and `exited_psi_sum`; `lost` counts only search failures, so a nonzero
 `lost` is a defect signal rather than outflow.
 

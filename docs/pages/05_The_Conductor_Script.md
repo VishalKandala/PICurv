@@ -457,7 +457,8 @@ Runtime stream logs:
 ```bash
 ./bin/picurv summarize --run-dir <run_dir> \
   [--overview] [--case] [--solver] [--monitor] \
-  [--list-plot-series | --plot <qualified-series>] [--last <n>] \
+  [--list-plot-series | --plot <qualified-series> | --list-tables | --table <name>] \
+  [--columns <a,b,...>] [--last <n>] \
   [--latest | --max-step | --step <n>] [--format json]
 ```
 
@@ -470,6 +471,13 @@ Behavior:
 - plain `summarize --run-dir ...` preserves the implicit latest-step health behavior,
 - `--list-plot-series` discovers numeric scalar histories available to `--plot`,
 - `--plot <qualified-series>` delegates time-history rendering to `generators/plot.gen`,
+- `--list-tables` names the run's CSV records with their row counts, and `--table <name>`
+  prints the last rows of one as aligned columns (the last 20 unless `--last <n>`; with
+  `--columns a,b` only those columns and the first; `--format json` gives the rows). Per-block
+  records take `:<block>`, such as `poisson:1`. The names are `continuity`, `convergence`,
+  `memory`, `picard`, `newton`, `newton-history`, `newton-linear`, `poisson`, `profiling`,
+  `profiling-post`, `profiling-steps`, `search`, `scatter`, `interpolation-error`, `les`,
+  `wall-model`, `driven-flow` and `particle-initial-fields`,
 - plotting requires `matplotlib`, which bootstrap installs in the managed PICurv environment by default,
 - continued runs write `# Continuation from step <N>` separators into append-only logs,
 - plots use the latest continuation segment by default; `--last <n>` keeps its last N chronological records per line,
@@ -488,6 +496,9 @@ Examples:
 ./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --list-plot-series
 ./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --plot momentum.residual_norm --last 100
 ./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --plot memory.process_peak_mb_max --plot-output peak.png
+./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --list-tables
+./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --table poisson --last 10
+./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --table search --columns total_particles,lost,migrated
 ./bin/picurv summarize --run-dir runs/my_case_20260310-120000 --latest --format json
 ```
 
@@ -497,9 +508,11 @@ solver selections, effective monitoring cadence, and enabled diagnostics. Text
 output uses glanceable dashboards with aligned field groups and compact tables;
 use `--format json` for structured automation output.
 
-Plotting supports numeric scalar histories from continuity, particle metrics,
-momentum, Poisson, profiling, runtime memory, and solution-convergence logs, and
-from the histories post reducers write.
+Plotting supports numeric scalar histories from the continuity, search-metrics
+(particle counts), momentum, Poisson, profiling, runtime memory, and
+solution-convergence records, and from the histories post reducers write. A run
+whose records predate the CSV format keeps text logs, and `summarize` reads those
+as well.
 Block-based histories render one line per block and profiling histories render
 one line per function. Residual/norm series use logarithmic scaling when all
 values are positive; `--linear-y` forces linear scaling. Plot mode is standalone
@@ -521,13 +534,13 @@ does not parse PICurv run directories or logs.
 
 Typical sources:
 
-- `<run.runtime_logs>/Continuity_Metrics.log`
-- `<run.runtime_logs>/Particle_Metrics.log` (per-step `Lost` plus run-local `Lost Total` when available)
-- `<run.runtime_logs>/Momentum_Solver_Convergence_History_Block_*.log`
-- `<run.runtime_logs>/Poisson_Solver_Convergence_History_Block_*.log`
-- `<run.runtime_logs>/solution_convergence.log` (mode-specific speed/KE drift and L2 norms)
+- `<run.runtime_logs>/Continuity_Metrics.csv`
+- `<run.analysis.metrics>/search_metrics.csv` (per-step particle counts: lost, cumulative lost, exited, migrated, occupied cells, load imbalance)
+- `<run.runtime_logs>/Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_*.csv`, or the Newton-Krylov `Momentum_Solver_Newton_Krylov_{History,Summary}_Block_*.csv`
+- `<run.runtime_logs>/Poisson_Solver_Convergence_History_Block_*.csv`
+- `<run.runtime_logs>/solution_convergence.csv` (mode-specific speed/KE drift and L2 norms)
 - `<run.runtime_logs>/Profiling_Timestep_Summary.csv` when enabled
-- `<run.runtime_logs>/Runtime_Memory.log` when `monitor.diagnostics.runtime_memory_log.enabled` is true
+- `<run.runtime_logs>/Runtime_Memory.csv` when `monitor.diagnostics.runtime_memory_log.enabled` is true (memory and each step's wall time)
 - `<run.analysis.metrics>/les_coefficient.csv` when `monitor.yml -> diagnostics.les.enabled` is true; the `les.*` series carry the effective coefficient, its spread, eddy-viscosity levels, the modelled subgrid energy, and the pre-clipping backscattering and limited fractions
 - `<run.analysis.statistics>/<recipe>/*_profile_<name>_history.csv` when a post recipe runs the `profile_series` reducer (@ref p10_reducers_sec). Each column `<output column>.<functional>` becomes the series `profile.<column>.<functional>`, one line per history file, plotted against the time the reducer recorded; the functionals are the reducer's.
 - `<run.runtime_logs>/PETSc_*_Solver.log` / `<run.runtime_logs>/PETSc_*_PostProcessor.log` when file-backed PETSc diagnostics are enabled

@@ -230,18 +230,11 @@ tolerance = float(tolerance_raw)
 
 
 def extract_max_divergence(path: str, step: int) -> float:
+    import csv
     with open(path, "r", encoding="utf-8", errors="replace") as f:
-        for raw_line in f:
-            if "|" not in raw_line:
-                continue
-            columns = [token.strip() for token in raw_line.split("|")]
-            if len(columns) < 3:
-                continue
-            if not columns[0].isdigit():
-                continue
-            if int(columns[0]) != step:
-                continue
-            return float(columns[2])
+        for row in csv.DictReader(line for line in f if not line.startswith("#")):
+            if row.get("step", "").isdigit() and int(row["step"]) == step:
+                return float(row["max_divergence"])
     raise RuntimeError(f"{label}: could not find step {step} in {path}")
 
 
@@ -2074,7 +2067,7 @@ run_restart_equivalence_smoke() {
     "restart_equiv_continuous"
 
   continuous_run="${LAST_RUN_DIR}"
-  continuous_continuity_log="${continuous_run}/logs/Continuity_Metrics.log"
+  continuous_continuity_log="${continuous_run}/logs/Continuity_Metrics.csv"
   require_file "${continuous_continuity_log}" "continuous continuity metrics log"
 
   "${picurv_exe}" init flat_channel --dest "${split_case}" >/dev/null
@@ -2099,7 +2092,7 @@ run_restart_equivalence_smoke() {
     "${split_base_run}"
 
   split_restart_run="${LAST_RUN_DIR}"
-  split_continuity_log="${split_restart_run}/logs/Continuity_Metrics.log"
+  split_continuity_log="${split_restart_run}/logs/Continuity_Metrics.csv"
   require_file "${split_continuity_log}" "restart continuity metrics log"
   compare_continuity_max_divergence \
     "${continuous_continuity_log}" \
@@ -2180,15 +2173,15 @@ PY
       exit 1
     }
 
-    summary_file="${base_run}/logs/Momentum_Solver_Newton_Krylov_Summary_Block_0.log"
+    summary_file="${base_run}/logs/Momentum_Solver_Newton_Krylov_Summary_Block_0.csv"
     require_file "${summary_file}" "Newton--Krylov ${profile_name} summary"
     require_file_contains "${continue_log}" "Continue mode: logs will be appended" "Newton--Krylov ${profile_name} CLI continuation"
     require_file_contains "${continue_log}" "Restart source:" "Newton--Krylov ${profile_name} restart staging"
-    require_file_contains "${summary_file}" "step: 3 | block: 0 | solver: Newton Krylov" "Newton--Krylov ${profile_name} continued solve"
+    require_file_contains "${summary_file}" "3,0,Newton Krylov," "Newton--Krylov ${profile_name} continued solve"
     if [[ "${profile_name}" == "pcnone" ]]; then
-      require_file_contains "${summary_file}" "Preconditioner: none" "Newton--Krylov PCNONE summary"
+      require_file_contains "${summary_file}" ",matrix_free,none," "Newton--Krylov PCNONE summary"
     else
-      require_file_contains "${summary_file}" "Preconditioner: frozen_momentum_jacobian / point_block" "Newton--Krylov frozen point-block summary"
+      require_file_contains "${summary_file}" ",matrix_free,frozen_momentum_jacobian / point_block," "Newton--Krylov frozen point-block summary"
     fi
   done
   nprocs="${saved_nprocs}"
@@ -2239,22 +2232,22 @@ PY
       "${case_dir}/config/monitor.yml" \
       "${case_dir}/config/post.yml" \
       "newton_krylov_flat_channel_${profile_name}"
-    summary_file="${LAST_RUN_DIR}/logs/Momentum_Solver_Newton_Krylov_Summary_Block_0.log"
+    summary_file="${LAST_RUN_DIR}/logs/Momentum_Solver_Newton_Krylov_Summary_Block_0.csv"
     require_file "${summary_file}" "Newton--Krylov ${profile_name} flat-channel summary"
     python3 - "${summary_file}" "${profile_name}" <<'PY'
 import math
 import re
 import sys
 
+import csv
 path, profile = sys.argv[1:]
-rows = [line.strip() for line in open(path, encoding="utf-8") if line.startswith("step:")]
+rows = list(csv.DictReader(line for line in open(path, encoding="utf-8") if not line.startswith("#")))
 assert len(rows) == 1, f"{profile}: expected one BDF1 Newton summary row, got {len(rows)}"
 row = rows[0]
-match = re.search(r"\| initial: ([^|]+) \| final:", row)
-assert match, f"{profile}: missing initial residual in {row}"
-initial = float(match.group(1))
+assert row.get("initial_norm"), f"{profile}: missing initial residual in {row}"
+initial = float(row["initial_norm"])
 assert math.isfinite(initial), f"{profile}: non-finite initial residual {initial}"
-assert "state: committed" in row, f"{profile}: first BDF1 Newton solve did not commit"
+assert row.get("state") == "committed", f"{profile}: first BDF1 Newton solve did not commit"
 PY
   done
 }
@@ -2300,7 +2293,7 @@ PY
   require_file_contains "${LAST_SOLVER_LOG}" "Momentum Equation Solver    : Explicit 4 stage Runge-Kutta" \
     "Explicit RK4 runtime banner"
   require_count_ge "${LAST_RUN_DIR}/output/checkpoints" "COMMITTED" 1 "Explicit RK4 committed checkpoints"
-  require_file_not_contains "${LAST_RUN_DIR}/logs/Continuity_Metrics.log" "nan" \
+  require_file_not_contains "${LAST_RUN_DIR}/logs/Continuity_Metrics.csv" "nan" \
     "Explicit RK4 finite divergence"
 
   # dt = 2 is past both the viscous and the convective limit on this grid; the
@@ -3092,7 +3085,7 @@ run_stress_smoke() {
     "${restart_case}/config/post.yml" \
     "restart_chain_final" \
     "${restart_mid_run}"
-  require_file "${LAST_RUN_DIR}/logs/Continuity_Metrics.log" "restart-chain continuity metrics log"
+  require_file "${LAST_RUN_DIR}/logs/Continuity_Metrics.csv" "restart-chain continuity metrics log"
 
   "${picurv_exe}" init flat_channel --dest "${parabolic_case}" >/dev/null
   prepare_flat_case_parabolic_stress "${parabolic_case}"
@@ -3189,7 +3182,7 @@ run_geometric_periodic_smoke() {
     "${periodic_case}/monitor.yml" \
     "${periodic_case}/post.yml" \
     "constant_uniform_geometric_periodic"
-  require_file "${LAST_RUN_DIR}/logs/Continuity_Metrics.log" "geometric-periodic continuity metrics log"
+  require_file "${LAST_RUN_DIR}/logs/Continuity_Metrics.csv" "geometric-periodic continuity metrics log"
   require_file_contains "${LAST_SOLVER_LOG}" "Periodic Axes (BC-derived)  : I=YES, J=YES, K=YES" "BC-derived periodic axes"
   source_ufield="${LAST_RUN_DIR}/output/checkpoints/step_000000000000/eulerian/block_0000/Ucat.dat"
   require_file "${source_ufield}" "file-IC source Ucat"

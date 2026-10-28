@@ -6,7 +6,7 @@
 #
 #  1. Poisson multigrid coarse solve (Part A). With a Krylov method at
 #     level_0 the multigrid preconditioner is a nonlinear operator, so the
-#     outer FGMRES tracked residual ("Unprecond Norm") stops describing the
+#     outer FGMRES tracked residual (unpreconditioned_norm) stops describing the
 #     true residual ("True Norm") and the convergence test passes on a number
 #     that is orders of magnitude smaller than b-Ax. The failure was
 #     rank-dependent: 6 and 10 ranks were clean, 4 and 8 were not. This runs
@@ -112,13 +112,12 @@ for nprocs in "${ranks[@]}"; do
   stage_case constant_flux "${dest}" 0
   run_dir="$(run_case "${dest}" "${nprocs}")"
 
-  poisson_log="${run_dir}/logs/Poisson_Solver_Convergence_History_Block_0.log"
+  poisson_log="${run_dir}/logs/Poisson_Solver_Convergence_History_Block_0.csv"
   [[ -f "${poisson_log}" ]] || die "missing Poisson convergence log '${poisson_log}'."
 
   python3 - "${poisson_log}" "${nprocs}" <<'PY' || exit 1
-import re, sys
+import csv, sys
 path, nprocs = sys.argv[1], sys.argv[2]
-row = re.compile(r"ts:\s*(\d+).*?iter:\s*(\d+).*?Unprecond Norm:\s*(\S+)\s*\|\s*True Norm:\s*(\S+)")
 # Once BOTH norms fall below this fraction of the step's initial residual, the
 # recursively tracked residual and the recomputed b - Ax drift apart by ~1e-3 even
 # with an exact coarse solve: the attainable accuracy of the recurrence in double
@@ -129,12 +128,12 @@ row = re.compile(r"ts:\s*(\d+).*?iter:\s*(\d+).*?Unprecond Norm:\s*(\S+)\s*\|\s*
 ROUNDOFF_FLOOR = 1.0e-10
 checked, worst, worst_line = 0, 0.0, ""
 initial = {}
-for line in open(path):
-    m = row.search(line)
-    if not m:
+for line_row in csv.DictReader(line for line in open(path) if not line.startswith("#")):
+    if not line_row.get("true_norm"):
         continue
-    step, iteration = int(m.group(1)), int(m.group(2))
-    tracked, true = float(m.group(3)), float(m.group(4))
+    step, iteration = int(line_row["step"]), int(line_row["iter"])
+    tracked, true = float(line_row["unpreconditioned_norm"]), float(line_row["true_norm"])
+    line = ",".join(line_row.values())
     if iteration == 0:
         initial[step] = max(abs(tracked), abs(true))
     r0 = initial.get(step, 0.0)
@@ -169,21 +168,14 @@ print(f"[{nprocs} ranks] {checked} Poisson rows, worst tracked-vs-true "
       f"relative difference {worst:.3e} (<= {TOL:.0e}).")
 PY
 
-  continuity_log="${run_dir}/logs/Continuity_Metrics.log"
+  continuity_log="${run_dir}/logs/Continuity_Metrics.csv"
   [[ -f "${continuity_log}" ]] || die "missing continuity log '${continuity_log}'."
   python3 - "${continuity_log}" "${nprocs}" <<'PY' || exit 1
-import sys
+import csv, sys
 path, nprocs = sys.argv[1], sys.argv[2]
 worst, rows = 0.0, 0
-for line in open(path):
-    parts = [p.strip() for p in line.split("|")]
-    if len(parts) < 3:
-        continue
-    try:
-        value = float(parts[2])
-    except ValueError:
-        continue
-    worst = max(worst, abs(value))
+for row in csv.DictReader(line for line in open(path) if not line.startswith("#")):
+    worst = max(worst, abs(float(row["max_divergence"])))
     rows += 1
 TOL = 1.0e-11
 if rows == 0:

@@ -204,13 +204,14 @@ only when the parser and dispatcher are extended in the same change.
 
 @section p24_logging_sec 5. Logging and Diagnostics
 
-The persistent momentum convergence-history format (`<run.runtime_logs>/Momentum_Solver_Convergence_History_Block_N.log`) includes per-trial fields:
+The persistent momentum convergence history (`<run.runtime_logs>/Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_N.csv`, one CSV row per trial) has the columns:
 
-- `PseudoIter(k)`: total attempted trial index (includes rejected trials)
+- `step`: physical timestep
+- `pseudo_iter`: total attempted trial index (includes rejected trials)
 - `dtau`: physical-time pseudo-step used for this trial [s] — equals `pseudo_cfl / lambda_max`
 - `cfl_eff`: effective dimensionless Courant number for this trial — equals `dtau × lambda_max`; controlled by `pseudo_cfl.*` YAML keys
-- `|dUk|`, `|dUk|/|dU0|`: solution update norms
-- `|Rk|`, `|Rk|/|R0|`: residual norms
+- `delta_norm`, `delta_rel`: solution update norm, and the same relative to the first trial's
+- `residual_norm`, `residual_rel`: residual norm, and the same relative to the first trial's
 - `trial_ratio`: raw step-to-step residual ratio
 - `smoothed_ratio`: EMA-smoothed ratio used for the rejection decision
 - `status`: `accepted` or `rejected`

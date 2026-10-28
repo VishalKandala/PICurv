@@ -33,7 +33,7 @@ projection subtracts. Non-periodic faces are homogeneous Neumann. The constant n
 of that problem is removed on every level by a callback attached to each level's operator.
 
 The integral of the right-hand side is reported as `Poisson Source Imbalance` in
-`Continuity_Metrics.log`. It is the net volume flux into the domain carried by the
+`Continuity_Metrics.csv`. It is the net volume flux into the domain carried by the
 momentum step's velocity before the correction, and must stay near zero for the
 all-Neumann equation to have a solution. It covers every boundary face, unlike that log's
 `Net Flux` column, which sums only the inlet and outlet faces.
@@ -255,13 +255,17 @@ reasonable stopgap, not a scalable answer.
 
 ## Diagnosing tracked-vs-true residual divergence
 
-`DualKSPMonitor` (`src/logging.c`) prints both numbers to
-`<run.runtime_logs>/Poisson_Solver_Convergence_History_Block_0.log` when
-`monitor.yml -> solver_monitoring.poisson.pic_true_residual` is on:
+`DualKSPMonitor` (`src/logging.c`) records both numbers in
+`<run.runtime_logs>/Poisson_Solver_Convergence_History_Block_0.csv`, one row per iteration,
+when `monitor.yml -> solver_monitoring.poisson.pic_true_residual` is on (without it the
+`true_norm` and `relative_norm` columns stay empty and the recomputation is not paid for):
 
-- **`Unprecond Norm`** is PETSc's `rnorm`, carried by the Krylov recurrence.
+- **`unpreconditioned_norm`** is PETSc's `rnorm`, carried by the Krylov recurrence.
   This is what the convergence test reads.
-- **`True Norm`** is an explicit `KSPBuildResidual` recomputation of `b - Ax`.
+- **`true_norm`** is an explicit `KSPBuildResidual` recomputation of `b - Ax`, and
+  **`relative_norm`** is it divided by the norm of `b`.
+
+`picurv summarize --run-dir <run> --table poisson` prints the last rows.
 
 Under a correct configuration the two agree to many digits at every iteration.
 When they separate, the convergence test is passing on a fiction.
@@ -295,7 +299,7 @@ Diagnostic sequence:
 
 1. Turn on `pic_true_residual` and compare the two norms in the Poisson log.
 2. If they disagree, look at `level_solvers.level_0` first.
-3. Confirm the physical symptom in `<run.runtime_logs>/Continuity_Metrics.log`: a decoupled
+3. Confirm the physical symptom in `<run.runtime_logs>/Continuity_Metrics.csv`: a decoupled
    residual shows up as a max divergence orders of magnitude above the solver
    tolerance you asked for.
 4. Re-run at a different rank count before concluding a configuration is clean.
@@ -369,7 +373,7 @@ Two consequences worth planning around:
 Reducing `levels` is the usual fix; also delete the now-unused
 `level_solvers.level_N` entry for the level that no longer exists. Shallower
 hierarchies converge more slowly but stay usable. Measure the cost in
-`<run.runtime_logs>/Poisson_Solver_Convergence_History_Block_0.log`: if iteration counts grow
+`<run.runtime_logs>/Poisson_Solver_Convergence_History_Block_0.csv`: if iteration counts grow
 sharply, prefer lowering the rank count and restoring the deeper hierarchy.
 
 @section p25_testing_sec 5. Current test status

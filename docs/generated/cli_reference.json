@@ -2674,11 +2674,47 @@
           {
             "choices": [],
             "default": null,
+            "dest": "table",
+            "flags": [
+              "--table"
+            ],
+            "help": "Print the last rows of one of the run's CSV records as aligned columns, such as\ncontinuity, poisson, search or memory; a per-block record takes ':<block>'.",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": "False",
+            "dest": "list_tables",
+            "flags": [
+              "--list-tables"
+            ],
+            "help": "List the CSV records this run has, for --table.",
+            "is_flag": true,
+            "nargs": "0",
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
+            "dest": "table_columns",
+            "flags": [
+              "--columns"
+            ],
+            "help": "With --table: comma-separated columns to show (the first column is always kept).",
+            "is_flag": false,
+            "nargs": null,
+            "required": false
+          },
+          {
+            "choices": [],
+            "default": null,
             "dest": "last_n",
             "flags": [
               "--last"
             ],
-            "help": "Plot only the last N chronological records per line.",
+            "help": "With --plot: only the last N chronological records per line.\nWith --table: the last N rows (default 20).",
             "is_flag": false,
             "nargs": null,
             "required": false
