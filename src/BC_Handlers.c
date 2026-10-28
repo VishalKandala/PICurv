@@ -207,6 +207,7 @@ PetscErrorCode Create_WallFreeSlip(BoundaryCondition *bc)
     /* The boundary value follows the adjacent velocity, so it is refreshed whenever
      * the velocity is: on every boundary pass and after each projection. */
     bc->UpdateUbcs = Apply_WallFreeSlip;
+    bc->needs_repeat_pass = PETSC_TRUE; // Copies the adjacent Ucat, which the pass refreshes after it
     bc->Destroy    = NULL;
     bc->data       = NULL;
     PROFILE_HELPER_END;
@@ -1407,6 +1408,7 @@ PetscErrorCode Create_OutletConservation(BoundaryCondition *bc)
     bc->Apply      = Apply_OutletConservation;
     bc->PostStep   = PostStep_OutletConservation;
     bc->UpdateUbcs = NULL;
+    bc->needs_repeat_pass = PETSC_TRUE; // Reads the adjacent Ucat and the inlets' flux
     bc->Destroy    = NULL; // No private data to destroy
     
     bc->data = NULL;
@@ -2177,6 +2179,8 @@ static PetscErrorCode Initialize_PeriodicDrivenConstant(BoundaryCondition *self,
                                  &data->enforceSeamFlux, &trimfound); CHKERRQ(ierr);
 
     if(!trimfound) LOG_ALLOW(GLOBAL,LOG_DEBUG,"Seam-flux enforcement not specified, defaults to %s.\n",data->enforceSeamFlux? "True":"False");
+    // Enforcing the seam flux adds a trim re-measured every pass, so the pass must repeat.
+    self->needs_repeat_pass = data->enforceSeamFlux;
 
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);
@@ -2525,6 +2529,8 @@ static PetscErrorCode Initialize_PeriodicDrivenInitial(BoundaryCondition *self, 
                                  &data->enforceSeamFlux, &trimfound); CHKERRQ(ierr);
 
     if(!trimfound) LOG_ALLOW(GLOBAL,LOG_DEBUG,"Seam-flux enforcement not specified, defaults to %s.\n",data->enforceSeamFlux? "True":"False");
+    // Enforcing the seam flux adds a trim re-measured every pass, so the pass must repeat.
+    self->needs_repeat_pass = data->enforceSeamFlux;
 
     PROFILE_HELPER_END;
     PetscFunctionReturn(0);

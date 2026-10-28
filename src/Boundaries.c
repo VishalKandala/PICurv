@@ -744,6 +744,7 @@ PetscErrorCode BoundaryCondition_Create(BCHandlerType handler_type, BoundaryCond
     bc->PostStep    = NULL;
     bc->UpdateUbcs  = NULL;
     bc->Destroy     = NULL;
+    bc->needs_repeat_pass = PETSC_FALSE; // A handler whose Apply() reads in-pass state sets it
 
     LOG_ALLOW(LOCAL, LOG_DEBUG, "Allocated generic handler object at address %p.\n", (void*)bc);
 
@@ -3544,6 +3545,117 @@ PetscErrorCode FinalizePostProjectionCellFields(UserCtx *user)
 }
 
 /**
+ * @brief One boundary pass: the handlers, Contra2Cart, the wall function, the dummy, periodic
+ *        and corner updates, and the ghost synchronisations that leave the fields consistent.
+ * @details Local to this translation unit; ApplyBoundaryConditions() decides how many to run.
+ */
+static PetscErrorCode ApplyBoundaryPass(UserCtx *user, PetscBool any_periodic)
+{
+    PetscErrorCode ierr;
+    const FieldId staggered_fields[] = {FIELD_ID_UCONT};
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    // (a) Execute the boundary system. This phase calculates fluxes across
+    //     the domain and then applies the physical logic for each non-periodic
+    //     handler, setting the `ubcs` (boundary value) array.
+    ierr = BoundarySystem_ExecuteStep(user); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Boundary Condition Setup Executed.\n");
+
+    // (b) Synchronize the updated ghost cells across all processors to ensure
+    //     all ucont values are current before updating the dummy cells.
+    ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
+
+    // (c) Convert updated Contravariant velocities to Cartesian velocities.
+    ierr = Contra2Cart(user); CHKERRQ(ierr);
+
+    // (d) Ucat's ghosts are not updated here: the wall function, the dummy and corner
+    //     updates read only global Ucat, and (g) or (i) updates it before any local read.
+    ierr = PoisonStaleLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+
+    // (e) If Wall functions are enabled, apply them now to adjust near-wall velocities.
+    if(user->simCtx->wallfunction){
+      // Apply wall function adjustments to the boundary velocities.
+      ierr = ApplyWallFunction(user); CHKERRQ(ierr);
+
+      LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Wall Function Applied at Walls.\n");
+    }
+
+    // (f) Update the first layer of ghost cells for non-periodic faces using
+    //     the newly computed `ubcs` values.
+    ierr = UpdateDummyCells(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+    ierr = UpdateDummyCells(user, FIELD_ID_P); CHKERRQ(ierr);
+
+    LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Dummy Cells/Ghost Cells Updated.\n");
+
+    // (g) Handle all periodic boundaries. This is a parallel direct copy
+    // that sets the absolute constraints for the rest of the solve.
+    // There is a Ghost update happening inside this function. Its last cell-field update
+    // is left to (j): (h) and the staggered transfers do not read local Ucat, P or Nvert.
+    ierr = ApplyPeriodicBCs(user, PETSC_FALSE); CHKERRQ(ierr);
+
+    // (h) Update the corner and edge ghost nodes. This routine calculates
+    // values for corners/edges by averaging their neighbors, which have been
+    // finalized in the steps above (both periodic and non-periodic).
+    ierr = UpdateCornerNodes(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+    ierr = UpdateCornerNodes(user, FIELD_ID_P); CHKERRQ(ierr);
+    
+    // (i) Synchronize the updated edge and corner cells across all processors to ensure
+    //     consistency before the next iteration or finalization.
+    //     Ucont was last written before (g)'s synchronization, or, with no periodic
+    //     face, before (b)'s update unless the wall function wrote it since. With a
+    //     periodic face, (j) updates P and Ucat first, so they are not updated here.
+    if (!any_periodic) {
+        ierr = UpdateLocalGhosts(user, FIELD_ID_P); CHKERRQ(ierr);
+        ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
+    }
+    ierr = SynchronizePeriodicStaggeredFieldsFrom(user, 1, staggered_fields,
+               (PetscBool)(any_periodic || !user->simCtx->wallfunction)); CHKERRQ(ierr);
+
+    // (j) Ensure All the corners are synchronized with  a well defined protocol  in case of Periodic boundary conditions
+    // To avoid race conditions.
+    //     Its leading update also completes (g)'s, which was left to it.
+    const FieldId all_fields[] = {FIELD_ID_UCAT, FIELD_ID_P, FIELD_ID_NVERT};
+    ierr = SynchronizePeriodicCellFieldsFrom(user, 3, all_fields, PETSC_FALSE, PETSC_TRUE); CHKERRQ(ierr);
+
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
+ * @brief In verify mode, checks that the passes a single-pass call skipped would change nothing.
+ * @details Runs the two passes the coupled path would add and requires Ucont, Ucat, P and the
+ *          boundary values to be bitwise what the first pass left. A mismatch means a handler
+ *          that reads in-pass state does not set `needs_repeat_pass`. Local to this
+ *          translation unit.
+ */
+static PetscErrorCode VerifySinglePassIsFinal(UserCtx *user, PetscBool any_periodic)
+{
+    Vec         fields[4] = {user->Ucont, user->Ucat, user->P, user->Bcs.Ubcs}, saved[4];
+    const char *names[4] = {"Ucont", "Ucat", "P", "Ubcs"};
+
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    if (!user->simCtx->verifyGhostUpdates) { PROFILE_HELPER_END; PetscFunctionReturn(0); }
+    for (int f = 0; f < 4; ++f) {
+        PetscCall(VecDuplicate(fields[f], &saved[f]));
+        PetscCall(VecCopy(fields[f], saved[f]));
+    }
+    for (int pass = 1; pass < 3; ++pass) PetscCall(ApplyBoundaryPass(user, any_periodic));
+    for (int f = 0; f < 4; ++f) {
+        PetscBool equal;
+        PetscCall(VecEqual(fields[f], saved[f], &equal));
+        PetscCheck(equal, PETSC_COMM_WORLD, PETSC_ERR_PLIB,
+                   "A further boundary pass changed %s after a single-pass call: some face's handler reads "
+                   "state the pass changes but does not set needs_repeat_pass.", names[f]);
+        PetscCall(VecDestroy(&saved[f]));
+    }
+    PROFILE_HELPER_END;
+    PetscFunctionReturn(0);
+}
+
+/**
  * @brief Implementation of \ref ApplyBoundaryConditions().
  * @details Full API contract (arguments, ownership, side effects) is documented with
  *          the header declaration in `include/Boundaries.h`.
@@ -3554,6 +3666,7 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
     PetscErrorCode ierr;
     const FieldId staggered_fields[] = {FIELD_ID_UCONT};
     PetscBool any_periodic = PETSC_FALSE;
+    PetscInt  passes = user->simCtx->wallfunction ? 3 : 1;
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
 
@@ -3561,77 +3674,20 @@ PetscErrorCode ApplyBoundaryConditions(UserCtx *user)
 
     for (int face = 0; face < 6; face++) {
         if (user->boundary_faces[face].mathematical_type == PERIODIC) any_periodic = PETSC_TRUE;
+        if (user->boundary_faces[face].handler && user->boundary_faces[face].handler->needs_repeat_pass) passes = 3;
     }
     /* A ghost update depends only on its global vector, so the leading updates skipped
-     * below repeat one with no write to that global vector since; results are unchanged. */
+     * in the pass repeat one with no write to that global vector since; results are unchanged. */
 
-    // STEP 1: Main iteration loop for applying and converging non-periodic BCs.
-    // The number of iterations (e.g., 3) allows information to propagate
-    // between coupled boundaries, like an inlet and a conserving outlet.
-    for (PetscInt iter = 0; iter < 3; iter++) {
-        // (a) Execute the boundary system. This phase calculates fluxes across
-        //     the domain and then applies the physical logic for each non-periodic
-        //     handler, setting the `ubcs` (boundary value) array.
-        ierr = BoundarySystem_ExecuteStep(user); CHKERRQ(ierr);
-
-        LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Boundary Condition Setup Executed.\n");
-
-        // (b) Synchronize the updated ghost cells across all processors to ensure
-        //     all ucont values are current before updating the dummy cells.
-        ierr = SynchronizePeriodicStaggeredFields(user, 1, staggered_fields); CHKERRQ(ierr);
-
-        // (c) Convert updated Contravariant velocities to Cartesian velocities.
-        ierr = Contra2Cart(user); CHKERRQ(ierr);
-
-        // (d) Ucat's ghosts are not updated here: the wall function, the dummy and corner
-        //     updates read only global Ucat, and (g) or (i) updates it before any local read.
-        ierr = PoisonStaleLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
-
-        // (e) If Wall functions are enabled, apply them now to adjust near-wall velocities.
-        if(user->simCtx->wallfunction){
-          // Apply wall function adjustments to the boundary velocities.
-          ierr = ApplyWallFunction(user); CHKERRQ(ierr);
-
-          LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Wall Function Applied at Walls.\n");
-        }
-
-        // (f) Update the first layer of ghost cells for non-periodic faces using
-        //     the newly computed `ubcs` values.
-        ierr = UpdateDummyCells(user, FIELD_ID_UCAT); CHKERRQ(ierr);
-        ierr = UpdateDummyCells(user, FIELD_ID_P); CHKERRQ(ierr);
-
-        LOG_ALLOW(GLOBAL,LOG_VERBOSE,"Dummy Cells/Ghost Cells Updated.\n");
-
-        // (g) Handle all periodic boundaries. This is a parallel direct copy
-        // that sets the absolute constraints for the rest of the solve.
-        // There is a Ghost update happening inside this function. Its last cell-field update
-        // is left to (j): (h) and the staggered transfers do not read local Ucat, P or Nvert.
-        ierr = ApplyPeriodicBCs(user, PETSC_FALSE); CHKERRQ(ierr);
-
-        // (h) Update the corner and edge ghost nodes. This routine calculates
-        // values for corners/edges by averaging their neighbors, which have been
-        // finalized in the steps above (both periodic and non-periodic).
-        ierr = UpdateCornerNodes(user, FIELD_ID_UCAT); CHKERRQ(ierr);
-        ierr = UpdateCornerNodes(user, FIELD_ID_P); CHKERRQ(ierr);
-        
-        // (i) Synchronize the updated edge and corner cells across all processors to ensure
-        //     consistency before the next iteration or finalization.
-        //     Ucont was last written before (g)'s synchronization, or, with no periodic
-        //     face, before (b)'s update unless the wall function wrote it since. With a
-        //     periodic face, (j) updates P and Ucat first, so they are not updated here.
-        if (!any_periodic) {
-            ierr = UpdateLocalGhosts(user, FIELD_ID_P); CHKERRQ(ierr);
-            ierr = UpdateLocalGhosts(user, FIELD_ID_UCAT); CHKERRQ(ierr);
-        }
-        ierr = SynchronizePeriodicStaggeredFieldsFrom(user, 1, staggered_fields,
-                   (PetscBool)(any_periodic || !user->simCtx->wallfunction)); CHKERRQ(ierr);
-
-        // (j) Ensure All the corners are synchronized with  a well defined protocol  in case of Periodic boundary conditions
-        // To avoid race conditions.
-        //     Its leading update also completes (g)'s, which was left to it.
-        const FieldId all_fields[] = {FIELD_ID_UCAT, FIELD_ID_P, FIELD_ID_NVERT};
-        ierr = SynchronizePeriodicCellFieldsFrom(user, 3, all_fields, PETSC_FALSE, PETSC_TRUE); CHKERRQ(ierr);
-
+    // STEP 1: The boundary passes. Three let information propagate between coupled boundaries,
+    // like an inlet and a conserving outlet, or a free-slip wall and the interior velocity it
+    // copies. Without such a face (needs_repeat_pass) and without a wall function, the first
+    // pass leaves every field final, and verify mode checks that the skipped passes agree.
+    for (PetscInt iter = 0; iter < passes; iter++) {
+        ierr = ApplyBoundaryPass(user, any_periodic); CHKERRQ(ierr);
+    }
+    if (passes == 1) {
+        ierr = VerifySinglePassIsFinal(user, any_periodic); CHKERRQ(ierr);
     }
 
     // STEP 3: Final staggered periodic synchronization. The last pass already left Ucat, P

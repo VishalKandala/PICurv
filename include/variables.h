@@ -428,6 +428,10 @@ typedef struct BoundaryCondition {
     PetscErrorCode (*PostStep)(BoundaryCondition *self, BCContext *ctx, PetscReal *local_inflow, PetscReal *local_outflow);
     PetscErrorCode (*UpdateUbcs)(BoundaryCondition *self,BCContext *ctx);
     PetscErrorCode (*Destroy)(BoundaryCondition *self);
+    /** Apply() reads state its own boundary pass changes after it runs (the interior Ucat that
+     *  Contra2Cart refreshes, or an accumulating flux trim), so a second pass can change the
+     *  result. ApplyBoundaryConditions() repeats its pass only when some face sets this. */
+    PetscBool needs_repeat_pass;
 } BoundaryCondition;
 
 /** @brief Holds the complete configuration for one of the six boundary faces. */
