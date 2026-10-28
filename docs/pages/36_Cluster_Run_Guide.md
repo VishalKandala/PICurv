@@ -108,7 +108,7 @@ These coexist with standard runtime control artifacts used by solver/postprocess
 2. run directory + control artifact generation,
 3. sbatch script rendering from scheduler settings,
 4. optional solver submission (`solver.sbatch`) immediately, or later via `picurv submit --run-dir ...`,
-5. optional post submission (`post.sbatch`), with `afterok:<solver_jobid>` dependency when solve+post are both requested in one command, or when `submit --stage all` (the default, which selects every staged stage) submits both.
+5. optional post submission (`post.sbatch`), with `afterok:<solver_jobid>` dependency when solve+post are both requested in one command, or when `submit --stage all` (the default, which selects every staged stage not yet submitted) submits both.
    `submit --stage post-process` on its own depends on the recorded solve job only while that
    job is still queued. Slurm forgets a finished job after its `MinJobAge` and then rejects
    any dependency on it, so a solve that has completed is not waited for: the post job plans
