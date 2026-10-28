@@ -2855,7 +2855,7 @@ PetscErrorCode DisplayBanner(SimCtx *simCtx) // bboxlist is only valid on rank 0
         ierr = PetscPrintf(PETSC_COMM_SELF, " Profiling Timestep Output   : %s\n", simCtx->profilingTimestepMode); CHKERRQ(ierr);
         ierr = PetscPrintf(PETSC_COMM_SELF, " Profiling Final Summary     : %s\n", simCtx->profilingFinalSummary ? "ENABLED" : "DISABLED"); CHKERRQ(ierr);
         if (simCtx->runtimeMemoryLogEnabled) {
-            ierr = PetscPrintf(PETSC_COMM_SELF, " Runtime Memory Log          : ENABLED (%s)\n", simCtx->runtimeMemoryLogFile); CHKERRQ(ierr);
+            ierr = PetscPrintf(PETSC_COMM_SELF, " Runtime Memory Log          : ENABLED (Runtime_Memory.csv)\n"); CHKERRQ(ierr);
         } else {
             ierr = PetscPrintf(PETSC_COMM_SELF, " Runtime Memory Log          : DISABLED\n"); CHKERRQ(ierr);
         }

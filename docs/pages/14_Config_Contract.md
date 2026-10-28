@@ -191,7 +191,7 @@ Verification-pathway rule:
 - `profiling.helpers` -> `-profiling_helpers <name,name,...>` or `-profiling_helpers all`
 - `diagnostics.petsc` -> PETSc startup arguments on solver/postprocessor commands,
   including run-local `-info` output and optional PETSc class filtering
-- `diagnostics.runtime_memory_log` -> `-runtime_memory_log_enabled/-runtime_memory_log_file`
+- `diagnostics.runtime_memory_log` -> `-runtime_memory_log_enabled`
 - `solution_monitoring.convergence.*` maps directly into the generated master
   control as the existing `-solution_convergence_*` options and retains the
   existing log writer. `enabled` is explicit; sampling occurs every completed

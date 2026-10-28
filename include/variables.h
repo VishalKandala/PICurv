@@ -1111,7 +1111,6 @@ typedef struct SimCtx {
     PetscInt  nProfilingHelpers;
     PetscBool profilingAllHelpers; ///< -profiling_helpers all: every helper timer is enabled.
     char      profilingTimestepMode[32];
-    char      profilingTimestepFile[PETSC_MAX_PATH_LEN];
     PetscBool profilingFinalSummary;
     PetscBool verifyGhostUpdates;  ///< -picurv_verify_ghost_updates: test-only cross-checks of skipped or partial ghost updates, and of migration newcomers against a PID snapshot.
     PetscBool walltimeGuardEnabled;
@@ -1128,8 +1127,7 @@ typedef struct SimCtx {
     PetscBool walltimeGuardHasEWMA;
     PetscReal walltimeGuardEWMASeconds;
     PetscReal walltimeGuardLatestStepSeconds;
-    PetscBool runtimeMemoryLogEnabled;               /**< Enable the rank-reduced runtime memory log. */
-    char      runtimeMemoryLogFile[PETSC_MAX_PATH_LEN]; /**< File name written under log_dir. */
+    PetscBool runtimeMemoryLogEnabled;               /**< Enable the rank-reduced runtime memory log (log_dir/Runtime_Memory.csv). */
     PetscBool runtimeMemoryLogStarted;               /**< True after rank 0 writes the log header. */
     PetscBool runtimeMemoryLogHasPrevious;           /**< True after the first process-memory sample. */
     PetscReal runtimeMemoryLogPreviousProcessMB;     /**< Previous local process memory sample in MB. */

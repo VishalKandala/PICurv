@@ -6768,6 +6768,36 @@ def test_validate_rejects_conflicting_top_level_and_legacy_da_processors(tmp_pat
     assert "conflicts with legacy grid.programmatic_settings.da_processors_x" in result.stderr
 
 
+def test_validate_rejects_log_record_file_names(tmp_path):
+    """!
+    @brief The memory and per-step profiling records have fixed names; a `file` key is refused.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    valid = FIXTURES / "valid"
+    picurv = load_picurv_module()
+    monitor_cfg = picurv.read_yaml_file(str(valid / "monitor.yml"))
+    monitor_cfg.setdefault("diagnostics", {})["runtime_memory_log"] = {"enabled": True, "file": "Mem.log"}
+    monitor_cfg.setdefault("profiling", {})["timestep_output"] = {"mode": "all", "file": "steps.csv"}
+    monitor_path = tmp_path / "monitor_named_records.yml"
+    picurv.write_yaml_file(str(monitor_path), monitor_cfg)
+
+    result = run_picurv(
+        [
+            "validate",
+            "--case",
+            str(valid / "case.yml"),
+            "--solver",
+            str(valid / "solver.yml"),
+            "--monitor",
+            str(monitor_path),
+        ]
+    )
+
+    assert result.returncode == 1
+    assert "unsupported key at diagnostics.runtime_memory_log: 'file'" in result.stderr
+    assert "unsupported key at profiling.timestep_output: 'file'" in result.stderr
+
+
 def test_new_profiling_config_emits_explicit_timestep_flags(tmp_path):
     """!
     @brief Test that new profiling config emits explicit timestep flags.
@@ -6782,7 +6812,6 @@ def test_new_profiling_config_emits_explicit_timestep_flags(tmp_path):
         "timestep_output": {
             "mode": "selected",
             "functions": ["AdvanceSimulation"],
-            "file": "timesteps.csv",
         },
         "final_summary": {"enabled": False},
         "helpers": ["UnpackSwarmFields", "MetricJacobian"],
@@ -6813,7 +6842,7 @@ def test_new_profiling_config_emits_explicit_timestep_flags(tmp_path):
 
     content = Path(control_file).read_text(encoding="utf-8")
     assert "-profiling_timestep_mode selected" in content
-    assert "-profiling_timestep_file timesteps.csv" in content
+    assert "-profiling_timestep_file" not in content  # the record name is fixed
     assert "-profiling_final_summary false" in content
     assert "-profiling_helpers UnpackSwarmFields,MetricJacobian" in content
     assert "-write_initial_checkpoint" not in content  # absent keys keep the defaults
@@ -6887,7 +6916,6 @@ def test_diagnostics_config_emits_runtime_memory_flags_and_petsc_args(tmp_path):
         },
         "runtime_memory_log": {
             "enabled": True,
-            "file": "Runtime_Memory.log",
         },
     }
 
@@ -6916,7 +6944,7 @@ def test_diagnostics_config_emits_runtime_memory_flags_and_petsc_args(tmp_path):
 
     content = Path(control_file).read_text(encoding="utf-8")
     assert "-runtime_memory_log_enabled true" in content
-    assert "-runtime_memory_log_file Runtime_Memory.log" in content
+    assert "-runtime_memory_log_file" not in content  # the record name is fixed
     assert "-malloc_debug" not in content
 
     args = picurv.build_petsc_diagnostics_args(monitor_cfg, str(run_dir), "Solver")

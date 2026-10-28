@@ -648,7 +648,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->profilingAllHelpers = PETSC_FALSE;
     simCtx->nProfilingSelectedFuncs = 0;
     strcpy(simCtx->profilingTimestepMode, "selected");
-    strcpy(simCtx->profilingTimestepFile, "Profiling_Timestep_Summary.csv");
     simCtx->profilingFinalSummary = PETSC_TRUE;
     simCtx->walltimeGuardEnabled = PETSC_FALSE;
     simCtx->walltimeGuardActive = PETSC_FALSE;
@@ -666,7 +665,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->walltimeGuardLatestStepSeconds = 0.0;
     simCtx->runtimeMemoryLogEnabled = PETSC_TRUE;
     simCtx->lastStepWallSeconds = 0.0;
-    strcpy(simCtx->runtimeMemoryLogFile, "Runtime_Memory.csv");
     simCtx->runtimeMemoryLogStarted = PETSC_FALSE;
     simCtx->runtimeMemoryLogHasPrevious = PETSC_FALSE;
     simCtx->runtimeMemoryLogPreviousProcessMB = 0.0;
@@ -743,7 +741,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
    
     // === 3.B Configure Profiling System ========================================
     ierr = PetscOptionsGetString(NULL, NULL, "-profiling_timestep_mode", simCtx->profilingTimestepMode, sizeof(simCtx->profilingTimestepMode), NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL, NULL, "-profiling_timestep_file", simCtx->profilingTimestepFile, PETSC_MAX_PATH_LEN, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-profiling_final_summary", &simCtx->profilingFinalSummary, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-picurv_verify_ghost_updates", &simCtx->verifyGhostUpdates, NULL); CHKERRQ(ierr);
     if (strcmp(simCtx->profilingTimestepMode, "off") != 0 &&
@@ -829,7 +826,6 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     ierr = PetscOptionsGetInt(NULL, NULL, "-walltime_guard_warmup_steps", &simCtx->walltimeGuardWarmupSteps, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-walltime_guard_multiplier", &simCtx->walltimeGuardMultiplier, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetBool(NULL, NULL, "-runtime_memory_log_enabled", &simCtx->runtimeMemoryLogEnabled, NULL); CHKERRQ(ierr);
-    ierr = PetscOptionsGetString(NULL, NULL, "-runtime_memory_log_file", simCtx->runtimeMemoryLogFile, PETSC_MAX_PATH_LEN, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-walltime_guard_min_seconds", &simCtx->walltimeGuardMinSeconds, NULL); CHKERRQ(ierr);
     ierr = PetscOptionsGetReal(NULL, NULL, "-walltime_guard_estimator_alpha", &simCtx->walltimeGuardEstimatorAlpha, NULL); CHKERRQ(ierr);
 

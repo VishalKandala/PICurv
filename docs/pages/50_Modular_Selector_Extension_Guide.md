@@ -299,7 +299,6 @@ Full contract: **@subpage 64_Documentation_Extension_Framework**.
   - `prepare_monitor_files()` in `picurv_cli/core.py`
 - Generated mapping:
   - `timestep_output.mode` -> `-profiling_timestep_mode`
-  - `timestep_output.file` -> `-profiling_timestep_file`
   - `final_summary.enabled` -> `-profiling_final_summary`
   - selected function list -> `profile.run` + `-profile_config_file`
 - C storage/parser:

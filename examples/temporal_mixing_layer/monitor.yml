@@ -3,7 +3,7 @@ profiling:
   timestep_output: {mode: "off"}
   final_summary: {enabled: true}
 diagnostics:
-  runtime_memory_log: {enabled: true, file: Runtime_Memory.csv}
+  runtime_memory_log: {enabled: true}
 io:
   # Every t = 2. Each checkpoint carries the particles the post recipe's ensembles read.
   data_output_frequency: 4

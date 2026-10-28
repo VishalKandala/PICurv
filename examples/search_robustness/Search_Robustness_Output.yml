@@ -36,7 +36,6 @@ diagnostics:
     options_left: null
   runtime_memory_log:
     enabled: true
-    file: "Runtime_Memory.csv"
 
 solver_monitoring:
   poisson:

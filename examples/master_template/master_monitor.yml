@@ -48,7 +48,7 @@ logging:
 # ==============================================================================
 profiling:
   # --- Per-Step Profiling Output ---
-  # Controls whether timestep-level profiling rows are written to a dedicated file.
+  # Controls whether timestep-level profiling rows are written to logs/Profiling_Timestep_Summary.csv.
   # mode:
   #   off      -> no timestep profiling output
   #   selected -> write only the listed functions
@@ -58,7 +58,6 @@ profiling:
     # functions:            # instrumented names, as listed by mode "all" or the final summary
     #   - FlowSolver
     #   - PoissonSolver_Multigrid
-    file: "Profiling_Timestep_Summary.csv"
 
   # --- Final Profiling Summary ---
   # Controls the end-of-run aggregated profiling summary file.
@@ -99,10 +98,9 @@ diagnostics:
     options_left: null
 
   runtime_memory_log:
-    # This custom PICurv log is emitted from the runtime through control-file
-    # flags, independent of PETSc-native diagnostics above.
+    # Per-step memory and step wall time, written to logs/Runtime_Memory.csv
+    # independently of the PETSc-native diagnostics above.
     enabled: true
-    file: "Runtime_Memory.csv"
 
   # Per-step LES coefficient statistics appended to output/analysis/metrics/les_coefficient.csv:
   # the effective Cs, its spread, eddy-viscosity levels, the modelled subgrid energy, and

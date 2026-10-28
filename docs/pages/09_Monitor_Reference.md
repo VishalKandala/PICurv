@@ -345,7 +345,6 @@ profiling:
     functions:
       - FlowSolver
       - PoissonSolver_Multigrid
-    file: "Profiling_Timestep_Summary.csv"
   final_summary:
     enabled: true
   helpers: []                  # or a list of names, or "all"
@@ -383,7 +382,7 @@ Rules:
   `Projection` becomes `ProjectVelocity`, `PoissonLHSNew` becomes `AssemblePoissonOperator`,
   and `PoissonRHS` becomes `ComputePoissonRHS`. Names of functions it removed are dropped
   with a warning.
-- `timestep_output.file` sets the filename written under `<run.runtime_logs>/`
+- Per-step rows go to `<run.runtime_logs>/Profiling_Timestep_Summary.csv`; the name is fixed.
 - `final_summary.enabled` controls the end-of-run `ProfilingSummary_<Solver|PostProcessor>.csv`
   file, one row per function. For each it gives the total time on the slowest rank and that rank,
   the mean over ranks, the fastest rank and its time (zero on a rank that never called it), the
@@ -424,7 +423,6 @@ diagnostics:
     options_left: null
   runtime_memory_log:
     enabled: true
-    file: "Runtime_Memory.csv"
 ```
 
 Rules:
@@ -470,7 +468,7 @@ for the solver stage, with analogous `PostProcessor` log names for post runs.
 - PETSc diagnostics that support output files use run-local defaults under
   `<run.runtime_logs>/`, with solver/postprocessor-specific filenames. Boolean-only PETSc
   diagnostics remain in the captured solver/post stream logs.
-- `runtime_memory_log` writes a rank-reduced CSV record, one row per step: the maximum over
+- `runtime_memory_log` writes `<run.runtime_logs>/Runtime_Memory.csv` (a fixed name), a rank-reduced record with one row per step: the maximum over
   ranks of the process and PETSc allocation signals, and `step_wall_s`, the slowest rank's
   wall time for that step. Final and shutdown rows carry the reason the run ended.
 - `picurv summarize` reports the latest runtime memory signals and the step time, this step's

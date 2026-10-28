@@ -2170,7 +2170,7 @@ PetscErrorCode ProfilingLogTimestepSummary(SimCtx *simCtx, PetscInt step)
         since_count = count - (e < g_profile_step_capacity ? g_profile_step_count[e] : 0);
         if (since_count <= 0 || simCtx->rank != 0) continue;
         if (!f) {
-            snprintf(filen, sizeof(filen), "%s/%s", simCtx->log_dir, simCtx->profilingTimestepFile);
+            snprintf(filen, sizeof(filen), "%s/Profiling_Timestep_Summary.csv", simCtx->log_dir);
             const PetscBool fresh = (PetscBool)(step == simCtx->StartStep + 1 && !simCtx->continueMode);
             f = fopen(filen, fresh ? "w" : "a");
             if (!f) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open profiling timestep log file: %s", filen);
@@ -2238,7 +2238,7 @@ PetscErrorCode RuntimeMemoryLogSample(SimCtx *simCtx, PetscInt step, const char 
     simCtx->runtimeMemoryLogHasPrevious = PETSC_TRUE;
 
     if (simCtx->rank == 0) {
-        ierr = PetscSNPrintf(path, sizeof(path), "%s/%s", simCtx->log_dir, simCtx->runtimeMemoryLogFile); CHKERRQ(ierr);
+        ierr = PetscSNPrintf(path, sizeof(path), "%s/Runtime_Memory.csv", simCtx->log_dir); CHKERRQ(ierr);
         f = fopen(path, "a");
         if (!f) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_FILE_OPEN, "Cannot open runtime memory log file: %s", path);
 

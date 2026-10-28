@@ -24,7 +24,6 @@ diagnostics:
     options_left: null
   runtime_memory_log:
     enabled: true
-    file: "Runtime_Memory.csv"
 
 io:
   data_output_frequency: 1

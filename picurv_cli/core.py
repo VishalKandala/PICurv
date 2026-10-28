@@ -9161,7 +9161,7 @@ _MONITOR_SCHEMA = {
     },
     ("logging",): {"verbosity", "enabled_functions", "trace_particles"},
     ("profiling",): {"timestep_output", "final_summary", "helpers"},
-    ("profiling", "timestep_output"): {"mode", "functions", "file"},
+    ("profiling", "timestep_output"): {"mode", "functions"},
     ("profiling", "final_summary"): {"enabled"},
     ("diagnostics",): {"petsc", "runtime_memory_log", "les"},
     ("diagnostics", "les"): {"enabled", "cadence", "yoshizawa_ci"},
@@ -9171,7 +9171,7 @@ _MONITOR_SCHEMA = {
         "objects_dump", "options_left",
     },
     ("diagnostics", "petsc", "info"): {"enabled", "classes"},
-    ("diagnostics", "runtime_memory_log"): {"enabled", "file"},
+    ("diagnostics", "runtime_memory_log"): {"enabled"},
     ("io",): {
         "data_output_frequency", "particle_console_output_frequency", "particle_log_interval",
         "statistics_console_output_frequency", "write_initial_checkpoint", "write_final_checkpoint",
@@ -12577,6 +12577,11 @@ def has_explicit_monitor_whitelist(monitor_cfg: dict) -> bool:
     return bool(items)
 
 
+#: Fixed names of the solver records under a run's `logs/`.
+RUNTIME_MEMORY_FILE = "Runtime_Memory.csv"
+PROFILING_TIMESTEP_FILE = "Profiling_Timestep_Summary.csv"
+
+
 def resolve_profiling_config(monitor_cfg: dict) -> dict:
     """!
     @brief Resolve profiling reporting config from monitor.yml.
@@ -12590,13 +12595,11 @@ def resolve_profiling_config(monitor_cfg: dict) -> dict:
     if timestep_cfg is None:
         mode = "off"
         functions = []
-        timestep_file = "Profiling_Timestep_Summary.csv"
     else:
         if not isinstance(timestep_cfg, dict):
             raise ValueError("monitor.profiling.timestep_output must be a mapping when provided.")
         mode = str(timestep_cfg.get("mode", "off")).lower()
         functions = timestep_cfg.get("functions", [])
-        timestep_file = str(timestep_cfg.get("file", "Profiling_Timestep_Summary.csv"))
 
     if mode not in PROFILING_TIMESTEP_MODES:
         raise ValueError("monitor.profiling.timestep_output.mode must be one of ['off', 'selected', 'all'].")
@@ -12613,8 +12616,6 @@ def resolve_profiling_config(monitor_cfg: dict) -> dict:
     functions = normalize_monitor_function_names(functions, "monitor.profiling.timestep_output.functions")
     if mode == "selected" and not functions:
         raise ValueError("monitor.profiling.timestep_output.functions lists only functions that no longer exist.")
-    if not timestep_file:
-        raise ValueError("monitor.profiling.timestep_output.file must be a non-empty string.")
 
     if final_cfg is None:
         final_enabled = True
@@ -12641,7 +12642,6 @@ def resolve_profiling_config(monitor_cfg: dict) -> dict:
     return {
         "mode": mode,
         "functions": functions,
-        "timestep_file": timestep_file,
         "final_summary_enabled": final_enabled,
         "helpers": helpers,
     }
@@ -12802,15 +12802,13 @@ def resolve_diagnostics_config(monitor_cfg: dict, run_dir: "str | None" = None, 
     memory_raw = diagnostics_cfg.get("runtime_memory_log", {}) or {}
     if not isinstance(memory_raw, dict):
         raise ValueError("monitor.diagnostics.runtime_memory_log must be a mapping when provided.")
+    # `file` is refused by the monitor schema; a stored run's config may still carry it.
     memory_unknown = sorted(set(memory_raw.keys()) - {"enabled", "file"})
     if memory_unknown:
         raise ValueError(f"monitor.diagnostics.runtime_memory_log has unsupported key(s): {memory_unknown}.")
     memory_enabled = memory_raw.get("enabled", True)
     if not isinstance(memory_enabled, bool):
         raise ValueError("monitor.diagnostics.runtime_memory_log.enabled must be boolean.")
-    memory_file = str(memory_raw.get("file", "Runtime_Memory.csv")).strip()
-    if not memory_file:
-        raise ValueError("monitor.diagnostics.runtime_memory_log.file must be a non-empty string.")
 
     resolved_petsc = dict(petsc)
     artifacts = []
@@ -12840,13 +12838,13 @@ def resolve_diagnostics_config(monitor_cfg: dict, run_dir: "str | None" = None, 
         if memory_enabled:
             artifacts.append(
                 os.path.abspath(os.path.join(
-                    run_dir, CANONICAL_RUN_PATHS["logs"], memory_file
+                    run_dir, CANONICAL_RUN_PATHS["logs"], RUNTIME_MEMORY_FILE
                 ))
             )
 
     return {
         "petsc": resolved_petsc,
-        "runtime_memory_log": {"enabled": memory_enabled, "file": memory_file},
+        "runtime_memory_log": {"enabled": memory_enabled},
         "artifacts": artifacts,
     }
 
@@ -17052,15 +17050,12 @@ def generate_solver_control_file(run_dir, run_id, configs, num_procs, monitor_fi
     control_lines.extend(resolve_field_statistics_flags(monitor_cfg, case_cfg))
     profiling_cfg = monitor_files.get("profiling", {})
     control_lines.append(f"-profiling_timestep_mode {profiling_cfg.get('mode', 'off')}")
-    if profiling_cfg.get("mode") != "off":
-        control_lines.append(f"-profiling_timestep_file {profiling_cfg.get('timestep_file', 'Profiling_Timestep_Summary.csv')}")
     control_lines.append(f"-profiling_final_summary {str(bool(profiling_cfg.get('final_summary_enabled', True))).lower()}")
     if profiling_cfg.get("helpers"):
         control_lines.append(f"-profiling_helpers {','.join(profiling_cfg['helpers'])}")
     diagnostics_cfg = resolve_diagnostics_config(monitor_cfg)
     memory_log_cfg = diagnostics_cfg["runtime_memory_log"]
     control_lines.append(f"-runtime_memory_log_enabled {str(bool(memory_log_cfg.get('enabled', True))).lower()}")
-    control_lines.append(f"-runtime_memory_log_file {memory_log_cfg.get('file', 'Runtime_Memory.csv')}")
 
     walltime_guard_policy = configs.get("walltime_guard_policy")
     if walltime_guard_policy is not None:
@@ -19309,7 +19304,7 @@ def render_run_dry_plan(plan: dict, output_format: str = "text"):
         for item in plan["asset_actions"]:
             print(f"    - {item['kind']}: {item['action']} ({item['provider']})")
 
-    diagnostics_artifacts = [item for item in plan.get("artifacts", []) if "PETSc_" in os.path.basename(str(item)) or os.path.basename(str(item)) == "Runtime_Memory.csv"]
+    diagnostics_artifacts = [item for item in plan.get("artifacts", []) if "PETSc_" in os.path.basename(str(item)) or os.path.basename(str(item)) == RUNTIME_MEMORY_FILE]
     if diagnostics_artifacts:
         print("\n  Diagnostics artifacts:")
         for artifact in diagnostics_artifacts:
@@ -22154,7 +22149,7 @@ def _build_summary_context(run_dir: str) -> dict:
     io_cfg = monitor_cfg.get("io", {}) if isinstance(monitor_cfg, dict) else {}
     scheduler_dir = os.path.join(run_dir, "scheduler")
 
-    profiling_cfg = {"mode": "off", "functions": [], "timestep_file": "Profiling_Timestep_Summary.csv", "final_summary_enabled": True, "helpers": []}
+    profiling_cfg = {"mode": "off", "functions": [], "final_summary_enabled": True, "helpers": []}
     if monitor_cfg:
         profiling_cfg = resolve_profiling_config(monitor_cfg)
 
@@ -23097,13 +23092,11 @@ def build_run_summary_payload(run_dir: str, step: "int | None" = None, snapshot_
 
     profiling_rows = {}
     profiling_order = []
-    profiling_path = os.path.join(log_dir, context["profiling_cfg"].get("timestep_file", "Profiling_Timestep_Summary.csv"))
+    profiling_path = os.path.join(log_dir, PROFILING_TIMESTEP_FILE)
     if context["profiling_cfg"].get("mode") != "off":
         profiling_rows, profiling_order = _parse_profiling_timestep_csv(profiling_path)
 
-    diagnostics_cfg = resolve_diagnostics_config(context["monitor_cfg"])
-    memory_log_file = diagnostics_cfg["runtime_memory_log"].get("file", "Runtime_Memory.csv")
-    memory_path = os.path.join(log_dir, memory_log_file)
+    memory_path = _log_family_path(log_dir, "Runtime_Memory") or os.path.join(log_dir, RUNTIME_MEMORY_FILE)
     memory_rows, memory_order, memory_meta = _parse_runtime_memory_log(memory_path)
 
     convergence_log_path = (_log_family_path(log_dir, "solution_convergence")
@@ -23219,7 +23212,7 @@ def build_run_summary_payload(run_dir: str, step: "int | None" = None, snapshot_
 
     monitor_info = {
         "profiling_timestep_mode": context["profiling_cfg"].get("mode"),
-        "profiling_timestep_file": context["profiling_cfg"].get("timestep_file"),
+        "profiling_timestep_file": PROFILING_TIMESTEP_FILE,
         "particle_console_output_frequency": context["particle_console_output_freq"],
         "particle_log_interval": context["particle_log_interval"],
     }
@@ -23771,7 +23764,6 @@ def _render_monitor_summary_text(summary: dict):
         [
             ("Enabled PETSc diagnostics", diagnostics.get("enabled_petsc")),
             ("Runtime memory log", memory_log.get("enabled")),
-            ("Runtime memory file", memory_log.get("file")),
         ],
     )
     _print_config_group("PETSc Diagnostic Settings", _flatten_summary_mapping(diagnostics.get("petsc", {})))
@@ -24656,7 +24648,7 @@ def _collect_summary_plot_records(context: dict) -> list:
                 driven_path, segment,
             )
 
-    profiling_path = os.path.join(log_dir, context["profiling_cfg"].get("timestep_file", "Profiling_Timestep_Summary.csv"))
+    profiling_path = os.path.join(log_dir, PROFILING_TIMESTEP_FILE)
     if os.path.isfile(profiling_path):
         segment = 0
         columns = None
@@ -24678,8 +24670,7 @@ def _collect_summary_plot_records(context: dict) -> list:
                     profiling_path, segment,
                 )
 
-    diagnostics = resolve_diagnostics_config(context["monitor_cfg"])
-    memory_path = os.path.join(log_dir, diagnostics["runtime_memory_log"].get("file", "Runtime_Memory.csv"))
+    memory_path = _log_family_path(log_dir, "Runtime_Memory") or os.path.join(log_dir, RUNTIME_MEMORY_FILE)
     for segment, row in _runtime_memory_rows(memory_path):
         if row["event"] in {"Step", "Post"}:
             _append_summary_plot_record(
@@ -25113,10 +25104,10 @@ def _render_summary_plot_catalog(catalog: list, output_format: str):
 SUMMARY_TABLES = {
     "continuity": ("log_dir", "Continuity_Metrics.csv"),
     "convergence": ("log_dir", "solution_convergence.csv"),
-    "memory": ("log_dir", None),  # monitor.yml -> diagnostics.runtime_memory_log.file
+    "memory": ("log_dir", RUNTIME_MEMORY_FILE),
     "profiling": ("log_dir", "ProfilingSummary_Solver.csv"),
     "profiling-post": ("log_dir", "ProfilingSummary_PostProcessor.csv"),
-    "profiling-steps": ("log_dir", None),  # monitor.yml -> profiling.timestep_output.file
+    "profiling-steps": ("log_dir", PROFILING_TIMESTEP_FILE),
     "picard": ("log_dir", "Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_{block}.csv"),
     "newton": ("log_dir", "Momentum_Solver_Newton_Krylov_Summary_Block_{block}.csv"),
     "newton-history": ("log_dir", "Momentum_Solver_Newton_Krylov_History_Block_{block}.csv"),
@@ -25146,11 +25137,7 @@ def _summary_table_path(context: dict, name: str) -> str:
     if block and not block.isdigit():
         raise ValueError(f"Table block '{block}' must be a non-negative integer.")
     directory_key, file_name = SUMMARY_TABLES[base]
-    if base == "memory":
-        file_name = resolve_diagnostics_config(context["monitor_cfg"])["runtime_memory_log"].get("file", "Runtime_Memory.csv")
-    elif base == "profiling-steps":
-        file_name = context["profiling_cfg"].get("timestep_file", "Profiling_Timestep_Summary.csv")
-    elif "{block}" in file_name:
+    if "{block}" in file_name:
         file_name = file_name.format(block=int(block or 0))
     elif block:
         raise ValueError(f"Table '{base}' is not per-block; drop ':{block}'.")

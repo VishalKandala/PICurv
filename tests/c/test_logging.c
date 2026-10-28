@@ -1364,7 +1364,6 @@ static PetscErrorCode TestProfilingLifecycleHelpers(void)
     PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
     PetscCall(PetscStrncpy(simCtx.log_dir, tmpdir, sizeof(simCtx.log_dir)));
     PetscCall(PetscStrncpy(simCtx.profilingTimestepMode, "selected", sizeof(simCtx.profilingTimestepMode)));
-    PetscCall(PetscStrncpy(simCtx.profilingTimestepFile, "Profiling_Timestep_Summary.csv", sizeof(simCtx.profilingTimestepFile)));
     simCtx.rank = 0;
     simCtx.exec_mode = EXEC_MODE_SOLVER;
     simCtx.StartStep = 0;
@@ -1388,7 +1387,7 @@ static PetscErrorCode TestProfilingLifecycleHelpers(void)
     PetscCall(ProfilingLogTimestepSummary(&simCtx, 2));
     PetscCall(ProfilingFinalize(&simCtx));
 
-    PetscCall(PetscSNPrintf(timestep_path, sizeof(timestep_path), "%s/%s", simCtx.log_dir, simCtx.profilingTimestepFile));
+    PetscCall(PetscSNPrintf(timestep_path, sizeof(timestep_path), "%s/Profiling_Timestep_Summary.csv", simCtx.log_dir));
     PetscCall(PetscSNPrintf(summary_path, sizeof(summary_path), "%s/ProfilingSummary_Solver.csv", simCtx.log_dir));
     PetscCall(PicurvAssertFileExists(timestep_path, "profiling timestep summary should be written"));
     PetscCall(PicurvAssertFileExists(summary_path, "profiling final summary should be written"));
@@ -1429,7 +1428,6 @@ static PetscErrorCode TestRuntimeMemoryLogHelpers(void)
     PetscCall(PetscMemzero(&simCtx, sizeof(simCtx)));
     PetscCall(PicurvMakeTempDir(tmpdir, sizeof(tmpdir)));
     PetscCall(PetscStrncpy(simCtx.log_dir, tmpdir, sizeof(simCtx.log_dir)));
-    PetscCall(PetscStrncpy(simCtx.runtimeMemoryLogFile, "Runtime_Memory.csv", sizeof(simCtx.runtimeMemoryLogFile)));
     simCtx.rank = 0;
     simCtx.runtimeMemoryLogEnabled = PETSC_TRUE;
     simCtx.runtimeMemoryLogStarted = PETSC_FALSE;
@@ -1440,7 +1438,7 @@ static PetscErrorCode TestRuntimeMemoryLogHelpers(void)
 
     PetscCall(RuntimeMemoryLogSample(&simCtx, 1, "Step", "-"));
     PetscCall(RuntimeMemoryLogSample(&simCtx, 1, "Final", "Complete"));
-    PetscCall(PetscSNPrintf(memory_path, sizeof(memory_path), "%s/%s", simCtx.log_dir, simCtx.runtimeMemoryLogFile));
+    PetscCall(PetscSNPrintf(memory_path, sizeof(memory_path), "%s/Runtime_Memory.csv", simCtx.log_dir));
     PetscCall(PicurvAssertFileExists(memory_path, "runtime memory log should be written"));
     PetscCall(AssertFileContains(memory_path, "step,event,process_current_mb_max,",
                                  "runtime memory log should be a CSV with its header"));
@@ -1452,9 +1450,8 @@ static PetscErrorCode TestRuntimeMemoryLogHelpers(void)
                                  "runtime memory log should record final reason"));
 
     simCtx.runtimeMemoryLogEnabled = PETSC_FALSE;
-    PetscCall(PetscStrncpy(simCtx.runtimeMemoryLogFile, "Runtime_Memory_Disabled.csv", sizeof(simCtx.runtimeMemoryLogFile)));
+    PetscCall(PicurvAssertBool((PetscBool)(remove(memory_path) == 0), "enabled runtime memory log should be removable"));
     PetscCall(RuntimeMemoryLogSample(&simCtx, 2, "Step", "-"));
-    PetscCall(PetscSNPrintf(memory_path, sizeof(memory_path), "%s/%s", simCtx.log_dir, simCtx.runtimeMemoryLogFile));
     PetscCall(PicurvAssertBool((PetscBool)(access(memory_path, F_OK) != 0),
                                "disabled runtime memory log should not create a file"));
     PetscCall(PicurvRemoveTempDir(tmpdir));
