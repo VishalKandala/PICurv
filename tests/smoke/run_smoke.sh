@@ -484,7 +484,6 @@ cfg["diagnostics"] = {
     },
     "runtime_memory_log": {
         "enabled": True,
-        "file": "Runtime_Memory.csv",
     },
 }
 with open(monitor_path, "w", encoding="utf-8") as f:
@@ -558,7 +557,6 @@ monitor_cfg["diagnostics"] = {
     },
     "runtime_memory_log": {
         "enabled": True,
-        "file": "Runtime_Memory.csv",
     },
 }
 
