@@ -187,8 +187,20 @@ typedef struct {
 
 
 /**
+ * @brief True when a code-level diagnostic at `level` prints from the calling function.
+ *
+ * The level must be admitted by the run's verbosity. A warning or an error then prints from
+ * any function, since an operator running at WARNING must see it; INFO and below print only
+ * from allow-listed functions, so instrumenting one function does not drag in the others.
+ * The value is the same on every rank.
+ */
+#define LOG_LEVEL_ADMITS(level) \
+    ((int)(level) <= (int)get_log_level() && ((int)(level) <= (int)LOG_WARNING || is_function_allowed(__func__)))
+
+/**
  * @brief Logging macro that checks both the log level and whether the calling function
  *        is in the allowed-function list before printing. Useful for selective, per-function logging.
+ *        Warnings and errors ignore the allow-list (see LOG_LEVEL_ADMITS()).
  *
  * @param scope Specifies the logging scope (LOCAL or GLOBAL).
  * @param level The severity level of the message (e.g., LOG_INFO, LOG_ERROR).
@@ -201,7 +213,7 @@ typedef struct {
 #define LOG_ALLOW(scope, level, fmt, ...) \
     do { \
         MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
-        if ((int)(level) <= (int)get_log_level() && is_function_allowed(__func__)) { \
+        if (LOG_LEVEL_ADMITS(level)) { \
             PetscPrintf(comm, "[%s] " fmt, __func__, ##__VA_ARGS__); \
         } \
     } while (0)
@@ -275,7 +287,7 @@ do {                                                                            
     /* Decide whether *this* rank should actually print.                   */      \
     /* ------------------------------------------------------------------ */      \
     PetscBool _doPrint =                                                          \
-        ((int)(level) <= (int)get_log_level()) && is_function_allowed(__func__);   \
+        LOG_LEVEL_ADMITS(level);   \
                                                                                    \
     if (_doPrint) {                                                                \
         PetscSynchronizedPrintf(_comm, "[%s] " fmt, __func__, ##__VA_ARGS__);      \
@@ -359,7 +371,7 @@ static inline PetscBool ParticleIsTraced(const SimCtx *simCtx, PetscInt64 pid)
  */
 #define LOG_LOOP_ALLOW(scope, level, iterVar, interval, fmt, ...)              \
     do {                                                                       \
-        if ((int)(level) <= (int)get_log_level() && is_function_allowed(__func__)) { \
+        if (LOG_LEVEL_ADMITS(level)) { \
             if ((iterVar) % (interval) == 0) {                                 \
                 MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
                 PetscPrintf(comm, "[%s] [%s=%" PetscInt_FMT "] " fmt,                       \
@@ -397,7 +409,7 @@ static inline PetscBool ParticleIsTraced(const SimCtx *simCtx, PetscInt64 pid)
 #define LOG_LOOP_ALLOW_EXACT(scope, level, var, val, fmt, ...)                  \
     do {                                                                       \
         /* First, perform the cheap, standard gatekeeper checks. */            \
-        if ((int)(level) <= (int)get_log_level() && is_function_allowed(__func__)) { \
+        if (LOG_LEVEL_ADMITS(level)) { \
             /* Only if those pass, check the user's specific condition. */      \
             if ((var) == (val)) {                                              \
                 MPI_Comm comm = ((scope) == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
@@ -425,7 +437,7 @@ static inline PetscBool ParticleIsTraced(const SimCtx *simCtx, PetscInt64 pid)
  */
 #define LOG_ARRAY_ELEMENT_ALLOW(scope,level, arr, length, idx, fmt)          \
     do {                                                                      \
-        if ((int)(level) <= (int)get_log_level() && is_function_allowed(__func__)) { \
+        if (LOG_LEVEL_ADMITS(level)) { \
             if ((idx) >= 0 && (idx) < (length)) {                             \
                 MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
                 PetscPrintf(comm, "[%s] arr[%d] = " fmt "\n",                 \
@@ -449,7 +461,7 @@ static inline PetscBool ParticleIsTraced(const SimCtx *simCtx, PetscInt64 pid)
  */
 #define LOG_ARRAY_SUBRANGE_ALLOW(scope,level, arr, length, start, end, fmt)  \
     do {                                                                      \
-        if ((int)(level) <= (int)get_log_level() && is_function_allowed(__func__)) { \
+        if (LOG_LEVEL_ADMITS(level)) { \
             MPI_Comm comm = (scope == LOCAL) ? MPI_COMM_SELF : MPI_COMM_WORLD; \
             PetscInt _start = (start) < 0 ? 0 : (start);                      \
             PetscInt _end   = (end) >= (length) ? (length) - 1 : (end);       \

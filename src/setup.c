@@ -3273,7 +3273,7 @@ PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
 
     temp_neighbor = neighbor_ranks_ptr[12]; // xm
     if (temp_neighbor < 0  || temp_neighbor >= size) {
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "[Rank %d] Correcting invalid xm neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Correcting invalid xm neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
         user->neighbors.rank_xm = MPI_PROC_NULL;
     } else {
         user->neighbors.rank_xm = temp_neighbor;
@@ -3281,7 +3281,7 @@ PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
 
     temp_neighbor = neighbor_ranks_ptr[14]; // xp
     if (temp_neighbor < 0 || temp_neighbor >= size) {
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "[Rank %d] Correcting invalid xp neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Correcting invalid xp neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
         user->neighbors.rank_xp = MPI_PROC_NULL;
     } else {
         user->neighbors.rank_xp = temp_neighbor;
@@ -3289,7 +3289,7 @@ PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
 
     temp_neighbor = neighbor_ranks_ptr[10]; // ym
     if (temp_neighbor < 0 || temp_neighbor >= size) {
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "[Rank %d] Correcting invalid ym neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Correcting invalid ym neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
         user->neighbors.rank_ym = MPI_PROC_NULL;
     } else {
         user->neighbors.rank_ym = temp_neighbor;
@@ -3298,7 +3298,7 @@ PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
     temp_neighbor = neighbor_ranks_ptr[16]; // yp
     if (temp_neighbor < 0 || temp_neighbor >= size) {
         // The log for index 16 was "zm" in your output, should be yp
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "[Rank %d] Correcting invalid yp neighbor (raw index 16) %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Correcting invalid yp neighbor (raw index 16) %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
         user->neighbors.rank_yp = MPI_PROC_NULL;
     } else {
         user->neighbors.rank_yp = temp_neighbor;
@@ -3306,7 +3306,7 @@ PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
 
     temp_neighbor = neighbor_ranks_ptr[4]; // zm
     if (temp_neighbor < 0 || temp_neighbor >= size) {
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "[Rank %d] Correcting invalid zm neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Correcting invalid zm neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
         user->neighbors.rank_zm = MPI_PROC_NULL;
     } else {
         user->neighbors.rank_zm = temp_neighbor;
@@ -3314,7 +3314,7 @@ PetscErrorCode ComputeAndStoreNeighborRanks(UserCtx *user)
 
     temp_neighbor = neighbor_ranks_ptr[22]; // zp
     if (temp_neighbor < 0 || temp_neighbor >= size) {
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "[Rank %d] Correcting invalid zp neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
+        LOG_ALLOW(LOCAL, LOG_DEBUG, "[Rank %d] Correcting invalid zp neighbor %d to MPI_PROC_NULL (%d).\n", rank, temp_neighbor, (int)MPI_PROC_NULL);
         user->neighbors.rank_zp = MPI_PROC_NULL;
     } else {
         user->neighbors.rank_zp = temp_neighbor;
@@ -3825,7 +3825,7 @@ PetscErrorCode ComputeDivergence(UserCtx *user )
   PetscInt	i, j, k;
 
   Vec		Div;
-  PetscReal	***div, ***aj, ***nvert,***p;
+  PetscReal	***div, ***aj, ***nvert;
   Cmpnts	***ucont;
   PetscReal	maxdiv;
 
@@ -3849,21 +3849,6 @@ PetscErrorCode ComputeDivergence(UserCtx *user )
   VecDuplicate(user->P, &Div);
   DMDAVecGetArray(da, Div, &div);
   DMDAVecGetArray(da, user->lNvert, &nvert);
-   DMDAVecGetArray(da, user->P, &p);
-  for (k=lzs; k<lze; k++) {
-         for (j=lys; j<lye; j++){
-	  for (i=lxs; i<lxe; i++) {
-	    if (k==10 && j==10 && i==1){
-	      LOG_ALLOW(LOCAL,LOG_INFO,"Pressure[10][10][1] =  %f | Pressure[10][10][0] =  %f  \n ",p[k][j][i],p[k][j][i-1]);
-              }
-
-	    if (k==10 && j==10 && i==mx-3)
-     	      LOG_ALLOW(LOCAL,LOG_INFO,"Pressure[10][10][%" PetscInt_FMT "] =  %f | Pressure[10][10][%" PetscInt_FMT "] =  %f  \n ",mx-2,p[k][j][mx-2],mx-1,p[k][j][mx-1]);
-   		}
-	}
-    }
-   DMDAVecRestoreArray(da, user->P, &p);
- 
 
   for (k=lzs; k<lze; k++) {
     for (j=lys; j<lye; j++) {
@@ -3947,7 +3932,8 @@ PetscErrorCode ComputeDivergence(UserCtx *user )
     for (j=ys; j<ye; j++) {
       for (i=xs; i<xe; i++) {
 	if (Gidx(i,j,k,user) == MaxFlatIndex) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"[Step %" PetscInt_FMT "] The Maximum Divergence(%e) is at location [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "]. \n", ti, maxdiv,k,j,i);
+	  /* Only the owning rank reaches this, so it prints on its own communicator. */
+	  LOG_ALLOW(LOCAL,LOG_INFO,"[Step %" PetscInt_FMT "] The Maximum Divergence(%e) is at location [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "]. \n", ti, maxdiv,k,j,i);
 	  user->simCtx->MaxDivz = k;
 	  user->simCtx->MaxDivy = j;
 	  user->simCtx->MaxDivx = i;

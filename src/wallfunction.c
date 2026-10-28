@@ -495,8 +495,14 @@ void find_utau_Cabot(double kinematic_viscosity, double velocity, double wall_di
     }
     
     if (fabs(current_guess - new_guess) > 1.e-5 && iteration >= 29) {
-        LOG_ALLOW(GLOBAL, LOG_WARNING,
-                  "Cabot wall-function iteration reached its limit without the requested tolerance.\n");
+        /* Per wall cell and step, so reported only the first time on each rank. */
+        static PetscBool reported = PETSC_FALSE;
+        if (!reported) {
+            reported = PETSC_TRUE;
+            LOG_ALLOW(LOCAL, LOG_WARNING,
+                      "Cabot wall-function iteration reached its limit without the requested tolerance "
+                      "(reported once per rank; later occurrences are not).\n");
+        }
     }
     
     *friction_velocity = new_guess;

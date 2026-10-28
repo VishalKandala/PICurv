@@ -1138,7 +1138,8 @@ PetscErrorCode MomentumSolver_DualTime_Picard_JamesonRK(UserCtx *user, IBMNodes 
                 ierr = ApplyBoundaryConditions(&user[bi]); CHKERRQ(ierr);
                 pseudo_dtau[bi] = next_dtau;
             }
-            LOG_ALLOW(GLOBAL, LOG_WARNING,
+            /* A rejected trial is the controller working; the momentum history file records it. */
+            LOG_ALLOW(GLOBAL, LOG_INFO,
                       "  Trial %" PetscInt_FMT " REJECTED (raw_ratio=%.4e, smoothed=%.4e, nonfinite=%d); "
                       "dtau %.4e -> %.4e (cfl_eff %.4f -> %.4f)%s\n",
                       pseudo_iter, global_trial_ratio, trial_smoothed, (int)global_nonfinite,

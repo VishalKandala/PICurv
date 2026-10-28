@@ -175,6 +175,7 @@ PetscErrorCode MetricComputeFacePlanes(UserCtx *user)
     const PetscBool periodic[3] = {(PetscBool)(user->simCtx->i_periodic != 0), (PetscBool)(user->simCtx->j_periodic != 0),
                                    (PetscBool)(user->simCtx->k_periodic != 0)};
     const PetscInt  mx[3] = {info->mx, info->my, info->mz};
+    PetscInt        n_ambiguous = 0, first_ambiguous[4] = {-1, -1, -1, -1}; // Faces oriented by fallback
     for (int which = 0; which < 2; ++which) {
         const Cmpnts *X = (const Cmpnts *)src_flat[which];
         // Points a cell may use, as the walk and the interpolation use them: physical nodes 0..mx-2
@@ -228,8 +229,7 @@ PetscErrorCode MetricComputeFacePlanes(UserCtx *user)
                         if (MetricFacePlane(PICURV_AT(i, j, k), PICURV_AT(i + e1[0], j + e1[1], k + e1[2]),
                                             PICURV_AT(i + e1[0] + e2[0], j + e1[1] + e2[1], k + e1[2] + e2[2]),
                                             PICURV_AT(i + e2[0], j + e2[1], k + e2[2]), centroid, &plane, &degenerate)) {
-                            LOG_ALLOW(LOCAL, LOG_WARNING, "Face family %d at (%d,%d,%d): ambiguous orientation; keeping (v2-v1)x(v4-v1).\n",
-                                      (int)a, (int)i, (int)j, (int)k);
+                            if (n_ambiguous++ == 0) { first_ambiguous[0] = a; first_ambiguous[1] = i; first_ambiguous[2] = j; first_ambiguous[3] = k; }
                         }
                         if (degenerate) continue;
                         // Stored pointing toward +a: the minus face of the cell above, the plus face of the one below.
@@ -260,6 +260,10 @@ PetscErrorCode MetricComputeFacePlanes(UserCtx *user)
     }
     PetscCall(VecRestoreArrayRead(user->lCent, &src_flat[1]));
     PetscCall(VecRestoreArrayRead(Coor, &src_flat[0]));
+    if (n_ambiguous > 0) {
+        LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: %" PetscInt_FMT " particle face plane(s) had an ambiguous orientation and keep the (v2-v1)x(v4-v1) direction; first: face family %" PetscInt_FMT " at (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ").\n",
+                  (int)user->simCtx->rank, n_ambiguous, first_ambiguous[0], first_ambiguous[1], first_ambiguous[2], first_ambiguous[3]);
+    }
 
     // Owned values become the global fields; the catalogued ghost update then gives every rank the
     // owner's planes, which on every face a particle can reach are the ones it computed itself
@@ -2027,7 +2031,7 @@ PetscErrorCode ComputeMetricsDivergence(UserCtx *user)
     for (j=ys; j<ye; j++) {
       for (i=xs; i<xe; i++) {
 	if (Gidx(i,j,k,user) == MaxFlatIndex) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"The Maximum Metric Divergence(%e) is at location [%d][%d][%d]. \n", maxdiv,(int)k,(int)j,(int)i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"The Maximum Metric Divergence(%e) is at location [%d][%d][%d]. \n", maxdiv,(int)k,(int)j,(int)i);
 	}
       }
     }
@@ -2114,52 +2118,52 @@ PetscErrorCode ComputeMetricNorms(UserCtx *user)
     for (j=ys; j<ye; j++) {
       for (i=xs; i<xe; i++) {
 	if (Gidx(i,j,k,user) == CsiMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Csi = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", CsiMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max Csi = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", CsiMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == EtaMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Eta = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", EtaMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max Eta = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", EtaMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == ZetMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Zet = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", ZetMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max Zet = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", ZetMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == ICsiMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max ICsi = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", ICsiMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max ICsi = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", ICsiMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == IEtaMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max IEta = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", IEtaMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max IEta = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", IEtaMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == IZetMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max IZet = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", IZetMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max IZet = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", IZetMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == JCsiMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JCsi = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", JCsiMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max JCsi = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", JCsiMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == JEtaMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JEta = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", JEtaMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max JEta = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", JEtaMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == JZetMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JZet = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", JZetMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max JZet = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", JZetMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == KCsiMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KCsi = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", KCsiMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max KCsi = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", KCsiMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == KEtaMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KEta = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", KEtaMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max KEta = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", KEtaMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == KZetMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KZet = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", KZetMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max KZet = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", KZetMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == AjMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max Aj = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", AjMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max Aj = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", AjMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == IAjMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max IAj = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", IAjMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max IAj = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", IAjMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == JAjMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max JAj = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", JAjMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max JAj = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", JAjMax,k,j,i);
 	}
 	if (Gidx(i,j,k,user) == KAjMaxArg) {
-	  LOG_ALLOW(GLOBAL,LOG_INFO,"Max KAj = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", KAjMax,k,j,i);
+	  LOG_ALLOW(LOCAL,LOG_INFO,"Max KAj = %le is at [%" PetscInt_FMT "][%" PetscInt_FMT "][%" PetscInt_FMT "] \n", KAjMax,k,j,i);
 	}
       }
     }

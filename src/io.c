@@ -1267,7 +1267,7 @@ PetscErrorCode VerifyPathExistence(const char *path, PetscBool is_dir, PetscBool
 
         if (!(*exists)) {
             if (is_optional) {
-                LOG_ALLOW(GLOBAL, LOG_WARNING, "Optional %s not found at: %s (using defaults/ignoring).\n", description, path);
+                LOG_ALLOW(GLOBAL, LOG_INFO, "Optional %s not found at: %s (using defaults/ignoring).\n", description, path);
             } else {
                 LOG_ALLOW(GLOBAL, LOG_ERROR, "Mandatory %s not found at: %s\n", description, path);
             }
@@ -3281,7 +3281,7 @@ PetscErrorCode  ParsePostProcessingSettings(SimCtx *simCtx)
         }
         fclose(file);
     } else {
-        LOG_ALLOW(GLOBAL, LOG_WARNING, "Could not open post-processing config file '%s'. Using defaults and command-line overrides.\n", configFile);
+        LOG_ALLOW(GLOBAL, LOG_INFO, "Could not open post-processing config file '%s'. Using defaults and command-line overrides.\n", configFile);
     }
 
     // --- 3. Parse Command-Line Options (overrides file settings and defaults) ---

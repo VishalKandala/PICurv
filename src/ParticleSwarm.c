@@ -375,8 +375,8 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     }
 
     // --- 5. Loop Over Particles to Initialize ---
+    PetscInt n_volume_unplaced = 0; // Volume-mode particles this rank could not place
     for (PetscInt p = 0; p < particlesPerProcess; p++) {
-        PetscInt idx = p; 
         PetscInt  ci_metric_lnode, cj_metric_lnode, ck_metric_lnode; 
         PetscReal xi_metric_logic, eta_metric_logic, zta_metric_logic; 
         Cmpnts    phys_coords = {0.0, 0.0, 0.0}; 
@@ -444,9 +444,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
                                         &phys_coords); CHKERRQ(ierr);
                 particle_placed_by_this_rank = PETSC_TRUE;
             } else {
-                LOG_LOOP_ALLOW(LOCAL, LOG_WARNING, p, 1,
-                    "Rank %d: PID %lld (idx %ld) (Volumetric Mode) - DetermineVolumetric... returned false. Default Phys: (%.2f,%.2f,%.2f).\n",
-                    rank, (long long)(base_pid_for_rank + p), (long)p, phys_coords.x, phys_coords.y, phys_coords.z);
+                n_volume_unplaced++;
             }
         }else if(simCtx->ParticleInitialization == PARTICLE_INIT_POINT_SOURCE){ // --- 5.c. Point Source Initialization ---
             // All particles placed at the user-specified fixed point (psrc_x, psrc_y, psrc_z).
@@ -475,22 +473,25 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
         }
         status_field[p]        = UNINITIALIZED;
 
-        // --- 5.d. Logging for this particle ---
+        // --- 5.d. The particle's seed line ---
         if (particle_placed_by_this_rank) {
-            LOG_LOOP_ALLOW(LOCAL, LOG_VERBOSE, idx, user->simCtx->LoggingFrequency,//(particlesPerProcess > 20 ? particlesPerProcess/10 : 1), 
-                "Rank %d: PID %lld (idx %ld) PLACED. Mode %s. Embedded Cell:(%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "). Logical Coords: (%.2e,%.2f,%.2f).\n Final Coords: (%.6f,%.6f,%.6f).\n",
-                rank, (long long)particleIDs[p], (long)p, ParticleInitializationToString(simCtx->ParticleInitialization), 
-                ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
-                xi_metric_logic, eta_metric_logic, zta_metric_logic, 
-                phys_coords.x, phys_coords.y, phys_coords.z);
-            
+            LOG_PARTICLE(simCtx, particleIDs[p], "seed",
+                         "%s placement on rank %d at (%.6e, %.6e, %.6e): cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") logical (%.4f, %.4f, %.4f)\n",
+                         ParticleInitializationToString(simCtx->ParticleInitialization), (int)rank,
+                         phys_coords.x, phys_coords.y, phys_coords.z, ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
+                         xi_metric_logic, eta_metric_logic, zta_metric_logic);
         } else {
-            LOG_LOOP_ALLOW(LOCAL, LOG_WARNING, idx, user->simCtx->LoggingFrequency, //(particlesPerProcess > 20 ? particlesPerProcess/10 : 1), 
-                "Rank %d: PID %lld (idx %ld) Mode %s NOT placed by this rank's logic. Default Coor: (%.2f,%.2f,%.2f). Relies on migration.\n",
-                rank, (long long)particleIDs[p], (long)p, ParticleInitializationToString(simCtx->ParticleInitialization), 
-                phys_coords.x, phys_coords.y, phys_coords.z);
+            // Expected for surface seeding on a rank without the inlet: the settlement migrates it.
+            LOG_PARTICLE(simCtx, particleIDs[p], "seed",
+                         "%s: not placed by rank %d; parked at (%.6e, %.6e, %.6e) for the settlement to locate\n",
+                         ParticleInitializationToString(simCtx->ParticleInitialization), (int)rank,
+                         phys_coords.x, phys_coords.y, phys_coords.z);
         }
-    } 
+    }
+    if (n_volume_unplaced > 0) {
+        LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: %" PetscInt_FMT " volume-seeded particle(s) could not be placed in this rank's cells and are left for the settlement to locate.\n",
+                  rank, n_volume_unplaced);
+    }
 
     // --- 6. Restore Pointers and Cleanup ---
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION),       NULL, NULL, (void**)&positions_field); CHKERRQ(ierr);
