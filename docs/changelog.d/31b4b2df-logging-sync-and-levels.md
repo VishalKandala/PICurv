@@ -1,0 +1,1 @@
+- Fix: a disabled synchronized log line no longer synchronizes the ranks, messages that carry one shared value print once instead of once per rank, and raising the log level never hides a lower level's diagnostics. An unrecognized `LOG_LEVEL` now warns instead of silently selecting ERROR.
