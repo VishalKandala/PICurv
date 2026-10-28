@@ -1,0 +1,1 @@
+- Fix: a configuration section given as a scalar names the section in its validation error's key, not the value.
