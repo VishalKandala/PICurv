@@ -888,7 +888,7 @@ int main(int argc, char **argv)
 
         if(simCtx->rank == 0){
             PetscReal currentTime = (PetscReal)ti*simCtx->dt;
-            PrintProgressBar(k, 0, step_count, currentTime);
+            PrintProgressBar(k, 0, step_count, currentTime, 0.0, -1);
             if(get_log_level()>LOG_ERROR)PetscPrintf(PETSC_COMM_SELF,"\n");
         }
         ierr = RuntimeMemoryLogSample(simCtx, ti, "Post", "-"); CHKERRQ(ierr);

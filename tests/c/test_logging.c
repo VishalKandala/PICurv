@@ -725,9 +725,9 @@ static PetscErrorCode TestLoggingFileParsingAndFormattingHelpers(void)
     PetscCall(PicurvAssertBool((PetscBool)(ctx == NULL),
                                "DualMonitorDestroy should clear the caller-owned context pointer"));
 
-    PrintProgressBar(0, 0, 4, 0.10);
-    PrintProgressBar(3, 0, 4, 0.40);
-    PrintProgressBar(0, 0, 0, 0.00);
+    PrintProgressBar(0, 0, 4, 0.10, 0.0, -1);
+    PrintProgressBar(3, 0, 4, 0.40, 1.5, 7);
+    PrintProgressBar(0, 0, 0, 0.00, 0.0, -1);
     PetscCall(PetscPrintf(PETSC_COMM_SELF, "\n"));
 
     PetscCall(PicurvRemoveTempDir(tmpdir));

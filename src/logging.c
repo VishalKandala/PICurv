@@ -314,69 +314,38 @@ static void TripleRealToStr(const PetscReal *arr, char *buf, size_t bufsize)
 }
 
 /*
- * Helper function: Computes the maximum string length for each column (across all particles).
+ * Helper function: Computes the maximum string length for each column over the sampled rows.
  *
- * The function examines every particle (from 0 to nParticles-1) and converts the value to a
- * string using the helper functions above. The maximum length is stored in the pointers provided.
- *
- * @param nParticles       Number of particles.
- * @param ranks            Array of particle MPI ranks.
- * @param pids             Array of particle IDs.
- * @param cellIDs          Array of cell IDs (stored consecutively, 3 per particle).
- * @param positions        Array of positions (3 per particle).
- * @param velocities       Array of velocities (3 per particle).
- * @param weights          Array of weights (3 per particle).
- * @param wRank            [out] Maximum width for Rank column.
- * @param wPID             [out] Maximum width for PID column.
- * @param wCell            [out] Maximum width for Cell column.
- * @param wPos             [out] Maximum width for Position column.
- * @param wVel             [out] Maximum width for Velocity column.
- * @param wWt              [out] Maximum width for Weights column.
+ * Only the `nRows` particles listed in `rows` are formatted, so the cost follows the table, not
+ * the swarm. The widths start at the header label lengths.
  */
-static PetscErrorCode ComputeMaxColumnWidths(PetscInt nParticles,
+static PetscErrorCode ComputeMaxColumnWidths(PetscInt nRows, const PetscInt *rows,
                                                const PetscMPIInt *ranks,
                                                const PetscInt64  *pids,
                                                const PetscInt  *cellIDs,
                                                const PetscReal   *positions,
                                                const PetscReal   *velocities,
                                                const PetscReal   *weights,
-                                               int *wRank, int *wPID, int *wCell,
-                                               int *wPos, int *wVel, int *wWt)
+                                               int widths[6])
 {
     PROFILE_HELPER_BEGIN;
     char tmp[TMP_BUF_SIZE];
 
-    *wRank = strlen("Rank");  /* Start with the header label lengths */
-    *wPID  = strlen("PID");
-    *wCell = strlen("Cell (i,j,k)");
-    *wPos  = strlen("Position (x,y,z)");
-    *wVel  = strlen("Velocity (x,y,z)");
-    *wWt   = strlen("Weights (a1,a2,a3)");
+    widths[0] = (int)strlen("Rank");  /* Start with the header label lengths */
+    widths[1] = (int)strlen("PID");
+    widths[2] = (int)strlen("Cell (i,j,k)");
+    widths[3] = (int)strlen("Position (x,y,z)");
+    widths[4] = (int)strlen("Velocity (x,y,z)");
+    widths[5] = (int)strlen("Weights (a1,a2,a3)");
 
-    for (PetscInt i = 0; i < nParticles; i++) {
-        /* Rank */
-        IntToStr(ranks[i], tmp, TMP_BUF_SIZE);
-        if ((int)strlen(tmp) > *wRank) *wRank = (int)strlen(tmp);
-
-        /* PID */
-        Int64ToStr(pids[i], tmp, TMP_BUF_SIZE);
-        if ((int)strlen(tmp) > *wPID) *wPID = (int)strlen(tmp);
-
-        /* Cell: use the three consecutive values */
-        CellToStr(&cellIDs[3 * i], tmp, TMP_BUF_SIZE);
-        if ((int)strlen(tmp) > *wCell) *wCell = (int)strlen(tmp);
-
-        /* Position */
-        TripleRealToStr(&positions[3 * i], tmp, TMP_BUF_SIZE);
-        if ((int)strlen(tmp) > *wPos) *wPos = (int)strlen(tmp);
-
-        /* Velocity */
-        TripleRealToStr(&velocities[3 * i], tmp, TMP_BUF_SIZE);
-        if ((int)strlen(tmp) > *wVel) *wVel = (int)strlen(tmp);
-
-        /* Weights */
-        TripleRealToStr(&weights[3 * i], tmp, TMP_BUF_SIZE);
-        if ((int)strlen(tmp) > *wWt) *wWt = (int)strlen(tmp);
+    for (PetscInt r = 0; r < nRows; r++) {
+        const PetscInt i = rows[r];
+        IntToStr(ranks[i], tmp, TMP_BUF_SIZE);                widths[0] = PetscMax(widths[0], (int)strlen(tmp));
+        Int64ToStr(pids[i], tmp, TMP_BUF_SIZE);               widths[1] = PetscMax(widths[1], (int)strlen(tmp));
+        CellToStr(&cellIDs[3 * i], tmp, TMP_BUF_SIZE);        widths[2] = PetscMax(widths[2], (int)strlen(tmp));
+        TripleRealToStr(&positions[3 * i], tmp, TMP_BUF_SIZE);  widths[3] = PetscMax(widths[3], (int)strlen(tmp));
+        TripleRealToStr(&velocities[3 * i], tmp, TMP_BUF_SIZE); widths[4] = PetscMax(widths[4], (int)strlen(tmp));
+        TripleRealToStr(&weights[3 * i], tmp, TMP_BUF_SIZE);  widths[5] = PetscMax(widths[5], (int)strlen(tmp));
     }
     PROFILE_HELPER_END;
     return 0;
@@ -446,113 +415,68 @@ PetscErrorCode LOG_PARTICLE_FIELDS(UserCtx* user, PetscInt printInterval)
     PetscInt *cellIDs = NULL;
     PetscReal *weights = NULL;
     PetscReal *velocities = NULL;
-    PetscMPIInt rank;
-    
-    rank = user->simCtx->rank;
-    LOG_ALLOW(LOCAL,LOG_INFO, "Rank %d is retrieving particle data.\n", rank);
+    PetscInt rows[PICURV_SNAPSHOT_ROWS_PER_RANK];
+    PetscInt nRows = 0;
+    const PetscInt interval = (printInterval > 0) ? printInterval : 1;
 
     ierr = DMSwarmGetLocalSize(swarm, &localNumParticles); CHKERRQ(ierr);
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Rank %d has %" PetscInt_FMT " particles.\n", rank, localNumParticles);
-
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&positions); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&particleIDs); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_RANK), NULL, NULL, (void**)&particleRanks); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void**)&weights); CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_VELOCITY), NULL, NULL, (void**)&velocities); CHKERRQ(ierr);
-    
-    /* Compute maximum column widths. */
-    int wRank, wPID, wCell, wPos, wVel, wWt;
-    wRank = wPID = wCell = wPos = wVel = wWt = 0;
-    ierr = ComputeMaxColumnWidths(localNumParticles, particleRanks, particleIDs, cellIDs,
-                                  positions, velocities, weights,
-                                  &wRank, &wPID, &wCell, &wPos, &wVel, &wWt); CHKERRQ(ierr);
 
-    /* Build a header string and a row format string. */
-    char headerFmt[256];
-    char rowFmt[256];
-    BuildHeaderString(headerFmt, sizeof(headerFmt), wRank, wPID, wCell, wPos, wVel, wWt);
-    BuildRowFormatString(wRank, wPID, wCell, wPos, wVel, wWt, rowFmt, sizeof(rowFmt));
-    
-    /* Print header (using synchronized printing for parallel output). */
-    ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "--------------------------------------------------------------------------------------------------------------\n"); CHKERRQ(ierr);
-    ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "%s", headerFmt); CHKERRQ(ierr);
-    ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "--------------------------------------------------------------------------------------------------------------\n"); CHKERRQ(ierr);
-    
-    /* Loop over particles and print every printInterval-th row. */
-    char rowStr[256];
-    for (PetscInt i = 0; i < localNumParticles; i++) {
-        if (i % printInterval == 0) {
-	  // ------- DEBUG 
-	  //char cellStr[TMP_BUF_SIZE], posStr[TMP_BUF_SIZE], velStr[TMP_BUF_SIZE], wtStr[TMP_BUF_SIZE];
-	  //CellToStr(&cellIDs[3*i], cellStr, TMP_BUF_SIZE);
-	  //TripleRealToStr(&positions[3*i], posStr, TMP_BUF_SIZE);
-	  //TripleRealToStr(&velocities[3*i], velStr, TMP_BUF_SIZE);
-	  // TripleRealToStr(&weights[3*i], wtStr, TMP_BUF_SIZE);
-            
-	  // if (rank == 0) { // Or whatever rank is Rank 0
-	    //PetscPrintf(PETSC_COMM_SELF, "[Rank 0 DEBUG LPF] Particle %lld: PID=%lld, Rank=%d\n", (long long)i, (long long)particleIDs[i], particleRanks[i]);
-	    //PetscPrintf(PETSC_COMM_SELF, "[Rank 0 DEBUG LPF] Raw Pos: (%.10e, %.10e, %.10e)\n", positions[3*i+0], positions[3*i+1], positions[3*i+2]);
-	    //PetscPrintf(PETSC_COMM_SELF, "[Rank 0 DEBUG LPF] Str Pos: %s\n", posStr);
-	    //PetscPrintf(PETSC_COMM_SELF, "[Rank 0 DEBUG LPF] Raw Vel: (%.10e, %.10e, %.10e)\n", velocities[3*i+0], velocities[3*i+1], velocities[3*i+2]);
-	    // PetscPrintf(PETSC_COMM_SELF, "[Rank 0 DEBUG LPF] Str Vel: %s\n", velStr);
-	    // Add similar for cell, weights
-	    // PetscPrintf(PETSC_COMM_SELF, "[Rank 0 DEBUG LPF] About to build rowStr for particle %lld\n", (long long)i);
-	    //  fflush(stdout);
-	    // }
-
-	  //  snprintf(rowStr, sizeof(rowStr), rowFmt,
-          //           particleRanks[i],
-          //           particleIDs[i],
-          //           cellStr,
-          //           posStr,
-          //           velStr,
-	  //	     wtStr);
-
-	     
-	     //    ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "%s", rowStr); CHKERRQ(ierr);
-	  
-	     // ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "%s", rowStr); CHKERRQ(ierr); 
-	  
-	  // -------- DEBUG
-            /* Format the row by converting each field to a string first.
-             * We use temporary buffers and then build the row string.
-             */
-	  
-	   char cellStr[TMP_BUF_SIZE], posStr[TMP_BUF_SIZE], velStr[TMP_BUF_SIZE], wtStr[TMP_BUF_SIZE];
-            CellToStr(&cellIDs[3*i], cellStr, TMP_BUF_SIZE);
-            TripleRealToStr(&positions[3*i], posStr, TMP_BUF_SIZE);
-            TripleRealToStr(&velocities[3*i], velStr, TMP_BUF_SIZE);
-            TripleRealToStr(&weights[3*i], wtStr, TMP_BUF_SIZE);
-            
-            /* Build the row string. Note that for the integer fields we can use the row format string. */
-            snprintf(rowStr, sizeof(rowStr), rowFmt,
-                     particleRanks[i],
-                     particleIDs[i],
-                     cellStr,
-                     posStr,
-                     velStr,
-                     wtStr);
-	 ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "%s", rowStr); CHKERRQ(ierr);
-        }
+    /* Rows: the particles whose ID is a multiple of the interval, so a later snapshot shows the
+     * same particles wherever they moved, and at most PICURV_SNAPSHOT_ROWS_PER_RANK per rank. */
+    for (PetscInt i = 0; i < localNumParticles && nRows < PICURV_SNAPSHOT_ROWS_PER_RANK; i++) {
+        if (particleIDs[i] % interval == 0) rows[nRows++] = i;
     }
 
- 
-    ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "--------------------------------------------------------------------------------------------------------------\n"); CHKERRQ(ierr);
-    ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "\n"); CHKERRQ(ierr);
+    /* Column widths agreed across ranks, so every rank's rows align under one header. */
+    int widths[6];
+    ierr = ComputeMaxColumnWidths(nRows, rows, particleRanks, particleIDs, cellIDs,
+                                  positions, velocities, weights, widths); CHKERRQ(ierr);
+    ierr = MPI_Allreduce(MPI_IN_PLACE, widths, 6, MPI_INT, MPI_MAX, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+
+    char headerFmt[256];
+    char rowFmt[256];
+    BuildHeaderString(headerFmt, sizeof(headerFmt), widths[0], widths[1], widths[2], widths[3], widths[4], widths[5]);
+    BuildRowFormatString(widths[0], widths[1], widths[2], widths[3], widths[4], widths[5], rowFmt, sizeof(rowFmt));
+
+    /* The header once (rank 0 prints first), then every rank's rows in rank order. */
+    if (user->simCtx->rank == 0) {
+        ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "--------------------------------------------------------------------------------------------------------------\n"); CHKERRQ(ierr);
+        ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "%s", headerFmt); CHKERRQ(ierr);
+        ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "--------------------------------------------------------------------------------------------------------------\n"); CHKERRQ(ierr);
+    }
+    char rowStr[256];
+    for (PetscInt r = 0; r < nRows; r++) {
+        const PetscInt i = rows[r];
+        char cellStr[TMP_BUF_SIZE], posStr[TMP_BUF_SIZE], velStr[TMP_BUF_SIZE], wtStr[TMP_BUF_SIZE];
+        CellToStr(&cellIDs[3*i], cellStr, TMP_BUF_SIZE);
+        TripleRealToStr(&positions[3*i], posStr, TMP_BUF_SIZE);
+        TripleRealToStr(&velocities[3*i], velStr, TMP_BUF_SIZE);
+        TripleRealToStr(&weights[3*i], wtStr, TMP_BUF_SIZE);
+        snprintf(rowStr, sizeof(rowStr), rowFmt, particleRanks[i], particleIDs[i], cellStr, posStr, velStr, wtStr);
+        ierr = PetscSynchronizedPrintf(PETSC_COMM_WORLD, "%s", rowStr); CHKERRQ(ierr);
+    }
     ierr = PetscSynchronizedFlush(PETSC_COMM_WORLD, PETSC_STDOUT); CHKERRQ(ierr);
 
-    LOG_ALLOW_SYNC(GLOBAL,LOG_DEBUG,"Completed printing on Rank %d.\n", rank);
+    {
+        PetscInt64 counts[2] = {(PetscInt64)localNumParticles, (PetscInt64)nRows};
+        ierr = MPI_Allreduce(MPI_IN_PLACE, counts, 2, MPIU_INT64, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+        ierr = PetscPrintf(PETSC_COMM_WORLD, "--------------------------------------------------------------------------------------------------------------\n"); CHKERRQ(ierr);
+        ierr = PetscPrintf(PETSC_COMM_WORLD, "%lld row(s) of %lld particle(s): IDs that are multiples of %" PetscInt_FMT ", at most %d per rank.\n\n",
+                           (long long)counts[1], (long long)counts[0], interval, PICURV_SNAPSHOT_ROWS_PER_RANK); CHKERRQ(ierr);
+    }
 
-    /* Restore fields */
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_POSITION), NULL, NULL, (void**)&positions); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_PID), NULL, NULL, (void**)&particleIDs); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_RANK), NULL, NULL, (void**)&particleRanks); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_WEIGHT), NULL, NULL, (void**)&weights); CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_VELOCITY), NULL, NULL, (void**)&velocities); CHKERRQ(ierr);
-
-    LOG_ALLOW(LOCAL,LOG_DEBUG, "Restored all particle fields.\n");
     PROFILE_HELPER_END;
     return 0;
 }
@@ -2641,7 +2565,8 @@ PetscErrorCode ProfilingFinalize(SimCtx *simCtx)
  * @brief Internal helper implementation: `PrintProgressBar()`.
  * @details Local to this translation unit.
  */
-void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, PetscReal currentTime)
+void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, PetscReal currentTime,
+                      PetscReal seconds_per_step, PetscInt64 lost_cumulative)
 {
     PROFILE_FUNCTION_BEGIN;
     if (totalSteps <= 0) { PROFILE_FUNCTION_END; return; }
@@ -2677,6 +2602,13 @@ void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, Pe
                 step + 1,
                 startStep + totalSteps,
                 currentTime);
+    if (seconds_per_step > 0.0) {
+        const PetscInt  remaining = PetscMax(0, startStep + totalSteps - (step + 1));
+        const long long eta       = (long long)(seconds_per_step * (PetscReal)remaining + 0.5);
+        PetscPrintf(PETSC_COMM_SELF, " | %.3g s/step | ETA %lld:%02lld:%02lld",
+                    (double)seconds_per_step, eta / 3600, (eta / 60) % 60, eta % 60);
+    }
+    if (lost_cumulative >= 0) PetscPrintf(PETSC_COMM_SELF, " | lost %lld", (long long)lost_cumulative);
 
     // Flush the output buffer to ensure the bar is displayed immediately
     fflush(stdout);

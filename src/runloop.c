@@ -630,7 +630,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
     PetscReal removed_scalar_lost = 0.0;
     PetscBool terminated_early = PETSC_FALSE;
     PetscBool shutdown_requested = PETSC_FALSE;
-    PetscInt  last_completed_loop_index = StartStep - 1;
+    PetscInt  steps_timed = 0;          // Steps whose slowest-rank wall time is in steps_elapsed_sum
+    PetscReal steps_elapsed_sum = 0.0;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -670,6 +671,8 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         //     2. EULERIAN SOLVER STEP
         // =================================================================
         if(get_log_level() >= LOG_VERBOSE && is_function_allowed(__func__)==true){
+          // The grid and its metrics do not change during the run: shown on its first step only.
+          if (step == StartStep) {
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_COORDINATES, "PreFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_CSI, "PreFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_ETA, "PreFlowSolver"); CHKERRQ(ierr);
@@ -678,6 +681,7 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_CENTX, "PreFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_CENTY, "PreFlowSolver"); CHKERRQ(ierr);
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_CENTZ, "PreFlowSolver"); CHKERRQ(ierr);
+          }
             ierr = LOG_FIELD_ANATOMY(&user[0], FIELD_ID_UCAT, "PreFlowSolver"); CHKERRQ(ierr);
         }
         LOG_ALLOW(GLOBAL, LOG_INFO, "Updating Eulerian Field ...\n");
@@ -841,17 +845,18 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         ProfilingLogTimestepSummary(simCtx, simCtx->step);
         ierr = RuntimeMemoryLogSample(simCtx, simCtx->step, "Step", "-"); CHKERRQ(ierr);
 
-        // Update Progress Bar
-        if(simCtx->rank == 0) {
-            PrintProgressBar(step,StartStep,StepsToRun,simCtx->ti);
-            if(get_log_level()>=LOG_WARNING) PetscPrintf(PETSC_COMM_SELF,"\n");
-        }
-
-        last_completed_loop_index = step;
-
         step_elapsed_local = MPI_Wtime() - step_start_seconds;
         step_elapsed_max   = step_elapsed_local;
         ierr               = MPI_Allreduce(&step_elapsed_local, &step_elapsed_max, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+        steps_timed++;
+        steps_elapsed_sum += step_elapsed_max;
+
+        // Update Progress Bar: the slowest rank's mean step time, and the run's lost particles.
+        if(simCtx->rank == 0) {
+            PrintProgressBar(step,StartStep,StepsToRun,simCtx->ti, steps_elapsed_sum / (PetscReal)steps_timed,
+                             (simCtx->np > 0) ? simCtx->particlesLostCumulative : -1);
+            if(get_log_level()>=LOG_WARNING) PetscPrintf(PETSC_COMM_SELF,"\n");
+        }
         if (simCtx->walltimeGuardActive) {
             UpdateRuntimeWalltimeGuardEstimator(simCtx, step_elapsed_max);
             ierr = MaybeRequestRuntimeWalltimeGuardShutdown(simCtx, "post-step checkpoint"); CHKERRQ(ierr);
@@ -865,14 +870,9 @@ PetscErrorCode AdvanceSimulation(SimCtx *simCtx)
         }
     } // --- End of Time-Marching Loop ---
 
-    // After the loop, print the final progress state on rank 0 and add a newline
-    // to ensure subsequent terminal output starts on a fresh line.
-    if (simCtx->rank == 0 && StepsToRun > 0) {
-        if (!terminated_early && last_completed_loop_index >= StartStep) {
-            PrintProgressBar(StartStep + StepsToRun - 1, StartStep, StepsToRun, simCtx->ti);
-        } else if (terminated_early && last_completed_loop_index >= StartStep) {
-            PrintProgressBar(last_completed_loop_index, StartStep, StepsToRun, simCtx->ti);
-        }
+    // The last completed step's progress line is already printed. Below WARNING it ends in a
+    // carriage return, so end the line before later output.
+    if (simCtx->rank == 0 && StepsToRun > 0 && get_log_level() < LOG_WARNING) {
         PetscPrintf(PETSC_COMM_SELF, "\n");
         fflush(stdout);
     }

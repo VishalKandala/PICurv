@@ -68,6 +68,9 @@
 /** @brief Most particle IDs one run can trace (`-picurv_trace_particles`). */
 #define PICURV_MAX_TRACED_PARTICLES 64
 
+/** @brief Most rows one rank contributes to a particle console snapshot (`io.particle_log_interval` samples IDs). */
+#define PICURV_SNAPSHOT_ROWS_PER_RANK 32
+
 #include <unistd.h>
 
 // --- C++ Specific Includes ---

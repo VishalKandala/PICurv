@@ -815,7 +815,10 @@ static PetscErrorCode PoissonMultigrid_OpenConvergenceLog(KSP ksp, SimCtx *simCt
     PROFILE_FUNCTION_BEGIN;
     PetscCall(KSPGetMonitorContext(ksp, &monitor));
     monitor->step = simCtx->step;
-    monitor->log_to_console = simCtx->ps_ksp_pic_monitor_true_residual;
+    /* The history file always gets the rows; the console echoes them only to a run that asked
+     * for the true residual and runs at INFO or more detail, so a WARNING run's console
+     * carries no per-iteration lines. */
+    monitor->log_to_console = (PetscBool)(simCtx->ps_ksp_pic_monitor_true_residual && get_log_level() >= LOG_INFO);
     monitor->file_handle = NULL;
     if (simCtx->rank == 0) {
         char filename[PETSC_MAX_PATH_LEN + 128];

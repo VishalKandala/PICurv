@@ -583,12 +583,14 @@ PetscErrorCode LOG_FACE_DISTANCES(PetscReal* d);
 /**
  * @brief Prints particle fields in a table that automatically adjusts its column widths.
  *
- * This function retrieves data from the particle swarm and prints a table where the
- * width of each column is determined by the maximum width needed to display the data.
- * Only every 'printInterval'-th particle is printed.
+ * Collective. A row is printed for each particle whose ID is a multiple of `printInterval`,
+ * at most PICURV_SNAPSHOT_ROWS_PER_RANK per rank, so successive snapshots show the same
+ * particles and the table's size does not grow with the swarm. Column widths are agreed
+ * across ranks; one header precedes every rank's rows, and a closing line states how many
+ * rows of how many particles were shown.
  *
  * @param[in] user           Pointer to the UserCtx structure.
- * @param[in] printInterval  Only every printInterval‑th particle is printed.
+ * @param[in] printInterval  Sampling interval on particle IDs (values below 1 mean every particle).
  *
  * @return PetscErrorCode Returns 0 on success.
  */
@@ -893,12 +895,16 @@ const char* ParticleLocationStatusToString(ParticleLocationStatus level);
  * a carriage return `\r` to overwrite the same line in the terminal, creating
  * a dynamic progress bar.
  *
- * @param step           The current step index from the loop (e.g., from 0 to N-1).
- * @param startStep      The global starting step number of the simulation.
- * @param totalSteps     The total number of steps to be run in this simulation instance.
- * @param currentTime    The current simulation time to display.
+ * @param step             The current step index from the loop (e.g., from 0 to N-1).
+ * @param startStep        The global starting step number of the simulation.
+ * @param totalSteps       The total number of steps to be run in this simulation instance.
+ * @param currentTime      The current simulation time to display.
+ * @param seconds_per_step Mean wall seconds per completed step, with the time left at that rate;
+ *                         omitted when not positive.
+ * @param lost_cumulative  Particles lost so far in the run; omitted when negative.
  */
-void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, PetscReal currentTime);
+void PrintProgressBar(PetscInt step, PetscInt startStep, PetscInt totalSteps, PetscReal currentTime,
+                      PetscReal seconds_per_step, PetscInt64 lost_cumulative);
 
 /**
  * @brief Applies the profiling configuration from SimCtx to PICurv's PETSc log events.
