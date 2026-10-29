@@ -1,0 +1,1 @@
+- Particles: `Surface` seeding is uniform per unit inlet area at any rank layout and on graded grids. Each rank seeds a share proportional to the inlet area it owns, and draws cells and points by area. Surface positions differ from earlier runs with the same `random_seed`; `Volume` and `PointSource` are unchanged.
