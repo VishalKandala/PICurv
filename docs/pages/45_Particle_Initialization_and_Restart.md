@@ -91,7 +91,8 @@ false. Numbers are decimal literals. A particle expression may use:
 A draw is a pure function of `random_seed`, the particle ID, and the field; it does not
 depend on the rank a particle lives on or the order particles are visited. Brownian
 increments are drawn the same way, keyed on the step instead of the field, in a key space of
-their own, so they never coincide with a field's draws. `uniform(k)` and `normal(k)`
+their own, so they never coincide with a field's draws; so are `Surface` and `Volume`
+seeding points (section 4). `uniform(k)` and `normal(k)`
 with a non-negative integer literal `k` name a stream shared across fields, so two fields
 can draw the same number for one particle.
 
@@ -160,25 +161,24 @@ from the start.
 inlet face.
 
 **Interactions.** Needs an identifiable inlet face; the startup log reports which face
-was chosen. Particle density is uniform per unit inlet area on any grid and rank layout:
-each rank seeds a share proportional to the inlet area it owns, none if it owns no part of
-the inlet, and within its part a face cell is chosen in proportion to its area and the
-point inside it is drawn uniform in area by rejection against the cell's largest area
-element. Particles start 1e-6 of a cell inside the domain, in the cell they were placed in.
+was chosen. Particles are stratified over the inlet area (section 4): each inlet cell holds
+its share of the count to within one particle, the point inside it is drawn uniform in area,
+and every particle ID gets the same position at any rank layout. Particles start 1e-6 of a
+cell inside the domain, in the cell they were placed in.
 
 **Diagnostics.** "Inlet face for particle initialization identified as Face N" at
 startup, and the per-step particle count.
 
-**Evidence.** Analytically verified - `surface-seeding-area-2026-10-29`: 16,000 particles land on the inlet plane
-with unique IDs and are uniform across it at 1, 2 x 2 x 2, 4 x 1 x 1 and 1 x 1 x 8 ranks,
-each inlet quarter holding 0.239 to 0.257 of them and the Kolmogorov-Smirnov statistic per
-axis at most 1.28. On an inlet whose cell widths vary fourfold the density per tenth of the
-inlet stays within 6% of uniform. `particle-seeding-restart-2026-09-21` first established
-the on-plane placement on one and two ranks.
+**Evidence.** Analytically verified - `stratified-seeding-layout-2026-10-29`: positions, cells and IDs
+bitwise equal by particle ID at 1, 1 x 1 x 2, 2 x 2 x 1, 4 x 1 x 1 and 2 x 2 x 2 ranks, on a
+uniform and a graded inlet; every inlet cell held 25 or 26 of 16,000 particles against 25.6
+expected, and the Kolmogorov-Smirnov statistic per axis was at most 0.35.
+`surface-seeding-area-2026-10-29` established the uniform-by-area placement across rank
+layouts and on a graded inlet.
 
 **Limitations.** Concentrates particles at one boundary, so interior statistics take time
 to become meaningful. The area of a curved face cell uses a 2x2 Gauss rule, exact only for
-planar faces. Positions, though not their distribution, depend on the rank layout.
+planar faces. Counts per cell are stratified, not Poisson-distributed.
 
 @subsection p45_cap_volume_sub Volume
 
@@ -193,24 +193,24 @@ mixing, or any case where waiting for particles to arrive from a boundary wastes
 
 **Parameters it owns.** The particle count.
 
-**Interactions.** Particle density is uniform per unit physical volume on any grid: a cell
-is chosen in proportion to its volume (the trilinear map's Jacobian integrated exactly), and
-the point inside it is drawn uniform in volume by rejection against the cell's largest
-Jacobian determinant. Across ranks, each rank seeds a share proportional to the volume it
-owns, so the density does not depend on the decomposition either. Before 2026-10-20 the
-density followed the cell count instead, so stretched and curvilinear grids over-filled their
-small cells.
+**Interactions.** Particle density is uniform per unit physical volume on any grid.
+Particles are stratified over the volume (section 4): each cell holds its share of the
+count to within one particle, the point inside it is drawn uniform in volume by rejection
+against the cell's largest Jacobian determinant, and every particle ID gets the same
+position at any rank layout.
 
 **Diagnostics.** Per-step particle count and the lost-particle counter.
 
 **Evidence.** Production exercised - `examples/scatter_verification` seeds this way.
-Analytically verified - `particle-seeding-restart-2026-09-21`: uniform on one rank over four seeds (KS at most 1.10,
-pairwise coordinate correlation at most 0.013), and on two and three ranks after the fix
-below (KS at most 0.99, normal per-cell chi-square, particle IDs unique). Before it,
-each rank seeded an equal count into unequal subdomains, 889 against 1143 particles per
-cell layer on two ranks.
+Analytically verified - `stratified-seeding-layout-2026-10-29`: 200,000 particles with positions, cells and IDs
+bitwise equal by particle ID at five rank layouts on a uniform and a graded grid, and
+345,600 on the periodic temporal mixing layer at 1, 2 and 4 ranks; on the uniform grid every
+cell held 3 or 4 against 3.30 expected, and on the graded grid the density per tenth of x
+stayed within 0.6% of uniform with Kolmogorov-Smirnov statistics at most 0.29.
+`particle-seeding-restart-2026-09-21` first measured the uniformity and unique IDs.
 
-**Limitations.** No control over the spatial distribution beyond the grid itself.
+**Limitations.** No control over the spatial distribution beyond the grid itself. Counts
+per cell are stratified, not Poisson-distributed.
 
 @subsection p45_cap_pointsource_sub PointSource
 
@@ -248,20 +248,20 @@ Main setup flow:
 
 Mode details:
 
-`Surface` (`0`):
+`Surface` (`0`) and `Volume` (`1`) stratify particles over a measure: the area of the inlet
+face cells, or the volume of every cell.
 
-- requires an identified INLET face from BC parsing,
-- the global count is split across ranks in proportion to owned inlet area, by largest
-  remainder; ranks without part of the inlet seed none,
-- each rank draws face cells by area and points within them uniform in area, on its own
-  part of the inlet.
-
-`Volume` (`1`):
-
-- the global count is split across ranks in proportion to owned volume, by largest
-  remainder, and particle IDs are numbered contiguously across ranks,
-- each rank draws cells by volume and points within them uniform in volume,
-- mapped to physical space via metric interpolation.
+- In global cell order (i fastest), with P(c) the measure of all cells before cell c, T the
+  total and N the particle count, cell c seeds the particle IDs floor(N P(c) / T) to
+  floor(N (P(c) + m_c) / T) - 1. Each cell holds its expected share to within one, and the
+  IDs are 0 to N - 1.
+- The measures are summed as integers, each cell's quantised against the largest cell, so
+  P(c) and T, and with them each cell's particles, are identical at any rank layout. A rank
+  seeds the particles of its own cells; for `Surface` a rank without part of the inlet seeds
+  none, and `Surface` requires an identified INLET face from BC parsing.
+- The point inside the cell is drawn uniform in its measure, by rejection, with every draw
+  keyed on (`random_seed`, particle ID, attempt), and mapped to physical space via metric
+  interpolation.
 
 `PointSource` (`2`):
 
@@ -329,7 +329,7 @@ For loaded particles:
 Analytically verified - `particle-seeding-restart-2026-09-21`: a restart with `init` reseeded the run's own step-0
 population and advected it by the carrier velocity to 5.5e-16.
 
-**Limitations.** Any statistics accumulated by a previous run's particles are lost, because the particles they described no longer exist. Placement is seeded from `random_seed`, so with the seed unchanged a restart reseeds the same positions the run started with; change the seed for a statistically independent swarm.
+**Limitations.** Any statistics accumulated by a previous run's particles are lost, because the particles they described no longer exist. Placement is keyed on `random_seed` and the particle ID, so with the seed unchanged a restart reseeds the same particles at the same positions the run started with, at any rank layout; change the seed for a statistically independent swarm.
 
 @subsection p45_cap_restart_load_sub load
 

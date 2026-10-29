@@ -824,49 +824,6 @@ static PetscErrorCode TestSetupLifecycleScatterMetricsAtStepZero(void)
 }
 
 /**
- * @brief Tests standalone RNG initialization helpers and minimal-context cleanup.
- */
-static PetscErrorCode TestSetupLifecycleRandomGeneratorsAndCleanup(void)
-{
-    SimCtx *simCtx = NULL;
-    UserCtx *user = NULL;
-    PetscRandom randx = NULL, randy = NULL, randz = NULL;
-    PetscRandom rand_i = NULL, rand_j = NULL, rand_k = NULL;
-    PetscScalar sample_x = 0.0, sample_i = 0.0;
-    PetscReal seconds = 0.0;
-
-    PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 4, 4, 4));
-    user->bbox.min_coords.x = 0.0;
-    user->bbox.min_coords.y = 0.0;
-    user->bbox.min_coords.z = 0.0;
-    user->bbox.max_coords.x = 1.0;
-    user->bbox.max_coords.y = 2.0;
-    user->bbox.max_coords.z = 3.0;
-
-    PetscCall(InitializeRandomGenerators(user, &randx, &randy, &randz));
-    PetscCall(InitializeLogicalSpaceRNGs(simCtx->particleRandomSeed, &rand_i, &rand_j, &rand_k));
-    PetscCall(PicurvAssertBool(RuntimeWalltimeGuardParsePositiveSeconds("12.5", &seconds), "RuntimeWalltimeGuardParsePositiveSeconds should parse positive numeric strings"));
-    PetscCall(PicurvAssertRealNear(12.5, seconds, 1.0e-12, "RuntimeWalltimeGuardParsePositiveSeconds parsed value"));
-
-    PetscCall(PetscRandomGetValue(randx, &sample_x));
-    PetscCall(PetscRandomGetValue(rand_i, &sample_i));
-    PetscCall(PicurvAssertBool((PetscBool)(PetscRealPart(sample_x) >= 0.0 && PetscRealPart(sample_x) <= 1.0),
-                               "InitializeRandomGenerators should honor the configured bbox interval"));
-    PetscCall(PicurvAssertBool((PetscBool)(PetscRealPart(sample_i) >= 0.0 && PetscRealPart(sample_i) <= 1.0),
-                               "InitializeLogicalSpaceRNGs should generate logical coordinates in [0,1]"));
-
-    PetscCall(PetscRandomDestroy(&randx));
-    PetscCall(PetscRandomDestroy(&randy));
-    PetscCall(PetscRandomDestroy(&randz));
-    PetscCall(PetscRandomDestroy(&rand_i));
-    PetscCall(PetscRandomDestroy(&rand_j));
-    PetscCall(PetscRandomDestroy(&rand_k));
-    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
-    PetscFunctionReturn(0);
-}
-
-/**
  * @brief Tests cleanup after partial and fuller setup states without requiring unsupported double-finalization behavior.
  */
 static PetscErrorCode TestSetupLifecycleCleanupAcrossInitializationStates(void)
@@ -1111,7 +1068,6 @@ int main(int argc, char **argv)
         {"setup-lifecycle-core-solver-setup", TestSetupLifecycleCoreSolverSetup},
         {"setup-lifecycle-particle-initialization", TestSetupLifecycleParticleInitialization},
         {"setup-lifecycle-scatter-metrics-step-zero", TestSetupLifecycleScatterMetricsAtStepZero},
-        {"setup-lifecycle-random-generators-and-cleanup", TestSetupLifecycleRandomGeneratorsAndCleanup},
         {"setup-lifecycle-cleanup-across-initialization-states", TestSetupLifecycleCleanupAcrossInitializationStates},
         {"setup-rejects-unimplemented-feature-flags", TestSetupRejectsUnimplementedFeatureFlags},
         {"iem-constant-is-configurable", TestIEMConstantIsConfigurable},

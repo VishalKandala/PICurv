@@ -31,7 +31,8 @@ extern "C" {
 typedef enum {
     PICURV_DRAW_SPACE_FIELD = 0,        /**< An expression's default, per-field stream. */
     PICURV_DRAW_SPACE_NAMED_STREAM = 1, /**< `uniform(k)`/`normal(k)`: a stream shared across fields. */
-    PICURV_DRAW_SPACE_BROWNIAN = 2      /**< Brownian increments; the salt is the step. */
+    PICURV_DRAW_SPACE_BROWNIAN = 2,     /**< Brownian increments; the salt is the step. */
+    PICURV_DRAW_SPACE_PLACEMENT = 3     /**< Seeding points; the salt is the rejection attempt. */
 } PicurvDrawSpace;
 
 /**

@@ -93,34 +93,20 @@ PetscErrorCode RegisterParticleFields(DM swarm);
  * It first determines the inlet face if surface initialization (Mode 0) is selected
  * by parsing "bcs.dat".
  * Then, it initializes basic particle properties (physical position, Particle ID,
- * and placeholder Cell IDs) by calling `InitializeParticleBasicProperties`. This call
- * uses the provided `rand_logic_i/j/k` RNGs, which must be pre-initialized for [0,1).
- * The `rand_phys_x/y/z` RNGs (physically bounded) are passed but may not be used by
- * `InitializeParticleBasicProperties` for position setting if all initialization paths
- * use logical-to-physical mapping.
+ * and the seeded cell) by calling `InitializeParticleBasicProperties`. Volumetric and
+ * surface seeding stratify the particles over the cells' volume or inlet area and key every
+ * placement draw on (seed, particle ID), so the population does not depend on the rank layout.
  * Finally, it calls helper functions to initialize other registered swarm fields
  * like "velocity", "weight", and "P" (pressure) to default values.
  *
  * @param[in,out] user               Pointer to the `UserCtx` structure.
  * @param[in]     particlesPerProcess Number of particles assigned to this MPI process.
- * @param[in]     rand_phys_x        RNG for physical x-coordinates (from `InitializeRandomGenerators`).
- * @param[in]     rand_phys_y        RNG for physical y-coordinates (from `InitializeRandomGenerators`).
- * @param[in]     rand_phys_z        RNG for physical z-coordinates (from `InitializeRandomGenerators`).
- * @param[in]     rand_logic_i       RNG for i-logical dimension tasks [0,1) (from `InitializeLogicalSpaceRNGs`).
- * @param[in]     rand_logic_j       RNG for j-logical dimension tasks [0,1) (from `InitializeLogicalSpaceRNGs`).
- * @param[in]     rand_logic_k       RNG for k-logical dimension tasks [0,1) (from `InitializeLogicalSpaceRNGs`).
  * @param[in]     bboxlist           Array of BoundingBox structures (potentially unused by IPBP).
  *
  * @return PetscErrorCode            Returns 0 on success, non-zero on failure.
  */
 PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
                                               PetscInt particlesPerProcess,
-                                              PetscRandom *rand_phys_x, // RNG from original InitializeRandomGenerators
-                                              PetscRandom *rand_phys_y, // RNG from original InitializeRandomGenerators
-                                              PetscRandom *rand_phys_z, // RNG from original InitializeRandomGenerators
-                                              PetscRandom *rand_logic_i, // RNG from InitializeLogicalSpaceRNGs
-                                              PetscRandom *rand_logic_j, // RNG from InitializeLogicalSpaceRNGs
-                                              PetscRandom *rand_logic_k, // RNG from InitializeLogicalSpaceRNGs
                                               BoundingBox *bboxlist);
 
 /**
@@ -138,22 +124,6 @@ PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
  * @return PetscErrorCode Returns 0 on success, non-zero on failure.
  */
 PetscErrorCode DistributeParticles(PetscInt numParticles, PetscMPIInt rank, PetscMPIInt size, PetscInt* particlesPerProcess, PetscInt* remainder);
-
-/**
- * @brief Finalizes the swarm setup by destroying random generators and logging completion.
- *
- * This function cleans up resources by destroying random number generators and LOG_ALLOWs the completion of swarm setup.
- *
- * @param[in]     randx             Random number generator for the x-coordinate.
- * @param[in]     randy             Random number generator for the y-coordinate.
- * @param[in]     randz             Random number generator for the z-coordinate.
- * @param[in]     rand_logic_i      Random number generator for the xi-coordinate.
- * @param[in]     rand_logic_j      Random number generator for the eta-coordinate.
- * @param[in]     rand_logic_k      Random number generator for the zeta-coordinate.
- *
- * @return PetscErrorCode Returns 0 on success, non-zero on failure.
- */
-PetscErrorCode FinalizeSwarmSetup(PetscRandom *randx, PetscRandom *randy, PetscRandom *randz, PetscRandom *rand_logic_i, PetscRandom *rand_logic_j, PetscRandom *rand_logic_k);
 
 /**
  * @brief Initializes a Particle struct with data from DMSwarm fields.

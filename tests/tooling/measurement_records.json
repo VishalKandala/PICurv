@@ -1346,6 +1346,21 @@
       },
       "limitations": "Planar inlet faces of a Cartesian programmatic grid; the area of a curved face cell uses a 2x2 Gauss rule, which is exact only for planar faces. Positions depend on the rank layout, as Volume's do; the distribution does not.",
       "artifacts": []
+    },
+    {
+      "id": "stratified-seeding-layout-2026-10-29",
+      "question": "Do Volume and Surface seeding give every particle ID the same position at any rank layout, with each cell holding its share to within one?",
+      "date": "2026-10-29",
+      "commit": "1d9b8b6a plus the uncommitted keyed-stratified-seeding working tree of 2026-10-29",
+      "environment": "Local WSL2 workstation, 12 cores; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler",
+      "configuration": "flat_channel, programmatic_c 25 x 25 x 97 cells on [0,1]^2 x [0,4], step-0 checkpoints compared after sorting by particle ID: Volume with 200,000 particles on the uniform grid and on a graded grid (rxs 4.0, rzs 1.5), and Surface with 16,000 particles on the -Zeta inlet, each at 1, 1x1x2, 2x2x1, 4x1x1 and 2x2x2 ranks; Surface on a graded inlet (rxs 4.0, rys 1.08) at 1 and 2x2x2; PointSource at 1 and 2x2x2 against 1d9b8b6a. temporal_mixing_layer example (periodic i and k, 345,600 Volume particles) at 1, 2 (1x2x1) and 4 (1x2x2) ranks, steps 0 and 2.",
+      "result": {
+        "measured": "Every Volume and Surface family had particle IDs 0..N-1 and positions, cell IDs and IDs bitwise equal to its 1-rank run at every layout, including the graded grids and the periodic temporal mixing layer. Uniform-grid Volume cells held 3 or 4 particles (42,500 and 18,125 cells) against 3.30 expected; Surface face cells held 25 or 26 against 25.6. Kolmogorov-Smirnov statistics per axis were 0.14 to 0.43; on the graded Volume grid the density per tenth of x was 19,927 to 20,114 against 20,000. PointSource data files were byte-identical to 1d9b8b6a at both layouts. On the temporal mixing layer, step-2 positions differed across layouts by at most 8.5e-13 and Psi by 2.2e-16, from the layout-dependent rounding of the coupled flow solve.",
+        "threshold": "Bitwise equal step-0 particles by ID at every layout; every cell within one particle of its expected share; Kolmogorov-Smirnov statistic below 1.36 per axis.",
+        "verdict": "met"
+      },
+      "limitations": "Planar or Cartesian programmatic grids and one periodic grid_gen box; up to 8 ranks. Identity holds for the seeded population; later steps of a coupled run agree only to the rounding of the flow solve.",
+      "artifacts": []
     }
   ]
 }

@@ -1,6 +1,7 @@
     // ParticleSwarm.c
 
 #include "ParticleSwarm.h"
+#include "ParticleInitialConditions.h"
 
 #define INTERPOLATION_DISTANCE_TOLERANCE 1.0e-14
 
@@ -79,18 +80,20 @@ PetscErrorCode RegisterParticleFields(DM swarm)
 }
 
 /**
- * @brief The owned cells a seeding mode draws from, with each cell's share of the measure.
- * @details Volumetric seeding draws from the rank's owned cells and surface seeding from the
- *          owned cells that touch the inlet face, so both are a box of cells from `origin`
- *          with `n` cells per axis (none when the rank owns no part of the target).
+ * @brief The owned cells a seeding mode places particles in, and which particles each gets.
+ * @details Volumetric seeding uses the rank's owned cells and surface seeding the owned cells
+ *          that touch the inlet face, so both are a box of cells from `origin` with `n` cells
+ *          per axis (none when the rank owns no part of the target). Cell `c`, in i-fastest
+ *          order, seeds the particles with IDs `pid_lo[c]` to `pid_hi[c] - 1`.
  */
 typedef struct {
-    PetscInt   face;       /**< -1 for the volume, otherwise the BCFace the points lie on */
-    PetscInt   origin[3];  /**< Origin node of the box's first cell */
-    PetscInt   n[3];       /**< Cells per axis */
-    PetscReal *cumulative; /**< Summed measure of cells 0..c, i-fastest (NULL when not built) */
-    PetscReal *bound;      /**< Largest measure density in each cell (NULL when not built) */
-    PetscReal  measure;    /**< Total owned volume or area */
+    PetscInt    face;      /**< -1 for the volume, otherwise the BCFace the points lie on */
+    PetscInt    origin[3]; /**< Origin node of the box's first cell */
+    PetscInt    n[3];      /**< Cells per axis */
+    PetscInt64 *pid_lo;    /**< First particle ID of each cell */
+    PetscInt64 *pid_hi;    /**< One past the last particle ID of each cell */
+    PetscReal  *bound;     /**< Largest measure density in each cell (NULL when not built) */
+    PetscInt    count;     /**< Particles this rank seeds */
 } SeedingCellTable;
 
 /**
@@ -124,30 +127,45 @@ static PetscErrorCode SeedingMeasureDensity(UserCtx *user, const Cmpnts ***coor,
 }
 
 /**
- * @brief Tabulate the measure of the owned cells a seeding mode draws from.
- * @details For `face` < 0 the cells are the rank's owned cells and the measure is volume; for
- *          a face they are the owned cells touching it, and the measure is their area on it,
- *          none when the rank does not hold part of the face. `cumulative[c]` sums cells
- *          `0..c` in i-fastest order, so a uniform draw on `[0, measure)` picks a cell in
- *          proportion to its measure. The measure integrates the density with 2x2x2 Gauss
- *          points, which is exact for the volume (the determinant has degree 2 in each
- *          coordinate) and for the area of a planar face; on a face the points coincide in
- *          pairs, which gives the 2x2 rule. `bound[c]` is the largest density on a 3x3x3
- *          lattice of the cell, the envelope used to sample a uniform point inside it.
- * @param[in]  user        Grid context.
- * @param[in]  coor        Ghosted node-coordinate array.
- * @param[in]  face        -1 for the volume, otherwise the BCFace to seed on.
- * @param[in]  build       PETSC_TRUE to allocate `cumulative` and `bound` (caller frees with
- *                         PetscFree2), PETSC_FALSE when only the total is wanted.
- * @param[out] table       The owned cells and their measure.
+ * @brief Decide which particles each owned cell seeds, the same way at every rank layout.
+ * @details Collective. The cells are those volumetric (`face` < 0) or surface seeding uses,
+ *          and each cell's measure is its volume or its area on the face, integrated with 2x2x2
+ *          Gauss points: exact for the volume (the determinant has degree 2 in each
+ *          coordinate) and for the area of a planar face, where the points coincide in pairs
+ *          and give the 2x2 rule.
+ *
+ *          Particles are stratified over the measure in global cell order (i fastest): with
+ *          P(c) the measure of all cells before cell c, T the total and N the particle count,
+ *          cell c seeds the IDs floor(N P(c) / T) to floor(N (P(c) + m_c) / T) - 1, so each
+ *          cell holds its expected share to within one, the IDs are 0..N-1, and both depend
+ *          only on the grid. For the result to be identical at any rank layout the measures
+ *          are summed as integers, each cell's measure quantised against the largest cell
+ *          (an exact maximum) to 2^Q units, with Q chosen so the total fits 63 bits. P(c) is
+ *          the sum of the (j,k) rows before the cell's row, from one reduction over the rows,
+ *          plus the cells before it in its row, from a scan over the ranks sharing the row.
+ * @param[in]  user          Grid context.
+ * @param[in]  coor          Ghosted node-coordinate array.
+ * @param[in]  face          -1 for the volume, otherwise the BCFace to seed on.
+ * @param[in]  numParticles  Global particle count.
+ * @param[in]  build_bound   PETSC_TRUE to also tabulate each cell's largest measure density on
+ *                           a 3x3x3 lattice, the envelope DrawSeedingPoint samples against.
+ * @param[out] table         The owned cells and their particles; free with FreeSeedingCellTable.
  * @return PetscErrorCode 0 on success; an error for a cell whose measure is not positive.
  */
 static PetscErrorCode BuildSeedingCellTable(UserCtx *user, const Cmpnts ***coor, PetscInt face,
-                                            PetscBool build, SeedingCellTable *table)
+                                            PetscInt numParticles, PetscBool build_bound,
+                                            SeedingCellTable *table)
 {
     const PetscReal gauss[2] = {0.5 - 0.5 / PetscSqrtReal(3.0), 0.5 + 0.5 / PetscSqrtReal(3.0)};
-    PetscReal       sum = 0.0;
-    PetscInt        start, n_cells, c = 0;
+    const PetscInt  nodes[3] = {user->info.mx, user->info.my, user->info.mz};
+    PetscInt        start, n_cells, n_rows_local, global_cells[3], global_origin[3] = {0, 0, 0}, quantum_bits = 62;
+    PetscInt64      n_global_cells;
+    PetscReal       local_max = 0.0, global_max = 0.0;
+    PetscReal      *measure = NULL;
+    uint64_t       *rows = NULL, *row_before = NULL, *segment = NULL, *segment_before = NULL, *quanta = NULL;
+    uint64_t        total = 0;
+    MPI_Comm        row_comm = MPI_COMM_NULL;
+    PetscMPIInt     row_rank = 0;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
@@ -157,104 +175,157 @@ static PetscErrorCode BuildSeedingCellTable(UserCtx *user, const Cmpnts ***coor,
     PetscCall(GetOwnedCellRange(&user->info, 0, &start, &table->n[0]));
     PetscCall(GetOwnedCellRange(&user->info, 1, &start, &table->n[1]));
     PetscCall(GetOwnedCellRange(&user->info, 2, &start, &table->n[2]));
+    for (PetscInt d = 0; d < 3; ++d) global_cells[d] = nodes[d] - 2;
     if (face >= 0) {
         const PetscInt a = face / 2;
-        const PetscInt nodes[3] = {user->info.mx, user->info.my, user->info.mz};
         PetscBool      holds_face = PETSC_FALSE;
-        PetscCall(CanRankServiceInletFace(user, &user->info, user->info.mx - 1, user->info.my - 1, user->info.mz - 1, &holds_face));
+        PetscCall(CanRankServiceInletFace(user, &user->info, nodes[0] - 1, nodes[1] - 1, nodes[2] - 1, &holds_face));
+        global_cells[a] = 1;
+        if (face % 2) global_origin[a] = nodes[a] - 3; /* origin node of the last cell */
         if (holds_face) {
             table->n[a] = 1;
-            if (face % 2) table->origin[a] = nodes[a] - 3; /* origin node of the last cell */
+            table->origin[a] = global_origin[a];
         } else {
             table->n[0] = table->n[1] = table->n[2] = 0;
         }
     }
     n_cells = table->n[0] * table->n[1] * table->n[2];
-    if (build) PetscCall(PetscMalloc2(n_cells, &table->cumulative, n_cells, &table->bound));
-    for (PetscInt lk = 0; lk < table->n[2]; ++lk) {
-        for (PetscInt lj = 0; lj < table->n[1]; ++lj) {
-            for (PetscInt li = 0; li < table->n[0]; ++li, ++c) {
-                const PetscInt i = table->origin[0] + li, j = table->origin[1] + lj, k = table->origin[2] + lk;
-                PetscReal      cell_measure = 0.0, cell_bound = 0.0, density;
-                for (PetscInt g = 0; g < 8; ++g) {
-                    const PetscReal l[3] = {gauss[g & 1], gauss[(g >> 1) & 1], gauss[(g >> 2) & 1]};
-                    PetscCall(SeedingMeasureDensity(user, coor, face, i, j, k, l, &density));
-                    cell_measure += 0.125 * density;
-                }
-                PetscCheck(cell_measure > 0.0, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
-                           "Cell with origin node (%d,%d,%d) has %s %g; particle seeding needs positive %s.",
-                           (int)i, (int)j, (int)k, face < 0 ? "volume" : "inlet area", (double)cell_measure,
-                           face < 0 ? "volumes" : "areas");
-                if (build) {
-                    for (PetscInt q = 0; q < 27; ++q) {
-                        const PetscReal l[3] = {0.5 * (q % 3), 0.5 * ((q / 3) % 3), 0.5 * (q / 9)};
-                        PetscCall(SeedingMeasureDensity(user, coor, face, i, j, k, l, &density));
-                        cell_bound = PetscMax(cell_bound, density);
-                    }
-                    table->bound[c] = cell_bound;
-                }
-                sum += cell_measure;
-                if (build) table->cumulative[c] = sum;
+    n_rows_local = table->n[1] * table->n[2];
+    n_global_cells = (PetscInt64)global_cells[0] * global_cells[1] * global_cells[2];
+    while (quantum_bits > 0 && ((PetscInt64)1 << (62 - quantum_bits)) < n_global_cells) --quantum_bits;
+
+    // --- 1. Cell measures, and the density envelope ---
+    PetscCall(PetscMalloc2(n_cells, &measure, n_cells, &quanta));
+    PetscCall(PetscMalloc2(n_cells, &table->pid_lo, n_cells, &table->pid_hi));
+    if (build_bound) PetscCall(PetscMalloc1(n_cells, &table->bound));
+    for (PetscInt c = 0; c < n_cells; ++c) {
+        const PetscInt i = table->origin[0] + c % table->n[0];
+        const PetscInt j = table->origin[1] + (c / table->n[0]) % table->n[1];
+        const PetscInt k = table->origin[2] + c / (table->n[0] * table->n[1]);
+        PetscReal      density;
+        measure[c] = 0.0;
+        for (PetscInt g = 0; g < 8; ++g) {
+            const PetscReal l[3] = {gauss[g & 1], gauss[(g >> 1) & 1], gauss[(g >> 2) & 1]};
+            PetscCall(SeedingMeasureDensity(user, coor, face, i, j, k, l, &density));
+            measure[c] += 0.125 * density;
+        }
+        PetscCheck(measure[c] > 0.0, PETSC_COMM_SELF, PETSC_ERR_ARG_WRONGSTATE,
+                   "Cell with origin node (%d,%d,%d) has %s %g; particle seeding needs positive %s.",
+                   (int)i, (int)j, (int)k, face < 0 ? "volume" : "inlet area", (double)measure[c],
+                   face < 0 ? "volumes" : "areas");
+        local_max = PetscMax(local_max, measure[c]);
+        if (build_bound) {
+            table->bound[c] = 0.0;
+            for (PetscInt q = 0; q < 27; ++q) {
+                const PetscReal l[3] = {0.5 * (q % 3), 0.5 * ((q / 3) % 3), 0.5 * (q / 9)};
+                PetscCall(SeedingMeasureDensity(user, coor, face, i, j, k, l, &density));
+                table->bound[c] = PetscMax(table->bound[c], density);
             }
         }
     }
-    table->measure = sum;
+    {
+        PetscInt64 local_cells = n_cells, owned_cells = 0;
+        PetscCallMPI(MPI_Allreduce(&local_cells, &owned_cells, 1, MPIU_INT64, MPI_SUM, PETSC_COMM_WORLD));
+        PetscCheck(owned_cells == n_global_cells, PETSC_COMM_WORLD, PETSC_ERR_PLIB,
+                   "Seeding cells owned across ranks (%" PetscInt64_FMT ") differ from the global count (%" PetscInt64_FMT ").",
+                   owned_cells, n_global_cells);
+    }
+    PetscCallMPI(MPI_Allreduce(&local_max, &global_max, 1, MPIU_REAL, MPI_MAX, PETSC_COMM_WORLD));
+    PetscCheck(global_max > 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
+               face < 0 ? "Volumetric particle seeding found no owned volume on any rank."
+                        : "Surface particle seeding found no inlet area on any rank; it needs an INLET face.");
+
+    // --- 2. Integer measures, summed over rows and over each rank's segment of a row ---
+    const PetscInt n_rows = global_cells[1] * global_cells[2];
+    PetscCall(PetscCalloc4(n_rows, &rows, n_rows, &row_before, n_rows_local, &segment, n_rows_local, &segment_before));
+    for (PetscInt c = 0; c < n_cells; ++c) {
+        const PetscInt lj = (c / table->n[0]) % table->n[1], lk = c / (table->n[0] * table->n[1]);
+        const PetscInt row = (table->origin[1] + lj - global_origin[1]) + global_cells[1] * (table->origin[2] + lk - global_origin[2]);
+        quanta[c] = (uint64_t)PetscMax(1.0, PetscFloorReal(ldexp((double)(measure[c] / global_max), (int)quantum_bits) + 0.5));
+        rows[row] += quanta[c];
+        segment[lj + table->n[1] * lk] += quanta[c];
+    }
+    PetscCallMPI(MPI_Allreduce(MPI_IN_PLACE, rows, (PetscMPIInt)n_rows, MPI_UINT64_T, MPI_SUM, PETSC_COMM_WORLD));
+    for (PetscInt r = 0; r < n_rows; ++r) { row_before[r] = total; total += rows[r]; }
+    // Ranks with the same j and k ranges share rows; their order along i is the order in the row.
+    PetscCallMPI(MPI_Comm_split(PETSC_COMM_WORLD, n_cells > 0 ? (PetscMPIInt)(table->origin[1] + nodes[1] * table->origin[2]) : MPI_UNDEFINED,
+                                (PetscMPIInt)table->origin[0], &row_comm));
+    if (row_comm != MPI_COMM_NULL) {
+        PetscCallMPI(MPI_Exscan(segment, segment_before, (PetscMPIInt)n_rows_local, MPI_UINT64_T, MPI_SUM, row_comm));
+        PetscCallMPI(MPI_Comm_rank(row_comm, &row_rank));
+        if (row_rank == 0) PetscCall(PetscArrayzero(segment_before, n_rows_local)); /* MPI_Exscan leaves rank 0's result undefined */
+        PetscCallMPI(MPI_Comm_free(&row_comm));
+    }
+
+    // --- 3. Stratified particle IDs: floor(N P / T) at each cell boundary ---
+    for (PetscInt lrow = 0; lrow < n_rows_local; ++lrow) {
+        const PetscInt lj = lrow % table->n[1], lk = lrow / table->n[1];
+        const PetscInt row = (table->origin[1] + lj - global_origin[1]) + global_cells[1] * (table->origin[2] + lk - global_origin[2]);
+        uint64_t       before = row_before[row] + segment_before[lrow];
+        for (PetscInt li = 0; li < table->n[0]; ++li) {
+            const PetscInt c = li + table->n[0] * lrow;
+            table->pid_lo[c] = (PetscInt64)(((unsigned __int128)numParticles * before) / total);
+            before += quanta[c];
+            table->pid_hi[c] = (PetscInt64)(((unsigned __int128)numParticles * before) / total);
+            table->count += (PetscInt)(table->pid_hi[c] - table->pid_lo[c]);
+        }
+    }
+    PetscCall(PetscFree4(rows, row_before, segment, segment_before));
+    PetscCall(PetscFree2(measure, quanta));
+    PROFILE_FUNCTION_END;
+    PetscFunctionReturn(0);
+}
+
+/** @brief Free the arrays of a SeedingCellTable. */
+static PetscErrorCode FreeSeedingCellTable(SeedingCellTable *table)
+{
+    PetscFunctionBeginUser;
+    PROFILE_HELPER_BEGIN;
+    PetscCall(PetscFree2(table->pid_lo, table->pid_hi));
+    PetscCall(PetscFree(table->bound));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
 
 /**
- * @brief Draw one seeding point uniform in the measure of a seeding table.
- * @details The cell is drawn in proportion to its measure from `table->cumulative`
- *          (see BuildSeedingCellTable); the point inside it is drawn uniform in that measure by
- *          accepting uniform logical coordinates with probability density / `bound`. A surface
- *          point is then put just inside the cell, 1e-6 of the cell from the face.
+ * @brief Draw one particle's seeding point inside its cell, uniform in the cell's measure.
+ * @details Uniform logical coordinates are accepted with probability density / `bound`. Every
+ *          draw is keyed on the run seed, the particle ID and the attempt, so the point depends
+ *          only on the particle, not on the rank that seeds it. A surface point is then put just
+ *          inside the cell, 1e-6 of the cell from the face.
  * @param[in]  user   Grid context.
  * @param[in]  coor   Ghosted node-coordinate array.
- * @param[in]  table  A table built with `build` set; it must hold at least one cell.
- * @param[in]  rand_logic_i_ptr,rand_logic_j_ptr,rand_logic_k_ptr Logical-space RNGs.
+ * @param[in]  table  A table built with `build_bound` set.
+ * @param[in]  c      The cell, an index into the table.
+ * @param[in]  pid    The particle's ID.
  * @param[out] ci_metric_lnode_out,cj_metric_lnode_out,ck_metric_lnode_out Origin node of the cell.
  * @param[out] xi_metric_logic_out,eta_metric_logic_out,zta_metric_logic_out Logical point in it.
  * @return PetscErrorCode 0 on success.
  */
 static PetscErrorCode DrawSeedingPoint(
-    UserCtx *user, const Cmpnts ***coor, const SeedingCellTable *table,
-    PetscRandom *rand_logic_i_ptr, PetscRandom *rand_logic_j_ptr, PetscRandom *rand_logic_k_ptr,
+    UserCtx *user, const Cmpnts ***coor, const SeedingCellTable *table, PetscInt c, PetscInt64 pid,
     PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out,
     PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out)
 {
-    const PetscInt n_cells = table->n[0] * table->n[1] * table->n[2];
-    PetscInt       lo = 0, hi = n_cells - 1;
-    PetscReal      r_val, logic[3];
+    PetscReal logic[3], u[4];
 
     PetscFunctionBeginUser;
     PROFILE_HELPER_BEGIN;
+    *ci_metric_lnode_out = table->origin[0] + c % table->n[0];
+    *cj_metric_lnode_out = table->origin[1] + (c / table->n[0]) % table->n[1];
+    *ck_metric_lnode_out = table->origin[2] + c / (table->n[0] * table->n[1]);
 
-    // --- 1. Select a Cell in Proportion to Its Measure ---
-    PetscCall(PetscRandomGetValueReal(*rand_logic_i_ptr, &r_val));
-    r_val *= table->cumulative[n_cells - 1];
-    while (lo < hi) { // First cell whose cumulative measure exceeds the draw
-        const PetscInt mid = lo + (hi - lo) / 2;
-        if (table->cumulative[mid] > r_val) hi = mid; else lo = mid + 1;
-    }
-    *ci_metric_lnode_out = table->origin[0] + lo % table->n[0];
-    *cj_metric_lnode_out = table->origin[1] + (lo / table->n[0]) % table->n[1];
-    *ck_metric_lnode_out = table->origin[2] + lo / (table->n[0] * table->n[1]);
-
-    // --- 2. Draw Intra-Cell Logical Coordinates Uniform in the Measure ---
     // Accept uniform logicals with probability density / bound; a cell whose density varies
     // little accepts almost every draw. The cap only guards a degenerate envelope.
     for (PetscInt attempt = 0; attempt < 1000; ++attempt) {
-        PetscReal density, u;
-        PetscCall(PetscRandomGetValueReal(*rand_logic_i_ptr, &logic[0]));
-        PetscCall(PetscRandomGetValueReal(*rand_logic_j_ptr, &logic[1]));
-        PetscCall(PetscRandomGetValueReal(*rand_logic_k_ptr, &logic[2]));
+        PetscReal density;
+        uint64_t  hash = PicurvParticleDrawHash(user->simCtx->particleRandomSeed, PICURV_DRAW_SPACE_PLACEMENT, 0, pid, attempt);
+        for (int w = 0; w < 4; ++w) u[w] = PicurvUnitFromHash(hash = PicurvMix64(hash ^ (uint64_t)w));
         // Ensure logical coordinates are strictly within [0,1) for robustness with MetricLogicalToPhysical
-        for (PetscInt d = 0; d < 3; ++d) logic[d] = PetscMax(PetscMin(logic[d], 1.0 - 1.0e-7), 0.0);
+        for (PetscInt d = 0; d < 3; ++d) logic[d] = PetscMax(PetscMin(u[d], 1.0 - 1.0e-7), 0.0);
         PetscCall(SeedingMeasureDensity(user, coor, table->face, *ci_metric_lnode_out, *cj_metric_lnode_out,
                                         *ck_metric_lnode_out, logic, &density));
-        PetscCall(PetscRandomGetValueReal(*rand_logic_j_ptr, &u));
-        if (u * table->bound[lo] <= density) break;
+        if (u[3] * table->bound[c] <= density) break;
         if (attempt == 999) {
             LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: 1000 rejected draws in cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT "); accepting the last one.\n",
                       user->simCtx->rank, *ci_metric_lnode_out, *cj_metric_lnode_out, *ck_metric_lnode_out);
@@ -273,9 +344,6 @@ static PetscErrorCode DrawSeedingPoint(
  */
 static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
                                                 PetscInt particlesPerProcess,
-                                                PetscRandom *rand_logic_i,
-                                                PetscRandom *rand_logic_j,
-                                                PetscRandom *rand_logic_k,
                                                 BoundingBox *bboxlist) // bboxlist unused for placement
 {
     PetscErrorCode ierr;
@@ -288,7 +356,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     PetscMPIInt    rank,size;                    // MPI rank of the current process, and total number of ranks.
     const Cmpnts   ***coor_nodes_local_array; // Read-only access to local node coordinates (from user->da)
     Vec            Coor_local;              // Local vector for node coordinates
-    // Owned cells and their measure, for volumetric and surface seeding
+    // Owned cells and the particles each seeds, for volumetric and surface seeding
     SeedingCellTable seed_table;
 
     PetscFunctionBeginUser;
@@ -298,9 +366,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     SimCtx *simCtx = user->simCtx;
 
     // --- 1. Input Validation and Basic Setup ---
-    if (!user || !rand_logic_i || !rand_logic_j || !rand_logic_k) {
-        SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null user or RNG pointer.");
-    }
+    if (!user) SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null user.");
     rank = simCtx->rank;
     size = simCtx->size;
 
@@ -314,16 +380,22 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
             rank, particlesPerProcess, ParticleInitializationToString(simCtx->ParticleInitialization));
 
     // --- 2. Seeding Table for Volumetric and Surface Initialization ---
-    // Volume draws from the owned cells, Surface from the owned cells on the inlet face; the
-    // particle count was split across ranks by the same measure (DistributeParticlesByOwnedMeasure).
+    // Volume seeds the owned cells, Surface the owned cells on the inlet face; the table names
+    // each cell's particles, the same split CreateParticleSwarm sized the swarm with.
     const PetscBool seeds_from_table = (PetscBool)(simCtx->ParticleInitialization == PARTICLE_INIT_VOLUME ||
                                                    simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM);
-    if (seeds_from_table && particlesPerProcess > 0) {
+    PetscInt   seed_cell = 0;  // Cell the next table-seeded particle goes in
+    PetscInt64 seed_pid  = 0;  // That particle's ID
+    if (seeds_from_table) {
         const PetscInt face = (simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM) ? (PetscInt)user->identifiedInletBCFace : -1;
-        ierr = BuildSeedingCellTable(user, coor_nodes_local_array, face, PETSC_TRUE, &seed_table); CHKERRQ(ierr);
-        LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Seeding %" PetscInt_FMT " particles uniformly over %" PetscInt_FMT " owned cells of total %s %.6e.\n",
+        ierr = BuildSeedingCellTable(user, coor_nodes_local_array, face, simCtx->np, PETSC_TRUE, &seed_table); CHKERRQ(ierr);
+        PetscCheck(seed_table.count == particlesPerProcess, PETSC_COMM_SELF, PETSC_ERR_PLIB,
+                   "Seeding table holds %" PetscInt_FMT " particles but the swarm was sized for %" PetscInt_FMT ".",
+                   seed_table.count, particlesPerProcess);
+        if (seed_table.n[0] * seed_table.n[1] * seed_table.n[2] > 0) seed_pid = seed_table.pid_lo[0];
+        LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Seeding %" PetscInt_FMT " particles stratified over %" PetscInt_FMT " owned cells by %s.\n",
                   rank, particlesPerProcess, seed_table.n[0] * seed_table.n[1] * seed_table.n[2],
-                  face < 0 ? "volume" : "inlet area", (double)seed_table.measure);
+                  face < 0 ? "volume" : "inlet area");
     }
 
     // --- 3. Get Access to Swarm Fields ---
@@ -332,10 +404,9 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs_petsc);  CHKERRQ(ierr);
     ierr = DMSwarmGetField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS),NULL,NULL,(void**)&status_field); CHKERRQ(ierr);
 
-    // --- 4. Determine Starting Global PID for this Rank ---
-    // PIDs are consecutive across ranks in rank order, so each rank starts where the ranks
-    // before it end. Taking that from the actual local counts keeps it right however the
-    // particles were split (evenly, or by owned volume or inlet area for table seeding).
+    // --- 4. Determine Starting Global PID for this Rank (point source) ---
+    // Point-source PIDs are consecutive across ranks in rank order, so each rank starts where
+    // the ranks before it end. Table seeding takes each particle's ID from its cell instead.
     PetscInt base_pid_for_rank = 0;
     {
         PetscInt local_count = particlesPerProcess;
@@ -370,27 +441,24 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     }
 
     // --- 5. Loop Over Particles to Initialize ---
-    PetscInt n_unplaced = 0; // Table-seeded particles this rank could not place
     for (PetscInt p = 0; p < particlesPerProcess; p++) {
         PetscInt  ci_metric_lnode, cj_metric_lnode, ck_metric_lnode; 
         PetscReal xi_metric_logic, eta_metric_logic, zta_metric_logic; 
         Cmpnts    phys_coords = {0.0, 0.0, 0.0}; 
         PetscBool particle_placed_by_this_rank = PETSC_FALSE; 
+        PetscInt64 pid = (PetscInt64)base_pid_for_rank + p;
 
         if (seeds_from_table) { // --- 5.a. Volumetric or Surface Initialization ---
-            if (seed_table.n[0] * seed_table.n[1] * seed_table.n[2] > 0) {
-                ierr = DrawSeedingPoint(user, coor_nodes_local_array, &seed_table,
-                                        rand_logic_i, rand_logic_j, rand_logic_k,
-                                        &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
-                                        &xi_metric_logic, &eta_metric_logic, &zta_metric_logic); CHKERRQ(ierr);
-                ierr = MetricLogicalToPhysical(user, coor_nodes_local_array,
-                                        ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
-                                        xi_metric_logic, eta_metric_logic, zta_metric_logic,
-                                        &phys_coords); CHKERRQ(ierr);
-                particle_placed_by_this_rank = PETSC_TRUE;
-            } else {
-                n_unplaced++;
-            }
+            while (seed_pid == seed_table.pid_hi[seed_cell]) seed_pid = seed_table.pid_lo[++seed_cell]; // skip filled (or empty) cells
+            pid = seed_pid++;
+            ierr = DrawSeedingPoint(user, coor_nodes_local_array, &seed_table, seed_cell, pid,
+                                    &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
+                                    &xi_metric_logic, &eta_metric_logic, &zta_metric_logic); CHKERRQ(ierr);
+            ierr = MetricLogicalToPhysical(user, coor_nodes_local_array,
+                                    ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
+                                    xi_metric_logic, eta_metric_logic, zta_metric_logic,
+                                    &phys_coords); CHKERRQ(ierr);
+            particle_placed_by_this_rank = PETSC_TRUE;
         }else if(simCtx->ParticleInitialization == PARTICLE_INIT_POINT_SOURCE){ // --- 5.c. Point Source Initialization ---
             // All particles placed at the user-specified fixed point (psrc_x, psrc_y, psrc_z).
             // No random number generation or logical-to-physical conversion needed.
@@ -408,9 +476,9 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
         positions_field[3*p+1] = phys_coords.y; 
         positions_field[3*p+2] = phys_coords.z;
 
-        particleIDs[p]         = (PetscInt64)base_pid_for_rank + p; 
-        // Start the first settlement's walk in the cell the particle was placed in; a particle
-        // left unplaced has no cell and is located by search.
+        particleIDs[p]         = pid;
+        // Start the first settlement's walk in the cell the particle was placed in; a point-source
+        // particle no rank located has no cell and is located by search.
         if (particle_placed_by_this_rank) {
             cellIDs_petsc[3*p+0] = ci_metric_lnode; cellIDs_petsc[3*p+1] = cj_metric_lnode; cellIDs_petsc[3*p+2] = ck_metric_lnode;
         } else {
@@ -426,16 +494,12 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
                          phys_coords.x, phys_coords.y, phys_coords.z, ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
                          xi_metric_logic, eta_metric_logic, zta_metric_logic);
         } else {
-            // A point source no rank located, or a table-seeded particle on a rank with no cells.
+            // A point source no rank located.
             LOG_PARTICLE(simCtx, particleIDs[p], "seed",
                          "%s: not placed by rank %d; parked at (%.6e, %.6e, %.6e) for the settlement to locate\n",
                          ParticleInitializationToString(simCtx->ParticleInitialization), (int)rank,
                          phys_coords.x, phys_coords.y, phys_coords.z);
         }
-    }
-    if (n_unplaced > 0) {
-        LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: %" PetscInt_FMT " %s-seeded particle(s) could not be placed in this rank's cells and are left for the settlement to locate.\n",
-                  rank, n_unplaced, ParticleInitializationToString(simCtx->ParticleInitialization));
     }
 
     // --- 6. Restore Pointers and Cleanup ---
@@ -444,7 +508,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_CELL_ID), NULL, NULL, (void**)&cellIDs_petsc);  CHKERRQ(ierr);
     ierr = DMSwarmRestoreField(swarm, ParticleFieldName(PARTICLE_FIELD_ID_LOCATION_STATUS), NULL, NULL, (void**)&status_field); CHKERRQ(ierr);
     ierr = DMDAVecRestoreArrayRead(user->fda, Coor_local, (void*)&coor_nodes_local_array); CHKERRQ(ierr);
-    ierr = PetscFree2(seed_table.cumulative, seed_table.bound); CHKERRQ(ierr);
+    ierr = FreeSeedingCellTable(&seed_table); CHKERRQ(ierr);
 
     LOG_ALLOW(LOCAL, LOG_INFO, "Rank %d: Completed processing for %" PetscInt_FMT " particles.\n",
             rank, particlesPerProcess);
@@ -540,12 +604,6 @@ static PetscErrorCode AssignInitialFieldToSwarm(UserCtx *user, ParticleFieldId f
  */
 PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
                                             PetscInt particlesPerProcess,
-                                            PetscRandom *rand_phys_x, // RNG from original InitializeRandomGenerators
-                                            PetscRandom *rand_phys_y, // RNG from original InitializeRandomGenerators
-                                            PetscRandom *rand_phys_z, // RNG from original InitializeRandomGenerators
-                                            PetscRandom *rand_logic_i, // RNG from InitializeLogicalSpaceRNGs
-                                            PetscRandom *rand_logic_j, // RNG from InitializeLogicalSpaceRNGs
-                                            PetscRandom *rand_logic_k, // RNG from InitializeLogicalSpaceRNGs
                                             BoundingBox *bboxlist)
 {
     PetscErrorCode ierr;
@@ -556,9 +614,8 @@ PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
     SimCtx *simCtx = user->simCtx;
     
     // --- 0. Input Validation ---
-    if (!user || !bboxlist || !rand_logic_i || !rand_logic_j || !rand_logic_k || !rand_phys_x || !rand_phys_y || !rand_phys_z) {
-        // Check all RNGs now as they are passed in
-        LOG_ALLOW(GLOBAL, LOG_ERROR, "Null user, bboxlist, or RNG pointer.\n");
+    if (!user || !bboxlist) {
+        LOG_ALLOW(GLOBAL, LOG_ERROR, "Null user or bboxlist.\n");
         SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_NULL, "Null input detected.");
     }
 
@@ -576,20 +633,10 @@ PetscErrorCode AssignInitialPropertiesToSwarm(UserCtx* user,
     }
 
     // --- 2. Initialize Basic Particle Properties (Position, PID, Cell IDs placeholder) ---
-    // The rand_logic_i/j/k are now passed directly.
-    // The rand_phys_x/y/z are passed but InitializeParticleBasicProperties (refactored version)
-    // will not use them for setting positions if all its paths use logical-to-physical mapping.
+    // Placement draws are keyed on (seed, PID), so no generator state is passed in.
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Calling InitializeParticleBasicProperties.\n");
-    ierr = InitializeParticleBasicProperties(user, particlesPerProcess,
-                                            rand_logic_i, rand_logic_j, rand_logic_k,
-                                            bboxlist); // bboxlist passed along
-    CHKERRQ(ierr);
+    ierr = InitializeParticleBasicProperties(user, particlesPerProcess, bboxlist); CHKERRQ(ierr);
     LOG_ALLOW(GLOBAL, LOG_INFO, "Successfully initialized basic particle properties.\n");
-
-    // Note: The logical RNGs (rand_logic_i/j/k) are NOT destroyed here.
-    // They were created externally (e.g., by InitializeLogicalSpaceRNGs) and
-    // should be destroyed externally (e.g., in FinalizeSwarmSetup).
-    // Same for rand_phys_x/y/z.
 
     // --- 3. Initialize Other Swarm Fields (Velocity, Weight, Pressure, etc.) ---
     LOG_ALLOW(GLOBAL, LOG_DEBUG, "Initializing 'velocity' field.\n");
@@ -650,38 +697,11 @@ PetscErrorCode DistributeParticles(PetscInt numParticles, PetscMPIInt rank, Pets
 
 
 /**
- * @brief Implementation of \ref FinalizeSwarmSetup().
- * @details Full API contract (arguments, ownership, side effects) is documented with
- *          the header declaration in `include/ParticleSwarm.h`.
- * @see FinalizeSwarmSetup()
- */
-PetscErrorCode FinalizeSwarmSetup(PetscRandom *randx, PetscRandom *randy, PetscRandom *randz, PetscRandom *rand_logic_i, PetscRandom *rand_logic_j, PetscRandom *rand_logic_k) {
-    PetscErrorCode ierr;  // Error code for PETSc functions
-    PetscFunctionBeginUser;
-    PROFILE_FUNCTION_BEGIN;
-    // Destroy random number generators to free resources
-    // Physical space
-    ierr = PetscRandomDestroy(randx); CHKERRQ(ierr);
-    ierr = PetscRandomDestroy(randy); CHKERRQ(ierr);
-    ierr = PetscRandomDestroy(randz); CHKERRQ(ierr);
-    // Logical space
-    ierr = PetscRandomDestroy(rand_logic_i); CHKERRQ(ierr);
-    ierr = PetscRandomDestroy(rand_logic_j); CHKERRQ(ierr);
-    ierr = PetscRandomDestroy(rand_logic_k); CHKERRQ(ierr);      
-    
-    LOG_ALLOW(LOCAL,LOG_DEBUG,"Destroyed all random number generators.\n");
-
-    PROFILE_FUNCTION_END;
-    PetscFunctionReturn(0);
-}
-
-/**
- * @brief Split particles across ranks in proportion to the volume or inlet area each rank owns.
- * @details Volumetric and surface seeding place each rank's particles uniformly in its own
- *          volume or its own part of the inlet, so the split must follow that measure for the
- *          density to be uniform across rank boundaries; a rank without part of the inlet seeds
- *          none. Largest-remainder rounding keeps the total exact, and every rank computes the
- *          same answer from the gathered measures.
+ * @brief Number of particles this rank seeds for volumetric or surface seeding.
+ * @details Collective. The count is the rank's share of the stratified split
+ *          BuildSeedingCellTable makes, so a rank seeds in proportion to the volume or inlet
+ *          area it owns, none if it owns no part of the inlet, and the counts sum to
+ *          `numParticles` exactly.
  * @param[in]  user          Finest-level context whose DMDA ownership defines the split.
  * @param[in]  face          -1 for the volume, otherwise the inlet BCFace.
  * @param[in]  numParticles  Global particle count.
@@ -690,44 +710,16 @@ PetscErrorCode FinalizeSwarmSetup(PetscRandom *randx, PetscRandom *randy, PetscR
  */
 static PetscErrorCode DistributeParticlesByOwnedMeasure(UserCtx *user, PetscInt face, PetscInt numParticles, PetscInt *localCount)
 {
-    PetscMPIInt     rank, size;
-    PetscInt        assigned = 0;
-    PetscInt       *count = NULL;
-    PetscReal       owned, total = 0.0;
-    PetscReal      *volumes = NULL, *frac = NULL;
     SeedingCellTable table;
-    Vec             coor_local;
-    const Cmpnts ***coor = NULL;
+    const Cmpnts  ***coor = NULL;
 
     PetscFunctionBeginUser;
     PROFILE_FUNCTION_BEGIN;
-    rank = user->simCtx->rank;
-    size = user->simCtx->size;
-    coor_local = user->lCoor;
-    PetscCall(DMDAVecGetArrayRead(user->fda, coor_local, (void *)&coor));
-    PetscCall(BuildSeedingCellTable(user, coor, face, PETSC_FALSE, &table));
-    owned = table.measure;
-    PetscCall(DMDAVecRestoreArrayRead(user->fda, coor_local, (void *)&coor));
-    PetscCall(PetscMalloc3(size, &volumes, size, &count, size, &frac));
-    PetscCallMPI(MPI_Allgather(&owned, 1, MPIU_REAL, volumes, 1, MPIU_REAL, PETSC_COMM_WORLD));
-    for (PetscMPIInt r = 0; r < size; ++r) total += volumes[r];
-    PetscCheck(total > 0.0, PETSC_COMM_WORLD, PETSC_ERR_ARG_WRONGSTATE,
-               face < 0 ? "Volumetric particle seeding found no owned volume on any rank."
-                        : "Surface particle seeding found no inlet area on any rank; it needs an INLET face.");
-    for (PetscMPIInt r = 0; r < size; ++r) {
-        const PetscReal share = (PetscReal)numParticles * volumes[r] / total;
-        count[r] = (PetscInt)PetscFloorReal(share);
-        frac[r]  = share - (PetscReal)count[r];
-        assigned += count[r];
-    }
-    for (PetscInt extra = numParticles - assigned; extra > 0; --extra) {
-        PetscMPIInt best = 0;
-        for (PetscMPIInt r = 1; r < size; ++r) if (frac[r] > frac[best]) best = r;
-        count[best] += 1;
-        frac[best] = -1.0;
-    }
-    *localCount = count[rank];
-    PetscCall(PetscFree3(volumes, count, frac));
+    PetscCall(DMDAVecGetArrayRead(user->fda, user->lCoor, (void *)&coor));
+    PetscCall(BuildSeedingCellTable(user, coor, face, numParticles, PETSC_FALSE, &table));
+    PetscCall(DMDAVecRestoreArrayRead(user->fda, user->lCoor, (void *)&coor));
+    *localCount = table.count;
+    PetscCall(FreeSeedingCellTable(&table));
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);
 }
@@ -1088,13 +1080,7 @@ PetscErrorCode InitializeParticleSwarm(SimCtx *simCtx)
     if (should_initialize_new_particles) {
         // --- PATH A: Generate a fresh population of particles ---
         LOG_ALLOW(GLOBAL, LOG_INFO, "Mode: INITIALIZE. Generating new particle population.\n");
-        PetscRandom randx, randy, randz;
-        PetscRandom rand_logic_i, rand_logic_j, rand_logic_k;
-
-        ierr = InitializeRandomGenerators(user, &randx, &randy, &randz); CHKERRQ(ierr);
-        ierr = InitializeLogicalSpaceRNGs(user->simCtx->particleRandomSeed, &rand_logic_i, &rand_logic_j, &rand_logic_k); CHKERRQ(ierr);
-        ierr = AssignInitialPropertiesToSwarm(user, particlesPerProcess, &randx, &randy, &randz, &rand_logic_i, &rand_logic_j, &rand_logic_k, simCtx->bboxlist); CHKERRQ(ierr);
-        ierr = FinalizeSwarmSetup(&randx, &randy, &randz, &rand_logic_i, &rand_logic_j, &rand_logic_k); CHKERRQ(ierr);
+        ierr = AssignInitialPropertiesToSwarm(user, particlesPerProcess, simCtx->bboxlist); CHKERRQ(ierr);
 
     } else {
         // --- PATH B: Load particle population from restart files ---
