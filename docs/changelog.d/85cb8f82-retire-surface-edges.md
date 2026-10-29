@@ -1,0 +1,1 @@
+- Particles: `init_mode: SurfaceEdges` is retired and refused at validation. Use `Surface` for inlet seeding or `PointSource` to place particles at a chosen point.
