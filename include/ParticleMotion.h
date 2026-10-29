@@ -234,22 +234,6 @@ PetscErrorCode ResizeSwarmGlobally(DM swarm, PetscInt N_target);
 PetscErrorCode PreCheckAndResizeSwarm(UserCtx *user, PetscInt ti, const char *ext);
 
 /**
- * @brief Re-initializes the positions of particles currently on this rank if this rank owns
- *        part of the designated inlet surface.
- *
- * This function is intended for `user->ParticleInitialization == 0` (Surface Initialization mode)
- * and is typically called after an initial migration step (e.g., in `PerformInitialSetup`).
- * It ensures that all particles that should originate from the inlet surface and are now
- * on the correct MPI rank are properly distributed across that rank's portion of the inlet.
- *
- * @param user Pointer to the UserCtx structure, containing simulation settings and grid information.
- * @param currentTime Current simulation time (used for logging).
- * @param step Current simulation step number (used for logging).
- * @return PetscErrorCode 0 on success, non-zero on failure.
- */
-PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal currentTime, PetscInt step);
-
-/**
  * @brief Creates a sorted snapshot of all Particle IDs (PIDs) from a raw data array.
  * @ingroup ParticleUtils
  *

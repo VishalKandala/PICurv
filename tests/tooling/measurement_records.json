@@ -1331,6 +1331,21 @@
       },
       "limitations": "Particle transport only: the flow is analytical or a frozen snapshot, so no coupled flow-plus-particle run was measured at scale, and none before and after these changes. Mostly one run per point, with 4-10% node-to-node variation observed; the 82% efficiency is from 0e38459 and was not re-measured on later revisions. The campaign's n6-n9 jobs ran on non-exclusive nodes, where core placement alone changed interpolation cost per particle by up to 1.8x. Frozen-field reads were page-cache warm except in the n4/n6 cold-read tests; MPI-IO writes were not measured at n9. Checkpoints above about 7.16e8 particles cannot be restarted or post-processed on a 32-bit-index PETSc; the 64-bit route (12b79c4) was not exercised at this scale. Concentrated releases are not load-balanced. Per-rank CSVs and job logs are on the owner's drive (CSBL-runs:particle_scaling), not committed.",
       "artifacts": []
+    },
+    {
+      "id": "surface-seeding-area-2026-10-29",
+      "question": "Is Surface seeding uniform per unit inlet area at every rank layout and on a graded inlet grid?",
+      "date": "2026-10-29",
+      "commit": "f78b48c5 plus the uncommitted surface-area-seeding working tree of 2026-10-29",
+      "environment": "Local WSL2 workstation, 12 cores; PETSc 3.20.3 debug build (-O0 -g3) with MPICH; local mpiexec, no scheduler",
+      "configuration": "flat_channel, programmatic_c 24 x 24 x 96 cells on [0,1]^2 x [0,4], 16,000 Surface particles, step-0 positions from the checkpoint. -Zeta inlet on the uniform grid at 1, 2x2x2, 4x1x1 and 1x1x8 ranks and with random seeds 12345, 777, 778, 31337 and 4242 at 1 and 2x2x2; graded grids (rxs 1.15 with rys 1.08, and rxs 4.0 with rys 1.08) at 1 and 2x2x2; a +Xi inlet at 1 and 2x2x2. The same graded case on the previous code (f78b48c5) for comparison. Volume and PointSource at 1 and 2x2x2 compared with f78b48c5 byte for byte.",
+      "result": {
+        "measured": "Every Surface run placed all particles on the inlet plane with unique PIDs 0..15999; inlet quarters held 0.239 to 0.257 of the particles at every layout (the previous code gave 0.578 to one quarter at 2x2x2), and the Kolmogorov-Smirnov statistic per tangential axis was at most 1.28. Two of 16 8x8 chi-square tests exceeded their 5% value (92 and 84 against 82), both with seed 12345; the other seeds gave 40 to 61, and 24x24 chi-square stayed below its 5% value in every run. On the rxs 4.0 grid the density per tenth of x was 1518 to 1663 against 1600 uniform (KS at most 1.22); the previous code gave 3045 falling to 904 (KS 21.1 on one rank, 30.3 on 2x2x2). On the rxs 1.15 grid the particle count per cell column followed the cell width (chi-square 16 to 31 on 24 degrees of freedom). Volume and PointSource particle and Eulerian data files were byte-identical to f78b48c5.",
+        "threshold": "Inlet quarters within sampling noise of 0.25 at every layout, Kolmogorov-Smirnov statistic below 1.36 (5%) per axis, and density per unit area independent of cell size; Volume and PointSource unchanged.",
+        "verdict": "met"
+      },
+      "limitations": "Planar inlet faces of a Cartesian programmatic grid; the area of a curved face cell uses a 2x2 Gauss rule, which is exact only for planar faces. Positions depend on the rank layout, as Volume's do; the distribution does not.",
+      "artifacts": []
     }
   ]
 }

@@ -57,7 +57,7 @@
       "dependent_pages": [
         "12_Capabilities_Summary"
       ],
-      "attested_digest": "sha256:46f1a041a90b655008f6fee58ee15aba5da3415532c46018b78ea7a952383162"
+      "attested_digest": "sha256:78e55e5738e247669c71afb1f1b0bef14bd9a754b97ad28421376cd9dc2fdf45"
     },
     {
       "id": "artifact.topology",

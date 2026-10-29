@@ -504,78 +504,6 @@ static PetscErrorCode TestBoundaryConditionFactoryRejectsUnsupportedHandler(void
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests random inlet-face cell selection across all supported faces.
- */
-
-static PetscErrorCode TestGetRandomCellAndLogicalCoordsOnInletFaceMatrix(void)
-{
-    SimCtx *simCtx = NULL;
-    UserCtx *user = NULL;
-    PetscRandom rand_i = NULL, rand_j = NULL, rand_k = NULL;
-
-    PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 8, 8));
-
-    PetscCall(PetscRandomCreate(PETSC_COMM_WORLD, &rand_i));
-    PetscCall(PetscRandomCreate(PETSC_COMM_WORLD, &rand_j));
-    PetscCall(PetscRandomCreate(PETSC_COMM_WORLD, &rand_k));
-    PetscCall(PetscRandomSetInterval(rand_i, 0.0, 1.0));
-    PetscCall(PetscRandomSetInterval(rand_j, 0.0, 1.0));
-    PetscCall(PetscRandomSetInterval(rand_k, 0.0, 1.0));
-    PetscCall(PetscRandomSetFromOptions(rand_i));
-    PetscCall(PetscRandomSetFromOptions(rand_j));
-    PetscCall(PetscRandomSetFromOptions(rand_k));
-
-    for (BCFace face = BC_FACE_NEG_X; face <= BC_FACE_POS_Z; ++face) {
-        PetscInt ci = -1, cj = -1, ck = -1;
-        PetscReal xi = -1.0, eta = -1.0, zta = -1.0;
-        const PetscReal boundary_eps = 5.0e-4;
-
-        user->identifiedInletBCFace = face;
-        PetscCall(GetRandomCellAndLogicalCoordsOnInletFace(
-            user, &user->info,
-            user->info.xs, user->info.ys, user->info.zs,
-            user->info.mx, user->info.my, user->info.mz,
-            &rand_i, &rand_j, &rand_k,
-            &ci, &cj, &ck,
-            &xi, &eta, &zta));
-
-        PetscCall(PicurvAssertBool((PetscBool)(ci >= user->info.xs && ci < user->info.xs + user->info.xm), "ci must map to owned node window"));
-        PetscCall(PicurvAssertBool((PetscBool)(cj >= user->info.ys && cj < user->info.ys + user->info.ym), "cj must map to owned node window"));
-        PetscCall(PicurvAssertBool((PetscBool)(ck >= user->info.zs && ck < user->info.zs + user->info.zm), "ck must map to owned node window"));
-        PetscCall(PicurvAssertBool((PetscBool)(xi >= 0.0 && xi <= 1.0), "xi should be in [0,1]"));
-        PetscCall(PicurvAssertBool((PetscBool)(eta >= 0.0 && eta <= 1.0), "eta should be in [0,1]"));
-        PetscCall(PicurvAssertBool((PetscBool)(zta >= 0.0 && zta <= 1.0), "zta should be in [0,1]"));
-
-        switch (face) {
-            case BC_FACE_NEG_X:
-                PetscCall(PicurvAssertBool((PetscBool)(xi <= boundary_eps), "NEG_X should pin xi near 0"));
-                break;
-            case BC_FACE_POS_X:
-                PetscCall(PicurvAssertBool((PetscBool)(xi >= 1.0 - boundary_eps), "POS_X should pin xi near 1"));
-                break;
-            case BC_FACE_NEG_Y:
-                PetscCall(PicurvAssertBool((PetscBool)(eta <= boundary_eps), "NEG_Y should pin eta near 0"));
-                break;
-            case BC_FACE_POS_Y:
-                PetscCall(PicurvAssertBool((PetscBool)(eta >= 1.0 - boundary_eps), "POS_Y should pin eta near 1"));
-                break;
-            case BC_FACE_NEG_Z:
-                PetscCall(PicurvAssertBool((PetscBool)(zta <= boundary_eps), "NEG_Z should pin zta near 0"));
-                break;
-            case BC_FACE_POS_Z:
-                PetscCall(PicurvAssertBool((PetscBool)(zta >= 1.0 - boundary_eps), "POS_Z should pin zta near 1"));
-                break;
-        }
-    }
-
-    PetscCall(PetscRandomDestroy(&rand_i));
-    PetscCall(PetscRandomDestroy(&rand_j));
-    PetscCall(PetscRandomDestroy(&rand_k));
-    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
-    PetscFunctionReturn(0);
-}
-/**
  * @brief Tests constant inlet handler initialization and face writes on a Z inlet.
  */
 
@@ -1976,7 +1904,6 @@ int main(int argc, char **argv)
         {"boundary-condition-factory-assignments", TestBoundaryConditionFactoryAssignments},
         {"boundary-condition-factory-implemented-handler-matrix", TestBoundaryConditionFactoryImplementedHandlerMatrix},
         {"boundary-condition-factory-rejects-unsupported-handler", TestBoundaryConditionFactoryRejectsUnsupportedHandler},
-        {"random-inlet-face-location-matrix", TestGetRandomCellAndLogicalCoordsOnInletFaceMatrix},
         {"wall-no-slip-handler-face-matrix", TestWallNoSlipHandlerFaceMatrix},
         {"wall-free-slip-handler-face-matrix", TestWallFreeSlipHandlerFaceMatrix},
         {"wall-free-slip-curvilinear-normal", TestWallFreeSlipCurvilinearNormal},

@@ -160,21 +160,25 @@ from the start.
 inlet face.
 
 **Interactions.** Needs an identifiable inlet face; the startup log reports which face
-was chosen.
+was chosen. Particle density is uniform per unit inlet area on any grid and rank layout:
+each rank seeds a share proportional to the inlet area it owns, none if it owns no part of
+the inlet, and within its part a face cell is chosen in proportion to its area and the
+point inside it is drawn uniform in area by rejection against the cell's largest area
+element. Particles start 1e-6 of a cell inside the domain, in the cell they were placed in.
 
 **Diagnostics.** "Inlet face for particle initialization identified as Face N" at
 startup, and the per-step particle count.
 
-**Evidence.** Analytically verified - `particle-seeding-restart-2026-09-21`: 16,000 particles land on the inlet plane
-(within 2.5e-7 of it) and are uniform across it, Kolmogorov-Smirnov statistic 1.05 on one
-rank and 1.00 on two.
+**Evidence.** Analytically verified - `surface-seeding-area-2026-10-29`: 16,000 particles land on the inlet plane
+with unique IDs and are uniform across it at 1, 2 x 2 x 2, 4 x 1 x 1 and 1 x 1 x 8 ranks,
+each inlet quarter holding 0.239 to 0.257 of them and the Kolmogorov-Smirnov statistic per
+axis at most 1.28. On an inlet whose cell widths vary fourfold the density per tenth of the
+inlet stays within 6% of uniform. `particle-seeding-restart-2026-09-21` first established
+the on-plane placement on one and two ranks.
 
 **Limitations.** Concentrates particles at one boundary, so interior statistics take time
-to become meaningful. When the inlet is split across ranks the density is not uniform:
-particles seeded on ranks that do not touch the inlet are all re-placed on the patch of the
-rank that holds the inlet centre (58% of 16,000 particles on one quarter of the inlet on a
-2 x 2 x 2 layout). Within a patch a cell is chosen uniformly by index, not by area, so a
-graded inlet over-fills its small cells.
+to become meaningful. The area of a curved face cell uses a 2x2 Gauss rule, exact only for
+planar faces. Positions, though not their distribution, depend on the rank layout.
 
 @subsection p45_cap_volume_sub Volume
 
@@ -247,14 +251,16 @@ Mode details:
 `Surface` (`0`):
 
 - requires an identified INLET face from BC parsing,
-- ranks not servicing inlet place particles at inlet-center fallback (`CMx_c/CMy_c/CMz_c`) before migration,
-- `ReinitializeParticlesOnInletSurface` re-spreads particles on inlet partitions after first settlement.
+- the global count is split across ranks in proportion to owned inlet area, by largest
+  remainder; ranks without part of the inlet seed none,
+- each rank draws face cells by area and points within them uniform in area, on its own
+  part of the inlet.
 
 `Volume` (`1`):
 
-- the global count is split across ranks in proportion to owned cells, by largest
+- the global count is split across ranks in proportion to owned volume, by largest
   remainder, and particle IDs are numbered contiguously across ranks,
-- random logical coordinates inside locally owned cells,
+- each rank draws cells by volume and points within them uniform in volume,
 - mapped to physical space via metric interpolation.
 
 `PointSource` (`2`):
@@ -286,13 +292,12 @@ For loaded particles, fast migration path:
 
 For initialized particles (`StartStep == 0` path):
 
-1. `LocateAllParticlesInGrid` performs location/migration.
-2. surface modes call @ref ReinitializeParticlesOnInletSurface.
-3. statuses are reset and location pass is repeated.
-4. @ref ParticleFieldPlanApply sets configured `fields` values, and
+1. `LocateAllParticlesInGrid` performs location/migration, starting each walk in the
+   cell the particle was seeded in.
+2. @ref ParticleFieldPlanApply sets configured `fields` values, and
    @ref ParticleFieldPlanSummarize logs and records them.
-5. `InterpolateAllFieldsToSwarm` assigns flow fields at particle positions.
-6. the scatter updates Eulerian particle-derived fields.
+3. `InterpolateAllFieldsToSwarm` assigns flow fields at particle positions.
+4. the scatter updates Eulerian particle-derived fields.
 
 For loaded particles:
 

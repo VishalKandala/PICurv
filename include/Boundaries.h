@@ -177,40 +177,6 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_g
 PetscBool BoundaryFaceHasWallShear(const BoundaryFaceConfig *face);
 
 /**
- * @brief Assuming the current rank services the inlet face, this function selects a random
- *        cell (owned by this rank on that face) and random logical coordinates within that cell,
- *        suitable for placing a particle on the inlet surface.
- *
- * It is the caller's responsibility to ensure CanRankServiceInletFace returned true.
- *
- * @param user Pointer to UserCtx.
- * @param info Pointer to DMDALocalInfo for the current rank (node-based).
- * @param xs_gnode_rank Local i-start node index (including ghosts) for this rank.
- * @param ys_gnode_rank Local j-start node index (including ghosts) for this rank.
- * @param zs_gnode_rank Local k-start node index (including ghosts) for this rank.
- * @param IM_nodes_global Global node count in i.
- * @param JM_nodes_global Global node count in j.
- * @param KM_nodes_global Global node count in k.
- * @param rand_logic_i_ptr RNG handle for sampling local logical xi.
- * @param rand_logic_j_ptr RNG handle for sampling local logical eta.
- * @param rand_logic_k_ptr RNG handle for sampling local logical zta.
- * @param[out] ci_metric_lnode_out Local i node index of selected cell origin.
- * @param[out] cj_metric_lnode_out Local j node index of selected cell origin.
- * @param[out] ck_metric_lnode_out Local k node index of selected cell origin.
- * @param[out] xi_metric_logic_out Logical xi coordinate in [0,1].
- * @param[out] eta_metric_logic_out Logical eta coordinate in [0,1].
- * @param[out] zta_metric_logic_out Logical zta coordinate in [0,1].
- * @return PetscErrorCode
- */
-PetscErrorCode GetRandomCellAndLogicalCoordsOnInletFace(
-    UserCtx *user, const DMDALocalInfo *info,
-    PetscInt xs_gnode_rank, PetscInt ys_gnode_rank, PetscInt zs_gnode_rank, // Local starting node index (with ghosts) of the rank's DA patch
-    PetscInt IM_nodes_global, PetscInt JM_nodes_global, PetscInt KM_nodes_global,
-    PetscRandom *rand_logic_i_ptr, PetscRandom *rand_logic_j_ptr, PetscRandom *rand_logic_k_ptr,
-    PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out,
-    PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out);
-
-/**
  * @brief Classification of one staggered momentum row (location + component).
  *
  * @see ClassifyMomentumRow() for the meaning of each member and for the

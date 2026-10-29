@@ -630,7 +630,8 @@
           "canonical": true,
           "evidence": {
             "analytical": [
-              "measurement:particle-seeding-restart-2026-09-21"
+              "measurement:particle-seeding-restart-2026-09-21",
+              "measurement:surface-seeding-area-2026-10-29"
             ]
           }
         },

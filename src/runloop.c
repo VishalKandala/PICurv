@@ -449,22 +449,9 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
         ierr = LOG_PARTICLE_FIELDS(user,simCtx->LoggingFrequency); CHKERRQ(ierr);
     }
 
-    // --- 2. Re-initialize Particles on Inlet Surface (if applicable) ---
-    if (simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM && user->inletFaceDefined) {
-        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Re-initializing particles on inlet surface...\n", simCtx->ti, simCtx->step);
-        ierr = ReinitializeParticlesOnInletSurface(user, simCtx->ti, simCtx->step); CHKERRQ(ierr);
-
-        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Resetting statuses for post-reinitialization settlement.\n", simCtx->ti, simCtx->step);
-        ierr = ResetAllParticleStatuses(user); CHKERRQ(ierr);
-    
-        LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Post-Reinitialization Settlement...\n", simCtx->ti, simCtx->step);
-        ierr = LocateAllParticlesInGrid(user, bboxlist); CHKERRQ(ierr);
-
-    }
-    
-    // --- 2b. Configured initial particle-field values, once positions are final ---
-    // Surface seeding places particles in step 2, so this comes after it; the scatter
-    // below then carries the values to the Eulerian mean before the first update.
+    // --- 2. Configured initial particle-field values, once positions are final ---
+    // Positions are final after the settlement above; the scatter below then carries the
+    // values to the Eulerian mean before the first update.
     if (simCtx->particleFieldPlan) {
         PetscInt           nlocal = 0;
         ParticleFieldEvent event = {0.0, 0};
