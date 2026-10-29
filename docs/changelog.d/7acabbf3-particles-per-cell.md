@@ -1,0 +1,1 @@
+- Monitor: `<run.analysis.metrics>/search_metrics.csv` records the fewest, mean and most particles per cell each step (`particles_per_cell_min`, `_mean`, `_max`), and `picurv summarize` shows them with the particle counts.
