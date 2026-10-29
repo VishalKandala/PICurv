@@ -61,6 +61,10 @@ Raw per-timestep counters written directly by the runtime:
 - `reflections`
 - `reflection_fallbacks`
 - `wraps`
+- `occupied_cells`
+- `particles_per_cell_min`
+- `particles_per_cell_mean`
+- `particles_per_cell_max`
 
 Each row is indexed by `step`, `time` (solver time), and `physical_time` (seconds).
 `lost_psi_sum` and `exited_psi_sum` are the sums of `Psi` over the lost and the exited
@@ -161,6 +165,12 @@ not merely get expensive, but exhausted the configured traversal budget.
 - `migrated`: number of particles migrated across rank ownership during the timestep.
 - `migration_passes`: total settlement passes needed for the timestep.
 - `load_imbalance`: max-rank particle load divided by mean-rank particle load.
+- `occupied_cells`: physical cells holding at least one particle after the step.
+- `particles_per_cell_min`, `particles_per_cell_max`: the fewest and most particles in any
+  physical cell after the step; dummy cells are excluded.
+- `particles_per_cell_mean`: particles counted in cells divided by the number of physical
+  cells. A low minimum marks cells whose per-cell averages, such as the IEM mixing mean,
+  rest on few particles.
 
 These counters are not the main proposal-level observables, but they provide the
 context needed to explain why search work changed.

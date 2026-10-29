@@ -1243,13 +1243,29 @@ static PetscErrorCode TestParticleMetricsLogging(void)
     simCtx->migrationPassesLastStep = 3;
 
     PetscCall(CalculateParticleCountPerCell(user));
+    {
+        /* A count in a dummy cell (index 0 on every axis) must not reach the per-cell statistics. */
+        PetscScalar ***count = NULL;
+        PetscCall(DMDAVecGetArray(user->da, user->ParticleCount, &count));
+        count[0][0][0] = 5.0;
+        PetscCall(DMDAVecRestoreArray(user->da, user->ParticleCount, &count));
+    }
     PetscCall(CalculateAdvancedParticleMetrics(user));
+    {
+        const PetscInt cells = (user->info.mx - 2) * (user->info.my - 2) * (user->info.mz - 2);
+        PetscCall(PicurvAssertIntEqual(2, simCtx->occupiedCellCount, "the two particles occupy two cells"));
+        PetscCall(PicurvAssertIntEqual(0, simCtx->particlesPerCellMin, "most cells are empty"));
+        PetscCall(PicurvAssertIntEqual(1, simCtx->particlesPerCellMax, "no physical cell holds two particles"));
+        PetscCall(PicurvAssertRealNear(2.0 / (PetscReal)cells, simCtx->particlesPerCellMean, 1.0e-12,
+                                       "the mean is the particles in cells over the physical cell count"));
+    }
     PetscCall(LOG_SEARCH_METRICS(user));
 
     /* The per-step particle metrics, occupied cells included, are search_metrics.csv's. */
     PetscCall(PetscSNPrintf(metrics_path, sizeof(metrics_path), "%s/search_metrics.csv", simCtx->analysis_dir));
     PetscCall(PicurvAssertFileExists(metrics_path, "LOG_SEARCH_METRICS should write search_metrics.csv"));
-    PetscCall(AssertFileContains(metrics_path, ",occupied_cells", "search_metrics.csv should carry the occupied-cell count"));
+    PetscCall(AssertFileContains(metrics_path, ",occupied_cells,particles_per_cell_min,particles_per_cell_mean,particles_per_cell_max",
+                                 "search_metrics.csv should carry the occupied-cell count and the per-cell statistics"));
     PetscCall(AssertFileContains(metrics_path, ",1,7,2,3,", "search_metrics.csv should record lost, cumulative lost, migrated and passes in order"));
     PetscCall(PicurvRemoveTempDir(tmpdir));
     PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));

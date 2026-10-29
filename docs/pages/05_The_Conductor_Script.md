@@ -535,7 +535,7 @@ does not parse PICurv run directories or logs.
 Typical sources:
 
 - `<run.runtime_logs>/Continuity_Metrics.csv`
-- `<run.analysis.metrics>/search_metrics.csv` (per-step particle counts: lost, cumulative lost, exited, migrated, occupied cells, load imbalance)
+- `<run.analysis.metrics>/search_metrics.csv` (per-step particle counts: lost, cumulative lost, exited, migrated, occupied cells, fewest/mean/most particles per cell, load imbalance)
 - `<run.runtime_logs>/Momentum_Solver_DualTime_Picard_Jameson_RK_History_Block_*.csv`, or the Newton-Krylov `Momentum_Solver_Newton_Krylov_{History,Summary}_Block_*.csv`
 - `<run.runtime_logs>/Poisson_Solver_Convergence_History_Block_*.csv`
 - `<run.runtime_logs>/solution_convergence.csv` (mode-specific speed/KE drift and L2 norms)

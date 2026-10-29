@@ -608,6 +608,7 @@ PetscErrorCode CreateSimulationContext(int argc, char **argv, SimCtx **p_simCtx)
     simCtx->particlesExitedScalarLastStep = 0.0;
     simCtx->particlesMigratedLastStep = 0;
     simCtx->occupiedCellCount = 0;
+    simCtx->particlesPerCellMin = 0; simCtx->particlesPerCellMax = 0; simCtx->particlesPerCellMean = 0.0;
     simCtx->particleLoadImbalance = 0.0;
     simCtx->migrationPassesLastStep = 0;
     simCtx->searchMetrics.searchAttempts = 0;

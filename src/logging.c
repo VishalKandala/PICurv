@@ -3449,14 +3449,15 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
                         "search_population,search_located_count,search_lost_count,traversal_steps_sum,re_search_count,"
                         "max_traversal_fail_count,search_failure_fraction,search_work_index,re_search_fraction,"
                         "physical_time,lost_psi_sum,exited,exited_cumulative,exited_psi_sum,search_exited_count,"
-                        "blocked_walk_retry_count,reflections,reflection_fallbacks,wraps,occupied_cells\n");
+                        "blocked_walk_retry_count,reflections,reflection_fallbacks,wraps,occupied_cells,"
+                        "particles_per_cell_min,particles_per_cell_mean,particles_per_cell_max\n");
             }
             if (simCtx->continueMode && simCtx->step == simCtx->StartStep + 1) {
                 fprintf(f, "# Continuation from step %" PetscInt_FMT "\n", simCtx->StartStep);
             }
             fprintf(f,
                     "%d,%.6e,%d,%d,%lld,%d,%d,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%lld,%lld,%lld,%lld,%lld,%lld,%.6e,%.6e,%.6e,%.6e,%.10e,"
-                    "%d,%lld,%.10e,%lld,%lld,%lld,%lld,%lld,%d\n",
+                    "%d,%lld,%.10e,%lld,%lld,%lld,%lld,%lld,%d,%d,%.6e,%d\n",
                     (int)simCtx->step,
                     (double)simCtx->ti,
                     (int)totalParticles,
@@ -3492,7 +3493,10 @@ PetscErrorCode LOG_SEARCH_METRICS(UserCtx *user)
                     reflectionCount,
                     reflectionFallbackCount,
                     wrapCount,
-                    (int)simCtx->occupiedCellCount);
+                    (int)simCtx->occupiedCellCount,
+                    (int)simCtx->particlesPerCellMin,
+                    (double)simCtx->particlesPerCellMean,
+                    (int)simCtx->particlesPerCellMax);
             fclose(f);
         }
     }
@@ -3553,27 +3557,42 @@ PetscErrorCode CalculateAdvancedParticleMetrics(UserCtx *user)
     simCtx->particleLoadImbalance = (avg_per_rank > 1e-9) ? (nLocalMax / avg_per_rank) : 1.0;
 
 
-    // --- 2. Number of Occupied Cells ---
-    // This part requires access to the user->ParticleCount vector.
-    PetscInt       local_occupied_cells = 0;
-    PetscInt       global_occupied_cells;
-    const PetscScalar *count_array;
-    PetscInt       vec_local_size;
+    // --- 2. Particles per Cell: Occupied Cells, Fewest, Mean, Most ---
+    // ParticleCount stores cell c at index c + 1, so the physical cells are indices 1..m-2 on
+    // each axis; a rank visits the ones in its owned index range, so each cell counts once.
+    const DMDALocalInfo *info = &user->info;
+    const PetscScalar ***count_array;
+    PetscInt64          sums[3] = {0, 0, 0};       // occupied cells, particles, cells
+    PetscInt64          extremes[2] = {PETSC_INT64_MAX, PETSC_INT64_MAX}; // fewest, -most
+    const PetscInt      i_lo = PetscMax(info->xs, 1), i_hi = PetscMin(info->xs + info->xm, info->mx - 1);
+    const PetscInt      j_lo = PetscMax(info->ys, 1), j_hi = PetscMin(info->ys + info->ym, info->my - 1);
+    const PetscInt      k_lo = PetscMax(info->zs, 1), k_hi = PetscMin(info->zs + info->zm, info->mz - 1);
 
-    ierr = VecGetLocalSize(user->ParticleCount, &vec_local_size); CHKERRQ(ierr);
-    ierr = VecGetArrayRead(user->ParticleCount, &count_array); CHKERRQ(ierr);
-
-    for (PetscInt i = 0; i < vec_local_size; ++i) {
-        if (count_array[i] > 0.5) { // Use 0.5 to be safe with floating point
-            local_occupied_cells++;
+    ierr = DMDAVecGetArrayRead(user->da, user->ParticleCount, (void *)&count_array); CHKERRQ(ierr);
+    for (PetscInt k = k_lo; k < k_hi; ++k) {
+        for (PetscInt j = j_lo; j < j_hi; ++j) {
+            for (PetscInt i = i_lo; i < i_hi; ++i) {
+                const PetscInt64 n = (PetscInt64)(PetscRealPart(count_array[k][j][i]) + 0.5); // counts are whole numbers
+                sums[0] += (n > 0);
+                sums[1] += n;
+                sums[2] += 1;
+                extremes[0] = PetscMin(extremes[0], n);
+                extremes[1] = PetscMin(extremes[1], -n);
+            }
         }
     }
-    ierr = VecRestoreArrayRead(user->ParticleCount, &count_array); CHKERRQ(ierr);
+    ierr = DMDAVecRestoreArrayRead(user->da, user->ParticleCount, (void *)&count_array); CHKERRQ(ierr);
 
-    ierr = MPI_Allreduce(&local_occupied_cells, &global_occupied_cells, 1, MPIU_INT, MPI_SUM, PETSC_COMM_WORLD); CHKERRQ(ierr);
-    simCtx->occupiedCellCount = global_occupied_cells;
+    ierr = MPI_Allreduce(MPI_IN_PLACE, sums, 3, MPIU_INT64, MPI_SUM, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    ierr = MPI_Allreduce(MPI_IN_PLACE, extremes, 2, MPIU_INT64, MPI_MIN, PETSC_COMM_WORLD); CHKERRMPI(ierr);
+    simCtx->occupiedCellCount    = (PetscInt)sums[0];
+    simCtx->particlesPerCellMin  = (sums[2] > 0) ? (PetscInt)extremes[0] : 0;
+    simCtx->particlesPerCellMax  = (sums[2] > 0) ? (PetscInt)(-extremes[1]) : 0;
+    simCtx->particlesPerCellMean = (sums[2] > 0) ? (PetscReal)sums[1] / (PetscReal)sums[2] : 0.0;
 
-    LOG_ALLOW(GLOBAL, LOG_INFO, "Advanced Metrics: Imbalance=%.2f, OccupiedCells=%" PetscInt_FMT "\n", simCtx->particleLoadImbalance, simCtx->occupiedCellCount);
+    LOG_ALLOW(GLOBAL, LOG_INFO, "Advanced Metrics: Imbalance=%.2f, OccupiedCells=%" PetscInt_FMT ", ParticlesPerCell min/mean/max=%" PetscInt_FMT "/%.3f/%" PetscInt_FMT "\n",
+              simCtx->particleLoadImbalance, simCtx->occupiedCellCount,
+              simCtx->particlesPerCellMin, (double)simCtx->particlesPerCellMean, simCtx->particlesPerCellMax);
 
     PROFILE_FUNCTION_END;
     PetscFunctionReturn(0);

@@ -11167,8 +11167,9 @@ def write_csv_summary_logs(run_dir: Path) -> None:
     )
     (metrics / "search_metrics.csv").write_text(
         "step,time,total_particles,lost,lost_cumulative,migrated,migration_passes,load_imbalance,"
-        "exited,exited_cumulative,occupied_cells\n"
-        "2,0.2,40,1,3,5,2,1.25,2,6,31\n",
+        "exited,exited_cumulative,occupied_cells,particles_per_cell_min,particles_per_cell_mean,"
+        "particles_per_cell_max\n"
+        "2,0.2,40,1,3,5,2,1.25,2,6,31,0,1.290323e+00,4\n",
         encoding="utf-8",
     )
 
@@ -11188,6 +11189,8 @@ def test_summarize_reads_the_solver_csv_records(tmp_path):
     assert momentum["status"] == "accepted" and momentum["rejected_count"] == 1
     assert payload["poisson"]["blocks"][0]["iterations"] == 7
     assert payload["particles"]["occupied_cells"] == 31
+    assert (payload["particles"]["particles_per_cell_min"], payload["particles"]["particles_per_cell_max"]) == (0, 4)
+    assert payload["particles"]["particles_per_cell_mean"] == pytest.approx(1.290323)
     assert payload["particles"]["exited_particles_cumulative"] == 6
     assert payload["memory"]["step_wall_s"] == pytest.approx(2.5)
     assert payload["memory"]["mean_step_wall_s"] == pytest.approx(2.0)

@@ -23393,6 +23393,13 @@ def render_run_summary(payload: dict, output_format: str = "text"):
             f"migrated={particles.get('migrated_particles')} occupied={particles.get('occupied_cells')} "
             f"imbalance={_format_summary_float(particles.get('load_imbalance'), '.2f')}"
         )
+        if particles.get("particles_per_cell_mean") is not None:
+            print(
+                "    per cell(min/mean/max)="
+                f"{particles.get('particles_per_cell_min')}/"
+                f"{_format_summary_float(particles.get('particles_per_cell_mean'), '.2f')}/"
+                f"{particles.get('particles_per_cell_max')}"
+            )
     else:
         print("    unavailable")
 
@@ -23845,6 +23852,9 @@ _SUMMARY_PLOT_FIELD_LABELS = {
     "exited_particles_cumulative": "Cumulative particles that left the domain",
     "migrated_particles": "Migrated particles",
     "occupied_cells": "Occupied cells",
+    "particles_per_cell_min": "Fewest particles in a cell",
+    "particles_per_cell_mean": "Mean particles per cell",
+    "particles_per_cell_max": "Most particles in a cell",
     "load_imbalance": "Particle load imbalance",
     "migration_passes": "Particle migration passes",
     "pseudo_iterations": "Pseudo-iterations to convergence",
@@ -23928,7 +23938,8 @@ _SUMMARY_ITERATION_HISTORY_FIELDS = {
 
 _SUMMARY_COUNT_FIELDS = {
     "total_particles", "lost_particles", "lost_particles_cumulative",
-    "exited_particles", "exited_particles_cumulative", "migrated_particles", "occupied_cells", "migration_passes", "calls",
+    "exited_particles", "exited_particles_cumulative", "migrated_particles", "occupied_cells", "particles_per_cell_min", "particles_per_cell_max",
+    "migration_passes", "calls",
     "pseudo_iterations", "newton_iterations", "iterations",
 }
 
@@ -24105,8 +24116,9 @@ def _particle_step_rows(log_dir: str, metrics_dir: str) -> "tuple[str | None, li
     @param[in] log_dir Run log directory.
     @param[in] metrics_dir Run analysis metrics directory.
     @return Path (or None) and rows keyed step, total_particles, lost_particles,
-            lost_particles_cumulative, migrated_particles, occupied_cells, load_imbalance,
-            migration_passes, exited_particles, exited_particles_cumulative.
+            lost_particles_cumulative, migrated_particles, occupied_cells, particles_per_cell_min,
+            particles_per_cell_mean, particles_per_cell_max (absent before they were recorded),
+            load_imbalance, migration_passes, exited_particles, exited_particles_cumulative.
     """
     rows = []
     csv_path = os.path.join(metrics_dir, "search_metrics.csv") if metrics_dir else None
@@ -24122,6 +24134,9 @@ def _particle_step_rows(log_dir: str, metrics_dir: str) -> "tuple[str | None, li
                 "lost_particles_cumulative": _parse_int_loose(row.get("lost_cumulative")),
                 "migrated_particles": _parse_int_loose(row.get("migrated")),
                 "occupied_cells": _parse_int_loose(row.get("occupied_cells")),
+                "particles_per_cell_min": _parse_int_loose(row.get("particles_per_cell_min")),
+                "particles_per_cell_mean": _parse_float_loose(row.get("particles_per_cell_mean")),
+                "particles_per_cell_max": _parse_int_loose(row.get("particles_per_cell_max")),
                 "load_imbalance": _parse_float_loose(row.get("load_imbalance")),
                 "migration_passes": _parse_int_loose(row.get("migration_passes")),
                 "exited_particles": _parse_int_loose(row.get("exited")),

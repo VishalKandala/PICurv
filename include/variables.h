@@ -1075,6 +1075,9 @@ typedef struct SimCtx {
     PetscInt migrationPassesLastStep;
     PetscInt particlesMigratedLastStep;
     PetscInt occupiedCellCount;
+    PetscInt particlesPerCellMin;   /**< Fewest particles in any cell after the step */
+    PetscInt particlesPerCellMax;   /**< Most particles in any cell after the step */
+    PetscReal particlesPerCellMean; /**< Particles counted in cells divided by the cell count */
     PetscReal particleLoadImbalance;
     SearchMetricsState searchMetrics;
     PetscReal C_IEM;

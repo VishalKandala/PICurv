@@ -1135,6 +1135,7 @@ PetscErrorCode ResetSearchMetrics(SimCtx *simCtx);
  * This function calculates:
  * - Particle load imbalance across MPI ranks.
  * - The total number of grid cells occupied by at least one particle.
+ * - The fewest, mean, and most particles per cell over the physical cells.
  *
  * It requires that CalculateParticleCountPerCell() has been called prior to its
  * execution. It uses collective MPI operations and must be called by all ranks.
