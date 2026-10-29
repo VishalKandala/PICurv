@@ -25149,7 +25149,7 @@ def _summary_table_path(context: dict, name: str) -> str:
     @brief Resolve a `summarize --table` name to the CSV it prints.
     @param[in] context Summary context returned by `_build_summary_context()`.
     @param[in] name Table name from SUMMARY_TABLES, optionally `:<block>`.
-    @return Path to the CSV (it may not exist).
+    @return Path to the CSV, or to the text log an older run wrote instead (it may not exist).
     @throws ValueError When the name is unknown or the block is not an integer.
     """
     base, _, block = name.partition(":")
@@ -25162,7 +25162,8 @@ def _summary_table_path(context: dict, name: str) -> str:
         file_name = file_name.format(block=int(block or 0))
     elif block:
         raise ValueError(f"Table '{base}' is not per-block; drop ':{block}'.")
-    return os.path.join(context[directory_key], file_name)
+    path = os.path.join(context[directory_key], file_name)
+    return _log_family_path(os.path.dirname(path), os.path.splitext(file_name)[0]) or path
 
 
 def _list_summary_tables(context: dict, output_format: str):

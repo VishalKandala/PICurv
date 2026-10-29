@@ -11236,6 +11236,26 @@ def test_summarize_table_prints_a_csv_record(tmp_path):
     assert stray.returncode == 2 and "--columns requires --table" in stray.stderr
 
 
+def test_summarize_table_reads_an_older_runs_text_log(tmp_path):
+    """!
+    @brief Test --list-tables and --table take a record's text log when an older run has no CSV.
+    @param[in] tmp_path Pytest temporary-directory fixture supplied to the function.
+    """
+    run_dir = create_summary_run_dir(tmp_path, include_particle_snapshot=False)
+    write_csv_summary_logs(run_dir)
+    logs = run_dir / "logs"
+    (logs / "Runtime_Memory.csv").rename(logs / "Runtime_Memory.log")
+
+    listed = run_picurv(["summarize", "--run-dir", str(run_dir), "--list-tables", "--format", "json"], cwd=tmp_path)
+    assert listed.returncode == 0, listed.stderr
+    tables = {item["table"]: item for item in json.loads(listed.stdout)["available_tables"]}
+    assert tables["memory"]["path"].endswith("Runtime_Memory.log") and tables["memory"]["rows"] == 3
+
+    shown = run_picurv(["summarize", "--run-dir", str(run_dir), "--table", "memory", "--columns", "step_wall_s"], cwd=tmp_path)
+    assert shown.returncode == 0, shown.stderr
+    assert "2.500000" in shown.stdout
+
+
 def test_parse_runtime_memory_csv_and_legacy_text_agree(tmp_path):
     """!
     @brief Test the memory reader takes the CSV record and an older run's text log alike.

@@ -443,7 +443,7 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
     // --- 5. Loop Over Particles to Initialize ---
     for (PetscInt p = 0; p < particlesPerProcess; p++) {
         PetscInt  ci_metric_lnode, cj_metric_lnode, ck_metric_lnode; 
-        PetscReal xi_metric_logic, eta_metric_logic, zta_metric_logic; 
+        PetscReal xi_metric_logic = 0.0, eta_metric_logic = 0.0, zta_metric_logic = 0.0;
         Cmpnts    phys_coords = {0.0, 0.0, 0.0}; 
         PetscBool particle_placed_by_this_rank = PETSC_FALSE; 
         PetscInt64 pid = (PetscInt64)base_pid_for_rank + p;
@@ -487,12 +487,17 @@ static PetscErrorCode InitializeParticleBasicProperties(UserCtx *user,
         status_field[p]        = UNINITIALIZED;
 
         // --- 5.d. The particle's seed line ---
-        if (particle_placed_by_this_rank) {
+        if (seeds_from_table) {
             LOG_PARTICLE(simCtx, particleIDs[p], "seed",
                          "%s placement on rank %d at (%.6e, %.6e, %.6e): cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") logical (%.4f, %.4f, %.4f)\n",
                          ParticleInitializationToString(simCtx->ParticleInitialization), (int)rank,
                          phys_coords.x, phys_coords.y, phys_coords.z, ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
                          xi_metric_logic, eta_metric_logic, zta_metric_logic);
+        } else if (particle_placed_by_this_rank) {
+            LOG_PARTICLE(simCtx, particleIDs[p], "seed",
+                         "%s placement on rank %d at (%.6e, %.6e, %.6e): cell (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ")\n",
+                         ParticleInitializationToString(simCtx->ParticleInitialization), (int)rank,
+                         phys_coords.x, phys_coords.y, phys_coords.z, ci_metric_lnode, cj_metric_lnode, ck_metric_lnode);
         } else {
             // A point source no rank located.
             LOG_PARTICLE(simCtx, particleIDs[p], "seed",
