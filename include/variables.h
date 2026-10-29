@@ -758,8 +758,7 @@ typedef enum{
 typedef enum {
     PARTICLE_INIT_SURFACE_RANDOM = 0, /**< Random placement on the inlet face */
     PARTICLE_INIT_VOLUME         = 1, /**< Random volumetric distribution across the domain */
-    PARTICLE_INIT_POINT_SOURCE   = 2, /**< All particles at a fixed (psrc_x,psrc_y,psrc_z) — for validation */
-    PARTICLE_INIT_SURFACE_EDGES  = 3  /**< Deterministic placement at inlet face edges */
+    PARTICLE_INIT_POINT_SOURCE   = 2  /**< All particles at a fixed (psrc_x,psrc_y,psrc_z) — for validation */
 } ParticleInitializationType;
 
 /**

@@ -16,7 +16,7 @@ models:
   physics:
     particles:
       count: 50000
-      init_mode: "Surface"            # Surface | Volume | PointSource | SurfaceEdges
+      init_mode: "Surface"            # Surface | Volume | PointSource
       restart_mode: "init"            # init | load
       random_seed: 12345              # optional; seeds placement and Brownian draws
       point_source:
@@ -132,14 +132,12 @@ and one `-particle_fields_<i>_expr_<c>` per component, holding the lowered expre
 - `Surface`
 - `Volume`
 - `PointSource`
-- `SurfaceEdges`
 
 Enum mapping in C (`ParticleInitializationType`):
 
 - `0`: `PARTICLE_INIT_SURFACE_RANDOM`
 - `1`: `PARTICLE_INIT_VOLUME`
 - `2`: `PARTICLE_INIT_POINT_SOURCE`
-- `3`: `PARTICLE_INIT_SURFACE_EDGES`
 
 @section p45_entries_sec 3. Particle Initialization Mode Entries
 
@@ -172,7 +170,11 @@ startup, and the per-step particle count.
 rank and 1.00 on two.
 
 **Limitations.** Concentrates particles at one boundary, so interior statistics take time
-to become meaningful.
+to become meaningful. When the inlet is split across ranks the density is not uniform:
+particles seeded on ranks that do not touch the inlet are all re-placed on the patch of the
+rank that holds the inlet centre (58% of 16,000 particles on one quarter of the inlet on a
+2 x 2 x 2 layout). Within a patch a cell is chosen uniformly by index, not by area, so a
+graded inlet over-fills its small cells.
 
 @subsection p45_cap_volume_sub Volume
 
@@ -232,30 +234,6 @@ particle starts exactly at the source.
 **Limitations.** All particles share one origin, so early statistics are highly
 correlated.
 
-@subsection p45_cap_surfaceedges_sub SurfaceEdges
-
-@anchor p45_cap_surfaceedges
-
-**Identity.** `particles.init_mode: SurfaceEdges` -> `-pinit 3`.
-
-**What it does.** Seeds particles along the edges of a bounding surface rather than across
-its face.
-
-**When to choose it.** Exercising the locate-and-migrate machinery, where edges and
-corners are the hard cases. It is a diagnostic seeding mode more than a physical one.
-
-**Parameters it owns.** The particle count.
-
-**Interactions.** Edge and corner cells are exactly where the walking search is most
-likely to struggle, which is the point.
-
-**Diagnostics.** Search metrics at **@subpage 53_Search_Robustness_Metrics_Reference**.
-
-**Evidence.** Analytically verified - `particle-seeding-restart-2026-09-21`: every particle sits exactly where its
-deterministic lattice formula places it.
-
-**Limitations.** Not a physically motivated distribution.
-
 @section p45_mode_behavior_sec 4. Mode Behavior in C
 
 Main setup flow:
@@ -271,11 +249,6 @@ Mode details:
 - requires an identified INLET face from BC parsing,
 - ranks not servicing inlet place particles at inlet-center fallback (`CMx_c/CMy_c/CMz_c`) before migration,
 - `ReinitializeParticlesOnInletSurface` re-spreads particles on inlet partitions after first settlement.
-
-`SurfaceEdges` (`3`):
-
-- deterministic placement by particle ID on inlet-face lattice,
-- if deterministic target is non-local after migration, code falls back to random inlet placement.
 
 `Volume` (`1`):
 

@@ -450,8 +450,7 @@ PetscErrorCode PerformInitializedParticleSetup(SimCtx *simCtx)
     }
 
     // --- 2. Re-initialize Particles on Inlet Surface (if applicable) ---
-    if ((simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM ||
-         simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_EDGES) && user->inletFaceDefined) {
+    if (simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM && user->inletFaceDefined) {
         LOG_ALLOW(GLOBAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Re-initializing particles on inlet surface...\n", simCtx->ti, simCtx->step);
         ierr = ReinitializeParticlesOnInletSurface(user, simCtx->ti, simCtx->step); CHKERRQ(ierr);
 

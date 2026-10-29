@@ -281,7 +281,7 @@ models:
 
     particles:
       count: 0             # [Integer] -> -numParticles
-      init_mode: "Surface" # [string] -> -pinit. Options: "Surface", "Volume", "PointSource", "SurfaceEdges"
+      init_mode: "Surface" # [string] -> -pinit. Options: "Surface", "Volume", "PointSource"
       restart_mode: "init" # [string] -> -particle_restart_mode. Options: "init", "load"
       random_seed: 12345   # [Integer, optional] -> -particle_random_seed. 0..2147483647; seeds
                            # initial placement and Brownian draws (default 12345)

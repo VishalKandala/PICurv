@@ -95,7 +95,6 @@ Selector: `case.yml -> models.physics.particles.init_mode`
 |---|---|
 | `PointSource` | `2` |
 | `Surface` | `0` |
-| `SurfaceEdges` | `3` |
 | `Volume` | `1` |
 
 ### Grid-to-Particle Interpolation

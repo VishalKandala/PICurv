@@ -130,7 +130,6 @@ Full contract: **@subpage 64_Documentation_Extension_Framework**.
   - `Surface`
   - `Volume`
   - `PointSource`
-  - `SurfaceEdges`
 - Python hook:
   - `normalize_particle_init_mode()` in `picurv_cli/core.py`
 - Generated mapping:

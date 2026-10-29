@@ -263,7 +263,7 @@ Common mappings:
 - `physics.turbulence.wall_function.enabled/model` -> `-wallfunction` (`1` log law, `2` Werner-Wengle, `3` Cabot)
 - `physics.turbulence.wall_function.roughness_height` -> `-wall_roughness` (`log_law` only); a physical length, divided by `length_ref`
 - `physics.particles.count` -> `-numParticles`
-- `physics.particles.init_mode` -> `-pinit` (`Surface`, `Volume`, `PointSource`, `SurfaceEdges`)
+- `physics.particles.init_mode` -> `-pinit` (`Surface`, `Volume`, `PointSource`)
 - `physics.particles.restart_mode` -> `-particle_restart_mode`
 - `physics.particles.random_seed` -> `-particle_random_seed` (integer `0`..`2147483647`, default `12345`)
 - `physics.particles.fields` -> `-particle_fields_*` (optional initial values of

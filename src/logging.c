@@ -710,7 +710,6 @@ const char* ParticleInitializationToString(ParticleInitializationType ParticleIn
         case PARTICLE_INIT_SURFACE_RANDOM: PROFILE_FUNCTION_END; return "Surface: Random";
         case PARTICLE_INIT_VOLUME:         PROFILE_FUNCTION_END; return "Volume";
         case PARTICLE_INIT_POINT_SOURCE:   PROFILE_FUNCTION_END; return "Point Source";
-        case PARTICLE_INIT_SURFACE_EDGES:  PROFILE_FUNCTION_END; return "Surface: At edges";
         default: PROFILE_FUNCTION_END; return "Unknown Particle Initialization";
     }
     PROFILE_FUNCTION_END;

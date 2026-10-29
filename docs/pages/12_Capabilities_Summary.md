@@ -44,7 +44,7 @@ Supported high-level operation modes:
 Particle controls include:
 
 - particle count,
-- initialization modes (`Surface`, `Volume`, `PointSource`, `SurfaceEdges`),
+- initialization modes (`Surface`, `Volume`, `PointSource`),
 - restart modes (`init`, `load`),
 - grid-to-particle interpolation method (`Trilinear` direct cell-center, `CornerAveraged` legacy, or `FaceFlux` divergence-free velocity from face fluxes),
 - scalar micromixing update path (IEM-style `Psi` model),

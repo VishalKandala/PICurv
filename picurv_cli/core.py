@@ -15713,16 +15713,22 @@ def normalize_particle_init_mode(value: str) -> int:
     if value is None:
         raise ValueError("particle init mode cannot be None")
 
+    name = str(value).strip()
+    # SurfaceEdges was a diagnostic pattern whose placement depended on the rank layout.
+    if name == "SurfaceEdges":
+        raise ValueError(
+            "particle init_mode 'SurfaceEdges' is retired: use 'Surface' for inlet seeding, "
+            "or 'PointSource' to place particles at a chosen point."
+        )
     mapped = {
         "Surface": 0,
         "Volume": 1,
         "PointSource": 2,
-        "SurfaceEdges": 3,
-    }.get(str(value).strip())
+    }.get(name)
     if mapped is None:
         raise ValueError(
             f"Unknown particle init_mode '{value}'. Use one of: "
-            "'Surface', 'Volume', 'PointSource', 'SurfaceEdges'."
+            "'Surface', 'Volume', 'PointSource'."
         )
     return mapped
 

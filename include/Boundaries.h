@@ -177,52 +177,6 @@ PetscErrorCode CanRankServiceFace(const DMDALocalInfo *info, PetscInt IM_nodes_g
 PetscBool BoundaryFaceHasWallShear(const BoundaryFaceConfig *face);
 
 /**
- * @brief Places particles in a deterministic grid/raster pattern on a specified domain face.
- *
- * This function creates a set of equidistant, parallel lines of particles near the four
- * edges of the face specified by user->identifiedInletBCFace. The number of lines drawn
- * from each edge is hardcoded within this function (default is 2).
- * For example, if grid_layers=2 on face BC_FACE_NEG_X, the function will create particle lines at:
- * - y ~ 0*dy, y ~ 1*dy (parallel to the Z-axis, starting from the J=0 edge)
- * - y ~ y_max, y ~ y_max-dy (parallel to the Z-axis, starting from the J=max edge)
- * - z ~ 0*dz, z ~ 1*dz (parallel to the Y-axis, starting from the K=0 edge)
- * - z ~ z_max, z ~ z_max-dz (parallel to the Y-axis, starting from the K=max edge)
- * The particle's final position is set just inside the target cell face to ensure it is
- * correctly located. The total number of particles (simCtx->np) is distributed as evenly
- * as possible among all generated lines.
- * The function includes extensive validation to stop with an error if the requested grid
- * placement is geometrically impossible (e.g., in a 2D domain or if layers would overlap).
- * It also issues warnings for non-fatal but potentially unintended configurations.
- *
- * @param user Inlet-boundary context that defines the target face and grid layers.
- * @param info Local ownership and ghost-range information.
- * @param xs_gnode_rank Global xi node index at this rank's owned lower corner.
- * @param ys_gnode_rank Global eta node index at this rank's owned lower corner.
- * @param zs_gnode_rank Global zeta node index at this rank's owned lower corner.
- * @param IM_cells_global Global number of xi cells.
- * @param JM_cells_global Global number of eta cells.
- * @param KM_cells_global Global number of zeta cells.
- * @param particle_global_id Global particle ordinal used for deterministic placement.
- * @param[out] ci_metric_lnode_out Local xi metric-node index of the chosen cell.
- * @param[out] cj_metric_lnode_out Local eta metric-node index of the chosen cell.
- * @param[out] ck_metric_lnode_out Local zeta metric-node index of the chosen cell.
- * @param[out] xi_metric_logic_out Logical xi coordinate within the chosen cell.
- * @param[out] eta_metric_logic_out Logical eta coordinate within the chosen cell.
- * @param[out] zta_metric_logic_out Logical zeta coordinate within the chosen cell.
- * @param[out] placement_successful_out PETSC_TRUE when this rank owns a valid placement.
- * @return PetscErrorCode 0 on success.
- */
-PetscErrorCode GetDeterministicFaceGridLocation(
-    UserCtx *user, const DMDALocalInfo *info,
-    PetscInt xs_gnode_rank, PetscInt ys_gnode_rank, PetscInt zs_gnode_rank,
-    PetscInt IM_cells_global, PetscInt JM_cells_global, PetscInt KM_cells_global,
-    PetscInt64 particle_global_id,
-    PetscInt *ci_metric_lnode_out, PetscInt *cj_metric_lnode_out, PetscInt *ck_metric_lnode_out,
-    PetscReal *xi_metric_logic_out, PetscReal *eta_metric_logic_out, PetscReal *zta_metric_logic_out,
-    PetscBool *placement_successful_out);
-
-
-/**
  * @brief Assuming the current rank services the inlet face, this function selects a random
  *        cell (owned by this rank on that face) and random logical coordinates within that cell,
  *        suitable for placing a particle on the inlet surface.

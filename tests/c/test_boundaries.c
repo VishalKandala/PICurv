@@ -504,52 +504,6 @@ static PetscErrorCode TestBoundaryConditionFactoryRejectsUnsupportedHandler(void
     PetscFunctionReturn(0);
 }
 /**
- * @brief Tests deterministic inlet-face grid-location helpers across all faces.
- */
-
-static PetscErrorCode TestGetDeterministicFaceGridLocationFaceMatrix(void)
-{
-    SimCtx *simCtx = NULL;
-    UserCtx *user = NULL;
-
-    PetscFunctionBeginUser;
-    PetscCall(PicurvCreateMinimalContexts(&simCtx, &user, 8, 8, 8));
-    simCtx->np = 128;
-
-    for (BCFace face = BC_FACE_NEG_X; face <= BC_FACE_POS_Z; ++face) {
-        PetscInt ci = -1, cj = -1, ck = -1;
-        PetscReal xi = -1.0, eta = -1.0, zta = -1.0;
-        PetscBool placed = PETSC_FALSE;
-
-        user->identifiedInletBCFace = face;
-        PetscCall(GetDeterministicFaceGridLocation(
-            user, &user->info,
-            user->info.xs, user->info.ys, user->info.zs,
-            user->info.mx, user->info.my, user->info.mz,
-            0,
-            &ci, &cj, &ck, &xi, &eta, &zta, &placed));
-
-        PetscCall(PicurvAssertBool(placed, "single-rank deterministic face placement should succeed"));
-        PetscCall(PicurvAssertBool((PetscBool)(ci >= user->info.xs && ci < user->info.xs + user->info.xm), "ci must map to owned node window"));
-        PetscCall(PicurvAssertBool((PetscBool)(cj >= user->info.ys && cj < user->info.ys + user->info.ym), "cj must map to owned node window"));
-        PetscCall(PicurvAssertBool((PetscBool)(ck >= user->info.zs && ck < user->info.zs + user->info.zm), "ck must map to owned node window"));
-        PetscCall(PicurvAssertBool((PetscBool)(xi >= 0.0 && xi < 1.0), "xi should be in [0,1)"));
-        PetscCall(PicurvAssertBool((PetscBool)(eta >= 0.0 && eta < 1.0), "eta should be in [0,1)"));
-        PetscCall(PicurvAssertBool((PetscBool)(zta >= 0.0 && zta < 1.0), "zta should be in [0,1)"));
-
-        if (face == BC_FACE_NEG_X || face == BC_FACE_POS_X) {
-            PetscCall(PicurvAssertRealNear(0.5, xi, 1.0e-10, "deterministic x-face placement should sit halfway into boundary-adjacent cell"));
-        } else if (face == BC_FACE_NEG_Y || face == BC_FACE_POS_Y) {
-            PetscCall(PicurvAssertRealNear(0.5, eta, 1.0e-10, "deterministic y-face placement should sit halfway into boundary-adjacent cell"));
-        } else {
-            PetscCall(PicurvAssertRealNear(0.5, zta, 1.0e-10, "deterministic z-face placement should sit halfway into boundary-adjacent cell"));
-        }
-    }
-
-    PetscCall(PicurvDestroyMinimalContexts(&simCtx, &user));
-    PetscFunctionReturn(0);
-}
-/**
  * @brief Tests random inlet-face cell selection across all supported faces.
  */
 
@@ -2022,7 +1976,6 @@ int main(int argc, char **argv)
         {"boundary-condition-factory-assignments", TestBoundaryConditionFactoryAssignments},
         {"boundary-condition-factory-implemented-handler-matrix", TestBoundaryConditionFactoryImplementedHandlerMatrix},
         {"boundary-condition-factory-rejects-unsupported-handler", TestBoundaryConditionFactoryRejectsUnsupportedHandler},
-        {"deterministic-face-grid-location-matrix", TestGetDeterministicFaceGridLocationFaceMatrix},
         {"random-inlet-face-location-matrix", TestGetRandomCellAndLogicalCoordsOnInletFaceMatrix},
         {"wall-no-slip-handler-face-matrix", TestWallNoSlipHandlerFaceMatrix},
         {"wall-free-slip-handler-face-matrix", TestWallFreeSlipHandlerFaceMatrix},

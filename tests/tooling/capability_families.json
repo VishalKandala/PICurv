@@ -658,15 +658,6 @@
               "measurement:particle-seeding-restart-2026-09-21"
             ]
           }
-        },
-        "SurfaceEdges": {
-          "status": "supported",
-          "canonical": true,
-          "evidence": {
-            "analytical": [
-              "measurement:particle-seeding-restart-2026-09-21"
-            ]
-          }
         }
       }
     },

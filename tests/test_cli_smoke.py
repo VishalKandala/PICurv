@@ -1711,6 +1711,16 @@ def test_removed_selector_aliases_are_rejected():
         raise AssertionError(f"{func.__name__} unexpectedly accepted deprecated input {value!r}")
 
 
+def test_retired_surface_edges_init_mode_names_its_replacements():
+    """!
+    @brief Test that the retired SurfaceEdges seeding mode is refused with its replacements named.
+    """
+    picurv = load_picurv_module()
+
+    with pytest.raises(ValueError, match="'SurfaceEdges' is retired.*'Surface'.*'PointSource'"):
+        picurv.normalize_particle_init_mode("SurfaceEdges")
+
+
 def test_momentum_solver_jameson_name_accepts_rk4_compatibility_alias():
     """!
     @brief Test the canonical Jameson name and deprecated RK4 display alias normalize identically.

@@ -843,7 +843,6 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
 
     PetscRandom    rand_logic_reinit_i, rand_logic_reinit_j, rand_logic_reinit_k; // RNGs for re-placement
     PetscInt       nlocal_current;                // Number of particles currently on this rank
-    PetscInt       particles_actually_reinitialized_count = 0; // Counter for logging
     PetscBool      can_this_rank_service_inlet = PETSC_FALSE;  // Flag
 
     PetscFunctionBeginUser;
@@ -851,7 +850,7 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     PROFILE_FUNCTION_BEGIN;
 
     // This function is only relevant for surface initialization mode and if an inlet face is defined.
-    if ((user->simCtx->ParticleInitialization != 0 && user->simCtx->ParticleInitialization !=3) || !user->inletFaceDefined) {
+    if (user->simCtx->ParticleInitialization != PARTICLE_INIT_SURFACE_RANDOM || !user->inletFaceDefined) {
         PROFILE_FUNCTION_END;
         PetscFunctionReturn(0);
     }
@@ -873,10 +872,6 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
 
     // Modification to IM_nodes_global etc. to account for 1-cell halo in each direction.
     IM_nodes_global -= 1; JM_nodes_global -= 1; KM_nodes_global -= 1; 
-
-    const PetscInt IM_cells_global = IM_nodes_global > 0 ? IM_nodes_global - 1 : 0;
-    const PetscInt JM_cells_global = JM_nodes_global > 0 ? JM_nodes_global - 1 : 0;
-    const PetscInt KM_cells_global = KM_nodes_global > 0 ? KM_nodes_global - 1 : 0;
 
 
 
@@ -921,86 +916,24 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
     ierr = InitializeLogicalSpaceRNGs(user->simCtx->particleRandomSeed, &rand_logic_reinit_i, &rand_logic_reinit_j, &rand_logic_reinit_k); CHKERRQ(ierr);
 
     // Loop over all particles currently local to this rank
-    PetscInt n_placement_fallbacks = 0; // Deterministic placements that fell back to random
     for (PetscInt p = 0; p < nlocal_current; p++) {
         PetscInt  ci_metric_lnode, cj_metric_lnode, ck_metric_lnode; // Local node indices (of rank's DA patch) for cell origin
         PetscReal xi_metric_logic, eta_metric_logic, zta_metric_logic; // Intra-cell logical coordinates
         Cmpnts    phys_coords = {0.0,0.0,0.0}; // To store newly calculated physical coordinates
-        PetscBool particle_was_placed = PETSC_FALSE;
 
-        if(user->simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_RANDOM){
-        // Get random cell on this rank's portion of the inlet and random logical coords within it
-            ierr = GetRandomCellAndLogicalCoordsOnInletFace(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
-                                                    IM_nodes_global, JM_nodes_global, KM_nodes_global,
-                                                    &rand_logic_reinit_i, &rand_logic_reinit_j, &rand_logic_reinit_k,
-                                                    &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
-                                                    &xi_metric_logic, &eta_metric_logic, &zta_metric_logic); CHKERRQ(ierr);
-            
-                    // Convert these logical coordinates to physical coordinates
-
-            ierr = MetricLogicalToPhysical(user, coor_nodes_local_array,
-                                        ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
-                                        xi_metric_logic, eta_metric_logic, zta_metric_logic,
-                                        &phys_coords); CHKERRQ(ierr);
-                                        
-            // Update the particle's position in the swarm fields
-            positions_field[3*p+0] = phys_coords.x; 
-            positions_field[3*p+1] = phys_coords.y; 
-            positions_field[3*p+2] = phys_coords.z;
-            particle_was_placed = PETSC_TRUE;                            
-
-        }else if(user->simCtx->ParticleInitialization == PARTICLE_INIT_SURFACE_EDGES){
-            PetscBool placement_flag = PETSC_FALSE;
-            ierr = GetDeterministicFaceGridLocation(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
-                                                IM_cells_global, JM_cells_global, KM_cells_global,
-                                                particleIDs[p],
+        // Random cell on this rank's portion of the inlet and random logical coords within it
+        ierr = GetRandomCellAndLogicalCoordsOnInletFace(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
+                                                IM_nodes_global, JM_nodes_global, KM_nodes_global,
+                                                &rand_logic_reinit_i, &rand_logic_reinit_j, &rand_logic_reinit_k,
                                                 &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
-                                                &xi_metric_logic, &eta_metric_logic, &zta_metric_logic,&placement_flag); CHKERRQ(ierr);
-        
-
-            if(placement_flag){
-                // Convert these logical coordinates to physical coordinates
-                ierr = MetricLogicalToPhysical(user, coor_nodes_local_array,
-                                        ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
-                                        xi_metric_logic, eta_metric_logic, zta_metric_logic,
-                                        &phys_coords); CHKERRQ(ierr);
-
-                // Update the particle's position in the swarm fields
-                positions_field[3*p+0] = phys_coords.x;
-                positions_field[3*p+1] = phys_coords.y;
-                positions_field[3*p+2] = phys_coords.z;
-                particle_was_placed =  PETSC_TRUE;
-            } else{
-                // Deterministic placement failed (particle migrated to rank where formula says it doesn't belong)
-                // Fall back to random placement on this rank's portion of inlet surface
-                n_placement_fallbacks++;
-                LOG_PARTICLE(user->simCtx, particleIDs[p], "seed", "deterministic edge placement belongs to another rank: placed randomly on rank %d's inlet patch\n", (int)rank);
-
-                ierr = GetRandomCellAndLogicalCoordsOnInletFace(user, &info, xs_gnode_rank, ys_gnode_rank, zs_gnode_rank,
-                                                        IM_nodes_global, JM_nodes_global, KM_nodes_global,
-                                                        &rand_logic_reinit_i, &rand_logic_reinit_j, &rand_logic_reinit_k,
-                                                        &ci_metric_lnode, &cj_metric_lnode, &ck_metric_lnode,
-                                                        &xi_metric_logic, &eta_metric_logic, &zta_metric_logic); CHKERRQ(ierr);
-
-                // Convert to physical coordinates
-                ierr = MetricLogicalToPhysical(user, coor_nodes_local_array,
-                                            ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
-                                            xi_metric_logic, eta_metric_logic, zta_metric_logic,
-                                            &phys_coords); CHKERRQ(ierr);
-
-                // Update particle position
-                positions_field[3*p+0] = phys_coords.x;
-                positions_field[3*p+1] = phys_coords.y;
-                positions_field[3*p+2] = phys_coords.z;
-                particle_was_placed = PETSC_TRUE;
-            }                                    
-
-        } else{
-            SETERRQ(PETSC_COMM_SELF, PETSC_ERR_ARG_OUTOFRANGE, "ReinitializeParticlesOnInletSurface only supports ParticleInitialization modes 0 and 3.");
-        }
-
-        if(particle_was_placed){
-        particles_actually_reinitialized_count++;
+                                                &xi_metric_logic, &eta_metric_logic, &zta_metric_logic); CHKERRQ(ierr);
+        ierr = MetricLogicalToPhysical(user, coor_nodes_local_array,
+                                    ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
+                                    xi_metric_logic, eta_metric_logic, zta_metric_logic,
+                                    &phys_coords); CHKERRQ(ierr);
+        positions_field[3*p+0] = phys_coords.x;
+        positions_field[3*p+1] = phys_coords.y;
+        positions_field[3*p+2] = phys_coords.z;
 
         // The settlement that follows starts its walk in the face cell the particle was placed in.
         cell_ID_field[3*p+0] = ci_metric_lnode;
@@ -1011,19 +944,10 @@ PetscErrorCode ReinitializeParticlesOnInletSurface(UserCtx *user, PetscReal curr
                      "placed on the inlet at (%.6e, %.6e, %.6e): cell origin node (%" PetscInt_FMT ",%" PetscInt_FMT ",%" PetscInt_FMT ") logical (%.4f, %.4f, %.4f)\n",
                      phys_coords.x, phys_coords.y, phys_coords.z, ci_metric_lnode, cj_metric_lnode, ck_metric_lnode,
                      xi_metric_logic, eta_metric_logic, zta_metric_logic);
-        }
-    }
-    if (n_placement_fallbacks > 0) {
-        LOG_ALLOW(LOCAL, LOG_WARNING, "Rank %d: %" PetscInt_FMT " deterministic edge placement(s) belonged to another rank and were placed randomly on this rank's inlet patch instead.\n",
-                  rank, n_placement_fallbacks);
     }
 
     // Logging summary of re-initialization (per-rank counts, so each rank prints its own)
-    if (particles_actually_reinitialized_count > 0) {
-        LOG_ALLOW(LOCAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Rank %d (on inlet face %d) successfully re-initialized %" PetscInt_FMT " of %" PetscInt_FMT " local particles.\n", currentTime, step, rank, user->identifiedInletBCFace, particles_actually_reinitialized_count, nlocal_current);
-    } else if (nlocal_current > 0) { // This case should ideally not be hit if can_this_rank_service_inlet was true and particles were present.
-         LOG_ALLOW(LOCAL, LOG_WARNING, "[T=%.4f, Step=%" PetscInt_FMT "] Rank %d claimed to service inlet face %d, but re-initialized 0 of %" PetscInt_FMT " local particles. This may indicate an issue if particles were expected to be re-placed.\n", currentTime, step, rank, user->identifiedInletBCFace, nlocal_current);
-    }
+    LOG_ALLOW(LOCAL, LOG_INFO, "[T=%.4f, Step=%" PetscInt_FMT "] Rank %d (on inlet face %d) re-initialized %" PetscInt_FMT " local particles.\n", currentTime, step, rank, user->identifiedInletBCFace, nlocal_current);
 
     // Cleanup: Destroy RNGs and restore swarm fields/coordinate array
     ierr = PetscRandomDestroy(&rand_logic_reinit_i); CHKERRQ(ierr);
