@@ -1,0 +1,1 @@
+- Particles: `Volume` and `Surface` seeding are stratified (each cell holds its share of the count to within one particle) and every placement draw is keyed on `random_seed` and the particle ID, so particle IDs and positions are identical at any rank layout. Positions differ from earlier runs with the same seed; `PointSource` is unchanged.
