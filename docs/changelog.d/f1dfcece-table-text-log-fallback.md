@@ -1,0 +1,1 @@
+- Summarize: `--table` and `--list-tables` read a record's text log when an older run has no CSV, so `--table memory` works on runs that wrote `<run.runtime_logs>/Runtime_Memory.log`. A placed point-source particle's seed line no longer prints logical coordinates.
